@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextPages
 import CmuxNextAgentUpdates
 import CmuxNextSettings
 import Foundation
@@ -29,6 +30,8 @@ final class AgentHarnessCenter {
     @ObservationIgnored private var removed: JSONValue?
     @ObservationIgnored private var watchers = 0
     @ObservationIgnored private var watch: Task<Void, Never>?
+    /// SF Symbol images for Settings' harness icons (`agents.run {action: "symbol"}`).
+    @ObservationIgnored let symbols = HarnessSymbolImages()
 
     init(environment: @escaping @MainActor () -> AcpmuxEnvironment?) {
         self.environment = environment
@@ -90,6 +93,16 @@ final class AgentHarnessCenter {
     func restore(backup: String) async throws -> JSONValue {
         let answer = try await manage(.restore, ["backup": backup])
         if removed?["backup"]?.stringValue == backup { removed = nil }
+        await refresh()
+        return answer
+    }
+
+    /// Sets a user profile's icon (`_acpmux/harness/icon`); the list, with each harness's new
+    /// `iconSpec`, follows. A nil change is a request Settings made without a value.
+    @discardableResult
+    func setIcon(id: String, change: AgentHarnessIconChange?) async throws -> JSONValue {
+        guard let change else { throw PageError.invalidParams("give icon, data or clear") }
+        let answer = try await manage(.icon, change.params(id: id))
         await refresh()
         return answer
     }

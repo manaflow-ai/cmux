@@ -43,6 +43,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Callable, Protocol
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import gh_pages  # noqa: E402
 import nightly_next_train as train  # noqa: E402
 
 GATE_JOB = "nightly-next train Release compile"
@@ -192,6 +193,44 @@ def gh(*args: str, input: str | None = None, check: bool = True) -> str:
     return proc.stdout
 
 
+def comments(repo: str, number: int) -> list[dict]:
+    """Every comment on an issue or pull request, one bounded page per call (scripts/ci/gh_pages.py:
+    the gh quota wrapper refuses an unbounded paginating call). Past the page cap it raises
+    TrainError, so a marker is never missed for a list cut short."""
+    try:
+        return gh_pages.items(lambda url: json.loads(gh("api", url)), f"repos/{repo}/issues/{number}/comments")
+    except (gh_pages.PageCapError, TypeError) as error:
+        raise train.TrainError(str(error)) from None
+
+
+# The runner's own setup steps, inside which glaeda's job-started hook admits or refuses a job,
+# and its own last step.
+SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
+RUNNER_STEPS = SETUP_STEPS | {"Complete job"}
+# A compile is re-run off an owned Mac only from attempt 1: attempt 2 takes Blacksmith.
+RERUN_ATTEMPTS = 2
+
+
+def refused_on_owned(job: dict | None) -> bool:
+    """The compile ran on an owned (glaeda-*) label and never reached its own steps.
+
+    Failed or cancelled before any step of its own ran: no steps (a lost runner), a
+    failed setup step (a refusal at job start), or only the runner's own steps (a runner
+    lost after setup). A Blacksmith job, or one that failed in
+    the compile, is the candidate's own result.
+    """
+    if not job or not any(str(label).startswith("glaeda-") for label in job.get("labels") or []):
+        return False
+    if job.get("conclusion") not in ("failure", "cancelled"):
+        return False
+    steps = [step for step in job.get("steps") or [] if isinstance(step, dict)]
+    ran = [step for step in steps if step.get("name") not in RUNNER_STEPS
+           and step.get("conclusion") not in (None, "skipped")]
+    # Failed or cancelled with none of its own steps run: refused at setup, or the runner was lost
+    # after setup succeeded (only the runner's steps are listed).
+    return not ran
+
+
 class GitHubBuilder:
     """Push each candidate to refs/heads/nightly-train/<run>/<n> and run
     nightly-next-train.yml mode `build` there; read its gate job."""
@@ -200,6 +239,8 @@ class GitHubBuilder:
         self.repo, self.run_id, self.poll, self.sleep = repo, run_id, poll_seconds, sleep
         self.count = 0
         self.refs: list[str] = []
+        # run id -> the attempt whose refused compile was re-run.
+        self.rerun_asked: dict[int, int] = {}
 
     def _start(self, commit: str) -> str:
         self.count += 1
@@ -214,9 +255,30 @@ class GitHubBuilder:
         runs = [r for r in data.get("workflow_runs", []) if r.get("head_sha") == commit]
         return runs[0] if runs else None
 
-    def _gate(self, run_id: int) -> bool:
+    def _gate_job(self, run_id: int) -> dict | None:
         data = json.loads(gh("api", f"repos/{self.repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100"))
-        return any(j.get("name") == GATE_JOB and j.get("conclusion") == "success" for j in data.get("jobs", []))
+        return next((j for j in data.get("jobs", []) if j.get("name") == GATE_JOB), None)
+
+    def _rerun_off_owned(self, run: dict, job: dict | None) -> bool:
+        """Re-run a compile an owned Mac refused or never ran, once; True when it was asked.
+
+        pick-train-runner offers an owned label only while a runner is idle, so one can still
+        be refused at "Set up runner" or lose its runner. The re-run of failed jobs keeps the
+        pick and its attempt, so the compile then takes the moving Blacksmith label.
+        """
+        attempt = int(run.get("run_attempt") or 1)
+        if self.rerun_asked.get(run["id"]) == attempt:
+            return True  # asked already; GitHub has not started the new attempt yet
+        if not refused_on_owned(job) or attempt >= RERUN_ATTEMPTS:
+            return False
+        try:
+            gh("run", "rerun", str(run["id"]), "--failed", "--repo", self.repo)
+        except train.TrainError as error:
+            print(f"warning: could not re-run {run.get('html_url')} off the owned Mac: {error}", file=sys.stderr)
+            return False
+        self.rerun_asked[run["id"]] = attempt
+        print(f"{run.get('html_url')}: the owned Mac did not run the compile; re-run on Blacksmith")
+        return True
 
     def build(self, commits: list[tuple[str, str]], deadline: float) -> dict[str, bool | None]:
         refs = {commit: self._start(commit) for commit, _ in commits}
@@ -231,7 +293,10 @@ class GitHubBuilder:
                     print(f"warning: {error}", file=sys.stderr)
                     continue
                 if run and run.get("status") == "completed":
-                    results[commit] = self._gate(run["id"])
+                    job = self._gate_job(run["id"])
+                    if not (job and job.get("conclusion") == "success") and self._rerun_off_owned(run, job):
+                        continue
+                    results[commit] = bool(job) and job.get("conclusion") == "success"
                     print(f"{ref}: {'green' if results[commit] else 'red'} ({run.get('html_url')})")
                     del pending[commit]
         return results
@@ -284,8 +349,8 @@ def comment_quarantine(repo: str, cars: list[train.Car], outcome_ids: list[str],
                 f"Owner: @{car.owner or 'unknown'}. This car rejoins the train once a fix lands on feat-cmux-next.")
         try:
             if car.pr:
-                existing = json.loads(gh("api", "--paginate", "--slurp", f"repos/{repo}/issues/{car.pr}/comments?per_page=100"))
-                if any(marker in (c.get("body") or "") for page in existing for c in page):
+                existing = comments(repo, car.pr)
+                if any(marker in (c.get("body") or "") for c in existing):
                     continue
                 gh("api", f"repos/{repo}/issues/{car.pr}/comments", "-f", f"body={body}")
             else:
@@ -293,8 +358,8 @@ def comment_quarantine(repo: str, cars: list[train.Car], outcome_ids: list[str],
                     found = json.loads(gh("api", f"repos/{repo}/issues?state=open&per_page=100&creator=github-actions%5Bbot%5D"))
                     match = next((i for i in found if i.get("title") == QUARANTINE_ISSUE and not i.get("pull_request")), None)
                     issue = match["number"] if match else json.loads(gh("api", f"repos/{repo}/issues", "-f", f"title={QUARANTINE_ISSUE}", "-f", "body=Direct pushes that the cmux NEXT nightly train left out. One line per car."))["number"]
-                existing = json.loads(gh("api", "--paginate", "--slurp", f"repos/{repo}/issues/{issue}/comments?per_page=100"))
-                if any(marker in (c.get("body") or "") for page in existing for c in page):
+                existing = comments(repo, issue)
+                if any(marker in (c.get("body") or "") for c in existing):
                     continue
                 gh("api", f"repos/{repo}/issues/{issue}/comments", "-f", f"body={body}\nCommits: {', '.join(c[:12] for c in car.commits)}")
             posted.append(car_id)
@@ -379,7 +444,9 @@ def main(argv: list[str] | None = None) -> int:
                     outcome.shipped = False
                     outcome.reason = f"shipped nothing: nightly-next moved from {parent[:12]} to {now[:12]} during the train; the next tick starts a new one"
                 else:
-                    gh("workflow", "run", "nightly.yml", "--repo", args.repo, "--ref", "main", "-f", f"promote_nightly_next_sha={outcome.commit}")
+                    # "tick:": main admits only the 30-minute tick's promotions (promote-nightly-next.mjs decideRequest),
+                    # and a train is the tick's (or a person's) one promotion, so it carries the mark.
+                    gh("workflow", "run", "nightly.yml", "--repo", args.repo, "--ref", "main", "-f", f"promote_nightly_next_sha=tick:{outcome.commit}")
                     outcome.reason += f"; promotion of {outcome.commit} requested"
             builder.cleanup(keep)
             why = {cid: f"quarantined with {outcome.with_[cid]}" for cid in outcome.with_}

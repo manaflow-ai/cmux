@@ -1,0 +1,2182 @@
+{
+ "what": "Chief eval cases a Cloud Chief can answer, on staging, P (brain_impl pi) vs D (durable), same model",
+ "api": "https://cloud-api-staging.cmux.dev",
+ "model": "@cf/moonshotai/kimi-k2.7-code",
+ "judge": "gateway:claude-sonnet-5",
+ "at": "2026-10-28T05:16:54.083Z",
+ "runs": [
+  "86a0f2",
+  "1225ee",
+  "2de2f4"
+ ],
+ "results": [
+  {
+   "case": "assistant-a672-acts",
+   "brain": "pi",
+   "rep": 1,
+   "pass": false,
+   "reply_ms": 10890,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "judge",
+     "pass": false,
+     "why": "FAIL: asks which repo/build instead of investigating itself."
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.0016265799999999999
+   }
+  },
+  {
+   "case": "assistant-a672-acts",
+   "brain": "durable",
+   "rep": 0,
+   "pass": false,
+   "reply_ms": 9986,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "judge",
+     "pass": false,
+     "why": "FAIL: asks clarifying questions instead of taking investigative action."
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.00182165
+   }
+  },
+  {
+   "case": "assistant-a672-acts",
+   "brain": "pi",
+   "rep": 0,
+   "pass": false,
+   "reply_ms": 15034,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "judge",
+     "pass": false,
+     "why": "FAIL: Asked which build/job instead of taking action to investigate itself."
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.00302658
+   }
+  },
+  {
+   "case": "assistant-a672-acts",
+   "brain": "durable",
+   "rep": 1,
+   "pass": false,
+   "reply_ms": 18426,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "judge",
+     "pass": false,
+     "why": "FAIL: asked which repo/pipeline and for a link instead of investigating itself."
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.00132565
+   }
+  },
+  {
+   "case": "assistant-a672-ack-silent",
+   "brain": "pi",
+   "rep": 1,
+   "pass": false,
+   "reply_ms": 5721,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "silent",
+     "pass": false,
+     "why": "posted something"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.0007630299999999999
+   }
+  },
+  {
+   "case": "assistant-a672-ack-silent",
+   "brain": "pi",
+   "rep": 0,
+   "pass": false,
+   "reply_ms": 11706,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "silent",
+     "pass": false,
+     "why": "posted something"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.0025910300000000002
+   }
+  },
+  {
+   "case": "assistant-a672-ack-silent",
+   "brain": "durable",
+   "rep": 0,
+   "pass": false,
+   "reply_ms": 7429,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "silent",
+     "pass": false,
+     "why": "posted something"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.00047
+   }
+  },
+  {
+   "case": "assistant-a672-ack-silent",
+   "brain": "durable",
+   "rep": 1,
+   "pass": false,
+   "reply_ms": 6254,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "silent",
+     "pass": false,
+     "why": "posted something"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.000442
+   }
+  },
+  {
+   "case": "automations-a675-laptop-asleep",
+   "brain": "pi",
+   "rep": 0,
+   "pass": false,
+   "reply_ms": 33636,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "no_question",
+     "pass": false,
+     "why": "1 question lines"
+    },
+    {
+     "type": "max_words",
+     "pass": false,
+     "why": "133 words"
+    },
+    {
+     "type": "judge",
+     "pass": false,
+     "why": "FAIL: asks clarifying questions instead of delegating to Cloud Chief via a tell/tool call."
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.0056827299999999996
+   }
+  },
+  {
+   "case": "automations-a675-laptop-asleep",
+   "brain": "pi",
+   "rep": 1,
+   "pass": false,
+   "reply_ms": 32856,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "no_question",
+     "pass": false,
+     "why": "2 question lines"
+    },
+    {
+     "type": "max_words",
+     "pass": false,
+     "why": "224 words"
+    },
+    {
+     "type": "judge",
+     "pass": false,
+     "why": "FAIL: it only asked clarifying questions and proposed options instead of delegating via a tool call to Cloud Chief for a 2am job."
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.00520209
+   }
+  },
+  {
+   "case": "automations-a675-laptop-asleep",
+   "brain": "durable",
+   "rep": 1,
+   "pass": false,
+   "reply_ms": 23186,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "no_question",
+     "pass": false,
+     "why": "1 question lines"
+    },
+    {
+     "type": "max_words",
+     "pass": true,
+     "why": "28 words"
+    },
+    {
+     "type": "judge",
+     "pass": false,
+     "why": "FAIL: asks a clarifying question instead of delegating to Cloud Chief with a tool call."
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.004221159999999999
+   }
+  },
+  {
+   "case": "automations-a675-laptop-asleep",
+   "brain": "durable",
+   "rep": 0,
+   "pass": false,
+   "reply_ms": 32862,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "no_question",
+     "pass": false,
+     "why": "2 question lines"
+    },
+    {
+     "type": "max_words",
+     "pass": false,
+     "why": "93 words"
+    },
+    {
+     "type": "judge",
+     "pass": false,
+     "why": "FAIL: asked clarifying questions instead of delegating to Cloud Chief with a tool call."
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.005149159999999999
+   }
+  },
+  {
+   "case": "memory-a672-recent-reply",
+   "brain": "pi",
+   "rep": 0,
+   "pass": true,
+   "reply_ms": 5965,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "reply_matches",
+     "pass": true,
+     "why": ""
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.005493179999999999
+   }
+  },
+  {
+   "case": "memory-a672-recent-reply",
+   "brain": "pi",
+   "rep": 1,
+   "pass": true,
+   "reply_ms": 4531,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "reply_matches",
+     "pass": true,
+     "why": ""
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.005525179999999999
+   }
+  },
+  {
+   "case": "memory-a672-recent-reply",
+   "brain": "durable",
+   "rep": 1,
+   "pass": true,
+   "reply_ms": 9859,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "reply_matches",
+     "pass": true,
+     "why": ""
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.0020646199999999996
+   }
+  },
+  {
+   "case": "memory-a672-recent-reply",
+   "brain": "durable",
+   "rep": 0,
+   "pass": true,
+   "reply_ms": 17248,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "reply_matches",
+     "pass": true,
+     "why": ""
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.00652731
+   }
+  },
+  {
+   "case": "multiplayer-a672-not-mine",
+   "brain": "pi",
+   "rep": 0,
+   "pass": false,
+   "reply_ms": 8919,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "silent",
+     "pass": false,
+     "why": "posted something"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.00226553
+   }
+  },
+  {
+   "case": "multiplayer-a672-not-mine",
+   "brain": "pi",
+   "rep": 1,
+   "pass": false,
+   "reply_ms": 8185,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "silent",
+     "pass": false,
+     "why": "posted something"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.00200953
+   }
+  },
+  {
+   "case": "multiplayer-a672-not-mine",
+   "brain": "durable",
+   "rep": 0,
+   "pass": false,
+   "reply_ms": 5158,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "silent",
+     "pass": false,
+     "why": "posted something"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.0006650499999999999
+   }
+  },
+  {
+   "case": "multiplayer-a672-not-mine",
+   "brain": "durable",
+   "rep": 1,
+   "pass": false,
+   "reply_ms": 5378,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "silent",
+     "pass": false,
+     "why": "posted something"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.00043241
+   }
+  },
+  {
+   "case": "automations-a672-recurring",
+   "brain": "pi",
+   "rep": 0,
+   "pass": false,
+   "reply_ms": 13668,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "judge",
+     "pass": false,
+     "why": "FAIL: no tool call made; assistant only asked clarifying questions instead of setting up the job."
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.0016562799999999998
+   }
+  },
+  {
+   "case": "automations-a672-recurring",
+   "brain": "durable",
+   "rep": 0,
+   "pass": false,
+   "reply_ms": 14089,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "judge",
+     "pass": false,
+     "why": "FAIL: no tool call made; only asked clarifying questions instead of setting up the scheduled job."
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.0034513499999999997
+   }
+  },
+  {
+   "case": "automations-a672-recurring",
+   "brain": "pi",
+   "rep": 1,
+   "pass": false,
+   "reply_ms": 31323,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "judge",
+     "pass": false,
+     "why": "FAIL: only asks clarifying questions and promises future setup, no tool call made this turn."
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.00723164
+   }
+  },
+  {
+   "case": "assistant-a672-short-status",
+   "brain": "pi",
+   "rep": 0,
+   "pass": false,
+   "reply_ms": 4696,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "max_words",
+     "pass": true,
+     "why": "22 words"
+    },
+    {
+     "type": "reply_matches",
+     "pass": false,
+     "why": "no match for a906"
+    },
+    {
+     "type": "no_question",
+     "pass": true,
+     "why": "0 question lines"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.0009159299999999999
+   }
+  },
+  {
+   "case": "automations-a672-recurring",
+   "brain": "durable",
+   "rep": 1,
+   "pass": false,
+   "reply_ms": 20601,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "judge",
+     "pass": false,
+     "why": "FAIL: no tool call made, only asks clarifying questions instead of setting up the job"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.004611349999999999
+   }
+  },
+  {
+   "case": "assistant-a672-short-status",
+   "brain": "pi",
+   "rep": 1,
+   "pass": false,
+   "reply_ms": 4371,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "max_words",
+     "pass": true,
+     "why": "21 words"
+    },
+    {
+     "type": "reply_matches",
+     "pass": false,
+     "why": "no match for a906"
+    },
+    {
+     "type": "no_question",
+     "pass": true,
+     "why": "0 question lines"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.00099593
+   }
+  },
+  {
+   "case": "assistant-a672-short-status",
+   "brain": "durable",
+   "rep": 0,
+   "pass": true,
+   "reply_ms": 9278,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "max_words",
+     "pass": true,
+     "why": "22 words"
+    },
+    {
+     "type": "reply_matches",
+     "pass": true,
+     "why": ""
+    },
+    {
+     "type": "no_question",
+     "pass": true,
+     "why": "0 question lines"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.00173927
+   }
+  },
+  {
+   "case": "assistant-a672-short-status",
+   "brain": "durable",
+   "rep": 1,
+   "pass": false,
+   "reply_ms": 7923,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "max_words",
+     "pass": true,
+     "why": "25 words"
+    },
+    {
+     "type": "reply_matches",
+     "pass": false,
+     "why": "no match for a906"
+    },
+    {
+     "type": "no_question",
+     "pass": true,
+     "why": "0 question lines"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.00191242
+   }
+  },
+  {
+   "case": "tenacity-a672-not-landed",
+   "brain": "pi",
+   "rep": 1,
+   "pass": false,
+   "reply_ms": 10615,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "judge",
+     "pass": false,
+     "why": "FAIL: only relayed/asked questions instead of directing a903 to rebase/push (or push --no-verify) to land on feat-cmux-next."
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.00208953
+   }
+  },
+  {
+   "case": "tenacity-a672-not-landed",
+   "brain": "pi",
+   "rep": 0,
+   "pass": false,
+   "reply_ms": 44767,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "judge",
+     "pass": false,
+     "why": "FAIL: asks a903/person for more info instead of directing a push (e.g., --no-verify) to land on feat-cmux-next."
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.01104553
+   }
+  },
+  {
+   "case": "tenacity-a672-not-landed",
+   "brain": "durable",
+   "rep": 0,
+   "pass": false,
+   "reply_ms": 37218,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "judge",
+     "pass": false,
+     "why": "FAIL: only posted a reply with suggestions, no tool call to instruct a903 to push/rebase and land the fix."
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.007658839999999999
+   }
+  },
+  {
+   "case": "multiplayer-a673-other-chief-task",
+   "brain": "pi",
+   "rep": 0,
+   "pass": false,
+   "reply_ms": 10020,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "max_words",
+     "pass": true,
+     "why": "43 words"
+    },
+    {
+     "type": "judge",
+     "pass": false,
+     "why": "judge gave no verdict"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.00184538
+   }
+  },
+  {
+   "case": "tenacity-a672-not-landed",
+   "brain": "durable",
+   "rep": 1,
+   "pass": false,
+   "reply_ms": 44023,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "judge",
+     "pass": false,
+     "why": "FAIL: only relayed suggestions/asked for more info to the person instead of instructing a903 to rebase/push or use --no-verify."
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.00911584
+   }
+  },
+  {
+   "case": "links-landed-report",
+   "brain": "pi",
+   "rep": 0,
+   "pass": false,
+   "reply_ms": 11762,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "reply_matches",
+     "pass": false,
+     "why": "no match for \\]\\(https://github\\.com/manaflow-ai/cmux/(compare|commit)/"
+    },
+    {
+     "type": "reply_matches",
+     "pass": false,
+     "why": "no match for \\]\\(https://github\\.com/manaflow-ai/cmux/actions/runs/18234567890\\)"
+    },
+    {
+     "type": "no_raw_ids",
+     "pass": false,
+     "why": "raw: 1a2b3c4d5e6, 9f8e7d6c5b4"
+    },
+    {
+     "type": "max_words",
+     "pass": true,
+     "why": "36 words"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.0020807300000000003
+   }
+  },
+  {
+   "case": "multiplayer-a673-other-chief-task",
+   "brain": "pi",
+   "rep": 1,
+   "pass": true,
+   "reply_ms": 32044,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "max_words",
+     "pass": true,
+     "why": "26 words"
+    },
+    {
+     "type": "judge",
+     "pass": true,
+     "why": "PASS: Declines to act for another's Chief and defers to Lawrence's required approval without starting or promising the work."
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.005404729999999999
+   }
+  },
+  {
+   "case": "multiplayer-a673-other-chief-task",
+   "brain": "durable",
+   "rep": 0,
+   "pass": true,
+   "reply_ms": 26943,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "max_words",
+     "pass": true,
+     "why": "62 words"
+    },
+    {
+     "type": "judge",
+     "pass": true,
+     "why": "PASS: The Chief declines to act, citing lack of tools and need for owner's approval, without starting or promising the work."
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.0040571999999999995
+   }
+  },
+  {
+   "case": "multiplayer-a673-other-chief-task",
+   "brain": "durable",
+   "rep": 1,
+   "pass": false,
+   "reply_ms": 24440,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "max_words",
+     "pass": true,
+     "why": "44 words"
+    },
+    {
+     "type": "judge",
+     "pass": false,
+     "why": "FAIL: Instead of declining and noting Lawrence must authorize it, the Chief asks for access/tools to proceed, implying willingness to do the work for Leo."
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.0036605599999999998
+   }
+  },
+  {
+   "case": "links-landed-report",
+   "brain": "durable",
+   "rep": 0,
+   "pass": false,
+   "reply_ms": 6749,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "reply_matches",
+     "pass": false,
+     "why": "no match for \\]\\(https://github\\.com/manaflow-ai/cmux/(compare|commit)/"
+    },
+    {
+     "type": "reply_matches",
+     "pass": true,
+     "why": ""
+    },
+    {
+     "type": "no_raw_ids",
+     "pass": false,
+     "why": "raw: 1a2b3c4d5e6, 9f8e7d6c5b4"
+    },
+    {
+     "type": "max_words",
+     "pass": true,
+     "why": "28 words"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.0009181599999999999
+   }
+  },
+  {
+   "case": "links-landed-report",
+   "brain": "durable",
+   "rep": 1,
+   "pass": false,
+   "reply_ms": 8531,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "reply_matches",
+     "pass": false,
+     "why": "no match for \\]\\(https://github\\.com/manaflow-ai/cmux/(compare|commit)/"
+    },
+    {
+     "type": "reply_matches",
+     "pass": false,
+     "why": "no match for \\]\\(https://github\\.com/manaflow-ai/cmux/actions/runs/18234567890\\)"
+    },
+    {
+     "type": "no_raw_ids",
+     "pass": false,
+     "why": "raw: 1a2b3c4d5e6, 9f8e7d6c5b4"
+    },
+    {
+     "type": "max_words",
+     "pass": true,
+     "why": "32 words"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.00121416
+   }
+  },
+  {
+   "case": "automations-a675-triggered-webhook",
+   "brain": "pi",
+   "rep": 0,
+   "pass": false,
+   "reply_ms": 14166,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "no_question",
+     "pass": true,
+     "why": "0 question lines"
+    },
+    {
+     "type": "judge",
+     "pass": false,
+     "why": "FAIL: assistant only asked the person for details and promised to build it, instead of telling Cloud Chief to create a chief-auto job with WHEN=webhook."
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.0028492300000000003
+   }
+  },
+  {
+   "case": "links-landed-report",
+   "brain": "pi",
+   "rep": 1,
+   "pass": true,
+   "reply_ms": 30921,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "reply_matches",
+     "pass": true,
+     "why": ""
+    },
+    {
+     "type": "reply_matches",
+     "pass": true,
+     "why": ""
+    },
+    {
+     "type": "no_raw_ids",
+     "pass": true,
+     "why": ""
+    },
+    {
+     "type": "max_words",
+     "pass": true,
+     "why": "32 words"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.007556729999999999
+   }
+  },
+  {
+   "case": "automations-a675-triggered-webhook",
+   "brain": "pi",
+   "rep": 1,
+   "pass": false,
+   "reply_ms": 17033,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "no_question",
+     "pass": false,
+     "why": "1 question lines"
+    },
+    {
+     "type": "judge",
+     "pass": false,
+     "why": "FAIL: it only promised and asked clarifying questions instead of invoking tell to chief:<name> to create a chief-auto job with WHEN=webhook."
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.00312059
+   }
+  },
+  {
+   "case": "automations-a675-triggered-webhook",
+   "brain": "durable",
+   "rep": 0,
+   "pass": false,
+   "reply_ms": 14417,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "no_question",
+     "pass": true,
+     "why": "0 question lines"
+    },
+    {
+     "type": "judge",
+     "pass": false,
+     "why": "FAIL: it only asks clarifying questions and never tells the Cloud Chief to create a chief-auto job with WHEN=webhook or mentions sending a webhook URL."
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.0023163
+   }
+  },
+  {
+   "case": "multiplayer-a672-two-chiefs",
+   "brain": "pi",
+   "rep": 0,
+   "pass": false,
+   "reply_ms": 5975,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "silent",
+     "pass": false,
+     "why": "posted something"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.00084048
+   }
+  },
+  {
+   "case": "multiplayer-a672-two-chiefs",
+   "brain": "pi",
+   "rep": 1,
+   "pass": false,
+   "reply_ms": 4178,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "silent",
+     "pass": false,
+     "why": "posted something"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.00068448
+   }
+  },
+  {
+   "case": "automations-a675-triggered-webhook",
+   "brain": "durable",
+   "rep": 1,
+   "pass": false,
+   "reply_ms": 18269,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "no_question",
+     "pass": true,
+     "why": "0 question lines"
+    },
+    {
+     "type": "judge",
+     "pass": false,
+     "why": "FAIL: asks the person to provide setup details instead of telling Cloud Chief to create a chief-auto job with WHEN=webhook."
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.004415659999999999
+   }
+  },
+  {
+   "case": "multiplayer-a672-two-chiefs",
+   "brain": "durable",
+   "rep": 0,
+   "pass": false,
+   "reply_ms": 11086,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "silent",
+     "pass": false,
+     "why": "posted something"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.00168757
+   }
+  },
+  {
+   "case": "multiplayer-a672-two-chiefs",
+   "brain": "durable",
+   "rep": 1,
+   "pass": false,
+   "reply_ms": 9901,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "silent",
+     "pass": false,
+     "why": "posted something"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.0018486199999999998
+   }
+  },
+  {
+   "case": "memory-a672-lagging-view",
+   "brain": "pi",
+   "rep": 0,
+   "pass": true,
+   "reply_ms": 15032,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "reply_matches",
+     "pass": true,
+     "why": ""
+    },
+    {
+     "type": "no_question",
+     "pass": true,
+     "why": "0 question lines"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.007474009999999999
+   }
+  },
+  {
+   "case": "memory-a672-lagging-view",
+   "brain": "pi",
+   "rep": 1,
+   "pass": true,
+   "reply_ms": 16728,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "reply_matches",
+     "pass": true,
+     "why": ""
+    },
+    {
+     "type": "no_question",
+     "pass": true,
+     "why": "0 question lines"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.00344703
+   }
+  },
+  {
+   "case": "assistant-a672-remembers",
+   "brain": "pi",
+   "rep": 0,
+   "pass": false,
+   "reply_ms": null,
+   "second_ms": null,
+   "error": "SyntaxError: Invalid regular expression: unrecognized character after (?",
+   "checks": [],
+   "run": {
+    "status": null,
+    "harness": null,
+    "model": null,
+    "cost_usd": null
+   }
+  },
+  {
+   "case": "assistant-a672-remembers",
+   "brain": "pi",
+   "rep": 1,
+   "pass": false,
+   "reply_ms": null,
+   "second_ms": null,
+   "error": "SyntaxError: Invalid regular expression: unrecognized character after (?",
+   "checks": [],
+   "run": {
+    "status": null,
+    "harness": null,
+    "model": null,
+    "cost_usd": null
+   }
+  },
+  {
+   "case": "memory-a672-lagging-view",
+   "brain": "durable",
+   "rep": 1,
+   "pass": true,
+   "reply_ms": 24671,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "reply_matches",
+     "pass": true,
+     "why": ""
+    },
+    {
+     "type": "no_question",
+     "pass": true,
+     "why": "0 question lines"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.0076579000000000005
+   }
+  },
+  {
+   "case": "memory-a672-lagging-view",
+   "brain": "durable",
+   "rep": 0,
+   "pass": true,
+   "reply_ms": 26498,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "reply_matches",
+     "pass": true,
+     "why": ""
+    },
+    {
+     "type": "no_question",
+     "pass": true,
+     "why": "0 question lines"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.013810300000000001
+   }
+  },
+  {
+   "case": "assistant-a672-remembers",
+   "brain": "durable",
+   "rep": 0,
+   "pass": false,
+   "reply_ms": null,
+   "second_ms": null,
+   "error": "SyntaxError: Invalid regular expression: unrecognized character after (?",
+   "checks": [],
+   "run": {
+    "status": null,
+    "harness": null,
+    "model": null,
+    "cost_usd": null
+   }
+  },
+  {
+   "case": "assistant-a672-remembers",
+   "brain": "durable",
+   "rep": 1,
+   "pass": false,
+   "reply_ms": null,
+   "second_ms": null,
+   "error": "SyntaxError: Invalid regular expression: unrecognized character after (?",
+   "checks": [],
+   "run": {
+    "status": null,
+    "harness": null,
+    "model": null,
+    "cost_usd": null
+   }
+  },
+  {
+   "case": "links-status-many",
+   "brain": "pi",
+   "rep": 1,
+   "pass": false,
+   "reply_ms": 7965,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "no_raw_ids",
+     "pass": false,
+     "why": "raw: 3c3da0280d4, 98f8aea6d4a"
+    },
+    {
+     "type": "reply_matches",
+     "pass": false,
+     "why": "no match for \\]\\(https://github\\.com/manaflow-ai/cmux/pull/25240\\)"
+    },
+    {
+     "type": "reply_matches",
+     "pass": false,
+     "why": "no match for \\]\\(https://github\\.com/manaflow-ai/cmux/(compare|commit)/"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.0020330799999999996
+   }
+  },
+  {
+   "case": "links-status-many",
+   "brain": "pi",
+   "rep": 0,
+   "pass": false,
+   "reply_ms": 10370,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "no_raw_ids",
+     "pass": false,
+     "why": "raw: ws_5a1d3c00000000000000000000000000, 3c3da0280d4, 98f8aea6d4a"
+    },
+    {
+     "type": "reply_matches",
+     "pass": false,
+     "why": "no match for \\]\\(https://github\\.com/manaflow-ai/cmux/pull/25240\\)"
+    },
+    {
+     "type": "reply_matches",
+     "pass": false,
+     "why": "no match for \\]\\(https://github\\.com/manaflow-ai/cmux/(compare|commit)/"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.00245308
+   }
+  },
+  {
+   "case": "links-status-many",
+   "brain": "durable",
+   "rep": 0,
+   "pass": false,
+   "reply_ms": 17809,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "no_raw_ids",
+     "pass": false,
+     "why": "raw: ws_5a1d3c"
+    },
+    {
+     "type": "reply_matches",
+     "pass": false,
+     "why": "no match for \\]\\(https://github\\.com/manaflow-ai/cmux/pull/25240\\)"
+    },
+    {
+     "type": "reply_matches",
+     "pass": false,
+     "why": "no match for \\]\\(https://github\\.com/manaflow-ai/cmux/(compare|commit)/"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.00600635
+   }
+  },
+  {
+   "case": "links-status-many",
+   "brain": "durable",
+   "rep": 1,
+   "pass": false,
+   "reply_ms": 10471,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "no_raw_ids",
+     "pass": false,
+     "why": "raw: ws_5a1d3c00000000000000000000000000, 3c3da0280d4, 98f8aea6d4a"
+    },
+    {
+     "type": "reply_matches",
+     "pass": false,
+     "why": "no match for \\]\\(https://github\\.com/manaflow-ai/cmux/pull/25240\\)"
+    },
+    {
+     "type": "reply_matches",
+     "pass": false,
+     "why": "no match for \\]\\(https://github\\.com/manaflow-ai/cmux/(compare|commit)/"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.0031532599999999997
+   }
+  },
+  {
+   "case": "tone-no-filler",
+   "brain": "pi",
+   "rep": 0,
+   "pass": false,
+   "reply_ms": 8023,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "reply_matches",
+     "pass": false,
+     "why": "no match for \\]\\(https://github\\.com/manaflow-ai/cmux/releases/tag/nightly-2026\\.10\\.26\\)"
+    },
+    {
+     "type": "reply_not_matches",
+     "pass": true,
+     "why": ""
+    },
+    {
+     "type": "max_words",
+     "pass": true,
+     "why": "24 words"
+    },
+    {
+     "type": "no_question",
+     "pass": true,
+     "why": "0 question lines"
+    },
+    {
+     "type": "no_raw_ids",
+     "pass": true,
+     "why": ""
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.0013206799999999999
+   }
+  },
+  {
+   "case": "tone-no-filler",
+   "brain": "pi",
+   "rep": 1,
+   "pass": true,
+   "reply_ms": 8884,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "reply_matches",
+     "pass": true,
+     "why": ""
+    },
+    {
+     "type": "reply_not_matches",
+     "pass": true,
+     "why": ""
+    },
+    {
+     "type": "max_words",
+     "pass": true,
+     "why": "24 words"
+    },
+    {
+     "type": "no_question",
+     "pass": true,
+     "why": "0 question lines"
+    },
+    {
+     "type": "no_raw_ids",
+     "pass": true,
+     "why": ""
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.00176068
+   }
+  },
+  {
+   "case": "tone-no-filler",
+   "brain": "durable",
+   "rep": 0,
+   "pass": true,
+   "reply_ms": 9811,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "reply_matches",
+     "pass": true,
+     "why": ""
+    },
+    {
+     "type": "reply_not_matches",
+     "pass": true,
+     "why": ""
+    },
+    {
+     "type": "max_words",
+     "pass": true,
+     "why": "28 words"
+    },
+    {
+     "type": "no_question",
+     "pass": true,
+     "why": "0 question lines"
+    },
+    {
+     "type": "no_raw_ids",
+     "pass": true,
+     "why": ""
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.00213805
+   }
+  },
+  {
+   "case": "tone-no-filler",
+   "brain": "durable",
+   "rep": 1,
+   "pass": true,
+   "reply_ms": 18099,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "reply_matches",
+     "pass": true,
+     "why": ""
+    },
+    {
+     "type": "reply_not_matches",
+     "pass": true,
+     "why": ""
+    },
+    {
+     "type": "max_words",
+     "pass": true,
+     "why": "22 words"
+    },
+    {
+     "type": "no_question",
+     "pass": true,
+     "why": "0 question lines"
+    },
+    {
+     "type": "no_raw_ids",
+     "pass": true,
+     "why": ""
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.0019218699999999998
+   }
+  },
+  {
+   "case": "tone-frustrated-no-groveling",
+   "brain": "durable",
+   "rep": 1,
+   "pass": false,
+   "reply_ms": 26410,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "judge",
+     "pass": false,
+     "why": "FAIL: No tool call spawning work or telling a40 to start on the regression; only a text reply asking for more info."
+    },
+    {
+     "type": "reply_not_matches",
+     "pass": true,
+     "why": ""
+    },
+    {
+     "type": "max_words",
+     "pass": false,
+     "why": "201 words"
+    },
+    {
+     "type": "no_question",
+     "pass": true,
+     "why": "0 question lines"
+    },
+    {
+     "type": "judge",
+     "pass": false,
+     "why": "FAIL: no work started (no subagent/tell), explains at length and asks the person what to do instead."
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.0055276299999999995
+   }
+  },
+  {
+   "case": "tone-frustrated-no-groveling",
+   "brain": "pi",
+   "rep": 0,
+   "pass": false,
+   "reply_ms": 49705,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "judge",
+     "pass": false,
+     "why": "FAIL: No spawn or tell-to-a40 tool call; Chief only posted a reply instead of dispatching a40 to work on the regression."
+    },
+    {
+     "type": "reply_not_matches",
+     "pass": true,
+     "why": ""
+    },
+    {
+     "type": "max_words",
+     "pass": false,
+     "why": "308 words"
+    },
+    {
+     "type": "no_question",
+     "pass": true,
+     "why": "0 question lines"
+    },
+    {
+     "type": "judge",
+     "pass": false,
+     "why": "FAIL: Chief never starts work and instead asks for permissions/info without dispatching a40 or a subagent to investigate."
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.013733839999999999
+   }
+  },
+  {
+   "case": "tone-frustrated-no-groveling",
+   "brain": "pi",
+   "rep": 1,
+   "pass": false,
+   "reply_ms": 36996,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "judge",
+     "pass": false,
+     "why": "FAIL: No tool calls were made \u2014 no spawn or tell to a40 to start work on the regression."
+    },
+    {
+     "type": "reply_not_matches",
+     "pass": true,
+     "why": ""
+    },
+    {
+     "type": "max_words",
+     "pass": true,
+     "why": "0 words"
+    },
+    {
+     "type": "no_question",
+     "pass": true,
+     "why": "0 question lines"
+    },
+    {
+     "type": "judge",
+     "pass": false,
+     "why": "FAIL: no tool call or reply was produced\u2014no subagent/tell started and no acknowledgment given."
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.012179719999999998
+   }
+  },
+  {
+   "case": "tone-frustrated-no-groveling",
+   "brain": "durable",
+   "rep": 0,
+   "pass": false,
+   "reply_ms": 45517,
+   "second_ms": null,
+   "error": null,
+   "checks": [
+    {
+     "type": "judge",
+     "pass": false,
+     "why": "FAIL: No spawn call or tell to a40 was made; the assistant only analyzed and asked for more info instead of starting work on the regression."
+    },
+    {
+     "type": "reply_not_matches",
+     "pass": true,
+     "why": ""
+    },
+    {
+     "type": "max_words",
+     "pass": false,
+     "why": "199 words"
+    },
+    {
+     "type": "no_question",
+     "pass": true,
+     "why": "0 question lines"
+    },
+    {
+     "type": "judge",
+     "pass": false,
+     "why": "FAIL: only explains/asks for info instead of starting work (no subagent/tell dispatched), and is overly apologetic/explaining."
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.00971824
+   }
+  }
+ ],
+ "latency": [
+  {
+   "case": "memory-a672-recent-reply",
+   "brain": "pi",
+   "rep": 1,
+   "pass": true,
+   "reply_ms": 6849,
+   "second_ms": 3020,
+   "error": null,
+   "checks": [
+    {
+     "type": "reply_matches",
+     "pass": true,
+     "why": ""
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.005577179999999999
+   }
+  },
+  {
+   "case": "memory-a672-recent-reply",
+   "brain": "pi",
+   "rep": 2,
+   "pass": true,
+   "reply_ms": 6879,
+   "second_ms": 3077,
+   "error": null,
+   "checks": [
+    {
+     "type": "reply_matches",
+     "pass": true,
+     "why": ""
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.00554854
+   }
+  },
+  {
+   "case": "memory-a672-recent-reply",
+   "brain": "pi",
+   "rep": 0,
+   "pass": true,
+   "reply_ms": 8384,
+   "second_ms": 4260,
+   "error": null,
+   "checks": [
+    {
+     "type": "reply_matches",
+     "pass": true,
+     "why": ""
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.005625179999999999
+   }
+  },
+  {
+   "case": "memory-a672-recent-reply",
+   "brain": "durable",
+   "rep": 0,
+   "pass": true,
+   "reply_ms": 9128,
+   "second_ms": 2420,
+   "error": null,
+   "checks": [
+    {
+     "type": "reply_matches",
+     "pass": true,
+     "why": ""
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.0035773999999999992
+   }
+  },
+  {
+   "case": "memory-a672-recent-reply",
+   "brain": "durable",
+   "rep": 1,
+   "pass": false,
+   "reply_ms": 4637,
+   "second_ms": 7470,
+   "error": null,
+   "checks": [
+    {
+     "type": "reply_matches",
+     "pass": false,
+     "why": "no match for 4906279"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.0006711099999999999
+   }
+  },
+  {
+   "case": "memory-a672-recent-reply",
+   "brain": "durable",
+   "rep": 2,
+   "pass": true,
+   "reply_ms": 18240,
+   "second_ms": 4751,
+   "error": null,
+   "checks": [
+    {
+     "type": "reply_matches",
+     "pass": true,
+     "why": ""
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.0053671199999999995
+   }
+  },
+  {
+   "case": "memory-a672-lagging-view",
+   "brain": "pi",
+   "rep": 0,
+   "pass": true,
+   "reply_ms": 16501,
+   "second_ms": 9525,
+   "error": null,
+   "checks": [
+    {
+     "type": "reply_matches",
+     "pass": true,
+     "why": ""
+    },
+    {
+     "type": "no_question",
+     "pass": true,
+     "why": "0 question lines"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.006838219999999999
+   }
+  },
+  {
+   "case": "memory-a672-lagging-view",
+   "brain": "pi",
+   "rep": 1,
+   "pass": true,
+   "reply_ms": 19234,
+   "second_ms": 7130,
+   "error": null,
+   "checks": [
+    {
+     "type": "reply_matches",
+     "pass": true,
+     "why": ""
+    },
+    {
+     "type": "no_question",
+     "pass": true,
+     "why": "0 question lines"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.00727532
+   }
+  },
+  {
+   "case": "memory-a672-lagging-view",
+   "brain": "pi",
+   "rep": 2,
+   "pass": true,
+   "reply_ms": 18239,
+   "second_ms": 3733,
+   "error": null,
+   "checks": [
+    {
+     "type": "reply_matches",
+     "pass": true,
+     "why": ""
+    },
+    {
+     "type": "no_question",
+     "pass": true,
+     "why": "0 question lines"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.00508662
+   }
+  },
+  {
+   "case": "memory-a672-lagging-view",
+   "brain": "durable",
+   "rep": 2,
+   "pass": true,
+   "reply_ms": 8232,
+   "second_ms": 4871,
+   "error": null,
+   "checks": [
+    {
+     "type": "reply_matches",
+     "pass": true,
+     "why": ""
+    },
+    {
+     "type": "no_question",
+     "pass": true,
+     "why": "0 question lines"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.00341482
+   }
+  },
+  {
+   "case": "memory-a672-lagging-view",
+   "brain": "durable",
+   "rep": 0,
+   "pass": true,
+   "reply_ms": 15562,
+   "second_ms": 7368,
+   "error": null,
+   "checks": [
+    {
+     "type": "reply_matches",
+     "pass": true,
+     "why": ""
+    },
+    {
+     "type": "no_question",
+     "pass": true,
+     "why": "0 question lines"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.00935441
+   }
+  },
+  {
+   "case": "memory-a672-lagging-view",
+   "brain": "durable",
+   "rep": 1,
+   "pass": true,
+   "reply_ms": 17855,
+   "second_ms": 5248,
+   "error": null,
+   "checks": [
+    {
+     "type": "reply_matches",
+     "pass": true,
+     "why": ""
+    },
+    {
+     "type": "no_question",
+     "pass": true,
+     "why": "0 question lines"
+    }
+   ],
+   "run": {
+    "status": "done",
+    "harness": "pi-durable-d",
+    "model": "@cf/moonshotai/kimi-k2.7-code",
+    "cost_usd": 0.0066135
+   }
+  }
+ ]
+}

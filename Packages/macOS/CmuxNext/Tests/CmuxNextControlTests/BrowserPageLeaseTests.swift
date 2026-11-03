@@ -21,7 +21,7 @@ import Testing
     }
 
     func install(clock: Clock = Clock()) -> ControlRouter {
-        let router = ControlRouter(identity: testIdentity(), executor: BrowserPageRightTests.OpeningExecutor())
+        let router = ControlRouter(identity: testIdentity(), executor: BrowserPageRightTests.OpeningExecutor(), configuration: .loadTolerant)
         let leases = BrowserTabLeases(now: { clock.now })
         BrowserPageService(engine: NoEngine(), leases: leases).install(on: router)
         router.snapshots.publish { $0 = BrowserPageRightTests.homeSnapshot() }

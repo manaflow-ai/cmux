@@ -64,7 +64,8 @@ enum VSCodeInlineHandlers {
         Task {
             do {
                 let url = try await service.url(vscode: vscode, openingFolder: folder)
-                try BrowserHandlers.splitBrowser(from: pane, direction: .right, url: url, byPerson: byPerson, context: context)
+                let effect = try BrowserHandlers.splitBrowser(from: pane, direction: .right, url: url, byPerson: byPerson, context: context)
+                registry.settle(effect, of: "palette.openFolderInVSCodeInline", ActionInvocation())
             } catch let failure as ActionFailure {
                 registry.refuse(failure.message)
             } catch {

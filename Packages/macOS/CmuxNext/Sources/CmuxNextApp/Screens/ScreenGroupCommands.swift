@@ -15,7 +15,7 @@ import CmuxNextTabs
 @MainActor
 enum ScreenGroupCommands {
     static func create(_ screens: [ScreenModel], in workspace: WorkspaceModel, name: String?, color: GroupTint?, daemon: DaemonService) {
-        let handles = screens.map(\.handle), color = (color ?? .palette(nextColor(in: workspace))).wire
+        let handles = screens.map(\.handle), color = (color ?? GroupTint.none).wire
         change("create-screen-group", stateIDs(screens).map { .create(screens: $0, name: name, color: color) }, daemon: daemon) {
             _ = try await $0.createScreenGroup(handles, name: name, color: color)
         }
@@ -97,7 +97,7 @@ enum ScreenGroupCommands {
     /// else the raw command `raw`.
     static func change(_ label: String, _ state: ScreenGroupStateClient.Operation?, daemon: DaemonService,
                        raw: @escaping DaemonCommandBody) {
-        guard let state, daemon.supports(DaemonCapabilities.stateResources) else { return daemon.send(label, raw) }
+        guard let state, daemon.supports(DaemonCapability.stateResources.rawValue) else { return daemon.send(label, raw) }
         let key = idempotencyKey(label)
         daemon.send(label) { _ = try await ScreenGroupStateClient(connection: $0).send(state, idempotencyKey: key) }
     }
@@ -118,7 +118,7 @@ enum ScreenGroupCommands {
     /// state resources (its closed history records each screen; there is no
     /// v2 group close), else `close-screen-group`.
     static func close(_ ref: ScreenGroupRef, services: AppServices) {
-        if ref.daemon.supports(DaemonCapabilities.stateResources) {
+        if ref.daemon.supports(DaemonCapability.stateResources.rawValue) {
             return ScreenCommands.close(ref.members, in: ref.workspace, daemon: ref.daemon, services: services)
         }
         let group = ref.group.id
@@ -138,10 +138,5 @@ enum ScreenGroupCommands {
         let last = ref.members.last.flatMap { member in ref.workspace.screens.firstIndex { $0 === member } }
         ScreenCommands.create(in: ref.workspace, daemon: ref.daemon, content: ref.content,
                               spec: ScreenSpec(index: last.map { $0 + 1 }, group: ref.group.id))
-    }
-
-    /// The color a new screen group gets (`TabGroupOrdering.nextColor`).
-    static func nextColor(in workspace: WorkspaceModel?) -> GroupColor {
-        TabGroupOrdering.nextColor(used: workspace?.screenGroups.compactMap { $0.color.flatMap(GroupColor.init(rawValue:)) } ?? [])
     }
 }

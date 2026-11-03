@@ -69,7 +69,7 @@ final class NewTabInputCoordinator {
             if incoming != nil { return true }
             guard let pane, pane.view.window === window, !pane.view.isHiddenOrHasHiddenAncestor else { return false }
             guard let key = pane.currentTabKey else { return !shown }
-            if pane.services.agentTabs.isNewTabPage(key) { return true }
+            if pane.services.agentTabs.isNewTabPage(key) || LocalPageTab.page(of: key) == .nativeNewTab { return true }
             return !shown && key == opened
         }
     }
@@ -118,14 +118,21 @@ final class NewTabInputCoordinator {
         // The pane focus had at the opening, when the opening may move focus (a person's, not a script's).
         var focusedAtOpening = ActionRunScope.viewChangeAllowed() ? pane.services.windowController(showing: pane)?.focus.state.pane : nil
         let buffer = NewTabInputBuffer(began: now(), focusField: { [weak pane, weak window] in
+            // The native page (tabs.nativeNewTabPage): its field, once SwiftUI has made it.
+            if let pane, let window, let key = pane.currentTabKey, LocalPageTab.page(of: key) == .nativeNewTab {
+                guard let field = nativeNewTabHost(in: pane.view)?.fieldView, field.window === window else { return false }
+                return window.firstResponder === field || window.makeFirstResponder(field)
+            }
             guard let pane, let window, let key = pane.currentTabKey, pane.services.agentTabs.isNewTabPage(key),
                   let view = pane.services.agentTabs.existingView(key), view.window === window,
                   !view.isHiddenOrHasHiddenAncestor else { return false }
             // A Chromium page window may be key: the shell takes it back, so later keys follow.
             // Never from another cmux window the person moved to since Cmd-T: their keys go there.
+            // A Chromium page's own grant moves the keys to its page window: the shell does not take
+            // them first (one key-window change, #24913).
             if !window.isKeyWindow, NSApp.isActive {
                 guard Self.mayTakeKey(window, keyWindow: NSApp.keyWindow) else { return false }
-                window.makeKey()
+                if view.chromiumPage == nil { window.makeKey() }
             }
             // The window refuses a page's web view outside an input event and the focus model's own
             // moves while the model names another pane (AgentPaneView.refusesSelfFocus), and the
@@ -166,8 +173,9 @@ final class NewTabInputCoordinator {
                   let view = target.view ?? (services.agentTabs.isNewTabPage(key) ? services.agentTabs.existingView(key) : nil),
                   view.model.newTab != nil, let shown = view.window,
                   shown === window || target.followsNewWindow, !view.isHiddenOrHasHiddenAncestor else { return false }
-            // A Chromium page window or the old window may be key: the page's window takes it.
-            if !shown.isKeyWindow, NSApp.isActive { shown.makeKey() }
+            // A Chromium page window or the old window may be key: the page's window takes it. A
+            // Chromium page's grant (below) moves the keys itself: one key-window change (#24913).
+            if !shown.isKeyWindow, NSApp.isActive, view.chromiumPage == nil { shown.makeKey() }
             target.pageWindow = shown
             if view.chromiumPage != nil {
                 view.focusChat()
@@ -353,10 +361,7 @@ final class NewTabInputCoordinator {
     }
 
     /// Ends the window's hold and gives its keys, in typing order, to whatever has focus.
-    private func release(in window: NSWindow, why: String = "replaced") {
-        guard let entry = entry(for: window) else { return }
-        release(entry, why: why)
-    }
+    private func release(in window: NSWindow, why: String = "replaced") { if let entry = entry(for: window) { release(entry, why: why) } }
 
     private func release(_ entry: Entry, why: String) {
         remove(entry)
@@ -382,8 +387,17 @@ final class NewTabInputCoordinator {
     }
 
     /// Whether `window` holds keys for an opening (debug and tests).
-    func isHolding(in window: NSWindow?) -> Bool {
-        guard let window else { return false }
-        return buffers[window.windowNumber] != nil
-    }
+    func isHolding(in window: NSWindow?) -> Bool { window.map { buffers[$0.windowNumber] != nil } ?? false }
+
+    /// A creation that moves `window`'s focus opened its hold (``CreationInputCoordinator/begin``), the person's newer intent: this
+    /// hold ends, and its keys run again in typing order through the key router, into that hold. Before, keys typed after Cmd-N
+    /// then Ctrl-` waited for the New Tab page and went to its field (#30271 smoke, step 16).
+    func creationTookKeys(in window: NSWindow) { release(in: router?.focus(for: window).0?.window ?? window, why: "a creation took the keys") }
+}
+
+/// The shown native New Tab page under `view`, depth first.
+@MainActor func nativeNewTabHost(in view: NSView) -> NativeNewTabHostingView? {
+    if let host = view as? NativeNewTabHostingView, !host.isHiddenOrHasHiddenAncestor { return host }
+    for subview in view.subviews { if let host = nativeNewTabHost(in: subview) { return host } }
+    return nil
 }

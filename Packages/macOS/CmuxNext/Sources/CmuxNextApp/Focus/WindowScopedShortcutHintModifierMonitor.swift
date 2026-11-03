@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextFocusUI
 
 /// Watches only the host window's intentional Command/Control/Option holds; a key or a click (Option-click) hides and suppresses. It never consumes input.
 @MainActor
@@ -14,7 +15,7 @@ final class WindowScopedShortcutHintModifierMonitor {
     private var pending: Task<Void, Never>?
     private var enabled = false
     private var currentFlags: NSEvent.ModifierFlags = []
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     private let capture = ShortcutHintCaptureWaiter()
     #endif
 
@@ -73,7 +74,7 @@ final class WindowScopedShortcutHintModifierMonitor {
             let current = currentFlags
             if policy.update(flags: current, eligible: eligible, elapsed: ShortcutHintModifierPolicy.intentionalHoldDelay) {
                 changed(ShortcutHintModifierPolicy.armed(current))
-                #if DEBUG
+                #if DEBUG || CMUX_BENCH_HOOKS
                 capture.finish(true)
                 #endif
             }
@@ -87,7 +88,7 @@ final class WindowScopedShortcutHintModifierMonitor {
         if !keepsHints { hide() }
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     func debugHold(_ flags: NSEvent.ModifierFlags, window: NSWindow) async -> Bool {
         guard eligible, let event = debugEvent(flags, window: window) else { return false }
         if flags.isEmpty {

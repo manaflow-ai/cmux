@@ -399,6 +399,33 @@ public enum ConversationDataDetection {
         saturation < 0.02 && brightness > 0.98 ? 0.46 : 0.26
     }
 
+    // NSDataDetector is documented thread-safe for matching; it is created once.
+    nonisolated(unsafe) private static let detector = try? NSDataDetector(types: types)
+
+    /// Markdown marks a detected link may take in when an agent's text shows them as written
+    /// (`**https://a.com**` is detected as `https://a.com**`).
+    private static let markdownMarks: Set<unichar> = Set("*_~`".utf16)
+
+    /// The items the detectors find in `text`, each link without the Markdown marks at its
+    /// ends (Lawrence 2026-10-23: a tap on a Chief's `**https://github.com/login/device**`
+    /// opened `https://github.com/login/device**`).
+    public static func items(in text: String) -> [ConversationDetectedItem] {
+        let ns = text as NSString
+        guard let detector, ns.length > 0 else { return [] }
+        return detector.matches(in: text, range: NSRange(location: 0, length: ns.length)).compactMap { match in
+            guard match.resultType == .link else { return ConversationDetectedItem(range: match.range, url: actionURL(for: match)) }
+            var range = match.range
+            while range.length > 0, markdownMarks.contains(ns.character(at: range.location + range.length - 1)) { range.length -= 1 }
+            while range.length > 0, markdownMarks.contains(ns.character(at: range.location)) { range.location += 1; range.length -= 1 }
+            guard range.length > 0 else { return nil }
+            if range == match.range { return ConversationDetectedItem(range: range, url: match.url) }
+            // A trimmed link is detected again on its own text, so its URL matches what it shows.
+            let trimmed = ns.substring(with: range)
+            let again = detector.firstMatch(in: trimmed, range: NSRange(location: 0, length: (trimmed as NSString).length))
+            return ConversationDetectedItem(range: range, url: again?.url ?? URL(string: trimmed))
+        }
+    }
+
     /// What a tap opens: the link, a call, Maps, or Calendar at that date.
     public static func actionURL(for match: NSTextCheckingResult) -> URL? {
         switch match.resultType {

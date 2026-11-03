@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextControl
 import CmuxNextSettings
@@ -15,6 +16,7 @@ import Testing
     /// one with a Claude Code question. It records what it was sent.
     final class FakeLine: AgentDialogLine {
         var isPerson = true
+        var capabilities: Set<String> = []
         var sent: [(method: String, params: [String: Any])] = []
         var pending: [String: [[String: Any]]] = [
             "s-tool": [[
@@ -40,10 +42,19 @@ import Testing
         func call(_ method: String, _ params: [String: Any]) async -> [String: Any]? {
             sent.append((method, params))
             switch method {
+            case "_acpmux/sessions" where params["pendingOnly"] as? Bool == true:
+                // acpmux `pending_session_summaries`: each session with an ask once, in one reply.
+                return ["sessions": [
+                    ["sessionId": "s-tool", "name": "builder", "pendingPermissions": 1],
+                    ["sessionId": "offline", "name": "peer", "peer": "gcp", "pendingPermissions": 1],
+                    ["sessionId": "s-ask", "name": "asker", "pendingPermissions": 1],
+                ]]
             case "_acpmux/sessions":
                 return ["sessions": [
                     ["sessionId": "s-idle", "name": "idle", "pendingPermissions": 0],
                     ["sessionId": "s-tool", "name": "builder", "pendingPermissions": 1],
+                    ["sessionId": "s-tool", "name": "builder", "pendingPermissions": 1],
+                    ["sessionId": "offline", "name": "peer", "peer": "gcp", "pendingPermissions": 1],
                     ["sessionId": "s-ask", "name": "asker", "pendingPermissions": 1],
                 ]]
             case "_acpmux/info":
@@ -97,6 +108,23 @@ import Testing
         let question = try #require(ask["questions"]?.arrayValue?.first)
         #expect(question["prompt"]?.stringValue == "Which database?")
         #expect(question["options"]?.arrayValue?.compactMap { $0["label"]?.stringValue } == ["Postgres", "SQLite"])
+        let list = try #require(line.sent.first { $0.method == "_acpmux/sessions" })
+        #expect(list.params["status"] == nil)
+        #expect(list.params["limit"] as? Int == 64)
+        #expect(line.sent.filter { $0.method == "_acpmux/info" }.compactMap { $0.params["sessionId"] as? String } == ["s-tool", "offline", "s-ask"])
+    }
+
+    /// An acpmux that serves `pendingOnly` is asked once for the chats with an ask, never paged:
+    /// paging every chat took 4-9 s a page on a host mirroring 8,500, past the 5 s line.
+    @Test func listAsksAnAcpmuxWithPendingOnlyForTheChatsWithAnAskOnce() async throws {
+        let line = FakeLine()
+        line.capabilities = [AgentDialogPrompt.pendingListCapability]
+        let reply = try await call(router(desk(line)), "feed.list", ["pending_only": true]).get()
+        #expect(reply["items"]?.arrayValue?.count == 2)
+        let lists = line.sent.filter { $0.method == "_acpmux/sessions" }
+        #expect(lists.count == 1)
+        #expect(lists.first?.params["pendingOnly"] as? Bool == true)
+        #expect(lists.first?.params["limit"] == nil)
     }
 
     @Test func listWithNoAcpmuxIsEmpty() async throws {

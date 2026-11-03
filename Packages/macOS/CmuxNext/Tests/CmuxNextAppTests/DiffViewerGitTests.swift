@@ -42,6 +42,74 @@ struct DiffViewerGitTests {
 
     static let repository = "/Users/dev/uploader"
 
+    /// Remote Changes uses the daemon's patch and never starts a local sidecar
+    /// or reads the same path on this Mac.
+    final class RemoteGit: DiffGitRunning {
+        let isRemote = true
+        var calls: [(AgentPaneGitScope, AgentPaneGitDiffOptions?)] = []
+        var partialContext = false
+
+        func status(_ repository: String) async throws(AgentPaneGitFailure) -> JSONValue { ["root": .string(repository)] }
+
+        func diff(_ repository: String, scope: AgentPaneGitScope, includePatch: Bool) async throws(AgentPaneGitFailure) -> JSONValue {
+            calls.append((scope, nil))
+            return ["files": [["path": "remote.txt", "status": "modified", "patch": "@@ -1 +1 @@\n-old\n+new\n"]]]
+        }
+
+        func diff(_ repository: String, scope: AgentPaneGitScope, includePatch: Bool,
+                  options: AgentPaneGitDiffOptions) async throws(AgentPaneGitFailure) -> JSONValue {
+            calls.append((scope, options))
+            // 100,000 unchanged blank lines fit under the daemon's 256 KiB per-file cap. The
+            // hunk is internally valid, but its context reaches the request bound and therefore
+            // cannot prove that the remote file has no final line beyond the emitted patch.
+            let patch = partialContext
+                ? "@@ -1,100001 +1,100001 @@\n-old\n+new\n" + String(repeating: " \n", count: 100_000)
+                : "@@ -1 +1 @@\n-old\n+new\n"
+            return ["files": [["path": "remote.txt", "status": "modified", "patch": .string(patch)]]]
+        }
+
+        func write(_ request: AgentPaneGitWrite, in repository: String) async throws(AgentPaneGitFailure) -> JSONValue { [:] }
+        func stage(_ request: AgentPaneGitStage, in repository: String) async -> String? { "must not touch local files" }
+        func checkpointDiff(_ repository: String, from: String, to: String) async throws(AgentPaneGitFailure) -> JSONValue { [:] }
+    }
+
+    @Test func remoteDiffUsesTheDaemonPatchAndBoundedFileRead() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "diff-remote-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let grant = try DiffSessionGrant.create(root: root, repository: "/remote/worktree")
+        defer { grant.remove() }
+        let remote = RemoteGit()
+        // sidecar is deliberately nil: a remote provider must materialize through DiffGitRunning.
+        let provider = DiffPageProvider(ready: Task { DiffTabReady(grant: grant, config: [:]) }, sidecar: nil,
+                                        languages: nil, git: remote)
+        let opened = try await provider.call("cmux.diff.sessionOpen", params: [
+            "source": ["kind": "unstaged", "repoRoot": "/remote/worktree"],
+        ], context: PageCallContext(page: "cmux.diff"))
+        let session = try #require(opened["value"]?["sessionId"]?.stringValue)
+        #expect(try String(contentsOf: grant.remotePatchURL, encoding: .utf8).contains("diff --git a/remote.txt b/remote.txt"))
+        #expect(opened["value"]?["patch"]?["id"]?.stringValue?.contains(grant.token) == true)
+        let contents = try await provider.call("cmux.diff.fileContents", params: [
+            "sessionId": .string(session), "path": "remote.txt",
+        ], context: PageCallContext(page: "cmux.diff"))
+        #expect(contents["value"]?["old"]?["contents"]?.stringValue == "old\n")
+        #expect(contents["value"]?["new"]?["contents"]?.stringValue == "new\n")
+        #expect(remote.calls.contains { $0.1?.contextLines == 100_000 })
+
+        remote.calls.removeAll()
+        _ = try await provider.call("cmux.diff.sessionOpen", params: [
+            "source": ["kind": "branch", "baseRef": "HEAD", "repoRoot": "/remote/worktree"],
+        ], context: PageCallContext(page: "cmux.diff"))
+        #expect(remote.calls.first?.0 == .uncommitted)
+
+        remote.partialContext = true
+        let partial = try await provider.call("cmux.diff.fileContents", params: [
+            "sessionId": .string(session), "path": "remote.txt",
+        ], context: PageCallContext(page: "cmux.diff"))
+        #expect(partial["value"]?["tooLarge"]?.boolValue == true)
+        await provider.close()
+    }
+
     @Test func aDiffTabStagesAndCommitsInItsOwnRepository() async throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "diff-git-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

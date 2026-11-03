@@ -6,6 +6,14 @@ import Foundation
 /// before Sparkle relaunches. A quit installs a staged update unless
 /// `updates.installOnQuit` is off. A pure value: the App feeds events and
 /// performs the effects.
+///
+/// Without the automatic-install opt-in (`updates.downloadAutomatically`, off by default on
+/// every channel) the flow asks twice, as Sparkle's own UI does: a found update waits on the
+/// update-found step (``UpdateIndicatorPhase/available(version:)``) until Update
+/// (``UpdateFlowEvent/downloadRequested``), and the staged update waits on the Update Ready card
+/// until Restart to Update (``UpdateFlowEvent/installRequested``). Hide, or no answer, never
+/// relaunches; a quit installs it only with `updates.installOnQuit` on (off by default, the
+/// nightly restart policy).
 nonisolated public struct UpdateFlow: Equatable, Sendable {
     public private(set) var phase: UpdateIndicatorPhase = .hidden
     /// The user asked to install; held until the update is staged.
@@ -41,18 +49,24 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
                 userAsked = false
                 return installIfStaged()
             case .downloading, .checking:
-                // Installs once staged; the progress shows meanwhile.
+                // Installs once staged; a check shows meanwhile, a download runs quietly.
                 installRequested = true
                 userAsked = true
                 return []
             case .available:
-                // Downloads, shows its progress, installs once staged.
+                // Downloads quietly, installs once staged.
                 installRequested = true
                 userAsked = true
                 return [.download]
             case .hidden, .installing, .note:
                 return []
             }
+        case .downloadRequested:
+            // The answer to the update-found step: download quietly, then ask again before the
+            // relaunch (the staged update card). A held install click keeps its install.
+            guard case .available = phase else { return [] }
+            userAsked = true
+            return [.download]
         case .quitRequested:
             guard case .ready = phase, !preferences.installOnQuit else { return [.quit(.proceed)] }
             return [.quit(.cancelPendingInstall)]
@@ -117,8 +131,13 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
     }
 
     /// The notice card's update status, or nil: what the user asked for (a
-    /// check, its download, its result), and a found update that waits for
-    /// a click (`updates.downloadAutomatically` off), which needs no check.
+    /// check, its result), and a found update that waits for a click
+    /// (`updates.downloadAutomatically` off), which needs no check. A
+    /// download never shows here, asked for or not: it runs quietly and the
+    /// staged update's one-step card asks to restart (Leo 2026-11-03, after
+    /// ChatGPT: "it's already downloaded you click this button to accept the
+    /// button and restart"). Its progress, Cancel and a failure's Try Again
+    /// are Settings > Updates' (``UpdaterService/settingsStatus``).
     /// A scheduled check, its download and its result show nothing.
     /// A staged update is never this card (the staged update card,
     /// ``footerPill(preferences:)``); an install shows here only when the
@@ -135,10 +154,9 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
         guard userAsked else { return nil }
         switch phase {
         case .checking: return .checking
-        case .downloading(let transfer): return .downloading(transfer)
         case .installing: return .installing
         case .note(let note): return .note(note)
-        case .hidden, .available, .ready: return nil
+        case .hidden, .available, .downloading, .ready: return nil
         }
     }
 

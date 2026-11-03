@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextBrowserTabs
 import CmuxNextDesign
 import CmuxNextIcons
 import Foundation
@@ -102,7 +103,7 @@ final class MachineBrowserPageTab: BrowserTab {
         return image
     }
 
-    func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue { throw BrowserTabError.unsupported("machine browser") }
+    func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue { throw BrowserTabError.unsupported("machine browser") }
     func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool) async -> BrowserFindResult { .none }
     func clearFind() {}
     func setZoom(_ zoom: Double) {}

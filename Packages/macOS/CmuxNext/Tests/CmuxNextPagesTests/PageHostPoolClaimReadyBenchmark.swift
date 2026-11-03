@@ -1,6 +1,8 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextSettings
 @testable import CmuxNextPages
+import CmuxNextTestSupport
 import Foundation
 import Testing
 import WebKit
@@ -13,7 +15,7 @@ import WebKit
 /// that reads it adds nothing to the number.
 @MainActor
 @Suite(.serialized, .timeLimit(.minutes(10)),
-       .enabled(if: ProcessInfo.processInfo.environment["CMUX_PAGE_CLAIM_BENCH"] != nil))
+       .enabled(if: ProcessInfo.processInfo.environment["CMUX_PAGE_CLAIM_BENCH"] != nil), .closesItsWindows)
 struct PageHostPoolClaimReadyBenchmark {
     static let readyProbe = """
     (() => {
@@ -53,7 +55,7 @@ struct PageHostPoolClaimReadyBenchmark {
         defer { window.close() }
         var policy = PageHostPool.Policy()
         policy.idleInput = .milliseconds(5)
-        let pool = PageHostPool(policy: policy, activity: { 0 }, isTrackingMenu: { false })
+        let pool = PageHostPool(memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()), policy: policy, activity: { 0 }, isTrackingMenu: { false })
         defer { pool.dropSpare(); pool.claimedHosts.forEach(pool.release) }
         pool.follow(window)
         pool.noteLikely()

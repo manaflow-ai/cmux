@@ -117,6 +117,22 @@ extension FFIMacLink: BrowserStreamOpening {
     func warmMedia() {
         handle.warmMedia()
     }
+
+    func openLocalhost(port: UInt16) async throws -> any LinkChannel {
+        try await openChannel(service: "localhost", args: ["port": String(port)])
+    }
+
+    func openSurface(tab: String, sink: any BrowserStreamSink) async throws -> any BrowserStreamConnection {
+        let json = String(decoding: try JSONSerialization.data(withJSONObject: ["tab": tab]), as: UTF8.self)
+        do {
+            return FFIBrowserStream(
+                handle: try await handle.openSurface(argsJson: json, observer: BrowserObserverBridge(sink: sink)),
+                transport: transport
+            )
+        } catch let error as CmuxMobileError {
+            throw error.linkError
+        }
+    }
 }
 
 final class BrowserObserverBridge: BrowserObserver, @unchecked Sendable {

@@ -152,6 +152,33 @@ fn kind_schema(row: &Row) -> Value {
         Kind::StringMap => {
             json!({ "type": "object", "additionalProperties": { "type": "string" } })
         }
+        Kind::SoundRules => {
+            let events: Map<String, Value> = super::accepts::SOUND_RULE_EVENTS
+                .iter()
+                .map(|event| ((*event).to_owned(), json!({ "type": "string" })))
+                .collect();
+            json!({
+                "type": "object",
+                "additionalProperties": {
+                    "anyOf": [
+                        { "type": "string" },
+                        {
+                            "type": "object",
+                            "properties": {
+                                "sound": { "type": "string" },
+                                "volume": { "type": "number", "minimum": 0, "maximum": 1 },
+                                "events": {
+                                    "type": "object",
+                                    "properties": events,
+                                    "additionalProperties": false,
+                                },
+                            },
+                            "additionalProperties": false,
+                        },
+                    ],
+                },
+            })
+        }
     }
 }
 

@@ -14,10 +14,14 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     func events(_ page: AgentSessionPage) async throws -> Data
     /// Sends one text prompt; answers `{prompt_id, turn_id, queued}` once acpmux recorded it.
     func prompt(id: String, text: String) async throws -> Data
+    /// Sends ordered ACP content, including images and file links, to the owning session.
+    func prompt(id: String, content: Data) async throws -> Data
     func cancel() async throws
-    /// Answers a permission request the daemon announced on this attachment, with the person's
-    /// decision proof of a relayed allow when the pane made one (cx-0q7o; acpmux decides).
-    func permission(id: String, option: String, decisionNonce: String?, personDecision: String?) async throws
+    /// Answers a permission request the daemon announced on this attachment, with a question's
+    /// `answers` and `annotations` (JSON) and the person's decision proof of a relayed allow when
+    /// the pane made one (cx-0q7o; acpmux decides, and an answer's proof covers both).
+    func permission(id: String, option: String, answers: Data?, annotations: Data?, decisionNonce: String?,
+                    personDecision: String?) async throws
     func detach() async
     /// Ends the attachment and its daemon connection.
     func close() async
@@ -26,11 +30,51 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     func children() async throws -> Data
     /// Reads one image from the attached chat's host, as `{mimeType, data}` with base64 bytes.
     func media(path: String) async throws -> Data
+    /// The person starts or stops typing in the chat (`agent-session-presence-v1`).
+    func typing(_ on: Bool) async throws
+    /// Whether the person's window shows the chat now (`agent-session-presence-v1`).
+    func view(_ visible: Bool) async throws
+    /// The person's model, mode and option picks for the chat (`agent-session-settings-v1`):
+    /// acpmux's `session/set_model`, `session/set_mode` and `session/set_config_option` on that
+    /// machine, answered as acpmux answers them (a config option answers `{configOptions}`).
+    func setModel(_ modelId: String) async throws -> Data
+    func setMode(_ modeId: String) async throws -> Data
+    func setConfig(id configId: String, value: String) async throws -> Data
+    /// Whether that machine's daemon relays a Cloud chat's own sign-in (`agent-session-login-v1`).
+    func servesLogin() async -> Bool
+    /// One step of the chat's agent's own sign-in on that machine (`agent-session-login-v1`):
+    /// acpmux's `_acpmux/agent_login/<op>` answer, or `{refused: {reason}}`. `fields` are the
+    /// daemon's (`agent`, `login_id`, `code`, `key`); the code and key are never logged.
+    func login(_ op: String, _ fields: [String: String]) async throws -> Data
 }
 
 extension AgentSessionRemoteClient {
+    /// Older clients retain their text-only behavior; multimodal content requires the new relay.
+    public func prompt(id: String, content: Data) async throws -> Data {
+        guard let blocks = try JSONSerialization.jsonObject(with: content) as? [[String: Any]],
+              let text = RemoteAcpmuxWire.text(blocks) else {
+            throw AgentSessionRemoteError(code: "agent_session.content_unsupported", message: "Update cmux on that machine to send attachments.")
+        }
+        return try await prompt(id: id, text: text)
+    }
     /// A daemon without `agent-session-children-v1` lists none.
     public func children() async throws -> Data { Data(#"{"sessions":[]}"#.utf8) }
+    /// A daemon without `agent-session-presence-v1` shows no one: typing and view go nowhere.
+    public func typing(_ on: Bool) async throws {}
+    public func view(_ visible: Bool) async throws {}
+    /// A daemon without `agent-session-settings-v1` changes nothing: the pick says so.
+    public func setModel(_ modelId: String) async throws -> Data { throw Self.settingsUnsupported }
+    public func setMode(_ modeId: String) async throws -> Data { throw Self.settingsUnsupported }
+    public func setConfig(id configId: String, value: String) async throws -> Data { throw Self.settingsUnsupported }
+    nonisolated static var settingsUnsupported: AgentSessionRemoteError {
+        AgentSessionRemoteError(code: "agent_session.settings_unsupported",
+                                message: "update cmux on that machine to change this chat's model, mode or options from here")
+    }
+    /// A daemon without `agent-session-login-v1` offers no sign-in.
+    public func servesLogin() async -> Bool { false }
+    public func login(_ op: String, _ fields: [String: String]) async throws -> Data {
+        Data(#"{"refused":{"reason":"unsupported"}}"#.utf8)
+    }
     /// Older daemons have no host media command; callers turn this into a refused image.
     public func media(path: String) async throws -> Data {
         throw AgentSessionRemoteError(code: "agent_session.media_unsupported", message: "the daemon does not serve agent session media")
@@ -60,6 +104,8 @@ public nonisolated enum AgentSessionRemoteEvent: Sendable, Equatable {
     case permission(Data)
     /// The session's status or queue changed (`_acpmux/session_changed` params).
     case changed(Data)
+    /// Who is in the chat now (`_acpmux/presence` params, the whole set on every change).
+    case presence(Data)
     /// The attachment ended (`lagged`, `overflow`, `acpmux_closed`, `detached`, or the daemon
     /// connection dropped); the page reconnects and replays from the newest seq it holds.
     case closed(String)

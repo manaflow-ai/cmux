@@ -9,10 +9,62 @@ export const BASE = "https://hub.test";
 export const STACK_PROJECT = "test-project";
 export const STACK_DEV_PROJECT = "test-dev-project";
 export const STACK_OTHER_PROJECT = "test-unlisted-project";
-export const PAID_USER = "paid-user";
 const enc = new TextEncoder();
 
-// ---- outbound fetch mock (Stack JWKS, Cloudflare TURN) ----
+// ---- outbound fetch mock (Stack JWKS, cmux billing, Cloudflare TURN) ----
+
+/**
+ * What the mocked cmux web backend answers on `GET /api/billing/plan` for a
+ * Stack user (by `sub`): the plan fields, an HTTP status, a network failure, or
+ * a hang. Users not listed are free.
+ */
+export type BillingAnswer =
+  | { subscriptionPlanId?: string; teamPlanId?: string; authenticated?: boolean; userId?: string }
+  | { status: number }
+  | "network"
+  | "hang"
+  | "not-json";
+export const billingPlans = new Map<string, BillingAnswer>();
+/** Every billing request the hub made: the origin and the Stack token it sent. */
+export const billingCalls: { origin: string; accessToken: string | null; sub: string | null }[] = [];
+
+function jwtSub(token: string | null): string | null {
+  try {
+    const p = token!.split(".")[1]!;
+    return JSON.parse(atob(p.replace(/-/g, "+").replace(/_/g, "/"))).sub ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function billingResponse(origin: string, headers: Headers, signal: AbortSignal | null | undefined): Promise<Response> {
+  let accessToken: string | null = null;
+  try {
+    accessToken = JSON.parse(headers.get("x-stack-auth") ?? "null")?.accessToken ?? null;
+  } catch {
+    accessToken = null;
+  }
+  const sub = jwtSub(accessToken);
+  billingCalls.push({ origin, accessToken, sub });
+  const answer: BillingAnswer = (sub && billingPlans.get(sub)) || {};
+  if (answer === "network") throw new TypeError("network connection lost");
+  if (answer === "hang") {
+    return new Promise((_, reject) => {
+      signal?.addEventListener("abort", () => reject(signal.reason ?? new Error("aborted")));
+    });
+  }
+  if (answer === "not-json") return new Response("<html>oops</html>", { status: 200, headers: { "content-type": "text/html" } });
+  if ("status" in answer) return Response.json({ error: "boom" }, { status: answer.status });
+  if (!sub) return Response.json({ authenticated: false, planId: "free", subscriptionPlanId: "free", teamPlanId: "free", user: null });
+  return Response.json({
+    authenticated: answer.authenticated ?? true,
+    planId: answer.subscriptionPlanId && answer.subscriptionPlanId !== "free" ? "pro" : "free",
+    subscriptionPlanId: answer.subscriptionPlanId ?? "free",
+    isPro: !!answer.subscriptionPlanId && answer.subscriptionPlanId !== "free",
+    teamPlanId: answer.teamPlanId ?? "free",
+    user: { id: answer.userId ?? sub, displayName: null, primaryEmail: null },
+  });
+}
 
 let stackKeys: CryptoKeyPair | null = null;
 export const outbound: string[] = [];
@@ -34,6 +86,13 @@ export function mockOutbound() {
     if (jwks && [STACK_PROJECT, STACK_DEV_PROJECT, STACK_OTHER_PROJECT].includes(jwks[1]!)) {
       const jwk = await crypto.subtle.exportKey("jwk", (await stackKeyPair()).publicKey);
       return Response.json({ keys: [{ ...jwk, kid: "k1", alg: "ES256" }] });
+    }
+    const billing = /^(https:\/\/billing(?:-dev)?\.test)\/api\/billing\/plan$/.exec(url);
+    if (billing) {
+      // workerd throws on `redirect: "error"` (a deployed hub then never gets an answer).
+      if (init?.redirect === "error") throw new TypeError("Invalid redirect value, must be one of \"follow\" or \"manual\"");
+      const headers = new Headers(input instanceof Request ? input.headers : init?.headers);
+      return billingResponse(billing[1]!, headers, init?.signal ?? (input instanceof Request ? input.signal : undefined));
     }
     if (url.startsWith("https://rtc.live.cloudflare.com/v1/turn/keys/turn-key/credentials/generate-ice-servers")) {
       return Response.json({
@@ -71,9 +130,10 @@ export async function rawCall(method: string, path: string, opts: { body?: unkno
 /** `sub` is the Stack user id; the returned `userId` is the hub's "<projectId>:<sub>". */
 export async function signIn(sub = `user-${crypto.randomUUID()}`, project = STACK_PROJECT) {
   mockOutbound();
-  const res = await rawCall("POST", "/v1/auth/stack", { body: { token: await stackToken(stackClaims(sub, {}, project)) } });
+  const token = await stackToken(stackClaims(sub, {}, project));
+  const res = await rawCall("POST", "/v1/auth/stack", { body: { token } });
   expect(res.status).toBe(200);
-  return { userId: res.json.userId as string, session: res.json.session as string };
+  return { userId: res.json.userId as string, session: res.json.session as string, stackToken: token, sub };
 }
 
 // ---- WebSocket peer ----
@@ -170,9 +230,9 @@ export class Device {
   }
 
   /** A device-signed API call. `replay` reuses a prior call's headers verbatim. */
-  async call(method: string, path: string, body?: unknown, opts: { ts?: number; key?: CryptoKey; headers?: Record<string, string>; session?: string } = {}) {
+  async call(method: string, path: string, body?: unknown, opts: { ts?: number; key?: CryptoKey; headers?: Record<string, string>; session?: string; extraHeaders?: Record<string, string> } = {}) {
     const bodyText = body === undefined ? "" : JSON.stringify(body);
-    const headers: Record<string, string> = opts.headers ?? (await this.headers(method, path, bodyText, opts));
+    const headers: Record<string, string> = { ...(opts.headers ?? (await this.headers(method, path, bodyText, opts))), ...(opts.extraHeaders ?? {}) };
     headers.authorization = `Bearer ${opts.session ?? this.account.session}`;
     if (body !== undefined) headers["content-type"] = "application/json";
     const res = await worker.fetch(`${BASE}${path}`, { method, headers, body: body === undefined ? undefined : bodyText });
@@ -217,8 +277,8 @@ export class Device {
 }
 
 /** One account with a shared, connected Mac host and a connected viewer. */
-export async function setup(opts: { userId?: string; share?: boolean } = {}) {
-  const account = await signIn(opts.userId);
+export async function setup(opts: { userId?: string; share?: boolean; account?: Awaited<ReturnType<typeof signIn>> } = {}) {
+  const account = opts.account ?? (await signIn(opts.userId));
   const host = await Device.create(account, "Studio", "macos");
   const viewer = await Device.create(account, "Laptop", "macos");
   await host.register();

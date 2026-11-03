@@ -1,7 +1,6 @@
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextFocus
-import struct CmuxNextLayout.DockColumn
 
 /// home-chief-pane.md H1 and H5. Home's pinned dock takes the tabs a person drags in (`allow_tabs`,
 /// Leo 2026-10-21) but opens nothing in itself, whoever asks: a person, the CLI, MCP or a script.
@@ -12,32 +11,63 @@ import struct CmuxNextLayout.DockColumn
 /// creator's `then`, so nothing moves a tab twice.
 @MainActor
 enum HomeDockOpens {
-    /// The pinned dock column holding `pane` in `store`, if any.
-    static func pinnedDock(holding pane: PaneModel, in store: DaemonStore) -> DockColumn? {
-        let handle = pane.handle
-        let column = store.workspace(containing: handle)?.screens.lazy.flatMap(\.columns).first { $0.layout.paneIDs.contains(handle) }
-        guard let dock = column?.dock.map({ LayoutMapping.dock($0) }), dock.isPinned else { return nil }
-        return dock
+    /// Owns the outbound hold from the moment a creator is prepared until it
+    /// names a surface. If creation is refused or cancelled before invoking
+    /// the callback, releasing this token restores the Home strip immediately.
+    @MainActor private final class PlacementHold {
+        let outbound: OutboundTab?
+        private var completed = false
+
+        init(_ outbound: OutboundTab?) { self.outbound = outbound }
+
+        func made(_ surface: SurfaceID) {
+            completed = true
+            outbound?.made(surface)
+        }
+
+        func cancel() {
+            guard !completed else { return }
+            completed = true
+            outbound?.finish(moved: false)
+        }
+
+        func fail() {
+            completed = true
+            outbound?.finish(moved: false)
+        }
+
+        // The creator owns cancellation on every refusal path. Keep deinit
+        // nonisolated: this token can be released by an action task.
+        nonisolated deinit {}
     }
 
     /// Whether a new tab made in `pane` moves beside it: `pane` is in Home's pinned dock while it
-    /// takes tabs. A dock closed to tabs needs no move: the daemon refuses or reroutes the tab.
+    /// takes tabs. A dock closed to tabs takes none (`dock-column-pinned`): its creators open beside it themselves.
     static func opensBeside(_ pane: PaneModel, services: AppServices) -> Bool {
-        pinnedDock(holding: pane, in: services.daemon(for: pane).store)?.allowsTabs == true
+        services.daemon(for: pane).store.pinnedDock(holding: pane.handle)?.allowsTabs == true
     }
 
     /// The `then` of a new tab made in `pane`: `then` runs, and a tab made in Home's dock then moves
     /// to a new column right of it, focusing `target` there when `focus` (else the focus stays where
-    /// it is). `then` itself anywhere else.
+    /// it is). `then` itself anywhere else. Called before the tab is made: the dock's strip leaves it
+    /// out until it has moved (``OutboundTab``), so it first shows in the column on the right.
     static func placing(_ pane: PaneModel, services: AppServices, focus: Bool, target: FocusState.Target = .content,
                         then: (@MainActor (SurfaceID) -> Void)?) -> (@MainActor (SurfaceID) -> Void)? {
         guard opensBeside(pane, services: services) else { return then }
+        // Arm before the creator issues its intent. Optimistic terminal and page
+        // creators insert provisional tabs synchronously, before `then` runs.
+        // The creator's own refusal paths release this hold; successful opens
+        // name it below before the callback can observe the strip.
+        let hold = PlacementHold(services.paneController(for: pane).map { OutboundTab.begin(in: $0) })
         return { [weak services] surface in
+            guard let services else { hold.cancel(); then?(surface); return }
+            hold.made(surface)
             then?(surface)
-            guard let services else { return }
             if let controller = services.paneController(for: pane) {
-                services.linkOpener.moveBeside(surface, from: controller, focus: focus, target: target)
+                services.linkOpener.moveBeside(surface, from: controller, focus: focus, target: target,
+                                                outbound: hold.outbound)
             } else {
+                hold.fail()
                 moveOffscreen(surface, from: pane, services: services)
             }
         }
@@ -53,5 +83,11 @@ enum HomeDockOpens {
             } != nil
             return moved ? nil : "home dock: the move beside it failed (see the app log)"
         })
+    }
+
+    /// Releases the most recently prepared Home placement when its creator
+    /// refuses before invoking the placement callback.
+    static func cancel(_ pane: PaneModel, services: AppServices) {
+        services.paneController(for: pane).map { OutboundTab.cancelLatest(in: $0) }
     }
 }

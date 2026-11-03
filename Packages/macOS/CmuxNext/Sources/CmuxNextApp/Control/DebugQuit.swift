@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextSettings
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// `debug.quit` reports or drives the automation quit sheet. `{}` reports;
 /// `{open: true}` starts an interactive quit, and `fixture_quit` performs a
 /// DEBUG-only fixture quit. `{press: ...}` answers a sheet or failure alert.

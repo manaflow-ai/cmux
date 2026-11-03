@@ -655,6 +655,54 @@
   "refused": true
  },
  {
+  "name": "subsession/limits for the chat in scope passes",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/subsession/limits",
+   "params": {
+    "sessionId": "a",
+    "maxRunning": 8
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": false
+ },
+ {
+  "name": "subsession/limits clearing the chat in scope passes",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/subsession/limits",
+   "params": {
+    "sessionId": "a",
+    "maxRunning": null
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": false
+ },
+ {
+  "name": "subsession/limits for another chat is refused",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/subsession/limits",
+   "params": {
+    "sessionId": "b",
+    "maxRunning": 8
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
+ },
+ {
   "name": "set_tools for the pane's chat passes",
   "frame": {
    "jsonrpc": "2.0",
@@ -697,6 +745,103 @@
    "params": {
     "id": "mcp:github",
     "enabled": true
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
+ },
+ {
+  "name": "session/auth naming a chat outside the scope is refused",
+  "sessions": [
+   "s1"
+  ],
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/session/auth",
+   "params": {
+    "sessionId": "s9",
+    "refresh": true
+   }
+  },
+  "refused": true
+ },
+ {
+  "name": "session/auth naming the pane's chat passes",
+  "sessions": [
+   "s1"
+  ],
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/session/auth",
+   "params": {
+    "sessionId": "s1"
+   }
+  },
+  "refused": false
+ },
+ {
+  "name": "session/auth of a target names no chat and passes",
+  "sessions": [
+   "s1"
+  ],
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/session/auth",
+   "params": {
+    "target": {
+     "harness": "claude"
+    }
+   }
+  },
+  "refused": false
+ },
+ {
+  "name": "session/auth naming a chat that is not a string is refused",
+  "sessions": [
+   "s1"
+  ],
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/session/auth",
+   "params": {
+    "sessionId": [
+     "s1"
+    ]
+   }
+  },
+  "refused": true
+ },
+ {
+  "name": "agent_hold for the chat in scope passes",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/agent_hold",
+   "params": {
+    "sessionId": "a",
+    "held": false
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": false
+ },
+ {
+  "name": "agent_hold for another chat is refused",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/agent_hold",
+   "params": {
+    "sessionId": "b",
+    "held": true
    }
   },
   "sessions": [

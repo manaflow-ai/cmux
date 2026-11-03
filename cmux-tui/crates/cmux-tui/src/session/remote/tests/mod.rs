@@ -163,6 +163,7 @@ fn test_session_with_abort_and_context(
 ) -> Arc<RemoteSession> {
     Arc::new(RemoteSession {
         interactive_writer: InteractiveWriter::spawn(writer, abort).unwrap(),
+        api_revision: Mutex::new(None),
         disconnect_state: disconnect::DisconnectCell::default(),
         pending: Mutex::new(PendingRemoteRequests::default()),
         next_id: AtomicU64::new(1),

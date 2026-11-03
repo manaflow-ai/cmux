@@ -3,9 +3,20 @@ import Carbon.HIToolbox
 import Quartz
 
 /// The grid's collection view: turns keys, double clicks and right clicks
-/// into ``FileGridCommand`` values for ``FileGridView`` and drives the Quick
-/// Look panel over the selection (Space, as in Finder).
+/// into ``FileGridCommand`` values for ``FileGridView``, runs clicks, Cmd-A
+/// and Esc through ``FileGridSelection`` (Cmd-click toggles, Shift-click
+/// selects a run), and drives the Quick Look panel over the selection
+/// (Space, as in Finder).
 final class FileGridCollectionView: NSCollectionView {
+    /// The selection now, with its anchor (``FileGridView`` keeps the anchor by file).
+    var currentSelection: () -> FileGridSelection = { FileGridSelection() }
+    /// Shows a selection (``FileGridView`` sets it). Nil leaves clicks to AppKit.
+    var applySelection: ((FileGridSelection) -> Void)?
+    /// Set when a drag of tiles began during the current click (the delegate reports it).
+    var dragBegan = false
+    /// Whether a press on a tile runs AppKit's own tracking (drag out, release). Tests of the
+    /// click rules turn it off: a ci-step Mac has no window server session to track a press in.
+    var tracksPresses = true
     /// Runs a command on the selection (``FileGridView`` sets it).
     var onCommand: ((FileGridCommand) -> Void)?
     /// The context menu for the current selection.
@@ -30,6 +41,10 @@ final class FileGridCollectionView: NSCollectionView {
             onCommand?(.trash)
         case (kVK_ANSI_C, [.command, .option]):
             onCommand?(.copyPath)
+        case (kVK_ANSI_A, [.command]):
+            selectAll(nil)
+        case (kVK_Escape, []) where !selectionIndexPaths.isEmpty:
+            applySelection?(currentSelection().cleared())
         default:
             super.keyDown(with: event)
         }
@@ -40,18 +55,61 @@ final class FileGridCollectionView: NSCollectionView {
         onCommand?(.copy)
     }
 
+    /// Edit > Select All and Cmd-A: every tile (the anchor stays).
+    override func selectAll(_ sender: Any?) {
+        guard let applySelection else { return super.selectAll(sender) }
+        applySelection(currentSelection().selectingAll(count: numberOfItems(inSection: 0)))
+    }
+
+    /// A click on a tile goes through ``FileGridSelection``; AppKit's own tracking still runs
+    /// (with the modifiers taken off) so a press that moves drags the selected tiles out. A click
+    /// on empty space (rubber band, select none) and Control-click (the menu) stay AppKit's.
     override func mouseDown(with event: NSEvent) {
-        super.mouseDown(with: event)
-        if event.clickCount == 2, !selectionIndexPaths.isEmpty { onCommand?(.open) }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard !flags.contains(.control), let applySelection,
+              let path = indexPathForItem(at: convert(event.locationInWindow, from: nil)) else {
+            super.mouseDown(with: event)
+            if event.clickCount == 2, !selectionIndexPaths.isEmpty { onCommand?(.open) }
+            return
+        }
+        let kind = FileGridClickKind(modifiers: flags)
+        let next = currentSelection().clicking(path.item, kind)
+        window?.makeFirstResponder(self)
+        dragBegan = false
+        if kind == .select {
+            // AppKit keeps a multi-selection under the press so it can be dragged, then
+            // collapses it on release; the model's result is applied after a release without a drag.
+            if tracksPresses { super.mouseDown(with: event) }
+            applySelection(dragBegan ? FileGridSelection(indices: currentSelection().indices, anchor: path.item) : next)
+            if event.clickCount == 2, !selectionIndexPaths.isEmpty { onCommand?(.open) }
+            return
+        }
+        applySelection(next)
+        // Cmd-click that took the tile out: nothing to drag.
+        guard next.indices.contains(path.item) else { return }
+        if tracksPresses { super.mouseDown(with: Self.unmodified(event)) }
+        // AppKit's plain-click tracking may have collapsed the selection on release.
+        applySelection(next)
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
         if let path = indexPathForItem(at: point), !selectionIndexPaths.contains(path) {
-            deselectAll(nil)
-            selectItems(at: [path], scrollPosition: [])
+            if let applySelection {
+                applySelection(currentSelection().clicking(path.item, .select))
+            } else {
+                deselectAll(nil)
+                selectItems(at: [path], scrollPosition: [])
+            }
         }
         return menuForSelection?()
+    }
+
+    /// `event` without its modifier keys, so AppKit tracks it as a plain press.
+    private static func unmodified(_ event: NSEvent) -> NSEvent {
+        NSEvent.mouseEvent(with: event.type, location: event.locationInWindow, modifierFlags: [], timestamp: event.timestamp,
+                           windowNumber: event.windowNumber, context: nil, eventNumber: event.eventNumber,
+                           clickCount: event.clickCount, pressure: event.pressure) ?? event
     }
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {

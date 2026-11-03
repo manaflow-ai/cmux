@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextHibernation
 import CmuxNextBridge
 @testable import CmuxNextBrowser
 import CmuxNextDesign
@@ -62,11 +63,11 @@ import Testing
     @Test func aFloatingPageIsNeverFrozen() async {
         let tab = Self.tab()
         tab.evaluationResult = .string(#"{"media":false,"form":false,"audio":false,"capturing":false}"#)
-        #expect(await PageProbe.run(tab).playingMedia == false, "an idle page counts as playing")
+        #expect(await BrowserHibernation.probe(tab).playingMedia == false, "an idle page counts as playing")
         tab.simulate(.mediaChanged(BrowserMediaState(title: "Clip", isPlaying: false, isVideo: true, isPictureInPicture: true)))
-        let probe = await PageProbe.run(tab)
+        let probe = await BrowserHibernation.probe(tab)
         #expect(probe.playingMedia, "a page whose video floats would freeze")
-        #expect(probe.exemption(pressure: .critical) != nil, "a page whose video floats would hibernate")
+        #expect(probe.exemption != nil, "a page whose video floats would hibernate")
     }
 
     @Test func aTabsMenuOffersItOnAVideoAndReadsAsExitWhileItFloats() throws {

@@ -1,5 +1,5 @@
 import { type Domain, type EventFrame, type OwnerEngine, type OwnerFrame, type Principal } from "@cmux/ownership"
-import { conversation, invites } from "@cmux/home-core"
+import { address, conversation, invites } from "@cmux/home-core"
 
 /** An invite still waiting for its recipient (pending, or waiting for approval). */
 const isOpen = (i: conversation.Invite) => i.status === "pending" || i.status === "pending_approval"
@@ -13,10 +13,12 @@ import { dmLinkOf, type DmLink } from "./conversation-dm-link.ts"
 import { firstName } from "./invite-first-name.ts"
 import { MAX_THREAD_PAGE, threadReplies, threadsOf, threadSummary } from "./conversation-threads.ts"
 import { LIVE_CAPABILITY, liveBuffer, liveSocketFrame } from "./conversation-live.ts"
+import { withSlack, slackDeliveryKey, slackOutbound, type SlackMessageInput } from "./conversation-slack.ts"
+import { textChiefOn, type TextBridge } from "./text-chief.ts"
 
 type Head = conversation.ConversationState
 /** A conversation socket remembers whether its sender last broadcast `typing on` (for close). */
-type ConvAttachment = Attachment & { typing?: boolean }
+type ConvAttachment = Attachment & { typing?: boolean; viewing?: boolean }
 const MAX_HISTORY_PAGE = 200
 /** Ops the Worker completes (home-routes.ts); refused on the conversation socket. */
 const MEMBERSHIP_ENDING_OPS = new Set(["participants.remove", "invite.accept", "invite.accept_verified", "invite.revoke", "conversation.sweep", "conversation.import.commit"])
@@ -76,7 +78,7 @@ export class ConversationDO extends OwnerDO<Head> {
   protected override readonly welcomeCapabilities: ReadonlyArray<string> = [LIVE_CAPABILITY] // Chief live frames (conversation-live.ts)
   constructor(ctx: DurableObjectState, env: Env) {
     const sql = { exec: <T>(q: string, ...b: Array<unknown>) => ctx.storage.sql.exec(q, ...b).toArray() as Array<T> }
-    const domain = conversation.makeConversationDomain({
+    const domain = withSlack(conversation.makeConversationDomain({
       participantPolicy: ownerRecordPolicy,
       // Verified uploads the author may use (home-attachment-store.ts); a read inside the reducer, no write.
       attachmentFor: (hash, actor, floor) => store.usableRecord(sql, hash, actor, floor) ?? undefined,
@@ -86,7 +88,7 @@ export class ConversationDO extends OwnerDO<Head> {
         const address = invites.normalizeEmail(p.email)
         return invites.isAddress(address) ? [invites.addressId(env.HOME_ADDRESS_KEY, address)] : []
       }
-    })
+    }))
     super(ctx, env, withAdmit("cloud:ConversationDO", domain as Domain<Head>), "conv", publicActor, {
       rowMode: { snapshotTable: conversation.TABLE_MSG, snapshotTail: 50 },
       redact: { ...conversation.conversationRedact, privateTables: conversation.PRIVATE_TABLES },
@@ -97,6 +99,13 @@ export class ConversationDO extends OwnerDO<Head> {
 
   /** Typing memos per participant, in memory only (home-core typingGate); lost on eviction, which is fine. */
   private readonly typing = new Map<string, conversation.TypingMemo>()
+
+  /** The platform bridge's verified Slack event, never a public op or socket principal. */
+  async slackMessage(entity: string, input: SlackMessageInput): Promise<SubmitResult> {
+    this.bind(entity)
+    // The engine receipts an exact delivery; the reducer dedupes the Slack message tuple.
+    return this.submitSystem("slack.message", input, slackDeliveryKey(input), "system:slack")
+  }
 
   private member(state: Head, principal: Principal) {
     const actor = conversation.actorOf(principal)
@@ -129,6 +138,8 @@ export class ConversationDO extends OwnerDO<Head> {
   protected routeFrame(ws: WebSocket, a: { principal: Principal }, frame: { readonly t?: string; readonly type?: unknown; readonly op?: unknown; readonly idempotency_key?: unknown }): boolean {
     const state = this.boundEngine?.currentState // Live Chief frames: run.live on subscribe and run.live.get (conversation-live.ts).
     if (liveSocketFrame(this.ctx, ws, frame, state?.id, !!state && this.member(state, a.principal) !== undefined)) return true
+    // Who views the conversation now, after the subscribe's own snapshot (ephemeral, never stored).
+    if (frame.t === "subscribe" && state && this.member(state, a.principal)) queueMicrotask(() => this.sendPresence(state, ws))
     if (frame.t !== "op" || typeof frame.op !== "string" || !WORKER_DERIVED_OPS.has(frame.op)) return false
     try { ws.send(JSON.stringify({ t: "reject", tx: "", idempotency_key: frame.idempotency_key ?? "", code: "validation.invalid", message: `${frame.op} goes through POST /v1/ops`, retryable: false, replayed: false })) } catch {}
     return true
@@ -196,7 +207,61 @@ export class ConversationDO extends OwnerDO<Head> {
     if (state && MEMBERSHIP_ENDING_OPS.has(op)) this.closeSockets((p) => this.member(state, p) === undefined, "not a participant")
     // A retract, an edit or a retention batch may release attachment references: older uploads may now be collectable.
     const result = frames.find((f) => f.t === "result")
+    if (result?.t === "result" && op === "message.send" && state) this.textOut(state, _principal, result as { value?: { message_id?: string }; replayed?: boolean })
     if (result?.t === "result" && (op === "message.retract" || op === "message.edit" || (op === conversation.SWEEP_OP && (result.value as { retention?: unknown }).retention !== undefined))) store.markDirty(this.sqlStore, Date.now())
+    if (state && op === "message.send" && result?.t === "result") {
+      const id = (result.value as { message_id?: string }).message_id
+      const rows = this.boundEngine!.rows
+      const message = id ? rows.get<conversation.Message>(conversation.TABLE_MSG, id)?.row : undefined
+      const delivery = message && slackOutbound(rows, message, state)
+      if (delivery) {
+        const brain = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(`${delivery.agent}/${state.id}`))
+        this.ctx.waitUntil(brain.slackOutbound(delivery).catch(() => console.warn(JSON.stringify({ msg: "chief.slack.outbound_failed" }))))
+      }
+    }
+  }
+
+  /**
+   * Texting Chief (text-chief.ts): the sender's AddressDO sets the bridge before it posts a text here,
+   * and this conversation's Chief replies go back as texts while it lasts. A message the person
+   * writes in the app ends it (they are back in cmux).
+   */
+  async textBridge(entity: string, bridge: TextBridge | null): Promise<void> {
+    this.bind(entity)
+    this.sqlStore.exec(`CREATE TABLE IF NOT EXISTS text_bridge (k INTEGER PRIMARY KEY CHECK (k = 1), address TEXT NOT NULL, until INTEGER NOT NULL)`)
+    if (bridge) this.sqlStore.exec(`INSERT INTO text_bridge (k, address, until) VALUES (1, ?, ?) ON CONFLICT (k) DO UPDATE SET address = excluded.address, until = excluded.until`, bridge.address, bridge.until)
+    else this.sqlStore.exec(`DELETE FROM text_bridge`)
+  }
+
+  /** The live bridge's AddressDO id, or null. */
+  private bridgeAddress(): string | null {
+    if (!textChiefOn(this.env)) return null
+    const has = this.sqlStore.exec(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'text_bridge'`).length > 0
+    if (!has) return null
+    return this.sqlStore.exec<{ address: string; until: number }>(`SELECT address, until FROM text_bridge WHERE k = 1`).find((r) => r.until > Date.now())?.address ?? null
+  }
+
+  private addressStub(id: string) {
+    return this.env.ADDRESS_DO.get(this.env.ADDRESS_DO.idFromName(id)) as unknown as { chiefReply(entity: string, r: { message: string; agent: string; name: string; text: string }): Promise<string>; chiefTyping(entity: string): Promise<void> }
+  }
+
+  /** After a committed message.send: a Chief's words go out as a text; the person's own app message ends the bridge. */
+  private textOut(state: NonNullable<Head>, principal: Principal, result: { value?: { message_id?: string }; replayed?: boolean }) {
+    const addr = this.bridgeAddress()
+    if (!addr || result.replayed || !result.value?.message_id) return
+    const actor = conversation.actorOf(principal)
+    const member = actor ? this.memberById(state, actor) : undefined
+    if (!member) return
+    if (member.kind !== "agent") {
+      if (!principal.identity.startsWith("text:")) this.sqlStore.exec(`DELETE FROM text_bridge`)
+      return
+    }
+    const message = this.boundEngine?.rows.get<conversation.Message>(conversation.TABLE_MSG, result.value.message_id)?.row
+    if (!message) return
+    const text = address.partsText(message.parts as ReadonlyArray<{ type: string }>)
+    if (!text.trim()) return
+    const name = member.display_name ?? "Chief"
+    this.ctx.waitUntil(this.addressStub(addr).chiefReply(addr, { message: message.id, agent: member.id, name, text }).then((outcome) => console.log(JSON.stringify({ msg: "text chief reply", outcome }))).catch(() => {}))
   }
 
   /** What the attachment storage paths (home-attachment-gc.ts) need from this object. */
@@ -259,9 +324,26 @@ export class ConversationDO extends OwnerDO<Head> {
    * `typing {on, conversation?}`: an ephemeral broadcast to the other subscribed members as
    * `conversation-typing {conversation, participant, on}` (home-messaging.md section 20 row 7).
    * Never committed, never in the ledger or the outbox; limited per participant by typingGate.
+   * `presence.set {conversation, viewing}`: this socket's viewing state, broadcast to the members
+   * as `conversation-presence` (sendPresence). Also ephemeral: it lives on the socket attachment.
    */
   protected onFrame(ws: WebSocket, frame: { readonly t?: string } & Record<string, unknown>): boolean {
-    if (frame.t !== "typing") return false
+    if (frame.t !== "typing" && frame.t !== "presence.set") return false
+    if (frame.t === "presence.set") {
+      const a = ws.deserializeAttachment() as ConvAttachment | null
+      const state = this.boundEngine?.currentState
+      const actor = a ? conversation.actorOf(a.principal) : null
+      const member = state && actor ? this.memberById(state, actor) : undefined
+      if (!a || !state || !actor || !member || member.kind === "address" || frame.conversation !== state.id || typeof frame.viewing !== "boolean") {
+        try { ws.send(JSON.stringify({ t: "error", code: "auth.forbidden", message: "not a participant" })) } catch {}
+        return true
+      }
+      // Only a change broadcasts, so a repeated frame costs the members nothing.
+      if ((a.viewing === true) === frame.viewing) return true
+      ws.serializeAttachment({ ...a, viewing: frame.viewing } satisfies ConvAttachment)
+      this.sendPresence(state)
+      return true
+    }
     const a = ws.deserializeAttachment() as ConvAttachment | null
     const state = this.boundEngine?.currentState
     const fail = (code: string, message: string) => {
@@ -286,6 +368,7 @@ export class ConversationDO extends OwnerDO<Head> {
     const state = this.boundEngine?.currentState
     const actor = a ? conversation.actorOf(a.principal) : null
     if (a?.typing && state && actor) this.sendTyping(state, actor, false, ws, true)
+    if (a?.viewing && state) this.sendPresence(state, null, ws)
     await super.webSocketClose(ws, code)
   }
 
@@ -295,7 +378,11 @@ export class ConversationDO extends OwnerDO<Head> {
     if (!state || this.memberById(state, agent)?.kind !== "agent") return
     // A brain's `off` always passes (once per turn end or skipped wake): a client that shows "Thinking…" from
     // the send waits for it even when this brain never typed (a skipped turn, brain-turn.ts skip).
-    if ("typing" in f) return void (conversation.checkTyping(state, agent) || this.sendTyping(state, agent, f.typing, null, !f.typing))
+    if ("typing" in f) {
+      const addr = f.typing ? this.bridgeAddress() : null
+      if (addr) this.ctx.waitUntil(this.addressStub(addr).chiefTyping(addr).catch(() => {}))
+      return void (conversation.checkTyping(state, agent) || this.sendTyping(state, agent, f.typing, null, !f.typing))
+    }
     const live = "live" in f ? liveBuffer(this.ctx).apply(state.id, agent, f.live) : (liveBuffer(this.ctx).runChanged(agent, f.run, f.steps), { frame: JSON.stringify({ t: "conversation-run-changed", conversation: state.id, run: f.run, steps: f.steps }), reset: false })
     if (live) [this.toMembers(state, null, live.frame), live.reset && this.toMembers(state, null, liveBuffer(this.ctx).snapshot(state.id))]
   }
@@ -305,6 +392,22 @@ export class ConversationDO extends OwnerDO<Head> {
     const decision = force ? { send: true, memo: memo ? { ...memo, on: false, at: Date.now() } : undefined } : conversation.typingGate(memo, on, Date.now())
     if (decision.memo) this.typing.set(actor, decision.memo)
     if (decision.send) this.toMembers(state, from, JSON.stringify({ t: "conversation-typing", conversation: state.id, participant: actor, on }))
+  }
+
+  /** `conversation-presence`: the members with a viewing socket, read from the socket
+   * attachments (they survive hibernation; nothing is stored). Keyed per socket, so one person on
+   * two devices stays until both stop. `closing` is a socket that is going away. */
+  private sendPresence(state: NonNullable<Head>, only: WebSocket | null = null, closing: WebSocket | null = null) {
+    const viewers = new Set<string>()
+    for (const ws of this.ctx.getWebSockets()) {
+      if (ws === closing) continue
+      const a = ws.deserializeAttachment() as ConvAttachment | null
+      const actor = a?.viewing ? conversation.actorOf(a.principal) : null
+      if (actor && this.member(state, a!.principal)) viewers.add(actor)
+    }
+    const participants = [...viewers].map((participant) => ({ participant, viewing: true }))
+    const text = JSON.stringify({ t: "conversation-presence", conversation: state.id, participants })
+    if (only) { try { only.send(text) } catch {} } else this.toMembers(state, closing, text)
   }
 
   private toMembers(state: NonNullable<Head>, from: WebSocket | null, text: string) {
@@ -535,6 +638,12 @@ export class ConversationDO extends OwnerDO<Head> {
     return store.takeSlot(this.sqlStore, id, mode, consume, actor)
   }
 
+  /** This actor's `uploading` slot whose completion may be resumed (store.completingSlot). */
+  async completingSlot(entity: string, id: string, mode: store.UploadSlot["mode"], actor: string): Promise<store.UploadSlot | null> {
+    if (!this.existingState(entity)) return null
+    return store.completingSlot(this.sqlStore, id, mode, actor)
+  }
+
   /** The open slot whose declared poster or preview may be PUT now (moved to `uploading`). */
   async derivedSlot(entity: string, id: string): Promise<store.UploadSlot | null> {
     if (!this.existingState(entity)) return null
@@ -546,7 +655,84 @@ export class ConversationDO extends OwnerDO<Head> {
     if (this.existingState(entity)) store.settleDerived(this.sqlStore, id, etag)
   }
 
+  async setMultipartUpload(entity: string, id: string, uploadId: string, objectKey?: string): Promise<boolean> {
+    if (!this.existingState(entity)) return false
+    const kept = store.setMultipartUpload(this.sqlStore, id, uploadId, Date.now(), objectKey)
+    // A refused upload is queued for an abort; the alarm runs it.
+    if (!kept) this.scheduleAlarm()
+    return kept
+  }
+
+  /** An upload no slot names whose abort failed (an intent's lost owner call): the alarm aborts it later. */
+  async queueMultipartAbort(entity: string, objectKey: string, uploadId: string): Promise<void> {
+    if (!this.existingState(entity)) return
+    store.queueAbort(this.sqlStore, { upload_id: uploadId, object_key: objectKey }, Date.now())
+    this.scheduleAlarm()
+  }
+
+  /** Claims the next part of an open multipart slot for one request before it reaches R2 (store.claimMultipartPart). */
+  async claimMultipartPart(entity: string, id: string, part: number, before: string | null): Promise<{ ok: true; claim: string } | { ok: false; busy: boolean }> {
+    if (!this.existingState(entity)) return { ok: false, busy: false }
+    const claimed = store.claimMultipartPart(this.sqlStore, id, part, before)
+    this.scheduleAlarm()
+    return claimed
+  }
+
+  /** A streaming part's claim is still its request's: renewed, or false when it was taken over (store.renewMultipartPart). */
+  async renewMultipartPart(entity: string, id: string, claim: string): Promise<boolean> {
+    if (!this.existingState(entity)) return false
+    const renewed = store.renewMultipartPart(this.sqlStore, id, claim)
+    this.scheduleAlarm()
+    return renewed
+  }
+
+  /** Ends a part claim whose upload failed (store.releaseMultipartPart). */
+  async releaseMultipartPart(entity: string, id: string, claim: string): Promise<void> {
+    if (this.existingState(entity)) store.releaseMultipartPart(this.sqlStore, id, claim)
+  }
+
+  /** Records a verified part of an open multipart slot under its claim (store.recordMultipartPart): false when another part, another claim or the expiry came first. */
+  async recordMultipartPart(entity: string, id: string, part: number, etag: string, before: string | null, after: string, claim: string): Promise<boolean> {
+    if (!this.existingState(entity)) return false
+    const recorded = store.recordMultipartPart(this.sqlStore, id, part, etag, before, after, claim)
+    this.scheduleAlarm()
+    return recorded
+  }
+
+  async leaseDirect(entity: string, id: string): Promise<store.UploadSlot | null> {
+    if (!this.existingState(entity)) return null
+    const slot = store.leaseDirect(this.sqlStore, id)
+    this.scheduleAlarm()
+    return slot
+  }
+
+  async advanceDirect(entity: string, id: string, before: string | null, after: string): Promise<boolean> {
+    if (!this.existingState(entity)) return false
+    const advanced = store.advanceDirect(this.sqlStore, id, before, after)
+    this.scheduleAlarm()
+    return advanced
+  }
+
+  async multipartEtags(entity: string, id: string): Promise<Array<string>> {
+    return this.existingState(entity) ? store.multipartEtags(this.sqlStore, id) : []
+  }
+
+  /** A multipart completion that may not have happened: the slot is open again (store.reopenMultipart). */
+  async reopenMultipart(entity: string, id: string): Promise<boolean> {
+    if (!this.existingState(entity)) return false
+    const reopened = store.reopenMultipart(this.sqlStore, id)
+    this.scheduleAlarm()
+    return reopened
+  }
+
   /** Ends an `uploading` slot whose bytes failed verification (the Worker deleted its object). */
+  /** An open multipart slot whose intent failed with no upload of it left alive: it goes at once (the Worker refunds its bytes). */
+  async dropUploadSlot(entity: string, id: string): Promise<void> {
+    if (!this.existingState(entity)) return
+    const slot = store.slotIn(this.sqlStore, id, "open")
+    if (slot?.mode === "multipart" || slot?.mode === "direct") store.removeSlot(this.sqlStore, id)
+  }
+
   async settleSlot(entity: string, id: string): Promise<void> {
     if (!this.existingState(entity)) return
     const slot = store.slotIn(this.sqlStore, id, "uploading")
@@ -557,15 +743,26 @@ export class ConversationDO extends OwnerDO<Head> {
    * After the Worker verified the bytes of `uploading` slot `slotId`: records the upload for a
    * still-current participant of an open conversation and settles the slot in the same step.
    * `exists`: the bytes were already here, the caller deletes the slot's object and refunds.
+   * `objectId` (the slot's): when the slot is gone because this upload already committed (a retry
+   * after a lost answer), its record answers `stored` again, so the caller never deletes a kept object.
    */
   async commitAttachment(
     entity: string,
     slotId: string,
-    etag?: string
+    etag?: string,
+    objectId?: string
   ): Promise<{ ok: true; state: "stored" | "exists"; object_key: string; derived?: conversation.DerivedImage } | { ok: false; code: "auth.forbidden" | "archived" | "slot_gone" }> {
     if (!this.existingState(entity)) return { ok: false, code: "slot_gone" }
-    const slot = store.slotIn(this.sqlStore, slotId, "uploading")
-    if (!slot) return { ok: false, code: "slot_gone" }
+    // A multipart slot is committed only after R2 joined its parts and the object was checked, so an open one counts
+    // too: a concurrent completion retry that failed transiently may have reopened it while this one completed.
+    const open = store.slotIn(this.sqlStore, slotId, "open")
+    const slot = store.slotIn(this.sqlStore, slotId, "uploading") ?? (open?.mode === "multipart" && open.multipart_upload_id ? open : null)
+    if (!slot) {
+      const kept = objectId ? store.recordByObjectId(this.sqlStore, objectId) : undefined
+      if (!kept) return { ok: false, code: "slot_gone" }
+      const image = conversation.recordedImageOf(kept)?.image
+      return { ok: true, state: "stored", object_key: kept.object_key, ...(image ? { derived: { hash: image.hash, mime_type: image.mime_type, byte_count: image.byte_count } } : {}) }
+    }
     const a = this.acting(entity, slot.actor)
     if (!a || !a.open) {
       store.settleSlot(this.sqlStore, slot, false)

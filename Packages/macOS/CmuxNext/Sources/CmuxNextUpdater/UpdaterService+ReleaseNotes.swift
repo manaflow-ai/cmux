@@ -7,7 +7,7 @@ extension UpdaterService {
     public var releaseNotes: ReleaseNotesStore? {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         let cache = caches.appending(path: "\(identity.bundleIdentifier ?? "cmux")/release-notes", directoryHint: .isDirectory)
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         // The update harness signs its own notes next to its loopback feed.
         if let harness = UpdateHarness.current, let key = harness.contentKey {
             return ReleaseNotesStore(feedURL: harness.feedURL, cache: cache.appending(path: "harness", directoryHint: .isDirectory), publicKey: key)
@@ -34,7 +34,7 @@ extension UpdaterService {
     public var changelogReadsDevelopmentNotes: Bool {
         // A DEV bundle carries the stable feed URL (or none): neither publishes notes.
         guard testFeedURL == nil, identity.track == .development, identity.feed().channel != .nightlyNext else { return false }
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if UpdateHarness.current?.contentKey != nil { return false }
         #endif
         return true

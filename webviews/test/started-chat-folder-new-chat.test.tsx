@@ -77,7 +77,7 @@ afterAll(() => {
   }
 });
 
-async function mount() {
+async function mount(options: { onBrowseFolder?: () => Promise<string | undefined> } = {}) {
   const { createRoot } = await import("react-dom/client");
   const { ComposerContext } = await import("../src/agent-session/acpmux/ComposerContext");
   const calls: { method: string; cwd: string }[] = [];
@@ -90,6 +90,7 @@ async function mount() {
     ],
     onMove: (cwd: string) => calls.push({ method: "move", cwd }),
     onNewChat: (cwd: string) => calls.push({ method: "newChat", cwd }),
+    ...(options.onBrowseFolder ? { onBrowseFolder: options.onBrowseFolder } : {}),
   } as unknown as Parameters<typeof ComposerContext>[0];
   root = createRoot(host);
   await act(async () => root!.render(<ComposerContext {...props} />));
@@ -116,9 +117,11 @@ test("choosing another folder in a started chat starts a new chat there, never a
       element.classList.contains("acpmux-menu-item") && element.querySelector('[title="/work/site"]') !== null,
   );
   expect(site, "the folder list is missing").toBeTruthy();
+  // A real press: the row picks on its mousedown and the click that follows (detail 1) does not
+  // pick again (ui/Combobox.tsx); a bare `click()` (detail 0) would be a second, separate pick.
   await act(async () => {
-    site!.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true }));
-    site!.click();
+    site!.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0, detail: 1 }));
+    site!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, button: 0, detail: 1 }));
   });
   expect(calls).toEqual([{ method: "newChat", cwd: "/work/site" }]);
 });
@@ -131,5 +134,55 @@ test("a started chat's folder menu offers New Chat Here in its own folder", asyn
   );
   expect(here, "no New Chat Here").toBeTruthy();
   await act(async () => here!.click());
+  expect(calls).toEqual([{ method: "newChat", cwd: "/work/app" }]);
+});
+
+test("a late folder browse cannot create a chat after a newer folder pick", async () => {
+  let resolveBrowse!: (cwd: string | undefined) => void;
+  const calls = await mount({
+    onBrowseFolder: () => new Promise<string | undefined>((resolve) => (resolveBrowse = resolve)),
+  });
+  await openFolder();
+  const choose = everywhere().find(
+    (element) => element.tagName === "BUTTON" && element.textContent?.trim() === "Choose folder…",
+  );
+  expect(choose, "no Choose folder action").toBeTruthy();
+  await act(async () => choose!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, detail: 1 })));
+  expect(resolveBrowse).toBeTypeOf("function");
+
+  await openFolder();
+  const site = everywhere().find(
+    (element) =>
+      element.classList.contains("acpmux-menu-item") && element.querySelector('[title="/work/site"]') !== null,
+  );
+  expect(site, "the folder list is missing").toBeTruthy();
+  await act(async () => {
+    site!.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0, detail: 1 }));
+    site!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, button: 0, detail: 1 }));
+  });
+  await act(async () => resolveBrowse("/work/late"));
+  expect(calls).toEqual([{ method: "newChat", cwd: "/work/site" }]);
+});
+
+test("New Chat Here also invalidates a pending folder browse", async () => {
+  let resolveBrowse!: (cwd: string | undefined) => void;
+  const calls = await mount({
+    onBrowseFolder: () => new Promise<string | undefined>((resolve) => (resolveBrowse = resolve)),
+  });
+  await openFolder();
+  const choose = everywhere().find(
+    (element) => element.tagName === "BUTTON" && element.textContent?.trim() === "Choose folder…",
+  );
+  expect(choose, "no Choose folder action").toBeTruthy();
+  await act(async () => choose!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, detail: 1 })));
+  expect(resolveBrowse).toBeTypeOf("function");
+
+  await openFolder();
+  const here = everywhere().find(
+    (element) => element.tagName === "BUTTON" && element.textContent?.trim() === "New Chat Here",
+  );
+  expect(here, "no New Chat Here").toBeTruthy();
+  await act(async () => here!.click());
+  await act(async () => resolveBrowse("/work/late"));
   expect(calls).toEqual([{ method: "newChat", cwd: "/work/app" }]);
 });

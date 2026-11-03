@@ -30,15 +30,15 @@ from pathlib import Path
 
 HOPS = [
     "dispatch_start_ms", "dispatch_end_ms", "io_write_ms", "socket_submit_ms",
-    "output_decoded_ms", "output_main_ms", "output_parsed_ms", "contents_ms",
+    "output_decoded_ms", "output_received_ms", "output_parsed_ms", "contents_ms",
 ]
 SEGMENTS = [
     ("event to dispatch", None, "dispatch_start_ms"),
     ("dispatch to io_write", "dispatch_start_ms", "io_write_ms"),
     ("io_write to socket", "io_write_ms", "socket_submit_ms"),
     ("socket to echo decoded (daemon, host, shell)", "socket_submit_ms", "output_decoded_ms"),
-    ("decoded to main actor", "output_decoded_ms", "output_main_ms"),
-    ("main actor to parsed", "output_main_ms", "output_parsed_ms"),
+    ("decoded to taken by the session", "output_decoded_ms", "output_received_ms"),
+    ("taken to parsed", "output_received_ms", "output_parsed_ms"),
     ("parsed to frame contents", "output_parsed_ms", "contents_ms"),
 ]
 

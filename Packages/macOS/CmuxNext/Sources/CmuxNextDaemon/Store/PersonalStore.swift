@@ -11,18 +11,33 @@ public final class PersonalStore {
     public internal(set) var isLoaded = false
     public internal(set) var revision: UInt64 = 0
     public internal(set) var sessions: [SessionRecord] = [] {
-        didSet { sessionIndex = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }) }
+        didSet {
+            sessionIndex = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            let icons = sessions.map(SessionIcon.init)
+            if icons != sessionIcons { sessionIcons = icons }
+        }
+    }
+    /// `sessions` as a machine header draws them (id, transport, icon), set only when one of those changes: a record's
+    /// other fields moving (`last_seen_ms`, names, capabilities) no longer wake the sidebar's pass, which walked and
+    /// sorted every workspace on main for each `list-personal` that touched any session record.
+    public private(set) var sessionIcons: [SessionIcon] = [] {
+        didSet { sessionIconIndex = Dictionary(sessionIcons.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }) }
     }
     /// Sessions each room follows.
     public internal(set) var follows: [ProfileID: Set<String>] = [:]
-    public internal(set) var pins: [WorkspacePin] = []
+    public internal(set) var pins: [WorkspacePin] = [] {
+        didSet { pinIndex = personalPinIndex(pins) }
+    }
     /// Personal workspace groups in order, each in one room.
     public internal(set) var groups: [WorkspaceGroupModel] = []
     /// Room of each personal group.
     public internal(set) var groupRooms: [WorkspaceGroupID: ProfileID] = [:]
     /// Personal organization per qualified workspace.
     public internal(set) var workspaces: [PersonalWorkspace] = [] {
-        didSet { workspaceIndex = personalWorkspaceIndex(workspaces) }
+        didSet {
+            workspaceIndex = personalWorkspaceIndex(workspaces)
+            workspaceOrder = workspaces.sorted { $0.index < $1.index }
+        }
     }
     /// Per-terminal themes, keyed `session_id` then terminal key.
     public internal(set) var terminalThemes: [String: [String: String]] = [:]
@@ -36,8 +51,16 @@ public final class PersonalStore {
     /// `workspaces` by session then key, rebuilt when the list is set: a lookup per row or per tab
     /// (sidebar rows, tab badges, themes) is O(1), not a scan of every workspace (space-switch-fast).
     @ObservationIgnored private var workspaceIndex: [String: [String: PersonalWorkspace]] = [:]
+    /// `workspaces` by personal position, sorted once when the list is set: the sidebar's pass reads it on every run
+    /// instead of sorting every personal row of every session each time.
+    @ObservationIgnored private var workspaceOrder: [PersonalWorkspace] = []
     /// `sessions` by id, rebuilt when the list is set.
     @ObservationIgnored private var sessionIndex: [String: SessionRecord] = [:]
+    /// `sessionIcons` by id, rebuilt when the list is set.
+    @ObservationIgnored private var sessionIconIndex: [String: SessionIcon] = [:]
+    /// `pins` as session, then workspace key, to room, rebuilt when the list is set: a room lookup per switch or per
+    /// row is O(1), never a pass over every pin (switch-scale: each workspace select and space switch built it).
+    @ObservationIgnored private var pinIndex: [String: [String: ProfileID]] = [:]
 
     public init() {}
 
@@ -48,6 +71,11 @@ public final class PersonalStore {
     public func session(_ id: String) -> SessionRecord? {
         _ = sessions
         return sessionIndex[id]
+    }
+    /// Session `id`'s icon record; observes `sessionIcons` only, never the rest of its record.
+    public func sessionIcon(_ id: String) -> SessionIcon? {
+        _ = sessionIcons
+        return sessionIconIndex[id]
     }
     public func group(_ id: WorkspaceGroupID) -> WorkspaceGroupModel? { groups.first { $0.id == id } }
     /// The group the sidebar-document group item `id` names, as the daemon reads it: `itm_g_<id>` first.
@@ -60,9 +88,50 @@ public final class PersonalStore {
         item.hasPrefix("itm_g_") ? WorkspaceGroupID(rawValue: String(item.dropFirst(6))) : nil
     }
 
+    /// Every pin as session, then workspace key, to its one room. Reads `pins` (observed as before), then returns the
+    /// index kept with it: no work per call.
+    public var pinnedRooms: [String: [String: ProfileID]] {
+        _ = pins
+        return pinIndex
+    }
+
     public func workspace(session: String, key: String) -> PersonalWorkspace? {
         _ = workspaces
         return workspaceIndex[session]?[key]
+    }
+
+    /// `session`'s rows by workspace key (the first row of a key wins), from the index kept with the list.
+    public func workspaces(session: String) -> [String: PersonalWorkspace] {
+        _ = workspaces
+        return workspaceIndex[session] ?? [:]
+    }
+
+    /// Every row by personal position (`index`), sorted when the list was set. Reads `workspaces` (observed as before).
+    public var workspacesInOrder: [PersonalWorkspace] {
+        _ = workspaces
+        return workspaceOrder
+    }
+
+    /// The final personal index (`workspace.place`) that puts the row of `key` on `session` right after the last row of
+    /// `group` in the personal order; nil when no other row is in the group. A row that joins a group by its personal
+    /// state lands in the sidebar document right after its neighbor in this order, so it is placed after the group's
+    /// last member rather than after whatever row it followed.
+    public func index(afterLastMemberOf group: WorkspaceGroupID, moving key: String, session: String) -> Int? {
+        let others = workspacesInOrder.filter { $0.sessionID != session || $0.workspaceKey.rawValue != key }
+        return others.lastIndex { $0.group == group }.map { $0 + 1 }
+    }
+}
+
+/// What a machine header draws from a session record: its id, how it is reached and its icon.
+public struct SessionIcon: Sendable, Hashable, Identifiable {
+    public var id: String
+    public var transport: JSONValue?
+    public var icon: String?
+
+    public init(_ record: SessionRecord) {
+        id = record.id
+        transport = record.transport
+        icon = record.icon
     }
 }
 
@@ -75,13 +144,20 @@ private func personalWorkspaceIndex(_ workspaces: [PersonalWorkspace]) -> [Strin
     return index
 }
 
+/// `pins` by session then key; the last pin of a workspace wins, as building a dictionary from the list did.
+private func personalPinIndex(_ pins: [WorkspacePin]) -> [String: [String: ProfileID]] {
+    var index: [String: [String: ProfileID]] = [:]
+    for pin in pins { index[pin.sessionID, default: [:]][pin.workspaceKey.rawValue] = pin.profile }
+    return index
+}
+
 extension DaemonStore {
     /// Whether this daemon serves personal state (`profiles-v1`).
-    public var supportsProfiles: Bool { identity?.supports(DaemonCapabilities.profiles) ?? false }
+    public var supportsProfiles: Bool { identity?.supports(DaemonCapability.profiles.rawValue) ?? false }
 
     /// Whether personal groups carry a place among the loose workspaces
     /// (`personal-mixed-order-v1`).
-    public var supportsPersonalMixedOrder: Bool { identity?.supports(DaemonCapabilities.personalMixedOrder) ?? false }
+    public var supportsPersonalMixedOrder: Bool { identity?.supports(DaemonCapability.personalMixedOrder.rawValue) ?? false }
 
     func applyPersonal(_ state: PersonalState?) {
         guard let state else {

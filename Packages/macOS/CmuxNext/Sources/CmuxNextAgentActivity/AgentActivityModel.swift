@@ -13,6 +13,10 @@ public protocol AgentActivitySource: AnyObject {
     func follow(session: String, _ on: Bool)
     /// Decoded pixels of a frame, or nil when unavailable.
     func image(for frame: AgentActivityFrameRef) async -> NSImage?
+    /// A frame's encoded bytes for the page, as the host stores them (no
+    /// decode on the main actor), or nil when unavailable. `session` is the
+    /// frame's session, which `full` needs to find the full frame.
+    func frame(_ frame: AgentActivityFrameRef, size: AgentActivityFrameSize, session: String?) async -> AgentActivityFrameData?
     /// Sends a user operation to the owning host.
     func perform(_ op: AgentActivityUserOp) async throws
 }
@@ -160,6 +164,7 @@ public final class AgentActivityModel {
     public func scrub(to seq: UInt64?) {
         guard let seq, let last = selectedEvents.last, seq != last.seq else {
             scrubSeq = nil
+            notifyChange()
             return
         }
         scrubSeq = selectedEvents.contains { $0.seq == seq } ? seq : nil
@@ -190,19 +195,22 @@ public final class AgentActivityModel {
     // MARK: User operations (sent to the host; no optimistic change)
 
     public func perform(_ op: AgentActivityUserOp) {
-        if case let .watch(session, on) = op {
-            if on { watching.insert(session) } else { watching.remove(session) }
-            notifyChange()
-        }
-        Task { @MainActor [source] in
-            do {
-                try await source.perform(op)
-                self.lastOperationError = nil
-                self.notifyChange()
-            } catch {
-                self.lastOperationError = String(describing: error)
-                self.notifyChange()
+        Task { try? await performAndWait(op) }
+    }
+
+    /// Reports the host's result to page callers as well as native controls.
+    public func performAndWait(_ op: AgentActivityUserOp) async throws {
+        do {
+            try await source.perform(op)
+            lastOperationError = nil
+            if case let .watch(session, on) = op {
+                if on { watching.insert(session) } else { watching.remove(session) }
             }
+            notifyChange()
+        } catch {
+            lastOperationError = String(describing: error)
+            notifyChange()
+            throw error
         }
     }
 

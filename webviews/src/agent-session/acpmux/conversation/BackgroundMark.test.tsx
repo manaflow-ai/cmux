@@ -15,6 +15,8 @@ import { BackgroundTaskNote } from "./BackgroundTaskNote";
 import {
   BACKGROUND_TAIL_BYTES,
   BackgroundTaskOutputContext,
+  readBackgroundTaskOutput,
+  tailLines,
   type BackgroundTaskOutputReader,
 } from "./backgroundTaskOutput";
 import { resetTranscriptDisclosure } from "./transcriptDisclosure";
@@ -95,12 +97,16 @@ for (const [name, Row] of [
   ["CommandRow", CommandRow],
   ["ToolRow", ToolRow],
 ] as const) {
-  test(`${name}: running in the background shows the running mark and no time`, async () => {
+  test(`${name}: running in the background shimmers its words, with no mark at the edge and no time`, async () => {
     const container = await render(<Row item={call({ state: "running" })} />);
     const mark = container.querySelector(".cv-command__bg-state")!;
     expect(mark.getAttribute("title")).toBe(translate("tools.background.running"));
     expect(mark.textContent).toBe(translate("tools.background.running"));
-    expect(mark.querySelector(".cv-spinner")).not.toBeNull();
+    // Leo, 2026-11-03, on its spinner a whole column away from the words: "this is kinda weird looking".
+    expect(container.querySelector(".cv-spinner")).toBeNull();
+    const shimmer = container.querySelector(".cv-row-shimmer")!;
+    expect(shimmer.getAttribute("aria-hidden")).toBe("true");
+    expect(shimmer.hasAttribute("inert")).toBe(true);
     expect(container.querySelector(".cv-command__ok")).toBeNull();
     expect(container.querySelector(".cv-command__time")).toBeNull();
   });
@@ -108,6 +114,7 @@ for (const [name, Row] of [
   test(`${name}: finished in the background is a check with the shell's whole run time`, async () => {
     const container = await render(<Row item={call({ state: "completed", endedAt: STARTED + 6_100 })} />);
     expect(container.querySelector(".cv-command__bg-state")).toBeNull();
+    expect(container.querySelector(".cv-row-shimmer")).toBeNull();
     expect(container.querySelector(".cv-command__ok")).not.toBeNull();
     // Its time runs to the shell's end, not the launch's 200ms.
     expect(container.querySelector(".cv-command__time")!.textContent).toBe(translate("duration.s", { n: "6.1" }));
@@ -137,7 +144,9 @@ test("a background task's end without its call names the command in a few words"
     'export PATH="/Applications/cmux NIGHTLY.app/Contents/Resources/bin:$PATH"; B=~/Projects/leo-workspace; cmux browser open https://example.com';
   const container = await render(<BackgroundTaskNote task={{ toolCallId: "bg9", command, state: "completed" }} />);
   const note = container.querySelector(".cv-bgtask")!;
-  expect(note.textContent).toBe(translate("bgTask.completed", { command: "cmux browser open https://example.com" }));
+  // "Background command completed" (muted), then the command (Leo, 2026-11-03, on Claude Code desktop's
+  // tool rows: "claude code desktop's summarization of tool calls/parsing of them seem kinda good?").
+  expect(note.textContent).toBe(`${translate("bgTask.completedLead")} cmux browser open https://example.com`);
   expect(note.textContent).not.toContain("export PATH");
   // No tooltip: the whole command is one click away, in the opened note.
   expect(note.getAttribute("title")).toBeNull();
@@ -305,4 +314,28 @@ test("a task the registry does not list still opens with its command and nothing
   expect(container.querySelector(".cv-shell__command")!.textContent).toBe("$ pytest -x");
   expect(container.querySelector(".cv-shell__output")).toBeNull();
   expect(container.querySelector(".cv-shell__exit")).toBeNull();
+});
+
+test("a known process id wins over a reused tool call id", async () => {
+  const bytes = (text: string) => btoa(String.fromCharCode(...new TextEncoder().encode(text)));
+  const reader: BackgroundTaskOutputReader = {
+    sessionId: "s1",
+    source: {
+      listProcesses: async () => ({
+        processes: [
+          { id: "s1/old", toolCallId: "bg", harness: "claude", state: "running" },
+          { id: "s1/new", toolCallId: "bg", harness: "claude", state: "running" },
+        ],
+      }),
+      tailProcess: async (processId) => ({ data: bytes(processId), fromByte: 0 }),
+    },
+  };
+  const output = await readBackgroundTaskOutput(reader, "bg", "s1/old");
+  expect(output.output).toBe("s1/old");
+});
+
+test("a live tail keeps the last lines and removes terminal control escapes", () => {
+  expect(
+    tailLines("first\n\u001b]8;;https://example.test\u0007\u001b[31msecond\u001b[0m\u001b]8;;\u0007\nthird\n", 2),
+  ).toBe("second\nthird");
 });

@@ -6,9 +6,11 @@ extension ActionRegistry {
     /// handler (`runScoped`) and a key window's route. Refused runs (disabled feature, unavailable,
     /// refused target) do no work and record nothing. Gates (the confirmation presenter, the
     /// argument collector) are timed apart, by ``gated(_:_:_:)``.
-    func signposted<T>(_ id: ActionID, _ invocation: ActionInvocation, _ run: () -> T) -> T {
+    ///
+    /// `index` is the action's interned timing index (``Action/timingIndex``).
+    func signposted<T>(_ id: ActionID, index: UInt32, _ invocation: ActionInvocation, _ run: () -> T) -> T {
         endOpenGate()
-        return runTiming.time(id, invocation.origin, inputAge: { inputAge(of: invocation) }, run)
+        return runTiming.time(ActionRunKey(id: id, index: index), invocation.origin, input: { input(of: invocation) }, run)
     }
 
     /// Hands an action to a gate (the confirmation presenter or the argument collector) inside an
@@ -29,7 +31,7 @@ extension ActionRegistry {
             stamped.inputTimestamp = timestamp
         }
         endOpenGate()
-        let end = runTiming.beginGate(id, invocation.origin, inputAge: { inputAge(of: stamped) })
+        let end = runTiming.beginGate(id, invocation.origin, input: { input(of: stamped) })
         openGateEnd = end
         gate(stamped)
         endOpenGate()
@@ -42,9 +44,24 @@ extension ActionRegistry {
         end()
     }
 
-    private func inputAge(of invocation: ActionInvocation) -> Double {
-        Self.inputAgeMilliseconds(origin: invocation.origin, event: dispatchingInputEvent(),
-                                  carried: invocation.inputTimestamp, now: ProcessInfo.processInfo.systemUptime)
+    /// The run's input: the person's event's age and the entrypoint, from one read of the event
+    /// being dispatched.
+    private func input(of invocation: ActionInvocation) -> ActionRunInput {
+        let event = invocation.origin == .user ? dispatchingInputEvent() : nil
+        let age = Self.inputAgeMilliseconds(origin: invocation.origin, event: event,
+                                            carried: invocation.inputTimestamp, now: ProcessInfo.processInfo.systemUptime)
+        return ActionRunInput(ageMilliseconds: age, entrypoint: Self.entrypoint(origin: invocation.origin, event: event))
+    }
+
+    /// Where a run came from: a person's run by the type of the event being dispatched (a key or
+    /// a click; none is ``ActionEntrypoint/unattributed``), any other run by its origin.
+    static func entrypoint(origin: ActionOrigin, event: NSEvent?) -> ActionEntrypoint {
+        switch event?.type {
+        case .keyDown, .keyUp: ActionEntrypoint(origin: origin, isKey: true, isPointer: false)
+        case .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp:
+            ActionEntrypoint(origin: origin, isKey: false, isPointer: true)
+        default: ActionEntrypoint(origin: origin, isKey: false, isPointer: false)
+        }
     }
 
     /// The age in milliseconds of the input a person's run answers; -1 for any other run (socket,

@@ -10,8 +10,9 @@ extension ChatController {
     // MARK: Context menu
 
     @MainActor func menu(at p: CGPoint) -> NSMenu? {
-        guard let hit = demo?.hit(p) else { return nil }
+        guard let hit = demo?.hit(p) else { return previewMenu(at: p) }
         let ref = hit.row.ref
+        let content = contentMenu
         let current = hit.row.reactions.first { $0.senderId == store?.state.me }?.kind
         let menu = NSMenu()
         // The pressed bubble is highlighted while the menu is open (real Messages, macOS 27:
@@ -33,8 +34,14 @@ extension ChatController {
             fileHost.menuItems(forFileNamed: file.lastPathComponent) { file }.forEach(menu.addItem)
             menu.addItem(.separator())
         }
+        // cmux: a link under the pointer (in text or a card): Open Link and Copy Link Address lead.
+        if let link = linkURL(at: p), !link.isFileURL {
+            content.linkItems(link).forEach(menu.addItem)
+            menu.addItem(.separator())
+        }
         // cmux: tapbacks only while the owner takes them (`canReact`, false offline).
-        let canReact = intents?.canReact == true
+        let interactive = intents?.canInteract(with: ref.messageId) != false
+        let canReact = intents?.canReact == true && interactive
         if canReact {
             // MessagesLab 7518134: timed from the choosing input (PaneTapback.swift).
             TapbackMenuRows.items(current: current, react: { [weak self] in self?.chooseTapback(ref, $0) },
@@ -42,9 +49,11 @@ extension ChatController {
         }
         // Then (real order, macOS 27): Tapback Details…, Reply…, Attach Sticker…; Edit
         // (mine); Copy; Share…; Delete…, with separators between the groups.
-        menu.addItem(MenuAction(title: Strings.menuTapbackDetails, symbol: "plus.magnifyingglass") { [weak self] in self?.showTapbackDetails(hit) })
+        if interactive {
+            menu.addItem(MenuAction(title: Strings.menuTapbackDetails, symbol: "plus.magnifyingglass") { [weak self] in self?.showTapbackDetails(hit) })
+        }
         // cmux: Reply… only when the owner can take a reply (HomeOp has none yet, as SwipeReply).
-        if intents?.canReply == true {
+        if intents?.canReply == true && interactive {
             // cmux: Reply to Selection (plans/cmux-next/reply-to-selection-DESIGN.md): text selected in this
             // message is the reply's quote; Reply… still answers the whole message.
             if let quote = selectionQuote(at: hit) {
@@ -58,8 +67,14 @@ extension ChatController {
         }
         menu.addItem(.separator())
         // cmux: no Edit or Undo Send (HomeOp has no edit or unsend).
-        if case let .text(text, _) = hit.row.part {
-            menu.addItem(MenuAction(title: Strings.menuCopy) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string) })
+        // cmux: Copy copies the words selected in this message, else the whole message; a link card's
+        // address and a place's coordinates copy the same way (HomeContentMenu).
+        let selected = selectionQuote(at: hit) != nil ? selection.selectedText : nil
+        switch hit.row.part {
+        case .text, .link, .location:
+            content.partItems(hit.row.part, selection: selected, links: false,
+                              resolve: { _ in { nil } }, openAttachment: { _ in }).forEach(menu.addItem)
+        default: break
         }
         // cmux: the message's permalink, the form the Channels page copies (conversation-link-resolve opens it).
         if let link = intents?.messageLink(ref.messageId) {
@@ -76,14 +91,11 @@ extension ChatController {
                 let playing = intents.videoState(ref) == .playing
                 menu.addItem(MenuAction(title: playing ? CmuxStrings.pauseVideo : CmuxStrings.playVideo,
                                         symbol: playing ? "pause.fill" : "play.fill") { [weak self] in self?.intents?.toggleVideo(ref, a.id) })
+                menu.addItem(MenuAction(title: CmuxStrings.viewVideoLarger, symbol: "arrow.up.left.and.arrow.down.right") { [weak self] in
+                    self?.intents?.openVideo(ref, a.id)
+                })
             }
-            let resolve: @MainActor @Sendable () async -> URL? = { [weak self] in await self?.intents?.attachmentFile(ref.messageId, a.id) }
-            // cmux: Copy (the file, and an image's pixels) and Save As… (the user, 2026-10-21).
-            HomeAttachmentRows(window: host.window).items(name: a.fileName, resolve: resolve).forEach(menu.addItem)
-            menu.addItem(.separator())
-            // cmux: the host's file menu (Open in Right Pane, Open With, Quick Look, Show in
-            // Finder, Copy Path, Share); without a host, Open in Default App.
-            HomeAttachmentOpen.menuItems(name: a.fileName, host: fileHost, resolve: resolve) { [weak self] in
+            content.attachmentItems(name: a.fileName, resolve: attachmentResolver(ref.messageId, a.id)) { [weak self] in
                 self?.intents?.openAttachment(ref.messageId, a.id)
             }.forEach(menu.addItem)
             menu.addItem(.separator())
@@ -93,6 +105,9 @@ extension ChatController {
         if intents?.canRetrySend(ref.messageId) == true {
             menu.addItem(MenuAction(title: CmuxStrings.tryAgain, symbol: "arrow.clockwise") { [weak self] in self?.intents?.retrySend(ref.messageId) })
             menu.addItem(MenuAction(title: CmuxStrings.deleteFailed, symbol: "trash") { [weak self] in self?.intents?.deleteFailedSend(ref.messageId) })
+            menu.addItem(.separator())
+        } else if intents?.canRetryChiefTurn(ref.messageId) == true {
+            menu.addItem(MenuAction(title: CmuxStrings.retryReply, symbol: "arrow.clockwise") { [weak self] in self?.intents?.retryChiefTurn(ref.messageId) })
             menu.addItem(.separator())
         } else if intents?.canCancelSend(ref.messageId) == true {
             menu.addItem(MenuAction(title: CmuxStrings.cancelUpload, symbol: "xmark.circle") { [weak self] in self?.intents?.cancelSend(ref.messageId) })
@@ -105,6 +120,45 @@ extension ChatController {
         // HomeStore has no local hide (HomeOp has no delete), so nothing could honour it.
         while menu.items.last?.isSeparatorItem == true { menu.removeItem(at: menu.items.count - 1) }
         return menu
+    }
+
+    // MARK: Shared content rows (HomeContentMenu)
+
+    /// The builder of this pane's content rows: links open through the host (app links and paths to
+    /// `onAppLink`), files through the host's file menu, Save As… as a sheet on this window.
+    @MainActor var contentMenu: HomeContentMenu {
+        HomeContentMenu(openLink: { [weak self] url in
+            guard let self else { return }
+            if url.isCmuxAppLink || url.isHomePathLink { onAppLink?(url) } else { onOpenLink(url, false) }
+        }, attachmentRows: HomeAttachmentRows(window: host.window), fileHost: fileHost)
+    }
+
+    /// Fetches the local copy of attachment `id` of message `message` when a row runs.
+    @MainActor func attachmentResolver(_ message: ID, _ id: ID) -> @MainActor @Sendable () async -> URL? {
+        { [weak self] in await self?.intents?.attachmentFile(message, id) }
+    }
+
+    /// The menu of a quoted reply's preview under `p`, which is not a bubble (the quoted root drawn
+    /// above a reply: a text card, a picture, a link): the quoted part's own rows. Nil elsewhere.
+    @MainActor func previewMenu(at p: CGPoint) -> NSMenu? {
+        guard let demo else { return nil }
+        for case let cell as RowCell in demo.collection.visibleCells {
+            guard let spec = cell.spec, case let .threadPreview(pv) = spec.kind, let part = pv.part else { continue }
+            let r = cell.convert(cell.bounds, to: demo)
+            guard r.contains(p) else { continue }
+            let width = max(pv.box.width, 90)
+            let inside = pv.outgoing ? p.x >= r.minX + spec.metrics.rightEdge - width : p.x <= r.minX + pv.cmuxLeft + width
+            guard inside else { continue }
+            let root = pv.root
+            let rows = contentMenu.partItems(part, resolve: { [weak self] a in
+                self?.attachmentResolver(root.messageId, a.id) ?? { nil }
+            }, openAttachment: { [weak self] a in self?.intents?.openAttachment(root.messageId, a.id) })
+            guard !rows.isEmpty else { return nil }
+            let menu = NSMenu()
+            rows.forEach(menu.addItem)
+            return menu
+        }
+        return nil
     }
 
     // MARK: Menu actions

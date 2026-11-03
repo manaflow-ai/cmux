@@ -31,7 +31,7 @@ import Testing
 
     @Test func aPendingDownloadIsTheReasonUntilTheRuntimeIsInstalled() throws {
         let source = CEFRuntimeSource(layout: nil, pending: .downloading(fraction: nil))
-        let engine = CEFEngine(source: source)
+        let engine = CEFEngine(source: source, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks())
         #expect(engine.unavailableReason == .downloading(fraction: nil))
         source.update(pending: .downloading(fraction: 0.4))
         #expect(engine.unavailableReason == .downloading(fraction: 0.4))

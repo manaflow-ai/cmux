@@ -166,16 +166,17 @@ enum DaemonClosedHistory {
                 let reply = start.duration(to: clock.now)
                 let tabs = reopened.tabIDs
                 let undo = services.closedTabs?.undoToasts
-                undo?.noteReopen(id: item.id, tabs: tabs.map(\.rawValue), reply: reply)
+                undo?.lastReopen = ReopenTiming(id: item.id, tabs: tabs.map(\.rawValue), reply: reply)
                 // task-owner: CloseUndoToasts.reopenWatch (the next reopen cancels it); event-driven
                 undo?.reopenWatch?.cancel()
                 undo?.reopenWatch = Task { @MainActor [weak undo] in
-                    await daemon.store.applied(through: await connection.eventSequence())
+                    await daemon.appliedThroughReply(on: connection, after: "reopen closed")
                     let inStore = { tabs.allSatisfy { id in daemon.store.workspaces.contains { $0.screens.contains { $0.panes.contains { $0.tabs.contains { $0.resourceID == id } } } } } }
-                    undo?.noteReopenApplied(start.duration(to: clock.now), tabsInStore: inStore())
+                    undo?.lastReopen?.applied = start.duration(to: clock.now)
+                    undo?.lastReopen?.tabsInStoreAtApplied = inStore()
                     // When the reopened tabs reach the store (nxdog54: the first restore only after another event).
                     for await present in ObservationStream({ inStore() }) where present {
-                        undo?.noteReopenTabsArrived(start.duration(to: clock.now))
+                        undo?.lastReopen?.tabsArrived = start.duration(to: clock.now)
                         return
                     }
                 }
@@ -203,7 +204,7 @@ enum DaemonClosedHistory {
                 controller.selectWhenReported(tab: tab.rawValue)
                 return nil
             }
-            await daemon.store.applied(through: await connection.eventSequence())
+            await daemon.appliedThroughReply(on: connection, after: "reopen closed")
             if item.kind == .workspace {
                 if let id = reopened.workspaceID,
                    let workspace = await daemon.store.workspace(afterReopen: id, clock: daemon.reopenClock) {

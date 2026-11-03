@@ -22,6 +22,11 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
     var favicon: NSImage? { get }
     /// Unanswered permission requests and JavaScript dialogs, oldest first.
     var pendingPrompts: [BrowserPrompt] { get }
+    /// What the page shows for the link under the pointer (Chrome's status
+    /// bubble text), observable; nil when the pointer is over no link. The
+    /// chrome draws it at the bottom left of this tab's page area. Engines
+    /// that report none keep the default, nil.
+    var linkStatus: String? { get }
 
     var delegate: (any BrowserTabDelegate)? { get set }
     var keyRouter: (any BrowserKeyRouting)? { get set }
@@ -48,8 +53,16 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
     /// capture than `snapshot()`; the default is `snapshot()`.
     func thumbnail() async throws -> CGImage
 
+    /// ``thumbnail()`` asked of the engine in the caller's turn, so a picture asked for just before the page
+    /// hides is of the shown page: Chromium cannot picture a hidden page, and refuses to. The default asks when
+    /// the request is awaited (WebKit pictures a hidden page).
+    func beginThumbnail() -> BrowserPictureRequest
+
     /// Evaluates a script and returns its completion value.
-    func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue
+    /// - Parameters:
+    ///   - world: The page's world or an isolated one.
+    ///   - gesture: Whether the script acts as the person (``BrowserScriptGesture``); no default.
+    func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue
 
     /// Highlights the next or previous match of `text`.
     func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool) async -> BrowserFindResult
@@ -79,12 +92,35 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
     /// autofill off (`PasswordFillPolicy`, plans/cmux-next/passwords.md).
     func setPasswordFillAllowedByProfile(_ allowed: Bool)
 
+    /// Runs `body` as an async function in the page world and returns what it resolves to
+    /// (automation waits). The default wraps it for an engine whose `evaluate` awaits a promise.
+    func evaluateAsync(_ body: String) async throws -> BrowserJSValue
+
+    /// Pixels of the whole document, not only the viewport (automation screenshots). The default
+    /// throws ``BrowserTabError/snapshotUnavailable``.
+    func fullPageSnapshot() async throws -> CGImage
+
+    /// Every cookie of the tab's profile (automation). The default throws `unsupported`.
+    func cookies() async throws -> [BrowserCookie]
+
+    /// Stores `cookie` in the tab's profile. The default throws `unsupported`.
+    func setCookie(_ cookie: BrowserCookie) async throws
+
+    /// Deletes the cookies with each one's name, domain and path. The default throws `unsupported`.
+    func deleteCookies(_ cookies: [BrowserCookie]) async throws
+
     /// Tears the page down. Pending prompts are dismissed. Idempotent.
     func close()
+
+    /// The zoom per site this tab's chrome follows (its engine's ``BrowserSharedStores``). The
+    /// default is nil: the chrome keeps the tab's own zoom.
+    var siteZoomLevels: SiteZoomLevels? { get }
 }
 
 extension BrowserTab {
     public func thumbnail() async throws -> CGImage { try await snapshot() }
+
+    public func beginThumbnail() -> BrowserPictureRequest { BrowserPictureRequest { try await self.thumbnail() } }
 
     /// Engines without Chromium password autofill have nothing to withhold.
     /// The favicon at `url` as this tab fetches it: the app's cookieless fetch, unless the
@@ -95,51 +131,32 @@ extension BrowserTab {
 
     public func markAgentDriven() {}
     public var isAgentDriven: Bool { false }
+    public var siteZoomLevels: SiteZoomLevels? { nil }
     public func setPasswordFillAllowedByProfile(_ allowed: Bool) {}
 
     public func zoomIn() { setZoom(BrowserZoom.zoomIn(from: state.zoom)) }
     public func zoomOut() { setZoom(BrowserZoom.zoomOut(from: state.zoom)) }
     public func resetZoom() { setZoom(1) }
 
-    public func evaluate(_ script: String) async throws -> BrowserJSValue {
-        try await evaluate(script, world: .page)
-    }
-
-    /// Runs `body` as an async function in the page world and returns what
-    /// it resolves to (automation waits). WebKit's `evaluateJavaScript` does
-    /// not await a promise, so a WebKit tab calls the function instead; CEF's
-    /// `evaluate` awaits one.
+    /// An engine whose `evaluate` awaits a promise (Chromium) runs the body as an async function.
+    /// Automation waits: an agent's call.
     public func evaluateAsync(_ body: String) async throws -> BrowserJSValue {
-        if let tab = self as? WebKitTab { return try await WebKitPageAutomation(tab: tab).evaluateAsync(body) }
-        return try await evaluate("(async () => {\n\(body)\n})()", world: .page)
+        try await evaluate("(async () => {\n\(body)\n})()", world: .page, gesture: .agent)
     }
 
-    /// Pixels of the whole document, not only the viewport (automation
-    /// screenshots).
     public func fullPageSnapshot() async throws -> CGImage {
-        if let tab = self as? WebKitTab { return try await WebKitPageAutomation(tab: tab).fullPageSnapshot() }
-        if let tab = self as? CEFTab { return try await CEFFullPageCapture(tab: tab).run() }
         throw BrowserTabError.snapshotUnavailable
     }
 
-    /// Every cookie of the tab's profile (automation).
     public func cookies() async throws -> [BrowserCookie] {
-        if let tab = self as? WebKitTab { return await WebKitCookieStore(tab: tab).cookies() }
-        if let tab = self as? CEFTab { return try await CEFCookieStore(tab: tab).cookies() }
         throw BrowserTabError.unsupported("cookies")
     }
 
-    /// Stores `cookie` in the tab's profile.
     public func setCookie(_ cookie: BrowserCookie) async throws {
-        if let tab = self as? WebKitTab { return try await WebKitCookieStore(tab: tab).set(cookie) }
-        if let tab = self as? CEFTab { return try await CEFCookieStore(tab: tab).set(cookie) }
         throw BrowserTabError.unsupported("cookies")
     }
 
-    /// Deletes the cookies with each one's name, domain and path.
     public func deleteCookies(_ cookies: [BrowserCookie]) async throws {
-        if let tab = self as? WebKitTab { return await WebKitCookieStore(tab: tab).delete(cookies) }
-        if let tab = self as? CEFTab { return try await CEFCookieStore(tab: tab).delete(cookies) }
         throw BrowserTabError.unsupported("cookies")
     }
 }

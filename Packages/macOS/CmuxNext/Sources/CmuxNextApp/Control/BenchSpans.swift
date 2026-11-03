@@ -12,7 +12,7 @@ enum BenchSpans {
         var milliseconds: Double
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     private static var origin: ContinuousClock.Instant?
     private(set) static var spans: [Span] = []
     static let capacity = 512
@@ -20,7 +20,7 @@ enum BenchSpans {
 
     /// Starts recording (a bench began).
     static func begin() {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         origin = .now
         spans.removeAll(keepingCapacity: true)
         #endif
@@ -28,7 +28,7 @@ enum BenchSpans {
 
     /// Stops recording and returns what was recorded.
     static func end() -> [Span] {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         origin = nil
         return spans
         #else
@@ -38,7 +38,7 @@ enum BenchSpans {
 
     /// Runs `body`, recording its main-thread time under `name` while a bench runs.
     static func measure<T>(_ name: String, _ body: () throws -> T) rethrows -> T {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         guard let origin else { return try body() }
         let start = ContinuousClock.now
         defer {
@@ -50,11 +50,12 @@ enum BenchSpans {
         return try body()
     }
 
-    /// Records an instant (a point in an async flow) under `name`.
-    static func mark(_ name: String) {
-        #if DEBUG
+    /// Records an instant (a point in an async flow) under `name`, or a span another module timed
+    /// (`CEFBenchMarks`) that is `milliseconds` long and ends now.
+    static func mark(_ name: String, milliseconds: Double = 0) {
+        #if DEBUG || CMUX_BENCH_HOOKS
         guard let origin, spans.count < capacity else { return }
-        spans.append(Span(name: name, start: Self.ms(.now - origin), milliseconds: 0))
+        spans.append(Span(name: name, start: Self.ms(.now - origin) - milliseconds, milliseconds: milliseconds))
         #endif
     }
 

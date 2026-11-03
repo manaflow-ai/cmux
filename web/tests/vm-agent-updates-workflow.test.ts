@@ -188,4 +188,20 @@ describe("agent updates workflows", () => {
     expect(h.begun[0]?.agentUpdates).toBe("latest");
     expect(entry.agentUpdates).toBe("latest");
   });
+
+  test("create hands its idle pause to the row's insert, and none leaves the default", async () => {
+    const create = (h: ReturnType<typeof harness>, idlePauseMinutes?: 0 | 30) => Effect.runPromise(createVm({
+      userId: "user-agents", billingCustomerType: "team", billingTeamId: "team-agents", billingPlanId: "pro",
+      maxActiveVms: 50, provider: "freestyle", image: "snapshot-test", ...(idlePauseMinutes === undefined ? {} : { idlePauseMinutes }),
+    }).pipe(Effect.provide(h.layer)));
+    const persistent = harness();
+    await create(persistent, 0);
+    expect(persistent.begun[0]?.idlePauseMinutes).toBe(0);
+    const thirty = harness();
+    await create(thirty, 30);
+    expect(thirty.begun[0]?.idlePauseMinutes).toBe(30);
+    const plain = harness();
+    await create(plain);
+    expect(plain.begun[0]?.idlePauseMinutes).toBeUndefined();
+  });
 });

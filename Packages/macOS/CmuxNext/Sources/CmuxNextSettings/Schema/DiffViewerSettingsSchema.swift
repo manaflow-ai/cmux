@@ -17,9 +17,9 @@ nonisolated enum DiffViewerSettingsSchema {
                 ["diff", "layout"], section: .appearance, group: group,
                 title: SettingsText.keyed("settings.diff.layout", "Layout"),
                 kind: .choice([
+                    SettingChoice("auto", SettingsText.keyed("settings.choice.diffAutoLayout", "Auto")),
                     SettingChoice("split", SettingsText.keyed("settings.choice.diffSplit", "Side by Side")),
                     SettingChoice("unified", SettingsText.keyed("settings.choice.diffUnified", "Unified")),
-                    SettingChoice("auto", SettingsText.keyed("settings.choice.diffAutoLayout", "Automatic")),
                 ]),
                 default: .string("auto"), keywords: ["diff", "split", "unified", "side by side", "auto", "automatic"]
             ),
@@ -61,6 +61,10 @@ nonisolated enum DiffViewerSettingsSchema {
             // Hide white space writes this row.
             toggle("hideWhitespace", SettingsText.keyed("settings.diff.hideWhitespace", "Hide White Space"), false,
                    ["whitespace", "white space", "spaces", "indentation", "ignore"]),
+            // On by default: the floating Stage All / Revert All bar at the diff's end. Off hides it;
+            // each hunk's and file's own Stage and Revert stay.
+            toggle("showBulkActions", SettingsText.keyed("settings.diff.showBulkActions", "Stage All and Revert All Bar"), true,
+                   ["stage", "revert", "all", "floating", "bar", "bulk", "actions"]),
         ]
     }
 }

@@ -35,6 +35,55 @@ await requireBrowserLane("new-tab-no-entry-classic.test.ts", async () => {
     await vite?.close();
   });
 
+  test("project results alone scroll; the popover never adds a second scrollbar", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+    try {
+      const port = (vite!.httpServer!.address() as { port: number }).port;
+      await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: "idle" })}`);
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 60_000 });
+      await page.click(".acpmux-project-button");
+      const popup = page.locator(".acpmux-project-menu");
+      await popup.waitFor();
+      expect(await popup.evaluate((node) => getComputedStyle(node).overflowY)).toBe("visible");
+      expect(await popup.locator(".ui-combobox-viewport").count()).toBe(1);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("the classic footer refits after leaving and returning to Agent", async () => {
+    const page = await browser!.newPage({ viewport: { width: 420, height: 700 } });
+    try {
+      await page.addInitScript(() => {
+        const Native = window.ResizeObserver;
+        let observed = 0;
+        Object.defineProperty(window, "__cmuxFooterFitObserves", { get: () => observed });
+        window.ResizeObserver = class extends Native {
+          observe(target: Element, options?: ResizeObserverOptions) {
+            if (target.classList.contains("acpmux-composer-foot")) observed++;
+            super.observe(target, options);
+          }
+        };
+      });
+      const port = (vite!.httpServer!.address() as { port: number }).port;
+      await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: "idle" })}`);
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 60_000 });
+      const observed = () =>
+        page.evaluate(() => (window as typeof window & { __cmuxFooterFitObserves: number }).__cmuxFooterFitObserves);
+      const before = await observed();
+      expect(before).toBeGreaterThan(0);
+      await page.click('.acpmux-newtab-kind[title*="Terminal"]');
+      await page.waitForFunction(
+        () => document.querySelector(".acpmux-newtab")?.getAttribute("data-kind") === "terminal",
+      );
+      await page.click('.acpmux-newtab-kind[title*="Agent"]');
+      await page.waitForFunction(() => document.querySelector(".acpmux-newtab")?.getAttribute("data-kind") === "agent");
+      expect(await observed()).toBeGreaterThan(before);
+    } finally {
+      await page.close();
+    }
+  });
+
   test("the classic New Tab's project chooser opens at once", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
     try {

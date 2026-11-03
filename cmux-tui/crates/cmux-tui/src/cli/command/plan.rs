@@ -77,6 +77,12 @@ pub(in crate::cli) enum Resolve {
     /// caller's own terminal (`CMUX_TUI_TERMINAL_ID`). With `--socket` or
     /// `--session` the target is that session's `current` workspace.
     CallerWorkspace { terminal: String },
+    /// The command names a structural scope `caller`, or `current`: each
+    /// becomes the caller's own object at that scope (its terminal's tab,
+    /// pane, screen and workspace, or an agent session's, as
+    /// `system.identify` reports). `current` stays the focused object when
+    /// no caller is known or the request routes to another session.
+    Caller,
     /// `field` names a state record (room or group) by id or exact name; a
     /// unique name becomes that record's id.
     StateName { field: &'static str, list: ResourceOperation },
@@ -144,6 +150,28 @@ impl super::CommandPlan {
             other => other,
         }
     }
+}
+
+/// The scopes a `caller` selector names, outermost first.
+pub(in crate::cli) const CALLER_SCOPES: [&str; 5] =
+    ["workspace", "screen", "pane", "tab", "terminal"];
+
+/// `plan` with a [`Resolve::Caller`] lookup when a structural selector is
+/// `caller` or `current`, which the CLI resolves against the caller before it
+/// sends the request.
+pub(super) fn with_caller_lookup(
+    mut plan: super::CommandPlan,
+    selectors: &std::collections::BTreeMap<&'static str, String>,
+) -> super::CommandPlan {
+    let named = CALLER_SCOPES.iter().any(|scope| {
+        selectors.get(scope).is_some_and(|value| value == "caller" || value == "current")
+    });
+    if let super::CommandPlan::Protocol(plan) = &mut plan
+        && named
+    {
+        plan.resolve.push(Resolve::Caller);
+    }
+    plan
 }
 
 #[cfg(test)]

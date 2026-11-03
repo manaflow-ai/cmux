@@ -179,6 +179,7 @@ export function defaultDiffViewerOptions(payload: DiffViewerPayload): Omit<DiffV
     richPreview: false,
     lineNumbers: true,
     showBackgrounds: true,
+    showBulkActions: true,
     wordDiffs: payload.transport?.kind === "page",
     wordWrap: false,
   };
@@ -518,7 +519,7 @@ export function drawnDiffOptions(options: DiffViewerOptions, fits: boolean): Dra
   return { ...options, layout: layout === "auto" ? (fits ? "split" : "unified") : layout };
 }
 
-/** The layout after `layout` on the layout button: unified, then split, then auto. */
+/** The layout after `layout` on the layout button: auto, then split, then unified (Settings' order). */
 export function nextDiffViewerLayout(layout: DiffViewerLayout): DiffViewerLayout {
-  return layout === "unified" ? "split" : layout === "split" ? "auto" : "unified";
+  return layout === "auto" ? "split" : layout === "split" ? "unified" : "auto";
 }

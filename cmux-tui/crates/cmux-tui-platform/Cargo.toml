@@ -16,6 +16,7 @@ test-support = []
 
 [dependencies]
 cmux-link.workspace = true
+cmux-process.workspace = true
 cmux-pty.workspace = true
 cmux-unix-socket.workspace = true
 libc.workspace = true

@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// Lawrence 2026-10-23 (msg 12114): "ensure horizontal and vertical scrollbars when there are
 /// rows/columns do not have extra bg". A scroll view that scrolls both ways (the Files list and
@@ -23,9 +24,11 @@ struct ThinScrollerRowsAndColumnsTests {
 
     /// A sideways scroller in a 240 x 200 host, along its bottom edge, its content four times as wide.
     private static func sideways(in host: NSView) -> ThinScroller {
-        let scroller = ThinScroller(frame: .zero, clock: ThinScrollerManualClock(), notificationCenter: NotificationCenter())
+        // AppKit chooses a scroller's axis from its initial frame; resizing one made at .zero
+        // leaves its native knob slot vertical. Initialize the fixture on the axis it exercises.
         let y = host.isFlipped ? host.bounds.maxY - ThinScroller.width : host.bounds.minY
-        scroller.frame = NSRect(x: 0, y: y, width: host.bounds.width, height: ThinScroller.width)
+        let scroller = ThinScroller(frame: NSRect(x: 0, y: y, width: host.bounds.width, height: ThinScroller.width),
+                                    clock: ManualClock(), notificationCenter: NotificationCenter())
         host.addSubview(scroller)
         scroller.scrollerStyle = .overlay
         scroller.isEnabled = true
@@ -60,7 +63,9 @@ struct ThinScrollerRowsAndColumnsTests {
         scrollView.documentView = table
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
-        #expect(table.cornerView != nil) // AppKit makes one
+        // Some hosts create no corner. Supply one so this always exercises its removal.
+        if table.cornerView == nil { table.cornerView = NSView(frame: NSRect(x: 0, y: 0, width: 11, height: 17)) }
+        #expect(table.cornerView != nil)
         SystemScrollers.follow(scrollView)
         #expect(table.cornerView == nil)
     }

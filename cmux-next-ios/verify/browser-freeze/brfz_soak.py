@@ -70,6 +70,8 @@ class Run:
         self.last_capture = 0
         self.no_response = 0
         self.stop = threading.Event()
+        self.depth = {}
+        self.rows = {}
 
     # ---- logging ---------------------------------------------------------
     def log(self, msg):
@@ -297,23 +299,36 @@ class Run:
         self.record(act="still-idle", seconds=seconds)
         time.sleep(seconds)
         self.record(act="still-idle-end", reconnecting=self.reconnecting())
-        self.scroll(True)
+        if self.a.plan != "shown":
+            self.scroll(True)
 
     def tap_link(self):
         before = self.sig()
         x, y = random.randint(60, 340), random.randint(250, 620)
         t = time.time()
         self.sim.tap(x, y)
-        return self.responded("tap", self.changed_after(before, t, timeout=10), at=[x, y])
+        rtt = self.changed_after(before, t, timeout=10)
+        if rtt is not None:
+            self.depth.setdefault(self.current, [0, 0])[:] = [self.depth.get(self.current, [0, 0])[0] + 1, 0]
+        return self.responded("tap", rtt, at=[x, y])
 
     def history(self, op):
+        # Back only over pages this run opened by a tap or search (back from the tab's first
+        # page goes to its blank start page, and every later input then shows no change).
+        depth = self.depth.setdefault(self.current, [0, 0])  # [back steps, forward steps]
+        if (op == "back" and depth[0] <= 0) or (op == "forward" and depth[1] <= 0):
+            return self.record(act=op, skipped="no history from this run")
         b = self.tv.toolbar_button(*(("Back", "BackButton", "Go Back") if op == "back" else ("Forward", "Go Forward")))
         if not b:
             return self.record(act=op, skipped="no button")
         before = self.sig()
         t = time.time()
         self.sim.tap_el(b)
-        return self.responded(op, self.changed_after(before, t, timeout=10))
+        rtt = self.changed_after(before, t, timeout=10)
+        if rtt is not None:
+            d = self.depth[self.current]
+            d[0], d[1] = (d[0] - 1, d[1] + 1) if op == "back" else (d[0] + 1, d[1] - 1)
+        return self.responded(op, rtt)
 
     def search(self):
         """Types a marker into the page's own search box when the tap brings up the keyboard,
@@ -364,8 +379,18 @@ class Run:
         end = time.time() + seconds
         ops = [lambda: self.scroll(True), lambda: self.scroll(True), lambda: self.scroll(False), self.tap_link,
                lambda: self.history("back"), lambda: self.history("forward"), self.search]
+        if self.a.plan == "shown":
+            ops = [lambda: self.scroll(True), lambda: self.scroll(True), lambda: self.scroll(False), self.tap_link]
         while time.time() < end:
             try:
+                if not self.on_tab():
+                    # On the list (a step left the tab): go back to the shown tab first.
+                    if self.current and self.current in self.rows:
+                        self.switch(self.current)
+                    else:
+                        self.record(act="skip", why="not on a tab")
+                        time.sleep(3)
+                        continue
                 random.choice(ops)()
             except Exception as error:  # a failed step is a result
                 self.record(act="error", error=str(error)[:200])
@@ -382,10 +407,27 @@ class Run:
                 r = r.get("workspaces", [])
         return [w for w in r if isinstance(w, dict)] if isinstance(r, list) else []
 
+    def list_rows(self):
+        """Workspace rows on the list (Buttons inside the list's frame)."""
+        els = self.sim.tree()
+        lst = [e for e in els if e.ident == "workspaces.list"]
+        y0, y1 = (lst[0].frame[1], lst[0].frame[1] + lst[0].frame[3]) if lst else (100, 800)
+        return [e for e in els if e.kind == "Button" and e.label and y0 <= e.center[1] <= y1
+                and e.ident not in ("workspaces.new",)]
+
+    def on_tab(self):
+        els = self.sim.tree()
+        return not any(e.ident == "workspaces.list" for e in els)
+
     def open_tab(self, name, url):
         before = {w.get("id") for w in self.workspaces()}
-        self.current = name
         t = time.time()
+        try:
+            self.to_list()
+            rows_before = {e.ident or e.label for e in self.list_rows()}
+        except Exception as error:
+            return self.record(act="open", name=name, url=url, error=f"list: {str(error)[:150]}")
+        self.current = name
         try:
             tv.TV.open_browser(self.tv, url)
         except Exception as error:
@@ -400,11 +442,35 @@ class Run:
                     r = self.rig.cmux("workspace", w["id"], "rename", "--name", f"brfz-{name}", check=False)
                     renamed = w["id"] if getattr(r, "returncode", 1) == 0 else f"rename failed: {(r.stderr or '')[:80]}"
         self.sim.shot(f"open-{name}")
-        return self.record(act="open", name=name, url=url, load_s=round(time.time() - t, 1), key=key, mac_ws=renamed)
+        load_s = round(time.time() - t, 1)
+        # The new row on the phone's list (its label is the page's, not the Mac's name):
+        # remember its id to come back to this tab, then return to it.
+        row_id = None
+        if self.a.plan == "shown":
+            # One tab for the whole run: stay on it (the list round trip below goes through the
+            # page toolbar, whose Back is the page's history and leaves a blank start page).
+            return self.record(act="open", name=name, url=url, load_s=load_s, key=key, mac_ws=renamed)
+        try:
+            self.to_list()
+            new = [e for e in self.list_rows() if (e.ident or e.label) not in rows_before]
+            if new:
+                row_id = new[0].ident or new[0].label
+                self.rows[name] = row_id
+                self.sim.tap_el(new[0])
+                time.sleep(1.5)
+        except Exception as error:
+            self.record(act="open-row", name=name, error=str(error)[:150])
+        return self.record(act="open", name=name, url=url, load_s=load_s, key=key, mac_ws=renamed, row=row_id)
 
     def to_list(self):
         """journey.back_to_list, with an edge swipe and one more try (a streamed page can
         take the touches the toolbar's back control needs)."""
+        # A scrolled page collapses its toolbar to the address pill ("Show toolbar, HOST"):
+        # the back control is there only after the pill brings the toolbar back.
+        pill = [e for e in self.sim.find(kind="Button") if (e.label or "").startswith("Show toolbar") and 0 <= e.center[1] <= 874]
+        if pill:
+            self.sim.tap_el(pill[-1])
+            time.sleep(1.0)
         try:
             return self.j.back_to_list()
         except Exception as error:
@@ -419,7 +485,11 @@ class Run:
     def switch(self, name):
         t = time.time()
         self.to_list()
-        row = self.sim.wait(prefix=f"brfz-{name}", kind="Button", timeout=30)
+        want = self.rows.get(name)
+        row = None
+        for e in self.list_rows():
+            if want and (e.ident == want or e.label == want):
+                row = e
         if not row:
             return self.record(act="switch", name=name, error="row not listed")
         self.sim.tap_el(row)
@@ -452,6 +522,13 @@ class Run:
     def plan(self):
         a = self.a
         u = a.url
+        if a.plan == "shown":
+            # One tab shown and streaming the whole run: scroll/tap stretches between still
+            # stretches of 70 s (each spans at least one 40 s media kill).
+            p = [("open_tab", "A", u[0])]
+            for _ in range(6):
+                p += [("interact", 35), ("still_idle", 70)]
+            return p
         p = [("open_tab", "A", u[0]), ("interact", 70), ("long_scroll", 12), ("interact", 60),
              ("open_tab", "B", u[1]), ("interact", 60),
              # No tab shown for > 30 s: the WebRTC media session lingers out; the next shown
@@ -498,6 +575,9 @@ class Run:
             self.env["CMUX_MOBILE_DEV_RELAY_ONLY"] = "1"
         if a.config == "wgonly":
             self.env["CMUX_MOBILE_DEV_NO_WEBRTC_MEDIA"] = "1"
+        for kv in a.env:
+            k, _, v = kv.partition("=")
+            self.env[k] = v
         phone_log = os.path.join(self.out, "phone-stderr.log")
 
         def launch():
@@ -531,6 +611,9 @@ class Run:
         self.sim.wait(ident="terminal.composer.field", timeout=40)
         self.sim.shot("terminal-open")
         for step in self.plan():
+            if a.minutes and time.time() - self.t0 > a.minutes * 60:
+                self.log("minutes reached; ending the plan")
+                break
             op, args = step[0], step[1:]
             self.log(f"step {op} {args} at +{(time.time() - self.t0) / 60:.1f} min")
             try:
@@ -613,6 +696,10 @@ def main():
     ap.add_argument("--bg", type=float, default=0, help="background the app this many seconds mid-run")
     ap.add_argument("--url", nargs=3, default=["https://en.wikipedia.org/wiki/Cat", "https://news.ycombinator.com",
                                                "https://duckduckgo.com"])
+    ap.add_argument("--env", action="append", default=[], help="K=V launch variable for the phone app (repeatable)")
+    ap.add_argument("--plan", default="tabs", choices=["tabs", "shown"],
+                    help="tabs: three tabs, switches, list idles; shown: one tab shown the whole run, still stretches")
+    ap.add_argument("--minutes", type=float, default=0, help="stop the plan after this many minutes (0: whole plan)")
     ap.add_argument("--phone-log", default="info,cmux_mobile_link=debug,cmux_mobile_link_ffi=debug")
     ap.add_argument("--page-y0", type=float, default=130)
     ap.add_argument("--page-y1", type=float, default=740)

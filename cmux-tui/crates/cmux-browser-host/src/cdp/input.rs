@@ -4,6 +4,7 @@
 use super::driver::Inner;
 use super::keys::{implied_text, modifier_bits, mouse_button, virtual_key_code};
 use crate::protocol::{DriverError, required_str, timeout_of};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
@@ -43,28 +44,32 @@ impl Inner {
         let mut event = json!({"x": x, "y": y, "modifiers": modifiers, "buttons": buttons});
         match kind {
             "move" => {
-                event["type"] = json!("mouseMoved");
-                event["button"] = json!(pressed_button(buttons));
+                event.set("type", json!("mouseMoved"));
+                event.set("button", json!(pressed_button(buttons)));
             }
             "down" => {
-                event["type"] = json!("mousePressed");
-                event["button"] = json!(button);
-                event["clickCount"] = json!(click_count);
+                event.set("type", json!("mousePressed"));
+                event.set("button", json!(button));
+                event.set("clickCount", json!(click_count));
             }
             "up" => {
-                event["type"] = json!("mouseReleased");
-                event["button"] = json!(button);
-                event["clickCount"] = json!(click_count);
+                event.set("type", json!("mouseReleased"));
+                event.set("button", json!(button));
+                event.set("clickCount", json!(click_count));
             }
             "wheel" => {
-                event["type"] = json!("mouseWheel");
-                event["button"] = json!("none");
+                event.set("type", json!("mouseWheel"));
+                event.set("button", json!("none"));
                 // Deltas are view points too under the emulation scale.
                 let scale = self.input_scale();
-                event["deltaX"] =
-                    json!(params.get("deltaX").and_then(Value::as_f64).unwrap_or(0.0) * scale);
-                event["deltaY"] =
-                    json!(params.get("deltaY").and_then(Value::as_f64).unwrap_or(0.0) * scale);
+                event.set(
+                    "deltaX",
+                    json!(params.get("deltaX").and_then(Value::as_f64).unwrap_or(0.0) * scale),
+                );
+                event.set(
+                    "deltaY",
+                    json!(params.get("deltaY").and_then(Value::as_f64).unwrap_or(0.0) * scale),
+                );
             }
             other => return Err(DriverError::invalid(format!("Unknown mouse event {other}"))),
         }
@@ -174,18 +179,22 @@ impl Inner {
                     .or_else(|| implied_text(key, modifiers));
                 match text {
                     Some(text) => {
-                        event["type"] = json!("keyDown");
-                        event["text"] = json!(text);
-                        event["unmodifiedText"] = json!(text);
+                        event.set("type", json!("keyDown"));
+                        event.set("text", json!(text));
+                        event.set("unmodifiedText", json!(text));
                     }
-                    None => event["type"] = json!("rawKeyDown"),
+                    None => {
+                        event.set("type", json!("rawKeyDown"));
+                    }
                 }
-                let commands = mac_editing_commands(code, modifiers);
+                let commands = editing_commands(code, modifiers);
                 if !commands.is_empty() {
-                    event["commands"] = json!(commands);
+                    event.set("commands", json!(commands));
                 }
             }
-            "up" => event["type"] = json!("keyUp"),
+            "up" => {
+                event.set("type", json!("keyUp"));
+            }
             other => return Err(DriverError::invalid(format!("Unknown key event {other}"))),
         }
         self.send_until(&session, "Input.dispatchKeyEvent", event, deadline)?;
@@ -276,17 +285,15 @@ fn pressed_button(buttons: i64) -> &'static str {
     }
 }
 
-/// macOS Chromium runs editing shortcuts from `commands` (as Playwright does);
-/// without them Meta+A or Meta+Backspace type nothing. Other platforms handle
-/// these keys natively.
-fn mac_editing_commands(code: &str, modifiers: i64) -> Vec<&'static str> {
-    if !cfg!(target_os = "macos") {
-        return Vec::new();
-    }
-    editing_commands(code, modifiers)
-}
-
-/// The macOS editing command table, independent of the build platform.
+/// The macOS editing command table, sent as `commands` on every platform.
+///
+/// The REPL keyboard is macOS's everywhere (the runtime maps ControlOrMeta
+/// to Meta), but Chromium runs Meta shortcuts natively nowhere: macOS
+/// Chromium needs `commands` (as Playwright sends them), and Linux and
+/// Windows Chromium bind these edits to Control. Chromium runs a key's
+/// commands only when the page did not prevent the keydown, so a page that
+/// handles the key keeps it. Meta+B/I/U format rich text as Chrome's editor
+/// does for Command+B/I/U (classic cmux: BrowserReplFrameGate+FormattingShortcut).
 pub(super) fn editing_commands(code: &str, modifiers: i64) -> Vec<&'static str> {
     const ALT: i64 = 1;
     const CONTROL: i64 = 2;
@@ -295,6 +302,9 @@ pub(super) fn editing_commands(code: &str, modifiers: i64) -> Vec<&'static str> 
     let shift = modifiers & SHIFT != 0;
     let command = match (modifiers & (ALT | CONTROL | META), code) {
         (META, "KeyA") => "selectAll",
+        (META, "KeyB") => "bold",
+        (META, "KeyI") => "italic",
+        (META, "KeyU") => "underline",
         (META, "KeyZ") if shift => "redo",
         (META, "KeyZ") => "undo",
         (META, "Backspace") => "deleteToBeginningOfLine",
@@ -334,5 +344,7 @@ mod tests {
         assert_eq!(editing_commands("ArrowLeft", 9), vec!["moveWordLeftAndModifySelection"]);
         assert!(editing_commands("KeyA", 0).is_empty());
         assert!(editing_commands("KeyA", 6).is_empty(), "Control+Meta+A is not select all");
+        assert_eq!(editing_commands("KeyB", 4), vec!["bold"]);
+        assert!(editing_commands("KeyB", 2).is_empty(), "Control+B stays the platform's own");
     }
 }

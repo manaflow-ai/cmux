@@ -4,7 +4,7 @@
 Entries live in scripts/cmux-next/fast-tier.json. Each has a name, an owner
 lane, an optional bead and one of three kinds:
   swift   {package, filter}: `swift test --skip-build --filter` after one
-          `swift build --build-tests` per package
+          `swift build --build-tests` and one `swift test --list-tests` per package
   cargo   {path, package[, filter]}: `cargo test --locked -p` in path
   script  {path[, args]}: python3 -I for a .py path, bash otherwise
 An entry must be deterministic, need no window server or gui token, and finish
@@ -12,8 +12,8 @@ within --max-seconds (60) after the build. A swift or cargo entry whose filter
 runs no test fails.
 
 --kind KIND (repeatable) runs only the entries of those kinds, so one registry
-feeds two CI jobs: cmux-next.yml's Linux `fast-tier-cargo` job runs
-`--kind cargo` and the Mac `fast-tier` job runs `--kind swift --kind script`.
+feeds two CI jobs: cmux-next.yml's `fast-tier-cargo` job runs
+`--kind cargo --kind script` and the Mac `fast-tier` job runs `--kind swift`.
 A --kind that selects no entry is a bad registry (exit 2), never an empty pass.
 
 Flake policy: a failed entry runs once more only to classify it. Fail then pass
@@ -189,8 +189,16 @@ def build_packages(root, entries, dry_run, timing):
     side by side (each group in order): on a warm runner the CmuxNext build
     (~160 s) and the cmux-tui test build (~115 s) used to run one after the other.
     """
-    swift = [(["swift", "build", "--build-tests", "--package-path", package], ".", package)
-             for package in dict.fromkeys(e["package"] for e in entries if e["kind"] == "swift")]
+    # After each Swift build, one `swift test --list-tests` pays the test run's
+    # package planning outside the cap too: on the CmuxNext package the first
+    # `swift test --skip-build` sat in "Planning build" past 60 s and timed out
+    # before any test ran, and a killed plan is planned again by the next entry
+    # (runs 41537871686, 41546766492).
+    swift = [step
+             for package in dict.fromkeys(e["package"] for e in entries if e["kind"] == "swift")
+             for step in ((["swift", "build", "--build-tests", "--package-path", package], ".", package),
+                          (["swift", "test", "--skip-build", "--list-tests", "--package-path", package], ".",
+                           f"{package} test plan"))]
     cargo = []
     for path in dict.fromkeys(e["path"] for e in entries if e["kind"] == "cargo"):
         packages = [arg for e in entries if e["kind"] == "cargo" and e["path"] == path for arg in ("-p", e["package"])]

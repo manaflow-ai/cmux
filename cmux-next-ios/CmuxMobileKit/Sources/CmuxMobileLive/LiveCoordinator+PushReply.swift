@@ -76,7 +76,7 @@ extension LiveCoordinator {
             case .respond(let sessionID, let permissionID, let optionID):
                 try await hub.respond(sessionID: sessionID, permissionID: permissionID, optionID: optionID)
             case .prompt(let sessionID, let text, let attachments, let promptID):
-                let blocks = AcpmuxSessionSource.promptBlocks(text: text, attachments: Self.attachments(attachments))
+                let blocks = AcpmuxSessionSource.promptBlocks(text: text, attachments: await Self.attachments(attachments))
                 _ = try await hub.request("session/prompt", .object([
                     "sessionId": .string(sessionID), "prompt": .array(blocks),
                     "_meta": .object(["acpmux": .object(["promptId": .string(promptID), "steer": .bool(false), "resend": .bool(true)])]),
@@ -126,11 +126,24 @@ extension LiveCoordinator {
         guard await waitUntil(within: budget, { [weak self] in self?.chiefMacID == mac && chief.isConnected }) else {
             throw PushReplyFailure(reason: .unreachable)
         }
-        let images = Self.attachments(names).compactMap { attachment -> ConversationComposeImage? in
+        let images = await Self.attachments(names).compactMap { attachment -> ConversationComposeImage? in
             guard let data = attachment.data, let mime = attachment.imageMIMEType, let size = UIImage(data: data)?.size else { return nil }
             return ConversationComposeImage(data: data, width: Int(size.width), height: Int(size.height), mimeType: mime)
         }
         chief.send(ConversationComposeMessage(text: text, images: images))
+    }
+
+    /// Send Message… to the Chief about a workspace or a tab of `macID`: Chief runs on the
+    /// focused Mac's link, so that Mac becomes the focus first, and the message goes only once
+    /// its Chief is connected (never to the Chief of the Mac that was focused). False when the
+    /// Mac can't be reached within `budget`; nothing was sent then.
+    public func sendToChief(_ text: String, on macID: String, budget: Duration = .seconds(20)) async -> Bool {
+        guard canLink(macID: macID) else { return false }
+        if focusedMacID != macID { select(macID: macID) }
+        let chief = ChiefSession.shared
+        guard await waitUntil(within: budget, { [weak self] in self?.chiefMacID == macID && chief.isConnected }) else { return false }
+        chief.send(text: text)
+        return true
     }
 
     /// Text into the terminal that posted the notification, over the Mac's
@@ -278,9 +291,14 @@ extension LiveCoordinator {
     }
 
     /// The outbox attachments a reply names (images and files the content extension saved).
-    static func attachments(_ names: [String]) -> [AgentAttachment] {
-        guard !names.isEmpty, let outbox = PushOutbox(group: .current()) else { return [] }
-        return names.compactMap { name in
+    /// The App Group resolves and the files are read off the main thread.
+    static func attachments(_ names: [String]) async -> [AgentAttachment] {
+        guard !names.isEmpty, let outbox = PushOutbox(group: await PushAppGroup.resolved()) else { return [] }
+        return await Task.detached(priority: .userInitiated) { readAttachments(names, in: outbox) }.value
+    }
+
+    nonisolated static func readAttachments(_ names: [String], in outbox: PushOutbox) -> [AgentAttachment] {
+        names.compactMap { name in
             let safe = (name as NSString).lastPathComponent
             guard safe == name, let data = try? Data(contentsOf: outbox.attachments.appendingPathComponent(safe)) else { return nil }
             let image = AgentAttachment(kind: .image, name: safe, data: data)

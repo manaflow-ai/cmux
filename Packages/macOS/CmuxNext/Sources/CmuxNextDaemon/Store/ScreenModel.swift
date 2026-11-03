@@ -17,7 +17,7 @@ public final class ScreenModel: Identifiable {
     /// The daemon's active screen of its workspace, as of the last snapshot or screen record
     /// (no event moves it in between): where a `move-tab-to-workspace` lands.
     public internal(set) var isActive: Bool
-    public internal(set) var panes: [PaneModel]
+    public internal(set) var panes: [PaneModel] { didSet { adoptUnread() } }
     /// Palette token, nil = none (`screen-metadata-v1`).
     public internal(set) var color: String?
     /// SF Symbol name or one emoji grapheme.
@@ -45,6 +45,27 @@ public final class ScreenModel: Identifiable {
         icon = s.icon
         pinned = s.pinned
         group = s.group
+        adoptUnread()
+    }
+
+    /// Its panes' unread count (``UnreadTally``), kept by ``recountUnread()``.
+    @ObservationIgnored private(set) var unread = UnreadTally()
+    /// The workspace that counts this screen.
+    @ObservationIgnored weak var unreadWorkspace: WorkspaceModel?
+
+    /// The panes changed: they report to this screen, which recounts.
+    private func adoptUnread() {
+        for pane in panes where pane.unreadScreen !== self { pane.unreadScreen = self }
+        recountUnread()
+    }
+
+    /// Counts its panes again and tells its workspace when the count changed.
+    func recountUnread() {
+        var tally = UnreadTally()
+        for pane in panes { tally.add(pane.unread) }
+        guard tally != unread else { return }
+        unread = tally
+        unreadWorkspace?.recountUnread()
     }
 
     static func identity(_ s: ScreenSnapshot) -> String {

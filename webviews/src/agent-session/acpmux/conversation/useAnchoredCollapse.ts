@@ -22,6 +22,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { foldMs, useFold } from "./fold";
 import { ANCHORED_COLLAPSE_EVENT, FOLD_SETTLE_MS } from "./foldAnchor";
+import { foldPlays } from "./transcriptView";
 
 export { ANCHORED_COLLAPSE_EVENT };
 
@@ -35,6 +36,9 @@ export type AnchoredCollapseOptions = {
   /// Whether a change plays the fold (default: every one). A folded thought plays only the reader's
   /// toggle, not its automatic fold.
   animates?: () => boolean;
+  /// Whether opening fades the body in (default: yes); false opens it at full opacity, the height
+  /// alone moving, and only closing fades (fold.ts `useFold`).
+  fadeIn?: boolean;
 };
 
 export type AnchoredCollapseBodyProps = {
@@ -104,13 +108,12 @@ function keepHeader(header: HTMLElement): () => () => void {
   };
 }
 
-const always = () => true;
-
 export function useAnchoredCollapse(options: AnchoredCollapseOptions = {}): AnchoredCollapse {
   const [inner, setInner] = useState(options.defaultOpen ?? false);
   const controlled = options.open !== undefined;
   const open = controlled ? options.open! : inner;
-  const fold = useFold(open, options.animates ?? always);
+  // A transcript view switch (transcriptView.ts) opens and closes the rows on screen at once: they snap.
+  const fold = useFold(open, options.animates ?? foldPlays, options.fadeIn ?? true);
   const header = useRef<HTMLElement | null>(null);
   const headerRef = useCallback((node: HTMLElement | null) => {
     header.current = node;

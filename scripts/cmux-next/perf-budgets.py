@@ -17,8 +17,9 @@ bench launches and quits the app itself), and maps their reports to budget rows 
   agent-engine-bench.py          ACP chat composer: keydown to next frame (the page's typingStats)
   bench_idle.py                  idle CPU of the app with terminals open
 
-A bench that fails to run (older build without its debug method, no display) leaves its rows "n/a"; the
-suite goes on. Output: --json (rows, raw report paths, host), a Markdown table in the log.
+  A bench that fails to run (older build without its debug method, no display) leaves its rows "n/a"; the
+  suite goes on, but the gate reports an incomplete result when an expected row is absent. Output: --json
+  (rows, raw report paths, host), a Markdown table in the log.
 
 Gate (--gate): a row regresses when its p95 is more than 10 % over the stored baseline for this host
 class (scripts/cmux-next/perf-budgets-baseline/<chip>-macos<major>.json) and more than the row's
@@ -114,6 +115,56 @@ def run_bench(name, argv, log_dir, timeout):
     tail = open(log, errors="replace").read().splitlines()[-6:]
     print(f"--- {name}: exit {code} in {took}s", *("    " + t for t in tail), sep="\n", flush=True)
     return {"exit": code, "seconds": took, "log": log}
+
+
+# --load: the same benches under agent-like load (ask c-71825c54b5; Leo, 2026-10-29: "well somehow at "100% cpu" usage
+# claude code desktop still seems fast / how does that work? how can cmux next also do that? let's do that"). The mix is
+# scripts/measure/qos-load-bench.sh's: CPU spinners past every core, 2 dd writers, 2 find metadata storms, 2 readers.
+# `default` runs it at the default priority (a build or tool the person started); `agent` runs it in acpmux's agent tier
+# (taskpolicy -c utility -d utility, cmux#27587). Each worker is its own process group, ended after its bench.
+LOAD_TIERS = {"default": [], "agent": ["taskpolicy", "-c", "utility", "-d", "utility"]}
+
+
+def start_load(tier, scratch):
+    """The load workers for `tier`, started and given 5 s to ramp; stop_load ends them."""
+    os.makedirs(os.path.join(scratch, "tree"), exist_ok=True)
+    tree = os.path.join(scratch, "tree")
+    if not os.path.exists(os.path.join(tree, "done")):
+        for i in range(500):
+            with open(os.path.join(tree, f"f{i}"), "wb") as fh:
+                fh.write(os.urandom(65536))
+        open(os.path.join(tree, "done"), "w").close()
+    prefix = LOAD_TIERS[tier]
+    sh = lambda script, *args: prefix + ["/bin/sh", "-c", script, "sh", *args]  # noqa: E731
+    argvs = [prefix + ["yes"] for _ in range((os.cpu_count() or 8) * 5 // 4)]
+    argvs += [sh('while :; do dd if=/dev/zero of="$1/w$$" bs=1m count=256 2>/dev/null; rm -f "$1/w$$"; done', scratch)
+              for _ in range(2)]
+    argvs += [sh("while :; do find /System/Library /usr -type f -size +1k >/dev/null 2>&1; done") for _ in range(2)]
+    argvs += [sh('while :; do cat "$1"/f* | shasum >/dev/null; done', tree) for _ in range(2)]
+    procs = [subprocess.Popen(a, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+             for a in argvs]
+    time.sleep(5)  # test harness: let the load ramp
+    return procs
+
+
+def stop_load(procs, scratch):
+    import signal
+    for proc in procs:
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except OSError:
+            pass
+    for proc in procs:
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGKILL)
+    for name in os.listdir(scratch):
+        if name.startswith("w"):
+            try:
+                os.remove(os.path.join(scratch, name))
+            except OSError:
+                pass
 
 
 def load(path):
@@ -243,11 +294,13 @@ def animation_budgets():
     """`animations` rows of scripts/perf-bench/budgets.json (budget.py animation_budgets), as
     {row name: spec}; none when the file has no such key."""
     try:
+        if PERF_BENCH not in sys.path:  # budget.py imports its siblings (spinners) by name
+            sys.path.insert(0, PERF_BENCH)
         spec = importlib.util.spec_from_file_location("perf_bench_budget", os.path.join(PERF_BENCH, "budget.py"))
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         entries = mod.animation_budgets()
-    except (OSError, SystemExit, AttributeError):
+    except (OSError, SystemExit, AttributeError, ImportError):
         return {}
     return {f"anim.{e['anim']}.{e['metric']}": {"p95": e["limit"], "unit": "frames" if e["metric"] == "dropped" else "ms",
                                                 "floor": 1.0, "what": f"animation {e['anim']}: {e['metric']}",
@@ -269,6 +322,7 @@ def rows_anim(rep):
 
 
 def budget_for(name, budgets):
+    name = name.split("@", 1)[0]  # a --load phase's row keeps its interaction's budget
     anim = budgets.get("_animations", {}).get(name)
     if anim:
         return anim
@@ -276,6 +330,73 @@ def budget_for(name, budgets):
         if re.fullmatch(pattern, name):
             return spec
     return {}
+
+
+def incomplete_rows(rows, baseline, manifest, only):
+    """Return missing-data reasons for the requested benchmark parts.
+
+    The baseline expands the manifest's patterns into concrete row names. This lets a
+    renamed or newly added row fail closed without hard-coding every dynamic sidebar
+    size in the runner. The manifest still catches a zero-row or schema-shape failure
+    when no previous baseline contains a name to expand.
+    """
+    selected = [pattern for part in only for pattern in manifest.get(part, [])]
+    current = {row.get("name"): row for row in rows if row.get("name")}
+    missing = []
+    for name in sorted(baseline):
+        if selected and not any(re.fullmatch(pattern, name) for pattern in selected):
+            continue
+        sample = current.get(name)
+        if sample is None or sample.get("p95") is None:
+            missing.append({"name": name, "reason": "missing current p95"})
+    # A baseline with at least one concrete row for a benchmark part is the
+    # source of truth for that part's shape. Older baselines can legitimately
+    # contain only one family (for example the sidebar switch row); requiring
+    # every manifest family in that case would turn an otherwise concrete
+    # current-value check into a false incomplete result. A part with no
+    # baseline rows still needs its manifest families to prove that the bench
+    # produced data at all.
+    baseline_parts = {
+        part for part in only
+        if any(any(re.fullmatch(pattern, name) for pattern in manifest.get(part, []))
+               for name in baseline)
+    }
+    for part in only:
+        if part in baseline_parts:
+            continue
+        for pattern in manifest.get(part, []):
+            matched = [name for name in current if re.fullmatch(pattern, name)]
+            if not matched or not any(current[name].get("p95") is not None for name in matched):
+                # A part with no baseline rows still needs this manifest-level
+                # reason so a new baseline cannot be written from a partial run.
+                missing.append({"name": pattern, "reason": "manifest row not measured"})
+    return missing
+
+
+def completeness_counts(rows, baseline, manifest, only, incomplete, regressed):
+    """Summarize the manifest coverage in the JSON receipt.
+
+    Concrete names in a baseline are the expected rows for that host. When no
+    baseline exists, the manifest patterns are the expected entries instead.
+    """
+    selected = [pattern for part in only for pattern in manifest.get(part, [])]
+    measured_names = {row.get("name") for row in rows if row.get("name") and row.get("p95") is not None}
+    expected_names = {name for name in baseline
+                      if not selected or any(re.fullmatch(pattern, name) for pattern in selected)}
+    if expected_names:
+        expected = len(expected_names)
+        measured = len(expected_names & measured_names)
+    else:
+        matched = {pattern for pattern in selected
+                   if any(re.fullmatch(pattern, name) for name in measured_names)}
+        expected = len(selected)
+        measured = len(matched)
+    incomplete_names = {item["name"] for item in incomplete}
+    return {"expected": expected,
+            "measured": measured,
+            "unsupported": 0,
+            "failed": len(regressed),
+            "incomplete": len(incomplete_names)}
 
 
 def main():
@@ -288,10 +409,18 @@ def main():
     ap.add_argument("--sidebar-size", type=int, default=400)
     ap.add_argument("--sidebar-tickers", type=int, default=15, help="ticking (agent-like) workspaces in the sidebar bench")
     ap.add_argument("--sidebar-scenarios", default="ticks,scroll,scroll_ticking,switch,switch_matrix,drag")
+    ap.add_argument("--acp-rows", type=int, default=5000, help="seeded rows for native transcript scroll measurements")
+    ap.add_argument("--acp-fling-seconds", type=float, default=3, help="duration of the native transcript traversal")
+    ap.add_argument("--scroll-target-hz", type=float, help="target refresh rate for transcript and sidebar dropped slots")
     ap.add_argument("--gate", action="store_true")
     ap.add_argument("--baseline", help="baseline JSON (default: perf-budgets-baseline/<host class>.json)")
     ap.add_argument("--write-baseline")
     ap.add_argument("--bench-timeout", type=int, default=900)
+    ap.add_argument("--raw", default="", help="benches whose whole report goes into the --json result (under raw)")
+    ap.add_argument("--palette-rounds", type=int, default=6, help="palette opens per command (6: the budget gate's)")
+    ap.add_argument("--load", default="",
+                    help="phases to run every bench in: idle, default (agent-like load at the default priority) and "
+                         "agent (the same load in acpmux's agent tier); rows get @<phase>. Empty: idle only, no suffix")
     ap.add_argument("--profile", action="store_true",
                     help="also profile the sidebar (Time Profiler: scroll, ticks, switch, row drag) and the panes "
                          "(sample: split, New Column, divider drag) and split main-thread time into framework and our work")
@@ -315,14 +444,17 @@ def main():
         "tab_switch": ([py, S("tab-switch-matrix.py"), *common, "--kinds", "terminal,chromium", "--counts", "10",
                         "--switches", "30", "--out", o("tab_switch"), "--json", o("tab_switch.json")],
                        "tab_switch.json", rows_tab_switch),
-        "palette": ([py, S("palette-open-stages.py"), *common, "--rounds", "6", "--no-gate",
+        "palette": ([py, S("palette-open-stages.py"), *common, "--rounds", str(opts.palette_rounds), "--no-gate",
                      "--out", o("palette"), "--json", o("palette.json")], "palette.json", rows_palette),
         "sidebar": ([py, S("sidebar-stress-bench.py"), *common, "--sizes", str(opts.sidebar_size), "--stop",
                      "--tickers", str(opts.sidebar_tickers), "--scenarios", opts.sidebar_scenarios,
+                     *(["--target-hz", str(opts.scroll_target_hz)] if opts.scroll_target_hz is not None else []),
                      *([] if opts.profile else ["--no-trace"]), "--out", o("sidebar")], os.path.join("sidebar", "results.json"),
                     lambda r: rows_sidebar(r, opts.sidebar_size)),
         "home": ([py, S("home-perf.py"), "--tag", opts.tag, "--out", o("home.json")], "home.json", rows_home),
         "acp": ([py, S("agent-engine-bench.py"), *common, "--modes", "own,chromium", "--chats", "2", "--flings", "1",
+                 "--rows", str(opts.acp_rows), "--fling-seconds", str(opts.acp_fling_seconds),
+                 *(["--target-hz", str(opts.scroll_target_hz)] if opts.scroll_target_hz is not None else []),
                  "--out", o("acp"), "--json", o("acp.json")], "acp.json", rows_acp),
         "anim": ([py, S("anim-perf-terminal.py"), *common, "--rounds", "2", "--out", o("anim"), "--json", o("anim.json")],
                  "anim.json", rows_anim),
@@ -330,6 +462,27 @@ def main():
                   "--measure", "30", "--no-fail", "--label", "budgets", "--out", o("idle")], None, rows_idle),
     }
     runs, values = {}, {}
+    phases = [p for p in opts.load.split(",") if p] or [""]
+    if any(p not in ("idle", "", *LOAD_TIERS) for p in phases):
+        sys.exit(f"perf-budgets: --load takes idle, default and agent, not {opts.load}")
+    base_plan = plan
+    for phase in phases:
+        if phase:
+            # Each phase writes under its own folder, so the reports of one bench never overwrite each other.
+            sub = os.path.join(opts.out, phase)
+            plan = {k: ([a.replace(opts.out, sub, 1) if a.startswith(opts.out) else a for a in argv], report, mapper)
+                    for k, (argv, report, mapper) in base_plan.items()}
+        run_phase(phase, only, plan, opts, runs, values)
+    finish(opts, budgets, only, runs, values)
+
+
+def run_phase(phase, only, plan, opts, runs, values):
+    """Run each bench of `only` once in `phase` (idle, or under that tier's load), its rows suffixed `@phase`."""
+    out = os.path.join(opts.out, phase) if phase else opts.out
+    o = lambda f: os.path.join(out, f)  # noqa: E731
+    suffix = f"@{phase}" if phase else ""
+    scratch = os.path.join(opts.out, "load-scratch")
+    os.makedirs(scratch, exist_ok=True)
     for name in only:
         argv, report, mapper = plan[name]
         # Some benches open files in their --out without making it.
@@ -339,16 +492,24 @@ def main():
         if not os.path.exists(argv[1]):  # a bench another lane adds (anim-perf) on a checkout without it
             print(f"\n=== {name}: {os.path.basename(argv[1])} is not in this checkout; its rows stay n/a", flush=True)
             continue
-        runs[name] = run_bench(name, argv, opts.out, opts.bench_timeout)
+        os.makedirs(out, exist_ok=True)
+        procs = start_load(phase, scratch) if phase in LOAD_TIERS else []
+        try:
+            runs[name + suffix] = run_bench(name + suffix.replace("@", "-"), argv, out, opts.bench_timeout)
+        finally:
+            stop_load(procs, scratch)
+        name = name + suffix
         if report is None:  # bench_idle names its file after the sha and label
             found = sorted(f for f in os.listdir(o("idle")) if f.endswith("-idle-budgets.json")) if os.path.isdir(o("idle")) else []
             report = os.path.join("idle", found[-1]) if found else "idle/missing.json"
         runs[name]["report"] = o(report)
         try:
-            values.update(mapper(load(o(report))))
+            values.update({row + suffix: v for row, v in mapper(load(o(report))).items()})
         except Exception as exc:  # a report from an older build with another shape: its rows stay n/a
             runs[name]["map_error"] = repr(exc)
 
+
+def finish(opts, budgets, only, runs, values):
     profile_split = profile_splits(opts.out) if opts.profile else None
 
     rows = []
@@ -363,6 +524,11 @@ def main():
     baseline = (load(base_path) or {}).get("p95", {})
     regressed = compare(rows, baseline)
     over = over_budget(rows)
+    incomplete = []
+    if opts.gate and not baseline:
+        incomplete.append({"name": "baseline", "reason": "missing baseline p95 rows"})
+    incomplete.extend(incomplete_rows(rows, baseline, budgets.get("expected", {}), only))
+    counts = completeness_counts(rows, baseline, budgets.get("expected", {}), only, incomplete, regressed)
 
     print(f"\n# cmux-next perf budgets, {cls} ({platform.node()}), tag {opts.tag}\n")
     print("| row | p50 | p95 | budget p95 | baseline p95 | |\n|---|---|---|---|---|---|")
@@ -372,22 +538,31 @@ def main():
         mark = "REGRESSED" if r["name"] in reg_names else ("over budget" if r["name"] in over else "")
         print(f"| {r['name']} | {f(r['p50'])} | {f(r['p95'])} | {f(r['budget'])} | {f(baseline.get(r['name']))} | {mark} |")
     print(f"\nPERF-BUDGETS rows={len(rows)} measured={sum(r['p95'] is not None for r in rows)} "
-          f"over_budget={len(over)} regressed={len(regressed)} baseline={'yes' if baseline else 'none'}")
+          f"over_budget={len(over)} regressed={len(regressed)} incomplete={len(incomplete)} "
+          f"baseline={'yes' if baseline else 'none'} expected={counts['expected']} "
+          f"measured={counts['measured']} unsupported={counts['unsupported']} failed={counts['failed']}")
     for r in regressed:
         print(f"PERF-BUDGETS-REGRESSION {r['name']} p95 {r['p95']} vs baseline {r['baseline']} (+{r['worse_pct']} %)")
+    for r in incomplete:
+        print(f"PERF-BUDGETS-INCOMPLETE {r['name']}: {r['reason']}")
 
     result = {"tag": opts.tag, "host_class": cls, "host": platform.node(), "baseline_file": base_path if baseline else None,
-              "rows": rows, "regressed": regressed, "over_budget": over, "runs": runs,
+              "rows": rows, "regressed": regressed, "over_budget": over, "incomplete": incomplete,
+              "counts": counts, "runs": runs,
+              "raw": {name: load(run["report"]) for name, run in runs.items()
+                      if name.split("@", 1)[0] in opts.raw.split(",") and run.get("report")},
               "profile_split": profile_split}
     if opts.json:
         os.makedirs(os.path.dirname(os.path.abspath(opts.json)), exist_ok=True)
         json.dump(result, open(opts.json, "w"), indent=1)
-    if opts.write_baseline:
+    if opts.write_baseline and incomplete:
+        print("PERF-BUDGETS-BASELINE refused: the run is incomplete; provide measured rows for every expected entry")
+    elif opts.write_baseline:
         json.dump({"host_class": cls, "p95": {r["name"]: r["p95"] for r in rows if r["p95"] is not None}},
                   open(opts.write_baseline, "w"), indent=1, sort_keys=True)
     if opts.gate and not baseline:
-        print(f"PERF-BUDGETS-GATE no baseline at {base_path}: nothing to compare (not a failure)")
-    sys.exit(1 if opts.gate and regressed else 0)
+        print(f"PERF-BUDGETS-GATE no baseline at {base_path}: incomplete")
+    sys.exit(1 if opts.gate and (regressed or incomplete) else 0)
 
 
 if __name__ == "__main__":

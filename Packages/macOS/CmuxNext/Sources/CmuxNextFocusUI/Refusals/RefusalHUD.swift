@@ -23,7 +23,7 @@ package final class RefusalHUD {
     /// Messages asked for so far: a caller that may refuse after another
     /// layer already did compares it, so one failure shows one reason.
     package private(set) var shownCount = 0
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// Every message asked for, newest last (`debug.toast` `refusals`): a
     /// burst check sees a message the hide deadline already took down.
     package private(set) var history: [String] = []
@@ -31,7 +31,7 @@ package final class RefusalHUD {
 
     package func show(_ text: String, in window: NSWindow?) {
         shownCount += 1
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         history = Array((history + [text]).suffix(100))
         #endif
         guard let window else { return }

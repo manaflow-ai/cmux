@@ -16,6 +16,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::SystemTime;
 
+#[cfg(test)]
+#[path = "auth_tests.rs"]
+mod tests;
+
 /// Env keys that carry credentials or point a harness at another login.
 const AUTH_ENV: &[&str] = &[
     "ANTHROPIC_API_KEY",
@@ -31,7 +35,7 @@ const AUTH_ENV: &[&str] = &[
 /// Where one family keeps its login, and how to read the account from it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Reader {
-    /// `~/.claude.json`: `oauthAccount.accountUuid` and `organizationUuid`.
+    /// `~/.claude.json`: OAuth account/organization and a saved `primaryApiKey`.
     ClaudeAccount,
     /// Codex `auth.json`: `auth_mode`, `tokens.account_id`, `OPENAI_API_KEY`.
     CodexAuth,
@@ -46,9 +50,13 @@ fn files(
     env: &dyn Fn(&str) -> Option<String>,
     home: &Path,
 ) -> Vec<(PathBuf, Reader)> {
+    let home = env("HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.to_path_buf());
     match family {
         "claude" => {
-            let dir = env("CLAUDE_CONFIG_DIR").map(PathBuf::from);
+            let dir = env("CLAUDE_CONFIG_DIR").filter(|value| !value.is_empty()).map(PathBuf::from);
             let account = match &dir {
                 Some(d) => d.join(".claude.json"),
                 None => home.join(".claude.json"),
@@ -57,12 +65,17 @@ fn files(
             vec![(account, Reader::ClaudeAccount), (creds, Reader::Stat)]
         }
         "codex" => {
-            let dir = env("CODEX_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".codex"));
+            let dir = env("CODEX_HOME")
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join(".codex"));
             vec![(dir.join("auth.json"), Reader::CodexAuth)]
         }
         "opencode" | "opencode-v2" => {
             let data = env("XDG_DATA_HOME")
+                .filter(|value| !value.is_empty())
                 .map(PathBuf::from)
+                .filter(|path| path.is_absolute())
                 .unwrap_or_else(|| home.join(".local/share"));
             vec![(data.join("opencode/auth.json"), Reader::OpencodeAuth)]
         }
@@ -166,7 +179,11 @@ fn account_part(reader: Reader, bytes: &[u8]) -> u64 {
     let s = |v: &serde_json::Value, p: &str| v.pointer(p).map(|x| x.to_string());
     match reader {
         Reader::ClaudeAccount => {
-            (s(&v, "/oauthAccount/accountUuid"), s(&v, "/oauthAccount/organizationUuid"))
+            (
+                s(&v, "/oauthAccount/accountUuid"),
+                s(&v, "/oauthAccount/organizationUuid"),
+                s(&v, "/primaryApiKey"),
+            )
                 .hash(&mut h);
         }
         Reader::CodexAuth => {

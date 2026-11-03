@@ -1,0 +1,145 @@
+05:27:18 rig mini-cmux11s-mac-mini: device 20b6e48c-f0ba-4169-a60b-52b887731225, workspace brfz-term (8 workspaces: ['Home', 'brfz-term', 'lr-a', 'lr-a', 'lr-a', 'lr-a', 'lr-a', 'lr-a'])
+05:27:20 app launched, config default, env ['CMUX_MOBILE_DEV_KILL_MEDIA_EVERY_S', 'CMUX_MOBILE_LOG'], drop 0, bg 0
+05:27:25 host 05:27:21 link up session_id="c356186a-5b51-4c07-a38a-9b3225451ccc" kind=WireGuard path=Turn phone="07d3d268-ebfe-4601-af11-a32bd5d268cd" video=true timings=offer_received=0.0ms ice_servers_cached=0.0ms video_l
+05:27:25 host 05:27:21 link path changed session_id="c356186a-5b51-4c07-a38a-9b3225451ccc" path=Turn
+05:27:29 step open_tab ('A', 'https://en.wikipedia.org/wiki/Cat') at +0.1 min
+05:27:38 phone tab new-36e00711-t1 opens -
+05:27:41 host 05:27:38 media session up session_id="639ca1a7-83a9-4bea-a27c-4272db914853" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" path=Direct timings=media_offer_received=0.0ms pc_created=0.2ms media_answer_sent
+05:27:51 host 05:27:50 link down session_id="5b52b628-3297-4bfb-ae8e-29ff461f175a" reason="keepalive timed out"
+05:27:59 act {"t": 1792819679.46, "utc": "05:27:59", "tab": "A", "act": "open", "name": "A", "url": "https://en.wikipedia.org/wiki/Cat", "load_s": 23.3, "key": "new-36e00711-t1", "mac_ws": "ws_75efce61ba0031214ae1d9818653ed40", "row": "workspace.row.4ac9b986-197a-4497-9c1e-3d2a3335c5f9"}
+05:27:59 step interact (35,) at +0.6 min
+05:28:09 act {"t": 1792819689.95, "utc": "05:28:09", "tab": "A", "act": "scroll-down", "rtt": null}
+05:28:19 act {"t": 1792819699.25, "utc": "05:28:19", "tab": "A", "act": "scroll-up", "rtt": null}
+05:28:19 FREEZE phone-unresponsive: 2 inputs in a row with no screen change in 8 s (last: scroll-up on A)
+05:28:20 captured /Users/cmux/brfreeze/runs/r3-switch/freeze-01-phone-unresponsive-052819
+05:28:22 host 05:28:19 media session down session_id="639ca1a7-83a9-4bea-a27c-4272db914853" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" reason="bye: closed"
+05:28:22 host 05:28:20 media session up session_id="01a957c3-dbdd-4264-bf7f-68152f457f48" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" path=Direct timings=media_offer_received=0.0ms pc_created=0.3ms media_answer_sent
+05:28:22 host 05:28:20 media lane switched route at a keyframe from="wireguard-udp" to="webrtc-track"
+05:28:30 act {"t": 1792819710.95, "utc": "05:28:30", "tab": "A", "act": "scroll-down", "rtt": null}
+05:28:30 FREEZE phone-unresponsive: 3 inputs in a row with no screen change in 8 s (last: scroll-down on A)
+05:28:39 act {"t": 1792819719.99, "utc": "05:28:39", "tab": "A", "act": "scroll-up", "rtt": null}
+05:28:39 FREEZE phone-unresponsive: 4 inputs in a row with no screen change in 8 s (last: scroll-up on A)
+05:28:41 step still_idle (70,) at +1.4 min
+05:28:41 act {"t": 1792819721.73, "utc": "05:28:41", "tab": "A", "act": "still-idle", "seconds": 70}
+05:29:03 host 05:29:00 media session down session_id="01a957c3-dbdd-4264-bf7f-68152f457f48" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" reason="bye: closed"
+05:29:08 FREEZE keyframe-storm: keyframe_requests 2->112 in 5.0s (21.9/s) since 05:28:59
+05:29:14 host 05:29:12 media session failed session_id="66203f9a-a646-4b90-93b9-4f564894154e" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" error=transport: the media session's peer connection failed timings=media_off
+05:29:14 keyframe storm ended at 05:29:09 (started 05:28:59, kf=112)
+05:29:29 host 05:29:25 media session failed session_id="408d5943-45c7-4b1c-a0ea-cd5c5d70279f" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" error=transport: the media session's peer connection failed timings=media_off
+05:29:34 host 05:29:29 media session up session_id="a62bb7f0-5a63-4f88-b464-d6dd965d0aaa" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" path=Direct timings=media_offer_received=0.0ms pc_created=0.6ms media_answer_sent
+05:29:34 host 05:29:29 media lane switched route at a keyframe from="wireguard-udp" to="webrtc-track"
+05:29:52 act {"t": 1792819792.26, "utc": "05:29:52", "tab": "A", "act": "still-idle-end", "reconnecting": []}
+05:29:52 step interact (35,) at +2.5 min
+05:30:00 act {"t": 1792819800.86, "utc": "05:30:00", "tab": "A", "act": "scroll-up", "rtt": null}
+05:30:00 FREEZE phone-unresponsive: 5 inputs in a row with no screen change in 8 s (last: scroll-up on A)
+05:30:02 captured /Users/cmux/brfreeze/runs/r3-switch/freeze-05-phone-unresponsive-053000
+05:30:10 host 05:30:09 media session down session_id="a62bb7f0-5a63-4f88-b464-d6dd965d0aaa" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" reason="bye: closed"
+05:30:11 act {"t": 1792819811.64, "utc": "05:30:11", "tab": "A", "act": "scroll-down", "rtt": null}
+05:30:11 FREEZE phone-unresponsive: 6 inputs in a row with no screen change in 8 s (last: scroll-down on A)
+05:30:15 host 05:30:10 media session up session_id="206b25be-0dfe-4e46-ac6b-85bf8352ca27" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" path=Direct timings=media_offer_received=0.0ms pc_created=0.4ms media_answer_sent
+05:30:15 host 05:30:11 media lane switched route at a keyframe from="wireguard-udp" to="webrtc-track"
+05:30:21 act {"t": 1792819821.24, "utc": "05:30:21", "tab": "A", "act": "scroll-down", "rtt": null}
+05:30:21 FREEZE phone-unresponsive: 7 inputs in a row with no screen change in 8 s (last: scroll-down on A)
+05:30:31 act {"t": 1792819831.52, "utc": "05:30:31", "tab": "A", "act": "scroll-down", "rtt": null}
+05:30:31 FREEZE phone-unresponsive: 8 inputs in a row with no screen change in 8 s (last: scroll-down on A)
+05:30:32 step still_idle (70,) at +3.2 min
+05:30:32 act {"t": 1792819832.25, "utc": "05:30:32", "tab": "A", "act": "still-idle", "seconds": 70}
+05:30:51 host 05:30:51 media session down session_id="206b25be-0dfe-4e46-ac6b-85bf8352ca27" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" reason="bye: closed"
+05:30:56 host 05:30:52 media session up session_id="809dfb37-1856-4ea1-bace-775241267f4f" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" path=Direct timings=media_offer_received=0.0ms pc_created=0.3ms media_answer_sent
+05:30:56 host 05:30:52 media lane switched route at a keyframe from="wireguard-udp" to="webrtc-track"
+05:31:32 host 05:31:32 media session down session_id="809dfb37-1856-4ea1-bace-775241267f4f" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" reason="bye: closed"
+05:31:38 host 05:31:34 media session up session_id="c33f9b05-07d7-41b3-afa9-986bbc8108f2" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" path=Direct timings=media_offer_received=0.0ms pc_created=0.5ms media_answer_sent
+05:31:38 host 05:31:34 media lane switched route at a keyframe from="wireguard-udp" to="webrtc-track"
+05:31:42 act {"t": 1792819902.75, "utc": "05:31:42", "tab": "A", "act": "still-idle-end", "reconnecting": []}
+05:31:42 step interact (35,) at +4.4 min
+05:31:51 act {"t": 1792819911.25, "utc": "05:31:51", "tab": "A", "act": "scroll-up", "rtt": null}
+05:31:51 FREEZE phone-unresponsive: 9 inputs in a row with no screen change in 8 s (last: scroll-up on A)
+05:31:52 captured /Users/cmux/brfreeze/runs/r3-switch/freeze-09-phone-unresponsive-053151
+05:32:03 act {"t": 1792819923.85, "utc": "05:32:03", "tab": "A", "act": "tap", "rtt": null, "at": [297, 314]}
+05:32:03 FREEZE phone-unresponsive: 10 inputs in a row with no screen change in 8 s (last: tap on A)
+05:32:14 act {"t": 1792819934.55, "utc": "05:32:14", "tab": "A", "act": "scroll-down", "rtt": null}
+05:32:14 FREEZE phone-unresponsive: 11 inputs in a row with no screen change in 8 s (last: scroll-down on A)
+05:32:19 host 05:32:14 media session down session_id="c33f9b05-07d7-41b3-afa9-986bbc8108f2" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" reason="bye: closed"
+05:32:19 host 05:32:15 media session up session_id="947b9aff-e476-4e1e-b0ac-8aa73bb408d4" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" path=Direct timings=media_offer_received=0.0ms pc_created=0.3ms media_answer_sent
+05:32:19 host 05:32:15 media lane switched route at a keyframe from="wireguard-udp" to="webrtc-track"
+05:32:19 FREEZE keyframe-storm: keyframe_requests 1->636 in 5.0s (126.3/s) since 05:32:10
+05:32:27 act {"t": 1792819947.0, "utc": "05:32:27", "tab": "A", "act": "tap", "rtt": null, "at": [112, 511]}
+05:32:27 FREEZE phone-unresponsive: 12 inputs in a row with no screen change in 8 s (last: tap on A)
+05:32:28 step still_idle (70,) at +5.1 min
+05:32:28 act {"t": 1792819948.87, "utc": "05:32:28", "tab": "A", "act": "still-idle", "seconds": 70}
+05:32:29 keyframe storm ended at 05:32:25 (started 05:32:10, kf=1)
+05:33:00 host 05:32:55 media session down session_id="947b9aff-e476-4e1e-b0ac-8aa73bb408d4" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" reason="bye: closed"
+05:33:00 host 05:32:56 media session up session_id="e3a138fb-7460-4b1c-9ca3-683120406399" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" path=Direct timings=media_offer_received=0.0ms pc_created=0.3ms media_answer_sent
+05:33:00 host 05:32:56 media lane switched route at a keyframe from="wireguard-udp" to="webrtc-track"
+05:33:39 act {"t": 1792820019.21, "utc": "05:33:39", "tab": "A", "act": "still-idle-end", "reconnecting": []}
+05:33:39 step interact (35,) at +6.3 min
+05:33:41 host 05:33:36 media session down session_id="e3a138fb-7460-4b1c-9ca3-683120406399" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" reason="bye: closed"
+05:33:41 host 05:33:37 media session up session_id="b4b55819-6ea3-4750-8771-a853df9c8fad" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" path=Direct timings=media_offer_received=0.0ms pc_created=0.8ms media_answer_sent
+05:33:41 host 05:33:37 media lane switched route at a keyframe from="wireguard-udp" to="webrtc-track"
+05:33:49 act {"t": 1792820029.7, "utc": "05:33:49", "tab": "A", "act": "tap", "rtt": null, "at": [288, 446]}
+05:33:49 FREEZE phone-unresponsive: 13 inputs in a row with no screen change in 8 s (last: tap on A)
+05:33:50 captured /Users/cmux/brfreeze/runs/r3-switch/freeze-14-phone-unresponsive-053349
+05:34:02 act {"t": 1792820042.91, "utc": "05:34:02", "tab": "A", "act": "tap", "rtt": null, "at": [136, 571]}
+05:34:02 FREEZE phone-unresponsive: 14 inputs in a row with no screen change in 8 s (last: tap on A)
+05:34:12 act {"t": 1792820052.25, "utc": "05:34:12", "tab": "A", "act": "scroll-down", "rtt": null}
+05:34:12 FREEZE phone-unresponsive: 15 inputs in a row with no screen change in 8 s (last: scroll-down on A)
+05:34:22 host 05:34:17 media session down session_id="b4b55819-6ea3-4750-8771-a853df9c8fad" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" reason="bye: closed"
+05:34:22 host 05:34:18 media session up session_id="acbfb367-84f5-4e86-80ad-cf28fc3df076" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" path=Direct timings=media_offer_received=0.0ms pc_created=0.3ms media_answer_sent
+05:34:22 host 05:34:18 media lane switched route at a keyframe from="wireguard-udp" to="webrtc-track"
+05:34:23 act {"t": 1792820063.55, "utc": "05:34:23", "tab": "A", "act": "tap", "rtt": null, "at": [148, 460]}
+05:34:23 FREEZE phone-unresponsive: 16 inputs in a row with no screen change in 8 s (last: tap on A)
+05:34:25 step still_idle (70,) at +7.1 min
+05:34:25 act {"t": 1792820065.12, "utc": "05:34:25", "tab": "A", "act": "still-idle", "seconds": 70}
+05:35:03 host 05:34:58 media session down session_id="acbfb367-84f5-4e86-80ad-cf28fc3df076" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" reason="bye: closed"
+05:35:03 host 05:35:00 media session up session_id="957dd6ef-2f70-40a0-8f72-7a1333f193a2" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" path=Direct timings=media_offer_received=0.0ms pc_created=0.6ms media_answer_sent
+05:35:03 host 05:35:00 media lane switched route at a keyframe from="wireguard-udp" to="webrtc-track"
+05:35:35 act {"t": 1792820135.63, "utc": "05:35:35", "tab": "A", "act": "still-idle-end", "reconnecting": []}
+05:35:35 step interact (35,) at +8.3 min
+05:35:44 host 05:35:40 media session down session_id="957dd6ef-2f70-40a0-8f72-7a1333f193a2" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" reason="bye: closed"
+05:35:44 host 05:35:41 media session up session_id="5aa0c6c2-b8ae-442d-94f2-27f62c97d791" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" path=Direct timings=media_offer_received=0.0ms pc_created=0.4ms media_answer_sent
+05:35:44 host 05:35:41 media lane switched route at a keyframe from="wireguard-udp" to="webrtc-track"
+05:35:44 FREEZE keyframe-storm: keyframe_requests 1->1293 in 5.0s (257.5/s) since 05:35:35
+05:35:46 captured /Users/cmux/brfreeze/runs/r3-switch/freeze-18-keyframe-storm-053544
+05:35:46 act {"t": 1792820146.32, "utc": "05:35:46", "tab": "A", "act": "tap", "rtt": null, "at": [75, 609]}
+05:35:46 FREEZE phone-unresponsive: 17 inputs in a row with no screen change in 8 s (last: tap on A)
+05:35:55 act {"t": 1792820155.56, "utc": "05:35:55", "tab": "A", "act": "scroll-down", "rtt": null}
+05:35:55 FREEZE phone-unresponsive: 18 inputs in a row with no screen change in 8 s (last: scroll-down on A)
+05:35:56 keyframe storm ended at 05:35:55 (started 05:35:35, kf=1)
+05:36:05 act {"t": 1792820165.52, "utc": "05:36:05", "tab": "A", "act": "scroll-up", "rtt": null}
+05:36:05 FREEZE phone-unresponsive: 19 inputs in a row with no screen change in 8 s (last: scroll-up on A)
+05:36:15 act {"t": 1792820175.97, "utc": "05:36:15", "tab": "A", "act": "scroll-down", "rtt": null}
+05:36:15 FREEZE phone-unresponsive: 20 inputs in a row with no screen change in 8 s (last: scroll-down on A)
+05:36:17 step still_idle (70,) at +8.9 min
+05:36:17 act {"t": 1792820177.1, "utc": "05:36:17", "tab": "A", "act": "still-idle", "seconds": 70}
+05:36:22 host 05:36:21 media session down session_id="5aa0c6c2-b8ae-442d-94f2-27f62c97d791" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" reason="bye: closed"
+05:36:27 host 05:36:22 media session up session_id="dfebda8c-3e5e-45a1-8b6e-c8971043e70a" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" path=Direct timings=media_offer_received=0.0ms pc_created=0.7ms media_answer_sent
+05:36:27 host 05:36:22 media lane switched route at a keyframe from="wireguard-udp" to="webrtc-track"
+05:37:03 host 05:37:02 media session down session_id="dfebda8c-3e5e-45a1-8b6e-c8971043e70a" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" reason="bye: closed"
+05:37:08 host 05:37:04 media session up session_id="c18da7f7-f05c-4a6f-9774-1a6d2b91bf88" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" path=Direct timings=media_offer_received=0.0ms pc_created=0.3ms media_answer_sent
+05:37:08 host 05:37:04 media lane switched route at a keyframe from="wireguard-udp" to="webrtc-track"
+05:37:28 act {"t": 1792820248.46, "utc": "05:37:28", "tab": "A", "act": "still-idle-end", "reconnecting": []}
+05:37:28 step interact (35,) at +10.1 min
+05:37:41 act {"t": 1792820261.9, "utc": "05:37:41", "tab": "A", "act": "scroll-down", "rtt": null}
+05:37:41 FREEZE phone-unresponsive: 21 inputs in a row with no screen change in 8 s (last: scroll-down on A)
+05:37:43 captured /Users/cmux/brfreeze/runs/r3-switch/freeze-23-phone-unresponsive-053741
+05:37:44 host 05:37:44 media session down session_id="c18da7f7-f05c-4a6f-9774-1a6d2b91bf88" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" reason="bye: closed"
+05:37:49 host 05:37:45 media session up session_id="0c1b299b-281f-4553-bfb8-688ba4746414" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" path=Direct timings=media_offer_received=0.0ms pc_created=0.4ms media_answer_sent
+05:37:49 host 05:37:45 media lane switched route at a keyframe from="wireguard-udp" to="webrtc-track"
+05:37:56 act {"t": 1792820276.92, "utc": "05:37:56", "tab": "A", "act": "scroll-up", "rtt": null}
+05:37:56 FREEZE phone-unresponsive: 22 inputs in a row with no screen change in 8 s (last: scroll-up on A)
+05:38:11 act {"t": 1792820291.62, "utc": "05:38:11", "tab": "A", "act": "tap", "rtt": null, "at": [286, 510]}
+05:38:11 FREEZE phone-unresponsive: 23 inputs in a row with no screen change in 8 s (last: tap on A)
+05:38:13 step still_idle (70,) at +10.9 min
+05:38:13 act {"t": 1792820293.5, "utc": "05:38:13", "tab": "A", "act": "still-idle", "seconds": 70}
+05:38:25 host 05:38:25 media session down session_id="0c1b299b-281f-4553-bfb8-688ba4746414" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" reason="bye: closed"
+05:38:30 host 05:38:26 media session up session_id="afbd4df4-506d-4345-936e-5a018f2b8021" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" path=Direct timings=media_offer_received=0.0ms pc_created=0.3ms media_answer_sent
+05:38:30 host 05:38:26 media lane switched route at a keyframe from="wireguard-udp" to="webrtc-track"
+05:39:07 host 05:39:06 media session down session_id="afbd4df4-506d-4345-936e-5a018f2b8021" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" reason="bye: closed"
+05:39:07 FREEZE keyframe-storm: keyframe_requests 1->1947 in 10.1s (192.9/s) since 05:38:56
+05:39:09 captured /Users/cmux/brfreeze/runs/r3-switch/freeze-26-keyframe-storm-053907
+05:39:14 host 05:39:07 media session up session_id="10657fba-598f-41d4-b8fd-550a6e471dbd" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" path=Direct timings=media_offer_received=0.0ms pc_created=0.3ms media_answer_sent
+05:39:14 host 05:39:07 media lane switched route at a keyframe from="wireguard-udp" to="webrtc-track"
+05:39:19 keyframe storm ended at 05:39:17 (started 05:38:56, kf=1)
+05:39:24 act {"t": 1792820364.34, "utc": "05:39:24", "tab": "A", "act": "still-idle-end", "reconnecting": []}
+05:39:30 per minute: [{"minute": 0, "decoded_frames": 60, "fps_max": 13, "carriers": ["track"], "kf_requests": 2, "inputs": 2, "no_response": 2, "rtt_median_s": null}, {"minute": 1, "decoded_frames": 150, "fps_max": 4, "carriers": ["track"], "kf_requests": 112, "inputs": 2, "no_response": 2, "rtt_median_s": null}, {"minute": 2, "decoded_frames": 240, "fps_max": 21, "carriers": ["track"], "kf_requests": 1, "inputs": 2, "no_response": 2, "rtt_median_s": null}, {"minute": 3, "decoded_frames": 210, "fps_max": 18, "carriers": ["track"], "kf_requests": 0, "inputs": 2, "no_response": 2, "rtt_median_s": null}, {"minute": 4, "decoded_frames": 210, "fps_max": 15, "carriers": ["track"], "kf_requests": 635, "inputs": 3, "no_response": 3, "rtt_median_s": null}, {"minute": 5, "decoded_frames": 180, "fps_max": 4, "carriers": ["track"], "kf_requests": 0, "inputs": 1, "no_response": 1, "rtt_median_s": null}, {"minute": 6, "decoded_frames": 210, "fps_max": 12, "carriers": ["track"], "kf_requests": 0, "inputs": 3, "no_response": 3, "rtt_median_s": null}, {"minute": 7, "decoded_frames": 210, "fps_max": 4, "carriers": ["track"], "kf_requests": 0, "inputs": 1, "no_response": 1, "rtt_median_s": null}, {"minute": 8, "decoded_frames": 240, "fps_max": 19, "carriers": ["track"], "kf_requests": 1292, "inputs": 4, "no_response": 4, "rtt_median_s": null}, {"minute": 9, "decoded_frames": 180, "fps_max": 4, "carriers": ["track"], "kf_requests": 0, "inputs": 0, "no_response": 0, "rtt_median_s": null}, {"minute": 10, "decoded_frames": 240, "fps_max": 5, "carriers": ["track"], "kf_requests": 0, "inputs": 3, "no_response": 3, "rtt_median_s": null}, {"minute": 11, "decoded_frames": 180, "fps_max": 4, "carriers": ["track"], "kf_requests": 1946, "inputs": 0, "no_response": 0, "rtt_median_s": null}, {"minute": 12, "decoded_frames": 60, "fps_max": 4, "carriers": ["track"], "kf_requests": 0, "inputs": 0, "no_response": 0, "rtt_median_s": null}]
+05:39:30 done: freezes 26

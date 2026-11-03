@@ -3,7 +3,7 @@ public import Foundation
 /// The owner's hand routes on the API Worker (backend hand-routes.ts, docs/chief-hands.md), called
 /// with the person's own session: the routes refuse an install token or a Chief token. Ids are
 /// checked before a path is built; nothing is cached, no cookie is kept, no redirect is followed
-/// and nothing is retried. Answers `{ok: true, value}` or throws ``CloudAPIError/http(status:code:message:)``.
+/// and nothing is retried. Answers `{ok: true, value}` or throws ``CloudAPIError/http(status:code:message:action:traceId:)``.
 public struct HandsAPIClient: Sendable {
     public typealias AccessToken = @Sendable () async throws -> String
 

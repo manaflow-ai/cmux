@@ -27,6 +27,7 @@ use super::{closed, commands, hidden_doc, journal_feed, sources, store_failed, t
 use crate::Mux;
 use crate::resource::ResourceError;
 use crate::workspace_registry::Actor;
+use cmux_json::JsonSet as _;
 
 /// The machine name the folds qualify ids with. It matches the Swift app's
 /// `MachineRegistry.localID`, so hides it stored (`local/<provider>/<id>`)
@@ -159,16 +160,15 @@ impl HistoryHost {
                 }
             }
         };
-        let saved = mux
-            .workspace_registry
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .put_journal_reducer_state(
-                AGENT_FOLD_STATE_ID,
-                AGENT_FOLD_STATE_VERSION,
-                cursor,
-                &snapshot,
-            );
+        // The connection alone, never the workspace registry lock: the
+        // snapshot is the whole agent history, and every state commit
+        // (Cmd-N's pin, create and first tab) waited behind it (issue 23038).
+        let saved = mux.registry_connection.put_journal_reducer_state(
+            AGENT_FOLD_STATE_ID,
+            AGENT_FOLD_STATE_VERSION,
+            cursor,
+            &snapshot,
+        );
         match saved {
             Ok(()) => {
                 let mut state = self.lock();
@@ -177,6 +177,15 @@ impl HistoryHost {
             }
             Err(error) => eprintln!("cmux-tui: saving the agent history failed: {error:#}"),
         }
+    }
+
+    /// Marks the agent fold unsaved; returns its cursor.
+    #[cfg(test)]
+    pub(super) fn mark_unsaved_for_test(&self) -> u64 {
+        let mut state = self.lock();
+        state.saved_cursor = 0;
+        state.unsaved_agents = true;
+        state.cursor
     }
 
     /// Folds the journal records scanned after `from` through `scanned`. A
@@ -325,7 +334,7 @@ pub(super) fn list(
         .collect::<Vec<_>>();
     let mut reply = json!({"entries": rows, "revision": mux.history.revision().to_string()});
     if !pending.is_empty() {
-        reply["pending_kinds"] = json!(pending);
+        reply.set("pending_kinds", json!(pending));
     }
     Ok(reply)
 }
@@ -410,7 +419,7 @@ fn remove(
     }
     if others > 0 {
         let before = value["removed"].as_u64().unwrap_or(0);
-        value["removed"] = json!(before + others);
+        value.set("removed", json!(before + others));
     }
     // Agent entries are hidden; so is an older journal command id
     // (`command:<machine>/<terminal>/<start ms>`).
@@ -434,7 +443,7 @@ fn remove(
         })
         .map_err(|error| failed(OPERATION, &error))?;
         let pages = value["removed"].as_u64().unwrap_or(0);
-        value["removed"] = json!(pages + hides.len() as u64);
+        value.set("removed", json!(pages + hides.len() as u64));
         for (_, kind) in &hides {
             if !changed.contains(kind) {
                 changed.push(*kind);
@@ -443,7 +452,7 @@ fn remove(
     }
     if deleted > 0 {
         let before = value["removed"].as_u64().unwrap_or(0);
-        value["removed"] = json!(before + deleted);
+        value.set("removed", json!(before + deleted));
         changed.push(HistoryKind::Closed);
     }
     Ok((value, changed))
@@ -497,7 +506,7 @@ fn clear(
     }
     if others > 0 {
         let before = value["removed"].as_u64().unwrap_or(0);
-        value["removed"] = json!(before + others);
+        value.set("removed", json!(before + others));
     }
     let hidden: Vec<HistoryKind> =
         [HistoryKind::Agent].into_iter().filter(|kind| profile.is_none() && wants(*kind)).collect();
@@ -512,7 +521,7 @@ fn clear(
     }
     if deleted > 0 {
         let before = value["removed"].as_u64().unwrap_or(0);
-        value["removed"] = json!(before + deleted);
+        value.set("removed", json!(before + deleted));
         changed.push(HistoryKind::Closed);
     }
     Ok((value, changed))

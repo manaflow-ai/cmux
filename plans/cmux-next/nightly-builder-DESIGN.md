@@ -1,5 +1,8 @@
 # Dedicated cmux-next nightly builder Mac
 
+> **Moved 2026-10-25.** All nine M6 minis (cmux16..cmux24) are reserved for the cmux Performance Lead
+> (Lawrence). The nightly-next builder now runs on cmux7s (M4 Pro, runner `cmux7s-mac-mini-nightly-next`, `CI_NIGHTLY_NEXT_TRUSTED_RUNNER=glaeda-runner-cmux7s-mac-mini-nightly-next`). It keeps `/Users/cmux` paths (no `/Users/runner` link: that needs sudo), so a paired Linux darling parity run has no matching profile. Install with `scripts/ci/nightly-builder-install.sh HOST`; the old M6 runner is removed.
+
 Owner: Chief subagent "Dedicated nightly builder Mac" (2026-10-20). User ask: "one machine whose job is
 always to build the nightly ... nightlies for cmux-next nightly never, ever get
 blocked, ever."

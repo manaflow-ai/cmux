@@ -49,6 +49,14 @@ nonisolated public struct ReleaseNotesStore: Sendable {
         return feed.items
     }
 
+    /// The verified kill-switch document (`notes/flags.json`, KillSwitchDocument), fresh or cached;
+    /// nil when neither verifies, which turns nothing off.
+    @concurrent
+    public func flags() async -> KillSwitchDocument? {
+        guard let data = await verified("flags.json") else { return nil }
+        return KillSwitchDocument(data: data)
+    }
+
     /// The file and its signature, fetched together from the network (cached
     /// once verified), else the cached pair, verified again. `cacheFirst`
     /// (a build's notes, which never change) answers from the verified cache

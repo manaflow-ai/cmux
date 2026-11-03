@@ -16,7 +16,14 @@ import Foundation
 /// - `ffi_calls`: calls into the Rust sidebar reducer (drag resolve, drop plan).
 /// - `band_updates`: top/footer band content recomputes.
 /// - `main_ns`: main-thread time spent in the measured paths, nanoseconds.
+/// - `order_builds`: `SidebarModel.workspaceOrder` builds (one per structural change at most, never per query).
 /// - `mirror_ns`: main-thread time in `SidebarMirror` calls (request encode, the Rust call, reading the reply), nanoseconds.
+/// - `row_invalidations`: listed rows whose observed content changed (`SidebarRowFeed`): one change in one workspace
+///   marks that workspace's row only, never every row (TYPING UNDER LOAD F6).
+/// - `row_maps`: row mappings `SidebarRowFeed` ran (a new row, a dirty row, every row after an inputs change).
+/// - `row_views_made`: row views a list made while it applied rows (none for a new workspace row while the list's spare
+///   waits: `SidebarListView.makeSpareRow`).
+/// - `spare_row_views`: spare workspace row views made after a frame committed.
 nonisolated enum SidebarPerfCounters {
     enum Counter: String, CaseIterable, Sendable {
         case rebuilds
@@ -32,6 +39,11 @@ nonisolated enum SidebarPerfCounters {
         case bandUpdates = "band_updates"
         case mainNanoseconds = "main_ns"
         case mirrorNanoseconds = "mirror_ns"
+        case orderBuilds = "order_builds"
+        case rowInvalidations = "row_invalidations"
+        case rowMaps = "row_maps"
+        case rowViewsMade = "row_views_made"
+        case spareRowViews = "spare_row_views"
     }
 
     private static let counts = Mutex<[Counter: Int]>([:])

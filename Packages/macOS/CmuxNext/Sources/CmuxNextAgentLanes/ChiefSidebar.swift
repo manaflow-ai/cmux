@@ -37,23 +37,28 @@ public final class ChiefSidebar {
     }
 
     /// What the App reaches for the Chief: its conversation id (nil before it is listed), the
-    /// Chief host (`chief:<id>`), the tab that shows a session there, revealing a tab, and a new
-    /// workspace on a session there.
+    /// Chief host (`chief:<id>`), the tab that shows a session there, revealing a tab, a new
+    /// workspace on a session there, and whether another Chief home of this Mac keeps a session.
     public struct Host {
         public var conversation: () -> String?
         public var chiefHost: () -> String?
         public var tab: (_ session: String, _ host: String) -> String?
         public var reveal: (_ tab: String) -> Bool
         public var openWorkspace: (_ session: String, _ host: String) throws -> ActionWork
+        /// Whether Chief home `host` of this Mac, not the app's own (a named Chief's), keeps
+        /// `session` in its acpmux (#28877); nil: no other home's link opens.
+        public var keeps: (@MainActor (_ session: String, _ host: String) async -> Bool)?
 
         public init(conversation: @escaping () -> String?, chiefHost: @escaping () -> String?,
                     tab: @escaping (String, String) -> String?, reveal: @escaping (String) -> Bool,
-                    openWorkspace: @escaping (String, String) throws -> ActionWork) {
+                    openWorkspace: @escaping (String, String) throws -> ActionWork,
+                    keeps: (@MainActor (String, String) async -> Bool)? = nil) {
             self.conversation = conversation
             self.chiefHost = chiefHost
             self.tab = tab
             self.reveal = reveal
             self.openWorkspace = openWorkspace
+            self.keeps = keeps
         }
     }
 
@@ -75,9 +80,11 @@ public final class ChiefSidebar {
     @ObservationIgnored private var opening: Set<String> = []
 
     /// `lanes`: the Chief home's lanes (its turns and subagents), which its acpmux watch writes
-    /// (`ChatsFeed.startChiefTurnStates`).
-    public init(lanes: AgentLaneStore = .chief) {
+    /// (`ChatsFeed.startChiefTurnStates`). `host`: what the App reaches (tests pass a fake;
+    /// the app sets it in ``bind(into:host:)``).
+    public init(lanes: AgentLaneStore = .chief, host: Host? = nil) {
         self.lanes = lanes
+        self.host = host
     }
 
     /// The subagent rows now (they draw only under the Chief item). Read inside an observation
@@ -97,10 +104,12 @@ public final class ChiefSidebar {
     }
 
     /// The sidebar-item menu entries a layout item does not show: Hide on a non-app item, the
-    /// subagent fold on any item but the Chief.
-    public static func menuRemovals(isApp: Bool, isChief: Bool) -> Set<ActionID> {
+    /// subagent fold on any item but the Chief, Archive on a band tile (`isTile`: Pinned, custom and app
+    /// sections draw no dimmed look; plans/cmux-next/archiving-DESIGN.md).
+    public static func menuRemovals(isApp: Bool, isChief: Bool, isTile: Bool = false) -> Set<ActionID> {
         var removed: Set<ActionID> = isApp ? [] : ["sidebar.item.hideApp"]
         if !isChief { removed.insert(toggleIdleAction) }
+        if isTile { removed.insert("sidebar.item.toggleArchive") }
         return removed
     }
 
@@ -170,26 +179,68 @@ public final class ChiefSidebar {
         _ = registry.perform("home.openConversation", invocation: .init(arguments: ["conversation": .string(chief)], origin: origin))
     }
 
+    /// Opens a Chief subagent link (`cmux://chief/<home>/session/<session>`, the `aN` links in
+    /// Home's chat). Another Chief home of this Mac (a named Chief's, #28877) opens too, once
+    /// ``Host/keeps`` finds the session in its acpmux; one that does not keep it refuses. False
+    /// when `chiefHost` is no Chief home this app can check, or nothing could show the session.
+    ///
+    /// - Parameters:
+    ///   - session: The subagent's acpmux session id.
+    ///   - chiefHost: The link's Chief host, `chief:<home id>`.
+    ///   - registry: Where an open's work and refusal go.
+    ///   - reveal: How a tab that shows the session comes forward (the link's window intent);
+    ///     nil: ``Host/reveal``.
+    /// - Returns: Whether the link showed or is opening something.
+    public func openSubagentLink(session: String, chiefHost: String, registry: ActionRegistry,
+                                 reveal: ((String) -> Bool)? = nil) -> Bool {
+        guard let host, let appHost = host.chiefHost() else { return false }
+        if let shown = host.tab(session, chiefHost), (reveal ?? host.reveal)(shown) { return true }
+        // No tab shows it (its spawn made no workspace, as when this Mac was out of PTYs): open
+        // the workspace its spawn would have, a chat tab on its session (no PTY).
+        if chiefHost == appHost { return openSubagent(session, chiefHost: chiefHost, registry: registry) }
+        // Another home: only a session its acpmux keeps, so a link cannot open an arbitrary id.
+        guard let keeps = host.keeps else { return false }
+        guard opening.insert(session).inserted else { return true }
+        // task-owner: one disk check, then one open
+        Task { [weak self] in
+            let kept = await keeps(session, chiefHost)
+            guard let self else { return }
+            opening.remove(session)
+            guard kept else { return registry.refuse(ChiefToolStrings.noSubagent) }
+            openSubagent(session, chiefHost: chiefHost, registry: registry)
+        }
+        return true
+    }
+
     /// The tab that shows the subagent's chat (the workspace its spawn opened), else a new
-    /// workspace on it in the Chief home's acpmux, shown once it is made.
-    private func openSubagent(_ session: String, registry: ActionRegistry) {
-        guard let host, let chiefHost = host.chiefHost() else { return }
-        if let shown = host.tab(session, chiefHost), host.reveal(shown) { return }
-        guard !opening.contains(session) else { return }
+    /// workspace on it in the Chief home's acpmux, shown once the app lists it (in this turn when
+    /// the app shows it before the daemon's creates).
+    /// False only when there is no Chief host (a refused open has already said why).
+    @discardableResult
+    private func openSubagent(_ session: String, chiefHost: String? = nil, registry: ActionRegistry) -> Bool {
+        guard let host, let chiefHost = chiefHost ?? host.chiefHost() else { return false }
+        if let shown = host.tab(session, chiefHost), host.reveal(shown) { return true }
+        guard !opening.contains(session) else { return true }
         let work: ActionWork
         do {
             work = try host.openWorkspace(session, chiefHost)
         } catch {
-            return registry.refuse(String(describing: error))
+            // The refusal says why; the caller adds no second ("gone") one.
+            registry.refuse(String(describing: error))
+            return true
         }
         opening.insert(session)
         registry.track(work)
+        // The app shows the new workspace and its chat tab in this turn when it can (P4): that tab comes
+        // forward now, and the work's end brings nothing forward again.
+        let shownNow = host.tab(session, chiefHost).map(host.reveal) ?? false
         // task-owner: one open; ends with the workspace's work
         Task { [weak self] in
             defer { self?.opening.remove(session) }
-            guard await work.value == nil, let tab = host.tab(session, chiefHost) else { return }
+            guard await work.value == nil, !shownNow, let tab = host.tab(session, chiefHost) else { return }
             _ = host.reveal(tab)
         }
+        return true
     }
 }
 

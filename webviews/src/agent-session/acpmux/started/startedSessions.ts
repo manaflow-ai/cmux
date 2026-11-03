@@ -10,6 +10,7 @@
 import { experimentArm } from "../../../experiments/experiment";
 import type { AcpmuxRow } from "../model";
 import { type AcpmuxSessionEntry, type SessionPullRequest, sessionMark } from "../sessionList";
+import type { RetryState } from "../subagents/retryState";
 import { startedSessionCards } from "./startedSessions.experiment";
 
 /// The row kind of one or more started chats' cards, drawn together where they were started.
@@ -26,13 +27,18 @@ export type StartedState = "running" | "waiting" | "failed" | "idle";
 /// `number` and `tone` are those of the one PR acpmux reads the state of (the chat folder's branch
 /// PR); without one, the newest recorded URL (`pullRequests`, the `gh pr create` calls acpmux
 /// recorded) names it and `tone` is `unknown`. `repo` is the repository's name, from a recorded URL
-/// of that number. `count` is every PR the chat opened.
+/// of that number. `count` is every PR the chat opened; `others` names each one but that PR, newest
+/// first, so the status line draws every pull request on its own instead of a "+N" count.
 export type StartedPullRequests = {
   count: number;
   number: number;
   repo?: string;
   tone: "ready" | "open" | "draft" | "failing" | "merged" | "closed" | "unknown";
+  others?: StartedPullRequestName[];
 };
+
+/// One pull request a chat opened: `repo #N`, or `#N` when its repository is not known.
+export type StartedPullRequestName = { number: number; repo?: string };
 
 export type StartedSession = {
   sessionId: string;
@@ -46,9 +52,21 @@ export type StartedSession = {
   /// The title is one the chat was given (its title or name), not the first prompt or "New chat"
   /// standing in for one: only then can a reply name it by title.
   named?: boolean;
+  /// A sub-session acpmux holds until its chat's running limit has a free slot (`waitsForSlot`).
+  waitsForSlot?: boolean;
   /// What its running turn does now (acpmux's doing line, sessionList.ts `doingLine`), for the tray;
   /// only with `doing` asked for, so the transcript's cards do not redraw on each of its calls.
   doing?: string;
+  /// The tool part of `doing` (sessionList.ts `doingTool`), with it.
+  doingTool?: string;
+  /// acpmux's retry of its failed turn while one waits (retryState.ts ``sessionRetry``).
+  retry?: RetryState;
+  /// The harness it runs (`claude`, `codex`, a profile), whose mark its rows draw.
+  harness?: string;
+  /// The chat's agent started it with its `start_session` tool (acpmux `startedBy`, hub/subsessions.rs):
+  /// one of the chat's own sub-sessions. A lane a coordinator dispatched (`sessions new`, `acpmux new`
+  /// from its shell, tagged `mux.parent`) has a lineage parent (`spawnedBy`) but no `startedBy`.
+  subsession?: boolean;
 };
 
 export function startedState(entry: AcpmuxSessionEntry): StartedState {
@@ -82,11 +100,16 @@ export function startedPullRequests(entry: AcpmuxSessionEntry): StartedPullReque
   const count = urls.length + (branch && sameNumber.length === 0 ? 1 : 0);
   if (count === 0) return undefined;
   const named = branch ? (sameNumber.length === 1 ? sameNumber[0] : undefined) : urls[urls.length - 1];
+  // Every other one, newest first. A branch PR whose number more than one repository has stands
+  // for one of them (unnamed), so one of those is left out to keep the count.
+  const rest = urls.filter((pr) => pr !== named).reverse();
+  const others: StartedPullRequestName[] = sameNumber.length > 1 ? dropOne(rest, branch!.number) : rest;
   return {
     count,
     number: branch?.number ?? named!.number,
     ...(named ? { repo: named.repo } : {}),
     tone: branch ? pullRequestTone(branch) : "unknown",
+    ...(others.length > 0 ? { others } : {}),
   };
 }
 
@@ -111,6 +134,11 @@ export function sessionStatus(
 /// with no pull request.
 export const hasStatusLine = (child: StartedSession): boolean =>
   child.pullRequests !== undefined || sessionStatus(child.state, child.unread, child.pullRequests) !== "done";
+
+function dropOne(prs: StartedPullRequestName[], number: number): StartedPullRequestName[] {
+  const at = prs.findIndex((pr) => pr.number === number);
+  return at < 0 ? prs : [...prs.slice(0, at), ...prs.slice(at + 1)];
+}
 
 function pullRequestTone(pr: SessionPullRequest): StartedPullRequests["tone"] {
   if (pr.state !== "open") return pr.state;
@@ -142,7 +170,12 @@ export function startedSessions(
         ...(state === "idle" && entry.unread ? { unread: true } : {}),
         ...(pullRequests ? { pullRequests } : {}),
         ...(entry.createdAt !== undefined ? { createdAt: entry.createdAt } : {}),
+        ...(entry.waitsForSlot ? { waitsForSlot: true } : {}),
         ...(doing && entry.doing ? { doing: entry.doing } : {}),
+        ...(doing && entry.doing && entry.doingTool ? { doingTool: entry.doingTool } : {}),
+        ...(entry.retry ? { retry: entry.retry } : {}),
+        ...(entry.harness ? { harness: entry.harness } : {}),
+        ...(entry.startedBy === chatId ? { subsession: true } : {}),
       };
     })
     .sort((a, b) => (a.createdAt ?? Infinity) - (b.createdAt ?? Infinity));

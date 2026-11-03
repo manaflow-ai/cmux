@@ -42,7 +42,7 @@ fn put(dir: &Path, name: &str, text: &str) {
 #[test]
 fn shipped_packs_parse_and_github_keeps_a607s_constants() {
     let names: Vec<&str> = toolpacks::BUILTIN.iter().map(|b| b.0).collect();
-    assert_eq!(names, ["browser", "cmux", "github", "vercel"]);
+    assert_eq!(names, ["browser", "cmux", "gdocs", "github", "vercel"]);
     for (name, toml, skill) in toolpacks::BUILTIN {
         let p = toolpacks::parse(toml).unwrap_or_else(|e| panic!("{name}: {e}"));
         assert_eq!(p.name, name);
@@ -95,7 +95,7 @@ fn own_beats_shared_beats_shipped_and_a_users_copy_is_kept() {
     assert_eq!(toolpacks::chief_dir(&home), home.join("toolpacks"));
 
     let written = toolpacks::install_builtin(&shared).unwrap();
-    assert_eq!(written, ["browser", "cmux", "github", "vercel"]);
+    assert_eq!(written, ["browser", "cmux", "gdocs", "github", "vercel"]);
     assert!(
         toolpacks::install_builtin(&shared).unwrap().is_empty(),
         "no rewrite"
@@ -222,6 +222,10 @@ fn a_data_only_pack_reaches_its_cli_and_git_on_every_turn() {
         "{helper}"
     );
     // Vercel and Acme with no Rust of their own.
+    // Vercel ships off (the default set is github, cmux, browser); one switch turns it on.
+    assert!(!paths.bin.join("vercel").exists());
+    toolpacks::set_enabled(&home, "vercel", true).unwrap();
+    write(&paths, &setup).unwrap();
     assert!(paths.bin.join("vercel").exists());
     assert!(paths.bin.join("git-credential-chief-acme").exists());
     assert!(
@@ -310,6 +314,6 @@ fn github_reads_as_before_through_its_pack() {
     let c = toolpacks::card(&gh, "ABCD-1234", "https://github.com/login/device");
     assert_eq!(
         c,
-        "Sign in to GitHub for this Chief: copy the code `ABCD-1234`, open the page below and approve.\nhttps://github.com/login/device"
+        "Sign in to GitHub for this Chief: copy the code `ABCD-1234`, open the page below and approve.\n[github.com/login/device](https://github.com/login/device)"
     );
 }

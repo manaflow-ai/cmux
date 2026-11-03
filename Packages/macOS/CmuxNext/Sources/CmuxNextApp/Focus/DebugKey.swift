@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
@@ -19,8 +19,9 @@ import CmuxNextWakeups
 /// key (`CMUX_NEXT_NO_ACTIVATE=1`). A key the responder chain gets passes the
 /// local event monitors as a real key does (DebugNativeInput), so a key in an
 /// agent pane records the user's gesture. Never touches another app.
-/// With `sequence`, raw key transitions through the app's event queue
-/// instead (`DebugKey+Sequence`); with `last`, the router's last interception.
+/// A request with `sequence` plays raw key transitions through the app's event queue instead,
+/// optionally into a chosen key window (`DebugKey+Sequence`, dispatched by `AppControl`); with
+/// `last`, the router's last interception.
 enum DebugKey {
     private static let named: [String: (characters: String, keyCode: UInt16)] = [
         "return": ("\r", 36), "escape": ("\u{1b}", 53), "tab": ("\t", 48), "space": (" ", 49), "d": ("d", 2), "c": ("c", 8), "v": ("v", 9),
@@ -49,7 +50,6 @@ enum DebugKey {
     ]
 
     static func send(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
-        if let steps = params["sequence"]?.arrayValue { return sendSequence(steps) }
         // `last`: the action the router last took a key for (a real key's too), whether it ran,
         // and a count that changes with every interception.
         if params["last"]?.boolValue == true {
@@ -74,6 +74,12 @@ enum DebugKey {
         } else if params["target"]?.stringValue == "palette" {
             guard let panel = services.palette.visiblePanel else { return .object(["error": .string("the palette is not open")]) }
             window = panel
+        } else if params["target"]?.stringValue == "dialog" {
+            // The window holding the keyboard over the shell: an attached sheet, or the child
+            // window (a dialog overlay) whose first responder edits text. Home's sheets.
+            let editing = shell.childWindows?.first { $0.isVisible && $0.firstResponder is NSText }
+            guard let dialog = shell.attachedSheet ?? editing else { return .object(["error": .string("no dialog over the window")]) }
+            window = dialog
         } else if params["target"]?.stringValue == "debugSettings" {
             guard let debugWindow = services.debugSettings.window, debugWindow.isVisible else {
                 return .object(["error": .string("Debug Settings is not open")])
@@ -108,10 +114,6 @@ enum DebugKey {
             return .object(["decision": .string(String(describing: decision)), "action": action,
                             "focus": .string(String(describing: controller.focus.state.resolved))])
         }
-        let registry = services.registry
-        let previous = registry.isDispatchingKeyDown
-        registry.isDispatchingKeyDown = { true }
-        defer { registry.isDispatchingKeyDown = previous }
         // The target window is the key window for this dispatch, so rules
         // that read the key window (WindowKeyTable) see it.
         let previousKey = services.keyWindowSource

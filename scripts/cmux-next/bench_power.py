@@ -29,6 +29,35 @@ Run it with "browser": {"freezeHiddenTabs": 5} and once each with
 "keepNeighborTabsAwake": 0 (before) and 1 (after). Prints PERF-NEIGHBOR lines:
 the app's own switch time (debug.tab_switch) and the time until the page runs
 script again (live_ms), plus the app's cold-show and prewarm counts.
+
+`loaded` (run it alone) is the shared idle-cost bench: a heavy user's load
+(idle_cost_load.py: 3000 chats in the daemon's list, 60% closed; 20 remote and
+5 local open chats, 3 of them streaming; 10 Chromium tabs; Home and New Tab),
+--settle seconds, then --measure idle seconds sampled once a second from
+outside (proc_pid_rusage and proc_pidinfo, which wake nothing). Per process
+and per role (app, each Chromium renderer by the page it hosts, from
+`debug.cef_pages` on bench and DEV builds, cef-gpu, WebKit, acpmux
+daemon): phys_footprint, CPU % average and p95 over the 1 s steps, idle and
+interrupt wakeups/s, main-thread CPU %. Prints PERF-IDLE-COST lines and
+Performance-table rows; the JSON goes to --out. Two runs side by side:
+  bench_power.py --compare BEFORE.json AFTER.json
+One command on the fleet:
+  cmux-ci run --class exclusive --measurement --label measure \\
+    --script scripts/measure/perf-idle-power.sh --ref SHA \\
+    --arg=scenarios=loaded --arg=config=bench --artifact artifacts/perf-idle-power.json
+
+`idle-chats` (run it alone) is the same bench at the idle-CPU stop condition (Leo, 2026-11-03:
+"im at 100% cpu rn"; done when every process idles under 5% CPU with about 40 chats open):
+40 local chats on the app's own daemon, each answered once and shown once in its own workspace,
+nothing streaming, no browser tabs, the same 3000-chat list; 60 s settle, then 120 s measured.
+Every --load-*, --settle and --measure flag still overrides it. Besides the PERF-IDLE-COST lines
+it prints one row per process (role, CPU % avg and p95, wakeups/s, main-thread CPU %, footprint,
+and whether it is over --process-budget, 5% by default) between PERF-IDLE-CHATS-TABLE-BEGIN and
+-END, and a `PERF-IDLE-CHATS verdict=PASS|OVER` line naming the busiest process. The verdict
+reports; it never fails the step. The Markdown also goes into the JSON (`markdown`) and to --md.
+  cmux-ci run --class exclusive --measurement --label measure \\
+    --script scripts/measure/perf-idle-power.sh --ref SHA \\
+    --arg=scenarios=idle-chats --arg=config=bench --artifact artifacts/perf-idle-power.json
 """
 from __future__ import annotations
 
@@ -37,18 +66,30 @@ import ctypes
 import http.server
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
 import bench_memory as bm  # noqa: E402  (launch, App, owned, end_bundle)
 
 _libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
+_libproc.proc_pidinfo.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_int]
+_libproc.proc_pidinfo.restype = ctypes.c_int
 MB = 1048576.0
+# PROC_PIDLISTTHREADIDS (28) is XNU's private flavor (bsd/sys/proc_info_private.h, not in the public
+# SDK header): proc_info.c lists the threads with thuniqueid = true, so it returns the 64-bit thread
+# ids that PROC_PIDTHREADID64INFO (15, public) reads. PROC_PIDLISTTHREADS (6) lists thread handles,
+# which pair with PROC_PIDTHREADINFO (5) instead. A kernel that refused 28 makes proc_pidinfo return 0,
+# and main_thread_ns then returns None: the report shows main_thread_pct null, never a wrong number.
+PROC_PIDLISTTHREADIDS = 28
+PROC_PIDTHREADID64INFO = 15
 
 ARTICLE = "<p>" + ("cmux keeps idle work at zero. " * 40) + "</p>"
 PAGES = {
@@ -202,7 +243,8 @@ def wipe_state(bundle: str):
                    "Caches", "WebKit", "HTTPStorages", "Saved Application State", "Preferences"):
         folder = os.path.join(library, parent)
         for name in os.listdir(folder) if os.path.isdir(folder) else []:
-            if name.startswith(bundle_id):
+            # This bundle's own entries only: another tag can start with this one's name.
+            if name == bundle_id or name.startswith(bundle_id + "."):
                 path = os.path.join(folder, name)
                 shutil.rmtree(path, ignore_errors=True) if os.path.isdir(path) else os.remove(path)
     shutil.rmtree(os.path.join(library, "Application Support/cmux/tags", tag), ignore_errors=True)
@@ -274,13 +316,296 @@ def refused(response: dict) -> str | None:
     return response.get("error") or (response.get("message") if response.get("code") else None)
 
 
+# ---------------------------------------------------------------- loaded: the shared idle-cost bench
+
+def usage_v6(pid: int):
+    """(energy nJ, cpu ns, idle wakeups, interrupt wakeups, footprint bytes) or None once the pid is gone."""
+    buf = (ctypes.c_uint64 * 64)()
+    if _libproc.proc_pid_rusage(ctypes.c_int(pid), ctypes.c_int(6), ctypes.byref(buf)) != 0:
+        return None
+    return buf[42], (buf[2] + buf[3]) * bm._timebase.numer // bm._timebase.denom, buf[4], buf[5], buf[9]
+
+
+def main_thread_ns(pid: int):
+    """CPU time (ns) of the process's main thread, its lowest thread id; None when it cannot be read."""
+    ids = (ctypes.c_uint64 * 4096)()
+    size = _libproc.proc_pidinfo(pid, PROC_PIDLISTTHREADIDS, 0, ids, ctypes.sizeof(ids))
+    threads = [ids[i] for i in range(max(size, 0) // 8) if ids[i]]
+    if not threads:
+        return None
+    info = (ctypes.c_uint64 * 14)()  # struct proc_threadinfo (112 bytes): user and system time in ns first
+    if _libproc.proc_pidinfo(pid, PROC_PIDTHREADID64INFO, min(threads), info, ctypes.sizeof(info)) != ctypes.sizeof(info):
+        return None
+    return info[0] + info[1]
+
+
+def page_role(origin: str) -> str:
+    """A Chromium page's role from its origin: cmux's own pages by id, browser tabs as one role."""
+    if origin.startswith("cmux-page://"):
+        return origin[len("cmux-page://"):].removeprefix("cmux.") or "page"
+    if origin.startswith(("http://", "https://")):
+        return "browser-tab"
+    return origin.split(":", 1)[0] or "blank"
+
+
+def renderer_roles(pages: list[dict], processes: dict) -> dict[int, str]:
+    """{pid: role} for the Chromium renderers that host `pages` (`debug.cef_pages`),
+    matched by `--renderer-client-id`. A renderer hosting several pages names them all."""
+    by_client = {}
+    for pid, (kind, cmd) in processes.items():
+        found = re.search(r"--renderer-client-id=(\d+)", cmd) if kind == "cef-renderer" else None
+        if found:
+            by_client[int(found.group(1))] = pid
+    names: dict[int, set] = {}
+    for page in pages:
+        role = page_role(page.get("origin") or "") + (" (hidden)" if page.get("hidden") else "")
+        for client in page.get("renderer_clients") or []:
+            if int(client) in by_client:
+                names.setdefault(by_client[int(client)], set()).add(role)
+    return {pid: "cef-renderer: " + " + ".join(sorted(roles)) for pid, roles in names.items()}
+
+
+def percentile(values: list[float], q: float) -> float:
+    values = sorted(values)
+    return values[min(len(values) - 1, int(round(q * (len(values) - 1))))] if values else 0.0
+
+
+def measure_processes(app_pid: int, bundle: str, label: str, seconds: float, roles: dict[int, str], exclude: set[int]):
+    """Every owned process (but `exclude`) sampled once a second for `seconds`: per process and per role."""
+    processes = {pid: entry for pid, entry in bm.owned(app_pid, bundle).items() if pid not in exclude}
+    series: dict[int, list] = {pid: [] for pid in processes}
+    deadline = time.monotonic() + seconds
+    while True:
+        now = time.monotonic()
+        for pid in processes:
+            series[pid].append((now, usage_v6(pid), main_thread_ns(pid)))
+        if now >= deadline:
+            break
+        time.sleep(min(1.0, deadline - now))  # test script: one sample a second
+    rows, steps_by_role = [], {}
+    for pid, (kind, cmd) in processes.items():
+        samples = [sample for sample in series[pid] if sample[1] is not None]
+        if len(samples) < 2 or samples[-1][0] <= samples[0][0]:
+            continue  # gone during the window
+        (t0, u0, m0), (t1, u1, m1) = samples[0], samples[-1]
+        span = t1 - t0
+        steps = [100 * (b[1][1] - a[1][1]) / 1e9 / (b[0] - a[0]) for a, b in zip(samples, samples[1:]) if b[0] > a[0]]
+        role = "app" if kind == "app" else roles.get(pid, kind)
+        rows.append({"pid": pid, "kind": kind, "role": role, "footprint_mb": round(u1[4] / MB, 1),
+                     "cpu_pct": round(100 * (u1[1] - u0[1]) / 1e9 / span, 3), "cpu_p95_pct": round(percentile(steps, 0.95), 3),
+                     "idle_wakeups_per_s": round((u1[2] - u0[2]) / span, 2),
+                     "interrupt_wakeups_per_s": round((u1[3] - u0[3]) / span, 2),
+                     # Idle plus interrupt wakeups, as bench_memory counts them: Apple silicon reports
+                     # package idle wakeups as 0, so the interrupt count carries the signal there.
+                     "wakeups_per_s": round((u1[2] - u0[2] + u1[3] - u0[3]) / span, 2),
+                     "mw": round((u1[0] - u0[0]) / 1e6 / span, 3),
+                     "main_thread_pct": round(100 * (m1 - m0) / 1e9 / span, 3) if m0 is not None and m1 is not None else None,
+                     "command": cmd[:160],
+                     # The renderer flags that say which renderer it is, kept whole: a long bundle path
+                     # pushes them past the truncated command.
+                     "flags": " ".join(arg for arg in cmd.split() if arg.startswith(RENDERER_FLAGS))})
+        steps_by_role.setdefault(role, []).append(steps)
+        steps_by_role.setdefault("total", []).append(steps)
+    rows.sort(key=lambda row: -row["cpu_pct"])
+    totals = {}
+    for role in ["total"] + sorted({row["role"] for row in rows}):
+        members = [row for row in rows if role == "total" or row["role"] == role]
+        lists = steps_by_role.get(role) or [[]]
+        summed = [sum(values) for values in zip(*lists)]  # the role's CPU per 1 s step
+        main = [row["main_thread_pct"] for row in members if row["main_thread_pct"] is not None]
+        totals[role] = {"count": len(members), "footprint_mb": round(sum(r["footprint_mb"] for r in members), 1),
+                        "cpu_pct": round(sum(r["cpu_pct"] for r in members), 3), "cpu_p95_pct": round(percentile(summed, 0.95), 3),
+                        "idle_wakeups_per_s": round(sum(r["idle_wakeups_per_s"] for r in members), 2),
+                        "interrupt_wakeups_per_s": round(sum(r["interrupt_wakeups_per_s"] for r in members), 2),
+                        "wakeups_per_s": round(sum(r["wakeups_per_s"] for r in members), 2),
+                        "main_thread_pct": round(sum(main), 3) if main else None}
+    for role, entry in totals.items():
+        print(f"PERF-IDLE-COST {label} role={role!r} n={entry['count']} footprint_mb={entry['footprint_mb']} "
+              f"cpu_pct={entry['cpu_pct']} cpu_p95_pct={entry['cpu_p95_pct']} idle_wakeups_per_s={entry['idle_wakeups_per_s']} "
+              f"interrupt_wakeups_per_s={entry['interrupt_wakeups_per_s']} wakeups_per_s={entry['wakeups_per_s']} main_thread_pct={entry['main_thread_pct']}", flush=True)
+    return {"label": label, "seconds": round(seconds, 1), "roles": totals, "processes": rows}
+
+
+METRICS = (("cpu_pct", "CPU % (avg)"), ("cpu_p95_pct", "CPU % (p95 of 1 s)"), ("footprint_mb", "footprint MB"),
+           ("wakeups_per_s", "wakeups/s (idle + interrupt)"), ("main_thread_pct", "main thread CPU %"))
+
+
+def perf_rows(before: dict, after: dict | None, harness: str) -> list[str]:
+    """Performance-table rows (metric | before | after | delta | harness) for two `loaded` results
+    (or one: after and delta empty). Roles in `before` order, the total first."""
+    def cell(value):
+        return "" if value is None else f"{value:g}"
+    rows = ["| metric | before | after | delta | harness |", "| --- | --- | --- | --- | --- |"]
+    roles = list(before["roles"]) + [role for role in (after or {}).get("roles", {}) if role not in before["roles"]]
+    for role in roles:
+        for key, title in METRICS:
+            old = before["roles"].get(role, {}).get(key)
+            new = after["roles"].get(role, {}).get(key) if after else None
+            if old is None and new is None:
+                continue
+            delta = ""
+            if old is not None and new is not None:
+                delta = f"{new - old:+.3g}" + (f" ({100 * (new - old) / old:+.0f}%)" if old else "")
+            rows.append(f"| {role}: {title} | {cell(old)} | {cell(new)} | {delta} | {harness} |")
+    return rows
+
+
+def loaded_result(path: str) -> dict:
+    with open(path) as handle:
+        data = json.load(handle)
+    found = [result for result in data.get("results", []) if result.get("label") in IDLE_COST_LABELS]
+    if not found:
+        raise SystemExit(f"bench-power: {path} has no `loaded` or `idle-chats` result")
+    return found[-1]
+
+
+# The idle-cost scenarios: `loaded` (a heavy user's mixed load) and `idle-chats` (the idle-CPU stop
+# condition). Each is a preset of the --load-*, --settle and --measure flags; a flag given wins.
+IDLE_COST_PRESETS = {
+    "loaded": {"load_remote": 20, "load_local": 5, "load_streaming": 3, "load_tabs": 10, "settle": 120, "measure": 60},
+    "idle-chats": {"load_remote": 0, "load_local": 40, "load_streaming": 0, "load_tabs": 0, "settle": 60, "measure": 120},
+}
+IDLE_COST_LABELS = tuple(IDLE_COST_PRESETS)
+# Command-line flags that name a Chromium renderer when no page map does (process_rows).
+RENDERER_FLAGS = ("--renderer-client-id", "--extension-process", "--type=")
+# Leo's budget for an idle app: no process above this CPU % (the idle-chats verdict).
+PROCESS_BUDGET_PCT = 5.0
+
+
+def apply_preset(args, scenario: str):
+    """Fills each preset flag the command line left unset (None) from the scenario's preset."""
+    for key, value in IDLE_COST_PRESETS.get(scenario, IDLE_COST_PRESETS["loaded"]).items():
+        if getattr(args, key, None) is None:
+            setattr(args, key, value)
+    return args
+
+
+def process_rows(result: dict, budget: float) -> tuple[list[str], dict]:
+    """The per-process Markdown table of one idle-cost result, busiest first, and the verdict:
+    PASS when no process averages above `budget` CPU %, else OVER with every process above it."""
+    def num(value, digits=2):
+        return "" if value is None else f"{value:.{digits}f}"
+    rows = ["| process | pid | CPU % avg | CPU % p95 | wakeups/s | main thread CPU % | footprint MB | over budget |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+    over = []
+    for proc in sorted(result["processes"], key=lambda row: -row["cpu_pct"]):
+        role = proc["role"]
+        if proc["kind"] == "cef-renderer" and not role.startswith("cef-renderer:"):
+            # No page map for this renderer (a build without debug.cef_pages): its command line says
+            # which kind it is (--extension-process, --renderer-client-id).
+            flags = proc.get("flags") or " ".join(arg for arg in proc.get("command", "").split()
+                                                  if arg.startswith(RENDERER_FLAGS))
+            role += f" `{flags[:80]}`" if flags else ""
+        flag = proc["cpu_pct"] > budget
+        if flag:
+            over.append({"pid": proc["pid"], "role": proc["role"], "cpu_pct": proc["cpu_pct"]})
+        rows.append(f"| {role} | {proc['pid']} | {num(proc['cpu_pct'])} | {num(proc.get('cpu_p95_pct'))} | "
+                    f"{num(proc.get('wakeups_per_s'), 1)} | {num(proc.get('main_thread_pct'))} | "
+                    f"{num(proc.get('footprint_mb'), 1)} | {'OVER' if flag else ''} |")
+    busiest = max(result["processes"], key=lambda row: row["cpu_pct"], default=None)
+    # No process measured (a zero-second window, or every process gone) is no evidence: never PASS.
+    verdict = {"budget_pct": budget, "verdict": "OVER" if over else "PASS" if busiest else "UNMEASURED", "over": over,
+               "max_cpu_pct": busiest["cpu_pct"] if busiest else None,
+               "max_role": busiest["role"] if busiest else None, "max_pid": busiest["pid"] if busiest else None}
+    return rows, verdict
+
+
+def idle_cost_markdown(result: dict, budget: float) -> tuple[str, dict]:
+    """The Markdown a PR or issue pastes for one idle-cost run: the load, the per-process table with
+    the verdict, and the per-role Performance rows (before only; --compare gives before and after)."""
+    rows, verdict = process_rows(result, budget)
+    load_line = ", ".join(f"{key} {value}" for key, value in (result.get("load") or {}).items())
+    lines = [f"**{result['label']}**: {result.get('harness', '')}", "", f"Load reached: {load_line}", "",
+             f"Verdict: **{verdict['verdict']}** (budget {budget:g}% CPU per process; busiest "
+             f"{verdict['max_role']} at {verdict['max_cpu_pct']}%)", ""] + rows + ["", "Per role:", ""]
+    lines += perf_rows(result, None, result.get("harness", ""))
+    return "\n".join(lines) + "\n", verdict
+
+
+def run_loaded(args):
+    """An idle-cost scenario (`loaded` or `idle-chats`, see the module): load, settle, measure, report."""
+    label = getattr(args, "scenario", "loaded")
+    import idle_cost_load as load
+    base = serve()
+    signal.signal(signal.SIGTERM, bm.interrupted)
+    wipe_state(args.app)
+    root = tempfile.mkdtemp(prefix="idle-cost-")
+    agent = os.path.join(HERE, "idle_cost_agent.py")  # fake_agent.py plus the `stream:` prompt
+    peer, results, scratch = load.PeerDaemon(args.app, root, agent), [], None
+    counts = {"remote": args.load_remote, "local": args.load_local, "streaming": args.load_streaming,
+              "tabs": args.load_tabs, "rate": args.stream_rate}
+    stream_s = args.settle + args.measure + 900  # the replies stream through the whole window
+    try:
+        # The remote machine first: it writes the chats the app's store is seeded with.
+        peer.start()
+        seeded = load.seed_store(os.path.join(root, "acpmux"), args.load_sessions, args.load_closed, *peer.templates())
+        env = dict(item.split("=", 1) for item in args.env)
+        env["ACPMUX_HOME"] = os.path.join(root, "acpmux")
+        pid, sock, scratch = bm.launch(args.app, json.loads(args.config), env)
+        app = bm.App(args.app, sock)
+        reached = load.open_load(app, args.app, agent, peer,
+                                 lambda i: base.replace("127.0.0.1", f"t{i}.localhost") + f"/static.html?n={i}",
+                                 counts, stream_s)
+        reached.update(seeded)
+        print(f"PERF-IDLE-COST-LOAD {json.dumps(reached)}", flush=True)
+        time.sleep(args.settle)  # test script: let the app settle
+        pages = (rpc(sock, "debug.cef_pages") or {}).get("pages")
+        roles = renderer_roles(pages or [], bm.owned(pid, args.app))
+        time.sleep(5)  # test script: the debug read's own work ends before the window
+        result = measure_processes(pid, args.app, label, args.measure, roles, peer.pids())
+        result["load"] = reached
+        result["renderer_roles"] = "debug.cef_pages" if pages is not None else "none (a build without debug.* methods)"
+        sha = subprocess.run(["git", "rev-parse", "--short=12", "HEAD"], capture_output=True, text=True).stdout.strip()
+        model = subprocess.run(["sysctl", "-n", "hw.model"], capture_output=True, text=True).stdout.strip()
+        result["harness"] = f"bench_power.py {label} @{sha or '?'} {model}, {int(args.measure)} s"
+        result["markdown"], result["budget"] = idle_cost_markdown(result, args.process_budget)
+        results.append(result)
+        print("PERF-IDLE-COST-TABLE-BEGIN")
+        print("\n".join(perf_rows(result, None, result["harness"])))
+        print("PERF-IDLE-COST-TABLE-END", flush=True)
+        if label == "idle-chats":
+            verdict = result["budget"]
+            print("PERF-IDLE-CHATS-TABLE-BEGIN")
+            print(result["markdown"], end="")
+            print("PERF-IDLE-CHATS-TABLE-END")
+            print(f"PERF-IDLE-CHATS verdict={verdict['verdict']} budget_pct={verdict['budget_pct']} "
+                  f"max_cpu_pct={verdict['max_cpu_pct']} max_role={verdict['max_role']!r} over={len(verdict['over'])}",
+                  flush=True)
+        if args.md:
+            with open(args.md, "w") as handle:
+                handle.write(result["markdown"])
+    finally:
+        peer.stop()
+        bm.end_bundle(args.app)
+        if scratch:
+            shutil.rmtree(scratch, ignore_errors=True)
+        shutil.rmtree(root, ignore_errors=True)
+    if args.out:
+        with open(args.out, "w") as handle:
+            json.dump({"app": args.app, "measure_s": args.measure, "results": results}, handle, indent=1)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--app", required=True)
+    parser.add_argument("--app")
+    parser.add_argument("--compare", nargs=2, metavar=("BEFORE", "AFTER"),
+                        help="print the Performance-table rows of two `loaded` runs' JSON (no app)")
+    parser.add_argument("--harness", help="--compare: the harness cell (default: the before run's)")
+    parser.add_argument("--load-sessions", type=int, default=3000, help="loaded: chats in the daemon's list")
+    parser.add_argument("--load-closed", type=float, default=0.6, help="loaded: share of them closed")
+    parser.add_argument("--load-remote", type=int, help="loaded: open chats on the peer (20; idle-chats 0)")
+    parser.add_argument("--load-local", type=int, help="loaded: open chats on this Mac (5; idle-chats 40)")
+    parser.add_argument("--load-streaming", type=int, help="loaded: open chats streaming a reply (3; idle-chats 0)")
+    parser.add_argument("--load-tabs", type=int, help="loaded: Chromium tabs (10; idle-chats 0)")
+    parser.add_argument("--stream-rate", type=float, default=10, help="loaded: streamed chunks a second per chat")
     # Chromium does post-load work (code caching, GC, tile purges) for about two
     # minutes after tabs open or hide; shorter settles measure that, not idle.
-    parser.add_argument("--settle", type=float, default=120)
-    parser.add_argument("--measure", type=float, default=60)
+    # Unset: 120 and 60, or the idle-cost scenario's preset (idle-chats: 60 and 120).
+    parser.add_argument("--settle", type=float)
+    parser.add_argument("--measure", type=float)
+    parser.add_argument("--process-budget", type=float, default=PROCESS_BUDGET_PCT,
+                        help="idle-cost: the CPU %% per process the verdict holds each process to")
+    parser.add_argument("--md", help="idle-cost: write the per-process Markdown table here")
     parser.add_argument("--scenarios", default="terminal,tab1,tab1-hidden,tabs20,tabs20-hidden,title,scroll,video,switch,minimized")
     parser.add_argument("--config", default="{}", help="extra cmux.json settings (JSON)")
     parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
@@ -291,7 +616,21 @@ def main():
                         help="sample the app's stacks inside each idle window; keep the sample when the app is above 1 mW")
     parser.add_argument("--out")
     args = parser.parse_args()
+    if args.compare:
+        before, after = (loaded_result(path) for path in args.compare)
+        print("\n".join(perf_rows(before, after, args.harness or before.get("harness", "bench_power.py loaded"))))
+        return
+    if not args.app:
+        parser.error("--app is required")
     scenarios = args.scenarios.split(",")
+    for scenario in IDLE_COST_LABELS:
+        if scenario in scenarios:
+            if scenarios != [scenario]:
+                raise SystemExit(f"bench-power: the {scenario} scenario runs alone (--scenarios {scenario})")
+            args.scenario = scenario
+            run_loaded(apply_preset(args, scenario))
+            return
+    apply_preset(args, "loaded")  # the browser scenarios' settle and measure defaults (120 s, 60 s)
     base = serve()
     signal.signal(signal.SIGTERM, bm.interrupted)
     wipe_state(args.app)

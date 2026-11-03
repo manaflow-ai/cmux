@@ -9,11 +9,11 @@ extension BrowserTab {
     public func enableDesignMode(_ script: BrowserDesignModeScript = BrowserDesignModeScript()) async throws {
         let chromium = self is CEFTab
         if let tab = self as? CEFTab { try await tab.agentRelay.prepareDesignMode() }
-        _ = try await evaluate(try script.enableScript(chromium: chromium), world: .isolated)
+        _ = try await evaluate(try script.enableScript(chromium: chromium), world: .isolated, gesture: .cmux)
     }
 
     /// Turns design mode off and puts back every edit it made; harmless when it is off.
     public func disableDesignMode() async {
-        _ = try? await evaluate(BrowserDesignModeScript.disableScript, world: .isolated)
+        _ = try? await evaluate(BrowserDesignModeScript.disableScript, world: .isolated, gesture: .cmux)
     }
 }

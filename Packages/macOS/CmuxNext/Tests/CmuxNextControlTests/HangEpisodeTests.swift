@@ -1,5 +1,6 @@
 @testable import CmuxNextControl
 import CmuxNextCompat
+import Dispatch
 import Foundation
 import Testing
 
@@ -95,6 +96,45 @@ struct HangEpisodeTrackerTests {
         #expect(!parsed.ongoing)
         #expect(parsed.topFrames == entry.topFrames)
         #expect(abs(parsed.started.timeIntervalSince(entry.started)) < 0.001)
+    }
+
+    /// A single stack cannot tell a main thread doing its own work from one waiting on page-ins
+    /// or WindowServer (the CEF pump hangs of 2026-10-29 sampled at function entries). The file
+    /// says which: main-thread CPU against the hang's length, and the process's page-ins.
+    @Test func saysWhetherTheMainThreadWasBusyOrBlocked() throws {
+        let directory = scratch()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let recorder = HangEpisodeRecorder(directory: directory, symbolicate: { $0.map { String($0) } })
+        recorder.begin(beat: 2, elapsed: .seconds(2), main: [], others: [],
+                       load: HangLoad(mainThreadCPU: .milliseconds(100), pageIns: 812, faults: 30_500))
+        recorder.drain()
+        let url = try #require(recorder.entries.first?.url)
+        var text = try String(contentsOf: url, encoding: .utf8)
+        #expect(text.contains("main thread cpu: 0.100 s of 2.000 s (5%): blocked"))
+        #expect(text.contains("page-ins: 812, faults: 30500"))
+
+        recorder.update(beat: 2, duration: .milliseconds(2_500), ongoing: false,
+                        load: HangLoad(mainThreadCPU: .milliseconds(2_400), pageIns: 900, faults: 31_000))
+        recorder.drain()
+        text = try String(contentsOf: url, encoding: .utf8)
+        #expect(text.contains("main thread cpu: 2.400 s of 2.500 s (96%): busy"))
+        #expect(text.contains("page-ins: 900, faults: 31000"))
+        #expect(!text.contains("): blocked"))
+        // Still parsed by the next launch.
+        let reloaded = HangEpisodeRecorder(directory: directory)
+        reloaded.drain()
+        #expect(reloaded.entries.first?.duration == .milliseconds(2_500))
+    }
+
+    @Test func anUnknownLoadSaysSo() throws {
+        let directory = scratch()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let recorder = HangEpisodeRecorder(directory: directory, symbolicate: { $0.map { String($0) } })
+        recorder.begin(beat: 1, elapsed: .seconds(2), main: [], others: [], load: HangLoad())
+        recorder.drain()
+        let text = try String(contentsOf: try #require(recorder.entries.first?.url), encoding: .utf8)
+        #expect(text.contains("main thread cpu: unknown"))
+        #expect(text.contains("page-ins: unknown"))
     }
 
     @Test func keepsOnlyTheNewestFiles() {
@@ -225,27 +265,52 @@ struct HangEpisodeTrackerTests {
         #expect(files(in: directory).isEmpty)
     }
 
-    /// Each change of the list reaches the recorder's subscribers (Debug Settings follows it while
-    /// the page shows), after the list changed; a stream whose task is cancelled is forgotten.
-    @Test(.timeLimit(.minutes(1))) func anEpisodeChangeReachesASubscriber() async throws {
+    /// Each change of the list reaches the recorder's subscribers on its own (Debug Settings
+    /// follows it while the page shows), after the list changed: the first write, the symbols,
+    /// and the end. The symbolicator waits for the test, so each change is taken before the next
+    /// one happens and none folds into another. A stream whose task is cancelled is forgotten.
+    @Test(.timeLimit(.minutes(1))) func eachEpisodeChangeReachesASubscriber() async throws {
         let directory = scratch()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        // Symbolication returns the raw addresses as text, so every change is quick.
-        let recorder = HangEpisodeRecorder(directory: directory, symbolicate: { $0.map { String($0) } })
-        recorder.drain() // the (empty) folder of earlier launches is read: no change
+        // A latch: once the test signals, this and every later symbolication runs.
+        let symbolsMayRun = DispatchSemaphore(value: 0)
+        let recorder = HangEpisodeRecorder(directory: directory, symbolicate: { addresses in
+            symbolsMayRun.wait()
+            symbolsMayRun.signal()
+            return addresses.map { String($0) }
+        })
+        defer { // on every exit (a failed expectation, the time limit): no symbol queue worker stays blocked
+            symbolsMayRun.signal()
+            recorder.drain()
+            try? FileManager.default.removeItem(at: directory)
+        }
+        recorder.drain(symbols: false) // the (empty) folder of earlier launches is read: no change
         var changes = recorder.changes().makeAsyncIterator()
         #expect(recorder.subscriberCount == 1)
+        #expect(recorder.changeNotificationCount == 0)
 
         recorder.begin(beat: 1, elapsed: .seconds(2), main: [1, 2], others: [])
+        recorder.drain(symbols: false)
+        // The stream folds changes not yet taken, so the count shows a change told twice.
+        #expect(recorder.changeNotificationCount == 1, "one hang file written told the subscribers \(recorder.changeNotificationCount) times")
         let written = await changes.next() != nil
         #expect(written, "the first write of the hang file reached no subscriber")
         #expect(recorder.entries.count == 1, "the change arrived before the list changed")
         #expect(recorder.entries.first?.ongoing == true)
+        #expect(recorder.entries.first?.topFrames == ["0x1", "0x2"], "symbols before the test let them run")
+
+        symbolsMayRun.signal()
+        recorder.drain()
+        #expect(recorder.changeNotificationCount == 2, "the symbols told the subscribers \(recorder.changeNotificationCount - 1) times")
+        let symbolicated = await changes.next() != nil
+        #expect(symbolicated, "the symbols reached no subscriber")
+        #expect(recorder.entries.first?.topFrames == ["1", "2"])
+        #expect(recorder.entries.first?.ongoing == true)
+
         recorder.update(beat: 1, duration: .seconds(3), ongoing: false)
         recorder.drain()
-        // drain waited for both changes; the ones not taken yet fold into one pending element.
+        #expect(recorder.changeNotificationCount == 3, "the end told the subscribers \(recorder.changeNotificationCount - 2) times")
         let ended = await changes.next() != nil
-        #expect(ended)
+        #expect(ended, "the end of the hang reached no subscriber")
         #expect(recorder.entries.first?.ongoing == false)
 
         // The page leaving cancels its watch: the recorder forgets that stream, keeps the others.
@@ -255,6 +320,25 @@ struct HangEpisodeTrackerTests {
         watch.cancel()
         await watch.value
         #expect(recorder.subscriberCount == 1)
+    }
+
+    /// A recorder that goes away ends its streams, so a subscriber that does not own it stops
+    /// waiting for a change that cannot come (defense: Debug Settings owns its recorder and ends
+    /// its stream when its page closes, DebugSettingsHangWatchTests).
+    @Test(.timeLimit(.minutes(1))) func aReleasedRecorderEndsItsStreams() async {
+        let directory = scratch()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var changes: AsyncStream<Void>.Iterator
+        weak var released: HangEpisodeRecorder?
+        do {
+            let recorder = HangEpisodeRecorder(directory: directory, symbolicate: { $0.map { String($0) } })
+            recorder.drain() // the queued read of earlier launches holds the recorder until it ran
+            changes = recorder.changes().makeAsyncIterator()
+            released = recorder
+        }
+        #expect(released == nil, "the recorder outlived its last reference")
+        let element: Void? = await changes.next()
+        #expect(element == nil, "the stream did not end with its recorder")
     }
 }
 
@@ -322,6 +406,10 @@ struct HangEpisodeCompletionTests {
         let entry = try #require(recorder.entries.first)
         #expect(!entry.ongoing, "a busy recovery left the file marked blocked")
         #expect(entry.duration == .seconds(3))
+        // The live loop measures the load: the stall's own CPU reading and the process's page-ins.
+        let text = try String(contentsOf: entry.url, encoding: .utf8)
+        #expect(text.contains("main thread cpu: ") && !text.contains("main thread cpu: unknown"), "no CPU reading in the hang file")
+        #expect(text.contains("page-ins: ") && !text.contains("page-ins: unknown"), "no page-in reading in the hang file")
     }
 }
 

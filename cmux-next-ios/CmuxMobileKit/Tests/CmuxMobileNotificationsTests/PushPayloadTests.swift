@@ -118,6 +118,7 @@ import UserNotifications
         let ids = Set(PushActions().categories.map(\.identifier))
         #expect(ids == Set(PushCategory.allCases.map(\.rawValue)))
         #expect(ids.contains("CMUX_MOBILE_QUESTION_FORM") && ids.contains("CMUX_MOBILE_TERMINAL") && ids.contains("CMUX_MOBILE_RETRY"))
+        #expect(ids.contains("CLOUD_QUESTION") && ids.contains("CLOUD_PERMISSION") && ids.contains("CLOUD_DONE"))
     }
 
     @Test func actionIdentifiersRoundTrip() {

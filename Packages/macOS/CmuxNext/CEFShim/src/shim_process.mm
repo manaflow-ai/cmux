@@ -334,6 +334,15 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(set_password_generation_enabled, "cmux_set_password_generation_enabled");
   CMUX_BIND(bookmarks_observe, "cmux_bookmarks_observe");
   CMUX_BIND(bookmarks_sync, "cmux_bookmarks_sync");
+  CMUX_BIND(browser_set_detached_hosting, "cmux_browser_set_detached_hosting");
+  CMUX_BIND(browser_set_embedder_active, "cmux_browser_set_embedder_active");
+  CMUX_BIND(post_user_input_task, "cmux_post_user_input_task");
+  CMUX_BIND(browser_send_wheel, "cmux_browser_send_wheel");
+  CMUX_BIND(browser_text_input_watch, "cmux_browser_text_input_watch");
+  CMUX_BIND(browser_accessibility_token, "cmux_browser_accessibility_token");
+  CMUX_BIND(set_drag_source_handler, "cmux_set_drag_source_handler");
+  CMUX_BIND(browser_drag_source_ended, "cmux_browser_drag_source_ended");
+  CMUX_BIND(browser_drag_target_enter_source, "cmux_browser_drag_target_enter_source");
 #undef CMUX_BIND
 }
 
@@ -410,17 +419,38 @@ int cmux_shim_prepare_application(void) {
 // (OnWindowStateRestorationDataChanged). Each encode asks the WindowServer for the window's Space
 // name, a synchronous round trip on the main thread; in cmux it ran after every pane focus move
 // across Chromium panes (a515). CEF never restores these windows and cmux restores its own, so the
-// encode becomes a no-op. A CEF without that private method keeps its behavior.
+// encode becomes a no-op. The public restorable property is also disabled because newer CEF
+// forks can bypass the private method (or omit it entirely) while still asking AppKit to persist
+// NativeWidgetMacNSWindow state. A CEF without either selector keeps its behavior.
 static void StopChromiumWindowRestorationData() {
   Class window_class = NSClassFromString(@"NativeWidgetMacNSWindow");
-  SEL selector = NSSelectorFromString(@"reallySaveRestorableState");
-  Method method = window_class ? class_getInstanceMethod(window_class, selector) : nullptr;
-  if (!method) {
+  if (!window_class) {
     return;
   }
-  IMP no_op = imp_implementationWithBlock(^(id) {
-  });
-  class_replaceMethod(window_class, selector, no_op, method_getTypeEncoding(method));
+
+  SEL private_selector = NSSelectorFromString(@"reallySaveRestorableState");
+  if (Method private_method = class_getInstanceMethod(window_class, private_selector)) {
+    IMP no_op = imp_implementationWithBlock(^(id) {
+    });
+    class_replaceMethod(window_class, private_selector, no_op,
+                        method_getTypeEncoding(private_method));
+  }
+
+  // CEF does not use AppKit's window restoration; cmux persists its own windows through the
+  // daemon. Keep this override on Chromium's class only so cmux-owned NSWindows remain restorable.
+  SEL getter = @selector(isRestorable);
+  if (Method getter_method = class_getInstanceMethod(window_class, getter)) {
+    IMP never = imp_implementationWithBlock(^BOOL(id) {
+      return NO;
+    });
+    class_replaceMethod(window_class, getter, never, method_getTypeEncoding(getter_method));
+  }
+  SEL setter = @selector(setRestorable:);
+  if (Method setter_method = class_getInstanceMethod(window_class, setter)) {
+    IMP ignore = imp_implementationWithBlock(^(id, BOOL) {
+    });
+    class_replaceMethod(window_class, setter, ignore, method_getTypeEncoding(setter_method));
+  }
 }
 
 int cmux_shim_initialize(const char* framework_dir, const char* main_bundle_path, const char* subprocess_path,

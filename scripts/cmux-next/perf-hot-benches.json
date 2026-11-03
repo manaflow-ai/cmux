@@ -1,9 +1,19 @@
 {
   "_doc": "Hot-path ids for `// perf-hot: <budget> <path-id>` markers (plans/cmux-next/codebase-health.md section 6). scripts/cmux-next/guardrails.py warns when a push changes a marked function and names the bench here. Run it yourself on the fleet (nx-remote --needs gui), light and STRESS (perf-lead-brief), before and after; never add it to CI.",
   "paths": {
+    "daemon-request": {
+      "what": "the app's daemon-request probe on every request to the daemon (DaemonRequestLatency.record: one bucket lookup and three relaxed atomics)",
+      "bench": "scripts/cmux-next/austins-day (app_requests: the probe's own p99 under 80 agents)",
+      "owner": "PL-daemon"
+    },
+    "feed-live-event": {
+      "what": "one Feed owner event while the Feed list is open: the mirror's sorted items, the list's sections and the changed rows",
+      "bench": "CMUX_NEXT_FEED_BENCH (CmuxNextFeed/Views/FeedBench.swift) and scripts/cmux-next/feed-perf.py, 300 and 1500 items",
+      "owner": "Feed"
+    },
     "cef-host-input": {
       "what": "one input event forwarded to the Chromium host app (prototype, browserHost.helperPrototype): encode and one non-blocking write",
-      "bench": "scripts/cmux-next/chromium-host-bench.py (hop_us, ping_us)",
+      "bench": "scripts/cmux-next/chromium-host-bench.py (hop_us, ping_us); fleet entry scripts/measure/chromium-host-bench.sh",
       "owner": "PL-cef-helper"
     },
     "key-dispatch": {
@@ -46,6 +56,11 @@
       "bench": "scripts/cmux-next/drag-lag-live.py",
       "owner": "Performance Lead"
     },
+    "launch-first-frame": {
+      "what": "each visible pane at launch or reopen, before the window's first frame: a terminal's saved frame shown ahead of its surface (one layer, decoded off the main thread)",
+      "bench": "scripts/cmux-next/bench-startup.py (launch.visible_terminals_drawn) and the REOPEN VIDEO film (reopen_judge.py)",
+      "owner": "PL-launch"
+    },
     "tab-switch": {
       "what": "tab select to committed frame",
       "bench": "scripts/cmux-next/tab-switch-matrix.py (debug.tab_switch)",
@@ -70,6 +85,21 @@
       "what": "new terminal or Chromium tab to its first frame",
       "bench": "scripts/cmux-next/instant-new-surfaces-bench.py",
       "owner": "PL-cef-tab"
+    },
+    "action-budget": {
+      "what": "every action run's always-on budget record: two clock reads and one ring-slot write (ActionBudgetMonitor.record)",
+      "bench": "CMUX_ACTION_BUDGET_BENCH=1 swift test -c release --filter ActionBudgetMonitorBench (ns per run and per batch), on macOS 26 and 27",
+      "owner": "Performance Lead (PL-instant)"
+    },
+    "chats-window-diff": {
+      "what": "one acpmux chats window message on the main actor: the window's keys and the changed rows (sidebar chat history; acpmux sorts, filters and pages)",
+      "bench": "ChatsWindowMainThreadTests (rows touched per change, 3,000-chat index) on the fleet, and the debug hang monitor (debug.hangs) on a many-chat load",
+      "owner": "Performance Lead"
+    },
+    "acpmux-wait-wake": {
+      "what": "one acpmux hub record seen by an open _acpmux/wait: the session filter and the streamed-chunk skip; a chunk never evaluates the wait's rows",
+      "bench": "cmux-tui-rust-check.sh test a_streamed_token_does_not_evaluate_an_open_wait (WAIT-STREAM line: evaluations per 500 tokens), then scripts/measure/acpmux-overhead.sh bench=daemon (STRESS token to client) on the fleet",
+      "owner": "PL-acpmux (HOT PATH AUDIT area F: hpa-stream)"
     }
   }
 }

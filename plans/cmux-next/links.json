@@ -34,7 +34,7 @@
       "example_with_hints" : "cmux://agent/claude/0f3c2a91-7d4e-4b8a-9c11-2e5f6a7b8c9d?host=build-mac&name=Lanternfish",
       "example_with_message" : "cmux://agent/claude/0f3c2a91-7d4e-4b8a-9c11-2e5f6a7b8c9d?message=msg_01hq9f4c7k",
       "hints" : "optional ?host=<machine name>&name=<agent name>, for display only: 1 to 64 characters of the session id rule; a malformed hint is dropped",
-      "id_rule" : "harness: an acpmux harness name, 1 to 64 lowercase ASCII letters, digits or '-'; session: the harness's own session id, 1 to 200 ASCII letters, digits, '-', '_' or '.'",
+      "id_rule" : "harness: an acpmux harness name, 1 to 64 lowercase ASCII letters, digits or '-'; session: the harness's own session id, 1 to 256 ASCII letters, digits, '-', '_', '.', or ':'",
       "kind" : "agent",
       "message" : "optional ?message=<harness message id>, the session's own id for one message (1 to 200 ASCII letters, digits, '-', '_' or '.'): the chat scrolls to it and marks it, and leaves the view where it is when its transcript has no such message. A malformed or repeated one is dropped, never the link",
       "opens" : "only a tab this app already shows the session in (the chat tab that adopted it, else the terminal running it); it never starts, resumes or connects to anything",

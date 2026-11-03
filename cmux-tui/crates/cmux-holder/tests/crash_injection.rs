@@ -21,7 +21,7 @@ use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::Child;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use cmux_holder::client::{Event, HolderClient, launch, launch_with};
 use cmux_holder::holder::error_code;
@@ -35,15 +35,10 @@ fn holder_binary() -> &'static Path {
     Path::new(env!("CARGO_BIN_EXE_cmux-holder"))
 }
 
+mod support;
+
 fn temp_dir() -> PathBuf {
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-    let dir = PathBuf::from("/tmp").join(format!(
-        "cmhx-{}-{}",
-        std::process::id(),
-        stamp % 1_000_000_000
-    ));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+    support::unique_dir("cmhx")
 }
 
 fn shell(chan: u32) -> SpawnRequest {
@@ -117,6 +112,60 @@ fn pump_until(
 fn alive(pid: i32) -> bool {
     // SAFETY: signal 0 probes a pid this test started.
     unsafe { libc::kill(pid, 0) == 0 }
+}
+
+/// A named pipe at `path` (0600): the program's signal to the test.
+fn fifo(path: &Path) -> PathBuf {
+    let name = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
+    // SAFETY: mkfifo reads a NUL-terminated path.
+    assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0, "mkfifo {}", path.display());
+    path.to_path_buf()
+}
+
+/// Block until the program writes its line to the pipe `path` and closes
+/// it. The deadline only fails a program that never gets there (`what`).
+fn wait_for_line(path: &Path, what: &str) {
+    let (sent, got) = std::sync::mpsc::channel();
+    let path = path.to_path_buf();
+    std::thread::spawn(move || {
+        let _ = sent.send(std::fs::read(&path));
+    });
+    match got.recv_timeout(Duration::from_secs(30)) {
+        Ok(Ok(_)) => {}
+        Ok(Err(error)) => panic!("{what}: {error}"),
+        Err(_) => panic!("{what} within 30 s"),
+    }
+}
+
+/// One holder turn that began after now: a PING and its PONG (DATA that
+/// arrives meanwhile goes to `got`, which starts at offset 0). The holder
+/// handles the PING in a turn whose `poll` returned after the PING was
+/// sent, and in each turn it reads every master that `poll` found ready, up
+/// to the master's end or the terminal's room, before it reads its link
+/// (`Holder::turn`), publishing each read before the next. So after the
+/// PONG, everything the program wrote before the PING (a PTY buffers far
+/// less than one turn reads) is in the ring or waits behind the terminal's
+/// room, and no PTY read is in flight: a SIGKILL then cannot land inside
+/// one (the one loss the ring allows, and reports: `cmux_holder::ring`).
+/// On Linux the PTY hands bytes to the master on a kernel worker, but a
+/// `poll` or `read` of the master runs that worker first. The test sends
+/// nothing else meanwhile, so the PING is what made that `poll` report the
+/// link.
+fn holder_turn(client: &mut HolderClient, nonce: u64, got: &mut Vec<u8>) {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    client.ping(nonce).unwrap();
+    loop {
+        match client.next_event(deadline) {
+            Ok(Event::Pong { nonce: answered }) if answered == nonce => return,
+            Ok(Event::Data { offset, bytes, .. }) => {
+                assert_eq!(offset, got.len() as u64, "output offsets must continue");
+                got.extend(bytes);
+            }
+            Ok(Event::Pong { .. } | Event::Adopted { .. }) => {}
+            Ok(other) => panic!("unexpected {other:?} before PONG {nonce}"),
+            Err(error) => panic!("the holder never answered PING {nonce}: {error}"),
+        }
+    }
 }
 
 fn write_master(master: &OwnedFd, bytes: &[u8]) {
@@ -242,12 +291,14 @@ fn a_holder_killed_holding_unsent_output_loses_no_byte_through_its_ring() {
     const TOTAL: usize = 700_000;
     let dir = temp_dir();
     let socket = dir.join("h.sock");
+    let written = fifo(&dir.join("written"));
     let first = launch(holder_binary(), &socket, &TOKEN).unwrap();
     let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
     assert!(client.version() >= 4, "this holder speaks the ring version");
     let mut request = shell(1);
     request.argv[2] = format!(
-        "stty raw -echo; yes abcdefghijklmnopqrstuvwxyz0123456789 | head -c {TOTAL}; exec cat"
+        "stty raw -echo; yes abcdefghijklmnopqrstuvwxyz0123456789 | head -c {TOTAL}; echo > '{}'; exec cat",
+        written.display()
     )
     .into_bytes();
     let spawned = client.spawn_with_ring(1, &request).unwrap();
@@ -262,11 +313,19 @@ fn a_holder_killed_holding_unsent_output_loses_no_byte_through_its_ring() {
         }
     }
     // Without an acknowledgement the holder sends nothing more, but it
-    // reads the rest of the program's output into its ring.
-    while cmux_holder::ring::segment_end(&ring).unwrap() < TOTAL as u64 {
-        assert!(Instant::now() < deadline, "the holder never read the whole output");
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    // reads the rest of the program's output into its ring. The program says
+    // when its last write returned; one holder turn later the holder read
+    // and published all of it, so it dies holding read but unsent output,
+    // with no read in flight and nothing left in the PTY. (Output still
+    // waiting in the PTY when the holder dies is
+    // `a_holder_killed_at_its_room_limit_leaves_the_rest_to_the_next_holder`.)
+    wait_for_line(&written, "the program never wrote its whole output");
+    holder_turn(&mut client, 1, &mut got);
+    assert_eq!(
+        cmux_holder::ring::segment_end(&ring).unwrap(),
+        TOTAL as u64,
+        "the holder has read the program's whole output"
+    );
     kill(first);
     // What the dead holder had written to the socket still arrives.
     while let Ok(event) = client.next_event(Instant::now() + Duration::from_millis(500)) {
@@ -439,14 +498,18 @@ fn a_holder_that_cannot_continue_a_segment_says_which_ring_it_writes() {
 /// the unparsed one.
 #[test]
 fn a_new_holders_credit_counts_from_what_the_daemon_parsed() {
-    const TOTAL: usize = 1_200_000;
+    // The credit window plus the unsent limit: as much as the first holder
+    // may hold with nothing acknowledged.
+    const TOTAL: usize = wire::CREDIT_WINDOW as usize + cmux_holder::holder::UNSENT_HIGH_WATER;
     let dir = temp_dir();
     let socket = dir.join("h.sock");
+    let written = fifo(&dir.join("written"));
     let first = launch(holder_binary(), &socket, &TOKEN).unwrap();
     let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
     let mut request = shell(1);
     request.argv[2] = format!(
-        "stty raw -echo; yes abcdefghijklmnopqrstuvwxyz0123456789 | head -c {TOTAL}; exec cat"
+        "stty raw -echo; yes abcdefghijklmnopqrstuvwxyz0123456789 | head -c {TOTAL}; echo > '{}'; exec cat",
+        written.display()
     )
     .into_bytes();
     let spawned = client.spawn_with_ring(1, &request).unwrap();
@@ -461,10 +524,11 @@ fn a_new_holders_credit_counts_from_what_the_daemon_parsed() {
         }
     }
     let unsent = cmux_holder::holder::UNSENT_HIGH_WATER as u64;
-    while cmux_holder::ring::segment_end(&ring).unwrap() < wire::CREDIT_WINDOW + unsent {
-        assert!(Instant::now() < deadline, "the holder never read up to its unsent limit");
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    // The program's signal that it wrote the window and the unsent limit:
+    // the holder holds them, but for what still waits in the PTY.
+    wait_for_line(&written, "the program never wrote its output");
+    holder_turn(&mut client, 1, &mut got);
+    assert_eq!(cmux_holder::ring::segment_end(&ring).unwrap(), TOTAL as u64);
     kill(first);
     while let Ok(event) = client.next_event(Instant::now() + Duration::from_millis(500)) {
         if let Event::Data { offset, bytes, .. } = event {
@@ -515,6 +579,142 @@ fn a_new_holders_credit_counts_from_what_the_daemon_parsed() {
     client.close(1, 200).unwrap();
     drop(client);
     kill(second);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review 1 of pl-holder-11: a holder that dies while output still waits
+/// in the PTY (it stopped reading at its room limit: one credit window sent
+/// and not acknowledged, the unsent limit read into its ring) loses none of
+/// it. The next holder continues the ring and reads the rest from the PTY,
+/// after the ring's bytes, in order.
+#[test]
+fn a_holder_killed_at_its_room_limit_leaves_the_rest_to_the_next_holder() {
+    // What the holder may hold with nothing acknowledged, and a rest that a
+    // PTY buffers whole (so the program's last write returns).
+    const HELD: usize = wire::CREDIT_WINDOW as usize + cmux_holder::holder::UNSENT_HIGH_WATER;
+    const TOTAL: usize = HELD + 200;
+    let dir = temp_dir();
+    let socket = dir.join("h.sock");
+    let written = fifo(&dir.join("written"));
+    let first = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let mut request = shell(1);
+    request.argv[2] = format!(
+        "stty raw -echo; yes abcdefghijklmnopqrstuvwxyz0123456789 | head -c {TOTAL}; echo > '{}'; exec cat",
+        written.display()
+    )
+    .into_bytes();
+    let spawned = client.spawn_with_ring(1, &request).unwrap();
+    let ring = spawned.ring.expect("the holder passes its ring segment");
+    client.attach(1, 0).unwrap();
+    let mut got = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while (got.len() as u64) < wire::CREDIT_WINDOW {
+        if let Event::Data { offset, bytes, .. } = client.next_event(deadline).unwrap() {
+            assert_eq!(offset, got.len() as u64);
+            got.extend(bytes);
+        }
+    }
+    wait_for_line(&written, "the program never wrote its output");
+    // One turn later the holder read all it may and stopped at its room:
+    // no read is in flight, and the rest waits in the PTY.
+    holder_turn(&mut client, 1, &mut got);
+    assert_eq!(
+        cmux_holder::ring::segment_end(&ring).unwrap(),
+        HELD as u64,
+        "the holder reads no further than its room"
+    );
+    assert_eq!(cmux_holder::ring::interrupted_read(&ring).unwrap(), None);
+    kill(first);
+    drop(client);
+    let received = got.len() as u64;
+    assert_eq!(received, wire::CREDIT_WINDOW, "the dead holder sent exactly one window");
+
+    let second = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let mut id = [0u8; 16];
+    id[..4].copy_from_slice(&1u32.to_le_bytes());
+    client
+        .adopt_with_ring(1, &id, (spawned.pid, received, received), &spawned.master, &ring, b"")
+        .unwrap();
+    client.attach(1, received).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while got.len() < TOTAL {
+        match client.next_event(deadline).unwrap() {
+            Event::Data { offset, bytes, .. } => {
+                assert_eq!(offset, got.len() as u64, "the new holder continues at the daemon");
+                got.extend(bytes);
+                client.ack(1, got.len() as u64).unwrap();
+            }
+            Event::Gap { requested, oldest, .. } => panic!("lost output {requested}..{oldest}"),
+            _ => {}
+        }
+    }
+    let line = b"abcdefghijklmnopqrstuvwxyz0123456789\n";
+    let expected: Vec<u8> = line.iter().copied().cycle().take(TOTAL).collect();
+    assert!(got == expected, "the output after the crash differs from what the program printed");
+    client.close(1, 200).unwrap();
+    drop(client);
+    kill(second);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A new terminal holds its output until its ATTACH: the daemon sends SPAWN
+/// and ATTACH as two writes, and a holder that read freely in between could
+/// pass the ring's size before the ATTACH and lose the terminal's first
+/// output (a GAP from 0). Here no ATTACH comes until the program printed
+/// more than the unsent limit: the holder must have read no more than an
+/// attached stream from 0 may (its custody segment ends there; before the
+/// fix it ended at everything printed, and past the ring's size the first
+/// bytes were gone), and the ATTACH then gets every byte from 0, in order.
+#[test]
+fn a_new_terminal_holds_its_output_until_its_attach() {
+    const LIMIT: usize = cmux_holder::holder::UNSENT_HIGH_WATER;
+    // More than the unsent limit, by a rest a PTY buffers whole.
+    const TOTAL: usize = LIMIT + 200;
+    let dir = temp_dir();
+    let socket = dir.join("h.sock");
+    let written = fifo(&dir.join("written"));
+    let holder = launch(holder_binary(), &socket, &TOKEN).unwrap();
+    let (mut client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
+    let mut request = shell(1);
+    request.argv[2] = format!(
+        "stty raw -echo; yes abcdefghijklmnopqrstuvwxyz0123456789 | head -c {TOTAL}; echo > '{}'; exec cat",
+        written.display()
+    )
+    .into_bytes();
+    let spawned = client.spawn_with_ring(1, &request).unwrap();
+    let ring = spawned.ring.expect("the holder passes its ring segment");
+    wait_for_line(&written, "the program never wrote its output");
+    let mut got = Vec::new();
+    holder_turn(&mut client, 1, &mut got);
+    assert!(got.is_empty(), "the holder sent output before the ATTACH");
+    assert_eq!(
+        cmux_holder::ring::segment_end(&ring).unwrap(),
+        LIMIT as u64,
+        "an unattached new terminal read past what an attached stream may hold"
+    );
+    client.attach(1, 0).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while got.len() < TOTAL {
+        match client.next_event(deadline).unwrap() {
+            Event::Data { offset, bytes, .. } => {
+                assert_eq!(offset, got.len() as u64);
+                got.extend(bytes);
+                client.ack(1, got.len() as u64).unwrap();
+            }
+            Event::Gap { requested, oldest, .. } => {
+                panic!("the new terminal lost its first output {requested}..{oldest}")
+            }
+            _ => {}
+        }
+    }
+    let line = b"abcdefghijklmnopqrstuvwxyz0123456789\n";
+    let expected: Vec<u8> = line.iter().copied().cycle().take(TOTAL).collect();
+    assert!(got == expected, "the attached stream differs from what the program printed");
+    client.close(1, 200).unwrap();
+    drop(client);
+    kill(holder);
     let _ = std::fs::remove_dir_all(&dir);
 }
 

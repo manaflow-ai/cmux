@@ -1,0 +1,41 @@
+{"t": 1792817475.46, "utc": "04:51:15", "tab": "A", "act": "open", "name": "A", "url": "https://en.wikipedia.org/wiki/Cat", "load_s": 47.6, "key": "new-c33ece33-t1", "mac_ws": "ws_97913519c1a374e278dc3cc65fc17405", "row": "workspace.row.fad1baa4-e59a-4310-82f1-9d799f779a68"}
+{"t": 1792817485.13, "utc": "04:51:25", "tab": "A", "act": "scroll-down", "rtt": null}
+{"t": 1792817516.31, "utc": "04:51:56", "tab": "A", "act": "search", "rtt": null, "via": "address-bar", "marker": "brfz001", "type_s": 2.5}
+{"t": 1792817519.11, "utc": "04:51:59", "tab": "A", "act": "forward", "skipped": "no history from this run"}
+{"t": 1792817529.32, "utc": "04:52:09", "tab": "A", "act": "scroll-down", "rtt": null}
+{"t": 1792817538.76, "utc": "04:52:18", "tab": "A", "act": "scroll-up", "rtt": null}
+{"t": 1792817570.86, "utc": "04:52:50", "tab": "A", "act": "search", "rtt": null, "via": "address-bar", "marker": "brfz002", "type_s": 3.63}
+{"t": 1792817588.52, "utc": "04:53:08", "tab": "A", "act": "long-scroll", "rtt": null, "swipes": 7, "seconds": 16.7, "reconnecting": []}
+{"t": 1792817593.78, "utc": "04:53:13", "tab": "A", "act": "scroll-down", "rtt": 3.59}
+{"t": 1792817595.82, "utc": "04:53:15", "tab": "A", "act": "forward", "skipped": "no history from this run"}
+{"t": 1792817600.32, "utc": "04:53:20", "tab": "A", "act": "scroll-up", "rtt": 3.43}
+{"t": 1792817611.54, "utc": "04:53:31", "tab": "A", "act": "tap", "rtt": null, "at": [217, 408]}
+{"t": 1792817614.98, "utc": "04:53:34", "tab": "A", "act": "scroll-up", "rtt": 1.66}
+{"t": 1792817625.26, "utc": "04:53:45", "tab": "A", "act": "scroll-up", "rtt": null}
+{"t": 1792817626.25, "utc": "04:53:46", "tab": "A", "act": "back", "skipped": "no history from this run"}
+{"t": 1792817627.58, "utc": "04:53:47", "tab": "A", "act": "forward", "skipped": "no history from this run"}
+{"t": 1792817632.85, "utc": "04:53:52", "tab": "A", "act": "scroll-down", "rtt": 3.43}
+{"t": 1792817637.47, "utc": "04:53:57", "tab": "A", "act": "scroll-down", "rtt": 2.44}
+{"t": 1792817642.49, "utc": "04:54:02", "tab": "A", "act": "scroll-up", "rtt": 3.52}
+{"t": 1792817677.3, "utc": "04:54:37", "tab": "A", "act": "search", "rtt": null, "via": "address-bar", "marker": "brfz003", "type_s": 7.16}
+{"t": 1792817712.0, "utc": "04:55:12", "tab": "B", "act": "open", "name": "B", "url": "https://news.ycombinator.com", "load_s": 26.4, "key": "new-8d5e7da6-t1", "mac_ws": "ws_8cc7756cd1476bec40b8b38aae1e91b4", "row": "workspace.row.da7c8dfa-d79c-4700-a320-090df9b6ecae"}
+{"t": 1792817721.94, "utc": "04:55:21", "tab": "B", "act": "scroll-down", "rtt": null}
+{"t": 1792817734.99, "utc": "04:55:34", "tab": "B", "act": "tap", "rtt": null, "at": [129, 354]}
+{"t": 1792817745.04, "utc": "04:55:45", "tab": "B", "act": "scroll-up", "rtt": null}
+{"t": 1792817756.64, "utc": "04:55:56", "tab": "B", "act": "tap", "rtt": null, "at": [278, 300]}
+{"t": 1792817766.76, "utc": "04:56:06", "tab": "B", "act": "scroll-down", "rtt": null}
+{"t": 1792817824.26, "utc": "04:57:04", "tab": "B", "act": "search", "rtt": null, "via": "address-bar", "marker": "brfz004", "type_s": 2.56}
+{"t": 1792817829.14, "utc": "04:57:09", "tab": null, "act": "list-idle", "seconds": 45, "left": "B"}
+{"t": 1792817879.75, "utc": "04:57:59", "tab": "B", "act": "switch", "name": "B", "s": 5.6, "page": true}
+{"t": 1792817888.6, "utc": "04:58:08", "tab": "B", "act": "scroll-down", "rtt": null}
+{"t": 1792817899.65, "utc": "04:58:19", "tab": "B", "act": "scroll-down", "rtt": null}
+{"t": 1792817911.1, "utc": "04:58:31", "tab": "B", "act": "tap", "rtt": null, "at": [145, 546]}
+{"t": 1792817912.97, "utc": "04:58:32", "tab": "B", "act": "back", "skipped": "no history from this run"}
+{"t": 1792817943.63, "utc": "04:59:03", "tab": "B", "act": "search", "rtt": null, "via": "address-bar", "marker": "brfz005", "type_s": 2.69}
+{"t": 1792817955.26, "utc": "04:59:15", "tab": "B", "act": "tap", "rtt": null, "at": [264, 386]}
+{"t": 1792817968.55, "utc": "04:59:28", "tab": "B", "act": "tap", "rtt": null, "at": [217, 361]}
+{"t": 1792817977.34, "utc": "04:59:37", "tab": "A", "act": "switch", "name": "A", "s": 7.6, "page": true}
+{"t": 1792817977.6, "utc": "04:59:37", "tab": "A", "act": "back", "skipped": "no history from this run"}
+{"t": 1792817986.19, "utc": "04:59:46", "tab": "A", "act": "tap", "rtt": 6.8, "at": [108, 494]}
+{"t": 1792817998.44, "utc": "04:59:58", "tab": "A", "act": "tap", "rtt": null, "at": [311, 546]}
+{"t": 1792818032.23, "utc": "05:00:32", "tab": "A", "act": "search", "rtt": null, "via": "address-bar", "marker": "brfz006", "type_s": 5.55}

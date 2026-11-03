@@ -69,7 +69,8 @@ struct AgentLinkSchemaTests {
 
     /// Every charset the schema states is the one this app reads, probe for probe: the web page
     /// compares its own expressions to these strings, so a bound that moves on one side without the
-    /// other fails here (a 65-character harness, a 201-character message, an empty value, `..`).
+    /// other fails here (a 65-character harness, a 257-character session, a
+    /// 201-character message, an empty value, `..`).
     @Test func theParsersCharsetsAreTheSchemas() throws {
         let params = try #require(Self.schema()["params"] as? [String: [String: Any]], "the schema states its parameters")
         let readers: [String: (String) -> Bool] = [
@@ -77,7 +78,7 @@ struct AgentLinkSchemaTests {
             "session": DeepLink.isAgentSession,
             "host": DeepLink.isHint,
             "name": DeepLink.isHint,
-            "message": DeepLink.isAgentSession,
+            "message": DeepLink.isAgentMessage,
             "machine": { DeepLink.isResourceID($0, prefix: "machine_") },
         ]
         let probes = ["a", "A", "claude-code", "Claude", "ses-01.example_a", "msg_01hq9f4c7k",
@@ -85,7 +86,8 @@ struct AgentLinkSchemaTests {
                       "machine_0123456789ABCDEF0123456789abcdef", "machine_0123456789abcdef", "",
                       ".", "..", "...", "a b", "a/b", "a?b", "a%20b", "<script>", "a@b", "a:b",
                       String(repeating: "a", count: 64), String(repeating: "a", count: 65),
-                      String(repeating: "a", count: 200), String(repeating: "a", count: 201)]
+                      "session:with:colon", String(repeating: "a", count: 200), String(repeating: "a", count: 201),
+                      String(repeating: "a", count: 256), String(repeating: "a", count: 257)]
         #expect(Set(params.keys) == Set(readers.keys))
         for (name, spec) in params {
             let pattern = try #require(spec["pattern"] as? String, "\(name) states a charset")

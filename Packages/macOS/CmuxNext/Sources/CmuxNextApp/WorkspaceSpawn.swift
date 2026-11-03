@@ -1,4 +1,4 @@
-import CmuxNextActions
+import CmuxNextAppCore
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
@@ -6,105 +6,6 @@ import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextWorkspaceRepair
 import Foundation
-
-/// What a new workspace's first terminal starts with. The keyboard, menu,
-/// and palette pass nothing; the CLI (`cmux new-workspace`) passes a cwd,
-/// name, command, and extra environment through `newTab`'s arguments.
-struct WorkspaceSpawn: Sendable {
-    var cwd: String?
-    /// A person's Cmd-N: the folder of the tab they work in (Ghostty's
-    /// `window-inherit-working-directory`, NewTerminalStart.folder). After
-    /// `cwd` and the room's own default folder, before the daemon's default.
-    var inheritedCwd: String?
-    var name: String?
-    var command: String?
-    var env: [String: String] = [:]
-    /// The first terminal outlives its tab (`--keep`; `terminal-reap-v1`).
-    var keep = false
-    /// Room the workspace is born in; nil = the target window's room.
-    var profile: ProfileID?
-    /// Browser profile of the workspace's new browser tabs; nil = its room's.
-    var browserProfile: String?
-    /// Where the new workspace goes in its window's sidebar; nil puts it at
-    /// the `workspaces.newPlacement` slot (`NewWorkspaceDefaultSlot`).
-    var slot: WorkspaceSlot?
-    /// False keeps the daemon's place when `slot` is nil: a caller that
-    /// places the workspace itself (into a personal group). The daemon puts
-    /// a workspace of its own session at `workspaces.newPlacement` too (with
-    /// `afterCurrent` after the session's active workspace, not the window's),
-    /// so a batch that must keep its order names a slot.
-    var placesBySetting = true
-    /// Runs once the daemon reports the workspace and its window lists it
-    /// (after the slot is applied), with the window's sidebar.
-    var onListed: (@MainActor @Sendable (String, SidebarBridge) -> Void)?
-    /// A person's new workspace (sidebar +, the New tile, Cmd-N, first
-    /// launch, a new window) opens on the New Tab page; scripts and a spawn
-    /// with a `command` get a terminal. Also a terminal where the page
-    /// cannot run (a Cloud machine, a build without the agent page).
-    var opensNewTabPage = false
-    /// A person's New Agent Chat: the workspace's only tab is a chat
-    /// seeded with this (the cwd and draft of the tab it came from), with
-    /// no terminal. Wins over `opensNewTabPage`.
-    var firstChat: AgentPaneSeed?
-    /// The workspace's only tab shows this acpmux session of this Mac (a chat moved here by
-    /// session.transfer.pull), with no terminal. Wins over `firstChat`.
-    var firstSession: String?
-    /// The key hold of the Cmd-N that asked for this workspace (NewTabInputCoordinator): its first
-    /// New Tab page carries the token, so the keys typed since go to that page's field.
-    var inputToken: String?
-
-    init(cwd: String? = nil, name: String? = nil, command: String? = nil, env: [String: String] = [:], keep: Bool = false,
-         profile: ProfileID? = nil, newTabPage: Bool = false) {
-        opensNewTabPage = newTabPage
-        self.cwd = cwd
-        self.name = name
-        self.command = command
-        self.env = env
-        self.keep = keep
-        self.profile = profile
-    }
-
-    /// A workspace opened in `directory` (the Finder service "New cmux
-    /// Workspace Here"), named after the folder like `newTab` with only a
-    /// `cwd`; nil starts in the default directory and the daemon names it.
-    init(opening directory: String?) {
-        self.init(cwd: directory, name: directory.flatMap(Self.folderName))
-    }
-
-    /// `newTab` arguments: `cwd`, `name`, `command`, `env` (a JSON object of
-    /// strings), `keep`. A workspace opened in a `cwd` without a `name`
-    /// (`cmux open <dir>`, `cmux <dir>` on an explicit socket,
-    /// `new-workspace --cwd`) is named
-    /// after the folder, like Open Folder…
-    init(_ invocation: ActionInvocation) {
-        cwd = invocation["cwd"]?.stringValue.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath }
-        name = invocation["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? cwd.flatMap(Self.folderName)
-        command = invocation["command"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-        keep = invocation["keep"]?.boolValue == true
-        profile = invocation["profile"]?.targetValue.map { ProfileID(rawValue: $0.id) }
-            ?? invocation["profile"]?.stringValue.flatMap { $0.isEmpty ? nil : ProfileID(rawValue: $0) }
-        if let text = invocation["env"]?.stringValue, let data = text.data(using: .utf8),
-           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            env = object.compactMapValues { $0 as? String }
-        }
-        opensNewTabPage = invocation.origin == .user && command == nil
-    }
-
-    /// `tabs.terminalFirst` (cmux Classic Mode, #23021): a person's new workspace or window opens
-    /// a terminal, as in cmux classic, not the New Tab page. A first chat or session still opens.
-    @MainActor mutating func followClassicMode(_ services: AppServices) {
-        if NewTabKind.terminalFirst(services) { opensNewTabPage = false }
-    }
-
-    /// The name of a workspace opened in `directory`: the folder's name
-    /// without surrounding whitespace, or nil for the filesystem root or a
-    /// blank name (the daemon names it).
-    static func folderName(_ directory: String) -> String? {
-        let name = URL(fileURLWithPath: directory).standardizedFileURL.lastPathComponent
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return name.isEmpty || name == "/" ? nil : name
-    }
-}
 
 extension WindowManager {
     /// Creates a workspace and returns its id (`WorkspaceSpawner`).
@@ -118,9 +19,7 @@ extension WindowManager {
     /// the workspace id (`WorkspaceSpawner.start`).
     func startWorkspace(_ spawn: WorkspaceSpawn, on daemon: DaemonService? = nil, into windowID: String? = nil,
                         frame: CGRect? = nil) -> () async throws -> String {
-        var spawn = spawn
-        spawn.followClassicMode(services)
-        return WorkspaceSpawner(windows: self, spawn: spawn, daemon: daemon ?? services.daemon, windowID: windowID, frame: frame).start()
+        WorkspaceSpawner(windows: self, spawn: spawn, daemon: daemon ?? services.daemon, windowID: windowID, frame: frame).start()
     }
 }
 
@@ -131,8 +30,8 @@ extension WindowManager {
 /// `cmux` and agent hooks inside it know where they run. On a Cloud machine
 /// (`daemon`), it gets no Mac environment (only the placement keys) and
 /// starts in the machine's default directory. `windowID` claims the
-/// workspace for that window before the command is sent (`claimNew`), so it
-/// lands there, or opens that window, in the step that first mirrors it; nil
+/// workspace for that window at the press (`claimNew`; a failure releases it),
+/// so it lands there in the step that first mirrors it, and the window waits; nil
 /// leaves it to reconcile (the most recent window). It goes to `spawn.slot`,
 /// else by `workspaces.newPlacement`.
 @MainActor
@@ -146,15 +45,17 @@ struct WorkspaceSpawner {
     /// The key and the name are fixed at the press, so a close pressed while
     /// this create waits its turn or is in flight takes exactly this
     /// workspace, and the window shows its final row from the press
-    /// (`PendingWorkspaceRows`), at the slot the setting gives against the
-    /// workspace the window shows now. With no name asked for, the create
+    /// (`PendingWorkspaceRows`), at the slot the setting gives against the workspace the window shows now (`row`; a
+    /// create that places itself, New Workspace in New Group: where the daemon lists it). With no name asked for, the create
     /// sends the daemon's own next default (`SidebarMapping.defaultWorkspaceName`),
     /// so the row's title is the daemon's from the first frame.
     func start() -> () async throws -> String {
-        guard daemon.connection != nil else { return { throw DaemonError.notConnected } }
-        let key = WorkspaceKey.generate()
-        let daemon = daemon, services = windows.services, machine = MachineID(daemon.machineID)
-        let rule = spawn.slot == nil && spawn.placesBySetting ? NewWorkspacePlacements.rule(for: windowID, in: windows) : nil
+        let key = WorkspaceKey.generate(), daemon = daemon, services = windows.services, machine = MachineID(daemon.machineID)
+        if let windowID { windows.claimNew(workspaceID: key.rawValue, window: windowID, frame: frame) }
+        guard daemon.connection != nil else { return { [windows] in throw windows.createFailed(key.rawValue, DaemonError.notConnected) } }
+        var row = spawn.slot == nil ? NewWorkspacePlacements.rule(for: windowID, in: windows) : nil
+        if !spawn.placesFromCurrent || !spawn.placesBySetting, row?.placement != .afterCurrent { row?.current = nil }
+        let rule = spawn.placesBySetting ? row : nil
         // Only a create with a row names itself here; another keeps the daemon's own numbering.
         let name = spawn.name ?? windowID.map { _ in
             SidebarMapping.nextWorkspaceName(in: daemon.store, reserved: PendingWorkspaceRows.shared.reservedNames(on: machine) { services.workspace(id: $0) != nil })
@@ -162,10 +63,8 @@ struct WorkspaceSpawner {
         let named = renamed(name)
         if let windowID, let name {
             let opensPage = WorkspaceCreation.opensPage(spawn, on: daemon, tabs: services.agentTabs)
-            let face = SidebarMapping.shared.creatingRow(id: key.rawValue, machine: machine, name: name, opensPage: opensPage)
             SidebarNewRowTimer.shared.began(key.rawValue)
-            PendingWorkspaceRows.shared.add(.init(id: key.rawValue, window: windowID, machine: machine, face: face,
-                                                  slot: spawn.slot, byDefault: rule), name: name)
+            PendingWorkspaceRows.shared.add(creating: key.rawValue, window: windowID, machine: machine, name: name, opensPage: opensPage, slot: spawn.slot, byDefault: row)
         }
         WorkspaceLanes.shared.prune(windowID ?? "") { services.workspace(id: $0) != nil }
         if let windowID, let name, let instant = shown(key, name: name, window: windowID, rule: rule) { return instant }
@@ -179,33 +78,32 @@ struct WorkspaceSpawner {
                     }
                 }, settle: { await Self.settled(on: daemon) }) { try await named.create(key, rule: rule) }
             } catch {
-                PendingWorkspaceRows.shared.remove(key.rawValue)
-                throw error
+                windows.forgetCreate(key.rawValue)
+                throw windows.createFailed(key.rawValue, error)
             }
         }
     }
 
-    /// Cmd-N's New Tab page workspace on this Mac, shown in this turn (instant-new-surfaces): the
-    /// store shows it with its page (`AgentTabStore.showWorkspace`) and its window selects it
+    /// Cmd-N's New Tab page workspace on this Mac, or a chat's, shown in this turn (instant-new-surfaces): the
+    /// store shows it with its page or chat (`AgentTabStore.showWorkspace`) and its window selects it
     /// now; the returned work pins its room, then creates it and its first tab in the window's
     /// create lane, and places it at its slot once the daemon has it. Nil: the create waits for
-    /// the daemon (a terminal, a command, a chat, another machine).
+    /// the daemon (a terminal, a command, another machine).
     private func shown(_ key: WorkspaceKey, name: String, window windowID: String,
                        rule: NewWorkspaceDefaultSlot?) -> (() async throws -> String)? {
         let services = windows.services, daemon = daemon
-        guard spawn.opensNewTabPage, spawn.command == nil, spawn.firstChat == nil, spawn.firstSession == nil,
+        guard spawn.opensNewTabPage || spawn.firstChat != nil || spawn.firstSession != nil, spawn.command == nil,
               spawn.browserProfile == nil, spawn.cwd == nil || daemon.isLocal else { return nil }
         let repair: EmptyWorkspaceRepair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
         let room = services.machines.local.store.profile(spawn.profile ?? profile)
         let cwd = spawn.cwd ?? (daemon.isLocal ? room?.defaults : nil)?.cwd.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath }
             ?? (daemon.isLocal ? spawn.inheritedCwd : nil) ?? daemon.defaultCwd
         guard services.agentTabs.showsWorkspaceAtOnce(on: daemon) else { return nil }
-        // Claimed first, so the reconcile the intent runs places and selects it in this window in this turn;
-        // its slot is placed in the turn the daemon's workspace takes the stand-in over.
+        // Claimed at the press (`start`), so the reconcile the intent runs places and selects it in this window in
+        // this turn; its slot is placed in the turn the daemon's workspace takes the stand-in over.
         NewWorkspacePlacements.expect(key.rawValue, in: windowID, slot: spawn.slot, byDefault: rule, then: spawn.onListed, windows: windows)
-        windows.claimNew(workspaceID: key.rawValue, window: windowID, frame: frame)
-        guard let shown = services.agentTabs.showWorkspace(key, name: name, index: nil, cwd: cwd, token: spawn.inputToken,
-                                                           on: daemon, repair: repair) else { return nil }
+        guard let shown = services.agentTabs.showWorkspace(key, name: name, index: nil, cwd: cwd, token: spawn.inputToken, chat: spawn.firstChat,
+                                                           session: spawn.firstSession.map { ($0, nil, false) }, on: daemon, repair: repair) else { return nil }
         // The keys held since the press may go to its page's field once that reports ready.
         services.keyRouter.newTabInputCoordinator.flushAll()
         let windows = windows
@@ -216,16 +114,20 @@ struct WorkspaceSpawner {
                         try await WorkspaceClose.close(WorkspaceKey(rawValue: id), terminals: [], on: connection)
                     }
                 }, settle: { await Self.settled(on: daemon) }) {
+                    // One late-reply budget for the pin, the create and the first tab.
+                    let giveUp = DaemonConnection.lateReplyDeadline()
                     if let room, let session = daemon.store.registryID, let home = services.machines.local.connection {
-                        try await DaemonConnection.retryingLateReplies(PinWorkspaceRequest.command) { try await home.pinWorkspace(session: session, key: key, to: room.id) }; BenchSpans.mark("cmdN.pinWorkspace.returned")
+                        try await DaemonConnection.retryingLateReplies(PinWorkspaceRequest.command, until: giveUp) {
+                            try await home.pinWorkspace(session: session, key: key, to: room.id)
+                        }
+                        BenchSpans.mark("cmdN.pinWorkspace.returned")
                     }
-                    return try await shown.confirm()
+                    return try await shown.confirm(giveUp)
                 }
             } catch {
                 shown.abandon()
-                windows.pendingPlacements[key.rawValue] = nil
-                PendingWorkspaceRows.shared.remove(key.rawValue)
-                throw error
+                windows.forgetCreate(key.rawValue)
+                throw windows.createFailed(key.rawValue, error)
             }
         }
     }
@@ -255,7 +157,6 @@ struct WorkspaceSpawner {
         let services = windows.services
         NewWorkspacePlacements.expect(key.rawValue, in: windowID, slot: spawn.slot, byDefault: rule,
                                       then: windowID == nil ? nil : spawn.onListed, windows: windows)
-        if let windowID { windows.claimNew(workspaceID: key.rawValue, window: windowID, frame: frame) }
         let terminal = TerminalID.generate()
         // The workspace is born in its window's room (or the one asked for):
         // pinned there in the home session before the create command, so no
@@ -264,7 +165,10 @@ struct WorkspaceSpawner {
         let home = services.machines.local
         let room = home.store.profile(spawn.profile ?? profile)
         if let room, let session = daemon.store.registryID, let homeConnection = home.connection {
-            try await DaemonConnection.retryingLateReplies(PinWorkspaceRequest.command) { try await homeConnection.pinWorkspace(session: session, key: key, to: room.id) }; BenchSpans.mark("cmdN.pinWorkspace.returned")
+            try await DaemonConnection.retryingLateReplies(PinWorkspaceRequest.command) {
+                try await homeConnection.pinWorkspace(session: session, key: key, to: room.id)
+            }
+            BenchSpans.mark("cmdN.pinWorkspace.returned")
         }
         if let browserProfile = spawn.browserProfile {
             let qualified = BrowserProfileService.QualifiedWorkspace(session: daemon.store.registryID ?? daemon.machineID, key: key.rawValue)
@@ -277,18 +181,20 @@ struct WorkspaceSpawner {
         vars.merge(defaults?.env ?? [:]) { _, profile in profile }
         vars.merge(spawn.env) { _, caller in caller }
         vars.merge(DaemonConnection.placementEnvironment(workspace: key, terminal: terminal)) { _, placement in placement }
-        let env: [String: String]? = daemon.supports(DaemonCapabilities.terminalEnv) ? vars : nil
-        let keep: Bool? = spawn.keep && daemon.supports(DaemonCapabilities.terminalReap) ? true : nil
+        let env: [String: String]? = daemon.supports(DaemonCapability.terminalEnv.rawValue) ? vars : nil
+        let keep: Bool? = spawn.keep && daemon.supports(DaemonCapability.terminalReap.rawValue) ? true : nil
         let repair: EmptyWorkspaceRepair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
         let cwd = spawn.cwd ?? defaults?.cwd.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath }
             ?? (daemon.isLocal ? spawn.inheritedCwd : nil) ?? daemon.defaultCwd
         BenchSpans.mark("cmdN.create.sending")
         if let page = try await FirstTabHold.creating(key.rawValue, windows: windows, { try await WorkspaceCreation.newTabPage(spawn, key, cwd: cwd, on: daemon, repair: repair, tabs: services.agentTabs) }) { return page }
-        let command = spawn.command
+        let command = spawn.command, onFirstTerminal = spawn.onFirstTerminal
         return try await WorkspaceCreation.create(key, name: spawn.name, on: connection, repair: repair) { created in
-            _ = try await connection.request(CreateTerminalRequest(
+            // Keyed (terminal id, mutation): a late start is waited for, never taken back (P0 2026-10-30).
+            let started = try await connection.createTerminalWaitingForStart(CreateTerminalRequest(
                 workspace: .key(created), command: command, cwd: cwd,
                 terminalID: terminal, env: env, keep: keep, mutation: connection.mutation()))
+            try await onFirstTerminal?(connection, started)
             return created.rawValue
         }
     }

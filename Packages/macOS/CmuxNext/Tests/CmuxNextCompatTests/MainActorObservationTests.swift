@@ -63,4 +63,19 @@ import Testing
         #expect(seen == [3, -1])
         withExtendedLifetime(token) {}
     }
+
+    /// `read` and the handler run on the same main-actor delivery, so the value needs no `Sendable` box.
+    @Test func handsTheHandlerANonSendableObjectFromTheSameDelivery() {
+        let center = NotificationCenter()
+        let name = Notification.Name("MainActorObservationReadTests.object")
+        let sender = NSObject()
+        var seen: [ObjectIdentifier?] = []
+        let token = MainActorObservation(name, center: center, read: { $0.object as? NSObject }) { object in
+            seen.append(object.map(ObjectIdentifier.init))
+        }
+        center.post(name: name, object: sender)
+        center.post(name: name, object: nil)
+        #expect(seen == [ObjectIdentifier(sender), nil])
+        withExtendedLifetime(token) {}
+    }
 }

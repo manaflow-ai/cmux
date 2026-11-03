@@ -10,11 +10,23 @@ import { findParticipant, hasText } from "./validate.ts"
  * that thread, and agent text messages are at least MIN_AGENT_GAP_MS apart in
  * the conversation, so agents (Chiefs) cannot loop. Agents in two threads do
  * not spend each other's budget; only a person's text resets one.
+ *
+ * The first round after a person's text is free of the gap: while a thread's
+ * streak is below the number of agents in the conversation, every Chief may
+ * answer the person at once (a group with two Chiefs answers in parallel, not
+ * one gap apart). From the round's end on, agent texts are spaced again, so an
+ * agent-to-agent exchange still waits the gap and stops at the turn budget.
  */
 export const MAX_AGENT_TURNS = 6
 export const MIN_AGENT_GAP_MS = 2_000
 /** How many of the newest messages the host must pass. */
 export const BUDGET_WINDOW = MAX_AGENT_TURNS + 1
+
+/** The agents in the conversation now (left ones excluded): how many answers the gap lets through after a person's text. */
+export const agentCount = (head: ConversationHead): number => head.participants.filter((p) => p.kind === "agent" && p.left_at === undefined).length
+
+/** Whether an agent text at streak `streak` waits the gap: only once every agent may have answered the person. */
+const gapApplies = (head: ConversationHead, streak: number): boolean => streak >= agentCount(head)
 
 /** Whether `message` is in thread `threadRoot` (undefined: the top level). */
 export const inThread = (message: Message, threadRoot: string | undefined): boolean => message.thread_root === threadRoot
@@ -81,7 +93,9 @@ export const checkAgentBudget = (
   if (!isAgent(actor) || !hasText(parts)) return null
   const maxTurns = head.settings?.agent_budget.turns ?? MAX_AGENT_TURNS
   const gapMs = head.settings?.agent_budget.gap_ms ?? MIN_AGENT_GAP_MS
-  if (threadAgentStreak(head, recent, threadRoot) >= maxTurns) return "agent_budget"
+  const streak = threadAgentStreak(head, recent, threadRoot)
+  if (streak >= maxTurns) return "agent_budget"
+  if (!gapApplies(head, streak)) return null
   const turns = recent.filter((message) => hasText(message.parts))
   // A clock that moved back (now before the last agent message) never blocks.
   const lastAgent = turns.find((message) => isAgent(message.author))
@@ -94,7 +108,7 @@ export const checkAgentBudget = (
  * The loop guard, O(1) and without a row window: reads the head's streak of
  * thread `threadRoot` (`agent_text_streak` for the top level,
  * `thread_agent_streaks` for a thread) and `last_agent_text_at` (kept by
- * `apply` on every send). Same limits as `checkAgentBudget`; differences from
+ * `apply` on every send). Same limits (and the same free first round) as `checkAgentBudget`; differences from
  * the row-window check: a retracted agent message still counts, and the gap
  * applies to the last agent text message however old.
  */
@@ -102,7 +116,9 @@ export const checkAgentStreak = (head: ConversationHead, actor: string, parts: R
   if (findParticipant(head, actor)?.kind !== "agent" || !hasText(parts)) return null
   const maxTurns = head.settings?.agent_budget.turns ?? MAX_AGENT_TURNS
   const gapMs = head.settings?.agent_budget.gap_ms ?? MIN_AGENT_GAP_MS
-  if (streakOf(head, threadRoot) >= maxTurns) return "agent_budget"
+  const streak = streakOf(head, threadRoot)
+  if (streak >= maxTurns) return "agent_budget"
+  if (!gapApplies(head, streak)) return null
   const at = head.last_agent_text_at === undefined ? null : parseRfc3339Millis(head.last_agent_text_at)
   if (at !== null && nowMs >= at && nowMs < at + gapMs) return "agent_rate"
   return null

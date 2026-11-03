@@ -5,7 +5,7 @@ import Testing
 /// `ActionRegistry.isDispatchingKeyDown` decides whether a run is a key press: Copy with nothing
 /// selected goes to the program for Cmd-C but is refused for a menu, palette or CLI Copy
 /// (TerminalHandlers), and menu validation applies key-equivalent rules only to a key. The App
-/// reads `CmuxApplication.dispatchingEvent`, never `NSApp.currentEvent`, which keeps the last key
+/// reads its input dispatch context (`InputDispatchContext`), never `NSApp.currentEvent`, which keeps the last key
 /// after its dispatch: a CLI Copy after a key press would pass for Cmd-C.
 @MainActor @Suite(.serialized)
 struct KeyDownDispatchTests {

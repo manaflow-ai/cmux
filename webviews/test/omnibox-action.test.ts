@@ -153,19 +153,21 @@ const lead = (text: string, withAgent = true) => {
   return rows[defaultSelection(rows)]?.type;
 };
 
-test("the first row, Return's, is what the classifier picked", () => {
+// Leo 2026-10-24 ("Search the web. Do you really want that first?"): the field is a chat
+// composer, so Return asks the agent for any text that is not an address, keywords included.
+test("the first row, Return's, opens an address and asks for anything else", () => {
   expect(lead("github.com")).toBe("open");
   expect(lead("~/Projects")).toBe("open");
   expect(lead("how do I squash commits")).toBe("ask");
   expect(lead("fix the flaky test")).toBe("ask");
-  expect(lead("weather")).toBe("search");
+  expect(lead("weather")).toBe("ask");
 });
 
-test("the other action stays one row down for the rare miss", () => {
+test("Ask stays one row down from an address, and the web search is last", () => {
   const types = (text: string) => screenRows(text, { omnibar: EMPTY_OMNIBAR, ask: agent }).map((row) => row.type);
-  expect(types("weather").slice(0, 2)).toEqual(["search", "ask"]);
-  expect(types("why is the sky blue").slice(0, 2)).toEqual(["ask", "search"]);
-  expect(types("github.com")).toEqual(["open", "search", "ask"]);
+  expect(types("weather")).toEqual(["ask", "search"]);
+  expect(types("why is the sky blue")).toEqual(["ask", "search"]);
+  expect(types("github.com")).toEqual(["open", "ask", "search"]);
 });
 
 test("a question with no agent to ask searches", () => {

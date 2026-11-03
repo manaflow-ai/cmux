@@ -1,4 +1,4 @@
-//! Chief skills (plans/cmux-next/chief-skills-mcp-DESIGN.md): Claude Code
+//! Chief skills (plans/cmux-next/chief-toolpacks-DESIGN.md section 4a): Claude Code
 //! format skill folders (`<name>/SKILL.md` with `name` and `description` in
 //! its front matter) that every Chief and its subagents read on demand.
 //!
@@ -23,26 +23,36 @@ pub struct Skill {
 }
 
 /// The skills cmux ships, as `(name, SKILL.md text)`.
-pub const BUILTIN: [(&str, &str); 8] = [
+pub const BUILTIN: [(&str, &str); 9] = [
+    (
+        "agent-session-teleport",
+        include_str!("../skills/agent-session-teleport/SKILL.md"),
+    ),
     (
         "chief-auth-escalation",
         include_str!("../skills/chief-auth-escalation/SKILL.md"),
+    ),
+    (
+        "chief-cloud-machines",
+        include_str!("../skills/chief-cloud-machines/SKILL.md"),
+    ),
+    (
+        "chief-teleport",
+        include_str!("../skills/chief-teleport/SKILL.md"),
     ),
     (
         "cmux-adoption",
         include_str!("../skills/cmux-adoption/SKILL.md"),
     ),
     ("cmux-setup", include_str!("../skills/cmux-setup/SKILL.md")),
-    // The shipped tool packs' skills (toolpacks.rs).
-    ("browser", include_str!("../toolpacks/browser/SKILL.md")),
-    ("cmux-cli", include_str!("../toolpacks/cmux/SKILL.md")),
-    (
-        "github-signin",
-        include_str!("../toolpacks/github/SKILL.md"),
-    ),
+    ("cmux-views", include_str!("../skills/cmux-views/SKILL.md")),
     ("paid-plans", include_str!("../skills/paid-plans/SKILL.md")),
-    ("vercel", include_str!("../toolpacks/vercel/SKILL.md")),
+    ("whats-new", include_str!("../skills/whats-new/SKILL.md")),
 ];
+
+/// Shipped skills that moved into tool packs (toolpacks.rs): a managed
+/// shared copy is removed, so a Chief whose pack is off does not see it.
+pub const RETIRED: [&str; 4] = ["browser", "cmux-cli", "github-signin", "vercel"];
 
 /// The front-matter line that marks a skill the host may rewrite.
 const MANAGED: &str = "cmux-managed: true";
@@ -81,6 +91,12 @@ pub fn chief_dir(mux_home: &Path) -> PathBuf {
 /// the user took over (no marker) stays as it is. Answers the names written.
 pub fn install_builtin(dir: &Path) -> std::io::Result<Vec<String>> {
     let mut written = Vec::new();
+    for name in RETIRED {
+        let path = dir.join(name).join("SKILL.md");
+        if std::fs::read_to_string(&path).is_ok_and(|t| t.contains(MANAGED)) {
+            std::fs::remove_dir_all(dir.join(name))?;
+        }
+    }
     for (name, text) in BUILTIN {
         let path = dir.join(name).join("SKILL.md");
         match std::fs::read_to_string(&path) {

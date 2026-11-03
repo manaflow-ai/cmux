@@ -33,7 +33,7 @@ public final class AddressBarView: NSView {
 
     let pill = OmnibarPillView()
     private let backdrop = OmnibarCardTopView()
-    private let chip = PageInfoChipButton()
+    let chip = PageInfoChipButton()
     let field = AddressField()
     private let machineBadgeView = MachineBadgeView()
     private let profileBadgeView = ProfileBadgeView()
@@ -166,6 +166,7 @@ public final class AddressBarView: NSView {
                   !BrowserNewTabPage.isNewTabPage(url) else { return nil }
             return BrowserURLDragItem(url: url, title: pageTitle?())
         }
+        registerForDraggedTypes(Self.dropTypes)
         field.setPlaceholder(Strings.omnibarPlaceholder)
         field.delegate = self
         field.sink = self
@@ -250,12 +251,18 @@ public final class AddressBarView: NSView {
     /// The machine whose localhost this tab sees, as a subtle chip; nil
     /// hides it (plans/cmux-next/remote-localhost.md section 6).
     public func setMachineBadge(_ text: String?, help: String?) {
+        // Called on every render of the chrome; the same badge shows nothing new and moves no layout.
+        if let shown = shownMachineBadge, shown.text == text, shown.help == help { return }
+        shownMachineBadge = (text, help)
         if let text {
             machineBadgeView.show(text: text, help: help ?? text)
         }
         machineBadgeView.isHidden = text == nil
         updateBadgeSpace()
     }
+
+    /// The machine badge last applied (`setMachineBadge`), so an unchanged one returns at once.
+    private var shownMachineBadge: (text: String?, help: String?)?
 
     /// The tab's browser profile as a small avatar; nil hides it (one
     /// profile, or an incognito tab).
@@ -350,6 +357,16 @@ public final class AddressBarView: NSView {
             return
         }
         pendingFocusSource = .keyboard
+        defer { pendingFocusSource = nil }
+        window?.makeFirstResponder(field)
+    }
+
+    /// The focus coordinator's return to a tab left from its address bar
+    /// (Chromium `OmniboxViewViews::OnTabChanged`): focuses the field with
+    /// the selection it had when focus left, not all selected.
+    public func restoreFocus() {
+        guard field.currentEditor() == nil else { return }
+        pendingFocusSource = .programmatic
         defer { pendingFocusSource = nil }
         window?.makeFirstResponder(field)
     }

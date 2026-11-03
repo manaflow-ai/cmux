@@ -54,12 +54,12 @@ public nonisolated struct PageTunables {
         "cloud.machines.layout", section, "Cloud machines layout", help: "Machine list of the Cloud page: dense rows or cards. New pages use it.",
         default: .rows, code: "PageTunables.cloudMachinesLayout")
 
-    /// The live web loop (``WebDevOverride``, plans/cmux-next/web-live-reload.md): on by default, so
-    /// `web-dev.json` alone turns it on; off ignores the file without editing it.
+    /// The live web loop (``WebDevOverride``, plans/cmux-next/web-live-reload.md): off by default, so
+    /// a `web-dev.json` overlay is opt-in; off ignores the file without editing it.
     public static let webDevOverride = Tunable<Bool>.toggle(
         "webDev.override", section, "Live web reload (web-dev.json)",
         help: "Loads pages and agent panes from the server or overlay web-dev.json names. Reload a page to apply.",
-        default: true, code: "PageTunables.webDevOverride")
+        default: false, code: "PageTunables.webDevOverride")
 
     public static var all: [TunableDescriptor] { [history.descriptor, coderouter.descriptor, debugSettings.descriptor, cloudMachinesLayout.descriptor, webDevOverride.descriptor] }
 }

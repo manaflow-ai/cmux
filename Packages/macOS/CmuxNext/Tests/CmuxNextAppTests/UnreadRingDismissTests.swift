@@ -6,8 +6,9 @@ import Foundation
 import Testing
 
 /// u2414 (2026-10-19): the unread ring must go away when the person goes into the pane. Clicks,
-/// keys and opens reach ``NotificationCenterService/interacted(_:tab:)``; with the default
-/// settings (`click`, 2026-10-20) each one reads the tab at once, and focus alone does not.
+/// keys, opens and focus reach ``NotificationCenterService/interacted(_:tab:)``; with the default
+/// settings (`focus`, as in cmux classic, https://github.com/manaflow-ai/cmux/issues/25662) each one
+/// reads the tab at once. Under `click`, focus alone does not.
 @MainActor
 struct UnreadRingDismissTests {
     static func unreadTab() throws -> (NotificationCenterService, TabModel) {
@@ -22,16 +23,17 @@ struct UnreadRingDismissTests {
         return (NotificationCenterService(), tab)
     }
 
-    @Test(arguments: [NotificationTrigger.click, .keystroke, .open])
+    @Test(arguments: [NotificationTrigger.focus, .click, .keystroke, .open])
     func goingIntoTheTabReadsItWithTheDefaultSettings(_ trigger: NotificationTrigger) throws {
         let (service, tab) = try Self.unreadTab()
         service.interacted(trigger, tab: tab)
         #expect(service.log.contains("ack \(tab.id)"), "\(trigger) left the ring on")
     }
 
-    /// 2026-10-20: focus alone keeps the ring until the pane is clicked or typed in.
-    @Test func focusAloneKeepsTheRingWithTheDefaultSettings() throws {
+    /// Under `click`, chosen in Settings, focus alone keeps the ring until the pane is clicked or typed in.
+    @Test func focusAloneKeepsTheRingUnderTheClickMode() throws {
         let (service, tab) = try Self.unreadTab()
+        service.preferences.dismissal = .click
         service.interacted(.focus, tab: tab)
         #expect(!service.log.contains("ack \(tab.id)"), "focus cleared the ring")
     }

@@ -1,7 +1,9 @@
 public import AppKit
 public import CmuxNextTerminalFind
+import CmuxNextDesign
 import CmuxNextWakeups
 import GhosttyNextKit
+import IOSurface
 
 /// One terminal on screen: a Ghostty surface fed by a ``TerminalIO``.
 ///
@@ -81,8 +83,15 @@ public final class TerminalSession {
     /// Pauses rendering while the terminal is scrolled off-screen (strip
     /// columns) or its tab is not selected. Output keeps being parsed.
     public var isRenderingSuspended = false {
-        didSet { surfaceView.isRenderingSuspended = isRenderingSuspended }
+        didSet {
+            surfaceView.isRenderingSuspended = isRenderingSuspended
+            if isRenderingSuspended != oldValue { frameChanges.wake() } // shown or hidden: its kept frame follows
+        }
     }
+    /// This terminal's content changes, for the launch frame keeper (``TerminalLaunchFrameKeeper``).
+    nonisolated let frameChanges = TerminalFrameChanges()
+    /// ``close()`` ran: the launch frame keeper forgets this terminal.
+    private(set) var isClosed = false
 
     /// This terminal's theme when it differs from the Ghostty config (its
     /// own, its workspace's or its room's); nil uses the config. Applied to
@@ -90,6 +99,16 @@ public final class TerminalSession {
     /// background, foreground, cursor, selection), with no restart and no
     /// grid change, and to every surface a later replay swaps in.
     public private(set) var theme: GhosttyThemeConfig?
+    /// The App Theme's veil this terminal draws on (a see-through window under an App Theme), set by
+    /// its host; nil draws on its own colors. Its colors are then raised to read on it
+    /// (``GhosttyThemeColors/contrastLines(over:minimum:)``) in a config of this surface's own.
+    private var veil: ThemeRGB?
+    /// ``theme`` (or the app config) with the veil's contrast lines, while they change any color.
+    private var veilConfig: GhosttyThemeConfig?
+    /// Whether the last theme apply to the live surface animated its colors (diagnostics and tests).
+    private(set) var lastThemeApplyAnimated = false
+    /// A theme has been applied to this session, so the next change animates.
+    private var themeWasApplied = false
     /// The light/dark scheme the live surface draws a light/dark theme in.
     public var surfaceIsDark: Bool { surfaceView.colorSchemeIsDark }
 
@@ -100,7 +119,26 @@ public final class TerminalSession {
         guard force || config !== previous else { return }
         theme = config
         view.theme = config
-        applyTheme(to: surfaceView, clearing: previous != nil && config == nil, animated: true)
+        // The first theme this terminal takes (a restored one on its first show) lands at once: its
+        // surface has not painted those colors yet, so a blend would start from the unpainted ones.
+        let animated = themeWasApplied
+        if config != nil { themeWasApplied = true }
+        applyTheme(to: surfaceView, clearing: previous != nil && config == nil, animated: animated)
+    }
+
+    /// Sets the veil this terminal draws on and re-applies its colors when that changes them.
+    func setVeil(_ veil: ThemeRGB?) {
+        guard veil != self.veil else { return }
+        self.veil = veil
+        applyTheme(to: surfaceView, clearing: true, animated: themeWasApplied)
+    }
+
+    /// ``theme`` or the app config, with the veil's contrast lines when they change any color.
+    private func rebuildVeilConfig() -> GhosttyThemeConfig? {
+        guard let veil, let base = theme?.config ?? GhosttyRuntime.shared.config,
+              let colors = theme?.colors ?? GhosttyRuntime.shared.themeColors,
+              let raised = GhosttyRuntime.surfaceConfig(base, lines: colors.contrastLines(over: veil)) else { return nil }
+        return GhosttyThemeConfig(config: raised, themeName: theme?.themeName ?? "", colors: GhosttyRuntime.themeColors(of: raised, backgroundOpacity: colors.backgroundOpacity))
     }
 
     /// Mirrors currently shown. Forwarded to whichever surface is live so a
@@ -126,6 +164,8 @@ public final class TerminalSession {
     /// later VT replay (diagnostics: a snapshot attach never swaps).
     private(set) var restoredSnapshots = 0
     private(set) var swappedSurfaces = 0
+    /// The daemon terminal this session shows (``showsTerminal(_:carrying:)``).
+    private(set) var terminalIdentity: String?
     /// Last frames shown while this session attached (``showLastFrame(_:)``).
     private(set) var lastFrameHolds = 0
     /// Local-history restores whose history did not match the owner's (or
@@ -151,6 +191,7 @@ public final class TerminalSession {
         surfaceView.bridge.takeUnretainedValue().installLinkFilter(nil)
         surfaceView.session = self
         surfaceView.ownsGeometry = ownsGeometry
+        view.onVeil = { [weak self] veil in self?.setVeil(veil) }
         view.install(surfaceView)
         find.target = self
         view.attachFind(find)
@@ -174,11 +215,11 @@ public final class TerminalSession {
             }
         }
 
-        eventsTask = Self.consume(io.events, for: self)
+        eventsTask = Self.consume(io.events, probeSource: io.typingProbeSource, changes: frameChanges, for: self)
         // The first grid report fired inside the surface init, before
         // `session` was set; report it now.
         surfaceView.updateSurfaceSize(forceReport: true)
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { traceSurfaceCreated(io: io) }
         #endif
     }
@@ -206,13 +247,57 @@ public final class TerminalSession {
     }
 
     #if DEBUG
-    /// Moves the pointer over viewport cell (`column`, `row`) with Cmd held, as a mouse
-    /// does (live checks).
-    public func hoverLinkForTesting(column: Int, row: Int) {
-        guard let surface = surfaceView.surface else { return }
-        let cell = surfaceView.cellPointSize
-        let point = CGPoint(x: (Double(column) + 0.5) * cell.width, y: (Double(row) + 0.5) * cell.height)
-        ghostty_surface_mouse_pos(surface, point.x, point.y, GhosttyInput.mods(.command))
+    /// Moves the pointer over viewport cell (`column`, `row`) as a mouse does, with
+    /// `flags` held (live checks): the view's own mouse-move path.
+    public func hoverLinkForTesting(column: Int, row: Int, flags: NSEvent.ModifierFlags = .command) {
+        guard let event = surfaceView.linkTestEvent(.mouseMoved, column: column, row: row, flags: flags) else { return }
+        surfaceView.linkPointer.testPointer = surfaceView.convert(event.locationInWindow, from: nil)
+        surfaceView.linkPointer.testFlags = flags
+        surfaceView.mouseMoved(with: event)
+    }
+
+    /// A left click on viewport cell (`column`, `row`) with `flags` held, through the
+    /// view's own press and release handlers (live checks).
+    public func clickLinkForTesting(column: Int, row: Int, flags: NSEvent.ModifierFlags = .command) {
+        guard let down = surfaceView.linkTestEvent(.leftMouseDown, column: column, row: row, flags: flags),
+              let up = surfaceView.linkTestEvent(.leftMouseUp, column: column, row: row, flags: flags) else { return }
+        surfaceView.linkPointer.testPointer = surfaceView.convert(down.locationInWindow, from: nil)
+        surfaceView.linkPointer.testFlags = flags
+        surfaceView.mouseDown(with: down)
+        surfaceView.mouseUp(with: up)
+    }
+
+    /// A left press on one cell, a drag to another and the release there, with `flags`
+    /// held throughout (live checks).
+    public func dragForTesting(from: (column: Int, row: Int), to: (column: Int, row: Int), flags: NSEvent.ModifierFlags = .command) {
+        guard let down = surfaceView.linkTestEvent(.leftMouseDown, column: from.column, row: from.row, flags: flags),
+              let drag = surfaceView.linkTestEvent(.leftMouseDragged, column: to.column, row: to.row, flags: flags),
+              let up = surfaceView.linkTestEvent(.leftMouseUp, column: to.column, row: to.row, flags: flags) else { return }
+        surfaceView.linkPointer.testPointer = surfaceView.convert(down.locationInWindow, from: nil)
+        surfaceView.linkPointer.testFlags = flags
+        surfaceView.mouseDown(with: down)
+        surfaceView.linkPointer.testPointer = surfaceView.convert(drag.locationInWindow, from: nil)
+        surfaceView.mouseDragged(with: drag)
+        surfaceView.mouseUp(with: up)
+    }
+
+    /// Modifier keys went down or up with the pointer still (live checks): the key path
+    /// when this terminal has focus, the app-wide watcher's either way.
+    public func modifiersChangedForTesting(_ flags: NSEvent.ModifierFlags) {
+        surfaceView.linkPointer.testFlags = flags
+        // A Command key event as AppKit delivers it: flagsChanged, left Command (key code 55).
+        let key = CGEvent(keyboardEventSource: nil, virtualKey: 55, keyDown: flags.contains(.command))
+        key?.type = .flagsChanged
+        key?.flags = CGEventFlags(rawValue: UInt64(flags.rawValue))
+        if surfaceView.isFirstResponder, let key, let event = NSEvent(cgEvent: key) {
+            surfaceView.flagsChanged(with: event)
+        }
+        surfaceView.linkPointer.modifiersChanged(flags)
+    }
+
+    /// The wrapped link under the pointer and whether the pointer shows the pointing hand.
+    public var linkPointerStateForTesting: (wrapped: String?, pointingHand: Bool) {
+        (surfaceView.linkPointer.wrapped?.text, surfaceView.cursor == .pointingHand)
     }
     #endif
 
@@ -220,6 +305,12 @@ public final class TerminalSession {
     @discardableResult
     public func activateLink(_ text: String) -> Bool {
         surfaceView.applyAction(.openURL(text))
+    }
+
+    /// Whether `responder` is this terminal's view or inside it: this terminal has the keyboard.
+    public func hasKeyboard(_ responder: NSResponder?) -> Bool {
+        guard let view = responder as? NSView else { return false }
+        return view === surfaceView || view.isDescendant(of: self.view)
     }
 
     /// Sends bytes as typed, in order with this terminal's keys (they join the same queue to
@@ -251,8 +342,49 @@ public final class TerminalSession {
         guard !surfaceHasContent else { return "has_content" }
         guard let surface = frame.take() else { return "purged" }
         lastFrameHolds += 1
-        frameHold.begin(lastFrame: surface, over: surfaceView, in: view)
+        frameHold.begin(lastFrame: .surface(surface), over: surfaceView, in: view)
         return nil
+    }
+
+    /// What this session's pane shows now, for a session that replaces it on the same tab and shows
+    /// the same daemon terminal `identity` (``showsTerminal(_:carrying:)``; a daemon restart gives the
+    /// terminal a new generation, so the App makes a new view of it): the held frame while a hold is
+    /// on screen, else the surface's last presented frame once it drew content; nil when it shows
+    /// nothing or another terminal. A surface frame is made non-volatile here and given away: this
+    /// session, closed next, never marks it volatile again (``TerminalSurfaceView/giveAway(_:)``);
+    /// nil when the system purged its pages meanwhile.
+    public func carriedFrame(for identity: String) -> TerminalCarriedFrame? {
+        guard terminalIdentity == identity else { return nil }
+        let frame: TerminalFrameHold.HeldFrame
+        if let held = frameHold.heldFrame {
+            frame = held
+        } else if surfaceHasContent, let surface = surfaceView.presentedFrame {
+            frame = .surface(surface)
+        } else {
+            return nil
+        }
+        if case .surface(let surface) = frame {
+            surfaceView.giveAway(surface)
+            guard surface.reclaim() else { return nil }
+        }
+        return TerminalCarriedFrame(frame: frame)
+    }
+
+    /// This session shows the daemon terminal `identity` (whatever the daemon's generation), and the
+    /// `carried` frame of the session it replaces (``carriedFrame(for:)``) until its own first content
+    /// is drawn, as a launch or evicted terminal's last frame is: no empty pane between the two views.
+    public func showsTerminal(_ identity: String, carrying carried: TerminalCarriedFrame?) {
+        terminalIdentity = identity
+        if let carried { holdCarriedFrame(carried) }
+    }
+
+    /// Holds `frame`; false when this session has content or holds a frame already.
+    @discardableResult
+    func holdCarriedFrame(_ frame: TerminalCarriedFrame) -> Bool {
+        guard !surfaceHasContent, !frameHold.isHolding else { return false }
+        lastFrameHolds += 1
+        frameHold.begin(lastFrame: frame.frame, over: surfaceView, in: view)
+        return true
     }
 
     /// ``snapshot(maxPixelSize:)`` rendered off the main thread (it waits on the GPU).
@@ -260,15 +392,47 @@ public final class TerminalSession {
         await surfaceView.snapshotInBackground(maxPixelSize: maxPixelSize)
     }
 
+    /// Whether the pane shows a held frame (a restored, evicted or replaced terminal whose attach has
+    /// not drawn its content yet): its hover card pictures that frame (``shownFrameInBackground(maxPixelSize:)``).
+    public var showsHeldFrame: Bool { frameHold.isHolding }
+
+    /// What the pane shows now, rendered off the main thread: while the frame hold is on screen (a
+    /// restored, evicted or replaced terminal whose attach has not drawn its content yet), the held
+    /// frame, never the empty surface under it; else ``snapshotInBackground(maxPixelSize:)``. The quit
+    /// saves this for the next launch, and the hover card pictures it: a quit during a slow attach
+    /// must not save an empty pane as the terminal's last frame.
+    public func shownFrameInBackground(maxPixelSize: CGFloat = 480) async -> CGImage? {
+        switch frameHold.heldFrame {
+        case nil:
+            return await snapshotInBackground(maxPixelSize: maxPixelSize)
+        case .image(let image)?:
+            guard CGFloat(max(image.width, image.height)) > maxPixelSize else { return image }
+            return await Task.detached(priority: .utility) {
+                TerminalSnapshotRenderer.render(image, maxPixelSize: maxPixelSize)
+            }.value
+        case .surface(let surface)?:
+            let frame = SendableSurface(surface: surface)
+            return await Task.detached(priority: .utility) {
+                TerminalSnapshotRenderer.render(frame, maxPixelSize: maxPixelSize)
+            }.value
+        }
+    }
+
     /// Stops consuming events and detaches the surface. The IO owner decides
     /// whether the underlying terminal keeps running.
     public func close() {
+        isClosed = true
+        frameChanges.wake() // its kept frame goes (TerminalLaunchFrameKeeper)
+        let onClose = view.onClose
+        view.onClose = nil
+        onClose?()
         surfaceView.clipboardRequests.cancelPendingWrite()
         eventsTask?.cancel()
         eventsTask = nil
         closeCancels.forEach { $0.cancel() }
         closeCancels = []
         input.finish()
+        frameHold.end() // a held frame has no time limit: it goes with the session, not with the object
         surfaceView.removeFromSuperview()
     }
 
@@ -281,13 +445,15 @@ public final class TerminalSession {
     /// actor, in stream order: the loop waits for it, and it hands back the lane the next output
     /// may use (nil while the surface still waits for its first content, or none is live). Only
     /// ``handle(_:)`` swaps surfaces, so that lane stays current until the next main-actor event.
-    private nonisolated static func consume(_ events: AsyncStream<TerminalIOEvent>,
-                                            for session: TerminalSession) -> Task<Void, Never> {
+    /// `probeSource` names the IO's terminal to the typing probe (``TerminalIO/typingProbeSource``).
+    private nonisolated static func consume(_ events: AsyncStream<TerminalIOEvent>, probeSource: TypingLatencyProbe.Source?,
+                                            changes: TerminalFrameChanges, for session: TerminalSession) -> Task<Void, Never> {
         Task.detached(priority: .high) { [weak session] in
             var lane: TerminalOutputLane?
             for await event in events {
+                changes.bump()
                 if case .output(let data) = event, let lane {
-                    TypingLatencyProbe.shared.mark(.outputMain)
+                    TypingLatencyProbe.shared.mark(.outputReceived, source: probeSource, next: .object(ObjectIdentifier(lane)))
                     ExpectedActivity.shared.note(.terminalOutput)
                     await lane.waitForCapacity()
                     lane.processOutput(data)
@@ -307,7 +473,7 @@ public final class TerminalSession {
     }
 
     private func apply(_ event: TerminalIOEvent) async {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { traceEvent(event) }
         #endif
         switch event {
@@ -337,7 +503,8 @@ public final class TerminalSession {
             frameHold.contentQueued()
             TerminalTimings.contentApplied()
         case .output(let data):
-            TypingLatencyProbe.shared.mark(.outputMain)
+            TypingLatencyProbe.shared.mark(.outputReceived, source: io.typingProbeSource,
+                                           next: surfaceView.lane.map { .object(ObjectIdentifier($0)) })
             ExpectedActivity.shared.note(.terminalOutput)
             guard let lane = surfaceView.lane else { return }
             await lane.waitForCapacity()
@@ -394,7 +561,7 @@ public final class TerminalSession {
         let wasFirstResponder = old.isFirstResponder
         let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self)
         swappedSurfaces += 1
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { traceSurfaceSwapped(fresh) }
         #endif
         fresh.ownsGeometry = ownsGeometry
@@ -421,11 +588,16 @@ public final class TerminalSession {
     /// `animated`: the live surface blends to the new colors on the GPU from the colors on
     /// screen (a theme change); a fresh surface takes its first colors at once.
     private func applyTheme(to surfaceView: TerminalSurfaceView, clearing: Bool, animated: Bool) {
+        lastThemeApplyAnimated = animated
         guard let surface = surfaceView.surface else { return }
         surfaceView.applyColorTransition(animated: animated)
-        if let theme {
+        let hadVeil = veilConfig != nil
+        veilConfig = rebuildVeilConfig()
+        if let veilConfig {
+            ghostty_surface_update_config(surface, veilConfig.config)
+        } else if let theme {
             ghostty_surface_update_config(surface, theme.config)
-        } else if clearing, let config = GhosttyRuntime.shared.config {
+        } else if clearing || hadVeil, let config = GhosttyRuntime.shared.config {
             ghostty_surface_update_config(surface, config)
         }
     }
@@ -449,8 +621,13 @@ public final class TerminalSession {
         input.focusGained()
     }
 
-    func surfaceDidReport(grid: TerminalGridSize, pixelWidth: Int, pixelHeight: Int) {
+    /// The surface reports its grid to the PTY owner. `final`: the grid its pane's layout spring will
+    /// land at (``TerminalIO/resizeOnMain(cols:rows:final:window:)``).
+    func surfaceDidReport(grid: TerminalGridSize, pixelWidth: Int, pixelHeight: Int, final: Bool = false) {
         guard ownsGeometry else { return }
+        // An IO with a main-actor path takes every grid there, so a final grid never overtakes, or
+        // is overtaken by, an older grid still in the ordered input stream.
+        if io.resizeOnMain(cols: grid.columns, rows: grid.rows, final: final, window: surfaceView.window) { return }
         input.resize(grid, pixelWidth: pixelWidth, pixelHeight: pixelHeight)
     }
 }

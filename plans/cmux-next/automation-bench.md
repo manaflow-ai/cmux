@@ -42,6 +42,8 @@ Desktop: a native AppKit form app, a SwiftUI app, an Electron app (the `click-re
 
 ## Baselines known today (not measured by this bench yet)
 
+- Browser primitives against browser-use, Playwright MCP, Stagehand and Aside (headless, no model, 2026-10-24): [browser-use-perf.md](browser-use-perf.md); fleet entry `scripts/measure/browser-use-perf.sh`.
+
 - cmux-cua, Codex app window (cmux-cua PR 29 baseline): AX-only snapshot p50/p95 86/103 ms, screenshot+AX 351/367 ms; Electron background clicks rendered 0 of 20 before PR 29.
 - cmux-cua agent calls: 12.6 percent failed, 2026-09-20..29.
 - Classic browser REPL (PR 17256): 0 worse than Aside/ChatGPT in 156 differential cases; snapshot faster than a Playwright MCP server at p50.

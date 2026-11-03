@@ -15,6 +15,9 @@ final class GhosttyDiagnosticsModel {
     /// Nil until the first read finished (the page then shows nothing,
     /// never a false "everything applies").
     private(set) var diagnostics: [GhosttyConfigDiagnostic]?
+    /// The theme colors the user's Ghostty files set themselves, which no theme can change (the
+    /// Theme section's notice). Read with the config, so current at once.
+    private(set) var colorOverrides: [GhosttyColorOverride] = []
 
     @ObservationIgnored private let read: @MainActor () -> GhosttyConfigDiagnosticsSnapshot?
     @ObservationIgnored private var observer: MainActorObservation?
@@ -36,8 +39,10 @@ final class GhosttyDiagnosticsModel {
         let current = generation
         guard let snapshot = read() else {
             diagnostics = []
+            colorOverrides = []
             return
         }
+        if snapshot.colorOverrides != colorOverrides { colorOverrides = snapshot.colorOverrides }
         // task-owner: one read per config change; a newer read supersedes it (generation).
         Task { [weak self] in
             let found = await snapshot.diagnostics()

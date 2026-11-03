@@ -11,8 +11,16 @@
 version = 1
 
 [[test]]
+path = "tests/test_ci_fleet_compilation_cache.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_web_ota_publication_contract.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_stress_cli_socket_api.py"
-lane = "macos-cli-no-socket"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_cua_mcp_smoke.py"
@@ -28,7 +36,7 @@ lane = "macos-cli-no-socket"
 
 [[test]]
 path = "tests/test_cmux_cua_helper_identity.py"
-lane = "macos-cli-no-socket"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_cua_drag_cursor_harness.py"
@@ -46,7 +54,7 @@ reason = "Requires an isolated tagged cmux app and helper, two prepared split wo
 
 [[test]]
 path = "tests/test_issue_7028_claude_shim_persistence.py"
-lane = "macos-cli-no-socket-post-fish"
+lane = "linux-guard"
 requirements = ["fish"]
 
 [[test]]
@@ -55,7 +63,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_issue_2448_shell_claude_wrapper_dispatch.py"
-lane = "macos-cli-no-socket"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_issue_8093_ghostty_ssh_binary_path.py"
@@ -63,11 +71,11 @@ lane = "macos-cli-no-socket"
 
 [[test]]
 path = "tests/test_issue_6714_zsh_shim_noclobber.py"
-lane = "macos-cli-no-socket"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_issue_9356_bash_shim_noclobber.py"
-lane = "macos-cli-no-socket"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_issue_10926_watcher_pid_reuse_guard.py"
@@ -81,6 +89,10 @@ serial = true
 
 [[test]]
 path = "tests/test_issue_15067_bash_watcher_churn.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_issue_4148_remote_p10k_keyboard_reset.py"
 lane = "linux-guard"
 
 [[test]]
@@ -101,19 +113,19 @@ lane = "macos-cli-no-socket"
 
 [[test]]
 path = "tests/test_shell_git_branch_stale_cwd.py"
-lane = "macos-cli-no-socket"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_shell_git_config_remote_url_parsing.py"
-lane = "macos-cli-no-socket"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_shell_first_prompt_spawns.py"
-lane = "macos-shell"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_shell_no_git_watch.py"
-lane = "macos-shell"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_shell_cli_shim_private_dir.py"
@@ -121,7 +133,7 @@ lane = "macos-shell"
 
 [[test]]
 path = "tests/test_shell_pr_watch_private_state.py"
-lane = "macos-shell"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_issue_9075_shell_socket_reports.py"
@@ -147,6 +159,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_build_metrics.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_swift_typecheck_diagnostics.py"
+lane = "manual"
+reason = "Static phase-dependency and diagnostics-parser regression checks; feat-cmux-next guards has no Python test lane."
 
 [[test]]
 path = "tests/test_check_package_resolved_policy.py"
@@ -209,6 +226,10 @@ path = "tests/test_bash32_linux_job.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_signing_keychain_real_import_gate.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_shim_cpp_linux.py"
 lane = "linux-guard"
 
@@ -237,6 +258,32 @@ path = "tests/test_runner_label_policy.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_linux_single_size.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fast_checks_failover.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_runner_set.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_no_single_size_pins.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_runner_pools_copy.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that every fromJSON(vars.RUNNER_POOLS).<pool> read names a pool declared in .github/runners.json and that the copy equals main's pools; run python3 tests/test_ci_runner_pools_copy.py yourself after changing a pool read or the pools (about 1 s, no build)."
+
+[[test]]
+path = "tests/test_ci_overflow_pick_reads_pool.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. #30878 registered it as linux-guard with no ci-guards.yml step, which reddened tooling-tests on every pull request. Checks that no Linux runs-on picks a fixed Blacksmith size where the live pool (RUNNER_POOLS.linux) would pick; run python3 tests/test_ci_overflow_pick_reads_pool.py yourself after changing a Linux runs-on or the pool picker (about 2 s, no build)."
+
+[[test]]
 path = "tests/test_ci_linux_guard_routing.py"
 lane = "linux-guard"
 
@@ -249,11 +296,37 @@ path = "tests/test_ci_nightly_push_throttle.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_push_trigger_branches.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_nightly_off_blacksmith.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_static_capability_runtime_only.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_nightly_no_hosted_mac.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_no_shallow_dev_fetch.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_swift_test_main_thread_isolation.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks the swift test job's main-thread-heavy split and its detector; run python3 tests/test_ci_swift_test_main_thread_isolation.py yourself after changing scripts/cmux-next/main-thread-heavy-suites.py or that job (under 10 s, no build)."
+
+[[test]]
+path = "tests/test_ci_swift_test_shards.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that every suite lands in exactly one balanced shard and the build.db start gate; run python3 tests/test_ci_swift_test_shards.py yourself after changing scripts/cmux-next/swift-test-shards.py or the test sources' suite shapes (about 20 s, no build)."
+
+[[test]]
+path = "tests/test_ci_rust_targets_installed_first.py"
 lane = "linux-guard"
 
 [[test]]
@@ -297,7 +370,30 @@ path = "tests/test_ci_pr_runner_pool.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_control_runner.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. #30657 registered it as linux-guard with no ci-guards.yml step, which reddened tooling-tests on every pull request. Checks scripts/ci/nightly_next_control_runner.py; run python3 tests/test_nightly_next_control_runner.py yourself after changing it or the nightly-next control placement in nightly.yml (under 1 s, no build)."
+
+[[test]]
+path = "tests/test_nightly_next_control_rescue.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. #30657 registered it as linux-guard with no ci-guards.yml step, which reddened tooling-tests on every pull request. Checks scripts/ci/nightly_next_control_rescue.py; run python3 tests/test_nightly_next_control_rescue.py yourself after changing it or the nightly-next control rescue in nightly.yml (under 1 s, no build)."
+
+[[test]]
+path = "tests/test_ci_fast_checks_runner.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. #30648 registered it as linux-guard with no ci-guards.yml step, which reddened tooling-tests on every pull request. Checks scripts/ci/fast_checks_runner.py's live admission and bounded overflow; run python3 tests/test_ci_fast_checks_runner.py yourself after changing it or fast-checks.yml's picker (about 1 s, no build)."
+
+[[test]]
 path = "tests/test_ci_simple_pool_picker.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_cmux_next_compile_revert.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_cmux_next_compile_status.py"
 lane = "linux-guard"
 
 [[test]]
@@ -305,7 +401,24 @@ path = "tests/test_ci_next_macos_cascade.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_no_github_hosted_macos.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_pull_request_caches_are_read_only.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_rust_cache_keeps_runner_bin.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_owned_mini_caches.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Pins cmux-tui.yml's owned-mini setup-go cache and rust-cache save-if conditions (#27840); run python3 tests/test_cmux_tui_owned_mini_caches.py yourself after changing that job (under 1 s, no build)."
+
+[[test]]
+path = "tests/test_ci_acpmux_job_home.py"
 lane = "linux-guard"
 
 [[test]]
@@ -314,6 +427,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_queue_janitor.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_rescue_actors.py"
 lane = "linux-guard"
 
 [[test]]
@@ -354,6 +471,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_select_package_tests.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_display_suites.py"
 lane = "linux-guard"
 
 [[test]]
@@ -405,6 +526,14 @@ path = "tests/test_ci_testbox_broker_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_machine_join_e2e_workflow.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_machine_vault_e2e_workflow.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_workload_profiles.py"
 lane = "linux-guard"
 
@@ -429,7 +558,15 @@ path = "tests/test_github_release_publication.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_publish_release_assets_callers.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_next_feed_watch.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_build_src_worktree_prune.py"
 lane = "linux-guard"
 
 [[test]]
@@ -525,6 +662,18 @@ path = "tests/test_next_line.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ios_sim_runtime.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_ffi_cache.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_chief_benchmark_route.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_backdrop_art_generator.py"
 lane = "linux-guard"
 
@@ -550,6 +699,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_tour.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_visual_gate.py"
 lane = "linux-guard"
 
 [[test]]
@@ -661,6 +814,10 @@ path = "tests/test_actions_artifact_prune.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_upload_artifact_retention.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_r2_canary.py"
 lane = "linux-guard"
 
@@ -673,11 +830,43 @@ path = "tests/test_ci_required_checks_are_bounded.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_label_events_skip_full_ci.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_pr_runs_cancel_superseded.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_required_checks_have_no_path_filters.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_quota_hold_gate.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_pr_size.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_pr_checks_base_only.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ui_review_advisory.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_gh_call_log.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_route_refusal_detail.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_github_spend.py"
 lane = "linux-guard"
 
 [[test]]
@@ -825,6 +1014,10 @@ path = "tests/test_release_homebrew_gate.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_release_signer_sign_app.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_reload_tag_lock.py"
 lane = "legacy"
 
@@ -854,7 +1047,7 @@ lane = "legacy"
 
 [[test]]
 path = "tests/test_shell_welcome_banner_startup.py"
-lane = "macos-shell"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_shell_zdotdir_user_override.py"
@@ -913,6 +1106,10 @@ path = "tests/test_tui_publish_workflow_security.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_runs_on_labels.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_vm_scp.py"
 lane = "legacy"
 
@@ -923,6 +1120,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_webviews_tests_per_file.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_no_playwright_on_macs.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence, 2026-10-23): the author runs it, python3 -m unittest tests/test_no_playwright_on_macs.py; it needs only bash and a fake uname."
 
 [[test]]
 path = "tests/test_webviews_tests_new_reds.py"
@@ -957,11 +1159,19 @@ path = "tests/test_nightly_artifact_alias.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_workflow_size.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cla_guard_metadata_routing.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_helper_prebuild_lifecycle.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_killpg_tolerates_eperm.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1005,6 +1215,10 @@ path = "tests/test_r2_cache_prune.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_git_mirror_bundle.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_prune_pr_media.py"
 lane = "linux-guard"
 
@@ -1029,7 +1243,19 @@ path = "tests/test_job_reuse.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_merge_compile_guard.py"
+path = "tests/test_dev_release_product_key.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_dev_release_product_reuse.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_release_product_key.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_release_product_reuse.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1041,6 +1267,10 @@ path = "tests/test_guards_new_reds.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_webviews_test_history.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_web_lint_prepush.py"
 lane = "linux-guard"
 
@@ -1049,9 +1279,36 @@ path = "tests/test_cmux_next_prepush_gate.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_attachment_caps_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_send_path_caps.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_leo_bans.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_arch_layers.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. arch-layers.py is a report for the refactor lane, not a gate; run python3 tests/test_cmux_next_arch_layers.py yourself after changing it or architecture-layers.json (under 1 s, no build)."
+
+[[test]]
+path = "tests/test_cmux_next_guardrails_blocking.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. guardrails.py's main-blocking, raw-blocking and thread-doc rules run only in the local pre-push hook; run python3 tests/test_cmux_next_guardrails_blocking.py yourself (about 12 s, git only, no build)."
+
+[[test]]
 path = "tests/test_cmux_next_guardrails.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. The guardrails run only in the local pre-push hook; run python3 tests/test_cmux_next_guardrails.py yourself (about 40 s, git only, no build)."
+
+[[test]]
+path = "tests/test_cmux_next_compile_trailer.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. The compile trailer rule runs only in the local pre-push hook; run python3 -I tests/test_cmux_next_compile_trailer.py yourself (about 25 s, git and loopback HTTP only, no build)."
 
 [[test]]
 path = "tests/test_cmux_next_codebase_health.py"
@@ -1061,6 +1318,11 @@ reason = "Lawrence 2026-10-23: no new CI tests; run python3 tests/test_cmux_next
 [[test]]
 path = "tests/test_cmux_next_perf_gate_unlit.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_perf_gate_summary.py"
+lane = "manual"
+reason = "Run the portable summary regression locally; no new CI tests."
 
 [[test]]
 path = "tests/test_app_store_rules.py"
@@ -1147,6 +1409,11 @@ path = "tests/test_crash_class_fast_gate.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_check_objc_selectors_step.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Pins the argument allowlist of the fleet step wrapper scripts/cmux-next/check-objc-selectors.sh (#27406); run python3 tests/test_check_objc_selectors_step.py yourself after changing the wrapper or check-objc-selectors.py (about 25 s, bash and python3, no build)."
+
+[[test]]
 path = "tests/test_crash_ratchet_compare.py"
 lane = "linux-guard"
 
@@ -1159,6 +1426,10 @@ path = "tests/test_resources_plist_unique_keys.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_web_url_handler_rank.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_release_media.py"
 lane = "linux-guard"
 
@@ -1168,6 +1439,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_merge_pbxproj.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_appcast_keep_pubdates.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1207,6 +1482,18 @@ path = "tests/test_ci_side_lane_placement.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_linux_admission.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_admission_receipt.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_portable_job_placement.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_session_label_routing.py"
 lane = "linux-guard"
 
@@ -1220,7 +1507,23 @@ lane = "linux-guard"
 serial = true
 
 [[test]]
+path = "tests/test_cmux_next_dev_cas_seed.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_dev_release_host_root.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_hybrid_ref_capture.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_release_build_retention.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_dev_release_import_out.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1240,6 +1543,10 @@ path = "tests/test_nightly_next_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_publish_nightly_next_r2.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_next_source_archive.py"
 lane = "linux-guard"
 
@@ -1248,7 +1555,19 @@ path = "tests/test_nightly_next_arm64_only.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_ghostty_helper_cache.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_chief_cache_repair.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_next_web_bundles_order.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_helpers_beside_release_build.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1285,6 +1604,22 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_base_red_excuse.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_web_coalesce.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_test_reds.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cargo_test_verdict.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_guard_check_isolation.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1329,6 +1664,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_generated_catch_up.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_generated_fold.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1420,6 +1759,15 @@ path = "tests/test_cmux_tui_owner_wait_defers.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_tui_election_budget.py"
+lane = "manual"
+reason = "Run by hand: python3 tests/test_cmux_tui_election_budget.py. The repo adds no new CI tests (CLAUDE.md, 2026-10-23), and it asserts wall-clock bounds of tree-preflight's fallback owner election, so run it on an idle machine."
+
+[[test]]
+path = "tests/test_cmux_tui_tree_handoff.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_tui_pin_duplicate_skip.py"
 lane = "linux-guard"
 
@@ -1456,6 +1804,11 @@ path = "tests/test_defaults_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_settings_stamp_not_committed.py"
+lane = "manual"
+reason = "CLAUDE.md forbids adding a CI test (Lawrence 2026-10-23: \"not to add gates/tests in CI, but you have to run them yourself\"), and #23915 deleted the gate this covers rather than replacing it. Run it with `python3 -m unittest tests.test_settings_stamp_not_committed` when changing scripts/cmux-next/check-settings-exports.sh, settings-exports.txt or any of its readers."
+
+[[test]]
 path = "tests/test_generated_files_guard.py"
 lane = "linux-guard"
 
@@ -1473,6 +1826,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_lane_daemon_tests.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_point_channel.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1524,6 +1881,10 @@ path = "tests/test_cmux_tui_feat_publish_order.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_tui_publish_retries.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_intent_familiar_warning.py"
 lane = "linux-guard"
 
@@ -1540,7 +1901,19 @@ path = "tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_signing_owned_mac.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_dev_daily_dispatch.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_dev_kick.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_base_tier.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1552,11 +1925,71 @@ path = "tests/test_nightly_build_state.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ensure_setup_node.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_download_run_artifact_retries.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_gh_budget_wait.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_stop_if_publish_doomed.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_cancelled_tip.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_gh_app_token.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_publish_app_token_workflow.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_trusted_routing.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_unsigned_resume.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_sign_runner.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_signer_jobs.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_release_signer_scripts.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_release_signer_nightly.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_signer_parity_compare.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_dev_app_linux.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_build_runner.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_git_fetch_retry.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1572,7 +2005,15 @@ path = "tests/test_pr_status.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_no_github_token_polling.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_merge_freeze.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_gh_pages.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1592,11 +2033,23 @@ path = "tests/test_release_notes_pr_media.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_release_notes_clips.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_whats_new_clips.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_idea_ledger.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_base_autofix_finishes.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_base_autofix_pushed_exports.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1613,6 +2066,18 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_ring.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_dev_ring.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_live_feed_check.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_legacy_publish_linux.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1657,6 +2122,18 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_pr_capture_check.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_pr_perf_section_check.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_pr_design_spec_check.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_pr_cloud_backend_check.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1732,6 +2209,10 @@ path = "tests/test_check_paths.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_check_toast_targets.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_perf_source_guard.py"
 lane = "linux-guard"
 
@@ -1745,6 +2226,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_check_concurrency_generic_deinit.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_check_concurrency_pipe_reads.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1766,6 +2251,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_package_lane_prebuild.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_package_lane_suite_skips.py"
+lane = "manual"
+reason = "A regression test for package-test-lane.sh suite's skip reporting, run by its author (CLAUDE.md: no new CI tests). Stdlib Python with a fake swift and xcrun; runs anywhere: python3 tests/test_ci_package_lane_suite_skips.py."
 
 [[test]]
 path = "tests/test_cmux_bug_triage.py"
@@ -1828,7 +2318,20 @@ path = "tests/test_ci_linux_compile_runners.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_cmux_tui_daemon_tests_linux.py"
+path = "tests/test_ci_blacksmith_linux_failover.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_blacksmith_linux_sizes.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. #30360 registered it as linux-guard without a ci-guards.yml step, which reddened tooling-tests on every pull request. Checks .github/runners.json linux_sizes against every Blacksmith Linux runs-on; run python3 tests/test_ci_blacksmith_linux_sizes.py yourself after changing a runs-on label or that table (about 3 s, no build)."
+
+[[test]]
+path = "tests/test_cmux_tui_artifacts_linux_runner_set.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_daemon_tests_gate.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1837,4 +2340,197 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_step_coverage.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_delivery_concurrency.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_r2_cas.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_xcode_build_timeline.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_dev_landing_place.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_dev_landing_workflow.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_runs_on_values.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_internal_runner.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fleet_rule_lints.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_fresh_home_launch_smoke.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_artifact_check.py"
+lane = "manual"
+reason = "Run by hand with python3 when nightly_next_artifact_check.py or the canary and launch-smoke workflows change; repository policy adds no new CI tests."
+
+[[test]]
+path = "tests/test_nightly_next_launch_smoke.py"
+lane = "manual"
+reason = "Run by hand with python3 when nightly_next_launch_smoke.py or its workflow changes; repository policy adds no new CI tests."
+
+[[test]]
+path = "tests/test_zig_fetch_all.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_runs_on_fallback.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_warm_sources.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_workflow_file_size.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_swift_linux_packages.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_tree_critical_path.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_shortcut_alternates_documented.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Reads the schema, the two docs pages, en.json and the three skill references; run python3 tests/test_shortcut_alternates_documented.py yourself after changing the accepted shortcuts.bindings forms or the prose that lists them (under 1 s, no build)."
+
+[[test]]
+path = "tests/test_cloud_capture_provision.py"
+lane = "manual"
+reason = "Run by hand before changing the Cloud capture provision scripts; no new CI tests (CLAUDE.md, Verification)."
+
+[[test]]
+path = "tests/test_cmux_next_kill_switches.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_stable_next.py"
+lane = "manual"
+reason = "Run by hand with python3 when stable_next.py or stable-next.yml changes; repository policy adds no new CI tests."
+
+[[test]]
+path = "tests/test_devbox_bubblewrap.py"
+lane = "manual"
+reason = "Run by hand (cmux-ci) before changing the devbox bubblewrap recipe: it builds the Dockerfile's devtools and bubblewrap layers in Docker and runs an unprivileged sandbox; no new CI tests (CLAUDE.md, Verification)."
+
+[[test]]
+path = "tests/test_chromium_staleness.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_instant_bench_warm_arm.py"
+lane = "manual"
+reason = "Unit test of a fleet bench's arm logic (no app): its owner runs it with python3 -I before a change to instant-new-surfaces-bench.py; no CI job runs it (CLAUDE.md: no new CI tests)."
+
+[[test]]
+path = "tests/test_cef_cache_key_checkout_independent.py"
+lane = "manual"
+reason = "Shell-script unit test (no app, no network): run it with python3 -I before a change to merge-cef-universal.sh, build-cef-shim.sh or embed-cef.sh; no CI job runs it (CLAUDE.md: no new CI tests)."
+
+[[test]]
+path = "tests/test_layout_grid.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_tree_source_marker.py"
+lane = "manual"
+reason = "Portable source-contract test; run python3 tests/test_nightly_tree_source_marker.py through cmux-ci when tree observations change. No new CI gate."
+
+[[test]]
+path = "tests/test_ci_hosted_light_rescue.py"
+lane = "manual"
+reason = "Portable unit tests for the overflow watch's hosted light rescue (main runs the script at a pinned commit). Run python3 -m unittest tests.test_ci_hosted_light_rescue. No new CI gate."
+
+[[test]]
+path = "tests/test_ci_linux_pool_spill.py"
+lane = "manual"
+reason = "Cross-branch integration: the end-to-end cases need RUNNER_POOL_POLICY_ROOT pointing at the trusted main policy checkout; the spill rules run without it. Run python3 -m unittest tests.test_ci_linux_pool_spill with that variable set. No new CI gate."
+
+[[test]]
+path = "tests/test_ci_runner_pool_reconcile.py"
+lane = "manual"
+reason = "Cross-branch integration: requires RUNNER_POOL_POLICY_ROOT pointing at the trusted main policy checkout. Main's runner-pool probe/check and guard tooling checkout execute this suite; local verification uses the same explicit main+feat combination."
+
+[[test]]
+path = "tests/test_ci_cloud_probe_rescue.py"
+lane = "manual"
+reason = "Cloud overflow watcher rescue is invoked by the main controller's workflow_run adapter; the helper has a local seven-case regression suite and is not a pull-request job itself."
+
+[[test]]
+path = "tests/test_nightly_dedicated_mini.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cloud_pair_proof.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Guardrails of scripts/ci/cmux_next_cloud_pair_proof.py, the fleet Cloud chat proof (#30473); run python3 tests/test_cloud_pair_proof.py yourself after changing that script (under 1 s, no build)."
+
+[[test]]
+path = "tests/test_cmux_next_gate_plan_suite_steps.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks gate-plan.py's CmuxNext suite steps against the cmux-ci controller's ci-step limits; run python3 tests/test_cmux_next_gate_plan_suite_steps.py yourself after changing scripts/cmux-next/gate-plan.py or gate-run.sh (about 1 s, no build)."
+
+[[test]]
+path = "tests/test_cmux_next_guardrails_qos.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI gates. The file says so itself: run python3 tests/test_cmux_next_guardrails_qos.py yourself after changing guardrails.py's task-priority rule (about 2 s, no build)."
+
+[[test]]
+path = "tests/test_scroll_measurement_metrics.py"
+lane = "manual"
+reason = "Run through cmux-ci after changing native scroll receipt validation; isolated Python checks launch no app. No new CI gate."
+
+[[test]]
+path = "tests/test_cmux_next_perf_budgets.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks scripts/cmux-next/perf-budgets.py's table and gate; run python3 tests/test_cmux_next_perf_budgets.py yourself after changing it (under 1 s, no build)."
+
+[[test]]
+path = "tests/test_cmux_tui_no_bundled_webpki_roots.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that cmux-tui compiles in no webpki root list (#25452); run python3 tests/test_cmux_tui_no_bundled_webpki_roots.py yourself after changing a cmux-tui Cargo.toml, Cargo.lock or TLS setup (about 1 s, no build)."
+
+[[test]]
+path = "tests/test_playwright_system_chrome.py"
+lane = "manual"
+reason = "Static check run by the author on the fleet; no new CI tests (CLAUDE.md, 2026-10-23)."
+
+[[test]]
+path = "tests/test_fetch_run_artifact.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_publish_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_chat_probe_args.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Pins that scripts/ci/chat-probe.sh passes its prompt to acpmux after -- (a prompt like --cwd=/etc stays text); run python3 tests/test_ci_chat_probe_args.py after changing that script (under 1 s, no build)."
+
+[[test]]
+path = "tests/test_nightly_next_rolling_dmg_identity.py"
 lane = "linux-guard"

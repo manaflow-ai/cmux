@@ -249,4 +249,18 @@ mod script {
         assert_eq!(runner.join().unwrap().unwrap_err().code, codes::CANCELLED);
         assert!(f.session.is_dead());
     }
+
+    /// A runtime binary that cannot run fails the start with its exec error.
+    /// The descriptor step used to close `Command::spawn`'s exec-error pipe:
+    /// the child aborted and the spawn looked successful.
+    #[test]
+    fn a_runtime_that_cannot_run_fails_the_start_with_its_exec_error() {
+        let sink: LogSink = Arc::new(|_: &str, _: &str| {});
+        let missing = Path::new("/nonexistent/cmux-app-host");
+        let error = Session::start(missing, Arc::new(FakeRouter::default()), sink)
+            .err()
+            .expect("a missing binary does not start");
+        assert_eq!(error.code, codes::HOST, "{error}");
+        assert!(error.message.starts_with("could not start the script runtime"), "{error}");
+    }
 }

@@ -19,6 +19,8 @@ SWIFT=Packages/macOS/CmuxNext/Sources/Fixture/Fixture.swift
 CSS=webviews/src/fixture/styles.css
 TSX=webviews/src/fixture/List.tsx
 PIERRE=webviews/src/agent-session/acpmux/conversation/EditDiffHunks.tsx
+# SwiftUI scroll views are judged only in a file that imports SwiftUI.
+UI=$'import SwiftUI\n'
 pass() { check "$1" "$3" || { echo "FAIL: must pass: $2" >&2; exit 1; }; }
 fail() { if check "$1" "$3"; then echo "FAIL: must fail: $2" >&2; exit 1; fi; }
 
@@ -30,12 +32,17 @@ fail "$SWIFT" "always-visible indicators" '        .scrollIndicators(.visible)'
 fail "$SWIFT" "an empty scroller track" '        scroll.autohidesScrollers = false'
 pass "$SWIFT" "autohiding scrollers" '        scroll.autohidesScrollers = true'
 pass "$SWIFT" "following the system" '        SystemScrollers.follow(scroll)'
-fail "$SWIFT" "a SwiftUI ScrollView without the thin scroller" '        ScrollView { rows }'
-pass "$SWIFT" "a SwiftUI ScrollView with the thin scroller" '        ScrollView { rows.thinScrollers() }'
+fail "$SWIFT" "a SwiftUI ScrollView without the thin scroller" "$UI"'        ScrollView { rows }'
+pass "$SWIFT" "a SwiftUI ScrollView with the thin scroller" "$UI"'        ScrollView { rows.thinScrollers() }'
 pass "$SWIFT" "an AppKit scroll view" '        let scroll = NSScrollView()'
-fail "$SWIFT" "a SwiftUI List without the thin scroller" '        List(selection: $selection) { rows }'
-pass "$SWIFT" "a SwiftUI List with the thin scroller" '        List(selection: $selection) { rows.thinScrollers() }'
-pass "$SWIFT" "List in a string" '        case .list: "List (dense rows)"'
+fail "$SWIFT" "a SwiftUI List without the thin scroller" "$UI"'        List(selection: $selection) { rows }'
+fail "$SWIFT" "a SwiftUI List, attribute import" $'@preconcurrency import SwiftUI\n        List(selection: $selection) { rows }'
+fail "$SWIFT" "a SwiftUI ScrollView, access-level import" $'public import SwiftUI\n        ScrollView { rows }'
+fail "$SWIFT" "a SwiftUI List, @_spi import" $'@_spi(Private) import SwiftUI\n        List(selection: $selection) { rows }'
+fail "$SWIFT" "a SwiftUI List, scoped import" $'import struct SwiftUI.List\n        List(selection: $selection) { rows }'
+pass "$SWIFT" "a List( initializer in a file without SwiftUI" $'import Foundation\n        try await send(List(expectedMachineID: machine), timeout: .seconds(10))'
+pass "$SWIFT" "a SwiftUI List with the thin scroller" "$UI"'        List(selection: $selection) { rows.thinScrollers() }'
+pass "$SWIFT" "List in a string" "$UI"'        case .list: "List (dense rows)"'
 pass "$SWIFT" "a comment" '        // never set scrollerStyle = .legacy here'
 fail "$CSS" "overflow: scroll" '.list { overflow-y: scroll; }'
 fail "$CSS" "a custom WebKit scrollbar" '.list::-webkit-scrollbar { width: 6px; }'

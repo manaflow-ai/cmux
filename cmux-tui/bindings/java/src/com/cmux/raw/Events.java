@@ -26,6 +26,7 @@ public final class Events {
     public static final EventMetadata CLIENT_LIST_INVALIDATED = new EventMetadata("client-list-invalidated", 9, null, List.of("subscribe"), false);
     public static final EventMetadata CLOUD_CONVERSATION_CHANGED = new EventMetadata("cloud-conversation-changed", 12, "cloud-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata CLOUD_CONVERSATION_LIVE = new EventMetadata("cloud-conversation-live", 12, "cloud-chief-live-v1", List.of("subscribe"), true);
+    public static final EventMetadata CLOUD_CONVERSATION_PRESENCE = new EventMetadata("cloud-conversation-presence", 12, "cloud-conversation-presence-v1", List.of("subscribe"), true);
     public static final EventMetadata CLOUD_CONVERSATION_RESYNCED = new EventMetadata("cloud-conversation-resynced", 12, "cloud-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata CLOUD_CONVERSATION_RUN_CHANGED = new EventMetadata("cloud-conversation-run-changed", 12, "cloud-conversation-runs-v1", List.of("subscribe"), true);
     public static final EventMetadata CLOUD_CONVERSATION_TYPING = new EventMetadata("cloud-conversation-typing", 12, "cloud-conversation-typing-v1", List.of("subscribe"), true);
@@ -72,6 +73,7 @@ public final class Events {
     public static final EventMetadata SCREEN_CLOSED = new EventMetadata("screen-closed", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata SCREEN_RENAMED = new EventMetadata("screen-renamed", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata SCROLL_CHANGED = new EventMetadata("scroll-changed", 6, null, List.of("subscribe", "attach-byte", "attach-render", "attach-browser"), true);
+    public static final EventMetadata SELECTION_CHANGED = new EventMetadata("selection-changed", 12, "tree-selection-deltas-v1", List.of("subscribe-deltas"), true);
     public static final EventMetadata SETTINGS_CHANGED = new EventMetadata("settings-changed", 12, "settings-v1", List.of("subscribe"), true);
     public static final EventMetadata SIZE_STATE = new EventMetadata("size-state", 12, "shared-sizing-v1", List.of("subscribe", "attach-byte", "attach-render"), true);
     public static final EventMetadata STATUS = new EventMetadata("status", 5, null, List.of("subscribe"), true);
@@ -97,6 +99,7 @@ public final class Events {
     public static final EventMetadata WORKSPACE_CHANGED = new EventMetadata("workspace-changed", 12, "workspace-metadata-v1", List.of("subscribe-deltas"), true);
     public static final EventMetadata WORKSPACE_CLOSED = new EventMetadata("workspace-closed", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata WORKSPACE_MOVED = new EventMetadata("workspace-moved", 7, null, List.of("subscribe-deltas"), true);
+    public static final EventMetadata WORKSPACE_PRESENTATION_CHANGED = new EventMetadata("workspace-presentation-changed", 12, "tree-selection-deltas-v1", List.of("subscribe-deltas"), true);
     public static final EventMetadata WORKSPACE_RENAMED = new EventMetadata("workspace-renamed", 7, null, List.of("subscribe-deltas"), true);
 
     public static final Map<String, EventMetadata> ALL;
@@ -117,6 +120,7 @@ public final class Events {
         values.put("client-list-invalidated", CLIENT_LIST_INVALIDATED);
         values.put("cloud-conversation-changed", CLOUD_CONVERSATION_CHANGED);
         values.put("cloud-conversation-live", CLOUD_CONVERSATION_LIVE);
+        values.put("cloud-conversation-presence", CLOUD_CONVERSATION_PRESENCE);
         values.put("cloud-conversation-resynced", CLOUD_CONVERSATION_RESYNCED);
         values.put("cloud-conversation-run-changed", CLOUD_CONVERSATION_RUN_CHANGED);
         values.put("cloud-conversation-typing", CLOUD_CONVERSATION_TYPING);
@@ -163,6 +167,7 @@ public final class Events {
         values.put("screen-closed", SCREEN_CLOSED);
         values.put("screen-renamed", SCREEN_RENAMED);
         values.put("scroll-changed", SCROLL_CHANGED);
+        values.put("selection-changed", SELECTION_CHANGED);
         values.put("settings-changed", SETTINGS_CHANGED);
         values.put("size-state", SIZE_STATE);
         values.put("status", STATUS);
@@ -188,6 +193,7 @@ public final class Events {
         values.put("workspace-changed", WORKSPACE_CHANGED);
         values.put("workspace-closed", WORKSPACE_CLOSED);
         values.put("workspace-moved", WORKSPACE_MOVED);
+        values.put("workspace-presentation-changed", WORKSPACE_PRESENTATION_CHANGED);
         values.put("workspace-renamed", WORKSPACE_RENAMED);
         ALL = Collections.unmodifiableMap(values);
     }

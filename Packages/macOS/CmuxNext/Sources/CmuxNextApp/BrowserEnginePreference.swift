@@ -1,3 +1,4 @@
+import CmuxNextBrowserTabs
 import CmuxNextCompat
 import CmuxNextSettings
 import Observation

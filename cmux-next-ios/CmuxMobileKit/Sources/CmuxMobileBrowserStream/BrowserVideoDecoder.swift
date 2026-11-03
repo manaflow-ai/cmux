@@ -29,6 +29,8 @@ public final class BrowserVideoDecoder: @unchecked Sendable {
     private var sps: Data?
     private var pps: Data?
     private var needKeyframe = true
+    /// Frames skipped while waiting for a keyframe (diagnostics).
+    private var skipped = 0
     private var lastPixels: CVPixelBuffer?
     /// Asks the host for a keyframe.
     public var requestKeyframe: @Sendable () -> Void = {}
@@ -85,6 +87,10 @@ public final class BrowserVideoDecoder: @unchecked Sendable {
             guard makeSession(sps: sps, pps: pps) else { return }
         }
         if needKeyframe, !unit.isIDR {
+            skipped += 1
+            if skipped.nonzeroBitCount == 1 {
+                log.info("skipped \(self.skipped) frames waiting for a keyframe (frame \(frame), keyframe flag \(keyframe))")
+            }
             return
         }
         guard let session, let format, !unit.units.isEmpty else {
@@ -120,6 +126,7 @@ public final class BrowserVideoDecoder: @unchecked Sendable {
             return
         }
         needKeyframe = false
+        skipped = 0
         lastPixels = pixels
         enqueue(pixels)
         let done = now()

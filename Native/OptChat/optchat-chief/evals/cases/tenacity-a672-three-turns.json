@@ -1,0 +1,49 @@
+{
+  "id": "tenacity-a672-three-turns",
+  "owner": "a672",
+  "about": "a task is followed through a blocker: credential goes to the person, the answer goes back to the agent",
+  "turns": [
+    {
+      "text": "land the Home paste fix today",
+      "checks": [
+        {
+          "type": "called",
+          "cmd": "spawn"
+        }
+      ]
+    },
+    {
+      "text": "[a901] Blocked: the paste e2e needs the staging DB password, which I do not have. Everything else is done on my branch.",
+      "tail": "Subagents at work now: a901. Their tasks are not done until each reports: never say they are finished, and keep any reply about them to what is under way.",
+      "checks": [
+        {
+          "type": "not_called",
+          "cmd": "spawn"
+        },
+        {
+          "type": "judge",
+          "rubric": "PASS when the reply asks the person for the staging DB password (a credential step is the person's) in a short 'Needs you' item, and does not invent a password. A fallback plan for the agent (test locally meanwhile) is fine. FAIL when it never asks the person, invents a password, or spawns a new agent."
+        }
+      ]
+    },
+    {
+      "text": "it's in 1Password under \"staging db\"",
+      "tail": "Subagents at work now: a901. Their tasks are not done until each reports: never say they are finished, and keep any reply about them to what is under way.",
+      "checks": [
+        {
+          "type": "called",
+          "cmd": "tell",
+          "match": "a901"
+        },
+        {
+          "type": "not_called",
+          "cmd": "spawn"
+        },
+        {
+          "type": "max_words",
+          "n": 70
+        }
+      ]
+    }
+  ]
+}

@@ -76,11 +76,33 @@ public final class ControlSnapshotStore: Sendable {
     }
 
     private let state = Mutex(State())
+    /// Main-actor state changed since the last publish and nothing has built it yet (a control work-queue frame):
+    /// ``fresh()`` builds it first. Set on the main actor, read by connection tasks.
+    private let stale = Atomic<Bool>(false)
+    /// Builds and publishes a stale snapshot on the main actor (the App's publisher); nil: none.
+    private let refresher = Mutex<(@Sendable () async -> Void)?>(nil)
 
     public init() {}
 
     /// The latest published snapshot.
     public var current: ControlSnapshot { state.withLock { $0.snapshot } }
+
+    /// Whether main-actor state changed since the last publish and has not been built yet.
+    public var isStale: Bool { stale.load(ordering: .acquiring) }
+
+    /// Main-actor state changed: the next ``fresh()`` builds the snapshot first (a lazy publish: nothing is built
+    /// until a read needs it).
+    public func markStale() { stale.store(true, ordering: .releasing) }
+
+    /// Sets the closure that builds and publishes a stale snapshot on the main actor.
+    public func setRefresher(_ refresh: (@Sendable () async -> Void)?) { refresher.withLock { $0 = refresh } }
+
+    /// The latest snapshot, built first when main-actor state changed since the last publish (``markStale()``):
+    /// what a control call reads, so it covers the writes of the calls before it.
+    public func fresh() async -> ControlSnapshot {
+        if isStale, let refresh = refresher.withLock({ $0 }) { await refresh() }
+        return current
+    }
 
     /// True while a reader waits for a newer topology; the publisher then
     /// publishes on the next main-actor turn instead of the next frame.
@@ -89,10 +111,16 @@ public final class ControlSnapshotStore: Sendable {
     /// Applies `update` to a copy of the current snapshot and publishes the
     /// result. Build expensive values before calling: the lock is held for
     /// the closure's duration.
+    ///
+    /// - Parameter rebuilt: The update holds a topology built from main-actor state now (the App's
+    ///   publisher): it ends the stale mark (``markStale()``). A publish of one field (the context mask,
+    ///   the catalog, settings, the daemon sequences) leaves the mark, so the next ``fresh()`` still
+    ///   builds the topology: a focus change followed by a context-mask publish kept the old focus.
     @discardableResult
-    public func publish(_ update: (inout ControlSnapshot) -> Void) -> UInt64 {
+    public func publish(rebuilt: Bool = false, _ update: (inout ControlSnapshot) -> Void) -> UInt64 {
         let (generation, snapshot, ready) = state.withLock { state -> (UInt64, ControlSnapshot, [Waiter]) in
             update(&state.snapshot)
+            if rebuilt { stale.store(false, ordering: .releasing) }
             state.snapshot.generation &+= 1
             state.snapshot.publishedAtUptimeNanos = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
             guard !state.waiters.isEmpty else { return (state.snapshot.generation, state.snapshot, []) }

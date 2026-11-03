@@ -34,6 +34,16 @@ const failed: ToolCard = {
   ],
 };
 
+const started: ToolCard = {
+  id: "cloud-start-session-tab_1",
+  state: "done",
+  text: "claude runs on Cloud machine dev. Its chat is in that machine's workspace in the sidebar.",
+  actions: [
+    { id: "open", title: "Open Chat" },
+    { id: "dismiss", title: "Dismiss" },
+  ],
+};
+
 const secret: ToolCard = {
   id: "cloud-access-fedcba9876543210fedcba9876543210",
   state: "ask",
@@ -52,6 +62,7 @@ const next: Record<string, ToolCard[]> = {
   askFirst: [working],
   retry: [working],
   notNow: [],
+  open: [],
   dismiss: [],
   share: [],
   deny: [],
@@ -106,6 +117,7 @@ export default componentEntry<Props>({
     "not-now": { props: { initial: [ask] }, play: notNow },
     always: { props: { initial: [always] }, play: askFirst },
     failed: { props: { initial: [failed] } },
+    started: { props: { initial: [started] } },
     secret: { props: { initial: [secret] } },
     "secret-share": { props: { initial: [secret] }, play: share },
   },

@@ -2,7 +2,7 @@
 // the active row (`activeIndex`), so `aria-activedescendant` never names a missing element, and the
 // list scrolls to the active row when it changes. Each row gets `aria-posinset`/`aria-setsize` from
 // the caller's renderRow (it receives the index and the absolute count).
-import { useLayoutEffect, useRef, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { cx } from "./cx";
 
@@ -12,6 +12,8 @@ export interface VirtualListProps {
   estimateSize(index: number): number;
   /** The highlighted row: always rendered, scrolled into view when it changes. */
   activeIndex?: number;
+  /** Changes when the same index names a different result set or active item. */
+  activeScrollKey?: string;
   renderRow(index: number, style: CSSProperties): ReactNode;
   className?: string;
   id?: string;
@@ -19,14 +21,20 @@ export interface VirtualListProps {
   role?: "listbox" | "grid" | "list";
   label?: string;
   overscan?: number;
+  /** Use the closest matching ancestor as the viewport instead of creating a nested scroller. */
+  scrollParent?: string;
 }
 
-/** Scrolls `scrollTo(index)` whenever `index` changes (a narrow wrapper around the one effect). */
-function useScrollToIndex(index: number | undefined, scrollTo: (index: number) => void) {
-  const last = useRef<number | undefined>(undefined);
+/** The active result can change without changing its numeric index (a filtered folder). */
+function useScrollToIndex(index: number | undefined, key: string | undefined, scrollTo: (index: number) => void) {
+  const last = useRef<{ index: number; key: string | undefined } | null>(null);
   useLayoutEffect(() => {
-    if (index === undefined || index < 0 || index === last.current) return;
-    last.current = index;
+    if (index === undefined || index < 0) {
+      last.current = null;
+      return;
+    }
+    if (last.current?.index === index && last.current.key === key) return;
+    last.current = { index, key };
     scrollTo(index);
   });
 }
@@ -35,17 +43,49 @@ export function VirtualList({
   count,
   estimateSize,
   activeIndex,
+  activeScrollKey,
   renderRow,
   className,
   id,
   role = "listbox",
   label,
   overscan = 6,
+  scrollParent,
 }: VirtualListProps) {
   const scroller = useRef<HTMLDivElement | null>(null);
+  const space = useRef<HTMLDivElement | null>(null);
+  const [scrollMargin, setScrollMargin] = useState(0);
+  const parent = useCallback(
+    () => (scrollParent ? (scroller.current?.closest<HTMLElement>(scrollParent) ?? null) : scroller.current),
+    [scrollParent],
+  );
+  // The list may follow a growing composer or cards. Observe each ancestor whose size can move
+  // its origin, and measure after renders too. No animation loop; all observers disconnect.
+  const measureMargin = useCallback(() => {
+    const viewport = parent();
+    if (!scrollParent || !viewport || !space.current) return;
+    const next =
+      space.current.getBoundingClientRect().top -
+      viewport.getBoundingClientRect().top +
+      viewport.scrollTop -
+      viewport.clientTop;
+    setScrollMargin((previous) => (previous === next ? previous : next));
+  }, [parent, scrollParent]);
+  useLayoutEffect(measureMargin);
+  useLayoutEffect(() => {
+    if (!scrollParent || typeof ResizeObserver === "undefined") return;
+    const viewport = parent();
+    const observer = new ResizeObserver(measureMargin);
+    for (let node: HTMLElement | null = scroller.current; node; node = node.parentElement) {
+      observer.observe(node);
+      if (node === viewport) break;
+    }
+    return () => observer.disconnect();
+  }, [measureMargin, parent, scrollParent]);
   const virtualizer = useVirtualizer({
     count,
-    getScrollElement: () => scroller.current,
+    getScrollElement: parent,
+    scrollMargin,
     estimateSize,
     overscan,
     rangeExtractor: (range: Range) => {
@@ -57,7 +97,7 @@ export function VirtualList({
       return indexes;
     },
   });
-  useScrollToIndex(activeIndex, (index) => virtualizer.scrollToIndex(index, { align: "auto" }));
+  useScrollToIndex(activeIndex, activeScrollKey, (index) => virtualizer.scrollToIndex(index, { align: "auto" }));
   // The range extractor adds the active row to a measured range; before the first measure (no
   // viewport yet) there is no range, so the active row is added here from its estimated place.
   const items = virtualizer
@@ -70,7 +110,11 @@ export function VirtualList({
     !items.some((item) => item.index === activeIndex)
   ) {
     const measured = virtualizer.measurementsCache[activeIndex];
-    items.push({ index: activeIndex, start: measured?.start ?? 0, size: measured?.size ?? estimateSize(activeIndex) });
+    items.push({
+      index: activeIndex,
+      start: measured?.start ?? 0,
+      size: measured?.size ?? estimateSize(activeIndex),
+    });
   }
   return (
     // The layout the absolute rows need is inline, not only in ui.css: a page that does not load
@@ -79,11 +123,12 @@ export function VirtualList({
       ref={scroller}
       id={id}
       className={cx("ui-virtual", className)}
-      style={{ overflow: "auto" }}
+      style={{ overflow: scrollParent ? "visible" : "auto" }}
       role={role}
       aria-label={label}
     >
       <div
+        ref={space}
         className="ui-virtual-space"
         style={{ position: "relative", width: "100%", height: virtualizer.getTotalSize() }}
       >
@@ -93,7 +138,7 @@ export function VirtualList({
             top: 0,
             insetInlineStart: 0,
             width: "100%",
-            transform: `translateY(${item.start}px)`,
+            transform: `translateY(${item.start - scrollMargin}px)`,
             height: item.size,
           }),
         )}

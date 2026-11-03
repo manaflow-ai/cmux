@@ -44,6 +44,10 @@ from datetime import datetime, timedelta, timezone
 LABEL = "merge-freeze"
 OK_LABEL = "freeze-ok"
 MAX_HOURS = 72
+# Lists are read one page per `gh api` call. 30 pages of 100 is 3000 items: the most changed files
+# GitHub's files API lists, and more open freezes or label events than a repository has.
+PER_PAGE = 100
+MAX_PAGES = 30
 
 
 @dataclass
@@ -124,10 +128,22 @@ def gh(*args: str) -> str:
     return subprocess.run(["gh", *args], check=True, capture_output=True, text=True).stdout
 
 
-def gh_items(endpoint: str) -> list[dict]:
-    """Every item of a paginated list endpoint (one JSON object per line: older gh has no --slurp)."""
-    out = gh("api", "--paginate", endpoint, "--jq", ".[] | @json")
-    return [json.loads(line) for line in out.splitlines() if line.strip()]
+def gh_items(endpoint: str, max_pages: int = MAX_PAGES) -> list[dict]:
+    """Every item of a paginated list endpoint, one page per `gh api` call. Not `gh api --paginate`:
+    that is one invocation making any number of requests, which the gh quota shim can't charge and
+    refuses, and a refused read left every merge with an unknown freeze state. A list longer than
+    max_pages pages raises (status 2): a list cut short never reads as "no freeze"."""
+    sep = "&" if "?" in endpoint else "?"
+    items: list[dict] = []
+    for page in range(1, max_pages + 1):
+        batch = json.loads(gh("api", f"{endpoint}{sep}per_page={PER_PAGE}&page={page}"))
+        if not isinstance(batch, list):
+            raise TypeError(f"{endpoint} page {page} is not a list")
+        items.extend(batch)
+        if len(batch) < PER_PAGE:
+            return items
+    raise ValueError(f"{endpoint} has more than {max_pages} pages of {PER_PAGE}; "
+                     "refusing to read a list cut short as complete")
 
 
 def read_json_list(path: str) -> list[dict]:
@@ -185,6 +201,43 @@ def check_authority(freeze: Freeze, labeler: str | None, role: str | None, label
         freeze.problems.append(f"edited after @{labeler} added `{LABEL}`; a maintainer must add it again")
 
 
+# The gh error text of a spent or throttled quota: a primary or secondary rate limit, GraphQL's
+# RATE_LIMITED, or the HTTP 403/429 GitHub answers them with.
+RATE_LIMIT = re.compile(r"rate.?limit|RATE_LIMITED|secondary|HTTP 4(?:03|29)", re.I)
+
+ISSUES_QUERY = (
+    "query($owner:String!,$name:String!,$label:String!){repository(owner:$owner,name:$name){"
+    "issues(states:OPEN,labels:[$label],first:100){pageInfo{hasNextPage}"
+    "nodes{number title body state createdAt author{login} labels(first:50){nodes{name}}}}}}"
+)
+
+
+def rate_limited(error: subprocess.CalledProcessError) -> bool:
+    return bool(RATE_LIMIT.search(f"{error.stderr or ''} {error.stdout or ''}"))
+
+
+def graphql_open_issues(repo: str) -> list[dict]:
+    """The open merge-freeze issues over GraphQL, in the REST shape parse_issue reads. Used when
+    the REST quota is spent. The variables are named `owner` and `name` so a broker can scope the
+    call. A list past one page raises: a list cut short never reads as "no freeze"."""
+    owner, name = repo.split("/", 1)
+    out = gh("api", "graphql", "-f", f"query={ISSUES_QUERY}", "-f", f"owner={owner}", "-f", f"name={name}",
+             "-f", f"label={LABEL}")
+    issues = json.loads(out)["data"]["repository"]["issues"]
+    if issues["pageInfo"]["hasNextPage"]:
+        raise ValueError(f"{repo} has more open `{LABEL}` issues than one GraphQL page; "
+                         "refusing to read a list cut short (it has a next page) as complete")
+    return [{
+        "number": n["number"],
+        "title": n.get("title") or "",
+        "body": n.get("body") or "",
+        "state": (n.get("state") or "").lower(),
+        "created_at": n["createdAt"],
+        "user": {"login": (n.get("author") or {}).get("login", "")},
+        "labels": [{"name": label["name"]} for label in n["labels"]["nodes"]],
+    } for n in issues["nodes"]]
+
+
 def open_freezes(repo: str, issues_file: str | None = None) -> list[Freeze]:
     if issues_file is not None:
         # Recorded issues carry what the API calls below would return: labeled_by,
@@ -193,7 +246,13 @@ def open_freezes(repo: str, issues_file: str | None = None) -> list[Freeze]:
                   if i.get("state", "open") == "open"
                   and LABEL in {label.get("name") for label in i.get("labels", [])}]
     else:
-        issues = gh_items(f"repos/{repo}/issues?state=open&labels={LABEL}&per_page=100")
+        try:
+            issues = gh_items(f"repos/{repo}/issues?state=open&labels={LABEL}")
+        except subprocess.CalledProcessError as error:
+            # A spent REST quota is not an unknown freeze state: GraphQL has its own quota.
+            if not rate_limited(error):
+                raise
+            issues = graphql_open_issues(repo)
     freezes = []
     for issue in issues:
         if "pull_request" in issue:
@@ -204,7 +263,7 @@ def open_freezes(repo: str, issues_file: str | None = None) -> list[Freeze]:
             labeled_at, edited_at = issue.get("labeled_at"), issue.get("last_edited_at")
         else:
             labeler, labeled_at = last_labeler(
-                gh_items(f"repos/{repo}/issues/{freeze.number}/events?per_page=100"), LABEL)
+                gh_items(f"repos/{repo}/issues/{freeze.number}/events"), LABEL)
             role = repo_role(repo, labeler) if labeler else None
             edited_at = last_edited(repo, freeze.number)
         check_authority(freeze, labeler, role, labeled_at, edited_at)
@@ -287,12 +346,15 @@ def main(argv: list[str] | None = None) -> int:
                        f"This freeze {state} {lapsed:%Y-%m-%d %H:%MZ} and no longer blocks merges. "
                        f"Open a new `{LABEL}` issue to freeze again (docs/ci/merge-freeze.md).")
             return 0
+        if not freezes:
+            # No freeze is open, so nothing can block: one read for the common case.
+            return 0
         if args.files:
             with open(args.files) as handle:
                 files = [line.strip() for line in handle if line.strip()]
         else:
             # Both ends of a rename: moving a file out of a frozen directory touches it too.
-            entries = gh_items(f"repos/{args.repo}/pulls/{args.pr}/files?per_page=100")
+            entries = gh_items(f"repos/{args.repo}/pulls/{args.pr}/files")
             files = [e["filename"] for e in entries] + [e["previous_filename"] for e in entries
                                                         if e.get("previous_filename")]
             # The files API stops at 3000 files; an incomplete list can't clear a freeze.
@@ -302,7 +364,7 @@ def main(argv: list[str] | None = None) -> int:
         labeler = None
         if any(f.active(now) for f in freezes):
             events = (read_json_list(args.events_file) if args.events_file is not None
-                      else gh_items(f"repos/{args.repo}/issues/{args.pr}/events?per_page=100"))
+                      else gh_items(f"repos/{args.repo}/issues/{args.pr}/events"))
             labeler = ok_labeler(events)
     # TypeError, AttributeError: GitHub answered with an unexpected shape (a null issue or a missing
     # timestamp, say). Still unknown, not frozen.

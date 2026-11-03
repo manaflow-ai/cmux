@@ -5,6 +5,7 @@ import CmuxNextDesign
 /// windows' chrome, and routes key-downs to the palette first.
 final class PalettePanel: ActiveAppKeyPanel {
     var keyHandler: ((NSEvent) -> Bool)?
+    var onBecomeKey: (() -> Void)?
     var onResignKey: (() -> Void)?
 
     init(size: CGSize) {
@@ -56,6 +57,11 @@ final class PalettePanel: ActiveAppKeyPanel {
     override func resignKey() {
         super.resignKey()
         onResignKey?()
+    }
+
+    override func becomeKey() {
+        super.becomeKey()
+        onBecomeKey?()
     }
 
     /// Key-downs no responder handled (AppKit beeps for each). The palette

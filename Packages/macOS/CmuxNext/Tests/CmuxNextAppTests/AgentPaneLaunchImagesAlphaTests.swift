@@ -1,4 +1,6 @@
 import AppKit
+import CmuxNextAgentPane
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextApp
@@ -18,6 +20,13 @@ struct AgentPaneLaunchImagesAlphaTests {
         return NSImage(cgImage: try #require(context.makeImage()), size: NSSize(width: 4, height: 4))
     }
 
+    /// The saved pages of `directory` as the next launch reads them (before its first pane asks).
+    private static func launch(_ directory: URL) async -> AgentPaneLaunchImages {
+        let images = AgentPaneLaunchImages(directory: directory)
+        await images.prefetch(on: BackgroundWork(label: "test.launch-images"))?.value
+        return images
+    }
+
     private static func directory() -> URL {
         FileManager.default.temporaryDirectory.appending(path: "launch-images-\(UUID().uuidString)", directoryHint: .isDirectory)
     }
@@ -32,7 +41,7 @@ struct AgentPaneLaunchImagesAlphaTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         await AgentPaneLaunchImages(directory: directory).save(["tab_a": try Self.image(clear: true)])
         #expect(FileManager.default.fileExists(atPath: directory.appending(path: "tab_a@2x.png").path))
-        let image = try #require(AgentPaneLaunchImages(directory: directory).take("tab_a"))
+        let image = try #require(await Self.launch(directory).take("tab_a"))
         #expect(image.size == NSSize(width: 4, height: 4))
         #expect(try Self.alpha(image, x: 4, y: 4) == 0)
         #expect(try Self.alpha(image, x: 4, y: 0) == 1)
@@ -43,7 +52,7 @@ struct AgentPaneLaunchImagesAlphaTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         await AgentPaneLaunchImages(directory: directory).save(["tab_b": try Self.image(clear: false)])
         #expect(FileManager.default.fileExists(atPath: directory.appending(path: "tab_b@2x.jpg").path))
-        let image = try #require(AgentPaneLaunchImages(directory: directory).take("tab_b"))
+        let image = try #require(await Self.launch(directory).take("tab_b"))
         #expect(try Self.alpha(image, x: 4, y: 4) == 1)
     }
 
@@ -53,5 +62,17 @@ struct AgentPaneLaunchImagesAlphaTests {
         await images.hold("tab_c", frame, size: NSSize(width: 4, height: 4), appearance: nil)
         let image = try #require(images.take("tab_c"))
         #expect(try Self.alpha(image, x: 4, y: 4) == 0)
+    }
+
+    /// A saved picture that keeps clear pixels stands in for its page in any scope (`takeCovering`, the pane's first
+    /// frame, with `AgentPaneView.savedPictureCovers`'s rule), and like `take` it is handed out once.
+    @Test func aSavedPictureWithClearPixelsCoversItsPageOnce() async throws {
+        let directory = Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        await AgentPaneLaunchImages(directory: directory).save(["tab_d": try Self.image(clear: true)])
+        let images = await Self.launch(directory), scope = NSView(frame: NSRect(x: 0, y: 0, width: 4, height: 4))
+        let image = try #require(images.takeCovering("tab_d", newTab: false, size: .zero, appearance: nil, in: scope))
+        #expect(try Self.alpha(image, x: 4, y: 4) == 0)
+        #expect(images.takeCovering("tab_d", newTab: false, size: .zero, appearance: nil, in: scope) == nil)
     }
 }

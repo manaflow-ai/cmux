@@ -189,18 +189,46 @@ impl Drop for WaitMark {
     }
 }
 
+/// The turn lock a prompt took for its turn, marked so (`Session::turn_claimed`): a prompt that
+/// comes before the turn shows queues behind it and is accepted at once (`queue.rs`
+/// `queue_slot`). The mark clears before the lock is released, so it never clears the mark of
+/// the prompt that takes the lock next.
+pub(super) struct ClaimedTurn<'a> {
+    claimed: &'a AtomicBool,
+    _lock: tokio::sync::MutexGuard<'a, ()>,
+}
+
+impl<'a> ClaimedTurn<'a> {
+    pub(super) fn new(session: &'a Session, lock: tokio::sync::MutexGuard<'a, ()>) -> Self {
+        session.turn_claimed.store(true, Ordering::SeqCst);
+        Self { claimed: &session.turn_claimed, _lock: lock }
+    }
+}
+
+impl Drop for ClaimedTurn<'_> {
+    // Runs before the fields drop: the mark clears while the lock is still held.
+    fn drop(&mut self) {
+        self.claimed.store(false, Ordering::SeqCst);
+    }
+}
+
 /// The turn lock, with the run slot a family turn of a sub-session holds (`queue.rs`): both are
 /// released together.
 pub(super) struct TurnGuard<'a> {
     // Fields drop in order: the slot frees while the turn lock is still held, so the same
     // child's next turn (which takes the lock first) never finds its old slot still counted.
     _slot: Option<RunSlot>,
-    _lock: tokio::sync::MutexGuard<'a, ()>,
+    _lock: ClaimedTurn<'a>,
 }
 
 impl<'a> TurnGuard<'a> {
-    pub(super) fn new(lock: tokio::sync::MutexGuard<'a, ()>, slot: Option<RunSlot>) -> Self {
+    pub(super) fn new(lock: ClaimedTurn<'a>, slot: Option<RunSlot>) -> Self {
         Self { _slot: slot, _lock: lock }
+    }
+
+    /// The run slot, for a turn its agent runs on into (`carried_turn.rs`): it stays taken.
+    pub(super) fn take_slot(&mut self) -> Option<RunSlot> {
+        self._slot.take()
     }
 }
 
@@ -209,7 +237,9 @@ impl Hub {
     /// `None` when it needs none (not a family prompt, not a sub-session, an offered chat, or
     /// a parent this daemon no longer has).
     fn run_gate(&self, session: &Session, provenance: Option<&Value>) -> Option<(String, u32)> {
-        if !super::subsession_guard::is_family_prompt(provenance) {
+        let family = super::subsession_guard::is_family_prompt(provenance)
+            || super::subsession_guard::is_family_retry(provenance);
+        if !family {
             return None;
         }
         let link = session.meta().subsession.filter(|l| !l.offered)?;
@@ -255,15 +285,20 @@ impl Hub {
         self.subsession_runs.changed.notified()
     }
 
-    /// Takes every family prompt (`subsessions::PROVENANCE_KIND`) out of `session`'s queue, its
-    /// `queue_removed` naming `reason`: a stopped or closed sub-session starts no turn later.
+    /// Takes every family prompt (`subsessions::PROVENANCE_KIND`) and every retry a sub-session
+    /// asked for (`is_family_retry`) out of `session`'s queue, its `queue_removed` naming
+    /// `reason`: a stopped or closed sub-session starts no turn later.
     pub(super) fn withdraw_family_prompts(&self, session: &Arc<Session>, reason: &str) {
         let ids: Vec<String> = session
             .queue
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .iter()
-            .filter(|q| super::subsession_guard::is_family_prompt(q.run.provenance.as_ref()))
+            .filter(|q| {
+                let p = q.run.provenance.as_ref();
+                super::subsession_guard::is_family_prompt(p)
+                    || super::subsession_guard::is_family_retry(p)
+            })
             .map(|q| q.prompt_id.clone())
             .collect();
         for id in ids {

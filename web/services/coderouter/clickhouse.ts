@@ -31,6 +31,17 @@ export type ClickHouseQueryOptions = {
   readonly timeoutMs?: number;
 };
 
+export type ClickHouseInsertOptions = {
+  /**
+   * Acknowledge only after the buffered insert is written. Billing rows use
+   * it, so a failed write is a failed call the next run retries; request
+   * telemetry keeps the fire-and-forget default.
+   */
+  readonly wait?: boolean;
+  /** Parse ISO 8601 (`2026-10-01T00:00:00.000Z`) DateTime values. */
+  readonly isoTimestamps?: boolean;
+};
+
 export type ClickHouseFailure =
   | {
       readonly ok: false;
@@ -67,6 +78,7 @@ export async function insertRows(
   table: string,
   rows: readonly Readonly<Record<string, unknown>>[],
   dependencies: ClickHouseDependencies = defaultClickHouseDependencies,
+  options: ClickHouseInsertOptions = {},
 ): Promise<ClickHouseInsertResult> {
   const config = dependencies.config();
   if (!config) {
@@ -81,7 +93,9 @@ export async function insertRows(
   url.search = new URLSearchParams({
     query: `INSERT INTO ${config.database}.${table} FORMAT JSONEachRow`,
     async_insert: "1",
-    wait_for_async_insert: "0",
+    wait_for_async_insert: options.wait ? "1" : "0",
+    // ISO 8601 timestamps with a `Z` suffix, as `Date.toISOString` writes them.
+    ...(options.isoTimestamps ? { date_time_input_format: "best_effort" } : {}),
   }).toString();
   try {
     const response = await dependencies.fetch(url, {

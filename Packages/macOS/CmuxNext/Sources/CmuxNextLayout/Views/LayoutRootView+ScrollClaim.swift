@@ -3,7 +3,8 @@ import CmuxNextDesign
 
 /// Pane content that scrolls sideways itself keeps a horizontal scroll (MARKDOWN-TABLE-SCROLL,
 /// user 2026-10-20): a wide Markdown table or code line under the pointer, which the strip would
-/// otherwise take before the pane's view saw the gesture.
+/// otherwise take before the pane's view saw the gesture. Only `layout.scrollModifier` `none`
+/// asks: with `command` every plain scroll over a pane is the pane's already.
 extension LayoutRootView {
     /// Whether the active screen's pane under `locationInWindow` claims a horizontal scroll there
     /// (``HorizontalScrollClaiming``): hit-tests that pane's host and asks the nearest claiming view

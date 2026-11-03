@@ -8,15 +8,18 @@ public import CmuxNextDesign
 /// reducer has a sizing policy.
 extension LayoutModel {
     /// Sends the sizing intents for the panes and columns that left between two daemon trees.
-    func applyCloseSizing(from old: [LayoutScreen], to new: [LayoutScreen]) {
+    /// `landed`: panes whose close this window showed (`showPaneClose`); their sizes are the landed
+    /// close sizes (`noteLandedCloses`), sent once no close is pending on the screen.
+    func applyCloseSizing(from old: [LayoutScreen], to new: [LayoutScreen], landed: Set<PaneID> = []) {
         for screen in new {
             guard let before = old.first(where: { $0.id == screen.id }), !before.zoomed, !screen.zoomed else { continue }
             let removed = Set(before.layout.panes).subtracting(screen.layout.panes)
             guard !removed.isEmpty else { continue }
             if splitSizing == .even {
-                applySplitSizing(removed.flatMap { CloseSizing(old: before.layout, new: screen.layout).splitChanges(closing: $0) })
+                applySplitSizing(removed.subtracting(landed).flatMap { CloseSizing(old: before.layout, new: screen.layout).splitChanges(closing: $0) })
             }
-            if newColumnWidthMode == .fitScreen {
+            // A shown close's widths were noted before the overlay (`noteLandedCloses`).
+            if newColumnWidthMode == .fitScreen, removed.isDisjoint(with: landed) {
                 for resize in CloseSizing(old: before.layout, new: screen.layout).columnResizes() {
                     setColumnWidth(resize.column, width: resize.width, transaction: .make(), phase: .ended)
                 }
@@ -57,11 +60,12 @@ nonisolated struct CloseSizing {
         return after.compactMap { abs($0.width - share) > 0.001 ? ColumnResize(column: $0.id, width: share) : nil }
     }
 
-    /// The split tree `pane` lives in (a column's own tree; a column with rows sizes its rows elsewhere).
+    /// The split tree `pane` lives in: a column's own tree, or its row's in a column with rows (a
+    /// row's only pane has no chain to size: the rows left keep their heights).
     private func tree(in layout: ScreenLayout, holding pane: PaneID) -> SplitNode? {
         switch layout {
         case let .splits(root): root.contains(pane) ? root : nil
-        case .columns: layout.column(containing: pane).flatMap { $0.hasRows ? nil : $0.root }
+        case .columns: layout.column(containing: pane)?.tree(containing: pane)
         }
     }
 

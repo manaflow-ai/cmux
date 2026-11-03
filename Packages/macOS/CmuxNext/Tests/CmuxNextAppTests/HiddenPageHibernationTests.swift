@@ -1,10 +1,13 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextHibernation
 @testable import CmuxNextBridge
 @testable import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextSettings
 import Foundation
 import Testing
+import CmuxNextTestSupport
 
 /// The 2026-10-14 hibernation audit (100 Chromium tabs, `browser.hibernation` 0.5 min): 34
 /// renderers (2.9 GB) outlived their tabs' pages, and the app grew about 7 MB per hibernated tab.
@@ -13,7 +16,7 @@ import Testing
 /// default option, and the probe called that the person's form input. The 7 MB was each
 /// placeholder's own full-size snapshot, outside the 32 MB preview cache. Real WebKit pages,
 /// hidden from a pane, through the app's hibernation.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct HiddenPageHibernationTests {
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(2))) struct HiddenPageHibernationTests {
     @Test func aPageWhoseScriptFillsItsFormHibernates() async throws {
         let rig = try Rig()
         defer { rig.close() }
@@ -44,10 +47,10 @@ import Testing
         let page = try await rig.page("typed", body: "<input id='note'>")
         rig.window.contentView = page.contentView
         rig.window.makeFirstResponder(page.webView)
-        _ = try await page.evaluate("document.getElementById('note').focus(); true", world: .page)
+        _ = try await page.evaluate("document.getElementById('note').focus(); true", world: .page, gesture: .agent)
         page.webView.insertText("draft")
         try await rig.until("the typing reached the page") {
-            (try? await page.evaluate("document.getElementById('note').value", world: .page)) == .string("draft")
+            (try? await page.evaluate("document.getElementById('note').value", world: .page, gesture: .agent)) == .string("draft")
         }
         rig.window.contentView = nil
         let key = try await rig.hide(page)
@@ -64,10 +67,10 @@ import Testing
         let page = try await rig.page("cleared", body: "<input id='note'>")
         rig.window.contentView = page.contentView
         rig.window.makeFirstResponder(page.webView)
-        _ = try await page.evaluate("document.getElementById('note').focus(); true", world: .page)
+        _ = try await page.evaluate("document.getElementById('note').focus(); true", world: .page, gesture: .agent)
         page.webView.insertText("draft")
         try await rig.until("the typing reached the page") {
-            (try? await page.evaluate("document.getElementById('note').value", world: .page)) == .string("draft")
+            (try? await page.evaluate("document.getElementById('note').value", world: .page, gesture: .agent)) == .string("draft")
         }
         rig.window.contentView = nil
         let key = try await rig.hide(page)
@@ -75,7 +78,7 @@ import Testing
         try #require(rig.exemption(key) == .formInput)
 
         // The draft is gone (sent, cleared): the next look lets the page hibernate.
-        _ = try await page.evaluate("document.getElementById('note').value = ''; true", world: .page)
+        _ = try await page.evaluate("document.getElementById('note').value = ''; true", world: .page, gesture: .agent)
         rig.hibernation.replan()
         try await rig.until("the page hibernated") { rig.isHibernated(key) }
         #expect(rig.exemption(key) == nil, "a hibernated page is still reported as kept")
@@ -93,7 +96,7 @@ import Testing
             <script>addEventListener('keydown', (e) => { window.pressed = e.isTrusted; }, true);</script>
             """)
         try await rig.pressDown(page)
-        _ = try await page.evaluate("document.getElementById('s').value = 'b'; true", world: .page)
+        _ = try await page.evaluate("document.getElementById('s').value = 'b'; true", world: .page, gesture: .agent)
         rig.window.contentView = nil
         let key = try await rig.hide(page)
         try await rig.until("the page hibernated or was kept") { rig.isHibernated(key) || rig.exemption(key) != nil }
@@ -137,7 +140,7 @@ import Testing
         defer { rig.close() }
         let page = try await rig.page("sent", body: "<div id='editor' contenteditable style='height: 200px'></div>")
         try await rig.type("draft", into: "editor", page)
-        _ = try await page.evaluate("document.getElementById('editor').textContent = ''; true", world: .page)
+        _ = try await page.evaluate("document.getElementById('editor').textContent = ''; true", world: .page, gesture: .agent)
         rig.window.contentView = nil
         let key = try await rig.hide(page)
         try await rig.until("the page hibernated or was kept") { rig.isHibernated(key) || rig.exemption(key) != nil }
@@ -174,6 +177,35 @@ import Testing
         // #20866 second review: the page's colors and shape (PR 23083: kept at its size, compressed).
         #expect(snapshot.colorSpace?.isWideGamutRGB == true, "the snapshot lost the page's wide-gamut color space")
         #expect(abs(Double(snapshot.width) / Double(snapshot.height) - 1.6) < 0.005, "the snapshot was squeezed to \(snapshot.width) x \(snapshot.height)")
+    }
+
+    /// #32013: Chromium refuses a thumbnail of a hidden page (dogfood P0 #1), so a hibernating Chromium page falls
+    /// back to its leave picture, but only one of the page as it is now (its picture version): a page that navigated
+    /// while hidden must not wake behind a picture of its earlier URL.
+    @Test(arguments: [true, false])
+    func aPageWithNoPictureOfItsOwnHibernatesBehindItsCurrentLeavePictureOnly(current: Bool) async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        rig.hibernation.capture = { _ in nil } // the engine gives no picture of a hidden page (Chromium)
+        rig.hibernation.pressureDidChange(.normal) // nothing hibernates until the leave picture is set below
+        let page = try await rig.page(current ? "current" : "stale", body: "<p>leave picture</p>")
+        let key = try await rig.hide(page)
+        let cache = rig.services.cache
+        try await rig.until("the leave capture ended") { cache.pageCapturesInFlight.isEmpty }
+        let leave = try Self.picture(shade: 0.3, width: 640, height: 400)
+        cache.pageThumbnails.insert(leave, for: key)
+        cache.pageThumbnailVersions[key] = current ? page.state.pictureVersion : page.state.pictureVersion &+ 1
+        rig.hibernation.pressureDidChange(.critical)
+        rig.skipped += .seconds(HibernationPlanner.Pace.critical.minimumHidden)
+        rig.hibernation.replan()
+        try await rig.until("the page hibernated") { rig.isHibernated(key) || rig.exemption(key) != nil }
+        try #require(rig.isHibernated(key))
+        let snapshot = (cache.browsers[key]?.tab as? HibernatedBrowserTab)?.snapshotImage
+        if current {
+            #expect(snapshot?.width == 640, "a hibernated page with no engine picture kept no picture")
+        } else {
+            #expect(snapshot == nil, "a page hibernated behind a picture of an earlier version of itself")
+        }
     }
 
     /// #20866 review: a page that woke and hibernated again showed the picture of its first sleep.
@@ -283,7 +315,7 @@ import Testing
         _ = try await page.evaluate("""
             document.getElementById('name').value = 'Ada'; document.getElementById('notes').value = 'two\\nlines';
             window.scrollTo(0, 3000); true
-            """, world: .page)
+            """, world: .page, gesture: .agent)
         // WebKit writes the scroll position into the page's history item once scrolling has
         // stopped for a moment; a person's page hibernates minutes later.
         try await Task.sleep(for: .seconds(1))
@@ -303,7 +335,7 @@ import Testing
         try await rig.until("the woken page has its state back (it has \(seen))") {
             guard let woken = rig.services.cache.browsers[key]?.tab as? WebKitTab else { return false }
             if rig.window.contentView !== woken.contentView { rig.window.contentView = woken.contentView }
-            let value = try? await woken.evaluate(state, world: .page)
+            let value = try? await woken.evaluate(state, world: .page, gesture: .agent)
             seen = String(describing: value)
             return value == .string(shown ? #"["Ada","two\nlines",3000]"# : #"["","",3000]"#)
         }
@@ -332,7 +364,8 @@ import Testing
     }
 
     /// The app's tab content cache and hibernation, under critical memory pressure (a hidden page
-    /// is due at once), with one pane that shows and hides pages.
+    /// is due at once: `hide` moves the hibernation's clock past the pressure's minimum hidden
+    /// time), with one pane that shows and hides pages.
     @MainActor final class Rig {
         let services: AppServices
         let hibernation: BrowserHibernation
@@ -341,19 +374,29 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
         var keys: [String] = []
+        /// How far the hibernation's clock (`BrowserHibernation.now`) runs ahead of the wall clock.
+        var skipped: Duration = .zero
 
         init() throws {
             _ = NSApplication.shared
             services = AppServices(environment: AppEnvironment.current([:]))
-            hibernation = BrowserHibernation(cache: services.cache)
+            hibernation = BrowserHibernation(cache: services.cache, memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()))
             services.cache.hibernation = hibernation
             hibernation.apply(BrowserHibernationSetting(mode: .moderate))
             hibernation.pressureDidChange(.critical)
             folder = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cn-hidden-hibernation-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             window.isReleasedWhenClosed = false
+            var completed = false
+            defer { if !completed { close() } }
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             window.orderFrontRegardless()
+            hibernation.now = { [weak self] in .now + (self?.skipped ?? .zero) }
+            // No test here checks a page that does not answer (UnansweredPageProbeTests does): a probe
+            // starved past its 2 s by a full parallel run would keep the page as `unanswered`, and
+            // nothing would ask it again.
+            hibernation.pageDeadline = .seconds(120)
+            completed = true
         }
 
         /// A loaded WebKit page showing `body`, titled `name`.
@@ -363,7 +406,7 @@ import Testing
             let page = services.cache.webKit.makeWebKitTab()
             page.load(url)
             try await until("\(name) loads") {
-                (try? await page.evaluate("document.readyState === 'complete' && document.title", world: .page)) == .string(name)
+                (try? await page.evaluate("document.readyState === 'complete' && document.title", world: .page, gesture: .agent)) == .string(name)
             }
             return page
         }
@@ -377,6 +420,14 @@ import Testing
             try #require(services.cache.phase(of: key) == .mountedVisible)
             services.cache.withdraw(key, by: pane)
             try #require(services.cache.phase(of: key) == .mountedHidden)
+            // Critical pressure takes only a page hidden `Pace.critical.minimumHidden` (10 s; the
+            // person may come straight back). Waiting that out on the wall clock put a 10 s timer
+            // inside every 15 s wait for a hibernation, which a starved parallel run overran:
+            // the page is that old now, and planned at once.
+            if hibernation.pressure == .critical {
+                skipped += .seconds(HibernationPlanner.Pace.critical.minimumHidden)
+                hibernation.replan()
+            }
             return key
         }
 
@@ -390,7 +441,7 @@ import Testing
                                                      characters: "\u{F701}", charactersIgnoringModifiers: "\u{F701}", isARepeat: false, keyCode: 125))
             page.webView.keyDown(with: down)
             try await until("the key reached the page") {
-                (try? await page.evaluate("window.pressed === true", world: .page)) == .bool(true)
+                (try? await page.evaluate("window.pressed === true", world: .page, gesture: .agent)) == .bool(true)
             }
         }
 
@@ -398,21 +449,35 @@ import Testing
         func type(_ text: String, into id: String, _ page: WebKitTab) async throws {
             window.contentView = page.contentView
             window.makeFirstResponder(page.webView)
-            _ = try await page.evaluate("document.getElementById('\(id)').focus(); true", world: .page)
+            _ = try await page.evaluate("document.getElementById('\(id)').focus(); true", world: .page, gesture: .agent)
             page.webView.insertText(text)
             try await until("the typing reached the editor") {
-                (try? await page.evaluate("document.getElementById('\(id)').textContent", world: .page)) == .string(text)
+                (try? await page.evaluate("document.getElementById('\(id)').textContent", world: .page, gesture: .agent)) == .string(text)
             }
         }
 
         func isHibernated(_ key: String) -> Bool { services.cache.browsers[key]?.tab is HibernatedBrowserTab }
         func exemption(_ key: String) -> HibernationPlanner.Exemption? { hibernation.exemptions[key] }
 
+        /// Polls `condition` every 25 ms until it holds. The budget is a count of idle polls (15 s on
+        /// an idle machine), not a wall-clock deadline: in the full parallel CmuxNextAppTests run the
+        /// main actor and the pages' content processes are starved (tests that do nothing took
+        /// over 300 s), so the wait stretches with the load instead of running out. A poll while the
+        /// hibernation asks a page (a discard probe with its snapshot and `beforeunload`, or a freeze
+        /// probe, each bounded by `pageDeadline`) is not idle: the page is still on its way to
+        /// hibernating, freezing or being kept, however slowly its content process answers. A
+        /// condition that never holds still fails.
         func until(_ what: @autoclosure () -> String, _ condition: () async -> Bool) async throws {
-            let deadline = ContinuousClock.now + .seconds(15)
-            while !(await condition()), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(25)) }
+            var idle = 0
+            while idle < Self.polls {
+                if await condition() { return }
+                if hibernation.probing.isEmpty, hibernation.freezeProbing.isEmpty { idle += 1 }
+                try await Task.sleep(for: .milliseconds(25))
+            }
             try #require(await condition(), "\(what()) never happened")
         }
+
+        static let polls = 600
 
         func close() {
             for key in keys { services.cache.release(key) }

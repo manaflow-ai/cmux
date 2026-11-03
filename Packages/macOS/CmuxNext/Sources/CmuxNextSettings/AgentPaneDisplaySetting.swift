@@ -1,8 +1,9 @@
 /// The agent chat's look as the chat page gets it (the `display` page event; plans/cmux-next/chat-display-settings-DESIGN.md):
 /// every `agentPane.display.*` value cmux.json holds that its row accepts, and the Markdown viewer
 /// values the chat follows when its own is unset (`markdown.font.preset`, `markdown.code.family`,
-/// `markdown.code.scale`), as one flat map by dotted key. The page resolves which wins
-/// (webviews/src/agent-session/acpmux/chatDisplay.ts).
+/// `markdown.code.scale`), and cmux's Minimal Mode (`sidebar.minimal`), in which another agent's
+/// message reads as one line until opened, as one flat map by dotted key. The page resolves which
+/// wins (webviews/src/agent-session/acpmux/chatDisplay.ts).
 ///
 /// ```swift
 /// let display = AgentPaneDisplaySetting(fileRoot: settings.fileRoot)
@@ -13,6 +14,9 @@ public nonisolated struct AgentPaneDisplaySetting: Sendable, Hashable {
     public static let followedMarkdownPaths: [[String]] = [
         ["markdown", "font", "preset"], ["markdown", "code", "family"], ["markdown", "code", "scale"],
     ]
+    /// The app keys the chat follows: Minimal Mode (``SidebarSectionsSetting/minimalPath``) and
+    /// Show Feature Tips (``UpdatesSettings/showFeatureTipsPath``; webviews featureTips.tsx).
+    public static let followedAppPaths: [[String]] = [SidebarSectionsSetting.minimalPath, UpdatesSettings.showFeatureTipsPath]
 
     /// The accepted values by dotted key.
     public var values: [String: JSONValue]
@@ -31,15 +35,22 @@ public nonisolated struct AgentPaneDisplaySetting: Sendable, Hashable {
     /// each value its row accepts and dropping the rest.
     ///
     /// - Parameter fileRoot: The settings file's root object.
-    public init(fileRoot: JSONValue) {
+    public init(fileRoot: JSONValue, managedHarnessPlacement: JSONValue? = nil) {
         var values: [String: JSONValue] = [:]
         let followed = Set(Self.followedMarkdownPaths.map { $0.joined(separator: ".") })
         let rows = AgentPaneDisplaySettingsSchema.descriptors
             + MarkdownViewerSettingsSchema.descriptors.filter { followed.contains($0.id) }
+            + Self.followedAppPaths.compactMap { SettingsSchema.descriptor(for: $0) }
         for descriptor in rows {
-            guard let value = fileRoot.value(at: descriptor.path), value != .null, descriptor.accepts(value) else { continue }
+            // A value an earlier form of the row wrote reads as what it meant (the Chat Minimap toggle).
+            // A renamed row's old key applies while the new one is absent (``RenamedSettingKeys``).
+            guard let stored = fileRoot.value(at: descriptor.path) ?? RenamedSettingKeys.legacyValue(for: descriptor.path, in: fileRoot),
+                  stored != .null,
+                  let value = AgentPaneDisplaySettingsSchema.pageValue(descriptor.id, stored), descriptor.accepts(value)
+            else { continue }
             values[descriptor.id] = value
         }
+        values["agentPane.display.harnessPlacement.managed"] = managedHarnessPlacement
         self.init(values: values)
     }
 

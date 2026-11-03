@@ -26,13 +26,18 @@ public final class FeedHostView: NSView {
 
     /// Where this host is shown (``Surface``).
     let surface: Surface
+    #if DEBUG
+    private var bench: FeedBench?
+    #endif
 
     /// - Parameters:
     ///   - model: The feed.
     ///   - layoutOverride: Pins a prototype (demos and screenshots); nil follows the Debug Settings switch `feed.layout`.
     ///   - surface: Where the feed is shown; a page tab by default.
+    ///   - onReportsReply: Sends a reply from the reports basket and answers whether it was sent
+    ///     (nil: the basket has no Reply). A reply sent again keeps its ``ReportReply/promptID``.
     public init(model: FeedModel, layoutOverride: FeedLayout? = nil, surface: Surface = .page,
-                onReportsReply: (@MainActor (String, String) -> Bool)? = nil) {
+                onReportsReply: (@MainActor (ReportReply) async -> Bool)? = nil) {
         self.model = model
         self.surface = surface
         super.init(frame: .zero)
@@ -54,6 +59,12 @@ public final class FeedHostView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         resolveColors()
+        #if DEBUG
+        if window != nil, bench == nil, let settings = FeedBench.Settings(environment: ProcessInfo.processInfo.environment) {
+            bench = FeedBench(settings: settings, model: model, host: self)
+            bench?.start()
+        }
+        #endif
     }
 
     public override func viewDidChangeEffectiveAppearance() {

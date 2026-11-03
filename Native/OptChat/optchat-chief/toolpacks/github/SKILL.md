@@ -26,9 +26,11 @@ line.
 ## 2. Device code (the default)
 
 1. Start it: `chief-github login` (Cloud) or `chief github login` (local). It prints the card:
-   the code in backticks and https://github.com/login/device alone on the next line.
-2. Post the card as your reply, as it is. On the iPhone one tap copies the code and the link
-   preview opens the page. Add one line: "Other ways: a fine-grained token, a GitHub App, or
+   the code in backticks and the page as a Markdown link alone on the next line:
+   `[github.com/login/device](https://github.com/login/device)`.
+2. Post the card as your reply, as it is: keep the page a Markdown link, never a bare or
+   bold URL (`**https://…**` does not open in every chat). One tap copies the code and one
+   opens the page. Add one line: "Other ways: a fine-grained token, a GitHub App, or
    the Mac's gh login."
 3. Do not wait in the turn. The sign-in keeps going after your turn ends: GitHub is polled
    until the person approves, and when a code ends (about 15 minutes) a new code is made at
@@ -52,7 +54,7 @@ line.
 ## 3. Other ways
 
 - Fine-grained token (least access): the person makes one at
-  https://github.com/settings/personal-access-tokens/new: Resource owner the org, only the
+  [github.com/settings/personal-access-tokens/new](https://github.com/settings/personal-access-tokens/new): Resource owner the org, only the
   repos you need, Repository permissions Contents: Read and write, Pull requests: Read and
   write, Workflows: Read and write (pushes that touch .github/workflows need it), Metadata:
   Read. They paste it to you; write it to a file in the turn machine's temp dir, run
@@ -68,8 +70,8 @@ line.
 
 - Rotate: sign in again (`login` or `pat`); the new token replaces the old at once.
 - Sign out: `chief-github logout` / `chief github logout`. It forgets the token here and says
-  where to revoke it at GitHub (https://github.com/settings/applications for the device
-  login). Pass that line on.
+  where to revoke it at GitHub ([github.com/settings/applications](https://github.com/settings/applications)
+  for the device login). Pass that line on, the page as a Markdown link.
 
 ## Never
 

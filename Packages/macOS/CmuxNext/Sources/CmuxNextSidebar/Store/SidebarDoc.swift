@@ -89,6 +89,16 @@ public nonisolated enum SidebarDocBody: Hashable, Sendable {
         if case .workspace(let ref) = self { ref } else { nil }
     }
 
+    /// Whether a Pinned item of this body belongs to one space (spaces.md): a link, tab or app does, stored as
+    /// `extra.room`. A built-in, room, saved group or unknown ref stays shared; a workspace's space is its own and
+    /// a group's is its `profile`.
+    public var belongsToASpace: Bool {
+        switch self {
+        case .url, .tab, .app: true
+        default: false
+        }
+    }
+
     public var isGroup: Bool {
         if case .group = self { true } else { false }
     }
@@ -109,11 +119,35 @@ public nonisolated struct SidebarDocItem: Hashable, Sendable, Identifiable {
     /// A group member pinned inside its group (`extra.pinned`): the reducer
     /// lists it first among the members (plans/cmux-next/pinning-DESIGN.md).
     public var pinnedInGroup: Bool
+    /// Archived (`extra.archived`): the reducer lists it after its unarchived
+    /// siblings and its row draws dimmed (plans/cmux-next/archiving-DESIGN.md).
+    public var archived: Bool
+    /// A group's own auto-archive rule (`extra.auto_archive`; plans/cmux-next/auto-archive-DESIGN.md);
+    /// nil when it follows the setting.
+    public var autoArchive: SidebarDocAutoArchiveRule?
+    /// The space the item was made in: a group's `profile`, another item's `extra.room`. Nil: made before items
+    /// carried one, read as the default space (spaces.md: each space owns its pins and groups).
+    public var room: String?
+
+    /// The id of the default space (`ProfileID.defaultProfile`): where an item with no stored space belongs.
+    public static let defaultRoom = "default"
+
+    /// The space an item that stores `room` belongs to while the spaces `spaces` exist: its own, else the default
+    /// space's (none stored, or one that is gone: deleted, or not mirrored back yet). Nil `spaces`: every stored space
+    /// counts. So no item is ever left out of every window; one whose space comes back (Reopen) returns to it.
+    public static func owningRoom(_ room: String?, spaces: Set<String>?) -> String {
+        guard let room, room == defaultRoom || spaces?.contains(room) ?? true else { return defaultRoom }
+        return room
+    }
 
     public init(id: String, section: String, parent: String? = nil, body: SidebarDocBody, showsLabel: Bool = true, span: Int? = nil,
-                label: String? = nil, iconURL: String? = nil, pinnedInGroup: Bool = false) {
+                label: String? = nil, iconURL: String? = nil, pinnedInGroup: Bool = false, archived: Bool = false,
+                autoArchive: SidebarDocAutoArchiveRule? = nil, room: String? = nil) {
+        self.room = room
         self.iconURL = iconURL
+        self.autoArchive = autoArchive
         self.pinnedInGroup = pinnedInGroup && parent != nil
+        self.archived = archived
         self.id = id
         self.section = section
         self.parent = parent
@@ -135,10 +169,13 @@ public nonisolated struct SidebarDocRow: Hashable, Sendable, Decodable {
     public var item: String?
     /// A closed workspace kept by a section that keeps closed items.
     public var dimmed: Bool
+    /// An archived item, or a row under an archived group: drawn dimmed.
+    public var archived: Bool
     public var ref: SidebarDocWorkspaceRef?
 
     public init(key: String, kind: String, section: String, parent: String? = nil, depth: Int = 0, item: String? = nil, dimmed: Bool = false,
-                ref: SidebarDocWorkspaceRef? = nil) {
+                archived: Bool = false, ref: SidebarDocWorkspaceRef? = nil) {
+        self.archived = archived
         self.key = key
         self.kind = kind
         self.section = section
@@ -149,7 +186,7 @@ public nonisolated struct SidebarDocRow: Hashable, Sendable, Decodable {
         self.ref = ref
     }
 
-    enum CodingKeys: String, CodingKey { case key, kind, section, parent, depth, item, dimmed, ref }
+    enum CodingKeys: String, CodingKey { case key, kind, section, parent, depth, item, dimmed, archived, ref }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -160,6 +197,7 @@ public nonisolated struct SidebarDocRow: Hashable, Sendable, Decodable {
         depth = try c.decodeIfPresent(Int.self, forKey: .depth) ?? 0
         item = try c.decodeIfPresent(String.self, forKey: .item)
         dimmed = try c.decodeIfPresent(Bool.self, forKey: .dimmed) ?? false
+        archived = try c.decodeIfPresent(Bool.self, forKey: .archived) ?? false
         ref = try? c.decodeIfPresent(SidebarDocWorkspaceRef.self, forKey: .ref)
     }
 }
@@ -244,6 +282,8 @@ public nonisolated struct SidebarDocRecords: Hashable, Sendable {
     /// Whether item `id` reads as pinned (Pin/Unpin labels, the row's hover
     /// pin): at the top level of Pinned, or pinned inside its group. A member
     /// of a pinned group is not pinned itself; Pin pins it in that group.
+    public func isArchived(item id: String) -> Bool { items[id]?.archived == true }
+
     public func isPinned(item id: String) -> Bool {
         guard let item = items[id] else { return false }
         return item.pinnedInGroup || (item.parent == nil && item.section == SidebarDocStore.pinnedSection)
@@ -340,15 +380,21 @@ nonisolated extension SidebarDocRecords {
         items[item].map { $0.body.isGroup && $0.section == SidebarDocStore.pinnedSection } ?? false
     }
 
-    /// `table` with no drop in Pinned unless every dragged item is in Pinned already: a
-    /// workspace or group dragged from the list never lands between pinned items and so
-    /// never becomes a pin by a drop (Pin is the way in). Pinned items still reorder there.
+    /// `table` with no drop at Pinned's top level unless every dragged item is in Pinned already:
+    /// a workspace or group dragged from the list never lands between pinned items and so never
+    /// becomes a pin by a drop (Pin is the way in). Pinned items still reorder there, and a pinned
+    /// group still takes workspaces into its header and between its members: that joins the
+    /// group (#22259; refused, nothing could be dragged into a pinned group).
     public func keepingPinned(_ table: [String: SidebarDocAcceptance], dragging dragged: [String]) -> [String: SidebarDocAcceptance] {
         let pinned = SidebarDocStore.pinnedSection
         guard dragged.contains(where: { items[$0]?.section != pinned }) else { return table }
         var table = table
-        for key in table.keys where key == pinned || items[key]?.section == pinned {
-            table[key] = SidebarDocAcceptance(before: false, into: false, after: false, refusal: "pinned_area")
+        for (key, accepted) in table where key == pinned || items[key]?.section == pinned {
+            // A pinned group's member: its gaps stay in that group.
+            if items[key]?.parent != nil { continue }
+            // A pinned group's header: into it joins the group; beside it is the band.
+            let into = items[key]?.body.isGroup == true && accepted.into
+            table[key] = SidebarDocAcceptance(before: false, into: into, after: false, refusal: "pinned_area")
         }
         return table
     }

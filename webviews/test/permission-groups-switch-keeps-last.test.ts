@@ -84,3 +84,25 @@ test("groups shown from a chat's last read go when its refresh fails", async () 
   expect(client.state.groups).toEqual([]);
   expect(client.state.chatAllowance).toBe(false);
 });
+
+test("a read's refused allows stay with its chat across a switch", async () => {
+  const client = new PermissionGroupClient(
+    async (_method, params) => {
+      const sessionId = String(params.sessionId);
+      const read = list(sessionId, false);
+      return sessionId === "peer-chat" ? { ...read, allowRefused: "permission.person_required" } : read;
+    },
+    () => {},
+    storage,
+  );
+  client.configure(true);
+  client.select("peer-chat");
+  await client.refresh();
+  expect(client.state.allowRefused).toBe("permission.person_required");
+  client.select("local-chat");
+  expect(client.state.allowRefused).toBeUndefined();
+  await client.refresh();
+  expect(client.state.allowRefused).toBeUndefined();
+  client.select("peer-chat");
+  expect(client.state.allowRefused).toBe("permission.person_required");
+});

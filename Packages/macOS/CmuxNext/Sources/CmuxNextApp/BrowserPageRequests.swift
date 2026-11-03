@@ -1,11 +1,14 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextBrowserHistory
+import CmuxNextBrowserTabs
 import CmuxNextDaemon
 import CmuxNextMacScreen
 import CmuxNextNowPlaying
+import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextTabs
 import CmuxNextRemoteLocalhostService
@@ -113,8 +116,10 @@ final class BrowserPageRequests: BrowserTabDelegate {
             // Not installed yet: its daemon tab is still being created.
             return pageClosedBeforeAdoption(page)
         }
+        // A page whose tab left its strip while it decided a person's close closes it (no handler, or Leave): through the held pane (HiddenPageCloses).
+        if case .close = intent, let key = services?.cache.key(of: page), let undo = services?.closedTabs?.undoToasts, let held = undo.hiddenPages.pageClosed(key, keepsHidden: undo.pageDecidedCloses.isWaiting) { return CloseUndoToasts.close(in: held, [StripTabID(key)]) }
         guard let services, let key = services.cache.key(of: page) ?? services.popups.openerKey(of: page),
-              let (openerTab, pane) = services.locateTab(key) else {
+              let (openerTab, pane) = services.locateTabOnAnyMachine(key) else {
             // The opener is gone: nowhere to show a new page.
             switch intent {
             case .adoptTab(let child, _), .openPopup(let child, _): child.close()
@@ -137,7 +142,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             try? ChromiumPageRouter.showPasswords(services, focus: disposition != .backgroundTab)
             return
         }
-        let engine = BrowserEngineResolver.tag(for: page.engineKind).rawValue
+        let engine = page.engineKind.daemonEngine.rawValue
         // A page's new tabs stay in its browser profile (its cookies, and the
         // store an engine-made child page already uses).
         let profile = services.cache.tabModel(key).map(services.browserProfiles.profileID(ofTab:))
@@ -166,12 +171,15 @@ final class BrowserPageRequests: BrowserTabDelegate {
             if let insert = request.insertLeading { return insert(leading) }
             let target = ActionTargetRef(kind: .tab, id: key)
             let host = services.registry.makeContextMenu(for: .browserPage, target: target,
-                                                         entries: ContextMenuCatalog.shared.browserPageAfterEngineMenu,
+                                                         entries: services.registry.browserPageAfterEngineMenu,
                                                          implied: .browserFocused)
-            let extra = BrowserProfileLinkMenu.items(for: request.target.linkURL, target: ActionTargetRef(kind: .pane, id: pane.id),
+            let extra = BrowserProfileLinkMenu.items(for: request.target.linkURL, target: ActionTargetRef(kind: .pane, id: pane.id), machineID: services.daemon(for: pane).machineID,
                                                      services: services) + host.items + PageShareMenu.items(for: page.state.url)
             host.removeAllItems()
-            services.contextMenus.present(request, in: page.contentView, leading: leading, extra: extra)
+            // The engine's menu holds the page rows: Customize Menu… ends it as it ends every whole menu.
+            // The engine's menu puts a separator before the extra rows; one more only after rows of ours.
+            let customize = services.registry.customizeMenuItem(for: .browserPage).map { extra.isEmpty ? [$0] : [NSMenuItem.separator(), $0] } ?? []
+            services.contextMenus.present(request, in: page.contentView, leading: leading, extra: extra + customize)
         case .notice(let text):
             services.cache.existingBrowser(key)?.chrome.showNotice(text)
         case .download(let item):
@@ -259,7 +267,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
     /// `page` shows a New Tab page and is the last tab of its pane.
     private func isNewTabPageAtEnd(_ page: any BrowserTab) -> Bool {
         guard BrowserNewTabPage.isNewTabPage(page.state.url), let services, let key = services.cache.key(of: page),
-              let (_, pane) = services.locateTab(key) else { return false }
+              let (_, pane) = services.locateTabOnAnyMachine(key) else { return false }
         return pane.tabs.last?.id == key
     }
 
@@ -304,7 +312,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             if let url { browserTab(page, didRequest: .openURL(url, .foregroundTab)) }
             return
         }
-        let engine = BrowserEngineResolver.tag(for: page.engineKind).rawValue
+        let engine = page.engineKind.daemonEngine.rawValue
         let choice = Self.choice(adopting: child, inherited: engine, browserTabs: browserTabs)
         let profile = services.browserProfiles.profileID(ofTab: tab)
         let address = child == nil ? (url?.absoluteString ?? "about:blank") : BrowserNewTabPage.blankURL
@@ -340,18 +348,35 @@ final class BrowserPageRequests: BrowserTabDelegate {
             return open(url: url, adopting: child, engine: engine, profile: profile, in: pane, opener: opener, background: true)
         }
         // A refusal closes an adopted child itself (PaneBrowserTabOpener).
-        services.linkOpener.open(from: source) { target, placed in
-            target.newBrowserTab(url: url, inherited: engine, adopting: child, background: placed != nil, profile: profile,
-                                 opener: target === source ? opener : nil, then: placed)
+        services.linkOpener.open(from: source, kind: .browser) { target, placed in
+            if target === source, placed == nil {
+                self.open(url: url, adopting: child, engine: engine, profile: profile, in: pane,
+                          opener: opener, background: false)
+                return true
+            }
+            return target.newBrowserTab(url: url, inherited: engine, adopting: child, background: placed != nil, profile: profile,
+                                       opener: target === source ? opener : nil, then: placed)
         }
     }
 
     private func open(url: URL?, adopting child: (any BrowserTab)?, engine: String, profile: String?, in pane: PaneModel,
                       opener: SurfaceID, background: Bool) {
         guard let services else { child?.close(); return }
+        // `browser.enabled` off: no same-pane reuse (a cmux tab must not swallow a web link); the pane's opener routes it.
+        let enabled = BrowserAvailability(enabled: services.cache.browserTabs.browserEnabled()).allows(url?.absoluteString)
+        if enabled, let url, reuseExistingTab(url, in: pane, engine: engine, profile: profile, background: background) {
+            child?.close() // the engine's duplicate of the page the pane already shows
+            return
+        }
         if let controller = services.paneController(for: pane) {
             controller.newBrowserTab(url: url, inherited: engine, adopting: child, background: background, profile: profile,
                                      opener: opener)
+            return
+        }
+        guard enabled else {
+            child?.close()
+            if let url, ["http", "https"].contains(url.scheme?.lowercased() ?? "") { LinkRouter.shared.open(url, in: .system) }
+            else { services.registry.refuse(MiscHandlerStrings.browserOff) }
             return
         }
         // The opener's pane is not on screen (its page is kept alive).
@@ -362,7 +387,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
         services.registry.track(Task { [weak self] in
             do {
                 let surface = try await openers.open(opener, foreground: !background, in: pane, browserTabs: browserTabs) { after in
-                    try await browserTabs.open(choice, in: pane, url: address, profile: profile, after: after)
+                    try await browserTabs.open(choice, in: pane, url: address, profile: profile, activate: !background, after: after)
                 }
                 if let child { self?.adopt(child, surface: surface) }
                 return nil
@@ -376,7 +401,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
     /// The engine for a page-requested tab: the child's own engine when the
     /// engine already made the page, else the opener's (with the fallback).
     static func choice(adopting child: (any BrowserTab)?, inherited: String?, browserTabs: BrowserTabService) -> BrowserEngineChoice {
-        if let child { return BrowserEngineChoice(engine: BrowserEngineResolver.tag(for: child.engineKind), inherited: true) }
+        if let child { return BrowserEngineChoice(engine: child.engineKind.daemonEngine, inherited: true) }
         if case .open(let choice) = browserTabs.resolve(requested: nil, inherited: inherited) { return choice }
         return BrowserEngineChoice(engine: .webkit)
     }
@@ -396,6 +421,21 @@ final class BrowserPageRequests: BrowserTabDelegate {
         } else {
             adoptions[surface] = page
         }
+    }
+
+    /// Selects the live browser tab of `pane` that ``BrowserTabMatch`` picks for `url` (#17444).
+    private func reuseExistingTab(_ url: URL, in pane: PaneModel, engine: String, profile: String?, background: Bool) -> Bool {
+        guard let services else { return false }
+        let rule = BrowserTabMatch(url: url, engine: engine, profile: profile)
+        guard let match = rule.first(in: pane.tabs.lazy.filter { $0.kind == .browser }.compactMap { tab in
+            services.cache.existingBrowser(tab.id).map { BrowserTabMatch.Candidate(id: tab.id, engine: tab.browserEngine,
+                profile: services.browserProfiles.profileID(ofTab: tab), shown: $0.tab.state.url ?? tab.url.flatMap(URL.init(string:))) }
+        }), let page = services.cache.existingBrowser(match.id)?.tab else { return false }
+        if !background, rule.navigates(match) { page.load(url) }
+        guard !background, let controller = services.paneController(for: pane) else { return true }
+        controller.select(StripTabID(match.id), source: .intent)
+        controller.focusContent()
+        return true
     }
 
     /// The page made for daemon tab `tab` before it appeared, else a

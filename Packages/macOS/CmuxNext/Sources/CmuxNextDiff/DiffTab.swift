@@ -8,6 +8,27 @@ public nonisolated struct DiffTabReady: Sendable {
     let grant: DiffSessionGrant
     let config: JSONValue
     var turn: DiffTurn?
+    /// The chat's own patch the tab shows instead of a repository (``DiffChatPatch``).
+    var chatPatch: DiffChatPatch?
+}
+
+/// A chat turn's changes as the chat built them from its tool calls, for a folder in no repository
+/// or a turn that wrote a file outside it, where no git source holds them: unified patch `text`, and
+/// the patch's name of the `file` the tab scrolls to, and the `title` of its tab (the chat folder's
+/// name). Its tab shows only this patch, read-only, and reads no disk and no repository
+/// (``DiffPageProvider/chatPatch``).
+public nonisolated struct DiffChatPatch: Sendable, Hashable {
+    public let text: String
+    public let file: String?
+    public let title: String
+
+    /// `folder`: the chat's, which names the tab; the diff viewer's own title without one.
+    public init(text: String, file: String? = nil, folder: String? = nil) {
+        self.text = text
+        self.file = file
+        let name = folder.map { URL(fileURLWithPath: $0).lastPathComponent } ?? ""
+        title = name.isEmpty || name == "/" ? DiffPageStrings.tabTitle : name
+    }
 }
 
 /// Why a diff tab has no grant (shown by the page as its status message).

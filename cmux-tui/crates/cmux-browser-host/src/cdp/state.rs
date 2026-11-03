@@ -59,6 +59,9 @@ pub struct TabState {
     pub request_order: std::collections::VecDeque<String>,
     /// The newest responses' (URL, remote IP address), for net.fetch.
     pub responses: std::collections::VecDeque<(String, String)>,
+    /// The newest HTTP sign-in challenges (URL, `WWW-Authenticate` realm),
+    /// for the navigation error that hands the sign-in to the person.
+    pub auth_challenges: std::collections::VecDeque<(String, String)>,
     /// Out-of-process frames: frame id -> its own CDP session.
     pub frame_sessions: HashMap<String, String>,
     /// Closed shadow roots per CDP session (`closed_roots`).
@@ -71,6 +74,8 @@ pub struct TabState {
     pub lifecycle: HashSet<String>,
     /// Bumps on every main-frame navigation, document or same-document.
     pub nav_seq: u64,
+    /// Bumps on every new main-frame document (not on same-document navigations).
+    pub doc_seq: u64,
     /// Loaders of the newest main-frame navigations that failed
     /// (`Page.navigate` answered `errorText`). Chromium commits their error
     /// page later, often after the next navigation started: that commit and
@@ -156,12 +161,14 @@ impl TabState {
             requests: HashMap::new(),
             request_order: std::collections::VecDeque::new(),
             responses: std::collections::VecDeque::new(),
+            auth_challenges: std::collections::VecDeque::new(),
             frame_sessions: HashMap::new(),
             closed_roots: HashMap::new(),
             closed_root_stats: Default::default(),
             loader: None,
             lifecycle: HashSet::new(),
             nav_seq: 0,
+            doc_seq: 0,
             failed_loaders: std::collections::VecDeque::new(),
             last_nav_same_document: false,
             buttons: 0,
@@ -206,6 +213,15 @@ impl TabState {
             self.failed_loaders.pop_front();
         }
         self.failed_loaders.push_back(loader.to_owned());
+    }
+
+    /// Whether a new main-frame document committed after `doc_seq` (a
+    /// [`TabState::doc_seq`] read before the navigation), is not the error page of
+    /// an earlier failed navigation, and satisfies `reached`. Same-document
+    /// navigations after it (a router moving to `#/` before `load`) do not
+    /// matter: the current document is still that new one.
+    pub fn document_since(&self, doc_seq: u64, reached: impl Fn(&Self) -> bool) -> bool {
+        self.doc_seq > doc_seq && !self.shows_failed_navigation() && reached(self)
     }
 
     /// Whether the current document is the error page of a navigation that
@@ -550,6 +566,7 @@ impl State {
                     tab.loader = frame.get("loaderId").and_then(Value::as_str).map(str::to_owned);
                     tab.lifecycle.clear();
                     tab.nav_seq += 1;
+                    tab.doc_seq += 1;
                     tab.last_nav_same_document = false;
                     // A back/forward cache restore brings back a loaded
                     // document; Chromium sends no lifecycle events for it.

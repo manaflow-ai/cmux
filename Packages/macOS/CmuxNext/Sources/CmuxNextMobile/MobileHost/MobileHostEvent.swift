@@ -13,6 +13,8 @@ public enum MobileHostEvent: Sendable, Equatable {
     case needToken
     /// acpmux is unknown or refused a connection (it restarted elsewhere).
     case needAcpmux
+    /// Fresh app-server carrier facts for one bounded Rust request.
+    case needCloudLinks(request: UInt64)
     /// A phone's link is up.
     case phoneUp(MobileHostPhoneLink)
     /// A phone's link moved to another path (`direct`, `relay`, `turn`).
@@ -22,6 +24,11 @@ public enum MobileHostEvent: Sendable, Equatable {
     case phoneMedia(sessionID: String, mediaPath: String?)
     /// A phone's link ended.
     case phoneDown(sessionID: String, reason: String)
+    /// The host's durable per-chat Remote Control policy, including sessions blocked by a
+    /// malformed or unavailable policy read.
+    case sessionExposureState(available: Bool, configured: Bool, sessions: [String], blockedSessions: [String])
+    /// The host could not apply a per-chat Remote Control intent.
+    case sessionExposureError(sessionID: String, allowed: Bool, reason: String)
     /// A phone proved keys this Mac has not approved: ask the user (``MobileHostPairedDevices``).
     case pairRequest(MobileHostPairRequest)
     /// A paired phone signed out and asks this Mac to forget it.
@@ -31,6 +38,11 @@ public enum MobileHostEvent: Sendable, Equatable {
     case needBrowser(request: UInt64, tab: String, url: String)
     /// hostd no longer needs the browser host of `tab`.
     case browserStop(tab: String)
+    /// A phone opened a streamed simulator surface: start the source of phone
+    /// tab `tab` and answer `request` (``MobileHostLaunch/surfaceLine(request:port:secret:)``).
+    case needSurface(request: UInt64, tab: String)
+    /// hostd no longer needs the surface source of `tab`.
+    case surfaceStop(tab: String)
     /// The owner removed this Mac from the account's devices; hostd exits and must not
     /// be restarted until the person allows iPhone connections again.
     case removed
@@ -52,6 +64,9 @@ public enum MobileHostEvent: Sendable, Equatable {
             self = .needToken
         case "need_acpmux":
             self = .needAcpmux
+        case "need_cloud_links":
+            guard let request = wire.request else { return nil }
+            self = .needCloudLinks(request: request)
         case "phone_up":
             guard let session = wire.sessionId, let phone = wire.phoneDeviceId else { return nil }
             self = .phoneUp(MobileHostPhoneLink(sessionID: session, phoneDeviceID: phone,
@@ -65,11 +80,21 @@ public enum MobileHostEvent: Sendable, Equatable {
         case "phone_down":
             guard let session = wire.sessionId else { return nil }
             self = .phoneDown(sessionID: session, reason: wire.reason ?? "")
+        case "session_exposure_state":
+            guard let available = wire.available, let configured = wire.configured, let sessions = wire.sessions,
+                  let blockedSessions = wire.blockedSessions else { return nil }
+            self = .sessionExposureState(available: available, configured: configured,
+                                         sessions: sessions,
+                                         blockedSessions: blockedSessions)
+        case "session_exposure_error":
+            guard let sessionID = wire.sessionId, let allowed = wire.allowed else { return nil }
+            self = .sessionExposureError(sessionID: sessionID, allowed: allowed,
+                                         reason: wire.reason ?? "unknown error")
         case "pair_request":
             guard let phone = wire.phoneDeviceId, let identity = wire.identityKey, let approval = wire.approvalKey else { return nil }
             let registered = wire.registeredAtMs.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000) }
             self = .pairRequest(MobileHostPairRequest(phoneDeviceID: phone, name: wire.name ?? "", identityKey: identity,
-                                               approvalKey: approval, registeredAt: registered))
+                                               approvalKey: approval, registeredAt: registered, pairToken: wire.pairToken))
         case "unpaired":
             guard let phone = wire.phoneDeviceId else { return nil }
             self = .unpaired(phoneDeviceID: phone)
@@ -79,6 +104,12 @@ public enum MobileHostEvent: Sendable, Equatable {
         case "browser_stop":
             guard let tab = wire.tab else { return nil }
             self = .browserStop(tab: tab)
+        case "need_surface":
+            guard let request = wire.request, let tab = wire.tab else { return nil }
+            self = .needSurface(request: request, tab: tab)
+        case "surface_stop":
+            guard let tab = wire.tab else { return nil }
+            self = .surfaceStop(tab: tab)
         case "removed":
             self = .removed
         default:
@@ -98,10 +129,16 @@ public enum MobileHostEvent: Sendable, Equatable {
         var transport: String?
         var path: String?
         var mediaPath: String?
+        var configured: Bool?
+        var available: Bool?
+        var allowed: Bool?
+        var sessions: [String]?
+        var blockedSessions: [String]?
         var name: String?
         var identityKey: String?
         var approvalKey: String?
         var registeredAtMs: Int64?
+        var pairToken: String?
         var request: UInt64?
         var tab: String?
         var url: String?

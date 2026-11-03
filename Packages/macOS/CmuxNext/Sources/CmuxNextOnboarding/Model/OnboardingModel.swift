@@ -36,6 +36,7 @@ public final class OnboardingModel {
     /// asked for them, Import while it has a checked choice it has not run,
     /// else Done.
     public var primaryTitle: String {
+        if step == .importData, importer.phase == .detecting { return OnboardingStrings.detecting }
         if step == .importData, importer.phase == .idle { return OnboardingStrings.findBrowsers }
         if step == .importData, importer.explainingAccess != nil { return OnboardingStrings.continueTitle }
         if step == .importData, importer.isConfirmingPasswords { return OnboardingStrings.beginImporting }
@@ -53,6 +54,10 @@ public final class OnboardingModel {
         case .importData where importer.phase == .idle:
             importer.detect()
             return
+        case .importData where importer.phase == .detecting:
+            // Detection is already in flight. Do not let a slow privacy or
+            // filesystem probe turn Return into an accidental Done action.
+            return
         case .importData where importer.explainingAccess != nil:
             importer.continueAccess()
             return
@@ -62,6 +67,11 @@ public final class OnboardingModel {
             return
         case .importData where importer.canStart:
             importer.start()
+            return
+        // Computer Use: Return is the window's one primary action: the next
+        // row's Allow, Restart for a helper that did not answer, or Done.
+        case .computerUse where !computerUse.allGranted:
+            if computerUse.permissions.helperFailed { computerUse.restart() } else { computerUse.allowNext() }
             return
         default:
             finish(completed: true)
@@ -82,6 +92,13 @@ public final class OnboardingModel {
         return importer.isConfirmingPasswords && !importer.authorizing
     }
 
+    /// Whether the footer's primary action can run now. Browser detection is
+    /// started as soon as the import tool opens, so its transient state must
+    /// not offer a misleading Done action while the scan is still running.
+    public var canAdvance: Bool {
+        !(step == .importData && importer.phase == .detecting)
+    }
+
     /// Back: from either explainer to the list, nothing read.
     public func goBack() {
         guard canGoBack else { return }
@@ -99,10 +116,15 @@ public final class OnboardingModel {
         finish(completed: false)
     }
 
-    /// Starts the step's lazy work. Browser detection reads other apps'
-    /// data: only Find Browsers starts it.
+    /// Starts the step's work. Opening Import from Browser is already an
+    /// explicit request, so browser detection can begin immediately; the
+    /// privacy prompt (when macOS needs one) still remains under the person's
+    /// control.
     public func stepDidAppear() {
-        if step == .computerUse { computerUse.start() }
+        switch step {
+        case .importData: importer.detect()
+        case .computerUse: computerUse.start()
+        }
     }
 
     /// The window closed without Skip or Done (the close button, quit):
@@ -111,12 +133,14 @@ public final class OnboardingModel {
         guard !ended else { return }
         ended = true
         computerUse.stop()
+        importer.stopDetecting()
     }
 
     public func finish(completed: Bool) {
         guard !ended else { return }
         ended = true
         computerUse.stop()
+        importer.stopDetecting()
         onEnd?(completed)
     }
 }

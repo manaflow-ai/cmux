@@ -33,7 +33,12 @@ const lazyOnlyChunkPattern = /^chunks\/(shiki-lang-|shiki-theme-|shiki-wasm|pier
 // file; no page reaches it through static imports, the editor page's own entry included.
 const monacoChunks = ["chunks/view.mjs", "chunks/editor-worker.mjs", "chunks/editorWorkerHost.mjs"];
 // English is the fallback; translated diff labels must remain lazy locale chunks.
-const diffBudgetBytes = 1_500_000;
+// The diff viewer, the markdown page and the editor are heavy by nature (Leo, 2026-10-24: "aren't
+// these inherently, like, pretty hefty things anyways?"), so the byte caps sit at about 1.5x what
+// they measure and only catch a gross regression, such as a whole library pulled into first
+// paint. The structural checks below (Monaco, shiki grammars and translated labels stay lazy) are
+// what keep the big pieces out. The diff surface measured 1,500,829 bytes on 2026-10-24.
+const diffBudgetBytes = 2_250_000;
 const surfaces = [
   {
     name: "diff surface",
@@ -59,13 +64,15 @@ const surfaces = [
     // 1.4 MB since 8eef4842b70: the editor renders its read-only task checkbox (src/ui TaskCheckbox)
     // to static markup for a ProseMirror decoration, so react-dom's server renderer (~188 KB) is
     // eager here. The bundler keeps it out of the shared `vendor` chunk the other pages load.
-    budgetBytes: budgetFromEnvironment("CMUX_WEBVIEWS_MARKDOWN_PAGE_EAGER_BUDGET_BYTES", 1_400_000),
+    // Measured 1,198,440 bytes on 2026-10-24; the cap is about 1.5x.
+    budgetBytes: budgetFromEnvironment("CMUX_WEBVIEWS_MARKDOWN_PAGE_EAGER_BUDGET_BYTES", 1_800_000),
     forbidden: monacoChunks,
   },
   {
     name: "editor page",
     entries: ["chunks/editor-page.mjs"],
-    budgetBytes: budgetFromEnvironment("CMUX_WEBVIEWS_EDITOR_PAGE_EAGER_BUDGET_BYTES", 500_000),
+    // Measured 505,994 bytes on 2026-10-24; the cap is about 1.5x.
+    budgetBytes: budgetFromEnvironment("CMUX_WEBVIEWS_EDITOR_PAGE_EAGER_BUDGET_BYTES", 760_000),
     forbidden: monacoChunks,
   },
 ];

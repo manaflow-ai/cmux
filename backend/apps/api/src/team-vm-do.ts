@@ -381,7 +381,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
       try {
         if (pending.action === "create") {
           // The prefix names NEW VMs only: an existing VM is always reached by its stored id (state.vm), so a
-          // prefix change (FREESTYLE-NAMES) never renames, adopts or loses the VM a team already has.
+          // prefix change (the naming decision) never renames, adopts or loses the VM a team already has.
           const prefix = driver.slugPrefix() ?? this.env.TEAM_VM_SLUG_PREFIX ?? ""
           const slug = this.createSlug(state.team, state.epoch + 1, prefix, `tvm:${pending.requested_by ?? "unknown"}`)
           const vm = await driver.ensureVm(slug, state.team, state.epoch + 1)

@@ -184,7 +184,7 @@ def main():  # noqa: C901 - one live scenario
         logf.write(line + "\n"); logf.flush()
 
     rig = os.path.expanduser(f"~/cmux-next-ios-e2e/{os.path.basename(mac_app)[len('cmux DEV '):-4]}")
-    mac = Mac(rig, mac_app).prepare()
+    mac = Mac(rig, mac_app, cleanup=True, log=log).prepare()
     mac.seed_pairing(names=[a.sim_name])
     udid = ensure_sim(a.sim_name, RUNTIMES[a.ios], log)
     sim = Sim(udid, os.path.join(out, "shots"))
@@ -282,13 +282,17 @@ def main():  # noqa: C901 - one live scenario
         time.sleep(2)
         capture("disconnected")
     finally:
-        appearance(udid, "light")
         try:
-            if not mac.quit():
-                for pid in mac.main_pids() + mac.hostd_pids():
-                    os.kill(pid, signal.SIGTERM)
+            # The app, then its acpmux daemons, Chief host and headless cmux-tui, which
+            # outlive it (rig_cleanup.py); leftovers only by exact PID. First, so a
+            # simulator failure below never leaves them running.
+            mac.teardown()
         except Exception as e:  # noqa: BLE001
-            log(f"quit: {e}")
+            log(f"teardown: {e}")
+        try:
+            appearance(udid, "light")
+        except Exception as e:  # noqa: BLE001
+            log(f"appearance: {e}")
         json.dump(result, open(os.path.join(out, "results.json"), "w"), indent=2)
         log(f"wrote {out}/results.json")
 

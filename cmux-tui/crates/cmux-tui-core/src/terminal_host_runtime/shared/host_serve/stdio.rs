@@ -25,6 +25,8 @@ use super::*;
 /// bootstrap streams are stdio on Unix and two named pipes on Windows
 /// (`sys::host_bootstrap_streams`).
 pub fn serve_terminal_host_process(args: &[String]) -> anyhow::Result<()> {
+    // Key-press flow marks start here, before any PTY or client work (`CMUX_TRACE_FLOWS`).
+    cmux_flow_trace::init();
     let (mut reader, mut writer) = sys::host_bootstrap_streams(args)?;
     serve_terminal_host_stdio(args, &mut reader, &mut writer)
 }

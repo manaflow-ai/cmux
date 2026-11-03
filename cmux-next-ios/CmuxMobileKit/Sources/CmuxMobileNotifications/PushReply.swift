@@ -77,7 +77,9 @@ public struct PushReply: Codable, Sendable, Equatable, Identifiable {
 
     /// The reply a notification button means, or nil for the default tap,
     /// "Answer…", Retry (which carries its own reply) or a button this payload does not offer.
-    public init?(payload: PushPayload, button: PushAction, text: String? = nil, id: UUID = UUID(), now: Date = Date()) {
+    /// `attachments`: what the long look's "+" staged for Reply (file names in the outbox).
+    public init?(payload: PushPayload, button: PushAction, text: String? = nil, attachments: [String] = [],
+                 id: UUID = UUID(), now: Date = Date()) {
         let action: Action
         switch button {
         case .option(let index):
@@ -98,8 +100,10 @@ public struct PushReply: Codable, Sendable, Equatable, Identifiable {
             if button == .terminalReply, payload.kind != .terminal || !payload.replyable || payload.notificationId == nil { return nil }
             if button == .reply, payload.kind == .terminal { return nil }
             let trimmed = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return nil }
-            action = .text(trimmed, attachments: [])
+            // A terminal takes text only.
+            let attached = button == .reply ? attachments : []
+            guard !trimmed.isEmpty || !attached.isEmpty else { return nil }
+            action = .text(trimmed, attachments: attached)
         case .answer, .retry:
             return nil
         }

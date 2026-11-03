@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextHibernation
 @testable import CmuxNextBrowser
 @testable import CmuxNextSettings
 import Foundation
@@ -18,9 +19,9 @@ import Testing
     @Test func aPageThatDoesNotAnswerIsNotPlayingMedia() async {
         let page = tab()
         page.evaluationResult = .null
-        let probe = await PageProbe.run(page)
+        let probe = await BrowserHibernation.probe(page)
         #expect(!probe.playingMedia)
-        #expect(probe.exemption(pressure: .normal) != .audio)
+        #expect(probe.exemption != .audio)
         #expect(!probe.answered)
     }
 
@@ -29,9 +30,9 @@ import Testing
         let page = tab()
         page.evaluationResult = .null
         page.simulate(.mediaChanged(BrowserMediaState(title: "song", isPlaying: true)))
-        let probe = await PageProbe.run(page)
+        let probe = await BrowserHibernation.probe(page)
         #expect(probe.playingMedia)
-        #expect(probe.exemption(pressure: .critical) == .audio)
+        #expect(probe.exemption == .audio)
     }
 
     /// A real hidden WebKit page whose script keeps its main thread busy: every probe misses its
@@ -50,9 +51,9 @@ import Testing
         let page = rig.services.cache.webKit.makeWebKitTab()
         page.load(url)
         try await rig.until("busy loads") {
-            (try? await page.evaluate("document.readyState === 'complete' && document.title", world: .page)) == .string("busy")
+            (try? await page.evaluate("document.readyState === 'complete' && document.title", world: .page, gesture: .agent)) == .string("busy")
         }
-        _ = try await page.evaluate("setTimeout(() => { const end = Date.now() + 15000; while (Date.now() < end) {} }, 50); true", world: .page)
+        _ = try await page.evaluate("setTimeout(() => { const end = Date.now() + 15000; while (Date.now() < end) {} }, 50); true", world: .page, gesture: .agent)
         let key = page.id.rawValue
         rig.recorders[key] = NeighborTabsWakeTests.Recorder()
         rig.keys.append(key)

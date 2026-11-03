@@ -12,6 +12,7 @@ use crate::policy::{Layer, Policy, Writer, parse_patterns};
 use crate::protocol::{DriverError, ErrorCode};
 use crate::secrets::{TabSecrets, Vault};
 use crate::vm::VmHost;
+use cmux_json::JsonSet as _;
 use serde_json::value::RawValue;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -21,6 +22,7 @@ mod fetch;
 mod guards;
 #[cfg(unix)]
 mod history;
+mod press;
 mod private_data;
 mod proxy;
 pub use proxy::{NameResolver, system_resolver};
@@ -549,7 +551,7 @@ impl Gate {
             let mut call =
                 json!({"targetId": params["targetId"], "method": method, "args": [handle]});
             if let Some(frame) = params.get("frameId").filter(|f| !f.is_null()) {
-                call["frameId"] = frame.clone();
+                call.set("frameId", frame.clone());
             }
             self.driver.call("frame.observe", &call)
         };
@@ -617,6 +619,9 @@ impl VmHost for Gate {
         let mut params = params;
         if method == "input.insertText" {
             Self::secret_insert(&mut params)?;
+        }
+        if method == "input.mouse" {
+            self.check_press(&mut params)?;
         }
         let typing = self.typing_details(method, &params);
         if matches!(method, "input.insertText" | "input.key") {
@@ -907,8 +912,10 @@ fn push_log(log: &Mutex<Vec<Value>>, mut entry: Value) {
     if log.len() > MAX_LOG + usize::from(dropped_row) {
         if dropped_row {
             log.remove(1);
-            let count = log[0].get("count").and_then(Value::as_u64).unwrap_or(0) + 1;
-            log[0]["count"] = json!(count);
+            if let Some(first) = log.first_mut() {
+                let count = first.get("count").and_then(Value::as_u64).unwrap_or(0) + 1;
+                first.set("count", json!(count));
+            }
         } else {
             log.remove(0);
             log.insert(

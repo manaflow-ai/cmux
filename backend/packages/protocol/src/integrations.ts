@@ -1,6 +1,7 @@
 import { Schema } from "effect"
 import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
-import { DisplayName, TeamId, UserId } from "./schemas.ts"
+import { DisplayName, InstallId, TeamId, UserId } from "./schemas.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * Integration connections (spec integrations.md). The ConnectionDO of the
@@ -9,7 +10,7 @@ import { DisplayName, TeamId, UserId } from "./schemas.ts"
  * the token server-side.
  */
 
-export const ConnectionId = Schema.String.check(Schema.isPattern(/^conn_[a-z0-9]{20}$/)).annotate({
+export const ConnectionId = Schema.String.check(isPattern(/^conn_[a-z0-9]{20}$/)).annotate({
   identifier: "ConnectionId",
   description: "One integration connection (a provider account linked to a team)."
 })
@@ -53,7 +54,7 @@ export const Connection = Schema.Struct({
 }).annotate({ identifier: "Connection" })
 
 /** `owner/repo`, or `owner/*` for every repository of an account. */
-export const RepoPattern = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_.-]{1,100}\/([A-Za-z0-9_.-]{1,100}|\*)$/)).annotate({ identifier: "RepoPattern" })
+export const RepoPattern = Schema.String.check(isPattern(/^[A-Za-z0-9_.-]{1,100}\/([A-Za-z0-9_.-]{1,100}|\*)$/)).annotate({ identifier: "RepoPattern" })
 
 /**
  * The team's integration policy (enterprise-ready from day one). A team admin
@@ -70,7 +71,9 @@ export const TeamIntegrationPolicy = Schema.Struct({
     /** Only an organization admin (or the account owner, for a user installation) may link. */
     require_org_admin: Schema.Boolean,
     /** When set, ops and events are further limited to these repositories. */
-    repo_allowlist: Schema.NullOr(Schema.Array(RepoPattern).check(Schema.isMaxLength(500)))
+    repo_allowlist: Schema.NullOr(Schema.Array(RepoPattern).check(Schema.isMaxLength(500))),
+    /** POST /v1/integrations/github/token may mint `workflows: write` (absent = false). */
+    allow_workflows: Schema.optionalKey(Schema.Boolean)
   }),
   /** team_policy: TeamDO's TeamPolicy (the single writer, spec/enterprise.md 4) pushed here for enforcement. */
   source: Schema.Literals(["default", "admin", "sso", "mdm", "team_policy"]),
@@ -96,7 +99,8 @@ const PolicyFields = Schema.Struct({
     Schema.Struct({
       scope: Schema.optionalKey(Schema.Literals(["linking_user_repos", "installation"])),
       require_org_admin: Schema.optionalKey(Schema.Boolean),
-      repo_allowlist: Schema.optionalKey(Schema.NullOr(Schema.Array(RepoPattern).check(Schema.isMaxLength(500))))
+      repo_allowlist: Schema.optionalKey(Schema.NullOr(Schema.Array(RepoPattern).check(Schema.isMaxLength(500)))),
+      allow_workflows: Schema.optionalKey(Schema.Boolean)
     })
   )
 })
@@ -124,7 +128,7 @@ export const IntegrationApprovalGet = def({
   risk: "read",
   target: "connection",
   principals: ["session"],
-  params: Schema.Struct({ request: Schema.String.check(Schema.isPattern(/^apr_[a-f0-9]{32}$/)) }),
+  params: Schema.Struct({ request: Schema.String.check(isPattern(/^apr_[a-f0-9]{32}$/)) }),
   result: Schema.Struct({
     request: Schema.String,
     op: Schema.String,
@@ -190,7 +194,7 @@ export const IntegrationComplete = def({
   params: Schema.Struct({
     state: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4000)),
     code: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(2000))),
-    installation_id: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[0-9]{1,20}$/))),
+    installation_id: Schema.optionalKey(Schema.String.check(isPattern(/^[0-9]{1,20}$/))),
     setup_action: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(40)))
   }),
   result: Connection,
@@ -251,7 +255,7 @@ const Text = (max: number) => Schema.String.check(Schema.isMinLength(1), Schema.
 export const GitHubIssueComment = providerOp(
   "github.issue.comment",
   "send-external",
-  Schema.Struct({ connection: ConnectionId, repo: Schema.String.check(Schema.isPattern(/^(?!\.{1,2}\/)[A-Za-z0-9_.-]{1,100}\/(?!\.{1,2}$)[A-Za-z0-9_.-]{1,100}$/)), issue: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 1e9 })), body: Text(65_000) }),
+  Schema.Struct({ connection: ConnectionId, repo: Schema.String.check(isPattern(/^(?!\.{1,2}\/)[A-Za-z0-9_.-]{1,100}\/(?!\.{1,2}$)[A-Za-z0-9_.-]{1,100}$/)), issue: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 1e9 })), body: Text(65_000) }),
   "Comment on a GitHub issue or pull request as the cmux GitHub App installation."
 )
 
@@ -265,7 +269,7 @@ export const LinearIssueCreate = providerOp(
 export const SlackPostAsBot = providerOp(
   "slack.post_as_bot",
   "send-external",
-  Schema.Struct({ connection: ConnectionId, channel: Schema.String.check(Schema.isPattern(/^[A-Z0-9]{2,30}$/)), text: Text(40_000) }),
+  Schema.Struct({ connection: ConnectionId, channel: Schema.String.check(isPattern(/^[A-Z0-9]{2,30}$/)), text: Text(40_000) }),
   "Post a message to a Slack channel as the cmux bot."
 )
 
@@ -337,8 +341,53 @@ export const ConnectionStatusParams = Schema.Struct({
   detail: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(300)))
 })
 
+/**
+ * POST /v1/integrations/github/token (gh-app-product contract, shared with the lane broker and
+ * the cmux CLI): one repository and the permissions it needs; the API mints exactly that. The
+ * route requires at least one permission (GitHub reads an empty map as all the installation has).
+ */
+export const GITHUB_TOKEN_PERMISSIONS = ["contents", "pull_requests", "issues", "workflows", "checks", "actions", "statuses", "metadata"] as const
+const Access = Schema.Literals(["read", "write"])
+export const GitHubTokenPermissions = Schema.Struct(Object.fromEntries(GITHUB_TOKEN_PERMISSIONS.map((k) => [k, Schema.optionalKey(Access)])) as { readonly [K in (typeof GITHUB_TOKEN_PERMISSIONS)[number]]: Schema.optionalKey<typeof Access> })
+/** `owner/name` (no `.` or `..` path segments). */
+export const GitHubRepoName = Schema.String.check(isPattern(/^(?!\.{1,2}\/)[A-Za-z0-9_.-]{1,100}\/(?!\.{1,2}$)[A-Za-z0-9_.-]{1,100}$/))
+const Label = Schema.String.check(isPattern(/^[A-Za-z0-9._-]{1,64}$/))
+/** `team` is required unless the caller is a vm install (then its machine's team); `label` is logged unverified. */
+export const GitHubTokenRequest = Schema.Struct({
+  team: Schema.optionalKey(TeamId),
+  repo: GitHubRepoName,
+  permissions: GitHubTokenPermissions,
+  label: Schema.optionalKey(Label),
+})
+/** POST /v1/integrations/github/machine-token: the machine-only connector path may set a short TTL. */
+export const GitHubMachineTokenRequest = Schema.Struct({
+  team: Schema.optionalKey(TeamId),
+  repo: GitHubRepoName,
+  permissions: GitHubTokenPermissions,
+  label: Schema.optionalKey(Label),
+  ttlSec: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(60), Schema.isLessThanOrEqualTo(3600))),
+})
+/** `install` defaults to the caller's own (a session: its session tokens); another install needs a team admin. */
+export const GitHubTokenRevokeRequest = Schema.Struct({ team: Schema.optionalKey(TeamId), install: Schema.optionalKey(InstallId) })
+
+/** One mint as the team's audit records it (never the token); principal_kind is session or the install kind. */
+export const GitHubTokenMintedParams = Schema.Struct({
+  at: Schema.Int,
+  team: TeamId,
+  principal_kind: Schema.Literals(["session", "vm", "daemon", "cli", "mac"]),
+  user: UserId,
+  install: Schema.optionalKey(InstallId),
+  machine: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(64))),
+  label: Schema.optionalKey(Label),
+  repo: GitHubRepoName,
+  permissions: Schema.Record(Schema.String, Schema.String),
+  token_id: Schema.String.check(isPattern(/^[0-9a-f]{16}$/)),
+  expires_at: Schema.Int
+})
+
 /** Ops only the ConnectionDO submits for itself (after an external effect). Not exported to the catalog. */
 export const connectionInternalOps: ReadonlyArray<CloudOpDef> = [
+  internal("integration.github.token_minted", GitHubTokenMintedParams, "Internal: a GitHub installation token was minted for a caller (POST /v1/integrations/github/token); its audit record goes to TeamDO."),
   internal("connection.activate", ConnectionActivateParams, "Internal: the provider approved; the credential is stored."),
   internal("connection.status", ConnectionStatusParams, "Internal: a refresh, call or provider event changed the connection's health."),
   internal(

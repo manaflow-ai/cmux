@@ -321,7 +321,7 @@
 				<string>https</string>
 			</array>
 			<key>LSHandlerRank</key>
-			<string>Default</string>
+			<string>$(CMUX_WEB_URL_HANDLER_RANK)</string>
 		</dict>
 		<dict>
 			<key>CFBundleTypeRole</key>
@@ -485,7 +485,7 @@
 	<key>SUPublicEDKey</key>
 	<string>$(SPARKLE_PUBLIC_KEY)</string>
 	<key>SUScheduledCheckInterval</key>
-	<integer>3600</integer>
+	<integer>900</integer>
 	<key>SUSendProfileInfo</key>
 	<false/>
 	<key>UTImportedTypeDeclarations</key>

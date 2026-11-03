@@ -1,0 +1,25 @@
+{
+  "title": "Rename a Chief: every surface shows the new name",
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "Home with the Chief: its name in the list, the header and the tab", "cmux": ["action", "run", "home.show"], "wait": 5,
+     "optional": "the Chief's daemon may not start on this runner"},
+    {"title": "Before: each surface's name", "rpc": {"method": "debug.home.api", "params": {"call": "chief_names"}}, "wait": 1, "shot": false,
+     "optional": "no Chief conversation on this runner"},
+    {"title": "Renamed Mario from the header card: the list, the header and the tab say Mario",
+     "rpc": {"method": "debug.home.api", "params": {"call": "rename_chief", "name": "Mario"}}, "wait": 3,
+     "optional": "no Chief conversation on this runner"},
+    {"title": "After the save: every surface and the Chief's record agree", "rpc": {"method": "debug.home.api", "params": {"call": "chief_names"}},
+     "wait": 1, "shot": false, "optional": "no Chief conversation on this runner"},
+    {"title": "Renamed Luigi from the CLI (the Chief's record): every surface follows", "cmux": ["chief", "edit", "agent_mux", "--name", "Luigi"],
+     "wait": 3, "optional": "the CLI reaches the Chief owner only where the daemon runs"},
+    {"title": "After the CLI rename", "rpc": {"method": "debug.home.api", "params": {"call": "chief_names"}}, "wait": 1, "shot": false,
+     "optional": "no Chief conversation on this runner"},
+    {"title": "A name the registry refuses (101 characters) keeps Luigi everywhere",
+     "rpc": {"method": "debug.home.api", "params": {"call": "rename_chief",
+       "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}},
+     "wait": 2, "optional": "expected: the rename is refused (answered ok: false)"},
+    {"title": "After the refused rename", "rpc": {"method": "debug.home.api", "params": {"call": "chief_names"}}, "wait": 1, "shot": false,
+     "optional": "no Chief conversation on this runner"}
+  ]
+}

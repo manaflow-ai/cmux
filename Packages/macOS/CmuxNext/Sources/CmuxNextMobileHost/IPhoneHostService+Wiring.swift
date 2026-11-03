@@ -2,7 +2,7 @@ public import CmuxNextAgentPane
 public import CmuxNextCloud
 import CmuxNextDaemon
 public import CmuxNextDaemonService
-import CmuxNextMobile
+public import CmuxNextMobile
 public import CmuxNextSettings
 public import Foundation
 
@@ -28,12 +28,15 @@ extension IPhoneHostService {
     ///   - processEnvironment: Read for the Debug-only overrides.
     ///   - acpmuxEnvironment: The app's acpmux, for the phones' approval keys (nil: none).
     ///   - chief: This app's Chief owner (session, and socket once connected), which hostd serves to phones.
+    ///   - surfaceHosts: The app's streamed surfaces: phone tabs' simulators and the owner's Cloud desktops (nil: this Mac streams none).
     public func wire(auth: CloudAuth, daemon: DaemonService,
                      acpmuxHost: @escaping @MainActor @Sendable () -> (any AgentPaneHostProviding)?,
                      acpmuxEnvironment: AcpmuxEnvironment? = nil,
                      agentTabHost: @escaping @MainActor () -> String? = { nil },
                      newChatPicks: @escaping @MainActor @Sendable () -> NewChatPicks = { NewChatPicks() },
                      chief: (@MainActor () async -> ChiefPlacement?)? = nil,
+                     surfaceHosts: (any MobileHostSurfaceHosting)? = nil,
+                     cloudLinks: (@Sendable () async -> MobileHostCloudLinks)? = nil,
                      settings: @escaping @MainActor @Sendable () -> SettingsController?,
                      bundleID: String?, computerName: @escaping @Sendable () async -> String,
                      processEnvironment: [String: String] = ProcessInfo.processInfo.environment) {
@@ -65,6 +68,8 @@ extension IPhoneHostService {
             followNewChatPicks()
         }
         followAccount { Self.account(of: auth, signedIn: auth.isSignedIn) }
+        servesPhones = executable != nil
+        wireRemoteControl(auth: auth, settings: settings)
         dependencies = Dependencies(
             executable: executable,
             baseURL: base,
@@ -107,6 +112,8 @@ extension IPhoneHostService {
             computerName: { if let nameOverride { return nameOverride } else { return await computerName() } },
             acpmuxEnvironment: acpmuxEnvironment,
             browserHosts: browserHosts,
+            surfaceHosts: surfaceHosts,
+            cloudLinks: cloudLinks ?? { MobileHostCloudLinks() },
             pairingSeed: IPhonePairingSeed.fromEnvironment(processEnvironment),
             chief: chief
         )

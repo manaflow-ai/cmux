@@ -1,6 +1,7 @@
 import { Schema } from "effect"
 import { FeedAttachment } from "./feed-kinds.ts"
 import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * The feed (plans/cmux-next/feed.md): one per-user list of notices and
@@ -12,12 +13,12 @@ const NonEmpty = (max: number) => Schema.String.check(Schema.isMinLength(1), Sch
 const Int = (minimum: number, maximum: number) => Schema.Int.check(Schema.isBetween({ minimum, maximum }))
 const List = <S extends Schema.Top>(item: S, min: number, max: number) => Schema.Array(item).check(Schema.isMinLength(min), Schema.isMaxLength(max))
 
-export const FeedItemId = Schema.String.check(Schema.isPattern(/^fi_[a-z0-9]{20}$/)).annotate({
+export const FeedItemId = Schema.String.check(isPattern(/^fi_[a-z0-9]{20}$/)).annotate({
   identifier: "FeedItemId",
   description: "A feed item; stable when its home moves from a local owner to the cloud."
 })
 export const FeedKind = Schema.String.check(
-  Schema.isPattern(/^(notice|question|choice|approve|confirm|sign-in|passkey|review|input|file|handoff|x-[a-z0-9][a-z0-9-]{0,39}\.[a-z0-9][a-z0-9-]{0,39})$/)
+  isPattern(/^(notice|question|choice|approve|confirm|sign-in|passkey|review|input|file|handoff|x-[a-z0-9][a-z0-9-]{0,39}\.[a-z0-9][a-z0-9-]{0,39})$/)
 ).annotate({ identifier: "FeedKind", description: "notice, a built-in request kind, or a custom kind x-<publisher>.<name>." })
 export const FeedPriority = Schema.Literals(["low", "normal", "high", "urgent"]).annotate({ identifier: "FeedPriority" })
 export const FeedState = Schema.Literals(["open", "answered", "cancelled", "expired"]).annotate({ identifier: "FeedState" })
@@ -291,7 +292,7 @@ export const FeedAdoptCancel = def({
   risk: "mutate-own",
   target: "feed_item",
   principals: ["install"],
-  params: Schema.Struct({ key: Schema.String.check(Schema.isPattern(/^adopt:fi_[a-z0-9]{20}$/)) }),
+  params: Schema.Struct({ key: Schema.String.check(isPattern(/^adopt:fi_[a-z0-9]{20}$/)) }),
   result: Schema.Struct({ cancelled: Schema.Boolean, item: Schema.optionalKey(FeedItem) }),
   errors: feedErrors,
   docs: "Handoff abort: a daemon's local feed owner withdraws `feed.adopt` with key `adopt:<item>`. Not adopted: a tombstone refuses a later adopt with that key and the reply is cancelled true. Adopted: cancelled false with the cloud item.",

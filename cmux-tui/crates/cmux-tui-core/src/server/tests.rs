@@ -77,42 +77,28 @@ fn test_writer() -> MessageWriter {
     MessageWriter::new(QueuedSink { outbound: Arc::new(BoundedOutbound::default()), control: None })
 }
 
+/// A private socket for one server test: `<label>.sock` in a new short
+/// directory under the canonical `/tmp` (mode 0700, from
+/// `cmux_unix_socket::short_test_dir`), so the path fits a Unix socket path
+/// whatever `$TMPDIR` is. The directory goes when the guard drops.
 struct TestSocket {
-    directory: PathBuf,
+    _directory: cmux_unix_socket::TestDir,
     path: PathBuf,
 }
 
 impl TestSocket {
     fn new(label: &str) -> Self {
-        static SEQUENCE: AtomicU64 = AtomicU64::new(0);
-
-        let directory = loop {
-            let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
-            let candidate = std::env::temp_dir()
-                .join(format!("cmux-tui-test-{}-{sequence}", std::process::id()));
-            match std::fs::create_dir(&candidate) {
-                Ok(()) => break candidate,
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-                Err(error) => panic!("create private test socket directory: {error}"),
-            }
-        };
+        let directory = cmux_unix_socket::short_test_dir("cts-");
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700))
+            std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700))
                 .expect("secure private test socket directory");
         }
-        let path = directory.join(format!("{label}.sock"));
+        let path = directory.path().join(format!("{label}.sock"));
         #[cfg(unix)]
-        assert!(unix_socket_path_fits(&path));
-        Self { directory, path }
-    }
-}
-
-impl Drop for TestSocket {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.path);
-        let _ = std::fs::remove_dir(&self.directory);
+        assert!(unix_socket_path_fits(&path), "test socket path too long: {}", path.display());
+        Self { _directory: directory, path }
     }
 }
 
@@ -481,6 +467,7 @@ fn active_clear_lanes_across_connections(request_count: usize, retained_bytes: u
         let mut request = Some(Request {
             id: Some(json!(index)),
             cmd: Command::ClearHistory { surface: surface.id, fallback_key: None },
+            remote_line: None,
         });
         assert_eq!(
             scheduler.dispatch(mux.clone(), 0, &mut request, retained_bytes, writer.clone(),),
@@ -549,13 +536,21 @@ mod detach_and_browser;
 mod event_shape_tests;
 mod host_size_policy;
 mod identify_and_protocol;
+mod identify_before_queue;
+mod incognito_orphans;
+mod incognito_remote;
+mod input_lane;
 mod layout_receipts_shutdown;
 mod outbound_and_scheduler;
+mod read_barrier;
 mod resource_attach;
 mod resource_waits;
 mod session_streams;
 mod sizing;
 mod socket_and_render;
+mod subscribe_scroll_on_attach;
+mod test_socket_path;
+mod tree_selection_deltas;
 mod view_leases;
 mod wire_commands;
 mod workspace_checklist_capability;

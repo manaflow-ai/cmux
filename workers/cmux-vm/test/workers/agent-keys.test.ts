@@ -277,6 +277,33 @@ describe("client sessions", () => {
     expect((await h.request(`/v1/vms/${vm.id}/client-sessions/${session.id}`, bearer(issuer), { method: "DELETE" })).status).toBe(204);
   });
 
+  it("lists a VM's live sessions without tokens, in creation order, and drops revoked ones", async () => {
+    const issuer = await h.addKey(TENANT_A, ["vm:read", "vm:write", "vm:exec"]);
+    const vm = await created(issuer);
+    const first = await (await open(issuer, vm.id)).json<SessionBody>();
+    const second = await (await open(issuer, vm.id, { linuxUser: "cmux" })).json<SessionBody>();
+    const listed = await h.request(`/v1/vms/${vm.id}/client-sessions`, bearer(issuer));
+    expect(listed.status).toBe(200);
+    const text = await listed.text();
+    expect(text).not.toContain(first.token);
+    expect(text).not.toContain(second.token);
+    expect(text).not.toContain(UPSTREAM_KEY);
+    const body: { sessions: ReadonlyArray<{ id: string; vmId: string; linuxUser: string; createdAt: string }> } = JSON.parse(text);
+    expect(body.sessions.map((row) => row.id).sort()).toEqual([first.id, second.id].sort());
+    expect(body.sessions.find((row) => row.id === second.id)).toMatchObject({ vmId: vm.id, linuxUser: "cmux" });
+    await h.request(`/v1/vms/${vm.id}/client-sessions/${first.id}`, bearer(issuer), { method: "DELETE" });
+    const after = await (await h.request(`/v1/vms/${vm.id}/client-sessions`, bearer(issuer))).json<{ sessions: ReadonlyArray<{ id: string }> }>();
+    expect(after.sessions.map((row) => row.id)).toEqual([second.id]);
+  });
+
+  it("lists sessions only for an owned VM and with vm:exec", async () => {
+    const reader = await h.addKey(TENANT_A, ["vm:read", "vm:write"]);
+    const vm = await created(reader);
+    expect((await h.request(`/v1/vms/${vm.id}/client-sessions`, bearer(reader))).status).toBe(403);
+    const other = await h.addKey(TENANT_B, ["vm:read", "vm:write", "vm:exec"]);
+    expect((await h.request(`/v1/vms/${vm.id}/client-sessions`, bearer(other))).status).toBe(404);
+  });
+
   it("deletes the identity when the grant fails, leaving nothing behind", async () => {
     const issuer = await h.addKey(TENANT_A, ["vm:read", "vm:write", "vm:exec"]);
     const vm = await created(issuer);

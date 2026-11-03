@@ -1,10 +1,10 @@
 // l10n-allow-file: test fixture prompts, replies and mode names, not shipped UI.
 // A new chat's mode chip names the mode acpmux will start it in (cx-wx93i), as acpmux answers it
-// (`_acpmux/start_mode`), never the pane's own guess. acpmux starts a new chat in the level of the
-// person's latest mode pick (hub/start_mode.rs), so after Manual is picked in one pane, a new chat
-// in another pane that has not started yet shows Manual, not the Full access its own pane's chat
-// last reported. When acpmux would set no mode (a profile that pins it, a preset's chat) the chip
-// names none. Two pages of one browser are two panes sharing the viewer's storage, each talking
+// (`_acpmux/start_mode`), never the pane's own guess. A mode picked in a chat holds for that chat
+// only (hub/start_mode.rs; Leo 2026-10-21), so after Manual is picked in one pane, a new chat in
+// another pane that has not started yet still shows the default, Bypass permissions; a change to
+// the default (Settings) reaches it. When acpmux would set no mode (a profile that pins it, a
+// preset's chat) the chip names none. Two pages of one browser are two panes sharing the viewer's storage, each talking
 // JSON-RPC to a stand-in acpmux daemon.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -93,8 +93,8 @@ await requireBrowserLane("agent-pane-start-mode-chip.test.ts", async () => {
       ? Promise.resolve()
       : new Promise<void>((resolve) => waiting.set(method, [...(waiting.get(method) ?? []), resolve]));
   const sockets = new Set<Bun.ServerWebSocket<unknown>>();
-  // What the stand-in acpmux starts a new chat in: the latest pick's mode, else full access.
-  // `pinned`: a harness whose profile pins its mode, so acpmux sets none and takes no pick.
+  // What the stand-in acpmux starts a new chat in: the default, full access unless a test changes it.
+  // `pinned`: a harness whose profile pins its mode, so acpmux sets none.
   const daemonState = { startMode: "bypassPermissions", pinned: false };
   const reset = (pinned: boolean) => {
     calls.length = 0;
@@ -120,30 +120,24 @@ await requireBrowserLane("agent-pane-start-mode-chip.test.ts", async () => {
       case "_acpmux/events":
         return { events: [], hasMore: false, lastSeq: chats.get(String(params.sessionId))?.events.length ?? 0 };
       case "session/set_mode": {
-        // acpmux takes the pick, then tells every watcher the chat's new mode.
+        // acpmux switches that chat only, then tells every watcher the chat's new mode. New chats'
+        // start mode does not change, so it sends no `_acpmux/start_mode_changed`.
         const entry = chats.get(String(params.sessionId))!;
         entry.session = { ...entry.session, modes: modes(String(params.modeId)) };
-        const takes = !daemonState.pinned && params.modeId !== "plan" && daemonState.startMode !== params.modeId;
-        if (takes) daemonState.startMode = String(params.modeId);
         const changed = JSON.stringify({
           jsonrpc: "2.0",
           method: "_acpmux/session_changed",
           params: { sessionId: entry.session.sessionId, session: entry.session, kind: "mode", recordKind: "mode" },
         });
-        // A pick it takes as the start mode: every local watcher asks `_acpmux/start_mode` again.
-        const notice = JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/start_mode_changed", params: {} });
         queueMicrotask(() => {
-          for (const socket of sockets) {
-            socket.send(changed);
-            if (takes) socket.send(notice);
-          }
+          for (const socket of sockets) socket.send(changed);
         });
         return null;
       }
       case "_acpmux/start_mode": {
         const modeId = daemonState.pinned ? null : daemonState.startMode;
         const level = modeId === "bypassPermissions" ? "fullAccess" : modeId ? "ask" : null;
-        return { harness: params.harness, modeId, level, source: modeId ? "pick" : null };
+        return { harness: params.harness, modeId, level, source: modeId ? "settings" : null };
       }
       case "session/new":
         return undefined;
@@ -302,23 +296,23 @@ await requireBrowserLane("agent-pane-start-mode-chip.test.ts", async () => {
     return page.locator(CHIP).first().textContent();
   }
 
-  test("a new chat shows the mode its pick starts it in", async () => {
+  test("a new chat shows the default, not a mode picked in another chat", async () => {
     reset(false);
     const { context, other, asks } = await newChatAfterPick();
-    // acpmux answers the start mode: the pick's, Manual.
-    expect(await settledChip(other, asks)).toBe("Manual");
+    // acpmux answers the start mode: the default, Bypass permissions.
+    expect(await settledChip(other, asks)).toBe("Bypass permissions");
     expect(calls.some((call) => call.method === "_acpmux/start_mode" && call.params.harness === "claude")).toBe(true);
     await context.close();
   });
 
   test("a new chat names no mode when acpmux sets none", async () => {
-    // The profile pins its mode: acpmux takes no pick and starts the chat in none of its own.
+    // The profile pins its mode: acpmux starts the chat in none of its own.
     reset(true);
     const { context, other, asks } = await newChatAfterPick();
     expect(await settledChip(other, asks)).toBe("Mode");
     await context.close();
   });
-  test("a pending chat follows a pick made after it opened", async () => {
+  test("a pending chat keeps the default when a mode is picked in another chat", async () => {
     reset(false);
     const context = await browser!.newContext({ viewport: { width: 900, height: 760 } });
     // The new chat opens first, in full access, and acpmux has not started it (session/new held).
@@ -340,15 +334,15 @@ await requireBrowserLane("agent-pane-start-mode-chip.test.ts", async () => {
         .getAttribute("aria-checked"),
     ).toBe("true");
     await other.keyboard.press("Escape");
-    // Then the person picks Manual in another pane: the pending chat names Manual before any send.
+    // Then the person picks Manual in another pane: that chat says Manual, the pending chat still
+    // names the default.
     const picked = await pane(context);
     await picked.goto(url(PICKED));
     await picked.getByText("Retry added.").waitFor();
     await picked.locator(".acpmux-access-trigger").click();
     await picked.locator(".acpmux-access-menu .acpmux-access-item", { hasText: "Manual" }).click();
-    await other.waitForFunction((selector) => document.querySelector(selector)?.textContent === "Manual", CHIP, {
-      timeout: 10_000,
-    });
+    await picked.waitForFunction((selector) => document.querySelector(selector)?.textContent === "Manual", CHIP);
+    expect(await settledChip(other, asks)).toBe("Bypass permissions");
     expect(calls.some((call) => call.method === "session/prompt")).toBe(false);
     await context.close();
   });

@@ -135,13 +135,12 @@ pub(super) fn prepare_in_background() {
             }
             // A new file's first exec checks its code signature; a host
             // started after this one does not wait for that check.
-            use std::os::unix::process::CommandExt;
-            let _ = std::process::Command::new(&path)
+            let _ = cmux_process::Command::new(&path)
                 .arg0(EXE_NAME)
                 .arg("--version")
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
+                .stdin(cmux_process::Stdio::null())
+                .stdout(cmux_process::Stdio::null())
+                .stderr(cmux_process::Stdio::null())
                 .status();
         };
         let _ = std::thread::Builder::new().name("cmux-host-exe".into()).spawn(warm);
@@ -238,12 +237,11 @@ fn sibling_host(own: &Path) -> Option<(PathBuf, &'static str)> {
 /// daemon's build. That first exec also pays its code-signature check before
 /// a terminal waits on it.
 fn check_identity(copy: &Path, identity: &str) -> io::Result<()> {
-    use std::os::unix::process::CommandExt;
-    let output = std::process::Command::new(copy)
+    let output = cmux_process::Command::new(copy)
         .arg0(SIBLING_NAME)
         .arg("--version")
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdin(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::null())
         .output()?;
     let answer = String::from_utf8_lossy(&output.stdout);
     let expected = format!("{SIBLING_NAME} {identity}");
@@ -258,8 +256,10 @@ fn check_identity(copy: &Path, identity: &str) -> io::Result<()> {
 
 fn install(root: &Path, source: &Path, name: &str) -> io::Result<Installed> {
     let source = fs::canonicalize(source)?;
+    create_root(root, crate::platform::home_dir().as_deref())?;
     ensure_private_dir(root)?;
     let sha = sha256_file(&source)?;
+    // Not recursive: a root removed during the hash stays removed.
     let dir = root.join(&sha);
     ensure_private_dir(&dir)?;
     // Held for this daemon's life before the copy is checked, so a
@@ -338,10 +338,39 @@ fn clone_file(source: &Path, destination: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// Create `dir` (mode 0700) when missing; refuse a directory that is a
-/// symlink, owned by another user, or open to group or others.
+/// Make `root`'s missing folders (mode 0700), one `mkdir` at a time, below
+/// the folder that must already exist: the user's home for a root inside
+/// it, else the root's parent. That folder is never made. The fleet probe's
+/// owners had their home under a temporary root that the harness removed
+/// while the owner's background install hashed the executable; a recursive
+/// `mkdir` made the whole removed tree again and the copy filled it. Now the
+/// first `mkdir` under a removed folder fails (ENOENT) and the daemon runs
+/// hosts from its own executable.
+fn create_root(root: &Path, home: Option<&Path>) -> io::Result<()> {
+    let anchor = match home.filter(|home| root.starts_with(home) && root != *home) {
+        Some(home) => home,
+        None => root.parent().filter(|parent| !parent.as_os_str().is_empty()).ok_or_else(|| {
+            io::Error::other(format!("the host-exe root {} has no parent", root.display()))
+        })?,
+    };
+    let below = root.strip_prefix(anchor).map_err(io::Error::other)?;
+    let mut dir = anchor.to_path_buf();
+    for component in below.components() {
+        dir.push(component);
+        match fs::DirBuilder::new().mode(0o700).create(&dir) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
+
+/// Create `dir` (mode 0700) when missing, in a parent that must exist;
+/// refuse a directory that is a symlink, owned by another user, or open to
+/// group or others.
 fn ensure_private_dir(dir: &Path) -> io::Result<()> {
-    match fs::DirBuilder::new().recursive(true).mode(0o700).create(dir) {
+    match fs::DirBuilder::new().mode(0o700).create(dir) {
         Ok(()) => {}
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
         Err(error) => return Err(error),
@@ -452,3 +481,7 @@ fn sha256_file(path: &Path) -> io::Result<String> {
     }
     Ok(hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect())
 }
+
+#[cfg(test)]
+#[path = "macos_tests.rs"]
+mod tests;

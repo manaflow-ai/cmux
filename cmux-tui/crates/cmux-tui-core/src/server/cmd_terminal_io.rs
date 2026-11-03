@@ -112,6 +112,38 @@ pub(super) struct SendParams {
     /// `send-expect-agent-v1`: Return as its own key right after the text, under the same checks.
     #[serde(default)]
     pub(super) submit: bool,
+    /// The app's id of the key press this input carries (`CMUX_TRACE_FLOWS`, trace.py key-press
+    /// flows); only recorded, never acted on. An older daemon ignores it.
+    #[serde(default)]
+    pub(super) flow: Option<u64>,
+}
+
+/// The terminal a key (`send`, `send-key`) goes to. A client attached to it (the app's terminal view) keeps its handle
+/// from the first key on, so the person's typing never waits for the session lock that the lists, snapshots and
+/// durable mutations of agents, the CLI and MCP hold (TYPING UNDER LOAD F4: a key waited up to 475 ms there). Anyone
+/// else looks it up.
+///
+/// A key from a client that can type into its terminal (attached, not only through read-only views) is the person's:
+/// its connection's threads then run at user-interactive QoS (server/input_qos.rs, TYPING FIX 2 F7). A read-only
+/// viewer's keys are automation's and keep the default QoS.
+fn input_surface(
+    mux: &Arc<Mux>,
+    client: u64,
+    writer: &MessageWriter,
+    id: SurfaceId,
+) -> anyhow::Result<Arc<crate::Surface>> {
+    if let Some((surface, can_type)) = mux.control_clients.attached_input_surface(client, id) {
+        if can_type {
+            writer.input_lane.mark_person_input();
+        }
+        return Ok(surface);
+    }
+    let generation = crate::route_table::route_generation(id);
+    let surface = get_surface(mux, id)?;
+    if mux.control_clients.remember_attached_input(client, id, &surface, generation) {
+        writer.input_lane.mark_person_input();
+    }
+    Ok(surface)
 }
 
 pub(super) fn send(
@@ -129,6 +161,7 @@ pub(super) fn send(
         expect_foreground,
         expect_agent,
         submit,
+        flow,
     } = params;
     let surface = match (surface, terminal_id) {
         (Some(surface), None) => surface,
@@ -150,7 +183,7 @@ pub(super) fn send(
         }
         _ => anyhow::bail!("bad request: send takes exactly one of surface and terminal_id"),
     };
-    let surface = get_surface(mux, surface)?;
+    let surface = input_surface(mux, client, writer, surface)?;
     require_pty(&surface)?;
     // Bytes queued for this terminal while it was being created go first.
     mux.wait_for_creating_input_flush(&surface);
@@ -199,7 +232,17 @@ pub(super) fn send(
         }
         if let Some(b64) = bytes {
             let raw = base64::engine::general_purpose::STANDARD.decode(b64)?;
+            cmux_flow_trace::hop(
+                "daemon.send.write",
+                flow.unwrap_or(0),
+                surface.flow_terminal_id(),
+            );
             surface.write_bytes(&raw)?;
+            cmux_flow_trace::hop(
+                "daemon.send.written",
+                flow.unwrap_or(0),
+                surface.flow_terminal_id(),
+            );
         }
     }
     if submit {
@@ -210,14 +253,14 @@ pub(super) fn send(
             anyhow::anyhow!("submit failed after the text was written: {error}")
         })?;
     }
-    mux.note_terminal_input(surface.id, client);
+    mux.note_terminal_input(&surface, client);
     Ok(json!({}))
 }
 
 pub(super) fn read_screen(mux: &Arc<Mux>, surface: SurfaceId) -> anyhow::Result<Value> {
     let surface = get_surface(mux, surface)?;
     require_pty(&surface)?;
-    let text = surface.try_with_terminal(|t| t.viewport_text())??;
+    let text = surface.try_with_terminal(|t| t.active_text())??;
     Ok(json!({ "text": text }))
 }
 
@@ -270,14 +313,18 @@ pub(super) fn read_scrollback(
     Ok(json!({ "rows": rows, "start": start, "total": total, "epoch": epoch }))
 }
 
+/// Runs on a wait worker (`connection_wait`), not the connection's
+/// dispatcher; the connection's cancellation and its writer's close end it.
 pub(super) fn wait_for(
     mux: &Arc<Mux>,
+    writer: &MessageWriter,
     cancellation: Option<&ConnectionCancellation>,
     surface: SurfaceId,
     pattern: String,
     timeout_ms: u64,
 ) -> anyhow::Result<Value> {
-    let cancelled = || cancellation.is_some_and(ConnectionCancellation::is_cancelled);
+    let cancelled =
+        || cancellation.is_some_and(ConnectionCancellation::is_cancelled) || !writer.is_open();
     if cancelled() {
         anyhow::bail!("connection closed while waiting for pattern");
     }
@@ -286,7 +333,7 @@ pub(super) fn wait_for(
     let regex = Regex::new(&pattern).map_err(|err| anyhow::anyhow!("bad regex: {err}"))?;
     let start = Instant::now();
     let check = || -> anyhow::Result<Option<String>> {
-        let text = surface.try_with_terminal(|t| t.viewport_text())??;
+        let text = surface.try_with_terminal(|t| t.active_text())??;
         Ok(regex.is_match(&text).then_some(text))
     };
     if timeout_ms == 0 {
@@ -299,7 +346,9 @@ pub(super) fn wait_for(
         }
         anyhow::bail!("timeout waiting for pattern");
     }
-    let deadline = start + Duration::from_millis(timeout_ms);
+    let deadline = start
+        .checked_add(Duration::from_millis(timeout_ms))
+        .ok_or_else(|| anyhow::anyhow!("timeout_ms is too large"))?;
     let attach = surface.attach_stream()?;
     // The wait ends on output, the deadline, or the connection
     // closing; it used to wake every 100 ms to check the last.
@@ -307,6 +356,7 @@ pub(super) fn wait_for(
     if let Some(cancellation) = cancellation {
         cancellation.register_interrupt(&interrupt);
     }
+    writer.register_interrupt(&interrupt);
     attach.stream.wake_on(&interrupt);
     if let Some(text) = check()? {
         return Ok(json!({
@@ -406,10 +456,12 @@ pub(super) fn run(
 pub(super) fn send_key(
     mux: &Arc<Mux>,
     client: u64,
+    writer: &MessageWriter,
     surface: SurfaceId,
     keys: Vec<String>,
 ) -> anyhow::Result<Value> {
-    let surface = get_surface(mux, surface)?;
+    // The same kept terminal and route rules as `send`: a named key takes no session lock (TYPING FIX 2).
+    let surface = input_surface(mux, client, writer, surface)?;
     require_pty(&surface).map_err(|_| anyhow::anyhow!("surface does not support key input"))?;
     if keys.is_empty() {
         anyhow::bail!("bad request: keys must be non-empty");
@@ -429,7 +481,7 @@ pub(super) fn send_key(
     })??;
     mux.wait_for_creating_input_flush(&surface);
     surface.write_bytes(&encoded)?;
-    mux.note_terminal_input(surface.id, client);
+    mux.note_terminal_input(&surface, client);
     Ok(json!({}))
 }
 
@@ -437,7 +489,7 @@ pub(super) fn copy(mux: &Arc<Mux>, surface: SurfaceId, mode: String) -> anyhow::
     let surface = get_surface(mux, surface)?;
     require_pty(&surface)?;
     let text = match mode.as_str() {
-        "screen" => surface.try_with_terminal(|t| t.viewport_text())??,
+        "screen" => surface.try_with_terminal(|t| t.active_text())??,
         "scrollback" => surface.try_with_terminal(|t| t.plain_text())??,
         "selection" => surface.selection_text().ok_or_else(|| anyhow::anyhow!("no selection"))?,
         other => anyhow::bail!("bad mode {other}"),

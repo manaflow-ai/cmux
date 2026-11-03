@@ -18,7 +18,7 @@ use cmux_chat_index::{AdapterKind, RootSpec};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// Effective chat settings. Defaults: on, discovery on, no extra roots.
+/// Effective chat settings. Defaults: on, discovery on, no extra roots, session recap on.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ChatSettings {
@@ -28,11 +28,20 @@ pub struct ChatSettings {
     pub roots: Vec<PathBuf>,
     /// Roots managed config adds; the user cannot remove them.
     pub managed_roots: Vec<PathBuf>,
+    /// Session recap (`agents.chats.sessionRecap`): a Claude chat the person comes back to after
+    /// 5+ minutes away shows a short recap of where it stands (`hub/away_recap.rs`).
+    pub session_recap: bool,
 }
 
 impl Default for ChatSettings {
     fn default() -> Self {
-        Self { enabled: true, discovery: true, roots: Vec::new(), managed_roots: Vec::new() }
+        Self {
+            enabled: true,
+            discovery: true,
+            roots: Vec::new(),
+            managed_roots: Vec::new(),
+            session_recap: true,
+        }
     }
 }
 
@@ -49,7 +58,8 @@ impl ChatSettings {
     /// The most roots one message may carry.
     pub const MAX_ROOTS: usize = 256;
 
-    /// `{enabled?, discovery?, roots?, managedRoots?}`; a missing field keeps its default.
+    /// `{enabled?, discovery?, roots?, managedRoots?, sessionRecap?}`; a missing field keeps its
+    /// default.
     pub fn from_params(params: &Value) -> Result<Self, String> {
         let flag = |key: &str| match params.get(key) {
             None | Some(Value::Null) => Ok(true),
@@ -80,6 +90,7 @@ impl ChatSettings {
             discovery: flag("discovery")?,
             roots: paths("roots")?,
             managed_roots: paths("managedRoots")?,
+            session_recap: flag("sessionRecap")?,
         })
     }
 
@@ -91,20 +102,29 @@ impl ChatSettings {
             .unwrap_or_default()
     }
 
-    /// Writes the file (0600, through a temp file and a rename).
+    /// Writes the file (0600, through a temp file and a rename). Each save has its own temp file,
+    /// so two saves at once (two settings pushes) never rename one away from the other.
     pub fn save(&self, path: &Path) -> io::Result<()> {
+        static SAVES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        crate::config::refuse_lost_home(path).map_err(io::Error::other)?;
         let dir = path.parent().ok_or_else(|| io::Error::other("no parent folder"))?;
         fs::create_dir_all(dir)?;
         let bytes = serde_json::to_vec_pretty(self).map_err(io::Error::other)?;
-        let tmp = path.with_extension("json.tmp");
+        let n = SAVES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let tmp = path.with_extension(format!("json.{}.{n}.tmp", std::process::id()));
         let mut options = fs::OpenOptions::new();
         options.write(true).create(true).truncate(true);
         #[cfg(unix)]
         std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-        let mut file = options.open(&tmp)?;
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        fs::rename(&tmp, path)
+        let written = options.open(&tmp).and_then(|mut file| {
+            file.write_all(&bytes)?;
+            file.sync_all()?;
+            fs::rename(&tmp, path)
+        });
+        if written.is_err() {
+            let _ = fs::remove_file(&tmp);
+        }
+        written
     }
 
     /// The root specs of the settings roots (managed first), and the refused ones.
@@ -218,4 +238,38 @@ pub fn probe(path: &Path) -> Vec<RootSpec> {
         add(AdapterKind::Amp, path.join("threads"));
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Two pushes of the chat settings may save at once (an off push still ending agents and an
+    /// unset push after it): every save succeeds, and the file holds one of them whole.
+    #[test]
+    fn saves_at_once_all_succeed() {
+        let dir = std::env::temp_dir().join(format!("acpmux-chat-settings-{}", std::process::id()));
+        let path = dir.join("chat-settings.json");
+        let failed: Vec<String> = std::thread::scope(|scope| {
+            let saves: Vec<_> = (0..8)
+                .map(|i| {
+                    let path = &path;
+                    scope.spawn(move || {
+                        let settings = ChatSettings { enabled: i % 2 == 0, ..Default::default() };
+                        (0..100)
+                            .filter_map(|_| settings.save(path).err())
+                            .map(|e| e.to_string())
+                            .collect::<Vec<_>>()
+                    })
+                })
+                .collect();
+            saves.into_iter().flat_map(|s| s.join().unwrap()).collect()
+        });
+        let saved = fs::read(&path).map(|b| serde_json::from_slice::<ChatSettings>(&b).is_ok());
+        let left: Vec<_> = fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name()).collect();
+        let _ = fs::remove_dir_all(&dir);
+        assert!(failed.is_empty(), "saves at once failed: {failed:?}");
+        assert_eq!(saved.ok(), Some(true), "the file does not hold one save whole");
+        assert_eq!(left.len(), 1, "temp files were left: {left:?}");
+    }
 }

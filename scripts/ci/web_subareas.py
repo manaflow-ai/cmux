@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from functools import lru_cache
+import importlib.util
 import os
 from pathlib import Path
 import subprocess
@@ -62,7 +64,10 @@ DB_EXACT = {
     "web/bun.lock",
     "web/drizzle.config.ts",
     "web/package.json",
+    # The migration runner every database uses; its DB tests apply fixtures through it.
+    "web/scripts/cloud-vm/apply-migrations.mjs",
     "web/scripts/db-local.sh",
+    "web/scripts/db-migrate.mjs",
     "web/scripts/run-db-behavior-tests.sh",
 }
 DB_PREFIXES = (
@@ -176,10 +181,14 @@ REACT_EXACT = {
     "scripts/build-webviews-app.sh",
     # react-apps-check runs the webviews tests through it.
     "scripts/ci/run-webviews-tests.sh",
+    # and splits and orders its files by recorded duration through this.
+    "scripts/ci/webviews_test_shards.py",
     # and compares its reds with the base's through these.
     "scripts/ci/webviews-tests-new-reds.sh",
     "scripts/ci/webviews_test_results.py",
     "scripts/ci/guards_new_reds.py",
+    # and the base's flake history that keeps a test flipping there a warning.
+    "scripts/ci/webviews_test_history.py",
     # It also runs the test of the PR scoping of ui-rules and gallery coverage.
     "scripts/tests/test_pr_scoped_webviews_checks.py",
     "scripts/check-webviews-bun-version.sh",
@@ -206,6 +215,33 @@ REACT_PREFIXES = (
     "config/vite-plus/",
     "webviews/",
 )
+
+# Every other input of the web bundles (the settings schema, the What's New
+# highlights, the model catalog, the string catalogs the pages read...) runs
+# react-apps-check too, as web-bundle-key.py derives them (`--routed`); the same
+# derivation routes the web area in detect_ci_change_areas.py.
+WEB_BUNDLE_KEY = Path(__file__).resolve().parents[1] / "cmux-next" / "web-bundle-key.py"
+
+
+@lru_cache(maxsize=None)
+def web_bundle_input_matcher(root: str):
+    """A predicate for the paths web-bundle-key.py routes the web checks on, for
+    the tree at `root`; the key's declared inputs when it cannot derive them,
+    None without the key script."""
+    try:
+        spec = importlib.util.spec_from_file_location("cmux_web_bundle_key", WEB_BUNDLE_KEY)
+        if spec is None or spec.loader is None:
+            return None
+        key = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(key)
+    except (OSError, SyntaxError, ImportError) as error:
+        print(f"web bundle inputs unavailable ({error})", file=sys.stderr)
+        return None
+    try:
+        return key.pathspec_matcher(key.routed_inputs(root))
+    except (Exception, SystemExit) as error:  # noqa: BLE001  (fall back, never fail the router)
+        print(f"web bundle inputs not derived ({error}); using the key's declared inputs", file=sys.stderr)
+        return key.pathspec_matcher(key.INPUTS)
 
 
 def classify_paths(paths: list[str], repo_root: Path | None = None) -> WebSubareas:
@@ -243,6 +279,8 @@ def classify_paths(paths: list[str], repo_root: Path | None = None) -> WebSubare
 
         if path in REACT_EXACT or path.startswith(REACT_PREFIXES):
             react_apps = True
+        elif (matcher := web_bundle_input_matcher(str(root.resolve()))) is not None and matcher(path):
+            react_apps = True
 
         if path in TYPECHECK_EXACT or (
             path.startswith("web/")
@@ -276,6 +314,10 @@ def changed_paths(base: str, head: str) -> list[str] | None:
     return [os.fsdecode(path) for path in result.stdout.split(b"\0") if path]
 
 
+# The push base that runs every web subarea, whatever the push changed.
+EVERY_SUBAREA = "all"
+
+
 def route() -> int:
     output = Path(os.environ["GITHUB_OUTPUT"])
     if os.environ.get("EVENT_NAME") == "workflow_dispatch":
@@ -285,6 +327,11 @@ def route() -> int:
     # A feat-cmux-next push routes from what the push brought (event.before), not its last
     # commit: a multi-commit push can end on a commit that touches no web path.
     push_base = os.environ.get("WEB_SUBAREAS_BASE", "").strip()
+    if push_base == EVERY_SUBAREA:
+        # A coalesced cmux-next-web.yml push run whose covered range is unknown (scripts/ci/web_coalesce.py).
+        print("the range this push covers is unknown; running every web subarea")
+        WebSubareas.all().emit(output)
+        return 0
     base = subprocess.run(
         ["git", "rev-parse", "-q", "--verify", f"{push_base}^{{commit}}" if push_base else "HEAD^1"],
         text=True,
@@ -301,7 +348,17 @@ def route() -> int:
         WebSubareas.all().emit(output)
         return 0
 
-    classify_paths(paths).emit(output)
+    areas = classify_paths(paths)
+    # feat-cmux-next is the base branch. A direct push must exercise the React
+    # suite even when the pushed range contains no web path, or a base web red
+    # remains invisible until a PR happens to touch webviews. Other web
+    # subareas stay path-routed to keep unrelated pushes cheap.
+    if (
+        os.environ.get("EVENT_NAME") == "push"
+        and os.environ.get("GITHUB_REF") == "refs/heads/feat-cmux-next"
+    ):
+        areas = replace(areas, react_apps=True)
+    areas.emit(output)
     return 0
 
 

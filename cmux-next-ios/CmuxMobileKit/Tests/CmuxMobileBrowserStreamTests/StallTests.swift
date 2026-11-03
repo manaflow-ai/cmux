@@ -129,6 +129,19 @@ import Testing
         #expect(opener.tabs.count == StreamedBrowserModel.maxStallReconnects + 2)
     }
 
+    /// The rig's 05:02:31 hang: the Mac's browser host crashed, hostd ended
+    /// the stream (`eof`) while the link stayed up, and the shown page waited
+    /// for a new link that never came ("Reconnecting to the Mac…" for good).
+    @Test func aShownPageWhoseMacStreamEndedOpensAgain() async throws {
+        let (model, opener) = try await shownPage()
+        opener.sink("s7")?.browserClosed(code: "eof", reason: "")
+        await until { opener.tabs.count == 2 }
+        #expect(opener.tabs == ["s7", "s7"])
+        #expect(model.phase == .waiting(StreamedBrowserModel.reconnectingText))
+        #expect(StreamedBrowserModel.afterClose(code: "eof", shown: false, autoReopens: 0) == .waitForView)
+        #expect(StreamedBrowserModel.afterClose(code: "link_closed", shown: true, autoReopens: 0) == .waitForLink)
+    }
+
     @Test func aHiddenStalledPageWaitsUntilShown() {
         #expect(StreamedBrowserModel.afterClose(code: "stalled", shown: false, autoReopens: 0) == .waitForView)
         #expect(StreamedBrowserModel.afterClose(code: "stalled", shown: true, autoReopens: 5) == .reconnect)

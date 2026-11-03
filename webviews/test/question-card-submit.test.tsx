@@ -23,7 +23,7 @@ const GLOBALS = [
   "navigator",
   "Node",
   "HTMLElement",
-  "HTMLInputElement",
+  "HTMLTextAreaElement",
   "Element",
   "KeyboardEvent",
   "IS_REACT_ACT_ENVIRONMENT",
@@ -38,7 +38,7 @@ function installDom(): HTMLElement {
     navigator: dom.window.navigator,
     Node: dom.window.Node,
     HTMLElement: dom.window.HTMLElement,
-    HTMLInputElement: dom.window.HTMLInputElement,
+    HTMLTextAreaElement: dom.window.HTMLTextAreaElement,
     Element: dom.window.Element,
     KeyboardEvent: dom.window.KeyboardEvent,
     IS_REACT_ACT_ENVIRONMENT: true,
@@ -130,10 +130,10 @@ async function click(element: Element | null | undefined) {
 /// Picks Other on the active question and types `text` into its field, as a person does.
 async function answerOther(container: HTMLElement, text: string) {
   await click(container.querySelector(".acpmux-question-other-choice"));
-  const field = container.querySelector<HTMLInputElement>(".acpmux-question-other input");
+  const field = container.querySelector<HTMLTextAreaElement>(".acpmux-question-other textarea");
   if (!field) throw new Error("the Other row did not turn into a text field");
   await act(async () => {
-    const setValue = Object.getOwnPropertyDescriptor(dom!.window.HTMLInputElement.prototype, "value")!.set!;
+    const setValue = Object.getOwnPropertyDescriptor(dom!.window.HTMLTextAreaElement.prototype, "value")!.set!;
     setValue.call(field, text);
     field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
   });
@@ -182,10 +182,17 @@ test("Other with typed text answers a question: the button says Next and Enter g
 
 test("Enter in the Other field of the last open question submits the card", async () => {
   const { container, replies } = await renderCard();
-  // References first: a click answers it and the card moves to the one still open.
+  // References first: a click answers it and stays there (Submit names the one still open), then
+  // its tab goes back to the open one.
   await click(container.querySelectorAll(".acpmux-question-tab")[1]);
   await click(container.querySelector(".acpmux-question-row[data-row='1']"));
+  expect(activeTab(container)).toBe("References");
+  expect(replies).toEqual([]);
+  expect(container.querySelector(".acpmux-question-hint")?.textContent?.trim()).toBe("Answer New tab pick to submit");
+  await click(container.querySelectorAll(".acpmux-question-tab")[0]);
   expect(activeTab(container)).toBe("New tab pick");
+  // The tab hands the keyboard to the question's rows, so the keys answer it.
+  expect(dom!.window.document.activeElement?.closest(".acpmux-question-rows")).not.toBeNull();
 
   const field = await answerOther(container, "idk");
   expect(buttonLabel(container)).toBe("Submit");

@@ -5,6 +5,7 @@ Usage:
   nightly-next-legacy-target.py <next-appcast> <old-appcast> <dmg-prefix>
       [--pending-meta FILE --pending-run ID --now EPOCH] [--max-pending-hours H]
       [--max-same-build-hours H] [--failure-log FILE] [--max-failures N]
+      [--candidate-build N --candidate-url URL]
       [--refuse-build N]...
 
 Prints GitHub output lines:
@@ -46,11 +47,28 @@ import sys
 import xml.etree.ElementTree as ET
 
 NS = "{http://www.andymatuschak.org/xml-namespaces/sparkle}"
+FEED_PREFIXES = {"sparkle": NS[1:-1], "cmux": "https://cmux.com/xml-namespaces/cmux"}
+
+
+def bind_feed_prefixes(data):
+    """DATA with every feed prefix it uses declared on the <rss> root (the live
+    cmux NEXT feed carried an unbound cmux: prefix on 2026-11-01)."""
+    root = re.search(rb"<rss\b[^>]*>", data)
+    if root is None:
+        return data
+    opening = root.group(0)
+    for prefix, uri in FEED_PREFIXES.items():
+        used = re.search(rb"[<\s]" + prefix.encode() + rb":[A-Za-z_]", data) is not None
+        if used and re.search(rb"\sxmlns:" + prefix.encode() + rb"\s*=", opening) is None:
+            opening = opening[:-1] + f' xmlns:{prefix}="{uri}">'.encode()
+    return data[:root.start()] + opening + data[root.end():]
 
 
 def items(path):
     out = []
-    for item in ET.parse(path).getroot().iter("item"):
+    with open(path, "rb") as handle:
+        root = ET.fromstring(bind_feed_prefixes(handle.read()))
+    for item in root.iter("item"):
         version = (item.findtext(f"{NS}version") or "").strip()
         enclosure = item.find("enclosure")
         if re.fullmatch(r"\d+", version) and enclosure is not None:
@@ -76,9 +94,18 @@ def main(argv):
     parser.add_argument("--failure-log")
     parser.add_argument("--max-failures", type=int, default=2)
     parser.add_argument("--refuse-build", type=int, action="append", default=[])
+    parser.add_argument("--candidate-build", type=int)
+    parser.add_argument("--candidate-url")
     args = parser.parse_args(argv)
 
     next_items = items(args.next_appcast)
+    if args.candidate_build is not None:
+        if not args.candidate_url:
+            return fail("--candidate-build needs --candidate-url")
+        expected_candidate = f"{args.dmg_prefix}{args.candidate_build}.dmg"
+        if args.candidate_url.rsplit("/", 1)[-1] != expected_candidate:
+            return fail(f"candidate build {args.candidate_build} enclosure is {args.candidate_url}, not {expected_candidate}")
+        next_items.append((args.candidate_build, args.candidate_url))
     if not next_items:
         return fail("cmux NEXT feed has no items")
     newest, url = max(next_items)

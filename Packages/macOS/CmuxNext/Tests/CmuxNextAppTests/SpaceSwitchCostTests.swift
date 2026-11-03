@@ -22,8 +22,10 @@ struct SpaceSwitchCostTests {
     static func p50(_ samples: [SpaceSwitchBench.Sample]) -> Double { SpaceSwitchBench.percentile(samples.map(\.cpuMs), 0.5) }
 
     /// Not a check: where a switch spends its main-thread time (BASELINE.md), with 120 parked
-    /// workspaces of a terminal and a browser tab each, and with 500 plain ones.
-    @Test func profileOfASpaceSwitch() async throws {
+    /// workspaces of a terminal and a browser tab each, and with 500 plain ones. Opt-in with
+    /// `CMUX_SAMPLE_PROFILE=1` (`SelfSampler`); the checks below run by default.
+    @Test(.enabled(if: SelfSampler.enabled, "self-sampling profile; set CMUX_SAMPLE_PROFILE=1"))
+    func profileOfASpaceSwitch() async throws {
         let parked = try await SpaceSwitchBench(total: 120, panes: true, parked: 120)
         _ = try await parked.run(rounds: 1)
         try await parked.profile(rounds: 30, seconds: 8)
@@ -37,7 +39,8 @@ struct SpaceSwitchCostTests {
     /// 10 and 60 workspaces (5 and 30 per space) show fewer rows than the sidebar and its overscan
     /// hold; at 100 every space fills them, so from there a switch must cost the same: what is on
     /// screen, not how many workspaces exist.
-    @Test func aSpaceSwitchCostsTheSameAt500WorkspacesAsAt100() async throws {
+    @Test(.disabled("Quarantined: 500 vs 100 sits on the 1.5x line and flakes 2/6 on CI, https://github.com/manaflow-ai/cmux/issues/30974"))
+    func aSpaceSwitchCostsTheSameAt500WorkspacesAsAt100() async throws {
         var results: [Int: [SpaceSwitchBench.Sample]] = [:]
         for total in [10, 60, 100, 500] { results[total] = try await Self.measure(total) }
         let small = try #require(results[100]), large = try #require(results[500])

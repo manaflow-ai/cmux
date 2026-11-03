@@ -7,8 +7,14 @@ export interface Env {
   STACK_PROJECT_ID?: string;
   /** Override for tests and self-hosted Stack; default https://api.stack-auth.com. */
   STACK_API_URL?: string;
-  /** Comma list of paid user ids (v1 plan gating). */
-  PAID_USER_IDS?: string;
+  /**
+   * cmux web backend per Stack project, asked for the caller's plan before the
+   * cmux relay is issued: comma list of `<stackProjectId>=<https origin>`.
+   * A project without one never gets the cmux relay. src/billing.ts.
+   */
+  BILLING_ORIGINS?: string;
+  /** Deadline (ms) for the billing lookup; default 5000. */
+  BILLING_TIMEOUT_MS?: string;
   /** Public origin for signalURL; empty derives it from the request. */
   PUBLIC_BASE_URL?: string;
   /** Private P-256 JWK (JSON) for account session JWTs. */
@@ -28,10 +34,10 @@ export function csv(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
-export function planFor(env: Env, userId: string): "free" | "paid" {
-  return csv(env.PAID_USER_IDS).includes(userId) ? "paid" : "free";
-}
-
 /** Internal headers set by the Worker for the User DO; stripped from client requests. */
 export const USER_HEADER = "x-hub-user-id";
 export const ORIGIN_HEADER = "x-hub-origin";
+/** The caller's Stack access token, opened from the hub session for the billing lookup. */
+export const STACK_TOKEN_HEADER = "x-hub-stack-token";
+/** HKDF info for sealing the Stack token inside the hub session (`stk`). */
+export const STACK_TOKEN_SEAL_INFO = "device-hub stack token v1";

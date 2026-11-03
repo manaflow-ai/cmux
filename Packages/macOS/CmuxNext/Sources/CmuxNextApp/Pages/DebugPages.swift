@@ -24,6 +24,10 @@ import Foundation
 // - `scrollers`: `data-scrollers` and every element that shows a scroller at rest under "Always"
 //   (overflowing auto/scroll boxes with their overflow in pixels; SCROLLBARS-THIN audit);
 // - `click` (`selector`, `context_menu`?): clicks (or right-clicks) the first element matching the CSS selector;
+// - `scroll` (`selector`, `block`? start | center | end | nearest, default start): scrolls the first
+//   matching element into view at once (every scroller that holds it): `{scrolled, top, height,
+//   viewport}` once its box is in view; an error when nothing rendered matches or it is still out of view,
+//   so a capture step fails instead of shooting the fold;
 // - `hover` (`selector`): moves the mouse onto the first matching element (a capture slot's window
 //   never activates, so no pointer reaches its pages): `{hovered, native, x, y}`;
 // - `query` (`selector`): each matching element's data-* attributes, classes and text, in document order;
@@ -34,7 +38,7 @@ import Foundation
 // The control router's deadline bounds every action.
 extension AppControl {
     func registerPageDebugMethods(_ services: AppServices) {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         service?.router.register([
             .async("debug.page") { [weak services] call in await DebugPages.handle(call.params, services: services) },
         ])
@@ -42,7 +46,7 @@ extension AppControl {
     }
 }
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 enum DebugPages {
     /// Hidden pages `call` made (kept alive for later calls).
     @MainActor private static var made: [PageWebView] = []
@@ -97,9 +101,32 @@ enum DebugPages {
             guard let selector = params["selector"]?.stringValue else { return ["error": "selector is required"] }
             return ["clicked": .bool(await page.debugClick(selector, metaKey: params["meta"]?.boolValue == true,
                                                            contextMenu: params["context_menu"]?.boolValue == true))]
+        case "drag":
+            let numbers = ["x1", "y1", "x2", "y2"].compactMap { params[$0]?.doubleValue }
+            guard numbers.count == 4 else { return ["error": "x1, y1, x2, y2 (CSS pixels) are required"] }
+            let dragged = await page.debugDrag(from: CGPoint(x: numbers[0], y: numbers[1]), to: CGPoint(x: numbers[2], y: numbers[3]),
+                                               steps: params["steps"]?.intValue ?? 16)
+            return ["dragged": .bool(dragged)]
+        case "press":
+            let numbers = ["x", "y"].compactMap { params[$0]?.doubleValue }
+            guard numbers.count == 2 else { return ["error": "x, y (CSS pixels) are required"] }
+            return ["pressed": .bool(await page.debugPress(x: numbers[0], y: numbers[1]))]
         case "hover":
             guard let selector = params["selector"]?.stringValue else { return ["error": "selector is required"] }
             return await page.debugHover(selector)
+        case "scroll":
+            guard let selector = params["selector"]?.stringValue else { return ["error": "selector is required"] }
+            let block = params["block"]?.stringValue ?? "start"
+            guard ["start", "center", "end", "nearest"].contains(block) else {
+                return ["error": "block must be one of start, center, end, nearest"]
+            }
+            let scrolled = await page.debugScroll(selector, block: block)
+            guard scrolled["scrolled"] != true else { return scrolled }
+            // "no element matches" while the page has not drawn it yet (a card the host fills in later):
+            // a caller may wait; "not in view" is final.
+            let reason = scrolled["reason"]?.stringValue ?? "no match"
+            if reason == "not in view" { return ["error": .string("\(selector) is not in view after the scroll")] }
+            return ["error": .string("no element matches \(selector) (\(reason))")]
         case "query":
             return await page.debugQuery(params["selector"]?.stringValue ?? "*")
         case "route":

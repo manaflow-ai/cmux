@@ -52,9 +52,17 @@ struct HomeInboxMapping {
     static func ordered(_ lists: [[HomeInboxRequest.Row]]) -> [HomeInboxRequest.Row] {
         let all = lists.flatMap { $0 }
         guard lists.filter({ !$0.isEmpty }).count > 1 else { return all }
-        let pinned = all.filter(\.pinned).sorted { ($0.pinPosition ?? .max, $0.id) < ($1.pinPosition ?? .max, $1.id) }
-        let rest = all.filter { !$0.pinned }.map { (key: timeKey($0.activityAt), row: $0) }
-            .sorted { $0.key != $1.key ? $0.key > $1.key : $0.row.id < $1.row.id }.map(\.row)
+        let pinned: [HomeInboxRequest.Row] = all.filter(\.pinned).sorted {
+            (lhs: HomeInboxRequest.Row, rhs: HomeInboxRequest.Row) -> Bool in
+            (lhs.pinPosition ?? .max, lhs.id) < (rhs.pinPosition ?? .max, rhs.id)
+        }
+        let keyedRest: [(key: String, row: HomeInboxRequest.Row)] = all.filter { !$0.pinned }.map {
+            (key: timeKey($0.activityAt), row: $0)
+        }
+        let rest: [HomeInboxRequest.Row] = keyedRest.sorted {
+            (lhs: (key: String, row: HomeInboxRequest.Row), rhs: (key: String, row: HomeInboxRequest.Row)) -> Bool in
+            lhs.key != rhs.key ? lhs.key > rhs.key : lhs.row.id < rhs.row.id
+        }.map(\.row)
         return pinned + rest
     }
 

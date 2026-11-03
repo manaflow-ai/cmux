@@ -212,3 +212,73 @@ fn a_turn_names_the_home_chat_and_a_subagent_does_not() {
     let pinned = optchat_chief::cmux_env::pinned_subset(&env);
     assert_eq!(pinned.get(optchat_chief::cmux_env::HOME_CHAT_KEY), None);
 }
+
+/// A Chief turn messages the agent chats the user started (#25571): the cmux chat tools that
+/// send to, read and check a chat stay allowed; starting or interrupting one stays denied.
+#[test]
+fn a_chief_turn_keeps_the_tools_that_message_agent_chats() {
+    let cli = FakeCli::new();
+    let session = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(session.path().join(".claude")).unwrap();
+    cli.answer(
+        &[
+            "agents_snapshot",
+            "agents_chat_send",
+            "agents_chat_read",
+            "agents_chat_state",
+            "agents_chat_new",
+            "agents_chat_interrupt",
+            "app_show_pane",
+        ],
+        true,
+        None,
+    );
+    let denied = cmux_tool_denials(session.path(), &cli.env());
+    for kept in ["agents_chat_send", "agents_chat_read", "agents_chat_state"] {
+        assert!(
+            !denied.contains(&format!("mcp__cmux__{kept}")),
+            "{kept} must reach the Chief's turn: {denied:?}"
+        );
+    }
+    for gone in ["agents_chat_new", "agents_chat_interrupt", "app_show_pane"] {
+        assert!(
+            denied.contains(&format!("mcp__cmux__{gone}")),
+            "{gone} stays denied: {denied:?}"
+        );
+    }
+}
+
+#[test]
+fn a_chief_turn_keeps_coordinator_tools_but_not_background_tasks() {
+    let cli = FakeCli::new();
+    let session = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(session.path().join(".claude")).unwrap();
+    let kept = [
+        "acpmux_send",
+        "acpmux_ls",
+        "acpmux_last",
+        "acpmux_info",
+        "acpmux_inbox_read",
+        "acpmux_inbox_reply",
+    ];
+    let gone = [
+        "acpmux_bg_start",
+        "acpmux_bg_list",
+        "acpmux_bg_output",
+        "acpmux_bg_stop",
+        "cmux_exec",
+        "cmux_docs",
+    ];
+    let names: Vec<_> = kept.iter().chain(gone.iter()).copied().collect();
+    cli.answer(&names, true, None);
+    let denied = cmux_tool_denials(session.path(), &cli.env());
+    for name in kept {
+        assert!(
+            !denied.contains(&format!("mcp__cmux__{name}")),
+            "{denied:?}"
+        );
+    }
+    for name in gone {
+        assert!(denied.contains(&format!("mcp__cmux__{name}")), "{denied:?}");
+    }
+}

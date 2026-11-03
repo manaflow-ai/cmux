@@ -27,7 +27,8 @@ import Testing
 
         func cancel() async throws { calls.withLock { $0.append("cancel") } }
 
-        func permission(id: String, option: String, decisionNonce: String?, personDecision: String?) async throws {
+        func permission(id: String, option: String, answers: Data?, annotations: Data?, decisionNonce: String?,
+                        personDecision: String?) async throws {
             calls.withLock { $0.append("permission") }
         }
 

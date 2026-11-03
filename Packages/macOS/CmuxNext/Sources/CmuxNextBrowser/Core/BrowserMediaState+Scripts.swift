@@ -4,9 +4,11 @@ import Foundation
 /// engines; no engine API reports media. `observerScript` runs in an isolated
 /// world from document start in every frame: it watches media elements
 /// (their events, in the capture phase) and `navigator.mediaSession`, and
-/// posts a report when what plays changes, null once nothing does. A frame
-/// that never played posts nothing, so a page's frames do not clear each
-/// other. `actionsScript` runs in the page's world: it records the page's
+/// posts `{frame, report}` when what plays changes (report null once
+/// nothing does, or when the document goes). `frame` is an id the observer
+/// picks for its document: the tab keeps one report per frame
+/// (`BrowserMediaFrames`), so one frame's null never erases another frame's
+/// report. A frame that never played posts nothing. `actionsScript` runs in the page's world: it records the page's
 /// `mediaSession` action handlers so Previous and Next can call them
 /// (handlers live in the page's world only); a page can see that wrapper,
 /// so those two are best effort. Media elements outside the document (a
@@ -14,20 +16,35 @@ import Foundation
 /// (or unmutes) the frame's media elements, keeps muting the ones that play
 /// next, and passes on to the frame's child frames. A video floating in
 /// Picture in Picture is the one reported, playing or not, until it comes back.
+/// The observer keeps a timer only while what it reported plays or, for at
+/// most ten looks, while a report waits for the binding: an idle frame costs
+/// its renderer no wakeup and no work per DOM change. A paused element the
+/// page removes (its events fire on a detached node no listener here sees)
+/// reports null at the next natural event: a media event, or the page
+/// showing again.
 nonisolated extension BrowserMediaState {
     /// WebKit's message handler and Chromium's binding.
     static let channel = "cmuxMedia"
     /// The isolated world the observer runs in.
     static let world = "cmux-media"
 
-    /// The observer, posting with `post` (a JS expression taking the report)
-    /// once `ready` (a JS expression) is true.
+    /// The observer, posting with `post` (a JS expression taking `message`,
+    /// `{frame, report}`) once `ready` (a JS expression) is true.
     static func observerScript(post: String, ready: String = "true") -> String {
         #"""
         (() => {
           if (window.__cmuxMedia) return;
           window.__cmuxMedia = true;
           let last = '', reported = false, pending = false, heartbeat = false, timer = 0, actions = '', tabMuted = false, seeked = false;
+          // What the last look found playing, and the one-second look-again while it plays (`follow`).
+          let playing = false, ticks = 0, ticker = 0;
+          // Looks a report has waited for the binding; after `maxRetries` only a natural event retries.
+          let retries = 0;
+          const maxRetries = 10;
+          // The element last reported: the page showing again checks it is still in the document.
+          let held = null;
+          // This document's id: the tab keeps one report per frame.
+          const frame = Math.random().toString(36).slice(2) + Date.now().toString(36);
           // The elements the tab's mute muted, which Unmute unmutes.
           const hushed = new WeakSet();
           const media = (e) => !!e && (e.tagName === 'VIDEO' || e.tagName === 'AUDIO');
@@ -35,6 +52,8 @@ nonisolated extension BrowserMediaState {
           const send = (report) => {
             if (!(\#(ready))) { pending = true; return false; }
             pending = false;
+            retries = 0;
+            const message = { frame, report };
             try { \#(post); return true; } catch (_) { return false; }
           };
           // The video in Picture in Picture: Chromium's (and WebKit's) API, or WebKit's presentation mode.
@@ -51,11 +70,11 @@ nonisolated extension BrowserMediaState {
             const best = list[list.length - 1];
             try { return best ? new URL(best.src, location.href).href : ''; } catch (_) { return ''; }
           };
-          const report = () => {
-            timer = 0;
+          const look = () => {
+            playing = false;
             const element = active();
             if (!element) {
-              if (reported && send(null)) { reported = false; last = ''; }
+              if (reported && send(null)) { reported = false; last = ''; held = null; }
               return;
             }
             const meta = navigator.mediaSession ? navigator.mediaSession.metadata : null;
@@ -66,25 +85,64 @@ nonisolated extension BrowserMediaState {
               muted: element.muted || element.volume === 0, video: element.tagName === 'VIDEO', pip: floating() === element,
               tabMuted, actions,
             };
-            // The position leaves the key: the heartbeat carries it on, and a seek reports at once.
+            playing = state.playing;
+            // The position leaves the key: the heartbeat corrects its drift, and a seek reports at once.
             const key = JSON.stringify(state) + '#' + (isFinite(element.duration) ? Math.round(element.duration) : '')
               + (seeked ? '#' + Math.round(element.currentTime) : '');
             seeked = false;
             state.position = element.currentTime;
             state.duration = isFinite(element.duration) ? element.duration : null;
             state.rate = element.playbackRate;
-            // Again every few seconds while it plays: another frame's
-            // report may have replaced it.
+            // Again every few seconds while it plays: the position the app runs on may have drifted.
             if (key === last && !heartbeat) return;
             if (!send(state)) return;
             last = key;
             reported = true;
+            held = element;
+          };
+          // Metadata changes fire no event: look again every second while what this frame reported
+          // plays (every third look sends it again with its position), and for at most `maxRetries`
+          // looks while a report waits for the binding (an iframe made after the last binding add
+          // never gets one: the next media event tries again). Nothing else keeps a timer, so a
+          // frame with nothing playing (every idle page, hidden or shown) never wakes its renderer.
+          const follow = () => {
+            const on = (playing && reported) || (pending && retries < maxRetries);
+            if (on && !ticker) {
+              ticks = 0;
+              ticker = setInterval(() => {
+                ticks += 1;
+                heartbeat = reported && ticks % 3 === 0;
+                if (pending) retries += 1;
+                schedule();
+              }, 1000);
+            } else if (!on && ticker) {
+              clearInterval(ticker);
+              ticker = 0;
+            }
+          };
+          const report = () => {
+            timer = 0;
+            look();
+            follow();
           };
           const schedule = () => { if (!timer) timer = setTimeout(report, 250); };
           for (const type of ['play', 'playing', 'pause', 'ended', 'emptied', 'volumechange', 'loadedmetadata', 'durationchange',
             'enterpictureinpicture', 'leavepictureinpicture', 'webkitpresentationmodechanged']) {
             addEventListener(type, schedule, true);
           }
+          // The document goes (navigation, its frame removed): its report goes with it. A page
+          // restored from the back-forward cache looks again.
+          addEventListener('pagehide', () => {
+            if (reported && send(null)) { reported = false; last = ''; held = null; }
+            follow();
+          }, true);
+          addEventListener('pageshow', (event) => { if (event.persisted) schedule(); }, true);
+          // The page shows again: a reported element the page removed meanwhile, or a report that
+          // waits, looks again. One check per show, no DOM watch.
+          addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') return;
+            if (pending || (reported && held && !held.isConnected)) schedule();
+          }, true);
           for (const type of ['seeked', 'ratechange']) {
             addEventListener(type, () => { seeked = true; schedule(); }, true);
           }
@@ -119,14 +177,6 @@ nonisolated extension BrowserMediaState {
             actions = typeof event.detail === 'string' ? event.detail : '';
             schedule();
           }, true);
-          // Metadata changes fire no event: look again while something
-          // plays, and retry a report the binding was not ready for.
-          let ticks = 0;
-          setInterval(() => {
-            ticks += 1;
-            heartbeat = reported && ticks % 3 === 0;
-            if (reported || pending) schedule();
-          }, 1000);
         })();
         """#
     }
@@ -223,7 +273,14 @@ extension BrowserTab {
     /// Runs a media hub command in the page (`BrowserMediaCommand.script`).
     public func media(_ command: BrowserMediaCommand) async {
         let script = command.script
-        _ = try? await evaluate(script.source, world: script.world)
+        // Only a command that may start playback acts as the user (a page's play() needs the
+        // activation): Play, Play/Pause, Next and Previous. Pause, seek and mute need none, and
+        // macOS sends Pause on its own (headphones unplugged): they must not hand the page an activation.
+        let gesture: BrowserScriptGesture = switch command {
+        case .play, .playPause, .nextTrack, .previousTrack, .pictureInPicture: .agent
+        case .pause, .toggleMute, .seek, .muteTab: .cmux
+        }
+        _ = try? await evaluate(script.source, world: script.world, gesture: gesture)
     }
 
     /// Floats the page's video in Picture in Picture, or brings a floating
@@ -231,7 +288,7 @@ extension BrowserTab {
     /// page did not answer (closed, still loading).
     public func togglePictureInPicture() async -> BrowserPictureInPicture? {
         let script = BrowserMediaCommand.pictureInPicture.script
-        guard case .string(let answer)? = try? await evaluate(script.source, world: script.world) else { return nil }
+        guard case .string(let answer)? = try? await evaluate(script.source, world: script.world, gesture: .agent) else { return nil }
         return BrowserPictureInPicture(rawValue: answer)
     }
 

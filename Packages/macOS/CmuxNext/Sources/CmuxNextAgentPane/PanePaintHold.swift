@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextPages
 import CmuxNextWakeups
 
 /// Content that draws nothing until its document paints (an agent page is
@@ -57,7 +58,8 @@ public final class PanePaintHold {
             host.addSubview(incoming, positioned: .above, relativeTo: outgoing)
         }
         incoming.alphaValue = 0
-        #if DEBUG
+        PageWebView.syncChromiumVisibility(in: incoming)
+        #if DEBUG || CMUX_BENCH_HOOKS
         ChatOpenTrace.shared.mark(.holdBegin, view: incoming)
         #endif
         gated.whenFirstPainted { [weak self] in self?.end(token) }
@@ -83,6 +85,7 @@ public final class PanePaintHold {
             remove(incoming)
             // Page views are reused: one shown later must not stay invisible.
             incoming.alphaValue = 1
+            PageWebView.syncChromiumVisibility(in: incoming)
         }
         outgoing = nil
         incoming = nil
@@ -101,10 +104,12 @@ public final class PanePaintHold {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if let outgoing { release?(outgoing) }
-        ended?()
         incoming?.alphaValue = 1
+        if let incoming { PageWebView.syncChromiumVisibility(in: incoming) }
+        if let outgoing { PageWebView.syncChromiumVisibility(in: outgoing) }
+        ended?()
         CATransaction.commit()
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if let incoming { ChatOpenTrace.shared.mark(.holdEnd, view: incoming) }
         #endif
         outgoing = nil

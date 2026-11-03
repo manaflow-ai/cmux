@@ -1,8 +1,8 @@
 //! Remote agent session attachment for trusted local Unix clients. It streams
 //! a store tab's bound acpmux session with bounded replay and live records,
 //! and can drive prompts, cancels and permission answers. Every request is
-//! scoped to the tab's stored session; remote relay and WebSocket clients are
-//! refused. Attachments have bounded pages, calls and outbound buffering, and
+//! scoped to the tab's stored session. The explicit Native owner carrier also
+//! reaches these handlers; other remote relay and WebSocket clients are refused. Attachments have bounded pages, calls and outbound buffering, and
 //! close with a replay cursor when acpmux or the client falls behind.
 
 use crate::panic_free::JsonFields;
@@ -17,6 +17,8 @@ use serde_json::{Value, json};
 
 #[path = "agent_session_children.rs"]
 pub(super) mod agent_session_children;
+#[path = "agent_session_folders.rs"]
+mod agent_session_folders;
 #[path = "agent_session_link.rs"]
 pub(super) mod agent_session_link;
 #[path = "agent_session_observe.rs"]
@@ -30,20 +32,54 @@ mod inventory_socket;
 use super::{MessageWriter, OutboundStream, Response, SurfaceId, send_response};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
+pub use agent_session_folders::AGENT_SESSION_FOLDERS_CAPABILITY;
 use agent_session_link::{AcpmuxLink, Inbound, LinkError};
 pub use agent_session_start::{
-    AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AcpmuxStarter,
-    AgentStartHost, AgentStartHostSource,
+    AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
+    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_NO_CWD_CAPABILITY,
+    AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
+    AcpmuxStarter, AgentStartHost, AgentStartHostSource,
 };
-pub use agent_session_trust::AGENT_SESSION_TRUST_CAPABILITY;
+pub use agent_session_trust::{
+    AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY,
+};
 
 pub const AGENT_SESSION_ATTACH_CAPABILITY: &str = "agent-session-attach-v1";
+/// Ordered ACP content on `agent-session-prompt`; older clients keep sending `text`.
+pub const AGENT_SESSION_CONTENT_CAPABILITY: &str = "agent-session-content-v1";
+/// A Cloud mobile carrier connection may use the native agent-session JSON
+/// verbs over an authenticated remote link. The carrier is still constrained
+/// to tab-scoped attach/events/prompt/cancel/detach; it never receives a raw
+/// acpmux socket.
+pub const CLOUD_MOBILE_CHAT_CAPABILITY: &str = "cloud-mobile-chat-v1";
+/// `agent-session-typing` and `agent-session-view`, and the `agent-session-presence` event: who
+/// is in the attached chat (chat multiplayer, hq#4389), through acpmux's `_acpmux/typing`,
+/// `_acpmux/view` and `_acpmux/presence`. The event goes only to a connection that echoed the
+/// capability in `set-client-info`: an older app ends its attachment on an event it does not know.
+pub const AGENT_SESSION_PRESENCE_CAPABILITY: &str = "agent-session-presence-v1";
+/// `agent-session-set-model`, `agent-session-set-mode` and `agent-session-set-config`: the
+/// person's model, mode and option picks for the attached chat, as acpmux's ACP
+/// `session/set_model`, `session/set_mode` and `session/set_config_option` on the tab's own
+/// session. An app without it says the picks need that machine's cmux-tui updated.
+pub const AGENT_SESSION_SETTINGS_CAPABILITY: &str = "agent-session-settings-v1";
+/// `agent-session-login`: a Cloud chat's own sign-in on this machine (the app's sign-in card), as
+/// acpmux's `_acpmux/agent_login/{start,finish,api_key,cancel}`. Only the chat's owner, never a
+/// teammate or link guest and never a read-only attachment. acpmux's refusal reason comes back
+/// in the answer (`refused.reason`), so the card can say why.
+pub const AGENT_SESSION_LOGIN_CAPABILITY: &str = "agent-session-login-v1";
+/// How long a login's finish may wait: Codex's waits for the person's approval in the browser.
+const LOGIN_FINISH_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+/// The longest login id, code or API key a login step carries, in bytes.
+const MAX_LOGIN_BYTES: usize = 4096;
 
 pub(crate) const MAX_ATTACHMENTS_PER_CLIENT: usize = 8;
 pub(crate) const MAX_ATTACHMENTS_TOTAL: usize = 64;
 /// Records per attach or events page.
 pub(crate) const MAX_PAGE: u64 = 500;
 pub(crate) const MAX_PROMPT_BYTES: usize = 64 * 1024;
+/// The most bytes of a question's `answers` (as JSON) one permission answer
+/// carries; acpmux bounds each item itself.
+const MAX_ANSWERS_BYTES: usize = 64 * 1024;
 /// Permission ids remembered per attachment (announced, not yet answered).
 const MAX_PERMISSIONS: usize = 64;
 /// Record kinds or categories one page may ask for: the agent pane asks for all
@@ -73,6 +109,15 @@ pub(crate) struct AgentSessions {
     pub(super) inventory_reads: AtomicUsize,
     pub(super) inventory_watches: super::agent_inventory::watch::Watches,
     state: Mutex<AttachState>,
+    /// WhoIs attestations from the same-user host proxy, fixed for each link.
+    proxy_authors: Mutex<HashMap<u64, Value>>,
+    /// Link shares for guests (`agent-session-share-*`, agent_session_shares.rs).
+    link_shares: proxy::shares::LinkShares,
+    /// Unix connections past their first line: a proxy binds only on its first.
+    spoken: Mutex<HashSet<u64>>,
+    /// A tab's session changes under the write side; every write to or for a teammate's
+    /// attachment checks the tab under the read side, so none lands after a rebind.
+    rebinding: RwLock<()>,
     /// `agent-session-start-v1`: the acpmux starter and the tabs starting.
     starts: agent_session_start::AgentSessionStarts,
     /// `agent-session-children-v1`: the descendants acpmux answered, which
@@ -114,9 +159,35 @@ impl AgentSessions {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// Held while a tab's session changes (`bind-conversation-tab-session`, a start's bind).
+    pub(super) fn rebinding(&self) -> std::sync::RwLockWriteGuard<'_, ()> {
+        self.rebinding.write().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Held by a write to or for a teammate's attachment, from its tab check to the write.
+    pub(super) fn shared(&self) -> std::sync::RwLockReadGuard<'_, ()> {
+        self.rebinding.read().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The connection's first line was handled: it can no longer bind a proxy identity.
+    pub(crate) fn first_line_done(&self, client: u64) {
+        self.spoken.lock().unwrap_or_else(|e| e.into_inner()).insert(client);
+    }
+
+    /// The link shares (`agent-session-share-*`).
+    pub(super) fn link_shares(&self) -> &proxy::shares::LinkShares {
+        &self.link_shares
+    }
+
+    pub(super) fn past_first_line(&self, client: u64) -> bool {
+        self.spoken.lock().unwrap_or_else(|e| e.into_inner()).contains(&client)
+    }
+
     /// The connection ended: every attachment of it closes.
     pub(crate) fn disconnect(&self, client: u64) {
         self.inventory_watches.disconnect(client);
+        self.proxy_authors.lock().unwrap_or_else(|e| e.into_inner()).remove(&client);
+        self.spoken.lock().unwrap_or_else(|e| e.into_inner()).remove(&client);
         let gone: Vec<Arc<Attachment>> = {
             let mut state = self.lock();
             state.reserved.retain(|(c, _)| *c != client);
@@ -145,6 +216,7 @@ impl AgentSessions {
 
 /// One attached tab: its acpmux link and the client stream it feeds.
 struct Attachment {
+    author: Option<Value>,
     client: u64,
     surface: SurfaceId,
     /// The acpmux session id (resolved by acpmux from the record's session).
@@ -153,6 +225,10 @@ struct Attachment {
     /// ends when the record changes or the tab closes.
     record_session: String,
     read_only: AtomicBool,
+    /// This attachment was opened by the authenticated Cloud mobile carrier.
+    /// Prompt dispatch carries the Web asking policy under the same native
+    /// attachment/session lock; ordinary local clients never inherit it.
+    cloud_mobile: bool,
     mux: Weak<Mux>,
     link: Arc<AcpmuxLink>,
     writer: MessageWriter,
@@ -170,6 +246,32 @@ struct Attachment {
 }
 
 impl Attachment {
+    /// The connection echoed `agent-session-presence-v1` in `set-client-info`.
+    fn wants_presence(&self) -> bool {
+        self.mux.upgrade().is_some_and(|mux| {
+            mux.control_clients.supports_capability(self.client, AGENT_SESSION_PRESENCE_CAPABILITY)
+        })
+    }
+
+    fn stamp(&self, mut params: Value) -> Value {
+        if let Some(author) = &self.author {
+            params["_meta"]["acpmux"]["author"] = author.clone();
+        }
+        params
+    }
+
+    /// A page as this attachment may see it: a proxied teammate gets no `composer` records, and
+    /// nothing once the tab shows another chat than the shared one (a rebind while acpmux answered).
+    fn private(&self, page: Value) -> Result<Value, Refusal> {
+        if self.author.is_none() {
+            return Ok(page);
+        }
+        if !self.tab_current() {
+            return Err(Refusal::NotShared);
+        }
+        Ok(stream::without_drafts(page))
+    }
+
     fn note_permission(&self, id: &str) {
         let mut permissions = self.permissions.lock().unwrap_or_else(|e| e.into_inner());
         if permissions.iter().any(|known| known == id) {
@@ -188,6 +290,20 @@ impl Attachment {
     /// An answered request: it cannot be answered again.
     fn forget_permission(&self, id: &str) {
         self.permissions.lock().unwrap_or_else(|e| e.into_inner()).retain(|known| known != id);
+    }
+
+    /// Runs `write` for this attachment: at once for the owner's; for a teammate's, only while
+    /// its tab still shows the shared chat, with no rebind in between (`AgentSessions::shared`).
+    fn while_shared<T>(&self, write: impl FnOnce() -> T) -> Result<T, Refusal> {
+        if self.author.is_none() {
+            return Ok(write());
+        }
+        let Some(mux) = self.mux.upgrade() else { return Err(Refusal::NotShared) };
+        let _shared = mux.control_clients.agent_sessions.shared();
+        if self.ended.load(Ordering::Acquire) || !self.tab_current() {
+            return Err(Refusal::NotShared);
+        }
+        Ok(write())
     }
 
     /// True while the tab's store record still shows the attached session.
@@ -248,6 +364,12 @@ enum AgentSessionCommand {
     Detach(SurfaceParams),
     Children(SurfaceParams),
     Media(MediaParams),
+    Typing(TypingParams),
+    View(ViewParams),
+    SetModel(SetModelParams),
+    SetMode(SetModeParams),
+    SetConfig(SetConfigParams),
+    Login(LoginParams),
 }
 
 impl AgentSessionCommand {
@@ -265,6 +387,12 @@ impl AgentSessionCommand {
             "agent-session-detach" => Self::Detach(from_value(params).ok()?),
             "agent-session-children" => Self::Children(from_value(params).ok()?),
             "agent-session-media" => Self::Media(from_value(params).ok()?),
+            "agent-session-typing" => Self::Typing(from_value(params).ok()?),
+            "agent-session-view" => Self::View(from_value(params).ok()?),
+            "agent-session-set-model" => Self::SetModel(from_value(params).ok()?),
+            "agent-session-set-mode" => Self::SetMode(from_value(params).ok()?),
+            "agent-session-set-config" => Self::SetConfig(from_value(params).ok()?),
+            "agent-session-login" => Self::Login(from_value(params).ok()?),
             _ => return None,
         })
     }
@@ -274,6 +402,128 @@ impl AgentSessionCommand {
 #[serde(deny_unknown_fields)]
 struct SurfaceParams {
     surface: SurfaceId,
+}
+
+/// `agent-session-typing`: the person starts (`on`) or stops typing in the attached chat.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TypingParams {
+    surface: SurfaceId,
+    on: bool,
+}
+
+/// `agent-session-view`: whether the person's window shows the attached chat now.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ViewParams {
+    surface: SurfaceId,
+    visible: bool,
+}
+
+/// `agent-session-set-model`: the model the attached chat uses from its next turn.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SetModelParams {
+    surface: SurfaceId,
+    model_id: String,
+}
+
+/// `agent-session-set-mode`: one of the modes the attached chat's agent reported.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SetModeParams {
+    surface: SurfaceId,
+    mode_id: String,
+}
+
+/// `agent-session-set-config`: one value of a config option the attached chat's agent reported.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SetConfigParams {
+    surface: SurfaceId,
+    config_id: String,
+    value: String,
+}
+
+/// `agent-session-login`: one step of the chat's agent's own sign-in on this machine (`op`
+/// `start` with `agent`, `finish` with `login_id` and Claude's `code`, `api_key` with `agent` and
+/// `key`, `cancel` with `login_id`).
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LoginParams {
+    surface: SurfaceId,
+    op: String,
+    #[serde(default)]
+    agent: Option<String>,
+    #[serde(default)]
+    login_id: Option<String>,
+    #[serde(default)]
+    code: Option<String>,
+    #[serde(default)]
+    key: Option<String>,
+}
+
+/// acpmux's params of one login step, each naming the attached `session` (acpmux runs the sign-in
+/// on the machine that chat lives on, and restarts its agent signed in); `None` for a step whose
+/// fields are missing or out of bounds.
+fn login_request(session: &str, params: LoginParams) -> Option<(String, Value, Duration)> {
+    fn text(value: &Option<String>) -> Option<&str> {
+        value.as_deref().filter(|v| (1..=MAX_LOGIN_BYTES).contains(&v.len()) && !v.contains('\0'))
+    }
+    let agent = || text(&params.agent).filter(|a| matches!(*a, "claude" | "codex"));
+    let (body, timeout) = match params.op.as_str() {
+        "start" => (json!({"agent": agent()?, "sessionId": session}), CALL_TIMEOUT * 6),
+        "finish" => {
+            let login_id = text(&params.login_id)?;
+            let body = match &params.code {
+                Some(_) => {
+                    json!({"loginId": login_id, "code": text(&params.code)?, "sessionId": session})
+                }
+                None => json!({"loginId": login_id, "sessionId": session}),
+            };
+            (body, LOGIN_FINISH_TIMEOUT)
+        }
+        // acpmux waits up to 60 s for a Codex key to save.
+        "api_key" => (
+            json!({"agent": agent()?, "key": text(&params.key)?, "sessionId": session}),
+            CALL_TIMEOUT * 15,
+        ),
+        "cancel" => {
+            (json!({"loginId": text(&params.login_id)?, "sessionId": session}), CALL_TIMEOUT)
+        }
+        _ => return None,
+    };
+    Some((format!("_acpmux/agent_login/{}", params.op), body, timeout))
+}
+
+/// One login step on the attached session's acpmux. acpmux's refusal is an answer, not an error:
+/// `{"refused": {"reason": ...}}` with its `data.reason` (`unsupported` from an acpmux without the
+/// method), so the card words why. The code and key are never logged.
+fn login(attachment: &Attachment, params: LoginParams) -> Result<Value, Refusal> {
+    let (method, body, timeout) =
+        login_request(&attachment.session, params).ok_or(Refusal::BadRequest)?;
+    match attachment.link.call(&method, attachment.stamp(body), timeout) {
+        Ok(result) => Ok(result),
+        Err(LinkError::Rpc(_, data)) => {
+            let reason = data.get("reason").and_then(Value::as_str).unwrap_or("failed");
+            Ok(json!({"refused": {"reason": reason}}))
+        }
+        Err(LinkError::MethodNotFound(_)) => Ok(json!({"refused": {"reason": "unsupported"}})),
+        Err(error) => Err(Refusal::of(error)),
+    }
+}
+
+/// The longest model id, mode id, option id or option value a setting carries, in bytes.
+const MAX_SETTING_BYTES: usize = 256;
+
+/// One id or value of a setting as agents name them (`claude-opus-5-5[1m]`, `provider/model:tag`,
+/// `acceptEdits`, `high`): 1 to [`MAX_SETTING_BYTES`] ASCII letters, digits and `._-/:@[]+`, not
+/// starting with `-`. No whitespace, control, quote, shell or template character (the app's
+/// `AcpmuxPaneMethods.isModelID` rule).
+fn is_setting_id(value: &str) -> bool {
+    (1..=MAX_SETTING_BYTES).contains(&value.len())
+        && !value.starts_with('-')
+        && value.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-/:@[]+".contains(&b))
 }
 
 #[derive(Deserialize)]
@@ -288,7 +538,8 @@ struct MediaParams {
 struct PromptParams {
     surface: SurfaceId,
     prompt_id: String,
-    text: String,
+    text: Option<String>,
+    content: Option<Vec<Value>>,
 }
 
 #[derive(Deserialize)]
@@ -297,6 +548,15 @@ struct PermissionParams {
     surface: SurfaceId,
     permission_id: String,
     option_id: String,
+    /// A question's answers (a JSON object, acpmux `hub/questions.rs`):
+    /// passed to acpmux unchanged; the decision proof covers them.
+    #[serde(default)]
+    answers: Option<Value>,
+    /// A question's annotations beside its answers (Claude Code's chosen
+    /// preview and notes, acpmux `questions::check_annotations`): passed to
+    /// acpmux unchanged; the decision proof covers them too.
+    #[serde(default)]
+    annotations: Option<Value>,
     /// The person's decision proof for this answer (acpmux `hub/person.rs`,
     /// cx-0q7o): passed to acpmux unchanged, and acpmux decides.
     #[serde(default)]
@@ -341,6 +601,8 @@ pub(crate) enum Refusal {
     Limit,
     Timeout,
     Refused,
+    /// acpmux's session list could not be read whole (`LinkError::BadList`).
+    BadList,
     UnknownPermission,
     /// `agent-session-start`: the tab already has a session.
     Bound,
@@ -363,6 +625,12 @@ pub(crate) enum Refusal {
     NeedsKeyedStart,
     ReadOnly,
     ModeConflict,
+    /// A proxied teammate's frame for a surface that shows another chat than the shared one.
+    NotShared,
+    /// A link guest's frame for anything but the shared chat's guest verbs.
+    ScopeNotGranted,
+    /// A link guest whose share expired or was revoked, or who was removed.
+    ShareEnded,
 }
 
 impl Refusal {
@@ -376,6 +644,7 @@ impl Refusal {
             Self::Limit => "agent_session.limit",
             Self::Timeout => "agent_session.timeout",
             Self::Refused => "agent_session.refused",
+            Self::BadList => "agent_session.bad_list",
             Self::UnknownPermission => "agent_session.unknown_permission",
             Self::Bound => "agent_session.bound",
             Self::AcpmuxUnavailable => "agent_session.acpmux_unavailable",
@@ -388,6 +657,9 @@ impl Refusal {
             Self::NeedsKeyedStart => "agent_session.needs_keyed_start",
             Self::ReadOnly => "agent_session.read_only",
             Self::ModeConflict => "agent_session.mode_conflict",
+            Self::NotShared => "agent_session.not_shared",
+            Self::ScopeNotGranted => "agent_session.scope_not_granted",
+            Self::ShareEnded => "agent_session.share_ended",
         }
     }
 
@@ -401,6 +673,7 @@ impl Refusal {
             Self::Limit => "too many attached agent tabs",
             Self::Timeout => "acpmux did not answer in time",
             Self::Refused => "acpmux refused the request",
+            Self::BadList => "acpmux's session list could not be read whole",
             Self::UnknownPermission => "no such pending permission request on this attachment",
             Self::Bound => "the agent tab already has a session",
             Self::AcpmuxUnavailable => {
@@ -423,6 +696,9 @@ impl Refusal {
             Self::ModeConflict => {
                 "this connection already has the same surface attached in another mode"
             }
+            Self::NotShared => "the surface does not show the chat that was shared",
+            Self::ScopeNotGranted => "a link guest only watches and writes to the shared chat",
+            Self::ShareEnded => "the share ended, or the owner removed this guest",
         }
     }
 
@@ -432,28 +708,43 @@ impl Refusal {
             LinkError::Timeout => Self::Timeout,
             LinkError::Busy => Self::Limit,
             LinkError::Rpc(..) | LinkError::MethodNotFound(_) => Self::Refused,
+            LinkError::BadList(_) => Self::BadList,
         }
     }
 }
 
 /// Handles an `agent-session-*` frame of a local connection; `None` for any
-/// other frame. Remote-relay connections never get here (they take
-/// `remote_relay::handle_frame` first).
+/// other frame. The remote path admits only its explicit Native-owner subset.
 pub(super) fn try_handle(
     mux: &Arc<Mux>,
     client: u64,
     message: &str,
     writer: &MessageWriter,
 ) -> Option<bool> {
-    if let Some(handled) = agent_session_observe::try_handle(mux, client, message, writer) {
-        return Some(handled);
-    }
     if !message.contains("\"agent-session-") {
         return None;
     }
     let Ok(Value::Object(mut object)) = serde_json::from_str::<Value>(message) else {
         return None;
     };
+    if object.get("cmd").and_then(Value::as_str) == Some("agent-session-proxy-bind") {
+        return Some(proxy::bind(mux, client, object, writer));
+    }
+    // A peer cannot self-attribute: only the preface's fixed identity is accepted, for the chat
+    // the share pinned.
+    let (author, pinned) = match proxy::check(mux, client, &mut object) {
+        Ok(Some(teammate)) => (Some(teammate.author), teammate.pinned),
+        Ok(None) => (None, None),
+        Err(refusal) => return Some(refuse(writer, object.remove("id"), refusal)),
+    };
+    // A bound link reaches its own verbs only; the owner's own verbs are answered there.
+    if let Some(handled) = proxy::scope(mux, client, &mut object, author.as_ref(), writer) {
+        return Some(handled);
+    }
+    if object.get("cmd").and_then(Value::as_str) == Some("agent-session-observe") {
+        let clean = Value::Object(object).to_string();
+        return agent_session_observe::try_handle(mux, client, &clean, writer, author, pinned);
+    }
     let cmd = match object.remove("cmd") {
         Some(Value::String(cmd)) if cmd.starts_with("agent-session-") => cmd,
         _ => return None,
@@ -465,10 +756,15 @@ pub(super) fn try_handle(
     if cmd == "agent-session-trust" {
         return Some(trust(mux, client, id, object, writer));
     }
+    if cmd == "agent-session-folders" {
+        return Some(folders(mux, client, id, object, writer));
+    }
     let Some(command) = AgentSessionCommand::parse(&cmd, Value::Object(object)) else {
         return Some(refuse(writer, id, Refusal::BadRequest));
     };
-    if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
+    // Remote trust comes from the verified Cloud mobile peer
+    // (`cloud_mobile_client`), never from the declared capability alone.
+    if !mux.agent_carrier_allowed(client) && !mux.cloud_mobile_client(client) {
         return Some(refuse(writer, id, Refusal::NotTrusted));
     }
     let sessions = &mux.control_clients.agent_sessions;
@@ -477,7 +773,7 @@ pub(super) fn try_handle(
     };
     Some(match command {
         AgentSessionCommand::Attach(params) => {
-            attach(mux, client, id, socket, params, false, writer)
+            attach(mux, client, id, socket, params, false, author, pinned, writer)
         }
         AgentSessionCommand::Detach(SurfaceParams { surface }) => {
             if let Some(attachment) = sessions.attachment(client, surface) {
@@ -489,6 +785,13 @@ pub(super) fn try_handle(
         command => {
             let surface = command_surface(&command);
             match sessions.attachment(client, surface) {
+                // A teammate's attachment is for the chat this request's share pins, only.
+                Some(attachment)
+                    if author.is_some()
+                        && pinned.as_deref() != Some(attachment.record_session.as_str()) =>
+                {
+                    refuse(writer, id, Refusal::NotShared)
+                }
                 Some(attachment) => run_on_worker(mux, attachment, id, command, writer),
                 None => refuse(writer, id, Refusal::NotAttached),
             }
@@ -508,7 +811,7 @@ fn start(
     let Ok(params) = serde_json::from_value(Value::Object(params)) else {
         return refuse(writer, id, Refusal::BadRequest);
     };
-    if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
+    if !mux.agent_carrier_allowed(client) {
         return refuse(writer, id, Refusal::NotTrusted);
     }
     let Some(socket) = mux.control_clients.agent_sessions.socket() else {
@@ -528,13 +831,31 @@ fn trust(
     let Ok(params) = serde_json::from_value(Value::Object(params)) else {
         return refuse(writer, id, Refusal::BadRequest);
     };
-    if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
+    if !mux.agent_carrier_allowed(client) {
         return refuse(writer, id, Refusal::NotTrusted);
     }
     let Some(socket) = mux.control_clients.agent_sessions.socket() else {
         return refuse(writer, id, Refusal::Unavailable);
     };
-    agent_session_trust::trust(mux, id, socket, params, writer)
+    agent_session_trust::trust(mux, client, id, socket, params, writer)
+}
+
+/// `agent-session-folders` (agent_session_folders.rs), with the same checks
+/// as `agent-session-trust` (no acpmux needed).
+fn folders(
+    mux: &Arc<Mux>,
+    client: u64,
+    id: Option<Value>,
+    params: serde_json::Map<String, Value>,
+    writer: &MessageWriter,
+) -> bool {
+    let Ok(params) = serde_json::from_value(Value::Object(params)) else {
+        return refuse(writer, id, Refusal::BadRequest);
+    };
+    if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
+        return refuse(writer, id, Refusal::NotTrusted);
+    }
+    agent_session_folders::folders(mux, id, params, writer)
 }
 
 /// The page router's owner `agent_session.trust` (page_router.rs).
@@ -556,12 +877,36 @@ fn command_surface(command: &AgentSessionCommand) -> SurfaceId {
         | AgentSessionCommand::Detach(params)
         | AgentSessionCommand::Children(params) => params.surface,
         AgentSessionCommand::Media(params) => params.surface,
+        AgentSessionCommand::Typing(params) => params.surface,
+        AgentSessionCommand::View(params) => params.surface,
+        AgentSessionCommand::SetModel(params) => params.surface,
+        AgentSessionCommand::SetMode(params) => params.surface,
+        AgentSessionCommand::SetConfig(params) => params.surface,
+        AgentSessionCommand::Login(params) => params.surface,
     }
 }
 
-/// The tab's bound acpmux session, if `surface` is an agent tab of this
-/// store with one.
-fn tab_session(mux: &Mux, surface: SurfaceId) -> Option<String> {
+/// True when `client` is a host proxy's link for a teammate (`agent-session-proxy-bind`).
+pub(super) fn proxy_bound(mux: &Mux, client: u64) -> bool {
+    proxy::author(mux, client).is_some()
+}
+
+/// A frame of a teammate's link: the agent-session verbs [`try_handle`] allows it, and a refusal
+/// for anything else the daemon serves (pages, resources, workspaces, terminals).
+pub(super) fn handle_bound(
+    mux: &Arc<Mux>,
+    client: u64,
+    message: &str,
+    writer: &MessageWriter,
+) -> bool {
+    try_handle(mux, client, message, writer).unwrap_or_else(|| {
+        let id =
+            serde_json::from_str::<Value>(message).ok().and_then(|frame| frame.get("id").cloned());
+        refuse(writer, id, proxy::scope_refusal(mux, client))
+    })
+}
+
+pub(super) fn tab_session(mux: &Mux, surface: SurfaceId) -> Option<String> {
     let runtime = mux.surface(surface)?;
     match mux.conversation_tab_of(&runtime)? {
         ConversationTabRecord::AgentSession { session: Some(session), .. } => Some(session),
@@ -571,6 +916,13 @@ fn tab_session(mux: &Mux, surface: SurfaceId) -> Option<String> {
 
 /// acpmux page params from the client's, with the session pinned and the
 /// limit and kinds bounded.
+/// The record kinds a teammate (a bound proxy author) may read, whatever it asked for:
+/// the chat's transcript (acpmux `paging.rs` `transcript`), which holds no drafts and no raw
+/// protocol traffic. acpmux filters the attachment's live records by the same kinds.
+fn teammate_kinds(params: &mut Value) {
+    params["kinds"] = json!(["transcript"]);
+}
+
 fn page_params(session: &str, params: &PageParams, attach: bool) -> Result<Value, Refusal> {
     let mut out =
         json!({"sessionId": session, "limit": params.limit.unwrap_or(200).clamp(1, MAX_PAGE)});
@@ -593,10 +945,15 @@ fn page_params(session: &str, params: &PageParams, attach: bool) -> Result<Value
     }
     if attach {
         out.insert("eventStream", json!(true));
+        // The page opening the chat asks for its newest records at once, as the app's local
+        // attach does (`direct.ts` `sendAttach`): waiting for a restarted daemon's log restore
+        // of a long chat outlasted `CALL_TIMEOUT`, and the remote chat opened empty.
+        out.insert("waitLogs", json!(false));
     }
     Ok(out)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn attach(
     mux: &Arc<Mux>,
     client: u64,
@@ -604,10 +961,17 @@ fn attach(
     socket: PathBuf,
     params: PageParams,
     read_only: bool,
+    author: Option<Value>,
+    pinned: Option<String>,
     writer: &MessageWriter,
 ) -> bool {
+    let cloud_mobile =
+        mux.control_clients.supports_capability(client, CLOUD_MOBILE_CHAT_CAPABILITY);
     let sessions = &mux.control_clients.agent_sessions;
     if let Some(attachment) = sessions.attachment(client, params.surface) {
+        if author.is_some() && pinned.as_deref() != Some(attachment.record_session.as_str()) {
+            return refuse(writer, id, Refusal::NotShared);
+        }
         if attachment.read_only.load(Ordering::Acquire) != read_only {
             return refuse(writer, id, Refusal::ModeConflict);
         }
@@ -617,11 +981,23 @@ fn attach(
     let Some(session) = tab_session(mux, params.surface) else {
         return refuse(writer, id, Refusal::UnknownTab);
     };
+    // A teammate attaches to the chat its share pinned, as `proxy::check` saw it: a rebind since
+    // then is refused, never followed.
+    if author.is_some() && pinned.as_deref() != Some(session.as_str()) {
+        return refuse(writer, id, Refusal::NotShared);
+    }
     let record_session = session.clone();
-    let acpmux_params = match page_params(&session, &params, true) {
+    let mut acpmux_params = match page_params(&session, &params, true) {
         Ok(value) => value,
         Err(refusal) => return refuse(writer, id, refusal),
     };
+    // The author `proxy::check` accepted for this request: the worker stamps it on the session
+    // watch too, so a disconnect (which forgets the binding) never leaves a call unstamped.
+    if let Some(author) = &author {
+        acpmux_params["_meta"]["acpmux"]["author"] = author.clone();
+        // A teammate reads the transcript only, never raw wire records or other kinds, live or replayed.
+        teammate_kinds(&mut acpmux_params);
+    }
     {
         let mut state = sessions.lock();
         let key = (client, params.surface);
@@ -650,6 +1026,8 @@ fn attach(
                 record_session,
                 acpmux_params,
                 read_only,
+                cloud_mobile,
+                author,
                 worker_writer,
             );
         });
@@ -705,6 +1083,15 @@ impl ReaderSlot {
     }
 }
 
+#[path = "agent_session_media.rs"]
+mod media;
+#[path = "agent_session_proxy.rs"]
+mod proxy;
+use media::media;
+pub use proxy::shares::room::start_link_share_bridge;
+pub(crate) use proxy::shares::{
+    close_chat_shares, close_listed_chat_shares, close_unlisted_chat_shares, open_chat_shares,
+};
 #[path = "agent_session_stream.rs"]
 mod stream;
 pub(crate) use stream::bound_page;
@@ -732,17 +1119,61 @@ fn run_on_worker(
             AgentSessionCommand::Prompt(_)
                 | AgentSessionCommand::Cancel(_)
                 | AgentSessionCommand::Permission(_)
+                | AgentSessionCommand::Typing(_)
+                | AgentSessionCommand::SetModel(_)
+                | AgentSessionCommand::SetMode(_)
+                | AgentSessionCommand::SetConfig(_)
+                | AgentSessionCommand::Login(_)
         )
     {
         return refuse(writer, id, Refusal::ReadOnly);
     }
+    // A teammate or link guest never changes the owner's chat's model, mode or options: a mode
+    // can stop the agent asking before it acts on the owner's machine. Nor does it sign the
+    // owner's agent in: that sets whose account the machine's agent runs as.
+    if attachment.author.is_some()
+        && matches!(
+            &command,
+            AgentSessionCommand::SetModel(_)
+                | AgentSessionCommand::SetMode(_)
+                | AgentSessionCommand::SetConfig(_)
+                | AgentSessionCommand::Login(_)
+        )
+    {
+        return refuse(writer, id, Refusal::NotTrusted);
+    }
+    // A teammate (a bound proxy author) never answers the host's asks: an allow
+    // would run a tool on the owner's machine (design section 7). Nor does it say it types or
+    // views yet: acpmux would count that as the owner's own presence. A link guest's typing and
+    // view carry its author.
+    let guest = attachment.author.as_ref().is_some_and(proxy::is_guest);
+    if attachment.author.is_some()
+        && (!guest || matches!(&command, AgentSessionCommand::Permission(_)))
+        && matches!(
+            &command,
+            AgentSessionCommand::Permission(_)
+                | AgentSessionCommand::Typing(_)
+                | AgentSessionCommand::View(_)
+        )
+    {
+        return refuse(writer, id, Refusal::NotTrusted);
+    }
     // A cancel is a notification on the link and never waits.
     if let AgentSessionCommand::Cancel(_) = command {
-        let sent =
-            attachment.link.notify("session/cancel", json!({"sessionId": attachment.session}));
+        let sent = attachment
+            .while_shared(|| {
+                attachment
+                    .link
+                    .notify(
+                        "session/cancel",
+                        attachment.stamp(json!({"sessionId": attachment.session})),
+                    )
+                    .map_err(Refusal::of)
+            })
+            .and_then(|sent| sent);
         return match sent {
             Ok(()) => ok(writer, id, json!({})),
-            Err(error) => refuse(writer, id, Refusal::of(error)),
+            Err(refusal) => refuse(writer, id, refusal),
         };
     }
     if attachment.calls.fetch_add(1, Ordering::AcqRel) >= MAX_CALLS {
@@ -758,10 +1189,14 @@ fn run_on_worker(
         .spawn(move || {
             let result = call(&worker, command);
             worker.calls.fetch_sub(1, Ordering::AcqRel);
-            match result {
-                Ok(data) => ok(&worker_writer, worker_id, data),
-                Err(refusal) => refuse(&worker_writer, worker_id, refusal),
-            };
+            // A teammate's answer goes out only while its tab still shows the shared chat.
+            let replied = worker.while_shared(|| match result {
+                Ok(data) => ok(&worker_writer, worker_id.clone(), data),
+                Err(refusal) => refuse(&worker_writer, worker_id.clone(), refusal),
+            });
+            if let Err(refusal) = replied {
+                refuse(&worker_writer, worker_id, refusal);
+            }
         });
     if spawned.is_err() {
         attachment.calls.fetch_sub(1, Ordering::AcqRel);
@@ -775,28 +1210,50 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
     match command {
         AgentSessionCommand::Attach(params) => {
             let newest_first = params.after_seq.is_none() || params.before_seq.is_some();
-            let params = page_params(session, &params, true)?;
-            let page = attachment.link.call("_acpmux/attach", params, CALL_TIMEOUT);
-            page.map(|page| bound_page(page, newest_first)).map_err(Refusal::of)
+            let mut params = page_params(session, &params, true)?;
+            if attachment.author.is_some() {
+                teammate_kinds(&mut params);
+            }
+            let page =
+                attachment.link.call("_acpmux/attach", attachment.stamp(params), CALL_TIMEOUT);
+            page.map_err(Refusal::of)
+                .and_then(|page| attachment.private(bound_page(page, newest_first)))
         }
         AgentSessionCommand::Events(params) => {
             let newest_first = params.before_seq.is_some();
-            let params = page_params(session, &params, false)?;
-            let page = attachment.link.call("_acpmux/events", params, CALL_TIMEOUT);
-            page.map(|page| bound_page(page, newest_first)).map_err(Refusal::of)
+            let mut params = page_params(session, &params, false)?;
+            if attachment.author.is_some() {
+                teammate_kinds(&mut params);
+            }
+            let page =
+                attachment.link.call("_acpmux/events", attachment.stamp(params), CALL_TIMEOUT);
+            page.map_err(Refusal::of)
+                .and_then(|page| attachment.private(bound_page(page, newest_first)))
         }
-        AgentSessionCommand::Prompt(PromptParams { prompt_id, text, .. }) => {
-            prompt(attachment, prompt_id, text)
+        AgentSessionCommand::Prompt(PromptParams { prompt_id, text, content, .. }) => {
+            prompt(attachment, prompt_id, text, content)
         }
         AgentSessionCommand::Permission(PermissionParams {
             permission_id,
             option_id,
+            answers,
+            annotations,
             decision_nonce,
             person_decision,
             answered_by,
             ..
         }) => {
             if option_id.is_empty() || option_id.len() > 256 {
+                return Err(Refusal::BadRequest);
+            }
+            let answers = answers.filter(|a| !a.is_null());
+            let annotations = annotations.filter(|a| !a.is_null());
+            let bad = |v: &Option<Value>| {
+                v.as_ref()
+                    .is_some_and(|a| !a.is_object() || a.to_string().len() > MAX_ANSWERS_BYTES)
+            };
+            // Annotations go only beside answers.
+            if bad(&answers) || bad(&annotations) || (annotations.is_some() && answers.is_none()) {
                 return Err(Refusal::BadRequest);
             }
             if !decision_nonce.as_deref().is_none_or(is_hex64)
@@ -812,6 +1269,12 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             }
             let mut params =
                 json!({"sessionId": session, "permissionId": permission_id, "optionId": option_id});
+            if let Some(answers) = answers {
+                params["answers"] = answers;
+            }
+            if let Some(annotations) = annotations {
+                params["annotations"] = annotations;
+            }
             let mut meta = serde_json::Map::new();
             if let Some(nonce) = decision_nonce {
                 meta.insert("decisionNonce".into(), Value::String(nonce));
@@ -828,93 +1291,130 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             if !meta.is_empty() {
                 params.insert("_meta", json!({"acpmux": meta}));
             }
-            let answered = attachment.link.call("_acpmux/permission_respond", params, CALL_TIMEOUT);
+            let answered = attachment.link.call(
+                "_acpmux/permission_respond",
+                attachment.stamp(params),
+                CALL_TIMEOUT,
+            );
             // A failed answer stays answerable; a delivered one is spent.
             if answered.is_ok() {
                 attachment.forget_permission(&permission_id);
             }
             answered.map_err(Refusal::of)
         }
+        // A shared chat covers that chat only: a teammate lists no descendants.
+        AgentSessionCommand::Children(_) if attachment.author.is_some() => Err(Refusal::NotTrusted),
         AgentSessionCommand::Children(_) => agent_session_children::list(attachment),
         AgentSessionCommand::Media(MediaParams { path, .. }) => media(attachment, path),
+        // The session is the tab's own; acpmux bounds typing (2 a second, `typing.rate_limited`).
+        // acpmux's rate refusal is the attachment's bound (`agent_session.limit`): the pane says
+        // so again with its next keystroke.
+        AgentSessionCommand::Typing(TypingParams { on, .. }) => {
+            let params = attachment.stamp(json!({"sessionId": session, "on": on}));
+            attachment.link.call("_acpmux/typing", params, CALL_TIMEOUT).map_err(|error| {
+                match &error {
+                    LinkError::Rpc(_, data)
+                        if data.get("reason").and_then(Value::as_str)
+                            == Some("typing.rate_limited") =>
+                    {
+                        Refusal::Limit
+                    }
+                    _ => Refusal::of(error),
+                }
+            })
+        }
+        AgentSessionCommand::View(ViewParams { visible, .. }) => {
+            let params = attachment.stamp(json!({"sessionId": session, "visible": visible}));
+            attachment.link.call("_acpmux/view", params, CALL_TIMEOUT).map_err(Refusal::of)
+        }
+        // The person's picks, on the tab's own session; acpmux's answer goes back unchanged (a
+        // set_config_option answers the agent's whole `configOptions`, which the page shows).
+        AgentSessionCommand::SetModel(SetModelParams { model_id, .. }) => {
+            let ok = is_setting_id(&model_id);
+            setting(attachment, ok, "session/set_model", json!({"modelId": model_id}))
+        }
+        AgentSessionCommand::SetMode(SetModeParams { mode_id, .. }) => {
+            let ok = is_setting_id(&mode_id);
+            setting(attachment, ok, "session/set_mode", json!({"modeId": mode_id}))
+        }
+        AgentSessionCommand::SetConfig(SetConfigParams { config_id, value, .. }) => {
+            let ok = is_setting_id(&config_id) && is_setting_id(&value);
+            let params = json!({"configId": config_id, "value": value});
+            setting(attachment, ok, "session/set_config_option", params)
+        }
+        AgentSessionCommand::Login(params) => login(attachment, params),
         AgentSessionCommand::Cancel(_) | AgentSessionCommand::Detach(_) => Ok(json!({})),
     }
 }
 
-/// Reads one image from the attached chat's host acpmux. The attachment daemon keeps the path
-/// scoped to the bound session; this command only relays the already checked media reader bytes.
-fn media(attachment: &Attachment, path: String) -> Result<Value, Refusal> {
-    use base64::Engine;
-    let image_extension = std::path::Path::new(&path)
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| {
-            matches!(
-                extension.to_ascii_lowercase().as_str(),
-                "png" | "jpg" | "jpeg" | "gif" | "webp"
-            )
-        });
-    if !image_extension {
+/// One setting (`session/set_model`, `session/set_mode` or `session/set_config_option`) on the
+/// attached session: `params` beside the pinned `sessionId`, sent only when its ids are `valid`.
+fn setting(
+    attachment: &Attachment,
+    valid: bool,
+    method: &str,
+    mut params: Value,
+) -> Result<Value, Refusal> {
+    if !valid {
         return Err(Refusal::BadRequest);
     }
-    if path.is_empty() || path.len() > 4096 {
-        return Err(Refusal::BadRequest);
-    }
-    let opened = attachment
-        .link
-        .call(
-            "_acpmux/media_open",
-            json!({"sessionId": attachment.session, "path": path}),
-            CALL_TIMEOUT,
-        )
-        .map_err(Refusal::of)?;
-    let handle = opened.get("handle").and_then(Value::as_str).ok_or(Refusal::BadRequest)?;
-    let size = opened.get("size").and_then(Value::as_u64).ok_or(Refusal::BadRequest)?;
-    const MAX_BYTES: u64 = 10 << 20;
-    const MAX_RANGE: u64 = 6 << 20;
-    if size == 0 || size > MAX_BYTES {
-        return Err(Refusal::BadRequest);
-    }
-    let mut bytes = Vec::with_capacity(usize::try_from(size).map_err(|_| Refusal::BadRequest)?);
-    let mut offset = 0u64;
-    while offset < size {
-        let length = (size - offset).min(MAX_RANGE);
-        let range = attachment
-            .link
-            .call(
-                "_acpmux/media_range",
-                json!({"sessionId": attachment.session, "handle": handle, "offset": offset, "length": length}),
-                CALL_TIMEOUT,
-            )
-            .map_err(Refusal::of)?;
-        let actual = range.get("offset").and_then(Value::as_u64).ok_or(Refusal::BadRequest)?;
-        if actual != offset {
-            return Err(Refusal::BadRequest);
-        }
-        let encoded = range.get("data").and_then(Value::as_str).ok_or(Refusal::BadRequest)?;
-        let chunk = base64::engine::general_purpose::STANDARD
-            .decode(encoded)
-            .map_err(|_| Refusal::BadRequest)?;
-        if chunk.is_empty() || chunk.len() as u64 > length {
-            return Err(Refusal::BadRequest);
-        }
-        offset = offset.saturating_add(chunk.len() as u64);
-        bytes.extend_from_slice(&chunk);
-    }
-    Ok(json!({
-        "mimeType": opened.get("mimeType").cloned().unwrap_or(Value::Null),
-        "data": base64::engine::general_purpose::STANDARD.encode(bytes),
-    }))
+    params.insert("sessionId", json!(attachment.session));
+    attachment.link.call(method, attachment.stamp(params), CALL_TIMEOUT).map_err(Refusal::of)
 }
 
-/// Sends one text prompt and answers once acpmux recorded it. The turn's
+/// Only content fields, never ACP routing or provenance. Preserve the ordered blocks verbatim.
+fn valid_prompt_block(block: &Value) -> bool {
+    let Some(object) = block.as_object() else { return false };
+    let nonempty =
+        |key| block.get(key).and_then(Value::as_str).is_some_and(|s| !s.trim().is_empty());
+    let allowed: &[&str] = match block.get("type").and_then(Value::as_str) {
+        Some("text") if block.get("text").is_some_and(Value::is_string) => {
+            if block.get("_meta").is_some_and(|meta| meta != &json!({"cmux": {"pasted": true}})) {
+                return false;
+            }
+            &["type", "text", "_meta"]
+        }
+        Some("image" | "audio" | "document") if nonempty("mimeType") && nonempty("data") => {
+            &["type", "mimeType", "data", "name"]
+        }
+        Some("resource_link") if nonempty("uri") => &["type", "uri", "name"],
+        _ => return false,
+    };
+    object.keys().all(|key| allowed.contains(&key.as_str()))
+        && block.get("name").is_none_or(Value::is_string)
+}
+
+/// Sends one prompt and answers once acpmux recorded it. The turn's
 /// reply streams as records; the `session/prompt` result (at the end of the
 /// turn) is not waited for.
-fn prompt(attachment: &Attachment, prompt_id: String, text: String) -> Result<Value, Refusal> {
+fn prompt(
+    attachment: &Attachment,
+    prompt_id: String,
+    text: Option<String>,
+    content: Option<Vec<Value>>,
+) -> Result<Value, Refusal> {
     let valid_id = (1..=128).contains(&prompt_id.len())
         && prompt_id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
-    if !valid_id || text.trim().is_empty() || text.len() > MAX_PROMPT_BYTES {
+    if !valid_id {
         return Err(Refusal::BadRequest);
+    }
+    let blocks = match (text, content) {
+        (Some(text), None) if !text.trim().is_empty() && text.len() <= MAX_PROMPT_BYTES => {
+            vec![json!({"type": "text", "text": text})]
+        }
+        (None, Some(blocks)) if !blocks.is_empty() && blocks.iter().all(valid_prompt_block) => {
+            blocks
+        }
+        _ => return Err(Refusal::BadRequest),
+    };
+    if blocks.iter().all(|block| {
+        block["type"] == "text" && block["text"].as_str().is_some_and(|text| text.trim().is_empty())
+    }) {
+        return Err(Refusal::BadRequest);
+    }
+    // Guests previously supplied text only. Do not grant access to files on the owner's host.
+    if attachment.author.is_some() && blocks.iter().any(|block| block["type"] != "text") {
+        return Err(Refusal::NotTrusted);
     }
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     {
@@ -924,19 +1424,32 @@ fn prompt(attachment: &Attachment, prompt_id: String, text: String) -> Result<Va
         }
         prompts.insert(prompt_id.clone(), sender);
     }
-    // Only a text content block: the client sends content, never a command,
-    // a path or an MCP server.
-    let params = json!({
+    let mut params = json!({
         "sessionId": attachment.session,
-        "prompt": [{"type": "text", "text": text}],
+        "prompt": blocks,
         "_meta": {"acpmux": {"promptId": prompt_id}},
     });
+    // The native daemon connection is Local, but the authenticated Cloud
+    // mobile carrier must retain the Web asking policy for this prompt. This
+    // marker is inserted by the typed agent-session path, never accepted from
+    // the phone or forwarded as arbitrary ACP metadata.
+    if attachment.cloud_mobile {
+        params["_meta"]["acpmux"]["via"] = json!("cloud-mobile");
+    }
     // The request's own reply comes at the end of the turn and is not
     // waited for, so a queued prompt holds no call slot (permission answers
     // stay possible while turns queue).
-    if let Err(error) = attachment.link.send_ignoring_reply("session/prompt", params) {
+    let sent = attachment
+        .while_shared(|| {
+            attachment
+                .link
+                .send_ignoring_reply("session/prompt", attachment.stamp(params))
+                .map_err(Refusal::of)
+        })
+        .and_then(|sent| sent);
+    if let Err(refusal) = sent {
         attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);
-        return Err(Refusal::of(error));
+        return Err(refusal);
     }
     let accepted = receiver.recv_timeout(CALL_TIMEOUT);
     attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);
@@ -1033,5 +1546,15 @@ impl Mux {
     /// acpmux socket path; without a starter a start needs acpmux running).
     pub(crate) fn serves_agent_session_start(&self) -> bool {
         self.serves_agent_session_attach()
+    }
+
+    /// True when `agent-session-start` starts any agent here on the
+    /// caller's owner word: this machine reads as a Cloud VM with no team
+    /// evidence. A Mac, an SSH host and a team VM never advertise
+    /// `agent-session-start-owner-cloud-v1`, so the app never lets a Codex
+    /// or opencode chat send to a session there.
+    pub(crate) fn serves_owner_cloud_start(&self) -> bool {
+        self.serves_agent_session_start()
+            && self.control_clients.agent_sessions.starts.owner_cloud(true)
     }
 }

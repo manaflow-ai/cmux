@@ -397,9 +397,20 @@ export function HunkHoverActions({
  * bar), Undo after a hunk revert, and why the last write failed (a status the reader sees and a
  * screen reader announces). Hidden when there is none of them.
  */
-export function DiffBulkBar({ revert, label }: { revert: DiffRevert; label: DiffViewerLabelResolver }) {
-  if (!revert.stageAll && !revert.revertAll && !revert.undo && !revert.notice) return null;
-  const actions = Boolean(revert.stageAll || revert.revertAll);
+export function DiffBulkBar({
+  revert,
+  label,
+  showActions = true,
+}: {
+  revert: DiffRevert;
+  label: DiffViewerLabelResolver;
+  /** Stage all and Revert all (`diff.showBulkActions`); off, the bar shows only Undo and notices. */
+  showActions?: boolean;
+}) {
+  const stageAll = showActions ? revert.stageAll : undefined;
+  const revertAll = showActions ? revert.revertAll : undefined;
+  if (!stageAll && !revertAll && !revert.undo && !revert.notice) return null;
+  const actions = Boolean(stageAll || revertAll);
   return (
     <div className="diff-bulk-bar" role="toolbar" aria-label={label("bulkActions")}>
       {revert.notice ? (
@@ -415,19 +426,19 @@ export function DiffBulkBar({ revert, label }: { revert: DiffRevert; label: Diff
         </button>
       ) : null}
       {(revert.notice || revert.undo) && actions ? <span className="diff-bulk-divider" aria-hidden="true" /> : null}
-      {revert.revertAll ? (
+      {revertAll ? (
         <button
           type="button"
           className="diff-bulk-action"
           data-kind="revert"
           disabled={revert.busy}
-          onClick={revert.revertAll}
+          onClick={revertAll}
         >
           {label("revertAll")}
         </button>
       ) : null}
-      {revert.stageAll ? (
-        <button type="button" className="diff-bulk-action" disabled={revert.busy} onClick={revert.stageAll}>
+      {stageAll ? (
+        <button type="button" className="diff-bulk-action" disabled={revert.busy} onClick={stageAll}>
           {label("stageAll")}
         </button>
       ) : null}

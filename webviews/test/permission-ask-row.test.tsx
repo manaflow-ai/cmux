@@ -267,3 +267,86 @@ test("a minimal ACP tool subject uses the request title in the grouped row", asy
   );
   await act(async () => root.unmount());
 });
+
+// Leo, 2026-10-21 ("this literally doesn't work"): a chat on another machine drew Allow, Always and
+// Deny, and every answer came back refused. That machine's acpmux allows only from its own app, and
+// the read says so (`allowRefused`): the row offers Deny, which counts, and says where to approve.
+test("an ask whose allows the daemon refuses offers only Deny and says where to approve", async () => {
+  const { PermissionPanel } = await import("../src/agent-session/acpmux/permissions/Panel");
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const responses: string[] = [];
+  const state = { ...permissions("pending"), allowRefused: "permission.person_required" };
+  await act(async () =>
+    root.render(
+      <PermissionPanel
+        state={state}
+        working
+        onRespond={(_group, _revision, decision) => responses.push(decision)}
+        onRetry={() => {}}
+        onRevoke={() => {}}
+        onRefresh={() => {}}
+      />,
+    ),
+  );
+  const panel = dom.window.document.querySelector<HTMLElement>(".acpmux-permission-panel")!;
+  const buttons = [...panel.querySelectorAll<HTMLButtonElement>("button")].filter(
+    (button) => !button.hasAttribute("aria-expanded"),
+  );
+  expect(buttons.map((button) => button.textContent?.trim())).toEqual(["Deny"]);
+  const seen = visibleText(panel).replace(/\s+/g, " ");
+  expect(seen).toContain("Only the cmux app can approve this. Approve it in cmux on the Mac that runs this chat.");
+  expect(seen).not.toContain("Always also allows");
+  // The allow shortcuts do nothing; Deny's still answers.
+  await act(async () => {
+    dom.window.dispatchEvent(new dom.window.Event("cmux-acpmux-permissionAllowOnce"));
+    dom.window.dispatchEvent(new dom.window.Event("cmux-acpmux-permissionAllowChat"));
+  });
+  expect(responses).toEqual([]);
+  await act(async () => buttons[0]!.click());
+  expect(responses).toEqual(["deny"]);
+  await act(async () => root.unmount());
+});
+
+for (const envelope of ["toolCall", "subjectTool", "subjectCommand"] as const) {
+  test(`a grouped argv ${envelope} opens as a shell command with argument boundaries intact`, async () => {
+    const { PermissionPanel } = await import("../src/agent-session/acpmux/permissions/Panel");
+    const state = permissions("pending");
+    const rawInput = {
+      command: ["printf", "%s", "two words", "it's literal", "", "$HOME"],
+      cwd: "/workspace/project",
+    };
+    const toolCall = { title: "Print arguments", kind: "execute", rawInput };
+    state.groups[0]!.items[0]!.request =
+      envelope === "toolCall"
+        ? { toolCall }
+        : envelope === "subjectTool"
+          ? { subject: { type: "tool_call", toolCall } }
+          : { subject: { type: "command", ...rawInput } };
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    try {
+      await act(async () =>
+        root.render(
+          <PermissionPanel
+            state={state}
+            working
+            onRespond={() => {}}
+            onRetry={() => {}}
+            onRevoke={() => {}}
+            onRefresh={() => {}}
+          />,
+        ),
+      );
+      const panel = document.querySelector<HTMLElement>(".acpmux-permission-panel")!;
+      const toggle = panel.querySelector<HTMLButtonElement>(".acpmux-ask-toggle")!;
+      await act(async () => toggle.click());
+      const command = panel.querySelector(".cv-shell__command");
+      expect(command).not.toBeNull();
+      const expected = String.raw`printf %s 'two words' 'it'\''s literal' '' '$HOME'`;
+      expect(command?.textContent).toBe(`$ ${expected}`);
+      expect(panel.querySelector(".acpmux-ask-subject")?.textContent).toBe(expected);
+      expect(panel.querySelector(".acpmux-ask-input")).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+}

@@ -143,24 +143,20 @@ fi
 FAKE
 chmod +x "$tmp/fake-repair.sh"
 # The base gains the files built from the exports and a defaults guard that, like the real one, finds
-# the repository from its own path (parents[2]) and, when it cannot read the stamp there, notes it and
-# passes. Its check-stamp passes when the ref's stamp says "fresh". The bot's repair builds them at its commit.
-stamp=schemas/settings-export/settings-schema.sources.sha256
-setup_built() { # <stamp on the base: fresh or stale>
+# the repository from its own path (parents[2]). Its source-stamp of a ref is the ref's settings
+# sources (here one file outside every area). The bot's repair builds them at its commit.
+settings_src=settings-sources.txt
+setup_built() {
   setup
   cat > "$tmp/guard.py" <<'GUARD'
 import pathlib, subprocess, sys
 root = pathlib.Path(__file__).resolve().parents[2]
-if sys.argv[1:2] == ["check-stamp"]:
+if sys.argv[1:2] == ["source-stamp"]:
     ref = sys.argv[sys.argv.index("--ref") + 1]
-    read = subprocess.run(["git", "-C", str(root), "show", f"{ref}:schemas/settings-export/settings-schema.sources.sha256"],
-                          capture_output=True, text=True)
-    if read.returncode != 0:
-        print("note: the stamp is missing; the settings exports are not checked")
-        sys.exit(0)
-    sys.exit(0 if read.stdout.strip() == "fresh" else 1)
+    sys.stdout.write(subprocess.run(["git", "-C", str(root), "show", f"{ref}:settings-sources.txt"],
+                                    capture_output=True, text=True, check=True).stdout)
 GUARD
-  lane_commit "built files" "$shortcuts" "shortcuts old" "$snapshot" "snapshot old" "$stamp" "$1" \
+  lane_commit "built files" "$shortcuts" "shortcuts old" "$snapshot" "snapshot old" "$settings_src" "setting v1" \
     scripts/ci/defaults_guard.py "$(cat "$tmp/guard.py")"
   rm -rf "$tmp/bot"
   git clone -q --depth=1 -b feat "file://$tmp/remote.git" "$tmp/bot"
@@ -179,7 +175,7 @@ land_at() { # <actions made at> [env...]
 # 8. The run of 2026-10-21: CmuxNextActions moved during the run, the Mac job made the exports after
 #    it (T1). The exports land at the first push; the shortcuts and snapshot built at the run's
 #    commit wait there, and are made again on the tip from the exports that landed, and land too.
-setup_built fresh
+setup_built
 lane_commit "lane edits an action" "$actions_src" "action v2"
 made="$(remote_tip)"
 land_at "$made" > "$tmp/out" 2>&1 || fail "the files built from the exports did not land on the tip: $(cat "$tmp/out")"
@@ -189,19 +185,20 @@ land_at "$made" > "$tmp/out" 2>&1 || fail "the files built from the exports did 
 [[ "$(remote_show "$snapshot")" == "snapshot for surfaces new" ]] || fail "the snapshot was not made on the tip: $(remote_show "$snapshot")"
 grep -qx "CMUX_BASE_AUTOFIX_ACTION_EXPORTS_CURRENT=1" "$tmp/seen" || fail "the repair on the tip was not told the exports are current"
 
-# 9. The settings stamp is stale on the tip: the shortcuts land, the snapshot (it reads the settings
-#    exports too) waits, and the run fails so the next run repairs it.
-setup_built stale
-lane_commit "lane edits an action" "$actions_src" "action v2"
+# 9. The settings sources moved after the run's commit, and this run made no settings exports: the
+#    shortcuts land, the snapshot (it reads the settings exports too) waits, and the run fails so the
+#    next run repairs it.
+setup_built
+lane_commit "lane edits an action and a setting" "$actions_src" "action v2" "$settings_src" "setting v2"
 made="$(remote_tip)"
 if land_at "$made" > "$tmp/out" 2>&1; then fail "a run whose snapshot waits passed: $(cat "$tmp/out")"; fi
 [[ "$(remote_show "$shortcuts")" == "shortcuts for surfaces new, action v2" ]] || fail "the shortcuts did not land: $(remote_show "$shortcuts")"
-[[ "$(remote_show "$snapshot")" == "snapshot old" ]] || fail "the snapshot landed with stale settings exports"
+[[ "$(remote_show "$snapshot")" == "snapshot old" ]] || fail "the snapshot landed though the settings sources moved"
 grep -qF "$snapshot" "$tmp/out" || fail "the run does not name the waiting snapshot: $(cat "$tmp/out")"
 
 # 10. The actions area moved after T1: the exports land as progress, and what is built from them is
 #     made again on the tip from the exports committed there, so the two always match.
-setup_built fresh
+setup_built
 lane_commit "lane edits an action" "$actions_src" "action v2"
 made="$(remote_tip)"
 lane_commit "lane edits it again" "$actions_src" "action v3"
@@ -212,14 +209,14 @@ land_at "$made" > "$tmp/out" 2>&1 || fail "the progress and what is built from i
 
 # 11. Without ACTIONS_MADE_AT the run made no action exports (the CI target graph job calls this with
 #     none, and has no bun): nothing built from them is made on the tip; it waits and the run fails.
-setup_built fresh
+setup_built
 lane_commit "lane edits an action" "$actions_src" "action v2"
 if land_at "" > "$tmp/out" 2>&1; then fail "a run with no action exports made what is built from them: $(cat "$tmp/out")"; fi
 [[ "$(remote_show "$shortcuts")" == "shortcuts old" ]] || fail "the shortcuts were made in a run with no action exports"
 grep -q "ACTION_EXPORTS_CURRENT=1" "$tmp/seen" && fail "a run with no action exports told the repair they are current"
 
 # 11b. An unproven ACTIONS_MADE_AT still holds the exports, and what is built from them waits.
-setup_built fresh
+setup_built
 lane_commit "lane edits an action" "$actions_src" "action v2"
 if land_at "$(printf 'de%.0s' {1..20})" > "$tmp/out" 2>&1; then fail "exports made at an unknown commit passed"; fi
 [[ "$(remote_show "$surfaces")" == "surfaces old" ]] || fail "exports made at an unknown commit landed"
@@ -308,7 +305,7 @@ grep -qx "made at: $start" "$tmp/out" || fail "an unrelated move made it regener
 # 16. The run of 2026-10-21 (39633520123), end to end: the actions area moves during the regeneration
 #     and again before the push. The exports made at the run's commit land on the newest tip as
 #     progress, the shortcuts are made there from them, and the run passes; the next run catches up.
-setup_built fresh
+setup_built
 mac_clone
 mac_run once > "$tmp/out" 2>"$tmp/err" || fail "the Mac job failed on a moving tip: $(cat "$tmp/out" "$tmp/err")"
 [[ "$(cat "$tmp/count")" == 1 ]] || fail "the Mac job regenerated $(cat "$tmp/count") times"

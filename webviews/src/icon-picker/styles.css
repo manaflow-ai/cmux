@@ -131,7 +131,7 @@
 
 /* Menus (shared ui Menu): emoji and symbol glyphs before the label, counts as the shortcut. */
 .icon-menu-emoji {
-  width: 18px;
+  width: var(--cmux-menu-icon-size, 14px);
   font-family: "Apple Color Emoji", "Noto Color Emoji", sans-serif;
   font-size: 14px;
   line-height: 1;
@@ -400,7 +400,7 @@
   border-radius: 5px;
   border: 1px solid color-mix(in srgb, var(--page-text) 22%, transparent);
   color: var(--page-text-2);
-  font: 12px -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font: 12px var(--font-ui);
 }
 
 .icon-keycap + .icon-keycap {

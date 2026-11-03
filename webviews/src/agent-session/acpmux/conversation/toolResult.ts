@@ -16,6 +16,15 @@ export type ToolResult = {
   lang: "json" | "markdown" | "text";
 };
 
+export type ToolResultOptions = {
+  /// A web reader may return prose without Markdown punctuation. It still gets the readable
+  /// renderer; JSON and line-oriented logs remain mono even when the caller opts in.
+  markdown?: boolean;
+  kind?: string;
+  title?: string;
+  description?: string;
+};
+
 /// Outputs longer than this are shown as they are: parsing them would stall the pane.
 const MAX_PARSE_CHARS = 2_000_000;
 /// Envelopes inside envelopes (JSON text in a text block that is itself a result) are peeled this deep.
@@ -88,27 +97,101 @@ const isBlocks = (value: unknown): value is Block[] =>
 /// its image blocks as data URLs, each once, when they all go to the call's strip instead.
 type Peeled = { texts: string[]; rest: unknown[]; images?: string[] };
 
+type ImageScan = { sources: Set<string>; invalid: boolean };
+
+function imageSource(block: Block): string {
+  return `data:${String(block.mimeType)};base64,${String(block.data)}`;
+}
+
+/// Collect every image in an envelope, including envelopes nested in text, JSON-RPC results, and
+/// Codex output. One bad image or too many distinct images vetoes the whole strip, so the text and
+/// the strip always agree.
+function scanImages(value: unknown, depth: number, scan: ImageScan): boolean {
+  if (depth > MAX_DEPTH) return false;
+  if (isBlocks(value) || isBlock(value)) {
+    for (const block of (Array.isArray(value) ? value : [value]) as Block[]) scanBlockImages(block, depth, scan);
+    return true;
+  }
+  if (!isRecord(value)) return false;
+  if (
+    Array.isArray(value.content) &&
+    (value.content.length === 0 || isBlocks(value.content)) &&
+    onlyKeys(value, ["content", "structuredContent", "isError", "_meta"])
+  ) {
+    for (const block of value.content as Block[]) scanBlockImages(block, depth, scan);
+    return true;
+  }
+  if (("result" in value || "error" in value) && onlyKeys(value, ["result", "error", "_meta", "id", "jsonrpc"])) {
+    if (value.error !== undefined && value.error !== null) return true;
+    const result = value.result;
+    if (result !== undefined && result !== null) {
+      if (typeof result === "string") scanNestedText(result, depth + 1, scan);
+      else scanImages(result, depth + 1, scan);
+    }
+    return true;
+  }
+  if (typeof value.output === "string" && "metadata" in value && onlyKeys(value, ["output", "metadata"])) {
+    scanNestedText(value.output, depth + 1, scan);
+    return true;
+  }
+  return false;
+}
+
+function scanNestedText(text: string, depth: number, scan: ImageScan) {
+  const nested = parseJSONValue(text);
+  if (nested === undefined) return;
+  // A nested envelope with an unsafe number must stay byte-for-byte text, including its images.
+  if (losesNumbers(text)) {
+    if (peelEnvelope(nested)) scan.invalid = true;
+    return;
+  }
+  scanImages(nested, depth, scan);
+}
+
+function scanBlockImages(block: Block, depth: number, scan: ImageScan) {
+  if (block.type === "content") {
+    scanBlockImages(block.content as Block, depth + 1, scan);
+    return;
+  }
+  if (block.type === "image") {
+    const { data, mimeType } = block as { data: string; mimeType: string };
+    if (!/^image\/(png|jpeg|gif|webp)$/.test(mimeType) || data.length > MAX_IMAGE_CHARS) {
+      scan.invalid = true;
+      return;
+    }
+    scan.sources.add(imageSource(block));
+    if (scan.sources.size > MAX_TOOL_IMAGES) scan.invalid = true;
+    return;
+  }
+  if (block.type === "text") scanNestedText(block.text as string, depth + 1, scan);
+}
+
+function imageStrip(value: unknown): Set<string> {
+  const scan: ImageScan = { sources: new Set(), invalid: false };
+  scanImages(value, 0, scan);
+  return scan.invalid ? new Set() : scan.sources;
+}
+
 /// The image blocks among `blocks` as data URLs, each once, when every one can go to the call's
 /// strip: a PNG, JPEG, GIF or WebP under the size cap, at most `MAX_TOOL_IMAGES` different ones.
 /// Otherwise undefined, and every one stays JSON, as when the envelope holds no image.
-function stripImages(blocks: Block[]): string[] | undefined {
+function stripImages(blocks: Block[], allowed: ReadonlySet<string>): string[] {
   const images = new Set<string>();
   for (let block of blocks) {
     while (block.type === "content") block = block.content as Block;
-    if (block.type !== "image") continue;
-    const { data, mimeType } = block as { data: string; mimeType: string };
-    if (!/^image\/(png|jpeg|gif|webp)$/.test(mimeType) || data.length > MAX_IMAGE_CHARS) return undefined;
-    images.add(`data:${mimeType};base64,${data}`);
-    if (images.size > MAX_TOOL_IMAGES) return undefined;
+    if (block.type === "image") {
+      const source = imageSource(block);
+      if (allowed.has(source)) images.add(source);
+    }
   }
-  return images.size ? [...images] : undefined;
+  return [...images];
 }
 
 /// One block's text (a text resource's after its URI), nothing for an image in the strip, or the
 /// block itself as JSON.
 function peelBlock(block: Block, into: Peeled) {
   if (block.type === "content") return peelBlock(block.content as Block, into);
-  if (block.type === "image" && into.images) return;
+  if (block.type === "image" && into.images?.includes(imageSource(block))) return;
   const resource = block.resource as Record<string, unknown> | undefined;
   if (block.type === "text") into.texts.push(block.text as string);
   else if (
@@ -136,16 +219,20 @@ function repeated(texts: string[], structured: unknown): number {
 const says = (peeled: Peeled) => peeled.texts.some((text) => text.trim());
 
 /// The parts of `value` when it is an envelope a harness wrapped a result in, else undefined.
-/// `strip`: whether its images may go to the call's strip (only a plain MCP envelope's: its blocks,
-/// or a `CallToolResult`'s, never one inside a JSON-RPC result or inside text).
-export function peelEnvelope(value: unknown, depth = 0, strip = false): Peeled | undefined {
+/// `images`: the approved image sources that may go to the call's strip, including envelopes nested
+/// in text, JSON-RPC results, and Codex output.
+export function peelEnvelope(value: unknown, depth = 0, images?: ReadonlySet<string>): Peeled | undefined {
   if (depth > MAX_DEPTH) return undefined;
   // A list of content blocks, or one block. Blocks with no text to read (audio alone) stay JSON.
   if (isBlocks(value) || isBlock(value)) {
     const blocks = Array.isArray(value) ? value : [value];
-    const peeled: Peeled = { texts: [], rest: [], images: strip ? stripImages(blocks) : undefined };
+    const peeled: Peeled = {
+      texts: [],
+      rest: [],
+      images: images ? stripImages(blocks, images) : undefined,
+    };
     for (const block of blocks) peelBlock(block, peeled);
-    return says(peeled) || peeled.images ? peeled : undefined;
+    return says(peeled) || Boolean(peeled.images?.length) ? peeled : undefined;
   }
   if (!isRecord(value)) return undefined;
   // An MCP `CallToolResult`: its blocks, then its structured content as JSON. A text block that
@@ -156,7 +243,11 @@ export function peelEnvelope(value: unknown, depth = 0, strip = false): Peeled |
     onlyKeys(value, ["content", "structuredContent", "isError", "_meta"])
   ) {
     const blocks = value.content as Block[];
-    const peeled: Peeled = { texts: [], rest: [], images: strip ? stripImages(blocks) : undefined };
+    const peeled: Peeled = {
+      texts: [],
+      rest: [],
+      images: images ? stripImages(blocks, images) : undefined,
+    };
     for (const block of blocks) peelBlock(block, peeled);
     const structured = value.structuredContent;
     if (structured !== undefined && structured !== null) {
@@ -177,12 +268,15 @@ export function peelEnvelope(value: unknown, depth = 0, strip = false): Peeled |
       const { message, ...others } = error;
       if (!onlyKeys(others, ["code", "data"])) return { texts: [message], rest: [others] };
       // A `data` the error names, even null, follows it: only an absent one is left out.
-      return { texts: [message], rest: "data" in error && error.data !== undefined ? [error.data] : [] };
+      return {
+        texts: [message],
+        rest: "data" in error && error.data !== undefined ? [error.data] : [],
+      };
     }
     const result = value.result;
     if (result === undefined || result === null) return { texts: [], rest: [] };
     if (typeof result === "string") return { texts: [result], rest: [] };
-    return peelEnvelope(result, depth + 1) ?? { texts: [], rest: [result] };
+    return peelEnvelope(result, depth + 1, images) ?? { texts: [], rest: [result] };
   }
   // Codex's function call output: `{"output": "…", "metadata": {"exit_code": 0, …}}`.
   if (typeof value.output === "string" && "metadata" in value && onlyKeys(value, ["output", "metadata"]))
@@ -233,32 +327,131 @@ export function losesNumbers(printed: string): boolean {
   return false;
 }
 
-/// Markdown structure in a result's text: a heading, a fence, a list, a table or a quote line.
-const MARKDOWN = /^(?:#{1,6} \S|```|\s*(?:[-*+]|\d+\.) \S|\|.*\|\s*$|> \S)/m;
+/// Markdown structure in a result's text: a heading, a fence, a list, a table, a quote line or
+/// clear emphasis. Shell and log output never reaches this classifier; ToolRow keeps those mono.
+const MARKDOWN = /^(?:#{1,6} \S|```|\s*(?:[-*+]|\d+\.) \S|\|.*\|\s*$|> \S|.*(?:\*\*[^*\n]+\*\*|\*[^*\n]+\*).*)/m;
+const LOG_LINE = [
+  /^\s*\[(?:debug|info|warn|error|trace)\]/i,
+  /^\s*(?:\[[^\]]+\]\s*)?(?:debug|info|warn|error|trace)\b/i,
+  /^\s*(?:line|row|chunk|step|test|pass|fail)\s+\d+\b/i,
+  // A timestamp leading the line, bracketed or not: an ISO date and time, or a time of day.
+  /^\s*\[?(?:\d{4}-\d{2}-\d{2}[T ])?\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?\]?\s/,
+];
+const CODE_DECLARATION = new RegExp(
+  String.raw`^\s*(?:#!|from|import|def|class|const|let|var|function|return|if|for|while|` +
+    String.raw`try|except|async|await|export)\b`,
+  "m",
+);
+const CODE_ASSIGNMENT = /^\s*[A-Za-z_]\w*\s*=\s*[^=]/m;
+const DUNDER = /(?:^|[^\w])__\w+__(?=$|[^\w])/;
 /// Results longer than this stay plain text: Markdown is for a result someone reads.
 const MAX_MARKDOWN_CHARS = 20_000;
+
+/// A fence line: up to three spaces, then three or more backticks or tildes (CommonMark).
+const FENCE = /^ {0,3}(`{3,}|~{3,})/;
+
+/// `text` without the contents of its closed fenced code blocks, so a snippet a Markdown document
+/// quotes (a fenced `const` or `import`) is not read as the result being source. An unclosed fence
+/// keeps its lines: a file that merely starts with backticks is still checked as code.
+function outsideFences(text: string): string {
+  const lines = text.split("\n");
+  const kept: string[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const open = FENCE.exec(lines[index]!)?.[1];
+    if (!open) {
+      kept.push(lines[index]!);
+      continue;
+    }
+    const close = new RegExp(`^ {0,3}${open[0] === "`" ? "`" : "~"}{${open.length},}\\s*$`);
+    let end = index + 1;
+    while (end < lines.length && !close.test(lines[end]!)) end += 1;
+    if (end === lines.length) {
+      kept.push(lines[index]!);
+      continue;
+    }
+    index = end;
+  }
+  return kept.join("\n");
+}
+
+/// A stack frame or cause under a log line, indented or not.
+const LOG_FRAME = /^\s*(?:at\s|Caused by:|\.\.\.)/;
+
+/// Log output: the first line is a log line, every other line is one, a frame, or indented detail,
+/// and at least half are log lines or frames, so Markdown with indented code is not read as a log.
+function isLog(lines: string[]): boolean {
+  const isLine = (line: string) => LOG_LINE.some((pattern) => pattern.test(line));
+  if (!isLine(lines[0]!)) return false;
+  let logged = 0;
+  for (const line of lines) {
+    if (isLine(line) || LOG_FRAME.test(line)) logged += 1;
+    else if (!/^\s/.test(line)) return false;
+  }
+  return logged * 2 >= lines.length;
+}
+
+function isMarkdownText(text: string, web = false): boolean {
+  if (text.length > MAX_MARKDOWN_CHARS) return false;
+  const lines = text.split("\n").filter((line) => line.trim());
+  if (!lines.length || isLog(lines)) return false;
+  const prose = outsideFences(text);
+  if (CODE_DECLARATION.test(prose) || CODE_ASSIGNMENT.test(prose) || DUNDER.test(prose)) return false;
+  return web || MARKDOWN.test(text);
+}
 
 /// What an opened non-shell call shows of `output` (ToolRow.tsx), and what Find in Chat reads of it
 /// (chatFind.ts), so both see one text. `clean` drops what a host injected into the result's text
 /// (mcpCalls.ts `cleanText`), once it is out of its envelope. `strip`: whether the call's strip
 /// shows its envelope's images (toolImages.ts `stripsEnvelopeImages`), so its text leaves them out.
-export function toolResult(output: string, clean: (text: string) => string = identity, strip = false): ToolResult {
+export function toolResult(
+  output: string,
+  clean: (text: string) => string = identity,
+  strip = false,
+  options: ToolResultOptions = {},
+): ToolResult {
   const { text, lang } = read(output, clean, strip);
-  return { text, lang };
+  return formatResult({ text, lang }, options);
+}
+
+/// Text already cleaned by a caller (the MCP request/response reader): classify its format
+/// without peeling or rewriting it again. All output surfaces share this one format rule.
+export function formatToolText(text: string, options: ToolResultOptions = {}): ToolResult {
+  return formatResult({ text, lang: parseJSONValue(text) === undefined ? "text" : "json" }, options);
+}
+
+function formatResult({ text, lang }: ToolResult, options: ToolResultOptions): ToolResult {
+  if (lang === "json" || text.length > MAX_MARKDOWN_CHARS) return { text, lang };
+  if (options.kind === "execute") return { text, lang: "text" };
+  const webRead =
+    options.markdown ||
+    options.kind === "fetch" ||
+    /^\s*(?:fetch|web[\s._:-]*read)(?:\s|:|$)/i.test(options.title ?? "");
+  return {
+    text,
+    lang: isMarkdownText(text, lang === "markdown" || webRead) ? "markdown" : "text",
+  };
 }
 
 const identity = (text: string) => text;
 type Read = ToolResult & { images: string[] };
 
+function orderedImages(images: string[], allowed: ReadonlySet<string>): string[] {
+  if (!allowed.size) return images;
+  return [...allowed].filter((source) => images.includes(source));
+}
+
 function read(output: string, clean: (text: string) => string, strip: boolean): Read {
   const parsed = parseJSONValue(output);
   // Only an envelope the output is, as it came, gives its images to the strip, and never one holding
   // a number a double would change: that one shows as printed, its images included.
-  if (parsed !== undefined) return fromJSON(parsed, output, 0, clean, strip && !losesNumbers(output));
+  if (parsed !== undefined) {
+    const allowed = strip && !losesNumbers(output) ? imageStrip(parsed) : new Set<string>();
+    return fromJSON(parsed, output, 0, clean, allowed);
+  }
   // A host may have put its context around the JSON (a reminder after a result): read it again without.
   const cleaned = clean(output).replace(/\n$/, "");
   const reparsed = cleaned === output ? undefined : parseJSONValue(cleaned);
-  if (reparsed !== undefined) return fromJSON(reparsed, cleaned, 0, clean, false);
+  if (reparsed !== undefined) return fromJSON(reparsed, cleaned, 0, clean, new Set<string>());
   return { text: cleaned, lang: "text", images: [] };
 }
 
@@ -267,33 +460,55 @@ function fromJSON(
   printed: string,
   depth: number,
   clean: (text: string) => string,
-  strip: boolean,
+  allowed: ReadonlySet<string>,
 ): Read {
-  let peeled = depth < MAX_DEPTH && oneLine(printed) ? peelEnvelope(value, 0, strip) : undefined;
+  let peeled = depth < MAX_DEPTH && oneLine(printed) ? peelEnvelope(value, 0, allowed) : undefined;
   // An envelope with nothing in it shows as the JSON it is, and so does one whose other parts
   // cannot be printed again unchanged (a number a double rounds, nesting too deep).
-  if (peeled && !says(peeled) && !peeled.rest.length && !peeled.images) peeled = undefined;
+  if (peeled && !says(peeled) && !peeled.rest.length && !peeled.images?.length) peeled = undefined;
   if (peeled?.rest.length && (losesNumbers(printed) || !peeled.rest.every(printable))) peeled = undefined;
   // Its images, when the strip shows them: its text below leaves them out, so each shows once.
-  const images = peeled?.images ?? [];
+  let images = peeled?.images ?? [];
   if (peeled) {
-    const text = clean(peeled.texts.join("\n\n")).replace(/\n$/, "");
+    // A text block can itself hold an envelope while this envelope also has structured content.
+    // Remove only a nested envelope that actually contributed approved strip images; ordinary JSON
+    // text keeps its original spelling and formatting.
+    const textParts = peeled.texts.map((part) => {
+      const inner = parseJSONValue(part);
+      if (inner === undefined) return part;
+      const nested = fromJSON(inner, part, depth + 1, clean, allowed);
+      if (!nested.images.length) return part;
+      images = [...nested.images.filter((image) => !images.includes(image)), ...images];
+      return nested.text;
+    });
+    const text = clean(textParts.join("\n\n")).replace(/\n$/, "");
     if (peeled.rest.length) {
       // Text, then what the envelope held besides, each as the JSON it is: the payload, not a wrapper.
       const rest = peeled.rest.map((part) => JSON.stringify(part, null, 2) ?? "");
       const lang = text.trim() ? "text" : "json";
-      return { text: [text, ...rest].filter((part) => part.trim()).join("\n\n"), lang, images };
+      return {
+        text: [text, ...rest].filter((part) => part.trim()).join("\n\n"),
+        lang,
+        images: orderedImages(images, allowed),
+      };
     }
-    // The text inside is JSON again: an envelope in an envelope (its images stay JSON), or a JSON result.
+    // The text inside is JSON again: an envelope in an envelope, or a JSON result.
     const inner = parseJSONValue(text);
-    if (inner !== undefined) return { ...fromJSON(inner, text, depth + 1, clean, false), images };
-    const markdown = text.length <= MAX_MARKDOWN_CHARS && MARKDOWN.test(text);
-    return { text, lang: markdown ? "markdown" : "text", images };
+    if (inner !== undefined) {
+      const nested = fromJSON(inner, text, depth + 1, clean, allowed);
+      return { ...nested, images: orderedImages([...nested.images, ...images], allowed) };
+    }
+    const markdown = isMarkdownText(text);
+    return { text, lang: markdown ? "markdown" : "text", images: orderedImages(images, allowed) };
   }
   // JSON the tool returned. On one line it is indented, unless that would change it (a number a
   // double rounds) or it is nested too deep; printed on lines (a file it read) it stays as printed.
   const asPrinted = !oneLine(printed) || losesNumbers(printed) || deeperThan(value, MAX_PRETTY_DEPTH);
-  return { text: asPrinted ? printed.replace(/\n$/, "") : JSON.stringify(value, null, 2), lang: "json", images: [] };
+  return {
+    text: asPrinted ? printed.replace(/\n$/, "") : JSON.stringify(value, null, 2),
+    lang: "json",
+    images: [],
+  };
 }
 
 const imagesCache = new Map<string, string[]>();
@@ -302,7 +517,7 @@ const imagesCache = new Map<string, string[]>();
 /// true)` leaves out of its text (which `clean` never changes). Kept for the last few outputs, so a
 /// transcript re-render parses nothing again.
 export function envelopeImages(output: string | undefined): string[] {
-  if (!output || !output.includes("image")) return [];
+  if (!output) return [];
   const known = imagesCache.get(output);
   if (known) return known;
   const images = read(output, identity, true).images;

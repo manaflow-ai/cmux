@@ -1179,6 +1179,137 @@
           }
         }
       }
+    },
+    "keybinding.error.familyNeedsDigit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A numbered shortcut takes a digit: press 1 with the modifiers you want."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "番号付きのショートカットには数字が必要です。使いたい修飾キーと一緒に 1 を押してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يحتاج الاختصار المرقّم إلى رقم: اضغط 1 مع مفاتيح التعديل التي تريدها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Numerisana prečica traži cifru: pritisnite 1 s modifikatorima koje želite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En nummereret genvej skal have et ciffer: tryk på 1 med de ændringstaster, du vil bruge."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein nummerierter Kurzbefehl braucht eine Ziffer: Drücke 1 mit den gewünschten Sondertasten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un atajo numerado necesita un dígito: pulsa 1 con los modificadores que quieras."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un raccourci numéroté demande un chiffre : appuyez sur 1 avec les modificateurs voulus."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una scorciatoia numerata richiede una cifra: premi 1 con i modificatori che vuoi."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្លូវកាត់ដែលមានលេខត្រូវការលេខ៖ ចុច 1 ជាមួយគ្រាប់ចុចកែប្រែដែលអ្នកចង់បាន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "번호 단축키에는 숫자가 필요합니다. 원하는 보조 키와 함께 1을 누르세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En nummerert snarvei trenger et siffer: trykk 1 med modifikatortastene du vil ha."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skrót numerowany wymaga cyfry: naciśnij 1 z wybranymi modyfikatorami."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um atalho numerado precisa de um dígito: pressione 1 com os modificadores que quiser."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нумерованному сочетанию нужна цифра: нажмите 1 с нужными модификаторами."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปุ่มลัดแบบตัวเลขต้องใช้ตัวเลข: กด 1 พร้อมปุ่มปรับแต่งที่ต้องการ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Numaralı kısayol bir rakam ister: istediğiniz değiştirici tuşlarla 1'e basın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нумерованому поєднанню потрібна цифра: натисніть 1 з потрібними модифікаторами."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phím tắt đánh số cần một chữ số: nhấn 1 cùng các phím bổ trợ bạn muốn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "编号快捷键需要数字：按下 1 和你想要的修饰键。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "編號快速鍵需要數字：按下 1 和你想要的輔助鍵。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

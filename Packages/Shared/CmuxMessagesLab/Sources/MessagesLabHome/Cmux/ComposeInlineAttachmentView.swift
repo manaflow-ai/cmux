@@ -73,6 +73,25 @@ final class ComposeInlineAttachmentView: NSView {
     override func mouseExited(with event: NSEvent) { showsRemove = false }
     override func resetCursorRects() { addCursorRect(bounds, cursor: .arrow) }
 
+    /// Right-click: the picture's or file's own rows (Copy, Save As…, Open in Default App; the shared
+    /// ``HomeContentMenu``) and Remove Attachment. The draft's file comes from the field that holds this view.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let attachment else { return nil }
+        var field: NSView? = superview
+        while let v = field, !(v is FieldTextView) { field = v.superview }
+        let lookup = (field as? FieldTextView)?.draftAttachmentFile
+        let id = attachment.attachmentID
+        let resolve: @MainActor @Sendable () async -> URL? = { lookup?(id) }
+        let menu = NSMenu()
+        HomeContentMenu(attachmentRows: HomeAttachmentRows(window: window))
+            .attachmentItems(name: attachment.model.fileName, resolve: resolve) {
+                if let file = lookup?(id) { NSWorkspace.shared.open(file) }
+            }.forEach(menu.addItem)
+        menu.addItem(.separator())
+        menu.addItem(MenuAction(title: CmuxStrings.removeAttachment, symbol: "xmark.circle") { [weak self] in self?.removeClicked() })
+        return menu
+    }
+
     @objc func removeClicked() {
         guard let attachment else { return }
         attachment.onRemove(attachment.attachmentID)
@@ -94,7 +113,7 @@ final class ComposeInlineAttachmentView: NSView {
         addSubview(icon)
         let name = NSTextField(labelWithString: ComposeAttachmentStrip.fit(a.fileName, ComposeAttachmentStrip.nameFont, bounds.width - 60))
         name.font = ComposeAttachmentStrip.nameFont
-        name.textColor = Fixture.incomingText
+        name.textColor = Fixture.composeText
         let kind = NSTextField(labelWithString: ComposeAttachmentStrip.fit(ComposeAttachmentStrip.kindText(a), ComposeAttachmentStrip.kindFont, bounds.width - 60))
         kind.font = ComposeAttachmentStrip.kindFont
         kind.textColor = Fixture.secondaryText

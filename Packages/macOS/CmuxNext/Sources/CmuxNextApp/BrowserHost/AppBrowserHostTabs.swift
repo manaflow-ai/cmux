@@ -1,6 +1,7 @@
 import CmuxNextBrowser
 import CmuxNextBrowserAutomation
 import CmuxNextBrowserHost
+import CmuxNextBrowserTabs
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
@@ -255,7 +256,7 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     func endSessionTab(_ id: String) async -> Bool {
         guard let services, let tab = localBrowserTabs.first(where: { $0.model.id == id })?.model else { return false }
         let daemon = services.daemon
-        guard daemon.supports(DaemonCapabilities.closeReason) else { return false }
+        guard daemon.supports(DaemonCapability.closeReason.rawValue) else { return false }
         let surface = tab.surface
         let cache: TabContentCache = services.cache
         // One store close; the page goes with it, as after a person's close.

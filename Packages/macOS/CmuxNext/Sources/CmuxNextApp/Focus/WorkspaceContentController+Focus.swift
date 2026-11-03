@@ -14,11 +14,16 @@ extension WorkspaceContentController {
         focus.topologySent(by: self)
         #if DEBUG
         DebugLayoutCounters.topologySends &+= 1
+        debugTopologySends &+= 1
         DebugLayoutCounters.note("topology", file, line)
         #endif
         focus.send(.topology(focusTopology()))
         rekeySurfaceWait() // a tab this topology adds may be the one a surface wait names
     }
+
+    /// Maps each pane strip that lags its record (a tab moved out or in) inside this apply, before its one topology:
+    /// else a moved tab stayed listed in its old pane a job longer and focus did not follow it (dogfood v2.1).
+    func syncStaleStrips() { for pane in panes.values where pane.stripIsStale { pane.syncStripFromStore() } }
 
     /// Topologies name tabs by id only: a wait by a daemon surface takes its tab's id (same target, pane, generation)
     /// once the store has it: at each topology send (a new tab) and at a split's confirm (`terminalConfirmed`).
@@ -36,6 +41,7 @@ extension WorkspaceContentController {
             guard let self, !self.isParked, !self.isApplying else { return nil }
             #if DEBUG
             DebugLayoutCounters.topologySends &+= 1
+            self.debugTopologySends &+= 1
             DebugLayoutCounters.note("topology", file, line)
             #endif
             self.rekeySurfaceWait() // lands on this topology when it adds the tab (the reducer keeps the wait)
@@ -96,6 +102,13 @@ extension WorkspaceContentController {
     /// Starts a user intent whose result lands later.
     func beginFocusIntent() -> UInt64 { focus.beginIntent() }
 
+    /// A close cancelled a pending split (`CancelledCreation`): the store took its stand-in out in this turn, so the window
+    /// shows that now, not at its store observation a turn later, and the focus reducer gives the stand-in's successor
+    /// (the pane it was split from) the focus at once: the next key never acts on the closed stand-in (P0 STATUS 1584).
+    func showCancelledCreation() {
+        if panes.values.contains(where: { daemon.store.pane($0.pane.handle) == nil }) { applyCurrent() }
+    }
+
     /// Focuses `surface` once the daemon reports it, unless the user acted
     /// after `generation` (nil: app-driven, no intent). `awayFrom`: only
     /// once it left that pane (a tab created there and moved away).
@@ -128,6 +141,9 @@ extension FocusTopology.Kind {
 }
 
 extension PaneController {
+    /// The strip lags the pane record's tabs (a tab moved out or in since its last apply).
+    var stripIsStale: Bool { !isSuspended && !pane.tabs.lazy.map(\.id).elementsEqual(appliedRecordTabs) }
+
     /// This pane as the focus topology sees it: strip order (pending closes
     /// hidden, session browser tabs included) and the selected tab.
     var focusPane: FocusTopology.Pane {

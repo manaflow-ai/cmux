@@ -47,8 +47,8 @@ assert titles == [
 ], titles
 entries = notes["whatsNew"]["entries"]
 assert [(e["title"]["en"], e["summary"]["en"]) for e in entries] == [
-    ("A column's tab bar lays out for where its pane rests", "Never pinned to the traffic lights while the camera scrolls"),
-    ("Terminals in the keep-alive band keep drawing", "So a column scrolled in is never blank"),
+    ("A column's tab bar lays out for where its pane rests", "Never pinned to the traffic lights while the camera scrolls."),
+    ("Terminals in the keep-alive band keep drawing", "So a column scrolled in is never blank."),
 ], entries
 assert not any("…" in e["title"]["en"] for e in entries)
 print("ok")

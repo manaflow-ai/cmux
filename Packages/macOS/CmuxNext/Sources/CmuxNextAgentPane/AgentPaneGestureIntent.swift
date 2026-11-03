@@ -25,7 +25,10 @@ public nonisolated enum AgentPaneJSONScalar: Equatable, Sendable {
 /// user sent that acpmux held for the folder trust answer,
 /// `{intent: {method: "session/prompt", params: {promptId}}}`: the send's own gesture, kept for that
 /// one prompt (its `_meta.acpmux.promptId`), so the Trust click's gesture goes to the trust answer.
-/// Nothing else.
+/// A permission answer's intent names its session, prompt and option, and a question's `answers`
+/// and `annotations` (objects) when it has them: the ticket is then for exactly those, compared by
+/// the sha256 of their canonical JSON bytes (``AcpmuxSecretKey/canonicalDigest(_:)``), never by
+/// `String` equality, which counts canonically equivalent Unicode as equal. Nothing else.
 public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
     /// The methods a ticket may be redeemed by, and the exact param keys of their intent.
     public static let methods: [String: Set<String>] = [
@@ -37,6 +40,20 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
         "_acpmux/permission_respond": ["sessionId", "permissionId", "optionId"],
     ]
 
+    /// Intent params a method may add to its keys: objects, each held as its canonical digest. A
+    /// question's answers and annotations, so a ticket taken for one answer never redeems another.
+    public static let objectKeys: [String: Set<String>] = [
+        "_acpmux/permission_respond": ["answers", "annotations"],
+    ]
+
+    /// Intent params a method may add that bind the ticket without being part of its pick: a
+    /// send's chat (`sessionId`). A send ticket bound to a chat is the one ticket an upload of that
+    /// send may hold (``AgentPaneUserGestures/holdForUpload(_:upload:connection:sessionId:promptId:)``),
+    /// and only a prompt to that chat redeems it.
+    public static let bindingKeys: [String: Set<String>] = [
+        "session/prompt": ["sessionId"],
+    ]
+
     /// How long a ticket waits for its frame: a pick held while a harness starts, or a prompt held
     /// while the user answers the folder trust question.
     public var lifetime: TimeInterval {
@@ -45,6 +62,8 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
 
     public var method: String
     public var params: [String: AgentPaneJSONScalar]
+    /// The chat a send ticket is for (``bindingKeys``); nil when the intent names none.
+    public var sessionId: String?
 
     /// The intent of `transport.gesture`'s params, nil when they break the contract (a missing or
     /// unknown method, an unknown or missing intent param, a value that is not a scalar, or any
@@ -53,21 +72,47 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
         guard let gestureParams, Set(gestureParams.keys) == ["intent"],
               let intent = gestureParams["intent"] as? [String: Any], Set(intent.keys) == ["method", "params"],
               let method = intent["method"] as? String, let keys = Self.methods[method],
-              let raw = intent["params"] as? [String: Any], Set(raw.keys) == keys else { return nil }
+              let raw = intent["params"] as? [String: Any], keys.isSubset(of: raw.keys),
+              Set(raw.keys).subtracting(keys).isSubset(of: (Self.objectKeys[method] ?? []).union(Self.bindingKeys[method] ?? []))
+        else { return nil }
         var params: [String: AgentPaneJSONScalar] = [:]
         for (key, value) in raw {
+            if Self.bindingKeys[method]?.contains(key) == true {
+                guard let session = value as? String, !session.isEmpty else { return nil }
+                sessionId = session
+                continue
+            }
+            if !keys.contains(key) {
+                // A question's answers or annotations: an object, by its canonical digest.
+                guard value is [String: Any], let digest = AcpmuxSecretKey.canonicalDigest(value) else { return nil }
+                params[key] = .string(digest)
+                continue
+            }
             guard let scalar = AgentPaneJSONScalar(value) else { return nil }
             params[key] = scalar
+        }
+        // A Cloud hand-off labels the same prompt `handoff-<turn>-<id>` on the wire. Keep the
+        // ticket bound to the prompt's own id so its early reservation still redeems after that
+        // label is assigned, while a doubly labelled id remains distinct.
+        if method == "session/prompt", case .string(let id)? = params["promptId"] {
+            params["promptId"] = .string(AgentPaneHandoffPrompt(id: id).ownID)
         }
         self.method = method
         self.params = params
     }
 
     /// What a newer reserve on the same connection revokes: one ticket for set_mode, one per
-    /// config option for set_config_option (a switch's model and effort picks keep theirs).
+    /// config option, one per prompt id and one per permission ask. A rapid later Enter must not
+    /// revoke an earlier prompt's proof before its frame reaches the relay, nor an answer to a
+    /// second ask the first ask's answer (that one went out unproved and a remote acpmux refused
+    /// it, 2026-10-21).
     public var slot: String {
-        guard method == "session/set_config_option", case .string(let config)? = params["configId"] else { return method }
-        return method + "#" + config
+        switch (method, params["configId"], params["promptId"], params["permissionId"]) {
+        case ("session/set_config_option", .string(let config)?, _, _): return method + "#" + config
+        case ("session/prompt", _, .string(let promptId)?, _): return method + "#" + promptId
+        case ("_acpmux/permission_respond", _, _, .string(let permissionId)?): return method + "#" + permissionId
+        default: return method
+        }
     }
 
     /// Whether a frame is the pick: the same method, and its params minus `sessionId` and `_meta`
@@ -79,7 +124,48 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
     /// Whether a frame's pick (taken off the main thread) is this intent's exact pick.
     public func matches(_ pick: AgentPaneGesturePick?) -> Bool {
         guard let pick, pick.method == method else { return false }
+        if method == "session/set_config_option",
+           let expected = params["configId"], let actual = pick.params?["configId"],
+           configOptionIDsEquivalent(expected, actual) {
+            var expectedParams = params
+            var actualParams = pick.params ?? [:]
+            expectedParams.removeValue(forKey: "configId")
+            actualParams.removeValue(forKey: "configId")
+            if let expectedValue = expectedParams["value"], let actualValue = actualParams["value"],
+               configOptionValuesEquivalent(expected, expectedValue, actualValue) {
+                actualParams["value"] = expectedValue
+            }
+            return expectedParams == actualParams
+        }
         return pick.params == params
+    }
+
+    /// New chats hold effort and Fast picks before the harness tells us the option's id. Those
+    /// ids are aliases for the same user-facing option, so a ticket taken for the held spelling
+    /// must redeem when the opened session reports its spelling.
+    private func configOptionIDsEquivalent(_ lhs: AgentPaneJSONScalar, _ rhs: AgentPaneJSONScalar) -> Bool {
+        guard case .string(let left) = lhs, case .string(let right) = rhs else { return false }
+        if left == right { return true }
+        let effort = Set(["effort", "reasoning_effort"])
+        if effort.contains(left), effort.contains(right) { return true }
+        let fast = Set(["fast", "fast_mode", "fast-mode"])
+        return fast.contains(left) && fast.contains(right)
+    }
+
+    /// Fast-mode adapters use different spellings for enabled. Treat those spellings as the same
+    /// user-facing pick when the option id is one of Fast's aliases.
+    private func configOptionValuesEquivalent(
+        _ configID: AgentPaneJSONScalar,
+        _ lhs: AgentPaneJSONScalar,
+        _ rhs: AgentPaneJSONScalar
+    ) -> Bool {
+        guard case .string(let id) = configID,
+              ["fast", "fast_mode", "fast-mode"].contains(id),
+              case .string(let left) = lhs,
+              case .string(let right) = rhs
+        else { return false }
+        let enabled = Set(["on", "true", "fast", "enabled"])
+        return enabled.contains(left) && enabled.contains(right)
     }
 }
 
@@ -94,17 +180,30 @@ public nonisolated struct AgentPaneGesturePick: Equatable, Sendable {
         self.method = method
         if method == "session/prompt" {
             let acpmux = (params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
-            self.params = (acpmux?["promptId"] as? String).map { ["promptId": .string($0)] }
+            self.params = (acpmux?["promptId"] as? String).map {
+                ["promptId": .string(AgentPaneHandoffPrompt(id: $0).ownID)]
+            }
             return
         }
-        // A permission answer's pick names its session too (the ticket binds the prompt).
+        // A permission answer's pick names its session too (the ticket binds the prompt), and a
+        // question's answers and annotations by their canonical digest (the ticket binds them too).
         if method == "_acpmux/permission_respond" {
             guard let session = params["sessionId"] as? String, let permission = params["permissionId"] as? String,
-                  let option = params["optionId"] as? String, params["answers"] == nil else {
+                  let option = params["optionId"] as? String else {
                 self.params = nil
                 return
             }
-            self.params = ["sessionId": .string(session), "permissionId": .string(permission), "optionId": .string(option)]
+            var pick: [String: AgentPaneJSONScalar] = ["sessionId": .string(session), "permissionId": .string(permission),
+                                                       "optionId": .string(option)]
+            for key in AgentPaneGestureIntent.objectKeys["_acpmux/permission_respond"] ?? [] {
+                guard let value = params[key], !(value is NSNull) else { continue }
+                guard value is [String: Any], let digest = AcpmuxSecretKey.canonicalDigest(value) else {
+                    self.params = nil
+                    return
+                }
+                pick[key] = .string(digest)
+            }
+            self.params = pick
             return
         }
         var scalars: [String: AgentPaneJSONScalar] = [:]

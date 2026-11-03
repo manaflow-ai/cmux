@@ -9,12 +9,39 @@ import importlib.util
 import json
 import os
 import re
+import sys
+import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 spec = importlib.util.spec_from_file_location("perf_budgets", os.path.join(ROOT, "scripts/cmux-next/perf-budgets.py"))
 pb = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pb)
+
+
+class ScrollPlanTests(unittest.TestCase):
+    def test_scroll_parameters_reach_both_native_runners_without_running_them(self):
+        for flags, rows, seconds, target in (
+            ([], "5000", "3", None),
+            (["--acp-rows", "3000", "--acp-fling-seconds", "15", "--scroll-target-hz", "120"],
+             "3000", "15.0", "120.0"),
+        ):
+            with self.subTest(flags=flags), tempfile.TemporaryDirectory() as out:
+                args = ["perf-budgets.py", "--tag", "test", "--app", "/unused.app", "--out", out,
+                        "--only", "acp,sidebar", *flags]
+                with patch.object(sys, "argv", args), patch.object(pb, "run_phase") as run, patch.object(pb, "finish"):
+                    pb.main()
+                plan = run.call_args.args[2]
+                acp = plan["acp"][0]
+                self.assertEqual(acp[acp.index("--rows") + 1], rows)
+                self.assertEqual(acp[acp.index("--fling-seconds") + 1], seconds)
+                for name in ("acp", "sidebar"):
+                    command = plan[name][0]
+                    if target is None:
+                        self.assertNotIn("--target-hz", command)
+                    else:
+                        self.assertEqual(command[command.index("--target-hz") + 1], target)
 
 
 class GateTests(unittest.TestCase):
@@ -32,6 +59,19 @@ class GateTests(unittest.TestCase):
         rows = [{"name": "a", "p95": 9.0, "budget": 8.33}, {"name": "b", "p95": 8.0, "budget": 8.33},
                 {"name": "c", "p95": None, "budget": 8.33}]
         self.assertEqual(pb.over_budget(rows), ["a"])
+
+    def test_incomplete_rows_fails_for_missing_current_and_manifest_families(self):
+        rows = [{"name": "panes.split.4x2.frame", "p95": None},
+                {"name": "home.scroll.frame", "p95": 8.0}]
+        baseline = {"panes.split.4x2.frame": 8.0}
+        manifest = {"panes": [r"panes\..*\.frame"], "home": [r"home\.typing\.key_dispatch", r"home\.scroll\.frame"]}
+        missing = pb.incomplete_rows(rows, baseline, manifest, ["panes", "home"])
+        self.assertEqual([item["name"] for item in missing], ["panes.split.4x2.frame", r"home\.typing\.key_dispatch"])
+
+    def test_incomplete_rows_is_empty_for_measured_manifest(self):
+        rows = [{"name": "panes.split.4x2.frame", "p95": 8.0}]
+        self.assertEqual(pb.incomplete_rows(rows, {"panes.split.4x2.frame": 8.0},
+                                             {"panes": [r"panes\..*\.frame"]}, ["panes"]), [])
 
 
 class MappingTests(unittest.TestCase):

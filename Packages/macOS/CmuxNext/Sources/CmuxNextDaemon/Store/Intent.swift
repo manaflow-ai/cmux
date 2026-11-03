@@ -14,8 +14,20 @@ public enum Intent: Sendable, Hashable {
     case renameTab(surface: SurfaceID, name: String?)
     /// `set-tab-pinned`.
     case setTabPinned(surface: SurfaceID, pinned: Bool)
+    /// `rename-pane`; nil or empty clears the name (shown as nil).
+    case renamePane(pane: PaneID, name: String?)
+    /// `rename-screen`; nil or empty clears the name (shown as nil).
+    case renameScreen(screen: ScreenID, name: String?)
+    /// `set-screen-metadata` with `color` (a palette token); nil clears it.
+    case setScreenColor(screen: ScreenID, color: String?)
+    /// `set-screen-metadata` with `icon` (an SF Symbol name or one emoji); nil clears it.
+    case setScreenIcon(screen: ScreenID, icon: String?)
+    /// `set-screen-pinned`.
+    case setScreenPinned(screen: ScreenID, pinned: Bool)
     /// `rename-workspace`.
     case renameWorkspace(key: WorkspaceKey, name: String)
+    /// `workspace.update` / `set-workspace-metadata` with `color` (a palette name); nil clears it.
+    case setWorkspaceColor(key: WorkspaceKey, color: String?)
     /// `move-workspace`: to final daemon-order `index` (clamped).
     case moveWorkspace(key: WorkspaceKey, index: Int)
     /// `move-workspace-to-group` without an index: into `group` (nil
@@ -57,6 +69,20 @@ public enum Intent: Sendable, Hashable {
     /// them, or a snapshot), or come back when the close fails. One mechanism with the creates,
     /// so a reply that beats its `tab-closed` event never shows the tab again (tab-spam-race).
     case closeTabs(surfaces: [SurfaceID])
+    /// `move-tab-to-column {dock, respawn, pane_id}` (`tab-column-client-pane-v1`): a pane's only
+    /// tab `surface` moves into a new dock column under `provisional`'s client-minted pane id, and
+    /// `pane` shows `standIn` (its fresh tab's stand-in) until the daemon's fresh tab arrives. It
+    /// shows in the input's turn until the daemon's layout places the pane with that id or the
+    /// move is refused (``ProvisionalDock``).
+    case dockTab(surface: SurfaceID, pane: PaneID, provisional: ProvisionalPane, dock: DockSnapshot, standIn: TabSnapshot?)
+
+    /// The provisional pane a split or a dock shows until the daemon's pane with its public id.
+    var provisionalPane: ProvisionalPane? {
+        switch self {
+        case .splitPane(_, _, _, let provisional), .dockTab(_, _, let provisional, _, _): provisional
+        default: nil
+        }
+    }
 }
 
 /// One row's height in permille (`set-row-heights` `heights[]`).

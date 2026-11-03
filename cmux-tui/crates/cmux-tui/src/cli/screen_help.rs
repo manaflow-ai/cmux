@@ -33,12 +33,17 @@ that `cmux closed reopen` restores whole; it keeps pinned screens unless
 column update --pinned true makes a docked column the pinned dock (Home's):
 its first tab stays and it is never undocked; it takes no other tab unless
 --allow-tabs true. Pinning is one way.
-Pinned screens sort first and leave their group. Group colors: grey, blue,
-red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. A group
+Pinned screens sort first and leave their group. A group has no color until
+one is given: grey, blue, red, yellow, green, pink, purple, cyan, orange, a
+custom #RRGGBB, or none. A group
 icon is one emoji, an SF Symbol name, or a stored image:sha256-<hex> or
 svg:sha256-<hex> asset; --clear-icon removes it.
 
 SELECTORS
-  <selector> is an id (screen_…), current, or an exact name. Prefix name:
-  to a name that looks like an id or a command word.
+  <selector> is an id (screen_…), caller, current, or an exact name. Prefix
+  name: to a name that looks like an id or a command word.
+  caller is the object this command runs in: the cmux terminal or agent chat
+  it was started from (`cmux identify` reports it). current is that same
+  object when cmux knows the caller, and the focused one otherwise (a shell
+  outside cmux, or --socket/--session, where caller is refused).
 ";

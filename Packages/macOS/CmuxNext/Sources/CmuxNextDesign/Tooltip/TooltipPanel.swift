@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 
 /// The tooltip's ink and legibility tint, read in the panel's theme scope.
 struct TooltipStyle {
@@ -36,7 +37,7 @@ struct TooltipStyle {
 final class TooltipPanel: NSPanel {
     static let maxWidth: CGFloat = 320
     static let padding = NSSize(width: 8, height: 4)
-    static let radius: CGFloat = 5
+    static let radius: CGFloat = SurfaceRole.tooltip.cornerRadius ?? 5
     /// Room around the surface for its shadow.
     static let margin: CGFloat = 3
     /// How far the surface rises as it fades in.
@@ -63,7 +64,7 @@ final class TooltipPanel: NSPanel {
     private(set) var isFadingOut = false
 
     init() {
-        glass = Glass.makeOverlayPanel(cornerRadius: Self.radius, interactive: false)
+        glass = Glass.makeSurface(.tooltip, cornerRadius: Self.radius, interactive: false)
         // The glass is its clear window's whole content: before macOS 26 its blur samples what is
         // behind the window (the page, a terminal), as its Liquid Glass refracts it.
         glass.samplesBehindWindow = true
@@ -210,9 +211,7 @@ final class TooltipPanel: NSPanel {
         isFadingOut = true
         layer.removeAnimation(forKey: "transform.translation.y")
         CATransaction.begin()
-        CATransaction.setCompletionBlock { [weak self] in
-            MainActor.assumeIsolated { self?.fadedOut(fading) } // main-proof: CATransaction.h: the completion block is called on the main thread
-        }
+        CATransaction.setMainCompletion { [weak self] in self?.fadedOut(fading) }
         Motion.hoverCards.set(layer, "opacity", to: Float(0), fade: .fadeOut, from: layer.presentation()?.opacity ?? layer.opacity)
         CATransaction.commit()
     }

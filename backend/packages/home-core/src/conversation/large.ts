@@ -1,5 +1,5 @@
 import type { RowReader, RowWrite } from "./engine-types.ts"
-import { mentionsOf, previewOf } from "./fanout.ts"
+import { mentionsOf, previewOf, rowKind } from "./fanout.ts"
 import type { OpRequest } from "./request.ts"
 import { TABLE_MSG, UNREAD_RECOUNT_LIMIT } from "./tables.ts"
 import type { ConversationHead, ConversationKind, Message, Op, Participant } from "./types.ts"
@@ -315,7 +315,7 @@ export const inboxViewFor = (head: ConversationHead, rows: RowReader, user: stri
   const named = author && !head.participants.some((participant) => participant.id === author.id) ? { ...head, participants: [...head.participants, author] } : head
   return {
     conversation: head.id,
-    kind: head.kind ?? "group",
+    kind: rowKind(head, user),
     title: head.title,
     rev: head.rev,
     last_seq: head.last_seq,

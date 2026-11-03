@@ -3,9 +3,10 @@ public import CmuxNextDesign
 /// How the update card draws its Automatic Updates control (Debug Settings
 /// `sidebar.updateCard.automaticControl`). Leo 2026-10-20: the filled
 /// checkbox read as an unstyled native one; the default is a compact themed
-/// switch at the end of the row, the label at the card's text edge.
+/// switch at the card's text edge with the label after it (Leo 2026-10-22:
+/// "he preferred the checkbox on the left").
 public nonisolated enum SidebarUpdateToggleLook: String, Sendable, CaseIterable, Hashable, TunableChoice {
-    /// A small switch in the theme's accent, right-aligned with the button (the default).
+    /// A small switch in the theme's accent, in front of its label (the default).
     case switchControl = "switch"
     /// The earlier themed checkbox in front of the label.
     case checkbox

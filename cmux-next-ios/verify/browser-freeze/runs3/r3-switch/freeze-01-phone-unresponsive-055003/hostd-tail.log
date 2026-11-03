@@ -1,0 +1,75 @@
+2026-10-24T05:48:56.767017Z DEBUG cmux_mobile_link::dial::wireguard: peer confirmed our datagrams reach it direct=Some(Route { carrier: Udp, addr: 104.30.136.12:57760 })
+2026-10-24T05:48:56.782188Z  INFO cmux_mobile_host::host: link up session_id="d467ae4d-764b-4a83-afd1-6055da6bef55" kind=WireGuard path=Turn phone="07d3d268-ebfe-4601-af11-a32bd5d268cd" video=true timings=offer_received=0.0ms ice_servers_cached=0.0ms video_lane=120.2ms link_ready=120.2ms
+2026-10-24T05:48:56.782262Z  INFO cmux_mobile_host::host: link path changed session_id="d467ae4d-764b-4a83-afd1-6055da6bef55" path=Turn
+2026-10-24T05:48:56.786592Z  INFO cmux_mobile_host::host: first channel session_id="d467ae4d-764b-4a83-afd1-6055da6bef55" timings=offer_received=0.0ms ice_servers_cached=0.0ms video_lane=120.2ms link_ready=120.2ms first_channel=124.6ms
+2026-10-24T05:48:56.786633Z  INFO cmux_mobile_host::services: channel opened service="daemon" channel=3 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T05:48:56.786645Z  INFO cmux_mobile_host::services: channel opened service="auth" channel=1 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T05:48:56.797723Z DEBUG cmux_mobile_link::link: input lane attached role=Mac
+2026-10-24T05:48:56.868323Z  INFO cmux_mobile_host::services: channel opened service="browser" channel=5 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T05:48:56.868416Z  INFO cmux_mobile_host::browser: browser: stopping the least recently used host tab="new-8d5e7da6-t1"
+2026-10-24T05:48:56.870231Z  INFO cmux_mobile_host::services: channel opened service="acpmux" channel=9 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T05:48:56.871034Z  INFO cmux_mobile_host::services: channel opened service="version" channel=7 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T05:48:56.956764Z  INFO cmux_mobile_host::services: channel opened service="daemon" channel=11 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T05:48:57.012517Z  INFO cmux_mobile_host::browser: browser: host started tab="s148" addr=127.0.0.1:49527
+2026-10-24T05:48:57.012757Z  INFO cmux_mobile_host::browser: browser: video on the link's media lane
+2026-10-24T05:48:57.018062Z  INFO cmux_mobile_host::services: channel opened service="chief" channel=13 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T05:48:57.027110Z  INFO cmux_mobile_host::media_session: media session up session_id="08a7d072-d8b4-422a-8568-e12913559be3" link_session="d467ae4d-764b-4a83-afd1-6055da6bef55" path=Direct timings=media_offer_received=0.0ms pc_created=0.2ms ice_checking=0.4ms media_answer_sent=0.6ms remote_host=0.6ms remote_srflx=0.6ms local_host=0.9ms local_srflx=19.0ms local_relay=26.7ms remote_relay=40.6ms ice_connected=71.3ms dtls_connected=77.2ms media_connected=77.2ms
+2026-10-24T05:48:57.104706Z  INFO cmux_mobile_host::services: channel opened service="chief" channel=15 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T05:48:57.300073Z  WARN cmux_mobile_host::media_session: media session failed session_id="ba7f4688-419a-4104-9eb8-3b8f6ec32e57" link_session="c356186a-5b51-4c07-a38a-9b3225451ccc" error=transport: the media session's peer connection failed timings=media_offer_received=0.0ms pc_created=0.4ms media_answer_sent=0.8ms remote_host=0.8ms ice_checking=0.8ms remote_srflx=0.9ms local_host=1.2ms local_srflx=11.6ms remote_relay=21.9ms local_relay=30.5ms gathering_complete=5014.3ms ice_failed=11142.0ms
+2026-10-24T05:48:57.395245Z  INFO cmux_mobile_host::media_session: browser video route link_session="d467ae4d-764b-4a83-afd1-6055da6bef55" carrier=Some("webrtc-track")
+2026-10-24T05:48:59.865748Z  INFO cmux_mobile_host::browser: browser: media lane frames=3954 held_acks=0 host_datagrams=4073 target_kbps=18321 in_flight=0 congested=false feedback_delay_ms=30 loss=0.0 packets=111 nacks=0 keyframe_requests=3624
+2026-10-24T05:49:02.032236Z  INFO cmux_mobile_host::browser: browser: media lane frames=3 held_acks=0 host_datagrams=3 target_kbps=2520 in_flight=0 congested=false feedback_delay_ms=11 loss=0.0 packets=8 nacks=0 keyframe_requests=1
+2026-10-24T05:49:04.940971Z  INFO cmux_mobile_host::browser: browser: media lane frames=3954 held_acks=0 host_datagrams=4073 target_kbps=18321 in_flight=0 congested=false feedback_delay_ms=30 loss=0.0 packets=111 nacks=0 keyframe_requests=3624
+2026-10-24T05:49:06.729073Z  INFO cmux_mobile_host::services: channel opened service="daemon" channel=17 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T05:49:06.733698Z  INFO cmux_mobile_host::services: channel opened service="daemon" channel=19 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T05:49:06.783480Z  INFO cmux_mobile_host::services: channel opened service="daemon" channel=21 lane=Input own_stream=true peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T05:49:07.039777Z  INFO cmux_mobile_host::browser: browser: media lane frames=3 held_acks=0 host_datagrams=3 target_kbps=2520 in_flight=0 congested=false feedback_delay_ms=11 loss=0.0 packets=8 nacks=0 keyframe_requests=1
+2026-10-24T05:49:08.622269Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard route no longer confirmed; sending on every route again why="route silent"
+2026-10-24T05:49:09.044621Z  WARN boringtun::noise::timers: HANDSHAKE(KEEPALIVE + REKEY_TIMEOUT)
+2026-10-24T05:49:09.296071Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=1
+2026-10-24T05:49:09.797534Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=2
+2026-10-24T05:49:10.017304Z  INFO cmux_mobile_host::browser: browser: media lane frames=3954 held_acks=0 host_datagrams=4073 target_kbps=18321 in_flight=0 congested=false feedback_delay_ms=30 loss=0.0 packets=111 nacks=0 keyframe_requests=3624
+2026-10-24T05:49:10.798901Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=3
+2026-10-24T05:49:12.045704Z  INFO cmux_mobile_host::browser: browser: media lane frames=3 held_acks=0 host_datagrams=3 target_kbps=2520 in_flight=0 congested=false feedback_delay_ms=11 loss=0.0 packets=8 nacks=0 keyframe_requests=1
+2026-10-24T05:49:12.800553Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=4
+2026-10-24T05:49:14.073505Z  WARN boringtun::noise::timers: HANDSHAKE(REKEY_TIMEOUT)
+2026-10-24T05:49:14.326017Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=1
+2026-10-24T05:49:14.827065Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=2
+2026-10-24T05:49:15.092405Z  INFO cmux_mobile_host::browser: browser: media lane frames=3954 held_acks=0 host_datagrams=4073 target_kbps=18321 in_flight=0 congested=false feedback_delay_ms=30 loss=0.0 packets=111 nacks=0 keyframe_requests=3624
+2026-10-24T05:49:15.828326Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=3
+2026-10-24T05:49:17.050458Z  INFO cmux_mobile_host::browser: browser: media lane frames=3 held_acks=0 host_datagrams=3 target_kbps=2520 in_flight=0 congested=false feedback_delay_ms=11 loss=0.0 packets=8 nacks=0 keyframe_requests=1
+2026-10-24T05:49:17.829664Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=4
+2026-10-24T05:49:19.101035Z  WARN boringtun::noise::timers: HANDSHAKE(REKEY_TIMEOUT)
+2026-10-24T05:49:19.352282Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=1
+2026-10-24T05:49:19.733560Z  INFO cmux_mobile_host::services: channel opened service="browser" channel=23 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T05:49:19.733610Z  INFO cmux_mobile_host::browser: browser: stopping the least recently used host tab="new-c33ece33-t1"
+2026-10-24T05:49:19.853798Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=2
+2026-10-24T05:49:19.935973Z  INFO cmux_mobile_host::browser: browser: host started tab="new-95ad58b2-t1" addr=127.0.0.1:49540
+2026-10-24T05:49:19.936290Z  INFO cmux_mobile_host::browser: browser: video on the link's media lane
+2026-10-24T05:49:19.960427Z  INFO cmux_mobile_host::services: channel opened service="daemon" channel=25 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T05:49:20.019349Z  INFO cmux_mobile_host::browser: browser: another tab took the media lane; video returns to the channel
+2026-10-24T05:49:20.165404Z  INFO cmux_mobile_host::browser: browser: media lane frames=3954 held_acks=0 host_datagrams=4073 target_kbps=18321 in_flight=0 congested=false feedback_delay_ms=30 loss=0.0 packets=111 nacks=0 keyframe_requests=3624
+2026-10-24T05:49:20.855808Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=3
+2026-10-24T05:49:22.857778Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=4
+2026-10-24T05:49:24.131973Z  WARN boringtun::noise::timers: HANDSHAKE(REKEY_TIMEOUT)
+2026-10-24T05:49:24.384970Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=1
+2026-10-24T05:49:24.885963Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=2
+2026-10-24T05:49:24.995077Z  INFO cmux_mobile_host::browser: browser: media lane frames=1 held_acks=0 host_datagrams=1 target_kbps=2857 in_flight=0 congested=false feedback_delay_ms=10 loss=0.0 packets=14 nacks=0 keyframe_requests=2
+2026-10-24T05:49:25.243179Z  INFO cmux_mobile_host::browser: browser: media lane frames=3954 held_acks=0 host_datagrams=4073 target_kbps=18321 in_flight=0 congested=false feedback_delay_ms=30 loss=0.0 packets=111 nacks=0 keyframe_requests=3624
+2026-10-24T05:49:25.888698Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=3
+2026-10-24T05:49:27.890717Z DEBUG cmux_mobile_link::dial::wireguard: WireGuard repeats an unanswered handshake initiation repeat=4
+2026-10-24T05:49:28.573037Z DEBUG cmux_mobile_link::link: link closed reason="keepalive timed out"
+2026-10-24T05:49:28.573556Z  INFO cmux_mobile_host::host: link down session_id="c356186a-5b51-4c07-a38a-9b3225451ccc" reason="keepalive timed out"
+2026-10-24T05:49:30.053931Z  INFO cmux_mobile_host::browser: browser: media lane frames=1 held_acks=0 host_datagrams=1 target_kbps=2857 in_flight=0 congested=false feedback_delay_ms=10 loss=0.0 packets=14 nacks=0 keyframe_requests=2
+2026-10-24T05:49:34.587935Z  INFO cmux_mobile_host::services: channel opened service="daemon" channel=27 lane=Bulk own_stream=false peer="07d3d268-ebfe-4601-af11-a32bd5d268cd"
+2026-10-24T05:49:35.109907Z  INFO cmux_mobile_host::browser: browser: media lane frames=7 held_acks=0 host_datagrams=161 target_kbps=3154 in_flight=0 congested=false feedback_delay_ms=11 loss=0.0 packets=212 nacks=0 keyframe_requests=2
+2026-10-24T05:49:37.090010Z  INFO cmux_mobile_host::media_session: media session down session_id="08a7d072-d8b4-422a-8568-e12913559be3" link_session="d467ae4d-764b-4a83-afd1-6055da6bef55" reason="bye: closed"
+2026-10-24T05:49:37.148245Z DEBUG cmux_mobile_host::host: backend error code="not_owner" not allowed to signal this device session_id=Some("08a7d072-d8b4-422a-8568-e12913559be3")
+2026-10-24T05:49:38.583882Z  INFO cmux_mobile_host::media_session: media session up session_id="f1d1abf8-d1df-4b72-a86e-3c88e9454291" link_session="d467ae4d-764b-4a83-afd1-6055da6bef55" path=Direct timings=media_offer_received=0.0ms pc_created=0.3ms media_answer_sent=0.8ms ice_checking=0.8ms remote_host=0.8ms remote_srflx=0.8ms remote_relay=0.9ms local_host=1.1ms local_srflx=12.1ms local_relay=24.1ms ice_connected=74.4ms dtls_connected=81.3ms media_connected=81.3ms
+2026-10-24T05:49:38.846798Z  INFO cmux_mobile_link::media: media lane switched route at a keyframe from="wireguard-udp" to="webrtc-track"
+2026-10-24T05:49:38.846884Z  INFO cmux_mobile_host::media_session: browser video route link_session="d467ae4d-764b-4a83-afd1-6055da6bef55" carrier=Some("webrtc-track")
+2026-10-24T05:49:40.202964Z  INFO cmux_mobile_host::browser: browser: media lane frames=52 held_acks=0 host_datagrams=492 target_kbps=2640 in_flight=0 congested=false feedback_delay_ms=19 loss=0.0 packets=109 nacks=0 keyframe_requests=1
+2026-10-24T05:49:45.244032Z  INFO cmux_mobile_host::browser: browser: media lane frames=68 held_acks=0 host_datagrams=1073 target_kbps=3965 in_flight=0 congested=false feedback_delay_ms=17 loss=0.0 packets=841 nacks=0 keyframe_requests=1
+2026-10-24T05:49:50.280154Z  INFO cmux_mobile_host::browser: browser: media lane frames=84 held_acks=0 host_datagrams=1813 target_kbps=5806 in_flight=0 congested=false feedback_delay_ms=15 loss=0.0 packets=1755 nacks=0 keyframe_requests=1
+2026-10-24T05:49:55.320502Z  INFO cmux_mobile_host::browser: browser: media lane frames=101 held_acks=0 host_datagrams=2798 target_kbps=8723 in_flight=0 congested=false feedback_delay_ms=19 loss=0.0 packets=2962 nacks=0 keyframe_requests=1
+2026-10-24T05:50:00.354454Z  INFO cmux_mobile_host::browser: browser: media lane frames=118 held_acks=0 host_datagrams=3994 target_kbps=13080 in_flight=0 congested=false feedback_delay_ms=16 loss=0.0 packets=4429 nacks=0 keyframe_requests=1

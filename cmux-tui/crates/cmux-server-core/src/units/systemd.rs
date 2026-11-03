@@ -2,7 +2,8 @@
 //!
 //! The main unit runs the frozen `cmux host run` with `Type=notify` (it
 //! sends `READY=1` when the session host answers) and `KillMode=process`
-//! (terminal hosts survive a restart). It is not hardened with
+//! (terminal hosts survive a restart). It never gives up (no start limit;
+//! 3 s backing off to 60 s on systemd 254+). It is not hardened with
 //! `ProtectHome`, `NoNewPrivileges` or read-only mounts, because the
 //! terminals it hosts are ordinary shells that need home directories and
 //! `sudo`. App servers get the strict hardening in their own template unit.
@@ -38,13 +39,16 @@ Description=cmux server
 Documentation=https://cmux.com/docs/server
 Wants=network-online.target
 After=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=notify
 NotifyAccess=main
 ExecStart={exec} host run --mode user
 Restart=always
-RestartSec=2
+RestartSec=3
+RestartSteps=5
+RestartMaxDelaySec=60
 # The session host keeps its terminal hosts across a restart: stop only the
 # supervisor process (lane 1 handoff contract).
 KillMode=process
@@ -67,6 +71,7 @@ Description=cmux server
 Documentation=https://cmux.com/docs/server
 Wants=network-online.target cmux-update.path
 After=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=notify
@@ -75,7 +80,9 @@ User={SERVICE_USER}
 Group={SERVICE_USER}
 ExecStart={exec} host run --mode system
 Restart=always
-RestartSec=2
+RestartSec=3
+RestartSteps=5
+RestartMaxDelaySec=60
 KillMode=process
 TimeoutStopSec=30
 StateDirectory=cmux

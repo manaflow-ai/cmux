@@ -9,7 +9,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "generate": "openapi-typescript ../openapi.json --output src/schema.d.ts",
+    "generate": "bun install --cwd codegen --frozen-lockfile && bun codegen/node_modules/openapi-typescript/bin/cli.js ../openapi.json --output src/schema.d.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "check": "bun run generate && bun run typecheck"
   },
@@ -18,7 +18,6 @@
   },
   "devDependencies": {
     "@types/bun": "1.4.2",
-    "openapi-typescript": "7.13.0",
-    "typescript": "5.9.3"
+    "typescript": "7.0.2"
   }
 }

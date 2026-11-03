@@ -155,7 +155,11 @@ async fn redeem(url: &str, secret: &str, params: Value) -> Result<Value, Value> 
 }
 
 fn mint(h: &Hub, role: Role, url: &str) -> String {
-    h.pairing.mint(role, 900, None, url.to_owned(), "b".into()).unwrap().0.secret
+    h.pairing
+        .mint(role, 900, None, url.to_owned(), "b".into(), h.person.instance().to_owned())
+        .unwrap()
+        .0
+        .secret
 }
 
 async fn remote_session(b: &Arc<Hub>) -> String {
@@ -266,6 +270,54 @@ async fn pairing_a_read_only_machine_reads_and_the_minter_refuses_everything_els
     assert_eq!(sessions.len(), 1, "{v}");
 }
 
+/// A read-only machine resolves a name or link to a session (`_acpmux/resolve`), and reads no
+/// more than its session list shows: every field of the card is the listed summary's, and
+/// neither this machine's name nor its peers' (a peer with no sessions, its state) appear.
+#[tokio::test]
+async fn pairing_a_read_only_machine_resolves_no_more_than_its_session_list_shows() {
+    let b = hub();
+    let url = listen(b.clone()).await;
+    remote_session(&b).await;
+    // A peer of B with no sessions, never connected: a session list does not name it.
+    b.add_peer("quiet-peer", "ws://127.0.0.1:1", None, None, false).await.unwrap();
+    let secret = mint(&b, Role::ReadOnly, &url);
+    let reply = redeem(&url, &secret, json!({"name": "tablet"})).await.unwrap();
+    let bearer = format!("Bearer {}", reply["token"].as_str().unwrap());
+    let mut ws = dial(&url, &[("authorization", &bearer)]).await.unwrap();
+    rpc(&mut ws, 1, method::INITIALIZE, json!({"protocolVersion": 1})).await.unwrap();
+
+    let listed = rpc(&mut ws, 2, method::MUX_SESSIONS, json!({})).await.unwrap();
+    let summary = listed["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["name"] == "remote-one")
+        .cloned()
+        .unwrap_or_else(|| panic!("{listed}"));
+    let found = rpc(&mut ws, 3, method::MUX_RESOLVE, json!({"query": "remote-one"}))
+        .await
+        .unwrap_or_else(|e| panic!("resolve refused: {e}"));
+    let card = found["session"].as_object().unwrap_or_else(|| panic!("{found}"));
+    let machine = acpmux::pairing::machine_name();
+    for (key, value) in card {
+        match key.as_str() {
+            // Derived from the summary's tags.
+            "beads" => assert_eq!(value, &json!([]), "{found}"),
+            // This machine's session: no host name, so no link that names one.
+            "host" | "link" => assert!(value.is_null(), "{key}: {found}"),
+            _ => assert_eq!(value, &summary[key], "{key}: {found}"),
+        }
+    }
+    assert!(!found.to_string().contains(&format!("host={machine}")), "{found}");
+
+    let e =
+        rpc(&mut ws, 4, method::MUX_RESOLVE, json!({"query": "nobody-here"})).await.unwrap_err();
+    let text = e.to_string();
+    assert!(text.contains("nobody-here"), "{text}");
+    assert!(!text.contains("quiet-peer"), "{text}");
+    assert!(!text.contains(&machine), "{text}");
+}
+
 #[tokio::test]
 async fn pairing_revoking_a_machine_closes_its_connection_and_refuses_it_again() {
     let b = hub();
@@ -302,8 +354,10 @@ async fn pairing_wrong_and_revoked_tickets_and_credentials_are_refused_at_the_up
     let url = listen(b.clone()).await;
     // An unknown ticket, and a revoked one.
     assert!(dial(&url, &[(TICKET_HEADER, &"0".repeat(64))]).await.is_err());
-    let (ticket, record) =
-        b.pairing.mint(Role::Client, 900, None, url.clone(), "b".into()).unwrap();
+    let (ticket, record) = b
+        .pairing
+        .mint(Role::Client, 900, None, url.clone(), "b".into(), b.person.instance().to_owned())
+        .unwrap();
     b.pairing.revoke(&record.id).unwrap();
     assert!(dial(&url, &[(TICKET_HEADER, &ticket.secret)]).await.is_err());
     // Two ticket headers.
@@ -314,7 +368,10 @@ async fn pairing_wrong_and_revoked_tickets_and_credentials_are_refused_at_the_up
     let secret = mint(&b, Role::Daemon, &url);
     let e = redeem(&url, &secret, json!({"name": "nodaemon"})).await.unwrap_err();
     assert_eq!(e["data"]["reason"], "advertise_required", "{e}");
-    assert!(b.pairing.ticket_open(&secret), "a refused redeem keeps the ticket");
+    assert!(
+        b.pairing.ticket_open(&secret, b.person.instance()),
+        "a refused redeem keeps the ticket"
+    );
     // A wrong credential in place of the dashboard token.
     let wrong = format!("Bearer {}", "ab".repeat(32));
     assert!(dial(&url, &[("authorization", &wrong)]).await.is_err());

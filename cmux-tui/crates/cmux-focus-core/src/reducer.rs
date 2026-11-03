@@ -43,9 +43,21 @@ pub fn reduce(state: &mut FocusState, event: &FocusEvent, effects: &mut Vec<Focu
     match event {
         FocusEvent::Topology { topology } => apply_topology(topology.clone(), next, effects),
         FocusEvent::RestoredPane { pane, workspace } => {
-            if !next.remembered.contains_key(workspace)
-                && Some(workspace) != next.topology.workspace.as_ref()
-            {
+            if Some(workspace) == next.topology.workspace.as_ref() {
+                // The window shows the workspace already (the launch window showed its panes
+                // before it adopted the saved record): the saved pane is the focus, as when the
+                // record comes first, unless the person chose since the window opened (every
+                // user intent bumps the generation). A view that took the keyboard by itself
+                // (Home's message box, AppKit's own pick) is no choice. QA v2.2.2 bug 1.
+                if next.generation == 0
+                    && next.topology.contains_pane(pane)
+                    && (next.pane.as_ref() != Some(pane) || next.target != (Target::Content {}))
+                {
+                    next.pane = Some(pane.clone());
+                    next.target = Target::Content {};
+                    force_responder = true;
+                }
+            } else if !next.remembered.contains_key(workspace) {
                 remember(pane, workspace, next);
             }
         }
@@ -335,12 +347,23 @@ pub fn successor(
     // Aligned by column id: a pane that moved to another column is not in
     // its old column any more (close-focus.md; LayoutRows.tla).
     let now = new.columns_by_id();
-    let after: Vec<Vec<String>> =
-        columns.iter().map(|c| now.get(&c.id).cloned().unwrap_or_default()).collect();
+    // The screen that shows the old screen's surviving panes now, for a
+    // column whose id changed.
+    let screen = new.screens.iter().find(|screen| {
+        screen
+            .iter()
+            .flat_map(|column| &column.panes)
+            .any(|p| before.iter().flatten().any(|q| q == p))
+    });
+    let after: Vec<Vec<String>> = columns
+        .iter()
+        .map(|c| now.get(&c.id).cloned().unwrap_or_else(|| renamed_column(c, screen)))
+        .collect();
     let on_screen: std::collections::HashSet<&String> = after.iter().flatten().collect();
     let shown_history: Vec<String> =
         history.iter().filter(|p| on_screen.contains(p)).cloned().collect();
-    if let Some(pick) = close_focus::pane(Some(pane), &before, &after, &shown_history, policy)
+    let focused = pane.to_owned();
+    if let Some(pick) = close_focus::pane(Some(&focused), &before, &after, &shown_history, policy)
         && new.contains_pane(&pick)
     {
         return Some(pick);
@@ -350,6 +373,22 @@ pub fn successor(
         .find(|p| new.contains_pane(p))
         .cloned()
         .or_else(|| new.panes.first().map(|p| p.id.clone()))
+}
+
+/// The panes of old column `column` that survive in one column of `screen`
+/// (the new screen of its old screen's panes) under another id. A screen of
+/// two columns that loses one becomes a plain split screen, whose one
+/// column takes the screen's id; without this the surviving column looked
+/// gone and the focus left for another screen.
+fn renamed_column(column: &Column, screen: Option<&Vec<Column>>) -> Vec<String> {
+    let Some(now) = screen
+        .into_iter()
+        .flatten()
+        .find(|candidate| candidate.panes.iter().any(|pane| column.panes.contains(pane)))
+    else {
+        return Vec::new();
+    };
+    column.panes.iter().filter(|pane| now.panes.contains(pane)).cloned().collect()
 }
 
 // MARK: Helpers
@@ -467,6 +506,27 @@ fn accepted(responder: &Responder, source: Source, state: &FocusState) -> Accept
             // A hidden sidebar cannot hold the keyboard: re-apply the target.
             if state.sidebar_hidden {
                 return Accepted::Reapply;
+            }
+            // The list as a responder the platform picked on its own (no input
+            // event, no intent of ours: AppKit's first key view as a restored
+            // window comes forward before its pane's content is presented)
+            // never takes a pane's keyboard. Only the person (a click, a key)
+            // or an intent (`FocusTarget`) puts it on the sidebar (QUIT P0,
+            // 2026-11-01: the first line typed after a reopen went to the
+            // sidebar list). A sidebar field is only ever focused on purpose
+            // (a rename, a search), so its report still moves focus.
+            if source == Source::Programmatic && matches!(responder, Responder::Sidebar {}) {
+                // The list's echo of a sidebar focus the state already has
+                // (Focus Sidebar states its target, then moves the keyboard)
+                // keeps it as it is: a keyboard focus stays a keyboard focus.
+                if matches!(state.target, Target::Sidebar { .. }) {
+                    return Accepted::Same;
+                }
+                if !state.target.is_sidebar()
+                    && state.pane.as_ref().is_some_and(|pane| state.topology.contains_pane(pane))
+                {
+                    return Accepted::Reapply;
+                }
             }
             let target = if matches!(responder, Responder::Sidebar {}) {
                 Target::Sidebar { keyboard: source == Source::Keyboard }

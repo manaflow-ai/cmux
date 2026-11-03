@@ -26,6 +26,9 @@ export type SettingKind =
   // Keyed values (`browser.siteEngines`: site to engine); `appearance.themeEdits` is the theme
   // studio's and never a row.
   | "string_map"
+  // Notification sound rules by id or name (`notifications.sounds.workspaces`): a sound name, or
+  // `{sound, volume, events}`. Set from the sidebar menus, the palette and the CLI; never a row.
+  | "sound_rules"
   // Ordered choices (`row.choices`) or free-text tokens (`browser.urlsToAlwaysOpenExternally`).
   | "string_list";
 
@@ -89,7 +92,16 @@ export type PageCategory = {
   dev_only?: boolean;
 };
 
-export type PageLayout = { default_category: string; categories: PageCategory[] };
+/** A titled run of categories in the page's sidebar (Swift `SettingsPageLayout.SidebarSection`);
+ * the lead run (General, Updates) has a null title. */
+export type PageSidebarSection = { id: string; title: LocalizedText | null; categories: string[] };
+
+export type PageLayout = {
+  default_category: string;
+  categories: PageCategory[];
+  /** The sidebar's sections, every category once in category order. */
+  sidebar_sections: PageSidebarSection[];
+};
 
 type Schema = {
   rows: SchemaRow[];

@@ -59,6 +59,15 @@ class Values(unittest.TestCase):
                 self.assertEqual(len(found), 1)
                 self.assertIn("MACOS_RUNNER_PR", found[0])
 
+    def test_a_last_resort_variable_on_the_large_blacksmith_mac_fails(self) -> None:
+        # 2026-10-28: MACOS_RUNNER_PR named blacksmith-12vcpu-macos-26, which started nothing from about 02:11Z.
+        for name in check.LAST_RESORT_VARIABLES:
+            with self.subTest(name=name):
+                found = check.problems(env(CMUX_CI_RUNNER_VARIABLES=f"{name}=blacksmith-12vcpu-macos-26\n"))
+                self.assertEqual(len(found), 1)
+                self.assertIn(f"gh variable set {name}", found[0])
+        self.assertEqual(check.problems(env(CMUX_CI_RUNNER_VARIABLES="MACOS_RUNNER_26_LARGE=blacksmith-12vcpu-macos-26\n")), [])
+
     def test_nothing_to_check_is_a_failure_not_a_pass(self) -> None:
         self.assertTrue(check.problems(env(CMUX_CI_RUNNER_VARIABLES="")))
         self.assertTrue(check.problems(env(CMUX_CI_RUNNER_VARIABLES="not a pair")))

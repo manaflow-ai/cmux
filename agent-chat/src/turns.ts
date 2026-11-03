@@ -152,18 +152,24 @@ export function summarizeTurnActivity(blocks: Block[]): string {
   return sentenceCase(joinSentence(parts));
 }
 
+export function activityRowHoverTitle(block: Block): string | undefined {
+  if (block.kind !== "tool" || !block.detail || !SHELL_WRAPPER_TOOLS.has(block.name)) return undefined;
+  return block.detail;
+}
+
 export function activityRowLabel(block: Block): string {
   if (block.kind === "tool") {
     const name = block.name || "tool";
     const detail = block.detail ? ` ${block.detail}` : "";
+    if (SHELL_WRAPPER_TOOLS.has(name)) {
+      if (block.description?.trim()) return block.description.trim();
+      return "Ran command";
+    }
     const lower = `${name}${detail}`.toLowerCase();
     if (/\b(rg|grep|search)\b/.test(lower)) return `Searched ${detail.trim() || name}`;
     if (/\b(read|cat|sed|nl|open)\b/.test(lower)) return `Read ${detail.trim() || name}`;
     if (/\b(ls|find|list)\b/.test(lower)) return `Listed ${detail.trim() || name}`;
     if (/\b(edit|write|apply_patch|patch)\b/.test(lower)) return `Edited ${detail.trim() || name}`;
-    // Shell wrappers (Claude's Bash, Codex's exec_command) read better as the
-    // command itself.
-    if (SHELL_WRAPPER_TOOLS.has(name) && block.detail) return `Ran ${block.detail}`;
     return `${isShellCommandTool(name) ? "Ran" : "Used"} ${name}${detail}`;
   }
   if (block.kind === "files") return `Edited ${plural(block.files.length, "file")}`;

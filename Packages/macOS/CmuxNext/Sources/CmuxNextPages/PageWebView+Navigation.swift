@@ -8,12 +8,14 @@ extension PageWebView {
     }
 
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
+        let pid = PageTermination.webContentPid(of: webView)
+        if pid != 0 { knownWebContentPid = pid }
         documentFinished()
     }
 
     /// A new main-frame document committed (either engine).
     func documentCommitted() {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         traceMark(.committed)
         #endif
         // A new document: the old one's subscriptions and host calls end with it, and it has not
@@ -34,5 +36,6 @@ extension PageWebView {
         applyTheme(force: true)
         applyLiveDocumentAttributes()
         resumeLoadWaiters()
+        onDocumentLoaded?()
     }
 }

@@ -251,7 +251,7 @@ impl BuildIdentity {
     /// `cli/chief/home.rs` move to this rule when they adopt this type; today
     /// they write `<bundle id>.<account>`.
     pub fn chief_home(&self, user_home: &Path, account: &str) -> PathBuf {
-        let base = user_home.join(".cmux/chief");
+        let base = chief_homes_root(user_home);
         let account = component(account).unwrap_or_else(|| "default".into());
         if self.keeps_shared_roots() || self.kind == BuildKind::Unbundled {
             base.join(account)
@@ -260,6 +260,32 @@ impl BuildIdentity {
         } else {
             base.join(format!("{}@{account}", self.key))
         }
+    }
+
+    /// Where an untagged NIGHTLY, RC or staging app records that it adopted
+    /// the old shared `cmux-app` daemon session (CmuxNext
+    /// `LegacyChannelSession.marker`: beside its daemon state directory
+    /// `Application Support/cmux/tags/<channel>/tui`). `None` for every other
+    /// build, which never adopts it.
+    pub fn legacy_session_marker(&self, user_home: &Path) -> Option<PathBuf> {
+        let tag = match &self.kept {
+            Some(KeptNames { session_tag: Some(tag), .. }) => tag,
+            _ => return None,
+        };
+        if !["nightly", "rc", "staging"].contains(&tag.as_str())
+            || self.bundle_id() != Some(&format!("com.cmuxterm.app.{tag}"))
+        {
+            return None;
+        }
+        Some(
+            user_home
+                .join("Library")
+                .join("Application Support")
+                .join("cmux")
+                .join("tags")
+                .join(tag)
+                .join("legacy-session-adopted"),
+        )
     }
 
     /// The acpmux home (`ACPMUX_HOME`): `~/.acpmux` for NIGHTLY and a
@@ -361,4 +387,9 @@ fn fnv1a32(bytes: &[u8]) -> u32 {
         hash = hash.wrapping_mul(0x0100_0193);
     }
     hash
+}
+
+/// The folder of every build's Chief home: `~/.cmux/chief`.
+pub fn chief_homes_root(user_home: &Path) -> PathBuf {
+    user_home.join(".cmux/chief")
 }

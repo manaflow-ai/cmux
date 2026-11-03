@@ -243,3 +243,80 @@ fn home_inbox_rows_show_kinds_names_unread_chief_state_and_my_pins_in_list_order
     let native = home.request("home-inbox", json!({}));
     assert_eq!(native["rows"], pinned["rows"], "{native}");
 }
+
+/// Delete Chief on one device removes the Chief's row from every other
+/// device's Home (the phone reads this same `home-inbox` over its link): the
+/// owner drops a deleted Chief's conversation from the rows, tells each
+/// connected view with `conversation-inbox-changed` (the one event the
+/// phone's link forwards), and a device that connects later never gets the
+/// row back. Its conversation itself stays (`conversation-list`).
+#[test]
+fn a_deleted_chief_leaves_every_devices_home_list_including_one_offline_then() {
+    let config = json!({"server": {"ws": "127.0.0.1:0", "ws_token": TOKEN}}).to_string();
+    let server = HeadlessServer::start_with_config("home-inbox-deleted-chief", Some(&config));
+    let mut home = Unix::open(&server.socket);
+    let made = home.v2("chief.profile.create", json!({"display_name": "Codex Chief"}), "make");
+    let id = made["value"]["id"].as_str().unwrap().to_owned();
+    let other = home.v2("chief.profile.create", json!({"display_name": "Kept"}), "make-kept");
+    let kept_id = other["value"]["id"].as_str().unwrap().to_owned();
+
+    // The other device (a phone's link, a page) watches the list.
+    let mut phone = Ws::open(&ws_addr(&server));
+    phone.request("subscribe", json!({}));
+    let chief = create(
+        &mut phone,
+        "deleted-chief-dm",
+        "Codex Chief",
+        json!([{"id": id, "kind": "agent", "display_name": "Codex Chief", "agent_class": "mux"}]),
+    );
+    let kept = create(
+        &mut phone,
+        "kept-chief-dm",
+        "Kept",
+        json!([{"id": kept_id, "kind": "agent", "display_name": "Kept", "agent_class": "mux"}]),
+    );
+    // A later titled conversation with the same Chief is a channel: it keeps its history.
+    let channel = create(
+        &mut phone,
+        "deleted-chief-channel",
+        "release notes",
+        json!([{"id": id, "kind": "agent", "display_name": "Codex Chief", "agent_class": "mux"}]),
+    );
+    // The older one (by created_at, then id: both may be made in one millisecond) is the direct one.
+    let list = phone.request("conversation-list", json!({}));
+    let made = |c: &str| {
+        let summary =
+            list["conversations"].as_array().unwrap().iter().find(|s| s["id"] == c).unwrap();
+        (summary["created_at"].as_str().unwrap().to_owned(), c.to_owned())
+    };
+    let (chief, channel) =
+        if made(&chief) <= made(&channel) { (chief, channel) } else { (channel, chief) };
+    phone.sent(&chief, "before-delete", None, None);
+    let before = phone.request("home-inbox", json!({"owners": ["local"]}));
+    assert_eq!(row(&before, &chief)["kind"], "chief", "{before}");
+
+    home.v2("chief.profile.delete", json!({"chief": id}), "delete");
+
+    // The watching device is told its list changed for that conversation.
+    loop {
+        let event = phone.events.pop_front().unwrap_or_else(|| phone.read());
+        if event["event"] == "conversation-inbox-changed" && event["conversation"] == chief {
+            assert_eq!(event["participant"], "user_local", "{event}");
+            break;
+        }
+    }
+    let after = phone.request("home-inbox", json!({"owners": ["local"]}));
+    assert!(!order(&after).contains(&chief), "a deleted Chief keeps its row: {after}");
+    assert_eq!(row(&after, &kept)["kind"], "chief", "{after}");
+    assert_eq!(row(&after, &channel)["kind"], "channel", "{after}");
+
+    // A device that was offline at the time reads the list without it.
+    let mut later = Ws::open(&ws_addr(&server));
+    let fresh = later.request("home-inbox", json!({"owners": ["local"]}));
+    assert!(!order(&fresh).contains(&chief), "{fresh}");
+    let native = home.request("home-inbox", json!({}));
+    assert!(!order(&native).contains(&chief), "{native}");
+    // The conversation is kept; only the list leaves it out.
+    let list = later.request("conversation-list", json!({}));
+    assert!(list["conversations"].as_array().unwrap().iter().any(|c| c["id"] == chief), "{list}");
+}

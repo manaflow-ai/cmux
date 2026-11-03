@@ -1,0 +1,11 @@
+# Every file the settings export writes, one repository path per line. The one
+# list regenerate-settings-exports.sh exports and check-settings-exports.sh
+# restores: a file in one and not the other is how base-version bytes reach a
+# repair artifact (review of #23915), so they read the same list.
+# Comments and blank lines are ignored.
+docs/mdm/com.manaflow.cmux.json
+docs/mdm/com.manaflow.cmux.plist
+docs/mdm/com.manaflow.cmux.intune.plist
+docs/mdm/cmux-example.mobileconfig
+docs/mdm/managed-preferences.md
+schemas/settings/settings-schema.json

@@ -68,6 +68,15 @@ fn error(message: impl std::fmt::Display) -> Value {
     json!({"error": message.to_string()})
 }
 
+/// `result["dropped"] = dropped` without the index: every result here is an
+/// object (`json!({...})` or [`error`]), so this sets the key as the index
+/// did, and a value of another kind is left as it is instead of a panic.
+fn set_dropped(result: &mut Value, dropped: Value) {
+    if let Some(map) = result.as_object_mut() {
+        map.insert("dropped".to_owned(), dropped);
+    }
+}
+
 impl Mirror {
     pub fn new() -> Self {
         use std::hash::{BuildHasher, Hasher};
@@ -128,7 +137,7 @@ impl Mirror {
             Ok(batch) => batch,
             Err(e) => return error(e),
         };
-        let changes = batch["changes"].as_array().cloned().unwrap_or_default();
+        let changes = batch.get("changes").and_then(Value::as_array).cloned().unwrap_or_default();
         // The document revisions come from the `sidebar_doc` markers (a
         // session.events delta's own revisions are the session's): the
         // first marker's previous revision and the last marker's revision
@@ -158,7 +167,7 @@ impl Mirror {
         };
         // What the batch is: refused, not a sidebar batch, early, stale,
         // gapped, or rows to apply.
-        let verdict = if batch["rejected"] == true {
+        let verdict = if batch.get("rejected") == Some(&Value::Bool(true)) {
             Some(json!({"ok": true}))
         } else if let Some(revision) = revision {
             if !self.loaded {
@@ -213,14 +222,14 @@ impl Mirror {
         let applies = verdict.is_none() && bad_row.is_none();
         if !confirms && !applies {
             let mut result = verdict.or(bad_row).unwrap_or_else(|| json!({"ok": true}));
-            result["dropped"] = json!(Vec::<String>::new());
+            set_dropped(&mut result, json!(Vec::<String>::new()));
             return result;
         }
         if !self.loaded {
             // Nothing is shown yet: drop the intent; `load` replays the rest.
             self.pending.retain(|intent| Some(&intent.key) != key.as_ref());
             let mut result = verdict.unwrap_or_else(|| json!({"refetch": true}));
-            result["dropped"] = json!(key.into_iter().collect::<Vec<_>>());
+            set_dropped(&mut result, json!(key.into_iter().collect::<Vec<_>>()));
             return result;
         }
         self.unwind();
@@ -242,7 +251,7 @@ impl Mirror {
             }
         };
         dropped.extend(self.replay());
-        result["dropped"] = json!(dropped);
+        set_dropped(&mut result, json!(dropped));
         result
     }
 

@@ -65,6 +65,7 @@ final class TerminalSurfaceView: UIView {
     isolated deinit {
         if let commitObserver { CFRunLoopObserverInvalidate(commitObserver) }
         if let defaultsObserver { NotificationCenter.default.removeObserver(defaultsObserver) }
+        for observer in appStateObservers { NotificationCenter.default.removeObserver(observer) }
         guard let surface else { return }
         let ref = SurfaceRef(surface)
         let box = inputBox.map(Retained.init)
@@ -78,6 +79,7 @@ final class TerminalSurfaceView: UIView {
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
+        updateOcclusion()
         guard window != nil else { return }
         guard surface != nil else { return createSurface() }
         // Back in a window: its screen's scale may differ from the one the
@@ -113,8 +115,9 @@ final class TerminalSurfaceView: UIView {
         }
         surface = ghostty_surface_new(app.app, &config)
         guard let surface else { return }
-        // Visible: Ghostty's renderer thread rebuilds cells and presents frames.
-        ghostty_surface_set_occlusion(surface, true)
+        // Ghostty draws only while the surface can be seen (`updateOcclusion`).
+        observeAppState()
+        updateOcclusion()
         ghostty_surface_set_focus(surface, true)
         syncSize()
         let queued = pendingOutput
@@ -123,6 +126,47 @@ final class TerminalSurfaceView: UIView {
         onEvent?(.cellSize)
         observePresents()
         observeFontSize()
+    }
+
+    // MARK: Occlusion
+
+    /// The app is in the background: nothing on screen is seen.
+    private var appInBackground = UIApplication.shared.applicationState == .background
+    private var appStateObservers: [any NSObjectProtocol] = []
+    /// The last value given to `ghostty_surface_set_occlusion` (true = draws).
+    private(set) var drawsFrames: Bool?
+
+    /// Ghostty draws only while this surface can be seen: in a window, with
+    /// the app in the foreground (the Mac app's `WindowDrawPolicy` pauses
+    /// hidden surfaces the same way). A paused surface still parses output
+    /// and its layer keeps the last frame (the card snapshot reads it);
+    /// shown again, Ghostty draws its current content. A warm tab behind
+    /// another and every terminal in the background drew a frame per output
+    /// batch before (renderer audit 2026-10-26).
+    private func updateOcclusion() {
+        guard let surface else { return }
+        let visible = window != nil && !appInBackground
+        guard visible != drawsFrames else { return }
+        drawsFrames = visible
+        ghostty_surface_set_occlusion(surface, visible)
+    }
+
+    private func observeAppState() {
+        guard appStateObservers.isEmpty else { return }
+        let center = NotificationCenter.default
+        let set: @MainActor (Bool) -> Void = { [weak self] background in
+            guard let self else { return }
+            self.appInBackground = background
+            self.updateOcclusion()
+        }
+        appStateObservers = [
+            center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { set(true) }
+            },
+            center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { set(false) }
+            },
+        ]
     }
 
     /// Settings → Terminal → Font size applies to open terminals at once:
@@ -361,6 +405,13 @@ final class TerminalSurfaceView: UIView {
         return Int(metrics.cursor_row)
     }
 
+    /// Frames Ghostty's renderer drew for this surface (its render counters;
+    /// zero before the surface exists). For tests and benchmarks.
+    var renderedFrames: UInt64 {
+        guard let surface else { return 0 }
+        return ghostty_surface_render_counters(surface).frames
+    }
+
     // MARK: Output and drawing
 
     /// Feeds one batch of session output on the output queue (never the
@@ -425,7 +476,9 @@ final class TerminalSurfaceView: UIView {
 
     /// Draws now on the main thread from the current cells (resize, mode changes).
     func drawNow() {
-        guard let surface else { return }
+        // A paused surface draws nothing (no GPU work in the background);
+        // its reveal draws the current content.
+        guard let surface, drawsFrames != false else { return }
         ghostty_surface_refresh(surface)
         ghostty_surface_draw(surface)
         draws += 1
@@ -643,10 +696,11 @@ final class TerminalSurfaceView: UIView {
                 let wait = submit.enterWait ?? ComposerSubmit.enterDelay
                 Task { @MainActor [weak self] in
                     try? await ContinuousClock().sleep(for: wait)
-                    self?.sendKey(usage: TerminalHIDUsage.enter)
+                    guard let self else { return }
+                    self.perform(self.input.plainKey(usage: TerminalHIDUsage.enter))
                 }
             case .enter:
-                sendKey(usage: TerminalHIDUsage.enter)
+                perform(input.plainKey(usage: TerminalHIDUsage.enter))
             }
         }
     }
@@ -696,6 +750,8 @@ final class TerminalSurfaceView: UIView {
 
     override func paste(_ sender: Any?) {
         guard let text = UIPasteboard.general.string, !text.isEmpty else { return }
+        // A paste is not a key: an armed modifier would linger unseen (classic disarms).
+        input.sticky.reset()
         perform([.paste(text)])
     }
 
@@ -713,7 +769,10 @@ final class TerminalSurfaceView: UIView {
         for provider in itemProviders where provider.canLoadObject(ofClass: NSString.self) {
             _ = provider.loadObject(ofClass: NSString.self) { [weak self] object, _ in
                 guard let text = object as? String, !text.isEmpty else { return }
-                DispatchQueue.main.async { self?.perform([.paste(text)]) }
+                DispatchQueue.main.async {
+                    self?.input.sticky.reset()
+                    self?.perform([.paste(text)])
+                }
             }
             return
         }

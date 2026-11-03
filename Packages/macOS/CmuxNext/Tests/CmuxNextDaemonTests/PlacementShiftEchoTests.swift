@@ -8,22 +8,22 @@ import Testing
 @Suite struct PlacementShiftEchoTests {
     @Test func aConfigurationThatOrdersFromTheDocumentEchoesItWithTheSidebarDocument() {
         var configuration = DaemonConnectionConfiguration(terminalEnvironment: nil)
-        configuration.advertisedCapabilities = [DaemonCapabilities.sidebarDoc]
-        #expect(!configuration.handshakeCapabilities.contains(DaemonCapabilities.placementShift))
+        configuration.advertisedCapabilities = [DaemonCapability.sidebarDoc.rawValue]
+        #expect(!configuration.handshakeCapabilities.contains(DaemonCapability.placementShift.rawValue))
 
         configuration.echoesPlacementShift = true
-        #expect(configuration.handshakeCapabilities.contains(DaemonCapabilities.placementShift))
+        #expect(configuration.handshakeCapabilities.contains(DaemonCapability.placementShift.rawValue))
 
         // Never alone: without the sidebar document there is nothing to order from.
         configuration.advertisedCapabilities = []
-        #expect(!configuration.handshakeCapabilities.contains(DaemonCapabilities.placementShift))
+        #expect(!configuration.handshakeCapabilities.contains(DaemonCapability.placementShift.rawValue))
     }
 
     @Test func twoConfigurationsInOneProcessEchoIndependently() {
-        var sidebar = DaemonConnectionConfiguration(advertisedCapabilities: [DaemonCapabilities.sidebarDoc], terminalEnvironment: nil)
+        var sidebar = DaemonConnectionConfiguration(advertisedCapabilities: [DaemonCapability.sidebarDoc.rawValue], terminalEnvironment: nil)
         sidebar.echoesPlacementShift = true
-        let other = DaemonConnectionConfiguration(advertisedCapabilities: [DaemonCapabilities.sidebarDoc], terminalEnvironment: nil)
-        #expect(sidebar.handshakeCapabilities.contains(DaemonCapabilities.placementShift))
-        #expect(!other.handshakeCapabilities.contains(DaemonCapabilities.placementShift))
+        let other = DaemonConnectionConfiguration(advertisedCapabilities: [DaemonCapability.sidebarDoc.rawValue], terminalEnvironment: nil)
+        #expect(sidebar.handshakeCapabilities.contains(DaemonCapability.placementShift.rawValue))
+        #expect(!other.handshakeCapabilities.contains(DaemonCapability.placementShift.rawValue))
     }
 }

@@ -11,7 +11,7 @@ import CmuxNextDaemon
 /// never made unread again. The row verbs act on the panel row their
 /// `notification` argument names, else on the latest unread.
 enum NotificationHandlers {
-    static let ack = DaemonCapabilities.notificationAck
+    static let ack = DaemonCapability.notificationAck.rawValue
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
@@ -98,6 +98,7 @@ enum NotificationHandlers {
         })
         NotificationSettingsHandlers.bind(into: registry, context: context)
         AgentChatMuteHandlers.bind(into: registry, context: context)
+        SubagentLimitHandlers.bind(into: registry, context: context)
         AgentChatIdentifierHandlers.bind(into: registry, context: context)
         // View Chat Only (`cmux agent view <chat>`, the palette): the All chats row's View Only opener.
         registry.bind("agentChat.view", run: { invocation in
@@ -149,26 +150,11 @@ enum NotificationHandlers {
         if context.daemon.supports(ack) { context.services.notifications.opened(located.tab) }
     }
 
-    /// A dismiss verb: acknowledges at once (and withdraws banners).
+    /// A dismiss verb: acknowledges at once on the context's daemon (and withdraws this Mac's banners).
     static func acknowledge(_ surfaces: [SurfaceID], _ context: AppActionContext) throws {
         _ = try context.requireConnection()
-        let store = context.daemon.store
-        let notifications = context.services.notifications
-        var remote: [SurfaceID] = []
-        for surface in surfaces {
-            if context.daemon === context.services.daemon, let tab = store.tab(surface: surface) {
-                notifications.acknowledge(tab)
-            } else {
-                remote.append(surface)
-            }
-        }
-        guard !remote.isEmpty else { return }
-        let pending = remote
-        // Read now on this daemon's tabs; the tree's echo settles it, a failed ack rolls it back.
-        let tabs = remote.compactMap { store.tab(surface: $0) }
-        tabs.forEach { $0.expectNotificationRead() }
-        context.daemon.send("ack-tab-notifications", onFailure: { _ in tabs.forEach { $0.dropExpectedNotificationRead() } }) { connection in
-            for surface in pending { _ = try await connection.acknowledgeNotifications(of: surface) }
+        for tab in surfaces.compactMap(context.daemon.store.tab(surface:)) {
+            context.services.notifications.acknowledge(tab, owner: context.daemon)
         }
     }
 }

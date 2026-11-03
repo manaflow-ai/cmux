@@ -5,7 +5,7 @@
 // page test runs both on every subject of a real span and compares.
 
 /** Conventional types that never reach a person. */
-const INTERNAL_TYPES = new Set([
+export const INTERNAL_TYPES = new Set([
   "ci",
   "test",
   "tests",
@@ -23,8 +23,10 @@ const INTERNAL_TYPES = new Set([
   "bench",
   "gallery",
 ]);
-/** Scopes of fix/feat commits that are about the pipeline or plumbing, not the app. */
-const INTERNAL_SCOPES = new Set([
+/** Scopes of fix/feat commits that are about the pipeline or plumbing, not the app; the release
+    notes and the feed too (nightly 4037632091801 read "Fixed: validate release headings within their
+    day", #25533). */
+export const INTERNAL_SCOPES = new Set([
   "ci",
   "nightly",
   "fleet",
@@ -53,25 +55,40 @@ const INTERNAL_SCOPES = new Set([
   "deps",
   "cmux-git",
   "cmux-tui-core",
+  "release-notes",
+  "appcast",
 ]);
 /** Subject words that mark internal work even without a type. */
-const INTERNAL_WORDS = new RegExp(
+export const INTERNAL_WORDS = new RegExp(
   String.raw`\b(red|unit tests?|tests?|godfile|crash ratchet|baseline|index_subscript|int_conversion|lint|repin|re-pin|pin|` +
-    String.raw`canary|fleet|review findings|move-only|ci|testbox|bisect|fixture|snapshot tests?|tree key|r2|ffi pin|budget|` +
+    String.raw`canary|fleet|review findings|move-only|ci|testbox|bisect|fixtures?|snapshot tests?|tree key|r2|ffi pin|budget|` +
     String.raw`isolated|wiring|socket|daemon|capabilit\w*|struct|type|owner|protocol|schema|sdk|refactor|smoke|acpmux|optchat-chief|` +
     String.raw`e2e|gallery|release notes?|publish\w*|pipeline|workflow|telemetry|crash reporting|exception reporting|benchmark|` +
     String.raw`frame budget|osc \d+|terminal host|seed|record\w*|nightly|headless|ffi|rust|regenerate|decode|renderer|texture|` +
     String.raw`machine code|scene captures?|policy log|host log|force unwrap|store intent|property model|false positive|inventory|` +
     String.raw`boundary|on the wire|debug reports?|dom events?|keybind actions?|main actor|shims?|` +
-    String.raw`consumers?|metrics|review fixes|byte limit)\b`,
+    String.raw`consumers?|metrics|review fixes|base reds?|feat-cmux-next|compile fix(?:es)?|byte limit|` +
+    String.raw`fits the validator|validates? release headings|release[- ]notary|notes check|ad hoc builds?|superseded runs?|counted as failing)\b`,
   "i",
 );
-/** Product names whose casing is not code. */
+/** Product names whose casing is not code ("MacOS": a title capitalized before LEADING_BRAND). */
+/** Backend and provider plumbing stays in the collapsed Under the hood section. */
+const INTERNAL_BACKEND =
+  /\b(?:postgres(?:ql)?|vitess|snapshot cutoff|env(?:ironment)? projection|projection (?:read|write|shadow)|provider allocations?|cloud-3|credential plumbing|credential recovery|keyring credentials)\b/i;
 const BRANDS =
-  /\b(?:macOS|iOS|iPadOS|iCloud|iPhone|iPad|GitHub|YouTube|SwiftUI|WebKit|JavaScript|TypeScript|ChatGPT|OpenAI)\b/g;
-/** Code-looking text: backticks, dotted names, snake_case, versioned ids, camelCase, {placeholders}. */
+  /\b(?:[Mm]acOS|[Ii]OS|[Ii]PadOS|[Ii]Cloud|[Ii]Phone|[Ii]Pad|GitHub|YouTube|SwiftUI|WebKit|JavaScript|TypeScript|ChatGPT|OpenAI)\b/g;
+/** Code-looking text: backticks, dotted names, snake_case, versioned ids, bead ids, camelCase,
+    {placeholders}. */
 const CODE_LIKE =
-  /`|\b[A-Za-z_]\w*\.[A-Za-z_]\w*\b|\w_\w|\w-v\d\b|\[cx-|\b[a-z]+[A-Z]\w*|\b[A-Z][a-z]+[A-Z]\w*|\b[A-Z]{2,}(?:-[A-Z]+)+\b|\{\w+\}/;
+  /`|\b[A-Za-z_]\w*\.[A-Za-z_]\w*\b|\w_\w|\w-v\d\b|\[cx-|\bcx-[a-z0-9]{3,}|\b[a-z]+[A-Z]\w*|\b[A-Z][a-z]+[A-Z]\w*|\b[A-Z]{2,}(?:-[A-Z]+)+\b|\{\w+\}/;
+/** Work no user sees by its shape (review of #22099, ASCII like release-notes.py): a tool name of
+    three or more hyphenated parts ("export-backdrop-art"; not "two-finger-swipe", "cmd-shift-t",
+    "up-to-date" or "per-tab-zoom"), a pull request number ("#21369", "#N"; not "#1") and a repair
+    after a squash ("lost in the Chief Dock squash"; not "squash commits from the review pane"). */
+const TOOL_NAME =
+  /(?<!\S)(?!(?:[a-z0-9]+-)*(?:to|by|of|and|in|the|a|an|on|for|or|at|with|up|not|per|one|two|three|four|five|six|seven|eight|nine|ten|cmd|command|shift|ctrl|control|alt|option|opt|fn|[a-z]|\d+)(?![a-z0-9]))[a-z][a-z0-9]*(?:-[a-z0-9]+){2,}(?=[\s,.;:!?)]|$)/i;
+const PR_NUMBER = /(?<!\S)#(?:N|\d{3,})(?![\w-])/;
+const SQUASH_REPAIR = /\bsquash(?:ed)? (?:merge|commit)\b|\bsquash$/i;
 const CONVENTIONAL = /^(?<type>[A-Za-z-]+)(?:\((?<scope>[^)]*)\))?!?:\s*(?<rest>.+)$/;
 /** "area words: rest" after the conventional type: "cmux NEXT perf-split: review: …", "cmux-next strip: …". */
 const LABEL = /^(?<area>[A-Za-z][\w-]*(?: [A-Za-z][\w-]*){0,2})(?:\((?<scope>[^)]*)\))?!?:\s+(?<rest>\S.*)$/;
@@ -81,10 +98,48 @@ const INTERNAL_AREA_SHAPE =
 const PRODUCT_WORDS = new Set(["cmux", "next", "cmux-next", "cmuxnext"]);
 const AREA_PREFIX =
   /^(cmux-next(?: \w+){0,2}|cmuxnext|cmux next|acpmux|apps?|browser|gallery|release notes?|cx-[\w.]+|feed [\d.]+|cmux-tui)\s*:\s*/i;
-/** "(#123)", "(cx-abc)", "(cx-2y2 items 6, 10)", "(red)", and a bead reference cut off at the end. */
-const REFS = /\s*\((?:[^()]*\bcx-[\w.]+[^()]*|#\d+|red)\)|\s*\((?:[^()]*\b)?cx-[\w.]*$/gi;
+/** "(#123)", "(hq#45)", "(cx-abc)", "(cx-2y2 items 6, 10)", "(red)", "(review)", and a bead
+    reference cut off at the end. */
+const REFS =
+  /\s*\((?:[^()]*\bcx-[\w.]+[^()]*|[\p{L}\p{N}_-]*#\d+|red|review)\)|\s*\((?:[^()]*\b)?cx-[\w.]*$|\s*\([au]\d+(?:\s*[,/]\s*[au]?\d+)*\)/giu;
+/** Internal work-stream codes no person can read (Leo 2026-11-02, on a What's New page of rows like
+    "P0 RESIZE KEYS K4: …", "… (SWITCH FRAMES SF-5 B)", "… size and scale (REOPEN-F7 part A2)" and
+    "P0 RESIZE F1 part 1 of 2": "the 0 information density one"): a leading priority code and its
+    capitalized stream words, a parenthesis that holds a stream code, and "part N of M" or "part A2".
+    The same pattern as release-notes.py WORK_CODES. */
+export const WORK_CODES = new RegExp(
+  [
+    String.raw`^P[0-3](?:\s+[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*\b)+(?:\s+part\s+(?:\d+\s+of\s+\d+|[A-Z]?\d+[A-Z]?\d*))?\s*(?::\s*|$|(?=\())`,
+    String.raw`\s*\((?=[^()]*\b(?:[A-Z]{2,}-)?[A-Z]{1,3}-?\d+[A-Z]?\d*\b)(?=[^()]*(?:\b[A-Z]{2,}\b[^()]*\b[A-Z]{2,}|\b[A-Z]{2,}-[A-Z]\d|\bpart\s))[^()]*\)`,
+    String.raw`\s*\bpart\s+(?:\d+\s+of\s+\d+|[A-Z]\d+)\b`,
+  ].join("|"),
+  "g",
+);
+/** "Cmux NEXT agent pane: …", "Cmux link sync push: …", "Cmux-tui + app: …": the product and up to
+    three area words as a label, longer than LABEL takes (release-notes.py CMUX_AREA). */
+const CMUX_AREA = /^cmux(?:[- ]?next)?(?:[ -][\w-]+){0,3}(?:\s*\+\s*[\w-]+)?\s*:\s+(?=\S)/i;
+
+/** The text without its work-stream codes (WORK_CODES), spaces tidied: "Size and scale (REOPEN-F7)."
+    reads "Size and scale.". */
+export function withoutWorkCodes(text: string): string {
+  return text
+    .replace(WORK_CODES, " ")
+    .replace(/\s+/gu, " ")
+    .replace(/ ([.,;:!?])/gu, "$1")
+    .trim();
+}
+
 /** The product's own label at the start of a human title: "cmux NEXT: …". */
 const PRODUCT_LABEL = /^(?:cmux[- ]?next|cmuxnext)\s*:\s*/i;
+
+/** A release line without work-stream codes (WORK_CODES) or a "cmux …:" label (CMUX_AREA), capitalized
+    ("" when only codes were there): a human-written title, or a line read as one key. */
+export function plainLine(text: string): string {
+  const out = withoutWorkCodes(text)
+    .replace(CMUX_AREA, "")
+    .replace(/^[\s:;,—-]+|[\s:;,—-]+$/gu, "");
+  return out ? capitalized(out) : "";
+}
 
 export type ChangeGroup = "new" | "fixed" | "changed";
 
@@ -95,12 +150,15 @@ export interface ReadableChange {
   group: ChangeGroup;
 }
 
+/** A brand that starts lowercase keeps its casing at the start of a title: "macOS 26 …". */
+const LEADING_BRAND = /^(?:macOS|iOS|iPadOS|iCloud|iPhone|iPad)\b/;
+
 function capitalized(text: string): string {
-  return text.charAt(0).toUpperCase() + text.slice(1);
+  return LEADING_BRAND.test(text) ? text : text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 function strip(text: string): string {
-  return text
+  return withoutWorkCodes(text)
     .replace(REFS, "")
     .trim()
     .replace(/^[\s.]+|[\s.]+$/gu, "");
@@ -108,7 +166,7 @@ function strip(text: string): string {
 
 /** A machine-made line (a commit subject, or a summary line made from one) as summary_entry reads it. */
 export function readableChange(subject: string): ReadableChange {
-  let text = subject.split(/\s+/).filter(Boolean).join(" ");
+  let text = withoutWorkCodes(subject);
   const internal = (title: string): ReadableChange => ({
     title: capitalized(strip(title)),
     internal: true,
@@ -146,8 +204,17 @@ export function readableChange(subject: string): ReadableChange {
       return internal(label.rest!);
     text = label.rest!;
   }
-  text = strip(text.replace(AREA_PREFIX, ""));
-  if (!text || INTERNAL_WORDS.test(text) || CODE_LIKE.test(text.replace(BRANDS, ""))) return internal(text);
+  text = strip(text.replace(AREA_PREFIX, "").replace(CMUX_AREA, ""));
+  if (
+    !text ||
+    INTERNAL_WORDS.test(text) ||
+    INTERNAL_BACKEND.test(text) ||
+    CODE_LIKE.test(text.replace(BRANDS, "")) ||
+    TOOL_NAME.test(text) ||
+    PR_NUMBER.test(text) ||
+    SQUASH_REPAIR.test(text)
+  )
+    return internal(text);
   if (group === "changed" && /^(add|adds|new|introduce|support|show)\b/i.test(text)) group = "new";
   else if (group === "changed" && /^(fix|fixes|repair|stop|keep)\b/i.test(text)) group = "fixed";
   return { title: capitalized(text), internal: false, group };
@@ -156,7 +223,7 @@ export function readableChange(subject: string): ReadableChange {
 /** A human-written title (a reviewed What's New entry, a highlight): only bead ids and the
     product's own label come off; nothing is judged internal. */
 export function tidyTitle(title: string): string {
-  return capitalized(strip(title.replace(PRODUCT_LABEL, "")));
+  return capitalized(plainLine(strip(title.replace(PRODUCT_LABEL, ""))));
 }
 
 /** The subject a `Revert "…"` commit undoes, else undefined. */
@@ -168,17 +235,28 @@ const CLAUSE = /,|;| —| - | \(| so | because | while /g;
 const DANGLING = /\b(?:a|an|the|and|or|but|to|of|in|on|for|with|by|even|so|that|which|its|their)$/i;
 
 /** A title of at most `limit` characters: the text when it fits, else its first clause when that
-    fits, has three words and does not end on a joining word, else undefined. Never a cut word or
-    a trailing "…". */
+    fits, has three words and does not end on a joining word, else undefined. Never a cut word, a
+    trailing "…" or a cut inside parentheses ("Routing follow-ups (trim recovered route" was one). */
 export function shortTitle(text: string, limit = 60): string | undefined {
   const clean = text.trim().replace(/[\s.]+$/u, "");
   if (clean.length <= limit) return clean;
   for (const match of clean.matchAll(CLAUSE)) {
+    if (openParens(clean.slice(0, match.index)) > 0) continue;
     const head = clean.slice(0, match.index).replace(/[\s,;:—-]+$/u, "");
     if (head.length > limit) return undefined;
     if (head.split(" ").length >= 3 && !DANGLING.test(head)) return head;
   }
   return undefined;
+}
+
+/** How many "(" in `text` no ")" closes yet. */
+export function openParens(text: string): number {
+  let depth = 0;
+  for (const char of text) {
+    if (char === "(") depth++;
+    else if (char === ")" && depth > 0) depth--;
+  }
+  return depth;
 }
 
 /** What follows `title` in `full`, as a summary: "so a column scrolled in is never blank". */

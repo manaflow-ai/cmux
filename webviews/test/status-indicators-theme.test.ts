@@ -45,3 +45,14 @@ test("the theme's status indicators look reaches the root, and a theme without i
   applyAgentTheme(theme as Parameters<typeof applyAgentTheme>[0]);
   expect(root.dataset.statusIndicators).toBeUndefined();
 });
+
+test("focus ring setting gates transcript response outlines and defaults off", async () => {
+  const { applyAgentTheme } = await import("../src/agent-session/shared/theme");
+  const root = document.documentElement;
+  applyAgentTheme({ ...theme, focusRingEnabled: true } as Parameters<typeof applyAgentTheme>[0]);
+  expect(root.dataset.focusRingEnabled).toBe("true");
+  applyAgentTheme({ ...theme, focusRingEnabled: false } as Parameters<typeof applyAgentTheme>[0]);
+  expect(root.dataset.focusRingEnabled).toBeUndefined();
+  applyAgentTheme(theme as Parameters<typeof applyAgentTheme>[0]);
+  expect(root.dataset.focusRingEnabled).toBeUndefined();
+});

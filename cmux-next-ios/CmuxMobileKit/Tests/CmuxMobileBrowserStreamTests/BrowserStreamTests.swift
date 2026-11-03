@@ -357,6 +357,73 @@ final class SinkBox: @unchecked Sendable {
     }
 }
 
+/// A Mac phone tab's simulator streams through the browser tab's model (verify/simulator-surface.md).
+@MainActor @Suite struct SimulatorSurfaceTests {
+    final class Link: BrowserStreamOpening, @unchecked Sendable {
+        let stream = FakeStream()
+        let box = SinkBox()
+        var surfaces: [String] = []
+        var browsers = 0
+        func openBrowser(tab: String, url: String?, sink: any BrowserStreamSink) async throws -> any BrowserStreamConnection {
+            browsers += 1
+            return stream
+        }
+        func openSurface(tab: String, sink: any BrowserStreamSink) async throws -> any BrowserStreamConnection {
+            box.lock.withLock { box.sinks.append(sink) }
+            surfaces.append(tab)
+            return stream
+        }
+    }
+
+    @Test func aPhoneTabOpensTheSurfaceServiceAndSendsTouchesAtTheScreensUnitPoints() async throws {
+        let link = Link()
+        let directory = StreamedBrowserDirectory()
+        directory.opener = { link }
+        let model = try #require(directory.simulatorModel(tab: "s12"))
+        #expect(directory.simulatorModel(tab: "s12") === model)
+        model.setVisible(true)
+        model.layout(points: CGSize(width: 402, height: 700), screenScale: 3)
+        for _ in 0..<200 where link.box.last == nil { try? await Task.sleep(for: .milliseconds(5)) }
+        let sink = try #require(link.box.last)
+        #expect(link.surfaces == ["s12"] && link.browsers == 0)
+        sink.browserMessage(Data(#"{"t":"welcome","caps":["input.service"]}"#.utf8))
+        for _ in 0..<20 { await Task.yield() }
+        #expect(link.stream.sent == ["rb.open", "rb.visibility"])
+        model.touch("down", at: CGPoint(x: 0.25, y: 0.5))
+        model.touch("move", at: CGPoint(x: 0.3, y: 0.6))
+        model.touch("up", at: CGPoint(x: 0.3, y: 0.6))
+        model.pressButton("home")
+        let inputs = link.stream.lock.withLock { link.stream.inputs }
+        #expect(inputs.map { $0["kind"] as? String ?? $0["e"] as? String } == ["down", "move", "up", "button"])
+        #expect(inputs[0]["x"] as? Double == 0.25 && inputs[0]["y"] as? Double == 0.5)
+        #expect(inputs[3]["button"] as? String == "home")
+        // Hidden: the Mac hears it (the shown tab takes the media lane back).
+        model.setVisible(false)
+        #expect(link.stream.sent.last == "rb.visibility")
+    }
+
+    @Test func pointsMapOntoTheAspectFitPictureAndClamp() {
+        let view = CGSize(width: 400, height: 1000)
+        // A 1:2 picture in a 400x1000 view is 400x800, 100 pt from the top.
+        let picture = CGSize(width: 882, height: 1764)
+        #expect(StreamedBrowserModel.normalized(CGPoint(x: 200, y: 500), in: view, picture: picture) == CGPoint(x: 0.5, y: 0.5))
+        #expect(StreamedBrowserModel.normalized(CGPoint(x: 0, y: 100), in: view, picture: picture) == CGPoint(x: 0, y: 0))
+        #expect(StreamedBrowserModel.normalized(CGPoint(x: 500, y: 10), in: view, picture: picture) == CGPoint(x: 1, y: 0))
+        // Before the first frame the picture fills the view.
+        #expect(StreamedBrowserModel.normalized(CGPoint(x: 100, y: 250), in: view, picture: .zero) == CGPoint(x: 0.25, y: 0.25))
+    }
+
+    @Test func aMacThatStreamsNoSimulatorsIsUnavailable() async {
+        for error in [LinkError(code: "no_surface_host", message: "this Mac does not stream simulator tabs"),
+                      LinkError(code: "unknown_service", message: "no service surface")] {
+            let model = StreamedBrowserModel(tab: "s12", url: nil) { _ in throw error }
+            model.setVisible(true)
+            model.layout(points: CGSize(width: 300, height: 600), screenScale: 2)
+            for _ in 0..<200 where model.phase == .connecting { try? await Task.sleep(for: .milliseconds(5)) }
+            #expect(model.phase == .unavailable)
+        }
+    }
+}
 
 /// The page's focused field and a hardware keyboard's keys.
 @Suite struct StreamedFocusAndHardwareKeyTests {

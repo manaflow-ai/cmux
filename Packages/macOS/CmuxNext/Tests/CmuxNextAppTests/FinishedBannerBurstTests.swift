@@ -5,6 +5,7 @@ import CmuxNextBridge
 import CmuxNextSettings
 import Foundation
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// Agent-finished banners that land in one burst collapse per workspace (cx-kz6m0.1, parity with the
 /// old app's coalescing queue; RFC #20891 proposal 3). Within the window, a second agent finishing in
@@ -34,6 +35,10 @@ struct FinishedBannerBurstTests {
             store.apply(snapshot: DaemonTree(workspaces: [api, web]))
             service.clock = clock
             service.terminalNotificationsEnabled = { true }
+            // These tests deliver banners microseconds apart. The 1.5 s sound burst cooldown
+            // (`notifications.sounds.cooldownSeconds`) would hold every sound after the first, so it is
+            // off here; NotificationSoundGateTests covers it.
+            service.preferences.sounds.cooldownSeconds = 0
         }
 
         /// Delivers daemon notification `id` from an agent on `surface` as a banner the policy allows.

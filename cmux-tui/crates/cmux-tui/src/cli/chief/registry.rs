@@ -13,6 +13,7 @@ use serde_json::{Map, Value, json};
 use super::link::{Link, LinkError};
 use super::{GlobalArgs, Target};
 use crate::cli::OutputMode;
+use cmux_json::JsonSet as _;
 
 /// The largest picture the daemon takes.
 const MAX_AVATAR_BYTES: u64 = 1024 * 1024;
@@ -424,11 +425,13 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         println!("{}", t.usage);
         return 0;
     }
+    // The marker named in a refusal is the variable's name (as every agent refusal names
+    // it), never its value (the owner socket's path).
     if let Some(what) = request.write()
-        && let Some(marker) = std::env::var(super::super::chief_target::OWNER_KEY)
-            .ok()
-            .filter(|value| !value.trim().is_empty())
+        && std::env::var(super::super::chief_target::OWNER_KEY)
+            .is_ok_and(|value| !value.trim().is_empty())
     {
+        let marker = super::super::chief_target::OWNER_KEY;
         let output = if request.json { OutputMode::Json } else { global.output };
         // A Chief's own turn: its host decides, on its bound connection. A
         // person-authorized agent without the Chief owner marker proceeds to
@@ -439,7 +442,7 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         {
             return code;
         }
-        return super::super::wire::print_operation_error(&agent_refused(what, &marker), output);
+        return super::super::wire::print_operation_error(&agent_refused(what, marker), output);
     }
     let socket = match super::target(global, request.chief_home.as_deref()) {
         Ok(Target::Explicit(socket, derived)) => (socket, derived),
@@ -562,7 +565,7 @@ fn execute(link: &mut Link, request: &Request, output: OutputMode) -> Result<(),
         if request.word == "history" {
             let mut params = json!({"chief": id});
             if let Some(limit) = request.limit {
-                params["limit"] = json!(limit);
+                params.set("limit", json!(limit));
             }
             let history = link.call("chief.profile.history", params, None)?;
             let revisions =
@@ -582,7 +585,7 @@ fn execute(link: &mut Link, request: &Request, output: OutputMode) -> Result<(),
             let key = super::link::new_message_id();
             let mut params = json!({"chief": id, "expected_rev": found["rev"]});
             if let Some(rev) = request.to_rev {
-                params["to_rev"] = json!(rev);
+                params.set("to_rev", json!(rev));
             }
             let undone = link.call("chief.profile.undo", params, Some(&key))?;
             let value = undone.get("value").cloned().unwrap_or(Value::Null);

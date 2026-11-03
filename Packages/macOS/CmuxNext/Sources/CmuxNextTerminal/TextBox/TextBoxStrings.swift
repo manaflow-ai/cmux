@@ -1,7 +1,8 @@
 package import Foundation
 
 /// TextBox composer strings (table TextBox.xcstrings).
-package nonisolated enum TextBoxStrings {
+package nonisolated struct TextBoxStrings {
+    package nonisolated init() {}
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, table: "TextBox", bundle: .module)
     }

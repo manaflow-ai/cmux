@@ -11,6 +11,7 @@ use crate::paths::Paths;
 
 pub const USAGE: &str = "optchat-chief memory export --text DIR [--mux-home DIR]   the memory as JSONL day files (main/, tree/; the old store's format)
 optchat-chief memory import [--mux-home DIR] DIR          an old JSONL home or an export into an empty memory (host stopped)
+optchat-chief memory import-from SOURCE dry-run|write   merge another memory into this one or the Cloud Chief (see memory_sync.rs)
 optchat-chief memory search [--mux-home DIR] [--limit N] [--json] QUERY  full-text search: messages and summaries holding every word
                                                           (--json: an array of hits, messages with id, kind, date, snippet and full text)
 optchat-chief memory stats [--mux-home DIR]               counts, schema version, migration record, file size
@@ -37,6 +38,7 @@ pub fn run(flags: &Flags, home: &Path, json: bool) -> Result<String, String> {
                 stats.files_written
             ))
         }
+        Some("import-from") => crate::memory_sync::run(flags, home, json),
         Some("import") => {
             let [from] = words.as_slice() else {
                 return Err(format!("memory import needs one directory\n{USAGE}"));

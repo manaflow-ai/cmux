@@ -1,150 +1,214 @@
 public import Foundation
 
-/// Where a reader was in a conversation: the newest visible message and its
-/// offset from the bottom of the viewport, in points. A message newer than
-/// `message` scrolls to the bottom instead.
-public struct HomeScrollAnchor: Hashable, Sendable, Codable {
-    public var message: MessageID
-    public var offset: Double
-
-    public init(message: MessageID, offset: Double) {
-        self.message = message
-        self.offset = offset
-    }
-}
-
-/// A text send the owner had not committed when the cache was written. It
-/// comes back as unconfirmed (resent under its key at the first connection;
-/// the owner applies a key once) or, when it had failed, as Not Delivered.
-/// Sends with attachments are not kept: their local files are not.
-public struct HomeCachedSend: Hashable, Sendable, Codable {
-    public var key: IdempotencyKey
-    public var conversation: ConversationID
-    /// Text parts only (with their mentions).
-    public var parts: [MessagePart]
-    public var issuedAt: Date
-    public var failed: Bool
-    /// The thread the send replies in (nil: the conversation itself).
-    public var threadRoot: MessageID?
-    /// The message of the thread it answers (nil: the root; HomeOp.sendMessage `parent`).
-    public var parent: MessageID?
-
-    public init(key: IdempotencyKey, conversation: ConversationID, parts: [MessagePart], issuedAt: Date, failed: Bool,
-                threadRoot: MessageID? = nil, parent: MessageID? = nil) {
-        self.key = key
-        self.conversation = conversation
-        self.threadRoot = threadRoot
-        self.parent = parent
-        self.parts = parts
-        self.issuedAt = issuedAt
-        self.failed = failed
-    }
-
-    public init(key: IdempotencyKey, conversation: ConversationID, text: String, issuedAt: Date, failed: Bool) {
-        self.init(key: key, conversation: conversation, parts: [.text(text)], issuedAt: issuedAt, failed: failed)
-    }
-
-    /// The cached form of a logged send, nil for one the cache does not keep
-    /// (acknowledged, still uploading, or with a non-text part).
-    init?(_ entry: PendingIntent) {
-        guard case .sendMessage(let conversation, let parts, let threadRoot, let parent) = entry.intent.op, !entry.isUploading,
-              parts.allSatisfy({ if case .text = $0 { true } else { false } }) else { return nil }
-        if case .acknowledged = entry.state { return nil }
-        let failed = if case .failed = entry.state { true } else { false }
-        self.init(key: entry.intent.key, conversation: conversation, parts: parts, issuedAt: entry.intent.issuedAt, failed: failed,
-                  threadRoot: threadRoot, parent: parent)
-    }
-
-    /// The intent this send restores into the log.
-    var intent: HomeIntent {
-        HomeIntent(key: key, op: .sendMessage(conversation: conversation, parts: parts, threadRoot: threadRoot, parent: parent), issuedAt: issuedAt)
-    }
-}
-
-/// A picture or file left in a compose field: its ref and its files in the
-/// client blob cache, so the chip comes back after a relaunch with the text.
-public struct HomeCachedDraftAttachment: Hashable, Sendable, Codable {
-    public var ref: AttachmentRef
-    public var fileURL: URL
-    public var posterURL: URL?
-    public var previewURL: URL?
-
-    public init(_ attachment: LocalAttachment) {
-        ref = attachment.ref
-        fileURL = attachment.fileURL
-        posterURL = attachment.posterURL
-        previewURL = attachment.previewURL
-    }
-
-    /// Its file, poster and preview, whichever it has.
-    var urls: [URL] { [fileURL, posterURL, previewURL].compactMap { $0 } }
-
-    /// The prepared attachment again; nil once the blob cache no longer holds
-    /// its bytes, its poster or its preview (a send needs all three).
-    var local: LocalAttachment? {
-        guard urls.allSatisfy({ FileManager.default.fileExists(atPath: $0.path) }) else { return nil }
-        return LocalAttachment(ref: ref, fileURL: fileURL, posterURL: posterURL, previewURL: previewURL)
-    }
-}
-
-/// What the cache holds (plans/cmux-next/home-state-ownership.md section 4):
-/// the owner's last inbox and the tail of each opened conversation, as the
-/// mirror had them, plus the client's own state (unsent sends, drafts, scroll
-/// anchors). A copy, never a writer: the owner's answers overwrite it.
-public struct HomeCacheSnapshot: Hashable, Sendable, Codable {
-    public static let currentVersion = 1
-
-    public var version = HomeCacheSnapshot.currentVersion
-    public var me: Participant?
-    public var conversations: [ConversationSummary] = []
-    /// The newest messages of each conversation the reader opened (at most
-    /// `HomeCache.windowLimit`), ascending.
-    public var windows: [ConversationID: [Message]] = [:]
-    public var sends: [HomeCachedSend] = []
-    public var drafts: [ConversationID: String] = [:]
-    public var scroll: [ConversationID: HomeScrollAnchor] = [:]
-    /// The attachments in each compose field, in order. Optional: a cache
-    /// written before drafts kept them still decodes.
-    public var draftAttachments: [ConversationID: [HomeCachedDraftAttachment]]?
-
-    public init() {}
-}
-
-/// The client's durable Home cache: one JSON file per owner and account
-/// (`~/Library/Caches/cmux-home/<owner key>/home.json` on the Mac). Written
-/// whole, atomically; a file that does not decode is ignored, since the owner
-/// can rebuild everything in it but drafts and unsent sends.
-public struct HomeCache: Sendable, Hashable {
+/// The client's durable Home cache, one per owner and account
+/// (`~/Library/Caches/cmux-home/<owner key>/` on the Mac): a Repository actor.
+///
+/// On disk it is a small index (`home.json`: the inbox, unsent sends, drafts, scroll anchors and
+/// the list of cached windows) plus one file per opened conversation's window
+/// (`home-windows/<conversation>.json`, its newest ``windowLimit`` messages). A write is
+/// proportional to the change, not to the store: the actor keeps what it last wrote and rewrites
+/// the index only when it changed and only the windows that changed (speed-of-sound-DESIGN.md
+/// 3.5). Encoding and writing run on the actor, never on the caller's main actor, which hands
+/// over a ``HomeCacheState`` of copy-on-write values. A file that does not decode is ignored,
+/// since the owner can rebuild everything in it but drafts and unsent sends. An index written
+/// whole by an older build (windows inline) still loads.
+///
+/// ```swift
+/// let cache = HomeCache(url: temporaryDirectory.appendingPathComponent("home.json"))
+/// try await cache.save(snapshot)
+/// let restored = cache.load()
+/// ```
+public actor HomeCache {
     /// Messages kept per opened conversation.
     public static let windowLimit = 200
 
-    public let url: URL
+    /// Writes one file (data, then its URL): the default replaces it atomically (a temporary file renamed over
+    /// it, so a process end mid-write never leaves a torn file) and makes it owner-only.
+    public typealias FileWriter = @Sendable (Data, URL) throws -> Void
 
-    public init(url: URL) {
-        self.url = url
+    /// The queue this actor runs on (threading-model.md, `com.cmuxterm.home.cache`): its file calls block a
+    /// thread of its own, never a cooperative pool thread, so a full pool (a stuck quit) cannot hold the
+    /// forced quit's last draft write.
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.home.cache", qos: .userInitiated)
+
+    /// Runs the actor on ``queue``.
+    public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
+    private nonisolated let writeFile: FileWriter
+
+    /// The index file; the windows are in ``windowsDirectory`` beside it.
+    public nonisolated let url: URL
+
+    /// What the files on disk hold, as last written or read; nil until the first write reads it.
+    private var written: Written?
+    /// The newest state written by each writer (a ``HomeClientViewCache`` numbers its states):
+    /// an older one that reaches the actor later is dropped, since the newer one holds everything
+    /// it does. Per writer: two stores on one cache number their states apart.
+    private var lastSequence: [UUID: UInt64] = [:]
+
+    private struct Written {
+        /// The index as a value, not as bytes: `JSONEncoder` writes a struct's keys and a
+        /// non-`String`-keyed dictionary's entries in hash order, so two encodes of one state can
+        /// differ byte for byte. Comparing bytes rewrote `home.json` for an equal state.
+        var index: HomeCacheSnapshot?
+        /// Each window file's messages (the kept tail), compared with a new state's tail.
+        var windows: [ConversationID: [Message]] = [:]
     }
 
-    /// `Caches/cmux-home/<owner>/home.json`; `owner` is made a single path component.
+    /// - Parameters:
+    ///   - url: The index file (`home.json`).
+    ///   - writeFile: Writes each file; the default replaces it atomically and makes it owner-only. Tests pass
+    ///     one that fails or records.
+    public init(url: URL, writeFile: @escaping FileWriter = { try HomeCache.atomicWrite($0, to: $1) }) {
+        self.url = url
+        self.writeFile = writeFile
+    }
+
+    /// `Caches/cmux-home/<owner>/home.json` in the user's Caches folder; `owner` is made a single path component.
     public static func standard(owner: String) -> HomeCache {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
+        return standard(owner: owner, caches: caches)
+    }
+
+    /// `<caches>/cmux-home/<owner>/home.json`; `owner` is made a single path component.
+    ///
+    /// - Parameters:
+    ///   - owner: The Chief owner the cache belongs to.
+    ///   - caches: The folder that holds the Home caches: the user's Caches folder in the app, a
+    ///     test's own temporary folder in a test, so no test reads another's drafts.
+    /// - Returns: The cache at that path.
+    public static func standard(owner: String, caches: URL) -> HomeCache {
         let component = String(owner.map { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" ? $0 : "-" })
         return HomeCache(url: caches.appendingPathComponent("cmux-home/\(component)/home.json"))
     }
 
-    public func load() -> HomeCacheSnapshot? {
+    /// `home-windows/` beside `home.json`: one file per cached window.
+    public nonisolated var windowsDirectory: URL {
+        url.deletingLastPathComponent()
+            .appendingPathComponent(url.deletingPathExtension().lastPathComponent + "-windows", isDirectory: true)
+    }
+
+    /// The cached snapshot, read synchronously (the Home list's first frame needs it before the
+    /// owner answers). Nil when there is none or it does not decode; a window whose file is
+    /// gone or does not decode is left out.
+    public nonisolated func load() -> HomeCacheSnapshot? {
+        guard var snapshot = readIndex() else { return nil }
+        for id in snapshot.windowIDs ?? [] where snapshot.windows[id] == nil {
+            if let messages = readWindow(id) { snapshot.windows[id] = messages }
+        }
+        snapshot.windowIDs = nil
+        return snapshot
+    }
+
+    /// Writes `snapshot` as the newest state (tests, tools): the index and each window that
+    /// differs from what is on disk.
+    ///
+    /// - Throws: `CocoaError(.fileWriteUnknown)` when a file did not reach disk.
+    public func save(_ snapshot: HomeCacheSnapshot) throws {
+        if !commit(HomeCacheState(snapshot)) { throw CocoaError(.fileWriteUnknown) }
+    }
+
+    /// Writes `state` unless `writer` already wrote a newer one; true when everything it holds is
+    /// on disk (or a newer state replaced it).
+    func write(_ state: HomeCacheState, sequence: UInt64, writer: UUID) -> Bool {
+        guard sequence > lastSequence[writer, default: 0] else { return true }
+        lastSequence[writer] = sequence
+        return commit(state)
+    }
+
+    // MARK: - Files
+
+    /// Writes the changed windows, then the index (so it never names a window not yet on disk),
+    /// then removes the windows that left. True when all of it reached disk.
+    ///
+    /// The file calls block this actor's own queue (``unownedExecutor``), never a cooperative pool thread.
+    private func commit(_ state: HomeCacheState) -> Bool {
+        var written = self.written ?? readWritten()
+        defer { self.written = written }
+        do {
+            try FileManager.default.createDirectory(at: windowsDirectory, withIntermediateDirectories: true,
+                                                    attributes: [.posixPermissions: 0o700])
+        } catch {
+            return false
+        }
+        var complete = true
+        for (id, messages) in state.windows {
+            let kept = Array(messages.suffix(Self.windowLimit))
+            if written.windows[id] == kept { continue }
+            if (try? writeFile(Self.encoder().encode(kept), windowURL(id))) != nil {
+                written.windows[id] = kept
+            } else {
+                written.windows[id] = nil
+                complete = false
+            }
+        }
+        let index = state.index
+        if index != written.index {
+            if let data = try? Self.encoder().encode(index), (try? writeFile(data, url)) != nil {
+                written.index = index
+            } else {
+                complete = false
+            }
+        }
+        for id in written.windows.keys where state.windows[id] == nil {
+            try? FileManager.default.removeItem(at: windowURL(id))
+            written.windows[id] = nil
+        }
+        return complete
+    }
+
+    /// What is on disk before this launch's first write: the index and its windows. A
+    /// window file the index does not name (left by an older build) is removed.
+    private func readWritten() -> Written {
+        var written = Written()
+        let index = readIndex()
+        written.index = index
+        let named = Set(index?.windowIDs ?? [])
+        for id in named {
+            if let messages = readWindow(id) { written.windows[id] = messages }
+        }
+        let files = (try? FileManager.default.contentsOfDirectory(at: windowsDirectory, includingPropertiesForKeys: nil)) ?? []
+        let namedFiles = Set(named.map { windowURL($0).lastPathComponent })
+        for file in files where !namedFiles.contains(file.lastPathComponent) {
+            try? FileManager.default.removeItem(at: file)
+        }
+        return written
+    }
+
+    private nonisolated func readIndex() -> HomeCacheSnapshot? {
         guard let data = try? Data(contentsOf: url),
               let snapshot = try? JSONDecoder().decode(HomeCacheSnapshot.self, from: data),
               snapshot.version == HomeCacheSnapshot.currentVersion else { return nil }
         return snapshot
     }
 
-    public func save(_ snapshot: HomeCacheSnapshot) throws {
-        let directory = url.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
-                                                attributes: [.posixPermissions: 0o700])
-        let data = try JSONEncoder().encode(snapshot)
+    /// Sorted keys order struct fields and String-keyed dictionaries only. ConversationID is not
+    /// `CodingKeyRepresentable`, so the ConversationID-keyed dictionaries (drafts, scroll,
+    /// draftAttachments) encode as unkeyed `[key, value, ...]` arrays in hash order:
+    /// equal values can give different bytes, and the change test must stay a value compare.
+    private static func encoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return encoder
+    }
+
+    private nonisolated func readWindow(_ id: ConversationID) -> [Message]? {
+        guard let data = try? Data(contentsOf: windowURL(id)) else { return nil }
+        return try? JSONDecoder().decode([Message].self, from: data)
+    }
+
+    /// The window's file: the id percent-encoded, so each id has its own name.
+    private nonisolated func windowURL(_ id: ConversationID) -> URL {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        let name = id.rawValue.addingPercentEncoding(withAllowedCharacters: allowed) ?? id.rawValue
+        return windowsDirectory.appendingPathComponent(name + ".json")
+    }
+
+    /// The default ``FileWriter``: an atomic replace, then owner-only permissions.
+    public static func atomicWrite(_ data: Data, to url: URL) throws {
         try data.write(to: url, options: [.atomic])
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 }
+

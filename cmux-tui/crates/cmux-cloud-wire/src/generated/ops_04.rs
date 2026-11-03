@@ -4,6 +4,424 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Read one thread: its root and the replies after after_seq (ascending, exact has_more), with the root's stats. A root that is unknown, is itself a reply, or is hidden by since_join is unknown_message.
+    ConversationThreadOp {
+        name: "conversation.thread",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:ConversationDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: ConversationThreadParams,
+        result: ConversationThreadResult,
+        error: ConversationThreadError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ConversationThreadParams {
+    pub conversation: ConversationId,
+    pub root: MessageId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_seq: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ConversationThreadResult {
+    pub root: HomeMessage,
+    pub replies: Vec<HomeMessage>,
+    pub has_more: bool,
+    pub thread: HomeThreadSummary,
+}
+
+wire_errors! {
+    /// The error codes conversation.thread declares.
+    ConversationThreadError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        UnknownMessage = "unknown_message",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Open the one-to-one conversation with a user or chief, or with an email or phone (which invites the address). Idempotent: an existing DM with the peer is returned. With a user peer it spends the conversation.create budget (home.rate_limited), except when it reopens an existing DM; home.user_not_ready (not retryable) until the caller ran user.ensure once.
+    DmOpenOp {
+        name: "dm.open",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: DmOpenParams,
+        result: DmOpenResult,
+        error: DmOpenError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DmOpenParamsPeerVariant2 {
+    pub email: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DmOpenParamsPeerVariant3 {
+    pub phone: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum DmOpenParamsPeer {
+    ParticipantId(ParticipantId),
+    Variant2(DmOpenParamsPeerVariant2),
+    Variant3(DmOpenParamsPeerVariant3),
+    /// A member this build does not know (a newer backend), kept verbatim.
+    Unknown(Value),
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DmOpenParams {
+    pub peer: DmOpenParamsPeer,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DmOpenResult {
+    pub conversation: HomeConversationSummary,
+}
+
+wire_errors! {
+    /// The error codes dm.open declares.
+    DmOpenError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        HomeRateLimited = "home.rate_limited",
+        HomeUserNotReady = "home.user_not_ready",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidParticipant = "invalid_participant",
+        InviteLimit = "invite_limit",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        NotReachable = "not_reachable",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Start verifying an email domain for the team (owners and admins): returns the DNS TXT record to publish. Public mail domains are refused.
+    DomainClaimOp {
+        name: "domain.claim",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Session],
+        params: DomainClaimParams,
+        result: TeamDomain,
+        error: DomainClaimError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DomainClaimParams {
+    pub domain: EmailDomain,
+}
+
+wire_errors! {
+    /// The error codes domain.claim declares.
+    DomainClaimError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        PolicyInvalid = "policy.invalid",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// The team's claimed and verified email domains (owners and admins).
+    DomainListOp {
+        name: "domain.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: DomainListParams,
+        result: DomainListResult,
+        error: DomainListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DomainListParams {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DomainListResult {
+    pub team: TeamId,
+    pub domains: Vec<TeamDomain>,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes domain.list declares.
+    DomainListError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Give up a claimed or verified domain (owners and admins). Another team may then verify it.
+    DomainReleaseOp {
+        name: "domain.release",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "destructive",
+        principals: [Session],
+        params: DomainReleaseParams,
+        result: DomainReleaseResult,
+        error: DomainReleaseError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DomainReleaseParams {
+    pub domain: EmailDomain,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DomainReleaseResult {
+    pub domain: EmailDomain,
+}
+
+wire_errors! {
+    /// The error codes domain.release declares.
+    DomainReleaseError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Check the TXT record through two DNS-over-HTTPS resolvers and, when both see it, make the team the domain's owner (owners and admins).
+    DomainVerifyOp {
+        name: "domain.verify",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Session],
+        params: DomainVerifyParams,
+        result: TeamDomain,
+        error: DomainVerifyError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DomainVerifyParams {
+    pub domain: EmailDomain,
+}
+
+wire_errors! {
+    /// The error codes domain.verify declares.
+    DomainVerifyError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        DomainNotVerified = "domain.not_verified",
+        DomainTaken = "domain.taken",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Handoff: a daemon's local feed owner moves one of its items (same id) to the cloud owner after a reconnect.
+    FeedAdoptOp {
+        name: "feed.adopt",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:FeedDO",
+        risk: "mutate-own",
+        principals: [Install],
+        params: FeedAdoptParams,
+        result: FeedAdoptResult,
+        error: FeedAdoptError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedAdoptParams {
+    pub item: FeedItem,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedAdoptResult {
+    pub item: FeedItem,
+}
+
+wire_errors! {
+    /// The error codes feed.adopt declares.
+    FeedAdoptError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        FeedAdoptCancelled = "feed.adopt_cancelled",
+        FeedClosed = "feed.closed",
+        FeedFull = "feed.full",
+        FeedMoving = "feed.moving",
+        FeedRateLimited = "feed.rate_limited",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerMoved = "owner.moved",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Handoff abort: a daemon's local feed owner withdraws `feed.adopt` with key `adopt:<item>`. Not adopted: a tombstone refuses a later adopt with that key and the reply is cancelled true. Adopted: cancelled false with the cloud item.
+    FeedAdoptCancelOp {
+        name: "feed.adopt.cancel",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:FeedDO",
+        risk: "mutate-own",
+        principals: [Install],
+        params: FeedAdoptCancelParams,
+        result: FeedAdoptCancelResult,
+        error: FeedAdoptCancelError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedAdoptCancelParams {
+    pub key: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedAdoptCancelResult {
+    pub cancelled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item: Option<FeedItem>,
+}
+
+wire_errors! {
+    /// The error codes feed.adopt.cancel declares.
+    FeedAdoptCancelError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        FeedClosed = "feed.closed",
+        FeedFull = "feed.full",
+        FeedMoving = "feed.moving",
+        FeedRateLimited = "feed.rate_limited",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerMoved = "owner.moved",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Answer an open request (the user only, origin user). The first answer wins; a closed item is refused with feed.closed.
+    FeedAnswerOp {
+        name: "feed.answer",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:FeedDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: FeedAnswerParams,
+        result: FeedAnswerResult,
+        error: FeedAnswerError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedAnswerParams {
+    pub item: FeedItemId,
+    pub answer: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedAnswerResult {
+    pub item: FeedItem,
+}
+
+wire_errors! {
+    /// The error codes feed.answer declares.
+    FeedAnswerError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        FeedClosed = "feed.closed",
+        FeedFull = "feed.full",
+        FeedMoving = "feed.moving",
+        FeedRateLimited = "feed.rate_limited",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerMoved = "owner.moved",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Archive items (done) by ids or a filter. Open requests cannot be archived: answer or decline them (a filter skips them).
+    FeedArchiveOp {
+        name: "feed.archive",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:FeedDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: FeedArchiveParams,
+        result: FeedArchiveResult,
+        error: FeedArchiveError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedArchiveParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub items: Option<Vec<FeedItemId>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filter: Option<FeedFilter>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedArchiveResultItemsItem {
+    pub id: FeedItemId,
+    pub revision: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FeedArchiveResult {
+    pub items: Vec<FeedArchiveResultItemsItem>,
+}
+
 wire_errors! {
     /// The error codes feed.archive declares.
     FeedArchiveError {
@@ -483,410 +901,5 @@ wire_op! {
         params: FeedSeenParams,
         result: FeedSeenResult,
         error: FeedSeenError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedSeenParams {
-    pub items: Vec<FeedItemId>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedSeenResultItemsItem {
-    pub id: FeedItemId,
-    pub revision: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedSeenResult {
-    pub items: Vec<FeedSeenResultItemsItem>,
-}
-
-wire_errors! {
-    /// The error codes feed.seen declares.
-    FeedSeenError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        FeedClosed = "feed.closed",
-        FeedFull = "feed.full",
-        FeedMoving = "feed.moving",
-        FeedRateLimited = "feed.rate_limited",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerMoved = "owner.moved",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Hide items until a time (at most one year ahead); they come back unread. Open requests cannot be snoozed.
-    FeedSnoozeOp {
-        name: "feed.snooze",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:FeedDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: FeedSnoozeParams,
-        result: FeedSnoozeResult,
-        error: FeedSnoozeError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedSnoozeParams {
-    pub items: Vec<FeedItemId>,
-    pub until: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedSnoozeResultItemsItem {
-    pub id: FeedItemId,
-    pub revision: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedSnoozeResult {
-    pub items: Vec<FeedSnoozeResultItemsItem>,
-}
-
-wire_errors! {
-    /// The error codes feed.snooze declares.
-    FeedSnoozeError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        FeedClosed = "feed.closed",
-        FeedFull = "feed.full",
-        FeedMoving = "feed.moving",
-        FeedRateLimited = "feed.rate_limited",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerMoved = "owner.moved",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Move archived items back to the active list.
-    FeedUnarchiveOp {
-        name: "feed.unarchive",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:FeedDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: FeedUnarchiveParams,
-        result: FeedUnarchiveResult,
-        error: FeedUnarchiveError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedUnarchiveParams {
-    pub items: Vec<FeedItemId>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedUnarchiveResultItemsItem {
-    pub id: FeedItemId,
-    pub revision: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedUnarchiveResult {
-    pub items: Vec<FeedUnarchiveResultItemsItem>,
-}
-
-wire_errors! {
-    /// The error codes feed.unarchive declares.
-    FeedUnarchiveError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        FeedClosed = "feed.closed",
-        FeedFull = "feed.full",
-        FeedMoving = "feed.moving",
-        FeedRateLimited = "feed.rate_limited",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerMoved = "owner.moved",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Allow a validated path through the caller's private network.
-    FirewallCreateOp {
-        name: "firewall.create",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session],
-        params: FirewallCreateParams,
-        result: FirewallCreateResult,
-        error: FirewallCreateError,
-    }
-}
-
-wire_enum! {
-    FirewallCreateParamsSourceProtocol {
-        Tcp = "tcp",
-        Udp = "udp",
-        Icmp = "icmp",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FirewallCreateParamsSource {
-    #[serde(rename = "vmId", default, skip_serializing_if = "Option::is_none")]
-    pub vm_id: Option<String>,
-    #[serde(rename = "vpcId", default, skip_serializing_if = "Option::is_none")]
-    pub vpc_id: Option<String>,
-    #[serde(rename = "tunnelId", default, skip_serializing_if = "Option::is_none")]
-    pub tunnel_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cidr: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub public: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub port: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub protocol: Option<FirewallCreateParamsSourceProtocol>,
-}
-
-wire_enum! {
-    FirewallCreateParamsDestinationProtocol {
-        Tcp = "tcp",
-        Udp = "udp",
-        Icmp = "icmp",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FirewallCreateParamsDestination {
-    #[serde(rename = "vmId", default, skip_serializing_if = "Option::is_none")]
-    pub vm_id: Option<String>,
-    #[serde(rename = "vpcId", default, skip_serializing_if = "Option::is_none")]
-    pub vpc_id: Option<String>,
-    #[serde(rename = "tunnelId", default, skip_serializing_if = "Option::is_none")]
-    pub tunnel_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cidr: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub public: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub port: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub protocol: Option<FirewallCreateParamsDestinationProtocol>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FirewallCreateParams {
-    pub source: FirewallCreateParamsSource,
-    pub destination: FirewallCreateParamsDestination,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-}
-
-wire_enum! {
-    FirewallCreateResultSourceProtocol {
-        Tcp = "tcp",
-        Udp = "udp",
-        Icmp = "icmp",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FirewallCreateResultSource {
-    #[serde(rename = "vmId", default, skip_serializing_if = "Option::is_none")]
-    pub vm_id: Option<String>,
-    #[serde(rename = "vpcId", default, skip_serializing_if = "Option::is_none")]
-    pub vpc_id: Option<String>,
-    #[serde(rename = "tunnelId", default, skip_serializing_if = "Option::is_none")]
-    pub tunnel_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cidr: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub public: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub port: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub protocol: Option<FirewallCreateResultSourceProtocol>,
-}
-
-wire_enum! {
-    FirewallCreateResultDestinationProtocol {
-        Tcp = "tcp",
-        Udp = "udp",
-        Icmp = "icmp",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FirewallCreateResultDestination {
-    #[serde(rename = "vmId", default, skip_serializing_if = "Option::is_none")]
-    pub vm_id: Option<String>,
-    #[serde(rename = "vpcId", default, skip_serializing_if = "Option::is_none")]
-    pub vpc_id: Option<String>,
-    #[serde(rename = "tunnelId", default, skip_serializing_if = "Option::is_none")]
-    pub tunnel_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cidr: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub public: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub port: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub protocol: Option<FirewallCreateResultDestinationProtocol>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FirewallCreateResult {
-    pub id: String,
-    pub action: LitAllow,
-    pub source: FirewallCreateResultSource,
-    pub destination: FirewallCreateResultDestination,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-}
-
-wire_errors! {
-    /// The error codes firewall.create declares.
-    FirewallCreateError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Delete one firewall rule owned by the caller.
-    FirewallDeleteOp {
-        name: "firewall.delete",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "destructive",
-        principals: [Session],
-        params: FirewallDeleteParams,
-        result: FirewallDeleteResult,
-        error: FirewallDeleteError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FirewallDeleteParams {
-    pub rule_id: String,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FirewallDeleteResult {
-    pub rule_id: String,
-}
-
-wire_errors! {
-    /// The error codes firewall.delete declares.
-    FirewallDeleteError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Read one firewall rule owned by the caller.
-    FirewallGetOp {
-        name: "firewall.get",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:UserDO",
-        risk: "read",
-        principals: [Session],
-        params: FirewallGetParams,
-        result: FirewallGetResult,
-        error: FirewallGetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FirewallGetParams {
-    pub rule_id: String,
-}
-
-wire_enum! {
-    FirewallGetResultSourceProtocol {
-        Tcp = "tcp",
-        Udp = "udp",
-        Icmp = "icmp",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FirewallGetResultSource {
-    #[serde(rename = "vmId", default, skip_serializing_if = "Option::is_none")]
-    pub vm_id: Option<String>,
-    #[serde(rename = "vpcId", default, skip_serializing_if = "Option::is_none")]
-    pub vpc_id: Option<String>,
-    #[serde(rename = "tunnelId", default, skip_serializing_if = "Option::is_none")]
-    pub tunnel_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cidr: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub public: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub port: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub protocol: Option<FirewallGetResultSourceProtocol>,
-}
-
-wire_enum! {
-    FirewallGetResultDestinationProtocol {
-        Tcp = "tcp",
-        Udp = "udp",
-        Icmp = "icmp",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FirewallGetResultDestination {
-    #[serde(rename = "vmId", default, skip_serializing_if = "Option::is_none")]
-    pub vm_id: Option<String>,
-    #[serde(rename = "vpcId", default, skip_serializing_if = "Option::is_none")]
-    pub vpc_id: Option<String>,
-    #[serde(rename = "tunnelId", default, skip_serializing_if = "Option::is_none")]
-    pub tunnel_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cidr: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub public: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub port: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub protocol: Option<FirewallGetResultDestinationProtocol>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FirewallGetResult {
-    pub id: String,
-    pub action: LitAllow,
-    pub source: FirewallGetResultSource,
-    pub destination: FirewallGetResultDestination,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-}
-
-wire_errors! {
-    /// The error codes firewall.get declares.
-    FirewallGetError {
-        AuthUnauthenticated = "auth.unauthenticated",
-        SelectorNotFound = "selector.not_found",
     }
 }

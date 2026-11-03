@@ -28,6 +28,8 @@ public final class HangEpisodeRecorder: Sendable {
         /// was killed mid-hang, or the hang is still running).
         public var ongoing: Bool
         public var topFrames: [String]
+        /// The main thread's CPU and the process's page-ins over the hang (``HangLoad``).
+        public var load = HangLoad()
     }
 
     public let directory: URL
@@ -60,6 +62,8 @@ public final class HangEpisodeRecorder: Sendable {
         var symbolicating = false
         /// The streams of ``changes()`` still iterated.
         var subscribers: [UUID: AsyncStream<Void>.Continuation] = [:]
+        /// How many times ``notifyChanged()`` told the subscribers (tests: one per change).
+        var notifications = 0
     }
 
     static let filePrefix = "hang-"
@@ -95,6 +99,15 @@ public final class HangEpisodeRecorder: Sendable {
         queue.async { [self] in loadEntries() }
     }
 
+    /// Defense only: ends every ``changes()`` stream still registered when the recorder goes, so
+    /// a subscriber that does not own the recorder stops waiting. Debug Settings holds its
+    /// recorder, so its streams end when its page closes, not here; and a page keeps the recorder
+    /// it opened with (``MainThreadWatchdog/episodes`` is set once, at launch). (The queued
+    /// writes hold the recorder, so this runs after the last of them.)
+    deinit {
+        for subscriber in state.withLock({ Array($0.subscribers.values) }) { subscriber.finish() }
+    }
+
     /// `~/Library/Logs/<bundle id>/hangs`.
     public static func defaultDirectory(bundleID: String?, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
         home.appending(path: "Library/Logs").appending(path: bundleID ?? "com.cmuxterm.app.next").appending(path: "hangs")
@@ -108,7 +121,9 @@ public final class HangEpisodeRecorder: Sendable {
     /// Changes the subscriber has not taken yet fold into one pending element.
     ///
     /// Only this recorder's subscribers hear it, and only while they iterate: the stream ends,
-    /// and the recorder forgets it, when the iterating task is cancelled. Subscribe before the
+    /// and the recorder forgets it, when the iterating task is cancelled (how a subscriber that
+    /// owns the recorder ends its stream). Every stream still registered also ends if the
+    /// recorder goes away. Subscribe before the
     /// change you wait for (the stream does not replay earlier changes); read ``entries`` for
     /// the list itself.
     ///
@@ -132,6 +147,10 @@ public final class HangEpisodeRecorder: Sendable {
     /// Streams of ``changes()`` still registered (tests: an ended stream is forgotten).
     var subscriberCount: Int { state.withLock { $0.subscribers.count } }
 
+    /// The changes told to the subscribers so far, each one element per stream (tests: a stream
+    /// folds changes not yet taken, so only this shows a change told twice).
+    var changeNotificationCount: Int { state.withLock { $0.notifications } }
+
     /// The text of a hang file in ``directory``: nil when it is gone, is not a regular file (a
     /// symlink is refused, never followed), or is larger than ``maxBytes``. Call off the main thread.
     public func text(of url: URL) -> String? {
@@ -148,17 +167,17 @@ public final class HangEpisodeRecorder: Sendable {
 
     // MARK: Watchdog thread
 
-    /// A hang started `elapsed` ago: opens its file. Returns at once (the toggle is read on
+    /// A hang started `elapsed` ago: opens its file, with the `load` measured so far. Returns at once (the toggle is read on
     /// the recorder's queue too, so a main thread holding the tunable store's lock never
     /// blocks the watchdog).
-    func begin(beat: UInt64, elapsed: Duration, main: [UInt], others: [ThreadSample]) {
+    func begin(beat: UInt64, elapsed: Duration, main: [UInt], others: [ThreadSample], load: HangLoad = HangLoad()) {
         let started = Date(timeIntervalSinceNow: -elapsed.fractionalMilliseconds / 1_000)
         queue.async { [self] in
             guard isEnabled() else { return }
             // Raw addresses first: the evidence is on disk before anything can block.
             let raw = Self.render(main: main.map(Self.hex), others: others.map { (name: $0.name, frames: $0.addresses.map(Self.hex)) })
             let entry = Entry(url: directory.appending(path: Self.fileName(started)), started: started, duration: elapsed,
-                              ongoing: true, topFrames: Array(main.prefix(Self.topFrameCount).map(Self.hex)))
+                              ongoing: true, topFrames: Array(main.prefix(Self.topFrameCount).map(Self.hex)), load: load)
             state.withLock { state in
                 state.episodes.append(Episode(beat: beat, entry: entry, stacks: raw, raw: (main: main, others: others)))
                 // A symbolicator that never finishes leaves its episodes here; keep a bounded few.
@@ -171,12 +190,14 @@ public final class HangEpisodeRecorder: Sendable {
         }
     }
 
-    /// The hang of `beat` is still running at a checkpoint, or ended (`ongoing` false).
-    func update(beat: UInt64, duration: Duration, ongoing: Bool) {
+    /// The hang of `beat` is still running at a checkpoint, or ended (`ongoing` false). A nil
+    /// `load` keeps the last one measured.
+    func update(beat: UInt64, duration: Duration, ongoing: Bool, load: HangLoad? = nil) {
         queue.async { [self] in
             change(beat: beat) { episode in
                 episode.entry.duration = duration
                 episode.entry.ongoing = ongoing
+                if let load { episode.entry.load = load }
             }
         }
     }
@@ -239,8 +260,8 @@ public final class HangEpisodeRecorder: Sendable {
         var text = (["cmux main-thread hang",
                      "started: \(Self.timestamp(entry.started))",
                      "duration: \(entry.ongoing ? "at least \(duration) (still blocked when written)" : duration)",
-                     "state: \(entry.ongoing ? "blocked" : "recovered")",
-                     "pid: \(ProcessInfo.processInfo.processIdentifier)"] + identity).joined(separator: "\n")
+                     "state: \(entry.ongoing ? "blocked" : "recovered")"] + entry.load.lines(duration: entry.duration)
+                    + ["pid: \(ProcessInfo.processInfo.processIdentifier)"] + identity).joined(separator: "\n")
         text += "\n\n" + stacks
         var data = Data(text.utf8)
         if data.count > maxBytes {
@@ -290,7 +311,11 @@ public final class HangEpisodeRecorder: Sendable {
     /// Tells every ``changes()`` subscriber that ``entries`` changed, on the caller's thread (the
     /// recorder's queue), outside the lock.
     private func notifyChanged() {
-        for subscriber in state.withLock({ Array($0.subscribers.values) }) { subscriber.yield() }
+        let subscribers = state.withLock { state in
+            state.notifications += 1
+            return Array(state.subscribers.values)
+        }
+        for subscriber in subscribers { subscriber.yield() }
     }
 
     /// This folder's hang files that are regular files (symlinks and folders are skipped), newest first.
@@ -361,7 +386,7 @@ public final class HangEpisodeRecorder: Sendable {
                 duration = Double(number).flatMap { Int64(exactly: ($0 * 1_000).rounded()) }.map { .milliseconds($0) }
             } else if line == "state: blocked" {
                 ongoing = true
-            } else if line.hasPrefix("main thread") {
+            } else if line.hasPrefix("main thread (") {
                 inMain = true
             } else if inMain {
                 guard line.hasPrefix("  "), frames.count < topFrameCount else { break }

@@ -47,11 +47,25 @@ nonisolated public struct UpdateBuildIdentity: Sendable, Equatable {
         UpdateBuildIdentity(infoDictionary: Bundle.main.infoDictionary ?? [:])
     }
 
+    /// cmux NEXT DEV's bundle id (the Release compile of feat-cmux-next, docs/cmux-next/dev-daily.md).
+    public static let tipBundleIdentifier = AppChannelSwitchTarget.devBundleIdentifier
+    /// The feed main's DEV publisher stamps into that bundle. Its path holds `/nightly-next/`, so
+    /// it resolves like cmux NEXT's nightly feed: per architecture, with rings.
+    public static let tipFeedPrefix = "https://files.cmux.com/nightly-next/tip/"
+
+    /// The tip app: cmux NEXT DEV as published, which follows the tip feed and runs Sparkle.
+    /// Both the exact bundle id and the stamped feed are required, so a local `reload.sh --tag next`
+    /// build (same id, the default feed) and any other DEV or staging build stay development.
+    public var isTipBuild: Bool {
+        bundleIdentifier == Self.tipBundleIdentifier && infoFeedURL?.hasPrefix(Self.tipFeedPrefix) == true
+    }
+
     public var track: UpdateTrack {
-        if UpdateTrack.isDevelopmentBundle(bundleIdentifier) { return .development }
+        if UpdateTrack.isDevelopmentBundle(bundleIdentifier), !isTipBuild { return .development }
         switch UpdateFeedResolver().resolve(infoFeedURL: infoFeedURL).channel {
         case .stable: return .stable
-        case .nightly, .nightlyNext: return .nightly
+        case .nightly: return .nightly
+        case .nightlyNext: return .nightlyNext
         case .rc: return .rc
         }
     }
@@ -70,9 +84,14 @@ nonisolated public struct UpdateBuildIdentity: Sendable, Equatable {
         return nil
     }
 
-    /// The other release app this one can switch to (stable <-> NIGHTLY);
-    /// nil for DEV, staging and RC builds.
+    /// The other release app this one can switch to, by bundle id: stable <-> NIGHTLY, and
+    /// cmux NEXT (`com.cmuxterm.app.nightly.cmux-next`) <-> the tip app (cmux NEXT DEV as
+    /// published); nil for local DEV, staging and RC builds. A local `reload.sh --tag next`
+    /// build shares the tip app's bundle id but not its feed, so it offers nothing. The legacy
+    /// NEXT build signed as cmux NIGHTLY (`com.cmuxterm.app.nightly`) keeps NIGHTLY's stable
+    /// counterpart (`UpdateTrackMatrixTests` pins each).
     public var channelSwitchTarget: AppChannelSwitchTarget? {
-        AppChannelSwitchTarget.counterpart(ofBundleIdentifier: bundleIdentifier)
+        if bundleIdentifier == Self.tipBundleIdentifier, !isTipBuild { return nil }
+        return AppChannelSwitchTarget.counterpart(ofBundleIdentifier: bundleIdentifier)
     }
 }

@@ -18,8 +18,51 @@ pub struct FsSandbox {
 /// Reported downloads a session can still read.
 const READABLE_KEPT: usize = 64;
 
-fn err(code: &str, message: impl Into<String>) -> Value {
-    json!({"error": {"code": code, "message": message.into()}})
+/// A refusal or failure before `FsSandbox::call` words it: the Node error
+/// code, the path it is about, and an optional detail (why the sandbox
+/// refused). `call` turns it into Node's message shape.
+fn err(code: &str, path: &str, detail: impl Into<String>) -> Value {
+    json!({"error": {"code": code, "path": path, "detail": detail.into()}})
+}
+
+/// Node's description of an error code (libuv's wording).
+fn describe(code: &str) -> &'static str {
+    match code {
+        "ENOENT" => "no such file or directory",
+        "EACCES" => "permission denied",
+        "EEXIST" => "file already exists",
+        "ENOTDIR" => "not a directory",
+        "EISDIR" => "illegal operation on a directory",
+        "ENOTEMPTY" => "directory not empty",
+        _ => "invalid argument",
+    }
+}
+
+/// The system call Node names for an fs operation.
+fn syscall(op: &str) -> &str {
+    match op {
+        "readFile" | "writeFile" => "open",
+        "readdir" => "scandir",
+        "copyFile" => "copyfile",
+        "exists" => "access",
+        "resolve" => "realpath",
+        other => other,
+    }
+}
+
+/// Words an error as Node does: `CODE: description, syscall 'path'`, then the
+/// sandbox's reason in parentheses when it refused (as classic cmux and the
+/// reference host do, so agent code matching "permission denied" works).
+fn node_message(op: &str, error: &Value) -> Value {
+    let code = error["code"].as_str().unwrap_or("EINVAL");
+    let mut message = format!("{code}: {}, {}", describe(code), syscall(op));
+    if let Some(path) = error["path"].as_str().filter(|path| !path.is_empty()) {
+        message.push_str(&format!(" '{path}'"));
+    }
+    if let Some(detail) = error["detail"].as_str().filter(|detail| !detail.is_empty()) {
+        message.push_str(&format!(" ({detail})"));
+    }
+    json!({"error": {"code": code, "message": message}})
 }
 
 fn io_err(error: &std::io::Error, path: &str) -> Value {
@@ -33,7 +76,7 @@ fn io_err(error: &std::io::Error, path: &str) -> Value {
         ErrorKind::DirectoryNotEmpty => "ENOTEMPTY",
         _ => "EINVAL",
     };
-    err(code, format!("{error}: {path}"))
+    err(code, path, "")
 }
 
 /// Lexical normalization (no symlink resolution of missing paths).
@@ -94,7 +137,7 @@ impl FsSandbox {
             // A component that exists but does not canonicalize is a
             // dangling symlink: following it could create its target anywhere.
             if std::fs::symlink_metadata(existing).is_ok() {
-                return Err(err("EACCES", format!("{path} goes through a broken symbolic link")));
+                return Err(err("EACCES", path, "goes through a broken symbolic link"));
             }
             match (existing.parent(), existing.file_name()) {
                 (Some(parent), Some(name)) => {
@@ -107,7 +150,7 @@ impl FsSandbox {
         if resolved.starts_with(&self.root) || resolved.starts_with(&self.tmp) {
             Ok(resolved)
         } else {
-            Err(err("EACCES", format!("{path} is outside the session's files")))
+            Err(err("EACCES", path, "outside the session's files"))
         }
     }
 
@@ -143,7 +186,7 @@ impl FsSandbox {
     pub fn call(&self, op: &str, args: &Value) -> Value {
         match self.run(op, args) {
             Ok(value) => json!({"ok": value}),
-            Err(error) => error,
+            Err(error) => node_message(op, &error["error"]),
         }
     }
 
@@ -165,7 +208,7 @@ impl FsSandbox {
             "writeFile" => {
                 let path = resolved("path")?;
                 let data = base64_decode(args.get("base64").and_then(Value::as_str).unwrap_or(""))
-                    .ok_or_else(|| err("EINVAL", "writeFile: base64 is not valid"))?;
+                    .ok_or_else(|| err("EINVAL", shown, "base64 is not valid"))?;
                 let result = if flag("append") {
                     use std::io::Write;
                     std::fs::OpenOptions::new()
@@ -223,7 +266,8 @@ impl FsSandbox {
                 if path == self.root || path == self.tmp {
                     return Err(err(
                         "EACCES",
-                        "rm: refusing to remove the session root or the temporary directory",
+                        shown,
+                        "refusing to remove the session root or the temporary directory",
                     ));
                 }
                 let result = match std::fs::symlink_metadata(&path) {
@@ -254,7 +298,7 @@ impl FsSandbox {
             }
             "exists" => Ok(json!(readable("path").map(|p| p.exists()).unwrap_or(false))),
             "resolve" => Ok(json!(resolved("path")?.display().to_string())),
-            other => Err(err("EINVAL", format!("unknown fs operation {other}"))),
+            _ => Err(err("EINVAL", "", "unknown fs operation")),
         }
     }
 }

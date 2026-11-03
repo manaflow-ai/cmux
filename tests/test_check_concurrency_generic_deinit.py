@@ -51,12 +51,64 @@ final class Box<Value> {
 }
 """
 
+# 6bf522e6cdd's ObservedMap.Slot and #20408's ThemedPicker.Coordinator: a class nested in a generic
+# type is generic by context, and its implicit deinit crashed the Release compile the same way.
+NESTED_IN_GENERIC = """final class Map<Key: Hashable, Value> {
+    final class Slot {
+        var value: Value?
+    }
+    nonisolated deinit {}
+}
+"""
+# The same class declared in an extension, with the generic type in another file.
+LEDGER = """struct Ledger<Entry> {
+    var entries: [Entry]
+}
+"""
+LEDGER_CURSOR = """extension Ledger {
+    final class Cursor {
+        var entry: Entry?
+    }
+}
+"""
+LEDGER_CURSOR_FIXED = """extension Ledger {
+    final class Cursor {
+        var entry: Entry?
+        nonisolated deinit {}
+    }
+}
+"""
+# Package.swift's CmuxNextMallocZone shape: a target with no swiftSettings (nonisolated by default)
+# declared before a uiSwiftSettings target, which also names it in a `.target(name:)` dependency.
+ZONE_BEFORE_UI = """// swift-tools-version: 6.2
+import PackageDescription
+let package = Package(name: "Fixture", targets: [
+    .target(name: "FixtureZone"),
+    .target(
+        name: "FixtureHome",
+        dependencies: [.target(name: "FixtureZone"), .product(name: "Kit", package: "Kit")],
+        resources: [.process("Resources")],
+        swiftSettings: uiSwiftSettings
+    ),
+])
+"""
+BOX = """final class Box<T> {
+    var value: T?
+}
+"""
+# A plain deinit takes the target's default isolation: it is no fix (the plain-deinit rule says so too).
+PLAIN = """final class Box<Value> {
+    var value: Value?
+    deinit {}
+}
+"""
 
-def run(files):
+
+def run(files, manifest=MANIFEST):
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary) / "Package"
         (root / "Package.swift").parent.mkdir(parents=True)
-        (root / "Package.swift").write_text(MANIFEST)
+        (root / "Package.swift").write_text(manifest)
         for name, text in files.items():
             (root / "Sources" / name).parent.mkdir(parents=True, exist_ok=True)
             (root / "Sources" / name).write_text(text)
@@ -90,6 +142,39 @@ class GenericDeinitRule(unittest.TestCase):
     def test_a_reviewed_escape_is_green(self):
         result = run({"FixtureUI/Box.swift": ALLOWED})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_class_nested_in_a_generic_type_is_red(self):
+        result = run({"FixtureUI/Map.swift": NESTED_IN_GENERIC})
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("FixtureUI/Map.swift:2: generic main-actor class with no `nonisolated deinit`", result.stdout)
+
+    def test_a_class_in_an_extension_of_a_generic_type_in_another_file_is_red(self):
+        result = run({"FixtureUI/Ledger.swift": LEDGER, "FixtureUI/Ledger+Cursor.swift": LEDGER_CURSOR})
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("FixtureUI/Ledger+Cursor.swift:2: generic main-actor class with no `nonisolated deinit`",
+                      result.stdout)
+        # The finding names the declaration that makes it generic, so a PR that changes only that file owns it.
+        self.assertIn("generic context: Sources/FixtureUI/Ledger.swift:1", result.stdout)
+        result = run({"FixtureUI/Ledger.swift": LEDGER, "FixtureUI/Ledger+Cursor.swift": LEDGER_CURSOR_FIXED})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_plain_deinit_is_no_fix(self):
+        result = run({"FixtureUI/Box.swift": PLAIN})
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("FixtureUI/Box.swift:1: generic main-actor class with no `nonisolated deinit`", result.stdout)
+
+    def test_a_generic_main_actor_class_in_a_non_ui_target_is_red(self):
+        result = run({"FixtureCore/Box.swift": "@MainActor " + PLAIN.replace("    deinit {}\n", "")})
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("FixtureCore/Box.swift:1: generic main-actor class", result.stdout)
+
+    def test_a_target_without_swift_settings_is_nonisolated_and_does_not_take_the_next_targets(self):
+        # The manifest regex ran from a settings-less target into the next target's swiftSettings:
+        # FixtureZone took FixtureHome's uiSwiftSettings, and FixtureHome dropped out of the map.
+        result = run({"FixtureZone/Box.swift": BOX, "FixtureHome/Box.swift": BOX}, ZONE_BEFORE_UI)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("FixtureHome/Box.swift:1: generic main-actor class with no `nonisolated deinit`", result.stdout)
+        self.assertNotIn("FixtureZone/Box.swift", result.stdout)
 
 
 if __name__ == "__main__":

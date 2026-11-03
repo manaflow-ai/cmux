@@ -49,9 +49,12 @@ extension DaemonStore {
     /// Events superseded by the last snapshot are skipped.
     @discardableResult
     public func apply(batch: [DaemonEventEnvelope]) -> Followup {
+        // A staged script batch keeps the events of the workspaces it touches (DaemonStore+Stage.swift).
+        let batch = stage?.passing(batch, in: self) ?? batch
+        guard !batch.isEmpty else { return .none }
         // An observer that applies events while this batch applies is an
         // update cycle (idle-wakeups.md): counted, logged in debug builds.
-        updateCycles.run { applyBatch(batch) }
+        return updateCycles.run { applyBatch(batch) }
     }
 
     private func applyBatch(_ batch: [DaemonEventEnvelope]) -> Followup {
@@ -96,6 +99,8 @@ extension DaemonStore {
     }
 
     func advanceAppliedSequence(to sequence: UInt64) {
+        // Not past an event a stage still holds: nothing it holds counts as applied yet.
+        let sequence = stage?.cappedSequence(sequence) ?? sequence
         guard sequence > appliedSequence else { return }
         appliedSequence = sequence
         // Intents first, so waiters see the visible state without them.
@@ -269,6 +274,17 @@ extension DaemonStore {
         case .layoutChanged(let screen, let layout?, _):
             // `layout-delta-v1`: patch that one screen (I3).
             return applyLayoutChange(screen: screen, layout: layout)
+        case .selectionChanged(let delta):
+            applySelection(delta)
+            return .none
+        case .workspacePresentationChanged(let delta):
+            // The whole entity, read when the daemon wrote it: O(that workspace).
+            guard let workspace = index.workspacesByID[WorkspaceModel.identity(delta.entity)] else { return .none }
+            let group = workspace.group
+            workspace.update(delta.entity)
+            indexed(workspace)
+            if workspace.group != group { sidebarNeedsRecompute = true }
+            return .none
         case .treeChanged, .layoutChanged:
             return .resync
         case .personalChanged:
@@ -297,7 +313,7 @@ extension DaemonStore {
             if agents.apply(status) { tabsBySurface[status.surface]?.setAgent(status) }
             return .none
         case .agentPresenceChanged(let presence):
-            tabsBySurface[presence.surface]?.setPresence(presence.activity == nil ? nil : presence)
+            holdPresence(presence)
             return .none
 
         case .sessionState(let item): session.apply(item, in: self); return .none
@@ -308,6 +324,23 @@ extension DaemonStore {
 
         case .scrollChanged, .bell, .frontendProjectionChanged, .client:
             return .none
+        }
+    }
+
+    /// `selection-changed`: the active screen, each screen's active pane, each pane's active tab and focus
+    /// stamp of one workspace, in O(that workspace). What the store does not hold yet comes with its own
+    /// add delta.
+    private func applySelection(_ delta: SelectionDelta) {
+        guard let workspace = index.workspacesByHandle[delta.workspace] else { return }
+        for selected in delta.screens {
+            guard let screen = workspace.screens.first(where: { $0.handle == selected.id }) else { continue }
+            if screen.isActive != selected.active { screen.isActive = selected.active }
+            if screen.defaultPane != selected.activePane { screen.defaultPane = selected.activePane }
+            for pane in selected.panes {
+                guard let model = screen.pane(pane.id) else { continue }
+                if model.defaultTabIndex != pane.activeTab { model.defaultTabIndex = pane.activeTab }
+                if model.focusedAt != pane.focusedAt { model.focusedAt = pane.focusedAt }
+            }
         }
     }
 
@@ -323,11 +356,30 @@ extension DaemonStore {
 }
 
 extension DaemonStore {
+    /// Applies one `agent-presence` event to its tab, or holds it until the tab is indexed: the
+    /// event can come first, and no snapshot or later tab event carries presence.
+    func holdPresence(_ presence: AgentPresence) {
+        let value = presence.activity == nil ? nil : presence
+        if let tab = tabsBySurface[presence.surface] {
+            heldPresence.removeValue(forKey: presence.surface)
+            tab.setPresence(value)
+        } else if let value {
+            if heldPresence[presence.surface] == nil, heldPresence.count >= Self.heldPresenceLimit {
+                // Past the limit nothing is a tab that is about to arrive: start over.
+                heldPresence.removeAll(keepingCapacity: true)
+            }
+            heldPresence[presence.surface] = value
+        } else {
+            heldPresence.removeValue(forKey: presence.surface)
+        }
+    }
+
     /// Drops every tab's agent presence (cx-gg84) when the store may have
     /// missed its clear: a lost connection, a daemon shutdown or dropped
     /// events. The daemon sends no presence in a snapshot; each agent's next
     /// hook event brings its presence back.
     func clearPresence() {
+        heldPresence.removeAll()
         for tab in tabsBySurface.values where tab.presence != nil {
             tab.setPresence(nil)
         }

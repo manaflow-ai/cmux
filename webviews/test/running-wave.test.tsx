@@ -3,14 +3,19 @@
 // Running indicators side by side share one shimmer: consecutive wave indices for the running ones,
 // none for finished or failed ones, one shared start for every item, and no wave under Reduce
 // Motion or the motion gate. running-wave-loops.test.ts runs the stylesheet in Chromium.
+import { JSDOM } from "jsdom";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { SubagentsSection } from "../src/agent-session/acpmux/inspector/SubagentsSection";
+import { SubagentsSection } from "../src/agent-session/acpmux/session-info/SubagentsSection";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 import type { SpinnerAnimation } from "../src/ui/spinnerClock";
 import { alignWave, WAVE_CLASS, WAVE_KEYFRAMES, waveIndices, waveProps } from "../src/ui/wave";
+import {
+  SESSION_INFO_WAVE_PERIOD_MS,
+  SESSION_INFO_WAVE_STEP_MS,
+} from "../src/agent-session/acpmux/session-info/native/wave";
 
 type Item = { id: string; state: "running" | "done" | "failed" };
 const live = (item: Item) => item.state === "running";
@@ -69,7 +74,7 @@ const agent = (id: string, state: string, startedAt: number): Subagent => ({
   startedAt,
 });
 
-test("the Inspector's running Subagents lines are in the wave, top to bottom; the ended row stays still", () => {
+test("Session Info's running Subagents lines are in the wave, top to bottom; the ended row stays still", () => {
   const agents = [
     agent("done-1", "completed", 5),
     agent("run-old", "running", 1),
@@ -77,15 +82,24 @@ test("the Inspector's running Subagents lines are in the wave, top to bottom; th
     agent("run-new", "running", 3),
   ];
   const html = renderToStaticMarkup(<SubagentsSection agents={agents} waiting={new Set()} onOpen={() => {}} />);
-  // Each line's icon (subagents/AgentLine.tsx), then the one row of the ended ones.
+  // Running lines keep their wave; the collapsed ended row renders still avatars.
   const icons = [
     ...html.matchAll(/<span class="acpmux-lineage__icon([^"]*)"(?: style="([^"]*)")? data-state="(\w+)"/g),
   ];
   expect(icons.map((match) => [match[3], match[1].trim(), match[2] ?? ""])).toEqual([
     ["running", WAVE_CLASS, "--wave-index:0"],
     ["running", WAVE_CLASS, "--wave-index:1"],
-    ["failed", "", ""],
   ]);
+  const dom = new JSDOM(html);
+  try {
+    const ended = dom.window.document.querySelector(".acpmux-session-info-subagents__ended")!;
+    expect(ended.getAttribute("aria-expanded")).toBe("false");
+    expect(ended.textContent).toContain("1 done · 1 failed");
+    expect(ended.querySelectorAll(".acpmux-session-info-subagents__avatars > span")).toHaveLength(2);
+    expect(ended.querySelector(`.${WAVE_CLASS}, [style*='--wave-index']`)).toBeNull();
+  } finally {
+    dom.window.close();
+  }
 });
 
 test("the wave runs only with motion: Reduce Motion, the motion gate, static indicators and a hidden page stop it", () => {
@@ -110,4 +124,13 @@ test("the wave runs only with motion: Reduce Motion, the motion gate, static ind
   const keyframes = css.indexOf(`@keyframes ${WAVE_KEYFRAMES}`);
   const frames = css.slice(keyframes, css.indexOf("@media", keyframes));
   expect(frames.match(/[a-z-]+(?=:)/g)).toEqual(["opacity", "opacity"]);
+});
+
+test("Session Info's wave sweeps slower than the shared one, period and step scaled together", () => {
+  // Leo 2026-10-28: "I think it could maybe be a bit slower on the session info region".
+  const shared = readFileSync(path.resolve(import.meta.dir, "../src/ui/wave.css"), "utf8");
+  const sharedPeriod = Number(shared.match(/--cmux-wave-period:\s*([\d.]+)s;/)![1]) * 1000;
+  const sharedStep = Number(shared.match(/--cmux-wave-step:\s*([\d.]+)ms;/)![1]);
+  expect(SESSION_INFO_WAVE_PERIOD_MS).toBeGreaterThan(sharedPeriod);
+  expect(SESSION_INFO_WAVE_PERIOD_MS / SESSION_INFO_WAVE_STEP_MS).toBeCloseTo(sharedPeriod / sharedStep, 6);
 });

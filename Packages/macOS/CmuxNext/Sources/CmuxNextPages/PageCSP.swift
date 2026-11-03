@@ -39,6 +39,8 @@ public nonisolated struct PageCSP: Sendable, Hashable {
     static let base: [(String, [String])] = [
         ("default-src", ["'none'"]), ("script-src", ["'self'", "'unsafe-inline'"]),
         ("style-src", ["'self'", "'unsafe-inline'"]), ("img-src", ["'self'", "data:"]), ("font-src", ["'self'", "data:"]),
+        // Inline attachment thumbnails decode in this page's bundled same-origin worker.
+        ("worker-src", ["'self'"]),
     ]
 
     /// The header value. A source with a character that could end or split a directive is dropped.

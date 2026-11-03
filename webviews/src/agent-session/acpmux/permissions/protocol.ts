@@ -30,6 +30,9 @@ export type PermissionClientState = {
   busy: boolean;
   error?: string;
   uncertain?: boolean;
+  /// acpmux refuses this reader's group allows, with its reason (`allowRefused` of the read): only
+  /// a deny can be given here, so the panel draws no Allow or Always.
+  allowRefused?: string;
 };
 
 export function supportsPermissionGroups(initialized: unknown): boolean {
@@ -114,7 +117,12 @@ export function permissionGroups(value: unknown): PermissionGroupList {
   )
     throw new Error(translate("error.invalid.permissionCoverage"));
   const batching = record(raw.batching, "error.invalid.permissionBatching");
+  let allowRefused: string | undefined;
+  if (typeof raw.allowRefused === "string") allowRefused = raw.allowRefused;
+  else if (raw.allowRefused !== undefined && raw.allowRefused !== null)
+    throw new Error(translate("error.invalid.permissionGroups"));
   return {
+    ...(allowRefused === undefined ? {} : { allowRefused }),
     groups: raw.groups.map(group),
     chatAllowance: { active: allowance.active, expires: allowance.expires },
     coverage: { label: coverage.label, isolation: coverage.isolation, detail: coverage.detail },

@@ -20,6 +20,8 @@ public final class UpdateSheetController {
     }
 
     public var isPresented: Bool { panel != nil }
+    /// Runs after the sheet closes (set by the App).
+    public var onDismiss: (() -> Void)?
 
     /// Shows the sheet on `window` (no-op when already shown). Never
     /// activates the app; a standalone panel orders front without focus.
@@ -74,6 +76,7 @@ public final class UpdateSheetController {
         self.panel = nil
         hosting = nil
         if let parent = panel.sheetParent { parent.endSheet(panel) } else { panel.orderOut(nil) }
+        onDismiss?()
     }
 
     private func cancel() {

@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCompat
+import CmuxNextDaemon
 import CmuxNextFeed
 import Foundation
 
@@ -21,10 +22,17 @@ final class FeedService {
     private let github: GitHubFeedSource
     private let showcase: Bool
     private let auth: CloudAuth
-    private let acpmuxEnvironment: AcpmuxEnvironment?
-    private let reportsClient = AcpmuxMailboxClient()
-    private var reportsTask: Task<Void, Never>?
-    private var reportsCursor: UInt64 = 0
+    /// The app's acpmux, resolved once at startup (nil: a mock agent host or no acpmux binary).
+    /// A report reply uses it as is: the reply path resolves nothing (no executable or signature
+    /// check on the main thread).
+    let acpmuxEnvironment: AcpmuxEnvironment?
+    /// Whether the app is active (`AppServices.appActiveSource`), for the owner's presence; never the global `NSApp`.
+    private let appActive: @MainActor () -> Bool
+    /// The reports reader; a page of a reader that a reset stopped is dropped.
+    private let reports = AcpmuxMailboxSubscription()
+    /// Wakes the current reports reader's retry wait (one per reader, so a stopped reader's end
+    /// never touches the next one's watch): its socket's changes, and app activation or wake.
+    private var reportsWake: RetryWake?
     private var reportRows: [String: FeedReport] = [:]
     private var started = false
     /// The account the mirror belongs to; a sign-out or another account resets it.
@@ -38,6 +46,7 @@ final class FeedService {
     /// Told every owner-confirmed item (snapshot and events), never the overlay
     /// (the agent permission feed bridge reads answers here).
     var onConfirmedItems: (@MainActor ([FeedItem]) -> Void)?
+    private let approvalHolds: CloudApprovalHolds?  // hears each Cloud hold the owner closes (answered on any device)
 
     /// The API Worker for this build: `CMUX_NEXT_FEED_API_URL`, else staging
     /// for development auth and production for production auth.
@@ -45,10 +54,10 @@ final class FeedService {
         auth.configuration.ownerAPIBaseURL(environment: environment)
     }
 
-    init(auth: CloudAuth, showcase: Bool = false, acpmuxEnvironment: AcpmuxEnvironment? = nil) {
-        self.auth = auth
+    init(auth: CloudAuth, showcase: Bool = false, acpmuxEnvironment: AcpmuxEnvironment? = nil, approvalHolds: CloudApprovalHolds? = nil, appActive: @escaping @MainActor () -> Bool) {
+        (self.auth, self.approvalHolds) = (auth, approvalHolds)
         self.showcase = showcase
-        self.acpmuxEnvironment = acpmuxEnvironment
+        (self.acpmuxEnvironment, self.appActive) = (acpmuxEnvironment, appActive)
         apiBaseURL = Self.apiBaseURL(auth: auth)
         // The answer's device label is the owner's record (the install); this name is only the overlay's.
         source = CloudFeedSource(apiBaseURL: apiBaseURL, device: "Mac") { [auth] in
@@ -78,8 +87,10 @@ final class FeedService {
         let workspace = NSWorkspace.shared.notificationCenter
         let update: @MainActor (Bool?) -> Void = { [weak self] forced in
             guard let self else { return }
-            source.setPresence(active: forced ?? NSApp.isActive)
+            source.setPresence(active: forced ?? self.appActive())
             if forced == nil { source.checkAlive() }
+            // An activation or wake may find acpmux back: a reports reader past its timed retries tries again.
+            if forced != false { reportsWake?.fire() }
         }
         func on(_ center: NotificationCenter, _ name: Notification.Name, _ forced: Bool?) -> MainActorObservation {
             MainActorObservation(name, center: center) { update(forced) }
@@ -116,7 +127,7 @@ final class FeedService {
         guard !started else {
             if auth.isSignedIn {
                 startReportsIfNeeded()
-                source.setPresence(active: NSApp.isActive)
+                source.setPresence(active: appActive())
             }
             return
         }
@@ -124,16 +135,18 @@ final class FeedService {
         started = true
         model.start()
         startReportsIfNeeded()
-        if auth.isSignedIn { source.setPresence(active: NSApp.isActive) }
+        if auth.isSignedIn { source.setPresence(active: appActive()) }
     }
 
     var isSignedIn: Bool { auth.isSignedIn }
+
 
     /// Posts an installed update's card (cmux or an agent CLI) through the local owner, never a
     /// cloud session; the owner's dedupe keeps one card per version.
     func post(update card: UpdateFeedCard) {
         localOwner.post(card.item)
     }
+
 
     /// Live GitHub details are held by the source only while the app runs.
     func githubDetail(for id: String) -> GitHubFeedDetail? { github.githubDetail(for: id) }
@@ -189,59 +202,33 @@ final class FeedService {
     }
 
     private func resetReports() {
-        reportsTask?.cancel()
-        reportsTask = nil
-        reportsCursor = 0
+        reports.stop()
+        reportsWake = nil
         reportRows.removeAll()
         model.replaceReports([])
     }
 
     /// Reads the quiet reports alias without creating a model attachment. The
     /// mailbox wait is event-driven; quiet delivery notifies this reader but
-    /// never wakes the sender's ACP turn.
+    /// never wakes the sender's ACP turn. The reader runs off the main actor and
+    /// retries on the shared daemon-client path (`AcpmuxMailboxReader`): a
+    /// missing socket waits for its file-system event, a refusing one is paced.
     private func startReportsIfNeeded() {
-        guard auth.isSignedIn, reportsTask == nil, let socketPath = acpmuxEnvironment?.socketPath,
+        guard auth.isSignedIn, !reports.isRunning, let socketPath = acpmuxEnvironment?.socketPath,
               let reportsRecipient else { return }
-        let client = reportsClient
-        reportsTask = Task { [weak self] in
-            guard let self else { return }
-            // wakeup-allow: mailbox wait is event-driven and ends on cancellation.
-            while !Task.isCancelled {
-                do {
-                    let page = try await client.wait(
-                        socketPath: socketPath,
-                        recipient: reportsRecipient,
-                        after: self.reportsCursor
-                    )
-                    applyReports(page)
-                } catch is CancellationError {
-                    return
-                } catch {
-                    // The daemon may not be running yet or may be handing off.
-                    // Retry with a bounded delay; the next mailbox wait remains
-                    // the normal event-driven path.
-                    // wakeup-allow: one-shot retry backoff after a failed mailbox request.
-                    try? await ContinuousClock().sleep(for: .seconds(5))
-                }
-            }
-        }
+        let wake = RetryWake(owner: "feed.reports.retry")
+        reportsWake = wake
+        let reader = AcpmuxMailboxReader(socketPath: socketPath, recipient: reportsRecipient, wake: wake)
+        // Stopped by resetReports (sign-out, another account, stop); a page already on its way is dropped.
+        reports.start(reader) { [weak self] page in self?.applyReports(page) }
     }
 
     private func applyReports(_ page: AcpmuxMailboxPage) {
         for message in page.messages {
-            reportRows[message.id] = FeedReport(
-                id: message.id,
-                sender: message.sender,
-                body: message.body,
-                createdAt: message.createdAt
-            )
+            reportRows[message.id] = FeedReport(id: message.id, sender: message.sender, body: message.body, createdAt: message.createdAt)
         }
-        if let nextCursor = page.nextCursor {
-            reportsCursor = max(reportsCursor, nextCursor)
-        } else if let last = page.messages.last {
-            reportsCursor = max(reportsCursor, last.seq)
-        }
-        model.replaceReports(Array(reportRows.values))
+        // Only what the basket shows stays: a long-lived mailbox is read page by page from its start.
+        reportRows = model.replaceReports(reportRows)
     }
 
     private func observe(_ event: FeedSourceEvent) {
@@ -255,12 +242,14 @@ final class FeedService {
             }
         case let .snapshot(snapshot):
             confirmed = Dictionary(snapshot.items.map { ($0.id, $0.state) }, uniquingKeysWith: { a, _ in a })
+            approvalHolds?.recordAnswered(snapshot.items.lazy.filter(\.state.isClosed).compactMap(\.cloudHold))
             resumeClosed()
             onConfirmedItems?(snapshot.items)
         case let .event(event):
             switch event.change {
             case let .items(items):
                 for item in items { confirmed[item.id] = item.state }
+                approvalHolds?.recordAnswered(items.lazy.filter(\.state.isClosed).compactMap(\.cloudHold))
                 onConfirmedItems?(items)
             case let .remove(ids): for id in ids { confirmed[id] = nil }
             }
@@ -313,10 +302,4 @@ final class FeedService {
         }
         return reply
     }
-}
-
-enum FeedServiceError: Error {
-    case signedOut
-    case badReply
-    case owner(code: String, message: String)
 }

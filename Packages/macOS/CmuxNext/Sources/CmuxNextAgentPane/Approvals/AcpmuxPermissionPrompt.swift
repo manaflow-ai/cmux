@@ -86,6 +86,12 @@ nonisolated enum AcpmuxPermissionPrompt {
         text.count > limit ? String(text.prefix(limit - 1)) + "…" : text
     }
 
+    /// The one option of kind `allow_once` (allow) or `reject_once` (deny): never a lasting choice.
+    static func onceOption(allow: Bool, offered: [[String: Any]]) -> String? {
+        let matches = offered.filter { $0["kind"] as? String == (allow ? "allow_once" : "reject_once") }
+        return matches.count == 1 ? matches[0]["optionId"] as? String : nil
+    }
+
     static func option(allow: Bool, offered: [[String: Any]]) -> String? {
         let kinds = allow ? ["allow_once"] : ["reject_once", "reject_always"]
         for kind in kinds {

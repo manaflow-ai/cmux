@@ -254,18 +254,40 @@
 /* Begin PBXShellScriptBuildPhase section */
 		CE7A0000000000000000001B /* Bundle CLI resources */ = {
 			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			inputFileListPaths = (
 			);
+
 			inputPaths = (
+				"$(SRCROOT)/scripts/cmux-next/bundle-cli-resources.sh",
+				"$(SRCROOT)/scripts/cmux-next/cmux-code-mode-runner",
+				"$(SRCROOT)/scripts/cmux-next/cmux-code-mode-macos-profile",
+				"$(SRCROOT)/scripts/lib/cmux-dev-shim-install",
+				"$(SRCROOT)/scripts/cmux-next/url-open",
+				"$(SRCROOT)/Resources/bin",
+				"$(SRCROOT)/cmux-tui/bindings/typescript",
+				"$(SRCROOT)/cmux-tui/spec/resource-operations-v2.json",
+				"$(SRCROOT)/backend/catalog",
+				"$(SRCROOT)/cmux-tui/build-support/notices/toolchains",
 			);
 			name = "Bundle CLI resources";
 			outputFileListPaths = (
 			);
 			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-code-mode-mcp",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-code-mode-run",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/start-cmux-profiling",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/submit-cmux-profile",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-code-mode-runner",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-dev-shim-install",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-code-mode-macos-profile",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-open-url",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/open",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/xdg-open",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/code-mode",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/toolchain-licenses",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -273,18 +295,60 @@
 		};
 		CE7A0000000000000000001C /* Build Diff Sidecar */ = {
 			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			inputFileListPaths = (
 			);
+
 			inputPaths = (
+				"$(SRCROOT)/scripts/build-diff-sidecar.sh",
+				"$(SRCROOT)/scripts/run-diff-sidecar-cargo.sh",
+				"$(SRCROOT)/scripts/build-phase-caller-path.sh",
+				"$(SRCROOT)/scripts/verify-diff-sidecar-artifact.sh",
+				"$(SRCROOT)/Native/DiffSidecar",
+				"$(SRCROOT)/cmux-tui/Cargo.toml",
+				"$(SRCROOT)/cmux-tui/Cargo.lock",
+				"$(SRCROOT)/cmux-tui/crates/cmux-git",
+				"$(EXPANDED_CODE_SIGN_IDENTITY)",
+				"$(CODE_SIGNING_ALLOWED)",
+				"$(ARCHS)",
+				"$(SRCROOT)/Native/DiffSidecar/Cargo.lock",
+				"$(SRCROOT)/Native/DiffSidecar/Cargo.toml",
+				"$(SRCROOT)/Native/DiffSidecar/rust-toolchain.toml",
+				"$(SRCROOT)/Native/DiffSidecar/src/benchmark.rs",
+				"$(SRCROOT)/Native/DiffSidecar/src/bin/generate_types.rs",
+				"$(SRCROOT)/Native/DiffSidecar/src/git_refs.rs",
+				"$(SRCROOT)/Native/DiffSidecar/src/lib.rs",
+				"$(SRCROOT)/Native/DiffSidecar/src/main.rs",
+				"$(SRCROOT)/Native/DiffSidecar/src/manifest.rs",
+				"$(SRCROOT)/Native/DiffSidecar/src/protocol.rs",
+				"$(SRCROOT)/Native/DiffSidecar/src/server/file_contents.rs",
+				"$(SRCROOT)/Native/DiffSidecar/src/server/file_contents_tests.rs",
+				"$(SRCROOT)/Native/DiffSidecar/src/server/hostile_repository_tests.rs",
+				"$(SRCROOT)/Native/DiffSidecar/src/server/whitespace_tests.rs",
+				"$(SRCROOT)/Native/DiffSidecar/src/server.rs",
+				"$(SRCROOT)/Native/DiffSidecar/src/session_git.rs",
+				"$(SRCROOT)/Native/DiffSidecar/tests/server_integration.rs",
+				"$(SRCROOT)/Native/DiffSidecar/tests/support/test_host.rs",
+				"$(SRCROOT)/cmux-tui/crates/cmux-git/Cargo.toml",
+				"$(SRCROOT)/cmux-tui/crates/cmux-git/src/diff.rs",
+				"$(SRCROOT)/cmux-tui/crates/cmux-git/src/lib.rs",
+				"$(SRCROOT)/cmux-tui/crates/cmux-git/src/parse.rs",
+				"$(SRCROOT)/cmux-tui/crates/cmux-git/src/refs.rs",
+				"$(SRCROOT)/cmux-tui/crates/cmux-git/src/repository.rs",
+				"$(SRCROOT)/cmux-tui/crates/cmux-git/src/run.rs",
+				"$(SRCROOT)/cmux-tui/crates/cmux-git/src/worktree_root.rs",
+				"$(SRCROOT)/cmux-tui/crates/cmux-git/src/worktree_root_tests.rs",
+				"$(SRCROOT)/cmux-tui/crates/cmux-git/src/write_run.rs",
+				"$(SRCROOT)/cmux-tui/crates/cmux-git/tests/hostile_repository.rs",
 			);
 			name = "Build Diff Sidecar";
 			outputFileListPaths = (
 			);
 			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-diff-sidecar",
+				"$(TARGET_TEMP_DIR)/cmux-diff-sidecar.arch-$(ARCHS).min-14.0.stamp",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -292,37 +356,72 @@
 		};
 		CE7A0000000000000000000D /* Reject Bundled Provider Binaries */ = {
 			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			inputFileListPaths = (
 			);
+
 			inputPaths = (
+				"$(SRCROOT)/Resources/bin",
 			);
 			name = "Reject Bundled Provider Binaries";
 			outputFileListPaths = (
 			);
 			outputPaths = (
+				"$(TARGET_TEMP_DIR)/reject-bundled-provider-binaries.stamp",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\nBIN_DIR=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/bin\"\nPROVIDERS=\"codex claude opencode pi\"\nfor provider in $PROVIDERS; do\n  if [ -e \"${SRCROOT}/Resources/bin/${provider}\" ]; then\n    echo \"error: provider executable must not be checked in at Resources/bin/${provider}\" >&2\n    exit 1\n  fi\n  if [ -e \"${BIN_DIR}/${provider}\" ]; then\n    rm -rf \"${BIN_DIR:?}/${provider}\"\n  fi\n  if [ -e \"${BIN_DIR}/${provider}\" ]; then\n    echo \"error: provider executable must not be bundled at ${BIN_DIR}/${provider}\" >&2\n    exit 1\n  fi\ndone\n";
+			shellScript = "set -euo pipefail\nBIN_DIR=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/bin\"\nPROVIDERS=\"codex claude opencode pi\"\nfor provider in $PROVIDERS; do\n  if [ -e \"${SRCROOT}/Resources/bin/${provider}\" ]; then\n    echo \"error: provider executable must not be checked in at Resources/bin/${provider}\" >&2\n    exit 1\n  fi\n  if [ -e \"${BIN_DIR}/${provider}\" ]; then\n    rm -rf \"${BIN_DIR:?}/${provider}\"\n  fi\n  if [ -e \"${BIN_DIR}/${provider}\" ]; then\n    echo \"error: provider executable must not be bundled at ${BIN_DIR}/${provider}\" >&2\n    exit 1\n  fi\ndone\nmkdir -p \"${TARGET_TEMP_DIR}\"\ntouch \"${TARGET_TEMP_DIR}/reject-bundled-provider-binaries.stamp\"\n";
 		};
 		CE7A00000000000000000016 /* Bundle cmux-tui */ = {
 			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			inputFileListPaths = (
 			);
+
 			inputPaths = (
+				"$(SRCROOT)/scripts/cmux-next/bundle-cmux-tui.sh",
+				"$(SRCROOT)/scripts/cmux-next/pin-cmux-tui.sh",
+				"$(SRCROOT)/scripts/ci/cmux_tui_tree_key.py",
+				"$(SRCROOT)/scripts/cmux-next/cmux-tui-tree-inputs.txt",
+				"$(SRCROOT)/scripts/cmux-next/cmux-tui.pin",
+				"$(SRCROOT)/scripts/cmux-next/write-daemon-capabilities.sh",
+				"$(SRCROOT)/scripts/cmux-next/check-daemon-capabilities.sh",
+				"$(SRCROOT)/cmux-tui",
+				"$(CMUX_NEXT_TUI_BIN)",
+				"$(CMUX_TUI_CLIENT_LOCAL)",
+				"$(CMUX_NEXT_APP_HOST_BIN)",
+				"$(CMUX_NEXT_CLOUD_SERVER_BIN)",
+				"$(CMUX_NEXT_BROWSER_HOST_BIN)",
+				"$(CMUX_NEXT_TERMINAL_HOST_BIN)",
+				"$(CMUX_NEXT_HOLDER_BIN)",
+				"$(CMUX_NEXT_AGENT_SCREEN_DETECTION_BIN)",
+				"$(CMUX_NEXT_TUI_MODE)",
+				"$(CMUX_TUI_TREE_KEY)",
+				"$(CMUX_TUI_CLIENT_CACHE)",
+				"$(HOME)/Library/Caches/cmux/cmux-tui-client",
+				"$(CONFIGURATION)",
+				"$(NATIVE_ARCH_ACTUAL)",
 			);
 			name = "Bundle cmux-tui";
 			outputFileListPaths = (
 			);
 			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-tui",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-tui.version",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-app-host",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-cloud",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-browser-host",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-tui-host",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-holder",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-agent-screen-detection",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/daemon-capabilities.json",
+				"$(TARGET_TEMP_DIR)/bundle-cmux-tui.stamp",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -330,18 +429,25 @@
 		};
 		CE7A00000000000000000020 /* Bundle acpmux */ = {
 			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			inputFileListPaths = (
 			);
+
 			inputPaths = (
+				"$(SRCROOT)/scripts/cmux-next/bundle-acpmux.sh",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-tui.version",
+				"$(CMUX_NEXT_ACPMUX_BIN)",
+				"$(CMUX_NEXT_ACPMUX_BIN).ref",
 			);
 			name = "Bundle acpmux";
 			outputFileListPaths = (
 			);
 			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/acpmux",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/acpmux.version",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -349,18 +455,56 @@
 		};
 		CE7A00000000000000000032 /* Bundle optchat-chief */ = {
 			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			inputFileListPaths = (
 			);
+
 			inputPaths = (
+				"$(SRCROOT)/scripts/cmux-next/bundle-optchat-chief.sh",
+				"$(SRCROOT)/scripts/cmux-next/build-optchat-chief.sh",
+				"$(SRCROOT)/scripts/cmux-next/fetch-chief-codex.sh",
+				"$(SRCROOT)/scripts/cmux-next/optchat-chief-input-key.py",
+				"$(SRCROOT)/cmux-tui/rust-toolchain.toml",
+				"$(SRCROOT)/Native/OptChat",
+				"$(SRCROOT)/cmux-tui/Cargo.toml",
+				"$(SRCROOT)/cmux-tui/Cargo.lock",
+				"$(SRCROOT)/cmux-tui",
+				"$(SRCROOT)/schemas/chief-profile",
+				"$(CMUX_NEXT_OPTCHAT_CHIEF_BIN)",
+				"$(CMUX_NEXT_OPTCHAT_CHIEF_BIN).ref",
+				"$(CMUX_NEXT_REQUIRE_OPTCHAT_CHIEF)",
+				"$(ARCHS)",
+				"$(CONFIGURATION)",
+				"$(DEVELOPER_DIR)",
+				"$(RUSTC_WRAPPER)",
+				"$(RUSTC)",
+				"$(CARGO_ENCODED_RUSTFLAGS)",
+				"$(RUSTFLAGS)",
+				"$(CPPFLAGS)",
+				"$(LDFLAGS)",
+				"$(CXXFLAGS)",
+				"$(CFLAGS)",
+				"$(AR)",
+				"$(CXX)",
+				"$(CC)",
+				"$(SDKROOT)",
+				"$(MACOSX_DEPLOYMENT_TARGET)",
+				"$(CMUX_NEXT_OPTCHAT_CHIEF_CACHE)",
+				"$(CMUX_NEXT_OPTCHAT_CHIEF_ARCHS)",
+				"$(CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEYED)",
+				"$(CMUX_CHIEF_CODEX_CACHE)",
+				"$(HOME)/Library/Caches/cmux-build/chief-codex",
 			);
 			name = "Bundle optchat-chief";
 			outputFileListPaths = (
 			);
 			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/optchat-chief",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/optchat-chief.version",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/chief-codex",
+				"$(TARGET_TEMP_DIR)/bundle-optchat-chief.stamp",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -368,18 +512,39 @@
 		};
 		CE7A00000000000000000044 /* Bundle cmux-mobile-host */ = {
 			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			inputFileListPaths = (
 			);
+
 			inputPaths = (
+				"$(SRCROOT)/scripts/cmux-next/bundle-mobile-host.sh",
+				"$(SRCROOT)/scripts/cmux-next/build-mobile-host.sh",
+				"$(SRCROOT)/cmux-next-ios",
+				"$(SRCROOT)/cmux-tui/Cargo.toml",
+				"$(SRCROOT)/cmux-tui/Cargo.lock",
+				"$(SRCROOT)/cmux-tui/crates/cmux-wg",
+				"$(SRCROOT)/cmux-tui/crates/cmux-transport",
+				"$(SRCROOT)/cmux-tui/crates/cmux-rd-proto",
+				"$(SRCROOT)/cmux-tui/crates/cmux-rd-core",
+				"$(SRCROOT)/cmux-tui/crates/cmux-rd-engine",
+				"$(SRCROOT)/cmux-tui/crates/cmux-rd-ffi",
+				"$(CMUX_NEXT_MOBILE_HOST_BIN)",
+				"$(CMUX_NEXT_MOBILE_HOST_BIN).ref",
+				"$(CMUX_NEXT_REQUIRE_MOBILE_HOST)",
+				"$(ARCHS)",
+				"$(CONFIGURATION)",
+				"$(CMUX_NEXT_MOBILE_HOST_CACHE)",
+				"$(CMUX_NEXT_MOBILE_HOST_ARCHS)",
 			);
 			name = "Bundle cmux-mobile-host";
 			outputFileListPaths = (
 			);
 			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-mobile-host",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-mobile-host.version",
+				"$(TARGET_TEMP_DIR)/bundle-mobile-host.stamp",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -387,18 +552,62 @@
 		};
 		CE7A00000000000000000017 /* Embed CEF */ = {
 			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			inputFileListPaths = (
 			);
+
 			inputPaths = (
+				"$(SRCROOT)/scripts/cmux-next/embed-cef.sh",
+				"$(SRCROOT)/scripts/cmux-next/bundle-ublock.sh",
+				"$(SRCROOT)/scripts/cmux-next/fetch-ublock.sh",
+				"$(SRCROOT)/scripts/cmux-next/cef-manifest.json",
+				"$(SRCROOT)/scripts/cmux-next/cef-locale-allowlist.sh",
+				"$(SRCROOT)/scripts/cmux-next/ensure-cef.sh",
+				"$(SRCROOT)/scripts/cmux-next/build-cef-shim.sh",
+				"$(SRCROOT)/scripts/cmux-next/merge-cef-universal.sh",
+				"$(SRCROOT)/scripts/cmux-next/cef-cache-root.sh",
+				"$(SRCROOT)/scripts/cmux-next/cef_build_flags.py",
+				"$(SRCROOT)/scripts/cmux-next/sign-cef.sh",
+				"$(SRCROOT)/scripts/cmux-next/install-cef-credits.sh",
+				"$(SRCROOT)/scripts/cmux-next/install-cef-license.sh",
+				"$(SRCROOT)/Packages/macOS/CmuxNext/CEFShim",
+				"$(SRCROOT)/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/Shim",
+				"$(CMUX_CEF_PATH)",
+				"$(CMUX_CEF_MANIFEST)",
+				"$(CMUX_NEXT_SKIP_CEF)",
+				"$(CMUX_NEXT_REQUIRE_CEF)",
+				"$(CMUX_NEXT_SKIP_UBLOCK)",
+				"$(CMUX_NEXT_REQUIRE_UBLOCK)",
+				"$(EXPANDED_CODE_SIGN_IDENTITY)",
+				"$(PRODUCT_NAME)",
+				"$(PRODUCT_BUNDLE_IDENTIFIER)",
+				"$(ARCHS)",
+				"$(MACOSX_DEPLOYMENT_TARGET)",
+				"$(CONFIGURATION)",
+				"$(CMUX_TIMESTAMP)",
+				"$(CMUX_STRIP_TOOL)",
+				"$(CURRENT_PROJECT_VERSION)",
+				"$(MARKETING_VERSION)",
+				"$(CMUX_UBLOCK_CACHE)",
+				"$(CMUX_CEF_CACHE_DIR)",
+				"$(CMUX_CEF_FLEET_CACHE_PARENT)",
 			);
 			name = "Embed CEF";
 			outputFileListPaths = (
 			);
 			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/Chromium Embedded Framework.framework",
+				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/libcmux_cef_shim.dylib",
+				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/$(PRODUCT_NAME) Helper.app",
+				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/$(PRODUCT_NAME) Helper (GPU).app",
+				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/$(PRODUCT_NAME) Helper (Renderer).app",
+				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/$(PRODUCT_NAME) Helper (Plugin).app",
+				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/$(PRODUCT_NAME) Helper (Alerts).app",
+				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/$(PRODUCT_NAME) Chromium Host.app",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Extensions/ublock-origin",
+				"$(TARGET_TEMP_DIR)/embed-cef.stamp",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -406,18 +615,39 @@
 		};
 		CE7A00000000000000000041 /* Embed remote browser host */ = {
 			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			inputFileListPaths = (
 			);
+
 			inputPaths = (
+				"$(SRCROOT)/scripts/cmux-next/embed-remote-browser-host.sh",
+				"$(SRCROOT)/scripts/cmux-next/remote-browser-host-layout.sh",
+				"$(SRCROOT)/scripts/cmux-next/remote-browser-host.pin.json",
+				"$(SRCROOT)/scripts/cmux-next/cef-manifest.json",
+				"$(SRCROOT)/scripts/cmux-next/ensure-remote-browser-host.sh",
+				"$(SRCROOT)/scripts/cmux-next/cef-cache-root.sh",
+				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/Chromium Embedded Framework.framework",
+				"$(CMUX_NEXT_RB_HOST_PIN)",
+				"$(CMUX_NEXT_SKIP_RB_HOST)",
+				"$(CMUX_NEXT_REQUIRE_RB_HOST)",
+				"$(CMUX_CEF_PATH)",
+				"$(CMUX_CEF_MANIFEST)",
+				"$(EXPANDED_CODE_SIGN_IDENTITY)",
+				"$(PRODUCT_BUNDLE_IDENTIFIER)",
+				"$(ARCHS)",
+				"$(MACOSX_DEPLOYMENT_TARGET)",
+				"$(CONFIGURATION)",
+				"$(CMUX_TIMESTAMP)",
+				"$(CMUX_NEXT_RB_HOST_CACHE_DIR)",
 			);
 			name = "Embed remote browser host";
 			outputFileListPaths = (
 			);
 			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(WRAPPER_NAME)/Contents/Helpers/cmux-remote-browser-host.app",
+				"$(TARGET_TEMP_DIR)/embed-remote-browser-host.stamp",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -425,18 +655,33 @@
 		};
 		CE7A00000000000000000042 /* Embed Computer Use helper (dev) */ = {
 			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			inputFileListPaths = (
 			);
+
 			inputPaths = (
+				"$(SRCROOT)/scripts/cmux-next/embed-cua-helper-dev.sh",
+				"$(SRCROOT)/scripts/cmux-next/cua-helper-dev.pin.json",
+				"$(SRCROOT)/scripts/cmux-next/ensure-cua-pinned-asset.sh",
+				"$(SRCROOT)/scripts/cmux-next/cef-cache-root.sh",
+				"$(SRCROOT)/scripts/ci/macho_minos.py",
+				"$(CMUX_NEXT_CUA_HELPER_PIN)",
+				"$(CMUX_NEXT_SKIP_CUA_HELPER)",
+				"$(CMUX_NEXT_REQUIRE_CUA_HELPER)",
+				"$(ARCHS)",
+				"$(MACOSX_DEPLOYMENT_TARGET)",
+				"$(CONFIGURATION)",
+				"$(CMUX_CUA_ASSET_CACHE_DIR)",
+				"$(CMUX_CUA_ASSET_FILE)",
 			);
 			name = "Embed Computer Use helper (dev)";
 			outputFileListPaths = (
 			);
 			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(WRAPPER_NAME)/Contents/Library/cmux Computer Use (dev).app",
+				"$(TARGET_TEMP_DIR)/embed-cua-helper-dev.stamp",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -444,18 +689,31 @@
 		};
 		CE7A00000000000000000018 /* Bundle Ghostty resources */ = {
 			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			inputFileListPaths = (
 			);
+
 			inputPaths = (
+				"$(SRCROOT)/scripts/cmux-next/bundle-ghostty-resources.sh",
+				"$(SRCROOT)/Resources/cmux-themes",
+				"$(SRCROOT)/Resources/ghostty",
+				"$(SRCROOT)/Resources/shell-integration",
+				"$(SRCROOT)/Resources/terminfo-overlay",
+				"$(SRCROOT)/Resources/cmux-cli-path",
+				"$(SRCROOT)/ghostty-next/src/shell-integration",
+				"$(SRCROOT)/ghostty-next/zig-out/share",
 			);
 			name = "Bundle Ghostty resources";
 			outputFileListPaths = (
 			);
 			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/ghostty",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/terminfo",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/shell-integration",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/cmux-cli-path",
+				"$(TARGET_TEMP_DIR)/bundle-ghostty-resources.stamp",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -463,18 +721,34 @@
 		};
 		CE7A00000000000000000031 /* Bundle server helper */ = {
 			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			inputFileListPaths = (
 			);
+
 			inputPaths = (
+				"$(SRCROOT)/scripts/cmux-next/bundle-server-helper.sh",
+				"$(SRCROOT)/Packages/macOS/CmuxNext/Sources/CmuxNextServerHelper",
+				"$(SRCROOT)/Packages/macOS/CmuxNext/Sources/CmuxNextServerHelperDaemon",
+				"$(SRCROOT)/Packages/macOS/CmuxNext/Sources/CmuxNextCompat",
+				"$(SRCROOT)/Packages/macOS/CmuxNext/Package.swift",
+				"$(SRCROOT)/cmux.xcodeproj/project.pbxproj",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux",
+				"$(EXPANDED_CODE_SIGN_IDENTITY)",
+				"$(PRODUCT_BUNDLE_IDENTIFIER)",
+				"$(ARCHS)",
+				"$(MACOSX_DEPLOYMENT_TARGET)",
+				"$(CONFIGURATION)",
+				"$(CODE_SIGNING_ALLOWED)",
 			);
 			name = "Bundle server helper";
 			outputFileListPaths = (
 			);
 			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/libexec/cmux-server-helper",
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LaunchDaemons/com.cmux.server.helper.plist",
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LaunchAgents/com.cmux.server.plist",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -482,18 +756,26 @@
 		};
 		CE7A00000000000000000043 /* Bundle MediaRemote adapter */ = {
 			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			inputFileListPaths = (
 			);
+
 			inputPaths = (
+				"$(SRCROOT)/scripts/cmux-next/bundle-mediaremote-adapter.sh",
+				"$(SRCROOT)/vendor/mediaremote-adapter",
+				"$(EXPANDED_CODE_SIGN_IDENTITY)",
+				"$(ARCHS)",
+				"$(MACOSX_DEPLOYMENT_TARGET)",
 			);
 			name = "Bundle MediaRemote adapter";
 			outputFileListPaths = (
 			);
 			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/MediaRemoteAdapter.framework",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/MediaRemoteAdapter",
+				"$(TARGET_TEMP_DIR)/mediaremote-adapter/stamp",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -501,22 +783,47 @@
 		};
 		CE7A00000000000000000040 /* Verify web bundles */ = {
 			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			inputFileListPaths = (
 			);
+
 			inputPaths = (
+				"$(SRCROOT)/scripts/cmux-next/build-web-bundles.sh",
+				"$(SRCROOT)/scripts/cmux-next/web-bundle-key.py",
+				"$(SRCROOT)/.web-bundles.key",
+				"$(SRCROOT)/scripts/check-webviews-bun-version.sh",
+				"$(SRCROOT)/scripts/cmux-next/build-agent-pane-web.sh",
+				"$(SRCROOT)/scripts/cmux-next/build-pages-web.sh",
+				"$(SRCROOT)/scripts/cmux-next/build-agent-activity-web.sh",
+				"$(SRCROOT)/scripts/cmux-next/build-palette-ranker.sh",
+				"$(SRCROOT)/scripts/build-webviews-app.sh",
+				"$(SRCROOT)/scripts/cmux-next/build-optchat-inspector-web.sh",
+				"$(SRCROOT)/Native/OptChat",
+				"$(SRCROOT)/webviews",
+				"$(SRCROOT)/Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane",
+				"$(SRCROOT)/Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages",
+				"$(SRCROOT)/Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity",
+				"$(SRCROOT)/Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources",
+				"$(SRCROOT)/Resources/markdown-viewer/webviews-app",
+				"$(SRCROOT)/schemas/settings",
+				"$(SRCROOT)/Resources/markdown-viewer/marked.min.js",
+				"$(SRCROOT)/Resources/markdown-viewer/viewer-navigation.js",
+				"$(SRCROOT)/config/vite-plus/check.ts",
+				"$(SRCROOT)/web/data/model-catalog/snapshot.json",
+				"$(CMUX_WEB_BUNDLES_OPTIONAL)",
+				"$(SRCROOT)/Packages/macOS/CmuxNext/Sources",
 			);
 			name = "Verify web bundles";
 			outputFileListPaths = (
 			);
 			outputPaths = (
+				"$(TARGET_TEMP_DIR)/verify-web-bundles.stamp",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# The web bundles are build output (cx-vn5): scripts/reload.sh, CI and the nightly run\n# scripts/cmux-next/build-web-bundles.sh before xcodebuild. Refuse an app built without them.\n# Compile-only jobs that ship no app set CMUX_WEB_BUNDLES_OPTIONAL=1.\nif [ \"${CMUX_WEB_BUNDLES_OPTIONAL:-0}\" = 1 ]; then\n  echo \"note: CMUX_WEB_BUNDLES_OPTIONAL=1 (compile-only build): the web bundles are not verified\"\n  exit 0\nfi\nexec \"${SRCROOT}/scripts/cmux-next/build-web-bundles.sh\" --verify\n";
+			shellScript = "# The web bundles are build output (cx-vn5): scripts/reload.sh, CI and the nightly run\n# scripts/cmux-next/build-web-bundles.sh before xcodebuild. Refuse an app built without them.\n# Compile-only jobs that ship no app set CMUX_WEB_BUNDLES_OPTIONAL=1.\nstamp=\"${TARGET_TEMP_DIR}/verify-web-bundles.stamp\"\nrm -f \"$stamp\"\non_exit() { status=$?; if [ \"$status\" -eq 0 ]; then mkdir -p \"$(dirname \"$stamp\")\"; printf \"completed\\n\" > \"$stamp\"; fi; exit \"$status\"; }\ntrap on_exit EXIT\nif [ \"${CMUX_WEB_BUNDLES_OPTIONAL:-0}\" = 1 ]; then\n  echo \"note: CMUX_WEB_BUNDLES_OPTIONAL=1 (compile-only build): the web bundles are not verified\"\n  exit 0\nfi\nexec \"${SRCROOT}/scripts/cmux-next/build-web-bundles.sh\" --verify\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -614,6 +921,7 @@
 				CMUX_IROH_RELAY_POLICY_NEXT_PUBLIC_KEY_BASE64 = "KnOZ6gKmH05Mrfan2tXgwRygBKxcSUue4bp34udiQFA=";
 				CMUX_IROH_RELAY_POLICY_PUBLIC_KEY_BASE64 = "Otx9S0B4d/tlwIKYRf5evJaqhjCltFLPjMfXrLFd6lk=";
 				CMUX_SIDEBAR_EXTENSION_POINT_ID = com.cmuxterm.app.cmux.sidebar;
+				CMUX_WEB_URL_HANDLER_RANK = Alternate;
 				CODE_SIGN_ENTITLEMENTS = "";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -666,6 +974,7 @@
 				CMUX_IROH_RELAY_POLICY_NEXT_PUBLIC_KEY_BASE64 = "k+FND+WlELCkHs9QnWg1TfTuHXBwyv2907umX+mUOOU=";
 				CMUX_IROH_RELAY_POLICY_PUBLIC_KEY_BASE64 = "qoBinRqX4TI1Ro6xAuOQxKUkeZT3pkFJuERP/+R+9aw=";
 				CMUX_SIDEBAR_EXTENSION_POINT_ID = com.cmuxterm.app.cmux.sidebar;
+				CMUX_WEB_URL_HANDLER_RANK = Default;
 				CODE_SIGN_ENTITLEMENTS = Resources/cmux.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;

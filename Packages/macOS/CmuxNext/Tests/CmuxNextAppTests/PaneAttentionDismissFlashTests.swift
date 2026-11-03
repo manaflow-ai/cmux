@@ -45,4 +45,25 @@ struct PaneAttentionDismissFlashTests {
         #expect(!view.attentionAnimationKeys.contains("attention-dismiss"))
         #expect(view.attentionOpacity == 0)
     }
+
+    /// Attention is on or off, not a queue (https://github.com/manaflow-ai/cmux/issues/25662): a
+    /// further event on a ring that already shows leaves it as it is, with no arrival animation
+    /// replayed; once cleared, a new event turns it on again.
+    @Test func aFurtherEventOnAShowingRingIsIdempotent() {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let view = Self.overlay(marked: true)
+        let resting = view.attentionOpacity
+        view.attentionLayer.removeAllAnimations()
+        Self.update(view, mark: AttentionMark(generation: 8), readByEntry: false)
+        Self.update(view, mark: AttentionMark(generation: 9), readByEntry: false)
+        #expect(view.attentionAnimationKeys.isEmpty, "a further event replayed the ring's arrival")
+        #expect(view.attentionOpacity == resting)
+
+        Self.update(view, mark: nil, readByEntry: true)
+        view.attentionLayer.removeAllAnimations()
+        Self.update(view, mark: AttentionMark(generation: 10), readByEntry: false)
+        #expect(view.attentionOpacity > 0, "a new event after the clear set no ring")
+        #expect(view.attentionAnimationKeys.contains("attention"), "a new event after the clear did not animate in")
+    }
 }

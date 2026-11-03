@@ -2,14 +2,14 @@ import AppKit
 import CmuxNextControl
 import CmuxNextSettings
 
-// DEBUG builds: `debug.tunables` (the Debug Settings window and tunable store, DebugTunables) and
+// DEBUG and bench builds: `debug.tunables` (the Debug Settings window and tunable store, DebugTunables) and
 // `debug.menu_item` (performs a main-menu item the way a click does, so automation proves a menu
 // entry point such as Settings… without synthesizing mouse input). The Swift Settings window and
 // its `debug.settings` verb went with R82 commit 6; the React Settings page is driven through
 // `debug.page cmux.settings`.
 extension AppControl {
     func registerSettingsDebugMethods(_ services: AppServices) {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         service?.router.register([
             .mainActor("debug.tunables") { [weak services] call in
                 guard let services else { return .value(.null) }
@@ -27,7 +27,7 @@ extension AppControl {
     }
 }
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// `debug.menu_item {"title": "Settings…"}`: the first enabled main-menu item with that title (any
 /// submenu), performed through its menu (`performActionForItem`, the click path). Every menu is
 /// validated first, as opening it does, so titles that follow their target (Pin Tab or Unpin Tab)

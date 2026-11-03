@@ -17,6 +17,8 @@ public final class SimulatorKitHID: SimulatorHIDSending {
     private let clock: any Clock<Duration>
     private var transports: [String: SimulatorHIDTransport] = [:]
     private var screens: [String: SimulatorScreenSource] = [:]
+    /// Who watches each simulator's frames (the Mac's phone tab, a phone streaming it).
+    private var watchers: [String: [UUID: @MainActor (IOSurface) -> Void]] = [:]
 
     /// - Parameters:
     ///   - developerDirectory: the active Xcode's Developer folder (`xcode-select -p`).
@@ -108,17 +110,49 @@ public final class SimulatorKitHID: SimulatorHIDSending {
 
     // MARK: Live screens and view input
 
-    /// Starts frames for `udid` and hands each one to `onFrame`. Call ``stopScreen(_:)`` when the tab hides.
-    func startScreen(_ udid: String, onFrame: @escaping @MainActor (IOSurface) -> Void) throws {
-        let source = try screens[udid] ?? SimulatorScreenSource(device: runtime.device(udid))
-        source.onFrame = onFrame
-        try source.start()
-        screens[udid] = source
+    /// One watcher of a simulator's frames; ``stopScreen(_:)`` ends it.
+    public struct ScreenWatch: Hashable, Sendable {
+        let udid: String
+        let id: UUID
     }
 
-    /// Stops frames for `udid`: no callbacks run until it starts again.
-    func stopScreen(_ udid: String) {
-        screens.removeValue(forKey: udid)?.stop()
+    /// Starts frames for `udid` and hands each one to `onFrame`, beside any other
+    /// watcher of the same simulator (the Mac's tab and a phone stream it at once).
+    /// Call ``stopScreen(_:)`` when the watcher is done: the last one stops the callbacks.
+    func startScreen(_ udid: String, onFrame: @escaping @MainActor (IOSurface) -> Void) throws -> ScreenWatch {
+        let watch = ScreenWatch(udid: udid, id: UUID())
+        if let source = screens[udid] {
+            watchers[udid, default: [:]][watch.id] = onFrame
+            if let surface = source.surface { onFrame(surface) }
+            return watch
+        }
+        let source = try SimulatorScreenSource(device: runtime.device(udid))
+        source.onFrame = { [weak self] surface in
+            for watcher in self?.watchers[udid]?.values.map({ $0 }) ?? [] { watcher(surface) }
+        }
+        watchers[udid] = [watch.id: onFrame]
+        screens[udid] = source
+        do {
+            try source.start()
+        } catch {
+            screens[udid] = nil
+            watchers[udid] = nil
+            throw error
+        }
+        return watch
+    }
+
+    /// Ends `watch`; with no watcher left no frame work happens until one starts.
+    func stopScreen(_ watch: ScreenWatch) {
+        watchers[watch.udid]?[watch.id] = nil
+        guard watchers[watch.udid]?.isEmpty ?? true else { return }
+        watchers[watch.udid] = nil
+        screens.removeValue(forKey: watch.udid)?.stop()
+    }
+
+    /// The simulator's screen now (nil while nobody watches it).
+    func currentSurface(_ udid: String) -> IOSurface? {
+        screens[udid]?.surface
     }
 
     /// Sends one touch at once (the tab's mouse events, already paced by the person).
@@ -141,6 +175,7 @@ public final class SimulatorKitHID: SimulatorHIDSending {
     /// Drops the input transport (after a reboot the old XPC connection is dead).
     func reset(_ udid: String) {
         transports.removeValue(forKey: udid)?.close()
-        stopScreen(udid)
+        watchers[udid] = nil
+        screens.removeValue(forKey: udid)?.stop()
     }
 }

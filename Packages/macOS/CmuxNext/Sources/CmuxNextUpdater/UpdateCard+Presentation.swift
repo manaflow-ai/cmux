@@ -11,6 +11,8 @@ nonisolated public struct UpdateCardPresentation: Equatable, Sendable {
     public var showsProgress = false
     public var progress: Double?
     public var actions: [UpdateCardAction] = []
+    /// The control on the card's right, vertically centred (a running download's cancel), or nil.
+    public var trailing: UpdateCardAction?
     /// Changelog lines under the detail (a found update; cx-lntk).
     public var lines: [String] = []
     public var dismissible = true
@@ -36,7 +38,7 @@ extension UpdateCard {
             case .downloading:
                 return UpdateCardPresentation(symbol: "arrow.down.circle", title: UpdaterStrings.downloading,
                                               detail: transfer.bytesText ?? UpdaterStrings.keepsRunning, showsProgress: true,
-                                              progress: transfer.fraction, dismissible: false)
+                                              progress: transfer.fraction, trailing: .cancelDownload, dismissible: false)
             case .preparing:
                 return UpdateCardPresentation(symbol: "shippingbox", title: UpdaterStrings.preparing,
                                               detail: UpdaterStrings.preparingDetail, showsProgress: true,
@@ -60,18 +62,16 @@ extension UpdateCard {
         case .note(.needsNewerMacOS(let found, let required)):
             return UpdateCardPresentation(symbol: "desktopcomputer", title: UpdaterStrings.noticeAvailable,
                                           detail: UpdaterStrings.needsMacOSDetail(found, required))
-        case .pulled(let reason, let kept):
-            // "Wait for the Fix" is the default (first, prominent); Roll Back only when it would run.
-            return UpdateCardPresentation(symbol: "exclamationmark.octagon", title: UpdaterStrings.pulledTitle,
-                                          detail: reason.isEmpty ? nil : reason,
-                                          actions: kept == nil ? [.waitForFix] : [.waitForFix, .rollBack],
-                                          lines: [kept.map(UpdaterStrings.pulledKept) ?? UpdaterStrings.pulledNothingKept])
+        case .gettingNewest(let transfer, let pulled):
+            // One line, no button: the newest build downloads, then the Update Ready card (or the click) installs it.
+            return UpdateCardPresentation(symbol: "arrow.down.circle", title: UpdaterStrings.gettingNewest,
+                                          detail: pulled ? UpdaterStrings.runningBuildPulled : transfer?.bytesText,
+                                          showsProgress: true, progress: transfer?.fraction, dismissible: false)
         }
     }
 
     /// The installing card for `status` (``UpdateInstallStatus``): the short text first, then
-    /// the step and its seconds, what a held relaunch waits for (with Relaunch), or that the
-    /// install never relaunched (with Details).
+    /// the step and its seconds, or that the install never relaunched (with Details).
     nonisolated static func installing(_ status: UpdateInstallStatus?) -> UpdateCardPresentation {
         let symbol = "arrow.clockwise.circle"
         guard let status else {
@@ -79,10 +79,6 @@ extension UpdateCard {
                                           detail: UpdaterStrings.relaunchingDetail, showsProgress: true, dismissible: false)
         }
         switch status.stage {
-        case .waiting(let agents, let commands):
-            return UpdateCardPresentation(symbol: "hourglass", title: UpdaterStrings.waitingToRelaunch,
-                                          detail: UpdaterStrings.waitingDetail(agents: agents, commands: commands),
-                                          showsProgress: true, actions: [.relaunchNow], dismissible: false)
         case .stalled:
             return UpdateCardPresentation(symbol: "exclamationmark.triangle", title: UpdaterStrings.installStalled,
                                           detail: UpdaterStrings.installStalledDetail(minutes: max(1, status.seconds / 60)),
@@ -115,7 +111,7 @@ extension UpdateCard {
         case .note(.checkFailed): "check_failed"
         case .note(.found): "found"
         case .note(.needsNewerMacOS): "requires_newer_macos"
-        case .pulled: "pulled"
+        case .gettingNewest: "getting_newest"
         }
     }
 }

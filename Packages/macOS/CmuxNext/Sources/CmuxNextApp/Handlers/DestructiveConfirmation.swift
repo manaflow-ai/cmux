@@ -15,7 +15,7 @@ import os
 ///
 /// Closes never ask for themselves (Lawrence 2026-10-07: they run at once
 /// and an undo toast offers them back; bulk closes, `WorkspaceBulkClose`).
-/// Closing a workspace (after the press, WorkspaceCloseFlow), a group's workspaces or a space asks only while one of its terminals runs a
+/// Closing a workspace (its handler asks, WorkspaceCloseFlow), a group's workspaces or a space asks only while one of its terminals runs a
 /// foreground program (`process-info`) and `app.warnBeforeClosingTab` is
 /// on; a tab group follows the tab close rule (`TabCloseGuard`); those
 /// questions have "Don't ask again". Forget Machine has an undo toast and
@@ -30,15 +30,15 @@ enum DestructiveConfirmation {
         var button: String
         /// The toggle "Don't ask again" turns off; nil shows no check box.
         var suppresses: [String]? = nil
-        /// Return presses the button. False for a question that comes after the press
-        /// (WorkspaceCloseFlow): typing on in the next workspace must not confirm it.
+        /// Return presses the button. False for a question that comes up a daemon read after the
+        /// press (WorkspaceCloseFlow): typing on in the terminal must not confirm it.
         var returnConfirms = true
     }
 
     static func install(_ services: AppServices) {
         services.registry.confirmationPresenter = { id, invocation, proceed in
-            // Close Workspace runs at the press and asks afterwards, so its row leaves before any
-            // process-info round trip (WorkspaceCloseFlow).
+            // Close Workspace asks in its handler: its row stays put while the terminals answer and
+            // while the question is up, and leaves at the press when nothing can ask (WorkspaceCloseFlow).
             if id == "closeWorkspace" {
                 var run = invocation.confirmed()
                 run.asksIfRunning = true
@@ -83,6 +83,8 @@ enum DestructiveConfirmation {
             return AgentExtensionHandlers.prompt(invocation, context)
         case "space.delete":
             return await RoomConfirmation.prompt(invocation, context)
+        case "space.clearDefaults":
+            return await RoomConfirmation.clearDefaultsPrompt(invocation, context)
         case "remote.install":
             return await RemoteConfirmation.prompt(for: id, invocation, context)
         case "updates.rollback": // palette, menu and the pulled-build banner's Roll Back
@@ -91,7 +93,7 @@ enum DestructiveConfirmation {
             // The rule of every tab close (TabCloseGuard): the undo toast
             // brings the group back, so only work in progress asks.
             guard let (tabs, daemon) = tabGroup(invocation, context) else { return nil }
-            return await TabCloseGuard.prompt(closing: tabs, on: daemon, services: services)
+            return await TabCloseGuard.promptAndAnswers(closing: tabs, on: daemon, services: services).prompt
         case "taskManager.killProcess":
             // A process Kill Process refuses is not asked about: the handler says why.
             let key = services.taskManager.process(invocation["process"]?.stringValue)
@@ -122,27 +124,7 @@ enum DestructiveConfirmation {
     }
 
     /// The same for `tabs` (their live terminals only).
-    static func runningPrograms(of tabs: [TabModel], on daemon: DaemonService) async -> [String] {
-        await runningPrograms(bySurface: tabs, on: daemon).programNames
-    }
-
-    /// The same, per asked terminal: each live terminal's foreground program,
-    /// or nil when it runs none (or did not answer). One gesture asks once and
-    /// passes this on (a close's question, then its undo toast decision).
-    static func runningPrograms(bySurface tabs: [TabModel], on daemon: DaemonService) async -> RunningPrograms {
-        let surfaces = tabs.filter { $0.kind == .pty && !$0.dead }.map(\.surface)
-        guard let connection = daemon.connection, !surfaces.isEmpty else { return [:] }
-        return await withTaskGroup(of: (SurfaceID, String?).self) { group in
-            for surface in surfaces {
-                group.addTask {
-                    (surface, try? await connection.request(TerminalProcessInfoRequest(surface: surface), timeout: .seconds(1)).runningProgram)
-                }
-            }
-            var programs: RunningPrograms = [:]
-            for await (surface, program) in group { programs[surface] = .some(program) }
-            return programs
-        }
-    }
+    static func runningPrograms(of tabs: [TabModel], on daemon: DaemonService) async -> [String] { await daemon.runningPrograms(of: tabs).programNames }
 
     /// The targeted (or focused tab's) open tab group's tabs and their
     /// daemon, looked up without refusing.

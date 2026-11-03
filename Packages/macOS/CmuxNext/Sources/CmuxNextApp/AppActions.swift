@@ -1,9 +1,13 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextSettings
+import CmuxNextSidebarActions
+import CmuxNextWorkspaceNaming
 import os
 
 /// Binds catalog actions to handlers. Menus, shortcuts, the palette, and
@@ -17,6 +21,9 @@ enum AppActions {
         let registry = services.registry
         let context = AppActionContext(services: services)
         WindowHandlers.bind(into: registry, context: context)
+        // Pin/Unpin Chat on a history row: bound with the app's actions, with or without a local acpmux (the
+        // Chats feed only fills the history; a launch without one used to leave the action unbound).
+        SidebarChatHistoryFeed.bind(into: registry)
         FilesPaneHandlers.bind(into: registry, context: context)
         HistoryHandlers.bind(into: registry, context: context)
         StashHandlers.bind(into: registry, context: context)
@@ -37,9 +44,12 @@ enum AppActions {
         WorkspaceVerbHandlers.bind(into: registry, context: context)
         WorkspaceStructureHandlers.bind(into: registry, context: context)
         WorkspaceMetadataHandlers.bind(into: registry, context: context)
+        WorkspaceActivityNameActions(host: services).bind(into: registry)
         WorkspaceNotesHandlers.bind(into: registry, context: context)
         WorkspaceChecklistHandlers.bind(into: registry, context: context)
         WorkspaceGroupHandlers.bind(into: registry, context: context)
+        SidebarActionSet(host: services, autoArchive: services.autoArchive, settings: { [weak services] in services?.settings }).bind(into: registry)
+        NotificationSoundActions(host: services, gate: services.notifications.soundGate).bind(into: registry)
         RoomHandlers.bind(into: registry, context: context)
         RoomMenuHandlers.bind(into: registry, context: context)
         ThemeHandlers.bind(into: registry, context: context)
@@ -52,7 +62,7 @@ enum AppActions {
         SidebarHiddenSections.bind(into: registry, context: context)
         SidebarPriorityFeed.bind(into: registry, context: context)
         SidebarGroupByActions.bind(into: registry, context: context)
-        SidebarWorkspaceTabsToggle.bind(into: registry, context: context)
+        VerticalTabsActions(host: context, store: services.workspaceVerticalTabs).bind(into: registry)
         SidebarMinimalToggle.bind(into: registry, context: context)
         MatchTerminalBackgroundToggle.bind(into: registry, context: context)
         SidebarDensityActions.bind(into: registry, context: context)
@@ -81,6 +91,8 @@ enum AppActions {
         DevToolsHandlers.bind(into: registry, context: context)
         HintHandlers.bind(into: registry, context: context)
         MusicHandlers.bind(into: registry, context: context)
+        VoiceRoomHandlers.bind(into: registry, context: context)
+        ChiefScreenShareActions(share: context.services.chiefScreenShare, registry: registry).bind()
         NowPlayingCardHandlers.bind(into: registry, context: context)
         PictureInPictureHandlers.bind(into: registry, context: context)
         StatsPageTab.bind(into: registry, context: context)
@@ -99,7 +111,10 @@ enum AppActions {
         BrowserProfileHandlers.bind(into: registry, context: context)
         OpenInHandlers.bind(into: registry, context: context)
         NotificationHandlers.bind(into: registry, context: context)
+        bindAttentionPalette(into: registry, context: context)
         AgentHandlers.bind(into: registry, context: context)
+        AgentChatMenuHandlers.bind(into: registry, context: context)
+        AgentConfigurationHandlers.bind(into: registry, context: context)
         AgentChatKeyHandlers.bind(into: registry, context: context)
         CloudHandlers.bind(into: registry, context: context)
         AccountsHandlers.bind(into: registry, context: context)
@@ -109,6 +124,7 @@ enum AppActions {
         ResumeCommandHandlers.bind(into: registry, context: context)
         RemoteGroupHandlers.bind(into: registry, context: context)
         ChiefMoveHandlers.bind(into: registry, context: context)
+        ChiefMemoryImportHandlers.bind(into: registry, context: context)
         RemoteBrowserPages.bind(into: registry, context: context)
         ResourceHandlers.bind(into: registry, context: context)
         LinkHandlers.bind(into: registry, context: context)
@@ -121,7 +137,7 @@ enum AppActions {
         context.observeRefusals()
         DestructiveConfirmation.install(services)
         ActionRouting.install(services)
-        ActionRouting.installSidebarUserIntent(services)
+        ActionRouting.installUserIntentObservers(services)
         WindowKeyTable.install(services)
         // One owner per action: a second binding silently replaces the first. The check is a test
         // (noActionIsBoundTwice); at runtime a Debug dogfood build must not crash, so only a fault.
@@ -132,6 +148,36 @@ enum AppActions {
 
     static func scope(_ services: AppServices, _ invocation: ActionInvocation = ActionInvocation()) -> ActionScope {
         ActionScope(services: services, invocation: invocation)
+    }
+
+    /// Binds the app-owned palette action for the agent-pane attention projection.
+    /// The projection itself lives in CmuxNextAgentPane; only the app can reveal a
+    /// tab on its owning machine and present the palette.
+    private static func bindAttentionPalette(into registry: ActionRegistry, context: AppActionContext) {
+        let tabs = context.services.attentionTabs
+        tabs.onOpen = { [weak services = context.services, weak tabs] key in
+            guard let services, let tabs,
+                  tabs.items.contains(where: { $0.tabId == key }),
+                  let (daemon, tab, requestID) = AttentionTabsWatch.locate(key, in: services.machines.daemons, machineID: \.machineID)
+            else { return false }
+            // The row is a snapshot. Refuse a stale click if the mark was cleared or the id was
+            // reused before the page's request arrived.
+            guard daemon.supports(DaemonCapability.tabAttentionRequestID.rawValue),
+                  daemon.store.tab(idOrResource: tab)?.attention?.requestID == requestID else { return false }
+            return services.revealTab(tab, onMachine: daemon.machineID)
+        }
+        tabs.onChange = { [weak services = context.services] in
+            guard let model = services?.palette.model, model.currentPageID == AttentionPalettePage.pageID else { return }
+            model.reload()
+        }
+        context.services.palette.sources.actionPages[AttentionPalettePage.id] = { AttentionPalettePage(tabs: tabs).page() }
+        registry.bindEffect(AttentionPalettePage.id, requires: nil, effect: { invocation in
+            guard invocation.allowsViewChange else { throw ActionFailure(message: AttentionPalettePage.needsFocus) }
+            let page = AttentionPalettePage(tabs: tabs)
+            guard !page.tabs.items.isEmpty else { throw ActionFailure(message: AttentionPalettePage.nothing) }
+            context.services.palette.show(page: page.page(), relativeTo: context.activeWindow?.window)
+            return .done
+        })
     }
 
     private static func bindApp(_ services: AppServices) {
@@ -161,10 +207,11 @@ enum AppActions {
         registry.bind("quitKeepSessions") { services.quit.requestQuit(.explicit(.keep)) }
         registry.bind("quitEndSessions") { services.quit.requestQuit(.explicit(.endKeepLayout)) }
         registry.bind("quitEndEverything") { services.quit.requestQuit(.explicit(.endEverything)) }
-        registry.bind("newWindow") { services.windows.newWindow(holdingKeysFrom: services.windows.active?.window) }
+        // action-wait-allow: a window opens only once the daemon reports its first workspace (as New Window always did); the new space is created there first.
+        registry.bind("newWindow", invoke: { RoomHandlers.newWindow($0, AppActionContext(services: services)) })
         registry.bind("newIncognitoWindow") { services.windows.newIncognitoWindow() }
         registry.bind("closeWindow", isEnabled: { services.windows.active != nil }) {
-            services.windows.active?.window?.performClose(nil)
+            services.windows.active?.window?.closeWithoutButtonFlash()
         }
         registry.bind("toggleFullScreen") { services.windows.active?.window?.toggleFullScreen(nil) }
         registry.bind("toggleSidebar") { services.windows.active?.sidebar.model.toggle() }
@@ -174,7 +221,7 @@ enum AppActions {
             guard let window = services.windows.active else { return }
             if window.sidebar.model.isHidden { window.sidebar.model.toggle() }
             window.sidebar.container.sidebarView.focusList()
-            window.focus.send(.focusTarget(.sidebar(keyboard: true), source: .keyboard))
+            window.focus.send(.focusTarget(.sidebar(keyboard: true), source: .intent)) // the CLI's run is not the person's intent
         }
     }
 }

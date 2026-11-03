@@ -1,12 +1,14 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
+import CmuxNextDesign
 
 /// Builds the menu bar from the action registry (`mainMenu` placements) so
 /// titles and shortcuts match the palette and key router. Edit keeps the
 /// standard responder-chain items so text fields (rename, omnibox) work;
 /// the Help menu is in MainMenu+Placements.swift.
 enum MainMenu {
-    static func make(registry: ActionRegistry) -> NSMenu {
+    static func make(registry: ActionRegistry, blocking: BlockingDetector) -> NSMenu {
         let mainMenu = NSMenu()
         // About (`about`: the standard panel with the build's credits) comes first, as in every Mac app.
         var app: [NSMenuItem] = registry.makeMenuItem(for: "about").map { [$0, .separator()] } ?? []
@@ -34,6 +36,8 @@ enum MainMenu {
             item(Strings.menuPaste, #selector(NSText.paste(_:)), "v", [.command]),
             // Cmd+Shift+V, as in Chrome and Slack (Lawrence 2026-10-20): plain text only, in any text input.
             item(Strings.menuPasteAndMatchStyle, #selector(NSTextView.pasteAsPlainText(_:)), "v", [.command, .shift]),
+            // Opt-Shift-Cmd-V, the macOS standard Chrome also keeps (an alternate: shown with Option held).
+            alternate(item(Strings.menuPasteAndMatchStyle, #selector(NSTextView.pasteAsPlainText(_:)), "v", [.command, .shift, .option])),
             item(Strings.menuSelectAll, #selector(NSText.selectAll(_:)), "a", [.command]),
         ]))
         mainMenu.addItem(submenu(Strings.menuView, items: compactMainMenuItems(for: .view, registry: registry)))
@@ -52,8 +56,19 @@ enum MainMenu {
         NSApp.windowsMenu = windowMenu.submenu
         // Debug (DEV and NIGHTLY, `DevTools`): debug-only actions placed there.
         var debug = DevTools.isEnabled ? registry.makeMainMenuItems(for: .debug) : []
-        if DevTools.isEnabled { debug += [.separator(), SidebarToggleIconMenu.shared.makeItem(), StatusIconSetMenu.shared.makeItem()] }
-        if !debug.isEmpty { mainMenu.addItem(submenu(Strings.menuDebug, items: debug)) }
+        if DevTools.isEnabled { debug += [.separator(), SidebarToggleIconMenu().makeItem(), StatusIconSetMenu().makeItem()] }
+        if !debug.isEmpty {
+            let debugItem = submenu(Strings.menuDebug, items: debug)
+            #if DEBUG
+            // Main-Thread Blocking (N): the call sites the blocking detector saw (threading-model.md).
+            if let debugMenu = debugItem.submenu {
+                BlockingCallsMenu(detector: blocking, resetItem: {
+                    registry.makeMenuItem(for: "debug.blockingCalls.reset")
+                }).attach(to: debugMenu)
+            }
+            #endif
+            mainMenu.addItem(debugItem)
+        }
         // Help, last as on every Mac: macOS adds its search field to `NSApp.helpMenu`.
         let helpMenu = submenu(Strings.menuHelp, items: helpPlacements(registry))
         mainMenu.addItem(helpMenu)
@@ -65,7 +80,7 @@ enum MainMenu {
     /// remains available through the command palette. The allowlist is intentionally explicit so
     /// a new catalog placement cannot silently reintroduce menu overload.
     static let compactActionIDs: [ActionMainMenu: [ActionID]] = [
-        .app: ["about", "openSettings", "palette.checkForUpdates", "keepMacAwake", "quit"],
+        .app: ["about", "openSettings", "palette.checkForUpdates", "updates.installEarlierBuild", "keepMacAwake", "quit"],
         .file: [
             "newTab", "newBrowserWorkspace", "newTab.default", "palette.newAgentChat", "palette.quickAgentChat",
             "openFolder", "file.open", "remote.connect", "device.add", "closeTab", "closeWorkspace", "closeWindow",
@@ -78,7 +93,7 @@ enum MainMenu {
         ],
         .server: ["server.addServer", "server.showPanel"],
         .window: [
-            "newWindow", "newIncognitoWindow", "toggleFullScreen", "commandPalette", "goToWorkspace",
+            "newWindow", "newIncognitoWindow", "window.mergeAll", "toggleFullScreen", "commandPalette", "goToWorkspace",
             "globalSearch", "showMainWindow",
         ],
         .help: ["help.documentation", "palette.searchShortcuts", "updates.whatsNew", "sendFeedback", "help.showCrashLogs"],
@@ -110,6 +125,11 @@ enum MainMenu {
     private static func item(_ title: String, _ action: Selector, _ key: String, _ modifiers: NSEvent.ModifierFlags) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
         item.keyEquivalentModifierMask = modifiers
+        return item
+    }
+
+    private static func alternate(_ item: NSMenuItem) -> NSMenuItem {
+        item.isAlternate = true
         return item
     }
 

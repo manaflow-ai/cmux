@@ -1,8 +1,10 @@
 import Foundation
 
 /// Pinned items (PINNED-ITEMS-END-TO-END, SIDEBAR-TOP-ROWS-AND-PINS):
-/// pinned workspaces are small wrapping icon tiles in `sec_pinned`, a top
-/// section under `sec_top` (built-in look, grid, no title). It is not in
+/// pinned workspaces are full-width rows in `sec_pinned`, a top section
+/// under `sec_top` (built-in look, list, no title) that draws each pinned
+/// workspace like any workspace row with its pin leading (the pinned section
+/// ignores a stored grid or tiles arrangement, see `SectionFlow.mode`). It is not in
 /// the defaults: the first pin adds it (`section.add`), so stored layouts
 /// do not change, and it draws only while it has items (an untitled empty
 /// section has no rows). "Add to Top" puts an item in `sec_top` beside
@@ -13,7 +15,7 @@ extension SidebarLayoutDocument {
 
     /// The pinned section holding `items`.
     public static func pinnedSection(items: [LayoutItem]) -> LayoutSection {
-        LayoutSection(id: pinnedSectionID, region: .top, look: .builtIn, arrangement: .grid, items: items)
+        LayoutSection(id: pinnedSectionID, region: .top, look: .builtIn, arrangement: .list, items: items)
     }
 
     /// Whether `ref` is a pinned tile.

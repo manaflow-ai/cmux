@@ -37,6 +37,10 @@ export type TurnFile = {
   outside?: boolean;
   /// The host returned only part of this file's patch, so hunk review is unsafe.
   patchTruncated?: boolean;
+  /// The raw git patch when a scope supplied one, used to share blob identity with the full viewer.
+  patch?: string;
+  /// Git's content identity, supplied for hunk-only and binary native responses.
+  blobFingerprint?: string;
 };
 
 /// Lines unchanged around a change that a hunk keeps, as `git diff` does.

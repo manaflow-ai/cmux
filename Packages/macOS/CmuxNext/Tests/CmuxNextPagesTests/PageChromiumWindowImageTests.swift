@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextPages
 import CmuxNextPagesTestSupport
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -9,6 +10,7 @@ import Testing
 /// the window server leaves out what Chromium's GPU process draws, so on a capture slot an agent
 /// or Settings page came out blank.
 @MainActor
+@Suite(.closesItsWindows)
 struct PageChromiumWindowImageTests {
     private let root: URL
     private let descriptor = PageDescriptor(id: "test.window-image", resource: "window-image", namespaces: [])
@@ -74,5 +76,25 @@ struct PageChromiumWindowImageTests {
         #expect(image.width == 1 && image.height == 1)
         #expect(page.calls.contains { $0.method == "Page.captureScreenshot" })
         view.close()
+    }
+
+    /// A chat that shares its pane's tab row leaves the strip and toolbar out of its page window
+    /// (`nativeRects`); the window image must leave them out too, or it paints the chat over the
+    /// tabs that show on screen.
+    @Test func aChromiumPageGivesItsHolesInWindowCoordinates() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        let (view, _) = try await chromiumView()
+        view.frame = NSRect(x: 100, y: 50, width: 300, height: 200)
+        window.contentView?.addSubview(view)
+        view.layoutSubtreeIfNeeded()
+        #expect(view.chromiumWindowHoles.isEmpty, "a page with no native UI over it has holes: \(view.chromiumWindowHoles)")
+        view.nativeRects = [CGRect(x: 0, y: 0, width: 200, height: 36), CGRect(x: 267, y: 0, width: 33, height: 36)]
+        #expect(view.chromiumWindowHoles == [CGRect(x: 100, y: 214, width: 200, height: 36), CGRect(x: 367, y: 214, width: 33, height: 36)])
+        view.nativeRects = []
+        #expect(view.chromiumWindowHoles.isEmpty)
+        view.close()
+        window.close()
     }
 }

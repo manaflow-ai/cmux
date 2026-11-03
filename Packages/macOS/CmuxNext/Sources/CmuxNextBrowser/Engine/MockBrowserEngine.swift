@@ -50,6 +50,9 @@ public final class MockBrowserTab: BrowserTab {
     @ObservationIgnored public private(set) var restoredSessions: [BrowserSavedSession] = []
     /// How far the page says it is scrolled (tests set it; it may never answer).
     @ObservationIgnored public var scrollPosition: @MainActor () async -> Double? = { nil }
+    /// Where the chrome said native UI covers the page, as a child-window page is told (`BrowserOcclusionHosting`).
+    @ObservationIgnored public var occlusionRects: [CGRect] = []
+    @ObservationIgnored var roundedOcclusions: [CEFClipShape.RoundedRect] = []
     public enum Command: Hashable, Sendable {
         case load(URL)
         case goBack
@@ -89,7 +92,14 @@ public final class MockBrowserTab: BrowserTab {
     @ObservationIgnored public private(set) var snapshotCount = 0
     /// `thumbnail()` calls (each also counts as a snapshot).
     @ObservationIgnored public private(set) var thumbnailCount = 0
+    /// Thumbnails asked for while the content lifecycle had the page hidden (`setContentVisible(false)`): an engine
+    /// that cannot picture a hidden page (Chromium) gets no picture of those.
+    @ObservationIgnored public private(set) var hiddenThumbnailCount = 0
+    /// What the last `setContentVisible` said (shown until then).
+    @ObservationIgnored public private(set) var isContentHidden = false
 
+    /// The hovered link's text (`BrowserTab.linkStatus`); tests set it.
+    public var linkStatus: String?
     /// Page text used by `find`.
     public var pageText = ""
     /// Canned result for `evaluate`.
@@ -206,11 +216,17 @@ public final class MockBrowserTab: BrowserTab {
 
     public func setFocused(_ focused: Bool) { commands.append(.focus(focused)) }
 
-    public func setContentVisible(_ visible: Bool) { commands.append(.occlude(!visible)) }
+    public func setContentVisible(_ visible: Bool) {
+        isContentHidden = !visible
+        commands.append(.occlude(!visible))
+    }
 
-    public func thumbnail() async throws -> CGImage {
+    public func thumbnail() async throws -> CGImage { try await beginThumbnail().image() }
+
+    public func beginThumbnail() -> BrowserPictureRequest {
         thumbnailCount += 1
-        return try await snapshot()
+        if isContentHidden { hiddenThumbnailCount += 1 }
+        return BrowserPictureRequest { [self] in try await snapshot() }
     }
 
     public func snapshot() async throws -> CGImage {
@@ -228,7 +244,7 @@ public final class MockBrowserTab: BrowserTab {
         return image
     }
 
-    public func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue {
+    public func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue {
         guard !isClosed else { throw BrowserTabError.closed }
         commands.append(.evaluate(script))
         return evaluationResult
@@ -316,7 +332,7 @@ final class MockPageView: NSView {
 }
 
 /// Records restores; saves `navigation` (else the shown page) with the
-/// measured scroll position on the shown entry.
+/// page's reported, else measured, scroll position on the shown entry.
 extension MockBrowserTab: BrowserSessionRestoring {
     public func restoreSession(_ entries: [BrowserSavedEntry], current: Int) {
         restoredSessions.append(BrowserSavedSession(entries: entries, current: current))
@@ -329,6 +345,8 @@ extension MockBrowserTab: BrowserSessionRestoring {
         guard let url = state.url else { return nil }
         var session = BrowserRestoredHistory.empty.session(around: navigation, shown: BrowserNavigationEntry(url: url, title: state.title))
         guard session.entries.indices.contains(session.current) else { return nil }
+        // As BrowserRestoredSession: the page's own report, then a measure over it.
+        if let report = state.scrollReport, report.url == url { session.entries[session.current].scrollY = report.y }
         if let y { session.entries[session.current].scrollY = y }
         return session
     }

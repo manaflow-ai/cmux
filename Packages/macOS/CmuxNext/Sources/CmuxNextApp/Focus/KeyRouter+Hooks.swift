@@ -13,9 +13,9 @@ extension KeyRouter {
     /// (not in a text field, not in browser focus mode), then a Chrome
     /// extension shortcut. Only for a key the dispatcher never saw (a
     /// synthetic event): the dispatcher already decided every real key-down.
-    func routeContentKeyEquivalent(_ event: NSEvent, focus: FocusState) -> Bool {
+    func routeContentKeyEquivalent(_ event: NSEvent, focus: FocusState, facts: Facts = Facts()) -> Bool {
         if decided.contains(event) || Self.overlayHasKeys(focus) { return false }
-        let context = keyContext(for: focus, facts: Facts())
+        let context = keyContext(for: focus, facts: facts)
         // A Ghostty keybind never runs a content action from a hook (the terminal runs its own).
         if let winner = resolve(event, context: context), !winner.source.isGhostty, registry.keyTier(for: winner.command) == .content,
            !isPageKey(event, id: winner.command), Self.allows(.content, id: winner.command, focus: focus) {
@@ -61,14 +61,10 @@ extension KeyRouter {
     /// dispatcher decided never runs a menu item (menus are display only
     /// for keys). Other key windows (panels, sheets, windows of their own)
     /// follow the tier rule of the key window's focus.
-    /// Runs `body` while `event` is dispatched outside
-    /// `NSApplication.sendEvent` (`debug.key`), where `NSApp.currentEvent`
-    /// is not that event.
+    /// Runs `body` while `event` is dispatched outside `NSApplication.sendEvent` (`debug.key`, a
+    /// replayed held key): the same dispatch context `sendEvent` uses (``InputDispatchContext``).
     func dispatchingSynthetic<T>(_ event: NSEvent, _ body: () -> T) -> T {
-        let previous = syntheticKeyEvent
-        syntheticKeyEvent = event
-        defer { syntheticKeyEvent = previous }
-        return body()
+        inputDispatch.dispatching(event, body)
     }
 
     /// Whether a terminal may offer `event` to the main menu before Ghostty
@@ -84,7 +80,7 @@ extension KeyRouter {
     }
 
     private func menuGate(_ id: ActionID) -> Bool {
-        if let event = syntheticKeyEvent ?? NSApp.currentEvent, event.type == .keyDown, decided.contains(event),
+        if let event = inputDispatch.event, event.type == .keyDown, decided.contains(event),
            !Self.menuKeyEquivalentAllowedAfterDispatch(registry.keyTier(for: id), eventWasDecided: true) { return false }
         let (controller, kind) = keyWindowFocus()
         guard let controller else { return true }
@@ -112,7 +108,7 @@ extension KeyRouter {
         guard let services else { return (nil, .other) }
         // No key window (the app is inactive, or an automation launch):
         // menu actions target the active window, so its focus decides.
-        guard let key = NSApp.keyWindow else { return (services.windows.active, .content) }
+        guard let key = services.keyWindowSource() else { return (services.windows.active, .content) }
         return focus(for: key)
     }
 
@@ -169,7 +165,7 @@ extension KeyRouter {
     /// dispatcher held for it (``runUnhandledPageKey(_:)``), such as Find after a page that has
     /// no search of its own.
     func browserTab(_ tab: any BrowserTab, unhandledKeyEquivalent event: NSEvent) -> Bool {
-        runUnhandledPageKey(event)
+        runUnhandledPageKey(event, from: ObjectIdentifier(tab))
     }
 
     func pageOwnsAllKeys(_ tab: any BrowserTab) -> Bool {

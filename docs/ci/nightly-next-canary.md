@@ -14,7 +14,12 @@ gh workflow run nightly-next-rollback.yml -R manaflow-ai/cmux --ref nightly-next
 ```
 
 This takes the newest build off the feed. The feed then serves the build
-before it, whose signed DMG is still on the `nightly-next` release. The run
+before it, whose signed DMG is still on the `nightly-next` release. A pull
+always has one: every publication keeps the live feed's newest earlier build
+beside the new one, so the feed holds at least two builds that passed the
+publish gate (`write-feed` in `scripts/ci/publish-nightly-next-r2.py`), and the
+release asset prune never deletes the two newest builds
+(`ROLLBACK_FLOOR` in `scripts/prune_nightly_release_assets.py`). The run
 takes about a minute. Its summary names the pulled build and the build the
 feed now serves. Choose the target with one of these:
 
@@ -73,8 +78,18 @@ daemon/app integration tests.
 
 `nightly-next-canary.yml` runs from `main` every 15 minutes. Each feed build is
 checked once through an Actions cache; `workflow_dispatch -f build=N` checks a
-specific build. A scheduled pass is written through
-`nightly-next-verdict.yml` for the existing train and release-ring machinery.
+specific build. A scheduled verdict is written through
+`nightly-next-verdict.yml` for the existing train and release-ring machinery,
+and the build is marked checked only after that dispatch is accepted: a failed
+dispatch fails the run, and the next tick checks the build again. A tick also
+checks a marked build again while its `verdicts/<build>.json` is missing, so a
+verdict run that fails after the dispatch is repaired too. Only the
+artifact check itself decides `pass` or `fail`, and it records `fail` only for
+a definite rejection (length, a missing or invalid notary ticket, Gatekeeper
+`rejected`, no app, the build number). A runner, download or tooling error
+(missing Apple tools, a failed `hdiutil attach`, stapler or spctl unable to
+reach Apple, an spctl failure with no rejection) records no verdict, so it is
+retried rather than kept as a failure.
 A failed static check remains a visible failed workflow; rollback remains a
 manual operator action through `nightly-next-rollback.yml`.
 
@@ -142,7 +157,7 @@ post-publication artifact verifier checks it.
 | Decide | `nightly.yml` `decide`, on the `nightly-next` push | Reads the holds below and picks the track (`nightly-next`), the `release-next` environment, and the feed. |
 | Build, sign, notarize | `build-nightly-app`, `build-sign-notarize-nightly` | Release build, Developer ID signing, Apple notary. A submission still in Apple's queue leaves a recovery artifact, which a later run (`recover-nightly-next-notarization`) continues. |
 | Verify | `verify-signed-nightly` and `verify-final-dmg-nightly` (no secrets; they run at the same time on two runners) | Signature, sidecar and SSH daemon contracts; the other job statically verifies the final DMG bytes and size budget. The verified DMG digests go to publication. |
-| Publish | `publish-nightly` (`release-next`) | Uploads only the tested DMG bytes to the `nightly-next` GitHub release, reads `NIGHTLY_NEXT_WRITER` and `NIGHTLY_NEXT_HOLD` live, runs `nightly-next-guard.py` on every appcast and R2 key, then writes `appcast-arm64.xml` to R2 bucket `cmux-nightly-next` and moves the `nightly-next` tag. |
+| Publish | `publish-nightly` (`release-next`) | Uploads only the tested DMG bytes to the `nightly-next` GitHub release, reads `NIGHTLY_NEXT_WRITER` live, runs `nightly-next-guard.py` on every appcast and R2 key, then writes `appcast-arm64.xml` to R2 bucket `cmux-nightly-next` and moves the `nightly-next` tag. |
 | Deltas | `generate-nightly-deltas` | Adds a delta from the previous build and rewrites the feed, unless the live feed already serves a different build. |
 | Old identity | `publish-nightly-identity-legacy` | Re-signs the build as cmux NIGHTLY for installs from before cmux NEXT (`NIGHTLY_NEXT_LEGACY_FEED_BASE`). |
 
@@ -155,8 +170,7 @@ Mac pipeline.
 
 | Variable | Meaning |
 | --- | --- |
-| `NIGHTLY_NEXT_WRITER` | Which pipeline publishes nightly-next: `mac` (this repo's `nightly.yml`), `linux` (cmuxterm-hq) or `none` (stop the line). Read at `decide` and again right before the first write. Never delete it: then both pipelines refuse. |
-| `NIGHTLY_NEXT_HOLD` | `1` stops the Mac pipeline before building and again at publication. It was added after the 2026-10-10 launch SIGTRAP, and is transition-week only (until 2026-10-23), when `NIGHTLY_NEXT_WRITER` replaces it. Keep it at `0`. |
+| `NIGHTLY_NEXT_WRITER` | Which pipeline publishes nightly-next: `mac` (this repo's `nightly.yml`), `linux` (cmuxterm-hq) or `none` (stop the line). Read at `decide` and again right before the first write. Unset means `mac`, so only the Mac pipeline publishes then; an empty or unreadable value refuses. |
 | `NIGHTLY_NEXT_NOTARY_PAUSED` | `1` stops any nightly-next build that carries the browser-data import before notarization (cx-f58x: Apple status 7000). While `NIGHTLY_NEXT_BROWSER_DATA_IMPORT` is `compiled-out`, builds compile the import out and still notarize and publish. |
 | `NIGHTLY_NEXT_SUBMISSIONS_PAUSED` | `1` stops every nightly-next notary submission while Apple's queue is stuck. A continuation run can still publish a build Apple has already accepted. |
 | `CMUX_NEXT_PRODUCTION_HOLD` | Not part of the nightly. It holds the cmux-api production deploy (`backend.yml` `promote-gates`). |

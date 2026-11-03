@@ -8,6 +8,7 @@
 import { MutationObserver, type QueryClient } from "@tanstack/react-query";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 import { AppearanceHistory, diff, type HistoryEntry, type TargetState } from "./appearanceHistory";
+import { type AppearancePreset, presetTargets } from "./appearancePresets";
 import {
   appearanceKeys,
   captureAppearance,
@@ -33,6 +34,7 @@ import {
   type Write,
 } from "./queries";
 import { rowsByKey } from "./schema";
+import { HARNESS_PLACEMENT_KEY, harnessPlacement, resolveHarnessPlacement } from "../../ui/harnessPlacement";
 import { t } from "./strings";
 import { pageTransport, TransportError, type SettingsTransport } from "./transport";
 import {
@@ -42,11 +44,15 @@ import {
   type AccountsState,
   type AgentsRun,
   type AgentsState,
+  type AppUpdateAction,
   type ChannelsState,
+  type CloudEnvironmentsRun,
+  type CloudEnvironmentsState,
   type DevicesRun,
   type DevicesRunResult,
   type DevicesState,
   type Domains,
+  type MenuLayout,
   type HarnessesRun,
   type HarnessesState,
   type HostLists,
@@ -121,12 +127,24 @@ const emptyDomains: Domains = { themes: [], font_families: [], sounds: [], recen
 /** The page's state from the cache and the UI state (one function for hooks and getSnapshot). */
 export function composeState(ui: UiState, cache: CacheView): SettingsState {
   const scope = cache.scope;
+  let rows = scope?.rows ?? new Map<string, ListRow>();
+  const placement = rows.get(HARNESS_PLACEMENT_KEY);
+  if (placement) {
+    const legacy = cache.host?.harness_placement;
+    const managed = placement.managed ?? scope?.managed.get(HARNESS_PLACEMENT_KEY);
+    const value = resolveHarnessPlacement(placement.stored, legacy, managed ? placement.value : undefined);
+    // A saved override is resettable even when it currently matches the inherited choice.
+    const customized = harnessPlacement(placement.stored) !== null;
+    if (value !== placement.value || customized !== placement.customized) {
+      rows = new Map(rows).set(HARNESS_PLACEMENT_KEY, { ...placement, value, customized });
+    }
+  }
   return {
     loaded: cache.scopeSettled,
     readable: (scope?.rows.size ?? 0) > 0,
     connected: ui.connected,
     revision: scope?.revision ?? 0,
-    rows: scope?.rows ?? new Map(),
+    rows,
     diagnostics: scope?.diagnostics ?? new Map(),
     problems: scope?.problems ?? [],
     managed: scope?.managed ?? new Map(),
@@ -206,6 +224,14 @@ export class SettingsStore {
       ),
       this.listen("cmux.settings.devices.changed", (devices) =>
         this.queryClient.setQueryData(settingsKeys.devices, devices),
+      ),
+      // A machine's update failing while Updates shows (its toast's Details shows the reason in the toast) shows in
+      // the Channels card's row at once, in every channel's read.
+      this.listen("cmux.settings.channels.machines.changed", (machines) =>
+        this.queryClient.setQueriesData<ChannelsState | null>(
+          { queryKey: [...settingsKeys.all, "channels"] },
+          (state) => (state ? { ...state, machines } : state),
+        ),
       ),
       this.listen("cmux.page.command", (event) => {
         for (const listener of this.commandListeners) listener(event.command);
@@ -320,6 +346,20 @@ export class SettingsStore {
     return this.themeFileSaved(await this.request("cmux.settings.theme.import", retry ?? {}));
   }
 
+  /**
+   * Let Themes Set Colors: the host turns the Ghostty config's own color lines into comments and
+   * reloads it, so the theme sets those colors; the host lists then drop the notice.
+   */
+  async releaseThemeOverrides(): Promise<Reply<{ files: number }>> {
+    const reply = await this.request("cmux.settings.theme.overrides.release", {});
+    if (reply.ok) await this.refreshHost();
+    return reply;
+  }
+
+  openThemeOverrides(): void {
+    void this.request("cmux.settings.theme.overrides.open", {});
+  }
+
   /** After a theme file lands, the theme names and colors are read again so every picker lists it. */
   private async themeFileSaved(reply: Reply<{ name?: string }>): Promise<Reply<{ name?: string }>> {
     if (reply.ok && reply.value.name) await Promise.all([this.refresh(), this.fetchNative(settingsKeys.themeColors)]);
@@ -397,6 +437,13 @@ export class SettingsStore {
   async backdropUsage(): Promise<{ bytes: number; folder: string | null } | null> {
     const reply = await this.request("cmux.settings.backdrop.image.usage", {});
     return reply.ok ? { bytes: reply.value.bytes, folder: reply.value.folder ?? null } : null;
+  }
+
+  /** Use My Screen Saver: the background id of the macOS screen saver's aerial, or null when it is
+   * not one (a classic screen saver) or the host cannot say. */
+  async screenSaverBackdrop(): Promise<{ id: string; pending: boolean } | null> {
+    const reply = await this.request("cmux.settings.backdrop.image.screen_saver", {});
+    return reply.ok && reply.value.id ? { id: reply.value.id, pending: reply.value.pending } : null;
   }
 
   /** Opens the Wallpaper pane of System Settings, where macOS downloads a wallpaper the picker
@@ -481,10 +528,38 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
+  /** Settings > Devices: a paired client machine's Full access on or off, then re-read the host lists. */
+  async setDeviceFullAccess(id: string, on: boolean): Promise<void> {
+    await this.request("cmux.settings.devices.full_access", { id, on });
+    await this.refreshHost();
+  }
+
+  /** Settings > Devices: this joined Mac's Screen sharing or Control on or off, then re-read the host lists. */
+  async setJoinConsent(surface: "screen" | "control", on: boolean): Promise<void> {
+    await this.request("cmux.settings.devices.join_consent", { surface, on });
+    await this.refreshHost();
+  }
+
+  /** Settings > Machines: a Cloud machine's "Dedicated agent machine" on or off, then re-read the host lists. */
+  async setMachineVmHost(id: string, on: boolean): Promise<void> {
+    await this.request("cmux.settings.machines.vm_host", { id, on });
+    await this.refreshHost();
+  }
+
   /** Settings > Mobile: answer a phone's pairing request, then re-read the host lists. */
   async answerPair(id: string, allow: boolean): Promise<void> {
     await this.request("cmux.settings.mobile.answer_pair", { id, allow });
     await this.refreshHost();
+  }
+
+  /** Settings > Server: Restart… opens the host's confirm for one server; nothing restarts without it. */
+  async restartServer(kind: string, host: string | null): Promise<void> {
+    await this.request("cmux.settings.server.restart", { kind, host });
+  }
+
+  /** Settings > Server: Pair opens the Server panel's pairing card. */
+  async pairServer(): Promise<void> {
+    await this.request("cmux.settings.server.pair", {});
   }
 
   /** Settings > Mobile: this Mac was removed; allow iPhone connections again, then re-read the host lists. */
@@ -493,11 +568,33 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
+  /** Updates > App Update: one of its buttons, then re-read the host lists; false when the host refused. */
+  async runAppUpdate(action: AppUpdateAction): Promise<boolean> {
+    const reply = await this.request("cmux.settings.app_update.run", { action });
+    await this.refreshHost();
+    return reply.ok;
+  }
+
   /** Updates > Web UI: Check Now or Roll Back, then re-read the host lists; false when the host refused. */
   async runWebUpdates(action: "check" | "rollback"): Promise<boolean> {
     const reply = await this.request(`cmux.settings.web_updates.${action}` as const, {});
     await this.refreshHost();
     return reply.ok;
+  }
+
+  /** Settings > Menus: save `menu`'s arrangement (null resets it), then re-read the host lists.
+   * Throws the host's refusal (a managed key, an unreadable cmux.json). */
+  async setContextMenuLayout(menu: string, layout: MenuLayout | null): Promise<void> {
+    const reply = await this.request("cmux.settings.context_menus.set", { menu, layout });
+    await this.refreshHost();
+    if (!reply.ok) throw new TransportError(reply.error);
+  }
+
+  /** Settings > Menus: whether every right-click menu ends with Customize Menu…; throws a refusal. */
+  async setShowCustomizeMenuItem(show: boolean): Promise<void> {
+    const reply = await this.request("cmux.settings.context_menus.show_item", { show });
+    await this.refreshHost();
+    if (!reply.ok) throw new TransportError(reply.error);
   }
 
   /** Settings > Chief > Voice input: turn the message box's mic on or off, then re-read the host lists. */
@@ -530,6 +627,20 @@ export class SettingsStore {
   /** Settings > Updates' Go Back: the app restarts into the kept build; else the host's reason. */
   async channelsGoBack(ring: string, build: string): Promise<string | null> {
     const reply = await this.request("cmux.settings.channels.go_back", { ring, build });
+    return reply.ok ? null : reply.error.message;
+  }
+
+  /** A build row's Switch in Settings > Updates' Channels card; answers the host's refusal, else
+   * null (success quits the app into that build). */
+  async channelsSwitchBuild(build: string): Promise<string | null> {
+    const reply = await this.request("cmux.settings.channels.switch_build", { build });
+    return reply.ok ? null : reply.error.message;
+  }
+
+  /** The Update button of a machine in Settings > Updates' row of other machines; answers the
+   * host's refusal, else null (the row's push then shows it updating). */
+  async channelsUpdateMachine(id: string): Promise<string | null> {
+    const reply = await this.request("cmux.settings.channels.update_machine", { id });
     return reply.ok ? null : reply.error.message;
   }
 
@@ -573,6 +684,22 @@ export class SettingsStore {
     await this.fetchNative(settingsKeys.harnesses);
   }
 
+  /** Settings > Accounts > Cloud Environments: the host's state (null when the host has none). */
+  async environments(): Promise<CloudEnvironmentsState | null> {
+    const reply = await this.request("cmux.settings.environments.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Cloud Environments gesture, then the fresh state; the host's failure text, else null. */
+  async runEnvironments(
+    run: CloudEnvironmentsRun,
+  ): Promise<{ state: CloudEnvironmentsState | null; error: string | null }> {
+    const reply = await this.request("cmux.settings.environments.run", run);
+    const state = await this.environments();
+    if (!reply.ok) return { state, error: reply.error.message };
+    return { state, error: reply.value?.error ?? null };
+  }
+
   /** One Devices gesture, then a fresh read of the part; answers the host's result (a refusal
    * as its `error` text). Secrets in a relay draft pass through here and are never kept. */
   async runDevices(run: DevicesRun): Promise<DevicesRunResult> {
@@ -583,9 +710,14 @@ export class SettingsStore {
   }
 
   /** Runs one of the page's catalog actions (`target` is `kind:id`), then re-reads the lists. */
-  async runAction(action: SettingsPageAction, args: Record<string, unknown> = {}, target?: string): Promise<void> {
-    await this.request("cmux.app.action.run", target ? { action, args, target } : { action, args });
+  async runAction(
+    action: SettingsPageAction,
+    args: Record<string, unknown> = {},
+    target?: string,
+  ): Promise<Reply<unknown>> {
+    const reply = await this.request("cmux.app.action.run", target ? { action, args, target } : { action, args });
     await this.refreshHost();
+    return reply;
   }
 
   dispose(): void {
@@ -752,6 +884,13 @@ export class SettingsStore {
     return this.applyAppearanceStep(t("settingsPage.history.resetDefaults"), defaults);
   }
 
+  /** Applies a preset (the window's Opacity and Material, every surface back on the window's
+   * opacity) as one undoable step, "Preset → Frosted". */
+  async applyAppearancePreset(preset: AppearancePreset): Promise<boolean> {
+    const label = t("settingsPage.history.change", t("settingsPage.presets.title"), t(preset.nameKey));
+    return this.applyAppearanceStep(label, presetTargets(this.getSnapshot(), preset));
+  }
+
   /** Applies `targets` as one recorded step named `label`; true when the owner took every write. */
   private async applyAppearanceStep(label: string, targets: readonly TargetState[]): Promise<boolean> {
     const state = this.getSnapshot();
@@ -787,11 +926,18 @@ export class SettingsStore {
     return this.write({ kind: "resetAll" });
   }
 
-  preview(key: string, value: unknown): void {
+  /** The host holds one live preview at a time, whatever its key: its latest owner. */
+  private previewOwner: object | null = null;
+
+  preview(key: string, value: unknown, owner?: object): void {
+    this.previewOwner = owner ?? {};
     if (this.ui.connected) void this.request("cmux.settings.preview", { key, value });
   }
 
-  previewEnd(key: string): void {
+  /** With an `owner`, ends the preview only while that owner's is still the one showing. */
+  previewEnd(key: string, owner?: object): void {
+    if (owner && this.previewOwner !== owner) return;
+    this.previewOwner = null;
     void this.request("cmux.settings.preview.end", { key });
   }
 

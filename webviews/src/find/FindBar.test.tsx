@@ -87,6 +87,18 @@ test("Enter, Shift+Enter, and Escape delegate to the controller", async () => {
   rendered.host.remove();
 });
 
+test("a refocus request keeps the direct find pill interactive", async () => {
+  const rendered = await renderBar();
+  const input = rendered.host.querySelector<HTMLInputElement>("#diff-find-input")!;
+  input.blur();
+  await act(async () =>
+    rendered.root.render(<FindBar controller={rendered.controller} label={label} query="needle" requestToken={2} />),
+  );
+  expect(document.activeElement).toBe(rendered.host.querySelector("#diff-find-input"));
+  await act(async () => rendered.root.unmount());
+  rendered.host.remove();
+});
+
 test("disables navigation buttons when the query has no matches", async () => {
   const rendered = await renderBar({ matches: [], activeMatch: null });
   const buttons = [...rendered.host.querySelectorAll<HTMLButtonElement>("button")];

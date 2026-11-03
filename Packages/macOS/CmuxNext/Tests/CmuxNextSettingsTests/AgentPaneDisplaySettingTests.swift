@@ -15,9 +15,14 @@ struct AgentPaneDisplaySettingTests {
     }
 
     static let rows: [Row] = [
+        Row(key: "agentPane.display.harnessPlacement", fallback: .string("symbols"),
+            accepted: [.string("symbols"), .string("left"), .string("top"), .string("compact")],
+            refused: [.string("right"), .bool(true)]),
         Row(key: "agentPane.display.width", fallback: .number(800), accepted: [.number(480), .number(1200), .number(4000)],
             refused: [.number(100), .number(5000), .string("wide")]),
         Row(key: "agentPane.display.fullWidth", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("yes")]),
+        // The VS Code-style chat minimap: off unless turned on.
+        Row(key: "agentPane.display.vscodeMinimap", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         Row(key: "agentPane.display.font.preset", fallback: .string("markdown"),
             accepted: [.string("system"), .string("serif"), .string("mono")], refused: [.string("comic")]),
         Row(key: "agentPane.display.font.size", fallback: .number(14), accepted: [.number(10), .number(28)],
@@ -27,8 +32,19 @@ struct AgentPaneDisplaySettingTests {
         Row(key: "agentPane.display.code.family", fallback: nil, accepted: [.string("JetBrains Mono")], refused: [.number(3)]),
         Row(key: "agentPane.display.code.scale", fallback: nil, accepted: [.number(0.6), .number(1.25)],
             refused: [.number(0.2), .number(3)]),
-        Row(key: "agentPane.display.inspector.placement", fallback: .string("overlay"), accepted: [.string("push")],
+        Row(key: "agentPane.display.sessionInfo.placement", fallback: .string("overlay"), accepted: [.string("push")],
             refused: [.string("left"), .bool(true)]),
+        Row(key: "agentPane.display.environment.placement", fallback: .string("left"),
+            accepted: [.string("right"), .string("off")], refused: [.string("overlay"), .bool(true)]),
+        Row(key: "agentPane.display.minimap", fallback: .string("compact"), accepted: [.string("off"), .string("full")],
+            refused: [.bool(true), .string("left")]),
+        // The transcript's view (Normal, Thinking, Verbose) of a chat without its own.
+        Row(key: "agentPane.display.transcriptView", fallback: .string("normal"),
+            accepted: [.string("thinking"), .string("verbose")], refused: [.string("loud"), .bool(true)]),
+        Row(key: "agentPane.display.presentation", fallback: .string("transcript"),
+            accepted: [.string("messages")], refused: [.string("bubbles"), .bool(true)]),
+        Row(key: "agentPane.display.rail.side", fallback: .string("left"), accepted: [.string("right")],
+            refused: [.string("top"), .bool(true)]),
         Row(key: "markdown.code.family", fallback: nil, accepted: [.string("Menlo")], refused: [.bool(true)]),
     ]
 
@@ -42,11 +58,21 @@ struct AgentPaneDisplaySettingTests {
         #expect(SettingsSchema.agentSettableKeys.contains(row.key))
     }
 
+    @Test func harnessPlacementPreservesAbsenceAndForwardsManagedValueSeparately() {
+        let key = "agentPane.display.harnessPlacement"
+        #expect(AgentPaneDisplaySetting(fileRoot: .object([:])).values[key] == nil)
+        let root: JSONValue = ["agentPane": ["display": ["harnessPlacement": "symbols"]]]
+        let value = AgentPaneDisplaySetting(fileRoot: root, managedHarnessPlacement: .string("left"))
+        #expect(value.values[key] == .string("symbols"))
+        #expect(value.values[key + ".managed"] == .string("left"))
+    }
+
     @Test func thePageGetsTheChatKeysAndTheFollowedMarkdownKeysOnly() {
         let root: JSONValue = .object([
             "agentPane": .object(["display": .object([
                 "font": .object(["size": .number(16), "lineHeight": .number(9)]),
                 "width": .number(1200),
+                "environment": .object(["placement": .string("right")]),
             ])]),
             "markdown": .object([
                 "font": .object(["preset": .string("serif"), "size": .number(20)]),
@@ -57,6 +83,7 @@ struct AgentPaneDisplaySettingTests {
         let display = AgentPaneDisplaySetting(fileRoot: root)
         #expect(display.values == [
             "agentPane.display.font.size": .number(16),
+            "agentPane.display.environment.placement": .string("right"),
             "agentPane.display.width": .number(1200),
             "markdown.font.preset": .string("serif"),
             "markdown.code.family": .string("JetBrains Mono"),
@@ -65,15 +92,65 @@ struct AgentPaneDisplaySettingTests {
         #expect(AgentPaneDisplaySetting(fileRoot: .object([:])) == .fallback)
     }
 
+    /// `agentPane.display.minimap` was an on/off toggle before it was the Rail / Full Map / Off choice.
+    /// A settings file the toggle wrote keeps its meaning on the way to the page: `true` (the full
+    /// map) arrives as `"full"`, and `false` (the experiment decides) arrives as no value at all,
+    /// as it did before. Without this the choice row refused `true`, the page got nothing, and a
+    /// person who had turned the map on lost it.
+    @Test func theOldMinimapToggleKeepsItsMeaning() {
+        func page(_ value: JSONValue) -> JSONValue? {
+            let root: JSONValue = .object(["agentPane": .object(["display": .object(["minimap": value])])])
+            return AgentPaneDisplaySetting(fileRoot: root).values["agentPane.display.minimap"]
+        }
+        #expect(page(.bool(true)) == .string("full"))
+        #expect(page(.bool(false)) == nil)
+        #expect(page(.string("compact")) == .string("compact"))
+        #expect(page(.string("off")) == .string("off"))
+        #expect(page(.string("yes")) == nil)
+    }
+
+    /// The Session Info row was `agentPane.display.inspector.placement`: a file that still holds the
+    /// old key keeps its Push or Overlay on the page, and the new key wins when both are set.
+    @Test func theOldSessionInfoKeyStillApplies() {
+        let key = "agentPane.display.sessionInfo.placement"
+        func page(_ display: [String: JSONValue]) -> JSONValue? {
+            AgentPaneDisplaySetting(fileRoot: .object(["agentPane": .object(["display": .object(display)])])).values[key]
+        }
+        let old: JSONValue = .object(["placement": .string("push")])
+        #expect(page(["inspector": old]) == .string("push"))
+        #expect(page(["inspector": old, "sessionInfo": .object(["placement": .string("overlay")])]) == .string("overlay"))
+        #expect(page(["inspector": .object(["placement": .string("left")])]) == nil)
+    }
+
+    @Test(arguments: [true, false])
+    func theOldMinimapToggleAgreesAcrossSettingsAndTheChat(_ on: Bool) throws {
+        let path = ["agentPane", "display", "minimap"]
+        let descriptor = try #require(SettingsSchema.descriptor(for: path))
+        let root: JSONValue = .object(["agentPane": .object(["display": .object(["minimap": .bool(on)])])])
+        let expected: JSONValue = .string(on ? "full" : "compact")
+        // Settings and the palette read this descriptor value.
+        #expect(descriptor.effectiveValue(in: root) == expected)
+        let chat = AgentPaneDisplaySetting(fileRoot: root).values[descriptor.id] ?? descriptor.defaultValue
+        #expect(chat == expected)
+    }
+
+    @Test func thePageFollowsMinimalMode() {
+        let on: JSONValue = .object(["sidebar": .object(["minimal": .bool(true), "density": .string("compact")])])
+        #expect(AgentPaneDisplaySetting(fileRoot: on).values == ["sidebar.minimal": .bool(true)])
+        let bad: JSONValue = .object(["sidebar": .object(["minimal": .string("yes")])])
+        #expect(AgentPaneDisplaySetting(fileRoot: bad) == .fallback)
+    }
+
     @Test(arguments: [
         "agentPane.display.width", "agentPane.display.code.family", "agentPane.display.font.size",
-        "agentPane.display.inspector.placement",
+        "agentPane.display.sessionInfo.placement", "agentPane.display.environment.placement",
+        "agentPane.display.minimap", "agentPane.display.transcriptView", "agentPane.display.presentation", "agentPane.display.rail.side",
     ])
     func thePageMayWriteTheChatKeys(_ key: String) {
         #expect(AgentPaneDisplaySetting.writablePath(key) == key.split(separator: ".").map(String.init))
     }
 
-    @Test(arguments: ["markdown.font.size", "terminal.fontFamily", "agentPane.showDictation", "agentPane.display", ""])
+    @Test(arguments: ["markdown.font.size", "terminal.fontFamily", "agentPane.showDictation", "agentPane.display", "sidebar.minimal", ""])
     func thePageMayWriteNoOtherKey(_ key: String) {
         #expect(AgentPaneDisplaySetting.writablePath(key) == nil)
     }

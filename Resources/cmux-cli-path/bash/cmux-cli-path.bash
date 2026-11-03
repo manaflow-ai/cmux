@@ -54,9 +54,13 @@ if [[ "$-" == *i* && -n "${CMUX_TUI_AGENT_SHIMS-}" && -z "${_cmux_tui_agent_shim
     builtin return "$ret"
   }
   _cmux_tui_agent_shims_first || builtin true
+  # bash runs the entries of an array PROMPT_COMMAND from 5.1 on (before, only
+  # its first element, which the string branch extends); `@a` reads the type
+  # without the fork of `$(declare -p)`.
   if [[ -n "${bash_preexec_imported-}${__bp_imported-}" ]]; then
     precmd_functions+=(_cmux_tui_agent_shims_first)
-  elif [[ $(builtin declare -p PROMPT_COMMAND 2>/dev/null) == "declare -a"* ]]; then
+  elif (( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 1) )) \
+    && [[ ${PROMPT_COMMAND@a} == *a* ]]; then
     PROMPT_COMMAND+=("_cmux_tui_agent_shims_first 2>/dev/null")
   elif [[ -z "${PROMPT_COMMAND-}" ]]; then
     PROMPT_COMMAND="_cmux_tui_agent_shims_first 2>/dev/null"
@@ -64,6 +68,13 @@ if [[ "$-" == *i* && -n "${CMUX_TUI_AGENT_SHIMS-}" && -z "${_cmux_tui_agent_shim
     [[ "${PROMPT_COMMAND}" =~ (\;[[:space:]]*|$'\n')$ ]] || PROMPT_COMMAND+=";"
     PROMPT_COMMAND+="_cmux_tui_agent_shims_first 2>/dev/null"
   fi
+fi
+# A terminal of an incognito workspace (CMUX_TUI_INCOGNITO, set by the daemon)
+# keeps no history: the startup files have run and may have set HISTFILE
+# again, so bash writes its history list to /dev/null. The daemon's own
+# integration (cmux-tui shell_integration/incognito-history.bash) does the same.
+if [[ -n "${CMUX_TUI_INCOGNITO-}" ]]; then
+  HISTFILE=/dev/null
 fi
 if [[ "$-" == *i* && "${__cmux_replay_file%/*}" == */cmux-next-scrollback && -f "$__cmux_replay_file" ]]; then
   /bin/cat -- "$__cmux_replay_file" 2>/dev/null

@@ -3,27 +3,53 @@ import type { AcpmuxSnapshot } from "../model";
 export type WorkflowAgent = {
   id: string;
   name: string;
-  state: "pending" | "running" | "waiting" | "completed" | "failed";
+  state: "pending" | "running" | "waiting" | "completed" | "failed" | "paused" | "cancelled" | "unknown";
+  index?: number;
+  agentId?: string;
+  lastProgressAt?: number;
+  /// Monotonic folded event sequence, including progress events that only update usage.
+  progressVersion?: number;
+  retryReason?: string;
+  cached?: boolean;
   doing?: string;
+  lastMessage?: string;
+  /// The provider's failure reason, when reported for this agent.
+  error?: string;
   tokens?: number;
   transcriptRowId?: string;
+  /// The model it runs on, as the harness names it (`claude-opus-5-5`, `opus`).
+  model?: string;
+  /// The reasoning effort, when the workflow event supplies it.
+  effort?: string;
+  /// How long it ran, once it ended; while it runs, from `startedAt`.
+  elapsedMs?: number;
+  startedAt?: number;
 };
 
 export type WorkflowPhase = {
   id: string;
   name: string;
-  state: "pending" | "running" | "completed" | "failed";
+  state: WorkflowAgent["state"];
   agentIds: string[];
 };
 
 export type WorkflowSummary = {
   id: string;
   title: string;
-  state: "pending" | "running" | "paused" | "completed" | "failed";
+  /// What the workflow does, in a line (its launch's summary).
+  description?: string;
+  state: WorkflowAgent["state"];
+  sessionId?: string;
+  runId?: string;
+  resumedFrom?: string;
+  counts?: { done: number; started: number; failed?: number; queued?: number };
+  projectedTokens?: number;
+  action?: string;
   phase?: string;
   phases: WorkflowPhase[];
   agents: WorkflowAgent[];
   elapsedMs?: number;
+  startedAt?: number;
   tokens?: number;
   large?: boolean;
   selectedAgentId?: string;
@@ -70,6 +96,7 @@ export function workflowFromWire(value: unknown): WorkflowSummary | undefined {
       return undefined;
     if (agentIds.has(agentId)) return undefined;
     if (has(agent, "doing") && text(agent.doing) === undefined) return undefined;
+    if (has(agent, "effort") && text(agent.effort) === undefined) return undefined;
     if (has(agent, "tokens") && count(agent.tokens) === undefined) return undefined;
     if (has(agent, "transcriptRowId") && text(agent.transcriptRowId) === undefined) return undefined;
     agentIds.add(agentId);
@@ -78,6 +105,7 @@ export function workflowFromWire(value: unknown): WorkflowSummary | undefined {
       name,
       state: agentState as WorkflowAgent["state"],
       ...(text(agent.doing) ? { doing: text(agent.doing) } : {}),
+      ...(text(agent.effort) ? { effort: text(agent.effort) } : {}),
       ...(count(agent.tokens) !== undefined ? { tokens: count(agent.tokens) } : {}),
       ...(text(agent.transcriptRowId) ? { transcriptRowId: text(agent.transcriptRowId) } : {}),
     });

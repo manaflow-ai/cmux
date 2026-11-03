@@ -27,6 +27,8 @@ struct ContextMenuStandardTests {
                 nested += levels(children, path: "\(path) › \(id.rawValue)")
             case .folder(let folder, let children):
                 nested += levels(children, path: "\(path) › \(folder.title)")
+            case .group(let group, let children):
+                nested += levels(children, path: "\(path) › \(group.title)")
             }
         }
         return [(path, ids)] + nested
@@ -69,7 +71,8 @@ struct ContextMenuStandardTests {
         }
     }
 
-    /// The tab bar's +: the kinds of tab (Mac Screen too), then the ways to pick one.
+    /// The tab bar's +: the kinds of tab (Mac Screen too), then the ways to pick one. No Inspect
+    /// Element: it inspects web content only (InspectElementScopeTests).
     @Test func newTabMenuListsTheKindsFirst() {
         let entries = menus.entries(for: .newTab)
         let ids = entries.map { entry -> String in

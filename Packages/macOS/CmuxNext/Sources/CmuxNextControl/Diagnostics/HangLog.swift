@@ -12,6 +12,21 @@ public struct HangFrame: Sendable, Hashable {
     /// Offset from the image's Mach-O header, which the build's dSYM resolves
     /// when there is no ``symbol``; nil when no image holds the address.
     public var imageOffset: UInt? = nil
+    /// The image's `LC_UUID` (uppercase): the dSYM to resolve ``imageOffset`` with; nil when no
+    /// image holds the address.
+    public var imageUUID: String?
+
+    /// The frame as structured JSON (`frame_details`): image, image UUID, offset from the image's
+    /// header, and the symbol or null. The offset is there for a named frame too, so a reader
+    /// that distrusts the name still resolves the frame from the dSYM.
+    public var detailJSON: JSONValue {
+        .object([
+            "image": image.map(JSONValue.string) ?? .null,
+            "image_uuid": imageUUID.map(JSONValue.string) ?? .null,
+            "image_offset": imageOffset.map { .number(Double($0)) } ?? .null,
+            "symbol": symbol.map(JSONValue.string) ?? .null,
+        ])
+    }
 
     public var description: String {
         let place = symbol.map { "\($0) + \(offset)" }
@@ -57,8 +72,11 @@ public struct HangRecord: Sendable, Hashable {
             "start_uptime_ns": .number(Double(startUptimeNanos)),
             "duration_ms": .number(duration.fractionalMilliseconds),
             "cpu_ms": .number(cpu.fractionalMilliseconds),
-            "frames": .array(frames.map { .string($0.description) }),
         ]
+        let resolved = frames
+        object["frames"] = .array(resolved.map { .string($0.description) })
+        object["frame_details"] = .array(resolved.map(\.detailJSON))
+
         object.merge(details) { current, _ in current }
         return .object(object)
     }

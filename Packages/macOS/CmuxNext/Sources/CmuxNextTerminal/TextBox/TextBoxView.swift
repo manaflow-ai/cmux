@@ -80,7 +80,7 @@ package final class TextBoxView: NSView, NSTextViewDelegate {
         } onChange: { [weak self] in
             Task { @MainActor in self?.follow() }
         }
-        if textView.string != text { textView.string = text }
+        if textView.string != text { textView.replaceText(text) }
         actionButton.image = NSImage.icon(symbol: action.symbol, size: 14)
         actionButton.setAccessibilityLabel(action.title)
         actionButton.themedToolTip = "\(action.title): \(TextBoxStrings.cycleHelp)"

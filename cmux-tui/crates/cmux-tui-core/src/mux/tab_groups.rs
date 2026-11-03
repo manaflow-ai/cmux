@@ -265,7 +265,8 @@ impl Mux {
         icon: Option<String>,
     ) -> anyhow::Result<ResourcePatchCommit> {
         let name = name.unwrap_or_default();
-        let color = color.unwrap_or_else(|| "grey".to_string());
+        let color =
+            color.unwrap_or_else(|| crate::workspace_registry::TAB_GROUP_NO_COLOR.to_string());
         validate_tab_group_name(&name)?;
         validate_tab_group_color(&color)?;
         validate_workspace_group_id(&id)?;
@@ -590,7 +591,13 @@ impl Mux {
                             mux,
                             state,
                             members[0],
-                            TabDragDestination::Split { pane, edge, ratio, keep_focus: false },
+                            TabDragDestination::Split {
+                                pane,
+                                edge,
+                                ratio,
+                                keep_focus: false,
+                                around: None,
+                            },
                             &ids,
                             false,
                         )?;

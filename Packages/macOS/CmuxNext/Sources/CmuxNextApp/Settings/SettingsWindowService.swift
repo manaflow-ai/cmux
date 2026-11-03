@@ -25,6 +25,13 @@ final class SettingsWindowService: InternalPageProvider {
         self.services = services
     }
 
+    /// Customize Menu…: Settings > Menus with `context`'s menu selected. Each open is a new route
+    /// (`open`, which the page ignores), so it selects its menu again after the person picked another.
+    func showMenus(_ context: ActionMenuContext) {
+        menusOpens += 1
+        try? show(section: nil, route: "#/settings/menus?focus=\(context.rawValue)&open=\(menusOpens)")
+    }
+
     /// The window whose tab shows Settings, if any.
     var window: NSWindow? {
         services.pages.window(showing: .settings, windows: services.windows.controllers)?.window
@@ -32,10 +39,14 @@ final class SettingsWindowService: InternalPageProvider {
 
     /// The kept React page (a reopen shows it again with no reload); nil before the first show.
     private var webPage: PageWebView?
+    /// Customize Menu… opens so far (``showMenus(_:)``).
+    private var menusOpens = 0
     /// The route the next page view opens on.
     private var pendingRoute: String?
     /// A show that waits for a main window with a workspace.
     private var waiting: (section: SettingsSection?, setting: String?, focus: Bool, route: String?)?
+    /// Cached projection for the wallpaper grid in the host-lists payload.
+    var backdropRowsCache = BackdropCatalogPageRowsCache()
     var isWaiting: Bool { waiting != nil }
 
     /// Shows Settings on `section`, or on `setting` (a cmux.json key path, card or button
@@ -47,6 +58,8 @@ final class SettingsWindowService: InternalPageProvider {
         guard services.settings != nil else { throw ActionFailure(message: RefusalStrings.settingsNotLoaded) }
         // task-owner: one read of the device list per opening (Settings > Devices)
         Task { [devices = services.devices] in await devices.refresh() }
+        // task-owner: one read of this Mac's join status per opening (its consent switches)
+        Task { [join = services.joinConsent] in await join.refresh() }
         var anchor: SettingsAnchor?
         if let setting {
             guard let found = SettingsAnchor(key: setting) else {
@@ -94,7 +107,7 @@ final class SettingsWindowService: InternalPageProvider {
     }
 
     private static func hasPane(_ window: WindowController) -> Bool {
-        window.workspaceContent.map { !$0.panes.isEmpty } ?? false
+        window.workspaceContent.map { !$0.modelPanes.isEmpty } ?? false
     }
 
     /// Shows the workspace of `window` that holds a Settings tab (a daemon page tab, or an app-only
@@ -102,7 +115,7 @@ final class SettingsWindowService: InternalPageProvider {
     private func revealSettingsTab(of window: WindowController) {
         let page = InternalPageID.settings
         func holds(_ content: WorkspaceContentController) -> Bool {
-            services.pages.tab(of: page, inPanes: content.panes.values.map(\.paneKey)) != nil
+            services.pages.tab(of: page, inPanes: content.modelPanes.map(\.id)) != nil
                 || content.workspace.screens.contains { $0.panes.contains { $0.tabs.contains { $0.page == page.rawValue } } }
         }
         if let shown = window.content, holds(shown) { return }
@@ -179,7 +192,7 @@ final class SettingsWindowService: InternalPageProvider {
 
     var rooms: [SettingsListRow]? {
         let local = services.machines.local
-        guard local.supports(DaemonCapabilities.profiles) else { return nil }
+        guard local.supports(DaemonCapability.profiles.rawValue) else { return nil }
         let current = services.windows.active?.state.profileID ?? .defaultProfile
         return local.store.profiles.sorted { $0.index < $1.index }.map { room in
             SettingsListRow.space(id: room.id.rawValue, title: room.name, icon: room.icon, isActive: room.id == current)

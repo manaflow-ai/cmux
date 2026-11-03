@@ -2,16 +2,21 @@ public import AppKit
 public import CmuxNextDesign
 public import WebKit
 
-/// Answers a page's `<input type="file">` with the system open panel, as a sheet on the page's
-/// window (the agent composer's + then Attach files). WebKit shows no chooser for a web view
-/// without a UI delegate that implements `runOpenPanelWith`, so a file input does nothing there.
-/// The chosen files go back to the page, which reads them as it reads a drop. The panel is the
-/// app's one made ahead (`MadeAheadOpenPanel`; an agent pane warms it), so the click pays only
-/// the sheet, not the panel's making. A web view holds its UI delegate weakly: the view that sets
-/// this as its delegate keeps it.
+/// Answers a WebKit-hosted page's `<input type="file">` with the system open panel, as a sheet on
+/// the page's window (the agent composer's + then Attach files). WebKit shows no chooser for a web
+/// view without a UI delegate that implements `runOpenPanelWith`, so a file input does nothing
+/// there. The chosen files go back to the page, which reads them as it reads a drop. The panel is
+/// the app's one made ahead (`MadeAheadOpenPanel`; an agent pane warms it), so once it is made the
+/// click pays only the sheet; a WebKit browser tab's file input takes the same path
+/// (`WebFileInputAnswering`). A page hosted in Chromium does not come here (the CEF shim has no
+/// file-dialog handler yet). A web view holds its UI delegate weakly: the view that sets this as
+/// its delegate keeps it.
 @MainActor
 public final class PageOpenPanel: NSObject, WKUIDelegate {
     private let openPanel: MadeAheadOpenPanel
+    /// Called with the files the person chose, before the page gets them: a pick in the system
+    /// panel, which page script can't make (the agent pane records where they came from).
+    public var onChosen: (@MainActor ([URL]) -> Void)?
 
     /// - Parameter openPanel: The app's made-ahead panel (`AppServices.openPanel`).
     public init(openPanel: MadeAheadOpenPanel) {
@@ -24,22 +29,24 @@ public final class PageOpenPanel: NSObject, WKUIDelegate {
         initiatedByFrame frame: WKFrameInfo,
         completionHandler: @escaping @MainActor ([URL]?) -> Void
     ) {
-        // A dead panel (no GUI session) shows no sheet: the page gets a cancel now, not a handler that never comes.
-        guard let panel = openPanel.panel() else {
-            completionHandler(nil)
-            return
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if let answer = debugAnswer {
+            debugAnswer = nil
+            return completionHandler(answer)
         }
-        panel.allowsMultipleSelection = parameters.allowsMultipleSelection
-        panel.canChooseDirectories = parameters.allowsDirectories
-        panel.canChooseFiles = true
-        panel.resolvesAliases = true
-        let finish: (NSApplication.ModalResponse) -> Void = { response in
-            completionHandler(response == .OK ? panel.urls : nil)
-        }
-        if let window = webView.window {
-            panel.beginSheetModal(for: window, completionHandler: finish)
-        } else {
-            panel.begin(completionHandler: finish)
+        #endif
+        // The one file-input path (WebFileInputAnswering), shared with the WebKit browser tab.
+        openPanel.answerFileInput(allowsMultipleSelection: parameters.allowsMultipleSelection,
+                                  allowsDirectories: parameters.allowsDirectories,
+                                  window: webView.window) { [weak self] urls in
+            if let urls, !urls.isEmpty { self?.onChosen?(urls) }
+            completionHandler(urls)
         }
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The files the next file input on a WebKit page takes instead of showing the panel
+    /// (`debug.agent_pane set_files`), as a person's pick there gives them.
+    public var debugAnswer: [URL]?
+    #endif
 }

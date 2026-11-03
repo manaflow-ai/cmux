@@ -78,10 +78,12 @@ public nonisolated enum MetricTunables {
     /// The favicon and the close button side by side, whole (Lawrence 2026-10-20, replacing Chrome's 32, where
     /// the x never fits): `TabStripMetrics.faviconCloseWidth` at each density's tokens. Pill insets 2 x 1,
     /// leading inset 8 (6 under Compact tabs), favicon 14 (16 comfortable), gap 4, x 16 (20 pt click
-    /// target), trailing inset 4. A test keeps these equal to the sum.
+    /// target), trailing inset 4. Plus `TabStripMetrics.crowdedTitleRoom` (24) so a crowded tab keeps the start
+    /// of its title, faded (Lawrence msg 19596, 26 tabs: "all here is … which is not very helpful"); past
+    /// that the strip scrolls. A test keeps these equal to the sum.
     public static let tabMinInactiveWidth = MetricTunable.make(
-        "tabMinInactiveWidth", .tabs, "Tab min width (inactive)", help: "Narrowest the other tabs get before the strip scrolls: room for the favicon and the close button.",
-        compact: 48, comfortable: 50, tight: 46, key: .tabMinInactiveWidth, range: 16...320)
+        "tabMinInactiveWidth", .tabs, "Tab min width (inactive)", help: "Narrowest the other tabs get before the strip scrolls: room for the favicon, a few title characters and the close button.",
+        compact: 72, comfortable: 74, tight: 70, key: .tabMinInactiveWidth, range: 16...320)
     public static let tabPinnedWidth = MetricTunable.make(
         "tabPinnedWidth", .tabs, "Pinned tab width", help: "Width of a pinned tab.",
         compact: MotionTabStrip(comfortable: false).pinnedWidth, comfortable: MotionTabStrip(comfortable: true).pinnedWidth,
@@ -104,6 +106,12 @@ public nonisolated enum MetricTunables {
 
     public static let columnGap = MetricTunable.make("columnGap", .panes, "Column gap", help: "Gap between strip columns.",
                                                      compact: 6, comfortable: 8, key: .columnGap)
+    public static let dividerThickness = MetricTunable.make(
+        "dividerThickness", .panes, "Divider thickness", help: "Visible line between split panes.",
+        compact: 1, comfortable: 1, key: .dividerThickness, range: 0...6)
+    public static let dividerHitWidth = MetricTunable.make(
+        "dividerHitWidth", .panes, "Divider drag width", help: "Draggable width centered on a split divider.",
+        compact: 7, comfortable: 7, key: .dividerHitWidth, range: 1...24)
     public static let densityPaneCornerRadius = MetricTunable.make(
         "densityPaneCornerRadius", .panes, "Pane corner radius", help: "Rounded pane corners when padding or a border shows and layout.paneCornerRadius is unset.",
         compact: 6, comfortable: 8)
@@ -124,6 +132,6 @@ public nonisolated enum MetricTunables {
     public static var metrics: [MetricTunable] {
         [sidebarWidth, titlebarHeight, sidebarRowHeight, sidebarRowHeightWithSubtitle, sidebarHeaderHeight, roomDotDiameter, roomDotSlot,
          tabStripHeight, tabHeight, controlHeight, tabMaxWidth, tabMinActiveWidth, tabMinInactiveWidth, tabPinnedWidth, tabMinWidth, paletteRowHeight, paletteSearchHeight, paletteWidth, panelInset,
-         columnGap, densityPaneCornerRadius, panelCornerRadius, itemCornerRadius, iconSize, smallIconSize, scrollEdgeFade]
+         columnGap, dividerThickness, dividerHitWidth, densityPaneCornerRadius, panelCornerRadius, itemCornerRadius, iconSize, smallIconSize, scrollEdgeFade]
     }
 }

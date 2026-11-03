@@ -5,7 +5,9 @@
 import "../../src/pages/shared/desktop";
 import "../../src/ui/popupSurface.css";
 import "../../src/agent-session/shared/styles.css";
+import "../../src/agent-session/acpmux/threadMinimap/threadMinimap.css";
 import "../../src/agent-session/acpmux/styles.css";
+import "../../src/agent-session/acpmux/conversation/conversation.css";
 import "../../src/agent-session/acpmux/composerControls.css";
 import "../../src/agent-session/acpmux/composerStates.css";
 import "../../src/agent-session/acpmux/composerLocation.css";

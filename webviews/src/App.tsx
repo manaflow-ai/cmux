@@ -159,6 +159,12 @@ export function App({ config, initialStatus }: ConfigProps) {
   const writes = useDiffWrites();
   const latestState = useSyncedRef(state);
   const codeViewRef = useRef<CodeViewHandle<any> | null>(null);
+  const previousDraft = useRef(state.draft);
+  useLayoutEffect(() => {
+    // Pierre pins the gutter utility to its selection until the draft closes.
+    if (previousDraft.current != null && state.draft == null) codeViewRef.current?.clearSelectedLines();
+    previousDraft.current = state.draft;
+  }, [state.draft]);
   const codeViewScrollTopRef = useRef(0);
   const copyFallbackRef = useRef<HTMLTextAreaElement | null>(null);
   const activeSessionRef = useRef<ActiveDiffSession | null>(null);
@@ -216,7 +222,12 @@ export function App({ config, initialStatus }: ConfigProps) {
   const hunkHover = useRef<HunkHoverHandle | null>(null);
   const revertSource = useMemo(() => diffRevertSource(diffPageClient(), (config as DiffPageConfig).ops), [config]);
   // The floating Stage all / Revert all bar covers the diff's end, so the diff gets room under it.
-  const bulkBarRoom = revertSource != null && revertScopeOf(resolvedSessionSource ?? activeSessionSource) != null;
+  // No room kept when Settings turns Stage all and Revert all off (diff.showBulkActions): the bar
+  // then only appears for a moment, with Undo or a notice.
+  const bulkBarRoom =
+    state.options.showBulkActions &&
+    revertSource != null &&
+    revertScopeOf(resolvedSessionSource ?? activeSessionSource) != null;
   // Open the file from the diff (D4): the header's name and menu, and a Cmd-click on a line.
   const openFile = useDiffFileOpen((config as DiffPageConfig).ops, () =>
     dispatch({ type: "set-copy-feedback", message: label("openFileFailed") }),
@@ -709,6 +720,8 @@ export function App({ config, initialStatus }: ConfigProps) {
     if (key === "hideWhitespace" || key === "hideImports") refresh();
   };
   const refresh = () => {
+    // A folder found outside a repository is checked again, so a `git init` brings Commit and Push back.
+    git.recheck();
     // Pages with nothing to re-stream (baked status messages, or a pending
     // replacement without a typed session) still need the full reload so a
     // native replacement page can resolve.
@@ -771,11 +784,13 @@ export function App({ config, initialStatus }: ConfigProps) {
     () => diffFingerprintReader(diffPageClient(), (config as DiffPageConfig).ops, shownSource),
     [config, shownSource],
   );
+  const [machineUnavailable, setMachineUnavailable] = useState<string>();
   const filesChanged = useDiffFreshness(
     readFingerprint,
     state.renderGeneration,
     () => latestState.current.draft == null && !commitOpenRef.current,
     () => refreshRef.current(),
+    setMachineUnavailable,
   );
 
   return (
@@ -880,9 +895,9 @@ export function App({ config, initialStatus }: ConfigProps) {
             <GitToolbarButtons git={git} formOpen={commitOpen} onToggleForm={() => setCommitOpen((open) => !open)} />
           </span>
         ) : null}
-        {filesChanged && (
-          <output className="diff-files-changed">
-            <span>{label("filesChangedSinceLoad")}</span>
+        {(filesChanged || machineUnavailable) && (
+          <output className="diff-files-changed" aria-live="polite">
+            <span>{machineUnavailable ?? label("filesChangedSinceLoad")}</span>
             <button type="button" className="file-review-load" onClick={refresh}>
               {label("refresh")}
             </button>
@@ -995,7 +1010,7 @@ export function App({ config, initialStatus }: ConfigProps) {
             />
           ) : null}
           {/* Outside the files gate: Undo and a failure stay after a revert empties the diff. */}
-          <DiffBulkBar revert={revert} label={label} />
+          <DiffBulkBar revert={revert} label={label} showActions={state.options.showBulkActions} />
         </main>
         <LoadingLayer label={label} status={state.status} />
       </section>

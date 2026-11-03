@@ -114,6 +114,21 @@ running, or creates one outside `cmuxnp-dev-`. It changes only
 of one env plus the channel file (old value kept as `previous`): new machines only, never a
 running VM.
 
+**Promote from CI** (`.github/workflows/cloud-vm-image-promote.yml`, dev only): after a
+`cloud-vm-image-bake.yml` run with `keep_snapshot` passes, run
+`gh workflow run cloud-vm-image-promote.yml --repo manaflow-ai/cmux --ref feat-cmux-next -f channel=dev -f snapshot=<sh-id> -f bake_run=<bake run id>`.
+It runs in the bake's environment `cmux-next-vm-image-dev` with the same `FREESTYLE_API_KEY`
+secret (given to promote.ts only as a 0600 file in `$RUNNER_TEMP`) and a token that can only read
+(`contents: read`, `actions: read`). It appends the bake run's `channel-dev.json` to
+`channels/dev.json` `history`, runs promote.ts (fresh-clone smoke), and uploads the diff of
+`channels/dev.json` and `wrangler.jsonc` as the artifact `promote-dev-<sh-id>.diff`, with the
+smoke result in the job summary. It pushes nothing: a lane downloads the artifact, `git apply`s it
+on a branch from feat-cmux-next, opens the channel PR linking the run, and lands it after review;
+the next development deploy ships it. `-f delete_snapshot=<sh-id>` (alone or with a promotion)
+deletes one spare image snapshot by exact id (`cleanup.ts --snapshot`); it refuses an id or name
+that any `channels/*.json` (pointer, previous, history, notes) or `wrangler.jsonc` mentions, or a
+snapshot not named `cmuxnp-dev-vmimg-*`, in the checkout and in feat-cmux-next fetched just before the delete, and prints every reference it found.
+
 ## Ship a migration end to end
 
 ```bash
@@ -236,7 +251,10 @@ does not point at. On feat-cmux-next pushes that touch `cmux-tui/crates/`, the c
 wrangler.jsonc it keeps one `cloud-image-stale` issue up to date and closes it when the images
 match again. The workflow job stays green (a warning only): staleness is not a code red and never
 blocks a landing. The daily schedule in the workflow is dormant until feat-cmux-next reaches main
-(GitHub schedules run only from the default branch). Fix: rebake from a published tip cmux-tui,
+(GitHub schedules run only from the default branch). A stale report dispatches the checked-in bake
+workflow once per stale image kind; a successful kept bake uploads its candidate and the completion
+receiver dispatches the promotion workflow, which uploads a reviewable channel diff. Landing that
+diff and the normal development deploy remain required. The manual repair remains: rebake from a published tip cmux-tui,
 smoke (`--expect-capabilities <bake json>` checks the fresh clone's handshake), record, promote.
 `web/scripts/cmux-vm-image/capabilities-probe.ts` reads an existing image's handshake on one clone.
 
@@ -287,7 +305,8 @@ deploy-staging and on `workflow_dispatch target=promote`:
   - spacing: production code changed at least 6 h ago.
   - G1 staging-proven: the newest feat-cmux-next push whose deploy-staging job and smoke step
     passed at least 60 minutes ago, with no red staging deploy in those 60 minutes; it must
-    descend from production's commit.
+    descend from production's commit, or contain a patch-equivalent copy of every backend
+    commit unique to production.
   - G2: no open issue labeled `cmux-next-regression` with `P0` or `P1` (beads are not readable
     from CI; the chief labels an issue or sets the hold).
   - G3: every DO migration tag the candidate adds over production is listed in

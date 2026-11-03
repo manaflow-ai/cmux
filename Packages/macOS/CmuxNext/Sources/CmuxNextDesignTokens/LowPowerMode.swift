@@ -1,4 +1,5 @@
 public import Foundation
+internal import CmuxNextCompat
 
 /// macOS Low Power Mode, observed once for the app. It follows
 /// `NSProcessInfoPowerStateDidChange` (no polling); `override` replaces the
@@ -17,7 +18,7 @@ public final class LowPowerMode {
 
     private var systemEnabled: Bool
     private let read: () -> Bool
-    fileprivate var handlers: [UUID: (Bool) -> Void] = [:]
+    private let handlers = MainActorHandlers<Bool>()
     private var notifications: Task<Void, Never>?
 
     /// Follows `read` each time `center` posts a power state change.
@@ -42,50 +43,21 @@ public final class LowPowerMode {
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // The task handle is Sendable and cancels from any thread: a release off main stops the loop too.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            notifications?.cancel()
-        }
+        notifications?.cancel()
     }
 
     /// Calls `handler` with the new value each time Low Power Mode turns on
-    /// or off, until the returned observation is released or cancelled.
-    public func observe(_ handler: @escaping (Bool) -> Void) -> LowPowerModeObservation {
-        let id = UUID()
-        handlers[id] = handler
-        return LowPowerModeObservation(source: self, id: id)
+    /// or off, until the returned observation is released (on any thread) or cancelled.
+    public func observe(_ handler: @escaping @MainActor @Sendable (Bool) -> Void) -> LowPowerModeObservation {
+        LowPowerModeObservation(handlers.add(handler))
     }
 
     private func update() {
         let enabled = override ?? systemEnabled
         guard enabled != isEnabled else { return }
         isEnabled = enabled
-        for handler in handlers.values { handler(enabled) }
-    }
-}
-
-/// One `LowPowerMode.observe` registration; releasing it stops the calls.
-@MainActor
-public final class LowPowerModeObservation {
-    private weak var source: LowPowerMode?
-    private let id: UUID
-
-    fileprivate init(source: LowPowerMode, id: UUID) {
-        self.source = source
-        self.id = id
-    }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            cancel()
-        }
-    }
-
-    /// Stops the calls.
-    public func cancel() {
-        source?.handlers[id] = nil
+        handlers.call(enabled)
     }
 }

@@ -49,10 +49,22 @@ function problemsOf(raw: unknown): string[] {
 describe("images/cmux-vm/inputs.lock.json", () => {
   test("the checked-in lock is valid and lists every known program once", () => {
     const lock = readInputsLock();
-    expect(lock.programs.map((p) => p.name).sort()).toEqual([...KNOWN_PROGRAMS, "cmux-cua", "chrome-for-testing", "cmux-browser-host"].sort());
+    expect(lock.programs.map((p) => p.name).sort()).toEqual([...KNOWN_PROGRAMS, "cmux-cua", "chrome-for-testing", "cmux-browser-host", "agent-desktop"].sort());
     expect(lock.apt.ubuntu.uri).toContain(lock.apt.ubuntu.snapshot);
     expect(lock.apt.ubuntu.snapshot).toBe("20261022T000000Z");
     expect(profileLinks(lock).map((l) => l.command)).toContain("cr");
+  });
+
+  test("Claude Code is the devbox Dockerfile's pin, so the native image never ships an older one", () => {
+    // One source of truth: the native bake installs the lock's claude, the devbox image the Dockerfile's
+    // CMUX_IMAGE_CLAUDE_CODE_VERSION. A lock left behind shipped 2.1.267, which the API refuses (2.1.280 or newer).
+    const dockerfile = readFileSync(new URL("../services/vms/images/devbox/Dockerfile", import.meta.url), "utf8");
+    const pin = /^ARG CMUX_IMAGE_CLAUDE_CODE_VERSION=(\S+)$/m.exec(dockerfile)?.[1];
+    const claude = readInputsLock().programs.find((p) => p.name === "claude");
+    expect(pin).toBeDefined();
+    expect(claude?.version).toBe(pin);
+    expect(claude?.expect).toBe(pin);
+    expect(claude?.url).toBe(`https://downloads.claude.ai/claude-code-releases/${pin}/linux-x64/claude`);
   });
 
   test("acpmux is cmux-tui under its own name (argv0 dispatch), checked by version and by a session list", async () => {
@@ -65,6 +77,9 @@ describe("images/cmux-vm/inputs.lock.json", () => {
     expect(programChecksCommand(lock)).toContain("acpmux --version");
     const list = acpmuxListCommand();
     expect(list).toContain("acpmux ls --json");
+    // acpmux ls no longer starts a daemon (#28046), so the smoke starts one before listing.
+    expect(list.indexOf("acpmux daemon start")).toBeGreaterThan(-1);
+    expect(list.indexOf("acpmux daemon start")).toBeLessThan(list.indexOf("acpmux ls --json"));
     const syntax = await runChild("bash", ["-n"], { input: list, timeout: 20_000 });
     expect(syntax.stderr).toBe("");
     expect(syntax.status).toBe(0);
@@ -182,7 +197,7 @@ describe("base fingerprint and closure checks", () => {
   test("base packages and npm globals must be in the lock", () => {
     expect(basePackageProblems(lock, new Map(Object.entries(lock.base.basePackages)))).toEqual([]);
     expect(basePackageProblems(lock, new Map())).toHaveLength(Object.keys(lock.base.basePackages).length);
-    const globals = new Map([["npm", "11.19.0"], ["openclaw", "2026.7.1-2"], ["left-pad", "1.3.0"], ["corepack", "0.37.0"]]);
+    const globals = new Map([["npm", lock.base.npmGlobals.keep.npm], ["openclaw", "2026.7.1-2"], ["left-pad", "1.3.0"], ["corepack", "0.37.0"]]);
     expect(npmGlobalProblems(lock, globals)).toEqual([
       "base npm global left-pad@1.3.0 is not in the lock (keep or strip it)",
       "base npm global corepack@0.37.0, lock keeps 0.36.0",
@@ -300,6 +315,32 @@ describe("roles: baked packages that stay off, first-use packages, optional prog
   });
 });
 
+describe("agent-desktop (vercel-labs, Lawrence's ask 2026-10-30)", () => {
+  test("1.0.2 x86_64 is baked by release URL, sha256, size and checksums.txt, with its clipboard helper beside the binary", () => {
+    const lock = readInputsLock();
+    const pinned = lock.programs.find((p) => p.name === "agent-desktop")!;
+    expect(pinned).toMatchObject({
+      version: "1.0.2",
+      url: "https://github.com/vercel-labs/agent-desktop/releases/download/v1.0.2/agent-desktop-v1.0.2-x86_64-unknown-linux-gnu.tar.gz",
+      sha256: "ad661b7a3fd8f990a769243f4889a240ca0e2c8dab3ef5bddd6019086c71e0b4",
+      size: 3359127,
+      format: "tar.gz",
+      bin: { "agent-desktop": "agent-desktop" },
+      versionArgs: ["--version"],
+      expect: "agent-desktop 1.0.2",
+      checksumsUrl: "https://github.com/vercel-labs/agent-desktop/releases/download/v1.0.2/checksums.txt",
+      checksumsName: "agent-desktop-v1.0.2-x86_64-unknown-linux-gnu.tar.gz",
+    });
+    expect(pinned.firstUse).toBeUndefined();
+    expect(bakedPrograms(lock).map((p) => p.name)).toContain("agent-desktop");
+    expect(profileLinks(lock).map((l) => l.command)).toContain("agent-desktop");
+    expect(programChecksCommand(lock)).toContain("agent-desktop --version");
+    const install = programInstallCommand(pinned);
+    expect(install).toContain("agent-desktop-v1.0.2-x86_64-unknown-linux-gnu.tar.gz' ");
+    expect(install).toContain("ad661b7a3fd8f990a769243f4889a240ca0e2c8dab3ef5bddd6019086c71e0b4");
+  });
+});
+
 describe("browser role: off by default, installed on first use, sandboxed, background tabs throttled (RT8, D-A1)", () => {
   const lock = readInputsLock();
   const CFT_SHA256 = "e6c94490f0b6b337225aeb2d2a5034858516b7017356980ba94f5176d8774a50";
@@ -379,30 +420,30 @@ describe("browser role: off by default, installed on first use, sandboxed, backg
   });
 });
 
-describe("cmux-browser-host 0.1.0 in the browser role (release cmux-browser-host-v0.1.0, browser-host.md 6d)", () => {
+describe("cmux-browser-host 1.0.0-r1 in the browser role (release cmux-browser-host-v1.0.0-r1, browser-host.md 6d; the host the daemon starts must accept --history-fd)", () => {
   const lock = readInputsLock();
-  const X64 = "79b0945cdbe6e585a781da2530b2a3aafaa10969bc6d63b7559ae6a96e57da18";
-  const ARM64 = "cca1a3a51d89e15c1bcf2e2bb2bec0462470f59756bb471d0564dd510f4239f2";
-  const base = "https://github.com/manaflow-ai/cmux/releases/download/cmux-browser-host-v0.1.0";
+  const X64 = "756021355332841537aad2ec102b1b9703950c9f90504c3b082b3b18e8af4fbb";
+  const ARM64 = "2a74586ca8cb215180a56b4d0b89478b2479a02b0f4b01163ba46d0b0a3afecc";
+  const base = "https://github.com/manaflow-ai/cmux/releases/download/cmux-browser-host-v1.0.0-r1";
   const hostIndex = () => fresh().programs.findIndex((p: { name: string }) => p.name === "cmux-browser-host");
 
   test("pinned for both arches by release URL, sha256, size and SHA256SUMS; first use, role browser; notices ship with the binary", () => {
     const host = lock.programs.find((p) => p.name === "cmux-browser-host")!;
     expect(host).toMatchObject({
-      version: "0.1.0",
-      url: `${base}/cmux-browser-host-0.1.0-x86_64-unknown-linux-gnu.tar.gz`,
+      version: "1.0.0-r1",
+      url: `${base}/cmux-browser-host-1.0.0-r1-x86_64-unknown-linux-gnu.tar.gz`,
       sha256: X64,
-      size: 2294597,
+      size: 2474679,
       format: "tar.gz",
       bin: { "cmux-browser-host": "bin/cmux-browser-host" },
       versionArgs: ["version"],
-      expect: "cmux-browser-host 0.1.0 (db8565dfe127b2d182eb508754129c541cc7cecb)",
+      expect: "cmux-browser-host 1.0.0 (4cf5c4ccc7c5c93bf90ebdb910b31b90f075ac72)",
       checksumsUrl: `${base}/SHA256SUMS`,
-      checksumsName: "./cmux-browser-host-0.1.0-x86_64-unknown-linux-gnu.tar.gz",
+      checksumsName: "./cmux-browser-host-1.0.0-r1-x86_64-unknown-linux-gnu.tar.gz",
       roles: ["browser"],
       firstUse: true,
       notices: ["LICENSE", "THIRD_PARTY_LICENSES.md"],
-      otherArches: { aarch64: { url: `${base}/cmux-browser-host-0.1.0-aarch64-unknown-linux-gnu.tar.gz`, sha256: ARM64, size: 2133182, checksumsName: "./cmux-browser-host-0.1.0-aarch64-unknown-linux-gnu.tar.gz" } },
+      otherArches: { aarch64: { url: `${base}/cmux-browser-host-1.0.0-r1-aarch64-unknown-linux-gnu.tar.gz`, sha256: ARM64, size: 2286591, checksumsName: "./cmux-browser-host-1.0.0-r1-aarch64-unknown-linux-gnu.tar.gz" } },
     });
   });
 
@@ -415,7 +456,7 @@ describe("cmux-browser-host 0.1.0 in the browser role (release cmux-browser-host
 
   test("roles.json lists the host with its other arch for aarch64 hosts", () => {
     const host = rolesManifest(lock).roles.browser.programs.find((p) => p.name === "cmux-browser-host")!;
-    expect(host).toMatchObject({ sha256: X64, notices: ["LICENSE", "THIRD_PARTY_LICENSES.md"], otherArches: { aarch64: { sha256: ARM64, size: 2133182 } } });
+    expect(host).toMatchObject({ sha256: X64, notices: ["LICENSE", "THIRD_PARTY_LICENSES.md"], otherArches: { aarch64: { sha256: ARM64, size: 2286591 } } });
     expect(rolesManifest(lock).roles.browser.programs.map((p) => p.name).sort()).toEqual(["chrome-for-testing", "cmux-browser-host"]);
   });
 

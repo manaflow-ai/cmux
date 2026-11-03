@@ -10,7 +10,7 @@ import CmuxNextPages
 enum WorkspaceHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("openFolder", run: { _ in openFolder(context) })
-        registry.bind("newBrowserWorkspace", requires: DaemonCapabilities.frontendBrowserTabs, daemon: context.services.activeDaemon, run: { _ in try newBrowserWorkspace(context) })
+        registry.bind("newBrowserWorkspace", requires: DaemonCapability.frontendBrowserTabs.rawValue, daemon: context.services.activeDaemon, run: { _ in try newBrowserWorkspace(context) })
         registry.bind("nextSidebarTabInGroup", run: { invocation in try selectInGroup(context, invocation, offset: 1) })
         registry.bind("prevSidebarTabInGroup", run: { invocation in try selectInGroup(context, invocation, offset: -1) })
         WorkspaceBulkClose.bind(into: registry, context: context)
@@ -52,50 +52,35 @@ enum WorkspaceHandlers {
 
     /// Creates a workspace (named `name`) with one terminal in `cwd` and
     /// shows it in the active window, or a new window when none is open.
-    static func createAndShow(_ context: AppActionContext, name: String? = nil, cwd: String? = nil, key: WorkspaceKey? = nil,
+    static func createAndShow(_ context: AppActionContext, name: String? = nil, cwd: String? = nil,
                               then configure: (@Sendable (DaemonConnection, CreateTerminalResult) async throws -> Void)? = nil) {
-        createAndShow(services: context.services, name: name, cwd: cwd, key: key, then: configure)
+        createAndShow(services: context.services, name: name, cwd: cwd, then: configure)
     }
 
     /// Same; `newWindow` opens it in a new window (Shift-Return in the
     /// address bar) instead of the active one, `window` in that open
-    /// window; `room` pins it to that space first (Open Link in New Space).
-    /// `key` names the new workspace (a History reopen picks it first); a fresh one by default.
-    static func createAndShow(services: AppServices, name: String? = nil, cwd: String? = nil, key workspaceKey: WorkspaceKey? = nil,
-                              newWindow: Bool = false, window: String? = nil, room: ProfileID? = nil,
+    /// window; `room` pins it to that space (Open Link in New Space), else
+    /// it is born in its window's space. `daemon` holds it (default: the
+    /// active window's machine). `configure` works on its first terminal.
+    /// The one create path (`WorkspaceSpawner`): the window claims it in this
+    /// turn and waits for it (#31658), and a failure releases the claim.
+    static func createAndShow(services: AppServices, name: String? = nil, cwd: String? = nil,
+                              newWindow: Bool = false, window: String? = nil, room: ProfileID? = nil, daemon chosen: DaemonService? = nil,
                               then configure: (@Sendable (DaemonConnection, CreateTerminalResult) async throws -> Void)? = nil) {
-        let daemon = services.activeDaemon
+        let daemon = chosen ?? services.activeDaemon
         let windows = services.windows
-        // Claimed before the create command, so the workspace lands in (or
-        // opens) its window in the step that first mirrors it.
         let target = windows.targetWindow(preferring: newWindow ? nil : window ?? windows.active?.state.id)
-        let home = services.machines.local
+        var spawn = WorkspaceSpawn(cwd: cwd, name: name, profile: room)
+        spawn.onFirstTerminal = configure
+        let create = windows.startWorkspace(spawn, on: daemon, into: target)
         // One ticket for the whole creation, opened now: an action run
         // answers after it (and the barrier covers its echo), so `created`
         // names the workspace and the tabs `configure` made.
         let ticket = daemon.openTicket()
         Task {
-            guard let connection = daemon.connection else {
-                await daemon.closeTicket(ticket, label: "create workspace", error: DaemonError.notConnected)
-                return
-            }
             do {
-                let key = workspaceKey ?? WorkspaceKey.generate()
-                // A fresh workspace goes to the `workspaces.newPlacement` slot; a
-                // History reopen (`workspaceKey`) keeps the place the daemon kept.
-                if workspaceKey == nil {
-                    NewWorkspacePlacements.expect(key.rawValue, in: target, byDefault: NewWorkspacePlacements.rule(for: target, in: windows), windows: windows)
-                }
-                windows.claimNew(workspaceID: key.rawValue, window: target)
-                if let room, let session = daemon.store.registryID, let homeConnection = home.connection {
-                    try await homeConnection.pinWorkspace(session: session, key: key, to: room)
-                }
-                _ = try await WorkspaceCreation.create(key, name: name, on: connection, repair: services.emptyWorkspaces) { created in
-                    let terminal = try await connection.createTerminal(in: created, cwd: cwd ?? NSHomeDirectory())
-                    try await configure?(connection, terminal)
-                    return created.rawValue
-                }
-                await daemon.closeTicket(ticket, label: "create workspace", error: nil, replying: connection)
+                _ = try await create()
+                await daemon.closeTicket(ticket, label: "create workspace", error: nil)
             } catch {
                 services.daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
                 await daemon.closeTicket(ticket, label: "create workspace", error: error)
@@ -121,7 +106,7 @@ enum WorkspaceHandlers {
 
     /// A workspace whose only tab is a blank browser tab.
     private static func newBrowserWorkspace(_ context: AppActionContext) throws {
-        try context.require(DaemonCapabilities.frontendBrowserTabs)
+        try context.require(DaemonCapability.frontendBrowserTabs.rawValue)
         newBrowserWorkspace(services: context.services, url: nil)
     }
 
@@ -129,7 +114,7 @@ enum WorkspaceHandlers {
     /// and the daemon serves browser tabs, else where the link rule sends it (Find Work's rows).
     static func openInNewWorkspace(_ url: URL, services: AppServices) {
         guard LinkRouter.shared.target(for: url) == .cmuxBrowser,
-              services.activeDaemon.supports(DaemonCapabilities.frontendBrowserTabs) else {
+              services.activeDaemon.supports(DaemonCapability.frontendBrowserTabs.rawValue) else {
             LinkRouter.shared.open(url)
             return
         }
@@ -138,7 +123,7 @@ enum WorkspaceHandlers {
     }
 
     /// A new workspace holding one browser tab at `url` (the new-tab page when nil).
-    private static func newBrowserWorkspace(services: AppServices, url: String?) {
+    static func newBrowserWorkspace(services: AppServices, url: String?) {
         let browserTabs = services.cache.browserTabs
         guard case .open(let choice) = browserTabs.resolve(requested: nil) else { return }
         let fallbacks = browserTabs.fallbacks, machine = services.activeDaemon.machineID

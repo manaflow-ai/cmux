@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Leo 2026-10-20 (two screenshots, during and after a drag): while workspace-31 was dragged, whole
@@ -8,7 +9,7 @@ import Testing
 /// came back after the drop, and a different row seemed to give way to the dragged one. During a drag
 /// every group header stays (collapsed and empty ones are drop targets too), only the dragged row leaves
 /// its slot, and nothing else drops out of the list.
-@MainActor @Suite(.serialized) struct SidebarDragKeepsGroupsTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarDragKeepsGroupsTests {
     static let groups = ["cmux-next app", "Glaeda / fleet", "Scratch", "Codex", "Open"]
 
     static func list() -> (SidebarListView, NSWindow) {
@@ -128,9 +129,10 @@ import Testing
         list.press = SidebarPress(key: dragged, point: start)
         list.beginDrag(try #require(list.press))
         try #require(list.drag != nil, "the member did not lift")
-        let bottom = (list.displayed.rows.last?.maxY ?? 300) + 10
+        // Past the last row as the drag draws the list; the emptied group keeps only its header.
+        @MainActor func bottom() -> CGFloat { (list.displayed.rows.last?.maxY ?? 300) + 10 }
         var y = start.y, gone: [Int] = [], frame = 0
-        while y < bottom {
+        while y < bottom(), frame < 200 {
             y += 6
             frame += 1
             list.updateDrag(windowPoint: list.convert(NSPoint(x: start.x, y: y), to: nil))

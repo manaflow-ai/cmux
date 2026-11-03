@@ -17,9 +17,18 @@ final class AppPaletteNavigationSource: PaletteNavigationSource {
 
     func navigationEntries() -> [PaletteNavigationEntry] {
         guard let services else { return [] }
-        return PaletteNavigationEntries.entries(ControlSnapshotPublisher.topology(services), groups: Self.groups(services),
-                                         lastActive: TabSearchFactsBuilder.lastActive(services),
-                                         closing: TabSearchFactsBuilder.closing(services))
+        let entries = PaletteNavigationEntries.entries(ControlSnapshotPublisher.topology(services), groups: Self.groups(services),
+                                                       lastActive: TabSearchFactsBuilder.lastActive(services),
+                                                       closing: TabSearchFactsBuilder.closing(services))
+        // Agent chats and page tabs read as their tab strip names them, not their `about:blank` record.
+        let resolver = TabTitleResolver(services: services)
+        let daemons = services.machines.daemons
+        return PaletteNavigationEntry.titled(entries) { entry in
+            guard let tab = daemons.lazy.compactMap({ $0.store.tab(id: entry.id) }).first else { return nil }
+            var titles = resolver
+            titles.workspaceName = entry.workspaceTitle
+            return titles.title(tab)
+        }
     }
 
     func open(_ entry: PaletteNavigationEntry) {
@@ -30,7 +39,8 @@ final class AppPaletteNavigationSource: PaletteNavigationSource {
                 return services.registry.refuse(RefusalStrings.noWorkspaceGroup(entry.id))
             }
         case .pane:
-            _ = services.registry.perform("pane.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: entry.id), origin: .user))
+            _ = services.registry.perform("pane.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: entry.id), origin: .user)
+                .onMachine(entry.machineID ?? MachineRegistry.localID)) // forks keep pane ids (cmux#30755)
         case .tab:
             guard services.revealTab(entry.id) else { return services.registry.refuse(TabSearchAppStrings.tabGone) }
         }

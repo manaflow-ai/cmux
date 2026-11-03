@@ -18,8 +18,6 @@ extension NSMenu {
     /// action's own title. `pins`, `mutes`: as in ``namingWorkspaceSelection(pins:mutes:)``.
     public static func workspaceSelectionTitle(_ id: ActionID, pins: Bool, mutes: Bool) -> String? {
         switch id.rawValue {
-        case "workspace.moveToNewGroup":
-            String(localized: "workspaceSelection.addToNewGroup", defaultValue: "Add Workspaces to New Group", bundle: .module)
         case "workspace.duplicate": String(localized: "workspaceSelection.duplicate", defaultValue: "Duplicate Workspaces", bundle: .module)
         case "palette.toggleWorkspacePin": pins ? String(localized: "workspaceSelection.pin", defaultValue: "Pin Workspaces", bundle: .module)
             : String(localized: "workspaceSelection.unpin", defaultValue: "Unpin Workspaces", bundle: .module)

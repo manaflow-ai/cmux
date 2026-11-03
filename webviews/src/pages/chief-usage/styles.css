@@ -29,6 +29,7 @@
   font-size: var(--text-title);
   line-height: var(--text-title--line-height);
   font-weight: 600;
+  letter-spacing: var(--text-title--letter-spacing);
 }
 
 .cu-controls {
@@ -59,6 +60,7 @@
   line-height: var(--text-control--line-height);
   font-variant-numeric: tabular-nums;
   cursor: default;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 
 .cu-segment-button.is-selected {
@@ -72,6 +74,7 @@
   gap: 6px;
   color: var(--page-text-3);
   font-size: var(--text-control);
+  letter-spacing: var(--text-control--letter-spacing);
 }
 
 .cu-by select,
@@ -83,6 +86,7 @@
   color: var(--page-text);
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
+  letter-spacing: var(--text-control--letter-spacing);
 }
 
 .cu-refresh:disabled {
@@ -118,6 +122,7 @@
 .cu-tile-label {
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .cu-tile-value {
@@ -127,6 +132,7 @@
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  letter-spacing: var(--text-heading--letter-spacing);
 }
 
 .cu-section {
@@ -139,6 +145,7 @@
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
   font-weight: 600;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .cu-pair {
@@ -178,6 +185,7 @@
   fill: var(--page-text-3);
   font-size: var(--text-caption);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .cu-hit {
@@ -217,6 +225,7 @@
   list-style: none;
   color: var(--page-text-2);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .cu-legend li {
@@ -257,6 +266,7 @@
   line-height: var(--text-caption--line-height);
   pointer-events: none;
   white-space: nowrap;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .cu-tooltip.is-left {
@@ -308,6 +318,7 @@
 .cu-table thead th {
   color: var(--page-text-3);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .cu-table tfoot th,
@@ -416,6 +427,7 @@ a.cu-top-row:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .cu-top-tokens {

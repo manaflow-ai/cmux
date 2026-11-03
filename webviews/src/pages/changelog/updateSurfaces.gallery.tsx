@@ -17,6 +17,8 @@ const base: UpdateHighlights = {
   fromVersion: "1.0.0-nightly.410",
   fromBuild: "3720357960410",
   date: "2026-10-12",
+  builtAt: "2026-10-12T19:38:52Z",
+  head: "a9d1434de781a18ebae84d93d2b5a803864f5839",
   source: "whatsNew",
   language: "en",
   items: [
@@ -50,7 +52,34 @@ type Props = {
   span?: ReleaseNotes[];
   wallpaper?: boolean;
   maxHeight?: number;
+  /** The card in one theme's tokens over that theme's sidebar (Leo 2026-11-02: "why is the update
+   *  thing unthemed"): a light, a dark and a custom (purple) theme. */
+  theme?: keyof typeof themes;
 };
+
+// Three themes as WebTheme sends them (the page's --page-* and the glass's surface), each over its
+// own sidebar color, so the card's surface shows it takes the theme and not a neutral gray.
+const themes = {
+  light: { scheme: "light", surface: "#ffffff", sidebar: "#ecebe8", text: "#24292f" },
+  dark: { scheme: "dark", surface: "#1e1e1e", sidebar: "#2a2a2a", text: "#d4d4d4" },
+  purple: { scheme: "dark", surface: "#2b1650", sidebar: "#3a2468", text: "#f4e3ff" },
+} as const;
+
+function themeStyle(name: keyof typeof themes): Record<string, string> {
+  const { scheme, surface, sidebar, text } = themes[name];
+  return {
+    colorScheme: scheme,
+    background: sidebar,
+    color: text,
+    "--glass-surface": surface,
+    "--page-text": text,
+    "--page-text-2": `color-mix(in srgb, ${text} 70%, transparent)`,
+    "--page-text-3": `color-mix(in srgb, ${text} 50%, transparent)`,
+    "--page-separator": `color-mix(in srgb, ${text} 12%, transparent)`,
+    "--page-hover": `color-mix(in srgb, ${text} 6%, transparent)`,
+    "--page-selection": `color-mix(in srgb, ${text} 10%, transparent)`,
+  };
+}
 
 // Ten real nightly-next builds (2026-10-18), newest first, and what the host sent for the newest
 // one alone: its one summary line, which the card used to show as its whole headline.
@@ -66,6 +95,43 @@ const spanData: UpdateHighlights = {
   items: [{ id: "summary-0", title: "A static status look, on under Reduce Motion", summary: null, category: "new" }],
   moreCount: 0,
   changelog: { from: "1.0.0-nightly.3912500000000", to: span[0]!.shortVersion },
+};
+// Nightly 4037632091801 (2026-10-26) as published: its card read "Fixed: validate release headings
+// within their day", a change to the release-notes checker (#25533).
+const toolingLine = "Validate release headings within their day";
+const releaseTooling: ReleaseNotes[] = [
+  {
+    build: "4037632091801",
+    shortVersion: "1.0.0-nightly.4037632091801",
+    date: "2026-10-26",
+    highlights: [],
+    changes: [],
+    items: [
+      {
+        title: "cmux NEXT daemon update: restart a stale daemon without agent hosts that keeps its chats on disk",
+        pr: 25527,
+      },
+      {
+        title:
+          "acpmux: a restart reattaches live agents first, then reads the other chats' logs in the background (1/2)",
+        pr: 25531,
+      },
+      { title: "fix(changelog): validate release headings within their day", pr: 25533 },
+    ],
+    summary: [{ group: "fixed", title: toolingLine }],
+  },
+];
+const releaseToolingData: UpdateHighlights = {
+  ...base,
+  version: "1.0.0-nightly.4037632091801",
+  build: "4037632091801",
+  fromVersion: "1.0.0-nightly.4037226096601",
+  fromBuild: "4037226096601",
+  date: "2026-10-26",
+  source: "summary",
+  items: [{ id: "summary-0", title: toolingLine, summary: null, category: "fixed" }],
+  moreCount: 0,
+  changelog: { from: "1.0.0-nightly.4037226096601", to: "1.0.0-nightly.4037632091801" },
 };
 const internalOnly: ReleaseNotes[] = [
   {
@@ -118,7 +184,14 @@ const longNotes: UpdateHighlights = {
 // A stand-in wallpaper: a busy photo-like gradient, so the card's translucency shows.
 const wallpaper = "linear-gradient(160deg, #3b5b7a 0%, #c98b5a 45%, #e7c9a0 60%, #2f4a3a 100%)";
 
-function UpdateSurfacesGallery({ surface, data, span: notes, wallpaper: onWallpaper = false, maxHeight }: Props) {
+function UpdateSurfacesGallery({
+  surface,
+  data,
+  span: notes,
+  wallpaper: onWallpaper = false,
+  maxHeight,
+  theme,
+}: Props) {
   const [strings] = useState(() => createStrings(table));
   const noop = () => undefined;
   return (
@@ -128,6 +201,7 @@ function UpdateSurfacesGallery({ surface, data, span: notes, wallpaper: onWallpa
         width: surface === "card" ? 260 : 360,
         padding: 10,
         ...(onWallpaper ? { backgroundImage: wallpaper } : {}),
+        ...(theme ? themeStyle(theme) : {}),
       }}
     >
       {surface === "card" ? (
@@ -164,9 +238,58 @@ export default componentEntry<Props>({
     await import("./updateSurfaces.css");
   },
   variants: {
+    "popover-pr-links": {
+      note: "Structured PR metadata on a leading change and a remaining change; both reuse the shared PR chip and card. Public PR titles, representative update data.",
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll("a.cl-pr").length === 2);
+        for (const chip of ctx.document.querySelectorAll<HTMLAnchorElement>("a.cl-pr")) {
+          const box = chip.getBoundingClientRect();
+          if (!chip.textContent?.match(/#\d+/) || box.width <= 0 || box.height <= 0) {
+            throw new Error("The update-ready PR chip must have a visible number and nonzero size");
+          }
+        }
+        await ctx.hover({ selector: ".wn-pop-list a.cl-pr" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pr-card"));
+      },
+      props: {
+        surface: "popover",
+        data: {
+          ...base,
+          items: [
+            {
+              id: "transcript-reading",
+              category: "improved",
+              title: "Let transcript reading surfaces follow chat text size",
+              pr: "https://github.com/manaflow-ai/cmux/pull/26875",
+            },
+          ],
+          rest: [
+            {
+              id: "inline-messages",
+              category: "improved",
+              title: "Other sessions' messages are one inline line each, then open when opened",
+              pr: "https://github.com/manaflow-ai/cmux/pull/27312",
+            },
+          ],
+          moreCount: 1,
+        },
+      },
+    },
     card: {
-      note: "Card #01 Compact list (u2441): \"Updated to Nightly · Oct 12\", what changed one line per area (updateSummary.ts), the count of the rest beside See What's New, the x on hover only. The composer's surface on a plain page. Without the span's notes the card groups the host's items.",
+      note: 'Short card (2026-10-31, "too much text"): "Updated to Nightly", the update\'s one top change and What\'s New; the x on hover only. A click on Nightly copies the full build. The theme\'s surface on a plain page.',
       props: { surface: "card", data: base },
+    },
+    "card-theme-light": {
+      note: "Leo 2026-11-02, \"why is the update thing unthemed\": the card's surface is the theme's (its surface at the card veil's 42%, as the sidebar draws it natively), here a light theme over its sidebar.",
+      props: { surface: "card", data: base, theme: "light" },
+    },
+    "card-theme-dark": {
+      note: "The same in a dark theme.",
+      props: { surface: "card", data: base, theme: "dark" },
+    },
+    "card-theme-custom": {
+      note: "The same in a custom purple theme: the card takes the theme's purple, never a neutral gray over it.",
+      props: { surface: "card", data: base, theme: "purple" },
     },
     "card-span": {
       note: "An update across ten skipped nightlies (real nightly-next notes, 2026-10-18): every build counts, one line per area, internal work left out, +N more. It used to show the newest build's one line as the whole card.",
@@ -176,12 +299,20 @@ export default componentEntry<Props>({
       note: "The same on a wallpaper.",
       props: { surface: "card", data: spanData, span, wallpaper: true },
     },
+    "card-release-tooling": {
+      note: 'Nightly 4037632091801 as published (2026-10-26): its card read "Fixed: validate release headings within their day", a release-notes checker change. Release and changelog tooling is internal work.',
+      props: { surface: "card", data: releaseToolingData, span: releaseTooling },
+    },
+    "card-release-tooling-host": {
+      note: "The same update before its notes load: the host's one summary line.",
+      props: { surface: "card", data: releaseToolingData },
+    },
     "card-maintenance": {
       note: "An update whose builds hold only internal work (CI, autofixes): Maintenance and fixes, no count.",
       props: { surface: "card", data: { ...spanData, items: [], source: "none" }, span: internalOnly },
     },
     "card-wallpaper": {
-      note: "The same card on a wallpaper: the liquid glass (.ui-glass); under plain glass the composer's surface, the text at 13% over it (Leo 2026-10-13).",
+      note: "The same card on a wallpaper: the liquid glass (.ui-glass); under plain glass the theme's surface at the card veil's 42% (Leo 2026-11-02).",
       props: { surface: "card", data: base, wallpaper: true },
     },
     "card-one-change": {

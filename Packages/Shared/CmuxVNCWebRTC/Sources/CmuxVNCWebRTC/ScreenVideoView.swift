@@ -111,7 +111,10 @@ public final class ScreenVideoView: NSView {
 }
 
 /// libwebrtc's renderer callback (decode thread): each frame as a sample
-/// buffer for the display layer, shown at once.
+/// buffer for the display layer, shown at once. Frames are pushed, not
+/// pulled on a display link, and `DisplayImmediately` puts each one on the
+/// next refresh, so a 120 fps stream presents at 120 Hz on a ProMotion
+/// display with no frame rate hint (macOS has no 60 Hz cap to lift).
 // crash-allow: `size`, `format` and `pool` are touched only on libwebrtc's one render thread; `onSize` is set before the sink is attached.
 private final class SampleBufferSink: NSObject, RTCVideoRenderer, @unchecked Sendable {
     // @unchecked: `size` and `format` are touched only on libwebrtc's render thread.

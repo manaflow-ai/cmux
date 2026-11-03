@@ -16,12 +16,13 @@ import os
 /// person's input go back. Leases arrive as frames; the app shows them.
 ///
 /// Everything runs on the main actor in frame order: a `lease` frame marks
-/// its tab agent-driven before the next frame is handled. With a frame queue
-/// (the app's: automation class, plans/cmux-next/main-thread-budget.md) each
-/// host frame runs as a budgeted automation task on the display frame, below
-/// the person's input and visible updates, so an agent's flood of commands
-/// never delays the person's typing; frames that leave the app (CDP replies,
-/// results) are encoded on the link's write queue. When the link drops,
+/// its tab agent-driven before the next frame is handled. Each frame is
+/// handled as soon as it is read: an agent's CDP and driver traffic is
+/// sequential request and reply, so waiting for a display frame would add up
+/// to a frame (or the frame scheduler's stall timeout while the display
+/// sleeps) to every command. The main actor only dispatches; frames that leave
+/// the app (CDP replies, results) are id-mapped and encoded on the link's
+/// write queue, off the main actor. When the link drops,
 /// the provider reconnects when the credentials source reports new
 /// credentials, or after a `Backoff` delay on the injected clock. It never
 /// polls; with no credentials (before step c2) it stays idle.
@@ -63,8 +64,6 @@ public final class BrowserHostProvider {
     @ObservationIgnored let driver: (any DriverCallHandler)?
     @ObservationIgnored let clock: any Clock<Duration>
     @ObservationIgnored let dial: @Sendable (ProviderCredentials) async throws -> ProviderConnection
-    /// Runs each host frame as an automation task (nil: at once, as it is read).
-    @ObservationIgnored let frameQueue: FrameBatchQueue?
     /// How long `cdp.attach` may take to make a page ready (the host waits 10 s).
     @ObservationIgnored let prepareDeadline: Duration
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.next", category: "browser-host-provider")
@@ -107,7 +106,6 @@ public final class BrowserHostProvider {
                 clock: any Clock<Duration> = ContinuousClock(),
                 backoff: Backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(30)),
                 prepareDeadline: Duration = .seconds(8),
-                frames: FrameBatchQueue? = nil,
                 dial: @escaping @Sendable (ProviderCredentials) async throws -> ProviderConnection = { try await ProviderConnection.dial(path: $0.socketPath) }) {
         self.identity = identity
         self.credentials = credentials
@@ -121,7 +119,6 @@ public final class BrowserHostProvider {
         self.backoff = backoff
         retryTimer = DemandTimer(owner: "browser-host.provider-retry", clock: clock)
         self.prepareDeadline = prepareDeadline
-        self.frameQueue = frames
         self.dial = dial
     }
 
@@ -252,25 +249,12 @@ public final class BrowserHostProvider {
         onAgentBundle?(bundle, sha)
         while let frame = await frames.next() {
             guard gen == generation else { return }
-            inOrder { [weak self] in
-                guard let self, gen == self.generation else { return }
-                self.handle(frame)
-            }
+            handle(frame)
         }
         guard gen == generation else { return }
-        // After the frames queued before the close.
-        inOrder { [weak self] in
-            guard let self, gen == self.generation else { return }
-            self.logger.notice("browser host provider: link closed (\(link.closeReason ?? "", privacy: .public))")
-            self.dropConnection(reason: link.closeReason ?? "closed")
-            self.scheduleRetry(gen)
-        }
-    }
-
-    /// Runs `work` after the host frames queued before it: on the frame queue as an automation
-    /// task, or at once without one.
-    private func inOrder(_ work: @escaping @MainActor () -> Void) {
-        if let frameQueue { frameQueue.enqueue(work) } else { work() }
+        logger.notice("browser host provider: link closed (\(link.closeReason ?? "", privacy: .public))")
+        dropConnection(reason: link.closeReason ?? "closed")
+        scheduleRetry(gen)
     }
 
     private func scheduleRetry(_ gen: Int) {

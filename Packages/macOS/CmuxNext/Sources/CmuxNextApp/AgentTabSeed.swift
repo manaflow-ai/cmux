@@ -65,7 +65,7 @@ extension PaneController {
             // last terminal tab's, in strip order.
             let pageCwd = cwd ?? pane.tabs.last { $0.kind == .pty && $0.cwd != nil }?.cwd
             return AgentPaneSeedSource { [weak page] in
-                let selection = try? await page?.evaluate(AgentTabSeed.selectionScript, world: .isolated).stringValue
+                let selection = try? await page?.evaluate(AgentTabSeed.selectionScript, world: .isolated, gesture: .cmux).stringValue
                 return AgentPaneSeed(cwd: pageCwd, draft: AgentTabSeed.browserDraft(title: title, url: url, selection: selection), harness: harness)
             }
         case .agent, .page, .placeholder, .notice, .conversation, nil:

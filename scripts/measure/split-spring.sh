@@ -27,17 +27,25 @@
 #                   the debug.* control commands kept), so the bench measures an optimized app; cached apart.
 #   --vdisplay-hold=SECONDS  the helper's own lifetime (default 1200): it ends by itself even when this script
 #                   is killed with SIGKILL. The perf cron passes the part's run time.
+#   --vdisplay-size=WxH  the virtual display's pixels (default 1920x1200: under the Dock a 1920x1080 display left
+#                   about 965 pt, and AppKit clamped the 1600 x 1000 STRESS window, 2026-10-24). The helper's ready
+#                   line reports the visible frame (visible=WxH), which the report's display.line keeps.
 # On exit, TERM, INT or HUP (a cancelled step) the script stops the bench, ends the tag's app and daemons
 # (scripts/cmux-next/tag_teardown.py, exact PIDs of the app bundle) and the virtual display.
 set -euo pipefail
+# The measurement's version (scripts/cmux-next/perf-cron.py MEASURE_VERSION_RE): the perf cron measures and compares only
+# commits whose version is the tip's. Bump it in an edit that changes what is measured or how (the build, the display,
+# the suites, the args); a comment, log or report-key edit keeps it, so it keeps the history measurable.
+SPLIT_SPRING_MEASURE_VERSION=4  # 4: STRESS sessions open their extra terminal, Chromium and WebKit tabs (add_tab had a pane target the actions refuse; 3: the virtual display is 1920x1200)
 cd "$(git rev-parse --show-toplevel)"
-build_only=0 app_cache=0 vdisplay_hz="" vdisplay_hold=1200 args=() reload_config=()
+build_only=0 app_cache=0 vdisplay_hz="" vdisplay_hold=1200 vdisplay_size=1920x1200 args=() reload_config=()
 for arg in "$@"; do
   case "$arg" in
     --build-only) build_only=1 app_cache=1 ;;
     --app-cache) app_cache=1 ;;
     --vdisplay=*) vdisplay_hz="${arg#--vdisplay=}" ;;
     --vdisplay-hold=*) vdisplay_hold="${arg#--vdisplay-hold=}" ;;
+    --vdisplay-size=*) vdisplay_size="${arg#--vdisplay-size=}" ;;
     --config=*) reload_config=(--config "${arg#--config=}") ;;
     *) args+=("$arg") ;;
   esac
@@ -62,6 +70,23 @@ if [[ -n "$cache" && -f "$cache/$key/ok" ]]; then
   app="$out/app/cmux DEV $tag.app" cached=true
   echo "split-spring: the app of $sha from the app cache ($((SECONDS - build_start)) s)"
 fi
+# >>> follow-log (scripts/measure/tests/split-spring-follow-log.test.sh runs these two)
+# follow_log FILE: prints FILE's lines as they come, each prefixed "reload-log: ", from a `tail` this script starts
+# (its PID in follow_pid). FILE starts empty, so only this run's lines show.
+follow_log() {
+  : > "$1" 2>/dev/null || true
+  tail -n +1 -F "$1" 2>/dev/null > >(awk '{ print "reload-log: " $0; fflush() }') &
+  follow_pid=$!
+}
+# unfollow_log: ends the `tail` follow_log started, by its own PID; its awk ends with it.
+unfollow_log() {
+  if [[ -n "${follow_pid:-}" ]]; then
+    kill "$follow_pid" 2>/dev/null || true
+    wait "$follow_pid" 2>/dev/null || true
+  fi
+  follow_pid=""
+}
+# <<< follow-log
 if [[ -z "$app" ]]; then
   for sub in ghostty ghostty-next; do
     [ -e "$sub/.git" ] || git submodule update --init --depth 1 "$sub"
@@ -73,11 +98,28 @@ if [[ -z "$app" ]]; then
     fi
     ./scripts/download-prebuilt-ghosttykit.sh
   fi
-  CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$out/reload.log" | tail -n 40
+  # Streamed, not `| tail -n 40`: the tail held back reload.sh's pre-build lines (the pin-cmux-tui.sh wait, the
+  # cargo and web-bundle builds) until it exited, which read as a hang (cmux20-bench step 0b17cb3f). The
+  # xcodebuild compile itself still prints nothing until reload.sh exits (it keeps that in its own log).
+  # reload.sh keeps its own log in /tmp/cmux-reload-<tag>.log and prints nothing while xcodebuild runs: follow that
+  # log into this step's output, so a hang or a long build names its step (FC-1: cmux-austin-mini-1 step 9e972777
+  # stopped after 45 min with no output after "reload starting").
+  # Only an EXIT trap while reload.sh runs: bash runs a TERM/INT/HUP trap only after the foreground pipeline ends (a
+  # hung reload never does), while an EXIT trap alone runs at once when such a signal ends the script.
+  follow_log "/tmp/cmux-reload-$tag.log"
+  trap 'unfollow_log' EXIT
+  CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$out/reload.log"
+  unfollow_log
+  trap - EXIT
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then
     echo "split-spring: the tagged reload printed no app path" >&2
     grep -E "error:|BUILD FAILED" "$out/reload.log" | head -n 60 >&2 || true
+    # reload.sh keeps xcodebuild's output in its own log (`==> log: PATH`): the compiler's errors are there.
+    build_log="$(sed -n 's/^==> log: //p' "$out/reload.log" | tail -n 1)"
+    if [[ -n "$build_log" && -f "$build_log" ]]; then
+      grep -E "\.swift:[0-9]+:[0-9]+: error|error: |Stack dump|signal" "$build_log" | head -n 40 >&2 || true
+    fi
     exit 1
   fi
   if [[ -n "$cache" ]]; then
@@ -105,8 +147,11 @@ if [[ -n "$cache" && -d "$cache/$key" ]]; then
   done | tail -n +4 | while read -r old; do rm -rf "$old"; done
 fi
 build_seconds=$((SECONDS - build_start))
+# The host's macOS version: every report carries it (the perf cron shows each host's macOS; rows of one host only
+# are compared).
+macos="$(sw_vers -productVersion 2>/dev/null | tr -cd '0-9.' | head -c 16 || true)"
 if [[ "$build_only" == 1 ]]; then
-  printf '{"build": {"sha": "%s", "seconds": %d, "cached": %s}}\n' "$sha" "$build_seconds" "$cached" > "$out/report.json"
+  printf '{"build": {"sha": "%s", "seconds": %d, "cached": %s}, "macos": "%s"}\n' "$sha" "$build_seconds" "$cached" "$macos" > "$out/report.json"
   cat "$out/report.json"
   exit 0
 fi
@@ -122,6 +167,7 @@ stop_vdisplay() {
 # shellcheck disable=SC2329 # run by the traps below
 cleanup() {
   trap - EXIT TERM INT HUP
+  unfollow_log
   if [[ -n "$bench_pid" ]] && kill -0 "$bench_pid" 2>/dev/null; then
     kill -TERM "$bench_pid" 2>/dev/null || true  # the bench this script started, by its PID
     wait "$bench_pid" 2>/dev/null || true
@@ -150,7 +196,7 @@ if [[ -n "$vdisplay_hz" ]]; then
       scripts/ci/frame-pacing/vdisplay.m -o "$vd/VDisplay.app/Contents/MacOS/VDisplay" 2> "$vd/clang.err"; then
     cp scripts/ci/frame-pacing/VDisplay-Info.plist "$vd/VDisplay.app/Contents/Info.plist"
     codesign -s - --force "$vd/VDisplay.app" 2>/dev/null || true
-    "$vd/VDisplay.app/Contents/MacOS/VDisplay" "$vdisplay_hz" "$vdisplay_hold" main > "$vd/out" 2> "$vd/err" &
+    "$vd/VDisplay.app/Contents/MacOS/VDisplay" "$vdisplay_hz" "$vdisplay_hold" main "$vdisplay_size" > "$vd/out" 2> "$vd/err" &
     vdisplay_pid=$!
     for _ in $(seq 20); do
       grep -q '^ready\|^error' "$vd/out" 2>/dev/null && break
@@ -206,16 +252,18 @@ python3 scripts/cmux-next/split-spring-terminal.py --tag "$tag" --app "$app" --o
 bench_pid=$!
 wait "$bench_pid" || status=$?
 bench_pid=""
-# Every report the step returns says which display it measured on (the perf cron reads `display.refresh_ms`).
+# Every report the step returns says which display it measured on (the perf cron reads `display.refresh_ms`) and the
+# host's macOS version.
 for report in "$out/report.json" "$out/perf-gate.json"; do
   [[ -f "$report" ]] || continue
-  python3 - "$report" "$display_json" <<'PY' || echo "split-spring: could not add the display to $report" >&2
+  python3 - "$report" "$display_json" "$macos" <<'PY' || echo "split-spring: could not add the display to $report" >&2
 import json, sys
 path, display = sys.argv[1], json.loads(sys.argv[2])
 with open(path) as f:
     report = json.load(f)
 if isinstance(report, dict):
     report["display"] = display
+    report["macos"] = sys.argv[3] or None
     with open(path, "w") as f:
         json.dump(report, f, indent=1)
 PY

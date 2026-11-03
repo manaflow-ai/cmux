@@ -81,13 +81,11 @@ final class LocationTrailService {
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
         reports.finish()
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            observation?.cancel()
-            scopeObservation?.cancel()
-        }
+        observation?.cancel()
+        scopeObservation?.cancel()
     }
 
     private var scopeObservation: Task<Void, Never>?

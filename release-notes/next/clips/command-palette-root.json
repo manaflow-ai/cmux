@@ -1,0 +1,66 @@
+{
+  "caption": "Browse common actions and command families, then find any action by typing its name or ID.",
+  "frameInterval": 0.25,
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2
+    },
+    {
+      "title": "Open the palette before recording",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "palette.open",
+          "focus": true
+        }
+      },
+      "wait": 1.5
+    },
+    {
+      "title": "Common actions and command families",
+      "wait": 1.5,
+      "clip": true
+    },
+    {
+      "title": "Search the full catalog by action ID",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "palette.open",
+          "args": {
+            "query": "history.commands"
+          },
+          "focus": true
+        }
+      },
+      "wait": 1.5,
+      "clip": true
+    },
+    {
+      "title": "Browse the complete Commands scope",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "palette.open",
+          "args": {
+            "scope": "commands"
+          },
+          "focus": true
+        }
+      },
+      "wait": 1.5,
+      "clip": true
+    },
+    {
+      "title": "End",
+      "wait": 0.3
+    }
+  ],
+  "crop": [
+    0.2,
+    0.05,
+    0.6,
+    0.85
+  ]
+}

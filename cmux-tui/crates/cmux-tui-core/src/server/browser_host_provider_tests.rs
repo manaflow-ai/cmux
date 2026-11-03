@@ -527,3 +527,20 @@ fn the_host_stops_when_its_supervisor_goes() {
     wait_until("the host to stop with its daemon", || unsafe { libc::kill(pid, 0) } != 0);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A host binary that cannot run fails the start with the exec error. The
+/// descriptor step used to close `Command::spawn`'s exec-error pipe: the
+/// child aborted ("crashed on child side of fork pre-exec", a crash report)
+/// and the start failed later, as a host that "did not start".
+#[test]
+fn a_host_binary_that_cannot_run_fails_the_start_with_its_exec_error() {
+    let dir = std::env::temp_dir().join(format!("cmux-bh-missing-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let supervisor = crate::browser_host::BrowserHostSupervisor::default();
+    supervisor
+        .configure(Some(dir.join("no-such-cmux-browser-host")), dir.join("browser-host.sock"));
+    let error = supervisor.credentials().expect_err("a missing binary does not start");
+    assert!(error.starts_with("cannot start the browser host"), "{error}");
+    drop(supervisor);
+    let _ = std::fs::remove_dir_all(&dir);
+}

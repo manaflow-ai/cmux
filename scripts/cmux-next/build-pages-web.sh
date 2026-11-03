@@ -25,7 +25,7 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-PAGES="history apps coderouter cloud keybindings icon-picker settings passwords changelog files stats chief-usage chief-views mobile-pairing chief-inspector home-channels debug-settings"
+PAGES="history apps coderouter cloud keybindings icon-picker settings passwords changelog files artifacts stats chief-usage chief-views mobile-pairing chief-inspector home-channels debug-settings"
 # Pages whose string table ships as one script per locale (locales/<locale>.js), loaded before the
 # app: only English and the active locale are parsed at open (R82 first-open speed).
 SPLIT_STRINGS="settings"
@@ -33,6 +33,7 @@ SPLIT_STRINGS="settings"
 SHIKI_PAGES="home-channels"
 
 command -v bun >/dev/null 2>&1 || { echo "error: bun is required to build the pages" >&2; exit 1; }
+"$ROOT/scripts/check-webviews-bun-version.sh"
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT

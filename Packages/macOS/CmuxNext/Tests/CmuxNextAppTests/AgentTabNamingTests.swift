@@ -4,6 +4,7 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 @testable import CmuxNextDaemon
 import CmuxNextRemote
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextApp
@@ -46,6 +47,38 @@ struct AgentTabNamingTests {
         #expect(AgentTurnStates.title(summary) == "ACP agent tab names")
         #expect(AgentTurnStates.title(["sessionId": "u1", "name": "my chat", "harness": "claude"]) == "my chat",
                 "a name the user gave still wins")
+    }
+
+    /// Leo 2026-11-02, on `cloud-item-14` in his sidebar: "that's the agents naming them like that".
+    @Test func aNameThatReadsAsAnIdYieldsToTheChatsTitle() {
+        var lane: [String: Any] = ["sessionId": "l1", "name": "gcp-codex-lane-12/cloud-item-14", "harness": "codex"]
+        #expect(AgentTurnStates.title(lane) == "gcp-codex-lane-12/cloud-item-14", "with no title the name still stands in")
+        lane["title"] = "Cloud attach retries"
+        #expect(AgentTurnStates.title(lane) == "Cloud attach retries")
+        lane["name"] = "session-info-drag-handles"
+        #expect(AgentTurnStates.title(lane) == "session-info-drag-handles", "a readable name still wins")
+        for name in ["cloud-item-14", "dispatch-019a3f2e", "peer/review-42"] {
+            #expect(AgentTurnStates.isOpaqueName(name), "\(name)")
+        }
+        for name in ["drain-cx-b-cloud-ios", "fix-27310-crash", "tests", "claude-sr2", "facade-cleanup"] {
+            #expect(!AgentTurnStates.isOpaqueName(name), "\(name)")
+        }
+    }
+
+    @Test func generatedTitleDoesNotTreatPromptFallbackAsGenerated() {
+        let prompt = [
+            "sessionId": "p1", "name": "claude-1", "harness": "claude",
+            "title": "Fix the sidebar drag", "titleSource": "prompt",
+        ] as [String: Any]
+        #expect(AgentTurnStates.title(prompt, includingPrompt: false) == nil)
+
+        var generated = prompt
+        generated["titleSource"] = "generated"
+        #expect(AgentTurnStates.title(generated, includingPrompt: false) == "Fix the sidebar drag")
+
+        var renamed = prompt
+        renamed["titleSource"] = "named"
+        #expect(AgentTurnStates.title(renamed, includingPrompt: false) == nil)
     }
 
     @Test func anUntitledChatReadsAsItsWorkspacesTask() {
@@ -98,7 +131,7 @@ struct AgentTabNamingTests {
                                      route: .overlay(linkSocket: "/tmp/cmux-tab-naming-link.sock"))
         for reach in [chief, paired] {
             registry.add(ServerMachineSession(reach: reach, binary: nil, paths: .init(root: URL(fileURLWithPath: "/tmp/cmux-tab-naming-unused")),
-                                              environment: { [:] }, localIdentity: { nil }))
+                                              environment: { [:] }, localIdentity: { nil }, mainWork: MainWorkScheduler(budget: MainFrameBudget())))
         }
         #expect(registry.tabBadge(chief.machineID) == nil, "the Chief's subagents run on this Mac")
         #expect(registry.tabBadge(paired.machineID) == "Mac mini")

@@ -37,6 +37,8 @@ fn hub() -> Arc<Hub> {
 fn hub_env(env: Value) -> Arc<Hub> {
     let mut cfg = config_env(env);
     cfg.store.mode = StoreMode::Memory;
+    // The queue path before the inbox (`hub/inbox.rs`), which these tests cover.
+    cfg.agent_inbox = Some(false);
     let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
     Hub::new(cfg, store)
 }
@@ -45,6 +47,8 @@ fn hub_env(env: Value) -> Arc<Hub> {
 fn durable_hub(dir: &Path) -> Arc<Hub> {
     let mut cfg = config();
     cfg.store.mode = StoreMode::Local;
+    // The queue path before the inbox (`hub/inbox.rs`), which these tests cover.
+    cfg.agent_inbox = Some(false);
     let store = acpmux::store::open(&cfg.store, dir).unwrap();
     Hub::new(cfg, store)
 }
@@ -244,11 +248,73 @@ async fn a_prompt_queued_before_a_restart_is_still_replaced() {
     let (new, accepted) =
         c.accepted(prompt(&session, "p-new", "correction", "lane-a", Some("k"))).await;
     assert_eq!(accepted["replaced"], 1, "{accepted}");
-    c.reply_to(new).await;
+    // The turn the restart cut goes on first (`restart_resume.rs`), then the replacement.
     hub.resume_queues();
+    c.reply_to(new).await;
     c.call("session/prompt", prompt(&session, "p-after", "after", "person", None)).await;
     assert!(!c.ran(&session, "p-old").await, "a restart ran a replaced prompt");
     assert!(c.ran(&session, "p-new").await, "the replacement never ran");
+    assert!(c.ran(&session, "p-run~resume-1").await, "the cut turn did not go on");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A restart hands the running turn to the next daemon: its own end, when its agent stops with
+/// the shutdown, writes no result, so the next daemon finds it cut and continues it
+/// (`restart_resume.rs`) however late it reads the log. Under load that end came before the next
+/// daemon read the log, and the cut turn did not go on (the test above, about 1 in 30).
+#[tokio::test]
+async fn a_turn_a_restart_handed_on_records_no_end_of_its_own() {
+    let dir = std::env::temp_dir().join(format!("acpmux-handed-on-{}", uuid::Uuid::now_v7()));
+    let hub = durable_hub(&dir);
+    let mut c = Client::open(&hub);
+    let session = c.new_session().await;
+    let running = c.busy(&session, None).await;
+    hub.shutdown_all().await;
+    // Its prompt answers once its turn's end ran: the order the race let happen, forced.
+    c.reply_to(running).await;
+    let ends = c.records(&session, "turn_result").await;
+    assert!(ends.is_empty(), "the turn the restart handed on wrote an end: {ends:?}");
+    drop(c);
+    drop(hub);
+
+    let hub = durable_hub(&dir);
+    let mut c = Client::open(&hub);
+    let queued = c.records(&session, "queued").await;
+    assert!(
+        queued.iter().any(|m| m["promptId"] == "p-run~resume-1"),
+        "the cut turn's continuation was not queued: {queued:?}"
+    );
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// An agent's report queued before a restart is still that agent's when it runs: its sender's
+/// card, not the person's bubble (review of #24939).
+#[tokio::test]
+async fn a_report_queued_before_a_restart_keeps_its_sender() {
+    let dir = std::env::temp_dir().join(format!("acpmux-supersede-{}", uuid::Uuid::now_v7()));
+    let hub = durable_hub(&dir);
+    let mut c = Client::open(&hub);
+    let session = c.new_session().await;
+    c.busy(&session, None).await;
+    c.accepted(prompt(&session, "p-report", "report", "lane-a", None)).await;
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    let hub = durable_hub(&dir);
+    let mut c = Client::open(&hub);
+    hub.resume_queues();
+    // It goes in once the restarted daemon is ready (`wait_startup`): wait for its turn.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while !c.ran(&session, "p-report").await {
+        assert!(std::time::Instant::now() < deadline, "the report never ran");
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    let ran = c.records(&session, "user_message").await;
+    let report = ran.iter().find(|m| m["promptId"] == "p-report").expect("its user_message");
+    assert_eq!(report.pointer("/_meta/provenance/fromName"), Some(&json!("lane-a")), "{report}");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
 }

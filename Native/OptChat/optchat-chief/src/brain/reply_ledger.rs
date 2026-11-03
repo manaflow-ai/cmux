@@ -117,6 +117,27 @@ impl Brain {
         }
     }
 
+    /// The person messages the running turn has seen that nothing answers
+    /// yet: in the ledger, out of the queue, and no post of this Chief that
+    /// would answer them waits in the outbox. `stop` and `sleep` refuse to
+    /// end the turn over them (brain/wakes.rs): one reply now is cheaper
+    /// than the `[no reply]` retry turn it would cost.
+    pub(super) fn unanswered_in_turn(&self) -> Vec<&Awaiting> {
+        let pending_post = self.state.outbox.iter().any(|e| {
+            matches!(&e.op, Op::MessageSend { parts, .. } if says_something(parts))
+                && (e.idempotency_key.starts_with("send-")
+                    || e.idempotency_key.starts_with("reply-"))
+        });
+        if pending_post {
+            return Vec::new();
+        }
+        self.state
+            .awaiting
+            .iter()
+            .filter(|a| !self.reply_queued(&a.id))
+            .collect()
+    }
+
     /// Messages the person retracted, or whose turn the owner stopped
     /// (chief.stop: the person asked for the silence), need no reply.
     pub(super) fn reply_not_needed(&mut self, ids: &[String]) {

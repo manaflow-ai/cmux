@@ -23,6 +23,15 @@ SwiftPM 6.4 (Xcode 27) builds one bundle per test target, named after it
 one, each selected test runs from the bundle named after its module (the part
 of `Module.Suite/test` before the first dot), one phase pair per bundle.
 
+Both phases also load Xcode's Main Thread Checker (libMainThreadChecker.dylib through
+DYLD_INSERT_LIBRARIES, as Xcode's scheme diagnostics do): an AppKit or UIKit call off the main
+thread prints "Main Thread Checker: UI API called on a background thread" with its backtrace.
+CMUX_MAIN_THREAD_CHECKER picks the mode: "crash" (default) also sets MTC_CRASH_ON_REPORT=1 so
+the test process stops at the call and its suite fails, "report" prints only, "off" loads
+nothing. Crash is the default since the first full report-mode run (tip bc010d814e4, 8 shards,
+2026-10-25) logged 0 reports: a new report now fails its suite at the line that made it. AppKit off the main thread is a crash class in cmux-next (#24760: an NSAlert built off
+main); the checker names the call in the suite that makes it.
+
 Exit status follows `swift test`: 0 when every phase passed, 1 when a phase
 failed or crashed ("Exited with unexpected signal code N", as SwiftPM prints),
 1 when the filter matches no test.
@@ -47,8 +56,25 @@ def prepend(value: str, existing: str | None) -> str:
     return f"{value}:{existing}" if existing else value
 
 
+MAIN_THREAD_CHECKER_MODES = ("report", "crash", "off")
+
+
+def main_thread_checker(platform: str) -> Path | None:
+    """Xcode's libMainThreadChecker.dylib for the platform path's Xcode, or None when it has none."""
+    dylib = Path(platform).parents[1] / "usr" / "lib" / "libMainThreadChecker.dylib"
+    return dylib if dylib.is_file() else None
+
+
 def phase_environment(args: argparse.Namespace, xctest: bool) -> dict[str, str]:
     env = os.environ.copy()
+    mode = env.get("CMUX_MAIN_THREAD_CHECKER") or "crash"
+    checker = main_thread_checker(args.platform) if mode != "off" else None
+    if checker:
+        env["DYLD_INSERT_LIBRARIES"] = prepend(str(checker), env.get("DYLD_INSERT_LIBRARIES"))
+        # MainThreadCheckerLoadedTests checks the checker is in the test process when this is set.
+        env["CMUX_MAIN_THREAD_CHECKER_EXPECTED"] = "1"
+        if mode == "crash":
+            env["MTC_CRASH_ON_REPORT"] = "1"
     developer = Path(args.platform) / "Developer"
     env["DYLD_FRAMEWORK_PATH"] = prepend(
         f"{developer}/Library/Frameworks:{developer}/Library/PrivateFrameworks",
@@ -92,6 +118,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cwd", required=True, help="the package directory")
     parser.add_argument("--filter", required=True)
     args = parser.parse_args(argv)
+    mode = os.environ.get("CMUX_MAIN_THREAD_CHECKER") or "crash"
+    if mode not in MAIN_THREAD_CHECKER_MODES:
+        print(f"error: CMUX_MAIN_THREAD_CHECKER must be one of {', '.join(MAIN_THREAD_CHECKER_MODES)} (got {mode!r})",
+              flush=True)
+        return 2
+    if mode != "off" and main_thread_checker(args.platform) is None:
+        print(f"warning: no libMainThreadChecker.dylib under {args.platform}; suites run without the Main Thread Checker",
+              flush=True)
 
     pattern = re.compile(args.filter)
     xctest_names = read_tests(args.xctest_tests)

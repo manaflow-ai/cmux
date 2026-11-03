@@ -118,6 +118,11 @@ public abstract class GeneratedCmuxClient {
         return ChiefInspectResult.fromWire(result);
     }
 
+    public final ChiefWorkResult chiefWork(ChiefWorkRequest request) throws CmuxException {
+        Object result = execute(Commands.CHIEF_WORK, request.toWire());
+        return ChiefWorkResult.fromWire(result);
+    }
+
     public final EmptyResult clearHistory(ClearHistoryRequest request) throws CmuxException {
         Object result = execute(Commands.CLEAR_HISTORY, request.toWire());
         return EmptyResult.fromWire(result);
@@ -208,6 +213,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object cloudConversationPresence(CloudConversationPresenceRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_CONVERSATION_PRESENCE, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final Object cloudConversationRun(CloudConversationRunRequest request) throws CmuxException {
         Object result = execute(Commands.CLOUD_CONVERSATION_RUN, request.toWire());
         return Wire.immutableJson(result);
@@ -240,6 +250,11 @@ public abstract class GeneratedCmuxClient {
 
     public final Object cloudConversationUnsubscribe(CloudConversationUnsubscribeRequest request) throws CmuxException {
         Object result = execute(Commands.CLOUD_CONVERSATION_UNSUBSCRIBE, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object cloudEnvironment(CloudEnvironmentRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_ENVIRONMENT, request.toWire());
         return Wire.immutableJson(result);
     }
 
@@ -1120,6 +1135,11 @@ public abstract class GeneratedCmuxClient {
     public final ServerStatsResult serverStats(ServerStatsRequest request) throws CmuxException {
         Object result = execute(Commands.SERVER_STATS, request.toWire());
         return ServerStatsResult.fromWire(result);
+    }
+
+    public final SetAttachVisibilityResult setAttachVisibility(SetAttachVisibilityRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_ATTACH_VISIBILITY, request.toWire());
+        return SetAttachVisibilityResult.fromWire(result);
     }
 
     public final SetCellPixelsResult setCellPixels(SetCellPixelsRequest request) throws CmuxException {

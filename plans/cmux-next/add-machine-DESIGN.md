@@ -24,6 +24,11 @@ Linux. The app is one sheet on top of it.
 
 - `cmux-tui acp host enroll HOST [--name N] [--harness ID]... [--reverse] --json` runs the
   steps below, writing one JSON line per step and a final report.
+  `--accept-new-host-key` opts into first-contact SSH trust: only the initial `reach` uses
+  OpenSSH `StrictHostKeyChecking=accept-new`, which records an unknown key under the exact
+  destination and refuses a changed or revoked key. The app passes it after the Add click.
+  CLI enrollment without the flag, doctor (including `--fix`), candidate probes and subsequent
+  connections retain their normal host-key policy. No key is removed or replaced by this flow.
 - `cmux-tui acp host doctor NAME|HOST [--fix] [--reverse] --json` runs the checks alone. `--fix`
   re-runs only the steps whose checks failed.
 - `cmux-tui acp host candidates --json [--probe]` lists Tailscale peers (online, OS, DNS name)
@@ -41,7 +46,7 @@ Linux. The app is one sheet on top of it.
 {"step":"reach","state":"ok|fail|skip|fixed","detail":"...","fix":"text for a person, or null"}
 ```
 
-A failure the app acts on itself also carries `"reason"`: `install` sets `wrong-platform` (this build is for another OS or CPU) or `not-this-program` (the host needs a binary only the app has); only those make the app install its own build and run enroll again.
+A failure the app acts on itself also carries `"reason"`: `install` sets `wrong-platform` (this build is for another OS or CPU), `peer_version_skew` (the peer's stale build needs a target-aware app install), or `not-this-program` (the host needs a binary only the app has); these make the app install its own build and run enroll again.
 
 The steps run in this order, and a failed step stops the steps that depend on it:
 
@@ -50,6 +55,7 @@ The steps run in this order, and a failed step stops the steps that depend on it
 | `reach` | `ssh -o BatchMode=yes HOST true`; failures classified as no route / ssh off / key rejected / host key changed | a sentence; never edits ssh config |
 | `install` | the remote `cmux-tui --version` matches the local build | push this build (`host setup` push, never sudo) |
 | `daemon` | the remote acp daemon answers `daemon status` | `host setup` config and launch (launchd on macOS, a detached start elsewhere) |
+| `update` | how the daemon stays current: a Linux host's `acpmux-update.timer` is enabled (a Mac and a cmux Cloud VM are moved to the connecting cmux's build, `ok`; `~/.acpmux/no-auto-update` is `skip`; no user systemd is `warn`) | install the timer (`host_auto_update.rs`) under the host's update lock; a unit someone else wrote is left alone, `warn` |
 | `harness` | each chosen profile is on the host, hashes match after home-path rewrite, and is not group- or other-writable | copy, rewriting the local home prefix to the remote one, mode 600 |
 | `peer` | `host ls` here lists NAME at `ssh://HOST` and it connects | `host add NAME ssh://HOST` |
 | `peer-back` | only with `--reverse` (else `skip`): the host lists this machine and can reach it with key-only ssh | `host add` on the host; if the host cannot ssh back, `warn` with the reason and no fix (no keys are copied) |

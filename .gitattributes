@@ -86,7 +86,6 @@ docs/mdm/managed-preferences.md merge=cmux-generated-v1
 # regenerated; a line-merged stamp would call the one-side exports fresh. After
 # a GitHub merge the base autofix regenerates them (it runs whenever
 # CmuxNextSettings changed).
-schemas/settings-export/settings-schema.sources.sha256 merge=cmux-generated-v1
 Packages/macOS/CmuxNext/ci-target-graph.json merge=cmux-generated-v1
 # SDK wire layers (cmux-tui/bindings/codegen/generate.py): only the wholly
 # generated directories and files; go/raw and java mix in hand-written code.

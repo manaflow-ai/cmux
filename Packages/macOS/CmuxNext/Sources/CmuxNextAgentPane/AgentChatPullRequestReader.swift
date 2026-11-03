@@ -117,16 +117,19 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
         // workflow as well as its name, on both sides, and
         // ``AgentPanePullRequest/latestRuns(_:)`` uses the run id on the base side, because a
         // cancelled run a newer run of the same workflow replaced still sits in this list and
-        // reads as a failure. Trimming either field degrades the match to the name alone, which
-        // would excuse a red of one workflow with a same-named red of another.
+        // reads as a failure. The run's event is read too:
+        // ``AgentPanePullRequest/counted(_:)`` drops a head run only when a newer run of the same
+        // workflow, event and name replaced it. Trimming the run or workflow degrades the match to
+        // the name alone, which would excuse a red of one workflow with a same-named red of
+        // another; trimming the event only stops head runs from being proven superseded.
         let contexts = """
             contexts(first: 100) { nodes { __typename \
             ... on CheckRun { name status conclusion detailsUrl \
-            checkSuite { workflowRun { databaseId workflow { databaseId name } } } } \
+            checkSuite { workflowRun { databaseId event workflow { databaseId name } } } } \
             ... on StatusContext { context state targetUrl } } }
             """
         let fields = """
-            url number title state isDraft reviewDecision mergeable createdAt updatedAt mergedAt additions deletions \
+            url number title state isDraft reviewDecision mergeable createdAt updatedAt mergedAt additions deletions totalCommentsCount \
             changedFiles baseRefName headRefName author { login } labels(first: \(AgentPanePullRequest.maximumLabels)) \
             { nodes { name } } files(first: 100) { nodes { path additions deletions } } \
             commits(last: 1) { nodes { commit { statusCheckRollup { \(contexts) } } } } \
@@ -262,6 +265,8 @@ public final class AgentReplyPullRequests {
         var pullRequest: AgentPanePullRequest?
         /// When it gave that answer.
         var at: Date?
+        /// When the read that gave that answer began.
+        var readFrom: Date?
         /// The last read of this link, good or not; nil until one finishes.
         var tried: ContinuousClock.Instant?
         /// The newest of `at` and `tried`, for dropping the stalest link.
@@ -297,12 +302,15 @@ public final class AgentReplyPullRequests {
         self.retry = retry
     }
 
-    /// What the cache has for `url`, and a background read when that is stale. Never waits.
-    public func answer(_ url: URL) -> AgentPanePullRequestAnswer {
-        _ = startRead(url)
+    /// What the cache has for `url`, and a background read when that is stale unless `read` is
+    /// false (a page asking for many links it registered, whose reads the registration batches).
+    /// Never waits.
+    public func answer(_ url: URL, read: Bool = true) -> AgentPanePullRequestAnswer {
+        if read { _ = startRead(url) }
         let entry = entries[url]
         return AgentPanePullRequestAnswer(pullRequest: entry?.pullRequest,
                                           fetchedAt: entry?.at?.timeIntervalSince1970,
+                                          readFrom: entry?.readFrom?.timeIntervalSince1970,
                                           reading: inflight[url] != nil)
     }
 
@@ -319,10 +327,11 @@ public final class AgentReplyPullRequests {
         guard !wanted.isEmpty else { return }
         let reader = reader
         let addresses = wanted.map(\.absoluteString)
+        let began = Date()
         // task-owner: one read for every link of a reply; a card opened meanwhile shares it.
         let task = Task { [weak self] in
             let answers = await reader.read(urls: addresses)
-            self?.absorb(answers, for: wanted)
+            self?.absorb(answers, for: wanted, began: began)
         }
         for url in wanted { inflight[url] = task }
     }
@@ -359,27 +368,29 @@ public final class AgentReplyPullRequests {
     /// `gh pr view` would quietly lose "also red on base" sixty seconds after it gained it. A link
     /// on another host (GitHub Enterprise) still falls back to `gh pr view` inside that read.
     private func perform(_ url: URL) async {
+        let began = Date()
         let answers = await reader.read(urls: [url.absoluteString])
-        absorb(answers, for: [url])
+        absorb(answers, for: [url], began: began)
     }
 
     /// What a batched read answered. A URL GitHub did not answer for (offline, timed out, rate
     /// limited) keeps its last answer, and every URL of the batch counts as tried, so a failed
     /// batch is not asked again at once.
-    private func absorb(_ answers: [String: AgentPanePullRequest?], for urls: [URL]) {
-        for url in urls { record(answers[url.absoluteString] ?? nil, for: url) }
+    private func absorb(_ answers: [String: AgentPanePullRequest?], for urls: [URL], began: Date) {
+        for url in urls { record(answers[url.absoluteString] ?? nil, for: url, began: began) }
         trim()
     }
 
     /// Writes one read's outcome. A read that failed leaves the last good answer and its age
     /// alone: a rate-limited GitHub must not replace the pull request the card is showing.
-    private func record(_ pullRequest: AgentPanePullRequest?, for url: URL) {
+    private func record(_ pullRequest: AgentPanePullRequest?, for url: URL, began: Date) {
         var entry = entries[url] ?? Entry(touched: .now)
         entry.tried = .now
         entry.touched = .now
         if let pullRequest {
             entry.pullRequest = pullRequest
             entry.at = Date()
+            entry.readFrom = began
         }
         entries[url] = entry
         inflight[url] = nil

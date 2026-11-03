@@ -132,6 +132,11 @@ thread_local! {
     /// conversation `answer` retitles once the registry lock is released.
     static PENDING_RETITLE: std::cell::RefCell<Option<(String, String, u64)>> =
         const { std::cell::RefCell::new(None) };
+    /// A deleted Chief's id from `mutate`, whose conversations `answer`
+    /// announces as gone from the person's list once the registry lock is
+    /// released.
+    static PENDING_LEFT: std::cell::RefCell<Option<String>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 /// The answer, with a new Chief's `brain` (what happened to its brain, from
@@ -139,11 +144,17 @@ thread_local! {
 fn answer(mux: &Mux, client: u64, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {
     PENDING_BRAIN.with(|slot| slot.borrow_mut().take());
     PENDING_RETITLE.with(|slot| slot.borrow_mut().take());
+    PENDING_LEFT.with(|slot| slot.borrow_mut().take());
     let result = answer_locked(mux, client, request);
     if let Some((chief, name, rev)) = PENDING_RETITLE.with(|slot| slot.borrow_mut().take())
         && result.is_ok()
     {
         retitle_own_conversation(mux, &chief, &name, rev);
+    }
+    if let Some(chief) = PENDING_LEFT.with(|slot| slot.borrow_mut().take())
+        && result.is_ok()
+    {
+        announce_left_list(mux, &chief);
     }
     let pending = PENDING_BRAIN.with(|slot| slot.borrow_mut().take());
     match (result, pending) {
@@ -498,6 +509,9 @@ fn mutate(
                     chief: record.id.clone(),
                     change,
                 })));
+                if operation == Op::ChiefProfileDelete {
+                    PENDING_LEFT.with(|slot| *slot.borrow_mut() = Some(record.id.clone()));
+                }
                 if matches!(operation, Op::ChiefProfileUpdate | Op::ChiefProfileUndo)
                     && name_before.as_deref() != Some(record.display_name.as_str())
                 {
@@ -746,15 +760,7 @@ fn caller(mux: &Mux, client: u64, store: &ChiefStore) -> Result<Caller, Resource
         // approved pairing; the app's person credential shares the store) is
         // refused with or without a page Origin: a native client can send any
         // Origin. Every lock read fails closed.
-        let admitted = super::origin_gate::websocket_admission(mux, client).is_some_and(|ws| {
-            match ws.page.as_deref() {
-                None => !ws.person,
-                Some(page) => page == "home-channels" && ws.scoped_page && !ws.person,
-            }
-        });
-        let unbound = matches!(mux.bound_conversation_participant(client), Ok(None));
-        let person_page = admitted && unbound && principal == LOCAL_USER;
-        return if person_page { Ok(Caller::Page) } else { Err(forbidden()) };
+        return if person_page(mux, client) { Ok(Caller::Page) } else { Err(forbidden()) };
     }
     if principal == LOCAL_USER {
         return Ok(Caller::Owner);
@@ -766,6 +772,21 @@ fn caller(mux: &Mux, client: u64, store: &ChiefStore) -> Result<Caller, Resource
         }
         _ => Err(forbidden()),
     }
+}
+
+/// The same authenticated owner page admission for Chief records and read-only work.
+pub(super) fn person_page(mux: &Mux, client: u64) -> bool {
+    let admitted = super::origin_gate::websocket_admission(mux, client).is_some_and(|ws| match ws
+        .page
+        .as_deref()
+    {
+        None => !ws.person,
+        Some(page) => page == "home-channels" && ws.scoped_page && !ws.person,
+    });
+    admitted
+        && !mux.is_remote_client(client)
+        && matches!(mux.bound_conversation_participant(client), Ok(None))
+        && mux.conversation_principal(client) == LOCAL_USER
 }
 
 /// cx-di8pd: a renamed Chief's own conversation takes its new name as its
@@ -793,6 +814,39 @@ fn retitle_own_conversation(mux: &Mux, chief: &str, name: &str, rev: u64) {
     if let Err(error) = super::conversations::commit_op(mux, &own.id, &key, LOCAL_USER, &op, &None)
     {
         eprintln!("cmux-tui: Chief {chief} renamed; retitling {}: {error:#}", own.id);
+    }
+}
+
+/// A deleted Chief's direct conversation left the person's Home list
+/// (`home-inbox` drops it; its titled channels stay and just read again): each
+/// of its conversations with the person gets its
+/// `conversation-inbox-changed`, with the person's unchanged pin and mark, so
+/// every connected view reads its list again. `chief-changed` is not enough:
+/// only clients that asked for Chief events get it, and the phone's link
+/// forwards conversation events only. A device not connected now reads the
+/// list without the row when it comes back. Best effort: a failure is logged.
+fn announce_left_list(mux: &Mux, chief: &str) {
+    let read = mux.with_conversations(|store| Ok((store.list()?, store.inbox_states(LOCAL_USER)?)));
+    let (listed, mut states) = match read {
+        Ok(read) => read,
+        Err(error) => {
+            eprintln!("cmux-tui: Chief {chief} deleted; listing its conversations: {error:#}");
+            return;
+        }
+    };
+    for conversation in listed.into_iter().filter(|c| {
+        c.participants.iter().any(|p| p.id == LOCAL_USER)
+            && c.participants.iter().any(|p| p.id == chief)
+            && c.participants.iter().all(|p| p.id == chief || p.id == LOCAL_USER)
+    }) {
+        let state = states.remove(&conversation.id).unwrap_or_default();
+        mux.emit(MuxEvent::Conversation(Arc::new(ConversationEvent::Inbox {
+            conversation: conversation.id,
+            participant: LOCAL_USER.to_owned(),
+            pinned: state.pinned,
+            pin_position: state.pin_position,
+            marked_unread: state.marked_unread,
+        })));
     }
 }
 
@@ -872,6 +926,17 @@ pub(super) fn chief_names(mux: &Mux) -> std::collections::BTreeMap<String, Strin
         store.list().map_err(|error| internal(Op::ChiefProfileList, &error))
     })
     .map(|records| records.into_iter().map(|record| (record.id, record.display_name)).collect())
+    .unwrap_or_default()
+}
+
+/// The deleted Chiefs' ids (their tombstones), for the Home rows
+/// (`home-inbox`): their direct conversations leave the list. Best effort, as
+/// [`chief_names`].
+pub(super) fn deleted_chiefs(mux: &Mux) -> std::collections::BTreeSet<String> {
+    with_store(mux, Op::ChiefProfileList, |store| {
+        store.deleted().map_err(|error| internal(Op::ChiefProfileList, &error))
+    })
+    .map(|ids| ids.into_iter().collect())
     .unwrap_or_default()
 }
 

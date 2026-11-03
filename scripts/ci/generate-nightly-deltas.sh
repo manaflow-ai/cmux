@@ -35,7 +35,8 @@ feed="$(basename "$FULL_FEED")"
 test -s "$DMG"
 mkdir -p "$OUT_DIR"
 previous="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/nightly-delta-previous.XXXXXX")"
-trap 'rm -rf "$previous"' EXIT
+previous_dates="$(mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/nightly-delta-dates.XXXXXX")"
+trap 'rm -rf "$previous" "$previous_dates"' EXIT
 
 python3 "$scripts_dir/ci/fetch-previous-nightly-dmgs.py" \
   --repo "${GITHUB_REPOSITORY:-manaflow-ai/cmux}" \
@@ -45,7 +46,8 @@ python3 "$scripts_dir/ci/fetch-previous-nightly-dmgs.py" \
   --exclude-build "$NIGHTLY_BUILD" \
   --count "$RECENT_BASES" \
   $(printf -- '--older-than-hours %s ' "${OLDER_BASE_HOURS[@]}") \
-  --out "$previous"
+  --out "$previous" \
+  --dates-out "$previous_dates"
 
 if ! compgen -G "$previous/*.dmg" >/dev/null; then
   echo "No previous $NIGHTLY_VARIANT archive; retaining the full-only appcast"
@@ -86,3 +88,7 @@ SPARKLE_DELTA_NAME_PREFIX="${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-" \
 # generate_appcast rewrites the items; keep the full feed's changelog
 # <description> for this build (cx-lntk).
 python3 "$scripts_dir/ci/appcast_carry_description.py" "$FULL_FEED" "$OUT_DIR/$feed" "$NIGHTLY_BUILD"
+# generate_appcast dates every item by its archive's mtime, so each item would
+# get this run's time. Keep each build's first-publish date: this build's from
+# the full feed it was published with, earlier builds' from their upload time.
+python3 "$scripts_dir/ci/appcast_keep_pubdates.py" "$OUT_DIR/$feed" --feed "$FULL_FEED" --dates "$previous_dates"

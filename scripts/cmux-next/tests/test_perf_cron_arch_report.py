@@ -520,6 +520,18 @@ class ArchReportTests(unittest.TestCase):
         self.assertIn("+1 of the rise (+3 over the total recorded at 000000000000) is allowed by pending entries", body)
         self.assertIn("The rest (+2) needs the fix.", body)
 
+    def test_a_pending_entry_in_an_exception_file_raises_the_limit_like_one_in_the_list(self):
+        self.run_report(self.commit("baseline", counts(5, 2)))
+        self.write(f"{report.EXCEPTIONS_DIR}/31999.json", json.dumps(entry(1)))
+        self.write(f"{report.EXCEPTIONS_DIR}/broken.json", "{")
+        self.write(f"{report.EXCEPTIONS_DIR}/sub/nested.json", json.dumps(entry(4)))
+        out = self.run_report(self.commit("feat: one reviewed singleton, its exception file", counts(6, 3)))
+        self.assertEqual(self.own_issues(), [], out)
+        self.assertIn("run scripts/cmux-next/arch-ratchet.py --update to fold them into the total", out)
+        out = self.run_report(self.commit("feat: two more, no entry", counts(8, 5)))
+        body = self.own_issues()[0]["body"]
+        self.assertIn("| stateful_singletons | CmuxNextBrowser 2→5 | 5 + 1 | 8 |", body, out)
+
     def test_a_measured_sha_rebased_away_still_applies_the_pending_entries(self):
         # The file at measured_sha is never read: a measured_sha that was rebased away and never pushed (the brief
         # rebases before every push) neither fails a fetch nor drops the pending allowance.
@@ -615,6 +627,29 @@ class ArchReportTests(unittest.TestCase):
         self.assertNotIn("cannot keep the issue", out)
         self.assertEqual(self.gh.calls, [], "with a repository but no token, also a dry run makes no GitHub request")
         self.assertEqual(self.state_text(), before)
+
+    def test_the_prefetch_covers_the_local_package_closure_the_count_reads(self):
+        # The measured commit's own arch_counts.py names what its count reads (`--read-paths`): CmuxNext and the
+        # transitive closure of its local `.package(path:)` dependencies, so the one fetch covers a Shared package.
+        with open(os.path.join(HERE, "..", "arch_counts.py")) as f:
+            self.write(report.COUNTS_SCRIPT, f.read())
+        manifest = 'import PackageDescription\nlet package = Package(name: "{}", dependencies: [{}], targets: [])\n'
+        self.write("Packages/macOS/CmuxNext/Package.swift",
+                   manifest.format("CmuxNext", '.package(path: "../../Shared/Kit")'))
+        self.write("Packages/Shared/Kit/Package.swift", manifest.format("Kit", '.package(path: "../Deep")'))
+        self.write("Packages/Shared/Kit/Sources/Kit/Kit.swift", "struct Kit {}\n")
+        self.write("Packages/Shared/Deep/Package.swift", manifest.format("Deep", ""))
+        self.write("Packages/Shared/Deep/Sources/Deep/Deep.swift", "struct Deep {}\n")
+        self.write("Packages/Shared/Other/Package.swift", manifest.format("Other", ""))
+        self.write("Packages/Shared/Other/Sources/Other/Other.swift", "struct Other {}\n")
+        sha = self.commit("a closure of local packages", counts(5, 2))
+        with contextlib.redirect_stdout(io.StringIO()):
+            names = {name for _, name in report.count_files(report.Deadline(60), self.repo, sha)}
+        for path in ("Packages/Shared/Kit/Package.swift", "Packages/Shared/Kit/Sources/Kit/Kit.swift",
+                     "Packages/Shared/Deep/Package.swift", "Packages/Shared/Deep/Sources/Deep/Deep.swift",
+                     f"{SOURCES}/CmuxNextApp/App.swift", report.COUNTS_SCRIPT, report.RATCHET_PATH):
+            self.assertIn(path, names)
+        self.assertNotIn("Packages/Shared/Other/Sources/Other/Other.swift", names, "not linked: not read")
 
     def capture(self, fn):
         out = io.StringIO()

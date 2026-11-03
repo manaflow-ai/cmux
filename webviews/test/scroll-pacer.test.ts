@@ -1,5 +1,42 @@
 import { expect, test } from "bun:test";
-import { createScrollPacer, type ScrollFrame } from "../src/agent-session/acpmux/scrollPacer";
+import {
+  authoritativeScrollIntent,
+  createScrollPacer,
+  type ScrollFrame,
+} from "../src/agent-session/acpmux/scrollPacer";
+
+test("stale queued latest state cannot retake a parked reader", () => {
+  expect(
+    authoritativeScrollIntent({
+      top: 240,
+      scrollHeight: 2_000,
+      clientHeight: 700,
+      following: false,
+      jumping: false,
+      deadband: 4,
+    }),
+  ).toBe(false);
+  expect(
+    authoritativeScrollIntent({
+      top: 1_296,
+      scrollHeight: 2_000,
+      clientHeight: 700,
+      following: true,
+      jumping: false,
+      deadband: 4,
+    }),
+  ).toBe(true);
+  expect(
+    authoritativeScrollIntent({
+      top: 240,
+      scrollHeight: 2_000,
+      clientHeight: 700,
+      following: false,
+      jumping: true,
+      deadband: 4,
+    }),
+  ).toBe(true);
+});
 
 test("scroll updates commit once per frame and keep the latest offset", () => {
   const callbacks = new Map<number, FrameRequestCallback>();

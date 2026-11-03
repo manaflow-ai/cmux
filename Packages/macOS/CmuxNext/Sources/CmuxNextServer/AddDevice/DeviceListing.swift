@@ -38,9 +38,12 @@ public nonisolated struct DeviceListing: Equatable, Sendable, Decodable {
         /// A sentence a person can act on (an error, what a pending device waits for).
         public var detail: String?
         public var addedAt: String?
+        /// A paired client machine's Full-access setting (acpmux `pair_set`); nil for every other
+        /// row, which has no such setting.
+        public var fullAccess: Bool?
 
         public init(id: String, name: String, kind: String = "computer", roles: [String], state: String,
-                    os: String? = nil, detail: String? = nil, addedAt: String? = nil) {
+                    os: String? = nil, detail: String? = nil, addedAt: String? = nil, fullAccess: Bool? = nil) {
             self.id = id
             self.name = name
             self.kind = kind
@@ -49,11 +52,13 @@ public nonisolated struct DeviceListing: Equatable, Sendable, Decodable {
             self.os = os
             self.detail = detail
             self.addedAt = addedAt
+            self.fullAccess = fullAccess
         }
 
         nonisolated enum CodingKeys: String, CodingKey {
             case id, name, kind, roles, state, os, detail
             case addedAt = "added_at"
+            case fullAccess = "full_access"
         }
     }
 
@@ -65,14 +70,30 @@ public nonisolated struct DeviceListing: Equatable, Sendable, Decodable {
         public var os: String
         /// The same person's computer (same login, not tagged, not shared in).
         public var mine: Bool
+        /// A `Host` of the person's `~/.ssh/config` (`"found": "ssh-config"`), not a network node.
+        public var fromSSHConfig: Bool
 
         public var id: String { address }
 
-        public init(name: String, address: String, os: String, mine: Bool) {
+        public init(name: String, address: String, os: String, mine: Bool, fromSSHConfig: Bool = false) {
             self.name = name
             self.address = address
             self.os = os
             self.mine = mine
+            self.fromSSHConfig = fromSSHConfig
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case name, address, os, mine, found
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            name = try container.decode(String.self, forKey: .name)
+            address = try container.decode(String.self, forKey: .address)
+            os = try container.decodeIfPresent(String.self, forKey: .os) ?? ""
+            mine = try container.decodeIfPresent(Bool.self, forKey: .mine) ?? false
+            fromSSHConfig = try container.decodeIfPresent(String.self, forKey: .found) == "ssh-config"
         }
     }
 

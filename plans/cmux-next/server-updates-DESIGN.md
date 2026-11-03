@@ -22,8 +22,8 @@ wire for cmux-tui; this doc adds the user-facing half.
 | Piece | Where | State |
 | --- | --- | --- |
 | Handshake | cmux-tui `identify`: `version`, `build_commit`, `protocol_version` (12), `capabilities[]` | built |
-| GUI capability gate | `DaemonIdentity.supports(_:)`, `DaemonCapabilities.shared` (required + optional) | built; the GUI hides a feature when the daemon lacks its capability |
-| Required set | `DaemonCapabilities.required`: a daemon without one is refused | built |
+| GUI capability gate | `DaemonIdentity.supports(_:)`, `DaemonCapability` (required + optional) | built; the GUI hides a feature when the daemon lacks its capability |
+| Required set | `DaemonCapability.required`: a daemon without one is refused | built |
 | Local daemon upgrade | `DaemonLauncher.handOffIfStale` at app launch: other build -> fenced `shutdown-daemon`, terminals adopted | built, automatic, lossless |
 | Capability handoff | `handOffForCapability` (page listener) | built, one capability |
 | acpmux upgrade | `AcpmuxVersionHandoff`: hand off only when the daemon runs agent hosts; otherwise **keep it running** ("its agents would end") | built; the kept daemon never upgrades and nothing tells the user |
@@ -65,7 +65,7 @@ daemon, and every remote daemon. Today the matching features just disappear with
 
 The app side: `ServerSkewPolicy.notice(for:appCapabilities:bundledBuild:)` returns a
 `ServerUpdateNotice` when the server lacks capabilities this app can use and its build is known to
-serve (`DaemonCapabilities` optional set minus `unservedByBundledDaemon`), or, for a server that
+serve (`DaemonCapability` optional set minus `unservedByBundledDaemon`), or, for a server that
 advertises nothing, when its build differs from the bundled one. Required capabilities never reach
 this path (a daemon without them is refused before attach, as today).
 
@@ -75,7 +75,7 @@ this path (a daemon without them is refused before attach, as today).
 groups", "Workspace checklists", "Browser profiles", "Pinned workspaces", ...). Only capabilities a
 person can see are listed; the rest are counted. The toast names up to three, then "and N more".
 The catalog lives next to the strings (21 locales) and has a test that every listed capability is a
-real `DaemonCapabilities` optional capability.
+real `DaemonCapability` optional capability.
 
 ## 5. Restart impact (the confirm's text)
 
@@ -151,3 +151,23 @@ toast, confirm and tip in light and dark, in a Home right-pane tab; A ships (Rec
 4. `_acpmux/status` advertises `capabilities[]`; acpmux notices list features.
 5. Remote hosts: notices per host; restart over the link.
 6. Chief's own cmux-tui daemon: notice in the Chief card (with a185's turn resume, never mid-turn).
+
+## 10. Settings > Server (Oct 23, user: "we need these in cmux when it makes sense", Rex's server panel)
+
+Rex's Settings server panel (name, Running, version line, "Restart Recommended", Local API URL,
+Tailscale address with Pair, Stop) maps onto cmux-next like this:
+
+| Rex | cmux-next | State |
+| --- | --- | --- |
+| Bottom toast "Restart the server to use new features" | `ServerUpdatePresenter` toast (sections 6, 7) | built (a286) |
+| Running / version line | Settings > Server row: `Version 0.67.0 · Build abc1234 · Protocol 12` from `identify` | built here |
+| "Restart Recommended" + Restart… | the row shows while the policy finds missing capabilities; ignores snooze; the button opens the toast's own confirm (`cmux.settings.server.restart`) | built here |
+| API revision "server supports 0 to 0, app speaks 0 to 1" | not shown: cmux-tui `identify` reports one `protocol_version` and capabilities decide behavior (rule 3), so there is no range to compare | by design |
+| Local API URL + copy | Local Socket + Copy (the connected daemon's socket) | built here |
+| Tailscale Address + Pair + copy | first address of `cmux host status --json` (`addresses`) + Pair (opens the Server panel's pairing card) + Copy | built here |
+| Stop Server… | not added: the only stop is `server.stopServing` (debug-only, turns off serving); stopping cmux-tui itself would end terminals | open |
+| acpmux row | the report lists any server the coordinator heard from; acpmux reports no handshake yet (step 4) | open |
+
+Data path: `ServerUpdateCoordinator.settingsReport` (pure, tested) -> `ServerSettingsPageJSON` ->
+host lists `server` -> `ServerCard.tsx`. Nothing in the report restarts a server.
+

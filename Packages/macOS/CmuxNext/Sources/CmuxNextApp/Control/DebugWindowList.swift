@@ -32,6 +32,9 @@ enum DebugWindowList {
             "level": JSONValue(window.level.rawValue),
             "ignores_mouse": .bool(window.ignoresMouseEvents),
             "key": .bool(window.isKeyWindow),
+            // On screen and not covered (AppKit's occlusion), and in the Dock: whether a bench window could be seen.
+            "occluded": .bool(!window.occlusionState.contains(.visible)),
+            "miniaturized": .bool(window.isMiniaturized),
             "alpha": .number(Double(window.alphaValue)),
         ])
     }

@@ -110,6 +110,8 @@ enum TerminalHandlers {
         daemon.send("clear-history", onFailure: { failure in
             // An alternate-screen program without Kitty keys has no Cmd-K: nothing changed, as in Ghostty.
             if failure.message.contains(ClearHistoryRequest.fallbackUnrepresentable) { return }
+            // A typed refusal (a pane still opening) is not a failure to report: the person was told why.
+            if failure.refusal != nil { return }
             reporter.recordFailure("terminal.clear", message: Self.failureKind(failure.message))
         }, body)
     }
@@ -126,7 +128,7 @@ enum TerminalHandlers {
     /// tab (`terminal-reap-v1`); off lets the daemon end it after the reap
     /// grace period once no tab shows it.
     private static func bindKeep(_ registry: ActionRegistry, _ ctx: AppActionContext) {
-        registry.bind("terminal.keep", unavailable: ctx.needs(DaemonCapabilities.terminalReap), invoke: { invocation in
+        registry.bind("terminal.keep", unavailable: ctx.needs(DaemonCapability.terminalReap.rawValue), invoke: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation) else { return }
             guard tab.kind == .pty else { return ctx.refuse(RefusalStrings.notATerminal) }
             let keep = invocation["on"]?.boolValue ?? true, surface = tab.surface

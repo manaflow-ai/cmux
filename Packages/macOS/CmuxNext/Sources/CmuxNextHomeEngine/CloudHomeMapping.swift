@@ -44,6 +44,13 @@ public nonisolated struct CloudIdentity: Hashable, Sendable {
         return "user_" + digest.map { String(format: "%02x", $0) }.joined().prefix(20)
     }
 
+    /// The Worker's team id for a Stack team of a Stack project (the API's `stackTeamIdFor`), the
+    /// id `x-cmux-team` and `user.teams.list` use for the team `ActiveTeam` names by its Stack id.
+    public static func workerTeamID(stackProjectID: String, stackTeamID: String) -> String {
+        let digest = SHA256.hash(data: Data("stack-team:\(stackProjectID):\(stackTeamID.lowercased())".utf8))
+        return "team_" + digest.map { String(format: "%02x", $0) }.joined().prefix(20)
+    }
+
     func toHome(_ id: String) -> ParticipantID { id == participantID || id == cloudID ? localID : ParticipantID(id) }
     func toCloud(_ id: ParticipantID) -> String { id == localID ? participantID : id.rawValue }
     /// This account as a cloud participant (the creator of a new conversation).
@@ -138,7 +145,8 @@ nonisolated enum CloudHomeMapping {
         summary.pinRank = entry.pinned ? (entry.pinPosition ?? 0) : nil
         summary.muted = entry.muted
         summary.mentionCount = Int(clamping: entry.mentions)
-        if let kind = kind(entry.kind) { summary.declaredKind = kind }
+        // A teammate's entry for someone else's shared Chief conversation says group; the head's chief stays.
+        if let kind = kind(entry.kind), summary.declaredKind != .chief { summary.declaredKind = kind }
         if entry.lastSeq > summary.lastSeq {
             summary.lastSeq = entry.lastSeq
             if let at = HomeCoreMapping.date(entry.lastAt) { summary.updatedAt = max(summary.updatedAt, at) }

@@ -307,6 +307,12 @@ fn run_turn_text(case: &Value) -> Result<Outcome, String> {
         let events = std::sync::Arc::new(events);
         let script_events = events.clone();
         let mut h = Harness::new(Box::new(move |_, _| (*script_events).clone()));
+        // A retryable error (the corpus's 529 overload) runs again after a
+        // backoff (brain/turns.rs `cut_kind`, issue 25577); every run replays
+        // the same events, so with no wait the retries end at once and the
+        // text compared is the post after the last one.
+        h.brain
+            .set_upstream_resume_backoff(vec![std::time::Duration::ZERO]);
         h.connect();
         h.say("user_local", "go");
         h.settle();

@@ -8,11 +8,15 @@
 // rules, and the host checks the site again.
 // A local image the host will not show (outside the local image roots, missing, or a failed load)
 // draws as a compact card: its alt text, its file name and Open, the path chip's open with the
-// same outside-root confirmation. A deny-listed path is its alt text only.
+// same outside-root confirmation. A deny-listed path is its alt text only. An image outside the
+// session's folders loads at once too when `agentPane.links.outsideRoots` is `open` (the default),
+// the setting under which its chip opens without asking: a preview needs no click (Leo,
+// 2026-10-31: "I SHOULDN'T EVEN HAVE TO CLICK THE OPEN BUTTON IT SHOULD JUST PREVIEW"). A file
+// that is not there has no Open, and a template path (`${variant}-320.png`) is plain text.
 // A reply's own images (`thumb`) draw in a glass thumbnail of a fixed shape whatever their state
 // (waiting, Load image, unavailable, shown), so an image that loads never moves the reply; a click
 // opens it whole in the image viewer.
-import { useContext, useState, type ReactNode } from "react";
+import { useContext, useEffect, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { ImageIcon, Lock } from "../conversation/icons";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
@@ -22,12 +26,14 @@ import { ElsewhereChip } from "./LinkChips";
 import { useMessageScope } from "./messageScope";
 import { usePathInfo, useReplyPolicy, type ReplyPolicy } from "./linkStore";
 import { isRemoteMedia, mediaKind, RemoteMedia, ReplyMedia } from "./ReplyMedia";
-import { isDeniedPath, linkPath, pathName } from "./paths";
+import { isDeniedPath, isTemplatePath, linkPath, pathName } from "./paths";
+import { useTranscriptReadOnly } from "../conversation/readOnly";
 
 type State = { kind: "idle" } | { kind: "loading" } | { kind: "shown"; src: string } | { kind: "failed" };
 
 /// A local image: an absolute path, a `file://` URL or a relative path (from the session's folder).
 export function localImageSource(src: string): string | undefined {
+  if (isTemplatePath(src)) return undefined;
   const path = linkPath(src);
   if (path) return path;
   if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(src) || src.startsWith("//") || src.startsWith("#") || src.startsWith("?"))
@@ -62,6 +68,18 @@ const loaded = new DataUrlCache(IMAGE_CACHE_MAX_ENTRIES, IMAGE_CACHE_MAX_CHARS, 
 /// click (the host spends a gesture on each), so forgetting it would leave its placeholder.
 const clicked = new Map<string, string>();
 
+/// Instances waiting on a load another instance of the same source started (the transcript's tile and
+/// the Gallery's, say): they hear when it ends, since `started` keeps them from asking the host again.
+const waiting = new Map<string, Set<() => void>>();
+const loadEnded = (src: string) => {
+  // Waiters stay until they unmount or show the image: one that wakes to a failed load may find
+  // another instance already retrying, and must hear that retry end too.
+  waiting.get(src)?.forEach((wake) => wake());
+};
+
+/// The data URL a local or web image already loaded to, if it has (the image viewer steps to it).
+export const loadedImageSrc = (src: string): string | undefined => clicked.get(src) ?? loaded.get(src);
+
 /// `auto`: load without a click. `clickFree`: that load is one the host may refuse (the image is
 /// not one it calls click-free after all); the page tells it so (`auto: true`), so a refusal spends
 /// no gesture, and the image then waits for its Load image instead of drawing as unavailable.
@@ -86,8 +104,27 @@ function useImageLoad(src: string, auto: boolean, clickFree = false) {
         started.delete(src);
         setState({ kind: "failed" });
       }
+      loadEnded(src);
     });
   };
+  // An instance whose source another one is loading shows what it loaded; if that load failed, this
+  // one asks the host itself (the render below, as `started` is cleared).
+  const waits = auto && state.kind === "idle" && started.has(src);
+  useEffect(() => {
+    if (!waits) return;
+    const wake = () => {
+      const known = clicked.get(src) ?? loaded.get(src);
+      setState(known ? { kind: "shown", src: known } : { kind: "idle" });
+    };
+    // The load may have ended before this effect ran (a fast host answers before the commit): hear it now.
+    if (clicked.has(src) || loaded.get(src) !== undefined || !started.has(src)) return wake();
+    const set = waiting.get(src) ?? new Set<() => void>();
+    waiting.set(src, set.add(wake));
+    return () => {
+      set.delete(wake);
+      if (!set.size && waiting.get(src) === set) waiting.delete(src);
+    };
+  }, [waits, src]);
   if (auto && state.kind === "idle" && !started.has(src)) {
     started.add(src);
     queueMicrotask(() => load(false));
@@ -110,15 +147,15 @@ export function OpenableImage({
 }) {
   const t = useT();
   const openImage = useContext(ImageViewerContext);
-  // Use the shared compositor-only fade for a calm handoff from the placeholder.
-  // The motion is disabled under reduced-motion; opacity never affects layout.
   const image = (
     <img
-      className={thumb ? "cv-thumb__img cv-img--enter" : "cv-img cv-img--enter"}
+      className={thumb ? "cv-thumb__img" : "cv-img"}
       src={src}
       alt={alt}
       loading="lazy"
-      decoding="async"
+      // Decode the host-backed source as part of this paint so the final pixels do not arrive in a
+      // second, visibly different frame.
+      decoding="sync"
     />
   );
   if (!openImage) return thumb ? <span className="cv-thumb">{image}</span> : image;
@@ -146,32 +183,42 @@ function ThumbFrame({ state, children }: { state: "waiting" | "placeholder"; chi
 
 /// `fallback` is how the image draws when the pane will not show it (its name as a link or text).
 /// `thumb`: draw in the reply's fixed-shape thumbnail (Markdown.tsx), in every state.
+/// `hideMissing`: a file that is not there draws nothing (a tool's strip, whose paths are read from
+/// its output and may name a file it never wrote).
 export function ReplyImage({
   src,
   alt,
   fallback,
   thumb = false,
+  hideMissing = false,
 }: {
   src: string;
   alt: string;
   fallback: ReactNode;
   thumb?: boolean;
+  hideMissing?: boolean;
 }) {
   const scope = useMessageScope();
+  const readOnly = useTranscriptReadOnly();
+  // A template or placeholder (`${variant}-320.png`) names no file: its text, never a chip.
+  if (isTemplatePath(src)) return <span className="cv-chip-plain">{alt || pathName(src.split(/[?#]/)[0]!)}</span>;
   const local = localImageSource(src);
-  // Another machine's image: its chip, never a file of the same path here; a denied one is its name.
-  if (local && scope?.host !== undefined)
+  // Another machine's image (or, read only, the owner's): its chip, never a file of the same path
+  // here; a denied one is its name.
+  if (local && (scope?.host !== undefined || readOnly))
     return isDeniedPath(local) ? (
       <span className="cv-chip-plain">{alt || pathName(local)}</span>
     ) : (
-      <ElsewhereChip path={local} host={scope.host} label={alt || undefined} />
+      <ElsewhereChip path={local} host={scope?.host ?? ""} label={alt || undefined} />
     );
+  // Read only, a web image or media file stays its link text: nothing asks the owner's host.
+  if (readOnly) return <>{fallback}</>;
   if (local && mediaKind(local)) return <ReplyMedia path={local} alt={alt} fallback={fallback} />;
   if (!local && isRemoteMedia(src)) return <RemoteMedia url={src} alt={alt} fallback={fallback} />;
   const host = local ? undefined : remoteImageHost(src);
   if (!local && !host) return <>{fallback}</>;
   return local ? (
-    <LocalImage src={src} path={local} alt={alt} fallback={fallback} thumb={thumb} />
+    <LocalImage src={src} path={local} alt={alt} fallback={fallback} thumb={thumb} hideMissing={hideMissing} />
   ) : (
     <RemoteImage src={src} alt={alt} host={host!} fallback={fallback} thumb={thumb} />
   );
@@ -183,23 +230,29 @@ function LocalImage({
   alt,
   fallback,
   thumb,
+  hideMissing,
 }: {
   src: string;
   path: string;
   alt: string;
   fallback: ReactNode;
   thumb: boolean;
+  hideMissing: boolean;
 }) {
   const t = useT();
   const { info, answered, policy } = usePathInfo(path);
   const place = info?.place;
   const denied = place === "denied" || isDeniedPath(path);
-  // The host refuses a file outside the folders, so the page asks only for one it may show.
-  const loadable = answered && !denied && place !== "outside" && place !== "missing";
+  // The host refuses a file outside the folders unless outside files open without asking
+  // (`outsideRoots: open`), so the page asks only for one it may show.
+  const outsideLoads = policy.outsideRoots === "open";
+  const loadable = answered && !denied && (place !== "outside" || outsideLoads) && place !== "missing";
   const { state } = useImageLoad(src, loadable);
   if (state.kind === "shown") return <OpenableImage src={state.src} alt={alt} path={path} thumb={thumb} />;
   if (denied) return <span className="cv-chip-plain">{alt || pathName(path)}</span>;
-  const outside = place === "outside";
+  if (place === "missing" && hideMissing) return null;
+  // Outside and loading (or about to): the same waiting frame as a file in the folders.
+  const outside = place === "outside" && !(outsideLoads && state.kind !== "failed");
   if (!outside && place !== "missing" && state.kind !== "failed")
     return thumb ? (
       <ThumbFrame state="waiting">

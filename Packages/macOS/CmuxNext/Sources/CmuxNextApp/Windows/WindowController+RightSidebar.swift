@@ -57,6 +57,7 @@ extension WindowController {
         let view = RightSidebarView(
             modes: sections.modes,
             title: { registry.descriptor(for: $0.actionID)?.title ?? $0.rawValue },
+            icon: sections.icon,
             makeSection: { [weak self] mode in self.flatMap { sections.makeView(mode, for: $0) } },
             run: { registry.perform($0) })
         view.onResize = { [weak self] in self?.resizeRightSidebar(to: $0) }

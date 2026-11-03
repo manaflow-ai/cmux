@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 public import CmuxNextIcons
 
@@ -43,13 +44,10 @@ extension BrowserChromeView {
     }
 
     public func presentExtensionsMenu(for id: String? = nil) {
-        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) { [weak self] in
-            MainActor.assumeIsolated { // main-proof: a CFRunLoopGetMain() block runs on the main thread
-                guard let self else { return }
-                if let id { self.showExtensionItemMenu(id) } else { self.showExtensionsMenu() }
-            }
+        MainRunLoopBlock.perform { [weak self] in
+            guard let self else { return }
+            if let id { self.showExtensionItemMenu(id) } else { self.showExtensionsMenu() }
         }
-        CFRunLoopWakeUp(CFRunLoopGetMain())
     }
 
     /// Runs an extension's toolbar action anchored to its button (or the
@@ -92,7 +90,7 @@ extension BrowserChromeView {
 
     /// Closes the open extension menu, else the Extensions bubble.
     public func dismissExtensionsMenu() {
-        if let menu = extensionToolbar.presentedMenu { menu.cancelTracking() } else { extensionToolbar.menuController.dismiss() }
+        if let menu = extensionToolbar.presentedMenu { menu.cancelTracking() } else { extensionToolbar.menuControllerIfMade?.dismiss() }
     }
 
     /// What the toolbar shows now (`debug.extensions.toolbar`).
@@ -169,7 +167,7 @@ extension BrowserChromeView {
     public func region(of view: NSView) -> Region? {
         guard view.isDescendant(of: self) else { return nil }
         if view.isDescendant(of: addressBar) { return .addressBar }
-        if view.isDescendant(of: findBar) { return .findBar }
+        if let findBar = pageBars.findBarIfMade, view.isDescendant(of: findBar) { return .findBar }
         if view.isDescendant(of: tab.contentView) { return .page }
         return .chrome
     }

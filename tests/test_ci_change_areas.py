@@ -138,6 +138,18 @@ def test_portable_guard_runner_and_tests_are_linux_control_plane_only() -> None:
     ), (paths, actual)
 
 
+def test_portable_placement_input_keeps_the_guard_tests_linux_only() -> None:
+    # cmux-next-guards.yml may pass a free mini as guard_tests_runner; the guard
+    # tests that job names stay off the macOS and Release lanes.
+    runs_on = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+               "inputs.guard_tests_runner != '' && inputs.guard_tests_runner || "
+               "vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}")
+    assert module.is_plainly_linux_runner(runs_on)
+    assert not module.is_plainly_linux_runner(runs_on.replace("guard_tests_runner", "other_runner"))
+    actual = module.classify_files(["tests/test_ci_nightly_push_throttle.py"])
+    assert actual.macos is False and actual.release_build is False, actual
+
+
 def test_portable_guard_runner_does_not_hide_a_native_change() -> None:
     paths = [
         "scripts/ci/run_ci_guards.py",
@@ -435,7 +447,7 @@ def test_release_build_waits_for_linux_preflight_admission() -> None:
         " && github.event.pull_request.head.repo.full_name != github.repository"
         " && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)"
         " && 'blacksmith-4vcpu-ubuntu-2404'"
-        " || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
+        " || fromJSON(vars.RUNNER_POOLS).linux }}"
     ) in admission
     assert 'TARGET_JOB: "linux-preflight"' in admission
     assert "actions/runs/{run_id}/jobs?filter=latest&per_page=100" in admission
@@ -529,12 +541,14 @@ def test_routing_policy_and_build_helpers_still_run_macos() -> None:
         "scripts/ci/detect_ci_change_areas.py",
         "scripts/ci/detect_linux_guard_changes.py",
         "scripts/ci/workflow_guard_groups.py",
-        # Reached from a macOS job through the cache-restore composite action
-        # and through run_python_test_lane.py respectively.
-        "scripts/ci/cache_restore_receipt.py",
+        # Reached from a macOS job through run_python_test_lane.py.
         "scripts/ci/test_execution_registry.py",
     ):
         assert_areas([path], macos=True, web=True, agent_session_web=True)
+    # Reached from ci-macos.yml's jobs through the cache-restore composite
+    # action, the only routed workflow that uses it: macOS and Release.
+    actual = module.classify_files(["scripts/ci/cache_restore_receipt.py"])
+    assert actual.macos is True and actual.release_build is True, actual
 
 
 def test_contributor_prose_skips_expensive_areas() -> None:
@@ -579,6 +593,67 @@ def test_bundled_and_executable_skill_files_run_macos() -> None:
 def test_cli_contract_doc_is_docs_only() -> None:
     # The Swift CLI contract tests that read it are gone; no macOS job reads it.
     assert_areas(["docs/cli-contract.md"], macos=False, web=False)
+
+
+def _web_bundle_key():
+    key_spec = importlib.util.spec_from_file_location(
+        "web_bundle_key_for_routing_test", ROOT / "scripts" / "cmux-next" / "web-bundle-key.py"
+    )
+    assert key_spec and key_spec.loader
+    key = importlib.util.module_from_spec(key_spec)
+    key_spec.loader.exec_module(key)
+    return key
+
+
+def test_settings_schema_only_diff_runs_the_web_checks() -> None:
+    # #31238 changed only the settings schema (with Swift and a catalog); the
+    # settings page imports it and gen-strings.mjs reads it, yet every web check
+    # skipped and the webview suite went red on base.
+    path = "schemas/settings/settings-schema.json"
+    assert module.classify_files([path]).web is True
+    assert web_subareas.classify_paths([path], ROOT).react_apps is True
+
+
+def test_every_web_bundle_input_outside_webviews_runs_the_web_checks() -> None:
+    # Derived, not listed: whatever web-bundle-key.py finds a webviews source
+    # importing (or gen-strings.mjs reading) routes the web area and its
+    # react-apps-check, so a new import is covered without editing the router.
+    key = _web_bundle_key()
+    outside = [
+        path for path in key.git_files(str(ROOT), key.routed_inputs(str(ROOT)))
+        if not path.startswith("webviews/")
+    ]
+    for want in (
+        "schemas/settings/settings-schema.json",
+        "web/data/model-catalog/snapshot.json",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts/InterVariable.woff2",
+    ):
+        assert want in outside, want
+    assert any(path.startswith("release-notes/next/highlights/") for path in outside)
+    unrouted = [
+        path for path in outside
+        if not module.is_web_change(path) or not web_subareas.classify_paths([path], ROOT).react_apps
+    ]
+    assert not unrouted, unrouted
+
+
+def test_swift_and_unread_catalog_edits_do_not_run_the_web_checks() -> None:
+    # The derivation narrows the key's catalog glob to the catalogs a web page
+    # reads, so Swift work and its own strings stay off the web lane.
+    key = _web_bundle_key()
+    read = set(key.gen_strings_catalogs(str(ROOT)) or ())
+    assert "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings" in read
+    unread = [
+        path for path in key.git_files(str(ROOT), [key.CATALOG_GLOB]) if path not in read
+    ]
+    assert unread, "every CmuxNext catalog is read by a web page; pick another unread path"
+    for path in (
+        "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsPageLayout.swift",
+        unread[0],
+    ):
+        assert module.classify_files([path]).web is False, path
+        assert web_subareas.classify_paths([path], ROOT).react_apps is False, path
 
 
 def test_changelog_runs_web_validation() -> None:
@@ -749,7 +824,8 @@ def test_diff_failure_does_not_look_like_a_known_empty_standalone_diff() -> None
 def test_remote_daemon_rejects_stale_heads_before_allocating_macos() -> None:
     jobs = yaml.safe_load(REMOTE_DAEMON_WORKFLOW.read_text())["jobs"]
     admission = jobs["remote-daemon-admission"]
-    assert "LINUX_RUNNER" in admission["runs-on"]
+    # Secretless Linux jobs read the runner pool (#30878), not a fixed size.
+    assert "fromJSON(vars.RUNNER_POOLS).linux" in admission["runs-on"]
     assert jobs["remote-daemon-macos-tests"]["needs"] == "remote-daemon-admission"
     script = admission["steps"][0]["run"]
     with tempfile.TemporaryDirectory() as directory:
@@ -2407,6 +2483,14 @@ def test_helper_a_test_only_unrouted_workflows_run_names_reaches_no_lane() -> No
     # A test a routed job names, or that something else runs, still fails open.
     run_by_a_script = {**unrouted_test, "scripts/run-it.sh": "python3 tests/test_unrouted.py\n"}
     assert helper_areas(run_by_a_script) is None
+    # A nightly step script only an unrouted workflow runs is a dead end too.
+    step_script = {
+        **unrouted_test,
+        ".github/workflows/next.yml": "on: pull_request\njobs:\n  checks:\n    runs-on: macos-15\n"
+                                      "    steps:\n      - run: bash scripts/run-it.sh\n",
+        "scripts/run-it.sh": "python3 tests/test_unrouted.py\n",
+    }
+    assert helper_areas(step_script) == areas()
     nothing_runs = {"tests/test_unrouted.py": unrouted_test["tests/test_unrouted.py"]}
     assert helper_areas(nothing_runs) is None
 
@@ -2943,7 +3027,9 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
     for job_name in MACOS_JOBS:
         assert f"      - {job_name}" not in block
 
-    assert "if: ${{ !cancelled() }}" in block
+    # Runs after a failure (so a red needs reports), but not on pull requests into feat-cmux-next.
+    assert ("if: ${{ !cancelled() && !(github.event_name == 'pull_request' && "
+            "github.event.pull_request.base.ref == 'feat-cmux-next') }}") in block
     assert "PLATFORM_NEEDS: ${{ toJSON(needs) }}" in block
     assert 'allowed = {"success", "skipped"}' in block
 
@@ -3050,10 +3136,13 @@ def test_webviews_bun_jobs_match_dev_engines_pin() -> None:
 
 def test_react_apps_check_keeps_a_stable_aggregate_gate() -> None:
     block = workflow_job_block("react-apps-check", WEB_WORKFLOW)
-    assert "needs: [web-subarea-scope, react-apps-check-shard, react-doctor]" in block
-    assert "react-apps-check-shard" in block
-    assert "react-doctor" in block
-    assert "if: ${{ !cancelled() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}" in block
+    # #24927 moved a pull request's base comparison into react-apps-base-check;
+    # the gate waits on it too and requires it only on pull requests.
+    assert "needs: [web-subarea-scope, react-apps-check-shard, react-apps-base-check, react-doctor]" in block
+    assert 'required_jobs = ["react-apps-check-shard", "react-doctor"]' in block
+    assert 'required_jobs.append("react-apps-base-check")' in block
+    # always(): a cancelled shard reports a red gate, never a skipped (passing) one.
+    assert "if: ${{ always() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}" in block
 
 
 def test_react_doctor_runs_as_an_independent_required_lane() -> None:
@@ -3067,6 +3156,11 @@ def test_react_doctor_runs_as_an_independent_required_lane() -> None:
 
 
 def test_every_setup_bun_step_declares_a_version() -> None:
+    # webviews/package.json devEngines is the one bun version; every setup-bun
+    # step in every workflow installs exactly it, so a bump is one edit there
+    # plus these copies, and a copy left behind fails here.
+    package = json.loads((ROOT / "webviews" / "package.json").read_text(encoding="utf-8"))
+    pin = package["devEngines"]["packageManager"]["version"]
     workflows = ROOT / ".github" / "workflows"
     action = "oven-sh/setup-bun@"
     found = 0
@@ -3078,10 +3172,35 @@ def test_every_setup_bun_step_declares_a_version() -> None:
                 continue
             found += 1
             tail = lines[index + 1:index + 7]
-            assert any("bun-version:" in candidate for candidate in tail), (
+            versions = [
+                match.group(1)
+                for candidate in tail
+                if (match := re.match(r'^\s+bun-version:\s*"?(\$\{\{[^}]*\}\}|[^"\s#]*)"?', candidate))
+            ]
+            assert versions, (
                 workflow_path.relative_to(ROOT),
                 index + 1,
                 "setup-bun must declare an explicit bun-version",
+            )
+            derived = re.fullmatch(r"\$\{\{\s*steps\.([A-Za-z0-9_-]+)\.outputs\.version\s*\}\}", versions[0])
+            if derived:
+                # A step that reads the pin from devEngines at run time
+                # (fast-checks.yml, #29757) installs exactly it too.
+                step_id = derived.group(1)
+                reader = "\n".join(lines[:index])
+                start = reader.rfind(f"id: {step_id}")
+                assert start >= 0, (workflow_path.relative_to(ROOT), index + 1, f"no step {step_id}")
+                body = reader[start:]
+                assert "webviews/package.json" in body and "devEngines" in body, (
+                    workflow_path.relative_to(ROOT),
+                    index + 1,
+                    f"step {step_id} must read the bun pin from webviews/package.json devEngines",
+                )
+                continue
+            assert versions[0] == pin, (
+                workflow_path.relative_to(ROOT),
+                index + 1,
+                f"setup-bun installs bun {versions[0]}; webviews/package.json devEngines declares {pin}",
             )
 
     assert found >= 20, "setup-bun inventory unexpectedly disappeared"
@@ -4103,7 +4222,7 @@ def product_runner_output(key: str) -> str:
     # so it takes pr_gui_runner before the root label:
     # pr_runner_pool.gui_label() of the same owned pick, so the same Xcode.
     gui = "inputs.pr_gui_runner || "
-    return ("${{ (github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, " + key + ")) "
+    return ("${{ (github.run_attempt > 2 && (contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, " + key + ")) "
             "&& inputs.pr_retry_runner || " + gui + "needs.macos-compile-admission.outputs.runner }}")
 
 
@@ -4671,7 +4790,7 @@ def test_web_workflow_parallelizes_typecheck_tests_and_browser_checks() -> None:
     assert './scripts/run-tests.sh --shard "${{ matrix.shard }}"' in tests
 
     assert "actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae" in instant
-    assert "bunx playwright install --with-deps chromium" in instant
+    assert "ensure-system-chrome.sh" in instant
     assert "CMUX_INSTANT_SKIP_TYPECHECK" in instant
 
 
@@ -5094,7 +5213,7 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     assert "vars.MACOS_RUNNER_PR" not in package_block
     assert (
         "CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && "
-        "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || "
+        "(github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) || "
         "github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && "
         "contains(inputs.pr_owned_jobs, ' swift-package ') && (inputs.pr_side_runner || inputs.pr_runner) && "
         "(inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}"
@@ -5107,7 +5226,7 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
 
     release_block = workflow_job_block("release-build", MACOS_WORKFLOW)
     assert (
-        "CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) "
+        "CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) "
         "&& (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_26 }}"
     ) in release_block
     assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in release_block

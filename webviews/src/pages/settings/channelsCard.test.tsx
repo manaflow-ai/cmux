@@ -68,6 +68,18 @@ test("each build shows its health and pull reason and links to its commit, PRs a
   page.unmount();
 });
 
+test("a build with no canary verdict has no badge; a rated one keeps its badge", async () => {
+  const page = await renderPage({ path: "/settings/updates" });
+  await settle();
+  const element = card(page.container)!;
+  const unrated = element.querySelector<HTMLElement>('[data-channel-build="3422"]')!;
+  expect(unrated.dataset.health).toBe("pending");
+  expect(unrated.querySelector(".row-control .badge")).toBeNull();
+  expect(unrated.textContent).not.toContain("Awaiting Verdict");
+  expect(element.querySelector('[data-channel-build="3420"] .badge-warning')?.textContent).toBe("Held");
+  page.unmount();
+});
+
 test("picking Nightly on a Dev build Nightly has not reached offers Go Back into the kept Nightly build", async () => {
   const page = await renderPage({
     path: "/settings/updates",
@@ -95,6 +107,53 @@ test("picking Nightly on a Dev build Nightly has not reached offers Go Back into
   page.unmount();
 });
 
+test("every build but the installed and pulled ones has Switch, which asks the host for that build", async () => {
+  const page = await renderPage({ path: "/settings/updates" });
+  await settle();
+  const dev = card(page.container)!.querySelector<HTMLElement>('[data-channel="dev"]')!;
+  const switches = [...dev.querySelectorAll<HTMLButtonElement>("[data-channel-switch-build]")];
+  // Newer (3422, 3420) and older (3418, kept) alike; never 3421 (pulled) or 3419 (You Are Here).
+  expect(switches.map((button) => button.dataset.channelSwitchBuild)).toEqual(["3422", "3420", "3418"]);
+  expect(switches.every((button) => button.textContent === "Switch")).toBe(true);
+  await run(() => switches[2]!.click());
+  await settle();
+  expect(page.provider.switchedTo).toBe("3418");
+  page.unmount();
+});
+
+test("a host's refusal of a Switch shows on that build's row", async () => {
+  const page = await renderPage({
+    path: "/settings/updates",
+    setup: (provider) => {
+      provider.switchRefusal = "That build is no longer offered for download.";
+    },
+  });
+  await settle();
+  const row = card(page.container)!.querySelector<HTMLElement>('[data-channel="dev"] [data-channel-build="3422"]')!;
+  await run(() => row.querySelector<HTMLButtonElement>("[data-channel-switch-build]")!.click());
+  await settle();
+  expect(row.querySelector(".row-error")?.textContent).toBe("That build is no longer offered for download.");
+  page.unmount();
+});
+
+test("an older host sends no switch flags: no build offers Switch", async () => {
+  const page = await renderPage({
+    path: "/settings/updates",
+    setup: (provider) => {
+      provider.channels = {
+        ...mockChannels,
+        tracks: mockChannels.tracks.map((track) => ({
+          ...track,
+          builds: track.builds.map(({ switch: _, ...build }) => build),
+        })),
+      };
+    },
+  });
+  await settle();
+  expect(card(page.container)!.querySelector("[data-channel-switch-build]")).toBeNull();
+  page.unmount();
+});
+
 test("a host with no updater shows no Channels card", async () => {
   const page = await renderPage({
     path: "/settings/updates",
@@ -106,4 +165,162 @@ test("a host with no updater shows no Channels card", async () => {
   expect(card(page.container)).toBeNull();
   expect(mockChannels.tracks.length).toBe(4);
   page.unmount();
+});
+
+test("the card names the app's acpmux daemon's build and whether it is up to date, as the host says", async () => {
+  const page = await renderPage({
+    path: "/settings/updates",
+    setup: (provider) => {
+      provider.channels = { ...mockChannels, daemon: { title: "acpmux daemon", value: "abc123 (restarting…)" } };
+    },
+  });
+  await settle();
+  const row = card(page.container)!.querySelector<HTMLElement>("[data-channel-daemon]")!;
+  expect(row.textContent).toContain("acpmux daemon");
+  expect(row.textContent).toContain("abc123 (restarting…)");
+  page.unmount();
+  // A host without a local daemon sends none, and the card has no such row.
+  const none = await renderPage({
+    path: "/settings/updates",
+    setup: (provider) => {
+      provider.channels = { ...mockChannels, daemon: null };
+    },
+  });
+  await settle();
+  expect(card(none.container)!.querySelector("[data-channel-daemon]")).toBeNull();
+  none.unmount();
+});
+
+test("the card lists the machines that cannot update in place or failed to, in one row, as the host says", async () => {
+  const lines = [
+    "lofty-lemon-stoat runs a cmux too old to update in place. Its chats and terminals keep working; features newer than its cmux stay off there.",
+    "Couldn't update build-box: Bootstrap failed: 125",
+  ];
+  const page = await renderPage({
+    path: "/settings/updates",
+    setup: (provider) => {
+      provider.channels = { ...mockChannels, machines: { title: "Other machines", lines } };
+    },
+  });
+  await settle();
+  const rows = card(page.container)!.querySelectorAll<HTMLElement>("[data-channel-machines]");
+  expect(rows.length).toBe(1);
+  expect(rows[0]!.textContent).toContain("Other machines");
+  expect([...rows[0]!.querySelectorAll("[data-channel-machine]")].map((line) => line.textContent)).toEqual(lines);
+  page.unmount();
+  // None to list: no row.
+  const none = await renderPage({
+    path: "/settings/updates",
+    setup: (provider) => {
+      provider.channels = { ...mockChannels, machines: null };
+    },
+  });
+  await settle();
+  expect(card(none.container)!.querySelector("[data-channel-machines]")).toBeNull();
+  none.unmount();
+});
+
+test("a machine failing while the card shows joins its row at once, without a re-read", async () => {
+  const page = await renderPage({
+    path: "/settings/updates",
+    setup: (provider) => {
+      provider.channels = { ...mockChannels, machines: null };
+    },
+  });
+  await settle();
+  expect(card(page.container)!.querySelector("[data-channel-machines]")).toBeNull();
+  const line = "Couldn't update build-box: Bootstrap failed: 125";
+  await run(() => page.provider.setMachines({ title: "Other machines", lines: [line] }));
+  const lines = [...card(page.container)!.querySelectorAll("[data-channel-machine]")].map((node) => node.textContent);
+  expect(lines).toEqual([line]);
+  await run(() => page.provider.setMachines(null));
+  expect(card(page.container)!.querySelector("[data-channel-machines]")).toBeNull();
+  page.unmount();
+});
+
+test("a machine too old to update in place has one Update button, which asks the host for that machine", async () => {
+  const tooOld =
+    "tidy-yellow-tern runs a cmux too old to update in place. Its chats and terminals keep working; features newer than its cmux stay off there.";
+  const failed = "Couldn't update build-box: Bootstrap failed: 125";
+  const page = await renderPage({
+    path: "/settings/updates",
+    setup: (provider) => {
+      provider.channels = {
+        ...mockChannels,
+        machines: {
+          title: "Other machines",
+          lines: [tooOld, failed],
+          updates: ["cloud:vm-9c96", null],
+          updateLabel: "Update",
+        },
+      };
+    },
+  });
+  await settle();
+  const buttons = [...card(page.container)!.querySelectorAll<HTMLButtonElement>("[data-channel-update-machine]")];
+  expect(buttons.map((button) => [button.dataset.channelUpdateMachine, button.textContent])).toEqual([
+    ["cloud:vm-9c96", "Update"],
+  ]);
+  await run(() => buttons[0]!.click());
+  await settle();
+  expect(page.provider.updatedMachines).toEqual(["cloud:vm-9c96"]);
+  // The app's push: the machine is updating, so its line says so and has no button.
+  const updating = "Updating tidy-yellow-tern to this Mac's build…";
+  await run(() =>
+    page.provider.setMachines({
+      title: "Other machines",
+      lines: [updating, failed],
+      updates: [null, null],
+      updateLabel: "Update",
+    }),
+  );
+  expect([...card(page.container)!.querySelectorAll("[data-channel-machine]")].map((node) => node.textContent)).toEqual(
+    [updating, failed],
+  );
+  expect(card(page.container)!.querySelector("[data-channel-update-machine]")).toBeNull();
+  page.unmount();
+});
+
+test("an app that offers no Update button shows the lines only", async () => {
+  const page = await renderPage({
+    path: "/settings/updates",
+    setup: (provider) => {
+      provider.channels = {
+        ...mockChannels,
+        machines: { title: "Other machines", lines: ["Couldn't update build-box: disk full"] },
+      };
+    },
+  });
+  await settle();
+  expect(card(page.container)!.querySelectorAll("[data-channel-machine]").length).toBe(1);
+  expect(card(page.container)!.querySelector("[data-channel-update-machine]")).toBeNull();
+  page.unmount();
+});
+
+test("Install an Earlier Nightly… opens the page at ?focus=channels[:N], which scrolls to the card", async () => {
+  const scrolled: string[] = [];
+  const view = globalThis.window.HTMLElement.prototype;
+  const original = view.scrollIntoView;
+  view.scrollIntoView = function (this: HTMLElement) {
+    scrolled.push(this.dataset.card ?? this.tagName);
+  };
+  try {
+    const page = await renderPage({ path: "/settings/updates?focus=channels" });
+    await settle();
+    expect(card(page.container)).not.toBeNull();
+    expect(scrolled).toContain("channels");
+    page.unmount();
+    scrolled.length = 0;
+    const again = await renderPage({ path: "/settings/updates?focus=channels:2" });
+    await settle();
+    expect(scrolled).toContain("channels");
+    again.unmount();
+    scrolled.length = 0;
+    const plain = await renderPage({ path: "/settings/updates" });
+    await settle();
+    expect(scrolled).not.toContain("channels");
+    plain.unmount();
+  } finally {
+    view.scrollIntoView = original;
+  }
 });

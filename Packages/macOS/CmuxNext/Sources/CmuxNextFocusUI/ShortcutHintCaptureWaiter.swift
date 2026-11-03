@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 
 /// Waits for the production monitor's callback, with a bounded capture deadline.

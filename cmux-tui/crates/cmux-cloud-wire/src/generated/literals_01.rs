@@ -25,6 +25,10 @@ wire_literal! {
 }
 
 wire_literal! {
+    LitChief = "chief"
+}
+
+wire_literal! {
     LitCloud = "cloud"
 }
 
@@ -110,6 +114,10 @@ wire_literal! {
 
 wire_literal! {
     LitReserved = "reserved"
+}
+
+wire_literal! {
+    LitSlack = "slack"
 }
 
 wire_literal! {

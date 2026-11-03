@@ -4,13 +4,35 @@ import Foundation
 
 /// Builds the control snapshot's Search Tabs facts from the App's owners:
 /// recency from the location trail, closing tabs from the strips' visible
-/// state, closed tabs from the closed-items log. Main actor; reads only.
+/// state, closed tabs from the closed-items log, agent chats' names from
+/// the strip's title rule. Main actor; reads only.
 enum TabSearchFactsBuilder {
     /// With `cache` the closed tabs are kept between publishes and rebuilt only when a read of
     /// theirs changed (about 10% of main while idle on cmux8s when rebuilt per publish). The
     /// trail and closing tabs stay fresh: the trail is no Observation source, and both are small.
     static func facts(_ services: AppServices, cache: ControlWorkspaceInfoCache? = nil) -> ControlTabSearchFacts {
-        ControlTabSearchFacts(lastActive: lastActive(services), closing: closing(services), closed: cache?.closedTabs { closed(services) } ?? closed(services))
+        ControlTabSearchFacts(lastActive: lastActive(services), closing: closing(services),
+                              closed: cache?.closedTabs { closed(services) } ?? closed(services),
+                              titles: titles(services.machines.allWorkspaces.map(\.0), TabTitleResolver(services: services)))
+    }
+
+    /// The strip's names (`TabTitleResolver`) of the agent chats in `workspaces`, by tab id: their
+    /// records are titled with the `about:blank` of the page that draws them. Only agent tabs are
+    /// resolved, so a publish stays one walk of the tabs.
+    static func titles(_ workspaces: [WorkspaceModel], _ resolver: TabTitleResolver) -> [String: String] {
+        var resolver = resolver
+        var result: [String: String] = [:]
+        for workspace in workspaces {
+            resolver.workspaceName = AgentChatTabTitle.workspaceName(workspace)
+            for screen in workspace.screens {
+                for pane in screen.panes {
+                    for tab in pane.tabs where tab.agentSession != nil {
+                        result[tab.id] = resolver.title(tab)
+                    }
+                }
+            }
+        }
+        return result
     }
 
     /// When the user last settled on each tab (the location trail), by tab id.
@@ -35,9 +57,24 @@ enum TabSearchFactsBuilder {
     private static func closed(_ services: AppServices) -> [ControlClosedTab] {
         // Read inside the publisher's tracking: a close republishes.
         _ = services.closedTabs?.changes.revision
+        // Each daemon's workspaces by resource id, built once per publish: a closed tab names its
+        // workspace, and a scan per tab (`workspace(resourceID:)`) cost O(closed tabs x workspaces)
+        // tracked reads on every publish (perf100: most of this builder at 483 workspaces).
+        var byResource: [ObjectIdentifier: [ResourceID: WorkspaceModel]] = [:]
+        func workspace(_ id: ResourceID, of daemon: DaemonService) -> WorkspaceModel? {
+            let key = ObjectIdentifier(daemon)
+            if let index = byResource[key] { return index[id] }
+            var index: [ResourceID: WorkspaceModel] = [:]
+            for model in daemon.store.workspaces {
+                // The first workspace with an id wins, as `workspace(resourceID:)` finds it.
+                if let resource = model.resourceID, index[resource] == nil { index[resource] = model }
+            }
+            byResource[key] = index
+            return index[id]
+        }
         return listed(DaemonClosedHistory.entries([.tab], in: services)) { ($0.item, $0.daemon.machineID) }.map { entry in
             let item = entry.item, tab = HistoryService.shownTab(item), daemon = entry.daemon
-            let workspaceTitle = item.workspaceID.flatMap { daemon.store.workspace(resourceID: $0)?.displayName }
+            let workspaceTitle = item.workspaceID.flatMap { workspace($0, of: daemon)?.displayName }
             let local = daemon.machineID == MachineRegistry.localID
             // One close gesture of several tabs is one item: its row reopens all of them.
             let title = item.tabs.count > 1 ? MiscHandlerStrings.tabsClosed(item.tabs.count)

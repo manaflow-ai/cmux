@@ -21,6 +21,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "approve",
     "decline",
     "collapse",
+    // `workspace group create --reuse`: the room's group of that name when it has one.
+    "reuse",
     "patch",
     "candidates",
     "catalog",
@@ -29,6 +31,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "reply",
     "empty",
     "ephemeral",
+    // `workspace create --top`: first in the sidebar, whatever workspaces.newPlacement says.
+    "top",
     "left",
     "right",
     "up",
@@ -90,6 +94,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "include-pinned",
     // `workspace rename`: hand the name back to the automatic namer.
     "release-to-auto",
+    // `run --sandboxed <task>` (cli/sandbox_run.rs): without it a following `--json` would be eaten.
+    "sandboxed",
 ];
 
 /// `--name` ends the command without a value: it needs one, or it is no

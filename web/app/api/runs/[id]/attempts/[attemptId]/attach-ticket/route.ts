@@ -1,13 +1,12 @@
 import { preconnectCloudDb } from "../../../../../../../db/client";
 import { preconnectFreestyle } from "../../../../../../../services/vms/drivers/freestyle";
-import { runError, runJson, jsonBodyObject } from "../../../../../../../services/runs/http";
+import { runError, runJson, jsonBodyObject, RunRequestError } from "../../../../../../../services/runs/http";
 import {
   consumeRunAttachTicket,
   mintRunAttachTicket,
 } from "../../../../../../../services/runs/repository";
 import { capabilityList, optionalClientIdentifier } from "../../../../../../../services/vms/routeInput";
 import {
-  jsonResponse,
   resolveVmRouteAccountScope,
   withAuthedVmApiRoute,
 } from "../../../../../../../services/vms/routeHelpers";
@@ -69,13 +68,13 @@ export async function POST(
           ticket: suppliedTicket,
         });
         if (target.provider !== "cloud-vm") {
-          return noStore(runJson({ error: "run_attach_provider_unsupported", message: "This run provider does not support terminal attach." }, 409));
+          return noStore(runError(new RunRequestError("run_attach_provider_unsupported", "This run provider does not support terminal attach.", "Choose an attempt from a provider that supports terminal attach and retry.", 409)));
         }
         let deviceFingerprint: string | undefined;
         try {
           deviceFingerprint = optionalClientIdentifier(body.deviceFingerprint ?? body.device_fingerprint, "deviceFingerprint");
         } catch (error) {
-          return noStore(jsonResponse({ error: "invalid_request", message: error instanceof Error ? error.message : "Invalid attach request." }, 400));
+          return noStore(runError(new RunRequestError("invalid_request", error instanceof Error ? error.message : "Invalid attach request.", "Provide a valid device fingerprint and retry.")));
         }
         const run = await runVmRoute(openVmCmuxRemote({
           userId: user.id,

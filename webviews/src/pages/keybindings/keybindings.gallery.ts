@@ -85,6 +85,17 @@ const bindings: Binding[] = [
     source: "app",
     conflicts: [],
   },
+  {
+    id: 8,
+    key: "",
+    display: "",
+    command: "sidebar.toggle",
+    title: "Toggle Sidebar",
+    when: null,
+    source: "user",
+    conflicts: [],
+    unset: true,
+  },
 ];
 
 const many = Array.from({ length: 42 }, (_, index): Binding => ({
@@ -134,6 +145,13 @@ const searchKeyboard: Play = async (ctx) => {
       row?.querySelector(".keys-command-title")?.textContent === "Go to File" && ctx.document.activeElement === search
     );
   });
+};
+
+const clickKeys: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".keys-key-button"));
+  await ctx.click({ selector: ".keys-key-button" });
+  await ctx.waitFor(() => ctx.document.querySelector(".keys-row.recording .keys-key-button[aria-pressed='true']"));
+  await ctx.waitFor(() => ctx.document.querySelector(".keys-recorder"));
 };
 
 const searchReadOnly: Play = async (ctx) => {
@@ -200,7 +218,15 @@ export default keybindingsPageEntry({
   variants: {
     empty: { note: "No shortcuts match the current table.", bindings: [] },
     loading: { note: "The shortcut owner is still loading its table.", loading: true, bindings },
-    normal: { note: "Defaults, user overrides, conflicts, removed rows and Ghostty rows.", bindings },
+    normal: {
+      note: "Defaults, user overrides, conflicts, removed rows, a row with no keys and Ghostty rows.",
+      bindings,
+    },
+    "click-keys": {
+      note: "A click on a row's keys opens the recorder popover over them.",
+      bindings,
+      play: clickKeys,
+    },
     "read-only": {
       note: "Ghostty and removed defaults are visible but cannot be edited.",
       bindings: readOnlyBindings,

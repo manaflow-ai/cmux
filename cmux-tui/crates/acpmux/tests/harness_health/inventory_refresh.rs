@@ -58,6 +58,7 @@ impl Fixture {
             cache: Some(cache),
             home,
             auto_update: Some(preference),
+            ..Settings::default()
         });
         Self { root, hub, asked, ran }
     }
@@ -75,6 +76,7 @@ impl Fixture {
             cache: Some(self.root.join("health.json")),
             home: self.root.join("home"),
             auto_update: Some(self.root.join("auto-update.json")),
+            ..Settings::default()
         });
     }
 }

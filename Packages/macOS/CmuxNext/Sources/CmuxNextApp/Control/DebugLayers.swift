@@ -125,7 +125,7 @@ enum DebugLayers {
         // on no screen): a caller checks that the window lies on its screen below the menu bar.
         fields["screen_visible_frame"] = window.screen.map { rect($0.visibleFrame) } ?? .null
         fields["screen_frame"] = window.screen.map { rect($0.frame) } ?? .null
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         fields["ring_layout_passes"] = .number(Double(layer.ringLayoutPasses))
         fields["ring_lag_passes"] = .number(Double(layer.ringLagPasses))
         fields["last_ring_lag"] = layer.lastRingLag.map(JSONValue.string) ?? .null
@@ -198,7 +198,7 @@ enum DebugLayers {
         max(abs(a.minX - b.minX), abs(a.minY - b.minY), abs(a.width - b.width), abs(a.height - b.height))
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.window_frame` (DEBUG builds): sets a window's frame the way an
     /// Accessibility client (Rectangle) or a display change does: one
     /// programmatic `setFrame`, no live resize. `frame` is [x, y, w, h] in

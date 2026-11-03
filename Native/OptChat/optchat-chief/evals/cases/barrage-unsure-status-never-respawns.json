@@ -1,0 +1,24 @@
+{
+  "id": "barrage-unsure-status-never-respawns",
+  "group": "barrage",
+  "owner": "tenacity-loop",
+  "about": "a status check that comes back empty or odd is no reason to start the same work again: Chief says what it knows and checks, never spawns duplicates",
+  "history": [
+    {"kind": "user", "text": "two things: fix the white flash on restart, and add autobalance to splits"},
+    {"kind": "talk", "text": "- a12: fixing the white flash on restart, in [Fix restart white flash](cmux://workspace/ws_1).\n- a13: adding autobalance to splits, in [Autobalance splits](cmux://workspace/ws_2)."}
+  ],
+  "stubs": [
+    {"cmd": "control", "match": "status", "stdout": "outcome: done. No subagents in the last 2 h."}
+  ],
+  "turns": [
+    {
+      "text": "are those two still going?",
+      "tail": "Subagents at work now: a12, a13.",
+      "checks": [
+        {"type": "not_called", "cmd": "spawn"},
+        {"type": "reply_matches", "re": "a12"},
+        {"type": "reply_matches", "re": "a13"}
+      ]
+    }
+  ]
+}

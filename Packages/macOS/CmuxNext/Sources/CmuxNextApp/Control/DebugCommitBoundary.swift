@@ -24,6 +24,7 @@ struct DebugCommitBoundary {
             "order": .number(Double(observer.order)),
             "callout": .string(observer.callout),
             "activities": observer.activities.map { JSONValue.string("0x" + String($0, radix: 16)) } ?? .null,
+            "dump": .string(observer.description),
         ])
     }
 }

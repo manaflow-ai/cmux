@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR cb12b489fcaad8bfa7cd1979fdcc27eaff578f0f3540c961896abdc0c61eeea0. */
+/* cmux-tui mux protocol 12, IR bba25ef6c17ba6206fa161713567d0d998a15d4a2e1103681b3c5badc91feb87. */
 
 
 import type * as T from "./types.js";
@@ -129,6 +129,13 @@ export type CloudConversationLiveEvent = { event: "cloud-conversation-live" } & 
   "account"?: string;
   "conversation": string;
   "frame": (T.JsonValue) | null;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudConversationPresenceEvent = { event: "cloud-conversation-presence" } & {
+  "account"?: string;
+  "conversation": string;
+  "participants": Array<T.CloudConversationPresenceParticipant>;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
@@ -495,6 +502,14 @@ export type ScrollChangedEvent = { event: "scroll-changed" } & {
   "surface": T.Id;
 };
 
+/** Protocol v12; emission: emitted; streams: subscribe-deltas. */
+export type SelectionChangedEvent = { event: "selection-changed" } & {
+  "active": boolean;
+  "active_workspace": (T.Id) | null;
+  "screens": Array<T.SelectionScreen>;
+  "workspace": T.Id;
+};
+
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type SettingsChangedEvent = { event: "settings-changed" } & {
   "keys": Array<string>;
@@ -698,6 +713,12 @@ export type WorkspaceMovedEvent = { event: "workspace-moved" } & {
   "workspace_revision": bigint;
 };
 
+/** Protocol v12; emission: emitted; streams: subscribe-deltas. */
+export type WorkspacePresentationChangedEvent = { event: "workspace-presentation-changed" } & {
+  "entity": T.Workspace;
+  "workspace": T.Id;
+};
+
 /** Protocol v7; emission: emitted; streams: subscribe-deltas. */
 export type WorkspaceRenamedEvent = { event: "workspace-renamed" } & {
   "entity": T.Workspace;
@@ -731,6 +752,7 @@ export type KnownCmuxEvent =
   | ClientDetachedEvent
   | CloudConversationChangedEvent
   | CloudConversationLiveEvent
+  | CloudConversationPresenceEvent
   | CloudConversationResyncedEvent
   | CloudConversationRunChangedEvent
   | CloudConversationTypingEvent
@@ -777,6 +799,7 @@ export type KnownCmuxEvent =
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
+  | SelectionChangedEvent
   | SettingsChangedEvent
   | SizeStateEvent
   | StatusEvent
@@ -802,6 +825,7 @@ export type KnownCmuxEvent =
   | WorkspaceChangedEvent
   | WorkspaceClosedEvent
   | WorkspaceMovedEvent
+  | WorkspacePresentationChangedEvent
   | WorkspaceRenamedEvent;
 
 /** Shapes serialized by runtime code but excluded from active event unions. */
@@ -820,6 +844,7 @@ export type KnownSubscribeEvent =
   | ClientDetachedEvent
   | CloudConversationChangedEvent
   | CloudConversationLiveEvent
+  | CloudConversationPresenceEvent
   | CloudConversationResyncedEvent
   | CloudConversationRunChangedEvent
   | CloudConversationTypingEvent
@@ -858,6 +883,7 @@ export type KnownSubscribeEvent =
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
+  | SelectionChangedEvent
   | SettingsChangedEvent
   | SizeStateEvent
   | StatusEvent
@@ -878,6 +904,7 @@ export type KnownSubscribeEvent =
   | WorkspaceChangedEvent
   | WorkspaceClosedEvent
   | WorkspaceMovedEvent
+  | WorkspacePresentationChangedEvent
   | WorkspaceRenamedEvent;
 
 /** Known delta-subscription events. */
@@ -888,6 +915,7 @@ export type TreeDeltaEvent =
   | ScreenChangedEvent
   | ScreenClosedEvent
   | ScreenRenamedEvent
+  | SelectionChangedEvent
   | TabAddedEvent
   | TabChangedEvent
   | TabClosedEvent
@@ -896,6 +924,7 @@ export type TreeDeltaEvent =
   | WorkspaceChangedEvent
   | WorkspaceClosedEvent
   | WorkspaceMovedEvent
+  | WorkspacePresentationChangedEvent
   | WorkspaceRenamedEvent;
 
 /** Known events from any attach mode. */

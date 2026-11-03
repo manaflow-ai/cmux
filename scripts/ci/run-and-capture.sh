@@ -69,12 +69,20 @@ class ForwardedSignal(Exception):
         super().__init__(signum)
         self.signum = signum
 
-proc = subprocess.Popen(sys.argv[1:], start_new_session=True)
+proc = None
+pending_signal = None
 
 def forward(signum, _frame):
+    global pending_signal
+    if proc is None:
+        # Popen may have started the child before returning its handle.
+        # Retain cancellation until the process group can be addressed.
+        if pending_signal is None:
+            pending_signal = signum
+        return
     try:
         os.killpg(proc.pid, signum)
-    except ProcessLookupError:
+    except (ProcessLookupError, PermissionError):
         pass
     raise ForwardedSignal(signum)
 
@@ -83,6 +91,11 @@ for signum in watched:
     signal.signal(signum, forward)
 
 try:
+    if pending_signal is not None:
+        raise SystemExit(128 + pending_signal)
+    proc = subprocess.Popen(sys.argv[1:], start_new_session=True)
+    if pending_signal is not None:
+        forward(pending_signal, None)
     status = proc.wait()
 except ForwardedSignal as forwarded:
     # A second cancellation should not interrupt the bounded cleanup path.
@@ -93,7 +106,7 @@ except ForwardedSignal as forwarded:
     except subprocess.TimeoutExpired:
         try:
             os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
             pass
         proc.wait()
     raise SystemExit(128 + forwarded.signum)

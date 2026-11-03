@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 
 extension WindowOverlayHost {
     // MARK: Mouse
@@ -110,11 +110,22 @@ extension WindowOverlayHost {
     func forwardingTarget(for screenPoint: NSPoint, in window: NSWindow) -> NSWindow {
         let windowPoint = window.convertPoint(fromScreen: screenPoint)
         if occluderRects.contains(where: { $0.contains(windowPoint) }) { return window }
-        let pages = (window.childWindows ?? []).filter { Self.isPageWindow($0) && $0.isVisible && $0.frame.contains(screenPoint) }
-        guard pages.count > 1 else { return pages.first ?? window }
+        return Self.frontPageWindow(at: screenPoint, in: window) ?? window
+    }
+
+    /// The frontmost visible page window (``isPageWindow(_:)``) of `window` under `screenPoint`, as the window
+    /// server picks the window a pointer event goes to; nil over no page.
+    ///
+    /// - Parameters:
+    ///   - screenPoint: A point in screen coordinates.
+    ///   - window: The window whose child page windows are searched.
+    /// - Returns: The page window under the point, or nil.
+    public static func frontPageWindow(at screenPoint: NSPoint, in window: NSWindow) -> NSWindow? {
+        let pages = (window.childWindows ?? []).filter { isPageWindow($0) && $0.isVisible && $0.frame.contains(screenPoint) }
+        guard pages.count > 1 else { return pages.first }
         // Front to back (child order is add order, not z-order).
         let order = (NSWindow.windowNumbers(options: []) ?? []).map(\.intValue)
-        return pages.min { (order.firstIndex(of: $0.windowNumber) ?? .max) < (order.firstIndex(of: $1.windowNumber) ?? .max) } ?? window
+        return pages.min { (order.firstIndex(of: $0.windowNumber) ?? .max) < (order.firstIndex(of: $1.windowNumber) ?? .max) }
     }
 
     /// Sends `event` to `forwardTarget` in that window's coordinates. It runs

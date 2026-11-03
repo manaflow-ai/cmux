@@ -161,6 +161,18 @@ import Testing
         #expect(gone == #"{"tab":"s4","type":"browser_gone"}"# + "\n")
     }
 
+    @Test func parsesSurfaceRequestsAndWritesTheAnswers() throws {
+        #expect(MobileHostEvent(line: #"{"type":"need_surface","request":8,"tab":"s12"}"#) == .needSurface(request: 8, tab: "s12"))
+        #expect(MobileHostEvent(line: #"{"type":"surface_stop","tab":"s12"}"#) == .surfaceStop(tab: "s12"))
+        #expect(MobileHostEvent(line: #"{"type":"need_surface","request":8}"#) == nil)
+        let answer = try #require(String(data: MobileHostLaunch.surfaceLine(request: 8, port: 4567, secret: "ab"), encoding: .utf8))
+        #expect(answer == #"{"addr":"127.0.0.1:4567","request":8,"secret":"ab","type":"surface"}"# + "\n")
+        let failed = try #require(String(data: MobileHostLaunch.surfaceFailedLine(request: 8, reason: "no"), encoding: .utf8))
+        #expect(failed == #"{"reason":"no","request":8,"type":"surface_failed"}"# + "\n")
+        let gone = try #require(String(data: MobileHostLaunch.surfaceGoneLine(tab: "s12"), encoding: .utf8))
+        #expect(gone == #"{"tab":"s12","type":"surface_gone"}"# + "\n")
+    }
+
     /// Records what the supervisor asks of the app's browser hosts.
     final class FakeBrowserHosts: MobileHostBrowserHosting, @unchecked Sendable {
         let lock = NSLock()
@@ -303,6 +315,33 @@ import Testing
 
     @Test func dropPhoneIsOneControlLine() {
         #expect(String(decoding: MobileHostLaunch.dropPhoneLine("p1"), as: UTF8.self) == #"{"phone_device_id":"p1","type":"drop_phone"}"# + "\n")
+    }
+
+    /// Each phone's own acpmux credential reaches hostd as one `phone_credentials` line, and the
+    /// phone's record name is one acpmux accepts (`session_name::validate`).
+    @Test func phoneCredentialsAreOneControlLine() {
+        #expect(String(decoding: MobileHostLaunch.phoneCredentialsLine(["p1": "tok"]), as: UTF8.self)
+            == #"{"credentials":{"p1":"tok"},"type":"phone_credentials"}"# + "\n")
+        #expect(MobileHostPairedDevices.acpmuxRecordName("AB/C d-1") == "phone-abcd-1")
+        #expect(MobileHostPairedDevices.acpmuxRecordName(String(repeating: "a", count: 200)).count == 80)
+    }
+
+    /// The Feed's open requests reach hostd as one `needs_you` line (#33818), the whole set.
+    @Test func needsYouIsOneControlLine() throws {
+        let request = MobileHostNeedsYouRequest(
+            id: "fi_a", title: "Spaces switcher", body: "acme/app#30817", kind: "review", source: "GitHub",
+            url: URL(string: "https://github.com/acme/app/pull/30817"), createdAt: Date(timeIntervalSince1970: 1_700_000_000))
+        let line = MobileHostLaunch.needsYouLine([request])
+        #expect(line.last == 0x0A)
+        let object = try #require(try JSONSerialization.jsonObject(with: line) as? [String: Any])
+        #expect(object["type"] as? String == "needs_you")
+        let items = try #require(object["items"] as? [[String: Any]])
+        #expect(items.count == 1)
+        #expect(items[0]["id"] as? String == "fi_a")
+        #expect(items[0]["title"] as? String == "Spaces switcher")
+        #expect(items[0]["url"] as? String == "https://github.com/acme/app/pull/30817")
+        #expect(items[0]["created_at_ms"] as? Int == 1_700_000_000_000)
+        #expect(String(decoding: MobileHostLaunch.needsYouLine([]), as: UTF8.self) == #"{"items":[],"type":"needs_you"}"# + "\n")
     }
 
     @Test func directoryListsAndRemovesWithTheBearerToken() async throws {

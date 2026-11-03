@@ -45,6 +45,8 @@ pub(super) fn serve_line_connection(
     let Ok(writer_thread) =
         std::thread::Builder::new().name("mux-line-out".into()).spawn(move || {
             while let Some(item) = writer_outbound.recv() {
+                writer_close.input_lane.raise_this_thread_if_marked();
+                input_qos::note_thread_qos("mux-line-out");
                 if write_line_outbound_item(&mut *write_half, item).is_err() {
                     writer_outbound.close();
                     let _ = write_half.shutdown(Shutdown::Both);
@@ -60,7 +62,10 @@ pub(super) fn serve_line_connection(
     };
     let peer_key = stream.peer_process_key();
     let peer_token = stream.peer_token();
-    let client = mux.control_clients.register(transport, writer.clone());
+    // Before it registers, so the orphan exit never sees the owner's own
+    // plugin as a client (orphan_shutdown.rs).
+    let owner_plugin = orphan_shutdown::is_owner_plugin_peer(&mux, peer_key.as_deref());
+    let client = mux.control_clients.register_classified(transport, writer.clone(), owner_plugin);
     origin_gate::set_peer_identity_at_accept(&mux, client, peer_key, peer_token);
     if !admission.registered(&mux, client) {
         // Refused before its first frame (the remote entry's revocation
@@ -76,6 +81,8 @@ pub(super) fn serve_line_connection(
     ));
     let mut reader = BufReader::new(stream);
     let mut drain_accepted = true;
+    #[cfg(unix)]
+    let mut first_line_done = false;
     loop {
         let mut line = String::new();
         // read_line includes the trailing LF. Read one byte beyond the largest
@@ -97,8 +104,16 @@ pub(super) fn serve_line_connection(
         }
         if line.trim().is_empty() {
             zeroize_string(&mut line);
+            // A blank line is a line too: a proxy's bind must be the very first.
+            #[cfg(unix)]
+            if !first_line_done {
+                first_line_done = true;
+                mux.control_clients.agent_sessions.first_line_done(client);
+            }
             continue;
         }
+        writer.input_lane.raise_this_thread_if_marked();
+        input_qos::note_thread_qos("mux-conn");
         let keep_open = match admission.refusal(&line) {
             Some(refusal) => {
                 // A refused line still counts as a line: the window closes.
@@ -127,6 +142,12 @@ pub(super) fn serve_line_connection(
             }
         };
         zeroize_string(&mut line);
+        // A host proxy binds a teammate only on its first line (agent_session_proxy.rs).
+        #[cfg(unix)]
+        if !first_line_done {
+            first_line_done = true;
+            mux.control_clients.agent_sessions.first_line_done(client);
+        }
         if !keep_open {
             drain_accepted = false;
             break;

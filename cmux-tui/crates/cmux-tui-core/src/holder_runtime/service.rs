@@ -2,13 +2,14 @@
 //! terminals on it, and hand every live terminal to a new holder after a
 //! holder crash.
 
+use cmux_process::Stdio;
 use std::collections::HashMap;
 use std::io::{self, Write};
 use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, Weak};
+use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
+use std::time::{Duration, Instant};
 
 use cmux_holder::link::{HolderLink, LinkEnd, TerminalSink};
 use cmux_holder::{Listed, SpawnRequest};
@@ -43,6 +44,19 @@ pub(crate) struct HolderService {
     /// Terminals this daemon runs on the holder, for a re-adoption after a
     /// holder crash.
     live: Mutex<HashMap<u32, Weak<HolderTerminal>>>,
+    /// Held (shared) by a spawn or a re-attach from before its SPAWN or
+    /// ATTACH goes out until its terminal is in `live` or its channel is in
+    /// `abandoned`; held (exclusive) by a reconnect from before it reads
+    /// either. So a reconnect never misses a terminal that is just being
+    /// opened: it resumes or re-adopts it, or ends it as abandoned. A spawn
+    /// on a link that is lost fails at once (the link fails its waiters
+    /// before anyone reconnects), so the reconnect waits only for that.
+    claiming: RwLock<()>,
+    /// Channels whose SPAWN failed after it went out (a timeout, or the
+    /// link broke before the answer), by channel, with the terminal id:
+    /// the holder may run them though no surface of this daemon owns them.
+    /// The only terminals a reconnect ends on its own ([`Self::end_abandoned`]).
+    abandoned: Mutex<HashMap<u32, [u8; 16]>>,
     /// What the holder ran when this daemon first reached it: the
     /// terminals a restarted daemon re-attaches, by terminal id. Filled by
     /// the first connection only, emptied after the startup pass
@@ -54,7 +68,18 @@ pub(crate) struct HolderService {
     /// The standalone holder failed to start once: this daemon starts the
     /// holder built into its host executable from then on.
     standalone_failed: AtomicBool,
+    /// Spacing of relinks after links that ended before they were healthy
+    /// ([`RELINK_HEALTHY`]): a holder that takes every link and drops it
+    /// at once is not reconnected in a tight loop.
+    relink: Mutex<crate::backoff::Backoff>,
 }
+
+/// A link that stayed up this long was healthy: when it ends, the next link
+/// is made at once (a holder crash), and the relink spacing starts over.
+const RELINK_HEALTHY: Duration = Duration::from_secs(10);
+/// First and longest wait before a relink after a link that ended sooner.
+const RELINK_INITIAL: Duration = Duration::from_millis(10);
+const RELINK_MAX: Duration = Duration::from_secs(5);
 
 impl HolderService {
     /// The service of `host_root`, made on first use. One per root in the
@@ -66,19 +91,40 @@ impl HolderService {
         if let Some(service) = services.get(host_root) {
             return Ok(service.clone());
         }
-        let service = Arc::new(Self {
-            socket: socket_path(host_root)?,
-            token: load_or_create_token(host_root)?,
+        let service =
+            Arc::new(Self::new(socket_path(host_root)?, load_or_create_token(host_root)?));
+        services.insert(host_root.to_path_buf(), service.clone());
+        Ok(service)
+    }
+
+    /// The service of the holder at `socket`, which takes `token`.
+    fn new(socket: PathBuf, token: [u8; 32]) -> Self {
+        Self {
+            socket,
+            token,
             link: Mutex::default(),
             connecting: Mutex::new(()),
             next_chan: AtomicU32::new(1),
             live: Mutex::default(),
+            claiming: RwLock::new(()),
+            abandoned: Mutex::default(),
             listed: Mutex::default(),
             superseded: AtomicBool::new(false),
             standalone_failed: AtomicBool::new(false),
-        });
-        services.insert(host_root.to_path_buf(), service.clone());
-        Ok(service)
+            relink: Mutex::new(crate::backoff::Backoff::new(RELINK_INITIAL, RELINK_MAX)),
+        }
+    }
+
+    /// The wait before relinking after a link that was made at `linked_at`
+    /// ended: none after a healthy link, else growing with each such end
+    /// in a row.
+    fn relink_delay(&self, linked_at: Instant) -> Duration {
+        let mut relink = self.relink.lock().recover_poison();
+        if linked_at.elapsed() >= RELINK_HEALTHY {
+            relink.reset();
+            return Duration::ZERO;
+        }
+        relink.next_delay()
     }
 
     /// Whether a holder of `host_root` may run: its socket exists. Asking
@@ -127,16 +173,20 @@ impl HolderService {
             self.next_chan.fetch_max(entry.chan + 1, Ordering::AcqRel);
         }
         if had_link {
-            // A reconnect: what the holder lists are this daemon's own
-            // terminals (the same holder) or nothing (a new one). Their
-            // master dups drop here; the daemon keeps its own custody
-            // copies. The link is published only after the re-adoption, so
-            // a CLOSE meanwhile waits for it instead of reaching a holder
-            // that does not know the terminal yet.
+            // A reconnect: the holder lists this daemon's own terminals (the
+            // same holder), nothing (a new one), or also terminals of
+            // another daemon of the session (a restart overlap whose
+            // SUPERSEDED never reached this one). Their master dups drop
+            // here; the daemon keeps its own custody copies. The link is
+            // published only after the re-adoption, so a CLOSE meanwhile
+            // waits for it instead of reaching a holder that does not know
+            // the terminal yet.
             let still_held: HashMap<u32, [u8; 16]> =
                 listed.iter().map(|entry| (entry.chan, entry.id)).collect();
             drop(listed);
+            let _claims = self.claiming.write().recover_poison();
             self.readopt(&link, &still_held);
+            self.end_abandoned(&link, &still_held);
         } else {
             let mut known = self.listed.lock().recover_poison();
             for entry in listed {
@@ -145,6 +195,37 @@ impl HolderService {
         }
         self.publish(&link);
         Ok(link)
+    }
+
+    /// After a reconnect: end every terminal this daemon abandoned (a SPAWN
+    /// that failed after it went out, [`Self::spawn`]) that the holder
+    /// still lists under the same channel and terminal id. Its CLOSE was
+    /// lost with the link, or never sent: without this the holder would
+    /// keep its shell, PTY and ring for the life of the link, the shell
+    /// blocked behind output nobody acknowledges.
+    ///
+    /// Only those: what the holder lists is not this daemon's to end just
+    /// because no surface of it runs the terminal. Another daemon of the
+    /// session may run it (a restart overlap, where the old daemon saw a
+    /// plain end of its link instead of SUPERSEDED and reconnects), and a
+    /// surface of this one may be opening it (the `claiming` lock).
+    ///
+    /// An abandoned channel the holder does not list (or lists with
+    /// another id) has ended and been forgotten, or never started: it is
+    /// dropped. One it still lists stays, so a CLOSE this link loses too
+    /// goes out again on the next one; once the holder forgot it, the next
+    /// reconnect drops it.
+    fn end_abandoned(&self, link: &HolderLink, listed: &HashMap<u32, [u8; 16]>) {
+        let ending: Vec<u32> = {
+            let mut abandoned = self.abandoned.lock().recover_poison();
+            abandoned.retain(|chan, id| listed.get(chan) == Some(id));
+            abandoned.keys().copied().collect()
+        };
+        for chan in ending {
+            if let Err(error) = link.close(chan, ABANDONED_CLOSE_GRACE_MS) {
+                eprintln!("cmux-tui: end abandoned holder terminal {chan}: {error}");
+            }
+        }
     }
 
     /// Make `link` the current link and send the CLOSEs that waited for it.
@@ -170,11 +251,21 @@ impl HolderService {
         seed: &[u8],
     ) -> io::Result<Arc<HolderTerminal>> {
         let link = self.link()?;
+        let _claim = self.claiming.read().recover_poison();
         let chan = self.next_chan.fetch_add(1, Ordering::AcqRel);
         let sink = HolderSink::new(0);
         sink.prepend(seed);
-        let spawned = link.spawn(chan, request, sink.clone() as Arc<dyn TerminalSink>)?;
-        Ok(self.track(chan, request.id, spawned.pid, (spawned.master, spawned.ring), sink))
+        match link.spawn(chan, request, sink.clone() as Arc<dyn TerminalSink>) {
+            Ok(spawned) => {
+                Ok(self.track(chan, request.id, spawned.pid, (spawned.master, spawned.ring), sink))
+            }
+            Err(error) => {
+                if cmux_holder::link::spawn_may_have_started(&error) {
+                    self.abandoned.lock().recover_poison().insert(chan, request.id);
+                }
+                Err(error)
+            }
+        }
     }
 
     /// The terminal `id` a previous daemon left running on the holder, now
@@ -186,6 +277,7 @@ impl HolderService {
         id: &[u8; 16],
     ) -> io::Result<Option<Arc<HolderTerminal>>> {
         let link = self.link()?;
+        let _claim = self.claiming.read().recover_poison();
         let Some(entry) = self.listed.lock().recover_poison().remove(id) else { return Ok(None) };
         // A shell that ended while no daemon ran still re-attaches: its last
         // output replays and the holder's EXIT records its real status.
@@ -207,15 +299,24 @@ impl HolderService {
     }
 
     /// After the startup pass: end every terminal the holder runs that no
-    /// surface re-attached (its registry row ended, was removed, or never
-    /// ran), and drop the master dups the holder passed for them. Without
-    /// this the holder would keep those shells, their PTYs and their rings
-    /// for ever. Starts no holder.
-    pub(crate) fn release_unclaimed(self: &Arc<Self>) {
+    /// surface re-attached and whose registry row `ended` (the shell exited,
+    /// or the person closed it), and drop the master dups the holder passed
+    /// for them, so the holder does not keep those shells, PTYs and rings for
+    /// ever. Any other unclaimed terminal stays held for the next start (QUIT
+    /// P0: a start never ends a shell a person still has). Starts no holder.
+    pub(crate) fn release_unclaimed(self: &Arc<Self>, ended: impl Fn(&[u8; 16]) -> bool) {
         let Ok(link) = self.link_or_launch(false) else { return };
-        let unclaimed: Vec<Listed> =
-            self.listed.lock().recover_poison().drain().map(|(_, entry)| entry).collect();
-        for entry in unclaimed {
+        let unclaimed: Vec<([u8; 16], Listed)> =
+            self.listed.lock().recover_poison().drain().collect();
+        for (id, entry) in unclaimed {
+            if !ended(&id) {
+                eprintln!(
+                    "cmux-tui: keep unclaimed holder terminal {} (channel {}): its row has not ended",
+                    crate::terminal_host::TerminalId::from_bytes(id).to_hex(),
+                    entry.chan
+                );
+                continue;
+            }
             // A shell's usual hang-up grace; the holder forgets it once it ended.
             if let Err(error) = link.close(entry.chan, 2000) {
                 eprintln!("cmux-tui: end unclaimed holder terminal {}: {error}", entry.chan);
@@ -233,11 +334,10 @@ impl HolderService {
 
     /// Hand the holder a VT replay of `chan`'s screen at `base` (its
     /// prologue for a restarted daemon). Without an open link nothing is
-    /// sent: a new holder gets a fresh replay with the master.
-    pub(super) fn snapshot(&self, chan: u32, base: u64, replay: &[u8]) {
-        if let Some(link) = self.open_link() {
-            let _ = link.snapshot(chan, base, replay);
-        }
+    /// sent (a new holder gets a fresh replay with the master) and this
+    /// returns false.
+    pub(super) fn snapshot(&self, chan: u32, base: u64, replay: &[u8]) -> bool {
+        self.open_link().is_some_and(|link| link.snapshot(chan, base, replay).is_ok())
     }
 
     /// Hang up `chan`'s terminal; SIGKILL its groups after `grace_ms`.
@@ -264,7 +364,7 @@ impl HolderService {
 
     /// The daemon leaves `chan` running on the holder for its shutdown.
     /// Never connects.
-    pub(super) fn detach(&self, chan: u32) {
+    pub(crate) fn detach(&self, chan: u32) {
         if let Some(link) = self.open_link() {
             let _ = link.detach(chan);
         }
@@ -339,6 +439,8 @@ impl HolderService {
         let mut answers = Vec::new();
         for terminal in live {
             if still_held.get(&terminal.chan) == Some(&terminal.id) {
+                // Its own ring holds every byte it read: nothing is lost.
+                terminal.sink.forget_adoption();
                 let sink = terminal.sink.clone() as Arc<dyn TerminalSink>;
                 let at = (terminal.sink.received(), terminal.sink.confirmed());
                 if let Err(error) = link.resume(terminal.chan, at, sink) {
@@ -358,8 +460,10 @@ impl HolderService {
             ) {
                 Ok(answer) => answers.push((terminal, answer)),
                 // The ADOPT did not go out whole, so the holder never
-                // adopted the terminal: the custody segment stays.
+                // adopted the terminal: the custody segment stays, and the
+                // next adoption plans its loss again.
                 Err(error) => {
+                    terminal.sink.forget_adoption();
                     eprintln!(
                         "cmux-tui: hand terminal {} to the new holder: {error}",
                         terminal.chan
@@ -381,6 +485,7 @@ impl HolderService {
 
     fn connect(self: &Arc<Self>) -> io::Result<(Arc<HolderLink>, Vec<Listed>)> {
         let weak = Arc::downgrade(self);
+        let linked_at = Instant::now();
         HolderLink::connect(
             &self.socket,
             &self.token,
@@ -394,9 +499,31 @@ impl HolderService {
                     service.superseded.store(true, Ordering::Release);
                     return;
                 }
+                if let LinkEnd::Fault(code) = end {
+                    // The holder still runs every terminal and counted no
+                    // crash: the next link takes them back as after a drop.
+                    eprintln!(
+                        "cmux-tui: the terminal holder could not read this daemon's link \
+                         (error code {code}); connecting again"
+                    );
+                }
                 // The holder died: start a new one and hand it every master.
+                // A link that ended before it was healthy waits first, longer
+                // each time in a row: a holder that drops every link (or a
+                // daemon link it faults at once) would otherwise be linked
+                // again in a tight loop of connects, LISTs and threads.
+                let delay = service.relink_delay(linked_at);
                 let _ =
                     std::thread::Builder::new().name("holder-restart".into()).spawn(move || {
+                        if !delay.is_zero() {
+                            std::thread::sleep(delay);
+                            // Another daemon took the holder meanwhile: this
+                            // one is on its way out and keeps its terminals,
+                            // as on its own Superseded end.
+                            if service.superseded.load(Ordering::Acquire) {
+                                return;
+                            }
+                        }
                         if let Err(error) = service.link() {
                             // No holder streams their output any more: their
                             // terminals end as lost (the shells may still run).
@@ -415,7 +542,7 @@ impl HolderService {
     /// (`cmux-tui-host __holder`).
     fn launch(&self) -> io::Result<()> {
         let configure =
-            |command: &mut std::process::Command| {
+            |command: &mut cmux_process::Command| {
                 command
                     .arg("--socket")
                     .arg(&self.socket)
@@ -437,10 +564,15 @@ impl HolderService {
         if !self.standalone_failed.load(Ordering::Acquire)
             && let Some(path) = standalone_holder()
         {
-            use std::os::unix::process::CommandExt;
-            let mut command = std::process::Command::new(&path);
+            let mut command = cmux_process::Command::new(&path);
             command.arg0(crate::host_exe::HOLDER_NAME);
             configure(&mut command);
+            // Not to a file `CMUX_TUI_HOLDER_EXE` names: that is a test's
+            // stand-in for an older holder, which refuses arguments it
+            // does not know.
+            if std::env::var_os(crate::host_exe::HOLDER_ENV).is_none_or(|value| value.is_empty()) {
+                command.args(crate::terminal_host_runtime::host_owner_args());
+            }
             let started = command.spawn().and_then(|child| self.handshake(child));
             match started {
                 Ok(()) => return Ok(()),
@@ -464,9 +596,10 @@ impl HolderService {
                 }
             }
         }
-        let child = crate::host_exe::spawn_host(|command| {
+        let child = crate::host_exe::spawn_host_isolated(|command| {
             command.arg("__holder");
             configure(command);
+            command.args(crate::terminal_host_runtime::host_owner_args());
         })?;
         self.handshake(child)
     }
@@ -475,7 +608,7 @@ impl HolderService {
     /// holder that answers anything else, or nothing in time, is killed and
     /// reaped; one that is ready is reaped whenever it exits while this
     /// daemon runs.
-    fn handshake(&self, mut child: std::process::Child) -> io::Result<()> {
+    fn handshake(&self, mut child: cmux_process::Child) -> io::Result<()> {
         match first_line(&mut child, &self.token) {
             Ok(line) if line.trim() == "ready" => {}
             answer => {
@@ -496,12 +629,16 @@ impl HolderService {
     }
 }
 
+/// The grace a CLOSE gives the shell of an abandoned terminal before
+/// SIGKILL: a shell's usual hang-up grace.
+const ABANDONED_CLOSE_GRACE_MS: u32 = 2000;
+
 /// Write `token` to a just-started holder's stdin and read the first line
 /// it prints (`ready` once it listens), waiting at most
 /// [`cmux_holder::client::READY_TIMEOUT`]: a holder that hangs before it
 /// (and does not exit) must not hold the `connecting` lock, and with it
 /// every terminal create and holder restart, for ever.
-fn first_line(child: &mut std::process::Child, token: &[u8; 32]) -> io::Result<String> {
+fn first_line(child: &mut cmux_process::Child, token: &[u8; 32]) -> io::Result<String> {
     let hex: String = token.iter().map(|byte| format!("{byte:02x}")).collect();
     let mut stdin = child.stdin.take().ok_or_else(|| io::Error::other("no holder stdin"))?;
     stdin.write_all(format!("{hex}\n").as_bytes())?;
@@ -596,4 +733,171 @@ fn parse_hex(hex: &str) -> Option<[u8; 32]> {
         *byte = u8::from_str_radix(hex.get(index * 2..index * 2 + 2)?, 16).ok()?;
     }
     Some(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::net::{UnixListener, UnixStream};
+    use std::time::Duration;
+
+    use cmux_holder::wire::{self, Frame, Kind, Out};
+
+    use super::*;
+
+    /// The next frame the link sent on `stream`; panics when it ends.
+    fn next_frame(stream: &UnixStream, reader: &mut wire::Reader, what: &str) -> Frame {
+        loop {
+            if let Some(frame) = reader.next_frame().unwrap() {
+                return frame;
+            }
+            match reader.fill(stream.as_raw_fd()) {
+                Ok(true) => {}
+                other => panic!("the daemon sent no {what}: {other:?}"),
+            }
+        }
+    }
+
+    /// Answer a HELLO with a WELCOME listing `listed` (channel, terminal id).
+    fn welcome(stream: &UnixStream, reader: &mut wire::Reader, listed: &[(u32, [u8; 16])]) {
+        let hello = next_frame(stream, reader, "HELLO");
+        assert_eq!(hello.kind, Kind::Hello as u16);
+        let fd = stream.as_raw_fd();
+        let count = u32::try_from(listed.len()).unwrap();
+        let payload = Out::default().u16(wire::VERSION).u32(count).0;
+        wire::send_all(fd, &wire::encode(Kind::Welcome, 0, &payload), &[]).unwrap();
+        for (chan, id) in listed {
+            // Every LISTED passes its master: a stand-in, a pipe's end.
+            let (master, _write_end) = io::pipe().unwrap();
+            let entry = Out::default().i32(0).u64(0).u64(0).u8(0).bytes(id).0;
+            let frame = wire::encode_with_fds(Kind::Listed, 0, *chan, &entry, 1);
+            wire::send_all(fd, &frame, &[master.as_raw_fd()]).unwrap();
+        }
+    }
+
+    /// Review 2 of pl-holder-11: a reconnect ends only the terminals this
+    /// daemon abandoned, never the other terminals the holder lists. Daemon
+    /// A's SPAWN of terminal `a` goes out and its link breaks before the
+    /// answer (as when another daemon B took the holder and A's SUPERSEDED
+    /// stayed behind queued output, so A sees a plain end and reconnects).
+    /// The holder then lists `a` (A's abandoned terminal) and two shells B
+    /// spawned. A's reconnect sends exactly one CLOSE, for `a`. Before, A
+    /// closed every listed terminal that was not in its `live` map: B's
+    /// shells too, and a terminal of A's own between its SPAWNED and its
+    /// `track`.
+    #[test]
+    fn a_reconnect_ends_only_the_terminals_this_daemon_abandoned() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.subsec_nanos());
+        let dir = std::env::temp_dir().join(format!("chs-{}-{stamp}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let socket = dir.join("h.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let (a, b1, b2) = ([0xa1; 16], [0xb1; 16], [0xb2; 16]);
+        let stand_in = std::thread::spawn(move || {
+            let (first, _) = listener.accept().unwrap();
+            first.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+            let mut reader = wire::Reader::default();
+            welcome(&first, &mut reader, &[]);
+            let spawn = next_frame(&first, &mut reader, "SPAWN");
+            assert_eq!((spawn.kind, spawn.chan), (Kind::Spawn as u16, 1));
+            let attach = next_frame(&first, &mut reader, "ATTACH");
+            assert_eq!((attach.kind, attach.chan), (Kind::Attach as u16, 1));
+            // The link ends before the SPAWNED: a plain end, no SUPERSEDED.
+            first.shutdown(std::net::Shutdown::Both).unwrap();
+            drop(first);
+
+            let (second, _) = listener.accept().unwrap();
+            second.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+            let mut reader = wire::Reader::default();
+            welcome(&second, &mut reader, &[(1, a), (2, b1), (3, b2)]);
+            let mut closed = Vec::new();
+            loop {
+                let frame = next_frame(&second, &mut reader, "the test's SIGNAL");
+                match Kind::from_u16(frame.kind) {
+                    Some(Kind::Close) => closed.push(frame.chan),
+                    Some(Kind::Signal) if frame.chan == 999 => break,
+                    _ => {}
+                }
+            }
+            (closed, second)
+        });
+
+        let service = Arc::new(HolderService::new(socket, [0x44; 32]));
+        let request = SpawnRequest { id: a, argv: vec![b"/bin/sh".to_vec()], ..Default::default() };
+        assert!(service.spawn(&request, b"").is_err(), "the link broke before the SPAWNED");
+        // The holder-restart thread or this call reconnects; either way the
+        // link comes back only after the reconnect's CLOSEs went out.
+        let link = service.link().expect("the reconnect to the same holder");
+        link.signal(999, 0).unwrap();
+        let (closed, second) = stand_in.join().expect("the stand-in saw the test's SIGNAL");
+        assert_eq!(closed, vec![1], "only A's abandoned terminal is closed, not B's shells");
+        assert_eq!(
+            *service.abandoned.lock().unwrap(),
+            HashMap::from([(1, a)]),
+            "a terminal the holder still lists stays abandoned until it is gone"
+        );
+
+        // No restart may launch a holder once the stand-in's link ends.
+        service.superseded.store(true, Ordering::Release);
+        drop(link);
+        drop(service);
+        drop(second);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A holder that takes every link and drops it at once (it answers the
+    /// HELLO, then closes) must not be relinked in a tight loop. Before,
+    /// each lost link started a new `holder-restart` thread that connected
+    /// again at once: thousands of connects, HELLOs and threads a second
+    /// for as long as the holder did that. Now link ends that come without
+    /// a healthy link between them wait longer each time.
+    #[test]
+    fn a_holder_that_drops_every_link_is_relinked_with_growing_waits() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.subsec_nanos());
+        let dir = std::env::temp_dir().join(format!("chf-{}-{stamp}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let socket = dir.join("h.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let accepted = Arc::new(AtomicU32::new(0));
+        let stop = Arc::new(AtomicBool::new(false));
+        let stand_in = {
+            let (accepted, stop) = (accepted.clone(), stop.clone());
+            std::thread::spawn(move || {
+                for stream in listener.incoming() {
+                    if stop.load(Ordering::Acquire) {
+                        break;
+                    }
+                    let Ok(stream) = stream else { continue };
+                    accepted.fetch_add(1, Ordering::AcqRel);
+                    stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+                    welcome(&stream, &mut wire::Reader::default(), &[]);
+                    let _ = stream.shutdown(std::net::Shutdown::Both);
+                }
+            })
+        };
+
+        let service = Arc::new(HolderService::new(socket.clone(), [0x45; 32]));
+        drop(service.link().expect("the first link"));
+        std::thread::sleep(Duration::from_secs(1));
+        let relinks = accepted.load(Ordering::Acquire);
+
+        // Stop relinking before the stand-in stops answering: a connect that
+        // fails would launch a real holder. A relink checks `superseded`
+        // under `connecting` and holds it through its connect, so once this
+        // takes the lock no relink can connect again.
+        service.superseded.store(true, Ordering::Release);
+        drop(service.connecting.lock().recover_poison());
+        stop.store(true, Ordering::Release);
+        drop(UnixStream::connect(&socket));
+        stand_in.join().unwrap();
+        drop(service);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert!(relinks >= 3, "the daemon still relinks a dropped holder: {relinks}");
+        assert!(relinks <= 20, "{relinks} links in 1 s to a holder that drops each one");
+    }
 }

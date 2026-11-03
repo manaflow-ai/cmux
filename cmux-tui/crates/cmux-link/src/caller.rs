@@ -13,8 +13,49 @@
 #[path = "caller_macos.rs"]
 pub(crate) mod macos;
 
+#[cfg(unix)]
+mod supervised;
+#[cfg(unix)]
+pub use supervised::SupervisedChild;
+
+#[cfg(target_os = "linux")]
+mod root;
+#[cfg(target_os = "linux")]
+pub use root::RootOwnedDaemon;
+
+/// Authenticate the root endpoint of a private inherited bootstrap channel.
+/// This separate entry point never changes ordinary same-user admission.
+/// It proves parenthood, not enrollment or permission to serve. Do not use
+/// it to authorize a caller on a public socket or a caller-selected path.
+#[cfg(target_os = "linux")]
+pub fn verify_inherited_root_parent(fd: std::os::fd::RawFd) -> Result<(), CallerRefused> {
+    root::verify_parent(fd)
+}
+
 use std::fmt;
 use std::io;
+
+/// Protect a private bootstrap recipient from same-user process inspection and
+/// core dumps. Call only after authenticating its startup authority, before
+/// advertising support or accepting private material. Ordinary caller admission
+/// is unchanged. Failure must leave the private receiving role unavailable.
+#[cfg(target_os = "linux")]
+pub fn protect_private_process() -> io::Result<()> {
+    // SAFETY: integer-only prctl changes only this process's dumpability.
+    if unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: integer-only prctl reads this process's current dumpability.
+    let state = unsafe { libc::prctl(libc::PR_GET_DUMPABLE, 0, 0, 0, 0) };
+    match state {
+        0 => Ok(()),
+        -1 => Err(io::Error::last_os_error()),
+        _ => Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "link.private_process.inspection_not_blocked",
+        )),
+    }
+}
 
 /// Why a caller was refused.
 #[derive(Debug)]
@@ -51,6 +92,27 @@ impl From<CallerRefused> for io::Error {
 pub fn verify(stream: &std::os::unix::net::UnixStream) -> Result<(), CallerRefused> {
     use std::os::fd::AsRawFd;
     verify_fd(stream.as_raw_fd())
+}
+
+/// Check the kernel uid and pid of an inherited stream's parent endpoint.
+/// This proves parenthood, not code identity. Use it only with a private
+/// inherited channel; it does not authorize a peer on a public socket.
+#[cfg(unix)]
+pub fn verify_inherited_parent(fd: std::os::fd::RawFd) -> Result<(), CallerRefused> {
+    let uid = peer_uid(fd).map_err(CallerRefused::Io)?;
+    // SAFETY: geteuid/getppid have no preconditions.
+    let own = unsafe { libc::geteuid() };
+    let parent = unsafe { libc::getppid() } as u32;
+    if uid != own {
+        return Err(CallerRefused::OtherUser { uid });
+    }
+    if peer_pid(fd).map_err(CallerRefused::Io)? != Some(parent) {
+        return Err(CallerRefused::Io(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "inherited peer is not the parent process",
+        )));
+    }
+    Ok(())
 }
 
 /// [`verify`] for a raw connected Unix socket descriptor (tokio streams).
@@ -103,7 +165,7 @@ pub(crate) fn peer_uid(fd: std::os::fd::RawFd) -> io::Result<u32> {
 /// socket (for a client stream: the process that called `listen`), or
 /// `None` on a system with no peer-pid API (the BSDs other than macOS).
 #[cfg(any(target_os = "linux", target_os = "android"))]
-pub(crate) fn peer_pid(fd: std::os::fd::RawFd) -> io::Result<Option<u32>> {
+pub fn peer_pid(fd: std::os::fd::RawFd) -> io::Result<Option<u32>> {
     // SAFETY: ucred is plain data and all-zero is a valid value.
     let mut credentials = unsafe { std::mem::zeroed::<libc::ucred>() };
     let mut length = size_of::<libc::ucred>() as libc::socklen_t;
@@ -125,7 +187,7 @@ pub(crate) fn peer_pid(fd: std::os::fd::RawFd) -> io::Result<Option<u32>> {
 
 /// See the Linux [`peer_pid`]: macOS answers through `LOCAL_PEERPID`.
 #[cfg(target_vendor = "apple")]
-pub(crate) fn peer_pid(fd: std::os::fd::RawFd) -> io::Result<Option<u32>> {
+pub fn peer_pid(fd: std::os::fd::RawFd) -> io::Result<Option<u32>> {
     let mut pid: libc::pid_t = 0;
     let mut length = size_of::<libc::pid_t>() as libc::socklen_t;
     // SAFETY: both out-pointers are valid for writes of the lengths passed.
@@ -147,7 +209,7 @@ pub(crate) fn peer_pid(fd: std::os::fd::RawFd) -> io::Result<Option<u32>> {
 /// See the Linux [`peer_pid`]: no peer-pid API here, so callers check the
 /// uid only.
 #[cfg(all(unix, not(any(target_os = "linux", target_os = "android", target_vendor = "apple"))))]
-pub(crate) fn peer_pid(_fd: std::os::fd::RawFd) -> io::Result<Option<u32>> {
+pub fn peer_pid(_fd: std::os::fd::RawFd) -> io::Result<Option<u32>> {
     Ok(None)
 }
 

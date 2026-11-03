@@ -19,9 +19,15 @@
 # legacy-app rule in skills/cmux-architecture/references/swift-6-0-compatibility.md)
 # does not apply to this package.
 #
-# Usage: scripts/cmux-next/check-release-compile.sh [--archs arm64|x86_64] [derived-data-path]
+# Usage: scripts/cmux-next/check-release-compile.sh [--archs arm64|x86_64] [--bench-hooks | --nightly] [derived-data-path]
+#   --nightly: compile what a cmux NEXT Nightly compiles: Release with lib/nightly-swift-defines.sh
+#   (-DCMUX_BLOCKING_CHECKS), the defines .github/workflows/nightly.yml adds for track nightly-next.
 #   --archs: the architecture to compile (default arm64). nightly-next ships an
 #   x86_64 app too, so `--archs x86_64` checks the Intel compile the same way.
+#   --bench-hooks: compile the bench configuration (`reload.sh --config bench`): Release with
+#   -DCMUX_BENCH_HOOKS -DCMUX_BLOCKING_CHECKS and no DEBUG (lib/bench-swift-defines.sh, shared with
+#   reload.sh), so code under `#if DEBUG || CMUX_BENCH_HOOKS` or `#if DEBUG || CMUX_BLOCKING_CHECKS`
+#   that reaches a DEBUG-only symbol fails here instead of in a perf sweep's build (or a Nightly's).
 #   default derived data: a new directory in $TMPDIR (per fleet step), removed
 #   when the script ends. Never a host-shared fixed path: explicit precompiled
 #   modules (SwiftExplicitPrecompiledModules/*.pcm) are keyed by the compile
@@ -35,6 +41,10 @@
 #   path owns it and keeps it. CI uses a worker/workspace/toolchain-specific
 #   Release path on owned runners; the binary-module guard and the one-time
 #   stale-module recovery keep it correct as in check-cmux-scheme-compile.sh.
+# CMUX_NEXT_RELEASE_XCODE_SETTINGS: extra xcodebuild settings, one KEY=VALUE per
+#   line. release-compile-fleet-cas.sh passes the fleet compile cache's settings
+#   here. A failed build whose log shows the cache failing (not the code) builds
+#   once more without them (lib/compilation-cache.sh cmux_next_cas_failed).
 set -euo pipefail
 
 # xcodebuild compiles the app: fleet or GitHub runner only.
@@ -51,9 +61,32 @@ if [[ "${1:-}" == --archs ]]; then
   esac
   shift 2
 fi
-# --archs comes first; anything else after the path would be ignored silently.
+swift_other_flags='$(inherited)'
+bench_label=''
+if [[ "${1:-}" == --bench-hooks ]]; then
+  # The same flags reload.sh --config bench passes (SWIFT_OTHER_FLAGS), from one shared file.
+  # shellcheck source=lib/bench-swift-defines.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/lib/bench-swift-defines.sh"
+  swift_other_flags+=" $CMUX_BENCH_SWIFT_DEFINES"
+  bench_label=", bench hooks ($CMUX_BENCH_SWIFT_DEFINES)"
+  shift
+elif [[ "${1:-}" == --nightly ]]; then
+  # shellcheck source=lib/nightly-swift-defines.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/lib/nightly-swift-defines.sh"
+  swift_other_flags+=" $CMUX_NIGHTLY_NEXT_SWIFT_DEFINES"
+  bench_label=", nightly ($CMUX_NIGHTLY_NEXT_SWIFT_DEFINES)"
+  shift
+fi
+if [[ "${CMUX_SWIFT_TYPECHECK_DIAGNOSTICS:-0}" == "1" ]]; then
+  # Keep the threshold high enough for a focused profile: the emitted warnings
+  # identify the functions and expressions worth fixing without changing the
+  # compiler's dependency decisions or optimization mode.
+  swift_other_flags+=' -Xfrontend -warn-long-function-bodies=200 -Xfrontend -warn-long-expression-type-checking=200 -driver-time-compilation'
+  echo "check-release-compile: Swift type-check diagnostics enabled (200ms threshold)"
+fi
+# --archs and --bench-hooks come first; anything else after the path would be ignored silently.
 if (( $# > 1 )); then
-  echo "check-release-compile: usage: check-release-compile.sh [--archs arm64|x86_64] [derived-data-path]" >&2
+  echo "check-release-compile: usage: check-release-compile.sh [--archs arm64|x86_64] [--bench-hooks | --nightly] [derived-data-path]" >&2
   exit 2
 fi
 kept_path=0
@@ -85,6 +118,15 @@ else
   fi
 fi
 build_attempt=0
+extra_settings=()
+while IFS= read -r setting; do
+  [[ -n "$setting" ]] || continue
+  if [[ ! "$setting" =~ ^[A-Z][A-Z0-9_]*=[^[:space:]]*$ ]]; then
+    echo "check-release-compile: CMUX_NEXT_RELEASE_XCODE_SETTINGS line is not KEY=VALUE: '$setting'" >&2
+    exit 2
+  fi
+  extra_settings+=("$setting")
+done <<< "${CMUX_NEXT_RELEASE_XCODE_SETTINGS:-}"
 
 if [[ -z "${DEVELOPER_DIR:-}" ]]; then
   xcode_app="${CMUX_RELEASE_COMPILE_XCODE:-}"
@@ -99,7 +141,7 @@ if [[ -z "${DEVELOPER_DIR:-}" ]]; then
   export DEVELOPER_DIR="$xcode_app/Contents/Developer"
 fi
 
-echo "check-release-compile: $(xcodebuild -version | tr '\n' ' ')(ARCHS=$archs)"
+echo "check-release-compile: $(xcodebuild -version | tr '\n' ' ')(ARCHS=$archs$bench_label)"
 cd "$repo_root/Packages/macOS/CmuxNext"
 build() {
   build_attempt=$((build_attempt + 1))
@@ -112,6 +154,8 @@ build() {
     -derivedDataPath "$derived_data" \
     ARCHS="$archs" ONLY_ACTIVE_ARCH=NO \
     COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO \
+    OTHER_SWIFT_FLAGS="$swift_other_flags" \
+    ${extra_settings[@]+"${extra_settings[@]}"} \
     -showBuildTimingSummary build 2>&1 | tee "$log"
   return "${PIPESTATUS[0]}"
 }
@@ -125,6 +169,16 @@ if (( kept_path )); then
 fi
 status=0
 build || status=$?
+if (( status && ${#extra_settings[@]} )); then
+  # shellcheck source=lib/compilation-cache.sh
+  source "$repo_root/scripts/cmux-next/lib/compilation-cache.sh"
+  if cmux_next_cas_failed "$log"; then
+    echo "::warning::check-release-compile: the compilation cache failed (not the code); building once more without it"
+    extra_settings=()
+    status=0
+    build || status=$?
+  fi
+fi
 if (( status && kept_path )) && "$repo_root/scripts/cmux-next/stale-pcm-retry-needed.sh" "$log"; then
   echo "check-release-compile: stale precompiled modules in $derived_data; removing them and building again"
   "$repo_root/scripts/cmux-next/clear-stale-scheme-build-state.sh" "$derived_data"
@@ -138,5 +192,12 @@ if [[ -n "${CMUX_BUILD_METRICS_OUTPUT:-}" ]]; then
   [[ -n "${CMUX_BUILD_METRICS_SUMMARY:-}" ]] && metrics_args+=(--summary "$CMUX_BUILD_METRICS_SUMMARY")
   python3 "$repo_root/scripts/ci/build_metrics.py" "$derived_data" "${metrics_args[@]}" \
     || echo "check-release-compile: warning: could not write build metrics" >&2
+fi
+if [[ "${CMUX_SWIFT_TYPECHECK_DIAGNOSTICS:-0}" == "1" && -n "${CMUX_BUILD_METRICS_DIR:-}" ]]; then
+  python3 "$repo_root/scripts/ci/swift_typecheck_diagnostics.py" \
+    --log "$log" \
+    --output "$CMUX_BUILD_METRICS_DIR/typecheck.json" \
+    --summary "$CMUX_BUILD_METRICS_DIR/summary.md" \
+    || echo "check-release-compile: warning: could not write type-check diagnostics" >&2
 fi
 exit "$status"

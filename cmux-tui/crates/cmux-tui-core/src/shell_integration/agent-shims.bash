@@ -27,10 +27,14 @@ if [[ -n "${CMUX_TUI_AGENT_SHIMS-}" && -z "${_cmux_tui_agent_shims_registered-}"
   # Not a bash-preexec preexec hook: a non-zero return there (the previous
   # command's status, kept for the prompt) skips the command under extdebug.
   # A nested shell can inherit PROMPT_COMMAND without the function, hence
-  # the redirection, as Ghostty does for its own hook.
+  # the redirection, as Ghostty does for its own hook. bash runs the entries of
+  # an array PROMPT_COMMAND from 5.1 on (before, only its first element, which
+  # the string branch extends); `@a` reads the type without the fork of
+  # `$(declare -p)`.
   if [[ -n "${bash_preexec_imported-}${__bp_imported-}" ]]; then
     precmd_functions+=(_cmux_tui_agent_shims_first)
-  elif [[ $(builtin declare -p PROMPT_COMMAND 2>/dev/null) == "declare -a"* ]]; then
+  elif (( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 1) )) \
+    && [[ ${PROMPT_COMMAND@a} == *a* ]]; then
     PROMPT_COMMAND+=("_cmux_tui_agent_shims_first 2>/dev/null")
   elif [[ -z "${PROMPT_COMMAND-}" ]]; then
     PROMPT_COMMAND="_cmux_tui_agent_shims_first 2>/dev/null"

@@ -108,7 +108,10 @@ seed, so path and timing properties are tested exactly.
 
 ## Settings
 
-`browser.agentMouse.motion` (`human` | `instant`, default `human`) and
+`browser.agentMouse.motion` (`human` | `instant`, default `human`; `instant` in a
+headless Chromium tab, which nobody sees: its engine reports the `headless`
+capability, and the human path only cost each click 0.4-0.5 s there,
+[browser-use-perf.md](browser-use-perf.md)) and
 `browser.agentMouse.maxMoveMs` (default 350) are the user-facing keys. The
 REPL reads them from `host.agentMouse`. **Not wired yet:** the browser host
 (Rust, `cmux-browser-host`) has no path from cmux.json today; slice 2 adds

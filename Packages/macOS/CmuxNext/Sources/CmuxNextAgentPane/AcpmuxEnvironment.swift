@@ -4,7 +4,9 @@ public import Foundation
 /// Where this app's acpmux daemon lives and how to start it.
 ///
 /// Same rule as `cmux acp` (cmux-tui `acp::build_home`), so the pane and
-/// the CLI in its terminals reach one daemon: `ACPMUX_HOME` wins, else the
+/// the CLI in its terminals reach one daemon: `ACPMUX_HOME` wins (except one naming
+/// `~/.acpmux` or another build's home for a build with a home of its own, as every
+/// agent shell exports it: ``inheritsAnotherBuildsHome(_:ownHome:root:)``, cmux#29050), else the
 /// build's own home (``BuildIdentity/acpmuxHome(userHome:)``, per-build
 /// isolation cx-is1kf): NIGHTLY keeps `~/.acpmux`, shared with a standalone
 /// `acpmux`; every other build has `~/.acpmux/builds/<key>`, so no build
@@ -40,6 +42,11 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     /// Whether an unsigned development daemon needs its person key on an
     /// inherited descriptor. Signed builds enroll only after checking the peer.
     public var passesPersonKeyAtSpawn = true
+    /// The daemon is another app's, reached through `CMUX_NEXT_ACPMUX_ATTACH`
+    /// (AcpmuxEnvironment+Attach.swift): this app never starts, hands off or ends it.
+    public var isAttached = false
+    /// This build's own home while attached (``logPath``); nil otherwise.
+    public var ownHome: URL?
 
     /// The Computer Use variables (AgentActivitySocketSource.Configuration).
     /// The spawn environment drops all three when inherited and takes only
@@ -66,83 +73,39 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     /// Whether `environment` turns agent launches off (`ACPMUX_AGENT_LAUNCH=deny`
     /// or `CMUX_AGENTS_DISABLED=1`, the same test as acpmux's launch_policy.rs).
     public static func agentLaunchDisabled(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
-        let launch = environment["ACPMUX_AGENT_LAUNCH"]?.trimmingCharacters(in: .whitespaces).lowercased()
-        let disabled = environment["CMUX_AGENTS_DISABLED"]?.trimmingCharacters(in: .whitespaces)
+        let launch = environment["ACPMUX_AGENT_LAUNCH"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let disabled = environment["CMUX_AGENTS_DISABLED"]?.trimmingCharacters(in: .whitespacesAndNewlines)
         return launch == "deny" || disabled == "1"
     }
 
-    public var logPath: String { home.appendingPathComponent("daemon.log").path }
+    /// Where this app writes why it could not reach the daemon: its own home's `daemon.log`, so an
+    /// attached daemon's log (another app's home) gets no line from this app.
+    public var logPath: String { (ownHome ?? home).appendingPathComponent("daemon.log").path }
 
-    /// Resolves the environment of `build` (nil: no build, the shared home),
-    /// or nil when no `acpmux` executable exists. `bundledBinDirectory` is the
-    /// app's `Contents/Resources/bin`. A Debug compile takes a test root for
-    /// `~/.acpmux` from `CMUX_NEXT_ACPMUX_ROOT` (tests only).
-    public static func resolve(
-        build: BuildIdentity?,
-        bundledBinDirectory: URL?,
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        userHome: URL = FileManager.default.homeDirectoryForCurrentUser,
-        uid: UInt32 = getuid(),
-        isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) },
-        launchEnvironment: [String: String] = [:]
-    ) -> AcpmuxEnvironment? {
-        // DEBUG only: `CMUX_NEXT_ACPMUX_BIN` wins (AcpmuxEnvironment+DebugOverride.swift).
-        // Release passes nil, so it compiles no read of it.
-        #if DEBUG
-        let executableOverride = debugExecutableOverride
-        #else
-        let executableOverride: URL? = nil
-        #endif
-        return resolve(build: build, bundledBinDirectory: bundledBinDirectory, environment: environment, userHome: userHome,
-                       uid: uid, isExecutable: isExecutable, launchEnvironment: launchEnvironment,
-                       executableOverride: executableOverride, teamIdentifier: AcpmuxServerPeer.ownTeam,
-                       isTrustedExecutable: AcpmuxServerPeer.executableSignedByAppTeam)
+    /// Whether `ACPMUX_HOME` (`custom`) names another build's home while this build has a home of
+    /// its own (`ownHome` is not `root`): the shared root (NIGHTLY's `~/.acpmux`), another
+    /// `<root>/builds/<key>`, or a Chief home's acpmux (`~/.cmux/chief/<home>/acpmux`, NIGHTLY's
+    /// included; a Chief host passes its own home with no build, so it never comes here). Every
+    /// agent shell under acpmux exports its daemon's home, so a tagged
+    /// DEV app launched from one inherits it; honoring it made that app hand NIGHTLY's daemon off
+    /// to its own and every new NIGHTLY chat waited on the re-adoption (cmux#29050). Reading
+    /// another build's chats is ``attachKey``'s job, which never hands off. Any other home (a
+    /// test's, one a person names) still wins.
+    static func inheritsAnotherBuildsHome(_ custom: String, ownHome: URL, root: URL) -> Bool {
+        let rootPath = root.standardizedFileURL.path
+        let ownPath = ownHome.standardizedFileURL.path
+        guard ownPath != rootPath else { return false }
+        let path = URL(fileURLWithPath: custom, isDirectory: true).standardizedFileURL.path
+        if path == ownPath { return false }
+        let builds = rootPath + "/builds"
+        let chiefHomes = BuildIdentity.chiefHomesRoot(userHome: root.deletingLastPathComponent()).standardizedFileURL.path
+        return path == rootPath || path == builds || path.hasPrefix(builds + "/")
+            || path == chiefHomes || path.hasPrefix(chiefHomes + "/")
     }
 
-    /// ``resolve(build:bundledBinDirectory:environment:userHome:uid:isExecutable:launchEnvironment:)`` with
-    /// the executable override given: tests pass nil, so a developer's exported
-    /// `CMUX_NEXT_ACPMUX_BIN` cannot change what they resolve.
-    static func resolve(
-        build: BuildIdentity?,
-        bundledBinDirectory: URL?,
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        userHome: URL = FileManager.default.homeDirectoryForCurrentUser,
-        uid: UInt32 = getuid(),
-        isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) },
-        launchEnvironment: [String: String] = [:],
-        executableOverride: URL?,
-        teamIdentifier: String? = AcpmuxServerPeer.ownTeam,
-        isTrustedExecutable: (URL, String) -> Bool = { AcpmuxServerPeer.executableSignedByAppTeam($0, team: $1) }
-    ) -> AcpmuxEnvironment? {
-        guard let executable = executableOverride
-            ?? executableCandidates(bundledBinDirectory: bundledBinDirectory, environment: environment, userHome: userHome)
-            .first(where: { isExecutable($0.path) }) else { return nil }
-        if let teamIdentifier, !isTrustedExecutable(executable, teamIdentifier) { return nil }
-        let root = testRoot(environment) ?? userHome.appendingPathComponent(".acpmux", isDirectory: true)
-        let ownHome = build?.acpmuxHome(root: root) ?? root
-        let home: URL
-        let customHome = environment["ACPMUX_HOME"].flatMap { $0.isEmpty ? nil : $0 }
-        if let customHome {
-            home = URL(fileURLWithPath: customHome, isDirectory: true)
-        } else {
-            home = ownHome
-        }
-        let configured = customHome == nil ? nil : environment["ACPMUX_SOCKET"].flatMap { $0.isEmpty ? nil : $0 }
-        let socket = socketPath(configured: configured, home: home, uid: uid)
-        var childEnvironment = ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket, "ACPMUX_LOCAL_ROUTER": "1",
-                                "ACPMUX_SECRET_TOOLS": "1"]
-        childEnvironment.merge(launchEnvironment) { _, new in new }
-        for key in agentLaunchKeys {
-            if let value = environment[key], !value.isEmpty { childEnvironment[key] = value }
-        }
-        if let cli = bundledBinDirectory?.appendingPathComponent("cmux").path, isExecutable(cli) {
-            childEnvironment["CMUX_BUNDLED_CLI_PATH"] = cli
-        }
-        return AcpmuxEnvironment(
-            executable: executable, home: home, socketPath: socket,
-            daemonArguments: ownHome == root ? [] : ["--listen", "127.0.0.1:0"], childEnvironment: childEnvironment,
-            passesPersonKeyAtSpawn: teamIdentifier == nil
-        )
+    /// `~/.acpmux` of `userHome`: NIGHTLY's home, and the root of every build home.
+    static func sharedRoot(userHome: URL) -> URL {
+        userHome.appendingPathComponent(".acpmux", isDirectory: true)
     }
 
     /// `CMUX_NEXT_ACPMUX_ROOT`, the directory that stands for `~/.acpmux` in a
@@ -154,24 +117,6 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         #else
         return nil
         #endif
-    }
-
-    /// The usual install directories, searched after `PATH`. The pane names
-    /// them when acpmux is missing, so they are written as a user types them.
-    static let installDirectories = ["~/.local/bin", "~/.cargo/bin", "/opt/homebrew/bin", "/usr/local/bin"]
-
-    /// Search order: the bundled binary, then `PATH`, then the usual install
-    /// directories an app launched from Finder does not have on its `PATH`.
-    static func executableCandidates(bundledBinDirectory: URL?, environment: [String: String], userHome: URL) -> [URL] {
-        var directories: [String] = []
-        if let bundled = bundledBinDirectory { directories.append(bundled.path) }
-        directories += (environment["PATH"] ?? "").split(separator: ":").map(String.init)
-        directories += installDirectories.map { directory in
-            directory.hasPrefix("~/") ? userHome.appendingPathComponent(String(directory.dropFirst(2))).path : directory
-        }
-        var seen: Set<String> = []
-        return directories.filter { !$0.isEmpty && seen.insert($0).inserted }
-            .map { URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("acpmux") }
     }
 
     /// Mirrors acpmux `config::socket_path()`: `<home>/acpmux.sock`, or

@@ -97,7 +97,16 @@ pub(super) fn outer_cursor_escape(spec: OuterCursorSpec) -> String {
                 // shape and avoids inventing blink behavior.
                 (CursorShape::BlockHollow, _) => 2,
             };
-            format!("\x1b]12;#{:02x}{:02x}{:02x}\x07\x1b[{style} q", color.r, color.g, color.b)
+            match color {
+                Some(color) => {
+                    format!(
+                        "\x1b]12;#{:02x}{:02x}{:02x}\x07\x1b[{style} q",
+                        color.r, color.g, color.b
+                    )
+                }
+                // Restore the host's own cursor color rather than pinning one.
+                None => format!("\x1b]112\x07\x1b[{style} q"),
+            }
         }
     }
 }

@@ -29,6 +29,15 @@ Without a prefix the link is WebRTC.
 the phone (CMUX_MOBILE_DEV_BLOCK_UDP), so WireGuard rides TURN over TLS on 443. (The
 old `-wss` configuration rode the backend's WebSocket relay, which is retired.)
 
+--surface (verify/simulator-surface.md): the bench tab is a Mac phone tab
+instead of a browser tab. The rig Mac boots its own headless simulator
+(`--rig-sim`, never Simulator.app), opens the bench page in its Safari, and
+the workspace `bench` holds one phone tab of that simulator; the phone streams
+it with the `surface` service. Glass to glass is then page clock (rendered by
+the rig simulator's Safari) to the phone's clock, through the simulator's
+framebuffer, VideoToolbox and the same media lane; taps land on the page
+through the simulator's HID.
+
 usage: browser-track-bench.py --mac-app APP [--configs track,channel,track-relay,channel-relay,track-loss30,wg-track,wg-channel,wg-track-relay,wg-track-tls,wg-track-loss30]
        [--seconds 12] [--taps 10] [--keep] [--no-build]
 """
@@ -118,6 +127,25 @@ def extract(video, out_dir, crop_pts, step=1):
         if os.path.exists(p) and i % step == 0:
             out.append((t, p))
     return out
+
+
+def daemon_rpc(mac, request):
+    """One request on the rig app's own daemon socket (cmux-mobile-host's CMUX_MOBILE_TUI_SOCKET)."""
+    import socket as _socket
+    pids = mac.hostd_pids()
+    env = subprocess.run(["ps", "eww", "-p", str(pids[0])], capture_output=True, text=True).stdout if pids else ""
+    m = re.search(r"CMUX_MOBILE_TUI_SOCKET=(\S+)", env)
+    if not m:
+        raise RuntimeError("no daemon socket (cmux-mobile-host not running)")
+    s = _socket.socket(_socket.AF_UNIX)
+    s.connect(m.group(1))
+    s.sendall((json.dumps(request) + "\n").encode())
+    for line in s.makefile():
+        reply = json.loads(line)
+        if "event" not in reply:
+            s.close()
+            return reply
+    return None
 
 
 class Bench:
@@ -380,6 +408,10 @@ def main():
                     help="seconds of unmeasured streaming (first configuration) after the host starts; 0: none")
     ap.add_argument("--page-scroll", type=int, default=6, help="the bench page's own scroll, css px per frame (0: still)")
     ap.add_argument("--sim-name", default="cmux-mobile-rbvideo-bench")
+    ap.add_argument("--phone-ready", action="store_true",
+                    help="the phone app is installed and signed in: set up the Mac (pairing seed, bench tab), not the phone")
+    ap.add_argument("--surface", action="store_true", help="stream a Mac phone tab (a rig simulator showing the bench page)")
+    ap.add_argument("--rig-sim", default="cmux-simsurface-rig", help="--surface: the rig Mac's own simulator")
     ap.add_argument("--no-build", action="store_true")
     ap.add_argument("--keep", action="store_true")
     ap.add_argument("--skip-setup", action="store_true", help="the phone is signed in and the bench tab exists (a --keep run)")
@@ -441,7 +473,7 @@ def main():
     app_path = os.path.join(CNX, "build/dd/Build/Products/Demo-iphonesimulator/CmuxMobileApp.app") if a.no_build else e2e.build_ios(log, "Demo")
     rig = os.path.expanduser(f"~/cmux-next-ios-e2e/{os.path.basename(mac_app)[len('cmux DEV '):-4]}")
     mac = Mac(rig, mac_app)
-    if not a.skip_setup:
+    if not a.skip_setup or a.phone_ready:
         mac.prepare()
         mac.seed_pairing(names=[a.sim_name])
     page_dir = os.path.join(HERE, "bench-page")
@@ -455,11 +487,11 @@ def main():
         mac.launch()
         log(f"Mac app up (pid {mac.pid}); cmux-mobile-host {'running' if mac.wait_hostd(120) else 'NOT running'}")
         j = Journey(sim, mac, out, app_path, log)
-        if a.skip_setup:
+        if a.skip_setup and not a.phone_ready:
             j.ws_name = "bench"
         for name in ([] if a.skip_setup else a.configs.split(",")[:0]):
             pass
-        if a.skip_setup:
+        if a.skip_setup and not a.phone_ready:
             bench = Bench(a, log)
             if a.warmup:
                 try:
@@ -476,12 +508,26 @@ def main():
         j.seed_mac()
         ws = mac.cmux("workspace", "create", "--name", "bench", json_out=True)["value"]
         url = f"http://127.0.0.1:{PORT}/bench.html?scroll={a.page_scroll}"
-        tab = mac.cmux("tab", "create", "browser", "--workspace", ws["workspace_id"], "--url", url, json_out=True)
-        log(f"bench workspace {ws['workspace_id']}, browser tab {tab}")
+        if a.surface:
+            rig = e2e.ensure_sim(a.rig_sim, e2e.RUNTIMES["26"], log)
+            subprocess.run(["xcrun", "simctl", "bootstatus", rig, "-b"], check=True, capture_output=True)
+            subprocess.run(["xcrun", "simctl", "openurl", rig, url], check=True)
+            # The daemon's own call, as the Mac's phone.show makes the tab.
+            # The daemon names workspaces by number; the CLI's id is the public one.
+            listed = daemon_rpc(mac, {"id": 1, "cmd": "list-workspaces"}) or {}
+            numeric = next((w["id"] for w in (listed.get("data") or {}).get("workspaces", []) if w.get("name") == "bench"), None)
+            tab = daemon_rpc(mac, {"id": 2, "cmd": "new-conversation-tab", "workspace": numeric,
+                                   "page": "phone", "route": f"sim:{rig}"})
+            log(f"bench workspace {ws['workspace_id']}, phone tab {tab} of rig simulator {rig}")
+        else:
+            tab = mac.cmux("tab", "create", "browser", "--workspace", ws["workspace_id"], "--url", url, json_out=True)
+            log(f"bench workspace {ws['workspace_id']}, browser tab {tab}")
         if tab and isinstance(tab, dict) and tab.get("value", {}).get("tab_id"):
             mac.cmux("tab", tab["value"]["tab_id"], "focus", check=False)
         mac.cmux("tab", ws["tab_id"], "close", check=False)
         for sid, title, owner, fn in j.plan():
+            if a.phone_ready and sid != "mac_discovered":
+                continue
             if sid in ("fresh_install", "sign_in", "choose_space", "mac_discovered"):
                 j.step(sid, title, owner, fn)
         bench = Bench(a, log)

@@ -498,7 +498,7 @@ pub(super) fn acpmux_request(
                 })?;
             Ok::<Value, RequestError>(answer)
         });
-        return result.map_err(|error| match error {
+        result.map_err(|error| match error {
             RequestError::Owner(error) => CallFailure {
                 kind: FailureKind::Rejected,
                 // Preserve the daemon's error object and numeric RPC code so
@@ -524,7 +524,7 @@ pub(super) fn acpmux_request(
                     .then(|| idempotency_key.map(str::to_owned))
                     .flatten(),
             },
-        });
+        })
     }
     #[cfg(not(unix))]
     {

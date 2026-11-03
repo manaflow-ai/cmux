@@ -1,0 +1,65 @@
+{
+  "title": "Home New Message: Chiefs and Team sections, New Chief, alike Chiefs told apart; a new Chief's focus question",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2
+    },
+    {
+      "title": "Go to Home",
+      "cmux": [
+        "action",
+        "run",
+        "home.show"
+      ],
+      "wait": 4,
+      "shot": false,
+      "optional": "the Chief's daemon may not start on this runner"
+    },
+    {
+      "title": "A new Chief beside others asks what to focus on",
+      "rpc": {
+        "method": "debug.home.sidebar_fixture",
+        "params": {
+          "intro": "askFocus"
+        }
+      },
+      "wait": 2,
+      "optional": "needs a Chief conversation shown"
+    },
+    {
+      "title": "To: lists Chiefs, New Chief and the Team",
+      "rpc": {
+        "method": "debug.home.sidebar_fixture",
+        "params": {
+          "new_message": 4
+        }
+      },
+      "wait": 2,
+      "optional": "debug fixture is DEBUG only"
+    },
+    {
+      "title": "Dark",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "dark"
+        }
+      },
+      "wait": 2,
+      "optional": "debug.appearance is DEBUG only"
+    },
+    {
+      "title": "Back to the system appearance",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "system"
+        }
+      },
+      "wait": 1,
+      "shot": false,
+      "optional": "debug.appearance is DEBUG only"
+    }
+  ]
+}

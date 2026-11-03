@@ -1,5 +1,16 @@
 {
- "_doc": "cmux-next perf budgets (perf-budgets.py). A frame budget is one 120 Hz frame (8.33 ms) between presented frames during a motion; a latency budget (input to the committed frame that shows its result) is two 120 Hz frames (16.7 ms). CPU rows are percent of one core. Patterns are full-match regexes over row names; the first match wins. floor: the smallest p95 change the gate counts as a regression (noise).",
+ "_doc": "cmux-next perf budgets (perf-budgets.py). A frame budget is one 120 Hz frame (8.33 ms) between presented frames during a motion; a latency budget (input to the committed frame that shows its result) is two 120 Hz frames (16.7 ms). CPU rows are percent of one core. Patterns are full-match regexes over row names; the first match wins. floor: the smallest p95 change the gate counts as a regression (noise). expected lists the row families each bench must measure; a missing family is an incomplete gate, never a pass.",
+ "expected": {
+  "new_surfaces": ["cmd_n\\..*\\.key_to_visible", "cmd_t\\..*\\.key_to_visible", "ctrl_backtick\\..*\\.key_to_visible", "cmd_d\\..*\\.key_to_visible", "cmd_shift_d\\..*\\.key_to_visible"],
+  "panes": ["panes\\..*\\.frame"],
+  "tab_switch": ["tab_switch\\..*\\.e2e"],
+  "palette": ["palette\\..*\\.key_to_frame"],
+  "sidebar": ["sidebar\\.\\d+\\.(scroll|scroll_while_ticking|drag|ticking)\\.frame", "sidebar\\.\\d+\\.ticking\\.(cpu_pct|main_ms_per_s)", "sidebar\\.\\d+\\.workspace_switch\\.click_to_idle", "workspace_switch\\..*"],
+  "home": ["home\\.typing\\.key_dispatch", "home\\.scroll\\.frame"],
+  "acp": ["acp\\..*\\.typing\\.(to_frame|to_paint)"],
+  "idle": ["idle\\..*\\.app_cpu_pct"],
+  "anim": ["anim\\..*\\.(frame|dropped|main_ms_max|over_8_33|main_ms_p95)"]
+ },
  "rows": {
   "anim\\..*\\.frame": {
    "p95": 8.33,

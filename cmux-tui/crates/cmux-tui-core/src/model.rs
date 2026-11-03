@@ -13,6 +13,7 @@ use crate::{PaneId, ScreenId, SplitDir, SplitId, Surface, SurfaceId, WorkspaceId
 
 mod layout_columns;
 mod layout_rows;
+mod split_around;
 
 #[cfg(test)]
 pub(crate) use layout_columns::normalize_dock_columns;
@@ -634,11 +635,12 @@ pub struct State {
     pub active_workspace: usize,
     pub panes: HashMap<PaneId, Pane>,
     /// View placements keyed by daemon-local placement identity.
-    pub surfaces: HashMap<SurfaceId, Arc<Surface>>,
+    pub surfaces: crate::route_table::RouteTable<SurfaceId, Arc<Surface>>,
     /// Stable terminal content kept alive independently of view placement.
-    pub(crate) terminal_catalog: HashMap<TerminalPublicId, Arc<Surface>>,
+    pub(crate) terminal_catalog: crate::route_table::RouteTable<TerminalPublicId, Arc<Surface>>,
     /// Reverse lookup for catalog owners addressed by daemon-local runtime ID.
-    pub(crate) terminal_catalog_by_runtime: HashMap<SurfaceId, TerminalPublicId>,
+    pub(crate) terminal_catalog_by_runtime:
+        crate::route_table::RouteTable<SurfaceId, TerminalPublicId>,
     /// Host terminal id -> catalog owner (mux/terminal_catalog_index.rs).
     pub(crate) terminal_catalog_by_host: HashMap<String, TerminalPublicId>,
     pub(crate) split_screens: HashMap<SplitId, (usize, usize, ScreenId)>,

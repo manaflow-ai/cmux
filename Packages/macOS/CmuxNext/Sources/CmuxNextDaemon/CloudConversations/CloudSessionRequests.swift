@@ -68,6 +68,6 @@ public struct CloudSessionStatusRequest: DaemonRequest {
 public struct CloudSelfHostInfoRequest: DaemonRequest {
     public typealias Response = CloudSelfHostInfo
     public static let command = "cloud-selfhost-info"
-    public static let requiredCapability: String? = DaemonCapabilities.cloudSelfHost
+    public static let requiredCapability: String? = DaemonCapability.cloudSelfHost.rawValue
     public init() {}
 }

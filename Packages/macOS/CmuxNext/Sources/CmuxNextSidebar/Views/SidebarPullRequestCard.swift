@@ -124,9 +124,8 @@ final class SidebarPullRequestCardView: NSView, HoverCardTextReporting {
         super.init(frame: frame)
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
-        scroll.autohidesScrollers = true
-        scroll.scrollerStyle = .overlay
         scroll.documentView = list
+        SystemScrollers.follow(scroll)
         addSubview(scroll)
         setAccessibilityElement(true)
         setAccessibilityRole(.list)

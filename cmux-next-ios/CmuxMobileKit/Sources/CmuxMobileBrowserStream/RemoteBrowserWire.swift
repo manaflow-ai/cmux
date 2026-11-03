@@ -88,6 +88,11 @@ public struct RemoteBrowserWire: Sendable {
                 "edit_commands": down ? editCommands.map { ["name": $0, "value": ""] } : [[String: String]]()])
     }
 
+    /// A simulator's hardware button (`home`, `lock`; cmux-mobile-host `surface.rs`).
+    public func button(_ name: String) -> Data {
+        encode(["e": "button", "surface": 0, "button": name])
+    }
+
     private func encode(_ object: [String: Any]) -> Data {
         (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
     }

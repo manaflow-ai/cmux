@@ -68,6 +68,17 @@ impl Mux {
     }
 
     pub fn emit(&self, event: MuxEvent) {
+        // A selection may show a workspace whose respawns wait in line: they
+        // check again (terminal_respawn.rs). Free when none waits.
+        if matches!(
+            event,
+            MuxEvent::TreeChanged
+                | MuxEvent::TreeSelectionChanged(_)
+                | MuxEvent::WorkspacePresentationChanged(_)
+                | MuxEvent::TreeDelta(_)
+        ) {
+            self.respawn_gate.wake_waiters();
+        }
         self.activity.observe(&event);
         if let MuxEvent::Conversation(conversation) = &event {
             self.chiefs().brains.observe(conversation);
@@ -81,6 +92,7 @@ impl Mux {
         }
     }
 
+    #[track_caller]
     pub(super) fn terminal_event_placements(&self, surface_id: SurfaceId) -> Vec<SurfaceId> {
         let state = self.state.lock().unwrap();
         let Some(surface) =
@@ -162,9 +174,12 @@ impl Mux {
         {
             hook(revision);
         }
+        let workspace = delta.workspace;
         self.emit(MuxEvent::TreeDelta(delta));
         if selection_resync {
-            self.emit(MuxEvent::TreeSelectionChanged);
+            // The selection a delta moves (the focused workspace, the pane's active tab) is in its
+            // workspace: a client that reads `selection-changed` applies it without a snapshot (#32408).
+            self.emit(MuxEvent::TreeSelectionChanged(Some(workspace)));
         }
     }
 

@@ -40,15 +40,6 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
       },
     },
     {
-      entry: "agent-pane.pr-dock",
-      variant: "several",
-      edge: ".acpmux-composer-box",
-      blocks: {
-        transcript: ".acpmux-row:not(.acpmux-user)",
-        "PR dock": ".acpmux-pr-dock > *",
-      },
-    },
-    {
       entry: "agent-pane.new-tab",
       variant: "empty",
       edge: ".nt-box",
@@ -70,11 +61,7 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
     });
     await vite.listen();
     browser = await chromium.launch({ headless: true });
-    await warmGalleryFrame(
-      vite,
-      ["agent-pane.bottom-stack", "agent-pane.pr-dock", "agent-pane.new-tab", "agent-pane.composer"],
-      { browser },
-    );
+    await warmGalleryFrame(vite, ["agent-pane.bottom-stack", "agent-pane.new-tab", "agent-pane.composer"], { browser });
   });
   afterAll(async () => {
     await browser?.close();
@@ -143,7 +130,7 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
       }
       // In a narrow pane the New Tab card and the chat's composer card stand at the same page edge.
       if (width > 600) continue;
-      const chat = edges[`agent-pane.pr-dock:several @${width}`]!;
+      const chat = edges[`agent-pane.bottom-stack:trusted-permission-queue @${width}`]!;
       const newTab = edges[`agent-pane.new-tab:empty @${width}`]!;
       if (Math.abs(newTab - chat) > 1) {
         offenders.push(`agent-pane.new-tab:empty @${width} card ${newTab - chat}px from the chat's`);
@@ -207,12 +194,10 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
   test("the strip or queue and the card meet square in one rim, and the queue keeps room above", async () => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const JOINS = [
-      // A new chat, before its first send, shows the strip (#20869).
-      { entry: "agent-pane.composer", variant: "new-chat", edge: ".acpmux-composer-box" },
       { entry: "agent-pane.composer", variant: "queued-paused", edge: ".acpmux-composer-box" },
       { entry: "agent-pane.composer", variant: "queued-steering", edge: ".acpmux-composer-box" },
-      // The New Tab's strip is text a few px over its card, the card's rim whole (#21133;
-      // composer-top-strip-variants.test.ts pins it), so it has no join here.
+      // A new chat's strip, the chat's as the New Tab's, is text a few px over its card, the card's
+      // rim whole (#21133; composer-top-strip-variants.test.ts pins it), so it has no join here.
     ];
     const offenders: string[] = [];
     for (const width of WIDTHS) {

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR cb12b489fcaad8bfa7cd1979fdcc27eaff578f0f3540c961896abdc0c61eeea0.
+// cmux-tui mux protocol 12, IR bba25ef6c17ba6206fa161713567d0d998a15d4a2e1103681b3c5badc91feb87.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -21,7 +21,7 @@ pub struct AgentChangedEvent {
     /// Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub agent: Optional<String>,
-    /// The harness's own session id that the agent's hooks reported (\`claude\`, \`codex\` session ids), checked to \`[A-Za-z0-9._:-]\` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep \`session\` for a human label, so clients find a terminal's agent session by this.
+    /// The harness's own session id that the agent's hooks reported (\`claude\`, \`codex\` session ids), checked to \`\[A-Za-z0-9._:-\]\` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep \`session\` for a human label, so clients find a terminal's agent session by this.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub agent_session_id: Optional<String>,
     /// The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted.
@@ -187,6 +187,15 @@ pub struct CloudConversationLiveEvent {
     pub account: Option<String>,
     pub conversation: String,
     pub frame: Nullable<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationPresenceEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    pub conversation: String,
+    pub participants: Vec<T::CloudConversationPresenceParticipant>,
 }
 
 #[rustfmt::skip]
@@ -684,6 +693,15 @@ pub struct ScrollChangedEvent {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SelectionChangedEvent {
+    pub active: bool,
+    pub active_workspace: Nullable<T::Id>,
+    pub screens: Vec<T::SelectionScreen>,
+    pub workspace: T::Id,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SettingsChangedEventOrigin {
     #[serde(rename = "user")]
@@ -948,6 +966,13 @@ pub struct WorkspaceMovedEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorkspacePresentationChangedEvent {
+    pub entity: T::Workspace,
+    pub workspace: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorkspaceRenamedEvent {
     pub entity: T::Workspace,
     pub generation: String,
@@ -987,6 +1012,7 @@ pub enum Event {
     ClientListInvalidated(ClientListInvalidatedEvent),
     CloudConversationChanged(CloudConversationChangedEvent),
     CloudConversationLive(CloudConversationLiveEvent),
+    CloudConversationPresence(CloudConversationPresenceEvent),
     CloudConversationResynced(CloudConversationResyncedEvent),
     CloudConversationRunChanged(CloudConversationRunChangedEvent),
     CloudConversationTyping(CloudConversationTypingEvent),
@@ -1033,6 +1059,7 @@ pub enum Event {
     ScreenClosed(ScreenClosedEvent),
     ScreenRenamed(ScreenRenamedEvent),
     ScrollChanged(ScrollChangedEvent),
+    SelectionChanged(SelectionChangedEvent),
     SettingsChanged(SettingsChangedEvent),
     SizeState(SizeStateEvent),
     Status(StatusEvent),
@@ -1058,6 +1085,7 @@ pub enum Event {
     WorkspaceChanged(WorkspaceChangedEvent),
     WorkspaceClosed(WorkspaceClosedEvent),
     WorkspaceMoved(WorkspaceMovedEvent),
+    WorkspacePresentationChanged(WorkspacePresentationChangedEvent),
     WorkspaceRenamed(WorkspaceRenamedEvent),
     Unknown(UnknownEvent),
 }
@@ -1081,6 +1109,7 @@ impl Event {
             Self::ClientListInvalidated(_) => Some("client-list-invalidated"),
             Self::CloudConversationChanged(_) => Some("cloud-conversation-changed"),
             Self::CloudConversationLive(_) => Some("cloud-conversation-live"),
+            Self::CloudConversationPresence(_) => Some("cloud-conversation-presence"),
             Self::CloudConversationResynced(_) => Some("cloud-conversation-resynced"),
             Self::CloudConversationRunChanged(_) => Some("cloud-conversation-run-changed"),
             Self::CloudConversationTyping(_) => Some("cloud-conversation-typing"),
@@ -1127,6 +1156,7 @@ impl Event {
             Self::ScreenClosed(_) => Some("screen-closed"),
             Self::ScreenRenamed(_) => Some("screen-renamed"),
             Self::ScrollChanged(_) => Some("scroll-changed"),
+            Self::SelectionChanged(_) => Some("selection-changed"),
             Self::SettingsChanged(_) => Some("settings-changed"),
             Self::SizeState(_) => Some("size-state"),
             Self::Status(_) => Some("status"),
@@ -1152,6 +1182,7 @@ impl Event {
             Self::WorkspaceChanged(_) => Some("workspace-changed"),
             Self::WorkspaceClosed(_) => Some("workspace-closed"),
             Self::WorkspaceMoved(_) => Some("workspace-moved"),
+            Self::WorkspacePresentationChanged(_) => Some("workspace-presentation-changed"),
             Self::WorkspaceRenamed(_) => Some("workspace-renamed"),
             Self::Unknown(event) => event.name.as_deref(),
         }
@@ -1174,6 +1205,7 @@ impl Event {
             Self::ClientListInvalidated(_) => Some(&CLIENT_LIST_INVALIDATED_EVENT_METADATA),
             Self::CloudConversationChanged(_) => Some(&CLOUD_CONVERSATION_CHANGED_EVENT_METADATA),
             Self::CloudConversationLive(_) => Some(&CLOUD_CONVERSATION_LIVE_EVENT_METADATA),
+            Self::CloudConversationPresence(_) => Some(&CLOUD_CONVERSATION_PRESENCE_EVENT_METADATA),
             Self::CloudConversationResynced(_) => Some(&CLOUD_CONVERSATION_RESYNCED_EVENT_METADATA),
             Self::CloudConversationRunChanged(_) => Some(&CLOUD_CONVERSATION_RUN_CHANGED_EVENT_METADATA),
             Self::CloudConversationTyping(_) => Some(&CLOUD_CONVERSATION_TYPING_EVENT_METADATA),
@@ -1220,6 +1252,7 @@ impl Event {
             Self::ScreenClosed(_) => Some(&SCREEN_CLOSED_EVENT_METADATA),
             Self::ScreenRenamed(_) => Some(&SCREEN_RENAMED_EVENT_METADATA),
             Self::ScrollChanged(_) => Some(&SCROLL_CHANGED_EVENT_METADATA),
+            Self::SelectionChanged(_) => Some(&SELECTION_CHANGED_EVENT_METADATA),
             Self::SettingsChanged(_) => Some(&SETTINGS_CHANGED_EVENT_METADATA),
             Self::SizeState(_) => Some(&SIZE_STATE_EVENT_METADATA),
             Self::Status(_) => Some(&STATUS_EVENT_METADATA),
@@ -1245,6 +1278,7 @@ impl Event {
             Self::WorkspaceChanged(_) => Some(&WORKSPACE_CHANGED_EVENT_METADATA),
             Self::WorkspaceClosed(_) => Some(&WORKSPACE_CLOSED_EVENT_METADATA),
             Self::WorkspaceMoved(_) => Some(&WORKSPACE_MOVED_EVENT_METADATA),
+            Self::WorkspacePresentationChanged(_) => Some(&WORKSPACE_PRESENTATION_CHANGED_EVENT_METADATA),
             Self::WorkspaceRenamed(_) => Some(&WORKSPACE_RENAMED_EVENT_METADATA),
             Self::Unknown(_) => None,
         }
@@ -1369,6 +1403,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("cloud-conversation-live") => match serde_json::from_value::<CloudConversationLiveEvent>(raw.clone()) {
             Ok(event) => Event::CloudConversationLive(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("cloud-conversation-presence") => match serde_json::from_value::<CloudConversationPresenceEvent>(raw.clone()) {
+            Ok(event) => Event::CloudConversationPresence(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,
@@ -1743,6 +1785,14 @@ pub fn decode_event(raw: Value) -> Event {
                 decode_error: Some(error.to_string()),
             }),
         },
+        Some("selection-changed") => match serde_json::from_value::<SelectionChangedEvent>(raw.clone()) {
+            Ok(event) => Event::SelectionChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
         Some("settings-changed") => match serde_json::from_value::<SettingsChangedEvent>(raw.clone()) {
             Ok(event) => Event::SettingsChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
@@ -1937,6 +1987,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("workspace-moved") => match serde_json::from_value::<WorkspaceMovedEvent>(raw.clone()) {
             Ok(event) => Event::WorkspaceMoved(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("workspace-presentation-changed") => match serde_json::from_value::<WorkspacePresentationChangedEvent>(raw.clone()) {
+            Ok(event) => Event::WorkspacePresentationChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

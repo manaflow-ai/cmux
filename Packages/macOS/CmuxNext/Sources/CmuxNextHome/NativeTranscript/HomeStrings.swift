@@ -24,12 +24,6 @@ enum HomeStrings {
         String(format: String(localized: "home.composer.attach.folder",
                               defaultValue: "“%@” is a folder. Attach the files in it, or a ZIP of the folder.", bundle: .module), name)
     }
-    static func attachTooLarge(_ name: String) -> String {
-        String(format: String(localized: "home.composer.attach.tooLarge", defaultValue: "“%@” is larger than 100 MB.", bundle: .module), name)
-    }
-    static func attachTooLargeAny() -> String {
-        String(localized: "home.composer.attach.tooLargeAny", defaultValue: "A file is larger than 100 MB.", bundle: .module)
-    }
     static func attachEmpty(_ name: String) -> String {
         String(format: String(localized: "home.composer.attach.empty", defaultValue: "“%@” is empty.", bundle: .module), name)
     }
@@ -94,7 +88,6 @@ enum HomeStrings {
         switch refusal {
         case .typeRefused(_, let file): attachUnsupported(name ?? file)
         case .folder(let file): attachFolder(name ?? file)
-        case .tooLarge: name.map(attachTooLarge) ?? attachTooLargeAny()
         case .empty(let file): attachEmpty(name ?? file)
         case .invalidName(let file): attachInvalidName(name ?? file)
         case .locationNotRemoved(let file): attachLocationNotRemoved(name ?? file)
@@ -118,6 +111,26 @@ enum HomeStrings {
         String(localized: "home.firstRun.hero.body",
                defaultValue: "Tell it what you want done. It handles quick things itself and hands longer work to agents, each in its own workspace you can watch and join. It reports back here.",
                bundle: .module)
+    }
+    /// The Chief's first-open message above the hero: what Chief is, what it does with agents and
+    /// workspaces, and how to start (`HomeFirstRunIntro`).
+    static var firstRunIntro: String {
+        String(localized: "home.firstRun.intro",
+               defaultValue: "Hi, I'm Chief, your assistant in cmux. Tell me what you want done.\nI handle quick things myself. Bigger jobs go to agents, each in its own workspace you can watch and join.\nTo start, type below or pick a suggestion.",
+               bundle: .module)
+    }
+    /// A new Chief's first message when the person has other Chiefs: it asks what to focus on.
+    static var chiefIntroFocus: String {
+        String(localized: "home.firstRun.introFocus",
+               defaultValue: "Hi, I'm a new Chief. What should I focus on?\nTell me a project, a repo or a kind of work, and I'll stick to it so I don't overlap with your other Chiefs.",
+               bundle: .module)
+    }
+    /// The text of the intro `kind` (``ChiefIntroStore`` picks it).
+    static func chiefIntro(_ kind: ChiefIntroKind) -> String {
+        switch kind {
+        case .welcome: firstRunIntro
+        case .askFocus: chiefIntroFocus
+        }
     }
     /// The first-run row that shows the floating Chief pet (`home.toggleChiefPet`).
     static var firstRunShowPet: String {
@@ -172,6 +185,10 @@ enum HomeStrings {
         case .idle: String(localized: "home.firstRun.agent.idle", defaultValue: "Idle", bundle: .module)
         case .working: String(localized: "home.firstRun.agent.working", defaultValue: "Working", bundle: .module)
         }
+    }
+    /// VoiceOver's words for the header's faces: who else has the conversation open.
+    static func alsoHere(_ names: String) -> String {
+        String(format: String(localized: "home.header.alsoHere", defaultValue: "Also here: %@", bundle: .module), names)
     }
     static var conversations: String { String(localized: "home.list.title", defaultValue: "Conversations", bundle: .module) }
 }

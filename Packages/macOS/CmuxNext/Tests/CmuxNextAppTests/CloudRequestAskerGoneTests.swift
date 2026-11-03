@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextSettings
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Observation
 import Testing
@@ -10,7 +11,7 @@ import Testing
 /// closes, its sidebar card goes and the request answers no, so a later click can't create a
 /// machine nobody waits for. A chat that stays open keeps its card; an asker this Mac shows no
 /// chat for (another Mac's) never expires it.
-@MainActor @Suite(.serialized) struct CloudRequestAskerGoneTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct CloudRequestAskerGoneTests {
     /// The agent chats open on this Mac, observed like the window's tab tree.
     @MainActor @Observable final class Chats {
         var open: Set<String> = ["chat-1", "chat-2"]
@@ -36,7 +37,7 @@ import Testing
     func create(_ services: AppServices, in window: NSWindow, chats: Chats, asker chat: String, sent: Sent) async throws -> (Task<String, any Error>, SidebarNoticeCard) {
         let asks = services.machineAsks
         let task = Task {
-            try await CloudMachineCreateFlow.legacy(name: "builder", startedByPerson: false, askedBy: chat,
+            try await CloudMachineCreateFlow.legacy(name: "builder", startedByPerson: false, askedBy: chat, askFirst: true,
                                                     confirm: { await CloudPresenter.confirmCreate($0, in: window, asks: asks, chatOpen: { chats.open.contains($0) }) },
                                                     create: { sent.send() })
         }

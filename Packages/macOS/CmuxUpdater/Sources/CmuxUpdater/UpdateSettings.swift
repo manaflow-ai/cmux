@@ -6,7 +6,7 @@ public import Foundation
 ///
 /// The `SU…` keys are the standard Sparkle `UserDefaults` keys. The check intervals are
 /// configuration, so this is a value type constructed with them (defaulting to cmux's
-/// hourly check) and applied to a given `UserDefaults`.
+/// 15-minute check) and applied to a given `UserDefaults`.
 public struct UpdateSettings: Sendable {
     /// Sparkle's "automatically check for updates" key.
     public static let automaticChecksKey = "SUEnableAutomaticChecks"
@@ -18,21 +18,22 @@ public struct UpdateSettings: Sendable {
     public static let sendProfileInfoKey = "SUSendProfileInfo"
     /// cmux's marker that the v2 automatic-checks migration already ran.
     public static let migrationKey = "cmux.sparkle.automaticChecksMigration.v2"
-    /// cmux's marker that the v3 stale-interval migration already ran.
-    public static let intervalMigrationKey = "cmux.sparkle.scheduledCheckIntervalMigration.v3"
+    /// cmux's marker that the v4 stale-interval migration already ran.
+    public static let intervalMigrationKey = "cmux.sparkle.scheduledCheckIntervalMigration.v4"
 
     /// The previous default scheduled-check interval (24h) that the migration upgrades from.
     public let previousDefaultScheduledCheckInterval: TimeInterval
-    /// The scheduled-check interval cmux registers (1h by default).
+    /// The scheduled-check interval cmux registers (15m by default).
     public let scheduledCheckInterval: TimeInterval
 
     /// Creates the settings with cmux's defaults.
     ///
     /// - Parameter scheduledCheckInterval: How often Sparkle checks for updates, in seconds.
-    ///   Defaults to one hour.
+    ///   Defaults to 15 minutes so published nightly builds are observed within the 30-minute
+    ///   freshness target.
     /// - Parameter previousDefaultScheduledCheckInterval: The legacy interval the migration
     ///   upgrades away from when it sees it persisted. Defaults to 24 hours.
-    public init(scheduledCheckInterval: TimeInterval = 60 * 60,
+    public init(scheduledCheckInterval: TimeInterval = 15 * 60,
                 previousDefaultScheduledCheckInterval: TimeInterval = 60 * 60 * 24) {
         self.scheduledCheckInterval = scheduledCheckInterval
         self.previousDefaultScheduledCheckInterval = previousDefaultScheduledCheckInterval
@@ -41,7 +42,7 @@ public struct UpdateSettings: Sendable {
     /// Registers the update defaults on `defaults` and runs the one-time migration.
     ///
     /// Registration is idempotent. The migration (guarded by ``migrationKey``) re-enables
-    /// automatic checks and upgrades the legacy 24h interval to ``scheduledCheckInterval`` for
+    /// automatic checks and upgrades known legacy intervals to ``scheduledCheckInterval`` for
     /// installs that predate the embedded defaults.
     public func apply(to defaults: UserDefaults) {
         defaults.register(defaults: [
@@ -78,17 +79,18 @@ public struct UpdateSettings: Sendable {
         defaults.set(true, forKey: Self.migrationKey)
     }
 
-    /// v3: installs whose v2 migration already ran can still hold the legacy 24h interval (the
-    /// shipped Info.plist value, or a later write by an older build), so Sparkle's first schedule
-    /// after launch waited up to a day. Upgrades a persisted legacy interval once, only when cmux
-    /// now checks more often; a different persisted interval is the user's choice and stays.
+    /// v4: installs whose earlier migrations already ran can still hold the legacy 24h or 1h
+    /// interval, so Sparkle's first schedule after launch could miss the 30-minute freshness
+    /// target. Upgrade those known cmux defaults once; a different persisted interval is the
+    /// user's choice and stays.
     func migrateStaleInterval(in defaults: UserDefaults) {
         guard !defaults.bool(forKey: Self.intervalMigrationKey) else { return }
         defaults.set(true, forKey: Self.intervalMigrationKey)
         guard scheduledCheckInterval < previousDefaultScheduledCheckInterval,
-              // Registered defaults hold the new interval, so a 24h value here was persisted.
+              // Registered defaults hold the new interval, so a legacy value here was persisted.
               let interval = defaults.object(forKey: Self.scheduledCheckIntervalKey) as? NSNumber,
-              abs(interval.doubleValue - previousDefaultScheduledCheckInterval) < 1 else { return }
+              abs(interval.doubleValue - previousDefaultScheduledCheckInterval) < 1 ||
+              abs(interval.doubleValue - 60 * 60) < 1 else { return }
         defaults.set(scheduledCheckInterval, forKey: Self.scheduledCheckIntervalKey)
     }
 }

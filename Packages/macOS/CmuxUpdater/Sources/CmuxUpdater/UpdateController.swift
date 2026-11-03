@@ -30,6 +30,15 @@ public final class UpdateController {
     /// the public release appcast. See ``isDevLikeBundleIdentifier(_:)``.
     let isDevLikeBundle: Bool
 
+    /// Background mode owns the staged installer so a later feed check can replace it. Keep this
+    /// preference mutation beside the private defaults store; extensions use this narrow seam.
+    @discardableResult
+    func disableSparkleSilentStagingIfNeeded() -> Bool {
+        guard defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey) else { return false }
+        defaults.set(false, forKey: UpdateSettings.automaticallyUpdateKey)
+        return true
+    }
+
     /// Host actions the updater delegates upward (retry, relaunch prep). Forwarded to the driver.
     public weak var actionDelegate: (any UpdateActionDelegate)? {
         didSet { driver.actionDelegate = actionDelegate }
@@ -77,7 +86,7 @@ public final class UpdateController {
     /// - Parameters:
     ///   - log: The update log sink (the app's `UpdateLogStore`).
     ///   - clock: Clock for bounded UI delays. Defaults to ``SystemUpdateClock``.
-    ///   - settings: The Sparkle defaults/migration configuration. Defaults to cmux's hourly check.
+    ///   - settings: The Sparkle defaults/migration configuration. Defaults to cmux's 15-minute check.
     ///   - hostBundle: The bundle Sparkle reads its configuration and version from.
     ///   - defaults: The `UserDefaults` the settings are applied to.
     ///   - fileManager: Filesystem access for the Sparkle installation-cache workaround;

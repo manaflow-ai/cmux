@@ -141,7 +141,7 @@
 
 .group-title {
   margin: 0 0 7px 2px;
-  font-size: 12.5px;
+  font-size: var(--text-detail);
   font-weight: 600;
   letter-spacing: 0;
   text-transform: none;
@@ -253,7 +253,7 @@
 
 .row-help,
 .row-key {
-  font-size: 11.5px;
+  font-size: var(--text-detail);
   line-height: 1.35;
 }
 
@@ -274,7 +274,7 @@
   align-items: center;
   gap: 6px;
   min-height: 26px;
-  font-size: 11.5px;
+  font-size: var(--text-detail);
   color: var(--muted-text);
 }
 
@@ -352,6 +352,19 @@
   color: var(--accent-text);
 }
 
+/* A Channels build row's Switch: one per row, shown only while the pointer or focus is on the row,
+   and kept while its switch runs, so the track reads as a list, not a column of buttons. */
+.channel-build .channel-switch {
+  opacity: 0;
+}
+
+.channel-build:hover .channel-switch,
+.channel-build:focus-within .channel-switch,
+.channel-build:has([data-popup-open]) .channel-switch,
+.channel-build .channel-switch[data-busy] {
+  opacity: 1;
+}
+
 /* P3: the Theme section. */
 .theme-studio {
   margin-bottom: 4px;
@@ -384,6 +397,7 @@
   margin-top: 14px;
   color: var(--muted-text);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .theme-tokens-row,
@@ -431,7 +445,7 @@
 }
 
 .theme-token:not(:disabled) {
-  cursor: pointer;
+  cursor: default;
 }
 
 .theme-token:not(:disabled):hover {
@@ -487,6 +501,7 @@
   gap: 4px;
   color: var(--muted-text);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .token-tuner-slider input {
@@ -517,7 +532,7 @@
   padding: 0;
   border: 1px solid var(--border);
   border-radius: 50%;
-  cursor: pointer;
+  cursor: default;
 }
 
 .token-tuner-contrast {
@@ -527,6 +542,7 @@
   gap: 8px;
   color: var(--muted-text);
   font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .token-tuner-contrast[data-contrast-low] {
@@ -546,7 +562,7 @@
   justify-content: space-between;
   gap: 12px;
   margin-top: 10px;
-  font-size: 11.5px;
+  font-size: var(--text-detail);
   color: var(--muted-text);
 }
 
@@ -575,6 +591,63 @@
 .theme-files-row .field {
   flex: 1 1 180px;
   min-width: 0;
+}
+
+/* Colors the Ghostty config sets itself, which no theme changes: what, where, and the way out.
+   A card like the theme rows (the app theme's own border); the icon, on the message's first line,
+   and the message in the warning color, as the settings file's row notices (.notice). */
+.theme-overrides {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+  font-size: var(--text-sm);
+}
+
+.theme-overrides > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--warning);
+}
+
+/* Text and buttons share a row; when the text would get too narrow, the buttons move under it,
+   aligned with its start. */
+.theme-overrides-body {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-width: 0;
+}
+
+.theme-overrides-text {
+  display: flex;
+  flex: 1 1 280px;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  color: var(--warning);
+}
+
+/* The where is secondary: muted, so only the message reads as the warning. */
+.theme-overrides-source {
+  color: var(--muted-text);
+  overflow-wrap: break-word;
+}
+
+.theme-overrides-error {
+  color: var(--danger);
+}
+
+.theme-overrides-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
 /* The Theme section's help explains a choice; it wraps instead of truncating. */
@@ -684,12 +757,68 @@
   color: var(--accent-text);
 }
 
+/* A group's first row carries its heading (Starred, All Themes) in the space above it, outside the
+ * row's highlight; the pointer passes through it. */
+.theme-option:has(> [data-group-start]) {
+  position: relative;
+  margin-top: 20px;
+}
+
+.theme-group-heading {
+  position: absolute;
+  top: -18px;
+  left: 6px;
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  color: var(--muted-text);
+  pointer-events: none;
+}
+
+/* The star: shown on the highlighted or hovered row and always once starred. Its slot is always
+ * there, so the name never moves; only the star itself takes the hover fill. */
+.theme-option-star {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin: -2px -3px -2px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted-text);
+  visibility: hidden;
+}
+
+.theme-option[data-highlighted] .theme-option-star,
+.theme-option:hover .theme-option-star,
+.theme-option:has([data-popup-open]) .theme-option-star,
+.theme-option-star[data-starred] {
+  visibility: visible;
+}
+
+.theme-option-star:hover {
+  background: var(--input-bg);
+  transition: background var(--motion-hover);
+}
+
+.theme-option-star[data-starred] {
+  color: var(--accent-text);
+}
+
+.theme-option-star[data-starred] .icon {
+  fill: currentColor;
+}
+
 .theme-empty {
   padding: 6px;
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .theme-count {
+  font-variant-numeric: tabular-nums;
   padding: 6px 6px 2px;
   border-top: 1px solid var(--border);
   margin-top: 4px;
@@ -811,6 +940,10 @@
     overflow-x: auto;
   }
 
+  /* One scrolling row of categories: the sections' runs join it and their headers step aside. */
+  .sidebar-section { display: contents; }
+  .sidebar-section-title { display: none; }
+
   .section-link {
     flex: none;
     width: auto;
@@ -838,6 +971,7 @@
   margin: 0;
   color: var(--muted-text);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .chief-pet-preview {
@@ -907,7 +1041,7 @@
   font: inherit;
   position: relative;
   text-align: center;
-  cursor: pointer;
+  cursor: default;
   transition: border-color var(--motion-hover) var(--motion-ease);
 }
 
@@ -928,6 +1062,7 @@
   color: var(--text);
   font-size: var(--text-body);
   font-weight: 600;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .chief-pet-choice-art {
@@ -945,12 +1080,14 @@
 .chief-pet-choice strong {
   font-size: var(--text-body);
   font-weight: 600;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .chief-pet-choice-help {
   color: var(--muted-text);
   font-size: var(--text-caption);
   line-height: 1.35;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 /* An accent's swatch: the color it gives the app theme (AccentPicker draws it, and Art Color's hue

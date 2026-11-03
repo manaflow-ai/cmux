@@ -19,8 +19,10 @@ final class TopPageHost {
 
     /// The page's view, made on first show; nil when no provider serves the route.
     func view(for route: TopPageRoute, in window: WindowController) -> NSView? {
-        if let view = views[route] { return view }
         guard let services else { return nil }
+        if case .page(let id) = route, InternalPageTabStore.isPreviewPage(id),
+           services.settings?.snapshot.previewFeatures != true { return nil }
+        if let view = views[route] { return view }
         let view: NSView
         switch route {
         case .home:
@@ -64,7 +66,7 @@ final class TopPageHost {
     /// The window closed: every page view goes, and providers forget them.
     func teardown() {
         for (route, view) in views {
-            view.removeFromSuperview()
+            if let page = view as? InternalPageView { page.removeFromSuperviewDetachingSubviews() } else { view.removeFromSuperview() } // not in a dealloc
             // The key goes first, so the provider no longer counts this page as open (`pageIsOpen`).
             if case .page(let id) = route, let key = keys.removeValue(forKey: route) { services?.pages.provider(id)?.tabClosed(key) }
         }

@@ -1,5 +1,6 @@
 public import AppKit
 import Carbon.HIToolbox
+import CmuxNextWakeups
 import GhosttyNextKit
 
 // Keyboard and IME input.
@@ -12,6 +13,7 @@ import GhosttyNextKit
 // (ghostty.h:1571, :1586, :1656).
 extension TerminalSurfaceView {
     public override func keyDown(with event: NSEvent) { // perf-hot: 1ms terminal-key (every key typed into a terminal)
+        if TypingLatencyProbe.isEnabled { TypingLatencyProbe.shared.hop("app.key.terminal") }
         if TerminalClipboardRequests.isPasteChord(event), !clipboardRequests.userPasteInProgress {
             return clipboardRequests.asUserPaste { keyDown(with: event) }
         }
@@ -85,6 +87,20 @@ extension TerminalSurfaceView {
         )
     }
 
+    /// A key held for this terminal while another view had the keyboard (a creation hold, P0 1193), typed into it now
+    /// without taking the keyboard: this surface's own Ghostty key encoder (its modifiers, Option-as-Alt setting, cursor
+    /// and keypad modes, the Kitty keyboard protocol) turns it into bytes, written to this terminal as a typed key is
+    /// (by the terminal id its create chose while it is being made). No input method sees it: a held key has no
+    /// composition. A Command chord is an app action and never comes here.
+    public func typeHeldKey(_ event: NSEvent) {
+        guard let surface else { return }
+        let translationEvent = GhosttyInput.translationEvent(
+            for: event, translationMods: ghostty_surface_key_translation_mods(surface, GhosttyInput.mods(event.modifierFlags)))
+        let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
+        sendKey(action, event: event, translationEvent: translationEvent, text: GhosttyInput.keyText(for: translationEvent))
+        sendKey(GHOSTTY_ACTION_RELEASE, event: event)
+    }
+
     public override func keyUp(with event: NSEvent) {
         if copyMode.handleKeyUp(event) { return }
         sendKey(GHOSTTY_ACTION_RELEASE, event: event)
@@ -93,9 +109,9 @@ extension TerminalSurfaceView {
     public override func flagsChanged(with event: NSEvent) {
         guard !hasMarkedText(), let action = GhosttyInput.modifierAction(for: event) else { return }
         sendKey(action, event: event)
-        // A program that has the mouse: Ghostty looks for a link under a resting pointer only on a
-        // move, so Command pressed or let go sends the pointer again (TerminalPointerMods).
-        if [kVK_Command, kVK_RightCommand].contains(Int(event.keyCode)), let surface, ghostty_surface_mouse_captured(surface) { bridge.takeUnretainedValue().sendPointerAgain() }
+        // Ghostty looks for a link under a resting pointer only on a move to another cell (and, in
+        // a program that has the mouse, not on a key): a modifier change looks again, after the key.
+        linkPointer.modifiersChanged(event.modifierFlags)
     }
 
     /// Key equivalents reach the view before the main menu

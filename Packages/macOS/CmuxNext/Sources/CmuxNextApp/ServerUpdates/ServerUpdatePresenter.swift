@@ -4,14 +4,18 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
+import CmuxNextSettings
 import CmuxNextUpdater
 
-/// Shows "Restart cmux-tui to use new features" as a toast on the active window, asks the confirm
+/// Shows "Update ready for cmux-tui" (Restart) as a toast on the active window, asks the confirm
 /// on its button, runs the restart and reports the result (plans/cmux-next/server-updates-DESIGN.md).
 /// It never restarts on its own: skew only shows the toast.
 @MainActor
 final class ServerUpdatePresenter {
     let servers: ServerUpdateCoordinator
+    /// The socket and Tailscale address Settings > Server shows beside the handshakes.
+    let facts = ServerSettingsFacts()
+    private let tailnet: ServerTailnetSource
     private let daemon: DaemonService
     private let activeWindow: @MainActor () -> NSWindow?
     private var shown: [String: CmuxToastHandle] = [:]
@@ -19,8 +23,10 @@ final class ServerUpdatePresenter {
     private var busy: Set<String> = []
     private var observers: [Task<Void, Never>] = []
 
-    init(daemon: DaemonService, defaults: UserDefaults, activeWindow: @escaping @MainActor () -> NSWindow?) {
+    init(daemon: DaemonService, defaults: UserDefaults, tailnet: ServerTailnetSource = .app(),
+         activeWindow: @escaping @MainActor () -> NSWindow?) {
         self.daemon = daemon
+        self.tailnet = tailnet
         self.activeWindow = activeWindow
         servers = ServerUpdateCoordinator(restarter: AppServerRestarter(daemon: daemon),
                                           snoozes: ServerUpdateSnoozeStore(defaults: defaults))
@@ -39,11 +45,33 @@ final class ServerUpdatePresenter {
                 servers.report(ServerHandshake(daemon: identity, host: .local),
                                appCapabilities: ServerHandshake.appCmuxTUICapabilities, bundledBuild: nil)
                 self?.sync()
+                await self?.refreshFacts()
             }
         })
         observers.append(Task { [weak self] in
             for await _ in ObservationStream({ servers.notices }) { self?.sync() }
         })
+    }
+
+    /// Settings > Server: a row per server heard from, with the socket and tailnet address.
+    var settingsReport: ServerSettingsReport {
+        servers.settingsReport(socketPath: facts.socketPath, tailnetAddress: facts.tailnetAddress)
+    }
+
+    /// The host lists' `server` (reading it registers the Observation dependencies the page watches).
+    var settingsPageJSON: CmuxNextSettings.JSONValue { ServerSettingsPageJSON(report: settingsReport).json }
+
+    /// Re-reads the socket and the Tailscale address (after a handshake).
+    private func refreshFacts() async {
+        facts.socketPath = await daemon.connection?.endpoint?.socketPath
+        facts.tailnetAddress = await tailnet.address()
+    }
+
+    /// Restart… on a Settings row: the same confirm as the toast. Only the local cmux-tui can
+    /// restart from here yet (`AppServerRestarter`).
+    func confirmRestart(kind: ServerKind, host: ServerHost) {
+        guard kind == .cmuxTUI, host == .local else { return }
+        confirmRestart()
     }
 
     /// Shows a toast for each notice not shown yet; ends toasts whose notice went away.
@@ -74,8 +102,8 @@ final class ServerUpdatePresenter {
     }
 
     private func show(_ notice: ServerUpdateNotice, in window: NSWindow) {
-        let toast = CmuxToast(id: "server-update.\(notice.id)", message: notice.toastMessage,
-                              action: CmuxToast.Action(title: notice.restartButtonTitle), duration: CmuxToast.untilClosed)
+        let toast = CmuxToast(id: "server-update.\(notice.id)", message: notice.toastMessage, detail: notice.toastDetail,
+                              action: CmuxToast.Action(title: notice.toastButtonTitle), duration: CmuxToast.untilClosed)
         let handle = CmuxToastCenter.shared.show(toast, in: window)
         shown[notice.id] = handle
         handle.onAction = { [weak self] in self?.confirm(notice, in: window) }

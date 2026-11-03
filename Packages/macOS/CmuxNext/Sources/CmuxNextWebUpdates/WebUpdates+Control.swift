@@ -10,7 +10,8 @@ import Foundation
 // while a download outlasts the control deadline).
 // `updates.web.rollback`: serves the update before the active one (the bundled web when none) at
 // the next safe point; the rolled-back update is not taken again. `updates.web.apply`: swaps a
-// ready update in now and reloads the pages (a draft being typed is not saved first).
+// ready update in now and reloads the pages, past the safe point's checks (WebSwapGate): an
+// explicit ask, for tests and support; a draft being typed is not saved first.
 extension WebUpdates {
     /// The `updates.web.*` methods, for the App's control router.
     public var controlMethods: [ControlMethod] {
@@ -69,6 +70,9 @@ extension WebUpdates {
             "previous": updater.state.previous.map(json) ?? .null,
             "served": WebBundleOverlay.shared.activeTree.map { .string($0.lastPathComponent) } ?? .string("bundled"),
             "pending": pending,
+            // What held the pending update at the last safe point look (WebSwapGate): app input,
+            // a sheet, or a page's own reason (`composer.sending`, `selection`, `page.no-answer`).
+            "waiting_for": web.pending == nil ? .null : web.heldBy.map { .string($0) } ?? .null,
             "app_abi": JSONValue(updater.app.abi),
             "app_web_built_at": JSONValue(updater.app.webBuiltAt),
             "last_check": updater.lastCheck.map { .string(ISO8601DateFormatter().string(from: $0)) } ?? .null,

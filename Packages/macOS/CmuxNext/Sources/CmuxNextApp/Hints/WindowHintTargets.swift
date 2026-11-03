@@ -95,9 +95,9 @@ enum WindowHintTargets {
             for (index, page) in pages.enumerated() {
                 // task-owner: one page's answer; the collection resumes once, at the deadline at the latest.
                 Task { @MainActor in
-                    let value = try? await page.callAsyncJavaScript("return " + LinkHintSession.collectScript,
-                                                                    arguments: [:], in: nil, contentWorld: .defaultClient)
-                    collection.answer(index, targets((value as? String) ?? "[]", in: page, clip: clip))
+                    // No user gesture: listing a page's links must not hand it the person's activation.
+                    let value = try? await WebKitGestureFreeEvaluation(webView: page).evaluate(LinkHintSession.collectScript, in: .defaultClient)
+                    collection.answer(index, targets(value?.stringValue ?? "[]", in: page, clip: clip))
                 }
             }
             // The deadline; resuming twice is guarded by the collection, which cancels it on finish.

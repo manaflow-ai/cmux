@@ -22,6 +22,8 @@ import CmuxNextDesignTokens
     static let lift = ChromeTunables.opaqueOverlayLift.defaultValue
 
     struct BundledTheme {
+        /// The folder of `themeFolders` the theme file is in.
+        let folder: String
         let name: String
         let label: String
         let input: ThemeInput
@@ -54,7 +56,8 @@ import CmuxNextDesignTokens
                 input.accentColor = colors.accent
                 let tokens = ThemeTokens.derive(from: input)
                 let card = CardMaterial(tokens, lift: lift, minimumOpacity: CardMaterial.defaultMinimumOpacity)
-                themes.append(BundledTheme(name: name, label: "\(folder)/\(name) [\(tokens.isDark ? "dark" : "light")]",
+                themes.append(BundledTheme(folder: folder, name: name,
+                                           label: "\(folder)/\(name) [\(tokens.isDark ? "dark" : "light")]",
                                            input: input, tokens: tokens, card: card))
             }
         }

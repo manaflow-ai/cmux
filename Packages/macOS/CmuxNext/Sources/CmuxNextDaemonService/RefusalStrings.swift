@@ -36,8 +36,20 @@ public nonisolated enum RefusalStrings {
     public static var incognitoMismatch: String {
         text("handlers.refusal.incognitoMismatch", "Incognito and normal windows can't share workspaces, tabs or screens.")
     }
+    /// Move Space to This Window or Merge All Windows would close a window still creating a workspace.
+    public static var gatherWhileCreating: String {
+        text("handlers.refusal.gatherWhileCreating", "A new workspace is still opening in a window this would close. Try again in a moment.")
+    }
+    /// Move Space to This Window or Merge All Windows would take a workspace out of a window that keeps its own browser tabs.
+    public static var gatherLocalTabs: String {
+        text("handlers.refusal.gatherLocalTabs", "A window this would change keeps browser tabs that can't move with its workspaces. Close those tabs first.")
+    }
     public static var chromiumUnavailable: String { text("handlers.refusal.chromiumUnavailable", "Chromium is not available in this build.") }
+    /// A window action before the window has registered (the launch window, still restoring).
+    public static var windowNotReady: String { text("handlers.refusal.windowNotReady", "This window isn't ready yet. Try again in a moment.") }
     public static var homeNotReady: String { text("handlers.refusal.homeNotReady", "Home is not ready yet.") }
+    /// Close New Message (`home.closeNewMessage`) while no New Message draft is open.
+    public static var noNewMessage: String { text("handlers.refusal.noNewMessage", "There is no new message to close.") }
     /// A promote (new workspace, new window) of a Home tab (`TabPromotion`).
     public static var homeKeepsItsTabs: String { text("handlers.refusal.homeKeepsItsTabs", "Home's tabs stay in Home.") }
     /// The user's close of a permanent docked column (cmux-tui `dock-column-permanent`).
@@ -46,6 +58,11 @@ public nonisolated enum RefusalStrings {
     public static var homeTabStays: String { text("handlers.refusal.homeTabStays", "Home stays open in its column.") }
     /// The user's close the daemon refused for another reason.
     public static var closeRefused: String { text("handlers.refusal.closeRefused", "The tab could not be closed.") }
+    /// A workspace close whose machine did not answer within its bound (`DaemonService.closeReplyBound`); the store still
+    /// lists it, and the result is unknown (a paused machine may still close it).
+    public static var closeUnanswered: String {
+        text("handlers.refusal.closeUnanswered", "Its machine did not answer, so the workspace may still close.")
+    }
     /// A Home action that opens the page or a sheet, run by automation that may not change the view.
     public static var homeNeedsFocus: String {
         text("handlers.refusal.homeNeedsFocus",
@@ -87,12 +104,12 @@ public nonisolated enum RefusalStrings {
     static var directionDown: String { text("handlers.refusal.directionDown", "down") }
     /// Why an action that needs the local daemon's `capability` is off. The
     /// bundled daemon is built from this tree and serves every capability in
-    /// `DaemonCapabilities.required` and `optional` (check-daemon-capabilities.sh),
+    /// `DaemonCapability.required` and `optional` (check-daemon-capabilities.sh),
     /// so a running daemon without one is an older build: restarting cmux
     /// updates it. Any other capability has no daemon half in this build yet.
     /// The id itself is never shown.
     public static func needsDaemonCapability(_ capability: String) -> String {
-        DaemonCapabilities.isServedByBundledDaemon(capability) ? restartToUpdateDaemon : notInThisVersion
+        DaemonCapability.isServedByBundledDaemon(capability) ? restartToUpdateDaemon : notInThisVersion
     }
     /// The running local daemon is older than the app.
     public static var restartToUpdateDaemon: String {
@@ -104,10 +121,18 @@ public nonisolated enum RefusalStrings {
     public static var daemonConnecting: String {
         text("handlers.refusal.daemonConnecting", "cmux is still starting its background service. Try again in a moment.")
     }
+    /// A new incognito window whose workspace the local daemon neither answered nor made within its bound
+    /// (`DaemonService.createReplyBound`): no window opens.
+    public static var incognitoUnanswered: String {
+        text("handlers.refusal.incognitoUnanswered", "The incognito window did not open: cmux’s background service did not answer.")
+    }
     /// The local daemon could not start (the window shows why).
     static var daemonUnavailable: String {
         text("handlers.refusal.daemonUnavailable", "cmux could not start its background service. Quit and reopen cmux to try again.")
     }
+    /// Why a change or a start did not happen: the disk under cmux-tui's state is full (restore fuzz h2, h3).
+    /// A reason after "<action> did not apply: " and inside cmux-tui's start notice.
+    public static var diskFull: String { text("refusal.daemon.diskFull", "the disk is full") }
     /// The local daemon is alive but has spent over 2 minutes restoring the
     /// session's terminals (`server.restore_timeout`); cmux keeps trying.
     public static var daemonRestoreTimedOut: String {
@@ -197,6 +222,8 @@ public nonisolated enum RefusalStrings {
     public static func noPaneInDirectionOfTab(_ direction: String) -> String { format("handlers.refusal.noPaneInDirectionOfTab", "no pane %@ of the tab", direction) }
     public static var sessionLocalCannotRename: String { text("handlers.refusal.sessionLocalCannotRename", "session-local tabs cannot be renamed") }
     public static var sessionLocalHasNoName: String { text("handlers.refusal.sessionLocalHasNoName", "session-local tabs have no name") }
+    /// A Close Tab press aimed at a pane the press before it emptied (`PaneCloseAim` in the app).
+    public static var closeAimedAtClosedPane: String { text("handlers.refusal.closeAimedAtClosedPane", "That pane closed. Press again to close a tab in this pane.") }
     public static var pinnedTabKept: String { text("handlers.refusal.pinnedTabKept", "Pinned tabs stay open. Right-click the tab and choose Close Tab to close it.") }
     public static var sessionLocalCannotPin: String { text("handlers.refusal.sessionLocalCannotPin", "session-local tabs cannot be pinned") }
     public static var neverHibernateNoSite: String { text("handlers.refusal.neverHibernateNoSite", "This tab shows no website.") }

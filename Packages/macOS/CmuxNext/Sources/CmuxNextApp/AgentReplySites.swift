@@ -19,6 +19,7 @@ struct AgentReplySites {
             return AgentReplySites(services: services).sites(for: urls)
         }
         links.pullRequest = { url in AgentReplyPullRequests.shared.answer(url) }
+        links.cachedPullRequest = { url in AgentReplyPullRequests.shared.answer(url, read: false) }
         links.registerPullRequests = { urls in AgentReplyPullRequests.shared.register(urls) }
     }
 

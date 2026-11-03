@@ -145,8 +145,13 @@ load_agent_config() {
   if [ -f /etc/cmux/agent-config.sh ]; then
     . /etc/cmux/agent-config.sh
   fi
-  # The machine env (\`cmux env set\`) reaches agents started through this shim
-  # even when the calling shell predates the ~/.profile hook.
+  # The declared env and secrets of the machine's .cmux/machine.toml (cmux cloud
+  # apply-machine-config), then the machine env (\`cmux env set\`), which wins; both
+  # reach agents started through this shim even when the calling shell predates
+  # the ~/.profile hooks.
+  if [ -f "\$HOME/.config/cmux/machine.env" ] && [ ! -L "\$HOME/.config/cmux/machine.env" ]; then
+    . "\$HOME/.config/cmux/machine.env"
+  fi
   if [ -f "\$HOME/.config/cmux/env" ]; then
     . "\$HOME/.config/cmux/env"
   fi

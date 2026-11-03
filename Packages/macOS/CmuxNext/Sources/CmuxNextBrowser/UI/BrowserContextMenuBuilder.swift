@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 
 /// Turns an engine's context menu model into an `NSMenu` and shows it. The
@@ -35,13 +36,10 @@ public final class BrowserContextMenuBuilder {
         // A background tab's view is in no window; AppKit cannot anchor a
         // menu there (it raises). Dismiss the request instead.
         guard view.window != nil else { return request.complete(nil) }
-        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) { [weak view] in
-            MainActor.assumeIsolated { // main-proof: a CFRunLoopGetMain() block runs on the main thread
-                guard let view, view.window != nil else { return request.complete(nil) }
-                self.show(request, in: view, leading: leading, extra: extra)
-            }
+        MainRunLoopBlock.perform { [weak view] in
+            guard let view, view.window != nil else { return request.complete(nil) }
+            self.show(request, in: view, leading: leading, extra: extra)
         }
-        CFRunLoopWakeUp(CFRunLoopGetMain())
     }
 
     private func show(_ request: BrowserContextMenuRequest, in view: NSView, leading: [NSMenuItem], extra: [NSMenuItem]) {

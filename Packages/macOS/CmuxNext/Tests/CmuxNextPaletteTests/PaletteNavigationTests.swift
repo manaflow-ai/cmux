@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDesign
 @testable import CmuxNextPalette
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -10,7 +11,7 @@ import Testing
 /// prefix matches first and the recently used next, and choosing a row goes
 /// there through the source.
 @MainActor
-@Suite(.paletteRanker)
+@Suite(.paletteRanker, .closesItsWindows)
 struct PaletteNavigationTests {
     @MainActor private final class Workspaces: PaletteWorkspaceSource {
         var workspaces: [PaletteWorkspace] = []
@@ -85,7 +86,8 @@ struct PaletteNavigationTests {
 
         let terminal = items[3]
         #expect(terminal.title == "Untitled")
-        #expect(terminal.accessory == "Current")
+        // The kind stays, with Current after it (Leo 2026-11-03: "i also dont know what the symbols even mean").
+        #expect(terminal.accessory == "Terminal · Current")
         #expect(terminal.keywords.contains("/srv/api"))
 
         let chat = items[4]
@@ -135,7 +137,7 @@ struct PaletteNavigationTests {
             PaletteNavigationEntry(id: "t1", kind: .tab(.browser), title: "Release notes", workspaceTitle: "frontend"),
         ]
         let palette = Self.palette(workspaces, navigation)
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         palette.show(.workspaces)
         await palette.model.settle()
         #expect(Set(Self.ids(palette)) == ["workspace:w1", "workspace:w2"])
@@ -149,6 +151,56 @@ struct PaletteNavigationTests {
         #expect(await Self.search(palette, "backend").contains("pane:p1"))
     }
 
+    /// Leo's "ultra" search (cmux-design-references `cmux/live/menus-palette-workspace-search-duplicates`):
+    /// "mac-studio-ultras" holds two untitled chats, "Set up Mac Studio Ultras for" one, folded into
+    /// its row. Each row names its kind in words, and no chat repeats its workspace's title.
+    @Test func ultraListsEachWorkspaceOnceAndItsChatsByKind() async {
+        let workspaces = Workspaces()
+        workspaces.workspaces = [
+            PaletteWorkspace(id: "ws-a", title: "mac-studio-ultras", isSelected: true, machineName: "cosmic-gray"),
+            PaletteWorkspace(id: "ws-b", title: "Set up Mac Studio Ultras for", unreadCount: 2, machineName: "cosmic-gray",
+                             keywords: ["Racking the Studios", "acp:acp-b1", "acp-b1"]),
+        ]
+        let navigation = Navigation()
+        navigation.entries = ["a1", "a2"].map {
+            PaletteNavigationEntry(id: $0, kind: .tab(.agentChat), title: "mac-studio-ultras", workspaceTitle: "mac-studio-ultras",
+                                   workspaceID: "ws-a", sessionID: "acp:acp-\($0)")
+        }
+        let palette = Self.palette(workspaces, navigation)
+        defer { palette.closeForTest() }
+        palette.show(.workspaces)
+        let ranked = await Self.search(palette, "ultra")
+        // Four rows, not five: the workspaces, then the two chats (tabs rank below a workspace).
+        #expect(Set(ranked) == ["workspace:ws-a", "workspace:ws-b", "tab:a1", "tab:a2"])
+        #expect(Set(ranked.suffix(2)) == ["tab:a1", "tab:a2"])
+        let rows = Dictionary(uniqueKeysWithValues: palette.model.rows.map { ($0.item.id, $0.item) })
+        #expect(rows["tab:a1"]?.title == "Agent Chat 1")
+        #expect(rows["tab:a2"]?.title == "Agent Chat 2")
+        #expect(rows["workspace:ws-a"]?.accessory == "Workspace · Current")
+        #expect(rows["workspace:ws-b"]?.accessory == "Workspace · 2 unread")
+        #expect(rows["tab:a1"]?.accessory == "Agent Chat")
+        // The folded chat's own title and session id find its workspace.
+        #expect(await Self.search(palette, "racking the studios").first == "workspace:ws-b")
+        #expect(await Self.search(palette, "acp-b1").first == "workspace:ws-b")
+    }
+
+    @Test func aLoneTabsTitleAndSessionFindItsWorkspace() {
+        #expect(PaletteWorkspace.loneTabWords(title: "Racking the Studios", session: "acp-b1") == ["Racking the Studios", "acp:acp-b1", "acp-b1"])
+        #expect(PaletteWorkspace.loneTabWords(title: "", session: nil).isEmpty)
+        #expect(PaletteWorkspace.loneTabWords(title: "Docs", url: "https://example.com/docs", session: nil) == ["Docs", "https://example.com/docs"])
+    }
+
+    @Test func aLoneRepeatIsNamedByItsKindAndSameNamesInOtherWorkspacesStay() {
+        let entries = [
+            PaletteNavigationEntry(id: "t1", kind: .tab(.agentChat), title: "API ", workspaceTitle: "api", workspaceID: "w1"),
+            PaletteNavigationEntry(id: "t2", kind: .tab(.terminal), title: "api", workspaceTitle: "api", workspaceID: "w1"),
+            PaletteNavigationEntry(id: "t3", kind: .tab(.agentChat), title: "Fix CI", workspaceTitle: "api", workspaceID: "w1"),
+            PaletteNavigationEntry(id: "t4", kind: .tab(.agentChat), title: "api", workspaceTitle: "web", workspaceID: "w2"),
+        ]
+        let titles = NavigationPaletteProvider.items(entries, source: nil).map(\.title)
+        #expect(titles == ["Agent Chat", "Terminal", "Fix CI", "api"])
+    }
+
     @Test func recencyBreaksTiesBetweenEqualMatches() async {
         let workspaces = Workspaces()
         workspaces.workspaces = [PaletteWorkspace(id: "w1", title: "deploy")]
@@ -158,7 +210,7 @@ struct PaletteNavigationTests {
             PaletteNavigationEntry(id: "new", kind: .tab(.terminal), title: "deploy", lastUsed: Self.now),
         ]
         let palette = Self.palette(workspaces, navigation)
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         palette.show(.workspaces)
         let ranked = await Self.search(palette, "deploy")
         #expect(Set(ranked).isSuperset(of: ["workspace:w1", "tab:new", "tab:old"]))
@@ -170,7 +222,7 @@ struct PaletteNavigationTests {
         let navigation = Navigation()
         navigation.entries = [PaletteNavigationEntry(id: "g1", kind: .group(workspaceCount: 1), title: "Infra")]
         let palette = Self.palette(workspaces, navigation)
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         palette.show(.workspaces)
         #expect(await Self.search(palette, "infra").first == "group:g1")
         _ = palette.model.handle(.submit)
@@ -194,7 +246,7 @@ struct PaletteNavigationTests {
         #expect(items[2].secondary.isEmpty)
 
         let palette = Self.palette(workspaces, navigation)
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         palette.show(.workspaces)
         // The acpmux handle, its bare id, and a Claude session UUID each find their row.
         #expect(await Self.search(palette, "acp:s_3f9a").first == "tab:chat")
@@ -215,6 +267,26 @@ struct PaletteNavigationTests {
         #expect(PaletteKeyMap.command(for: event, actionsMenuOpen: true, queryIsEmpty: false, registry: palette.registry) == .toggleActions)
     }
 
+    /// Cmd-P (`goToWorkspace`, the Workspaces scope) and Cmd-Shift-A (`search.chats`, the
+    /// Search scope) both open a page where Cmd-K on an agent row offers Copy Session ID.
+    @Test(arguments: ["goToWorkspace", "search.chats"])
+    func cmdKCopiesTheSessionIDFromEachPaletteEntryPoint(_ action: String) async throws {
+        let workspaces = Workspaces()
+        let navigation = Navigation()
+        navigation.entries = [
+            PaletteNavigationEntry(id: "chat", kind: .tab(.agentChat), title: "Fix CI", workspaceTitle: "api", sessionID: "acp:s_3f9a"),
+        ]
+        let palette = Self.palette(workspaces, navigation)
+        palette.bindRegistryActions()
+        defer { palette.closeForTest() }
+        for task in palette.registry.capturingWork({ #expect(palette.registry.perform(ActionID(rawValue: action))) }) { _ = await task.value }
+        #expect(palette.isVisible)
+        #expect(await Self.search(palette, "s_3f9a").first == "tab:chat")
+        #expect(palette.model.handle(.toggleActions))
+        #expect(palette.model.actionsMenu?.itemID == "tab:chat")
+        #expect(palette.model.actionsMenu?.commands.map(\.id).contains("copySessionID") == true)
+    }
+
     /// 5,000 tabs rank without the palette rebuilding them per keystroke: no new read of the
     /// source and no new search index after the first key. Counted, not timed: a 5 s wall-clock
     /// limit failed on a loaded fleet host (9.27 s on aws-m4pro-4, 2026-10-21) with nothing wrong.
@@ -227,7 +299,7 @@ struct PaletteNavigationTests {
                                    cwd: "/Users/me/src/project-\(index)")
         }
         let palette = Self.palette(workspaces, navigation)
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         palette.show(.workspaces)
         let query = "tab 4321"
         _ = await Self.search(palette, String(query.prefix(1)))

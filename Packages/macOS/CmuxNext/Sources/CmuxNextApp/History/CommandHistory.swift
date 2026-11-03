@@ -16,6 +16,9 @@ import os
 final class CommandHistory {
     private unowned let services: AppServices
     private var mirrors: [String: TerminalCommandMirror] = [:]
+    /// Repeated successful commands for one exact machine and directory, rebuilt from the mirrors
+    /// (``TerminalCommandSuggestionStore``). The projection is opt-in with command history and never runs a command.
+    var suggestions = TerminalCommandSuggestionStore()
     private var refreshing: Task<Void, Never>?
     private var observation: Task<Void, Never>?
     /// What each connected daemon was last sent, by machine; a restarted
@@ -35,11 +38,9 @@ final class CommandHistory {
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            observation?.cancel()
-        }
+        observation?.cancel()
     }
 
     /// Starts keeping the daemons' switch and retention in step with the settings.
@@ -61,7 +62,7 @@ final class CommandHistory {
 
     private static func state(settings: SettingsController, daemons: [DaemonService]) -> SyncState {
         var machines: [String: String] = [:]
-        for daemon in daemons where daemon.supports(DaemonCapabilities.terminalCommandHistory) {
+        for daemon in daemons where daemon.supports(DaemonCapability.terminalCommandHistory.rawValue) {
             guard case .connected = daemon.store.connectionState else { continue }
             machines[daemon.machineID] = daemon.store.generation?.rawValue ?? ""
         }
@@ -135,6 +136,7 @@ final class CommandHistory {
                 mirrors[machine] = nil
             }
         }
+        suggestions.replace(mirrors.values.flatMap(\.commands))
     }
 
     static func command(_ row: TerminalCommandRow, machine: String) -> TerminalCommand? {
@@ -161,6 +163,7 @@ final class CommandHistory {
     /// after `since` (nil: all).
     func delete(since: Date?) {
         for machine in mirrors.keys { mirrors[machine]?.remove(startedSince: since) }
+        suggestions.replace(mirrors.values.flatMap(\.commands))
         let selection: DeleteTerminalCommandsRequest.Selection = since.map { .startedSince($0) } ?? .all
         for daemon in daemons() {
             let machine = daemon.machineID
@@ -173,6 +176,7 @@ final class CommandHistory {
     /// Deletes one command in its daemon.
     func delete(_ command: TerminalCommand) {
         mirrors[command.machine]?.remove(ids: [command.id])
+        suggestions.replace(mirrors.values.flatMap(\.commands))
         guard let daemon = daemons().first(where: { $0.machineID == command.machine }) else { return }
         let id = String(command.id)
         let machine = command.machine
@@ -190,7 +194,7 @@ final class CommandHistory {
 
     private func daemons() -> [DaemonService] {
         services.machines.daemons.filter { daemon in
-            guard daemon.supports(DaemonCapabilities.terminalCommandHistory), case .connected = daemon.store.connectionState else { return false }
+            guard daemon.supports(DaemonCapability.terminalCommandHistory.rawValue), case .connected = daemon.store.connectionState else { return false }
             return true
         }
     }

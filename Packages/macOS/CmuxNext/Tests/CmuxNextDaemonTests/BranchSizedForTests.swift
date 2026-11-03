@@ -3,8 +3,9 @@ import Testing
 @testable import CmuxNextDaemon
 
 /// Two views of one terminal on the real daemon (plans/cmux-next/sync-ux/DESIGN.md 2.4 and 2.6):
-/// a Mac view and a phone-kind view, each naming its device in `set-client-info`. Under the
-/// default policy (last active) the phone's attach does not take the grid, the view that does not
+/// a Mac view and a phone-kind view, each naming its device in `set-client-info`. Under last active
+/// (pinned on the terminal: a cmux-next daemon that reads its settings file defaults to Fit the
+/// smallest viewer, host-size-policy-v1, PR #24650) the phone's attach does not take the grid, the view that does not
 /// set the grid learns who does ("Sized for <device>"), and a claim (focus, Take over) moves the
 /// grid and the notice. Under a policy that picks by size, the Mac's Take over sets the terminal to
 /// last active and takes the grid back.
@@ -14,6 +15,9 @@ struct BranchSizedForTests {
     @Test func theViewThatDoesNotSetTheGridIsToldWhoDoes() async throws {
         try await BranchDaemonHarness.with { h in
             let (_, _, surface) = try await h.workspaceWithTerminal("sized-for")
+            // The host default is `smallest` (bb425d70ed3), where the phone's attach takes the grid by
+            // design; this test is about last active, so the terminal pins it, as sized_attach.rs does.
+            _ = try await h.connection.request(SetSizePolicyRequest(surface: surface, policy: .init(mode: "latest")))
             let target = TerminalAttachment.Target(surface: surface, generation: h.identity.generation)
             let mac = try await TerminalAttachment.attach(
                 endpoint: h.endpoint, target: target, size: CellSize(cols: 100, rows: 30), claimGeometry: true,

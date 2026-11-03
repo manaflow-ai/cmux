@@ -51,6 +51,13 @@ const baseNightlyMoves = ["", ".md", ".txt"].flatMap((ext) => [
     permanent: false,
   },
 ]);
+// cmux-next docs exist only in the nightly channel (built from main), like Base.
+const nextDocsNightlyMoves = [
+  { source: "/docs/next", destination: "/docs/nightly/next", permanent: false },
+  { source: "/en/docs/next", destination: "/docs/nightly/next", permanent: false },
+  { source: "/docs/next/:slug", destination: "/docs/nightly/next/:slug", permanent: false },
+  { source: "/en/docs/next/:slug", destination: "/docs/nightly/next/:slug", permanent: false },
+];
 const tuiInstallerHeaderRules = [
   {
     source: "/tui/install.sh",
@@ -186,7 +193,7 @@ const nextConfig: NextConfig = {
         },
       ]),
     );
-    return [...(isDocsZone ? [] : baseNightlyMoves), ...agentRedirects];
+    return [...(isDocsZone ? [] : [...baseNightlyMoves, ...nextDocsNightlyMoves]), ...agentRedirects];
   },
   async headers() {
     const channelSecurityHeaders =

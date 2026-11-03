@@ -1,4 +1,6 @@
+import CmuxNextCloud
 import CmuxNextDaemon
+import CmuxNextHostedChief
 import CmuxNextRemote
 import Foundation
 
@@ -13,6 +15,7 @@ extension ServerReachService {
         let cli = bundled.flatMap { FileManager.default.isExecutableFile(atPath: $0.path) ? $0 : nil }
         return ServerReachService(
             machines: services.machines,
+            mainWork: services.mainWork,
             call: { [weak feed] path, body in
                 guard let feed else { throw FeedServiceError.signedOut }
                 return try await feed.call(path, body)
@@ -43,7 +46,7 @@ extension ServerMenuBarController {
     static func app(services: AppServices) -> ServerMenuBarController {
         ServerMenuBarController(makeSource: { [weak services] in
             guard let services else { return nil }
-            return CloudPairingSource.app(feed: services.feed, auth: services.cloud.auth,
+            return CloudPairingSource.app(feed: services.feed, auth: services.cloud.auth, cli: services.bundledCLI,
                                    chiefPlaced: { [weak services] in services?.home.refreshChiefTab() })
         })
     }

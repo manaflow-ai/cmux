@@ -6,6 +6,11 @@ accent (appearance.themeEdits <theme>/accent, else the theme file's '# cmux-acce
 wins over 'accent'; 'cursor' is cursor-color (caret).
 The AppTheme port reproduces schemas/theme/app-theme-vectors.json (the web module's output):
   derive_theme_tokens.py --check-app-vectors app-theme-vectors.json
+The ink port writes and checks schemas/theme/theme-ink-vectors.json: every bundled theme's text inks
+and popup surface (ThemeTokens.opaqueOverlayFill), which the Swift, Rust and web ports replay
+(CmuxNextDesignTests ThemeInkVectorsTests checks the file is Swift's output):
+  derive_theme_tokens.py --theme-ink-vectors          # write
+  derive_theme_tokens.py --check-theme-ink-vectors    # exit 1 when stale
 
 Hex output rounds each channel half away from zero, as Swift's .rounded() does in
 ThemeRGB.description (0.30 * 255 = 76.5 -> 77 = 0x4D). Do not use Python round(),
@@ -13,7 +18,7 @@ which rounds half to even.
 
 usage: derive_theme_tokens.py [OUT.json]   (stdout when no path is given)
 """
-import json, math, sys
+import json, math, os, re, sys
 FADE_STEP=0.02      # ChromeEmphasis.swift ThemeTokens.emphasized: fade() steps the fraction down by 0.02
 READABLE_STEP=0.02  # ThemeTokens.readable: steps toward white or black by 0.02
 MUTED_STEP=0.01     # ThemeTokens.muted: steps the mix fraction down by 0.01
@@ -43,6 +48,27 @@ def readable(c,surf,m):
     while step<1 and cand.contrast(surf)<m:
         step+=READABLE_STEP; cand=c.mixed(pole,step)
     return cand
+def readable_over(c,surfs,pole,m):
+    """ThemeTokens.readable(_:over:toward:minimum:): c walked toward pole until it reads on every surface."""
+    step=0.0; cand=c
+    while step<1 and not all(cand.contrast(x)>=m for x in surfs):
+        step+=READABLE_STEP; cand=c.mixed(pole,step)
+    return cand
+def inks(fg,rows,see_through,bg):
+    """ThemeTokens.inks: primary, secondary and tertiary text read on every surface in rows (the
+    strongest row fill and the bare background). fg is walked toward white and toward black (the pole
+    that reads better on rows[0] first); the candidate whose primary and secondary keep the higher
+    least contrast over rows wins, capped at 4.5 (a tie keeps the first)."""
+    least=lambda ink: min(ink.contrast(r) for r in rows)
+    poles=sorted([WHITE,BLACK],key=lambda p: p.contrast(rows[0]),reverse=True)
+    chosen=None
+    for pole in poles:
+        primary=readable_over(fg,rows,pole,4.5)
+        ink=min(rows+see_through,key=lambda c: primary.contrast(c))
+        secondary=muted(primary,bg,0.38,ink,4.5); tertiary=muted(primary,bg,0.55,ink,3.0)
+        score=min(least(primary),least(secondary),4.5)
+        if chosen is None or score>chosen[0]: chosen=(score,(primary,secondary,tertiary))
+    return chosen[1]
 def muted(c,target,limit,surf,m):
     f=limit
     while f>0:
@@ -149,13 +175,12 @@ def derive(bg,fg,pal,sel=None,opacity=1.0,accent='neutral',cursor=None,accent_co
     selection=acc.wa(0.26 if dark else 0.16) if acc else fg.wa(0.10 if dark else 0.08)
     # Swift: the lower-contrast of pressedFill and selectionFill over bg (pressed, with the neutral accent).
     worst=min([pressed.comp(bg),selection.comp(bg)],key=lambda c: fg.contrast(c))
-    primary=readable(fg,worst,4.5)
     # See-through window: the quieter inks also hold over the tint on the worst desktop for the theme.
-    ink=worst
+    see=[]
     if opacity<1:
         tint=bg.wa(opacity).comp(WHITE if dark else BLACK)
-        ink=min([worst,tint,pressed.comp(tint),selection.comp(tint)],key=lambda c: primary.contrast(c))
-    secondary=muted(primary,bg,0.38,ink,4.5); tertiary=muted(primary,bg,0.55,ink,3.0)
+        see=[tint,pressed.comp(tint),selection.comp(tint)]
+    primary,secondary,tertiary=inks(fg,[worst,bg],see,bg)
     status=lambda i: readable(pal[i],bg,3.0)
     hl=acc if acc else status(4)
     best=lambda cs: max(cs,key=lambda c:c.contrast(hl))
@@ -177,6 +202,19 @@ def derive(bg,fg,pal,sel=None,opacity=1.0,accent='neutral',cursor=None,accent_co
       accent=acc if acc else primary,onAccent=app['onAccent'] if app else bg.wa(1),
       caret=readable(C.hex(cursor),bg,3.0) if cursor is not None else primary)
     return dark,t,pal
+OVERLAY_LIFT=0.14  # ChromeTunables.opaqueOverlayLift default (the vectors file's "lift")
+def opaque_overlay_fill(t,dark,lift):
+    """ThemeTokens.opaqueOverlayFill (OverlayMaterial.swift): the opaque window background lifted by lift
+    toward white, or on a dark theme whose text is lighter than its page toward the text, stepping down
+    by 0.01 until secondary text keeps 4.5:1 on a hovered row."""
+    page=t['windowBackground'].wa(1); text=t['textPrimary'].wa(1)
+    if not dark or text.lum()<page.lum(): return page.mixed(WHITE,lift)
+    secondary=t['textSecondary'].wa(1); step=math.floor(lift*100+0.5)/100
+    while step>0:
+        fill=page.mixed(text,step)
+        if secondary.contrast(t['hoverFill'].comp(fill))>=4.5: return fill
+        step-=0.01
+    return page
 def emphasized(t,style,s):
     t=dict(t); page=t['contentBackground'].wa(1)
     def fade(c,f,floor):
@@ -221,6 +259,71 @@ if len(sys.argv)>2 and sys.argv[1]=='--check-app-vectors':
             if t[n].css().lower()!=want.lower(): bad+=1; print(case['name'],n,'want',want,'got',t[n].css())
         if dark!=case['isDark']: bad+=1; print(case['name'],'isDark')
     print(len(cases),'cases,',bad,'differences'); sys.exit(1 if bad else 0)
+ROOT=os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),'../../../../..'))
+INK_VECTORS=os.path.join(ROOT,'schemas/theme/theme-ink-vectors.json')
+THEME_FOLDERS=('Resources/ghostty/themes','Resources/cmux-themes')  # what the app bundles
+NEWLINES=re.compile('\r\n|[\n\r\x0b\x0c\x85\u2028\u2029]')
+def six_digit(text):
+    d=text[1:] if text.startswith('#') else text
+    return int(d,16) if len(d)==6 and re.fullmatch('[0-9A-Fa-f]{6}',d) else None
+def theme_file_colors(text):
+    """ThemeFileColors(name:themeFile:): background, foreground, palette (None where unset) and the
+    '# cmux-accent = #rrggbb' accent; None without a background and a foreground."""
+    values={}; pal=[None]*16; accent=None
+    for raw in NEWLINES.split(text):
+        line=raw.strip(' \t').replace('\ufeff','')
+        if line.startswith('#'):
+            body=line[1:].strip(' \t')
+            if '=' in body and body.split('=',1)[0].strip(' \t')=='cmux-accent':
+                c=six_digit(body.split('=',1)[1].strip(' \t'))
+                if c is not None: accent=c
+        if not line or line.startswith('#') or '=' not in line: continue
+        key,value=(x.strip(' \t') for x in line.split('=',1))
+        if key=='palette':
+            parts=[x.strip(' \t') for x in value.split('=',1)]
+            if len(parts)!=2 or not re.fullmatch('[0-9]+',parts[0]) or not 0<=int(parts[0])<16: continue
+            c=six_digit(parts[1])
+            if c is not None: pal[int(parts[0])]=c
+        else:
+            c=six_digit(value)
+            if c is not None: values[key]=c
+    if 'background' not in values or 'foreground' not in values: return None
+    return values['background'],values['foreground'],pal,accent
+def theme_ink_vectors():
+    """schemas/theme/theme-ink-vectors.json: one row per bundled theme, in the app's reading
+    (CardNeverOpaqueTests.bundledThemes: the Ghostty default fills an unset palette slot)."""
+    rows=[]
+    for folder in THEME_FOLDERS:
+        directory=os.path.join(ROOT,folder)
+        for name in sorted(n for n in os.listdir(directory) if not n.startswith('.')):
+            colors=theme_file_colors(open(os.path.join(directory,name),encoding='utf-8').read())
+            if colors is None: continue
+            bg,fg,pal,accent=colors
+            pal=[p if p is not None else GHOSTTY_DEFAULT_PAL[i] for i,p in enumerate(pal)]
+            dark,t,_=derive(bg,fg,pal,accent_color=accent)
+            inp={'background':C.hex(bg).css(),'foreground':C.hex(fg).css()}
+            # The palette only reaches the inks through the theme's own accent (AppTheme).
+            if accent is not None: inp.update(accentColor=C.hex(accent).css(),palette=[C.hex(p).css() for p in pal])
+            rows.append({'theme':folder[len('Resources/'):]+'/'+name,'input':inp,'isDark':dark,
+                **{n:t[n].css() for n in ('textPrimary','textSecondary','textTertiary')},
+                'opaqueOverlayFill':opaque_overlay_fill(t,dark,OVERLAY_LIFT).css()})
+    head={'generator':'plans/cmux-next/spec-proposals/visuals/tools/derive_theme_tokens.py --theme-ink-vectors (do not edit)',
+          'checkedBy':'CmuxNextDesignTests ThemeInkVectorsTests (Swift), cmux-theme-tokens derive_matches_the_swift_ink_vectors (Rust), webviews/test/theme-ink-vectors.test.ts (web, this tool)',
+          'lift':OVERLAY_LIFT}
+    # One theme per line keeps the file short and its diffs readable.
+    return ('{\n'+''.join('%s: %s,\n'%(json.dumps(k),json.dumps(v)) for k,v in head.items())
+            +'"cases": [\n'+',\n'.join(json.dumps(r,separators=(',',':'),ensure_ascii=False) for r in rows)+'\n]\n}\n')
+if len(sys.argv)>1 and sys.argv[1] in ('--theme-ink-vectors','--check-theme-ink-vectors'):
+    path=sys.argv[2] if len(sys.argv)>2 else INK_VECTORS; text=theme_ink_vectors()
+    if sys.argv[1]=='--theme-ink-vectors':
+        open(path,'w',encoding='utf-8').write(text); print('wrote',path); sys.exit(0)
+    current=open(path,encoding='utf-8').read() if os.path.exists(path) else ''
+    if current==text: print(path,'is current'); sys.exit(0)
+    want={r['theme']:r for r in (json.loads(l.rstrip(',')) for l in current.splitlines() if l.startswith('{"theme"'))}
+    got={r['theme']:r for r in (json.loads(l.rstrip(',')) for l in text.splitlines() if l.startswith('{"theme"'))}
+    for k in sorted(set(want)|set(got)):
+        if want.get(k)!=got.get(k): print(k,'file',json.dumps(want.get(k)),'port',json.dumps(got.get(k)))
+    print(path,'differs from this port; regenerate with --theme-ink-vectors once the ports agree'); sys.exit(1)
 out={}
 for k,v in THEMES.items():
     dark,t,pal=derive(v['bg'],v['fg'],v['pal'],v['sel'],accent=v.get('accent','neutral'),cursor=v.get('cursor'),accent_color=v.get('accent_color'))

@@ -2,7 +2,8 @@ public import CmuxSentryReporting
 public import Darwin
 public import Foundation
 public import Sentry
-import CmuxNextCompat
+public import CmuxNextCompat
+import os
 
 /// Sends cmux-next crashes (signals, Mach exceptions, uncaught Objective-C
 /// exceptions, app hangs) to Sentry, under ``CrashReportingPolicy``.
@@ -31,9 +32,41 @@ public final class CrashReporter: Sendable {
 
     public let policy: CrashReportingPolicy
     private let sentryHandlers = Mutex<SignalActions?>(nil)
+    // Lock carve-out: Sentry's beforeSend reads it synchronously on its own
+    // thread; a sign-in writes it from the main thread.
+    private let identityState: Mutex<CrashReportIdentity>
 
-    public init(policy: CrashReportingPolicy) {
+    /// - Parameters:
+    ///   - policy: Whether this launch reports, and its labels.
+    ///   - identity: The install id and commit every event is tagged with.
+    public init(policy: CrashReportingPolicy, identity: CrashReportIdentity = CrashReportIdentity()) {
         self.policy = policy
+        self.identityState = Mutex(identity)
+    }
+
+    /// This launch's hourly counts of main-thread stalls and hangs
+    /// (``StallSummaryRecorder``): the watchdog's sinks record into it;
+    /// call ``StallSummaryRecorder/close()`` at quit.
+    public let stallSummary = StallSummaryRecorder.sentry()
+
+    /// The install, commit and team member tags every event carries now.
+    public var identity: CrashReportIdentity { identityState.withLock { $0 } }
+
+    /// Names (or stops naming) the signed-in cmux team member on every later
+    /// event. Call when the account or its teams change.
+    /// - Parameter member: The member, or nil for an anonymous report.
+    public func setTeamMember(_ member: CrashTeamMember?) {
+        identityState.withLock { $0.member = member }
+    }
+
+    /// Follows `members` (one value per sign-in, sign-out or team change) for
+    /// the app's lifetime: each value names, or stops naming, the member.
+    /// - Parameter members: The signed-in cmux team member over time.
+    public func followTeamMembers(_ members: ObservationStream<CrashTeamMember?>) {
+        // task-owner: lives for the app; ends when `members` ends.
+        Task { [self] in
+            for await member in members { setTeamMember(member) }
+        }
     }
 
     /// Whether Sentry runs in this process.
@@ -60,9 +93,9 @@ public final class CrashReporter: Sendable {
         options.enableLogs = false
         let scrubber = SentryEventScrubber()
         let labels = CrashEventLabels(policy: policy)
-        options.beforeSend = { event in
+        options.beforeSend = { [self] event in
             let scrubbed = scrubber.scrub(event)
-            labels.apply(to: scrubbed)
+            labels.apply(to: scrubbed, identity: identity)
             return scrubbed
         }
         options.beforeBreadcrumb = { breadcrumb in scrubber.scrub(breadcrumb) }
@@ -113,10 +146,36 @@ public final class CrashReporter: Sendable {
         CrashDeadline.install()
     }
 
+    /// Starts the out-of-process crash watcher (``CrashWatcher``, #22844) off
+    /// the main thread. Call once at launch, after ``installCrashDeadline()``.
+    /// - Parameter sampleFile: Where the watcher writes its `sample` of an app
+    ///   it ends.
+    public static func installCrashWatcher(sampleFile: String) {
+        CrashWatcher.install(sampleFile: sampleFile)
+    }
+
     /// A crash has begun: the process ends within ``CrashDeadline/seconds``
-    /// even if the crash path blocks. Async-signal-safe.
+    /// even if the crash path blocks, and within ``CrashWatcher/defaultSeconds``
+    /// even if every thread of the app is suspended. Async-signal-safe.
     public static func beginCrashDeadline() {
         CrashDeadline.arm()
+        CrashWatcher.arm()
+    }
+
+    /// A crash path that blocks while every thread is suspended, for the crash
+    /// gate's `debug.crash.app {"signal": "suspended"}` only (#22844): begins
+    /// the crash path, suspends the crash deadline's thread (as Sentry's report
+    /// writer does) and blocks the calling thread forever. Only
+    /// ``CrashWatcher`` can end the process.
+    public static func blockWithDeadlineSuspended() -> Never {
+        beginCrashDeadline()
+        CrashDeadline.suspendThread()
+        // A semaphore nothing signals: the blocked crash path the watcher must end.
+        var never = semaphore_t(0)
+        _ = semaphore_create(mach_task_self_, &never, SYNC_POLICY_FIFO, 0)
+        // concurrency-allow: crash-gate debug verb; blocking forever is the crash it simulates.
+        _ = semaphore_wait(never)
+        abort()
     }
 
     /// The first call of a fatal-signal handler: gives back Sentry's
@@ -132,14 +191,45 @@ public final class CrashReporter: Sendable {
     /// calls the uncaught-exception handler, which must then not start the
     /// deadline (``uncaughtException(_:then:)``). `record` writes the app's
     /// exception record, `report` is AppKit's reportException.
+    ///
+    /// A known framework bug that AppKit survives in every app (``SurvivableSystemException``)
+    /// does not crash: it is logged and sent as a handled event, and neither `record` nor `report`
+    /// runs.
     public static func reportException(_ exception: NSException, crashes: Bool,
                                        record: (NSException) -> Void, report: () -> Void) {
+        reportException(exception, frames: exception.callStackSymbols, crashes: crashes, record: record, report: report)
+    }
+
+    /// ``reportException(_:crashes:record:report:)`` with the throw's `frames` given: a test's
+    /// exception was never raised, so it has no call stack.
+    static func reportException(_ exception: NSException, frames: [String], crashes: Bool,
+                                record: (NSException) -> Void, report: () -> Void) {
+        let described = SurvivableSystemException(name: exception.name.rawValue, reason: exception.reason ?? "", frames: frames)
+        if let rule = described.rule { return survive(described, rule: rule) }
         if crashes { beginCrashDeadline() }
         record(exception)
         reportingSurvivableException.store(!crashes, ordering: .releasing)
         defer { reportingSurvivableException.store(false, ordering: .releasing) }
         report()
     }
+
+    /// A survived framework exception: logged, and sent as a handled event while Sentry runs.
+    private static func survive(_ exception: SurvivableSystemException, rule: SurvivableSystemException.Rule) {
+        let line = exception.reason.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
+        survivedLogger.error("survived system exception \(rule.id, privacy: .public): \(exception.name, privacy: .public)")
+        guard SentrySDK.isEnabled else { return }
+        let event = Event(level: .warning)
+        let value = Exception(value: "\(exception.name): \(line.prefix(120))", type: exception.name)
+        let mechanism = Mechanism(type: "cmux_survived_system_exception")
+        mechanism.handled = true
+        value.mechanism = mechanism
+        event.exceptions = [value]
+        event.fingerprint = ["survived-system-exception", rule.id]
+        event.tags = ["survived_system_exception": rule.id]
+        SentrySDK.capture(event: event)
+    }
+
+    private static let survivedLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "crash")
 
     /// The uncaught-exception handler: the runtime aborts after it, so the
     /// crash has begun, unless Sentry's reportException: hook calls it for

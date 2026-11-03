@@ -5,6 +5,7 @@ mod attach_protocol;
 mod clipboard_read;
 mod host_fixture;
 mod input_records;
+mod kitty_file_media;
 mod launch_codec;
 mod parser_failure;
 mod parser_order;

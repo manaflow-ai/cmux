@@ -34,12 +34,10 @@ final class ChatSettingsPush {
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // The connection cancels from any thread, so a release off main cleans up too. The watcher is
+    // not stopped here: its own deinit cancels its sources, and stop() must not run on its queue.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            watcher?.stop()
-            connection?.cancel()
-        }
+        connection?.cancel()
     }
 
     private func watchSocket() {

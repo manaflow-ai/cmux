@@ -418,6 +418,15 @@ rows, or returned in errors and VM responses. A retry with changed network
 intent or credentials under the same Idempotency-Key is 409. Forks do not
 inherit network intent.
 
+`GET /v1/vms/{vmId}/public-egress` reads, and `PUT` turns on, an existing
+VM's public egress: `{ "id": "vm_...", "publicEgress": true }`. Both require
+`vm:network` and ownership of the VM. It counts only a rule that allows the
+public Internet on every port and whose source is exactly this VM (a create's
+`initialNetwork.publicEgress` rule is one). `PUT` adds that rule, deleted with
+the VM, only when none is there; it never turns egress off or touches other
+rules. A VM created private can join the Internet later this way (cmux Cloud
+keeps a copy that resumes another VM's memory private until it cold boots).
+
 `PUT /v1/vms/{vmId}/https-proxies/{hostname}` replaces an existing HTTP
 proxy with `{ "destination": "https://api.example.com", "headers": { ... } }`.
 It requires `vm:network` and ownership of that VM, including any key resource
@@ -477,6 +486,25 @@ is useless without it. Only the identity id is stored
 (`cmux_vm.vm_client_sessions`); deleting the VM, or
 `DELETE /v1/vms/{vmId}/client-sessions/{sessionId}`, deletes the identity, which
 revokes the token and grant.
+
+The operator CLI exposes the same Tenant API:
+
+```sh
+cmux-vm client-session create vm_... [--user LINUX_USER] [--token-file PATH]
+cmux-vm client-session list vm_...
+cmux-vm client-session revoke vm_... vcs_... [--yes]
+```
+
+`create` prints the SSH line (`<providerVmId>+<user>@beta-ssh.freestyle.sh`) and
+shows the provider token once. Use `--token-file` to write it to a newly created
+0600 file on Unix; other platforms use stdout. The token is never logged. Existing paths are refused before minting.
+A failed request leaves an empty reservation; inspect the session list and revoke
+any newly created session before retrying with a new path.
+All commands accept `--json`. Create JSON includes `sshLine` and the token only
+without `--token-file`; file mode replaces the token with `tokenFile`. Session
+JSON includes only known metadata fields. `list` never returns tokens. `revoke`
+names the VM and asks for the session id before revoking it (or accepts `--yes`). The same
+commands are available through `cmux vm client-session ...`.
 
 Migrations 0016 (agent columns on `api_keys`, `vm_client_sessions`) and 0017
 (its concurrent index) apply through the release runner; grant the Worker role

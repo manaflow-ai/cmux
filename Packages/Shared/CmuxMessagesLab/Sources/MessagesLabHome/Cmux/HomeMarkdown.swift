@@ -10,8 +10,8 @@ import Foundation
 /// `~~strike~~`, `` `code` ``, `[label](url)` and `<url>`. Only http, https
 /// and mailto URLs, a cmux app link (URL.isCmuxAppLink) and a path
 /// (URL.isHomePathLink) become links; another scheme shows its label as text.
-/// Bare paths and cmux ids in plain text (or a whole code span) link too
-/// (HomeAutoLinks).
+/// Bare paths, cmux ids and web URLs in plain text (or a whole code span)
+/// link too (HomeAutoLinks).
 /// Anything else (HTML, tables, images) stays as written. Offsets are UTF-16,
 /// like MessagesLab's runs.
 enum HomeMarkdown {
@@ -144,7 +144,7 @@ enum HomeMarkdown {
         static func parse(_ c: [Character], into out: inout Output, styles: [String], link: String?) {
             var i = 0
             var plain = ""
-            // Plain text outside a link links its bare paths and cmux ids (HomeAutoLinks).
+            // Plain text outside a link links its bare paths, cmux ids and web URLs (HomeAutoLinks).
             func flush() {
                 if link == nil { out.appendLinkingBare(plain, styles) } else { out.append(plain, styles, link: link) }
                 plain = ""

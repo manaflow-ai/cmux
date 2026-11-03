@@ -1,0 +1,32 @@
+{
+  "id": "tenacity-unlanded-report-followed-up",
+  "group": "tenacity",
+  "owner": "a676",
+  "about": "A report that says the fix is not landed is acted on in the same turn (tell the subagent to land it), not only passed on.",
+  "history": [
+    {
+      "kind": "user",
+      "text": "fix the light-mode composer contrast"
+    },
+    {
+      "kind": "talk",
+      "text": "a12 is on it."
+    }
+  ],
+  "turns": [
+    {
+      "kind": "work",
+      "text": "[a12] Fix ready in commit 1a2b3c4d5e6 on branch a12-contrast: composer border now 3:1 in light mode. Not landed: unpushed, the lint step is red on it.",
+      "checks": [
+        {
+          "type": "called",
+          "re": "\"id\":\"a12\"|\"tasks\""
+        },
+        {
+          "type": "judge",
+          "rubric": "Passes when the Chief tells a12 (or a new subagent) to fix the lint failure and land the commit, and tells the user in a line or two that it is not landed yet and is being finished. Fails when it only relays the report or asks the user what to do."
+        }
+      ]
+    }
+  ]
+}

@@ -21,6 +21,35 @@ export const COMPOSER_READY_EVENT = "acpmux-composer-ready";
 export const ACTIVATION_SETTLE_MS = 120;
 export const PRESS_WINDOW_MS = 400;
 
+/**
+ * A pointer press outside the composer should release its editor focus. Most transcript rows are
+ * not focusable, so relying on the browser's default focus transfer leaves the caret active after
+ * a click on the chat. Keep this predicate separate so the capture-phase handler and its boundary
+ * behavior stay testable without mounting the whole pane.
+ */
+export function shouldBlurComposerOnPress(target: Node | null, active: Element | null): boolean {
+  if (!target || !active || !active.closest(".acpmux-composer-box")) return false;
+  // Do not use `instanceof Element`: a pointer can come from an embedded document, and tests
+  // create nodes in their own DOM realm. The DOM node type is stable across those boundaries.
+  const targetElement = target.nodeType === 1 ? (target as Element) : target.parentElement;
+  return targetElement?.closest(COMPOSER_CHROME) == null;
+}
+
+/// The composer's own rows: the box, the location strip above it, and the quiet row (mode, model,
+/// context ring) and look radios under it. Those sit outside the box since Claude Code's split
+/// (#22285), and a press on one of their chips must leave the prompt focused, so the chip's menu
+/// hands the keyboard back to the prompt after a pick. A composer picker's menu drawn out of the box
+/// (`overBackdrop`, the + menu) sits in `.acpmux-picker-layer`, and the `/` and `@` lists in
+/// `.acpmux-composer-list-layer` (backdropLayer.tsx): a press on their rows is the composer's too, or
+/// the blur closes the menu before the row takes the press.
+const COMPOSER_CHROME =
+  ".acpmux-composer-box, .acpmux-composer-strip, .acpmux-composer-foot, .acpmux-composer-under, .acpmux-picker-layer, .acpmux-composer-list-layer";
+
+function blurActiveComposer(): void {
+  const active = document.activeElement;
+  if (active?.closest(".acpmux-composer-box")) (active as HTMLElement).blur();
+}
+
 export type KeyLike = {
   key: string;
   metaKey: boolean;
@@ -46,6 +75,13 @@ export function routesToComposer(event: KeyLike, target: Element | null): boolea
   if (target.closest(OWNS_KEYS)) return false;
   if (event.key === " " && target.closest(PRESSABLE)) return false;
   return true;
+}
+
+/// Whether a key is a plain Tab pressed with nothing in the page focused.
+export function tabsToComposer(event: KeyLike & { shiftKey: boolean }, doc: Document): boolean {
+  if (event.key !== "Tab" || event.defaultPrevented || event.isComposing) return false;
+  if (event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return false;
+  return nothingFocused(doc);
 }
 
 /// What has the page's focus, for automation (chat_state): `composer` (the prompt), `none`, or
@@ -86,11 +122,20 @@ export function useComposerKeyboard(focusComposer: () => boolean, page: PageClie
     };
     let pressedAt = Number.NEGATIVE_INFINITY;
     let settling: ReturnType<typeof setTimeout> | undefined;
-    const onPress = () => {
+    const onPress = (event: PointerEvent) => {
       pressedAt = performance.now();
       clearTimeout(settling);
       settling = undefined;
+      const target = event.target && "nodeType" in event.target ? (event.target as Node) : null;
+      const active = document.activeElement;
+      if (shouldBlurComposerOnPress(target, active)) {
+        (active as HTMLElement).blur();
+      }
     };
+    // A live transcript preview is a nested browsing context: its pointer press does not bubble
+    // to this document. The browser blurs the editor when that frame takes focus; keep the same
+    // boundary explicit for hosts that only report the outer window blur.
+    const onWindowBlur = () => blurActiveComposer();
     /// The pane became active (window focus, the host's focusContent): claim unless a click did it.
     const claimOnActivation = () => {
       if (performance.now() - pressedAt < PRESS_WINDOW_MS) return;
@@ -101,6 +146,13 @@ export function useComposerKeyboard(focusComposer: () => boolean, page: PageClie
       }, ACTIVATION_SETTLE_MS);
     };
     const onKey = (event: KeyboardEvent) => {
+      // Tab with nothing focused (after a press on the transcript or the background) goes to the
+      // prompt, not through the location strip's folder and machine chips that sit above it in
+      // the page (Leo 2026-10-20). From the prompt, Shift-Tab still reaches those chips.
+      if (tabsToComposer(event, document)) {
+        if (latest.current()) event.preventDefault();
+        return;
+      }
       if (!routesToComposer(event, document.activeElement)) return;
       if (!latest.current()) return;
       event.preventDefault();
@@ -110,6 +162,7 @@ export function useComposerKeyboard(focusComposer: () => boolean, page: PageClie
     // The page opened (first paint) or its pane became active (the window and web view took focus).
     const first = requestAnimationFrame(claimIfIdle);
     window.addEventListener("focus", claimOnActivation);
+    window.addEventListener("blur", onWindowBlur);
     window.addEventListener(COMPOSER_READY_EVENT, claimIfIdle);
     document.addEventListener("keydown", onKey);
     document.addEventListener("pointerdown", onPress, true);
@@ -132,6 +185,7 @@ export function useComposerKeyboard(focusComposer: () => boolean, page: PageClie
       cancelAnimationFrame(first);
       clearTimeout(settling);
       window.removeEventListener("focus", claimOnActivation);
+      window.removeEventListener("blur", onWindowBlur);
       window.removeEventListener(COMPOSER_READY_EVENT, claimIfIdle);
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("pointerdown", onPress, true);

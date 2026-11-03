@@ -17,14 +17,21 @@ extension UpdaterService {
     /// "Simulate pending update" (DEV and NIGHTLY; elsewhere it stays off).
     func attach(sheet: UpdateSheetController, services: AppServices, simulating: @escaping @MainActor @Sendable () -> Bool) {
         presentUpdateUI = { [weak services] in sheet.present(in: services?.windows.active?.window) }
-        willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)) }
+        relaunchBehind = { [weak services] willQuit, declined, inFront in
+            let behind = UpdateRelaunchBehind(app: Bundle.main.bundleURL, bundleIdentifier: Bundle.main.bundleIdentifier ?? "")
+            // A quit the user refuses (a quit dialog's Cancel) stops the helper and stages the update again.
+            services?.quit.onQuitRefused = { behind.quitRefused() }
+            behind.start(willQuit: willQuit, declined: declined, inFront: inFront)
+        }
         relaunchBlockers = { [weak self, weak services, activity = UpdateAgentActivity(environment: QuitAgents.environment(services))] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
-        // The click: the windows leave the screen at once (S1); a failed
-        // install brings them back.
+        // The windows leave the screen when Sparkle commits to the relaunch,
+        // not at the click (`UpdateWindowHandoff`); a failed install brings them back.
         let handoff = UpdateWindowHandoff(unsaved: services.quitUnsaved)
-        willInstallStaged = { _ = handoff.hide() }
+        willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)) }
+        hidesForRelaunch = { _ = handoff.hide() }
         installAbandoned = { handoff.restore() }
         isSheetPresented = { sheet.isPresented }
+        sheet.onDismiss = { [weak self] in self?.updateSheetClosed() }
         // The check's progress and result show on the sidebar's notice card; with the
         // active window's sidebar hidden (or no window) nothing would show, so the sheet
         // answers instead (never a check with no visible feedback).
@@ -38,6 +45,8 @@ extension UpdaterService {
             SidebarCardFeed.openUpdateLink(url, services: services)
             return true
         }
+        // What's New shows after every update unless `updates.showWhatsNew` is turned off (user 13935: no Labs gate).
+        whatsNew.isItemEnabled = services.settings?.snapshot.updates.showWhatsNew != false
         // What's New after an update: bundled documents and this feed's digests.
         whatsNew.load()
         // The Updated card's change list when the update record has none (2026-10-20).
@@ -48,7 +57,7 @@ extension UpdaterService {
         }
         attachTips(registry: services.registry)
         UpdateSimulation(updater: self).follow(simulating)
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarnessProbe.install(updater: self)
         #endif
     }
@@ -58,7 +67,7 @@ extension UpdaterService {
     /// (local only); a return to cmux may pick the next day's tip.
     func attachTips(registry: ActionRegistry) {
         runTipAction = { [weak registry] action in
-            guard TipCatalog.all.contains(where: { $0.action == action }) else { return }
+            guard TipCatalog.actions.contains(action) else { return }
             _ = registry?.perform(ActionID(rawValue: action), invocation: ActionInvocation(origin: .user))
         }
         registry.runObserver = { [weak self] id, invocation in
@@ -89,11 +98,13 @@ extension UpdaterService {
         settingsObservation = Task { [weak self, weak settings] in
             guard let settings else { return }
             await settings.waitForLoad(atLeast: 1)
-            for await (updates, announcements, tips) in ObservationStream({
-                (settings.snapshot.updates, settings.snapshot.announcements, settings.snapshot.sidebarSections.showsTips)
+            for await (updates, announcements, tips, _) in ObservationStream({
+                (settings.snapshot.updates, settings.snapshot.announcements, settings.snapshot.sidebarSections.showsTips, settings.snapshot.previewFeatures)
             }) {
                 self?.apply(updates)
-                if self?.whatsNew.isItemEnabled != updates.showWhatsNew { self?.whatsNew.isItemEnabled = updates.showWhatsNew }
+                let whatsNewEnabled = updates.showWhatsNew
+                if self?.whatsNew.isItemEnabled != whatsNewEnabled { self?.whatsNew.isItemEnabled = whatsNewEnabled }
+                if self?.whatsNew.isItemEnabledKnown == false { self?.whatsNew.isItemEnabledKnown = true }
                 if self?.tipsEnabled != tips { self?.tipsEnabled = tips }
                 self?.announcementsFetch = announcements.fetch
                 if self?.announcementsEnabled != announcements.enabled { self?.announcementsEnabled = announcements.enabled }

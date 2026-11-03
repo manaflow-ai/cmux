@@ -2,8 +2,9 @@
 // Needs you (needsYou/NeedsYou.tsx): the header badge counts every open ask, from this chat, the
 // Chief, its subagents and the other agent chats; a press opens the pinned list with one-click
 // answers, Go to source and Ask about this. While asks are open, Jump to latest is the Needs your
-// input pill (JumpPill.tsx). Both are Debug Settings toggles, on by default; `before` is the pane
-// with both off, as it drew before. Light and dark come from the gallery's appearance control.
+// input pill (JumpPill.tsx), for this chat's asks and its started chats' only. Both are Debug
+// Settings toggles; `before` is the pane with both off, as it drew before. Light and dark come from
+// the gallery's appearance control.
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { activity, assistant, chat, session, SESSION_ID, tool, user } from "../../../gallery/fixtures/acpmux";
@@ -75,7 +76,15 @@ const asks: WatchedAsk[] = [
   },
 ];
 const sessions = [
-  session({ sessionId: "s-chief", title: "Chief", harness: "chief", pendingPermissions: 1, updatedAt: ago(3) }),
+  session({
+    sessionId: "s-chief",
+    title: "Chief",
+    harness: "chief",
+    pendingPermissions: 1,
+    updatedAt: ago(3),
+    // What acpmux's summary says the chat said last: another chat's context step shows it.
+    lastMessage: "#22410 passed its review at its head, and its only red fails the same way on the base.",
+  }),
   session({
     sessionId: "s-codex",
     title: "Port settings to React Aria",
@@ -119,6 +128,26 @@ const sessions = [
   }),
 ];
 
+// A sub-session this chat's agent started (acpmux `startedBy`): its ask is this chat's work, so the
+// pill counts it.
+const started = session({
+  sessionId: "s-tests",
+  title: "Run the integration tests",
+  startedBy: SESSION_ID,
+  shortName: "tests",
+  pendingPermissions: 1,
+  indicator: "input",
+  updatedAt: ago(2),
+});
+const startedAsk: AcpmuxPermission = {
+  permissionId: "ask-tests",
+  title: "Start the test database",
+  kind: "execute",
+  command: "docker compose up -d db",
+  pending: true,
+  options: yesNo,
+};
+
 const rows = [
   user("Make the retry helper back off exponentially", 4),
   activity([tool("Edit src/fetch.ts", "edit", "completed"), tool("bun test fetch", "execute", "completed")], 3),
@@ -153,16 +182,45 @@ export default agentPaneEntry({
       snapshot: snapshot(),
       play: openList,
     },
+    "marked-tab": {
+      note: "An agent marked a tab for the person (`cmux attention request`): the tab item reads what to do, the workspace and the tab by their titles, with Go to and no answers; it sits among the asks by when it was marked.",
+      snapshot: snapshot(),
+      play: async (ctx) => {
+        const view = ctx.document.defaultView as unknown as {
+          cmuxAcpmuxBridge?: { applyAttentionTabs?(tabs: unknown): void };
+        };
+        view.cmuxAcpmuxBridge?.applyAttentionTabs?.([
+          {
+            kind: "tab",
+            tabId: "tab_0f3c",
+            reason: "Log in to GitHub so I can open the PR",
+            workspaceTitle: "cmux next",
+            tabTitle: "GitHub · Sign in",
+            atMs: ago(2),
+          },
+        ]);
+        await openList(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-needs-you-item[data-kind="tab"]'));
+      },
+    },
     "badge-and-pill": {
-      note: "Closed: the badge counts six asks and Jump to latest reads Needs your input · 6.",
+      note: "Closed: the badge counts six asks. Only this chat's is the pill's, and its card waits at the latest message, so Jump to latest stays hidden there.",
       snapshot: snapshot(),
     },
     "pill-one-ask": {
-      note: "One ask, in another chat: the pill reads Needs your input and goes there.",
+      note: "One ask, in a chat this one did not start (Leo's screenshot: a Codex audit on another computer): nothing here waits, so there is no pill, only the header's count.",
       snapshot: {
         ...chat(rows),
         sessions: [chat(rows).sessions[0]!, sessions[0]!],
         asks: [asks[1]!],
+      },
+    },
+    "pill-started-chat": {
+      note: "One ask, in a chat this one started (acpmux startedBy): the pill reads Needs your input at the latest message and goes there.",
+      snapshot: {
+        ...chat(rows),
+        sessions: [chat(rows).sessions[0]!, started],
+        asks: [{ sessionId: started.sessionId, at: ago(2), permission: startedAsk }],
       },
     },
     "ask-about-this": {
@@ -177,6 +235,37 @@ export default agentPaneEntry({
         ctx.find({ selector: askAbout }).scrollIntoView({ block: "center" });
         await ctx.click({ selector: askAbout });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-needs-you-side-field"));
+      },
+    },
+    expanded: {
+      note: "A press on a subagent's question expands its row: the whole ask, every option as a radio, an Other field and Submit, then Show context and the places to open the chat (Open on right, the default; Jump to workspace; Open in new workspace).",
+      snapshot: snapshot(),
+      play: async (ctx) => {
+        await openList(ctx);
+        const ask = ".acpmux-needs-you-item:nth-child(3) .acpmux-needs-you-ask-toggle";
+        ctx.find({ selector: ask }).scrollIntoView({ block: "center" });
+        await ctx.click({ selector: ask });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-needs-you-form"));
+      },
+    },
+    context: {
+      note: "This chat's ask expanded further: its context, the turns before the ask, read-only in the row.",
+      snapshot: snapshot(),
+      play: async (ctx) => {
+        await openList(ctx);
+        await ctx.click({ selector: ".acpmux-needs-you-item:nth-child(1) .acpmux-needs-you-ask-toggle" });
+        await ctx.click({ selector: ".acpmux-needs-you-item:nth-child(1) .acpmux-needs-you-more-button" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-needs-you-context"));
+      },
+    },
+    "context-other-chat": {
+      note: "Another chat's ask expanded further: the page holds only that chat's latest message, and the note says to open it for the rest. Allow and Deny answer it here.",
+      snapshot: snapshot(),
+      play: async (ctx) => {
+        await openList(ctx);
+        await ctx.click({ selector: ".acpmux-needs-you-item:nth-child(2) .acpmux-needs-you-ask-toggle" });
+        await ctx.click({ selector: ".acpmux-needs-you-item:nth-child(2) .acpmux-needs-you-more-button" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-needs-you-context"));
       },
     },
     compact: {

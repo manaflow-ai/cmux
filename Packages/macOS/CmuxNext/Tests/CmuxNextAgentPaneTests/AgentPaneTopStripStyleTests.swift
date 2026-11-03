@@ -55,6 +55,11 @@ struct AgentPaneModelMenuStyleTests {
         #expect(value?["plainFooter"]?.boolValue == AgentPaneTunables.composerPlainFooter.value)
         #expect(value?["showContextUsage"]?.boolValue == true)
     }
+
+    @Test func theComposerEventCarriesSendScrollPreference() {
+        let value = AgentPageEvent.composer(.fallback).value.objectValue
+        #expect(value?["scrollToBottomOnSend"]?.boolValue == true)
+    }
 }
 
 /// Debug Settings' "Allow switching harness in a started chat": off by default, so a started

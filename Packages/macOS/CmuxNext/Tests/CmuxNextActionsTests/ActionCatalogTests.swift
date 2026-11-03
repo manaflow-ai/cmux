@@ -109,6 +109,20 @@ import Testing
         }
     }
 
+    /// Session Info and the ACP event Inspector are separate panels and palette actions.
+    @Test func sessionInfoToggleUsesTheHeaderNameAndKeywords() throws {
+        let action = try #require(ActionCatalog.all.first { $0.id == "agentPane.toggleSessionInfo" })
+        #expect(action.title == "Toggle Session Info")
+        #expect(action.surfaces.contains(.palette))
+        #expect(action.keywords.contains("session info"))
+        #expect(action.keywords.contains("session"))
+        #expect(action.requires.contains(.agentPaneFocused))
+        let events = try #require(ActionCatalog.all.first { $0.id == "agentPane.toggleInspector" })
+        #expect(events.title == "Toggle Event Inspector")
+        #expect(events.surfaces.contains(.palette))
+        #expect(events.cliName == "agent toggle-acp-inspector")
+    }
+
     /// Palette and menu titles use title case (HIG): every word is capitalized except
     /// short articles, conjunctions and prepositions, and names spelled in lowercase.
     @Test func titlesUseTitleCase() {
@@ -120,7 +134,7 @@ import Testing
             }
             for (index, word) in words.enumerated() {
                 guard let first = word.first, first.isLowercase else { continue }
-                if word.hasPrefix("cmux") || word.contains(".") { continue }
+                if word.hasPrefix("cmux") || word == "acpmux" || word.contains(".") { continue }
                 #expect(index > 0 && minor.contains(word), "\(descriptor.id): \"\(descriptor.title)\"")
             }
         }
@@ -163,5 +177,50 @@ import Testing
         for (legacy, canonical) in ActionCatalog.legacyAliases {
             #expect(ids.contains(canonical), "\(legacy) -> \(canonical)")
         }
+    }
+
+    @Test func minimapKeywordBelongsToEditorAndTranscriptSurfaces() throws {
+        let byID = Dictionary(uniqueKeysWithValues: ActionCatalog.all.map { ($0.id, $0) })
+        let stripScrollbar = try #require(byID["layout.toggleStripScrollbar"])
+        #expect(!stripScrollbar.keywords.contains("minimap"))
+        #expect(stripScrollbar.keywords.contains("column"))
+        #expect(stripScrollbar.keywords.contains("strip"))
+        #expect(stripScrollbar.keywords.contains("scrollbar"))
+        #expect(stripScrollbar.keywords.contains("visible range"))
+        #expect(stripScrollbar.keywords.contains("overview"))
+
+        let transcriptActions = ["agentPane.previousTurn", "agentPane.nextTurn"].compactMap { byID[$0] }
+        #expect(transcriptActions.count == 2)
+        #expect(transcriptActions.allSatisfy { $0.keywords.contains("minimap") })
+    }
+
+    /// Leo, 2026-10-25: "minimap? i dont see any command for the vscode minimap".
+    @Test func editorMinimapToggleIsAPaletteCommand() throws {
+        let toggle = try #require(ActionCatalog.all.first { $0.id == "toggleFileEditorMinimap" })
+        #expect(toggle.isPaletteVisible)
+        #expect(toggle.requires.contains(.codeEditorFocused))
+        #expect(toggle.keywords.contains("minimap"))
+        #expect(toggle.keywords.contains("vscode"))
+    }
+
+    @Test func completeConversationCopyIsReachableFromThePalette() throws {
+        let copy = try #require(ActionCatalog.all.first { $0.id == "agentChat.copyConversation" })
+        #expect(copy.surfaces.contains(.palette))
+        #expect(copy.requires.contains(.agentPaneFocused))
+        #expect(copy.keywords.contains("conversation"))
+        #expect(copy.keywords.contains("markdown"))
+    }
+
+    @Test func sessionFileCopiesAreReachableFromThePalette() throws {
+        let byID = Dictionary(uniqueKeysWithValues: ActionCatalog.all.map { ($0.id, $0) })
+        let ids: [ActionID] = ["agentChat.copySessionFilePaths", "agentChat.copyTranscriptFile", "agentChat.copyHarnessConfigFile",
+                               "agentChat.copyHarnessSettingsFile", "agentChat.copyAcpmuxSessionFile"]
+        for id in ids {
+            let action = try #require(byID[id])
+            #expect(action.surfaces.contains(.palette))
+            #expect(action.requires.contains(.agentPaneFocused))
+        }
+        #expect(byID["agentChat.copyHarnessConfigFile"]?.keywords.contains("claude.json") == true)
+        #expect(byID["agentChat.copyTranscriptFile"]?.keywords.contains("jsonl") == true)
     }
 }

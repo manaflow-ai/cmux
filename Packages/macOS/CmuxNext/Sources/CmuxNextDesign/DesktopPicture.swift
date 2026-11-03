@@ -35,9 +35,10 @@ public nonisolated struct DesktopPicture: Sendable {
         self.fallbackFolder = fallbackFolder
     }
 
-    /// The current desktop picture of `screen`, read from `NSWorkspace`.
+    /// The current desktop picture of `screen`, read from `NSWorkspace`. Both reads wait on the
+    /// WindowServer, so call it off the main thread (``DesktopWallpaperWatch`` reads on its queue).
     /// - Parameter screen: The screen; nil for no screen (the fill-color picture).
-    @MainActor public init(screen: NSScreen?) {
+    public init(screen: NSScreen?) {
         let workspace = NSWorkspace.shared
         let options = screen.flatMap { workspace.desktopImageOptions(for: $0) }
         self.init(reportedURL: screen.flatMap { workspace.desktopImageURL(for: $0) },

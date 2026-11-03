@@ -32,6 +32,8 @@ public nonisolated enum SettingKind: Sendable, Hashable {
     case numberList(SettingNumber)
     /// An object whose values are all strings (`sidebar.workspaceIcons`: workspace title to glyph).
     case stringMap
+    /// An object of ``NotificationSoundRule``s by id or name (`notifications.sounds.workspaces`).
+    case soundRules
     /// A list of non-empty strings (`notifications.mutedWorkspaces`: workspace ids).
     case stringList
     /// Choice values in an order the user picks; values left out follow in

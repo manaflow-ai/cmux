@@ -119,11 +119,11 @@ agent starts through acpmux:
 
 It's also Settings > Agents > Agent Chat > Permission Mode for New Chats, and
 `cmux config set agents.defaultPermissionMode ask --confirm`. Agents can't
-change it without you confirming. Picking a mode in a chat sets the default
-too, so the latest choice wins: a pick in a chat, or a change to this setting
-(also one you change back). When your organization manages this setting
-(MDM or a team policy), its value applies to new chats, over your picks; a
-value it forces that cmux doesn't know starts chats in the agent's own mode.
+change it without you confirming. A mode you pick in a chat applies to that
+chat only; new chats keep starting in this setting's mode. When your
+organization manages this setting (MDM or a team policy), its value applies
+to new chats; a value it forces that cmux doesn't know starts chats in the
+agent's own mode.
 A harness profile or preset that sets its own mode still uses that mode.
 
 The model and reasoning effort a new chat starts with aren't in

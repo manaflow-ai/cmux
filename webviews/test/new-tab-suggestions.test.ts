@@ -2,14 +2,15 @@
 // `?solution=…` challenge address; an open tab on that same address ("workspace-1 ·
 // reddit.com/?solution=…") listed again under them; odd ordering. Now the rows dedupe by the
 // canonical address (tracking and token noise stripped), the open tab wins as "Switch to tab",
-// titles are clean and details short, and the order is Chrome's and Arc's: the top hit, open tabs,
-// visited pages, the web search, Ask. The list is capped.
+// titles are clean and details short. Leo 2026-10-24 ("Search the web. Do you really want that
+// first?"): Ask leads (an address or an exact name above it), then open tabs, visited pages, and
+// the web search last. The list is capped.
 import { expect, test } from "bun:test";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../src/agent-session/acpmux/omnibar";
 import {
   canonicalAddress,
   cleanTitle,
-  MAX_SUGGESTIONS,
+  MAX_MATCH_ROWS,
   screenRows,
   type ScreenRow,
 } from "../src/agent-session/acpmux/newtab/screenModel";
@@ -50,14 +51,14 @@ test('"red" shows Reddit once, as the open tab, with a clean title and a short h
   }
 });
 
-test("the order is the top hit, open tabs, visited pages, the web search, then Ask", () => {
+test("the order is Ask, open tabs, visited pages, then the web search", () => {
   const rows = screenRows("red", photo);
   expect(rows.map((row) => [row.type, "id" in row ? row.id : "url" in row ? canonicalAddress(row.url) : ""])).toEqual([
+    ["ask", ""],
     ["tab", "reddit-tab"],
     ["tab", "redis-tab"],
     ["history", "redblobgames.com"],
     ["search", ""],
-    ["ask", ""],
   ]);
 });
 
@@ -65,10 +66,11 @@ test("a typed address an open tab already shows switches to that tab", () => {
   const rows = screenRows("reddit.com", photo);
   expect(rows[0]).toMatchObject({ type: "tab", id: "reddit-tab" });
   expect(rows.filter((row) => address(row) === "reddit.com")).toHaveLength(1);
-  expect(rows.at(-1)?.type).toBe("ask");
+  expect(rows[1]?.type).toBe("ask");
+  expect(rows.at(-1)?.type).toBe("search");
 });
 
-test("the rows are capped, and the web search and Ask always stay", () => {
+test("the matches are capped, and Ask and the web search always stay", () => {
   const many = context({
     history: Array.from({ length: 30 }, (_, index) => ({
       url: `https://red${index}.example.com/`,
@@ -76,8 +78,9 @@ test("the rows are capped, and the web search and Ask always stay", () => {
     })),
   });
   const rows = screenRows("red", many);
-  expect(rows.length).toBe(MAX_SUGGESTIONS);
-  expect(rows.slice(-2).map((row) => row.type)).toEqual(["search", "ask"]);
+  expect(rows.length).toBe(MAX_MATCH_ROWS + 2);
+  expect(rows[0]?.type).toBe("ask");
+  expect(rows.at(-1)?.type).toBe("search");
 });
 
 test("the canonical address drops tracking and token parameters and keeps the ones that name the page", () => {
@@ -137,4 +140,49 @@ test("a page that is not on the web shows its path, not its scheme", () => {
     context({ tabs: [{ id: "f", kind: "browser", title: "Release notes", detail: "file:///Users/you/notes.html" }] }),
   );
   expect(rows.find((row) => row.type === "tab")).toMatchObject({ detail: "/Users/you/notes.html" });
+});
+
+// Capture of PR 24991: a workspace's terminal tabs are titled "~" and list under the workspace's
+// name. Typing that name exactly leads with its tab, Ask right under it.
+test("a workspace's exact name leads with its tab, Ask second, the web search last", () => {
+  const rows = screenRows(
+    "app-efficiency",
+    context({
+      tabs: [
+        { id: "t-eff", kind: "terminal", title: "~", detail: "/Users/you", workspace: "app-efficiency" },
+        { id: "t-tool", kind: "terminal", title: "~", detail: "/Users/you", workspace: "toolbar-diffviewer" },
+      ],
+    }),
+  );
+  expect(rows.slice(0, 2).map((row) => [row.type, "id" in row ? row.id : ""])).toEqual([
+    ["tab", "t-eff"],
+    ["ask", ""],
+  ]);
+  expect(rows.at(-1)?.type).toBe("search");
+  // "app" alone is no exact name: Ask leads.
+  expect(
+    screenRows("app", context({ tabs: [{ id: "t", kind: "terminal", title: "~", workspace: "app-efficiency" }] }))[0]
+      ?.type,
+  ).toBe("ask");
+});
+
+test("a workspace row named exactly leads over the tabs in it", () => {
+  const rows = screenRows(
+    "app-efficiency",
+    context({
+      tabs: [
+        { id: "t-1", kind: "terminal", title: "~", workspace: "app-efficiency" },
+        { id: "t-2", kind: "terminal", title: "~", workspace: "app-efficiency" },
+      ],
+      workspaces: [{ id: "ws-eff", name: "app-efficiency" }],
+    }),
+  );
+  expect(rows[0]).toMatchObject({ type: "workspace", id: "ws-eff" });
+  expect(rows[1]?.type).toBe("ask");
+});
+
+test("a tab's exact title leads even though its row shows the cleaned title", () => {
+  const rows = screenRows("Reddit - The heart of the internet", photo);
+  expect(rows[0]).toMatchObject({ type: "tab", id: "reddit-tab" });
+  expect(rows[1]?.type).toBe("ask");
 });

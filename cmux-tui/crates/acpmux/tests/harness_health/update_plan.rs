@@ -72,6 +72,7 @@ impl Fixture {
                 npm: format!("http://127.0.0.1:{port}/npm"),
                 brew: format!("http://127.0.0.1:{port}/brew"),
             }),
+            ..Settings::default()
         });
     }
 

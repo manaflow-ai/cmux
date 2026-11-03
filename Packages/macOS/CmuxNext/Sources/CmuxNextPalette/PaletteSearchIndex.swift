@@ -36,6 +36,8 @@ nonisolated public struct PaletteSearchEntry: Sendable, Hashable {
     /// `PaletteItem.suggestedRank`, and the Suggested section's index in the page's table.
     public var suggestedRank: Int?
     public var suggestedSectionIndex: Int?
+    /// `PaletteItem.handles`.
+    public var handles: [String] = []
 
     public init(
         title: String,
@@ -118,5 +120,6 @@ extension PaletteSearchEntry {
         keycaps = (item.keycaps ?? []).map { $0 == Self.spaceKeycap ? "␣" : $0 }
         hasShortcut = !keycaps.isEmpty
         suggestedRank = item.suggestedRank
+        handles = item.handles
     }
 }

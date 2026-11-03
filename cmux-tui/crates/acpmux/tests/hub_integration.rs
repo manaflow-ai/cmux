@@ -3,9 +3,13 @@
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // This process runs stand-in agents (the fake agents under tests/). `ACPMUX_UPDATE_FIXTURES=1`
-// rewrites the pane fixtures the tests check (`adopt.rs`).
-const HERMETIC: daemon_env::Process =
-    daemon_env::Process::stand_in().keep(&["ACPMUX_UPDATE_FIXTURES"]);
+// rewrites the pane fixtures the tests check (`adopt.rs`); `LS_LATENCY_SESSIONS` and
+// `LS_LATENCY_RUNS` size the ignored `ls_latency` bench (`usage_stats.rs`).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
+    "ACPMUX_UPDATE_FIXTURES",
+    "LS_LATENCY_SESSIONS",
+    "LS_LATENCY_RUNS",
+]);
 
 use acpmux::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
 use acpmux::hub::Hub;
@@ -17,20 +21,51 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
+#[cfg(unix)]
+#[path = "hub_integration/idle_census.rs"]
+mod idle_census;
+
 #[path = "hub_integration/agent_digest.rs"]
 mod agent_digest;
+#[path = "hub_integration/agent_inbox.rs"]
+mod agent_inbox;
 #[path = "hub_integration/agent_pairs.rs"]
 mod agent_pairs;
 #[path = "hub_integration/auto_resume.rs"]
 mod auto_resume;
+#[path = "hub_integration/away_recap.rs"]
+mod away_recap;
+#[path = "hub_integration/carried_turns.rs"]
+mod carried_turns;
+#[cfg(unix)]
+#[path = "hub_integration/codex_full_access_pending.rs"]
+mod codex_full_access_pending;
 #[path = "hub_integration/cursor_requests.rs"]
 mod cursor_requests;
 #[path = "hub_integration/drafts.rs"]
 mod drafts;
+#[path = "hub_integration/full_access_guards.rs"]
+mod full_access_guards;
+#[path = "hub_integration/held_queue.rs"]
+mod held_queue;
+#[path = "hub_integration/inbox_digest.rs"]
+mod inbox_digest;
 #[path = "hub_integration/lanes.rs"]
 mod lanes;
+#[path = "hub_integration/log_retention.rs"]
+mod log_retention;
+#[path = "hub_integration/mcp_connect.rs"]
+mod mcp_connect;
+#[path = "hub_integration/permission_display.rs"]
+mod permission_display;
 #[path = "hub_integration/permission_groups.rs"]
 mod permission_groups;
+#[path = "hub_integration/presence.rs"]
+mod presence;
+#[path = "hub_integration/prompt_approval.rs"]
+mod prompt_approval;
+#[path = "hub_integration/prompt_class.rs"]
+mod prompt_class;
 #[path = "hub_integration/prompt_context.rs"]
 mod prompt_context;
 #[path = "hub_integration/prompt_ledger.rs"]
@@ -41,14 +76,20 @@ mod prompt_provenance;
 mod prompt_supersede;
 #[path = "hub_integration/prompt_withdraw.rs"]
 mod prompt_withdraw;
+#[path = "hub_integration/protected_resume.rs"]
+mod protected_resume;
 #[path = "hub_integration/protocol_serve.rs"]
 mod protocol_serve;
 #[path = "hub_integration/purged_stays_purged.rs"]
 mod purged_stays_purged;
 #[path = "hub_integration/questions.rs"]
 mod questions;
+#[path = "hub_integration/queue_admission.rs"]
+mod queue_admission;
 #[path = "hub_integration/restart.rs"]
 mod restart;
+#[path = "hub_integration/run_parent.rs"]
+mod run_parent;
 #[path = "hub_integration/secrets.rs"]
 mod secrets;
 #[path = "hub_integration/seen.rs"]
@@ -57,6 +98,8 @@ mod seen;
 mod session_offers;
 #[path = "hub_integration/silent_turn.rs"]
 mod silent_turn;
+#[path = "hub_integration/stalled_turn.rs"]
+mod stalled_turn;
 #[path = "hub_integration/status_indicator.rs"]
 mod status_indicator;
 #[path = "hub_integration/steer_now.rs"]
@@ -65,12 +108,25 @@ mod steer_now;
 mod steer_only;
 #[path = "hub_integration/stop.rs"]
 mod stop;
+#[path = "hub_integration/stop_steer_requeue.rs"]
+mod stop_steer_requeue;
+#[path = "hub_integration/stuck_liveness.rs"]
+mod stuck_liveness;
+#[path = "hub_integration/subagent_retry.rs"]
+mod subagent_retry;
+#[path = "hub_integration/successor_harness.rs"]
+mod successor_harness;
 #[path = "hub_integration/surfaces.rs"]
 mod surfaces;
 #[path = "hub_integration/tags_rules.rs"]
 mod tags_rules;
+#[path = "hub_integration/tasks.rs"]
+mod tasks;
 #[path = "hub_integration/xai_requests.rs"]
 mod xai_requests;
+
+#[path = "hub_integration/turn_attestation.rs"]
+mod turn_attestation;
 
 struct TestClient {
     tx: mpsc::Sender<String>,
@@ -125,6 +181,30 @@ async fn setup_env(
     policy: PermissionPolicy,
     env: BTreeMap<String, String>,
 ) -> (Arc<Hub>, TestClient) {
+    setup_defaults_env(policy, env, BTreeMap::new()).await
+}
+
+/// `setup_env` with the fake family's `defaults.env` too.
+async fn setup_defaults_env(
+    policy: PermissionPolicy,
+    env: BTreeMap<String, String>,
+    defaults_env: BTreeMap<String, String>,
+) -> (Arc<Hub>, TestClient) {
+    setup_inbox(policy, env, defaults_env, true).await
+}
+
+/// `setup` with `agentInbox` off: another agent's plain send queues or steers as before the
+/// inbox (`hub/inbox.rs`), for the tests of that path (still every non-plain agent message's).
+async fn setup_queue(policy: PermissionPolicy) -> (Arc<Hub>, TestClient) {
+    setup_inbox(policy, BTreeMap::new(), BTreeMap::new(), false).await
+}
+
+async fn setup_inbox(
+    policy: PermissionPolicy,
+    env: BTreeMap<String, String>,
+    defaults_env: BTreeMap<String, String>,
+    inbox: bool,
+) -> (Arc<Hub>, TestClient) {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut agents = BTreeMap::new();
     agents.insert(
@@ -146,6 +226,11 @@ async fn setup_env(
         Config { harnesses: agents, default_harness: Some("fake".into()), ..Default::default() };
     cfg.store.mode = StoreMode::Memory;
     cfg.permission_policy = policy;
+    cfg.agent_inbox = Some(inbox);
+    if !defaults_env.is_empty() {
+        let defaults = acpmux::config::SessionDefaults { env: defaults_env, ..Default::default() };
+        cfg.defaults.insert("fake".into(), defaults);
+    }
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
     // These clients stand for the person at the app (`hub/person.rs`).
@@ -791,7 +876,7 @@ async fn turn_markers_history_and_cursor() {
 }
 
 #[tokio::test]
-async fn limit_error_fails_over_to_the_fallback_profile() {
+async fn limit_error_stays_on_the_current_profile() {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut agents = BTreeMap::new();
     agents.insert(
@@ -850,9 +935,7 @@ async fn limit_error_fails_over_to_the_fallback_profile() {
     )
     .await
     .unwrap();
-    // The direct profile reports a usage limit; the pool profile answers.
-    // The fake agent echoes the same prompt text, so the failover reply is
-    // the echo of the limit prompt from the second process.
+    // A usage limit stays on the current account even when a fallback is configured.
     let r = c
         .request(
             method::SESSION_PROMPT,
@@ -862,12 +945,9 @@ async fn limit_error_fails_over_to_the_fallback_profile() {
     let session = hub.resolve(&id).unwrap();
     let kinds: Vec<String> =
         hub.events(&id, 0, 1000).unwrap().into_iter().map(|e| e.kind).collect();
-    assert!(kinds.iter().any(|k| k == "failover"), "{kinds:?} {r:?}");
-    assert_eq!(hub.session_summary(&session)["harness"], "fake-pool");
-    // The pool profile is the same fake agent, so it reports the limit too:
-    // no second failover, the turn fails once and stays on the pool.
+    assert!(!kinds.iter().any(|k| k == "failover"), "{kinds:?} {r:?}");
+    assert_eq!(hub.session_summary(&session)["harness"], "fake");
     assert!(r.is_err(), "{r:?}");
-    assert_eq!(kinds.iter().filter(|k| *k == "failover").count(), 1);
     let ok = c
         .request(
             method::SESSION_PROMPT,
@@ -925,6 +1005,7 @@ async fn family_defaults_presets_and_the_target_grammar() {
             policy: Some(PermissionPolicy::ApproveAll),
             prefer: vec!["fake-pool".into()],
             env: BTreeMap::new(),
+            permission_mode: None,
         },
     );
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
@@ -1152,6 +1233,7 @@ async fn catalog_reload_preserves_pending_turn_and_rejects_invalid_config() {
         allowed_origins: Vec::new(),
         allowed_hosts: Vec::new(),
         token_rotated: 0,
+        allow_insecure_network: false,
     });
     next.defaults.insert(
         "deepseek".into(),
@@ -1537,16 +1619,24 @@ async fn a_resend_after_a_restart_is_answered_from_the_log() {
 
 #[path = "hub_integration/adopt.rs"]
 mod adopt;
+#[path = "hub_integration/adopt_profile.rs"]
+mod adopt_profile;
 #[path = "hub_integration/preset_args.rs"]
 #[cfg(unix)]
 mod preset_args;
 
+#[path = "hub_integration/bg_tasks.rs"]
+mod bg_tasks;
 #[path = "hub_integration/claude_failover.rs"]
 mod claude_failover;
+#[path = "hub_integration/failover_unstartable.rs"]
+mod failover_unstartable;
 #[path = "hub_integration/lifecycle_fixes.rs"]
 mod lifecycle_fixes;
 #[path = "hub_integration/quit_spawn.rs"]
 mod quit_spawn;
+#[path = "hub_integration/session_hibernate.rs"]
+mod session_hibernate;
 
 #[path = "hub_integration/fork_through.rs"]
 mod fork_through;

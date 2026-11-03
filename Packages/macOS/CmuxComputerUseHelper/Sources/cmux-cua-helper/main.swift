@@ -3,38 +3,35 @@
 // "cmux Computer Use (dev).app" in DEV builds) with macOS responsibility
 // disclaimed, so Accessibility and Screen Recording belong to the helper,
 // never to cmux or its shells. Upstream Cua Driver runs in process.
-import ApplicationServices
 import CmuxCuaHelperCore
 import Darwin
 import Foundation
 
 signal(SIGPIPE, SIG_IGN)
 let bundleID = Bundle.main.bundleIdentifier ?? "com.cmuxterm.cua.dev"
-let insideHelperBundle = Bundle.main.bundleIdentifier?.hasPrefix("com.cmuxterm.cua") == true
 // Before any thread starts and before the driver loads.
 HelperEnvironment(helperBundleID: bundleID).apply()
 
-// Put the helper in the Accessibility list once per helper version, so the
-// user can switch it on (macOS shows its own dialog; nothing else prompts).
-if insideHelperBundle, !AXIsProcessTrusted() {
-    let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
-    let key = "accessibilityPromptedVersion"
-    if UserDefaults.standard.string(forKey: key) != version {
-        UserDefaults.standard.set(version, forKey: key)
-        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-        _ = AXIsProcessTrustedWithOptions(options)
-    }
-}
+// Starting (including after an update) never asks for a grant. The app's
+// Computer Use setup buttons request each permission over the control pipe.
 
+// Machine-join consent comes only from the cmux app over the host consent
+// socket, whose peer is checked by audit token (HostConsentServer).
+let consent = HostConsentChannel()
 let tools: any ToolInvoking
 let libraryPath = (Bundle.main.privateFrameworksPath ?? "") + "/libcua_driver_sdk.dylib"
 do {
-    tools = try CuaDriverRuntime(libraryPath: libraryPath)
+    tools = try CuaDriverRuntime(
+        libraryPath: libraryPath,
+        allowedTargetBundleIDs: ProcessInfo.processInfo.environment["CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS"] ?? "",
+        hostBundleID: ProcessInfo.processInfo.environment["CMUX_CUA_HOST_BUNDLE_ID"],
+        gate: ConsentGate(authority: consent)
+    )
 } catch {
     FileHandle.standardError.write(Data("cmux-cua-helper: \(error)\n".utf8))
     tools = UnavailableTools(reason: String(describing: error))
 }
 
-let controller = HelperController(tools: tools)
+let controller = HelperController(tools: tools, consent: consent)
 controller.start()
 CFRunLoopRun()

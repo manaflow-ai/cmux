@@ -20,6 +20,7 @@ nonisolated struct PaletteRankerBridgeEntry: Encodable {
     let suggestedRank: Int?
     let suggestedSectionIndex: Int?
     let entersScope: Bool
+    let handles: [String]
 
     init(_ entry: PaletteSearchEntry) {
         title = entry.title
@@ -41,6 +42,7 @@ nonisolated struct PaletteRankerBridgeEntry: Encodable {
         suggestedRank = entry.suggestedRank
         suggestedSectionIndex = entry.suggestedSectionIndex
         entersScope = entry.entersScope
+        handles = entry.handles
     }
 }
 
@@ -56,6 +58,16 @@ nonisolated struct PaletteRankerBridgeFrecency: Encodable {
     let picks: [PaletteRankerBridgePick]
     let pickHalfLife: Double
     let hidden: [String]
+
+    init(entries: [String: PaletteRankerBridgeFrecencyEntry], halfLife: Double, capacity: Int,
+         picks: [PaletteRankerBridgePick], pickHalfLife: Double, hidden: [String]) {
+        self.entries = entries
+        self.halfLife = halfLife
+        self.capacity = capacity
+        self.picks = picks
+        self.pickHalfLife = pickHalfLife
+        self.hidden = hidden
+    }
 
     /// `query` nil sends no learned picks (the empty query); otherwise only the
     /// picks whose start begins the query go (the ranker reads no others), so

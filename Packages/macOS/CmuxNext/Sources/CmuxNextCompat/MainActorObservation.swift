@@ -40,12 +40,15 @@ public final class MainActorObservation {
         }
     }
 
-    /// Observes `name` and hands the main-actor handler a `Sendable` value read from each
-    /// notification where it is delivered (a `Notification` itself is not `Sendable`).
+    /// Observes `name` and hands the main-actor handler the value `read` takes from each notification.
+    ///
+    /// `read` and `handler` both run inside this type's one main-delivery proof, on the same delivery,
+    /// so the value may be any type, `Sendable` or not (an `NSMenu`, an `NSWindow`): no caller needs a
+    /// box to carry it from the notification to the handler.
     ///
     /// ```swift
-    /// MainActorObservation(NSWindow.didMoveNotification, read: { ($0.object as? NSWindow)?.windowNumber }) { number in
-    ///     self.windowMoved(number)
+    /// MainActorObservation(NSMenu.didBeginTrackingNotification, read: { $0.object as? NSMenu }) { menu in
+    ///     self.tracked = menu
     /// }
     /// ```
     ///
@@ -53,20 +56,26 @@ public final class MainActorObservation {
     ///   - name: The notification to observe.
     ///   - object: Only notifications this object posts; nil for every sender.
     ///   - center: The center to observe.
-    ///   - read: Reads what the handler needs from the notification, on the main queue.
+    ///   - atOnce: Delivers in the poster's own call (no queue), so the poster sees the handler's
+    ///     effect before its post returns (a press that opens a menu, then checks a key loss); only a
+    ///     post made on the main thread is delivered. False: on the main queue, after the post.
+    ///   - read: Reads what the handler needs from the notification, on the main actor.
     ///   - handler: Main-actor work with the value `read` returned.
-    public init<Value: Sendable>(
+    public init<Value>(
         _ name: Notification.Name,
         object: AnyObject? = nil,
         center: NotificationCenter = .default,
-        read: @escaping @Sendable (Notification) -> Value,
+        atOnce: Bool = false,
+        read: @escaping @MainActor (Notification) -> Value,
         _ handler: @escaping @MainActor (Value) -> Void
     ) {
         self.center = center
-        token = center.addObserver(forName: name, object: object, queue: .main) { note in
-            let value = read(note)
-            // main-proof: the observer is registered on the main queue (queue: .main).
-            MainActor.assumeIsolated { handler(value) }
+        token = center.addObserver(forName: name, object: object, queue: atOnce ? nil : .main) { note in
+            guard Thread.isMainThread else { return } // main-proof: drops a post off the main thread (only `atOnce` can see one)
+            // crash-allow: the center delivers on the main thread (queue: .main, or `atOnce` with the check above) and the notification is read only inside the assumeIsolated below, on this same delivery, so it never crosses actors.
+            nonisolated(unsafe) let note = note
+            // main-proof: delivered on the main thread: the main queue (queue: .main), or `atOnce` after the Thread.isMainThread check above.
+            MainActor.assumeIsolated { handler(read(note)) }
         }
     }
 

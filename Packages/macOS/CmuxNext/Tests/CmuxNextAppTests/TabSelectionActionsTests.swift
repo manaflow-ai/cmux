@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextPalette
 @testable import CmuxNextTabs
 import Foundation
 import Testing
@@ -77,6 +78,11 @@ struct TabSelectionActionsTests {
             let refusal = services.registry.capturingRefusal { _ = services.registry.perform("tabGroup.create", invocation: ActionInvocation()) }
             #expect(refusal == nil, "the palette's New Tab Group refused: \(refusal ?? "")")
             try await PinnedPageTests.until({ Self.grouped(ids, in: pane) }, report: { "groups \(ids.map { pane.tab($0)?.tabGroup?.rawValue })" })
+            // A group nobody gave a color has none (#32198): no dot, underline or palette color
+            // nobody picked (Leo, 2026-10-31: "WHY DOES THIS HAVE A LINE AND COLOR").
+            let group = try #require(pane.tab(ids[0])?.tabGroup)
+            let color = pane.pane.tabGroups.first { $0.id == group }?.color
+            #expect(color == "none", "a new tab group took \(color ?? "nil"), not none")
         }
     }
 
@@ -89,6 +95,45 @@ struct TabSelectionActionsTests {
             #expect(refusal == nil, "tabGroup.create with tabs refused: \(refusal ?? "")")
             try await PinnedPageTests.until({ Self.grouped(ids, in: pane) }, report: { "groups \(ids.map { pane.tab($0)?.tabGroup?.rawValue })" })
             #expect(pane.tab(pane.stripModel.orderedTabs[0].id)?.tabGroup == nil)
+        }
+    }
+
+    /// #24913: a right-click on a tab that is not selected selected it while the menu was built, and
+    /// the focus move made a Chromium page window key inside the right-click (a 10 s stall on macOS
+    /// 14 and 15). Building the menu selects nothing and moves no focus; its rows act on that tab.
+    @Test func theTabMenuOfAnotherTabSelectsNothing() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let pane = try await Self.pane(with: 3, services, connection)
+            let selected = try #require(pane.stripModel.selectedID)
+            let other = try #require(pane.stripModel.orderedTabs.map(\.id).first { $0 != selected })
+            let focus = try #require(pane.workspace?.focus)
+            let before = focus.currentState()
+            let menu = try #require(pane.contextMenu(for: .tab(other, selection: pane.stripModel.contextSelection(for: other))))
+            await Task.yield()
+            #expect(pane.stripModel.selectedID == selected, "building the menu selected \(String(describing: pane.stripModel.selectedID))")
+            #expect(focus.currentState().resolved == before.resolved, "building the menu moved focus to \(focus.currentState().resolved)")
+            let runs = Self.rows(menu).compactMap(ActionRegistry.menuRun(of:))
+            #expect(!runs.isEmpty)
+            #expect(runs.allSatisfy { $0.target == ActionTargetRef(kind: .tab, id: other.rawValue) }, "a row does not act on the right-clicked tab")
+        }
+    }
+
+    /// The real Cmd-Shift-P palette (`RegistryPaletteProvider`), on a terminal tab: Save and Close
+    /// takes browser pages only, so its three tab rows are disabled there with the run's reason, as
+    /// the tab menu disables them, instead of enabled and refused after the click.
+    @Test func thePaletteDisablesSaveAndCloseOnATerminalTab() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            // The workspace opens on its chat; `newTab` adds a terminal tab, which the strip selects with a click.
+            let pane = try await Self.pane(with: 2, services, connection)
+            let id = try #require(pane.stripModel.orderedTabs.map(\.id).first { pane.tab($0)?.kind == .pty }, "no terminal tab")
+            if let next = pane.stripModel.click(id, .plain) { pane.select(next) }
+            try await PinnedPageTests.until({ pane.stripModel.selectedID == id }, report: { "selected \(String(describing: pane.stripModel.selectedID))" })
+            let items = RegistryPaletteProvider(registry: services.registry).makeItems()
+            for action in ["tab.stash", "tab.stashToRight", "tab.stashOthers"] {
+                let row = try #require(items.first { $0.id == "action:\(action)" }, "no palette row for \(action)")
+                #expect(!row.isEnabled, "the palette offers \(action) on a terminal tab, and its run refuses after the click")
+                #expect(row.subtitle == StashHandlerStrings.noPage, "\(action) says \(row.subtitle ?? "nothing")")
+            }
         }
     }
 

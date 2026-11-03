@@ -86,7 +86,8 @@ async function settleUntil(ready: () => boolean, what: string) {
   }
 }
 
-const diagramSvg = () => host.querySelector(".cv-diagram[data-language='mermaid'] svg");
+/// The drawn diagram: the chart area's svg, not the bar's icons (Save is an svg too).
+const diagramSvg = () => host.querySelector(".cv-diagram[data-language='mermaid'] .cv-diagram__chart svg");
 
 async function show(source: string, streaming = false) {
   root ??= createRoot(host);
@@ -94,11 +95,14 @@ async function show(source: string, streaming = false) {
 }
 
 /// The lines a code card in `element` shows. The highlighted card (HighlightedCode.tsx) draws them in
-/// its `<diffs-container>`'s shadow root, which `textContent` leaves out, once Pierre has highlighted.
-const codeLines = (element: Element | null | undefined) =>
-  [...(element?.querySelector("diffs-container")?.shadowRoot?.querySelectorAll("[data-line]") ?? [])].map(
+/// its `<diffs-container>`'s shadow root, which `textContent` leaves out. Without a worker,
+/// HighlightedCode keeps the plain card; both paths must preserve the refused source.
+const codeLines = (element: Element | null | undefined) => {
+  const lines = element?.querySelector("diffs-container")?.shadowRoot?.querySelectorAll("[data-line]");
+  return [...(lines?.length ? lines : (element?.querySelectorAll(".cv-code-plain__line") ?? []))].map(
     (line) => line.textContent ?? "",
   );
+};
 
 const FLOW = "flowchart LR\n  Start --> Check{Valid?}\n  Check -->|Yes| Done";
 
@@ -113,7 +117,7 @@ test("a mermaid fence draws as SVG through Ondine, not a code block", async () =
   await settleUntil(() => diagramSvg() !== null, "the diagram");
   const diagram = host.querySelector<HTMLElement>(".cv-diagram[data-language='mermaid']");
   expect(diagram).not.toBeNull();
-  const svg = diagram!.querySelector("svg");
+  const svg = diagram!.querySelector(".cv-diagram__chart svg");
   expect(svg?.getAttribute("class") ?? "").toContain("ondine");
   expect(svg?.textContent).toContain("Valid?");
   expect(svg?.textContent).toContain("Done");
@@ -130,11 +134,10 @@ test("a source both renderers refuse shows the source and why", async () => {
   mermaidCalls.length = 0;
   await show("```mermaid\nflowchart TD\n  A --> \n```");
   const diagram = host.querySelector(".cv-diagram[data-language='mermaid']");
-  // The source card's lines appear when Pierre's highlighter has loaded, which takes longer on a
-  // loaded runner.
+  // Wait for the refused source in either the highlighted or workerless code card.
   await settleUntil(() => codeLines(diagram).length > 0, "the source card's lines");
   expect(diagram?.querySelector(".cv-diagram__error")?.textContent ?? "").toContain("Parse error");
-  expect(codeLines(diagram).join("\n")).toContain("flowchart TD");
+  expect(codeLines(diagram).join("\n")).toBe("flowchart TD\n  A --> ");
   expect(mermaidCalls.length).toBe(1);
 });
 
@@ -144,7 +147,7 @@ test("markup in labels stays inert", async () => {
   );
   await settleUntil(() => diagramSvg() !== null, "the diagram");
   const diagram = host.querySelector(".cv-diagram[data-language='mermaid']")!;
-  expect(diagram.querySelector("svg")).not.toBeNull();
+  expect(diagram.querySelector(".cv-diagram__chart svg")).not.toBeNull();
   expect(diagram.querySelector("script, img, foreignObject, iframe")).toBeNull();
   for (const element of diagram.querySelectorAll("*")) {
     for (const attribute of element.attributes) {

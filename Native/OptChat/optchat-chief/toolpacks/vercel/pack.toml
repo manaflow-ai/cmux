@@ -5,6 +5,8 @@ name = "vercel"
 title = "Vercel"
 description = "The vercel CLI with this Chief's own Vercel token: deploys, previews, env, logs"
 health = ["vercel", "whoami"]
+# Shipped off: `chief pack enable vercel` turns it on for one Chief.
+enabled = false
 
 [tool]
 bin = "vercel"

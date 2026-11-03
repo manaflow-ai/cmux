@@ -17,7 +17,7 @@ afterEach(() => {
 
 function fixture() {
   dom = new JSDOM(
-    '<!doctype html><html><body><main><div class="acpmux-composer"><button aria-haspopup="menu" aria-expanded="true">Model</button></div><button id="action">Dictate</button></main></body></html>',
+    '<!doctype html><html><body><main><div class="acpmux-composer"><button aria-haspopup="menu" aria-expanded="true">Model</button></div><button id="action">Dictate</button></main><div class="ui-positioner"><div class="ui-popup" role="menu"></div></div></body></html>',
   );
   const view = dom.window;
   const doc = view.document;
@@ -147,7 +147,7 @@ test("a dismissing click delivered as a PointerEvent is swallowed whatever its p
 // and the trash can on nightly 331e2e9 only closed the menu (Leo: "WHY CAN'T I CLICK THESE BUTTONS").
 test("a press on a queued prompt's control closes the menu and still reaches the control", () => {
   dom = new JSDOM(
-    '<!doctype html><html><body><main><div class="acpmux-composer"><ol class="acpmux-composer-queue"><li class="acpmux-queued"><button id="steer">Steer</button></li></ol><button aria-haspopup="menu" aria-expanded="true">Model</button><div id="field" contenteditable="true"></div></div></main></body></html>',
+    '<!doctype html><html><body><main><div class="acpmux-composer"><ol class="acpmux-composer-queue"><li class="acpmux-queued"><button id="steer">Steer</button></li></ol><button aria-haspopup="menu" aria-expanded="true">Model</button><div id="field" contenteditable="true"></div></div></main><div class="ui-positioner"><div class="ui-popup" role="menu"></div></div></body></html>',
   );
   const view = dom.window;
   const doc = view.document;

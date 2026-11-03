@@ -21,23 +21,48 @@ nonisolated enum AcpmuxPaneMethods {
         // Sessions (direct.ts).
         "session/new", "session/prompt", "session/set_model", "session/set_mode", "session/set_config_option",
         // acpmux extensions (direct.ts). `_acpmux/attachment` reads a sent prompt's image by content hash.
-        "_acpmux/watch", "_acpmux/events", "_acpmux/attachment", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/warm",
+        "_acpmux/watch", "_acpmux/events", "_acpmux/attachment", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/typing", "_acpmux/warm",
         // The session list's later pages (sessionPages.ts, cx-2lv1k): the same summaries watch answers,
         // read by cursor after watch's first page.
         "_acpmux/sessions",
+        // A peer chat drawn from this Mac's copy while its machine is down (direct.ts drawPeerCopy,
+        // peerCopy.ts; acpmux hub/peer_snapshot/read.rs). A read like `_acpmux/events`, before the
+        // attach that brings the chat into scope, so not session-scoped; acpmux answers it to this
+        // Mac's app and unix socket only. Only `sessionId` (``knownParams``): never `host`, which
+        // would name any peer's session by its own id.
+        "_acpmux/peer_snapshot",
+        // Retry a configured peer after the offline copy's Reconnect action (direct.ts). This
+        // names a peer machine, never a session, and waits for the daemon's doctor result.
+        "_acpmux/peer_reconnect",
+        // A failed subagent's, sub-session's or turn's Retry (subagents/retryState.ts runRetry,
+        // direct.ts retry; acpmux server/agent_messages.rs): acpmux runs the failed turn again, or
+        // resumes the failed subagent, now. No gesture (``gestureRules``): it sends nothing new, only
+        // what acpmux already retries on its own after a transient failure, and the click's grant
+        // stays for runRetry's fallback send to a daemon without the method. A sub-session's names
+        // the child chat, which the click's scope credit brings in (``sourceScoped``). Only `sessionId` and `subagentId` (``knownParams``): never `_meta`,
+        // which carries acpmux's control and trust-gate marks.
+        "_acpmux/retry",
         "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond",
         // Take Over a View Only chat (direct.ts takeOver): the chat runs the conversation from then on.
         "_acpmux/watch_take_over",
         // Read-only, and its reply is filtered to ``replyShapes`` (ad349).
-        "_acpmux/status", "_acpmux/draft_get",
+        "_acpmux/status", "_acpmux/peers", "_acpmux/draft_get",
         // Session-scoped draft writes are kept separate from the filtered replies above.
         "_acpmux/draft_set",
+        // An inbox notice's thread the person opened (direct.ts inboxThread, InboxNoticeCard):
+        // the messages of one thread of the chat in the pane's scope, read without marking them.
+        "_acpmux/inbox_thread",
         // The thread minimap's prompt bookmarks of a chat in the pane's scope (direct.ts
         // readBookmarks, setBookmark): a seq and a flag, kept in acpmux's session meta.
         "_acpmux/bookmark_get", "_acpmux/bookmark_set",
         // Withdraw or change a queued prompt of a session in the pane's scope (direct.ts
         // removeQueued, editQueued).
         "_acpmux/queue_remove", "_acpmux/queue_edit",
+        // The owner's Approve or Decline of a guest's prompt that waits for them (direct.ts answerHeld).
+        "_acpmux/queue_approve", "_acpmux/queue_decline",
+        // A held prompt's record read whole for the owner, so its card shows what Approve sends
+        // (direct.ts fetchHeldText). Read-only: no gesture.
+        "_acpmux/queue_get",
         // Hand-off (handoff/protocol.ts HANDOFF_OPS).
         "_acpmux/handoff_prepare", "_acpmux/handoff_get", "_acpmux/handoff_draft", "_acpmux/handoff_start",
         "_acpmux/handoff_discard",
@@ -79,17 +104,24 @@ nonisolated enum AcpmuxPaneMethods {
         // stopSubagent, cx-liswe): acpmux sends Claude's stop_task for the task it already holds
         // for that child (claude_stdio/workflows.rs). It stops work like `_acpmux/kill`, so no
         // gesture; caller params never reach Claude.
-        "_acpmux/subagent_stop",
+        "_acpmux/subagent_stop", "_acpmux/subagent_transcript",
+        // Page a chat's older turns in from its Claude Code transcript, past the newest page its log
+        // was seeded with (direct.ts fetchNativeOlder; acpmux hub/native_history.rs). A read of the
+        // pane's own chat: `before` is a byte cursor acpmux gave, never a path.
+        "_acpmux/native_history",
         // Resume a paused agent pair of a chat in the pane's scope (the pause row's Resume; acpmux
         // hub/agent_pairs.rs): delivers the messages the two agents already sent and the guard held.
         // `peerSessionId` only picks one of that chat's paused pairs; acpmux resumes no pair the
         // chat is not in, and only for a connection that proved the person key (hub/person.rs).
         "_acpmux/agent_pair_resume",
+        // Take over a chat its manager runs, or hand it back: only the chat in scope, and acpmux
+        // takes it only from a connection that proved the person key (hub/agent_hold.rs).
+        "_acpmux/agent_hold",
         // Reply in place to another agent's message as the chat the pane shows (direct.ts reply,
         // IncomingMessageCard.tsx): acpmux checks it and answers it signed, prompting nothing, and
         // the host sends it on as that chat's cmux agent message (``AgentPaneAgentReply``).
         "_acpmux/app_reply",
-        // A chat's background processes (direct.ts listProcesses, tailProcess; the Inspector and an
+        // A chat's background processes (direct.ts listProcesses, tailProcess; Session Info and an
         // opened background task note): read only, like `_acpmux/events`. acpmux serves them only to
         // this Mac's clients (server/processes.rs).
         "_acpmux/process/list", "_acpmux/process/tail",
@@ -100,6 +132,20 @@ nonisolated enum AcpmuxPaneMethods {
         // The composer's Account menu (direct.ts routes, setChatRoute): read the routes, and pick
         // one for a chat in the pane's scope. Adding or changing a route stays the unix socket's.
         "_acpmux/route/list", "_acpmux/chat/route.set",
+        // The composer's sign-in check before a turn (direct.ts sessionAuth, sessionAuth.ts): read
+        // only. It names its chat (`sessionId`, in the pane's scope) or a new chat's `target` (a
+        // harness, and optionally its host and route), never another chat.
+        "_acpmux/session/auth",
+        // Session Info's running-limit stepper (direct.ts setRunningLimit): how many of a chat's
+        // sub-sessions in the pane's scope run a turn at once, or back to the inherited limit
+        // (`null`). Only `maxRunning`: it starts nothing new and widens no permission (each child already
+        // runs under its parent's policy), so no gesture; acpmux takes it only from a connection that
+        // proved the person key (hub/subsessions.rs, `set_subsession_limits`).
+        "_acpmux/subsession/limits",
+        // Reconnect a failed MCP server of a chat in the pane's scope (direct.ts reconnectMcp,
+        // Session Info's Connectors): acpmux sends Claude Code's mcp_reconnect for a server the chat
+        // already lists, on its running process; it starts nothing and refuses other harnesses.
+        "_acpmux/mcp/reconnect",
         // The forum's current rules for the rules card above the composer (direct.ts forumRules,
         // RulesNotice.tsx; acpmux server/forum.rs, hq#2570). Read only and without params: the
         // rules every agent on this Mac is told already. Posting, acking and retiring stay off the pane.
@@ -108,6 +154,13 @@ nonisolated enum AcpmuxPaneMethods {
         // MCP servers off or on again for that chat only; acpmux restarts its Claude Code and
         // resumes it (now, after the running turn, or at its next start).
         "_acpmux/set_tools",
+        // A Cloud chat's sign-in on its own machine (cloudAgentLogin.ts, CloudSignIn.tsx): acpmux runs
+        // the agent's own login there (start, then finish with Claude's pasted code or after Codex's
+        // approval; cancel stops it), or saves an API key there. Never this Mac's login. Each names
+        // its chat (`sessionId`): acpmux forwards it to the machine the chat lives on and restarts
+        // that chat's agent signed in.
+        "_acpmux/agent_login/start", "_acpmux/agent_login/finish", "_acpmux/agent_login/api_key",
+        "_acpmux/agent_login/cancel",
     ]
 
     /// Notifications (no `id`).
@@ -201,11 +254,13 @@ nonisolated enum AcpmuxPaneMethods {
     /// one click) is a read-only view, and the pane never sends anything to it.
     public static let sessionScoped: Set<String> = [
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
-        "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
+        "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/inbox_thread", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
+        "_acpmux/queue_approve", "_acpmux/queue_decline", "_acpmux/queue_get",
         "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
-        "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/agent_pair_resume", "_acpmux/app_reply",
+        "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/agent_hold", "_acpmux/app_reply",
         "_acpmux/watch_take_over",
         "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
+        "_acpmux/mcp/reconnect", "_acpmux/subsession/limits",
     ]
 
     /// Params beside `sessionId` that name a session, which must be in the pane's scope too: New
@@ -219,7 +274,14 @@ nonisolated enum AcpmuxPaneMethods {
 
     /// The folder trust question may name its chat (`sessionId`, so acpmux asks the chat's peer):
     /// a named session must be in the pane's scope (``sessionScoped``'s rule); none is fine.
-    public static let optionallySessionScoped: Set<String> = ["acp.trust.get", "acp.trust.set"]
+    /// The sign-in check names a chat (`sessionId`) or only a new chat's `target`: a named one must
+    /// be in the pane's scope too.
+    /// A Cloud sign-in's steps name their chat too (the page always does), which must be in scope.
+    public static let optionallySessionScoped: Set<String> = [
+        "acp.trust.get", "acp.trust.set", "_acpmux/session/auth",
+        "_acpmux/agent_login/start", "_acpmux/agent_login/finish", "_acpmux/agent_login/api_key",
+        "_acpmux/agent_login/cancel",
+    ]
 
     /// The methods that copy a session's content into a new session the pane then controls: a
     /// fork, and the handoff steps (prepare captures the source and makes the target, draft edits
@@ -229,9 +291,13 @@ nonisolated enum AcpmuxPaneMethods {
     /// and prepare name the source (`sessionId`); the others name the handoff (`handoffId`), whose
     /// source the relay reads off the daemon's handoff records (``AcpmuxPaneSessions``).
     /// `_acpmux/handoff_get` only reads a record, like the other reads of a read-only view.
+    /// `_acpmux/retry` follows the same rule without copying anything: a Retry on a sub-session's
+    /// card names that child chat, which the pane shows only as a card, so from outside the scope it
+    /// takes the click's scope credit, as an attach of the child would; that attach would let the
+    /// same click send it a prompt, which grants more than a Retry of its failed turn.
     public static let sourceScoped: Set<String> = [
         "acp.session.fork", "_acpmux/handoff_prepare", "_acpmux/handoff_draft", "_acpmux/handoff_start",
-        "_acpmux/handoff_discard",
+        "_acpmux/handoff_discard", "_acpmux/retry",
     ]
 
     /// The error frame that answers a refused request, as the daemon would answer an unknown one.
@@ -279,10 +345,23 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/secret_submit": .always,
         // Resume runs turns: the held messages go to both chats of the pair.
         "_acpmux/agent_pair_resume": .always,
+        // Hand back delivers held messages, which runs turns.
+        "_acpmux/agent_hold": .always,
         "_acpmux/app_reply": .always,
+        // Approve sends a guest's held prompt to the agent; Decline drops it: no gesture.
+        "_acpmux/queue_approve": .always,
+        // A Cloud sign-in changes the machine's provider identity, so it starts only on the person's
+        // click (Sign in), and a key is saved only on theirs (Save). Finish completes only a login
+        // such a click started (acpmux keeps the login by its id); its Continue keeps its gesture
+        // for the failed prompt's resend. Cancel stops work: none.
+        "_acpmux/agent_login/start": .always,
+        "_acpmux/agent_login/api_key": .always,
         // _acpmux/permission_chat_revoke revokes: no gesture.
         // _acpmux/offer_respond declines, or links the page's own new chat: no gesture (the work
         // Start begins is its session/prompt, which has one).
+        // _acpmux/retry: no gesture. It runs again only the turn or subagent that failed, which acpmux
+        // retries on its own anyway; the click's grant stays for runRetry's fallback (the prompt
+        // sent again, or the ask to the chat's agent, when the daemon lacks the method).
         // _acpmux/set_tools: no gesture. It only turns off, or back on, an MCP server the chat
         // already had from the person's own config; it adds none.
     ]
@@ -320,24 +399,25 @@ nonisolated enum AcpmuxPaneMethods {
     /// Where a frame carries the ticket of a gesture reserved at its pick (`params._meta.cmuxGesture`).
     public static let gestureTicketKey = "cmuxGesture"
 
-    /// A session/prompt with every `_meta` inside its prompt blocks removed, at any depth (a block's
-    /// own, a nested resource's, annotations'); nil when there is none (the frame goes unchanged).
-    /// The request's own `params._meta` stays. Adapters read no block `_meta` today; a future one
-    /// could, and the relay cannot check what it would do with it.
+    /// Strip untrusted block metadata at every depth, retaining only a top-level upload reference.
+    /// The daemon validates that the finished upload belongs to this chat. Request params._meta
+    /// stays; nil means the frame is unchanged.
     static func strippingPromptMeta(_ object: [String: Any]?) -> [String: Any]? {
         guard var object, object["method"] as? String == "session/prompt", var params = object["params"] as? [String: Any],
               let prompt = params["prompt"] as? [Any] else { return nil }
         var stripped = false
-        func strip(_ value: Any) -> Any {
+        func strip(_ value: Any, acceptsUpload: Bool = false) -> Any {
             if var dictionary = value as? [String: Any] {
+                let upload = acceptsUpload ? promptUploadMeta(dictionary) : nil
                 if dictionary.removeValue(forKey: "_meta") != nil { stripped = true }
                 for (key, child) in dictionary where child is [String: Any] || child is [Any] { dictionary[key] = strip(child) }
+                if let upload { dictionary["_meta"] = upload }
                 return dictionary
             }
-            if let list = value as? [Any] { return list.map(strip) }
+            if let list = value as? [Any] { return list.map { strip($0) } }
             return value
         }
-        let blocks = prompt.map(strip)
+        let blocks = prompt.map { strip($0, acceptsUpload: true) }
         guard stripped else { return nil }
         params["prompt"] = blocks
         object["params"] = params

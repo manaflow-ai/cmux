@@ -15,7 +15,7 @@ ours: the What's New Ledger page, the update card and its popover.
 ```
 title: Every chat on your Mac, in one place
 category: new                       (new | improved | fixed | security)
-docs: https://cmux.com/docs/agents        (optional)
+docs: https://cmux.com/docs/next/agents   (optional)
 
 cmux finds your Claude Code, Codex and other agent chats on this Mac and lists them in All
 chats at the bottom of the sidebar. Open one to resume it.
@@ -27,13 +27,43 @@ chats at the bottom of the sidebar. Open one to resume it.
   the setting, the shortcut). Benefit first, then the detail.
 - **Fixed entries** say what works now, not what was broken inside: "Restart to Update works after
   a background download", not "Fix race in installer".
-- **No internal words.** No bead ids, PR numbers, commit hashes, branch, lane or crate names. Use the
-  names people see in the app.
+- **Docs link.** Link a page that exists: a cmux-next page is `https://cmux.com/docs/next/<slug>`, with
+  a slug from `web/data/next-docs/pages.ts` (agents, cli, settings, ...), or a page under
+  `web/app/[locale]/(landing)/docs/`. The validator checks only that it is an https URL.
+- **No internal words.** No bead ids, PR numbers, commit hashes, branch, lane or crate names, and no
+  work-stream codes ("P0 RESIZE KEYS K4", "REOPEN-F7", "part 1 of 2"; `validate.py` rejects them). Use
+  the names people see in the app.
+- **The body adds to the title.** Never the title again, never the rest of its sentence ("And name the
+  check that refuses it"), never "Fixes and improvements".
 - **Never a commit subject.** "fix(sidebar): …" and "sidebar: …" are rejected.
 - **One change, one file.** Join small related changes into one entry, as Conductor does
   ("Sidebar sections collapse, and clearer feature errors").
 - **A picture for each New entry people can see.** Stable and RC releases require one for every New
   entry, in light and dark. Nightlies show a picture when it is there.
+
+## A clip for each change people can see
+
+Leo, 2026-10-24: "I also think the What's New video is kind of, uh, it's like you're not even showing
+anything properly off. It's just sort of weird." Each New or Improved change people can see gets a
+3 to 8 second loop of the feature being used, cropped to where it happens. What's New shows it
+uncut beside its caption. The clip is recorded on the fleet from a spec, so the next release's clips
+come out the same way:
+
+1. Write `release-notes/next/clips/<highlight id>.json` (the format is in the docstring of
+   `scripts/cmux-next/media/whats-new-clips.py`):
+   - `caption`: one sentence of what you can now do.
+   - `steps`: capture steps that set the scene, then the steps that perform the feature, marked
+     `"clip": true`.
+   - `crop`: the part of the window where it happens, as fractions.
+   - Use made-up names, no real chats and no other products' names.
+2. Record it: `CMUX_HQ=<cmuxterm-hq checkout> scripts/cmux-next/media/whats-new-clips.py record <id>
+   --sha <commit>` (a commit that has the feature; the tip of feat-cmux-next). The fleet builds the app and a capture mini drives it, so nothing runs on your
+   Mac. Read every frame of the WebP it writes. A clip that shows no change is refused.
+3. Publish it: `whats-new-clips.py publish <id> <file>.webp`. This uploads it to pr-media (after
+   the privacy check) and writes the highlight's `clip:` line, which the signed notes carry. A clip
+   added within a week of its highlight comes again with the next nightly.
+
+`whats-new-clips.py check` (CI) holds every spec and `clip:` line to that shape.
 
 ## Release title
 

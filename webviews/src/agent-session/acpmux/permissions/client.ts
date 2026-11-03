@@ -114,6 +114,9 @@ function isPendingDecision(value: unknown): value is PendingDecision {
   );
 }
 
+/// What a chat shows again at once when it is selected again (`PermissionGroupClient.lastRead`).
+type LastRead = Pick<PermissionClientState, "groups" | "chatAllowance" | "allowRefused">;
+
 /** Client-side projection for daemon-owned grouped permission asks. */
 export class PermissionGroupClient {
   state: PermissionClientState = {
@@ -137,7 +140,7 @@ export class PermissionGroupClient {
   /// Each chat's last authoritative groups and grant, shown again at once when it is selected again
   /// (a tab or workspace switch), until the refresh answers: the panel and the access chip's grant
   /// keep their place instead of leaving for one read (Leo 2026-10-19). A chat never read starts empty.
-  private readonly lastRead = new Map<string, Pick<PermissionClientState, "groups" | "chatAllowance">>();
+  private readonly lastRead = new Map<string, LastRead>();
   /// The shown groups and grant are `lastRead`'s, not this selection's read: a failed refresh drops them.
   private restored = false;
 
@@ -178,6 +181,7 @@ export class PermissionGroupClient {
       ready: false,
       groups: this.state.supported ? (last?.groups ?? []) : [],
       chatAllowance: this.state.supported ? (last?.chatAllowance ?? false) : false,
+      allowRefused: last?.allowRefused,
       loading: false,
       busy: false,
       error: undefined,
@@ -190,7 +194,11 @@ export class PermissionGroupClient {
   private remember(): void {
     if (!this.sessionId || !this.authoritative || !this.state.supported) return;
     this.lastRead.delete(this.sessionId);
-    this.lastRead.set(this.sessionId, { groups: this.state.groups, chatAllowance: this.state.chatAllowance });
+    this.lastRead.set(this.sessionId, {
+      groups: this.state.groups,
+      chatAllowance: this.state.chatAllowance,
+      allowRefused: this.state.allowRefused,
+    });
     if (this.lastRead.size > 64) this.lastRead.delete(this.lastRead.keys().next().value!);
   }
 
@@ -256,6 +264,7 @@ export class PermissionGroupClient {
         ready: true,
         groups: result.groups,
         chatAllowance: result.chatAllowance.active,
+        allowRefused: result.allowRefused ?? undefined,
         uncertain: wasUncertain,
         error: wasUncertain ? wasError : undefined,
       };
@@ -512,6 +521,8 @@ export class PermissionGroupClient {
     await this.sendRevoke(this.generation);
   }
 
+  /// The connection went. The pane reconnects by itself and its attach reads the groups again, so
+  /// the panel waits for that read (no answers meanwhile) instead of asking for a Refresh.
   disconnected(): void {
     this.generation += 1;
     this.refreshSerial += 1;
@@ -521,7 +532,7 @@ export class PermissionGroupClient {
       ready: false,
       loading: true,
       busy: false,
-      error: translate("permission.error.disconnected"),
+      error: undefined,
       uncertain: this.state.uncertain,
     };
     this.changed();

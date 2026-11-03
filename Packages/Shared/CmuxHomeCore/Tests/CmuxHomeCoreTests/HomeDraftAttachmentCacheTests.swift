@@ -31,6 +31,7 @@ import UniformTypeIdentifiers
         store.setDraft("look at these", for: Self.austin)
         store.setDraftAttachments([shot, notes], for: Self.austin)
         store.stop()
+        await store.flushCache()
         return [shot, notes]
     }
 
@@ -53,6 +54,7 @@ import UniformTypeIdentifiers
         next.start()
         next.setDraftAttachments([], for: Self.austin)
         next.stop()
+        await next.flushCache()
         #expect(try #require(HomeCache(url: root.appendingPathComponent("home.json")).load()).draftAttachments == nil,
                 "a sent or emptied field leaves the cache")
         let third = Self.store(root)
@@ -87,6 +89,7 @@ import UniformTypeIdentifiers
         let notes = try await store.prepareAttachment(data: Data("notes".utf8), typeIdentifier: UTType.plainText.identifier)
         store.setDraftAttachments([shot, notes], for: Self.austin)
         store.stop()
+        await store.flushCache()
         try FileManager.default.removeItem(at: preview)
         let next = Self.store(root)
         next.start()

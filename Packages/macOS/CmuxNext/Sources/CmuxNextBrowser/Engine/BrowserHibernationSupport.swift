@@ -13,11 +13,20 @@ public protocol BrowserHibernationSource: AnyObject {
     /// session's current entry carries `formPost`): waking would load it
     /// again, so the page never hibernates (BR-R1).
     @MainActor var showsFormSubmission: Bool { get }
+    /// The shown site may show notifications (its notifications permission is Allow): a
+    /// hibernated page shows none, so the idle timeout keeps it (Chrome's kNotificationsEnabled).
+    @MainActor var allowsNotifications: Bool { get }
 }
 
 extension WebKitTab: BrowserHibernationSource {
     public var supportsHibernation: Bool { true }
     public var showsFormSubmission: Bool { restored.showsFormSubmission }
+
+    /// WebKit tabs show web notifications (`WebKitNotificationBridge`) when the site's stored answer is Allow.
+    public var allowsNotifications: Bool {
+        guard let url = state.url, let origin = PageInfoSite.origin(of: url) else { return false }
+        return sitePermissions.setting(.notifications, for: origin) == .allow
+    }
 
     public func hibernationState() -> BrowserRestoreState? {
         (webView.interactionState as? Data).map(BrowserRestoreState.webKit)
@@ -51,6 +60,9 @@ extension CEFTab: BrowserHibernationSource {
     }
 
     public var showsFormSubmission: Bool { restored.showsFormSubmission }
+
+    /// Chromium tabs show no web notifications in cmux (`CEFSwitches`: disable-notifications).
+    public var allowsNotifications: Bool { false }
 
     public func hibernationState() -> BrowserRestoreState? {
         guard supportsHibernation, let browserID, let shim = runtime.shim,

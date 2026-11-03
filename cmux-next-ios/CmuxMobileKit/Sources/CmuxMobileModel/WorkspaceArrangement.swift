@@ -155,6 +155,130 @@ public struct SidebarArrangement: Equatable, Sendable {
         guard let anchorIndex = order.firstIndex(of: "\(registryID)/\(anchor.id)") else { return nil }
         return offset > 0 ? anchorIndex + 1 : anchorIndex
     }
+
+    /// The personal index that puts `workspace` right before (`after` false) or right after
+    /// `anchor` (Move Workspace to Top / to Bottom, each step of Sort Workspaces): the anchor's
+    /// place in the person's order without the workspace. Nil when either has no personal row.
+    public func personalIndex(placing workspace: Workspace, next anchor: Workspace, after: Bool, registryID: String) -> Int? {
+        guard let rows, anchor.id != workspace.id else { return nil }
+        let order = rows.sorted { $0.index < $1.index }.map { "\($0.session)/\($0.key)" }
+        let without = order.filter { $0 != "\(registryID)/\(workspace.id)" }
+        guard let anchorIndex = without.firstIndex(of: "\(registryID)/\(anchor.id)") else { return nil }
+        return after ? anchorIndex + 1 : anchorIndex
+    }
+}
+
+/// Move Workspace to Top / to Bottom: the first or last place of the workspace's own
+/// container (its group, else the loose rows), as the Mac's `WorkspaceSlot.top` / `.bottom`.
+public enum WorkspaceEdge: String, CaseIterable, Hashable, Sendable {
+    case top, bottom
+
+    /// The Mac's titles (`action.palette.moveWorkspaceToTop`, `action.workspace.moveToBottom`;
+    /// a grouped row's menu says "of Group", `WorkspaceVerbStrings.moveToTopOfGroup`).
+    public func title(grouped: Bool) -> String {
+        switch (self, grouped) {
+        case (.top, false): "Move Workspace to Top"
+        case (.bottom, false): "Move Workspace to Bottom"
+        case (.top, true): "Move to Top of Group"
+        case (.bottom, true): "Move to Bottom of Group"
+        }
+    }
+
+    /// The row the workspace goes next to in `order` (its container, in the Mac's order), and
+    /// on which side; nil when it is already there.
+    public func anchor(of workspace: Workspace, in order: [Workspace]) -> (anchor: Workspace, after: Bool)? {
+        guard order.contains(where: { $0.id == workspace.id }) else { return nil }
+        switch self {
+        case .top:
+            guard let first = order.first, first.id != workspace.id else { return nil }
+            return (first, false)
+        case .bottom:
+            guard let last = order.last, last.id != workspace.id else { return nil }
+            return (last, true)
+        }
+    }
+}
+
+/// Sort Workspaces by Name / Last Used / Directory (the Mac's `WorkspaceSortKey`): every
+/// container of one Mac's sidebar (its loose rows, each group's members) sorted in place;
+/// pinned rows keep their own order (the Mac's pinned section is not sorted).
+public enum WorkspaceSortKey: String, CaseIterable, Hashable, Sendable {
+    case name, lastUsed, directory
+
+    /// The Mac's titles (`action.workspace.sortBy…`).
+    public var title: String {
+        switch self {
+        case .name: "Sort Workspaces by Name"
+        case .lastUsed: "Sort Workspaces by Last Used"
+        case .directory: "Sort Workspaces by Directory"
+        }
+    }
+
+    /// The short row title inside the phone's Sort folder.
+    public var shortTitle: String {
+        switch self {
+        case .name: "By Name"
+        case .lastUsed: "By Last Used"
+        case .directory: "By Directory"
+        }
+    }
+
+    public var systemImage: String {
+        switch self {
+        case .name: "textformat.abc"
+        case .lastUsed: "clock"
+        case .directory: "folder"
+        }
+    }
+
+    /// `workspaces` (one container, in its current order) sorted by this key, as the Mac
+    /// sorts: `name` in Finder order; `directory` by folder, then name, rows without one
+    /// last; `lastUsed` most recently focused first (the daemon's focus order: a phone can't
+    /// see a Mac window's own recency), ties in their current order.
+    public func sorted(_ workspaces: [Workspace]) -> [Workspace] {
+        let position = Dictionary(workspaces.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
+        func byName(_ lhs: Workspace, _ rhs: Workspace) -> Bool {
+            let order = lhs.title.localizedStandardCompare(rhs.title)
+            return order == .orderedSame ? position[lhs.id, default: 0] < position[rhs.id, default: 0] : order == .orderedAscending
+        }
+        switch self {
+        case .name:
+            return workspaces.sorted(by: byName)
+        case .directory:
+            return workspaces.sorted { lhs, rhs in
+                let (l, r) = (lhs.directory.isEmpty ? nil : lhs.directory, rhs.directory.isEmpty ? nil : rhs.directory)
+                switch (l, r) {
+                case let (l?, r?) where l != r: return l.localizedStandardCompare(r) == .orderedAscending
+                case (_?, nil): return true
+                case (nil, _?): return false
+                default: return byName(lhs, rhs)
+                }
+            }
+        case .lastUsed:
+            return workspaces.sorted { lhs, rhs in
+                if lhs.hasActivityTime != rhs.hasActivityTime { return lhs.hasActivityTime }
+                if lhs.hasActivityTime, lhs.lastActivityAt != rhs.lastActivityAt { return lhs.lastActivityAt > rhs.lastActivityAt }
+                if lhs.focusOrder != rhs.focusOrder { return lhs.focusOrder > rhs.focusOrder }
+                return position[lhs.id, default: 0] < position[rhs.id, default: 0]
+            }
+        }
+    }
+
+    /// The moves that turn `order` (one container) into `sorted`, one row at a time as the Mac
+    /// places them: the first row before the container's current first row, each next one right
+    /// after the one before it. Rows already in place are not moved.
+    public static func steps(from order: [Workspace], to sorted: [Workspace]) -> [(workspace: Workspace, anchor: Workspace, after: Bool)] {
+        var current = order
+        var steps: [(Workspace, Workspace, Bool)] = []
+        for (offset, workspace) in sorted.enumerated() {
+            guard let at = current.firstIndex(where: { $0.id == workspace.id }), at != offset else { continue }
+            let anchor = offset == 0 ? current[0] : sorted[offset - 1]
+            steps.append((workspace, anchor, offset != 0))
+            current.remove(at: at)
+            current.insert(workspace, at: offset)
+        }
+        return steps
+    }
 }
 
 /// Pin, color, order and read marks of workspaces on their Mac (the Mac's
@@ -174,6 +298,9 @@ public protocol WorkspaceArrangementBackend: AnyObject {
     func setIcon(_ workspace: Workspace, _ icon: String?) async throws
     /// Clear Workspace Name: the display name goes; the workspace's own name shows.
     func clearName(_ workspace: Workspace) async throws
+    /// Puts `workspace` right before or after `anchor` in the Mac's sidebar order (Move
+    /// Workspace to Top / to Bottom, Sort Workspaces).
+    func place(_ workspace: Workspace, next anchor: Workspace, after: Bool) async throws
 }
 
 /// Workspace icons the phone offers: SF Symbols both the Mac and the phone draw
@@ -196,6 +323,13 @@ public enum WorkspaceIcon {
 public protocol NotificationClearing: AnyObject {
     func canClearNotifications(on macID: String) -> Bool
     func clearAllNotifications(on macID: String) async throws
+    /// Mark All Notifications as Read: every tab the Mac shows unread is read
+    /// (`ack-tab-notifications`); returns how many.
+    func markAllNotificationsRead(on macID: String) async throws -> Int
+}
+
+extension NotificationClearing {
+    public func markAllNotificationsRead(on macID: String) async throws -> Int { 0 }
 }
 
 extension AppStore {
@@ -211,7 +345,7 @@ extension AppStore {
 }
 
 extension WorkspaceCreator {
-    private var arranger: (any WorkspaceArrangementBackend)? { backend as? any WorkspaceArrangementBackend }
+    var arranger: (any WorkspaceArrangementBackend)? { backend as? any WorkspaceArrangementBackend }
 
     /// Whether the workspace's pin, color, order and read mark can change from here now.
     public func canArrange(_ workspace: Workspace) -> Bool {
@@ -296,6 +430,102 @@ extension WorkspaceCreator {
         for workspace in workspaces { close(workspace) }
     }
 
+    /// One Mac's unpinned rows of `workspace`'s container (its group, else the loose rows) in
+    /// the Mac's sidebar order: what Move Workspace to Top / to Bottom moves among. Empty for a
+    /// pinned workspace (the Mac orders its pinned tiles with a layout move a phone may not send).
+    public func container(of workspace: Workspace) -> [Workspace] {
+        guard !workspace.isPinned else { return [] }
+        return containers(on: workspace.macID).first { $0.first?.group?.id == workspace.group?.id }
+            .flatMap { $0.contains { $0.id == workspace.id } ? $0 : nil } ?? []
+    }
+
+    /// Every container of one Mac's sidebar this phone may arrange (the loose rows, then each
+    /// group's members), each in the Mac's order; pinned rows, Home and rows still being made
+    /// are left out.
+    public func containers(on macID: String) -> [[Workspace]] {
+        let rows = store.workspaces
+            .filter { $0.macID == macID && !$0.isPinned && !$0.isHome && canArrange($0) }
+            .enumerated()
+            .sorted { ($0.element.sidebarIndex ?? Int.max, $0.offset) < ($1.element.sidebarIndex ?? Int.max, $1.offset) }
+            .map(\.element)
+        var order: [String?] = []
+        var byGroup: [String?: [Workspace]] = [:]
+        for row in rows {
+            let key = row.group?.id
+            if byGroup[key] == nil { order.append(key) }
+            byGroup[key, default: []].append(row)
+        }
+        // The loose rows first, then the groups in the order their first rows show.
+        return ([nil] + order.filter { $0 != nil }).compactMap { byGroup[$0] }
+    }
+
+    /// Move Workspace to Top / to Bottom of its container. The list shows the new place at
+    /// once; the Mac's answer settles it.
+    public func move(_ workspace: Workspace, to edge: WorkspaceEdge) {
+        let order = container(of: workspace)
+        guard canArrange(workspace), let arranger, let target = edge.anchor(of: workspace, in: order) else { return }
+        let (anchor, after) = (target.anchor, target.after)
+        let old = reorderLocally(order, to: edge == .top ? [workspace] + order.filter { $0.id != workspace.id }
+            : order.filter { $0.id != workspace.id } + [workspace])
+        track(workspace.id) { [weak self] in
+            do {
+                try await arranger.place(workspace, next: anchor, after: after)
+            } catch {
+                self?.restore(old)
+                self?.onManageFailure?(workspace, "Couldn't move \(workspace.title)", Self.message(error))
+            }
+        }
+    }
+
+    /// Sort Workspaces by Name / Last Used / Directory on one Mac: every container sorted in
+    /// place, shown at once; the Mac's rows move one at a time, as the Mac's own sort moves them.
+    public func sortWorkspaces(on macID: String, by key: WorkspaceSortKey) {
+        guard let arranger else { return }
+        let plans = containers(on: macID).map { order in (order, key.sorted(order)) }.filter { $0.0.map(\.id) != $0.1.map(\.id) }
+        guard !plans.isEmpty, let first = plans.first?.0.first else { return }
+        let old = plans.flatMap { reorderLocally($0.0, to: $0.1) }
+        track("sort-\(macID)") { [weak self] in
+            var moved = false
+            do {
+                for (order, sorted) in plans {
+                    for step in WorkspaceSortKey.steps(from: order, to: sorted) {
+                        try await arranger.place(step.workspace, next: step.anchor, after: step.after)
+                        moved = true
+                    }
+                }
+            } catch {
+                // Nothing moved: the old places come back. Some moved: the Mac's list (already
+                // read after each move) is the truth, so nothing is put back over it.
+                if !moved { self?.restore(old) }
+                self?.onManageFailure?(first, "Couldn't sort the workspaces", Self.message(error))
+            }
+        }
+    }
+
+    /// Remove All Workspace Colors on one Mac: every workspace there loses its color at once,
+    /// each through the same change as its own Reset Workspace Color. The Mac's group colors
+    /// stay: a phone may set a group only to one of the Mac's nine colors, not to none.
+    public func removeAllColors(on macID: String) {
+        for workspace in store.workspaces where workspace.macID == macID && workspace.colorHex != nil && canArrange(workspace) {
+            setColor(workspace, nil)
+        }
+    }
+
+    /// Whether Remove All Workspace Colors has a workspace to change on `macID`.
+    public func hasColors(on macID: String) -> Bool {
+        store.workspaces.contains { $0.macID == macID && $0.colorHex != nil && canArrange($0) }
+    }
+
+    /// Gives `order`'s rows the places of `sorted` (the same rows) and returns their old values.
+    private func reorderLocally(_ order: [Workspace], to sorted: [Workspace]) -> [Workspace] {
+        let places = order.enumerated().map { $1.sidebarIndex ?? $0 }
+        return zip(sorted, places).compactMap { workspace, place in store.updateWorkspace(workspace.id) { $0.sidebarIndex = place } }
+    }
+
+    private func restore(_ old: [Workspace]) {
+        for workspace in old { store.updateWorkspace(workspace.id) { $0.sidebarIndex = workspace.sidebarIndex } }
+    }
+
     private func arrange(_ workspace: Workspace, old: Workspace?, failure: String, _ work: @escaping @MainActor () async throws -> Void) {
         track(workspace.id) { [weak self] in
             do {
@@ -312,6 +542,10 @@ extension WorkspaceCreator {
 /// over the Mac's sidebar order of one Mac's workspaces.
 public enum WorkspaceBulkClose: String, CaseIterable, Hashable, Sendable {
     case others, above, below
+    /// Close Other Workspaces in Group: the row's group's other workspaces.
+    case othersInGroup
+    /// Close All Workspaces: every workspace of the Mac (never Home).
+    case all
 
     /// The Mac's titles.
     public var title: String {
@@ -319,17 +553,24 @@ public enum WorkspaceBulkClose: String, CaseIterable, Hashable, Sendable {
         case .others: "Close Other Workspaces"
         case .above: "Close Workspaces Above"
         case .below: "Close Workspaces Below"
+        case .othersInGroup: "Close Other Workspaces in Group"
+        case .all: "Close All Workspaces"
         }
     }
 
-    /// The workspaces this closes when chosen on `workspace`, in `order`.
+    /// The workspaces this closes when chosen on `workspace`, in `order`. Home never closes
+    /// (the Mac's `HomeRules`).
     public func targets(of workspace: Workspace, in order: [Workspace]) -> [Workspace] {
         guard let index = order.firstIndex(where: { $0.id == workspace.id }) else { return [] }
-        switch self {
-        case .others: return order.filter { $0.id != workspace.id }
-        case .above: return Array(order[..<index])
-        case .below: return Array(order[(index + 1)...])
+        let targets: [Workspace] = switch self {
+        case .others: order.filter { $0.id != workspace.id }
+        case .above: Array(order[..<index])
+        case .below: Array(order[(index + 1)...])
+        case .othersInGroup:
+            workspace.group.map { group in order.filter { $0.id != workspace.id && $0.group?.id == group.id } } ?? []
+        case .all: order
         }
+        return targets.filter { !$0.isHome }
     }
 
     /// "Close 3 workspaces?" (the phone asks first; the Mac closes at once).
@@ -348,6 +589,7 @@ extension MockWorkspaceCreationBackend: WorkspaceArrangementBackend, Notificatio
     public func setUnread(_ workspace: Workspace, _ unread: Bool) async throws { try await rename(workspace, to: workspace.title) }
     public func setIcon(_ workspace: Workspace, _ icon: String?) async throws { try await rename(workspace, to: workspace.title) }
     public func clearName(_ workspace: Workspace) async throws { try await rename(workspace, to: workspace.title) }
+    public func place(_ workspace: Workspace, next anchor: Workspace, after: Bool) async throws { try await rename(workspace, to: workspace.title) }
     public func canClearNotifications(on macID: String) -> Bool { true }
     public func clearAllNotifications(on macID: String) async throws {}
 }

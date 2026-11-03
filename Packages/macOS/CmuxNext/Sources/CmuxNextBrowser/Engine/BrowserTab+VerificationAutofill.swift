@@ -26,6 +26,6 @@ extension BrowserTab {
     /// (``VerificationPageScripts/fillScript(code:)``); never submits. True when a field took it.
     /// - Parameter code: The code.
     public func fillVerificationCode(_ code: String) async -> Bool {
-        (try? await evaluate(VerificationPageScripts.fillScript(code: code), world: .isolated)) == .bool(true)
+        (try? await evaluate(VerificationPageScripts.fillScript(code: code), world: .isolated, gesture: .cmux)) == .bool(true)
     }
 }

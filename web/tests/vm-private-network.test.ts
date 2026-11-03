@@ -20,7 +20,7 @@ import {
   VmProviderOperationError,
   VmTunnelNotFoundError,
 } from "../services/vms/errors";
-import { ProviderError, ProviderTunnelNetworkOverlapError } from "../services/vms/drivers";
+import { ProviderError, ProviderTunnelNetworkOverlapError, SecretBytes } from "../services/vms/drivers";
 import type {
   CreateProviderTunnelOptions,
   ProviderNetwork,
@@ -396,6 +396,22 @@ describe("resolveOwnerNetwork", () => {
     );
     expect(network?.providerNetworkId).toBe(NETWORK.id);
     expect(gatewayCalls.ensureNetwork).toBe(0);
+  });
+
+  test("a resolve carrying the user's credential revalidates the recorded network", async () => {
+    const gatewayCalls = newGatewayCalls();
+    const repoCalls = newRepoCalls();
+    await Effect.runPromise(
+      resolveOwnerNetwork({
+        userId: "user-1",
+        provider: "freestyle",
+        providerCredential: { provider: "gcp", accessToken: new SecretBytes(new TextEncoder().encode("t")), expiresAtUnix: Date.now() / 1000 + 300 },
+      }).pipe(
+        Effect.provide(layerFor(testRepo({ network: networkRow(), calls: repoCalls }), testGateway({ calls: gatewayCalls }))),
+      ),
+    );
+    expect(gatewayCalls.ensureNetwork).toBe(1);
+    expect(repoCalls.upserts).toBe(1);
   });
 
   test("keeps the recorded network id as the control-plane authority", async () => {

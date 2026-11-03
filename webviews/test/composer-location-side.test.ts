@@ -40,8 +40,8 @@ await requireBrowserLane("composer-location-side.test.ts", async () => {
     });
   });
 
-  const url = () =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame("agent-pane.composer-context-side", { variant: "filter-keeps-side" })}`;
+  const url = (variant: string) =>
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame("agent-pane.composer-context-side", { variant })}`;
 
   afterAll(async () => {
     await browser?.close();
@@ -50,7 +50,7 @@ await requireBrowserLane("composer-location-side.test.ts", async () => {
 
   test("the folder popover stays on the side it opened on while a filter shrinks it", async () => {
     const page = await browser!.newPage({ viewport: { width: 620, height: 560 } });
-    await page.goto(url());
+    await page.goto(url("filter-keeps-side"));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
     await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay));
     const result = await page.evaluate(() => ({
@@ -59,6 +59,19 @@ await requireBrowserLane("composer-location-side.test.ts", async () => {
     }));
     await page.close();
     // The play throws when the side or placement is wrong.
+    expect(playFailures(result.report)).toEqual([]);
+  });
+
+  test("the folder popover prefers below when both sides fit", async () => {
+    const page = await browser!.newPage({ viewport: { width: 620, height: 900 } });
+    await page.goto(url("below-when-room"));
+    await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+    await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay));
+    const result = await page.evaluate(() => ({
+      play: document.documentElement.dataset.galleryPlay,
+      report: JSON.stringify((window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport),
+    }));
+    await page.close();
     expect(playFailures(result.report)).toEqual([]);
   });
 });

@@ -42,6 +42,7 @@ struct VaultListView: View {
                             VaultRowView(row: row, isSelected: row.id == selection, colors: colors, actions: actions)
                         }
                     }
+                    .thinScrollers()
                     .padding(.horizontal, Metrics.panelInset / 2)
                 }
             }

@@ -38,9 +38,7 @@ extension KeyRouter {
         if implied.browser { bits.insert(.browserFocused) }
         if implied.agent { bits.insert(.agentPaneFocused) }
         if case .addressBar = focus.resolved { bits.insert(.omnibarFocused) }
-        if facts.pageID == Self.markdownPageID { bits.formUnion(.markdown(readOnly: facts.markdownReadOnly)) }
-        if facts.pageID == Self.diffPageID { bits.insert(.diffViewerFocused) }
-        if facts.pageID == Self.codeEditorPageID { bits.insert(.codeEditorFocused) }
+        bits.formUnion(pageContext(pageID: facts.pageID, markdownReadOnly: facts.markdownReadOnly))
         if facts.textBoxFocused { bits.insert(.textBoxFocused) }
         if isPhone(focus.resolved, internalPage: facts.internalPage) { bits.insert(.simulatorFocused) }
         if facts.fileExplorerFocused { bits.insert(.fileExplorerFocused) }
@@ -57,11 +55,28 @@ extension KeyRouter {
         if resolved.isTextInput || facts.pageEditableFocused { context[KeyContext.textInputFocus] = .bool(true) }
         if focus.isBrowserFocusModeActive { context[KeyContext.browserFocusMode] = .bool(true) }
         if facts.terminalCopyMode, case .terminal = resolved { context[KeyContext.terminalCopyMode] = .bool(true) }
+        if facts.terminalAlternateScreen, case .terminal = resolved { context[KeyContext.terminalAlternateScreen] = .bool(true) }
         let omnibarList = facts.omnibarListOpen && { if case .addressBar = resolved { true } else { false } }()
         if facts.listFocus || omnibarList || Self.isNativeList(resolved) { context[KeyContext.listFocus] = .bool(true) }
         if facts.sidebarMultiSelection, case .sidebar = resolved { context[KeyContext.sidebarMultiSelection] = .bool(true) }
         if facts.workspacesAsTabs { context[KeyContext.workspacesAsTabs] = .bool(true) }
         return context
+    }
+
+    /// The context bits a focused page with `pageID` sets (the markdown, diff viewer and code editor pages).
+    nonisolated static func pageContext(pageID: String?, markdownReadOnly: Bool) -> ActionContext {
+        switch pageID {
+        case markdownPageID?: .markdown(readOnly: markdownReadOnly)
+        case diffPageID?: .diffViewerFocused
+        case codeEditorPageID?: .codeEditorFocused
+        default: []
+        }
+    }
+
+    /// Whether a focused page with `pageID` can own bare keys (``ActionContext/bareKeyOwners``), in the
+    /// most permissive reading of its facts (a markdown page read-only): the cheap check before the facts.
+    nonisolated static func pageMayOwnBareKeys(_ pageID: String) -> Bool {
+        !pageContext(pageID: pageID, markdownReadOnly: true).isDisjoint(with: .bareKeyOwners)
     }
 
     /// Whether a phone tab has the keyboard (`simulatorFocused`: the Simulator shortcuts).
@@ -122,7 +137,8 @@ extension KeyRouter {
         // Only a code editor page has key sequences; the editor pages' service is not made for others.
         let editor = page?.descriptor.id == Self.codeEditorPageID ? page : nil
         return Facts(hasMarkedText: (window.firstResponder as? any NSTextInputClient)?.hasMarkedText() == true,
-                     terminalCopyMode: terminalCopyMode(in: controller), pageID: page?.descriptor.id,
+                     terminalCopyMode: terminalCopyMode(in: controller),
+                     terminalAlternateScreen: terminalAlternateScreen(in: controller), pageID: page?.descriptor.id,
                      markdownReadOnly: services?.viewers.markdownPages.showsReadOnly(focusedIn: controller) == true,
                      listFocus: focusedReadiness(in: controller)?.isListFocused == true,
                      pageEditableFocused: focusedReadiness(in: controller)?.isEditableFocused == true,
@@ -134,7 +150,7 @@ extension KeyRouter {
                      textBoxFocused: window.firstResponder is TextBoxTextView,
                      sidebarMultiSelection: controller.sidebar.model.selection.count > 1,
                      fileExplorerFocused: FileExplorerService.hasKeyboard(window),
-                     workspacesAsTabs: SidebarTunables.workspacesAsTabs.value,
+                     workspacesAsTabs: SidebarTunables.workspacesAsTabsOn,
                      pageReportsUnhandledKeys: chromiumPageHasKeys(window, controller: controller))
     }
 
@@ -188,7 +204,7 @@ extension KeyRouter {
         var modelPage: PageWebView?
         if case .page(_, _) = controller.focus.state.resolved, let pane = controller.focus.state.resolved.pane,
            case .page(let view)? = controller.content?.paneController(key: pane)?.currentContent {
-            modelPage = view.content as? PageWebView
+            modelPage = PageWebView.shown(in: view.content)
         }
         return Self.keyPage(modelPage: modelPage, in: controller.window)
     }
@@ -219,5 +235,11 @@ extension KeyRouter {
         guard case .terminal(let pane, _) = controller.focus.state.resolved,
               case .terminal(let entry)? = controller.content?.paneController(key: pane)?.currentContent else { return false }
         return entry.session.surfaceView.isCopyModeActive
+    }
+
+    private func terminalAlternateScreen(in controller: WindowController) -> Bool {
+        guard case .terminal(let pane, _) = controller.focus.state.resolved,
+              case .terminal(let entry)? = controller.content?.paneController(key: pane)?.currentContent else { return false }
+        return entry.session.surfaceView.isAlternateScreen
     }
 }

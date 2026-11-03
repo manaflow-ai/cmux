@@ -14,7 +14,7 @@ protocol BrowserRestoredSessionHost {
     /// Shows Back and Forward as available or not.
     func applyHistoryAvailability(canGoBack: Bool, canGoForward: Bool)
     func currentScrollY() async -> Double?
-    func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue
+    func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue
     func load(_ url: URL)
 }
 
@@ -109,14 +109,24 @@ class BrowserRestoredSession {
     }
 
     /// The tab's entries as they are saved, with the scroll positions it
-    /// knows; `measuringScroll` also asks the shown page.
+    /// knows; `measuringScroll` also asks the shown page. Nil once its engine
+    /// closed the page (a quit's engine stop): it has no back/forward list
+    /// then, so its session would keep only the shown page over the good
+    /// record written after each navigation.
     func savedSession(measuringScroll: Bool) async -> BrowserSavedSession? {
-        guard let tab else { return nil }
+        guard let tab, !tab.isClosed else { return nil }
+        // Where the page said its scrolling settled (no page question): a crash after it keeps it.
+        // Not while a restore still scrolls the page back: its load reports the top first.
+        if pendingScrollY == nil, restoringEntry == nil, let report = tab.state.scrollReport {
+            knownScrollY[report.url] = report.y
+        }
         if measuringScroll, pendingScrollY == nil, restoringEntry == nil, let url = tab.state.url, let y = await tab.currentScrollY() {
             // The page may have moved on while it answered.
             if tab.state.url == url { knownScrollY[url] = y }
         }
-        guard let url = tab.state.url else { return nil }
+        // The engine may have closed the page while it answered (a quit's engine stop ends the
+        // question at once): its back/forward list is gone now.
+        guard !tab.isClosed, let url = tab.state.url else { return nil }
         let shown = BrowserNavigationEntry(url: url, title: tab.state.title)
         var session = (history ?? .empty).session(around: tab.nativeNavigationList(), shown: shown)
         guard session.entries.indices.contains(session.current) else { return nil }
@@ -199,7 +209,7 @@ class BrowserRestoredSession {
         restoringEntry = entry
         let literal = Self.javaScriptString(entry.url.absoluteString)
         do {
-            _ = try await tab.evaluate("location.replace(\(literal)); true", world: .isolated)
+            _ = try await tab.evaluate("location.replace(\(literal)); true", world: .isolated, gesture: .cmux)
         } catch {
             tab.load(entry.url)
         }
@@ -279,7 +289,7 @@ class BrowserRestoredSession {
           return true;
         })(\(y))
         """
-        Task { @MainActor [weak self] in _ = try? await self?.tab?.evaluate(script, world: .isolated) }
+        Task { @MainActor [weak self] in _ = try? await self?.tab?.evaluate(script, world: .isolated, gesture: .cmux) }
     }
 
     static func isWebPage(_ url: URL) -> Bool {

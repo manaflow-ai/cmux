@@ -17,6 +17,7 @@ use crate::lease::{LeaseCaller, LeaseError, LeaseOp, LeaseTable};
 use crate::protocol::{DriverError, DriverEvent};
 use crate::provider::LeaseState;
 use crate::tab_source::{PolicyLogSink, TabCall, TabRow, TabSource};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -58,6 +59,9 @@ pub struct HeadlessSource {
     pub(crate) policies: Mutex<crate::headless_policy::Policies>,
     /// The isolated host's egress listener, for the policy listeners.
     pub(crate) egress: Option<std::net::SocketAddr>,
+    /// The browser runs headless: nobody sees its tabs (a headful one is a
+    /// Cloud user's window). Sessions learn it as the `headless` capability.
+    headless: bool,
     // Last: the browser stops after the driver let go of it.
     _browser: HeadlessChromium,
 }
@@ -121,6 +125,7 @@ impl HeadlessSource {
             linger_wake: Condvar::new(),
             policies: Mutex::default(),
             egress: options.egress_listener,
+            headless: options.headless,
             _browser: browser,
         });
         let _ = me.set(Arc::downgrade(&source));
@@ -484,7 +489,7 @@ impl TabSource for SharedHeadless {
         // session (fetch shells, the profile's cookies, downloads).
         let mut params = params.clone();
         if let Some(id) = params.get("fetchId").and_then(Value::as_str) {
-            params["fetchId"] = json!(fetch_id(session, id));
+            params.set("fetchId", json!(fetch_id(session, id)));
         }
         if method == "session.configure" {
             return Some(self.0.configure(session, &params));
@@ -496,7 +501,9 @@ impl TabSource for SharedHeadless {
         }
         if method.starts_with("cookies.") {
             match self.0.cookie_store_of(session) {
-                Ok(Some(context)) => params["browserContextId"] = json!(context),
+                Ok(Some(context)) => {
+                    params.set("browserContextId", json!(context));
+                }
                 Ok(None) => {}
                 Err(error) => return Some(Err(error)),
             }
@@ -669,6 +676,11 @@ impl TabSource for SharedHeadless {
         let mut capabilities = self.0.driver.capabilities();
         // Incognito tabs (private data P1, headless_configure.rs).
         capabilities.push("incognito");
+        // Tabs nobody sees: the REPL's agent pointer skips the human path
+        // there (js/runtime-core.js Session).
+        if self.0.headless {
+            capabilities.push("headless");
+        }
         capabilities
     }
 }
@@ -681,7 +693,7 @@ impl SharedHeadless {
             fields.remove("browserContextId");
         }
         if let Some(id) = params.get("fetchId").and_then(Value::as_str) {
-            params["fetchId"] = json!(fetch_id(call.session, id));
+            params.set("fetchId", json!(fetch_id(call.session, id)));
         }
         if call.raw {
             // Script values keep the page's key order (a9 raw_value).

@@ -64,11 +64,15 @@ final class CEFFileDragRelay {
         pendingOver = nil
         if let lastPoint { leave(tab, at: lastPoint) }
         send("dragCancel", at: .zero)
+        tab.pageDragEnded?(false)
         reset()
     }
 
     func dropped(at point: CGPoint) -> Bool {
-        guard tab != nil else { return false }
+        guard let tab else { return false }
+        // The native drop, with its event in dispatch, before the page hears it: what backs the
+        // page's drop message (page script can post one, but cannot make this).
+        tab.pageDragEnded?(true)
         send("drop", at: point)
         reset()
         return true
@@ -93,6 +97,12 @@ final class CEFFileDragRelay {
         guard let tab else { return }
         let files = files.map(\.path)
         let previous = chain
+        // `CEFTab.runtime` is `unowned`, and this Task suspends on `previous` before it calls into
+        // the tab: the Task holds the tab strongly but nothing holds the runtime behind it, so it
+        // is read here, while it is known alive, and the capture keeps it so for the call below
+        // (see `CEFMediaBridge.run`). The tab's own methods are still the ones called; only the
+        // runtime's lifetime changes.
+        let runtime = tab.runtime
         chain = Task { [weak self, logger] in
             await previous?.value
             let at: CGPoint
@@ -112,6 +122,7 @@ final class CEFFileDragRelay {
             } catch {
                 logger.error("file drag \(type, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             }
+            withExtendedLifetime(runtime) {}
         }
     }
 
@@ -123,13 +134,17 @@ final class CEFFileDragRelay {
           el.dispatchEvent(new DragEvent('dragleave', {bubbles: true, cancelable: true, clientX: \(css.x), clientY: \(css.y)})); return true; })()
         """
         let previous = chain
+        // Read before the Task for the same reason as `send`: the suspension on `previous` comes
+        // before the call into the tab, and the tab does not keep its `unowned` runtime alive.
+        let runtime = tab.runtime
         chain = Task { [logger] in
             await previous?.value
             do {
-                _ = try await tab.evaluate(script, world: .isolated)
+                _ = try await tab.evaluate(script, world: .isolated, gesture: .cmux)
             } catch {
                 logger.error("file drag leave failed: \(String(describing: error), privacy: .public)")
             }
+            withExtendedLifetime(runtime) {}
         }
     }
 }

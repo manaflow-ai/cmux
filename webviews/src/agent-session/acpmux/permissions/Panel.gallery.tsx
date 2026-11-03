@@ -32,7 +32,7 @@ const askStyles: Record<Exclude<AskStyle, "current">, string> = {
     [data-ask-style="text"] .acpmux-ask-action.is-secondary { box-shadow: none; }`,
 };
 
-const request = (title: string, command: string, path: string) => ({
+const request = (title: string, command: string | string[], path: string) => ({
   toolCall: {
     title,
     kind: "execute",
@@ -101,6 +101,14 @@ const refreshErrorState: PermissionClientState = {
   error: "Permission service is temporarily unavailable.",
 };
 
+// A chat on another machine whose acpmux allows only from its own app (Leo 2026-10-21: "this
+// literally doesn't work"): only Deny, which counts, and where to approve.
+const allowRefusedState: PermissionClientState = {
+  ...baseState,
+  groups: [{ ...pendingGroup, items: pendingGroup.items.slice(0, 1) }],
+  allowRefused: "permission.person_required",
+};
+
 const uncertainState: PermissionClientState = {
   ...baseState,
   groups: [],
@@ -162,8 +170,8 @@ const openReceipt: Play = async (ctx) => {
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".acpmux-permission-receipt[open]")));
 };
 
-/// A chat-wide allowance alone draws no card: its remove lives in the composer's access menu
-/// (ComposerPickers.gallery `access-grants`). The panel still answers the Revoke menu action, which
+/// A chat-wide allowance alone draws no card: its Revoke lives in Session Info's Environment
+/// (inspector/EnvironmentSection.tsx). The panel still answers the Revoke menu action, which
 /// the app relays as `cmux-acpmux-permissionRevoke`.
 const revokeAllowance: Play = async (ctx) => {
   if (ctx.document.querySelector(".acpmux-permission-panel")) throw new Error("An allowance alone drew a card");
@@ -263,10 +271,40 @@ export default componentEntry<Props>({
       props: { state: baseState, ...callbacks },
       play: expandDetails,
     },
+    "argv-command": {
+      note: "A Codex argv command opens as a shell block, quoting arguments with spaces and apostrophes.",
+      props: {
+        state: {
+          ...baseState,
+          groups: [
+            {
+              ...pendingGroup,
+              items: [
+                {
+                  permissionId: "permission-gallery-argv",
+                  state: "pending",
+                  request: request(
+                    "Read the release notes",
+                    ["cat", "docs/release notes.md", "docs/what's next.md"],
+                    "docs",
+                  ),
+                },
+              ],
+            },
+          ],
+        },
+        ...callbacks,
+      },
+      play: expandDetails,
+    },
     "allow-once": {
       note: "Allow records the selected decision while the host owns the eventual state update.",
       props: { state: baseState, ...callbacks },
       play: allowOnce,
+    },
+    "allow-refused": {
+      note: "A chat on another machine that allows only from its own app: no Allow or Always that could not count, only Deny, and where to approve instead.",
+      props: { state: allowRefusedState, ...callbacks },
     },
     collecting: {
       note: "A batching group announces that requests are still being collected.",

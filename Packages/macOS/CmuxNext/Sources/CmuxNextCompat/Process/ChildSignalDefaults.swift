@@ -19,7 +19,8 @@ private let caughtAndDropped: @convention(c) (Int32) -> Void = { _ in }
 /// TERM, INT and HUP inherited as ignored from the launcher (nohup, some
 /// CI runners) go back to the default, so children and the app's own quit
 /// handling see them; `QuitSignal` installs the app's handlers later.
-package enum ChildSignalDefaults {
+package struct ChildSignalDefaults {
+    package init() {}
     package static let restoredSignals: [Int32] = [SIGTERM, SIGINT, SIGHUP]
 
     /// Call once at launch, before any socket or pipe exists.

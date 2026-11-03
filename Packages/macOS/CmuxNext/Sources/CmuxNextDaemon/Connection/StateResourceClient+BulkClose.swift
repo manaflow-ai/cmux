@@ -41,6 +41,13 @@ extension StateResourceClient {
     /// The daemon skips an object with no tab (an empty workspace stays open)
     /// and never closes the home workspace.
     ///
+    /// `bound` (opt-in, a person's workspace close): the close ends on the
+    /// daemon's reply or refusal, the connection's end, or `bound` with no
+    /// answer (`DaemonError.timedOut`; the caller then decides it from the
+    /// store), never on the 2 s client deadline: a busy daemon commits a close
+    /// it answers late, and one that gave up first reported a done close as
+    /// failed. Nil keeps the control deadline.
+    ///
     /// ```swift
     /// try await connection.state.closeBulk(.screen, ids: screens.compactMap(\.resourceID))
     /// ```
@@ -54,10 +61,11 @@ extension StateResourceClient {
     /// - Throws: `DaemonError.command` with `resource.not_found` when an id is
     ///   unknown, or a refusal when an id names Home's pinned pane.
     @discardableResult
-    public func closeBulk(_ level: BulkCloseLevel, ids: [ResourceID], endTerminals: Bool = false) async throws -> BulkClosed {
+    public func closeBulk(_ level: BulkCloseLevel, ids: [ResourceID], endTerminals: Bool = false,
+                          within bound: Duration? = nil) async throws -> BulkClosed {
         try await stateMutation("layout.bulk", [
             "verb": .string("close"), "level": .string(level.rawValue), "selector": .string("selection"),
             "ids": Self.ids(ids), "end_terminals": .bool(endTerminals),
-        ], as: BulkClosed.self)
+        ], as: BulkClosed.self, timeout: bound)
     }
 }

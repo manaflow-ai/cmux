@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextLayout
 
@@ -39,8 +40,10 @@ extension PaneHandlers {
         registry.bind("closePane", invoke: { invocation in
             // While the focus a split asked for is on its way, the focused pane is its new pane: the
             // split is cancelled, never the old pane closed (CancelledCreation); so is a provisional pane named.
-            if invocation.target == nil, let content = ctx.focusedContent, case .tab(let id)? = content.focus.state.expectation?.key, content.daemon.cancelSplit(showing: id) { return ctx.services.keyRouter.creationInputCoordinator.drop(tab: id, in: content.contentView.window) }
-            guard let pane = ctx.daemonPane(invocation), !ctx.services.daemon(for: pane).cancelCreation(pane: pane.handle) else { return }
+            // Either way the window drops the stand-in and the focus goes to a live pane in this turn (showCancelledCreation).
+            if invocation.target == nil, let content = ctx.focusedContent, case .tab(let id)? = content.focus.state.expectation?.key, content.daemon.cancelSplit(showing: id) { ctx.services.keyRouter.creationInputCoordinator.drop(tab: id, in: content.contentView.window); return content.showCancelledCreation() }
+            guard let pane = ctx.daemonPane(invocation) else { return }
+            if ctx.services.daemon(for: pane).cancelCreation(pane: pane.handle) { ctx.services.paneController(for: pane)?.workspace?.showCancelledCreation(); return }
             // A person's close in the Home Chief pane keeps the pane and says why; the CLI and MCP
             // still ask and get the daemon's `dock-column-pinned` refusal (home-chief-pane.md).
             if invocation.origin == .user, ctx.services.paneController(for: pane)?.isPinnedDockPane == true {
@@ -50,7 +53,8 @@ extension PaneHandlers {
             // The pane leaves its window now and its neighbours spring into its space
             // (close-animation DESIGN.md); a refused close brings it back.
             let controller = ctx.services.paneController(for: pane)
-            let shown = ctx.services.activeDaemon.connection == nil ? nil : controller?.showPaneClose()
+            // The pane's own daemon decides: a remote pane's close waits for no local connection.
+            let shown = ctx.services.daemon(for: pane).connection == nil ? nil : controller?.showPaneClose()
             ctx.send("close-pane") { connection in
                 do {
                     try await connection.closePane(handle)
@@ -84,14 +88,16 @@ extension PaneHandlers {
                 ctx.send("close-pane") { try await $0.closePane(handle) }
             }
         })
-        registry.bind("renamePane", invoke: { invocation in
-            guard let pane = ctx.daemonPane(invocation) else { return }
+        // The name shows in the input's turn (a store intent); a refusal puts the old one back.
+        registry.bindEffect("renamePane", effect: { invocation in
+            guard let pane = ctx.daemonPane(invocation) else { return .done }
             let handle = pane.handle
             if let name = invocation["name"]?.stringValue {
-                ctx.send("rename-pane") { try await $0.renamePane(handle, to: name) }
-                return
+                guard ctx.connection() != nil else { return .done }
+                return ctx.daemon.intentEffect("rename-pane", .renamePane(pane: handle, name: name)) { try await $0.renamePane(handle, to: name) }
             }
             ctx.services.registry.ask("renamePane", invocation, ActionArgumentAsk(argument: "name", initialText: pane.name ?? ""))
+            return .done
         })
         registry.bind("triggerFlash", invoke: { invocation in
             guard let pane = ctx.paneController(invocation) else { return }

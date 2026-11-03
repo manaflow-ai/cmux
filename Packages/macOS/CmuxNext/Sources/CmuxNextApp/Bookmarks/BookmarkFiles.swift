@@ -3,6 +3,8 @@ import CmuxNextDesign
 import CmuxNextActions
 import CmuxNextBookmarks
 import Foundation
+import CmuxNextWakeups
+import CmuxNextCompat
 import UniformTypeIdentifiers
 
 /// Netscape HTML import and export (bookmarks.md section 3): open and save
@@ -66,9 +68,11 @@ struct BookmarkFiles {
 
     func exportFile(_ url: URL, profile: String) {
         let html = NetscapeBookmarkWriter.write(services.bookmarks.tree(profile), barTitle: BookmarkStrings.barTitle)
+        let work = services.work
         services.registry.track(Task { @MainActor in
             do {
-                try await Task.detached { try Data(html.utf8).write(to: url, options: .atomic) }.value
+                // The person waits for the export they asked for: the files lane at userBlocking.
+                try await work.run(.userBlocking, mayBlock: .files) { try Data(html.utf8).blockingWrite(to: url, options: .atomic) }
                 return nil
             } catch {
                 return ActionWorkFailure(BookmarkAppStrings.failure(error))

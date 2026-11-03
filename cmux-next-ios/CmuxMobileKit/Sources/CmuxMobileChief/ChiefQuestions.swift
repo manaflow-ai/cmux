@@ -31,10 +31,19 @@ public final class ChiefQuestionFeed: @unchecked Sendable {
     }
 
     /// Records `message`'s question parts (pending, answered or cancelled).
-    func update(_ found: [AgentQuestion], seq: Int) {
-        guard !found.isEmpty else { return }
+    /// With `messageID`, the message's questions not in `found` are gone
+    /// (it was retracted or edited), so no bar asks a question that left.
+    func update(_ found: [AgentQuestion], seq: Int, messageID: String? = nil) {
         let handler: (@Sendable ([AgentQuestion]) -> Void)? = lock.withLock {
             var changed = false
+            if let messageID {
+                let kept = Set(found.map(\.id))
+                let prefix = "\(messageID)#"
+                for id in questions.keys where id.hasPrefix(prefix) && !kept.contains(id) {
+                    questions[id] = nil
+                    changed = true
+                }
+            }
             for question in found where questions[question.id]?.question != question {
                 questions[question.id] = (seq, question)
                 changed = true
@@ -55,9 +64,16 @@ public final class ChiefQuestionFeed: @unchecked Sendable {
             guard part["type"] as? String == "question",
                   let data = try? JSONSerialization.data(withJSONObject: part),
                   let json = try? AgentQuestionJSON(data: data) else { return nil }
-            return AgentQuestion(conversationPart: json, messageID: id, partIndex: index)
+            guard let question = AgentQuestion(conversationPart: json, messageID: id, partIndex: index),
+                  !requiresLocalApp(question) else { return nil }
+            return question
         }
         return (seq, found)
+    }
+
+    /// Home approval cards use the Mac app's person proof, not phone question answers.
+    static func requiresLocalApp(_ question: AgentQuestion) -> Bool {
+        question.source.harness == .chief && question.items.contains { $0.id.hasPrefix("approval:") }
     }
 }
 
@@ -233,6 +249,10 @@ extension ChiefDaemonBackend: ChiefQuestionSource {
 
     public func answer(_ question: AgentQuestion, with answer: AgentQuestionAnswer, signer: (any ChiefAnswerSigning)?,
                        approved: @escaping @Sendable () -> Void) async throws {
+        // Also reject a cached card supplied before the feed refreshed.
+        guard !ChiefQuestionFeed.requiresLocalApp(question) else {
+            throw ConversationBackendError(code: -32000, message: "question.person_decision_required")
+        }
         guard let signer else { throw ChiefApprovalUnavailable() }
         guard let address = ChiefQuestionAddress(question.id) else {
             throw ConversationBackendError(code: -32602, message: "not a conversation question")

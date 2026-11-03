@@ -4,6 +4,7 @@
 // create popover, the inline editor, the keyboard's current message and a short notice.
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
+import { useLasting } from "../../ui/lasting";
 import { AttachmentContext } from "./AttachmentViews";
 import { AvatarContext } from "./avatars";
 import { Avatar, ChannelMark, PicturesContext } from "./Avatar";
@@ -38,6 +39,8 @@ import { RunsContext, type RunsContextValue } from "./RunCard";
 import { useRunEntry } from "./runs";
 import { ChiefRoutePage, RouteSheets } from "./RouteSheets";
 import { LiveTyping } from "./LiveTyping";
+import { chiefPresence } from "../../agent-session/acpmux/multiplayer/chiefAdapter";
+import { PresenceStack } from "../../agent-session/acpmux/multiplayer/Faces";
 import { RunSheet } from "./RunSheet";
 import type { HomeChannelsStore } from "./store";
 import { lastLiveReplies, threadObject, type ThreadObject } from "./threads";
@@ -45,6 +48,10 @@ import { ThreadSheet } from "./ThreadSheet";
 import { Timeline } from "./Timeline";
 import type { HomeConversation, HomeMessage, HomeParticipant, HomeRun } from "./types";
 import { useHomeKeys } from "./useHomeKeys";
+import { useWebSwapHold } from "../shared/useWebSwapHold";
+import { PresentationToggle, usePresentation } from "./presentation";
+import { sliceWhole } from "../../ui/wholeChars";
+import { ChiefWorkPane } from "./ChiefWorkPane";
 
 const NOTICE_MS = 1600;
 
@@ -59,6 +66,12 @@ export function HomeChannelsPage({
   pane?: Pane;
 }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const presentation = usePresentation(snap.selected);
+  // WEB-SWAP: a web update's reload waits while a message lives only in this page: one on its way
+  // to the owner, or a failed one with Retry (pages/shared/webSwap.ts).
+  useWebSwapHold(
+    snap.pending.some((entry) => !entry.failed) ? "home.sending" : snap.pending.length ? "home.send-failed" : null,
+  );
   // Below NARROW_PAGE of its own width the page shows one pane (panes.ts), the one the hash names.
   const shell = useRef<HTMLDivElement>(null);
   const measured = useNarrow(shell);
@@ -75,11 +88,20 @@ export function HomeChannelsPage({
   const [notice, setNotice] = useState<string | undefined>();
   /** The run the run sheet shows (an agent turn's whole trajectory). */
   const [openRun, setOpenRun] = useState<{ conversation: string; author: string; id: string } | undefined>();
+  /** The conversation whose local Chief work panel is open. Switching conversations hides it. */
+  const [workConversation, setWorkConversation] = useState<string | undefined>();
+  const workOpen = workConversation !== undefined && workConversation === snap.selected;
+  // WEB-SWAP: an open thread, run sheet, palette or edit lives only in this page's state, so a reload
+  // would close it: the update waits until it closes (pages/shared/webSwap.ts).
+  useWebSwapHold(snap.thread || openRun || workOpen || palette || editing || sheetState.route ? "home.sheet" : null);
   const runs = useMemo<RunsContextValue>(
     () => ({
       book: store.runs,
       strings,
-      onOpen: (run: HomeRun) => setOpenRun({ conversation: run.conversation, author: run.author, id: run.id }),
+      onOpen: (run: HomeRun) => {
+        setWorkConversation(undefined);
+        setOpenRun({ conversation: run.conversation, author: run.author, id: run.id });
+      },
       onLoad: (run: HomeRun) => void store.loadRunSteps(run),
       live: store.live,
     }),
@@ -133,11 +155,14 @@ export function HomeChannelsPage({
     return map;
   }, [conversations, snap.me]);
   const runsWithPeople = useMemo<RunsContextValue>(
-    () => ({ ...runs, people, draftTurn: snap.draft?.turn }),
-    [runs, people, snap.draft?.turn],
+    () => ({ ...runs, people, draftTurn: snap.draft?.turn, presentation }),
+    [runs, people, snap.draft?.turn, presentation],
   );
   const mentionable = useMemo(() => others(open, me), [open, me]);
   const online = snap.connection === "online";
+  // The header says the page is offline or connecting only once that has lasted past the grace
+  // (ui/lasting.ts): a daemon restart or a dropped link that comes back shows nothing.
+  const offlineLasting = useLasting(!online);
   const name = open ? conversationName(open, me) : "";
   const channel = open ? channels.has(open.id) : false;
   const place = channel ? `#${name}` : name;
@@ -167,6 +192,12 @@ export function HomeChannelsPage({
     () =>
       rows.flatMap((row) => (row.kind === "message" && !row.message.id.startsWith("pending:") ? [row.message] : [])),
     [rows],
+  );
+  // The people here and typing, as the agent chat shows them (multiplayer/chiefAdapter.ts): only
+  // this conversation's members, so a stray id never draws someone from another conversation.
+  const presence = useMemo(
+    () => chiefPresence(new Map(open?.participants.map((p) => [p.id, p])), me ?? "", snap.typing, snap.viewing),
+    [open?.participants, me, snap.typing, snap.viewing],
   );
   const typingNames = snap.typing
     .filter((id) => id !== me && id !== snap.draft?.participant)
@@ -226,6 +257,7 @@ export function HomeChannelsPage({
     target?.focus({ preventScroll: true });
   }, [store, measured, narrow, listShown]);
   const openThread = (root: string | undefined) => {
+    if (root) setWorkConversation(undefined);
     setEditing(undefined);
     void store.openThread(root);
   };
@@ -292,6 +324,7 @@ export function HomeChannelsPage({
       else if (palette) setPalette(false);
       else if (listShown) return false;
       else if (editing) setEditing(undefined);
+      else if (workOpen) setWorkConversation(undefined);
       else if (openRun) setOpenRun(undefined);
       else if (snap.thread) openThread(undefined);
       else if (focused) setFocused(undefined);
@@ -563,12 +596,31 @@ export function HomeChannelsPage({
                         )}
                       </p>
                       <span className="lg-spacer" />
-                      {!online && (
+                      <PresentationToggle conversation={open.id} strings={strings} />
+                      {caps.chiefWork && openChief && open.owner === "local" && (
+                        <button
+                          type="button"
+                          className="hc-icon-button hc-chief-work-toggle"
+                          aria-label={t("work.open")}
+                          title={t("work.open")}
+                          aria-pressed={workOpen}
+                          onClick={() => {
+                            setOpenRun(undefined);
+                            openThread(undefined);
+                            setWorkConversation(workOpen ? undefined : open.id);
+                          }}
+                        >
+                          <HomeIcon name="bulletList" size={16} />
+                        </button>
+                      )}
+                      {offlineLasting && (
                         <output className="lg-connection">
                           {t(snap.connection === "connecting" ? "connection.connecting" : "connection.offline")}
                         </output>
                       )}
                       {notice && <output className="lg-notice">{notice}</output>}
+                      {/* Who else has the chat open: the agent chat's faces (multiplayer/Faces.tsx). */}
+                      <PresenceStack viewing={presence.viewing} />
                       {channel && (
                         <span className="lg-faces" aria-hidden="true">
                           {open.participants.slice(0, 4).map((p) => (
@@ -718,6 +770,16 @@ export function HomeChannelsPage({
                             onLoad={runs.onLoad}
                           />
                         )}
+                        {workOpen && caps.chiefWork && openChief && open.owner === "local" && (
+                          <ChiefWorkPane
+                            key={openChief.id}
+                            book={store.chiefWork}
+                            chief={openChief.id}
+                            online={online}
+                            strings={strings}
+                            onClose={() => setWorkConversation(undefined)}
+                          />
+                        )}
                       </div>
                     </RunsContext.Provider>
                   </>
@@ -777,5 +839,5 @@ function askedLine(id: string | undefined, messages: readonly HomeMessage[]): st
   const message = id ? messages.find((entry) => entry.id === id) : undefined;
   const text = message?.parts.find((part) => part.type === "text");
   const line = text && text.type === "text" ? text.text.split("\n")[0]!.trim() : "";
-  return line ? (line.length > 120 ? `${line.slice(0, 119)}…` : line) : undefined;
+  return line ? (line.length > 120 ? `${sliceWhole(line, 119)}…` : line) : undefined;
 }

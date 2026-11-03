@@ -1,0 +1,13 @@
+{
+  "_doc": "Idle thread and wakeup budget per process kind (scripts/cmux-next/idle-budget.py; plans/cmux-next/idle-wakeups.md section 9). Idle: no input, no visible change, terminals quiet, after the settle. Fields: wakeups_per_s and cpu_pct are the sum over the kind's processes; wakeups_max and threads_max are per process; main_wakes_per_s is the app's main run loop. A value may be one number or {session: number}. null: measured and reported, not judged yet (thread caps are set from the first measurement after the fixes). Proposed by PL-idle 2026-10-24 with the Performance Lead: app main thread 0, app <= 1/s, daemon <= 1/s, holder 0.",
+  "kinds": {
+    "app": {"main_wakes_per_s": 0, "wakeups_per_s": 1.0, "threads_max": null},
+    "daemon": {"wakeups_per_s": 1.0, "threads_max": null},
+    "holder": {"wakeups_max": 0, "threads_max": null},
+    "terminal-host": {"wakeups_max": 0, "threads_max": null},
+    "acpmux": {"wakeups_max": 1.0, "threads_max": null},
+    "cef-gpu": {"wakeups_max": null, "threads_max": null},
+    "cef-renderer": {"wakeups_max": null, "threads_max": null},
+    "cef-utility": {"wakeups_max": null, "threads_max": null}
+  }
+}
