@@ -81,6 +81,12 @@ impl Brain {
         // The turn that starts now takes the cut turn's resume note: its
         // hold (a backoff, or a network cut's wait) is over.
         self.resume_at = None;
+        // What the shared screen showed since the last turn joins the log
+        // first, so this turn's delta carries it (screen_share.rs).
+        self.ingest_screen_share();
+        if self.state.stopped_reply.take().is_some() {
+            self.save();
+        }
         self.phase = Phase::Settling;
         // The bound counts from the first wait for this turn: a wait that
         // starts over (the log changed under it) does not reset it.
@@ -1396,6 +1402,15 @@ impl Brain {
         };
         let main = self.turn_side().is_none();
         // Any other end leaves what no post answered to a retry check.
+        let awaiting = &self.state.awaiting;
+        if owner_stopped && let Some(stopped) = self.state.stopped_reply.as_mut() {
+            // A tool's already-submitted post may have landed while the
+            // cancellation was in flight. Continue reopens only obligations
+            // this Stop actually closes.
+            stopped.messages.retain(|a| {
+                not_needed.contains(&a.id) && awaiting.iter().any(|waiting| waiting.id == a.id)
+            });
+        }
         self.reply_not_needed(&not_needed);
         self.state.turn = None;
         self.stop_wanted = false;
@@ -1746,6 +1761,7 @@ fn source_name(source: &Source) -> &'static str {
         Source::Child { .. } => "child",
         Source::Spawn(_) => "subagents",
         Source::Note => "note",
+        Source::OwnerAction { .. } => "owner_action",
         Source::Resume { .. } => "resume",
     }
 }
@@ -1761,6 +1777,7 @@ fn item(queued: &Queued) -> Item {
             id,
             remote,
             requires_approval,
+            ..
         } => Item {
             seq: Some(*seq),
             images,
@@ -1796,8 +1813,16 @@ fn item(queued: &Queued) -> Item {
             images,
             ..Item::default()
         },
+        Source::OwnerAction { requires_approval } => Item {
+            images,
+            requires_approval: *requires_approval,
+            resume: true,
+            cut: vec![queued.text.clone()],
+            ..Item::default()
+        },
         Source::Note => Item {
             images,
+            note: true,
             ..Item::default()
         },
     }

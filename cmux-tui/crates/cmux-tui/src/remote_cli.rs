@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use crate::distribution::{DISTRIBUTION_VERSION, NPM_BOOTSTRAP_VERSION};
 use anyhow::{Context, anyhow};
 use base64::Engine;
 use cmux_build_identity::BUILD_IDENTITY;
@@ -33,7 +34,6 @@ use cmux_remote::provider::{
     WireGuardDialer, sanitized_route,
 };
 use cmux_remote::secure_directory::{DirectoryAccess, ensure_secure_directory};
-use cmux_remote::ssh_bootstrap::{DISTRIBUTION_VERSION, NPM_BOOTSTRAP_VERSION};
 use cmux_remote_protocol::{
     LanePolicy, REMOTE_PROTOCOL_VERSION, RoutePolicy, SessionId, WorkspaceRequest,
     WorkspaceResponse,
@@ -632,6 +632,19 @@ fn connect_with_flags(
                         _ = finished.changed() => {},
                         _ = tokio::time::sleep(Duration::from_millis(100)) => {},
                     }
+                }
+                // The session is gone for good (it outlived the daemon's
+                // resume lease): say so, typed, so the owner stops
+                // redialing it and offers a new session.
+                if connected.runtime.session_unavailable() {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "event": "session-unavailable",
+                            "local_socket": connected.runtime.info().local_socket.display().to_string(),
+                        })
+                    );
+                    io::stdout().flush()?;
                 }
                 Ok::<_, io::Error>(())
             })?;
@@ -2380,18 +2393,49 @@ fn run_remote_link(args: &[String]) -> anyhow::Result<()> {
     if let Some(root) = state_dir.as_deref() {
         crate::client_log::use_path(root.join("client.log"));
     }
-    let (session_state, default_link, _) = daemon_paths(&session, state_dir.as_deref())?;
-    let link = link_socket.unwrap_or(default_link);
     if let Some(providers) = agent_hooks {
         install_agent_hooks(agent_hook_providers(&providers));
     }
-    let stream = ensure_daemon(
-        &session,
-        state_dir.as_deref(),
-        &session_state,
-        &link,
-        mux_socket.as_deref(),
-    )?;
+    let link_at = |state_dir: Option<&Path>| -> anyhow::Result<UnixStream> {
+        let (session_state, default_link, _) = daemon_paths(&session, state_dir)?;
+        let link = link_socket.clone().unwrap_or(default_link);
+        ensure_daemon(&session, state_dir, &session_state, &link, mux_socket.as_deref())
+    };
+    // A link that names nothing of its own (no state directory, socket or
+    // mux socket) may keep its session in a private root when another
+    // daemon of this machine owns the session on the default root.
+    let private = (state_dir.is_none()
+        && mux_socket.is_none()
+        && link_socket.is_none()
+        && std::env::var_os("CMUX_MUX_SOCKET").is_none())
+    .then(private_link_root)
+    .flatten();
+    let stream = match (state_dir.as_deref(), private.as_deref()) {
+        (None, Some(private)) if remote_link_mux::mux_state_root(private).exists() => {
+            link_at(Some(private))?
+        }
+        (None, Some(private)) => match link_at(None) {
+            Err(error) if error.downcast_ref::<SessionInUse>().is_some() => {
+                eprintln!(
+                    "cmux-tui: another daemon on this machine owns session {session}; this link keeps it in {}",
+                    private.display()
+                );
+                if let Some(default_root) = cmux_tui_core::platform::workspace_state_dir()
+                    && let Err(error) =
+                        cmux_tui_core::session_state_import::decline_default_root_import(
+                            &default_root,
+                            &remote_link_mux::mux_state_root(private),
+                            &session,
+                        )
+                {
+                    eprintln!("cmux-tui: could not keep the private session empty: {error:#}");
+                }
+                link_at(Some(private))?
+            }
+            other => other?,
+        },
+        (state_dir, _) => link_at(state_dir)?,
+    };
     let runtime = tokio_runtime()?;
     let result = runtime.block_on(proxy_stdio(stream));
     // Tokio reads stdin on a blocking thread that cannot be cancelled: when
@@ -2818,11 +2862,16 @@ fn wait_for_detached_socket(
         }
         match child.try_wait() {
             Ok(Some(status)) => {
-                return Err(anyhow!(
+                let cause = exit_cause(log_path);
+                let message = format!(
                     "{process_name} exited {status}{}; inspect {}",
-                    exit_cause(log_path).map(|cause| format!(": {cause}")).unwrap_or_default(),
+                    cause.as_deref().map(|cause| format!(": {cause}")).unwrap_or_default(),
                     log_path.display()
-                ));
+                );
+                if cause.is_some_and(|cause| cause.contains(SESSION_IN_USE)) {
+                    return Err(SessionInUse(message).into());
+                }
+                return Err(anyhow!(message));
             }
             Ok(None) => {}
             Err(error) => {
@@ -2849,6 +2898,30 @@ fn wait_for_detached_socket(
     }
 }
 
+/// What `exit_cause` says of a session another daemon owns.
+const SESSION_IN_USE: &str = "in use by another cmux daemon";
+
+/// A mux owner exited because another daemon of the machine owns its
+/// session: `remote-link` may keep the session in a private root instead.
+#[derive(Debug)]
+struct SessionInUse(String);
+
+impl std::fmt::Display for SessionInUse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for SessionInUse {}
+
+/// The state root a link keeps its session in when another daemon (a Chief
+/// brain on the default root, `cmux-tui --headless --socket <its own>`)
+/// owns the session there: `<remote state>/private`. Once it holds a
+/// registry, later links use it first, so the workspaces stay put.
+fn private_link_root() -> Option<PathBuf> {
+    default_state_dir().map(|root| root.join("private"))
+}
+
 /// The bytes of a detached process's log read for its exit cause: enough for
 /// its last lines, never the whole log a long-lived session has grown.
 const EXIT_CAUSE_TAIL_BYTES: u64 = 4096;
@@ -2869,7 +2942,7 @@ fn exit_cause(log_path: &Path) -> Option<String> {
     let line = line.strip_prefix("cmux-tui: ").unwrap_or(line);
     if line.contains("workspace session is already owned by another daemon") {
         return Some(format!(
-            "this session on the machine is in use by another cmux daemon ({line}); connect with another session name (--session NAME)"
+            "this session on the machine is {SESSION_IN_USE} ({line}); connect with another session name (--session NAME)"
         ));
     }
     Some(line.to_owned())

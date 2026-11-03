@@ -7,7 +7,22 @@ public enum CloudStrings {
         String(localized: "cloud.unavailable.localBackend", defaultValue: "This build has no Cloud backend. Rebuild it with ./scripts/reload.sh --tag <tag> --direct-backend.", table: "Cloud", bundle: .module)
     }
     public static var noClient: String { String(localized: "cloud.unavailable.noClient", defaultValue: "The bundled cmux-tui client is missing, so Cloud machines cannot connect. Reinstall cmux from cmux.com/download, or rebuild a local build with cmux-tui bundled.", table: "Cloud", bundle: .module) }
+    /// The name a new Cloud machine gets when the person typed none (``CloudMachine/defaultName(taken:base:numbered:)``),
+    /// so the sidebar and menus never title it by its raw id.
+    nonisolated public static var defaultMachineName: String { String(localized: "cloud.machine.defaultName", defaultValue: "Cloud Machine", table: "Cloud", bundle: .module) }
+    /// The default name when ``defaultMachineName`` is taken: "Cloud Machine 2".
+    nonisolated public static func defaultMachineName(numbered number: Int) -> String {
+        String(format: String(localized: "cloud.machine.defaultNameNumbered", defaultValue: "Cloud Machine %lld", table: "Cloud", bundle: .module), number)
+    }
     nonisolated public static var signInFirst: String { String(localized: "cloud.failed.signInFirst", defaultValue: "Sign in to use Cloud machines: run Sign In from the command palette, or `cmux cloud sign-in`.", table: "Cloud", bundle: .module) }
+    /// The Cloud toggle (#26062) is on, but this New Workspace opened on this Mac; `reason` says why.
+    public static func newWorkspaceOpenedHere(_ reason: String) -> String {
+        String(format: String(localized: "cloud.newWorkspace.openedHere", defaultValue: "This workspace opened on this Mac, not in Cloud. %@", table: "Cloud", bundle: .module), reason)
+    }
+    /// Why: no window was open to show a new Cloud machine's progress (Cmd-N with every window closed).
+    public static var newWorkspaceNoWindow: String { String(localized: "cloud.newWorkspace.noWindow", defaultValue: "New workspaces start in Cloud from an open window, where the new machine's progress shows.", table: "Cloud", bundle: .module) }
+    /// Under a signed-out Cloud action in the command palette and context menus: running it signs in first, then the action runs.
+    nonisolated public static var signInToContinue: String { String(localized: "cloud.signIn.toContinue", defaultValue: "Sign in to use Cloud machines: choose it to sign in, then it runs.", table: "Cloud", bundle: .module) }
     public static var noMachine: String { String(localized: "cloud.failed.noMachine", defaultValue: "No Cloud machine is selected. Right-click a machine or pass --target machine:<id>; `cmux cloud list-machines` lists ids.", table: "Cloud", bundle: .module) }
     /// Why a Cloud machine needs an update, for its sidebar header and the
     /// Cloud diagnostics: the build it runs and what an update turns on.
@@ -65,7 +80,7 @@ public enum CloudStrings {
         switch reason {
         case .freePlan, .server:
             String(localized: "cloud.upgrade.detail.free", defaultValue: "Your plan has no Cloud machines. The Go is $10 a month and includes machines; Pro is $50 a month.", table: "Cloud", bundle: .module)
-        case .atLimit:
+        case .atLimit, .pool:
             String(localized: "cloud.upgrade.detail.limit", defaultValue: "All the running Cloud machines your plan allows are in use. Upgrade (Pro is $50 a month) or delete one.", table: "Cloud", bundle: .module)
         }
     }
@@ -132,6 +147,11 @@ public enum CloudStrings {
     public static var deleteFirewallRuleBody: String { String(localized: "cloud.prompt.deleteFirewallRuleBody", defaultValue: "This permanently removes the selected firewall rule.", table: "Cloud", bundle: .module) }
     public static var deleteFirewallRule: String { String(localized: "cloud.button.deleteFirewallRule", defaultValue: "Delete", table: "Cloud", bundle: .module) }
 
+    /// `cloud resize-machine` with neither `--size` nor `--disk`, or a `--disk` that is not a positive whole number.
+    public static func resizeNeedsSizeOrDisk(_ sizes: String) -> String {
+        String(format: String(localized: "cloud.failed.resizeNeedsSizeOrDisk", defaultValue: "Pass --size (%@), --disk with a whole number of GiB (4 GiB steps, up to 256, grow-only), or both.", table: "Cloud", bundle: .module), sizes)
+    }
+
     public static func sizeMustBeOneOf(_ list: String) -> String {
         String(format: String(localized: "cloud.failed.sizeMustBeOneOf", defaultValue: "Size must be one of: %@.", table: "Cloud", bundle: .module), list)
     }
@@ -149,4 +169,6 @@ public enum CloudStrings {
 public nonisolated enum CloudUpgradeReason: Equatable, Sendable {
     case freePlan, server
     case atLimit(Int)
+    /// The classic link's 402 for the plan's shared vCPU and memory pool, which counts only running machines.
+    case pool
 }

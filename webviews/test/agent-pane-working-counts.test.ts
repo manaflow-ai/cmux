@@ -14,6 +14,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { openRunningTray } from "./support/openRunningTray";
 
 await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -237,6 +238,8 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
     const page = await open(BUSY, 900, true);
     const tray = page.locator(".acpmux-running-tray");
     await tray.waitFor({ timeout: 5_000 });
+    // It starts folded to its header (cmux#28875); the person opens it.
+    await openRunningTray(page);
     // What runs is listed first; the Linter that ended stays as a finished card under it
     // (49acdd1d589d keeps finished cards mounted in the tray).
     const lines = await tray
@@ -255,14 +258,22 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
         const box = await line(page).evaluate((node) => {
           const label = node.querySelector(".cv-thinking")!.getBoundingClientRect();
           const row = node.getBoundingClientRect();
-          const style = getComputedStyle(node);
-          const px = (name: string) => parseFloat(style.getPropertyValue(name));
+          // The tokens are var() chains, so resolve each through a probe's height.
+          const px = (name: string) => {
+            const probe = document.createElement("div");
+            probe.style.height = `var(${name})`;
+            node.append(probe);
+            const value = probe.getBoundingClientRect().height;
+            probe.remove();
+            return value;
+          };
           return {
             height: row.height,
             labelLeft: label.left - row.left,
             labelHeight: label.height,
-            // The line's box is one meta row plus the turn gap it reserves under it (625f2e3d1b32).
-            oneLine: px("--cv-meta-row") + px("--cv-turn-gap"),
+            // The line's box is the reply footer's slot, so the end-of-turn swap moves nothing
+            // (#31690, transcriptGrid.ts MARK_FOOTER_SLOT).
+            oneLine: px("--cv-footer-row"),
           };
         });
         await page.close();
@@ -270,8 +281,8 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
       };
       const busyBox = await measure(BUSY);
       expect(busyBox).toEqual(await measure(QUIET));
-      // One 20px line, even in a narrow pane: the line's box holds one line and the turn gap it
-      // reserves below it (fec3ac0e5125, 625f2e3d1b32); a second line would grow it by 20px.
+      // One 20px line, even in a narrow pane: the line's box is the footer slot (fec3ac0e5125,
+      // #31690); a second line would grow it by 20px.
       expect(busyBox.height).toBe(busyBox.oneLine);
       expect(busyBox.labelHeight).toBe(20);
     }

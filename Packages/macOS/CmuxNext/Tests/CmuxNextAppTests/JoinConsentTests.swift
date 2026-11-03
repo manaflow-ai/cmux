@@ -484,13 +484,14 @@ import Testing
             markAskShown: base.markAskShown))
         let ticket = SessionTicket(sessionId: "s1", ticket: "a.b.c", signalURL: URL(string: "wss://hub.invalid/v1/sessions/s1/ws")!,
                                    ice: [], peer: .init(id: "v1", name: "Studio", signingKey: "key"), role: .host, scope: .view)
+        var fixture = false
+        model.fixtureActive = { fixture }
         #expect(await model.macScreenGate(ticket), "an unjoined Mac serves as before")
-        defer { DebugJoinConsent.status = nil }
         // A fixture set while the ticket's read runs.
         held = true
         let pending = Task { await model.macScreenGate(ticket) }
         for _ in 0..<1000 where reads < 2 { await Task.yield() }
-        DebugJoinConsent.status = JoinStatus(credentialPresent: false)
+        fixture = true
         read.open()
         #expect(!(await pending.value))
         // And one set before.
@@ -790,7 +791,7 @@ import Testing
             cgEvent.setIntegerValueField(.eventSourceStateID, value: Int64(state.rawValue))
             return try #require(NSEvent(cgEvent: cgEvent))
         }
-        let check = PersonInputCheck()
+        let check = PersonInputCheck(sources: EventSourceProcesses())
         #expect(check.isPerson(try event(0, .hidSystemState)), "the HID system's")
         #expect(!check.isPerson(try event(0, .privateState)), "a private source, pid 0")
         #expect(!check.isPerson(try event(0, .combinedSessionState)), "a combined-session source, pid 0")
@@ -1096,7 +1097,7 @@ import Testing
         let page = SettingsPageProvider(settings: settings)
         let sets = Recorder()
         page.setJoinConsent = { surface, on in sets.values.append("\(surface) \(on)"); return nil }
-        let ledger = PersonInputLedger()
+        let ledger = PersonInputLedger(sources: EventSourceProcesses())
         page.personBacksGesture = { ledger.backs($0) }
         let poster = Process()
         poster.executableURL = URL(fileURLWithPath: "/bin/sleep")

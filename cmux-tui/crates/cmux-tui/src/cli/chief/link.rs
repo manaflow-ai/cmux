@@ -352,13 +352,32 @@ fn read_line(reader: &mut BufReader<Box<dyn Stream>>) -> io::Result<Option<Value
 /// The Chief conversation by the rule Home and the brain share: the oldest
 /// conversation with `agent_mux`, by `created_at`, then id.
 pub(super) fn select_chief(conversations: &[Value]) -> Option<&Value> {
+    select_chief_of(conversations, AGENT_MUX)
+}
+
+/// Chief `chief`'s own conversation by the brain's rule (optchat-chief
+/// `daemon::select_chief_of`): for agent_mux the oldest with it; for another
+/// Chief its oldest DM with the person (the person, their paired devices and
+/// the Chief only), never a group it is in.
+pub(super) fn select_chief_of<'a>(conversations: &'a [Value], chief: &str) -> Option<&'a Value> {
     let text = |c: &Value, key: &str| c.get(key).and_then(Value::as_str).unwrap_or("").to_owned();
+    let id = |p: &Value| p.get("id").and_then(Value::as_str).map(str::to_owned);
+    let person = |p: &Value| {
+        id(p).as_deref() == Some("user_local")
+            || p.get("person").and_then(Value::as_str) == Some("user_local")
+    };
     conversations
         .iter()
         .filter(|c| {
-            c.get("participants").and_then(Value::as_array).is_some_and(|ps| {
-                ps.iter().any(|p| p.get("id").and_then(Value::as_str) == Some(AGENT_MUX))
-            })
+            let ps = c.get("participants").and_then(Value::as_array);
+            let ps: &[Value] = ps.map_or(&[], Vec::as_slice);
+            let has = |who: &str| ps.iter().any(|p| id(p).as_deref() == Some(who));
+            if chief == AGENT_MUX {
+                return has(chief);
+            }
+            has(chief)
+                && has("user_local")
+                && ps.iter().all(|p| id(p).as_deref() == Some(chief) || person(p))
         })
         .min_by_key(|c| (text(c, "created_at"), text(c, "id")))
 }

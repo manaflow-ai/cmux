@@ -1,4 +1,5 @@
 import CmuxNextBridge
+import CmuxNextFocus
 import Foundation
 
 /// Checks one terminal attach machine's reductions against the attach

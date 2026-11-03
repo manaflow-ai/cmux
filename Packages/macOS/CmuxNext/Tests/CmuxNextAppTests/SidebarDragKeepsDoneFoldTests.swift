@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Leo 2026-10-21 (ask-13d9bbd5e3): "have we fixed this dragging workspace sidebar things hiding random groups? and
@@ -8,7 +9,7 @@ import Testing
 /// every "Done (N)" row (#23633): at the lift the Done rows vanished, every Done workspace showed in its place and the
 /// rows below moved down, then the drop folded them again and the rows moved back. A drag keeps the folds: the only
 /// row that leaves its place is the dragged one, and the drop shows the order the drag showed.
-@MainActor @Suite(.serialized) struct SidebarDragKeepsDoneFoldTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarDragKeepsDoneFoldTests {
     static let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
     static let section = SectionID.machine(.local)
     static let group = GroupID("g")
@@ -147,13 +148,12 @@ import Testing
     }
 
     /// A loose `x`, then an open group `g` with `members` and nothing after it, laid out with the Done rows folded.
-    static func groupAtEnd(_ members: [SidebarWorkspace], tabs: Bool = false, open: Bool = false) -> ([SidebarSection], SidebarLayout) {
+    static func groupAtEnd(_ members: [SidebarWorkspace], open: Bool = false) -> ([SidebarSection], SidebarLayout) {
         let sections = [SidebarSection(kind: .machine(machine), nodes: [
             .workspace(ws("x")), .group(SidebarGroup(id: group, name: "G", color: .green, workspaces: members)),
         ])]
         var o = SidebarLayoutOptions()
         o.foldsDone = true
-        o.showWorkspaceTabs = tabs
         if open { o.openDoneFolds = [SidebarDoneFoldID(section: section, group: group)] }
         return (sections, SidebarLayout.make(sections: sections, metrics: .standard, options: o))
     }
@@ -164,7 +164,7 @@ import Testing
     }
 
     /// The older resolver reads a group that a Done row ends as it would with no fold: the bottom of its last drawn
-    /// member, of that member's tab rows, of the Done row and of the space below leaves the group (Codex review).
+    /// member, of the Done row and of the space below leaves the group (Codex review).
     @Test func aDropBelowAGroupThatADoneRowEndsLeavesTheGroup() throws {
         let after = DropTarget.position(DropPosition(section: Self.section, group: nil, index: 2))
         let fold = SidebarRowKey.doneFold(SidebarDoneFoldID(section: Self.section, group: Self.group))
@@ -176,27 +176,16 @@ import Testing
         // The drawn member's upper half still drops before it, in the group.
         let g2 = try #require(layout.row(for: .workspace(WorkspaceID("g2"))))
         #expect(Self.resolve(g2.y + 2, sections, layout) == .position(DropPosition(section: Self.section, group: Self.group, index: 0)))
-        // The last drawn member lists its tabs: the tab rows are part of it, so below them leaves the group too.
-        var tabbed = Self.ws("g2")
-        tabbed.tabs = [SidebarTab(id: TabID("t1"), title: "t1"), SidebarTab(id: TabID("t2"), title: "t2")]
-        (sections, layout) = Self.groupAtEnd([tabbed, Self.ws("d", done: true)], tabs: true)
-        try #require(layout.row(for: .tab(WorkspaceID("g2"), TabID("t2"))) != nil, "the layout lists no tab rows")
-        done = try #require(layout.row(for: fold))
-        #expect(Self.resolve(done.maxY - 1, sections, layout) == after, "over the Done row under tab rows")
         // Every member is Done: the header alone stands for the group, so its bottom and below leave it.
         (sections, layout) = Self.groupAtEnd([Self.ws("d1", done: true), Self.ws("d2", done: true)])
         done = try #require(layout.row(for: fold))
         #expect(Self.resolve(done.maxY - 1, sections, layout) == after, "over an all-Done group's Done row")
-        // The fold open: its Done workspace, drawn last with its tab rows, ends the group, so below them leaves it.
-        var tabbedDone = Self.ws("d", done: true)
-        tabbedDone.tabs = [SidebarTab(id: TabID("t1"), title: "t1"), SidebarTab(id: TabID("t2"), title: "t2")]
-        (sections, layout) = Self.groupAtEnd([Self.ws("g1"), tabbedDone, Self.ws("g2")], tabs: true, open: true)
+        // The fold open: its Done workspace, drawn last, ends the group, so below it leaves the group.
+        (sections, layout) = Self.groupAtEnd([Self.ws("g1"), Self.ws("d", done: true), Self.ws("g2")], open: true)
         let keys = layout.rows.map(\.key).filter { if case .section = $0 { false } else { true } }
-        try #require(keys.suffix(4) == [fold, .workspace(WorkspaceID("d")), .tab(WorkspaceID("d"), TabID("t1")), .tab(WorkspaceID("d"), TabID("t2"))],
-                     "drawn: \(keys)")
-        let t2 = try #require(layout.row(for: .tab(WorkspaceID("d"), TabID("t2"))))
-        #expect(Self.resolve(t2.maxY - 1, sections, layout) == after, "over the open fold's last tab row: \(String(describing: Self.resolve(t2.maxY - 1, sections, layout)))")
-        #expect(Self.resolve(t2.maxY + 40, sections, layout) == after, "below the open fold's group")
+        try #require(keys.suffix(2) == [fold, .workspace(WorkspaceID("d"))], "drawn: \(keys)")
+        let d = try #require(layout.row(for: .workspace(WorkspaceID("d"))))
+        #expect(Self.resolve(d.maxY + 40, sections, layout) == after, "below the open fold's group")
     }
 
     @Test func anExternalTabDragKeepsItsUnfoldedResolverGeometry() throws {
@@ -204,23 +193,6 @@ import Testing
         defer { window.close() }
         list.external = SidebarListView.ExternalDrag(windowPoint: .zero, sourceMachine: .local)
         #expect(!list.options(includeGap: false).foldsDone)
-    }
-
-    /// External tab drags keep each visible tab as a target even when its group ends in a Done fold.
-    @Test func aTabDragKeepsVisibleTargetsBeforeADoneFold() throws {
-        for open in [false, true] {
-            var member = Self.ws("g2", done: open)
-            member.tabs = [SidebarTab(id: TabID("t1"), title: "t1"), SidebarTab(id: TabID("t2"), title: "t2")]
-            let members = open ? [Self.ws("g1"), member] : [member, Self.ws("d", done: true)]
-            let (sections, layout) = Self.groupAtEnd(members, tabs: true, open: open)
-            for tab in [TabID("t1"), TabID("t2")] {
-                let row = try #require(layout.row(for: .tab(member.id, tab)))
-                #expect(DropResolver.resolveTabDrop(y: row.y + 1, base: layout, sections: sections,
-                                                    sourceMachine: .local, reordersTabRows: true) == .beforeTab(member.id, tab))
-                #expect(DropResolver.resolveTabDrop(y: row.y + row.height / 2, base: layout, sections: sections,
-                                                    sourceMachine: .local, reordersTabRows: true) == .intoWorkspace(member.id))
-            }
-        }
     }
 
     /// Codex review: a group's drag slides its "Done (N)" row with it: the row is part of the lifted group (one level

@@ -131,7 +131,7 @@ public final class LayoutRootView: NSView {
     public var holdsTerminalGrids: Bool { !context.gridHoldScreens.isEmpty }
 
     /// Everything the view reads from the model, observed as one value.
-    private struct Snapshot: Equatable, Sendable {
+    struct Snapshot: Equatable, Sendable {
         var screens: [LayoutScreen]
         var activeScreen: ScreenID?
         var focused: PaneID?
@@ -168,6 +168,7 @@ public final class LayoutRootView: NSView {
         layer?.masksToBounds = true
         context.requestFrames = { [weak self] in self?.driver.start() }
         driver.onFrame = { [weak self] dt in self?.advanceFrame(dt) ?? false }
+        driver.onSettle = { [weak self] in self?.landMotion() }
         context.overlayNeedsSync = { [weak self] in self?.setNeedsOverlaySync() }
         context.userMotionStepped = { [weak self] in self?.setLayoutInMotion(true) }
         context.userMotionEnded = { [weak self] in
@@ -175,17 +176,13 @@ public final class LayoutRootView: NSView {
             self.setLayoutInMotion(false)
         }
         context.gridHoldDidChange = { [weak self] held in self?.onTerminalGridHold?(held) }
-        context.stripClipsDidChange = { [weak self] in
-            guard let self else { return }
-            planeHost?.paneShapesDidChange(overlayPlane)
-        }
         highlight.needsFrame = { [weak self] in self?.driver.start() }
         overlayPlane.addSubview(highlight)
         addSubview(overlayPlane)
         registerForDraggedTypes([LayoutTabDrag.pasteboardType, .URL])
         sync(snapshot())
         observe()
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         ScreenContentView.registerMotionSampler()
         #endif
     }
@@ -252,6 +249,42 @@ public final class LayoutRootView: NSView {
         return view.navigationFrames
     }
 
+    /// ``navigationFrames`` of the screen that holds `pane`, active or not: a hidden screen view keeps
+    /// its geometry at the root's size, so what opens beside a pane on a screen the person switched
+    /// away from reads that screen's layout (RightColumn).
+    public func navigationFrames(ofScreenContaining pane: PaneID) -> [PaneID: CGRect] {
+        guard let screen = model.screen(containing: pane), let view = screenViews[screen.id] else { return [:] }
+        return view.navigationFrames
+    }
+
+    /// The split ratios and column widths `pane`'s screen can show (``ShownResizeRange``), from the geometry its springs
+    /// head for; nil for a screen not sized yet. A keyboard resize steps inside them (RESIZE KEYS K1).
+    public func shownResizeRange(ofScreenContaining pane: PaneID) -> ShownResizeRange? {
+        guard let screen = model.screen(containing: pane), let view = screenViews[screen.id], view.bounds.width > 0 else { return nil }
+        return ShownResizeRange(geometry: view.baseGeometry, style: context.style, scale: view.reconciledScale ?? view.scale)
+    }
+
+    /// A keyboard resize press (`resizePane*`) is about to move `pane`'s screen: until that spring lands, every pane of
+    /// the screen keeps its content at its size and lays it out once at the landing (RESIZE KEYS K3).
+    public func keyboardResizeWillChange(screenContaining pane: PaneID) {
+        guard let screen = model.screen(containing: pane), let view = screenViews[screen.id], !view.isHidden else { return }
+        view.holdsContentForKeyResize = true
+    }
+
+    /// The width `pane`'s content rests at in the layout this view shows: its frame in the geometry its
+    /// screen's springs head for (the same geometry ``navigationFrames(ofScreenContaining:)`` reads),
+    /// less the pane padding. A split's or a close's panes read their final widths from the turn the
+    /// layout changes, not what a running spring shows: the source of a split keeps its old width until
+    /// the spring lands, and the new pane starts as a zero-width sliver (review of #29787 at 29861047).
+    /// No layout pass: the geometry is computed when the layout syncs. Nil for a pane no screen view
+    /// lays out, or one not sized yet.
+    public func restingContentWidth(of pane: PaneID) -> CGFloat? {
+        guard let screen = model.screen(containing: pane), let view = screenViews[screen.id], view.bounds.width > 0,
+              let cell = view.baseGeometry.panes[pane] else { return nil }
+        let width = PaneChromeGeometry.contentRect(forCell: CGRect(origin: .zero, size: cell.size), style: context.style).width
+        return width > 0 ? width : nil
+    }
+
     /// Displayed frame of `pane` in this view's coordinates (active screen only).
     public func frame(of pane: PaneID) -> CGRect? {
         guard let active = model.activeScreenID, let view = screenViews[active], let rect = view.displayedFrame(of: pane) else { return nil }
@@ -315,7 +348,8 @@ public final class LayoutRootView: NSView {
 
     var canAnimate: Bool { window != nil && driver.isAttached && !context.reduceMotion }
 
-    private func sync(_ snapshot: Snapshot) {
+    /// ``sync(_:)``'s body (`LayoutRootView+AvoiderBatch`).
+    func syncBatched(_ snapshot: Snapshot) {
         let previous = lastSnapshot
         lastSnapshot = snapshot
         // Chrome (focus ring, dim) fades whenever motion is allowed; pane frames, the strip's
@@ -459,15 +493,34 @@ public final class LayoutRootView: NSView {
         // Pane padding or corners changed: pages drawn as child windows
         // re-read their clip shape (their frames may not have moved).
         if let previous, previous.style != snapshot.style { planeHost?.paneShapesDidChange(overlayPlane) }
-        if needsFrames || snapshot.gestureActive { driver.start() }
+        if needsFrames { driver.start() }
+        // A divider drag moves panes in this sync with no frame tick after it: what follows the panes once per placed
+        // frame (shortcut hint chips) hears it here, as it would from the tick.
+        else if snapshot.gestureActive { onFramePlaced?() }
         // A change that starts springs (a split, a close) is in motion from the frame it lands in.
         if needsFrames && driver.isRunning { setLayoutInMotion(true) }
     }
 
     // MARK: Frames
 
-    func advanceFrame(_ dt: Double) -> Bool {
+    /// The final layout now, in one pass: Reduce Motion turned on mid-flight, or the window went out
+    /// of sight (`DisplayLinkDriver.motionSettle`).
+    func landMotion() {
         defer { onFramePlaced?() }
+        for view in screenViews.values {
+            if view.hasMotion || view.resizeGesture == .landing { view.settleMotion() }
+            view.settleCanvasCamera()
+        }
+        for id in Array(screenFrames.keys) { screenFrames[id]?.snap() }
+        applyScreenFrames()
+        highlight.settle()
+        updateVisibility()
+        flushOverlaySync()
+        setLayoutInMotion(false)
+    }
+
+    /// ``advanceFrame(_:)``'s body (`LayoutRootView+AvoiderBatch`).
+    func advanceFrameBatched(_ dt: Double) -> Bool {
         // A released resize drag whose layout the observation has not applied yet: apply it before this
         // frame, so the frame that ends the drag for the pane contents is the release's (`ScreenContentView+ResizeGesture`).
         if !model.isGestureActive, screenViews.values.contains(where: { $0.resizeGesture == .releasing }) {
@@ -477,14 +530,10 @@ public final class LayoutRootView: NSView {
         }
         // Reduce Motion (or the no-animation switch) turned on mid-flight: the final layout now, no more frames.
         if context.reduceMotion {
-            for view in screenViews.values where view.hasMotion || view.resizeGesture == .landing { view.settleMotion() }
-            for id in Array(screenFrames.keys) { screenFrames[id]?.snap() }
-            applyScreenFrames()
-            updateVisibility()
-            flushOverlaySync()
-            setLayoutInMotion(false)
+            landMotion()
             return false
         }
+        defer { onFramePlaced?() }
         // One motion policy per frame (it reads the animation settings), not one per spring.
         let policy = Motion.panes.policy
         var moving = false, panning = false
@@ -540,8 +589,14 @@ public final class LayoutRootView: NSView {
         reportedKeepAlive = keepAlive
         model.reportVisiblePanes(visible, keepAlive: keepAlive)
         // Losses first, so content leaving the band frees room before new
-        // content attaches.
-        for (pane, presence) in changes.sorted(by: { $0.1.rank < $1.1.rank }) {
+        // content attaches. Among the panes of one kind of change, the focused pane goes first, then
+        // layout order: the app makes one new surface per frame in this order, and the pane the
+        // person types into must not wait behind the others (REOPEN-F4: in a Set's hash order, the
+        // first key after a reopen was lost in 10 of 15 cycles).
+        let focused = model.focusedPane
+        let order = Dictionary((model.activeScreen?.layout.panes ?? []).enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        func place(_ pane: PaneID) -> (Int, Int, String) { (pane == focused ? 0 : 1, order[pane] ?? .max, pane.rawValue) }
+        for (pane, presence) in changes.sorted(by: { $0.1.rank != $1.1.rank ? $0.1.rank < $1.1.rank : place($0.0) < place($1.0) }) {
             context.provider?.panePresenceDidChange(pane, presence: presence)
         }
     }
@@ -560,9 +615,11 @@ public final class LayoutRootView: NSView {
         for (id, view) in screenViews {
             if view.frame.size != bounds.size { view.setFrameSize(bounds.size) }
             if var frame = screenFrames[id] {
-                let target = id == model.activeScreenID ? bounds : bounds.offsetBy(dx: 0, dy: 0)
-                frame.setTarget(target)
-                frame.x.snap(); frame.y.snap(); frame.width.snap(); frame.height.snap()
+                // Only the size follows the root at once. A screen switch in flight (its x and alpha springs)
+                // goes on from where it shows: snapping x and y here ended the slide in whatever frame a layout
+                // pass came, both screens jumping to the middle (`switchScreens` sets the slide's targets).
+                frame.width.snap(to: bounds.width)
+                frame.height.snap(to: bounds.height)
                 screenFrames[id] = frame
             }
         }

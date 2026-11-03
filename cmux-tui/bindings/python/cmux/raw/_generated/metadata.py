@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '98c4043022f88fb5841f377edc178aa568c70700c97ca18735403806195acaf3'
+IR_SHA256 = '7c39669d1126b40e5f9e8759eee6ec5ee6eec5da05b4c5a793d8cb16c32dc31b'
 
 
 @dataclass(frozen=True)
@@ -673,6 +673,20 @@ COMMANDS = {
         None,
         {
             'conversation': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-environment': CommandMetadata(
+        'cloud-environment',
+        'local-admin',
+        12,
+        'cloud-environments-v1',
+        ('local-admin',),
+        None,
+        {
+            'access_token': CommandFieldMetadata(None, None),
+            'action': CommandFieldMetadata(None, None),
+            'params': CommandFieldMetadata(None, None),
+            'platform_origin': CommandFieldMetadata(None, None),
         },
     ),
     'cloud-host-replica-clear': CommandMetadata(
@@ -2269,6 +2283,7 @@ COMMANDS = {
             'pane': CommandFieldMetadata(None, None),
             'profile_id': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'split': CommandFieldMetadata(None, 'frontend-browser-tab-split-v1'),
             'title': CommandFieldMetadata(None, None),
             'url': CommandFieldMetadata(None, None),
         },
@@ -3007,6 +3022,18 @@ COMMANDS = {
         None,
         {
             'include': CommandFieldMetadata(None, None),
+        },
+    ),
+    'set-attach-visibility': CommandMetadata(
+        'set-attach-visibility',
+        'frontend',
+        12,
+        'attach-visibility-v1',
+        ('frontend',),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
+            'visible': CommandFieldMetadata(None, None),
         },
     ),
     'set-cell-pixels': CommandMetadata(

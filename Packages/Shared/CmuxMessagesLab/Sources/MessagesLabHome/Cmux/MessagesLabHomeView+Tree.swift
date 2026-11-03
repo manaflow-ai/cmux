@@ -29,8 +29,6 @@ extension MessagesLabHomeView {
         for y in stride(from: bubble.body.maxY, to: min(b.maxY, bubble.body.maxY + 240), by: 3) {
             for x in stride(from: b.minX, to: b.maxX, by: 8) {
                 let p = CGPoint(x: x, y: y)
-                // hostControl runs the header's actions (a rename popover, a modal assign menu): never probe there.
-                if demo.threadHeaderFrame?.contains(p) == true { continue }
                 guard case let .dispatch(.openThreadPath(path))? = demo.hostControl(at: p), path.last?.messageId == target else { continue }
                 controller.clicked(p)
                 return debugOpenThreadPath

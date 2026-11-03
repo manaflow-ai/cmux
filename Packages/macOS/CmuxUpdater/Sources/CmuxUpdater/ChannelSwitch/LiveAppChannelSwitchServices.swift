@@ -141,6 +141,44 @@ public struct HdiutilDiskImageMounter: DiskImageMounting {
     }
 }
 
+/// ``DiskImageMounting`` for a zip (cmux NEXT DEV's archive): `attach` extracts it with
+/// `ditto` into a folder beside it, which keeps symlinks and the code signature intact, and
+/// `detach` removes that folder.
+public struct DittoZipArchiveOpener: DiskImageMounting {
+    /// Why extracting failed.
+    public struct ExtractError: Error, Equatable, Sendable {
+        /// `ditto`'s exit status.
+        public let status: Int32
+    }
+
+    /// Creates an opener.
+    public init() {}
+
+    public func attach(_ image: URL) async throws -> URL {
+        let folder = image.deletingPathExtension().appendingPathExtension("contents")
+        let status = try await Task.detached(priority: .userInitiated) { () throws -> Int32 in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+            process.arguments = ["-x", "-k", image.path, folder.path]
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            process.standardInput = FileHandle.nullDevice
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus
+        }.value
+        guard status == 0 else {
+            try? FileManager.default.removeItem(at: folder)
+            throw ExtractError(status: status)
+        }
+        return folder
+    }
+
+    public func detach(_ mountPoint: URL) async {
+        try? FileManager.default.removeItem(at: mountPoint)
+    }
+}
+
 /// ``AppChannelDownloading`` backed by a `URLSession` download task.
 public struct URLSessionAppChannelDownloader: AppChannelDownloading {
     /// The server answered with a non-success HTTP status.

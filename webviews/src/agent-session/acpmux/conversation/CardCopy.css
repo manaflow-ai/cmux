@@ -32,7 +32,7 @@
   height: var(--cv-context-copy);
   padding: 0 var(--ds-space-1);
   border-radius: 6px;
-  cursor: pointer;
+  cursor: default;
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
 }

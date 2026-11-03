@@ -370,29 +370,38 @@ func within<T: Sendable>(_ limit: Duration, _ work: @escaping @Sendable () async
     }
 }
 
-/// How long a wait may take before it gives up: a watchdog against a hang, not a
-/// time the work is expected to take. In the full target a synchronous UIKit suite
-/// held the main thread 11.6 s on a cold simulator, and work waited on here (main-actor
-/// tasks) waits behind such a hold however fast it is, so a short limit failed tests
-/// that had nothing wrong with them.
+/// How long a wait may run before it gives up: a watchdog against a hang, not a
+/// time the work is expected to take. It counts only time the wait could run: in
+/// the full kit the main thread was held over a minute, every main-actor Chief test
+/// ran about 85 s instead of 7, and waits that woke past a wall-clock deadline gave up on
+/// their first look, before the work they waited on (held just as long) got its turn.
 let waitWatchdog: Duration = .seconds(60)
 
-/// Whether `condition` came to hold before `watchdog` passed or the task was cancelled.
-/// It waits on the condition's own state rather than on time: it wakes when observable
-/// state the condition read changes (Observation), and checks again every `tick` for
-/// state that isn't observable, such as a test double's log of requests.
+/// A wall-clock stop for a wait whose main thread stays busy but keeps coming back to
+/// it, whatever watchdog the wait asked for: only a backstop. A main thread blocked
+/// for good stops the wait too; the suite's time limit ends that.
+let waitBackstop: Duration = .seconds(600)
+
+/// Whether `condition` came to hold within `watchdog` of the wait's own running time,
+/// before the task was cancelled. It waits on the condition's own state rather than on
+/// time: it wakes when observable state the condition read changes (Observation), and
+/// checks again every `tick` for state that isn't observable, such as a test double's
+/// log of requests. A wake that comes late because the main thread was held counts only
+/// the time it asked for, so a hold never uses up the wait.
 @MainActor func eventually(watchdog: Duration = waitWatchdog, tick: Duration = .milliseconds(20),
                            _ condition: @MainActor () -> Bool) async -> Bool {
-    let deadline = ContinuousClock.now.advanced(by: watchdog)
+    let backstop = ContinuousClock.now.advanced(by: waitBackstop)
+    var left = watchdog
     while true {
         let wake = Wake()
         let met = withObservationTracking { condition() } onChange: {
             Task { @MainActor in wake.fire() }
         }
         if met { return true }
-        if Task.isCancelled || ContinuousClock.now >= deadline { return false }
-        // Never past the deadline, however long the tick.
-        let nap = min(tick, deadline - ContinuousClock.now)
+        if Task.isCancelled || left <= .zero || ContinuousClock.now >= backstop { return false }
+        // Never past what is left, however long the tick.
+        let nap = min(max(tick, .milliseconds(1)), left)
+        let start = ContinuousClock.now
         let ticker = Task { @MainActor in
             try? await Task.sleep(for: nap)
             wake.fire()
@@ -403,6 +412,7 @@ let waitWatchdog: Duration = .seconds(60)
             Task { @MainActor in wake.fire() }
         }
         ticker.cancel()
+        left -= min(ContinuousClock.now - start, nap)
     }
 }
 
@@ -662,6 +672,8 @@ private let tinyPNG = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAA
 }
 
 #if os(iOS)
+import UIKit
+
 @Suite @MainActor struct ChiefDirectoryTests {
     func directory() -> ChiefDirectory {
         let chief = ChiefDirectory.recipients(store: AppStore(teams: [], activeTeamID: "", workspaces: [], feed: []), identity: .standard, place: .mac)
@@ -760,6 +772,50 @@ private let tinyPNG = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAA
         #expect(prompt.attachments[0].name.hasSuffix(".png"))
         #expect(prompt.attachments[1].name.hasSuffix(".jpg"))
         #expect(Set(prompt.attachments.map(\.id)).count == 2)
+    }
+
+    @Test func encodedImageBytesOverrideDeclaredMimeType() throws {
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2))
+        let validPNG = renderer.pngData { context in
+            UIColor.red.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
+        }
+        let image = ConversationComposeImage(data: validPNG, width: 2, height: 2, mimeType: "image/heic")
+        let attachment = try #require(ChiefComposer.attachments([image]).first)
+        #expect(attachment.name.hasSuffix(".png"))
+        #expect(attachment.imageMIMEType == "image/png")
+        #expect(attachment.data == validPNG)
+    }
+
+    @Test func imageBytesWinOverTheDeclaredMimeType() throws {
+        let image = ConversationComposeImage(data: Self.png, width: 1, height: 1, mimeType: "image/heic")
+        let attachment = try #require(ChiefComposer.attachments([image]).first)
+        #expect(attachment.kind == .image)
+        #expect(attachment.name.hasSuffix(".png"))
+        #expect(attachment.imageMIMEType == "image/png")
+    }
+
+    @Test func unsupportedDecodedImageIsConvertedToJpeg() throws {
+        // A complete 1x1, 24-bit BMP (red pixel, padded four-byte row).
+        let bmp = try #require(Data(base64Encoded: "Qk06AAAAAAAAADYAAAAoAAAAAQAAAAEAAAABABgAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAD/AA=="))
+        try #require(UIImage(data: bmp) != nil)
+        #expect(AgentAttachment(kind: .image, name: "source", data: bmp).imageMIMEType == nil)
+        let attachment = try #require(ChiefComposer.attachments([
+            ConversationComposeImage(data: bmp, width: 1, height: 1, mimeType: "image/jpeg")
+        ]).first)
+        #expect(attachment.kind == .image)
+        #expect(attachment.name.hasSuffix(".jpg"))
+        #expect(attachment.imageMIMEType == "image/jpeg")
+        #expect(attachment.data != bmp)
+        let jpeg = try #require(attachment.data)
+        #expect(UIImage(data: jpeg) != nil)
+    }
+
+    @Test func undecodableImageIsSentAsAFile() throws {
+        let image = ConversationComposeImage(data: Data([0x01, 0x02, 0x03]), width: 1, height: 1, mimeType: "image/png")
+        let attachment = try #require(ChiefComposer.attachments([image]).first)
+        #expect(attachment.kind == .file)
+        #expect(attachment.imageMIMEType == nil)
     }
 
     @Test func anImageOnlyMessageStillSends() throws {

@@ -28,11 +28,12 @@ use super::{
     BudgetedText, MessageWriter, Mux, PaneId, SurfaceId, WorkspaceId, paired_surface_size,
 };
 use crate::Actor;
+use crate::mux::TabSplit;
 use crate::state::conversation_tabs::ConversationTabTarget;
 use crate::state::conversation_tabs_store::{
-    AGENT_SESSION_TABS_CAPABILITY, CONVERSATION_KIND, CONVERSATION_TABS_CAPABILITY,
-    ConversationTabDowngrade, ConversationTabRecord, PAGE_TABS_CAPABILITY,
-    conversation_tabs_present, downgrade_conversation_tabs,
+    AGENT_SESSION_TABS_CAPABILITY, CLOSED_CONVERSATION_TABS_CAPABILITY, CONVERSATION_KIND,
+    CONVERSATION_TABS_CAPABILITY, ConversationTabDowngrade, ConversationTabRecord,
+    PAGE_TABS_CAPABILITY, conversation_tabs_present, downgrade_conversation_tabs,
 };
 use crate::workspace_registry::WorkspaceMutation;
 
@@ -78,6 +79,21 @@ pub(super) struct NewConversationTabParams {
     split: Option<ConversationTabSplitParams>,
 }
 
+impl NewConversationTabParams {
+    /// A Native owner provisions this machine's agent tabs only. Other
+    /// conversation owners and app pages keep their existing admission path.
+    #[cfg(unix)]
+    pub(super) fn native_agent_tab(&self, mux: &Mux) -> bool {
+        self.conversation.is_none()
+            && self.owner.is_none()
+            && self.page.is_none()
+            && self.route.is_none()
+            && self.agent_session.as_ref().is_some_and(|agent| {
+                agent.host == super::agent_session_attach::agent_session_start::store_host(mux)
+            })
+    }
+}
+
 /// The client transaction echo on `new-conversation-tab`.
 pub(crate) const CONVERSATION_TAB_TRANSACTION_CAPABILITY: &str = "conversation-tab-transaction-v1";
 
@@ -89,6 +105,8 @@ pub(crate) const CONVERSATION_TAB_SPLIT_CAPABILITY: &str = "conversation-tab-spl
 
 /// The new pane of a conversation tab's split: its side of the source pane
 /// and, as `split-client-keys-v1`, the caller-minted public id of the pane.
+/// `new-frontend-browser-tab {pane, split}` (`frontend-browser-tab-split-v1`)
+/// takes the same object.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct ConversationTabSplitParams {
@@ -101,7 +119,8 @@ pub(super) struct ConversationTabSplitParams {
 }
 
 impl ConversationTabSplitParams {
-    fn target(self, pane: Option<PaneId>) -> anyhow::Result<ConversationTabTarget> {
+    /// The validated split of `pane`; malformed input is a bad request.
+    pub(super) fn tab_split(self, pane: Option<PaneId>) -> anyhow::Result<TabSplit> {
         let pane = pane.ok_or_else(|| anyhow::anyhow!("bad request: split needs pane"))?;
         let direction = match self.direction.as_str() {
             "right" => "right",
@@ -122,12 +141,7 @@ impl ConversationTabSplitParams {
                 anyhow::anyhow!("bad request: split_id {split_id:?} is not a split id")
             })?;
         }
-        Ok(ConversationTabTarget::Split {
-            pane,
-            direction,
-            pane_id: self.pane_id,
-            split_id: self.split_id,
-        })
+        Ok(TabSplit { pane, direction, pane_id: self.pane_id, split_id: self.split_id })
     }
 }
 
@@ -335,7 +349,7 @@ pub(super) fn create(
     } = params;
     super::validate_client_transaction(transaction.as_deref())?;
     let target = match (pane, workspace, split) {
-        (_, None, Some(split)) => split.target(pane)?,
+        (_, None, Some(split)) => ConversationTabTarget::Split(split.tab_split(pane)?),
         (_, None, None) => ConversationTabTarget::Pane(pane),
         (None, Some(workspace), None) => ConversationTabTarget::Workspace(workspace),
         (_, Some(_), Some(_)) => anyhow::bail!("bad request: split goes with pane, not workspace"),
@@ -440,6 +454,7 @@ pub(super) struct NegotiatedTabs {
     conversation: AtomicBool,
     agent_sessions: AtomicBool,
     pages: AtomicBool,
+    closed: AtomicBool,
 }
 
 impl NegotiatedTabs {
@@ -467,6 +482,7 @@ pub(super) fn negotiable(capability: &str) -> bool {
     capability == CONVERSATION_TABS_CAPABILITY
         || capability == AGENT_SESSION_TABS_CAPABILITY
         || capability == PAGE_TABS_CAPABILITY
+        || capability == CLOSED_CONVERSATION_TABS_CAPABILITY
 }
 
 impl MessageWriter {
@@ -483,6 +499,8 @@ impl MessageWriter {
                 self.conversation_tabs.agent_sessions.store(true, Ordering::Release);
             } else if capability == PAGE_TABS_CAPABILITY {
                 self.conversation_tabs.pages.store(true, Ordering::Release);
+            } else if capability == CLOSED_CONVERSATION_TABS_CAPABILITY {
+                self.conversation_tabs.closed.store(true, Ordering::Release);
             }
         }
     }
@@ -490,17 +508,22 @@ impl MessageWriter {
     /// The one outbound projection: a connection without
     /// `conversation-tabs-v1` reads every conversation tab as `browser`, one
     /// without `agent-session-tabs-v1` every agent session tab, one without
-    /// `page-tabs-v1` every page tab.
+    /// `page-tabs-v1` every page tab. Closed kinds require their own
+    /// `closed-conversation-tabs-v1` opt-in; safe closed metadata is retained.
     pub(super) fn project_conversation_tabs(
         &self,
         text: Arc<BudgetedText>,
     ) -> std::io::Result<Arc<BudgetedText>> {
-        let Some(downgrade) = self.conversation_tabs.downgrade() else { return Ok(text) };
-        if !conversation_tabs_present() || !text.contains("\"conversation\"") {
+        if self.conversation_tabs.downgrade().is_none()
+            && self.conversation_tabs.closed.load(Ordering::Acquire)
+        {
+            return Ok(text);
+        }
+        if !text.contains("\"conversation") {
             return Ok(text);
         }
         let Ok(mut value) = serde_json::from_str::<Value>(&text) else { return Ok(text) };
-        if !downgrade_conversation_tabs(&mut value, downgrade) {
+        if !self.project_tab_kinds(&mut value) {
             return Ok(text);
         }
         self.render_service.serialize_control(&value)
@@ -510,12 +533,197 @@ impl MessageWriter {
     /// (`session.events` snapshot and delta items, journal records): stream
     /// items do not pass through `send_control`.
     pub(super) fn project_conversation_tab_item(&self, mut item: Value) -> Value {
+        self.project_tab_kinds(&mut item);
+        item
+    }
+
+    fn project_tab_kinds(&self, value: &mut Value) -> bool {
+        let mut changed = false;
         if let Some(downgrade) = self.conversation_tabs.downgrade()
             && conversation_tabs_present()
         {
-            downgrade_conversation_tabs(&mut item, downgrade);
+            changed |= downgrade_conversation_tabs(value, downgrade);
         }
-        item
+        if !self.conversation_tabs.closed.load(Ordering::Acquire) {
+            changed |= downgrade_closed_tabs(value);
+        }
+        changed
+    }
+}
+
+/// Older native apps already understand live conversation tabs, but closed
+/// kinds need their own opt-in. Keep the safe metadata and browser fallback.
+///
+/// Closed records have a small, stable schema (`closed -> members/screens/tabs`),
+/// and history rows have the `kind:closed` discriminator. Walk only those known
+/// containers: resource projections and other opaque payloads are deliberately
+/// left byte-for-byte untouched.
+fn downgrade_closed_tabs(value: &mut Value) -> bool {
+    let Some(object) = value.as_object_mut() else { return false };
+    let mut changed = false;
+
+    if let Some(closed) = object.get_mut("closed") {
+        changed |= downgrade_closed_groups(closed);
+    }
+    if let Some(entries) = object.get_mut("entries") {
+        changed |= downgrade_closed_history_entries(entries);
+    }
+    // Resource responses wrap `closed.list` and `history.entries.list` under
+    // `result`; the older control protocol uses the same payload under
+    // `data`. These are the only response envelopes we unwrap, so an opaque
+    // frontend projection containing a similarly shaped object is untouched.
+    for key in ["result", "data"] {
+        if let Some(payload) = object.get_mut(key) {
+            changed |= downgrade_closed_response_payload(payload);
+        }
+    }
+    // Session snapshots keep closed history in `extra.state.closed`; session
+    // deltas carry the same records in `changes[].value`. These are explicit
+    // protocol paths, so unrelated nested frontend data remains opaque.
+    if let Some(extra) = object.get_mut("extra")
+        && let Some(state) = extra.get_mut("state")
+        && let Some(closed) = state.get_mut("closed")
+    {
+        changed |= downgrade_closed_groups(closed);
+    }
+    if let Some(changes) = object.get_mut("changes") {
+        changed |= downgrade_closed_changes(changes);
+    }
+    // Journal stream records wrap the same state changes under `payload`.
+    // This is a known journal envelope; do not recurse through arbitrary payload fields.
+    if let Some(payload) = object.get_mut("payload").and_then(Value::as_object_mut)
+        && let Some(changes) = payload.get_mut("changes")
+    {
+        changed |= downgrade_closed_changes(changes);
+    }
+    // A resource stream item is itself a history row. Do not recurse into its
+    // arbitrary fields; only the closed-row discriminator is a known schema.
+    changed |= downgrade_closed_history_entry_object(object);
+    changed
+}
+
+fn downgrade_closed_changes(value: &mut Value) -> bool {
+    let Some(changes) = value.as_array_mut() else { return false };
+    let mut changed = false;
+    for change in changes {
+        let is_closed_upsert = change.get("resource").and_then(Value::as_str) == Some("closed")
+            && change.get("kind").and_then(Value::as_str) == Some("state_upsert");
+        if is_closed_upsert && let Some(value) = change.get_mut("value") {
+            changed |= downgrade_closed_group(value);
+        }
+    }
+    changed
+}
+
+fn downgrade_closed_response_payload(value: &mut Value) -> bool {
+    match value {
+        Value::Array(items) => {
+            let history = items.iter().any(|item| {
+                item.get("kind").and_then(Value::as_str) == Some("closed")
+                    && item.get("closed_kind").is_some()
+            });
+            if history {
+                downgrade_closed_history_entries(value)
+            } else {
+                downgrade_closed_groups(value)
+            }
+        }
+        Value::Object(_) => downgrade_closed_tabs(value),
+        _ => false,
+    }
+}
+
+fn downgrade_closed_groups(value: &mut Value) -> bool {
+    match value {
+        Value::Array(items) => {
+            let mut changed = false;
+            for item in items {
+                changed |= downgrade_closed_group(item);
+            }
+            changed
+        }
+        Value::Object(_) => downgrade_closed_group(value),
+        _ => false,
+    }
+}
+
+fn downgrade_closed_group(value: &mut Value) -> bool {
+    let Some(object) = value.as_object_mut() else { return false };
+    if !matches!(
+        object.get("kind").and_then(Value::as_str),
+        Some("tab" | "screen" | "workspace" | "window" | "group")
+    ) {
+        return false;
+    }
+    let mut changed = false;
+    // `public_item` exposes a group's first member at the top level and all
+    // members under `members`; both contain only the closed record schema.
+    for key in ["screens", "members"] {
+        if let Some(children) = object.get_mut(key) {
+            changed |= downgrade_closed_group_children(children);
+        }
+    }
+    changed
+}
+
+fn downgrade_closed_group_children(value: &mut Value) -> bool {
+    match value {
+        Value::Array(items) => {
+            let mut changed = false;
+            for item in items {
+                changed |= {
+                    if item.get("tabs").is_some() {
+                        downgrade_closed_screens(item)
+                    } else {
+                        downgrade_closed_group(item)
+                    }
+                };
+            }
+            changed
+        }
+        Value::Object(object) if object.contains_key("tabs") => downgrade_closed_screens(value),
+        Value::Object(_) => downgrade_closed_group(value),
+        _ => false,
+    }
+}
+
+fn downgrade_closed_screens(value: &mut Value) -> bool {
+    let Some(object) = value.as_object_mut() else { return false };
+    let Some(tabs) = object.get_mut("tabs") else { return false };
+    let Some(tabs) = tabs.as_array_mut() else { return false };
+    let mut changed = false;
+    for tab in tabs {
+        let Some(tab) = tab.as_object_mut() else { continue };
+        if tab.get("kind").and_then(Value::as_str) == Some(CONVERSATION_KIND) {
+            tab.insert("kind".into(), json!("browser"));
+            changed = true;
+        }
+    }
+    changed
+}
+
+fn downgrade_closed_history_entries(value: &mut Value) -> bool {
+    let Some(entries) = value.as_array_mut() else { return false };
+    let mut changed = false;
+    for entry in entries {
+        changed |= downgrade_closed_history_entry(entry);
+    }
+    changed
+}
+
+fn downgrade_closed_history_entry(value: &mut Value) -> bool {
+    let Some(object) = value.as_object_mut() else { return false };
+    downgrade_closed_history_entry_object(object)
+}
+
+fn downgrade_closed_history_entry_object(object: &mut serde_json::Map<String, Value>) -> bool {
+    if object.get("kind").and_then(Value::as_str) == Some("closed")
+        && object.get("closed_kind").and_then(Value::as_str) == Some("conversation_tab")
+    {
+        object.insert("closed_kind".into(), json!("browser_tab"));
+        true
+    } else {
+        false
     }
 }
 
@@ -569,3 +777,7 @@ mod page_tabs_tests;
 #[cfg(test)]
 #[path = "conversation_tab_split_tests.rs"]
 mod conversation_tab_split_tests;
+
+#[cfg(test)]
+#[path = "closed_conversation_tabs_tests.rs"]
+mod closed_conversation_tabs_tests;

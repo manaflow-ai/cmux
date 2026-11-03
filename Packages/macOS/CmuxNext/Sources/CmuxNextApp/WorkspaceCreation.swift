@@ -60,13 +60,23 @@ enum WorkspaceCreation {
         repair: EmptyWorkspaceRepair,
         terminal: (WorkspaceKey) async throws -> T
     ) async throws -> T {
+        // A workspace with a terminal is a new terminal (Cmd-N, R3): its create waits through late replies under its
+        // mutation id, so only the daemon's answer or the connection's end can take it back, never a clock. The first
+        // terminal is the caller's (`createTerminalWaitingForStart`); a later step of `terminal` is the caller's own work.
         try await repair.populating(key) {
             try await withTerminal(
-                key, createWorkspace: { _ = try await connection.createWorkspaceRetryingLateReplies(name: name, key: key) },
+                key, createWorkspace: { _ = try await connection.createWorkspaceWaitingForReply(name: name, key: key) },
                 createTerminal: terminal,
                 closeWorkspace: { try await closeHalfCreated($0, on: connection, repair: repair) }
             )
         }
+    }
+
+    /// The first terminal of new workspace `key` (Cmd-N's way for every caller of ``create(_:name:on:repair:terminal:)``):
+    /// keyed and waited for through a late start, so a busy daemon never makes the workspace the person sees close
+    /// (P0 2026-10-30, R3).
+    static func firstTerminal(in key: WorkspaceKey, cwd: String?, on connection: DaemonConnection) async throws -> CreateTerminalResult {
+        try await connection.createTerminalWaitingForStart(in: key, cwd: cwd)
     }
 
     /// Creates workspace `key` and its first tab from `firstTab`, which gets
@@ -127,7 +137,8 @@ enum WorkspaceCreation {
     /// Returns the tab's key.
     @MainActor
     static func sessionTab(_ session: String, in created: WorkspaceMutationResult, host: String? = nil, linked: Bool = false,
-                           on daemon: DaemonService, tabs: AgentTabStore) async throws -> String {
+                           until giveUp: ContinuousClock.Instant? = nil, on daemon: DaemonService,
+                           tabs: AgentTabStore) async throws -> String {
         guard let connection = daemon.connection, let localHost = tabs.localHost else { throw DaemonError.notConnected }
         guard tabs.holdsTabs(daemon) else { throw AgentTabRefusal(message: RefusalStrings.agentTabsUnsupported) }
         // A session of this Mac never opens in a workspace of another machine (cx-k21v).
@@ -140,7 +151,9 @@ enum WorkspaceCreation {
         let request = NewConversationTabRequest(agentSession: record, workspace: created.workspace,
                                                 origin: AgentTabStore.createOrigin, mutationID: UUID().uuidString)
         // One mutation id for every send: a tab the daemon made after the deadline replays.
-        let response = try await DaemonConnection.retryingLateReplies(NewConversationTabRequest.command) { try await connection.request(request) }
+        let response = try await DaemonConnection.retryingLateReplies(NewConversationTabRequest.command, until: giveUp) {
+            try await connection.request(request)
+        }
         let key = response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)"
         if linked {
             tabs.sessions[key] = session

@@ -43,6 +43,8 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         (vec!["workspace", "create", "--cwd", "/tmp", "--", "make", "watch"], "workspace.create"),
         (vec!["workspace", "create", "--shell", "make watch"], "workspace.create"),
         (vec!["workspace", "group", "g", "update", "--clear-top-index"], "workspace_group.update"),
+        // A create that finds the space's group of that name instead of making one (#32097).
+        (vec!["workspace", "group", "create", "--name", "n", "--reuse"], "workspace_group.create"),
         // closed.delete takes either a group (with members) or all, and all
         // takes retention bounds.
         (vec!["closed", "c1", "delete", "--members", "1"], "closed.delete"),
@@ -50,6 +52,8 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         // closed.reopen by a closed tab's id (its link), with the pane a tab
         // whose pane and workspace are gone opens in.
         (vec!["closed", "reopen", "--tab", TAB, "--fallback-pane", PANE], "closed.reopen"),
+        // closed.reopen by a closed workspace's old id (its link, #25659).
+        (vec!["closed", "reopen", "--workspace", WORKSPACE], "closed.reopen"),
         // Fields added since the case list last covered them: each one's CLI path.
         (vec!["notification", "clear", "--workspace", WORKSPACE], "notification.clear"),
         (
@@ -345,6 +349,8 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "chief.engine.get"
                         | "chief.engine.set"
                         | "chief.stop"
+                        | "chief.continue"
+                        | "chief.retry"
                         // `cmux chief list|new|adopt|edit|delete` send these
                         // (cli/chief/registry.rs), outside the noun grammar.
                         | "chief.profile.list"
