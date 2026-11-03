@@ -580,6 +580,9 @@ pub enum Command {
     DaemonStart { person_key_fd: Option<i32>, show_token: bool },
     #[command(hide = true)]
     DaemonRestart,
+    /// App sign-out: clear peer tails without starting an agent or daemon.
+    #[command(hide = true, name = "__clear-peer-snapshots")]
+    ClearPeerSnapshots,
     #[command(hide = true, alias = "kill-server")]
     Shutdown {
         /// Accepted for callers of older builds; hosted agents keep running anyway.
