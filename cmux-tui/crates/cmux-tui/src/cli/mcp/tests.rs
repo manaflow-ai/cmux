@@ -55,6 +55,8 @@ struct Fake {
     /// What `Backend::caller_terminal` answers (none by default, whatever
     /// terminal the test runs in).
     caller_terminal: Option<String>,
+    /// What `Backend::home_chat` answers: a Chief turn.
+    home_chat: bool,
     /// What `Backend::focus` answers.
     focus: Option<Value>,
     /// The app's `computer_use.status` through `Backend::app_caller`; no
@@ -437,6 +439,10 @@ impl Backend for Fake {
 
     fn caller_terminal(&self) -> Option<String> {
         self.caller_terminal.clone()
+    }
+
+    fn home_chat(&self) -> bool {
+        self.home_chat
     }
 
     fn acpmux(
@@ -2204,6 +2210,22 @@ fn open_splits_and_opens_in_one_call() {
         .expect("a tool result");
     assert_eq!(result["isError"], true, "{result}");
     assert!(result.to_string().contains("needs the cmux app"), "{result}");
+}
+
+/// Chief's instructions say that what it opens for a workspace's work goes to that
+/// workspace, so Chief's own workspace does not fill with tabs (Lawrence 2026-11-02); another
+/// chat's instructions do not.
+#[test]
+fn chief_instructions_open_in_the_workspace_of_the_task() {
+    let initialize = json!({"jsonrpc": "2.0", "id": "i", "method": "initialize"});
+    let mut chief = Server::new(Fake { home_chat: true, ..Fake::default() }, None);
+    let answer = chief.handle(&initialize).expect("an answer");
+    let text = answer["result"]["instructions"].as_str().unwrap_or_default();
+    assert!(text.contains("You are Chief") && text.contains("opens in that workspace"), "{text}");
+    let mut chat = Server::new(Fake::default(), None);
+    let answer = chat.handle(&initialize).expect("an answer");
+    let text = answer["result"]["instructions"].as_str().unwrap_or_default();
+    assert!(!text.contains("You are Chief"), "{text}");
 }
 
 /// An app viewer an agent opens with no target goes beside its chat (a split right, made

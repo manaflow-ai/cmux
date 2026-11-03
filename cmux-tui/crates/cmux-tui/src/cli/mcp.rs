@@ -206,6 +206,11 @@ pub(super) trait Backend {
     fn caller_terminal(&self) -> Option<String> {
         std::env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|id| !id.is_empty())
     }
+    /// A Chief turn (`CMUX_CALLER_HOME_CHAT=1`, set by the Chief host): its instructions
+    /// add [`CHIEF_RULE`].
+    fn home_chat(&self) -> bool {
+        std::env::var("CMUX_CALLER_HOME_CHAT").as_deref() == Ok("1")
+    }
     /// Holds the session daemon's `session.events` stream open until
     /// `deadline` and calls `on_wake` with each item (the initial snapshot
     /// first, or with `cursor` the journal batches after it), and with
@@ -678,9 +683,12 @@ impl<B: Backend> Server<B> {
         let id = id?;
         let params = object.get("params").cloned().unwrap_or_else(|| json!({}));
         let result = match method {
-            "initialize" => {
-                Ok(initialize(&params, self.list_changed, self.code_mode && self.allowed.is_none()))
-            }
+            "initialize" => Ok(initialize(
+                &params,
+                self.list_changed,
+                self.code_mode && self.allowed.is_none(),
+                self.backend.home_chat(),
+            )),
             "ping" => Ok(json!({})),
             "tools/list" if self.code_mode && self.allowed.is_none() => {
                 let tools = self.list();
@@ -1394,16 +1402,27 @@ impl<B: Backend> Server<B> {
     }
 }
 
-fn initialize(params: &Value, list_changed: bool, code_mode: bool) -> Value {
+/// Chief works for many workspaces from its own: what it opens for a workspace's work goes
+/// there, or every turn piles tabs into the column right of Chief (Lawrence 2026-11-02:
+/// "Workspace of the task").
+const CHIEF_RULE: &str = "You are Chief: you work for many workspaces from your own. A \
+    terminal, file, diff or page for a workspace's work (its project, agent, server or files) \
+    opens in that workspace, in the background (workspace: its name or id; open with where: \
+    {workspace}), and you tell the person which workspace. Only a request with no workspace in \
+    it or in the conversation opens beside you.";
+
+fn initialize(params: &Value, list_changed: bool, code_mode: bool, chief: bool) -> Value {
+    let mut instructions = format!(
+        "{} {}",
+        if code_mode { code_mode::INSTRUCTIONS } else { INSTRUCTIONS },
+        acpmux::agent_tools::ASKING_RULE
+    );
+    let _ = (chief, CHIEF_RULE);
     json!({
         "protocolVersion": acpmux::secret_mcp::protocol_version(params),
         "capabilities": {"tools": {"listChanged": list_changed}},
         "serverInfo": {"name": "cmux", "title": "cmux", "version": env!("CARGO_PKG_VERSION")},
-        "instructions": format!(
-            "{} {}",
-            if code_mode { code_mode::INSTRUCTIONS } else { INSTRUCTIONS },
-            acpmux::agent_tools::ASKING_RULE
-        ),
+        "instructions": instructions,
     })
 }
 
