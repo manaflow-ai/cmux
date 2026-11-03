@@ -18,9 +18,8 @@ import CmuxNextSettingsWindow
 // - `open` (`query`, `section`), `query` (`text`), `section` (`id`, or
 //   `all` / `changed`), `close`: the window.
 enum DebugTunables {
-    static func handle(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+    static func handle(_ params: [String: JSONValue], services: AppServices, store: TunableStore = .shared) -> JSONValue {
         let service = services.debugSettings
-        let store = TunableStore.shared
         switch params["action"]?.stringValue ?? "state" {
         case "list":
             var rows = TunableCatalog.all
@@ -74,16 +73,15 @@ enum DebugTunables {
         default:
             return error("unknown action")
         }
-        return state(services)
+        return state(services, store: store)
     }
 
-    static func state(_ services: AppServices) -> JSONValue {
+    static func state(_ services: AppServices, store: TunableStore = .shared) -> JSONValue {
         let service = services.debugSettings
-        let store = TunableStore.shared
         var fields: [String: JSONValue] = [
             "available": .bool(service.isAvailable),
             // `web`: the React page (cmux-page://cmux.debug-settings/, probe it with `debug.page`).
-            "surface": .string(PageTunables.debugSettings.value.rawValue),
+            "surface": .string(PageTunables.debugSettings.value(in: store).rawValue),
             "active": .bool(store.isActive),
             "file": service.fileURL.map { .string($0.path) } ?? .null,
             "tunables": JSONValue(TunableCatalog.all.count),
