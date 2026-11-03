@@ -147,9 +147,10 @@ public final class ComputerUseLiveCapture {
         if !refused.isEmpty, target != nil, configuration() != refusedBy { refused.removeAll() }
         let target = target.flatMap { refused.contains($0.window) ? nil : $0 }
         if target != self.target {
-            let windowChanged = target?.window != self.target?.window
+            // A different session or chat can drive the same window. Its old frame read and
+            // cursor are still owned by the former target, so end that generation too.
             self.target = target
-            if windowChanged { end() }
+            end()
         }
         kick()
     }
