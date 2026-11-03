@@ -68,7 +68,7 @@ async fn handle(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, Rp
         );
     }
     let id = text("runId")?;
-    if matches!(action, "claim" | "settle" | "check") {
+    if matches!(action, "claim" | "settle" | "check" | "suspend") {
         let generation = params
             .get("generation")
             .and_then(Value::as_u64)
@@ -81,6 +81,18 @@ async fn handle(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, Rp
         owner(conn, &run)?;
         if action == "check" {
             return Ok(json!({"running":true}));
+        }
+        if action == "suspend" {
+            // A fresh-call budget stop keeps the same script and completed activities.
+            // Fence while holding the dispatch gate, then stop the owned runner before
+            // another generation is allowed to acquire its journal.
+            hub.workflow_runs.store().pause(id, &run.owner_session_id).map_err(internal)?;
+            drop(_gate);
+            return hub
+                .workflow_pause(id, &run.owner_session_id)
+                .await
+                .map(|run| public(&run))
+                .map_err(internal);
         }
         if action == "claim" {
             let allowed_tools = hub.workflow_allowed_tools(&run).await.map_err(internal)?;
