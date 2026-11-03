@@ -1506,6 +1506,13 @@ class CheckPiecesTests(unittest.TestCase):
             "an interpreter on a tree script": "import subprocess\n"
                                               "subprocess.run([sys.executable, os.path.join(HERE, 'helper.py')])\n",
             "os.posix_spawnp": "os.posix_spawnp('run.sh', ['run.sh'], {'PATH': HERE})\n",
+            # Review of 73329295cc7: an empty PATH entry from the start folder, posix_spawnp searching this process's
+            # PATH, and a tree link named git to a program outside the tree.
+            "an empty PATH entry": "import subprocess\nsubprocess.run(['git'], cwd=HERE, env={'PATH': ':/usr/bin'})\n",
+            "posix_spawnp on its own PATH": "os.environ['PATH'] = HERE + ':/usr/bin'\n"
+                                            "os.posix_spawnp('git', ['git'], {'PATH': '/usr/bin'})\n",
+            "a tree link named git": "import subprocess\nsubprocess.run([os.path.join(HERE, 'bin', 'git'), "
+                                     "os.path.join(HERE, 'run.sh')])\n",
         }
         for way, body in ways.items():
             with self.subTest(way=way):
@@ -1514,8 +1521,13 @@ class CheckPiecesTests(unittest.TestCase):
                           "rootmod.py": "open(MARKER, 'w').close()\n"}
                 result, marker, tree = self.run_trusted("import os, sys\n" + sibling + body, pushed)
                 (tree / "scripts/cmux-next/run.sh").chmod(0o755)
+                (tree / "scripts/cmux-next/git").write_text(f"#!/bin/sh\ntouch {marker}\n")
+                (tree / "scripts/cmux-next/git").chmod(0o755)
+                (tree / "scripts/cmux-next/bin").mkdir()
+                (tree / "scripts/cmux-next/bin/git").symlink_to("/bin/sh")
                 if way in ("a tree program", "os.execv", "a bare name on PATH", "os.execvp on PATH", "shell=True",
-                           "os.system", "os.popen", "a relative path from its cwd", "os.posix_spawnp"):
+                           "os.system", "os.popen", "a relative path from its cwd", "os.posix_spawnp",
+                           "an empty PATH entry", "posix_spawnp on its own PATH", "a tree link named git"):
                     result = subprocess.run(result.args, cwd=tree / "webviews", text=True, capture_output=True)
                 if way == "a zip on sys.path":
                     import zipfile

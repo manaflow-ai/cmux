@@ -454,9 +454,12 @@ def trusted_pieces(repo: Path, package: ScriptPackage, files: list[str], risky: 
 # * the `open` audit event refuses to open a code file in the tree (.py, .pyc, .so, .zip, .pth ...), which is how
 #   runpy, spec_from_file_location/exec_module and zipimport read one; `ctypes.dlopen` of a tree path is refused;
 # * a check may start only the programs in TRUSTED_PROGRAMS, found outside the tree: every subprocess, os.exec*,
-#   os.spawn*, os.posix_spawn* and os.system is resolved (a bare name through the PATH it runs with, a relative path
-#   from the folder it starts in, symlinks followed) and refused unless it is one of them. A shell (shell=True,
-#   os.system, os.popen) or an interpreter is never one, so neither a tree program nor a tree script can start.
+#   os.spawn*, os.posix_spawn* and os.system is resolved as the system will (a bare name through the PATH it searches:
+#   the env given to subprocess, this process's own for exec*p and posix_spawnp; an empty or relative entry and a
+#   relative path from the folder it starts in) and refused unless it is one of them, found in a folder outside the
+#   tree and resolving, symlinks followed, outside it too. A shell (shell=True, os.system, os.popen) or an
+#   interpreter is never one, so neither a tree program nor a tree script can start. Out of reach, like exec of text
+#   a check reads: a C call that raises no audit event (ctypes calling libc's system()).
 # Out of reach for any in-process guard: a reviewed check that execs text it reads (open() and io.open_code() raise
 # the same audit event). That is a review rule: a check never executes what it reads.
 # The reviewed script is read and compiled before the guards go in: the hook's copy lives in the checkout's git
@@ -511,13 +514,20 @@ TRUSTED_RUNNER = (
     "        else:\n"
     "            program, cwd, env = details[0], None, details[2]\n"
     "        name = os.fsdecode(program)\n"
+    "        start = os.fsdecode(cwd) if cwd else os.getcwd()\n"
     "        if os.sep in name:\n"
-    "            found = os.path.join(os.fsdecode(cwd) if cwd else os.getcwd(), name)\n"
+    "            found = os.path.join(start, name)\n"
     "        else:\n"
-    "            path = (env or {}).get('PATH', (env or {}).get(b'PATH')) if env else os.environ.get('PATH')\n"
-    "            found = shutil.which(name, path=os.fsdecode(path) if path is not None else os.defpath)\n"
+    "            # posix_spawnp and the exec*p family search this process's PATH; Popen the env it is given.\n"
+    "            own = event in ('os.posix_spawn', 'os.exec', 'os.spawn') or env is None\n"
+    "            path = os.environ.get('PATH') if own else env.get('PATH', env.get(b'PATH'))\n"
+    "            path = os.fsdecode(path) if path is not None else os.defpath\n"
+    "            # An empty or relative PATH entry is looked up from the folder the program starts in, as exec does.\n"
+    "            entries = [os.path.join(start, entry) for entry in path.split(os.pathsep)]\n"
+    "            found = shutil.which(name, path=os.pathsep.join(entries))\n"
     "        real = os.path.realpath(found) if found else None\n"
-    "        if real is None or in_tree(real) or os.path.basename(found) not in ALLOWED:\n"
+    "        where = os.path.dirname(os.path.abspath(found)) if found else None\n"
+    "        if real is None or in_tree(real) or in_tree(where) or os.path.basename(found) not in ALLOWED:\n"
     "            raise ImportError(f'web lint: refused to start {name!r} (found at {found}): a check run from the '\n"
     "                              'hook\\'s reviewed copy may start only ' + ', '.join(ALLOWED) + ', from outside the tree')\n"
     "sys.meta_path.insert(0, TreeFinder)\n"
