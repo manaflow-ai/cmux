@@ -109,7 +109,7 @@ enum Press {
 /// One waiting entry of a lane, in typing order.
 enum LaneEntry {
     /// A key; `text`: typed text (an input method may compose it).
-    Key { id: InputId, text: bool, window: Arc<str> },
+    Key { id: InputId, text: bool },
     /// An action that edits this sink's input, typed after the keys before
     /// it (a Paste behind typing).
     Run { id: InputId, action: Arc<str>, tab: Option<Arc<str>> },
@@ -370,14 +370,6 @@ impl InputRouter {
             };
         }
         let aim = self.aim_in(window_id, window);
-        // TODAY'S RULE (red): AppKit's dispatch decides where a key that runs no
-        // binding goes (the first responder of the key window).
-        if key.binding.is_none()
-            && let Some(sink) = key.reaches.clone()
-        {
-            self.to_sink(id, key, sink.clone());
-            return Press::Sink(sink);
-        }
         if let Some(binding) = &key.binding {
             let focus = &window.focus;
             // A focused terminal runs its own Ghostty keybinds (in copy mode the
@@ -427,14 +419,13 @@ impl InputRouter {
             return;
         }
         let text = key.is_text();
-        let window = key.window.clone();
         if self.lanes.get(&sink).is_some_and(|lane| !lane.is_empty()) {
-            self.enqueue(sink, LaneEntry::Key { id, text, window }, WaitReason::BehindQueued);
+            self.enqueue(sink, LaneEntry::Key { id, text }, WaitReason::BehindQueued);
             return;
         }
         match self.facts.deliverable(&sink, key.reaches.as_ref(), text) {
             Ok(via) => self.push(InputEffect::Deliver { id, sink, via }),
-            Err(reason) => self.enqueue(sink, LaneEntry::Key { id, text, window }, reason),
+            Err(reason) => self.enqueue(sink, LaneEntry::Key { id, text }, reason),
         }
     }
 
@@ -448,8 +439,7 @@ impl InputRouter {
             return;
         }
         if self.lanes.get(&sink).is_some_and(|lane| !lane.is_empty()) {
-            let entry = LaneEntry::Key { id, text: false, window: key.window.clone() };
-            self.enqueue(sink, entry, WaitReason::BehindQueued);
+            self.enqueue(sink, LaneEntry::Key { id, text: false }, WaitReason::BehindQueued);
             return;
         }
         match self.facts.deliverable(&sink, key.reaches.as_ref(), false) {
@@ -629,21 +619,13 @@ impl InputRouter {
             }
             let Some((_, sink, via)) = next else { return };
             let sink = sink.clone();
-            // TODAY'S RULE (red): a held key runs again through the router when
-            // it leaves the hold, and goes where the focus is then.
-            let reaimed = match self.lanes.get(&sink).and_then(VecDeque::front) {
-                Some(LaneEntry::Key { window, .. }) => self.aim(window),
-                _ => None,
-            };
             let Some(lane) = self.lanes.get_mut(&sink) else { return };
             // The effect is made from the front before it leaves the lane, so no
             // entry is ever taken without its effect.
             let effect = match (lane.front(), via) {
-                (Some(LaneEntry::Key { id, .. }), Some(via)) => InputEffect::Deliver {
-                    id: *id,
-                    sink: reaimed.unwrap_or_else(|| sink.clone()),
-                    via,
-                },
+                (Some(LaneEntry::Key { id, .. }), Some(via)) => {
+                    InputEffect::Deliver { id: *id, sink: sink.clone(), via }
+                }
                 (Some(LaneEntry::Run { id, action, tab }), _) => {
                     InputEffect::Run { id: *id, action: action.clone(), tab: tab.clone() }
                 }
