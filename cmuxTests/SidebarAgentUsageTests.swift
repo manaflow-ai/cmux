@@ -97,22 +97,34 @@ struct SidebarAgentUsageTests {
         #expect(!SidebarTabItemSettingsSnapshot(defaults: defaults).visibleAuxiliaryDetails.showsAgentUsage)
     }
 
-    @Test func costSettingDropsOnlyTheDollarFigureAndItsTooltip() {
-        let formatter = SidebarAgentUsageFormatter(locale: Locale(identifier: "en_US"), includesCost: false)
+    @Test func eachPartSettingDropsOnlyItsComponent() {
         let claude = Self.statusEntry(key: "claude_code", value: "Running")
+        func shown(_ parts: SidebarAgentUsage.Parts) -> SidebarStatusEntry {
+            SidebarAgentUsageFormatter(locale: Locale(identifier: "en_US"), shownParts: parts)
+                .decorate([claude], usageByStatusKey: ["claude_code": Self.usage])[0]
+        }
 
-        let decorated = formatter.decorate([claude], usageByStatusKey: ["claude_code": Self.usage])
-
-        #expect(decorated[0].value == "Running · Opus 4.8 · 42%")
-        #expect(decorated[0].helpText == claude.helpText)
+        #expect(shown([.context, .cost]).value == "Running · 42% · ~$1.20")
+        #expect(shown([.model, .cost]).value == "Running · Opus 4.8 · ~$1.20")
+        #expect(shown([.model, .context]).value == "Running · Opus 4.8 · 42%")
+        #expect(shown([.model, .context]).helpText == claude.helpText)
+        #expect(shown([.cost]).helpText == SidebarAgentUsageFormatter.costHelpText)
+        #expect(shown([]) == claude)
     }
 
-    @Test func costSettingIsOnByDefaultAndFollowsItsKey() {
+    @Test func partSettingsAreOnByDefaultAndEachFollowsItsKey() {
         let defaults = UserDefaults(suiteName: "SidebarAgentUsageTests.\(UUID().uuidString)")!
-        #expect(SidebarTabItemSettingsSnapshot(defaults: defaults).visibleAuxiliaryDetails.showsAgentCost)
+        func parts() -> SidebarAgentUsage.Parts {
+            SidebarTabItemSettingsSnapshot(defaults: defaults).visibleAuxiliaryDetails.agentUsageParts
+        }
+        #expect(parts() == .all)
 
+        defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.showAgentModelKey)
+        #expect(parts() == [.context, .cost])
         defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.showAgentCostKey)
-        #expect(!SidebarTabItemSettingsSnapshot(defaults: defaults).visibleAuxiliaryDetails.showsAgentCost)
+        #expect(parts() == [.context])
+        defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.showAgentContextKey)
+        #expect(parts() == [])
     }
 
     // MARK: Coordinator

@@ -156,10 +156,26 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowAgentUsage"
     )
 
+    /// Whether agent usage includes the model name (`sidebar.showAgentModel`).
+    /// Applies only while `sidebar.showAgentUsage` is on. Defaults to on.
+    public let showAgentModel = DefaultsKey<Bool>(
+        id: "sidebar.showAgentModel",
+        defaultValue: true,
+        userDefaultsKey: "sidebarShowAgentModel"
+    )
+
+    /// Whether agent usage includes the context-window percentage
+    /// (`sidebar.showAgentContext`). Applies only while
+    /// `sidebar.showAgentUsage` is on. Defaults to on.
+    public let showAgentContext = DefaultsKey<Bool>(
+        id: "sidebar.showAgentContext",
+        defaultValue: true,
+        userDefaultsKey: "sidebarShowAgentContext"
+    )
+
     /// Whether agent usage includes the estimated API cost
     /// (`sidebar.showAgentCost`). Applies only while `sidebar.showAgentUsage`
-    /// is on; turn it off to keep the model and context percentage without
-    /// the dollar figure. Defaults to on.
+    /// is on. Defaults to on.
     public let showAgentCost = DefaultsKey<Bool>(
         id: "sidebar.showAgentCost",
         defaultValue: true,

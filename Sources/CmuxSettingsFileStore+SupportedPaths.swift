@@ -142,6 +142,8 @@ extension CmuxSettingsFileStore {
         "sidebar.showLog",
         "sidebar.showProgress",
         "sidebar.showAgentUsage",
+        "sidebar.showAgentModel",
+        "sidebar.showAgentContext",
         "sidebar.showAgentCost",
         "sidebar.showAgentActivity",
         "sidebar.loadingSpinnerPosition",

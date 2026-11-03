@@ -46,6 +46,8 @@ enum SidebarWorkspaceDetailDefaults {
     static let showLogKey = sidebar.showLog.userDefaultsKey
     static let showProgressKey = sidebar.showProgress.userDefaultsKey
     static let showAgentUsageKey = sidebar.showAgentUsage.userDefaultsKey
+    static let showAgentModelKey = sidebar.showAgentModel.userDefaultsKey
+    static let showAgentContextKey = sidebar.showAgentContext.userDefaultsKey
     static let showAgentCostKey = sidebar.showAgentCost.userDefaultsKey
     static let showAgentActivityKey = sidebar.showAgentActivity.userDefaultsKey
     static let showCustomMetadataKey = sidebar.showCustomMetadata.userDefaultsKey
@@ -60,6 +62,8 @@ enum SidebarWorkspaceDetailDefaults {
     static let showLog = sidebar.showLog.defaultValue
     static let showProgress = sidebar.showProgress.defaultValue
     static let showAgentUsage = sidebar.showAgentUsage.defaultValue
+    static let showAgentModel = sidebar.showAgentModel.defaultValue
+    static let showAgentContext = sidebar.showAgentContext.defaultValue
     static let showAgentCost = sidebar.showAgentCost.defaultValue
     static let showAgentActivity = sidebar.showAgentActivity.defaultValue
     static let showCustomMetadata = sidebar.showCustomMetadata.defaultValue
@@ -105,7 +109,7 @@ extension SidebarWorkspaceDetailDefaults {
             showLog: details.showLog,
             showProgress: details.showProgress,
             showAgentUsage: details.showAgentUsage,
-            showAgentCost: details.showAgentCost,
+            agentUsageParts: details.agentUsageParts,
             showBranchDirectory: details.showBranchDirectory,
             showPullRequests: details.showPullRequests,
             showPorts: details.showPorts,
@@ -436,6 +440,14 @@ enum SidebarSettingsFileMapping {
         .init(
             jsonKey: "showAgentUsage",
             defaultsKey: SidebarWorkspaceDetailDefaults.showAgentUsageKey
+        ),
+        .init(
+            jsonKey: "showAgentModel",
+            defaultsKey: SidebarWorkspaceDetailDefaults.showAgentModelKey
+        ),
+        .init(
+            jsonKey: "showAgentContext",
+            defaultsKey: SidebarWorkspaceDetailDefaults.showAgentContextKey
         ),
         .init(
             jsonKey: "showAgentCost",

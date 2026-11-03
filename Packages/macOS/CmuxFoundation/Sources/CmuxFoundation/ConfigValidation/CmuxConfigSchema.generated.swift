@@ -1777,10 +1777,20 @@ enum CmuxEmbeddedConfigSchema {
           "descriptionKey": "schemaDescriptions.sidebar.showAgentUsage",
           "description": "Append coding-agent usage to the Claude Code or Codex status entry: model and context window used, plus for Claude Code an estimated API cost (main thread and subagents) at published Anthropic list prices. The cost is an estimate, not your subscription bill; batch/priority tiers, partner pricing, fast mode and server-tool fees are not modelled."
         },
+        "showAgentModel": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include the model name in the agent usage shown by showAgentUsage."
+        },
+        "showAgentContext": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include the context-window percentage in the agent usage shown by showAgentUsage."
+        },
         "showAgentCost": {
           "type": "boolean",
           "default": true,
-          "description": "Include the estimated API cost in the agent usage shown by showAgentUsage. Turn off to keep the model and context window without the dollar figure."
+          "description": "Include the estimated API cost in the agent usage shown by showAgentUsage."
         },
         "showAgentActivity": {
           "type": "boolean",

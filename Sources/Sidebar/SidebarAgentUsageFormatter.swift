@@ -13,16 +13,16 @@ struct SidebarAgentUsageFormatter {
     static let separator = " · "
 
     let locale: Locale
-    /// Whether the summary includes the estimated cost (`sidebar.showAgentCost`).
-    let includesCost: Bool
+    /// The components to show; the rest are left out.
+    let shownParts: SidebarAgentUsage.Parts
 
     /// Creates a formatter.
     /// - Parameters:
     ///   - locale: Locale for the percent and currency formats.
-    ///   - includesCost: Whether to append the estimated cost.
-    init(locale: Locale = .current, includesCost: Bool = true) {
+    ///   - shownParts: The components to show.
+    init(locale: Locale = .current, shownParts: SidebarAgentUsage.Parts = .all) {
         self.locale = locale
-        self.includesCost = includesCost
+        self.shownParts = shownParts
     }
 
     /// Tooltip for an entry that shows an estimated cost (resolved once;
@@ -34,14 +34,17 @@ struct SidebarAgentUsageFormatter {
 
     /// The compact usage summary, e.g. `Opus 4.8 · 42% · ~$1.20`.
     ///
-    /// Components that are unknown (context window, price) are omitted, and
-    /// so is the cost when ``includesCost`` is off.
+    /// Components that are unknown (context window, price) or not in
+    /// ``shownParts`` are omitted; with none left the summary is empty.
     func summary(for usage: SidebarAgentUsage) -> String {
-        var parts = [usage.modelName]
-        if let fraction = usage.contextFraction {
+        var parts: [String] = []
+        if shownParts.contains(.model) {
+            parts.append(usage.modelName)
+        }
+        if shownParts.contains(.context), let fraction = usage.contextFraction {
             parts.append(fraction.formatted(.percent.precision(.fractionLength(0)).locale(locale)))
         }
-        if includesCost, let cost = usage.estimatedCostUSD {
+        if shownParts.contains(.cost), let cost = usage.estimatedCostUSD {
             let costText = cost.formatted(.currency(code: "USD").precision(.fractionLength(2)).locale(locale))
             // The tilde marks the figure as an estimate, the plus a lower bound.
             parts.append(usage.costIsLowerBound
@@ -65,16 +68,18 @@ struct SidebarAgentUsageFormatter {
         guard !usageByStatusKey.isEmpty else { return entries }
         return entries.map { entry in
             guard let usage = usageByStatusKey[entry.key] else { return entry }
+            let usageText = summary(for: usage)
+            guard !usageText.isEmpty else { return entry }
             return SidebarStatusEntry(
                 key: entry.key,
-                value: entry.value + Self.separator + summary(for: usage),
+                value: entry.value + Self.separator + usageText,
                 icon: entry.icon,
                 color: entry.color,
                 url: entry.url,
                 priority: entry.priority,
                 format: entry.format,
                 timestamp: entry.timestamp,
-                helpText: includesCost && usage.estimatedCostUSD != nil ? Self.costHelpText : entry.helpText
+                helpText: shownParts.contains(.cost) && usage.estimatedCostUSD != nil ? Self.costHelpText : entry.helpText
             )
         }
     }
