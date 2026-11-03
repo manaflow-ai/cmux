@@ -44,7 +44,7 @@ export function NumberField({
           data-inherited={draft === null && value === null && inherited !== null ? "" : undefined}
           type="text"
           inputMode="decimal"
-          render={<input size={1} />}
+          render={<input size={1} aria-labelledby={labelId} />}
           value={shown}
           placeholder={placeholder}
           disabled={disabled}

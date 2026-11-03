@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { Input } from "../../../ui/Input";
 import { Button } from "../../../ui/Button";
 import { Tooltip } from "../../../ui/Tooltip";
@@ -27,11 +28,13 @@ export function SearchField({
   onChangedOnly: (on: boolean) => void;
 }) {
   const filterLabel = t("settingsPage.changedOnly");
+  const searchId = useId();
   return (
     <div className="search-bar">
-      <label className="search">
+      <label className="search" htmlFor={searchId}>
         <Icon name="search" />
         <Input
+          id={searchId}
           size="lg"
           ref={focusOnMount}
           className="field search-input"

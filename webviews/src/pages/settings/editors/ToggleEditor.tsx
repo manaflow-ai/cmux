@@ -17,7 +17,7 @@ export function Switch({
   return (
     <SharedSwitch
       nativeButton
-      render={<button type="button" />}
+      render={<button type="button" aria-labelledby={labelId} />}
       size="sm"
       checked={checked}
       aria-labelledby={labelId}
