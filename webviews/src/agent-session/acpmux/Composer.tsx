@@ -1,3 +1,4 @@
+import { acpmuxPerf } from "./perf";
 import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 // Send's iMessage colors (--cmux-messages-blue); build-agent-pane-web.sh inlines the sheet.
@@ -492,6 +493,7 @@ export function Composer({
   placeholder,
   onOpenContext,
 }: Props) {
+  acpmuxPerf.render("composer");
   const t = useT();
   const chrome = useComposerChrome();
   // Off (a queued row's ⋯ menu, queueing.ts), what is sent mid-turn steers on every key.

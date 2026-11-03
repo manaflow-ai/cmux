@@ -124,6 +124,7 @@ export async function loadRun(
   // A page still busy from the seed stretches the warmup frames; no display here is slower than 60 Hz.
   const nominal = Math.min(1000 / 60, Math.max(1, median(warmup.slice(1).map((time, index) => time - warmup[index]!))));
   acpmuxPerf.resetFrames();
+  acpmuxPerf.resetRenders();
   const streaming = mock.streamLoadTurn(session, {
     seconds,
     chunkChars: Math.max(1, Math.floor(options.chunk_chars ?? 32)),
@@ -167,6 +168,9 @@ export async function loadRun(
     if (streamDone) tail += 1;
   }
   const streamed = await streaming;
+  // Renders per component over the run (`acpmuxPerf.render`): the pane root, the composer and
+  // each row by id (`row:<id>`), so a caller can tell what a streamed chunk re-rendered.
+  const renders = Object.fromEntries(acpmuxPerf.renders);
   const sorted = [...work].sort((a, b) => a - b);
   const stats = acpmuxPerf.stats(false) as Record<string, unknown>;
   // The longest frames, in order, with what they spent where.
@@ -203,6 +207,7 @@ export async function loadRun(
     react_ms: stats.react,
     other_ms: stats.other,
     spans: stats.spans,
+    renders,
     longest,
   };
 }

@@ -2354,6 +2354,7 @@ const RowFrame = React.memo(function RowFrame({
   children: React.ReactNode;
 }) {
   acpmuxPerf.span("row.renders", 1);
+  acpmuxPerf.render(`row:${row.id}`);
   const t = useT();
   const ref = useRef<HTMLElement>(null);
   const [entering] = useState(enter);
@@ -6119,6 +6120,7 @@ const NO_PROJECTS: Project[] = [];
 function AcpmuxPane() {
   // Debug measurement (acpmuxPerf): the pane's own render, before its children.
   const paneRenderStart = acpmuxPerf.enabled ? performance.now() : 0;
+  acpmuxPerf.render("pane");
   const t = useT();
   const { scrollToBottomOnSend, newChatsIn } = useComposerSettings();
   const scrollToBottomOnSendRef = useRef(scrollToBottomOnSend);
