@@ -94,6 +94,16 @@ public final class HiddenPageCloses<Pane: AnyObject> {
         return true
     }
 
+    /// The page of tab `id` closed it (no handler, or Leave): its decision is over. Returns the held pane, whose close
+    /// takes the tab (a pane emptied by the hide is no longer shown, so nothing else finds it). `keepsHidden`: the tab
+    /// stays out until that close prepares it (``lift(_:)`` from `prepareClose`), so a close of several tabs waiting
+    /// for other pages shows no closed tab again meanwhile.
+    public func pageClosed(_ id: String, keepsHidden: Bool) -> Pane? {
+        guard let entry = entries[id] else { return nil }
+        if keepsHidden { entry.end() } else { lift(id) }
+        return entry.pane
+    }
+
     /// The page of tab `id` neither closed nor asked in time: it closes without asking.
     public func expire(_ id: String) {
         guard let pane = entries[id]?.pane, lift(id) else { return }
