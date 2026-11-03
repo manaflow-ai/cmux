@@ -44,9 +44,8 @@ fn flush(paragraph: &mut String, links: &mut Vec<String>, output: &mut Vec<Strin
     if !text.is_empty() {
         let chars: Vec<_> = text.chars().collect();
         let mut remaining = chars.as_slice();
-        while let Some((window, _)) = remaining
-            .split_at_checked(PARAGRAPH_CHARS)
-            .filter(|(_, rest)| !rest.is_empty())
+        while let Some((window, _)) =
+            remaining.split_at_checked(PARAGRAPH_CHARS).filter(|(_, rest)| !rest.is_empty())
         {
             let end = window
                 .iter()
