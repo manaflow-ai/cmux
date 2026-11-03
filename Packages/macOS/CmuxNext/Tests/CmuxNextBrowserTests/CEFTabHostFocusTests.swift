@@ -215,23 +215,43 @@ import Testing
     }
 
     /// Review of #32633: a Chromium New Tab page (a blank document) never counted as ready, so Cmd-L after Escape waited
-    /// the whole bound, and every new page waited for its document. Only a tab back from the session (a reopen, a
-    /// hibernation wake) waits for its first document; another takes keys once Chromium created it. A restored blank
-    /// tab is ready once its blank document loaded.
-    @Test func onlyARestoredTabWaitsForItsDocumentAndABlankOneCountsWhenItIsTheTabs() throws {
+    /// the whole bound. A page with nothing to load takes keys once Chromium created it; a page asked to show a blank
+    /// document is ready once that blank document loaded.
+    @Test func aPageWithNothingToLoadIsReadyAtOnceAndABlankTargetCountsItsBlankDocument() throws {
         let runtime = try Self.runtime(hostMode: false)
         let (_, fresh) = try Self.livePane(runtime)
-        #expect(fresh.pageReady, "a New Tab page was not ready once Chromium created it")
+        #expect(fresh.pageReady, "a page with nothing to load was not ready once Chromium created it")
         let blank = try Self.restoredLivePane(runtime, url: "about:blank", browser: Self.firstBrowser + 1)
         #expect(!blank.pageReady)
         Self.load(runtime, Self.firstBrowser + 1, "about:blank")
-        #expect(blank.pageReady, "a restored blank tab never got ready: its keys waited the whole bound")
+        #expect(blank.pageReady, "a tab asked to show a blank page never got ready: its keys waited the whole bound")
     }
 
-    /// A tab back from the session that shows `url`, whose browser Chromium created.
+    /// Lead on STATUS 7916 (v6 of #32633, cycle B 0 of 3): a reopened tab that loads its page by address (no saved
+    /// navigation state) counted as ready at its attach, so the held keys went to the empty document before its restore
+    /// navigation began. Journal order: the browser exists, an empty document loads, then the page's navigation starts
+    /// and its document loads. The keys wait for that document.
+    @Test func aReopenedTabLoadingByAddressWaitsForItsPageNotTheEmptyDocumentBeforeIt() throws {
+        let runtime = try Self.runtime(hostMode: false)
+        let browser = Self.firstBrowser + 2
+        let tab = try Self.restoredLivePane(runtime, url: "http://127.0.0.1:8080/?c=1", browser: browser)
+        var reported = 0
+        tab.onReadyForKeys = { reported += 1 }
+        #expect(!tab.pageReady, "a reopened tab was ready at its attach, before its page's navigation began")
+        Self.load(runtime, browser, "about:blank")
+        #expect(!tab.pageReady, "the empty document before the restore navigation counted as the page")
+        runtime.handle(.loadingState(browser: browser, loading: true, canGoBack: false, canGoForward: false))
+        runtime.handle(.loadStart(browser: browser, url: "http://127.0.0.1:8080/?c=1", fromPost: false))
+        #expect(!tab.pageReady, "ready at the commit, before the page's script ran")
+        runtime.handle(.loadEnd(browser: browser, httpStatus: 200))
+        runtime.handle(.loadingState(browser: browser, loading: false, canGoBack: false, canGoForward: false))
+        #expect(tab.pageReady && reported == 1)
+    }
+
+    /// A tab asked to show `url` before Chromium made it (a reopen by address), whose browser Chromium created.
     private static func restoredLivePane(_ runtime: CEFRuntime, url: String, browser: Int32 = firstBrowser) throws -> CEFTab {
         let (host, tab) = pane(runtime)
-        (tab.awaitsFirstDocument, tab.pendingURL) = (true, URL(string: url))
+        if let url = URL(string: url) { tab.load(url) } // as the app asks for it before Chromium made the page
         host.ensureCreated(tab)
         let request = try #require(runtime.pendingWindows.keys.first { runtime.pendingWindows[$0] === host })
         runtime.handle(.afterCreated(browser: browser, request: request, window: 1))
