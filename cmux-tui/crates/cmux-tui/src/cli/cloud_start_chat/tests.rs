@@ -359,3 +359,211 @@ fn a_session_that_stops_answering_fails_at_once() {
     assert_eq!(error["code"], "chat.lost");
     assert_eq!(fake.ran.len(), 4);
 }
+
+/// A machine here: `cloud exec` runs its script with bash in a home of its own, whose
+/// `~/.cmux/bin/cmux-tui` keeps what `acp send` reads; every other step answers from a queue.
+/// `command_cap` refuses a longer command as the cmux API does (nothing of it runs).
+struct Guest {
+    home: tempfile::TempDir,
+    command_cap: Option<usize>,
+    answers: VecDeque<Ran>,
+    execs: Vec<String>,
+}
+
+impl Guest {
+    fn new(command_cap: Option<usize>) -> Self {
+        let home = tempfile::tempdir().unwrap();
+        let bin = home.path().join(".cmux/bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let tool = bin.join("cmux-tui");
+        std::fs::write(
+            &tool,
+            "#!/bin/bash\n\
+             case \"$2\" in\n\
+             history) echo '{\"turns\":[]}' ;;\n\
+             send) cat > \"$HOME/received\"; echo delivery-1 ;;\n\
+             *) exit 9 ;;\n\
+             esac\n",
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+        Self { home, command_cap, answers: vec![signed_in(), started()].into(), execs: Vec::new() }
+    }
+
+    fn received(&self) -> Option<Vec<u8>> {
+        std::fs::read(self.home.path().join("received")).ok()
+    }
+
+    fn prompts_left(&self) -> usize {
+        std::fs::read_dir(self.home.path().join(".cmux/prompts")).map_or(0, |dir| dir.count())
+    }
+}
+
+impl Runner for Guest {
+    fn cmux(&mut self, args: &[String]) -> Ran {
+        if args.get(1).map(String::as_str) != Some("exec") {
+            return self.answers.pop_front().expect("an answer for every step");
+        }
+        let script = args.get(5).cloned().unwrap_or_default();
+        self.execs.push(script.clone());
+        if self.command_cap.is_some_and(|cap| script.len() > cap) {
+            return Ran {
+                code: 1,
+                stdout: String::new(),
+                stderr: json!({"code": "vm_command_too_large",
+                               "message": "the command is over 65536 bytes"})
+                .to_string(),
+            };
+        }
+        // The script from a file, as no single argument here may be that long.
+        let file = self.home.path().join("script.sh");
+        std::fs::write(&file, &script).unwrap();
+        let out = std::process::Command::new("bash")
+            .arg(&file)
+            .env("HOME", self.home.path())
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        exec_out(&String::from_utf8_lossy(&out.stdout))
+    }
+    fn pause(&mut self, _duration: Duration) {}
+    fn now(&mut self) -> Instant {
+        Instant::now()
+    }
+    fn fresh_name(&mut self) -> String {
+        "chat-fresh".into()
+    }
+}
+
+/// A prompt of several MiB, every byte value a prompt can hold (multi-byte text, quotes, `$`,
+/// newlines), not a repeat a piece boundary could hide in.
+fn big_prompt(bytes: usize) -> String {
+    let words = ["naïve ", "'quoted' ", "$HOME ", "`tick` ", "日本語 ", "\\back ", "line\n", "🙂 "];
+    let mut text = String::with_capacity(bytes + 16);
+    let mut n: u64 = 7;
+    while text.len() < bytes {
+        n = n.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        text.push_str(words[(n >> 61) as usize]);
+        text.push_str(&(n % 100_000).to_string());
+    }
+    text
+}
+
+#[test]
+fn a_prompt_of_several_mib_reaches_the_chat_whole() {
+    let prompt = big_prompt(5 * 1024 * 1024);
+    let mut machine = Guest::new(None);
+    let asked = request(&["--prompt", prompt.as_str(), "--name", "dev"]);
+    let Outcome::Done(answer) = run(&mut machine, &asked) else { panic!("not sent") };
+    assert_eq!(answer["sent"], true);
+    assert_eq!(answer["delivery"], "delivery-1");
+    assert_eq!(machine.received().as_deref(), Some(prompt.as_bytes()), "the prompt, byte for byte");
+    // Large pieces, then the send; no command held the whole prompt.
+    let pieces = prompt.len().div_ceil(PROMPT_PIECE_BYTES);
+    assert_eq!(machine.execs.len(), pieces + 1);
+    assert!(machine.execs.iter().all(|script| script.len() < 600 * 1024));
+    assert_eq!(machine.prompts_left(), 0, "the prompt file is removed after the send");
+}
+
+#[test]
+fn a_route_that_takes_64_kib_commands_gets_small_pieces_and_the_whole_prompt() {
+    let prompt = big_prompt(3 * 1024 * 1024 + 17);
+    let mut machine = Guest::new(Some(64 * 1024));
+    let asked = request(&["--prompt", prompt.as_str(), "--name", "dev"]);
+    let Outcome::Done(answer) = run(&mut machine, &asked) else { panic!("not sent") };
+    assert_eq!(answer["sent"], true);
+    assert_eq!(machine.received().as_deref(), Some(prompt.as_bytes()));
+    // One refused large piece (nothing of it ran), then small ones.
+    let refused = machine.execs.iter().filter(|script| script.len() > 64 * 1024).count();
+    assert_eq!(refused, 1);
+    assert_eq!(machine.execs.len(), 1 + prompt.len().div_ceil(SMALL_PROMPT_PIECE_BYTES) + 1);
+    assert_eq!(machine.prompts_left(), 0);
+}
+
+#[test]
+fn a_short_prompt_still_goes_inside_the_send() {
+    let mut machine = Guest::new(Some(64 * 1024));
+    let asked = request(&["--prompt", "What is 2+2? It's $5 `now`", "--name", "dev"]);
+    let Outcome::Done(_) = run(&mut machine, &asked) else { panic!("not sent") };
+    assert_eq!(machine.execs.len(), 1);
+    assert_eq!(machine.received().as_deref(), Some(&b"What is 2+2? It's $5 `now`"[..]));
+}
+
+#[test]
+fn a_prompt_the_machine_did_not_take_whole_fails_with_the_chat_ids() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        // The first piece landed short.
+        exec_out("@@size 12\n"),
+        // The cleanup.
+        exec_out(""),
+    ]);
+    let prompt = "x".repeat(200 * 1024);
+    let Outcome::Failed { error, exit } =
+        run(&mut fake, &request(&["--prompt", prompt.as_str(), "--name", "dev"]))
+    else {
+        panic!()
+    };
+    assert_eq!(exit, 1);
+    assert_eq!(error["code"], "chat.send_failed");
+    assert_eq!(error["details"]["answer"]["session_id"], "sess-1");
+    assert!(fake.ran[3][5].contains("rm -f \"$f\""));
+}
+
+#[test]
+fn a_send_refused_after_the_upload_removes_the_prompt_file() {
+    let prompt = "x".repeat(200 * 1024);
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out(&format!("@@size {}\n", prompt.len())),
+        // The send: refused before it started.
+        Ran {
+            code: 1,
+            stdout: String::new(),
+            stderr: json!({"code": "vm_busy", "message": "retry shortly"}).to_string(),
+        },
+        // The cleanup.
+        exec_out(""),
+    ]);
+    let Outcome::Failed { error, .. } =
+        run(&mut fake, &request(&["--prompt", prompt.as_str(), "--name", "dev"]))
+    else {
+        panic!()
+    };
+    assert_eq!(error["code"], "chat.unreachable");
+    assert_eq!(fake.ran.len(), 5);
+    let upload = &fake.ran[2][5];
+    let cleanup = &fake.ran[4][5];
+    assert!(cleanup.ends_with("rm -f \"$f\""));
+    // The same file the upload wrote.
+    let file = |script: &str| {
+        script.split("f=").nth(1).and_then(|s| s.split(';').next()).map(str::to_owned)
+    };
+    assert_eq!(file(cleanup), file(upload));
+}
+
+#[test]
+fn a_send_with_no_answer_keeps_the_prompt_file_for_a_send_still_reading_it() {
+    let prompt = "x".repeat(200 * 1024);
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out(&format!("@@size {}\n", prompt.len())),
+        Ran {
+            code: 1,
+            stdout: String::new(),
+            stderr: json!({"code": "vm_unavailable", "message": "the machine did not answer"})
+                .to_string(),
+        },
+    ]);
+    let Outcome::Failed { error, .. } =
+        run(&mut fake, &request(&["--prompt", prompt.as_str(), "--name", "dev"]))
+    else {
+        panic!()
+    };
+    assert_eq!(error["code"], "chat.unreachable");
+    assert_eq!(fake.ran.len(), 4, "no cleanup exec");
+}

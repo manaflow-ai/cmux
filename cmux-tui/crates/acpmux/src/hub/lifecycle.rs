@@ -105,6 +105,7 @@ impl Hub {
             lineage,
             disallowed_tools,
             checked_cwd,
+            additional_directories,
             person,
         } = req;
         // The proven agent session that asked for this one, as it is now; never for a remote
@@ -136,10 +137,24 @@ impl Hub {
         // The store an adopt reads: every Claude Code profile's is Claude's, whatever its family
         // (`claude-sr2`); the chat keeps `family` and the profile it was asked on.
         let store_family = crate::config::store_family(agent, &profile);
+        // The starter whose limits this chat takes (`start_mode.rs`, "Inherit"): a sub-session's
+        // parent, a starter in full access, or any starter under `holdAgentStartsToStarter`. Else
+        // the chat starts at the person's configured default, as a start with no starter does
+        // (user 2026-11-03: an agent in Manual left the chats it opened in Manual).
+        let held = self.config.read().await.hold_agent_starts_to_starter;
+        let limits_from = match starter.as_deref() {
+            Some(id) if !held && subsession.is_none() => {
+                let full = self.resolve(id).ok().is_some_and(|s| {
+                    self.caller_access(&s.meta()) == super::subsession_guard::Access::Full
+                });
+                full.then(|| id.to_owned())
+            }
+            _ => starter.clone(),
+        };
         // No policy asked: the defaults' when it is no wider than a starter's, else the starter's
         // own (`start_mode.rs`, "Inherit").
-        let inherits_policy = policy.is_none() && starter.is_some();
-        let policy = match (policy, starter.as_deref()) {
+        let inherits_policy = policy.is_none() && limits_from.is_some();
+        let policy = match (policy, limits_from.as_deref()) {
             (Some(asked), _) => Some(asked),
             (None, Some(id)) => {
                 let daemon = self.config.read().await.permission_policy;
@@ -234,6 +249,8 @@ impl Hub {
         (meta.session_env, meta.chat_store, meta.adopted_cwd, meta.git_branch, meta.git_head) =
             (session_env, chat_store, adopted_cwd, git.branch, git.head);
         meta.workspace_id = workspace_id;
+        meta.additional_directories =
+            super::additional_dirs::without_cwd(additional_directories, &meta.cwd);
         meta.vm_boundary = remote && vm_boundary;
         meta.subsession = subsession;
         meta.lineage = lineage;
@@ -251,6 +268,7 @@ impl Hub {
                     && meta.session_env.is_empty()
                     && route.is_none()
                     && meta.tools.off.is_empty()
+                    && meta.additional_directories.is_empty()
                     && checked_cwd.is_none() =>
             {
                 self.pool_claim(&meta, &profile, &defaults.env).await
@@ -437,14 +455,14 @@ impl Hub {
             // A proven agent starter's instead, never wider (`start_mode.rs`, "Inherit").
             let start_mode = if mode_eligible {
                 // Boxed, as the hold below: inline they outgrow a debug build's 2 MiB stack.
-                Box::pin(self.start_mode_for(&session, starter.as_deref())).await
+                Box::pin(self.start_mode_for(&session, limits_from.as_deref())).await
             } else {
                 None
             };
             if let Some(mode) = start_mode {
                 match self.set_mode(&session, &mode).await {
                     Ok(_) => {
-                        let starter = starter.as_deref();
+                        let starter = limits_from.as_deref();
                         self.inherited_full_access_is_cmux_only_if_theirs(&session, starter);
                     }
                     Err(err) => {
@@ -456,7 +474,7 @@ impl Hub {
             // Never asking less than the starter as it is now (it may have narrowed or left full
             // access meanwhile, or the child's family has no mode that asks): an inherited policy
             // is narrowed to the starter's, and the harness moved, else refused.
-            let starter = starter.as_deref();
+            let starter = limits_from.as_deref();
             Box::pin(self.hold_to_starter(&session, starter, inherits_policy, mode_eligible))
                 .await?;
             // Every chat, eligible or not: a preset's or a pinned profile's policy holds too.
@@ -1026,6 +1044,11 @@ impl Hub {
                 if resume.is_none() { Some(uuid::Uuid::now_v7().to_string()) } else { None };
             let effort = current_effort(&meta).unwrap_or_else(|| "default".into());
             let fast = current_option(&meta, "fast-mode").as_deref() == Some("on");
+            let suggestions = crate::claude_stdio::prompt_suggestions::chat_pick(current_option(
+                &meta,
+                crate::claude_stdio::prompt_suggestions::OPTION,
+            ));
+            let recap = current_option(&meta, crate::claude_stdio::RECAP_OPTION);
             let mode = meta
                 .modes
                 .as_ref()
@@ -1080,6 +1103,9 @@ impl Hub {
                 &mode,
                 Some(&model),
             );
+            // The chat's Sources (`additional_dirs.rs`), at every start.
+            let mut plan = plan;
+            plan.args.extend(super::additional_dirs::claude_args(&meta));
             let (plan, profile) = self.remote_chain_plan(session, profile, plan).await?;
             // A fresh process was given its id; a resumed one already has it.
             let known = if fork { None } else { fresh_id.clone().or_else(|| existing_sid.clone()) };
@@ -1090,6 +1116,8 @@ impl Hub {
                     model: model.clone(),
                     effort: effort.clone(),
                     fast,
+                    prompt_suggestions: suggestions,
+                    recap: recap.clone(),
                     claude_session_id: known.clone(),
                 };
                 self.spawn_hosted_child(
@@ -1109,6 +1137,8 @@ impl Hub {
                     &effort,
                 );
                 *tr.fast.lock().await = fast;
+                tr.prompt_suggestions.store(suggestions, std::sync::atomic::Ordering::SeqCst);
+                tr.set_recap(recap.as_deref());
                 if let Some(sid) = known {
                     *tr.session_id.lock().await = Some(sid);
                 }

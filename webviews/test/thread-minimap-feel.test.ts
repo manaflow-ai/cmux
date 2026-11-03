@@ -412,5 +412,120 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
       expect(clipped).toEqual([]);
       await page.close();
     });
+
+    // Leo, 2026-11-03: "i feel like our animation isn't as good as chatgpt's for it, it doesn't feel
+    // as wave-y as chatgpt's. something about easing or whatever idk it doesn't feel smooth when
+    // you're hoving your mouse through it". The fisheye stepped by whole rows: inside a row the ticks
+    // held still, and crossing into the next row moved every tick near it at once (the hovered one
+    // 26 to 20 px). The wave follows the pointer's own y: each tick's length is a smooth function of
+    // its distance from the pointer, so a pixel of pointer travel moves the ticks a little, anywhere.
+    test("the hover wave follows the pointer's y: a 1 px move changes no tick by more than 1.5 px", async () => {
+      const page = await open(turns(0, COUNT), 9000);
+      const top = await page.evaluate(() => {
+        const box = document.querySelector<HTMLElement>('[data-tick="30"]')!.getBoundingClientRect();
+        return { x: box.left + 6, y: box.top };
+      });
+      await page.mouse.move(top.x, top.y + 5);
+      /// Every tick from 24 to 37 once their lengths have held for three painted frames.
+      const settledLengths = () =>
+        page.evaluate(async () => {
+          const probe = window as any;
+          const read = () => Array.from({ length: 14 }, (_, at) => probe.__length(24 + at) as number);
+          let last = read();
+          let held = 0;
+          for (let frame = 0; frame < 120 && held < 3; frame += 1) {
+            await window.cmuxPaintFrame();
+            const now = read();
+            held = now.every((length, at) => Math.abs(length - last[at]!) < 0.01) ? held + 1 : 0;
+            last = now;
+          }
+          return last;
+        });
+      await settledLengths();
+      // From 1 px into row 30 to 1 px before the end of row 31, a pixel at a time.
+      const rows: number[][] = [];
+      for (let y = 1; y < 20; y += 1) {
+        await page.mouse.move(top.x, top.y + y);
+        rows.push(await settledLengths());
+      }
+      let largest = 0;
+      for (let at = 1; at < rows.length; at += 1)
+        for (let tick = 0; tick < rows[at]!.length; tick += 1)
+          largest = Math.max(largest, Math.abs(rows[at]![tick]! - rows[at - 1]![tick]!));
+      // A row is 10 px: a stepped fisheye moves the hovered tick 6 px on the pixel that crosses into
+      // the next row and 0 px on the others.
+      expect(largest).toBeLessThanOrEqual(1.5);
+      // Inside one row the ticks still move: tick 30 is longest with the pointer on its middle.
+      const tick30 = rows.map((lengths) => lengths[6]!);
+      expect(tick30[4]! - tick30[0]!).toBeGreaterThan(0.2);
+      expect(Math.max(...tick30.slice(0, 9))).toBeCloseTo(26, 0);
+      // The pointer at the boundary between rows 30 and 31 draws them alike.
+      expect(Math.abs(rows[9]![6]! - rows[9]![7]!)).toBeLessThan(1);
+      await page.close();
+    });
+
+    // The sweep's cost, printed for the PR's Performance table (RAIL_SWEEP_PERF): a pointer swept
+    // down 30 rows at one pixel per painted frame, with the frames' intervals and Chromium's own
+    // layout, style and script counters over the sweep. The rail stays transform-only: no layout
+    // per pointer move.
+    test("a sweep through the rail costs no layout per pointer move", async () => {
+      const page = await open(turns(0, COUNT), 9000);
+      const start = await page.evaluate(() => {
+        const box = document.querySelector<HTMLElement>('[data-tick="20"]')!.getBoundingClientRect();
+        return { x: box.left + 6, y: box.top + 1 };
+      });
+      await page.mouse.move(start.x, start.y);
+      await page.evaluate(() => (window as any).__still(6));
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send("Performance.enable");
+      const metrics = async () =>
+        Object.fromEntries(
+          ((await cdp.send("Performance.getMetrics")) as { metrics: { name: string; value: number }[] }).metrics.map(
+            (metric) => [metric.name, metric.value],
+          ),
+        ) as Record<string, number>;
+      await page.evaluate(() => {
+        const probe = window as any;
+        probe.__sweep = [];
+        window.cmuxAfterPaint((frame) => {
+          probe.__sweep.push(frame);
+          return !probe.__sweepDone;
+        });
+      });
+      const before = await metrics();
+      const moves = 300;
+      for (let step = 1; step <= moves; step += 1) {
+        await page.mouse.move(start.x, start.y + step);
+        await page.evaluate(() => window.cmuxPaintFrame());
+      }
+      const after = await metrics();
+      const frames = await page.evaluate(() => {
+        (window as any).__sweepDone = true;
+        return (window as any).__sweep as number[];
+      });
+      const gaps = frames
+        .slice(1)
+        .map((time, at) => time - frames[at]!)
+        .sort((a, b) => a - b);
+      const pick = (share: number) => gaps[Math.min(gaps.length - 1, Math.floor(gaps.length * share))]!;
+      const delta = (name: string) => (after[name] ?? 0) - (before[name] ?? 0);
+      const report = {
+        moves,
+        frames: frames.length,
+        p50: Number(pick(0.5).toFixed(2)),
+        p95: Number(pick(0.95).toFixed(2)),
+        max: Number(gaps.at(-1)!.toFixed(2)),
+        layouts: delta("LayoutCount"),
+        styleRecalcs: delta("RecalcStyleCount"),
+        scriptMs: Number((delta("ScriptDuration") * 1000).toFixed(1)),
+        layoutMs: Number((delta("LayoutDuration") * 1000).toFixed(1)),
+        styleMs: Number((delta("RecalcStyleDuration") * 1000).toFixed(1)),
+      };
+      console.log(`RAIL_SWEEP_PERF ${JSON.stringify(report)}`);
+      expect(report.frames).toBeGreaterThan(moves / 2);
+      // At most one layout per painted frame: nothing in the sweep forces a second one.
+      expect(report.layouts).toBeLessThanOrEqual(report.frames + 10);
+      await page.close();
+    });
   });
 });

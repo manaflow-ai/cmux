@@ -1,6 +1,661 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "home.engine.primary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primary Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メインの Chief"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الرئيس الأساسي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Primarni Chief"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Primær Chief"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Primärer Chief"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief principal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief principal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief principale"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief ចម្បង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "기본 Chief"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Primær Chief"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Główny Chief"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief principal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Основной Chief"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief หลัก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Birincil Chief"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Основний Chief"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief chính"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "主 Chief"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "主要 Chief"
+          }
+        }
+      }
+    },
+    "home.engine.primaryNote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your texts to the cmux number go to your primary Chief."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux の番号に送ったテキストは、メインの Chief に届きます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تصل رسائلك النصية إلى رقم cmux إلى الرئيس الأساسي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vaše poruke na cmux broj idu vašem primarnom Chiefu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dine beskeder til cmux-nummeret går til din primære Chief."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deine Nachrichten an die cmux-Nummer gehen an deinen primären Chief."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tus mensajes al número de cmux van a tu Chief principal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vos SMS envoyés au numéro cmux vont à votre Chief principal."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I tuoi messaggi al numero cmux vanno al tuo Chief principale."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សារ​របស់​អ្នក​ទៅ​លេខ cmux ទៅ​ដល់ Chief ចម្បង​របស់​អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 번호로 보낸 문자는 기본 Chief에게 갑니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Meldingene dine til cmux-nummeret går til din primære Chief."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Twoje wiadomości na numer cmux trafiają do głównego Chiefa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suas mensagens para o número do cmux vão para o seu Chief principal."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ваши сообщения на номер cmux получает основной Chief."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ข้อความที่คุณส่งไปยังหมายเลข cmux จะไปถึง Chief หลักของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux numarasına gönderdiğin mesajlar birincil Chief'ine gider."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ваші повідомлення на номер cmux отримує основний Chief."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tin nhắn bạn gửi tới số cmux sẽ đến Chief chính của bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你发到 cmux 号码的短信会发给你的主 Chief。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你傳到 cmux 號碼的簡訊會傳給你的主要 Chief。"
+          }
+        }
+      }
+    },
+    "home.engine.primaryUnknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Chief on your account has that name or id."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その名前または id の Chief はアカウントにありません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يوجد رئيس في حسابك بهذا الاسم أو المعرّف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nijedan Chief na vašem računu nema to ime ili id."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen Chief på din konto har det navn eller id."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kein Chief in deinem Konto hat diesen Namen oder diese ID."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ningún Chief de tu cuenta tiene ese nombre o id."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun Chief de votre compte n’a ce nom ou cet id."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessun Chief del tuo account ha quel nome o id."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មាន Chief ណា​ក្នុង​គណនី​របស់​អ្នក​មាន​ឈ្មោះ ឬ id នោះ​ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "계정에 그 이름이나 id를 가진 Chief가 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen Chief på kontoen din har det navnet eller den id-en."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Żaden Chief na Twoim koncie nie ma takiej nazwy ani id."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhum Chief da sua conta tem esse nome ou id."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В вашем аккаунте нет Chief с таким именем или id."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มี Chief ในบัญชีของคุณที่มีชื่อหรือ id นี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hesabında bu ada veya kimliğe sahip bir Chief yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У вашому обліковому записі немає Chief з такою назвою чи id."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có Chief nào trong tài khoản của bạn có tên hoặc id đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的账户中没有这个名称或 id 的 Chief。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的帳號中沒有這個名稱或 id 的 Chief。"
+          }
+        }
+      }
+    },
+    "home.engine.primarySignedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux to choose your primary Chief."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メインの Chief を選ぶには cmux にサインインしてください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سجّل الدخول إلى cmux لاختيار الرئيس الأساسي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prijavite se u cmux da odaberete primarnog Chiefa."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Log ind på cmux for at vælge din primære Chief."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Melde dich bei cmux an, um deinen primären Chief zu wählen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inicia sesión en cmux para elegir tu Chief principal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Connectez-vous à cmux pour choisir votre Chief principal."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Accedi a cmux per scegliere il tuo Chief principale."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចូល cmux ដើម្បី​ជ្រើស Chief ចម្បង​របស់​អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "기본 Chief를 고르려면 cmux에 로그인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Logg på cmux for å velge din primære Chief."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaloguj się do cmux, aby wybrać głównego Chiefa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entre no cmux para escolher seu Chief principal."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Войдите в cmux, чтобы выбрать основного Chief."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลงชื่อเข้าใช้ cmux เพื่อเลือก Chief หลักของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Birincil Chief'ini seçmek için cmux'a giriş yap."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Увійдіть у cmux, щоб вибрати основного Chief."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đăng nhập cmux để chọn Chief chính của bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "登录 cmux 以选择你的主 Chief。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "登入 cmux 以選擇你的主要 Chief。"
+          }
+        }
+      }
+    },
+    "home.engine.primaryRefused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Chief couldn’t be made primary. Try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Chief をメインにできませんでした。もう一度お試しください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر جعل هذا الرئيس أساسيًا. حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj Chief nije mogao postati primarni. Pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne Chief kunne ikke gøres primær. Prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Chief konnte nicht zum primären gemacht werden. Versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo hacer principal a este Chief. Inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce Chief n’a pas pu devenir principal. Réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile rendere principale questo Chief. Riprova."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិន​អាច​ធ្វើ​ឲ្យ Chief នេះ​ជា​ចម្បង​បាន​ទេ។ សូម​ព្យាយាម​ម្ដង​ទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Chief를 기본으로 만들 수 없습니다. 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne Chief-en kunne ikke gjøres primær. Prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie udało się ustawić tego Chiefa jako głównego. Spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível tornar este Chief o principal. Tente de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось сделать этого Chief основным. Попробуйте ещё раз."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถตั้ง Chief นี้เป็นหลักได้ ลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu Chief birincil yapılamadı. Tekrar dene."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося зробити цього Chief основним. Спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể đặt Chief này làm chính. Hãy thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法将此 Chief 设为主 Chief。请重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法將此 Chief 設為主要 Chief。請再試一次。"
+          }
+        }
+      }
+    },
     "home.engine.choosePicture": {
       "comment": "Button in Chief Settings that picks an image as the Chief's picture.",
       "extractionState": "manual",
@@ -5931,134 +6586,134 @@
         }
       }
     },
-    "home.chief.noReply": {
-      "comment": "Home system notice in the Chief conversation when the person's last message has had no reply for some minutes (%lld: minutes, at least 2). The Chief host retries on its own.",
+    "home.chief.notRunning": {
+      "comment": "Home system notice in the Chief conversation when the person's last message has waited two minutes and the Chief's brain is not running. A running Chief says itself why it cannot answer.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No reply from the Chief for %lld min. It retries on its own and tells you if it cannot answer."
+            "value": "The Chief is not running, so it has not read your message yet."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا رد من Chief منذ %lld د. يعيد المحاولة تلقائيًا ويخبرك إذا تعذّر عليه الرد."
+            "value": "Chief لا يعمل، لذلك لم يقرأ رسالتك بعد."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nema odgovora od Chiefa već %lld min. Sam ponovo pokušava i javit će vam ako ne može odgovoriti."
+            "value": "Chief nije pokrenut, pa još nije pročitao vašu poruku."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Intet svar fra Chief i %lld min. Den prøver selv igen og giver dig besked, hvis den ikke kan svare."
+            "value": "Chief kører ikke, så den har ikke læst din besked endnu."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Seit %lld Min. keine Antwort vom Chief. Er versucht es selbst erneut und sagt dir Bescheid, wenn er nicht antworten kann."
+            "value": "Der Chief läuft nicht und hat deine Nachricht daher noch nicht gelesen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sin respuesta del Chief desde hace %lld min. Lo reintenta por su cuenta y te avisa si no puede responder."
+            "value": "El Chief no está en marcha, así que aún no ha leído tu mensaje."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aucune réponse du Chief depuis %lld min. Il réessaie de lui-même et vous prévient s’il ne peut pas répondre."
+            "value": "Le Chief ne tourne pas, il n’a donc pas encore lu ton message."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nessuna risposta dal Chief da %lld min. Riprova da solo e ti avvisa se non riesce a rispondere."
+            "state": "translated",
+            "value": "Il Chief non è in esecuzione, quindi non ha ancora letto il tuo messaggio."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief から %lld 分間返信がありません。自動で再試行し、返信できない場合はお知らせします。"
+            "value": "Chief が動いていないため、まだメッセージを読んでいません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief មិនបានឆ្លើយតបអស់រយៈពេល %lld នាទីហើយ។ វានឹងព្យាយាមម្ដងទៀតដោយខ្លួនឯង ហើយប្រាប់អ្នកប្រសិនបើវាមិនអាចឆ្លើយបាន។"
+            "value": "Chief មិនកំពុងដំណើរការទេ ដូច្នេះវាមិនទាន់បានអានសាររបស់អ្នកនៅឡើយ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief가 %lld분 동안 답하지 않았습니다. 자동으로 다시 시도하며, 답할 수 없으면 알려 줍니다."
+            "value": "Chief가 실행 중이 아니어서 아직 메시지를 읽지 않았습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ikke noe svar fra Chief på %lld min. Den prøver igjen selv og gir deg beskjed hvis den ikke kan svare."
+            "value": "Chief kjører ikke, så den har ikke lest meldingen din ennå."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Brak odpowiedzi od Chiefa od %lld min. Sam ponawia próbę i da ci znać, jeśli nie będzie mógł odpowiedzieć."
+            "state": "translated",
+            "value": "Chief nie działa, więc jeszcze nie przeczytał twojej wiadomości."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Sem resposta do Chief há %lld min. Ele tenta de novo sozinho e avisa você se não conseguir responder."
+            "state": "translated",
+            "value": "O Chief não está em execução, então ainda não leu sua mensagem."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief не отвечает уже %lld мин. Он сам повторяет попытку и сообщит вам, если не сможет ответить."
+            "state": "translated",
+            "value": "Chief не запущен, поэтому ещё не прочитал ваше сообщение."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief ไม่ได้ตอบกลับมา %lld นาทีแล้ว Chief จะลองใหม่เองและแจ้งให้คุณทราบหากตอบไม่ได้"
+            "value": "Chief ไม่ได้ทำงานอยู่ จึงยังไม่ได้อ่านข้อความของคุณ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief %lld dakikadır yanıt vermedi. Kendisi yeniden deniyor ve yanıt veremezse size haber verecek."
+            "state": "translated",
+            "value": "Chief çalışmıyor, bu yüzden mesajınızı henüz okumadı."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief не відповідає вже %lld хв. Він сам повторює спробу й повідомить вас, якщо не зможе відповісти."
+            "state": "translated",
+            "value": "Chief не запущений, тому ще не прочитав ваше повідомлення."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief chưa trả lời trong %lld phút. Chief sẽ tự thử lại và báo cho bạn nếu không thể trả lời."
+            "state": "translated",
+            "value": "Chief không chạy nên chưa đọc tin nhắn của bạn."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief 已 %lld 分钟没有回复。它会自动重试，如果无法回答会告诉你。"
+            "value": "Chief 未在运行，因此还没有读到你的消息。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief 已 %lld 分鐘沒有回覆。它會自動重試，若無法回答會告訴你。"
+            "value": "Chief 未在執行，因此還沒有讀到你的訊息。"
           }
         }
       }

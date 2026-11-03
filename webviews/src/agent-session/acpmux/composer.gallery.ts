@@ -21,6 +21,7 @@ import type { AcpmuxSnapshot } from "./model";
 import type { SessionPullRequest } from "./sessionList";
 import { composerStatePlays } from "./composerStatePlays";
 import { SCREEN_RECORDING_POSTER_JPEG } from "../../gallery/fixtures/videoPoster";
+import { LOGIN_TESTS_MP4 } from "../../gallery/fixtures/toolImages";
 import { parseProbes, pickFrameTimes } from "./composer/videoFramePick";
 
 /// A screen recording on the Desktop, as the host's `video.info` reads it (AgentPaneVideoInfo.swift).
@@ -303,6 +304,38 @@ const waitingSteerSr2 = () => {
 const steering = (steers: boolean) => {
   const running = chat(working, { isWorking: true });
   return { ...running, summary: { ...running.summary!, steering: steers } };
+};
+
+// Leo, 2026-11-03: "this looks kinda weird when i send now and there was a previously steered
+// message". An earlier steer Claude has not read, and a prompt queued after it; Send now on the
+// queued prompt makes it a steer under the same promptId, and the agent reads both at its next step.
+const steerThenQueued = (sentNow: boolean) => {
+  const rows = [
+    user("Add retries", 6),
+    assistant("Adding retries to the fetch loop…", 3, { streaming: true }),
+    user("Use the cache dir, not tmp", 1, {
+      id: "user-steer-earlier",
+      steer: "waiting",
+      steerPromptId: "p-steer-earlier",
+    }),
+  ];
+  const queued = "Then add a test for the 429 path";
+  const running = sentNow
+    ? chat([...rows, user(queued, 0.2, { id: "user-steer-now", steer: "waiting", steerPromptId: "p-queued-now" })], {
+        isWorking: true,
+        newestOwnSteer: "user-steer-now",
+      })
+    : chat(rows, { isWorking: true, queue: [{ id: "p-queued-now", prompt: queued }] });
+  return {
+    ...running,
+    summary: {
+      ...running.summary!,
+      harness: "claude-sr2",
+      family: "claude-sr2",
+      steering: true,
+      backgroundsWork: true,
+    },
+  };
 };
 
 // A new chat in CWD beside a recent chat there with a PR (the suggested prompt's source).
@@ -1211,7 +1244,7 @@ export default agentPaneEntry({
       },
     },
     "video-dropped": {
-      note: 'Leo, 2026-10-25: "also why dont we have previews of videos we should". A screen recording dropped from the Desktop beside a screenshot, in a chat on this Mac: the host knows its path (chat.attach.dropped) and reads its poster and length off its main thread (video.info), so its chip is the poster in the image\'s tile with a play glyph and "0:42"; a click plays it in Quick Look. Before, it was a bare file name.',
+      note: 'Leo, 2026-10-25: "also why dont we have previews of videos we should". A screen recording dropped from the Desktop beside a screenshot, in a chat on this Mac: the host knows its path (chat.attach.dropped) and reads its poster and length off its main thread (video.info), so its chip is the poster in the image\'s tile with a play glyph and "0:42"; a click plays it in the pane (video-playing). Before, it was a bare file name.',
       snapshot: chat(finished),
       native: {
         "chat.attach.dropped": {
@@ -1226,6 +1259,31 @@ export default agentPaneEntry({
       play: async (ctx) => {
         dropScreenshotAndVideo(ctx);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-video img"));
+      },
+    },
+    "video-playing": {
+      note: "Leo, 2026-11-02: \"this i can't play a video preview inside cmux next? i feel like i should be able to\". A click on the dropped recording's ▶ plays it in the pane: the composer's tile is too small for a player's controls, so the player opens large over the pane, playing with sound and its scrub, mute and pause, on the URL the host streams the file by in byte ranges (`media.load`). Held still at 1 s for the capture. Before, a click handed it to Quick Look.",
+      snapshot: chat(finished),
+      native: {
+        "chat.attach.dropped": {
+          items: [
+            { path: "/Users/dev/Desktop/Screenshot.png", folder: false },
+            { path: VIDEO_PATH, folder: false },
+          ],
+        },
+        "video.info": VIDEO_INFO,
+        "video.frames": VIDEO_FRAMES,
+        "media.load": { src: `data:video/mp4;base64,${LOGIN_TESTS_MP4}` },
+      },
+      play: async (ctx) => {
+        dropScreenshotAndVideo(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-video img"));
+        await ctx.click({ selector: ".acpmux-attachment-video-open" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-image-viewer .cv-media__frame.is-playing"));
+        const video = ctx.document.querySelector<HTMLVideoElement>(".acpmux-image-viewer video")!;
+        video.pause();
+        video.currentTime = 1;
+        await ctx.waitFor(() => !video.seeking && video.readyState >= 2);
       },
     },
     "video-reading": {
@@ -1538,9 +1596,9 @@ export default agentPaneEntry({
       note: "A turn running: Send becomes Stop.",
       snapshot: chat(working, { isWorking: true }),
     },
-    // Leo 2026-10-20: the empty prompt mid-turn teaches its keys, as Claude's composer does.
+    // Leo 2026-11-03: mid-turn the empty prompt keeps Claude desktop's placeholder; Send names the keys.
     "working-hint-steer": {
-      note: "A turn running for an agent that steers: the empty prompt says ↵ steers and ⌘↵ queues.",
+      note: "A turn running for an agent that steers: the empty prompt says Type / for commands; Send's tooltip names ↵ steer and ⌘↵ queue.",
       snapshot: steering(true),
     },
     "working-hint-queue": {
@@ -1577,7 +1635,7 @@ export default agentPaneEntry({
       snapshot: chat(working, { isWorking: true, stopping: true }),
     },
     "working-steer": {
-      note: "A prompt typed while the turn runs: Stop's slot before the mic turns into the one Send (↵ in Claude's look), which puts the prompt into the turn as Return does (read when the agent's current step ends); ⌘Return queues it for after the turn. No second ↵ control (Leo 2026-10-31).",
+      note: "A prompt typed while the turn runs: Stop's slot before the mic turns into the one Send (↵ in Claude's look), which puts the prompt into the turn as Return does (read when the agent's current step ends); ⌘Return queues it for after the turn; its tooltip names both keys. No second ↵ control (Leo 2026-10-31).",
       snapshot: steering(true),
       ready: { draft: "Use the new tokenizer instead" },
       play: async (ctx) => {
@@ -1585,7 +1643,7 @@ export default agentPaneEntry({
           const sends = ctx.document.querySelectorAll(".acpmux-composer-actions :is(.acpmux-send, .acpmux-cancel)");
           return (
             sends.length === 1 &&
-            sends[0]!.getAttribute("title") === "Send now; the agent reads it mid-turn (Return)" &&
+            sends[0]!.getAttribute("title") === "↵ steer · ⌘↵ queue" &&
             ctx.document.querySelector(".acpmux-composer-actions > .acpmux-send + .acpmux-fit-mic")
           );
         });
@@ -1634,8 +1692,8 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
-        // It waits in the one collapsed group of waiting messages (PendingMessagesCard.tsx).
-        await ctx.click({ selector: ".cv-pending__toggle" });
+        // It waits as its own line; with others it waits in their one collapsed group (PendingMessagesCard.tsx).
+        if (ctx.document.querySelector(".cv-pending__toggle")) await ctx.click({ selector: ".cv-pending__toggle" });
         await ctx.waitFor(() => ctx.document.querySelector('[data-queued-message="q1"] .cv-disclosure__toggle'));
         await ctx.click({ selector: '[data-queued-message="q1"] .cv-disclosure__toggle' });
         await ctx.waitFor(() =>
@@ -1857,6 +1915,20 @@ export default agentPaneEntry({
         const after = actions?.getBoundingClientRect();
         if (!before || !after || before.top !== after.top || before.height !== after.height)
           throw new Error("the steer's action row moved when Send now left");
+      },
+    },
+    "steer-send-now-queued-after-steer": {
+      note: "Play: an earlier steer Claude has not read, and a prompt queued after it. Send now on the queued prompt makes it a steer the agent reads with the earlier one at its next step: neither offers Send now or the X again, and both show their normal hover actions.",
+      snapshot: steerThenQueued(false),
+      native: { "chat.queue.edit": { ok: true } },
+      afterCall: { "chat.queue.edit": steerThenQueued(true) },
+      play: async (ctx) => {
+        await ctx.hover({ text: "Then add a test for the 429 path" });
+        await ctx.click({ selector: ".acpmux-queued-steer" });
+        // The queued prompt is now a steer in the transcript, under the earlier one.
+        await ctx.waitFor(() =>
+          [...ctx.document.querySelectorAll(".cv-user")].some((n) => n.textContent?.includes("Then add a test")),
+        );
       },
     },
     "steer-marks": {
@@ -2766,7 +2838,7 @@ export default agentPaneEntry({
       }),
     },
     "access-menu": {
-      note: "A Claude chat's mode menu is Claude Code's own: Mode, then Auto (Recommended), Manual, Accept edits, Plan and Bypass permissions with their descriptions and keys 1 to 5, tight rows, the accent check on the chosen one. The button is the mode's symbol and its name, no pill at rest.",
+      note: "A Claude chat's mode menu is Claude Code's own: Mode, then Auto (Recommended), Manual, Accept edits, Plan and Bypass permissions with their descriptions and keys 1 to 5, tight rows, the accent check on the chosen one. The button is the mode's symbol and its name, no pill at rest. Manual is hovered with a neutral wash; Bypass keeps only its check.",
       snapshot: chat(finished, {
         summary: {
           sessionId: "gallery-access",
@@ -2797,6 +2869,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: '[aria-label="Mode"]' });
         await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] [role="menuitemradio"]'));
+        await ctx.hover({ role: "menuitemradio", name: /Manual/ });
       },
     },
     "access-menu-codex": {

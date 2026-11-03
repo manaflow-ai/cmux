@@ -213,15 +213,17 @@ class Journey:
         return [f"UI step {s['step']} failed: {json.dumps(s['detail'], default=str)[:300]}" for s in self.steps if not s["ok"]]
 
     def session(self) -> None:
-        tabs_before = len(self.shown_tabs())
         code, listed = self.cmux("terminal", "list", "--json")
         terms_before = set()
         if code == 0:
             terms_before = {part for part in listed.replace('"', " ").split() if part.startswith(("term_", "t_"))}
         opened = self.run_action("newTab")
-        grown = self.wait(lambda: len(self.shown_tabs()) > tabs_before)
-        self.step("terminal", bool(grown) and "error" not in opened, {"run": opened, "tabs_before": tabs_before,
-                                                                     "tabs_after": len(self.shown_tabs())})
+        # From Home, New Tab opens a new workspace with one tab, so the shown tab count does not grow:
+        # the tab the action made must be the one selected in a shown pane.
+        made = [str(i) for i in opened.get("created") or [] if str(i).startswith("tab_")]
+        shown = self.wait(lambda: made and made[-1] in {str(t.get("id")) for t in self.selected_tabs()})
+        self.step("terminal", bool(shown) and "error" not in opened,
+                  {"run": opened, "selected": [t.get("id") for t in self.selected_tabs()]})
 
         term = self.wait(lambda: self.terminal_id(terms_before), 30)
         typed = self.cmux("terminal", term, "write", "--text", ECHO_COMMAND + "\n") if term else (1, "no terminal id")
@@ -296,6 +298,32 @@ def journey(process, socket_path, env, app, out, report) -> list[str]:
     return Journey(process, Path(socket_path), env, Path(app), Path(out) if out else None, report).run()
 
 
+def login_keychain(env: dict) -> None:
+    """A login keychain inside the fresh home, as a real install has.
+
+    Without one, Chromium's first Safe Storage read put up "Keychain Not Found" and held its pages
+    (runs 41419773317, 41582798853). The app drops an inherited CMUX_MOCK_KEYCHAIN at launch
+    (LaunchIdentity.inheritedKeys strips every inherited CMUX* variable), so the gate keeps the real
+    Keychain path. Every `security` call runs with the home's own HOME and CFFIXED_USER_HOME, so the
+    keychain, its search list and the default are the fresh home's: the runner account's own keychain
+    settings are untouched (checked on cmux11s: default and search list unchanged).
+    """
+    home = Path(env["HOME"])
+    keychain = home / "Library" / "Keychains" / "login.keychain-db"
+    keychain.parent.mkdir(parents=True, exist_ok=True)
+    scoped = {"HOME": env["HOME"], "CFFIXED_USER_HOME": env["CFFIXED_USER_HOME"], "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+              "USER": env.get("USER", "")}
+    for args in (["create-keychain", "-p", "", str(keychain)],
+                 ["list-keychains", "-d", "user", "-s", str(keychain)],
+                 ["default-keychain", "-d", "user", "-s", str(keychain)],
+                 ["set-keychain-settings", str(keychain)]):
+        done = subprocess.run(["security", *args], env=scoped, capture_output=True, text=True, timeout=30)
+        if done.returncode != 0:
+            raise smoke.CannotRun(f"security {args[0]} in the fresh home failed: {done.stderr.strip()[:300]}")
+    smoke.log(f"fresh home login keychain: {keychain}")
+
+
 if __name__ == "__main__":
     smoke.AFTER_RENDER = journey
+    smoke.PREPARE_HOME = login_keychain
     sys.exit(smoke.main())

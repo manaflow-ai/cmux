@@ -25,12 +25,15 @@ private typealias JSON = CmuxNextSettings.JSONValue
 /// visible once the pane shows the new tab selected (its themed pane; `chrome_ms`: its browser view in it); `page_ms` the
 /// first frame after its page painted (first contentful paint, or its load ended); the spans
 /// include Chromium's main-thread steps (`CEFBenchMarks`: `cef.create_window`, `cef.tab_add`, ...).
+/// `link_right` opens `url` (default example.com) from the focused pane as a link opened to the right (split right):
+/// visible once the window shows another pane. `dock_respawn` docks the focused pane's lone tab into a new left
+/// dock and leaves a fresh terminal (a lone chat's new tab, ``ChatColumnPlacement``): visible once the window shows another pane.
 @MainActor
 enum DebugInstantCreateBench {
     private static let frames = BenchFrames()
 
     enum Command: String, CaseIterable {
-        case newWorkspace = "new_workspace", newTab = "new_tab", newTerminal = "new_terminal", splitRight = "split_right", splitDown = "split_down", newBrowser = "new_browser"
+        case newWorkspace = "new_workspace", newTab = "new_tab", newTerminal = "new_terminal", splitRight = "split_right", splitDown = "split_down", newBrowser = "new_browser", linkRight = "link_right", splitBrowser = "split_browser", dockRespawn = "dock_respawn"
 
         var key: (String, [String]) {
             switch self {
@@ -39,7 +42,7 @@ enum DebugInstantCreateBench {
             case .newTerminal: ("`", ["control"])
             case .splitRight: ("d", ["command"])
             case .splitDown: ("d", ["command", "shift"])
-            case .newBrowser: ("l", ["command", "shift"])
+            case .newBrowser, .linkRight, .splitBrowser, .dockRespawn: ("l", ["command", "shift"])
             }
         }
     }
@@ -55,7 +58,14 @@ enum DebugInstantCreateBench {
         services.cache.cef.benchMarks.arm { name, milliseconds in BenchSpans.mark(name, milliseconds: milliseconds) }
         defer { services.cache.cef.benchMarks.arm(nil) }
         let start = ContinuousClock.now
-        if let action = params["run"]?.stringValue {
+        if command == .linkRight, let url = URL(string: params["url"]?.stringValue ?? "https://example.com/") {
+            let placement = services.linkOpener.placement
+            services.linkOpener.placement = { .splitRight }
+            services.linkOpener.openWeb(url, from: controller.content?.focusedPane, background: false)
+            services.linkOpener.placement = placement
+        } else if command == .dockRespawn, let pane = controller.content?.focusedPane, let tab = pane.pane.tabs.first {
+            TabMoves.toNewDockColumn(tab, anchor: pane.pane, edge: .left, role: .agentChat, respawn: .terminal(SpawnOptions()), services: services)
+        } else if let action = params["run"]?.stringValue ?? (command == .splitBrowser ? "splitBrowserRight" : nil) {
             let arguments = params["url"]?.stringValue.map { ["url": ActionValue.string($0)] } ?? [:]
             _ = services.registry.perform(ActionID(rawValue: action), invocation: ActionInvocation(arguments: arguments))
         } else { _ = DebugKey.send(["key": .string(key), "modifiers": .array(modifiers.map(JSON.string)), "window": .string(controller.state.id)], services: services) }
@@ -122,6 +132,7 @@ enum DebugInstantCreateBench {
             case .newTab, .newTerminal: now.pane == pane && now.tab != nil && now.tab != tab
             case .newBrowser: now.pane == pane && now.tab != nil && now.tab != tab && now.tab == now.selected
             case .splitRight, .splitDown: now.workspace == workspace && now.pane != pane && now.paneCount > paneCount
+            case .linkRight, .splitBrowser, .dockRespawn: now.workspace == workspace && now.paneCount > paneCount
             }
         }
 
@@ -129,7 +140,7 @@ enum DebugInstantCreateBench {
             let realTab = tab.map { !$0.hasPrefix(ProvisionalTab.idPrefix) } ?? false
             switch command {
             case .newWorkspace, .newTab, .newTerminal, .newBrowser: return realTab
-            case .splitRight, .splitDown: return realTab && (paneHandle ?? .max) < (1 << 62)
+            case .splitRight, .splitDown, .linkRight, .splitBrowser, .dockRespawn: return realTab && (paneHandle ?? .max) < (1 << 62)
             }
         }
     }

@@ -99,7 +99,7 @@ jobs:
         uses: ./.github/actions/playwright-apt-cache
         with:
           engines: chromium
-      - run: bunx playwright install --with-deps chromium
+      - run: bash "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
       - run: bun run test:instant
         env:
           CMUX_INSTANT_SKIP_TYPECHECK: "1"

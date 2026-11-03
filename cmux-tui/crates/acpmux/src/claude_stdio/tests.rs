@@ -274,6 +274,30 @@ async fn compact_ends_its_prompt_and_reports_the_compaction() {
 }
 
 #[tokio::test]
+async fn compact_result_after_replayed_prompt_ends_the_turn() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let prompt = Message::request(
+        4,
+        method::SESSION_PROMPT,
+        json!({"sessionId": "acp-1", "prompt": [{"type": "text", "text": "/compact"}]}),
+    );
+    let Outbound::Lines(lines) = t.outbound(&prompt).await else { panic!() };
+    // Claude Code 2.1.305 replays the command after the boundary and summary.
+    t.inbound(&json!({"type": "system", "subtype": "status", "status": "compacting"})).await;
+    t.inbound(&json!({"type": "system", "subtype": "status", "status": null, "compact_result": "success"})).await;
+    t.inbound(&json!({"type": "system", "subtype": "compact_boundary", "compact_metadata": {"trigger": "manual", "pre_tokens": 716807, "post_tokens": 17414}})).await;
+    t.inbound(&json!({"type": "user", "isSynthetic": true, "message": {"role": "user", "content": "This session is being continued from a previous conversation. Summary: PLUM-42"}})).await;
+    t.inbound(&json!({"type": "user", "isReplay": true, "uuid": lines[0]["uuid"], "message": lines[0]["message"]})).await;
+    let msgs = t.inbound(&json!({"type": "result", "subtype": "success", "is_error": false, "num_turns": 0, "duration_api_ms": 0, "local_command": "compact", "result": ""})).await;
+    assert!(
+        msgs.iter().any(|m| matches!(m, Message::Response { id, result: Some(r), .. } if *id == 4 && r["stopReason"] == "end_turn")),
+        "/compact left its prompt open after its replay: {msgs:?}"
+    );
+    assert!(!t.in_turn.load(Ordering::SeqCst));
+    assert_eq!(t.context_used.load(Ordering::SeqCst), 17414);
+}
+
+#[tokio::test]
 async fn a_subagent_result_does_not_clear_main_compaction() {
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
     t.inbound(&json!({

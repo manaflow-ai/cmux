@@ -6,8 +6,8 @@
 // App cuts them out of the panel: it draws nothing there and takes no clicks, so the popup shows
 // whole and answers hover and clicks.
 //
-// Every shared popup surface carries `ui-popup` (Menu, Popover, ContextMenu, Combobox, the composer
-// pickers) or `ui-tooltip` (Tooltip, AnchoredCard: the context card); a custom one opts in with
+// Every shared popup surface carries `.ui-popup` (Menu, Popover, ContextMenu, Combobox, the composer
+// pickers) or `.ui-tooltip` (Tooltip, AnchoredCard: the context card); a custom one opts in with
 // `data-native-overlay`. They are found as they mount (a mutation observer that reads only the added
 // nodes, so a streaming transcript costs nothing more than the nodes it adds) and measured each frame
 // while any is mounted, as they place and animate. The frame loop stops when the last one unmounts.

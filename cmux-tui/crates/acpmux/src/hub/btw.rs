@@ -365,6 +365,8 @@ impl Hub {
                     lineage: None,
                     disallowed_tools: Vec::new(),
                     checked_cwd: None,
+                    // It sees what its chat sees.
+                    additional_directories: meta.additional_directories.clone(),
                     // The person's side chat, as its chat is.
                     person: session.person.load(Ordering::SeqCst),
                 };
@@ -636,7 +638,7 @@ impl Hub {
     /// Claude Code's callback currently returns `{response, synthetic}`. Keep the
     /// extraction tolerant of the SDK's documented response object and of a
     /// future plain string/text payload, but never manufacture an answer.
-    fn side_question_text(value: &Value) -> Option<String> {
+    pub(super) fn side_question_text(value: &Value) -> Option<String> {
         let value = value.get("response").unwrap_or(value);
         value
             .as_str()

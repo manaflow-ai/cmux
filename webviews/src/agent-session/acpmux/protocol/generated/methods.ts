@@ -171,6 +171,8 @@ export interface AcpmuxRequests {
   "_acpmux/secret_request": { params: unknown; result: unknown };
   "_acpmux/secret_submit": { params: unknown; result: unknown };
   "_acpmux/secret_run": { params: unknown; result: unknown };
+  "_acpmux/mcp_connect_request": { params: unknown; result: unknown };
+  "_acpmux/mcp_connect_answer": { params: unknown; result: unknown };
   "_acpmux/chats": { params: unknown; result: unknown };
   "_acpmux/chats_watch": { params: unknown; result: unknown };
   "_acpmux/chat_open": { params: unknown; result: unknown };
@@ -247,6 +249,7 @@ export interface AcpmuxRequests {
   "_acpmux/peer_reconnect": { params: unknown; result: unknown };
   "_acpmux/peer_remove": { params: unknown; result: unknown };
   "_acpmux/peer_snapshot": { params: unknown; result: unknown };
+  "_acpmux/peer_snapshots_clear": { params: unknown; result: unknown };
   "_acpmux/pair_ticket_new": { params: unknown; result: unknown };
   "_acpmux/pair_list": { params: unknown; result: unknown };
   "_acpmux/pair_revoke": { params: unknown; result: unknown };
@@ -474,6 +477,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/secret_request", kind: "request", acp: false, typed: false },
   { name: "_acpmux/secret_submit", kind: "request", acp: false, typed: false },
   { name: "_acpmux/secret_run", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/mcp_connect_request", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/mcp_connect_answer", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chats", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chats_watch", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chat_open", kind: "request", acp: false, typed: false },
@@ -553,6 +558,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/peer_reconnect", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_remove", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_snapshot", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/peer_snapshots_clear", kind: "request", acp: false, typed: false },
   { name: "_acpmux/pair_ticket_new", kind: "request", acp: false, typed: false },
   { name: "_acpmux/pair_list", kind: "request", acp: false, typed: false },
   { name: "_acpmux/pair_revoke", kind: "request", acp: false, typed: false },

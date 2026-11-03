@@ -9,6 +9,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use optchat_host::{AnthropicModel, CompactModel, Config, OptChat, Report, SystemClock};
+use serde_json::json;
 
 use crate::acpmux::{Acpmux, AgentEvent, AgentPort, Family, Preset};
 use crate::brain::{Brain, Engine, Input, Settings, parent_tag};
@@ -827,6 +828,21 @@ fn start(
             crate::trace::Trace::off()
         }
     };
+    let (person, team, chief) = match &source {
+        Source::Cloud { install } => (
+            install.user.clone(),
+            install.team.clone(),
+            install.chief.clone(),
+        ),
+        Source::Local { .. } => (Some("unknown".to_owned()), None, None),
+    };
+    trace.emit(
+        "usage.identity",
+        json!({
+            "person": person, "team": team,
+            "chief": chief.unwrap_or_else(|| crate::paths::home_id(home)),
+        }),
+    );
     // Spec 4 (gist 3c190e0): a compaction sends the turns' own system
     // prompt, so it reads it from the turns' cache entry.
     let claude_text =
@@ -989,6 +1005,11 @@ fn start(
         .map_err(|e| format!("writing the subagent directory: {e}"))?;
 
     let (base_url, api_key) = (config.base_url.clone(), config.api_key.clone());
+    let (payer, provider) = crate::usage::payer_provider("native", Some(&base_url));
+    trace.emit(
+        "usage.native_route",
+        json!({"payer": payer, "provider": provider}),
+    );
 
     // acpmux first: the compactor's acpmux route needs the connection before
     // the memory opens and starts building nodes. Its events wait in the
@@ -1296,6 +1317,19 @@ fn start(
                 answer
                     .recv_timeout(wait)
                     .map(|v| format!("{v:#}"))
+                    .map_err(late)
+            }
+            ControlRequest::RightsHook { phase, payload } => {
+                let (reply, answer) = channel();
+                tx.send(Input::RightsHook {
+                    phase,
+                    payload,
+                    reply,
+                })
+                .map_err(stopping)?;
+                answer
+                    .recv_timeout(Duration::from_secs(10))
+                    .map(|v| v.to_string())
                     .map_err(late)
             }
             ControlRequest::SpawnPolicy => {
@@ -1719,7 +1753,26 @@ fn start(
     // The app watches only the default Chief's state/ (cx-oqnw3 review): another
     // Chief still hears a compactor fault as its message until the app watches its home.
     .with_compactor_messages(membership.participant != crate::chief_profile::DEFAULT_CHIEF)
-    .with_workspaces(workspaces);
+    .with_workspaces(workspaces)
+    // Sign-ins that wait on the person go to the app's Feed (Needs you).
+    .with_feed(
+        crate::needs_you_feed::ControlSocketFeed::from_env(&|k: &str| env(k))
+            .map(|f| Arc::new(f) as Arc<dyn crate::needs_you_feed::FeedPort>),
+    );
+    // The rights table and the audit log (rights.rs, audit.rs);
+    // OPTCHAT_RIGHTS=0 turns both off.
+    let brain = if env("OPTCHAT_RIGHTS").as_deref() == Some("0") {
+        brain
+    } else {
+        brain.with_rights(crate::brain::RightsCtx::new(
+            paths.root.clone(),
+            // The turns' login is the harness's, not this process's: only
+            // the owner's declaration (`/auth`) counts, else personal.
+            None,
+            host_name(),
+            Some(paths.session.display().to_string()),
+        ))
+    };
     let mut brain = brain;
     brain.set_sub_starter(sub_starter);
     let idle = brain.cloud_auto_pause_idle();
@@ -2269,4 +2322,17 @@ fn native_env(setup: &SessionSetup, paths: &Paths) -> BTreeMap<String, String> {
 /// socket's turn binding, turn_caller.rs): `optchat-<home id>`.
 fn turn_prefix(home: &std::path::Path) -> String {
     format!("optchat-{}", crate::paths::home_id(home))
+}
+
+/// This machine's name, for the audit log.
+fn host_name() -> String {
+    let mut buf = [0u8; 256];
+    // SAFETY: gethostname writes at most buf.len() bytes into our buffer.
+    let ok = unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) } == 0;
+    let end = buf.iter().position(|b| *b == 0).unwrap_or(buf.len());
+    if ok && end > 0 {
+        String::from_utf8_lossy(&buf[..end]).into_owned()
+    } else {
+        "unknown-host".to_owned()
+    }
 }

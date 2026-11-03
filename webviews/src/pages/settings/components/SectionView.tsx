@@ -24,6 +24,7 @@ import { DENSITY_ROWS } from "../density";
 import { DensityCard } from "./DensityCard";
 import { BrowserProfiles, MACHINE_COLORS_KEY, MachinesSection, SpacesSection } from "./HostSections";
 import { PlaceholderSection } from "./PlaceholderSection";
+import { AppUpdateCard } from "./AppUpdateCard";
 import { WebUpdatesCard } from "./WebUpdatesCard";
 import { VoiceInputCard } from "./VoiceInputCard";
 import { ContextMenusCard } from "./ContextMenusCard";
@@ -65,7 +66,8 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   chiefPet: (focus) => <ChiefPetCard focus={focus} />,
   density: () => <DensityCard />,
   importSuggestions: () => <ImportSuggestionsCard />,
-  channels: () => <ChannelsCard />,
+  channels: (focus) => <ChannelsCard focus={focus} />,
+  appUpdate: () => <AppUpdateCard />,
   webUpdates: () => <WebUpdatesCard />,
   voiceInput: () => <VoiceInputCard />,
   notices: () => <NoticesCard />,

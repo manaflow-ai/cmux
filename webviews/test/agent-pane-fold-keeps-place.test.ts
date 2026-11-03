@@ -89,6 +89,16 @@ await requireBrowserLane("agent-pane-fold-keeps-place.test.ts", async () => {
 
   test("opening a line grows its panel under it; the line does not move", async () => {
     const page = await open();
+    // Off the very bottom: there, opening a line pushes the text above it up instead (Leo,
+    // 2026-11-02, transcript-expand-at-bottom.test.ts).
+    const fromEnd = await page.locator(".acpmux-scroll").evaluate(async (node) => {
+      node.scrollTop = Math.max(0, node.scrollHeight - node.clientHeight - 48);
+      node.dispatchEvent(new Event("scroll"));
+      await window.cmuxPaintFrame();
+      return node.scrollHeight - node.clientHeight - node.scrollTop;
+    });
+    await settled(page);
+    expect(fromEnd).toBeGreaterThan(8);
     const before = await topOf(page);
     await toggleOf(page).click();
     await page.locator(".cv-received__text table").waitFor();

@@ -459,6 +459,14 @@ impl V2Tool {
         {
             text.push_str(" By default reads the original local-only machine shape. catalog:true explicitly includes owner metadata and currently published admitted routes. Metadata grants no execution rights and opens no machine connection.");
         }
+        if self.wire == "workspace.list" {
+            text.push_str(
+                " Lists this Mac's workspaces, then each connected Cloud machine's (from the cmux \
+                 app), marked origin cloud with machine_id, machine_name and target \
+                 machine:<id>; pass machine to list one Cloud machine's. A Cloud workspace is \
+                 named by machine_id and id together: machines made from one image share ids.",
+            );
+        }
         if let Some(constraints) = schema::joined(&descriptor["params"]["constraints"]) {
             text.push(' ');
             text.push_str(&constraints);
@@ -528,6 +536,21 @@ impl V2Tool {
                     "maxLength": 128,
                     "description": "Names this change so a retry cannot apply it twice. \
                         Generated when absent; a failed call returns it.",
+                }),
+            );
+        }
+        // The app's Cloud machines' workspaces join the list (cli/cloud_workspaces.rs).
+        if self.wire == "workspace.list" {
+            properties.insert(
+                "machine".into(),
+                json!({
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Only this Cloud machine's workspaces: its id (vm-…, the \
+                        machine_id cloud new-workspace answers), its target (machine:vm-…) or \
+                        its exact name. `local` lists only this Mac's. Default: this Mac's, then \
+                        every connected Cloud machine's, each marked with machine_id, \
+                        machine_name and target.",
                 }),
             );
         }

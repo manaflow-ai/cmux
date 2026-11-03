@@ -88,7 +88,8 @@ def body(fails):
 
 
 class Wrapper(unittest.TestCase):
-    def run_pr(self, base_files, head_files, base_ref="HEAD^1", install_status=0, extra_env=None, file_timeout="10"):
+    def run_pr(self, base_files, head_files, base_ref="HEAD^1", install_status=0, extra_env=None, file_timeout="10",
+               uname=None):
         """A base commit and the change on top; the wrapper runs from the head's webviews/."""
         temp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         repo = temp / "repo"
@@ -113,6 +114,10 @@ class Wrapper(unittest.TestCase):
         bin_dir.mkdir()
         (bin_dir / "bun").write_text(FAKE_BUN)
         (bin_dir / "bun").chmod(0o755)
+        if uname is not None:
+            # The host the wrapper believes it is on (`uname -s`), whatever runs this test.
+            (bin_dir / "uname").write_text(f"#!/bin/sh\necho {uname}\n")
+            (bin_dir / "uname").chmod(0o755)
         env = {k: v for k, v in os.environ.items() if k not in ("CMUX_BROWSER_TESTS", "GITHUB_ACTIONS")}
         env.update(PATH=f"{bin_dir}:{os.environ['PATH']}", CMUX_WEB_TEST_FILE_TIMEOUT=file_timeout, CMUX_WEB_TEST_JOBS="4",
                    FAKE_BUN_INSTALL_STATUS=str(install_status), TMPDIR=str(temp), **(extra_env or {}))
@@ -169,6 +174,16 @@ class Wrapper(unittest.TestCase):
         self.assertTrue(0 < len(ran) < len(files), out)  # the head ran its shard only
         self.assertEqual(out.count("::warning title=Webview test red on the base too::"), len(ran), out)
 
+    def test_the_base_replay_runs_one_file_at_a_time_whatever_widths_the_shard_set(self):
+        """The shard step sets CMUX_WEB_TEST_DEV_JOBS (4) for its own run; inherited, the base replay
+        would run its red dev-server files 4 at once, and a red that only contention causes there
+        would pass a change's own red off as the base's."""
+        replay = WRAPPER.read_text(encoding="utf-8")
+        replay = replay[replay.index('CMUX_WEB_TEST_JOBS=1'):]
+        replay = replay[:replay.index('bash "$here/run-webviews-tests.sh"')]
+        for name in ("CMUX_WEB_TEST_DEV_JOBS", "CMUX_WEB_TEST_BROWSER_JOBS", "CMUX_WEB_TEST_SHARD"):
+            self.assertIn(f"-u {name} ", replay)
+
     def test_the_changes_files_do_not_reach_the_base_run(self):
         files = {"test/a.test.ts": "SCOPED\n" + body(["old red"])}
         done, out = self.run_pr(files, dict(files), extra_env={"CMUX_PR_CHANGED_FILES": "webviews/src/x.gallery.tsx"})
@@ -213,9 +228,18 @@ class Wrapper(unittest.TestCase):
         # A change that bumps Playwright: the base's version has no engines on this runner, so its
         # browser tests would all be red and match the head's.
         base = {"test/a.test.ts": body(["old red"])}
-        done, out = self.run_pr(base, dict(base), extra_env={"FAKE_PLAYWRIGHT_STATUS": "1"})
+        done, out = self.run_pr(base, dict(base), extra_env={"FAKE_PLAYWRIGHT_STATUS": "1"}, uname="Linux")
         self.assertEqual(done.returncode, 1, out)
         self.assertIn("the base did not set up", out)
+
+    def test_a_mac_installs_no_engines_for_the_base(self):
+        # No Playwright on Macs (Lawrence, 2026-11-02): outside GitHub Actions a Mac never runs
+        # `playwright install` (the fake one fails if it does); the runner skips the browser files
+        # there, so the base sets up without engines and its reds still match the head's.
+        base = {"test/a.test.ts": body(["old red"])}
+        done, out = self.run_pr(base, dict(base), extra_env={"FAKE_PLAYWRIGHT_STATUS": "1"}, uname="Darwin")
+        self.assertEqual(done.returncode, 0, out)
+        self.assertNotIn("the base did not set up", out)
 
     def test_a_new_file_that_fails_is_the_changes(self):
         done, out = self.run_pr({"test/a.test.ts": body([])}, {"test/a.test.ts": body([]), "test/b.test.ts": body(["x"])})

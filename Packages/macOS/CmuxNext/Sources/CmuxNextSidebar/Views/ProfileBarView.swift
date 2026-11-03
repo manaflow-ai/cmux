@@ -9,10 +9,12 @@ import CmuxNextDesign
 /// show better"): the strip is centered on the sidebar, each space shows its
 /// icon, emoji or initial in its color, the current space sits on a
 /// selection-fill chip that slides to the new space on a switch, and the "+"
-/// (on hover) sits right after the last space, in a slot the strip always
-/// leaves free, so it never moves the strip (Lawrence 2026-10-21).
+/// always sits right after the last space, in a slot the strip always leaves
+/// free, so it never moves the strip (Lawrence 2026-10-21; Leo 2026-11-03: at
+/// rest too, never a dot that turns into a "+" on hover).
 /// Too many spaces narrow the slots, then turn compact (small dots, the
-/// current one full). Layers, back to front: the hover chip (this view),
+/// current one full), then scroll to keep the current one in view with the
+/// "+" pinned on the trailing edge. Layers, back to front: the hover chip (this view),
 /// the current-space chip (`indicator`), the marks (`marks`).
 final class ProfileBarView: NSView {
     let model: SidebarModel
@@ -43,11 +45,9 @@ final class ProfileBarView: NSView {
     /// A mouse wheel notch over the bar, either axis: -1 or +1.
     var onWheelPage: ((Int) -> Void)?
 
-    /// Gallery toggles for comparing Leo's two open choices. The shipped
-    /// choice is the first pair: dot at rest, + on hover. Tests use the
-    /// toggles to render the alternatives without changing persisted state.
-    var showsDotsWhenIdle = true
-    var showsPlusWhenIdle = false
+    /// Gallery toggle: on a scrolled strip the "+" rides the end of the dots
+    /// instead of staying pinned on the trailing edge (the shipped choice).
+    var plusRidesContent = false { didSet { if plusRidesContent != oldValue { relayout() } } }
 
     init(model: SidebarModel) {
         self.model = model
@@ -77,17 +77,9 @@ final class ProfileBarView: NSView {
     // MARK: Geometry
 
     private var slot: CGFloat { Metrics.roomDotSlot }
-    /// The pointer is over the bar: the "+" shows (Lawrence: only on hover,
-    /// and the dots stay in place without it).
-    private(set) var isPointerInside = false {
-        didSet {
-            guard isPointerInside != oldValue else { return }
-            needsDisplay = true
-            marks.needsDisplay = true
-            placeIndicator(animated: false)
-            rebuildToolTips()
-        }
-    }
+    /// The pointer is over the bar. Nothing changes for it alone: only the
+    /// slot directly under the pointer shows a hover chip (Leo 2026-11-03).
+    private(set) var isPointerInside = false
 
     /// The strip never starts before this x (nil: the sidebar's horizontal
     /// inset). In the footer row the bar itself starts after the profile
@@ -103,8 +95,9 @@ final class ProfileBarView: NSView {
         ProfileBarLogic.strip(count: model.profiles.count, active: activeIndex, width: Double(bounds.width),
                               center: Double(centerX ?? bounds.width / 2),
                               minLeading: Double(leadingInset ?? SidebarStyle.horizontalInset),
-                              slot: Double(slot), plus: Double(model.profiles.count == 1 ? 0 : slot),
-                              fullMinimum: Double(Metrics.roomDotSlot * 0.75), compactMinimum: Double(Metrics.roomDotDiameter + Metrics.space1))
+                              slot: Double(slot), plus: Double(slot),
+                              fullMinimum: Double(Metrics.roomDotSlot * 0.75), compactMinimum: Double(Metrics.roomDotDiameter + Metrics.space1),
+                              plusRidesContent: plusRidesContent)
     }
 
     private var activeIndex: Int? { model.profiles.firstIndex { $0.id == model.activeProfileID } }
@@ -343,9 +336,8 @@ final class ProfileBarView: NSView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        // Right-click still edits the space underneath a shared + slot.
-        let point = convert(event.locationInWindow, from: nil)
-        guard let index = slotRects().dropLast().firstIndex(where: { $0.contains(point) }) else { return nil }
+        // The + has no menu; a space's dot opens its space's.
+        guard let index = interactionIndex(at: convert(event.locationInWindow, from: nil)), index >= 0 else { return nil }
         return contextMenuProvider?(.profile(model.profiles[index].id))
     }
 

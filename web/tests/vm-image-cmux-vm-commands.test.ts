@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import * as bake from "../scripts/cmux-vm-image/bake";
@@ -139,5 +139,24 @@ describe("cmux VM image apt index", () => {
       "apt index has no size for 1 of 3 locked pins (curl=8.5.0-2ubuntu10.16)",
     );
     expect(bake.aptDownloadBatches(pins, new Map(Object.entries(pins).map(([n, v]) => [`${n}=${v}`, 1])))).toHaveLength(1);
+  });
+
+  test("the image carries the agent sign-in files the Mac app's Cloud sign-in sources", async () => {
+    expect(bake.AGENT_SIGN_IN_FILES.map((f) => f.path)).toEqual(["/etc/cmux/agent-auth.sh", "/etc/cmux/claude-onboarding.py"]);
+    await bashSyntax(bake.agentSignInCheckCommand());
+    const root = mkdtempSync(path.join(os.tmpdir(), "cmux-vm-agent-sign-in-"));
+    try {
+      mkdirSync(path.join(root, "etc/cmux"), { recursive: true });
+      const devbox = path.join(import.meta.dirname, "../services/vms/images/devbox");
+      for (const file of bake.AGENT_SIGN_IN_FILES) copyFileSync(path.join(devbox, file.name), path.join(root, file.path));
+      const baked = await runChild("sh", ["-c", bake.agentSignInCheckCommand(root)], { timeout: 20_000 });
+      expect(baked.stdout).toBe("agent-sign-in-baked\n");
+      expect(baked.status).toBe(0);
+      rmSync(path.join(root, "etc/cmux/agent-auth.sh"));
+      const missing = await runChild("sh", ["-c", bake.agentSignInCheckCommand(root)], { timeout: 20_000 });
+      expect(missing.status).not.toBe(0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

@@ -13,7 +13,7 @@
 // worktree of its own, its environment, tokens, background test run and diffs its own, under three
 // ways to say whose panel it is (the head's title, the one drawn; a path; a card); one sharing the
 // chat's checkout; and the chat's panel beside them, its Subagents listing it.
-import type { ComponentProps, CSSProperties } from "react";
+import { useState, type ComponentProps, type CSSProperties } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
 import { WAVE_CLASS, WAVE_KEYFRAMES } from "../../../ui/wave";
@@ -45,8 +45,12 @@ type Props = ComponentProps<typeof SessionInfo> & {
   tones?: CSSProperties;
   /// Gallery-only: a different height ceiling, for comparison with the shipped full-room one.
   ceiling?: string;
+  /// Gallery-only: a different edge look, for comparison with the shipped hairline (sessionInfo.css).
+  edge?: string;
   /// Gallery-only: panel width used by narrow workflow layout states.
   panelWidth?: number;
+  /// Gallery-only: the old always-drawn thin thumb, for comparison with the shipped no-scrollbar body.
+  scroller?: "thumb";
 };
 
 const edit = (path: string, oldText: string | undefined, newText: string) =>
@@ -102,12 +106,19 @@ function GallerySessionInfo({
   header = "title",
   tones,
   ceiling,
+  edge,
   panelWidth = 320,
+  scroller,
+  more: moreAtFirst,
   ...props
 }: Props) {
+  // The panel's Show more, held here so a variant starts where it says and a play can open it.
+  const [more, setMore] = useState(moreAtFirst);
   return (
     <div className="acpmux-shell" style={{ display: "flex", justifyContent: "flex-end", height: "100%", ...tones }}>
       {ceiling ? <style>{`.acpmux-session-info[data-placement]{max-height:${ceiling}}`}</style> : null}
+      {edge ? <style>{`.acpmux-session-info[data-placement]{${edge}}`}</style> : null}
+      {scroller === "thumb" ? <style>{".acpmux-session-info__body{scrollbar-width:thin}"}</style> : null}
       {transcript ? <Transcript /> : null}
       <SessionInfoPanel
         width={panelWidth}
@@ -122,6 +133,8 @@ function GallerySessionInfo({
       >
         <SessionInfo
           {...props}
+          more={more}
+          onMore={more === undefined ? undefined : setMore}
           banner={scope && header !== "title" ? <SubagentBanner scope={scope} variant={header} /> : undefined}
         />
       </SessionInfoPanel>
@@ -221,6 +234,62 @@ const waveAgents: Subagent[] = Array.from({ length: RUNNING + 2 }, (_, index) =>
   ...(index < RUNNING ? { action: "Reading SessionInfo.tsx" } : { endedAt: started - index * 30_000 }),
 }));
 
+/// Leo's Session Info of 2026-11-02 ("but what's going on with these?"): three subagents at work, two
+/// that stopped two hours ago and wait on background work of their own (Idle, out of the shimmer and
+/// out of "running" in the head too), one met first through its progress and named by its prompt
+/// rather than its id, and the chat-start limit named for what it counts.
+const idleAgents: Subagent[] = [
+  {
+    id: "idle-a",
+    parent: null,
+    name: "Drop server login",
+    state: "running",
+    startedAt: started - 6_900_000,
+    quietSince: started - 6_600_000,
+  },
+  {
+    id: "idle-b",
+    parent: null,
+    name: "Audit Session Info strings",
+    state: "running",
+    startedAt: started - 6_890_000,
+    quietSince: started - 6_500_000,
+  },
+  {
+    id: "busy-a",
+    parent: null,
+    name: "Fix the running tray",
+    state: "running",
+    startedAt: started - 300_000,
+    quietSince: started - 5_000,
+    action: "Reading SubagentTray.tsx",
+  },
+  {
+    id: "busy-b",
+    parent: null,
+    name: "Measure the rail",
+    state: "running",
+    startedAt: started - 200_000,
+    action: "Running bun test",
+  },
+  {
+    id: "acp-1/toolu_c",
+    parent: null,
+    name: "Check the permission receipt",
+    state: "running",
+    startedAt: started - 120_000,
+    quietSince: started - 2_000,
+  },
+  {
+    id: "done-a",
+    parent: null,
+    name: "Read the design spec",
+    state: "completed",
+    startedAt: started - 7_000_000,
+    endedAt: started - 6_800_000,
+  },
+];
+
 /// Where the play holds every wave loop: one point on each loop's own timeline, past its delay (the
 /// delay is never positive, wave.css), so each icon's phase differs only by its index. At 840 ms
 /// the crest (20% of Session Info's 2.4 s period, SubagentsSection.css) is on the third line: the
@@ -298,6 +367,9 @@ const ownUsage = spent({
   subagents24h: 11,
   tokens24h: 38_400_000,
   costUsd24h: 61.2,
+  calls24h: 182,
+  cacheReadShare24h: 0.981,
+  costPerCallUsd24h: 0.3363,
 });
 const summary = {
   ...local.summary!,
@@ -349,7 +421,9 @@ const chevronOnHoverAfterTitle: Play = async (ctx) => {
 };
 
 /// As native #32674: the six-dot grip draws nothing at rest, nor for a pointer over a section's other
-/// rows; it shows while its section's head is hovered, at the head's right edge.
+/// rows; it shows while its section's head is hovered, left of the title (Leo, 2026-11-03: "why dont
+/// we have the drag grabber to the left of the title"), overlapping neither the title nor the head's
+/// icon, and the title does not move when it shows.
 const gripOnHeadHoverOnly: Play = async (ctx) => {
   const handles = () => [...ctx.document.querySelectorAll(".acpmux-session-info-section__handle")];
   await ctx.waitFor(() => handles().length > 0);
@@ -365,12 +439,46 @@ const gripOnHeadHoverOnly: Play = async (ctx) => {
     });
     if (style(ctx, handle).opacity !== "0") throw new Error("A body row's hover showed its section's grip");
   }
+  const title = head.querySelector(".acpmux-session-info-section__title")!;
+  const before = title.getBoundingClientRect();
   await ctx.hover({
     selector: `[data-section="${section.dataset.section}"] > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger`,
   });
   await ctx.waitFor(() => style(ctx, handle).opacity === "1");
-  if (handle.getBoundingClientRect().left < head.getBoundingClientRect().right - 0.5)
-    throw new Error("The grip is not at the head's right edge");
+  const after = title.getBoundingClientRect();
+  if (after.left !== before.left || after.width !== before.width)
+    throw new Error("The title moved when the grip showed");
+  if (handle.getBoundingClientRect().right > after.left + 0.5) throw new Error("The grip is not left of the title");
+  const icon = head.querySelector(".acpmux-session-info-section__icon");
+  if (icon && handle.getBoundingClientRect().right > icon.getBoundingClientRect().left + 0.5)
+    throw new Error("The grip overlaps the head's icon");
+};
+
+/// Leo, 2026-11-03: "why dont we have the drag grabber to the left of the title". Every section's grip,
+/// icon heads (Context, Usage, Connectors) and the bare Environment rows included, ends at or before its
+/// head's first glyph (its icon, else its title) and sits far from the panel's right edge, where the
+/// scrollbar's thumb runs.
+const gripLeftOfEveryTitle: Play = async (ctx) => {
+  const sections = () => [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-session-info-section")];
+  await ctx.waitFor(() => sections().some((s) => s.querySelector(":scope > .acpmux-session-info-section__handle")));
+  const body = ctx.find({ selector: ".acpmux-session-info__body" }).getBoundingClientRect();
+  for (const section of sections()) {
+    const handle = section.querySelector(":scope > .acpmux-session-info-section__handle");
+    if (!handle || handle.getClientRects().length === 0) continue;
+    const grip = handle.getBoundingClientRect();
+    const first = section.querySelector(
+      ":scope > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger, :scope > .acpmux-session-info-section__head",
+    );
+    // A bare section (the Environment rows) has no head: its first row's leading icon stands in.
+    const glyph = first
+      ? first.querySelector(":scope > .acpmux-session-info-section__icon, :scope > .acpmux-session-info-section__title")
+      : section.querySelector(":scope > :not(.acpmux-session-info-section__handle) svg");
+    if (glyph && grip.right > glyph.getBoundingClientRect().left + 0.5)
+      throw new Error(`${section.dataset.section}'s grip is not left of its title`);
+    if (grip.left < body.left - 0.5) throw new Error(`${section.dataset.section}'s grip spills out of the panel`);
+    if (grip.right > body.left + body.width / 2)
+      throw new Error(`${section.dataset.section}'s grip is on the right, by the scrollbar's thumb`);
+  }
 };
 
 /// As native #32661: pushed beside the chat (or in the empty gutter) the panel draws no card behind its
@@ -384,6 +492,49 @@ const noCardBehind: Play = async (ctx) => {
     throw new Error(`The panel paints a card: ${look.backgroundColor} ${look.backgroundImage}`);
   if (!["none", ""].includes(look.backdropFilter) || look.boxShadow !== "none")
     throw new Error(`The panel draws a card's blur or shadow: ${look.backdropFilter} ${look.boxShadow}`);
+};
+
+/// Leo, 2026-11-03: "i mean there's literally no scrollbar in claude code it's just scrollable". A busy
+/// body overflows, draws no scrollbar and keeps no width for one (its client width is its whole width
+/// inside its borders), and it still scrolls.
+const scrollsWithNoScrollbar: Play = async (ctx) => {
+  const selector = ".acpmux-session-info__body";
+  await ctx.waitFor(() => {
+    const body = ctx.document.querySelector<HTMLElement>(selector);
+    return body !== null && body.scrollHeight > body.clientHeight + 1;
+  });
+  const body = ctx.find({ selector }) as HTMLElement;
+  const look = style(ctx, body);
+  if ("scrollbarWidth" in look && look.scrollbarWidth !== "none")
+    throw new Error(`The body's scrollbar-width is ${look.scrollbarWidth}, not none`);
+  const borders = Number.parseFloat(look.borderLeftWidth) + Number.parseFloat(look.borderRightWidth);
+  if (Math.abs(body.offsetWidth - borders - body.clientWidth) > 0.5)
+    throw new Error(`The body keeps ${body.offsetWidth - borders - body.clientWidth}px for a scrollbar`);
+  await ctx.scroll({ selector }, 120);
+  await ctx.waitFor(() => body.scrollTop > 0);
+};
+
+// The panel's edge: a hairline (at most 1px) in the pane's border color all round, on its rounded corners,
+// and no fill of its own where nothing runs under it (Leo, 2026-11-03: "having a border for it might be better").
+const hairlineEdge: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-session-info"));
+  const panel = ctx.find({ selector: ".acpmux-session-info" });
+  const look = style(ctx, panel);
+  for (const side of ["Top", "Right", "Bottom", "Left"] as const) {
+    const width = Number.parseFloat(look.getPropertyValue(`border-${side.toLowerCase()}-width`));
+    if (!(width > 0 && width <= 1)) throw new Error(`The panel's ${side} edge is ${width}px, not a hairline`);
+    if (look.getPropertyValue(`border-${side.toLowerCase()}-style`) !== "solid")
+      throw new Error(`The panel's ${side} edge does not draw`);
+  }
+  const probe = ctx.document.createElement("div");
+  probe.style.color = "var(--agent-border)";
+  panel.parentElement!.append(probe);
+  const border = style(ctx, probe).color;
+  probe.remove();
+  if (look.borderTopColor !== border)
+    throw new Error(`The edge is ${look.borderTopColor}, not the pane's border ${border}`);
+  if (Number.parseFloat(look.borderTopLeftRadius) <= 0) throw new Error("The edge has square corners");
+  if (!panel.hasAttribute("data-over-chat")) await noCardBehind(ctx);
 };
 
 // Every section title shares the Environment rows' text column, with or without an icon.
@@ -400,6 +551,62 @@ const checkTopBlockAlignment: Play = async (ctx) => {
   const heading = rect('[data-section="changes"] .acpmux-session-info-section__title');
   if (Math.abs(heading.left - labelLeft) > 0.5)
     throw new Error("The Changes heading moved from the shared text column");
+};
+
+/// The default order, top to bottom (sectionOrder.ts DEFAULT_ORDER; Leo, 2026-11-03: "1. Machines showing
+/// up so I know if it's cloud or not 2. context 3. Subagents/background tasks running 4. Sources").
+const DEFAULT_SECTION_ORDER = [
+  "environment",
+  "context",
+  "usage",
+  "subagents",
+  "tasks",
+  "sources",
+  "changes",
+  "outputs",
+  "connectors",
+];
+const assertDefaultOrder: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector("[data-slot]"));
+  const drawn = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-session-info-sections > [data-slot]")].map(
+    (slot) => slot.dataset.slot!,
+  );
+  const expected = DEFAULT_SECTION_ORDER.filter((id) => drawn.includes(id));
+  if (drawn.join(" ") !== expected.join(" "))
+    throw new Error(`Session Info's default order is ${drawn.join(", ")}, not ${expected.join(", ")}`);
+  for (const id of ["environment", "context", "subagents", "sources"])
+    if (!drawn.includes(id)) throw new Error(`The full chat does not draw ${id}`);
+};
+
+/// The sections the panel draws, top to bottom.
+const drawnSlots = (ctx: PlayContext) =>
+  [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-session-info-sections > [data-slot]")].map(
+    (slot) => slot.dataset.slot!,
+  );
+const LEO_FOUR = ["environment", "context", "subagents", "tasks", "sources"];
+const LESS_USED = ["usage", "changes", "outputs", "connectors"];
+const expectDrawn = (ctx: PlayContext, expected: readonly string[]) => {
+  const drawn = drawnSlots(ctx);
+  if (drawn.join(" ") !== expected.join(" "))
+    throw new Error(`Session Info draws ${drawn.join(", ")}, not ${expected.join(", ")}`);
+};
+/// The shipped default view: Leo's four in view, the less-used sections behind one Show more that
+/// names them; Show more draws every one in the default order, and Show less puts them back.
+const compactByDefault: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector("[data-slot]"));
+  expectDrawn(ctx, LEO_FOUR);
+  const more = ctx.find({ selector: ".acpmux-session-info-more" });
+  if (more.getAttribute("aria-expanded") !== "false") throw new Error("Show more starts open");
+  const names = more.querySelector(".acpmux-session-info-more__names")?.textContent ?? "";
+  for (const title of ["Usage", "Changes", "Outputs", "Connectors"])
+    if (!names.includes(title)) throw new Error(`Show more does not name ${title}: "${names}"`);
+  await ctx.click({ selector: ".acpmux-session-info-more" });
+  await ctx.waitFor(() => drawnSlots(ctx).length === LEO_FOUR.length + LESS_USED.length);
+  expectDrawn(ctx, DEFAULT_SECTION_ORDER);
+  if (!/Show less/.test(ctx.find({ selector: ".acpmux-session-info-more" }).textContent ?? ""))
+    throw new Error("Show more open does not offer Show less");
+  await ctx.click({ selector: ".acpmux-session-info-more" });
+  await ctx.waitFor(() => drawnSlots(ctx).length === LEO_FOUR.length);
 };
 
 /// Every session acpmux lists, this Mac's and a peer's: the usage audit's deputies on a build box (no
@@ -500,6 +707,9 @@ const full: Props = {
   onReconnectMcp: async () => undefined,
   onCompact: () => undefined,
   remoteControl: { on: false, set: () => undefined },
+  // Every section in view: the variants below compare the sections themselves. The default view
+  // (Show more closed) is `compact-more`.
+  more: true,
 };
 
 /// A busy coordinator, as in Leo's 2026-10-21 screenshot: twelve subagents and five chats it started
@@ -727,10 +937,18 @@ const sharedRows = [
   assistant("fetchWithRetry has three callers: client.ts, upload.ts and the webhook relay.", 7),
 ];
 /// A Claude Code chat with its /context breakdown, Context open and the long sections folded so the
-/// card shows whole.
+/// card shows whole. It compacts at 400k (its acpmux cap and /context agree), so Context reads the
+/// window /context names: the smaller of the two (usageStats.ts `compactingUsage`, #32665), never
+/// the 200k cap of this file's other chat.
+const breakdownUsage: SessionUsageStats = { ...ownUsage, autocompactCap: 400_000 };
 const breakdownProps: Props = {
   ...full,
-  summary: { ...summary, usage: { used: 171_400, size: 400_000 }, contextBreakdown: CONTEXT_BREAKDOWN },
+  summary: {
+    ...summary,
+    usage: { used: 171_400, size: 400_000 },
+    usageStats: breakdownUsage,
+    contextBreakdown: CONTEXT_BREAKDOWN,
+  },
   sections: { ...DEFAULT_SECTIONS, environment: false, context: true, changes: false, subagents: false, tasks: false },
 };
 /// A gallery-only palette for the breakdown's used categories, largest first.
@@ -778,9 +996,52 @@ export default componentEntry<Props>({
   load: async () => GallerySessionInfo,
   variants: {
     full: {
-      note: "A chat on this Mac with every section, shipped layout (glance): no section is a box. Where it runs: the machine with Save, folder, repository, branch and Remote Control, then Context (47%) and Connectors (1 to reconnect) as one row each. A hairline, then what it made: six session-owned pull requests, then Sources with read-only PRs, URLs, files and MCP tools, then its outputs. A hairline, then what it runs: three running subagents and two running chats with the 40 done · 1 failed row, and Background tasks, the dev server on :5173 first, then the commands (one only the transcript knows, without Stop) and four finished.",
+      note: "A chat on this Mac with every section, shipped layout (glance), in the default order: the machine (this Mac or Cloud), Context, what it runs, then Sources. No section is a box. Where it runs: the machine with Save, folder, repository, branch and Remote Control, then Context (47%) and Usage as one row each. A hairline, then what it runs: three running subagents and two running chats with the 40 done · 1 failed row, and Background tasks, the dev server on :5173 first, then the commands (one only the transcript knows, without Stop) and four finished. A hairline, then Sources with read-only PRs, URLs, files and MCP tools, six session-owned pull requests in Changes, and its outputs. A last hairline, then Connectors (1 to reconnect).",
       props: full,
-      play: checkTopBlockAlignment,
+      play: async (ctx) => {
+        await assertDefaultOrder(ctx);
+        await checkTopBlockAlignment(ctx);
+      },
+    },
+    "compact-more": {
+      note: "Chosen default view (Leo, 2026-11-03: \"i feel like it's a bit too much stuff by default there's a bunch of things there that can be a bit more hidden under 'show more' or whatnot\"): his four in view (the machine, Context, subagents and background tasks, Sources), then one whole-row Show more that names what it holds (Usage, Changes, Outputs, Connectors). Opened, every section shows in the default order and the choice stays for the pane; a reveal of a held section opens it. A section the person dragged above one of the four stays in view. The play opens and closes it.",
+      props: { ...full, more: false },
+      play: compactByDefault,
+    },
+    "compact-more-open": {
+      note: "The chosen view with Show more opened: every section, then Show less.",
+      props: { ...full, more: false },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-session-info-more" });
+        await ctx.waitFor(() => drawnSlots(ctx).length === LEO_FOUR.length + LESS_USED.length);
+      },
+    },
+    "compact-folded": {
+      note: "Alternative (not shipped): every section in view, the less-used ones folded to their one-line head. Shorter than today, but still nine rows of headings before anything is read, and a fold already saved open in a chat keeps it long, so it does little for the chats Leo has open.",
+      props: {
+        ...full,
+        more: undefined,
+        compactLook: "all",
+        sections: { ...DEFAULT_SECTIONS, usage: false, changes: false, outputs: false, connectors: false },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector("[data-slot]"));
+        expectDrawn(ctx, DEFAULT_SECTION_ORDER);
+        for (const id of LESS_USED) {
+          const trigger = ctx.document.querySelector(`[data-slot="${id}"] .ui-disclosure-trigger`);
+          if (trigger?.getAttribute("aria-expanded") !== "false") throw new Error(`${id} is not folded`);
+        }
+      },
+    },
+    "compact-capped": {
+      note: "Alternative (not shipped): every section open, each body cut at three rows with a Show more of its own. Short lists get a Show more they do not need, the cut lands mid-list, and every section still takes its place, so the panel is busier, not calmer.",
+      props: { ...full, more: undefined, compactLook: "capped" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector("[data-slot]"));
+        expectDrawn(ctx, DEFAULT_SECTION_ORDER);
+        if (ctx.document.querySelectorAll("[data-capped]").length < LEO_FOUR.length)
+          throw new Error("the sections are not capped");
+      },
     },
     "workflow-running": {
       note: "Chosen: the live workflow row keeps the agent name above its truncating model label, puts its current action beneath, and keeps state and elapsed time aligned on the right. Running work uses a spinner; finished and failed work use status marks; queued work uses an outline.",
@@ -892,6 +1153,97 @@ export default componentEntry<Props>({
         },
       },
     },
+    "usage-cache-1h": {
+      note: 'Chosen: the prompt cache\'s numbers as two rows right after the 24h cost they explain. A chat on the hour-long cache: Cache reads 98.1%, Cost per call $0.34. Leo, 2026-11-03, on the 1h cache: "such a big win that cmux-next/acpmux can get"; the coordinator relayed: show the cache-read share and estimated cost per call, so users can see the win.',
+      props: {
+        ...full,
+        summary: { ...summary, usageStats: ownUsage },
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+    },
+    "usage-cache-5m": {
+      note: "The same chat's numbers on the 5-minute cache, gaps between calls letting it go cold: Cache reads 94.3%, Cost per call $0.43. Set beside usage-cache-1h, the win reads at a glance.",
+      props: {
+        ...full,
+        summary: {
+          ...summary,
+          usageStats: { ...ownUsage, cacheReadShare24h: 0.943, costPerCallUsd24h: 0.4313, costUsd24h: 78.5 },
+        },
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+    },
+    "usage-cache-combined": {
+      note: "Alternative: one Prompt cache row reading 98.1% read · $0.34/call. Shorter, but the cost per call hides inside a sentence and no longer lines up with the other dollar values in the value column, so the two rows ship.",
+      props: {
+        ...full,
+        usageCacheLayout: "combined" as const,
+        summary: { ...summary, usageStats: ownUsage },
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+    },
+    "usage-cache-small": {
+      note: "A cheap chat whose calls cost under a cent: the cost keeps two significant digits ($0.0042), never a rounded $0.00.",
+      props: {
+        ...full,
+        summary: {
+          ...summary,
+          usageStats: {
+            ...ownUsage,
+            cacheReadShare24h: 0.72,
+            costPerCallUsd24h: 0.0042,
+            costUsd24h: 0.21,
+            calls24h: 50,
+          },
+        },
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+    },
+    "usage-cache-unknown": {
+      note: "Before acpmux has read the whole day (or a chat with no calls yet): both rows read the em dash, never 0% or $0.00.",
+      props: {
+        ...full,
+        summary: {
+          ...summary,
+          usageStats: { ...ownUsage, calls24h: undefined, cacheReadShare24h: undefined, costPerCallUsd24h: undefined },
+        },
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+    },
     "usage-no-cap": {
       note: "Usage for a chat acpmux says runs with no autocompact cap: Autocompact reads No cap, with Restart with cap beside it, disabled until acpmux can restart a session with a cap. A cap acpmux could not read reads as an em dash and offers nothing.",
       props: {
@@ -959,7 +1311,7 @@ export default componentEntry<Props>({
       },
     },
     "reorder-dragging": {
-      note: 'Mid-drag (Leo, 2026-10-31: "THE CLICK DRAG" ... "WHERE IS MY FUCKING PARITY"): Outputs held by its six-dot handle and carried up into where it runs, over Context. The held section is lifted (a raised surface and a shadow, only while held) and follows the pointer; Connectors and the sections under it have slid out of the way, and the hairlines follow the blocks now adjacent. Released, it settles there and the order is kept; Escape puts it back.',
+      note: 'Mid-drag (Leo, 2026-10-31: "THE CLICK DRAG" ... "WHERE IS MY FUCKING PARITY"): Outputs held by its six-dot handle and carried up into where it runs, over Context. The held section is lifted (a raised surface and a shadow, only while held) and follows the pointer; Usage and the sections under it have slid out of the way, and the hairlines follow the blocks now adjacent. Released, it settles there and the order is kept; Escape puts it back.',
       props: full,
       play: dragOutputsOverContext,
     },
@@ -1071,7 +1423,12 @@ export default componentEntry<Props>({
       note: "Shipped (Leo, 2026-11-02: \"whatever a user set their compact window to it should be that instead of always showing the defautl (e.g. we should be seieng 400k)\"): a 1M model whose chat compacts at 400K reads 43% with 171.4K / 400K, the window Claude Code's /context names, not the model's 1M.",
       props: {
         ...breakdownProps,
-        summary: { ...summary, contextBreakdown: CONTEXT_BREAKDOWN, usage: { used: 171_400, size: 1_000_000 } },
+        summary: {
+          ...summary,
+          usageStats: breakdownUsage,
+          contextBreakdown: CONTEXT_BREAKDOWN,
+          usage: { used: 171_400, size: 1_000_000 },
+        },
       },
       play: async (ctx) => {
         await ctx.waitFor(() => /171\.4K\s*\/\s*400K/.test(text(ctx)));
@@ -1179,6 +1536,22 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => /Show less/.test(text(ctx)));
       },
     },
+    "subagents-idle": {
+      note: 'Subagents that stopped and wait on background work of their own read Idle, not Running for two hours, and the head counts them as idle ("3 running · 2 idle · 1 done"). Every line is named by its task, never its id. The limit line says it caps the chats this one started: "Started chats: 0 of 1000 at once".',
+      props: {
+        ...full,
+        agents: idleAgents,
+        sessions: [],
+        summary: {
+          ...summary,
+          harness: "claude",
+          subsessionLimits: { maxRunning: 1000, maxRunningSource: "settings" },
+        },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => /2 idle/.test(text(ctx)) && /Started chats: 0 of 1000 at once/.test(text(ctx)));
+      },
+    },
     "subagents-wave": {
       note: "Five running subagents, one per line, share one shimmer that sweeps down their icons, held mid-sweep for the still: dim, brighter, the crest, brighter, dim. The row of the done and the failed one under them stays at full strength.",
       props: { ...full, agents: waveAgents, sessions: [] },
@@ -1225,6 +1598,15 @@ export default componentEntry<Props>({
         closable: true,
       },
     },
+    "scroller-none": {
+      note: "Chosen. A busy coordinator: the body scrolls by wheel, trackpad and keyboard with no scrollbar at all, as Claude Code's panel, and its edge fades say there is more; nothing takes width at the right edge, so no thumb sits by a section's grip (Leo, 2026-11-03: \"i mean there's literally no scrollbar in claude code it's just scrollable\"). The play scrolls it and checks it keeps no scrollbar width.",
+      props: { ...busy, closable: true },
+      play: scrollsWithNoScrollbar,
+    },
+    "scroller-thumb": {
+      note: 'Before, for comparison: a thin thumb drawn at the right edge beside the section grips (Leo, 2026-11-03: "there\'s basically no thumb on the claude code session info section").',
+      props: { ...busy, closable: true, scroller: "thumb" },
+    },
     ceiling: {
       note: "Chosen. A busy coordinator over the same 900px pane: the card uses the full room under the header, less its 8px inset at the foot, and only then does its body scroll; it still floats over the chat with its own edge (Leo, 2026-10-26: \"you still haven't done the full-length thing. It's still just this constrained height for, like, no reason at all\").",
       props: { ...busy, closable: true },
@@ -1253,9 +1635,36 @@ export default componentEntry<Props>({
       play: chevronOnHoverAfterTitle,
     },
     "header-grip-hover": {
-      note: "A section head under the pointer: the six-dot grip shows at the head's right edge (as native #32674). At rest no grip draws, and a pointer over the section's other rows shows none.",
+      note: "A section head under the pointer: the six-dot grip shows left of the title, in the head's leading padding (Leo, 2026-11-03: \"why dont we have the drag grabber to the left of the title\"). The title does not move. At rest no grip draws, and a pointer over the section's other rows shows none.",
       props: { ...full, placement: "push" },
       play: gripOnHeadHoverOnly,
+    },
+    "header-grip-left": {
+      note: "Every section's grip, icon heads and the bare Environment rows included, sits left of its head's icon or title, away from the scrollbar's thumb on the right.",
+      props: { ...full, placement: "push" },
+      play: gripLeftOfEveryTitle,
+    },
+    "edge-hairline": {
+      note: "Chosen. The panel in the gutter with no fill of its own and a hairline edge in the pane's border color (--agent-border, 0.5px) on its rounded corners (Leo, 2026-11-03: \"maybe it's ok...? to HAVE NO BACKGROUND FOR THE SESSION INFO / but i think having a border for it might be better\").",
+      props: { ...full },
+      play: hairlineEdge,
+    },
+    "edge-hairline-over-chat": {
+      note: "Chosen, over the chat's column: the same hairline over the glass. Without the glass the transcript's text would read through the panel's own, so it keeps the blur and tint there.",
+      props: { ...full, transcript: true },
+      play: hairlineEdge,
+    },
+    "edge-none": {
+      note: "Before, for comparison: no fill and no edge, so the panel's sections float on the pane with nothing marking where it ends.",
+      props: { ...full, edge: "border-color:transparent" },
+    },
+    "edge-strong": {
+      note: "Alternative: a stronger edge (--agent-border-strong). It reads as a box drawn around the panel.",
+      props: { ...full, edge: "border-color:var(--agent-border-strong)" },
+    },
+    "over-chat-blur-only": {
+      note: "Alternative over the chat: the hairline and the blur with no tint. Light transcript text still shows through the panel's rows, so the chosen look keeps the tint.",
+      props: { ...full, transcript: true, edge: "--glass-tint:transparent" },
     },
     "subagent-parent": {
       note: "The chat's own panel while a subagent works in a worktree: the chat's folder, branch, context, pull requests and tasks, and its Subagents list, which opens each subagent's own panel.",
