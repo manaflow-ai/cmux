@@ -714,8 +714,12 @@ class TypingSwitchVariantTests(unittest.TestCase):
                                                  "title": f"set-up: {SWITCH} ON (after the relaunch: a bench build keeps tunables in memory only)"})
             # Every other step the same as typing-load-l6, in order; the same options and budget.
             self.assertEqual(v["steps"][:i + 2] + v["steps"][i + 3:], base["steps"])
-            for key in ("priority", "budget_seconds", "options", "continue_not_judged", "source"):
+            for key in ("budget_seconds", "options", "continue_not_judged", "source"):
                 self.assertEqual(v.get(key), base.get(key), key)
+            # P1, not P0: dogfood-gate.py needs a pass of every P0 journey on a build, and a stage switch exists only on its
+            # own stage builds. A P0 variant would refuse every other dogfood build. run.py --journey picks it either way.
+            self.assertEqual(base["priority"], "P0")
+            self.assertEqual(v["priority"], "P1")
             self.assertEqual(v["finally"], [{"do": "px_tunable", "key": SWITCH, "value": None,
                                              "title": f"clean-up: {SWITCH} back to its default"}] + base["finally"])
             # The films keep typing-load-l6's names (the ledger and the judges read the parts by label).
