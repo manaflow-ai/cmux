@@ -1146,7 +1146,7 @@ export default componentEntry<Props>({
       },
     },
     "usage-cache-1h": {
-      note: "Chosen: the prompt cache's numbers as two rows right after the 24h cost they explain. A chat on the hour-long cache: Cache reads 98.1%, Cost per call $0.34. Leo, 2026-11-03, on the 1h cache: \"such a big win that cmux-next/acpmux can get\"; the coordinator relayed: show the cache-read share and estimated cost per call, so users can see the win.",
+      note: 'Chosen: the prompt cache\'s numbers as two rows right after the 24h cost they explain. A chat on the hour-long cache: Cache reads 98.1%, Cost per call $0.34. Leo, 2026-11-03, on the 1h cache: "such a big win that cmux-next/acpmux can get"; the coordinator relayed: show the cache-read share and estimated cost per call, so users can see the win.',
       props: {
         ...full,
         summary: { ...summary, usageStats: ownUsage },
@@ -1164,7 +1164,10 @@ export default componentEntry<Props>({
       note: "The same chat's numbers on the 5-minute cache, gaps between calls letting it go cold: Cache reads 94.3%, Cost per call $0.43. Set beside usage-cache-1h, the win reads at a glance.",
       props: {
         ...full,
-        summary: { ...summary, usageStats: { ...ownUsage, cacheReadShare24h: 0.943, costPerCallUsd24h: 0.4313, costUsd24h: 78.5 } },
+        summary: {
+          ...summary,
+          usageStats: { ...ownUsage, cacheReadShare24h: 0.943, costPerCallUsd24h: 0.4313, costUsd24h: 78.5 },
+        },
         sections: {
           ...DEFAULT_SECTIONS,
           environment: false,
@@ -1195,7 +1198,16 @@ export default componentEntry<Props>({
       note: "A cheap chat whose calls cost under a cent: the cost keeps two significant digits ($0.0042), never a rounded $0.00.",
       props: {
         ...full,
-        summary: { ...summary, usageStats: { ...ownUsage, cacheReadShare24h: 0.72, costPerCallUsd24h: 0.0042, costUsd24h: 0.21, calls24h: 50 } },
+        summary: {
+          ...summary,
+          usageStats: {
+            ...ownUsage,
+            cacheReadShare24h: 0.72,
+            costPerCallUsd24h: 0.0042,
+            costUsd24h: 0.21,
+            calls24h: 50,
+          },
+        },
         sections: {
           ...DEFAULT_SECTIONS,
           environment: false,
@@ -1210,7 +1222,10 @@ export default componentEntry<Props>({
       note: "Before acpmux has read the whole day (or a chat with no calls yet): both rows read the em dash, never 0% or $0.00.",
       props: {
         ...full,
-        summary: { ...summary, usageStats: { ...ownUsage, calls24h: undefined, cacheReadShare24h: undefined, costPerCallUsd24h: undefined } },
+        summary: {
+          ...summary,
+          usageStats: { ...ownUsage, calls24h: undefined, cacheReadShare24h: undefined, costPerCallUsd24h: undefined },
+        },
         sections: {
           ...DEFAULT_SECTIONS,
           environment: false,
