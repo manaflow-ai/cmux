@@ -2042,3 +2042,17 @@ fn share_room_names_the_room_and_its_owner_api() {
     assert!(shares(&mux).bridge.configure(Some("http://127.0.0.1:9"), fast()));
     assert_eq!(ask(&mut owner), json!({"room": "http://127.0.0.1:9", "owner_api": null}));
 }
+
+/// A room answer the shares file could not keep at its reserved size is refused: a host token
+/// past its bound or one JSON would escape, and a room origin past its bound.
+#[test]
+fn a_host_token_or_room_the_shares_file_cannot_keep_is_refused() {
+    assert!(valid_host_token(&"a".repeat(MAX_HOST_TOKEN_BYTES)));
+    assert!(valid_host_token("host-token-1"));
+    let long = "a".repeat(MAX_HOST_TOKEN_BYTES + 1);
+    for bad in ["", "a\"b", "a\\b", "a b", "a\u{e9}", long.as_str()] {
+        assert!(!valid_host_token(bad), "{bad}");
+    }
+    assert!(origin("https://room.example.com").is_some());
+    assert!(origin(&format!("https://{}.com", "a".repeat(MAX_ROOM_URL_BYTES))).is_none());
+}

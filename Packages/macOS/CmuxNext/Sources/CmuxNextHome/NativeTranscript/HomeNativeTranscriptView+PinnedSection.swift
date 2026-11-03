@@ -13,6 +13,7 @@ extension HomeNativeTranscriptView {
         guard view !== pinned?.view else { return pinnedSectionDidResize() }
         pinned?.view.removeFromSuperview()
         pinned = nil
+        transcript.rowsTopClearance = 0
         if let view {
             // Over the transcript and the first-run panel, under the notice above the field.
             addSubview(view, positioned: .below, relativeTo: noticeLabel)
@@ -49,6 +50,8 @@ extension HomeNativeTranscriptView {
         let shown = min(height, max(0, transcript.fieldTop - top - 8))
         let frame = CGRect(x: ((bounds.width - width) / 2).rounded(), y: top, width: width, height: shown)
         if view.frame != frame { view.frame = frame }
+        // The oldest message scrolls clear of the card (only the top of the scroll range moves).
+        transcript.rowsTopClearance = shown > 0 ? max(0, frame.maxY - transcript.headerHeight + 4) : 0
     }
 
     /// The pinned section's widest.
