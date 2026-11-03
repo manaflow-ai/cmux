@@ -27,6 +27,29 @@ import Testing
         #expect(await restored.beginFill(tab: "other", profile: "other", origins: ["https://child.test"]).admission == .admitted)
     }
 
+    /// A fill that wrote nothing (`no_login_field`, `navigated`) still sent its script, with the
+    /// username and password as literals, to the tab's renderer. Page-world agent code on the site
+    /// is released again (it cannot read the isolated world), but raw DevTools (Debugger, heap
+    /// snapshots) could read the script source while V8 keeps it, so the profile refuses a raw
+    /// relay for good, across a restart.
+    @Test func aFillThatWroteNothingStillRefusesRawDevToolsInItsProfileAfterRestart() async throws {
+        let file = BrowserPageFillLoginTests.temporaryFile()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let guards = BrowserLoginGuards(file: file)
+        let fill = await guards.beginFill(tab: "tab", profile: "agent", origins: ["https://a.test"])
+        #expect(fill.admission == .admitted)
+        await guards.forgetFill(fill)
+        #expect(await guards.beginScript(profile: "agent", origins: ["https://a.test"]), "page-world code is released")
+        #expect(await !guards.beginRawDevTools(tab: "tab", profile: "agent", origins: ["https://b.test"]))
+        #expect(!guards.rawMessageAllowed(profile: "agent"))
+        let restored = BrowserLoginGuards(file: file)
+        await restored.prepare()
+        #expect(await !restored.beginRawDevTools(tab: "other", profile: "agent", origins: ["https://b.test"]))
+        #expect(!restored.rawMessageAllowed(profile: "agent"))
+        // Another profile never held the credentials: its relay runs.
+        #expect(await restored.beginRawDevTools(tab: "person", profile: "other", origins: ["https://b.test"]))
+    }
+
     @Test func opaqueCodeAndFillsExcludeEachOtherAcrossAProfileAndRestart() async throws {
         let file = BrowserPageFillLoginTests.temporaryFile()
         defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
