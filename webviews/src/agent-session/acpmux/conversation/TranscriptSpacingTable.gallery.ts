@@ -378,7 +378,7 @@ function notesThenLive(): AcpmuxSnapshot {
 /// and the first status row of its turn ("Sent to …"). The prompt stays centred, 32 from the
 /// rows on each side (design/transcript-spacing.md rule 5, `step-to-prompt` and `prompt-to-step`).
 function statusPrompt(): AcpmuxSnapshot {
-  const note = (n: number, state: string, minutes: number) =>
+  const note = (n: number, state: "completed" | "stopped", minutes: number) =>
     row("backgroundTask", minutes, {
       id: `sp-task-${n}`,
       backgroundTask: { toolCallId: `sp-call-${n}`, command: `Wait for run ${n}`, state },
