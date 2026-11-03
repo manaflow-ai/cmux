@@ -59,13 +59,6 @@ fn text(args: &[String]) -> Option<String> {
         ["status", ..] => return Some(super::super::scope_help::STATUS_HELP.to_owned()),
         ["agent", "open"] => return Some(messages.agent_open_usage.to_owned()),
         ["agent", "open-tab"] => return Some(messages.agent_open_tab_usage.to_owned()),
-        // Two-word Cloud verbs (`cloud tunnel on`) have their own help.
-        ["cloud", noun, verb]
-            if super::super::cloud_help::usage(&format!("{noun} {verb}")).is_some() =>
-        {
-            let japanese = crate::localization::catalog().is_japanese();
-            return super::super::cloud_help::verb_help(&format!("{noun} {verb}"), japanese);
-        }
         ["cloud", verb] => {
             let japanese = crate::localization::catalog().is_japanese();
             return Some(
