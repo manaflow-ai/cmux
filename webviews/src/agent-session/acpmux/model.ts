@@ -121,6 +121,9 @@ export type AcpmuxBackgroundTurn = {
   running: boolean;
   quiet?: boolean;
   reason?: string;
+  /// A row of its own draws something, so its line opens to it. A turn whose events only update
+  /// rows that are not its own (a call an earlier turn started, a subagent's work) has none.
+  hasRows?: true;
 };
 
 /// The chat's permission policy (an acpmux policy id narrower than approve-all) that its harness
