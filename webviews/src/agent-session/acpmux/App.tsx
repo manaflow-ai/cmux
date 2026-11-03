@@ -1569,6 +1569,7 @@ const ThinkingRow = memo(
         quietAt={row.quietAt}
         below={row.below}
         command={row.doingCommand}
+        retry={row.retry}
       />
     );
   },
@@ -1593,7 +1594,8 @@ const ThinkingRow = memo(
     a.row.quietKey === b.row.quietKey &&
     a.row.quietAt === b.row.quietAt &&
     a.row.below === b.row.below &&
-    a.row.doingCommand === b.row.doingCommand,
+    a.row.doingCommand === b.row.doingCommand &&
+    a.row.retry === b.row.retry,
 );
 const WorkingRow = memo(
   function WorkingRow({ row, sessionId }: RowProps) {

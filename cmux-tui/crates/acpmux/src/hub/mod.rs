@@ -174,6 +174,7 @@ mod startup;
 mod steer_end;
 mod store_load;
 mod stream;
+mod turn_retry;
 mod tags;
 mod tailnet_controller;
 mod tap;
