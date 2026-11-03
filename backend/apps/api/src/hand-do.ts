@@ -77,7 +77,7 @@ export class HandDO extends DurableObject<Env> {
     const sql = ctx.storage.sql
     sql.exec(`CREATE TABLE IF NOT EXISTS hand (id INTEGER PRIMARY KEY CHECK (id = 1), hand TEXT NOT NULL, owner TEXT NOT NULL, name TEXT NOT NULL, minted_by TEXT NOT NULL, created_at INTEGER NOT NULL, code_sha TEXT, key_sha TEXT, paired_at INTEGER, revoked_at INTEGER, profile TEXT, hello TEXT, last_seen INTEGER)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_grant (agent TEXT PRIMARY KEY)`)
-    sql.exec(`CREATE TABLE IF NOT EXISTS hand_default (id INTEGER PRIMARY KEY CHECK (id = 1), scope TEXT NOT NULL)`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS hand_default (id INTEGER PRIMARY KEY CHECK (id = 1), scope TEXT NOT NULL, chief TEXT NOT NULL)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_audit (seq INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, req TEXT NOT NULL, action TEXT NOT NULL, who TEXT NOT NULL, outcome TEXT NOT NULL, ms INTEGER)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_approval (id TEXT PRIMARY KEY, req TEXT NOT NULL, summary TEXT NOT NULL, at INTEGER NOT NULL, answered_at INTEGER, allow INTEGER, who TEXT)`)
     createVerdictTable(sql)
@@ -139,7 +139,7 @@ export class HandDO extends DurableObject<Env> {
     const sql = this.ctx.storage.sql
     indexSetGrant(sql, agent, on, Date.now())
     const grants = indexGrants(sql)
-    await Promise.all(indexList(sql).map((h) => this.env.HAND_DO.get(this.env.HAND_DO.idFromName(handName(h.hand))).setGrants(grants)))
+    await Promise.all(indexList(sql).map((h) => this.env.HAND_DO.get(this.env.HAND_DO.idFromName(handName(h.hand))).setGrants(grants, { agent, on })))
     return grants
   }
 
@@ -208,7 +208,7 @@ export class HandDO extends DurableObject<Env> {
       level,
     )
     // The default Chief may use only this hand. Do not modify the owner's other hand grants.
-    sql.exec(`INSERT INTO hand_default (id, scope) VALUES (1, ?)`, defaultHandScope(scope))
+    sql.exec(`INSERT INTO hand_default (id, scope, chief) VALUES (1, ?, ?)`, defaultHandScope(scope), chief)
     sql.exec(`INSERT INTO hand_grant (agent) VALUES (?)`, chief)
     await this.publish(this.row()!)
     return { ok: true, hand }
@@ -317,8 +317,13 @@ export class HandDO extends DurableObject<Env> {
     return online()
   }
 
-  async setGrants(agents: ReadonlyArray<string>): Promise<void> {
-    this.setGrantsLocal(agents)
+  async setGrants(agents: ReadonlyArray<string>, change?: { agent: string; on: boolean }): Promise<void> {
+    const sql = this.ctx.storage.sql
+    const own = sql.exec<{ chief: string }>(`SELECT chief FROM hand_default WHERE id = 1`).toArray()[0]?.chief
+    // The signup grant is local to this hand. Toggling another Chief's account-wide access must
+    // not erase it; an explicit off for this Chief still removes it and provisioning never restores it.
+    const preserve = own && change && change.agent !== own && sql.exec(`SELECT 1 FROM hand_grant WHERE agent = ?`, own).toArray().length > 0
+    this.setGrantsLocal(preserve ? [...new Set([...agents, own])] : agents)
   }
 
   private setGrantsLocal(agents: ReadonlyArray<string>) {
