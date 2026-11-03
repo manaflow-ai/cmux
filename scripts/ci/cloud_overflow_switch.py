@@ -11,7 +11,7 @@ variables at the owned pools and GitHub-hosted Linux by hand.
 ci-cloud-overflow-probe.yml runs this every 10 minutes. Its `probe` jobs ask
 for each Blacksmith Linux size in PROBE_LABELS (4 and 16 vCPU), one job per
 label, and only print a line. This script, in the `watch` job on Blacksmith
-macOS, waits for them:
+Linux (a CI_TRUSTED_RUNNER size the probes never ask for), waits for them:
 
 - Every probe starts within PROBE_MINUTES of being queued: Blacksmith serves.
   If this switch turned overflow off (the CI_CLOUD_OVERFLOW_SAVED record

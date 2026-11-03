@@ -80,19 +80,20 @@ jobs:
   watch:
     name: Watch the probe and switch overflow
     if: github.repository_owner == 'manaflow-ai'
-    # The trusted-token selector every other GLAEDA_ROUTE_APP_KEY control job takes
-    # (ci-owned-pool-rescue, ci-stale-run-janitor): CI_TRUSTED_RUNNER may choose only among
-    # the ephemeral labels the expression lists (GitHub-hosted Ubuntu or a one-job
-    # Blacksmith Linux VM), and any other value falls back to Blacksmith 4 vCPU. So no
-    # variable can move this App key to a reused machine, and the switch's own
-    # CI_TRUSTED_RUNNER write (TRUSTED_FAILOVER) moves it only among those labels.
+    # Its own bounded selector over CI_TRUSTED_RUNNER, the variable the other
+    # GLAEDA_ROUTE_APP_KEY control jobs read (ci-owned-pool-rescue, ci-stale-run-janitor).
+    # The expression bounds the value to one-job Blacksmith Linux VMs (2 or 8 vCPU), so no
+    # variable can move this App key to a reused machine. Unlike the shared trusted selector it
+    # never resolves to a size the probes ask for (PROBE_LABELS, 4 and 16 vCPU) or to GitHub-
+    # hosted Ubuntu: any other value, unset included (the switch's restore can unset it, and
+    # its alternate failover is 4 vCPU), takes Blacksmith 2 vCPU. So a stalled probe size never holds the watch, and with it the
+    # concurrency group, as on 2026-10-28 (tests/test_ci_cloud_overflow_switch.py).
     # It used to name the literal blacksmith-6vcpu-macos-26, a single-label pin with no
     # fallback: on 2026-11-03 RUNNER_POOLS marked that label dead and run 41688532704's
     # watch queued 19 minutes (17:53Z-18:12Z), so the hosted light rescue below ran about
-    # every 20-25 minutes instead of every pass (cmuxterm-hq#6671). CI_TRUSTED_RUNNER is
-    # Blacksmith 2 vCPU by default, a size the probes do not ask for, so the watch does not
-    # queue behind its own probes (2026-10-28) and needs no macOS (Python and gh only).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds the App key that writes runner variables; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    # every 20-25 minutes instead of every pass (cmuxterm-hq#6671). It needs no macOS
+    # (Python and gh only).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds the App key that writes runner variables; never a probed size
     timeout-minutes: 25
     permissions:
       actions: write
