@@ -6,6 +6,8 @@ import {
   replyTime,
 } from "../src/agent-session/acpmux/conversation/relativeTime";
 
+import { nextTimestampHover, timestampHoverLabel } from "../src/agent-session/acpmux/conversation/timeHover";
+
 const minute = 60_000;
 const at = Date.UTC(2026, 9, 19, 9, 0, 23, 813);
 
@@ -38,4 +40,21 @@ test("exact reply labels stop after the year suffix is permanent", () => {
   expect(replyTime(at, next - 1, "en-US")).toBe(replyTime(at, now, "en-US"));
   expect(replyTime(at, next, "en-US")).not.toBe(replyTime(at, now, "en-US"));
   expect(nextReplyTime(at, next)).toBe(Infinity);
+});
+
+test("inline timestamp tooltip ages wake only at their text-change minute", () => {
+  for (const age of [0, 59, 60, 89, 90, 3599, 3600, 5399, 5400, 86399, 86400, 129600, 604800]) {
+    const now = Math.floor((at + age * 1000) / minute) * minute;
+    const next = nextTimestampHover(at, now);
+    expect(next % minute).toBe(0);
+    expect(next).toBeGreaterThan(now);
+    expect(timestampHoverLabel(at, next - minute, "en-US")).toBe(timestampHoverLabel(at, now, "en-US"));
+    expect(timestampHoverLabel(at, next, "en-US")).not.toBe(timestampHoverLabel(at, now, "en-US"));
+  }
+});
+
+test("an invalid timestamp cannot poison the page's nearest deadline", () => {
+  expect(nextReplyTime(NaN, at)).toBe(Infinity);
+  expect(nextRelativeTime(NaN, at)).toBe(Infinity);
+  expect(nextTimestampHover(NaN, at)).toBe(Infinity);
 });

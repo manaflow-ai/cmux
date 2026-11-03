@@ -80,6 +80,7 @@ export function nextRelativeTime(at: number, now: number): number {
 
 /** replyTime's exact timestamp changes only when its year suffix appears or disappears. */
 export function nextReplyTime(at: number, now: number): number {
+  if (!Number.isFinite(at)) return Infinity;
   const year = new Date(now).getFullYear();
   const target = new Date(at).getFullYear();
   return target < year ? Infinity : new Date(target === year ? year + 1 : target, 0, 1).getTime();
