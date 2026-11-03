@@ -153,8 +153,8 @@ fn private_spool() -> std::io::Result<std::fs::File> {
     Ok(file)
 }
 
-fn storage_error(error: std::io::Error) -> direct::Direct {
-    direct::Direct::Done(Answer::error(
+fn storage_error(error: std::io::Error) -> Direct {
+    Direct::Done(Answer::error(
         0,
         "local_io",
         &format!("the downloaded response could not be stored: {error}"),
