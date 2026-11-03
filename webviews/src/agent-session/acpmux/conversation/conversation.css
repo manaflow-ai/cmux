@@ -401,10 +401,15 @@
   overflow: auto;
 }
 
-/* A prompt the Chief sent a subagent: a quiet "From the Chief" line above it, and a long task
-   collapsed to its first lines, with Show all leading its action row on the left so the toggle
-   adds no row of its own (ChiefPromptBubble.tsx; Leo 2026-10-31). */
+/* A prompt the Chief sent a subagent: a quiet "Sent from <Chief>" line with the Chief's avatar
+   above it, right-aligned with the bubble as ChatGPT's "Sent from" line (Leo 2026-11-02), and a
+   long task collapsed to its first lines, with Show all leading its action row on the left so the
+   toggle adds no row of its own (ChiefPromptBubble.tsx; Leo 2026-10-31). */
 .cv-user__from {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
   margin-bottom: 2px;
   padding-right: 4px;
   font-family: var(--cv-font);
@@ -412,6 +417,20 @@
   line-height: 18px;
   color: var(--cv-text-muted);
   letter-spacing: var(--text-detail--letter-spacing);
+}
+.cv-user__from-avatar {
+  flex: none;
+  width: 14px;
+  aspect-ratio: 1;
+}
+.cv-user__from-avatar.cv-chief-text-avatar {
+  width: 14px;
+}
+.cv-user__from-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 /* The clamp is on an inner box: on the bubble itself, its bottom padding showed half of the next
    line under the sixth (Leo 2026-10-31). */
