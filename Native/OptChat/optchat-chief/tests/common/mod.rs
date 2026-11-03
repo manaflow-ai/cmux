@@ -150,6 +150,8 @@ pub struct Owner {
     pub run_steps: Vec<(String, Value, Vec<Value>)>,
     /// When set, every attachment upload is refused with this code.
     pub refuse_uploads: Option<String>,
+    /// Panics outside the owner lock during an original-file upload.
+    pub panic_uploads: bool,
 }
 
 /// One side conversation as the fake owner keeps it.
@@ -263,20 +265,47 @@ impl PreviewPort for FakeUploader {
     fn upload_attachment(
         &mut self,
         conversation: &str,
-        bytes: &[u8],
+        path: &std::path::Path,
         mime_type: &str,
         name: &str,
         width: Option<u32>,
         height: Option<u32>,
     ) -> Result<DerivedImage, OpError> {
-        self.upload_image(
-            conversation,
-            bytes,
-            mime_type,
-            name,
+        use sha2::Digest;
+        use std::io::Read;
+        let panic_uploads = self.0.lock().unwrap().panic_uploads;
+        assert!(!panic_uploads, "injected attachment upload panic");
+        if let Some(code) = self.0.lock().unwrap().refuse_uploads.clone() {
+            return Err(OpError::Rejected(code));
+        }
+        let mut file =
+            std::fs::File::open(path).map_err(|error| OpError::Transport(error.to_string()))?;
+        let mut buffer = [0; 64 * 1024];
+        let mut hash = sha2::Sha256::new();
+        let mut byte_count = 0;
+        loop {
+            let read = file
+                .read(&mut buffer)
+                .map_err(|error| OpError::Transport(error.to_string()))?;
+            if read == 0 {
+                break;
+            }
+            byte_count += read as u64;
+            hash.update(&buffer[..read]);
+        }
+        let stored = DerivedImage {
+            hash: format!("{:x}", hash.finalize()),
+            mime_type: mime_type.into(),
+            byte_count,
+        };
+        self.0.lock().unwrap().uploads.push((
+            conversation.into(),
+            stored.clone(),
+            name.into(),
             width.unwrap_or(0),
             height.unwrap_or(0),
-        )
+        ));
+        Ok(stored)
     }
 }
 

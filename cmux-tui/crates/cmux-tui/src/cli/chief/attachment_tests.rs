@@ -37,10 +37,13 @@ fn upload(
         while reader.read_line(&mut line).unwrap() != 0 {
             let request: Value = serde_json::from_str(&line).unwrap();
             line.clear();
-            assert_eq!(request["cmd"], match owner {
-                Owner::Local => "conversation-attachment-upload",
-                Owner::Cloud => "cloud-attachment-upload",
-            });
+            assert_eq!(
+                request["cmd"],
+                match owner {
+                    Owner::Local => "conversation-attachment-upload",
+                    Owner::Cloud => "cloud-attachment-upload",
+                }
+            );
             let data = match request["op"].as_str().unwrap() {
                 "begin" => {
                     got.begin = request.clone();
@@ -50,7 +53,8 @@ fn upload(
                 "chunk" => {
                     assert_eq!(request["offset"], got.bytes);
                     let piece = base64::engine::general_purpose::STANDARD
-                        .decode(request["data"].as_str().unwrap()).unwrap();
+                        .decode(request["data"].as_str().unwrap())
+                        .unwrap();
                     assert!(piece.len() <= 2 << 20);
                     got.largest_chunk = got.largest_chunk.max(piece.len());
                     got.bytes += piece.len() as u64;
@@ -64,10 +68,13 @@ fn upload(
                     json!({"stored": {"hash": got.begin["sha256"],
                         "mime_type": got.begin["mime_type"], "byte_count": got.bytes}})
                 }
+                "cancel" => json!({}),
                 other => panic!("unexpected upload step: {other}"),
             };
             writeln!(writer, "{}", json!({"id": request["id"], "ok": true, "data": data})).unwrap();
-            if got.committed { break; }
+            if got.committed {
+                break;
+            }
         }
         got
     });
@@ -92,11 +99,26 @@ fn chief_attachment_streams_past_100_mb_on_both_owners() {
         let part = result.unwrap();
         assert!(got.committed);
         assert_eq!(got.bytes, bytes);
-        assert_eq!(got.largest_chunk, 2 << 20);
+        assert!(got.largest_chunk > 0 && got.largest_chunk <= 2 << 20);
         assert_eq!(part["byte_count"], bytes);
         assert_eq!(part["hash"], got.begin["sha256"]);
         assert_eq!(part["mime_type"], "text/plain");
     }
+}
+
+/// Run the compiled test directly under `/usr/bin/time` on base and head so
+/// compiler memory does not enter the upload's peak-RSS measurement.
+#[test]
+#[ignore = "same-harness attachment memory measurement"]
+fn chief_attachment_upload_memory_probe() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("memory.bin");
+    let bytes = 80 * 1024 * 1024 + 7;
+    std::fs::File::create(&path).unwrap().set_len(bytes).unwrap();
+    let (result, got) = upload(&path, Owner::Local, || {});
+    assert_eq!(result.unwrap()["byte_count"], bytes);
+    assert!(got.committed);
+    assert_eq!(got.bytes, bytes);
 }
 
 #[test]
@@ -111,10 +133,22 @@ fn chief_attachment_sniffs_utf8_across_chunk_boundaries_and_rejects_mutation() {
     assert_eq!(result.unwrap()["mime_type"], "text/plain");
     assert!(got.committed);
 
+    file.rewind().unwrap();
+    file.write_all(&[0xff]).unwrap();
+    let (result, got) = upload(&path, Owner::Local, || {});
+    assert_eq!(result.unwrap()["mime_type"], "application/octet-stream");
+    assert!(got.committed);
+    file.rewind().unwrap();
+    file.write_all(b"x").unwrap();
+
     let changed = path.clone();
     let (result, got) = upload(&path, Owner::Local, move || {
-        std::fs::OpenOptions::new().write(true).open(changed).unwrap()
-            .write_all(b"changed").unwrap();
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(changed)
+            .unwrap()
+            .write_all(b"changed")
+            .unwrap();
     });
     assert!(result.unwrap_err().contains("changed"));
     assert!(!got.committed, "a changed source must never publish a truncated or wrong attachment");

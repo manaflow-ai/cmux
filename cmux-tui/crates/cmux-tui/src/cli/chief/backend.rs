@@ -7,7 +7,7 @@
 //! turns each into the item shape of the local `conversation.events` stream,
 //! so the chat view, the turn watcher and the scripts read one shape.
 
-use std::io::Read as _;
+use std::io::{IsTerminal as _, Read as _, Seek as _};
 use std::path::Path;
 use std::sync::mpsc::Sender;
 
@@ -35,8 +35,6 @@ impl Owner {
 
 /// The largest attachment piece sent in one `chunk` (the owner takes 4 MiB).
 const CHUNK: usize = 2 << 20;
-/// The largest file `--attach` reads (the owners' limit).
-const MAX_ATTACHMENT: u64 = 100_000_000;
 /// The capability a cloud events connection echoes to get typing.
 const CLOUD_TYPING: &str = "cloud-conversation-typing-v1";
 
@@ -184,24 +182,29 @@ impl ChatClient {
     /// Uploads the file at `path` into `conversation`; the `attachment` part
     /// that names it.
     pub(super) fn upload(&mut self, conversation: &str, path: &Path) -> Result<Value, String> {
-        let meta = std::fs::metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        use base64::Engine as _;
+        use sha2::Digest as _;
+        let failed = |e: std::io::Error| format!("{}: {e}", path.display());
+        let changed = || format!("{} changed while being uploaded; send it again", path.display());
+        let mut file = std::fs::File::open(path).map_err(failed)?;
+        let meta = file.metadata().map_err(failed)?;
         if !meta.is_file() {
             return Err(format!("{} is not a file", path.display()));
         }
-        if meta.len() > MAX_ATTACHMENT {
-            return Err(format!("{} is larger than 100 MB", path.display()));
+        // The content-addressed owner needs the hash before begin. Both passes
+        // use one buffer; UTF-8 sniffing carries at most three trailing bytes.
+        let mut buffer = vec![0; CHUNK + 3];
+        let (hash, byte_count, utf8) = file_fingerprint(&mut file, &mut buffer).map_err(failed)?;
+        if byte_count != meta.len() {
+            return Err(changed());
         }
-        let mut bytes = Vec::with_capacity(meta.len() as usize);
-        std::fs::File::open(path)
-            .and_then(|mut file| file.read_to_end(&mut bytes))
-            .map_err(|e| format!("{}: {e}", path.display()))?;
+        file.rewind().map_err(failed)?;
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("file").to_owned();
         let mut mime = mime_type(&name);
         // Clients send UTF-8 text of any name as text/plain (cmux-conversation GENERIC_FILE_TYPE).
-        if mime == "application/octet-stream" && std::str::from_utf8(&bytes).is_ok() {
+        if mime == "application/octet-stream" && utf8 {
             mime = "text/plain";
         }
-        let hash = sha256_hex(&bytes);
         let cmd = match self.owner {
             Owner::Local => "conversation-attachment-upload",
             Owner::Cloud => "cloud-attachment-upload",
@@ -212,27 +215,75 @@ impl ChatClient {
             .command(
                 cmd,
                 json!({"op": "begin", "conversation": conversation, "sha256": hash,
-                       "byte_count": bytes.len(), "mime_type": mime, "name": name}),
+                       "byte_count": byte_count, "mime_type": mime, "name": name}),
             )
             .map_err(refused)?;
-        if let Some(upload) = begun.get("upload").and_then(Value::as_str) {
-            let mut offset = 0usize;
-            for piece in bytes.chunks(CHUNK) {
-                use base64::Engine as _;
-                let data = base64::engine::general_purpose::STANDARD.encode(piece);
-                self.link
-                    .command(
-                        cmd,
-                        json!({"op": "chunk", "upload": upload, "piece": "original",
-                               "offset": offset, "data": data}),
-                    )
-                    .map_err(refused)?;
-                offset += piece.len();
+        let stored = |reply: &Value| {
+            if reply.pointer("/stored/hash").and_then(Value::as_str) == Some(hash.as_str())
+                && reply.pointer("/stored/mime_type").and_then(Value::as_str) == Some(mime)
+                && reply.pointer("/stored/byte_count").and_then(Value::as_u64) == Some(byte_count)
+            {
+                Ok(())
+            } else {
+                Err("the attachment owner returned no matching stored file".to_owned())
             }
-            self.link.command(cmd, json!({"op": "commit", "upload": upload})).map_err(refused)?;
+        };
+        if let Some(upload) = begun.get("upload").and_then(Value::as_str) {
+            let progress = std::io::stderr().is_terminal();
+            let result = (|| {
+                let mut offset = 0_u64;
+                let mut sent_hash = sha2::Sha256::new();
+                loop {
+                    let count = file.read(&mut buffer[..CHUNK]).map_err(failed)?;
+                    if count == 0 {
+                        break;
+                    }
+                    if count as u64 > byte_count.saturating_sub(offset) {
+                        return Err(changed());
+                    }
+                    let piece = &buffer[..count];
+                    sent_hash.update(piece);
+                    let data = base64::engine::general_purpose::STANDARD.encode(piece);
+                    let reply = self
+                        .link
+                        .command(
+                            cmd,
+                            json!({"op": "chunk", "upload": upload, "piece": "original",
+                               "offset": offset, "data": data}),
+                        )
+                        .map_err(refused)?;
+                    offset += count as u64;
+                    if reply.get("received").and_then(Value::as_u64) != Some(offset) {
+                        return Err(
+                            "the attachment owner acknowledged a different offset".to_owned()
+                        );
+                    }
+                    if progress {
+                        eprint!("\rUploading attachment: {offset}/{byte_count} bytes");
+                    }
+                }
+                if offset != byte_count || format!("{:x}", sent_hash.finalize()) != hash {
+                    return Err(changed());
+                }
+                stored(
+                    &self
+                        .link
+                        .command(cmd, json!({"op": "commit", "upload": upload}))
+                        .map_err(refused)?,
+                )
+            })();
+            if progress {
+                eprintln!();
+            }
+            if let Err(error) = result {
+                let _ = self.link.command(cmd, json!({"op": "cancel", "upload": upload}));
+                return Err(error);
+            }
+        } else {
+            stored(&begun)?;
         }
         Ok(json!({"type": "attachment", "hash": hash, "name": name, "mime_type": mime,
-                  "byte_count": bytes.len()}))
+                  "byte_count": byte_count}))
     }
 
     /// Turns this connection into `conversation`'s event stream: the items
@@ -384,8 +435,35 @@ pub(super) fn mime_type(name: &str) -> &'static str {
     }
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
+/// Hash and classify the complete source without retaining its contents.
+fn file_fingerprint(
+    file: &mut std::fs::File,
+    buffer: &mut [u8],
+) -> std::io::Result<(String, u64, bool)> {
     use sha2::Digest as _;
-    let digest = sha2::Sha256::digest(bytes);
-    digest.iter().map(|b| format!("{b:02x}")).collect()
+    let mut hash = sha2::Sha256::new();
+    let (mut length, mut pending, mut utf8) = (0_u64, 0, true);
+    loop {
+        let count = file.read(&mut buffer[pending..pending + CHUNK])?;
+        if count == 0 {
+            break;
+        }
+        hash.update(&buffer[pending..pending + count]);
+        length += count as u64;
+        if utf8 {
+            let end = pending + count;
+            match std::str::from_utf8(&buffer[..end]) {
+                Ok(_) => pending = 0,
+                Err(error) if error.error_len().is_none() => {
+                    pending = end - error.valid_up_to();
+                    buffer.copy_within(error.valid_up_to()..end, 0);
+                }
+                Err(_) => {
+                    utf8 = false;
+                    pending = 0;
+                }
+            }
+        }
+    }
+    Ok((format!("{:x}", hash.finalize()), length, utf8 && pending == 0))
 }

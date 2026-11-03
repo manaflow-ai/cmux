@@ -194,3 +194,127 @@ fn a_video_past_the_old_fifty_mb_cap_is_delivered_whole() {
     );
     assert_eq!(h.owner.lock().unwrap().uploads[0].1.byte_count, bytes);
 }
+
+#[test]
+fn a_pending_file_survives_restart_and_an_expired_preview_deadline() {
+    use optchat_chief::state::{HostState, StateFile};
+    use std::sync::{Arc, Mutex};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pending.mp4");
+    std::fs::write(&path, b"a complete recording").unwrap();
+    let entry = serde_json::from_value(json!({
+        "conversation": CONV,
+        "idempotency_key": "turn:pending-media",
+        "op": {"kind": "message.send", "client_msg_id": "turn:pending-media", "parts": [text("Here it is.")]},
+        "plain_text": "Here it is.",
+        "previews_until": 1,
+        "pending_media": [{"path": path, "mime_type": "video/mp4", "image_syntax": null}],
+    })).unwrap();
+    StateFile::new(&dir.path().join("host.json"))
+        .save(&HostState {
+            conversation: Some(CONV.into()),
+            outbox: vec![entry],
+            ..Default::default()
+        })
+        .unwrap();
+    let owner = Arc::new(Mutex::new(Owner {
+        summary: Some(summary()),
+        ..Default::default()
+    }));
+    let mut h = Harness::in_dir(dir, default_script(), owner);
+    h.connect();
+    assert!(
+        !h.owner
+            .lock()
+            .unwrap()
+            .ops
+            .iter()
+            .any(|(key, _)| key == "turn:pending-media"),
+        "even an expired 60-second hold must not send before the upload completes"
+    );
+    let parts = sent_reply(&mut h);
+    assert_eq!(parts[0], text("Here it is."));
+    assert_eq!(parts.iter().filter_map(attachment).count(), 1);
+    assert!(h.brain.state().outbox.is_empty());
+}
+
+#[test]
+fn an_upload_worker_panic_sends_file_links_and_releases_the_queue() {
+    use optchat_chief::brain::Input;
+    use optchat_chief::state::{HostState, StateFile};
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pending.pdf");
+    std::fs::write(&path, b"an original report").unwrap();
+    let entries = serde_json::from_value(json!([
+        {
+            "conversation": CONV,
+            "idempotency_key": "turn:pending-media",
+            "op": {"kind": "message.send", "client_msg_id": "turn:pending-media", "parts": [text("Here it is.")]},
+            "pending_media": [{"path": path, "mime_type": "application/pdf", "image_syntax": null}],
+        },
+        {
+            "conversation": CONV,
+            "idempotency_key": "turn:following",
+            "op": {"kind": "message.send", "client_msg_id": "turn:following", "parts": [text("The following message.")]},
+        }
+    ])).unwrap();
+    StateFile::new(&dir.path().join("host.json"))
+        .save(&HostState {
+            conversation: Some(CONV.into()),
+            outbox: entries,
+            ..Default::default()
+        })
+        .unwrap();
+    let owner = Arc::new(Mutex::new(Owner {
+        summary: Some(summary()),
+        panic_uploads: true,
+        ..Default::default()
+    }));
+    let logs = Arc::new(Mutex::new(Vec::new()));
+    let captured = logs.clone();
+    let config = settings(dir.path());
+    let mut h = Harness::configured(
+        dir,
+        default_script(),
+        owner,
+        config,
+        Arc::new(move |line| captured.lock().unwrap().push(line.to_owned())),
+    );
+    h.connect();
+    assert!(h.owner.lock().unwrap().sends().is_empty());
+    assert_eq!(h.brain.state().outbox.len(), 2);
+    // The worker completion is the gate: no timer or sleep releases the queue.
+    let completed =
+        h.rx.recv_timeout(Duration::from_secs(5))
+            .expect("terminal worker event");
+    assert!(
+        matches!(&completed, Input::Previews { key, parts: Some(_) } if key == "turn:pending-media")
+    );
+    h.brain.step(completed);
+    assert!(h.brain.state().outbox.is_empty());
+    let delivered = h
+        .owner
+        .lock()
+        .unwrap()
+        .sends()
+        .into_iter()
+        .map(|(_, text)| text)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        delivered.contains(&format!(
+            "Attachment upload failed: [pending.pdf]({})",
+            url::Url::from_file_path(path).unwrap()
+        )),
+        "{delivered}"
+    );
+    assert!(delivered.contains("The following message."), "{delivered}");
+    assert!(
+        logs.lock()
+            .unwrap()
+            .iter()
+            .any(|line| line.contains("worker panicked: injected attachment upload panic"))
+    );
+}
