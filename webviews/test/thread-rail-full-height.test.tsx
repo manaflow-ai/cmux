@@ -1,10 +1,11 @@
 // The prompt rail's vertical placement. Its box is centered in the transcript's view (model.ts railTop)
-// and holds the ticks it draws. Prompts not held yet (the snapshot's `promptCount`, before the prompt
-// index answers or on a daemon without one) reserve no empty rows above the held ticks: that pushed the
-// held ticks to the box's foot, just above the composer (Leo, 2026-11-01: "what a stupid f***ing choice
-// to put the f***ing scroll rail at the bottom???"). The prompt index gives every prompt its tick, so
-// the rail is full height once it answers (Leo, 2026-11-01: "i also want the left scroll rail to be
-// starting off to its max height if there truly are that many prompts in the chat").
+// and holds the ticks it draws, never empty rows: those pushed the held ticks to the box's foot, just
+// above the composer (Leo, 2026-11-01: "what a stupid f***ing choice to put the f***ing scroll rail at
+// the bottom???"). Prompts not held yet (the snapshot's `promptCount`, before the prompt index answers
+// or on a daemon without one) draw unheld ticks above the held ones, so the rail is full height on the
+// first frame (Leo, 2026-11-01: "i also want the left scroll rail to be starting off to its max height
+// if there truly are that many prompts in the chat"; 2026-11-03: "like it can read the count metadata
+// right?"), and the index answering moves nothing.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -130,7 +131,7 @@ const centered = (height: number) => Math.round((VIEWPORT - height) / 2);
 /// Where the drawn ticks' run is centered, in px down the view.
 const middle = (box: ReturnType<typeof rail>) => (box.top + box.lead + box.latest + 10) / 2;
 
-test("held ticks sit centered in the view, never stacked at the box's foot, while older prompts are not held", async () => {
+test("the count draws every prompt's tick on the first frame, centered, and the index answering moves nothing", async () => {
   const all = chat(45);
   const prompts = all.filter((entry) => entry.kind === "user");
   const held = all.slice(all.indexOf(prompts[33]!));
@@ -151,23 +152,17 @@ test("held ticks sit centered in the view, never stacked at the box's foot, whil
       ),
     );
   try {
-    // The first frame: twelve prompts held, the summary says forty-five.
+    // The first frame: twelve prompts held, the summary says forty-five. Every one has its tick.
     await render({ promptCount: 45 });
     const open = rail();
-    // The box holds the twelve ticks (the 320 px floor), centered: no empty rows above them.
     expect(open.lead).toBe(0);
-    expect(open.height).toBe(320);
-    expect(open.top).toBeLessThanOrEqual(centered(320));
+    expect(open.height).toBe(450);
+    expect(open.top).toBeLessThanOrEqual(centered(450));
     // The ticks' run is about the view's middle, nowhere near its foot.
     expect(Math.abs(middle(open) - VIEWPORT / 2)).toBeLessThanOrEqual(100);
-    expect(open.latest).toBeLessThan(VIEWPORT - stack - 100);
-    // The index answers: every prompt has its tick, and the taller box is still centered.
+    // The index answers: the same box, the same place.
     await render({ earlier });
-    const full = rail();
-    expect(full.lead).toBe(0);
-    expect(full.height).toBe(450);
-    expect(full.top).toBeLessThanOrEqual(centered(450));
-    expect(Math.abs(middle(full) - VIEWPORT / 2)).toBeLessThanOrEqual(100);
+    expect(rail()).toEqual(open);
   } finally {
     await act(async () => root.unmount());
   }
@@ -219,11 +214,12 @@ test("a chat with more prompts than the rail holds keeps its latest tick at the 
     );
   try {
     await render({ promptCount: 80 });
-    // Twelve held: the 320 px floor, centered, with no empty rows above the ticks.
-    expect(rail().lead).toBe(0);
-    expect(rail().height).toBe(320);
+    // Eighty ticks from the count: the rail is as tall as its room from the first frame.
+    const first = rail();
+    expect(first.lead).toBe(0);
     await render({ earlier });
     const open = rail();
+    expect(open.height).toBe(first.height);
     // Taller than the room: the rail fills it, and the latest tick ends at its bottom.
     expect(open.height).toBeLessThan(800);
     expect(open.latest + 10).toBe(open.top + open.height);

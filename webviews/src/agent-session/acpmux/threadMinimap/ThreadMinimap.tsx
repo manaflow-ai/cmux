@@ -44,6 +44,7 @@ import {
   jumpDuration,
   LANDING_OFFSET,
   MIN_PROMPTS,
+  isUnheld,
   minimapTurns,
   railFade,
   railFades,
@@ -65,6 +66,7 @@ import {
   type MinimapTurn,
   type MinimapTurns,
   type RowsChange,
+  unheldRows,
 } from "./model";
 
 /// How long a step's scroll counts as under way for the next step, so repeats keep stepping.
@@ -81,6 +83,9 @@ function keyboardFocused(node: HTMLElement): boolean {
 }
 
 type Jump = "click" | "step" | "scrub" | "bookmark";
+/// A jump to a prompt not held yet, run once it is (ThreadMinimap `jump`). `row` is set for an
+/// unheld tick, which waits by its row; `loading` while a page it asked for is under way.
+type Waiting = { id: string; how: Jump; sessionId?: string; row?: number; loading?: boolean };
 const EMPTY_EARLIER: readonly AcpmuxRow[] = [];
 
 /// A row the rail's state names: the index the state holds for it, and its prompt's key.
@@ -143,8 +148,8 @@ export function ThreadMinimap({
   /// The chat's prompts older than `rows` (VirtualTranscript `earlier`): ticks from the first frame.
   earlier?: readonly AcpmuxRow[];
   /// The chat's prompt count while `rows` and `earlier` do not hold every prompt yet (the snapshot's
-  /// `promptCount`): it decides whether the chat has enough prompts for a rail. It reserves no rows: the
-  /// box holds only the ticks drawn, centered, so held ticks never sit at its foot.
+  /// `promptCount`): every prompt not held draws a tick above the held ones (model.ts `unheldRows`),
+  /// so the rail is full length on the first frame and no tick moves as history pages in.
   promptCount?: number;
   loadThrough?: (seq: number) => Promise<boolean>;
   sessionId?: string;
@@ -191,10 +196,18 @@ export function ThreadMinimap({
   const lastTurns = useRef<MinimapTurns | undefined>(undefined);
   // Every streamed token is a new `rows`: `turns` then changes with the live reply (the card reads
   // it), while `ticks` stays as long as the prompts do, so the tick list below renders nothing.
-  const read = useMemo(
-    () => minimapTurns(rows, sessionId, lastTurns.current, change, earlierRows),
-    [rows, sessionId, change, earlierRows],
-  );
+  // While the prompt index has not answered (or on a daemon without one), the chat's count stands in
+  // for it: the prompts it names past the held ones draw as unheld ticks above them. Their number
+  // reads the held prompts, known only once the rows are read: the last commit's count is the guess,
+  // and a second read corrects it when the rows changed it (a page landed, a prompt was sent).
+  const read = useMemo(() => {
+    const prior = lastTurns.current;
+    if (earlierRows.length || !promptCount) return minimapTurns(rows, sessionId, prior, change, earlierRows);
+    const guess = prior?.sessionId === sessionId ? (prior.loadedTurns ?? prior.turns).length : 0;
+    const first = minimapTurns(rows, sessionId, prior, change, unheldRows(promptCount - guess));
+    const held = (first.loadedTurns ?? first.turns).length;
+    return held === guess ? first : minimapTurns(rows, sessionId, prior, change, unheldRows(promptCount - held));
+  }, [rows, sessionId, change, earlierRows, promptCount]);
   useLayoutEffect(() => {
     lastTurns.current = read;
   }, [read]);
@@ -327,10 +340,10 @@ export function ThreadMinimap({
   /// Every prompt the chat has, held or not yet: only whether the chat has enough prompts for a rail.
   const known = Math.max(turns.length, promptCount ?? 0);
   /// The box holds the ticks the rail draws, centered in the view (model.ts railTop), never a run of
-  /// empty rows for prompts not held yet: those pushed the held ticks to the box's foot, so the rail
-  /// sat at the bottom of the pane (Leo, 2026-11-01: "what a stupid f***ing choice to put the f***ing
-  /// scroll rail at the bottom???"). The prompt index (`earlier`) gives every prompt its tick from the
-  /// first frame, so the box is full height as soon as it answers.
+  /// empty rows: those pushed the held ticks to the box's foot, so the rail sat at the bottom of the
+  /// pane (Leo, 2026-11-01: "what a stupid f***ing choice to put the f***ing scroll rail at the
+  /// bottom???"). Every prompt has a tick from the first frame: the prompt index's (`earlier`), or an
+  /// unheld tick for each prompt the count names until it answers, so the box never grows under them.
   /// Never shorter than the prompts on screen, so the band always draws whole (model.ts railHeight).
   const boxRail = railHeight(
     turns.length,
@@ -505,79 +518,127 @@ export function ThreadMinimap({
   /// prompt's row (its sent images, else its bubble) LANDING_OFFSET down. A click or a bookmark jump
   /// flashes the prompt's bubble where it lands. Returns where the scroll goes.
   /// A click on a prompt not loaded yet: the jump that runs once its row is held, in that chat.
-  const waiting = useRef<{ id: string; how: Jump; sessionId?: string } | undefined>(undefined);
+  /// One on an unheld tick (model.ts `isUnheld`) waits by its row instead: the rail's rows stay put
+  /// as history arrives, so the row is the prompt's once anything about it loads.
+  const waiting = useRef<Waiting | undefined>(undefined);
   const loadThroughNow = useRef(loadThrough);
   loadThroughNow.current = loadThrough;
-  const [jump] = useState(() => (index: number, how: Jump): number | undefined => {
-    const node = scroller.current;
-    const turn = live.current.turns[index];
-    if (!node || !turn) return undefined;
-    if (turn.index < 0) {
-      const seq = Number(turn.id.slice(turn.id.indexOf("-") + 1));
+  const [{ jump, advance }] = useState(() => {
+    /// Moves a jump to an unheld tick on: the jump itself once its row is a prompt with a seq (the
+    /// index answered, or a page held it), else one more page before the oldest held prompt. A step
+    /// runs at a time; a page that lands, or a read that ends, asks again. A read that stops short of
+    /// the row (no history left, a failed page) or another chat drops the jump.
+    const advance = (pending: Waiting) => {
+      if (waiting.current !== pending || pending.loading || pending.row === undefined) return;
+      const { turns, loadedStart, sessionId: session } = live.current;
+      const turn = turns[pending.row];
+      if (pending.sessionId !== session || !turn) {
+        waiting.current = undefined;
+        return;
+      }
+      if (!isUnheld(turn)) {
+        waiting.current = undefined;
+        jump(pending.row, pending.how);
+        return;
+      }
+      const oldest = turns[loadedStart];
+      const seq = oldest ? Number(oldest.id.slice(oldest.id.indexOf("-") + 1)) : Number.NaN;
       const load = loadThroughNow.current;
-      if (!Number.isFinite(seq) || !load) return undefined;
-      const pending = { id: turn.id, how, sessionId: live.current.sessionId };
-      waiting.current = pending;
-      // A read that stopped short of the prompt (no history left, a failed page) drops the jump, so
-      // it never fires later on a page the reader asked for nothing.
+      if (!Number.isFinite(seq) || seq <= 1 || !load) {
+        waiting.current = undefined;
+        return;
+      }
+      pending.loading = true;
       const drop = () => {
         if (waiting.current === pending) waiting.current = undefined;
       };
-      void load(seq).then((held) => {
-        if (!held) drop();
+      void load(seq - 1).then((held) => {
+        pending.loading = false;
+        if (held) advance(pending);
+        else drop();
       }, drop);
-      return undefined;
-    }
-    const targetRef: TickRef = { key: turn.key, id: turn.id };
-    // History prepended mid-ride moves the turn's index; read its top by key so the landing tracks it.
-    const target = () => {
-      const currentIndex = tickIndex(live.current.ticks, targetRef);
-      const currentTurn = (currentIndex >= 0 ? live.current.turns[currentIndex] : undefined) ?? turn;
-      return physicalScrollTop(
-        node,
-        Math.min(turnScrollTop(currentTurn, live.current.tops), Math.max(0, live.current.total - node.clientHeight)),
-      );
     };
-    let row = mountedRow(node, turn.id);
-    // Keep the mounted target through the settle. Virtualization may replace it, so a stale
-    // element is looked up again; ordinary frames never scan all mounted transcript rows.
-    const targetRow = () => {
-      if (!row || !node.contains(row) || row.dataset.rowId !== turn.id) row = mountedRow(node, turn.id);
-      return row;
+    const jump = (index: number, how: Jump): number | undefined => {
+      const node = scroller.current;
+      const turn = live.current.turns[index];
+      if (!node || !turn) return undefined;
+      if (isUnheld(turn)) {
+        const pending: Waiting = { id: turn.id, row: index, how, sessionId: live.current.sessionId };
+        waiting.current = pending;
+        advance(pending);
+        return undefined;
+      }
+      if (turn.index < 0) {
+        const seq = Number(turn.id.slice(turn.id.indexOf("-") + 1));
+        const load = loadThroughNow.current;
+        if (!Number.isFinite(seq) || !load) return undefined;
+        const pending = { id: turn.id, how, sessionId: live.current.sessionId };
+        waiting.current = pending;
+        // A read that stopped short of the prompt (no history left, a failed page) drops the jump, so
+        // it never fires later on a page the reader asked for nothing.
+        const drop = () => {
+          if (waiting.current === pending) waiting.current = undefined;
+        };
+        void load(seq).then((held) => {
+          if (!held) drop();
+        }, drop);
+        return undefined;
+      }
+      const targetRef: TickRef = { key: turn.key, id: turn.id };
+      // History prepended mid-ride moves the turn's index; read its top by key so the landing tracks it.
+      const target = () => {
+        const currentIndex = tickIndex(live.current.ticks, targetRef);
+        const currentTurn = (currentIndex >= 0 ? live.current.turns[currentIndex] : undefined) ?? turn;
+        return physicalScrollTop(
+          node,
+          Math.min(turnScrollTop(currentTurn, live.current.tops), Math.max(0, live.current.total - node.clientHeight)),
+        );
+      };
+      let row = mountedRow(node, turn.id);
+      // Keep the mounted target through the settle. Virtualization may replace it, so a stale
+      // element is looked up again; ordinary frames never scan all mounted transcript rows.
+      const targetRow = () => {
+        if (!row || !node.contains(row) || row.dataset.rowId !== turn.id) row = mountedRow(node, turn.id);
+        return row;
+      };
+      const to = target();
+      // The layout's tops are estimates for rows never drawn, so a long jump can land off its mark
+      // once the rows it reaches mount and measure (297 px off for 50 turns up). Where it lands is then
+      // corrected from the prompt's row itself, frame by frame, until it holds. The row's top, not the
+      // bubble's: a prompt's sent images draw above its bubble, and a settle on the bubble slid the
+      // landing down past them (Leo, 2026-10-25: "it jumps all the way up to the attachment area ...
+      // Then it just sends me back down to the, like, only the text area"). The row's top does not
+      // move when its images load and it grows; that growth goes below it.
+      const settle = () =>
+        settleScroll(
+          node,
+          () => {
+            const box = targetRow()?.getBoundingClientRect();
+            // Not drawn yet, or no layout to measure (a hidden pane).
+            if (!box || box.height === 0) return undefined;
+            return box.top - node.getBoundingClientRect().top - LANDING_OFFSET;
+          },
+          SETTLE_FRAMES,
+          { explicit: true },
+        );
+      if (how === "scrub" || how === "click" || !row || reducedMotion()) {
+        stopScroll(node);
+        node.scrollTop = to;
+        if (how !== "scrub") settle();
+      } else if (how === "step")
+        animateScroll(node, target, STEP_MS, STEP_CURVE, settle, undefined, { explicit: true });
+      else
+        animateScroll(node, target, jumpDuration(to - node.scrollTop), JUMP_CURVE, settle, undefined, {
+          explicit: true,
+        });
+      if (how === "click" || how === "bookmark") {
+        if (row) highlightBubble(bubbleOf(row));
+        // An unmounted row mounts once the transcript draws its new place.
+        else requestAnimationFrame(() => requestAnimationFrame(() => highlightBubble(bubbleOf(targetRow()))));
+      }
+      return to;
     };
-    const to = target();
-    // The layout's tops are estimates for rows never drawn, so a long jump can land off its mark
-    // once the rows it reaches mount and measure (297 px off for 50 turns up). Where it lands is then
-    // corrected from the prompt's row itself, frame by frame, until it holds. The row's top, not the
-    // bubble's: a prompt's sent images draw above its bubble, and a settle on the bubble slid the
-    // landing down past them (Leo, 2026-10-25: "it jumps all the way up to the attachment area ...
-    // Then it just sends me back down to the, like, only the text area"). The row's top does not
-    // move when its images load and it grows; that growth goes below it.
-    const settle = () =>
-      settleScroll(
-        node,
-        () => {
-          const box = targetRow()?.getBoundingClientRect();
-          // Not drawn yet, or no layout to measure (a hidden pane).
-          if (!box || box.height === 0) return undefined;
-          return box.top - node.getBoundingClientRect().top - LANDING_OFFSET;
-        },
-        SETTLE_FRAMES,
-        { explicit: true },
-      );
-    if (how === "scrub" || how === "click" || !row || reducedMotion()) {
-      stopScroll(node);
-      node.scrollTop = to;
-      if (how !== "scrub") settle();
-    } else if (how === "step") animateScroll(node, target, STEP_MS, STEP_CURVE, settle, undefined, { explicit: true });
-    else
-      animateScroll(node, target, jumpDuration(to - node.scrollTop), JUMP_CURVE, settle, undefined, { explicit: true });
-    if (how === "click" || how === "bookmark") {
-      if (row) highlightBubble(bubbleOf(row));
-      // An unmounted row mounts once the transcript draws its new place.
-      else requestAnimationFrame(() => requestAnimationFrame(() => highlightBubble(bubbleOf(targetRow()))));
-    }
-    return to;
+    return { jump, advance };
   });
   useLayoutEffect(() => {
     const pending = waiting.current;
@@ -586,11 +647,15 @@ export function ThreadMinimap({
       waiting.current = undefined;
       return;
     }
+    if (pending.row !== undefined) {
+      advance(pending);
+      return;
+    }
     const index = turns.findIndex((turn) => turn.id === pending.id && turn.index >= 0);
     if (index < 0) return;
     waiting.current = undefined;
     jump(index, pending.how);
-  }, [turns, jump, sessionId]);
+  }, [turns, jump, advance, sessionId]);
 
   // Previous Turn and Next Turn (the app's Ctrl-Opt-Up and Ctrl-Opt-Down) and Previous and Next
   // Bookmarked Prompt (palette actions) are bridge commands that raise these events. They work
@@ -1159,6 +1224,7 @@ export function ThreadMinimap({
           // Out of the scroller: its edge mask would keep the card's blur from the rows (PreviewCard.tsx).
           scroller={scroller.current}
           prompt={cardTurn.prompt}
+          pending={isUnheld(cardTurn)}
           from={cardTurn.from}
           reply={cardTurn.reply}
           metadata={cardTurn.metadata}

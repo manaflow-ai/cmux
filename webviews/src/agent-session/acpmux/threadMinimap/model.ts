@@ -548,6 +548,35 @@ export function minimapTurns(
   return withEarlier(list, loaded, old as MinimapTurn[]);
 }
 
+/// A prompt the chat's count names (the snapshot's `promptCount`) that nothing has loaded yet: no
+/// index entry, no row. Its tick holds the prompt's row on the rail, so the rail is full length from
+/// the first frame and no tick moves as history arrives (Leo, 2026-11-03: "can it be bigger even
+/// without having all the prompts loaded? like it can read the count metadata right?" and "mostly i
+/// just don't like it when the thing shifts and whatnot trying to center itself"). Ids count from the
+/// oldest prompt, so a page that loads the newest of them leaves the others' ids, and keys, as they were.
+const UNHELD_ID = "rail-unheld-";
+export const isUnheld = (turn: { id: string }) => turn.id.startsWith(UNHELD_ID);
+/// The last few lists `unheldRows` built, by length: the same count is the same list, so the rail's
+/// turns and ticks stay as they were while a reply streams.
+const unheldLists = new Map<number, readonly AcpmuxRow[]>();
+const NO_UNHELD: readonly AcpmuxRow[] = [];
+/// `count` rows standing for the oldest prompts not loaded yet, oldest first (none for 0 or less).
+export function unheldRows(count: number): readonly AcpmuxRow[] {
+  if (!(count > 0)) return NO_UNHELD;
+  const kept = unheldLists.get(count);
+  if (kept) return kept;
+  const rows = Array.from({ length: count }, (_, index): AcpmuxRow => ({
+    id: `${UNHELD_ID}${index}`,
+    version: 1,
+    at: 0,
+    kind: "user",
+    text: "",
+  }));
+  if (unheldLists.size >= 8) unheldLists.delete(unheldLists.keys().next().value!);
+  unheldLists.set(count, rows);
+  return rows;
+}
+
 /// A turn's `from`, only when it has one, so a person's turn keeps the shape it had.
 function withSender(row: AcpmuxRow): Pick<MinimapTurn, "from"> {
   const from = promptSender(row);
