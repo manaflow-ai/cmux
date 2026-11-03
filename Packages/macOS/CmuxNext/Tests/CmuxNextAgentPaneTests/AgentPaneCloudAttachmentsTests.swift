@@ -30,9 +30,11 @@ import Testing
             return .object(chip)
         }
         let carry = try #require(AgentPaneCloudAttachments(chips))
-        #expect(try await carry.uploads().map(\.name) == ["file-0", "file-1"])
-        let remote = try #require(carry.remapped(["/work/0", "/work/1"]))
+        #expect(try await carry.uploads().isEmpty)
+        let remote = try #require(carry.remapped([]))
         #expect(remote.map { $0["id"] } == chips.map { $0["id"] })
+        #expect(remote[0]["data"] == .string("YWJj") && remote[0]["path"] == nil)
+        #expect(remote[1]["data"] == .string("YWJj") && remote[1]["path"] == nil)
         #expect(remote[2]["text"] == .string("the words"))
         #expect(remote[3]["text"] == .string("the words"))
     }
@@ -57,6 +59,20 @@ import Testing
         #expect(start.seed(cwd: nil).promptAttachments == [image])
         #expect(AgentPaneCloudStart(params: ["task": "", "key": UUID().uuidString]) == nil)
         #expect(AgentPaneCloudStart(params: ["task": "look", "key": UUID().uuidString, "attachments": "wrong"]) == nil)
+    }
+
+    @Test func theHandshakeEncodesAttachmentJSONAndDecodesItWithoutChangingTheWireShape() throws {
+        var handshake = AgentPaneHandshake(transport: .acpmuxBridge)
+        handshake.promptAttachments = [image, .object([
+            "id": .string("paste"), "kind": .string("pasted"), "name": .string("notes.txt"),
+            "text": .string("notes"), "extra": .array([.null, .bool(true), .number(1.5)]),
+        ])]
+        let data = try JSONEncoder().encode(handshake)
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let attachments = try #require(object["promptAttachments"] as? [[String: Any]])
+        #expect(attachments[0]["data"] as? String == "YWJj")
+        #expect(attachments[0]["inline"] as? Bool == true)
+        #expect(try JSONDecoder().decode(AgentPaneHandshake.self, from: data).promptAttachments == handshake.promptAttachments)
     }
 
     @MainActor @Test func theUploadFinishesBeforeTheChatOpensAndFailedOpenRollsItBack() async throws {

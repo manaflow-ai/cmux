@@ -1,6 +1,6 @@
 public import CmuxNextCloud
 import CmuxNextCompat
-import CmuxNextSettings
+public import CmuxNextSettings
 public import Foundation
 
 /// `cloud.startChat {task, cwd?, harness?, model?, key}`: a new chat's first send with Cloud picked

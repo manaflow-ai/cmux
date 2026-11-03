@@ -43,10 +43,10 @@ public nonisolated struct AgentPaneCloudAttachments: Sendable {
         self.items = items
     }
 
-    /// Decodes only the page's inline bytes off the main actor. Text stays in its text block.
+    /// Copies image previews off the main actor for their file links. Other media go inline only.
     @concurrent public func uploads() async throws -> [AgentPaneUpload] {
         try items.compactMap { item in
-            guard let encoded = item["data"]?.stringValue else { return nil }
+            guard item["kind"]?.stringValue == "image", let encoded = item["data"]?.stringValue else { return nil }
             guard let data = Data(base64Encoded: encoded), let name = item["name"]?.stringValue else {
                 throw CocoaError(.fileReadCorruptFile)
             }
@@ -64,14 +64,10 @@ public nonisolated struct AgentPaneCloudAttachments: Sendable {
             chip.removeValue(forKey: "path")
             chip.removeValue(forKey: "originalPath")
             chip.removeValue(forKey: "originalName")
-            if chip["data"]?.stringValue != nil {
+            if chip["kind"]?.stringValue == "image" {
                 guard next < paths.count, paths[next].hasPrefix("/") else { return nil }
-                if chip["kind"]?.stringValue == "image" {
-                    chip["originalPath"] = .string(paths[next])
-                    chip["originalName"] = chip["name"]
-                } else {
-                    chip["path"] = .string(paths[next])
-                }
+                chip["originalPath"] = .string(paths[next])
+                chip["originalName"] = chip["name"]
                 next += 1
             }
             result.append(.object(chip))

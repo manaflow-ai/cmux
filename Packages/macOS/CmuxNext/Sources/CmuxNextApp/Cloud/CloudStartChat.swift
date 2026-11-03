@@ -183,7 +183,7 @@ struct CloudStartChat {
         return try await carry.withUploaded(in: pastes, upload: { paths in
             try Self.checkAccount(origin.account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
             let answer = try await access.upload(socket: socket, remoteRoot: root, files: paths)
-            guard answer.ok else { throw CloudMove.Failure(message: CloudUploadStrings.failed) }
+            guard answer.ok else { try? await access.removeUploads(socket: socket, remoteRoot: root, ids: answer.uploadIDs); throw CloudMove.Failure(message: CloudUploadStrings.failed) }
             return .init(paths: answer.uploaded, undo: { try? await access.removeUploads(socket: socket, remoteRoot: root, ids: answer.uploadIDs) })
         }) { attachments in
             try Self.checkAccount(origin.account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
