@@ -31,7 +31,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// room theme.
     let themeScope = ThemeScope(level: .workspace)
     unowned let services: AppServices
-    let state: WindowState  // strong: work queued on this controller may run after its window let the state go (#34062)
+    let state: WindowState  // strong: queued content work can run after WindowController.teardown let the state go (#34062)
     private(set) var handles = LayoutHandleMap()
     private(set) var panes: [LayoutPaneID: PaneController] = [:]
     private var retiredPanes: [LayoutPaneID: PaneController] = [:] // closed, kept for their teardown (retainContentView)

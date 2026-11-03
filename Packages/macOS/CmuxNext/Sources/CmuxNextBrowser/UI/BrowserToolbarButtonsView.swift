@@ -26,6 +26,8 @@ public final class BrowserToolbarButtonsView: NSStackView {
     public var pins: (() -> [String])? { didSet { rebind() } }
     private var batching = false
     private var batchedChange = false
+    /// Sources set with no render (`batchSources(rendering: false)`): the next `bind` observes them, never skips.
+    private var sourcesPending = false
     /// Renders so far (tests: a tab switch renders the toolbar once).
     private(set) var renders = 0
 
@@ -37,7 +39,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
         batching = false
         if batchedChange {
             batchedChange = false
-            if rendering { rebind() }
+            if rendering { rebind() } else { sourcesPending = true }
         }
     }
     /// The media hub's cards, kept between opens.
@@ -106,7 +108,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
     /// swapped) gets the chosen color scheme and starts with design mode off.
     func bind(_ tab: any BrowserTab, modes tabModes: BrowserPageModes? = nil) {
         // The page's attach binds the tab a tab switch bound already (with its modes): it already observes it.
-        if tab === self.tab, tabModes == nil || tabModes === modes, observation != nil { return }
+        if tab === self.tab, tabModes == nil || tabModes === modes, observation != nil, !sourcesPending { return }
         if let tabModes, tabModes !== modes {
             // Another tab of the pane: its own modes, as it left them, and the document they were for.
             modes.pageURL = pageURL
@@ -123,6 +125,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
     }
 
     private func observe() {
+        sourcesPending = false
         observation?.cancel()
         observation = ObservationLoop { [weak self] in self?.render() }
     }

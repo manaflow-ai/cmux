@@ -11,7 +11,7 @@ import Testing
 @MainActor @Suite(.serialized, .closesItsWindows) struct BrowserChromeSwitchBench {
     final class Counter { var configures = 0 }
 
-    static func wired(_ host: String, _ counter: Counter) -> BrowserEntry {
+    static func wired(_ host: String, _ counter: Counter, downloading: Bool = false) -> BrowserEntry {
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://\(host)/")))
         tab.load(URL(string: "https://\(host)/")!)
         let entry = BrowserEntry(tab: tab, history: InMemoryBrowserHistory())
@@ -20,7 +20,7 @@ import Testing
         entry.state.configureToolbar = { buttons in
             counter.configures += 1
             buttons.shortcutHint = { _ in "⌘K" }
-            buttons.downloads = { BrowserToolbarDownloads() }
+            buttons.downloads = { downloading ? BrowserToolbarDownloads(count: 1, inProgress: true, progress: 0.5) : BrowserToolbarDownloads() }
             buttons.media = { BrowserToolbarMedia() }
             buttons.pins = { [] }
         }
@@ -29,7 +29,8 @@ import Testing
 
     @Test func aSwitchRendersTheToolbarOnce() {
         let counter = Counter()
-        let a = Self.wired("a.example", counter), b = Self.wired("b.example", counter)
+        // Each tab has its own downloads (a names a running download): the one render shows the shown tab's.
+        let a = Self.wired("a.example", counter, downloading: true), b = Self.wired("b.example", counter)
         let pane = BrowserPaneChrome()
         defer {
             pane.drop()
@@ -41,10 +42,12 @@ import Testing
         let before = buttons.renders
         for _ in 0..<10 {
             pane.bind(a.tab, state: a.state)
+            #expect(buttons.state(.downloads)?.progress != nil, "tab a's running download shows after the switch to it")
             pane.bind(b.tab, state: b.state)
+            #expect(buttons.state(.downloads)?.progress == nil, "tab b shows no download after the switch to it")
         }
         let perSwitch = Double(buttons.renders - before) / 20
-        #expect(perSwitch <= 1, "a tab switch rendered the toolbar \(perSwitch) times (one per source it set)")
+        #expect(perSwitch == 1, "a tab switch rendered the toolbar \(perSwitch) times (one per source it set, or none)")
     }
 
     @Test func switchCost() {
