@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCloudCredentials
 import CmuxNextDaemon
@@ -550,6 +551,9 @@ final class CloudMachineSession {
     }
 
     func disconnect() {
+        // A different Cloud account may connect to the same team machine in this app process.
+        // Its pane must never sign with the previous creator's in-memory person key.
+        AcpmuxRemotePersonKeys.shared.drop(machine: machineID)
         disconnected = true
         linkPhase = .idle
         connectHop?.cancel()
