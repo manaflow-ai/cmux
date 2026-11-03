@@ -305,10 +305,10 @@ mod browser_input;
 mod chief_control;
 mod chief_engine_mirror;
 mod chief_inspect;
-#[cfg(unix)]
-mod chief_work;
 mod chief_manage;
 mod chief_registry_resource;
+#[cfg(unix)]
+mod chief_work;
 mod participant_avatars;
 pub use chief_inspect::take_tools_socket_from_env as take_chief_tools_socket_from_env;
 mod url_open;
