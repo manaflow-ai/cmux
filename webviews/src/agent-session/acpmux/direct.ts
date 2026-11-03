@@ -478,6 +478,10 @@ const READ_AHEAD_REFRESH_MS = 5_000;
 const READ_AHEAD_WAIT_MS = 150;
 /// The longest a connect keeps the pane's last snapshot on screen while it reads the chat.
 const OPEN_HOLD_MS = 1500;
+/// The chat whose last open drew its kept tail while connecting and then failed to connect: the
+/// page's retries draw it only once acpmux answers, so a daemon that is down does not make the
+/// rows come and go with every retry (`drawTailWhileConnecting`). Cleared by a connect that works.
+let connectFailedAfterEarlyTail: string | undefined;
 /// An agent's secret card and its answer (cx-ncc.42): not transcript, so attach asks for them by kind.
 const SECRET_KINDS = ["secret_request", "secret_decision"];
 /// The promptId acpmux gives a task result's prompt: `offer-result-<offerId>` (hub/offers.rs).
@@ -1903,8 +1907,6 @@ export class AcpmuxDirectClient {
   /// The selection an open in flight may still draw a tail for while it connects; cleared once
   /// the open reaches its own draw, which then decides.
   private earlyTailWindow?: number;
-  /// The hold the open in flight keeps on its snapshots, so a tail drawn while it waits releases it.
-  private openHold?: number;
   /// The selected peer chat was drawn from the Mac's copy of it (peerCopy.ts): set from the draw
   /// until an attach reads the chat, and kept, `offline`, while its machine does not answer.
   private peerCopy?: PeerCopy;
@@ -2390,12 +2392,12 @@ export class AcpmuxDirectClient {
         acpmuxPerf.timed("client.receive", () => this.receive(String(message.data), this.socket !== socket));
     }).catch((error: unknown) => {
       this.releaseCopyAttach(mine);
+      this.dropTailDrawnWhileConnecting();
       throw error;
     });
     // The pane keeps what it shows (the page's cached chat, or the chat before a reconnect) until
     // the open has read the chat: no half-read frame (an empty transcript, no composer) in between.
     const hold = this.holdSnapshots(OPEN_HOLD_MS);
-    this.openHold = hold;
     let early: EarlyAttach | undefined;
     try {
       const initialized = await this.request("initialize", {
@@ -2653,6 +2655,7 @@ export class AcpmuxDirectClient {
         throw new Error(translate("error.interrupted"));
       this.hasConnected = true;
       this.reconnectDelay = 250;
+      if (connectFailedAfterEarlyTail === this.selectedSessionId) connectFailedAfterEarlyTail = undefined;
       this.wire.lifecycle("connected", {
         sessionId: this.selectedSessionId,
         sessions: this.sessions.length,
@@ -2671,6 +2674,7 @@ export class AcpmuxDirectClient {
               : String(error),
       });
       this.releaseCopyAttach(mine);
+      this.dropTailDrawnWhileConnecting();
       this.socket?.close();
       throw error;
     } finally {
@@ -3098,11 +3102,17 @@ export class AcpmuxDirectClient {
   /// pane's loading mark for seconds while its rows sat in the host's memory. The open's attach
   /// then lays acpmux's page over these rows (`attachWatched`), and a failed attach drops them,
   /// as it does a tail drawn after the socket opened.
+  ///
+  /// Only the chat's past is drawn: the kept tail's status, retry and queue are what the chat was
+  /// doing when it was kept, so they wait for acpmux's list or attach (a chat that was running
+  /// then must not draw as working now). A connect that fails before the attach drops the rows
+  /// (`dropTailDrawnWhileConnecting`), and the page's retries of that connect draw nothing early.
   private async drawTailWhileConnecting(sessionId: string, generation: number): Promise<void> {
+    if (connectFailedAfterEarlyTail === sessionId) return;
     this.earlyTailWindow = generation;
-    const kept = keptTail(sessionId) ?? (await readHostTail(sessionId).catch(() => undefined));
+    const held = keptTail(sessionId) ?? (await readHostTail(sessionId).catch(() => undefined));
     if (
-      !kept ||
+      !held ||
       this.closed ||
       this.earlyTailWindow !== generation ||
       generation !== this.selectionGeneration ||
@@ -3112,14 +3122,31 @@ export class AcpmuxDirectClient {
       this.peerCopy !== undefined
     )
       return;
-    const through = this.drawKeptTail(sessionId, kept);
+    const { status: _status, retry: _retry, queue: _queue, ...past } = held.summary ?? {};
+    const through = this.drawKeptTail(sessionId, { ...held, summary: held.summary && past, queue: [] });
     if (through === 0) return;
     this.earlyTail = { sessionId, generation, through };
     this.drewKeptTail = true;
-    // The open's hold keeps the pane on what it showed until the chat is read; these rows are
-    // the chat, so the hold ends here (a hold of a later open has its own key and stays).
-    if (this.openHold !== undefined) this.releaseSnapshots(this.openHold);
+    // Drawn now when the socket is still connecting. Once it is open the open holds its snapshots
+    // until the list confirms the chat (a chat the list lacks falls back or rebinds under that
+    // hold), and its own draw point releases them with these rows.
     this.emit("selected");
+  }
+
+  /// The open failed before its attach read the chat: rows drawn while it connected are not this
+  /// page's reading of the chat, so they go, as after a failed attach (the host keeps its tail:
+  /// the chat itself was not refused).
+  private dropTailDrawnWhileConnecting(): void {
+    const early = this.earlyTail;
+    if (!early || early.sessionId !== this.selectedSessionId) return;
+    connectFailedAfterEarlyTail = early.sessionId;
+    this.earlyTail = undefined;
+    this.events = [];
+    this.queue = [];
+    this.copyLive = undefined;
+    this.drewKeptTail = false;
+    this.rebuild();
+    this.emit("disconnected");
   }
 
   private drawKeptTail(sessionId: string, kept = keptTail(sessionId)): number {
