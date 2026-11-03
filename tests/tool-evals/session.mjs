@@ -351,6 +351,13 @@ async function standInApp(path, cmux, origin, log) {
       if (kind !== "page" && args.path != null && !String(args.path).startsWith("/")) {
         throw { code: "invalid_argument", message: `path must be absolute: ${args.path}` };
       }
+      // The app refuses an argument its schema lacks (ControlRouter.validatedRequest): `cmux file
+      // open --pane X` sends `args.pane`, which the app answers with an error, not an open in X.
+      const spec = (APP["action.list"]?.actions ?? []).find((a) => a.id === params.action || a.cli_name === params.action);
+      const extra = spec ? Object.keys(args).filter((name) => !spec.arguments.some((a) => a.name === name)) : [];
+      if (extra.length) {
+        throw { code: "invalid_params", message: `${spec.id} has no argument '${extra[0]}'`, data: { valid: spec.arguments.map((a) => a.name) } };
+      }
       if (kind === "page" && params.target != null && !/(^|:)tab_/.test(String(params.target))) {
         throw { code: "invalid_argument", message: `No tab matches ${params.target}` };
       }
