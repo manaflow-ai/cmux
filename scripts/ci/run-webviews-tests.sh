@@ -233,11 +233,25 @@ case "$(git rev-parse --show-prefix)" in
     bun install --frozen-lockfile
     ;;
 esac
-# A fleet cmux-ci step that runs the browser lane (CMUX_BROWSER_TESTS=1, requireBrowserLane.ts) needs
-# the engines PR CI installs; without them the lane only ever ran in PR CI. They live in the step
+# No Playwright on Macs (Lawrence, 2026-11-02): no Playwright, Puppeteer or downloaded Chromium on his
+# Mac or on a fleet Mac. The engines Playwright downloads are an old Chromium (the headless shell) and
+# Playwright turns the Chromium sandbox off, and this install had left about 4.6 GB of them on 10 fleet
+# Macs. So a Mac outside GitHub Actions never installs an engine: it runs the lane without the browser
+# files, which then skip as they do without CMUX_BROWSER_TESTS (requireBrowserLane.ts). Playwright
+# looks for engines in a folder that cannot hold one, so an engine an earlier run left on the Mac never
+# launches either (a file that probes its engine skips when the launch fails). The browser lane runs
+# in CI or on a Linux cloud VM.
+# Elsewhere (Linux), a cmux-ci step that runs the browser lane (CMUX_BROWSER_TESTS=1) needs the
+# engines PR CI installs; without them the lane only ever ran in PR CI. They live in the step
 # cache, one directory per Playwright version, so a host downloads each once. GitHub Actions
 # installs its own (cmux-next-web-bundles.yml).
-if [ "${CMUX_BROWSER_TESTS:-}" = 1 ] && [ "${GITHUB_ACTIONS:-}" != true ]; then
+if [ "${GITHUB_ACTIONS:-}" != true ] && [ "$(uname -s)" = Darwin ]; then
+  if [ "${CMUX_BROWSER_TESTS:-}" = 1 ]; then
+    echo "browser lane: not on a Mac (Lawrence's rule: no Playwright on Macs); run it in CI or on a cloud VM"
+  fi
+  unset CMUX_BROWSER_TESTS
+  export PLAYWRIGHT_BROWSERS_PATH=/var/empty/cmux-no-playwright-on-macs
+elif [ "${CMUX_BROWSER_TESTS:-}" = 1 ] && [ "${GITHUB_ACTIONS:-}" != true ]; then
   playwright_version="$(python3 -c 'import json; print(json.load(open("package.json"))["devDependencies"]["playwright"])' 2> /dev/null || echo unknown)"
   export PLAYWRIGHT_BROWSERS_PATH="${CMUX_CI_CACHE_DIR:-$HOME/Library/Caches/cmux-ci}/playwright-$playwright_version"
   ./node_modules/.bin/playwright install --only-shell chromium webkit

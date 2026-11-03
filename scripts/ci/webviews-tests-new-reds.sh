@@ -57,7 +57,10 @@ if [ -s "$work/files" ] && git worktree add -q --detach "$base_tree" "$base_ref"
   (cd "$base_tree/$prefix" && bun install --frozen-lockfile &&
     # The base's own Playwright engines: a change that bumps Playwright would leave the base's
     # browser tests red on a missing executable, and every head browser red would match them.
-    ./node_modules/.bin/playwright install --only-shell chromium webkit &&
+    # Never on a Mac outside GitHub Actions (no Playwright on Macs, run-webviews-tests.sh says why):
+    # there the runner skips the browser files, so the base needs no engine.
+    { { [ "${GITHUB_ACTIONS:-}" != true ] && [ "$(uname -s)" = Darwin ]; } ||
+      ./node_modules/.bin/playwright install --only-shell chromium webkit; } &&
     "$base_tree/scripts/cmux-next/build-web-bundles.sh" --force); then
   # Every red file runs, one at a time (the head's verdict is its retry alone; a retry here would
   # only run it alone twice), whatever this job's shard. prScope.ts gets no changed files (in the base
