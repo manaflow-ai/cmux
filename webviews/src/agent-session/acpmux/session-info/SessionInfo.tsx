@@ -304,7 +304,8 @@ export const pushedRoom = (paneWidth: number, panel: number, column?: ChatColumn
   if (columnEnd(paneWidth, column) <= end) return 0;
   let fits = paneWidth - all;
   if (fits <= 0 || columnEnd(fits, column) > end) return even(all);
-  // The widest chat whose column still ends by `end`: columnEnd only grows with the chat's width.
+  // The widest chat whose column still ends by `end`. columnEnd grows with the chat's width up to the
+  // 4 grid's 0-3 px steps, so this can stop a few pixels short of the widest; `fits` always holds.
   let over = paneWidth;
   while (over - fits > 1) {
     const mid = Math.floor((fits + over) / 2);
