@@ -1,8 +1,10 @@
-//! `cmux share chat|list|revoke|kick`: guest links to an agent chat (design chat-multiplayer.md 6).
-//! The app's `agent.share` family runs them (CLI names `share chat`, `share list`, `share revoke`,
-//! `share kick`), because the app holds the owner's cmux sign-in that a link's room needs. This
-//! only turns the positional ids of `share revoke ID` and `share kick ID GUEST` into the actions'
-//! `--share-id` and `--guest-id`, and prints `share chat`'s link alone for a person.
+//! `cmux share chat|list|revoke|kick|invite|uninvite`: guest links to an agent chat and the cmux
+//! accounts invited to it (design chat-multiplayer.md 6). The app's `agent.share` family runs them
+//! (CLI names `share chat`, `share list`, `share revoke`, `share kick`, `share invite`, `share
+//! uninvite`), because the app holds the owner's cmux sign-in that a link's room needs. This only
+//! turns the positional words of `share revoke ID`, `share kick ID GUEST`, `share invite ACCOUNT`
+//! and `share uninvite ACCOUNT` into the actions' `--share-id`, `--guest-id` and `--account`, and
+//! prints `share chat`'s link (and an invite's one line) for a person.
 
 use serde_json::Value;
 
@@ -19,6 +21,7 @@ pub(super) fn action(command_args: &[String]) -> Option<Result<(String, Vec<Stri
     let names: &[&str] = match verb.as_str() {
         "revoke" => &["--share-id"],
         "kick" => &["--share-id", "--guest-id"],
+        "invite" | "uninvite" => return Some(account_action(verb, rest)),
         _ => return None,
     };
     let positional = rest.iter().take(names.len()).take_while(|arg| !is_flag(arg)).count();
@@ -46,6 +49,43 @@ pub(super) fn action(command_args: &[String]) -> Option<Result<(String, Vec<Stri
         names.iter().zip(ids).map(|(name, id)| format!("{name}={id}")).collect();
     args.extend(flags.iter().cloned());
     Some(Ok((format!("share {verb}"), args)))
+}
+
+/// `share invite|uninvite <account> [flags]`: the account (an email or `@handle`, never dash-led) is
+/// the one word that is neither a flag nor a flag's value, wherever it stands, so `share invite
+/// --surface 3 leo@cmux.com --role view` and `share invite leo@cmux.com --surface 3` agree. An
+/// account given twice (`share invite a@x.com --account b@x.com`) is refused; with none the words
+/// go on as typed, and the app answers that the account is missing.
+fn account_action(verb: &str, rest: &[String]) -> Result<(String, Vec<String>), String> {
+    let mut accounts = Vec::new();
+    let mut flags = Vec::new();
+    let mut words = rest.iter();
+    while let Some(word) = words.next() {
+        if word == "--" {
+            accounts.extend(words.by_ref().cloned());
+            break;
+        }
+        if !word.starts_with('-') {
+            accounts.push(word.clone());
+            continue;
+        }
+        flags.push(word.clone());
+        // `--name value`: the next word is the flag's, not the account (switches take none).
+        if !SWITCHES.contains(&word.as_str())
+            && !word.contains('=')
+            && let Some(value) = words.next()
+        {
+            flags.push(value.clone());
+        }
+    }
+    let named = argument_keys(&flags).iter().filter(|key| *key == "account").count();
+    if accounts.len() + named > 1 {
+        return Err(format!("share {verb}: name one account (an email or @handle)"));
+    }
+    let mut args: Vec<String> =
+        accounts.iter().map(|account| format!("--account={account}")).collect();
+    args.extend(flags);
+    Ok((format!("share {verb}"), args))
 }
 
 /// The action argument each of `args` sets, in every spelling the action parser takes:
@@ -113,14 +153,24 @@ fn is_flag(arg: &str) -> bool {
                 || matches!(argument_key(arg).as_str(), "shareId" | "guestId" | "arg")))
 }
 
-/// What a person sees for `share chat`: the link alone, so `cmux share chat | pbcopy` works.
-/// None for every other run (and a link-less share, whose fields print as a table).
+/// What a person sees for `share chat`: the link alone, so `cmux share chat | pbcopy` works; for
+/// `share invite` and `share uninvite`, one line naming the account. None for every other run (and
+/// a link-less share, whose fields print as a table).
 pub(super) fn human_line(params: &Value, result: &Value) -> Option<String> {
     let action = params.get("action")?.as_str()?;
-    if action != "share chat" && action != "agent.share" {
-        return None;
+    let result = result.get("result")?;
+    match action {
+        "share chat" | "agent.share" => result.get("url")?.as_str().map(|url| format!("{url}\n")),
+        "share invite" | "agent.share.invite" => {
+            let account = result.get("account")?.as_str()?;
+            let can = if result.get("role")?.as_str()? == "view" { "view" } else { "talk" };
+            Some(format!("Invited {account} (can {can})\n"))
+        }
+        "share uninvite" | "agent.share.uninvite" => {
+            Some(format!("Removed {}\n", result.get("account")?.as_str()?))
+        }
+        _ => None,
     }
-    result.get("result")?.get("url")?.as_str().map(|url| format!("{url}\n"))
 }
 
 #[cfg(test)]
