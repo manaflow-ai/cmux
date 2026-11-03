@@ -527,7 +527,8 @@ fn checkout_on(ssh: &str, cwd: &Path) -> Result<Option<Checkout>> {
         Some(input.as_bytes()),
     )?;
     if !out.ok {
-        bail!("reading the checkout of {} on {ssh} failed", cwd.display());
+        let last = out.stderr.lines().rfind(|l| !l.trim().is_empty()).unwrap_or("").trim();
+        bail!("reading the checkout of {} on {ssh} failed: {last}", cwd.display());
     }
     parse_checkout(&out.stdout)
 }
