@@ -141,8 +141,13 @@ impl Remote {
                 // goes on where the timed-out one stopped.
                 match limited.read_until(b'\n', &mut answer) {
                     Ok(_) => break answer.len(),
+                    // Still within the budget: the caller hears of it, so an
+                    // upload's idle deadline does not end a part in flight.
                     Err(error)
-                        if timed_out(&error) && answer_by.is_none_or(|by| Instant::now() < by) => {}
+                        if timed_out(&error) && answer_by.is_none_or(|by| Instant::now() < by) =>
+                    {
+                        progress();
+                    }
                     Err(error) => {
                         let what =
                             format!("the machine did not answer within {} s", budget.as_secs());
