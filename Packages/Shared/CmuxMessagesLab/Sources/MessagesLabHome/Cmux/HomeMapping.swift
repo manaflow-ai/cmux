@@ -10,6 +10,9 @@ import Foundation
 /// its committed echo share it, TranscriptItem.key), or, for a send this
 /// view started, the local id the reducer gave it (`aliases`).
 enum HomeMapping {
+    static func isChief(_ author: ParticipantID, _ summary: ConversationSummary?) -> Bool {
+        summary?.participants.contains { $0.id == author && $0.kind == .agent && $0.agentClass == .chief } == true
+    }
     static func id(_ item: TranscriptItem, aliases: [IdempotencyKey: ID]) -> ID {
         aliases[item.key] ?? rowSafe(item.key.rawValue)
     }
@@ -140,7 +143,10 @@ enum HomeMapping {
         let markdown = isAgent(item.author, summary)
         var parts: [Part] = [], owners: [Int] = []
         for (i, p) in item.parts.enumerated() {
-            let shown = self.parts(p, media: media, progress: item.attachmentProgress, markdown: markdown, links: links)
+            let shown: [Part]
+            if summary?.owner == .local, isChief(item.author, summary), case .question(let question) = p,
+               let card = HomeApprovalRowProvider.part(question) { shown = [card] }
+            else { shown = self.parts(p, media: media, progress: item.attachmentProgress, markdown: markdown, links: links) }
             parts += shown
             owners += Array(repeating: i, count: shown.count)
         }

@@ -1,7 +1,7 @@
 import CoreGraphics
 
 /// R3b of the resize audit (Lawrence's rule, scope by cmux-ad 2026-10-31): a create keeps every other
-/// column's width in points, exactly. New Column (the action, Ctrl-Cmd-D) keeps every old column as it was
+/// column's width in points, exactly. New Column (the action, Ctrl-Cmd-X) keeps every old column as it was
 /// and the new column takes new space; Cmd-D and Split Down split inside a column, whose own panes share it,
 /// and no other column changes width.
 ///

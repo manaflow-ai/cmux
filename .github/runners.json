@@ -428,6 +428,7 @@
       "class": "apple-swift-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
     },
+    "machine-vault-e2e.yml#e2e": {"class": "macos-runtime-tests", "picker_followup": "adds an OS user and opens ssh to it while holding the dev stack secrets: an ephemeral Blacksmith Mac only, never a persistent owned Mac; an owned route needs a disposable VM on the fleet"},
     "macos-cross-parity.yml#runtime-x86_64": {
       "class": "macos-runtime-tests",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
@@ -722,7 +723,6 @@
       "nightly.yml#route-visual-gate-nightly": {"routes": [16, 32], "target": 4, "measured": {"32": [18.5, 0.16, 0.12]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
       "nightly.yml#sign-release-notes": {"routes": [32], "target": 4, "measured": {"32": [56.5, 0.62, 0.87]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
       "nightly.yml#signer-app": {"routes": [4, 16, 32], "target": 8, "measured": {"32": [87.0, 2.99, 4.58]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
-      "nightly.yml#signer-app-notary": {"routes": [4, 16, 32], "target": 8, "measured": {"32": [34.0, 2.83, 3.15]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
       "nightly.yml#signer-build": {"routes": [4, 16, 32], "target": 4, "measured": {"32": [189.0, 0.17, 0.13], "16": [0.5, 0.1, 0.1]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
       "nightly.yml#signer-dmg": {"routes": [4, 16, 32], "target": 8, "measured": {"32": [72.5, 3.35, 4.0]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
       "nightly.yml#visual-gate-nightly-verdict": {"routes": [16, 32], "target": 16, "measured": {"32": [12.5, 21.85, 34.33]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},

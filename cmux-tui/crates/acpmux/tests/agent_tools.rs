@@ -51,6 +51,8 @@ fn hub() -> Arc<Hub> {
             // Another provider, as the `cmux` profile's open-source model router.
             "fakeclaude-router": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
                 "env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:9/router"}},
+            "fakeclaude-5m": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio",
+                "env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:9/router", "FORCE_PROMPT_CACHING_5M": "1"}},
             "fakecodex-router": {"argv": ["python3", FAKE], "family": "codex",
                 "env": {"OPENAI_BASE_URL": "http://127.0.0.1:9/v1"}},
             // A profile that opts in to cmux's code mode (two tools, docs on demand).
@@ -283,6 +285,23 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     // forced tool search (that provider may not forward deferred tools).
     let routed = local.new_session("fakeclaude-router").await;
     assert_eq!(local.ask(&routed, "env: ENABLE_TOOL_SEARCH").await, "ENABLE_TOOL_SEARCH=");
+    // Behind another endpoint Claude Code would cache five minutes: acpmux
+    // starts it on the one-hour cache, the chat's and its subagents'
+    // (`prompt_cache_env.rs`), on a subscription too (the same TTL it picks there).
+    for (key, want) in [
+        ("CLAUDE_CODE_PROMPT_CACHE_TTL", "1h"),
+        ("CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL", "1h"),
+        ("ENABLE_PROMPT_CACHING_1H", "1"),
+    ] {
+        assert_eq!(local.ask(&routed, &format!("env: {key}")).await, format!("{key}={want}"));
+        assert_eq!(local.ask(&id, &format!("env: {key}")).await, format!("{key}={want}"));
+    }
+    // A profile's own choice wins: FORCE_PROMPT_CACHING_5M leaves the rest unset.
+    let five = local.new_session("fakeclaude-5m").await;
+    assert_eq!(
+        local.ask(&five, "env: CLAUDE_CODE_PROMPT_CACHE_TTL").await,
+        "CLAUDE_CODE_PROMPT_CACHE_TTL="
+    );
     let routed_argv: Vec<String> = serde_json::from_str(&local.ask(&routed, "hi").await).unwrap();
     let at = routed_argv.iter().position(|a| a == "--mcp-config").expect("--mcp-config");
     let routed_config: Value =

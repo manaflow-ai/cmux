@@ -98,8 +98,8 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentCursorVisibility",
       "targets": [
-        "CmuxNextAgentCursor",
-        "CmuxNextFocus"
+        "CCmuxAppFFI",
+        "CmuxNextAgentCursor"
       ],
       "packages": []
     },
@@ -394,6 +394,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextActions",
         "CmuxNextAgentCursor",
         "CmuxNextAgentCursorVisibility",
@@ -1224,6 +1225,7 @@
         "CmuxNextWakeups"
       ],
       "packages": [
+        "CmuxAgentQuestion",
         "CmuxHomeCore",
         "CmuxHomeRender",
         "CmuxMessagesLab"
@@ -1245,7 +1247,8 @@
       ],
       "packages": [
         "CmuxAgentQuestion",
-        "CmuxHomeCore"
+        "CmuxHomeCore",
+        "CmuxHomeRender"
       ]
     },
     "CmuxNextHomeEngineTests": {
