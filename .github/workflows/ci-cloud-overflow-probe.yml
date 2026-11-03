@@ -6,7 +6,7 @@ name: CI cloud overflow probe
 # there (LINUX_RUNNER, CI_TRUSTED_RUNNER, MACOS_RUNNER_*, CI_PAID_MACOS_OVERFLOW) are pointed at
 # the owned pools and another Blacksmith Linux size, and pointed back once it serves
 # again. One switch: `probe` asks for each Blacksmith Linux size compiles run
-# on and only prints a line; `watch`, on Blacksmith macOS, waits for them.
+# on and only prints a line; `watch`, on the trusted CI_TRUSTED_RUNNER selector, waits for them.
 # scripts/ci/cloud_overflow_switch.py has the rules:
 #
 # - Every probe starts within CI_CLOUD_PROBE_MINUTES (default 5) of being
@@ -49,8 +49,8 @@ permissions: {}
 # One probe at a time: a second waits instead of racing the first one's writes.
 # The group is fixed on purpose: the switch's variable writes and record delete
 # are separate calls, so two watches must never run at once. A run whose probe
-# never starts cannot hold it for long: the watch runs on a pool the probe does
-# not test (below), decides within CI_CLOUD_PROBE_MINUTES, and force-cancels its
+# never starts cannot hold it for long: the watch runs on a size the probe does
+# not test by default (below), decides within CI_CLOUD_PROBE_MINUTES, and force-cancels its
 # own run. On 2026-10-28 the watch sat queued on Blacksmith Linux beside its
 # probe instead, so the group stayed held for an hour.
 concurrency:
@@ -80,21 +80,20 @@ jobs:
   watch:
     name: Watch the probe and switch overflow
     if: github.repository_owner == 'manaflow-ai'
-    # Never GitHub-hosted Ubuntu (Leo, 2026-10-27: "just put it on blacksmith /
-    # 16vcpu blacksmiths do exist"). On 2026-10-27 the watch queued 94 minutes
-    # (19:22Z to 20:56Z) on hosted ubuntu-24.04, which the switch's own
-    # failover had filled; this run held the concurrency group meanwhile, so
-    # every later scheduled run was evicted with no jobs and nothing decided.
-    # The probes ask for the Blacksmith Linux sizes, so the watch sits on
-    # Blacksmith macOS: it never queues behind its own probes and can put
-    # overflow back however the Linux sizes fare.
-    # A literal ephemeral label, never a variable (not CI_CONTROL_RUNNER, as the
-    # nightly control jobs take): this job holds the App key that writes
-    # repository variables, so a variable must not move it to a reused machine,
-    # where the key could outlive the job, nor may it write its own runner.
-    # Hosted runners are refused (check_no_github_hosted_runners), so in an
-    # outage of all Blacksmith this waits and the values are set by hand.
-    runs-on: blacksmith-6vcpu-macos-26
+    # Its own bounded selector over CI_TRUSTED_RUNNER, the variable the other
+    # GLAEDA_ROUTE_APP_KEY control jobs read (ci-owned-pool-rescue, ci-stale-run-janitor).
+    # The expression bounds the value to one-job Blacksmith Linux VMs (2 or 8 vCPU), so no
+    # variable can move this App key to a reused machine. Unlike the shared trusted selector it
+    # never resolves to a size the probes ask for (PROBE_LABELS, 4 and 16 vCPU) or to GitHub-
+    # hosted Ubuntu: any other value, unset included (the switch's restore can unset it, and
+    # its alternate failover is 4 vCPU), takes Blacksmith 2 vCPU. So a stalled probe size never holds the watch, and with it the
+    # concurrency group, as on 2026-10-28 (tests/test_ci_cloud_overflow_switch.py).
+    # It used to name the literal blacksmith-6vcpu-macos-26, a single-label pin with no
+    # fallback: on 2026-11-03 RUNNER_POOLS marked that label dead and run 41688532704's
+    # watch queued 19 minutes (17:53Z-18:12Z), so the hosted light rescue below ran about
+    # every 20-25 minutes instead of every pass (cmuxterm-hq#6671). It needs no macOS
+    # (Python and gh only).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds the App key that writes runner variables; never a probed size
     timeout-minutes: 25
     permissions:
       actions: write
