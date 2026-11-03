@@ -1328,6 +1328,38 @@ class CheckPiecesTests(unittest.TestCase):
         manifest = json.dumps({"scripts": {"check": "a && b"}})
         self.assertEqual(lint.check_pieces(SOURCE, package, "check", lambda rel: manifest), ["a", "b"])
 
+    def test_a_check_script_declares_what_it_reads_from_its_own_constants(self):
+        lint = load_lint(SOURCE)
+        source = ('import os\nTREE = "webviews/src"\nSWIFT = "Packages/X/Sources"\nMORE = ("a/b.json", SWIFT + "/c")\n'
+                  'INPUTS = (TREE, f"{SWIFT}/**/*.swift", *MORE, "**/*.xcstrings")\n')
+        self.assertEqual(lint.declared_inputs(source), ("webviews/src", "Packages/X/Sources/**/*.swift", "a/b.json",
+                                                        "Packages/X/Sources/c", "**/*.xcstrings"))
+        for unknown in ('INPUTS = (os.path.join("a", "b"),)\n', 'INPUTS = f"{NOPE}/x"\n', 'INPUTS = (NOPE,)\n',
+                        "INPUTS = (\n", ""):
+            with self.subTest(source=unknown):
+                self.assertEqual(lint.declared_inputs(unknown), ())
+        for path, pattern, hit in (("Packages/X/Sources/A/B.swift", "Packages/X/Sources/**/*.swift", True),
+                                   ("Packages/X/Sources/A/B.md", "Packages/X/Sources/**/*.swift", False),
+                                   ("Packages/X/SourcesOld/B.swift", "Packages/X/Sources/**/*.swift", False),
+                                   ("ios/Localizable.xcstrings", "**/*.xcstrings", True),
+                                   ("webviews/src/a.ts", "webviews/src", True),
+                                   ("webviews/srcs/a.ts", "webviews/src", False),
+                                   ("a/b.json", "a/b.json", True)):
+            with self.subTest(path=path, pattern=pattern):
+                self.assertEqual(lint.input_matches(path, pattern), hit)
+
+    def test_the_real_webviews_check_runs_the_swift_reading_pieces_for_a_swift_change(self):
+        # The real package.json and scripts: a CmuxNext Swift change runs the source checks that walk those files,
+        # and a change none of them reads runs nothing.
+        lint = load_lint(SOURCE)
+        webviews = next(p for p in lint.SCRIPT_PACKAGES if p.directory == "webviews")
+        read = lambda rel: (SOURCE / rel).read_text(encoding="utf-8")
+        pieces = lint.input_pieces(SOURCE, webviews, ["Packages/macOS/CmuxNext/Sources/CmuxNextApp/New.swift"], read)
+        for script in ("check-text-focus-rings.py", "check-toast-targets.py", "check-dialog-key-hints.py",
+                       "check-system-blue.py"):
+            self.assertTrue([piece for piece in pieces if script in piece], (script, pieces))
+        self.assertEqual(lint.input_pieces(SOURCE, webviews, ["README.md", "ios/App.swift"], read), [])
+
 
 if __name__ == "__main__":
     unittest.main()
