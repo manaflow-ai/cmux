@@ -168,6 +168,18 @@
 .acpmux-slash-icon{flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;color:var(--agent-text)}
 .acpmux-mention-row .acpmux-slash-name{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .acpmux-mention-row .acpmux-slash-description{flex:0 1000 auto}
+/* The `:shortcode` emoji menu (EmojiMenu.tsx): the @ menu's rows with the glyph first. Compact and strip open over the typed `:` (left set from the caret as it mounts); wide spans the box as @ and / do. */
+.acpmux-emoji-menu.is-caret{right:auto;width:232px}
+.acpmux-emoji-menu.is-strip{right:auto;width:auto;max-width:100%}
+.acpmux-emoji-row{width:100%;box-sizing:border-box;margin:0;border:0;background:none;color:inherit;font:inherit;text-align:left;-webkit-appearance:none;appearance:none}
+.acpmux-emoji-row b{font-weight:var(--weight-emphasis,600);color:var(--agent-text)}
+.acpmux-emoji-glyph{flex:none;display:inline-flex;align-items:center;justify-content:center;width:20px;font-size:17px;line-height:1;font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif}
+.acpmux-emoji-code{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim)}
+.acpmux-emoji-row.acpmux-slash-active .acpmux-emoji-code{color:var(--agent-text)}
+.acpmux-emoji-menu.is-strip .acpmux-emoji-rows{display:flex;gap:2px}
+.acpmux-emoji-menu.is-strip .acpmux-emoji-row{width:36px;height:36px;padding:0;justify-content:center}
+.acpmux-emoji-menu.is-strip .acpmux-emoji-glyph{width:auto;font-size:22px}
+.acpmux-emoji-strip-code{height:22px;padding:0 6px;display:flex;align-items:center;color:var(--acpmux-composer-dim);font-size:12px;white-space:nowrap}
 .acpmux-slash-empty{padding:0 14px;height:40px;display:flex;align-items:center;color:var(--acpmux-composer-dim);border-radius:8px}
 .acpmux-import-input{display:none}
 /* New tab page (NewTabPage.tsx, #16620): one field with a Terminal | Browser | Agent switch
