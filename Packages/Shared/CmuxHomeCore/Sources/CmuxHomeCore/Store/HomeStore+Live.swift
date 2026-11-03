@@ -58,7 +58,9 @@ extension HomeStore {
         let rows = streamRows(conversation)
         if streams[conversation, default: []] != rows { streams[conversation] = rows.isEmpty ? nil : rows }
         let shape = HomeRunShape(run: run, streams: rows)
-        if runShapes[conversation] != shape { runShapes[conversation] = shape.isEmpty ? nil : shape }
+        // Compared as stored: no run is no entry (an empty shape over none would wake every view).
+        let stored = shape.isEmpty ? nil : shape
+        if runShapes[conversation] != stored { runShapes[conversation] = stored }
     }
 
     /// Every running reply of `conversation` in begin order: the Chief live runs, then a reply
