@@ -1425,6 +1425,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
                 // cmux-motion's curves and color mix for ColorTransition (cx-3rf4z).
                 "CCmuxAppFFI",
+                // The native popup rail's harness marks (NativePopupRailTab).
+                .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             ],
             resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings

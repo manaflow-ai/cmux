@@ -112,7 +112,7 @@ pub fn load_values(
     state: &State,
     store: &dyn SecretStore,
 ) -> (Vec<(String, Zeroizing<String>)>, Vec<(String, &'static str)>) {
-    load_values_by(state, store, Instant::now() + LOAD_BUDGET)
+    load_values_by(state, store, store::after(LOAD_BUDGET))
 }
 
 /// The longest one load reads the store for: entries not read by then are
@@ -468,6 +468,12 @@ pub async fn pull_now() -> (&'static str, Result<pull::Outcome, pull::Failure>) 
     let result = pull::pull(crate::config::home(), store.clone(), true).await;
     let _ = tokio::task::spawn_blocking(move || refresh(&*store)).await;
     (kind, result)
+}
+
+/// The store this daemon keeps vault values in (`_acpmux/vault_status`):
+/// the OS store's kind, or `memory`.
+pub async fn store_now() -> &'static str {
+    tokio::task::spawn_blocking(|| store::for_daemon().kind()).await.unwrap_or("unknown")
 }
 
 /// `machine vault forget` asked of this daemon (`_acpmux/vault_forget`).

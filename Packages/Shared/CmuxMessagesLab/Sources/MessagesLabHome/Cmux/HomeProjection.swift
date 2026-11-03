@@ -953,9 +953,9 @@ struct ProjectionCore {
         installed = true
         let roots = HomeMapping.roots(in: items, aliases: aliases, summary: summary, media: media, links: links)
         let conv = Conversation(id: id.rawValue, title: HomeMapping.title(summary, me: me),
-                                participants: HomeMapping.participants(summary, me: me, avatars: avatars),
+                                participants: HomeMapping.participants(summary, me: me, avatars: avatars, items: items),
                                 messages: items.map { HomeMapping.message($0, aliases: aliases, me: me, summary: summary, media: media, links: links, roots: roots) },
-                                cmuxGroup: summary?.showsSenderNames(me: me) == true)
+                                cmuxGroup: HomeMapping.showsSenders(summary, me: me, items: items))
         return (conv, HomeMapping.window(items))
     }
 
@@ -965,7 +965,7 @@ struct ProjectionCore {
     mutating func setAvatars(_ new: [String: Participant.Avatar]) -> Action? {
         guard new != avatars else { return nil }
         avatars = new
-        return installed ? .cmuxSetParticipants(HomeMapping.participants(summary, me: me, avatars: new)) : nil
+        return installed ? .cmuxSetParticipants(HomeMapping.participants(summary, me: me, avatars: new, items: shown)) : nil
     }
 
     /// The actions from the shown snapshot to this one.
@@ -974,8 +974,15 @@ struct ProjectionCore {
         // Mapping every row again cost 3.5 ms per token at 60 rows on the main thread, which a
         // drag over the field waits for (DragWhileStreamingTests).
         if items == shown, new == summary { return HomeDiff() }
-        let d = HomeDiff.plan(old: shown, new: items, oldSummary: summary, newSummary: new, aliases: aliases, me: me, media: media, links: links,
+        var d = HomeDiff.plan(old: shown, new: items, oldSummary: summary, newSummary: new, aliases: aliases, me: me, media: media, links: links,
                               handOff: streamingTurns)
+        // An agent that sent through my CLI appeared (or its last message left the window): its name and avatar
+        // are in the participants before its message arrives (HomeAgentSender).
+        if HomeAgentSender.all(in: items, me: me) != HomeAgentSender.all(in: shown, me: me) {
+            d.actions.insert(.cmuxSetSenders(HomeMapping.participants(new, me: me, avatars: avatars, items: items),
+                                             group: HomeMapping.showsSenders(new, me: me, items: items)), at: 0)
+            if let at = d.handOffAt { d.handOffAt = at + 1 }
+        }
         shown = items
         summary = new
         return d

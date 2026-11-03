@@ -152,6 +152,8 @@ pub struct Owner {
     pub refuse_uploads: Option<String>,
     /// Panics outside the owner lock during an original-file upload.
     pub panic_uploads: bool,
+    /// Runs outside the owner lock before an original-file upload reads its bytes.
+    pub before_attachment_upload: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 /// One side conversation as the fake owner keeps it.
@@ -273,6 +275,10 @@ impl PreviewPort for FakeUploader {
     ) -> Result<DerivedImage, OpError> {
         use sha2::Digest;
         use std::io::Read;
+        let before = self.0.lock().unwrap().before_attachment_upload.clone();
+        if let Some(before) = before {
+            before();
+        }
         let panic_uploads = self.0.lock().unwrap().panic_uploads;
         assert!(!panic_uploads, "injected attachment upload panic");
         if let Some(code) = self.0.lock().unwrap().refuse_uploads.clone() {
