@@ -147,7 +147,7 @@ class BisectTests(unittest.TestCase):
         git(repo, "commit", "-qm", subject)
         return git(repo, "rev-parse", "HEAD")
 
-    def run_bisect(self, *, base_red=(), flaky_history=False):
+    def run_bisect(self, *, base_red=(), flaky_history=False, old_red_in_file=False):
         tmp = Path(self.tmp.name)
         repo = tmp / "repo"
         repo.mkdir()
@@ -164,13 +164,16 @@ class BisectTests(unittest.TestCase):
         probe = tmp / "probe.sh"
         probe.write_text("#!/usr/bin/env bash\nset -e\nsha=$1 out=$3\necho \"$sha\" >> \"$PROBED\"\n"
                          "if [ \"$(git show \"$sha:webviews/src/a.ts\")\" = 2 ]; then ok=false; else ok=true; fi\n"
-                         "printf '{\"src/a.test.ts\": %s, \"src/a.test.ts > renders\": %s}\\n' \"$ok\" \"$ok\" > \"$out\"\n")
+                         "printf '{\"src/a.test.ts\": %s, \"src/a.test.ts > renders\": %s%s}\\n' \"$ok\" \"$ok\" "
+                         "\"$OLD_RED\" > \"$out\"\n")
         results = tmp / "shard1.json"
         results.write_text(json.dumps({"src/a.test.ts": False, "src/a.test.ts > renders": False,
                                        "src/old.test.ts": False, "src/old.test.ts > stays red": False,
-                                       "src/ok.test.ts": True}))
+                                       "src/ok.test.ts": True,
+                                       **({"src/a.test.ts > was red": False} if old_red_in_file else {})}))
         runs = [{"sha": base, "attempt": 1, "time": 1, "inputs": "k1",
-                 "files": ["src/a.test.ts", "src/old.test.ts"], "red": ["src/old.test.ts > stays red", *base_red]}]
+                 "files": ["src/a.test.ts", "src/old.test.ts"], "red": ["src/old.test.ts > stays red", *base_red,
+                         *(["src/a.test.ts > was red"] if old_red_in_file else [])]}]
         if flaky_history:
             runs += [{"sha": "d" * 40, "attempt": 1, "time": 0, "inputs": "k0", "files": ["src/a.test.ts"],
                       "red": ["src/a.test.ts > renders"]},
@@ -186,12 +189,15 @@ class BisectTests(unittest.TestCase):
         here = os.getcwd()
         os.chdir(repo)
         os.environ["PROBED"] = str(probed)
+        # Every probe also reports a test of the same file that was already red at BASE.
+        os.environ["OLD_RED"] = ', "src/a.test.ts > was red": false' if old_red_in_file else ""
         try:
             with redirect_stdout(io.StringIO()) as printed:
                 self.assertEqual(coalesce.bisect(args), 0)
         finally:
             os.chdir(here)
             del os.environ["PROBED"]
+            del os.environ["OLD_RED"]
         return base, culprit, printed.getvalue(), probed.read_text().split(), json.loads(report.read_text())
 
     def setUp(self):
@@ -213,6 +219,19 @@ class BisectTests(unittest.TestCase):
         self.assertNotIn(base, probed)
         self.assertEqual(report["lines"], [line for line in printed.splitlines() if line.startswith("web bisect: ")
                                            and "probing" not in line and "nothing" not in line])
+
+    def test_a_test_already_red_at_the_base_in_the_same_file_does_not_move_the_first_red(self):
+        _, culprit, printed, probed, _ = self.run_bisect(old_red_in_file=True)
+        found = test_reds.bisect_report(printed)["src/a.test.ts"]
+        self.assertEqual((found["kind"], found["first_red"], found["pr"]), ("first", culprit, 103))
+        self.assertTrue(probed)
+
+    def test_a_commit_routing_the_suite_through_the_bundle_inputs_is_a_candidate(self):
+        bundle = lambda path: path == "Resources/settings-schema.json"  # noqa: E731
+        self.assertTrue(coalesce.routes_webview_tests(["Resources/settings-schema.json"], bundle))
+        self.assertFalse(coalesce.routes_webview_tests(["Resources/settings-schema.json"], None))
+        self.assertFalse(coalesce.routes_webview_tests(["README.md", "Sources/x.swift"], bundle))
+        self.assertTrue(coalesce.routes_webview_tests(["webviews/src/a.ts"], None))
 
     def test_a_test_that_flips_on_the_base_by_itself_is_not_bisected(self):
         _, _, printed, probed, _ = self.run_bisect(flaky_history=True)
@@ -273,6 +292,18 @@ class WorkflowTests(unittest.TestCase):
         self.assertLessEqual(job["timeout-minutes"], 20)
         self.assertIs(self.web["concurrency"]["cancel-in-progress"], False)
         self.assertNotIn("cancel-in-progress: true", WEB.read_text())
+
+    def test_the_marker_is_restored_from_and_saved_to_one_path(self):
+        # Actions keys a cache's version by its path, so a save at another path is never restored, even by prefix.
+        steps = self.web["jobs"]["coalesce"]["steps"]
+        restore = next(s for s in steps if str(s.get("uses", "")).startswith("actions/cache/restore@"))
+        save = next(s for s in steps if str(s.get("uses", "")).startswith("actions/cache/save@"))
+        wait = next(s for s in steps if s.get("id") == "wait")["run"]
+        self.assertEqual(restore["with"]["path"], save["with"]["path"])
+        self.assertTrue(save["with"]["key"].startswith(restore["with"]["restore-keys"]))
+        marker = restore["with"]["path"].replace("${{ runner.temp }}", "$RUNNER_TEMP")
+        self.assertIn(f'--last "{marker}"', wait)
+        self.assertIn(f'--out "{marker}"', wait)
 
     def test_the_web_checks_route_from_the_last_covered_commit(self):
         web = self.web["jobs"]["web"]

@@ -134,9 +134,28 @@ def new_reds(head: dict[str, bool], base_run: dict | None, flaky: set[str]) -> t
     return out, skipped
 
 
-def changing(keys: list[str]) -> list[int]:
-    """The positions (1..n) whose inputs key differs from the one before; KEYS[0] is BASE's."""
-    return [i for i in range(1, len(keys)) if keys[i] != keys[i - 1]]
+def routes_webview_tests(paths: list[str], matcher) -> bool:
+    """True when a commit changing PATHS routes the webview suite: the router's own lists (web_subareas
+    classify_paths' react_apps) plus the paths web-bundle-key.py derives, with MATCHER computed once per bisect."""
+    import web_subareas  # noqa: PLC0415
+    for path in paths:
+        if path in web_subareas.ALL_SUBAREA_INPUTS or path in web_subareas.REACT_EXACT \
+                or path.startswith(web_subareas.REACT_PREFIXES) or (matcher is not None and matcher(path)):
+            return True
+    return False
+
+
+def routed_points(commits: list[str]) -> list[int]:
+    """The positions (1..n) of COMMITS whose change from the commit before routes the webview suite, with this
+    checkout's router (the head's). COMMITS[0] is BASE. Only those commits can change a webview test's verdict."""
+    import web_subareas  # noqa: PLC0415
+    matcher = web_subareas.web_bundle_input_matcher(str(Path.cwd().resolve()))
+    points = []
+    for i in range(1, len(commits)):
+        changed = git("diff", "--no-renames", "--name-only", commits[i - 1], commits[i], "--").splitlines()
+        if routes_webview_tests(changed, matcher):
+            points.append(i)
+    return points
 
 
 def search(files: list[str], points: list[int], base_known_green: bool, probe, max_probes: int = MAX_PROBES):
@@ -250,8 +269,7 @@ def bisect(args, run=subprocess.run) -> int:
         return finish(f"{len(commits) - 1} commits in the range, more than {MAX_COMMITS}")
     subjects = dict(line.split(" ", 1) for line in git("log", "--no-walk=unsorted", "--format=%H %s", *commits[1:])
                     .splitlines() if " " in line)
-    keys = [history.inputs_at(".", sha) for sha in commits]
-    points = changing(keys)
+    points = routed_points(commits)
     found: dict = {}
     if names and not points:
         # No commit changed a webview input: the same tree as BASE, so a new red is a flake the history has not seen.
@@ -270,10 +288,15 @@ def bisect(args, run=subprocess.run) -> int:
                 got = json.loads(out.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 return {f: None for f in files}
-            reds = {name.split(" > ", 1)[0] for name, ok in got.items() if not ok}
             ran = {name.split(" > ", 1)[0] for name in got}
-            # A file the commit does not have yet cannot fail there: green.
-            return {f: (True if f in reds else False if f in ran or not exists(sha, f) else None) for f in files}
+            # Red only when one of the file's new red tests is red here: a test already red at BASE, red in the same
+            # file, says nothing about where the new one broke. A file-level red (no test named) counts any red in
+            # the file. A file the commit does not have yet cannot fail there: green.
+            def red(f: str) -> bool:
+                wanted = names[f]
+                return any(not ok and (name in wanted or (f in wanted and name.split(" > ", 1)[0] == f))
+                           for name, ok in got.items())
+            return {f: (True if red(f) else False if f in ran or not exists(sha, f) else None) for f in files}
 
         # BASE's verdict is known for a file only when the run before ran it.
         known = base_run is not None and all(file in base_run["files"] for file in names)

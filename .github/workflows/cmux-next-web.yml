@@ -81,7 +81,7 @@ jobs:
         run: |
           off=(); [ "$COALESCE" = 1 ] || off=(--off)
           python3 -I scripts/ci/web_coalesce.py wait "${off[@]}" --last "$RUNNER_TEMP/web-coalesce/last.json" \
-            --sha "$GITHUB_SHA" --before "$PUSH_BEFORE" --hold-minutes 15 --out "$RUNNER_TEMP/web-coalesce-new/last.json"
+            --sha "$GITHUB_SHA" --before "$PUSH_BEFORE" --hold-minutes 15 --out "$RUNNER_TEMP/web-coalesce/last.json"
 
       - name: Record this push as the last covered one
         if: ${{ env.COALESCE == '1' }}
@@ -89,7 +89,7 @@ jobs:
         timeout-minutes: 2
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: ${{ runner.temp }}/web-coalesce-new/last.json
+          path: ${{ runner.temp }}/web-coalesce/last.json
           key: cmux-next-web-coalesce-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
 
   web:

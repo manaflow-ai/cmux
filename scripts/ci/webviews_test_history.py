@@ -55,17 +55,11 @@ def load(path: str | Path) -> list[dict]:
 
 def inputs(root: str | Path = ".") -> str:
     """HEAD's webview test inputs key: the git ids of every path web_subareas.py routes the suite on."""
-    return inputs_at(root, "HEAD")
-
-
-def inputs_at(root: str | Path, rev: str) -> str:
-    """REV's webview test inputs key, read from git alone (no checkout): web_coalesce.py's bisect keys every commit
-    of a coalesced run's range by it, with this checkout's router paths for all of them."""
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     import web_subareas  # noqa: PLC0415
     paths = sorted({p.rstrip("/") for p in (*web_subareas.REACT_PREFIXES, *web_subareas.REACT_EXACT,
                                             *web_subareas.ALL_SUBAREA_INPUTS)})
-    listed = subprocess.run(["git", "-C", str(root), "ls-tree", rev, "--", *paths],
+    listed = subprocess.run(["git", "-C", str(root), "ls-tree", "HEAD", "--", *paths],
                             check=True, capture_output=True, text=True).stdout
     return hashlib.sha256(listed.encode()).hexdigest()[:20]
 
