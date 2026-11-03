@@ -17,3 +17,11 @@
 .claude-code-tool-rows[data-look="caret"] .cv-tool__chevron:not(.is-open) {
   transform: none;
 }
+/* The stage stacks its rows in flow; the transcript places each one itself. */
+.claude-code-tool-rows .acpmux-row {
+  position: relative;
+  left: auto;
+  right: auto;
+  min-height: 0;
+  padding-bottom: 0;
+}
