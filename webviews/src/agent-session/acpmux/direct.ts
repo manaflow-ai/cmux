@@ -1176,10 +1176,13 @@ export function mergeToolItem(
       status,
       inputSummary: hasRawInput ? JSON.stringify(update.rawInput) : before?.inputSummary,
       output:
-        output || formattedOutput(update.rawOutput) || (update.content === undefined ? before?.output : undefined),
+        output ||
+        formattedOutput(update.rawOutput) ||
+        terminalOutput(update, before?.output) ||
+        (update.content === undefined ? before?.output : undefined),
       command: shellCommand(update.rawInput) ?? before?.command,
       description: callDescription(update.rawInput) ?? before?.description,
-      exitCode: exitCode(update.rawOutput) ?? before?.exitCode,
+      exitCode: exitCode(update) ?? before?.exitCode,
       startedAt: before?.startedAt ?? at,
       endedAt: before?.endedAt ?? (ended ? at : undefined),
       // A shell that went to the background stays there as its call's result comes in.
@@ -1218,9 +1221,21 @@ export function shellCommand(rawInput: any): string | undefined {
     .join(" ");
 }
 
-function exitCode(rawOutput: any): number | undefined {
-  const code = rawOutput?.exit_code ?? rawOutput?.exitCode;
+/// A finished shell call's exit status: `rawOutput.exit_code` (Codex; acpmux puts the others'
+/// there too, hub/tool_shell.rs), else where an agent reported it in a record logged before acpmux
+/// did: pi's `_meta.terminal_exit.exit_code`, OpenCode's `rawOutput.metadata.exit`.
+function exitCode(update: any): number | undefined {
+  const raw = update.rawOutput;
+  const code = raw?.exit_code ?? raw?.exitCode ?? update._meta?.terminal_exit?.exit_code ?? raw?.metadata?.exit;
   return typeof code === "number" ? code : undefined;
+}
+
+/// pi (pi-acp) streams a bash call's output only as `_meta.terminal_output.data`, each update the
+/// part printed since the last (the terminal-in-a-tool-call `_meta` extension): it adds to what
+/// the call printed so far. Undefined for an update without it.
+function terminalOutput(update: any, before: string | undefined): string | undefined {
+  const data = update._meta?.terminal_output?.data;
+  return typeof data === "string" && data ? (before ?? "") + data : undefined;
 }
 
 /// Codex reports a shell call's output in `rawOutput` when the call carries no content.
@@ -6503,6 +6518,7 @@ export class AcpmuxDirectClient {
     const background: AcpmuxBackgroundState = {
       state: task.state,
       ...(task.reason ? { reason: task.reason } : {}),
+      ...(task.exitCode !== undefined ? { exitCode: task.exitCode } : {}),
       ...(ended ? { endedAt: at } : {}),
     };
     items[index] = { ...item, tool: { ...tool, background } };
