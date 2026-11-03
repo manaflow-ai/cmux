@@ -14,6 +14,24 @@ import Foundation
 // shows the answer in a sheet. Every failure names the machine and the port and says what to run.
 extension CloudHandlers {
     static func bindBrowserActions(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
+        bind("cloudPreview", registry, reason: reason) { invocation in
+            let invocation = effective(invocation), session = try machine(effective(invocation), context)
+            let names = CloudPortNames(session, port: nil)
+            result("machine preview", context) {
+                switch invocation["operation"]?.stringValue {
+                case "list", "url":
+                    var fields = previewAnswer(try await refreshPreviews(session, names, context)).fields
+                    fields["machine"] = .string(session.machineID)
+                    return fields
+                case "share":
+                    let port = try port(invocation, session, verb: "preview share")
+                    guard let api = context.services.cloud.previewAPI else { throw ActionFailure(message: CloudPortStrings.noLink(names)) }
+                    let shared = try await api.sharePreview(session.machineID, port: port, audience: invocation["audience"]?.stringValue ?? "", userID: invocation["user_id"]?.stringValue)
+                    return ["machine": .string(session.machineID), "port": .int(port), "url": .string(shared.url)]
+                default: throw ActionFailure(message: CloudPortStrings.noPreviews)
+                }
+            }
+        }
         bind("cloudOpenBrowser", registry, reason: reason) { original in
             // Read before the origin is normalized, while the run's scope is bound.
             let mayChangeView = viewChange(original)
@@ -285,40 +303,22 @@ extension CloudHandlers {
         }
         runTracked("machine previews", context) {
             let inventory = try await refreshPreviews(session, names, context)
-            guard !inventory.previews.isEmpty else {
-                CloudPresenter.show(CloudPortStrings.title, CloudPortStrings.noPreviews, in: window(context))
-                return
-            }
             guard let window = window(context) else { throw ActionFailure(message: CloudPortStrings.noWindow(names)) }
-            let choice = await CmuxDialogCenter.shared.present(previewPicker(inventory, machineName: session.machine.title), in: .window(window))
-            guard choice.button == "open", !choice.isDismissal, let port = choice.text("port").flatMap(Int.init),
-                  let preview = inventory.previews.first(where: { $0.port == port }) else { return }
-            // A person can leave the picker open longer than the bootstrap credential lives.
-            if preview.expiresAt <= Date().timeIntervalSince1970 * 1000 {
-                _ = try await openBrowser(session, port: port, path: "/", names: CloudPortNames(session, port: port),
-                                          viewChange: true, invocation, context)
-            } else {
-                _ = try await openPreview(preview, session: session, viewChange: true, context)
-            }
+            try await CloudPreviewUI.present(inventory, machineName: session.machine.title,
+                present: { await CmuxDialogCenter.shared.present($0, in: .window(window)) },
+                share: { port, audience, user in
+                    guard let api = context.services.cloud.previewAPI else { throw ActionFailure(message: CloudPortStrings.noLink(names)) }
+                    return try await api.sharePreview(session.machineID, port: port, audience: audience, userID: user).url
+                }, open: { _ = try await openPreview($0, session: session, viewChange: true, context) }, refreshOpen: { port in
+                    _ = try await openBrowser(session, port: port, path: "/", names: CloudPortNames(session, port: port),
+                                              viewChange: true, invocation, context)
+                }, show: { CloudPresenter.show($0, $1, in: window) }, copy: { CloudPresenter.copy($0) })
         }
     }
 
     static func refreshPreviews(_ session: CloudMachineSession, _ names: CloudPortNames, _ context: AppActionContext) async throws -> CloudMachinePreviews {
         guard let api = context.services.cloud.previewAPI else { throw ActionFailure(message: CloudPortStrings.noLink(names)) }
-        let inventory = try await wrapped(names) { try await api.refreshPreviews(session.machineID) }
-        guard inventory.machine == session.machineID else {
-            throw ActionFailure(message: CloudPortStrings.failed(names, detail: CloudPortStrings.routeRefused("machine.preview_wrong_machine")))
-        }
-        return inventory
-    }
-
-    static func previewPicker(_ inventory: CloudMachinePreviews, machineName: String) -> CmuxDialogSpec {
-        CmuxDialogSpec(title: CloudPortStrings.title, lines: [machineName], fields: [
-            .choice(id: "port", label: nil,
-                    options: inventory.previews.map { CmuxDialogOption(label: "\($0.port) · \($0.origin)", value: String($0.port)) },
-                    selected: inventory.previews.first.map { String($0.port) }),
-        ], buttons: [.cancel(CloudStrings.cancel), CmuxDialogButton(id: "open", title: CloudPortStrings.openPreview, role: .default)],
-        identifier: "cmux.dialog.cloud.livePreviews")
+        return try await wrapped(names) { try await api.refreshPreviews(session.machineID) }
     }
 
     static func previewAnswer(_ inventory: CloudMachinePreviews) -> CloudAnswer {

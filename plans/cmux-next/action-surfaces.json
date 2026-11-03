@@ -27745,6 +27745,34 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "ownerVerb",
+      "cli_name" : "action cloud-preview",
+      "context_menu" : "duplicateOfDefault",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudPreview",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Machine Preview",
+      "title_key" : "action.cloudPreview",
+      "title_table" : "CloudPortActions"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "cloud open-browser",
       "context_menu" : "offered",

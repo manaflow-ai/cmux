@@ -8,6 +8,20 @@ nonisolated enum CloudPortActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
         var actions: [ActionDescriptor] = [
             ActionDescriptor(
+                id: "cloudPreview",
+                title: String(localized: "action.cloudPreview", defaultValue: "Machine Preview", table: "CloudPortActions", bundle: .module),
+                description: "Lists or refreshes private previews, or shares a port by link, team or person. Used by cmux cloud preview ls|url|share; --target machine:<id> selects the machine. Returns previews or url.",
+                keywords: ["cloud", "preview", "share", "url"], category: .cloud, symbol: "link",
+                surfaces: [], arguments: [
+                    ActionArgument(name: "operation", title: String(localized: "argument.value", defaultValue: "Value", bundle: .module), kind: .string),
+                    optionalPort,
+                    ActionArgument(name: "audience", title: String(localized: "argument.value", defaultValue: "Value", bundle: .module), kind: .string, isRequired: false),
+                    ActionArgument(name: "user_id", title: String(localized: "argument.value", defaultValue: "Value", bundle: .module), kind: .string, isRequired: false),
+                ], targets: [.machine],
+                // Rust owns cloud preview's subcommands; action.run is its Mac adapter.
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.ownerVerb), contextMenuExemption: .duplicateOfDefault)
+            ),
+            ActionDescriptor(
                 id: "cloudOpenBrowser",
                 title: String(localized: "action.cloudOpenBrowser", defaultValue: "Open Machine Port in Browser…", table: "CloudPortActions", bundle: .module),
                 description: "Opens --port N (and --path, default /) of the machine (--target machine:<id>) in a Chromium tab and returns url and surface_id. New Cloud uses its private preview URL. On the classic Cloud link the tab opens in the machine's workspace (workspace_id) and its localhost is the machine's.",

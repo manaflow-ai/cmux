@@ -328,3 +328,7 @@ turn was denied · 6 `session stop --if-idle` refused (`busy` or
 - Do not delete sessions you did not create. Do not change defaults, presets, or machines
   unless the task is about them.
 - `--current` / `@` targets your own session only when `ACPMUX_ENV=1`.
+
+## Cloud previews
+
+After starting a server on a cmux Cloud machine, run `cmux cloud preview url --port N` and give the person that plain address (they sign in when opening it). Keep `--bootstrap` / `--open` owner-token URLs out of chat. When they ask to share, run `cmux cloud preview share --port N --link` (or `--team` / `--user ID` for restricted access) and give them the returned URL. On the Mac, add `--target machine:ID`.

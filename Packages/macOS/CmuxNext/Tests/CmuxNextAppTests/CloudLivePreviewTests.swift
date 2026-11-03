@@ -1,7 +1,9 @@
 import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextDesign
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -57,6 +59,81 @@ struct CloudLivePreviewTests {
         #expect(request.value(forHTTPHeaderField: "X-Cmux-Team-Id") == nil)
     }
 
+    /// A subprocess stand-in records both channels without seeing any credential in argv.
+    private func previewCLI(reply: String) throws -> (binary: URL, folder: URL) {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("preview-cli-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let binary = folder.appendingPathComponent("cmux")
+        let script = #"""
+        #!/bin/sh
+        d=${0%/*}
+        cat > "$d/stdin"
+        printf '%s\n' "$@" > "$d/argv"
+        cat "$d/reply"
+        """#
+        try Data(script.utf8).write(to: binary)
+        try Data(reply.utf8).write(to: folder.appendingPathComponent("reply"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: binary.path)
+        return (binary, folder)
+    }
+
+    private func previewAPI(binary: URL, folder: URL) throws -> CloudAPIClient {
+        CloudAPIClient.workerMachines(baseURL: try #require(URL(string: "https://worker.standin.invalid")),
+                                      accessToken: { "person-access" }, teamID: { "team-one" }, session: session(),
+                                      appVersion: "preview-test", machineIO: CloudMachineIO(binary: binary,
+                                        cacheDirectory: folder, work: BackgroundWork()))
+            .previewClient(baseURL: try #require(URL(string: "https://machines.standin.invalid")))
+    }
+
+    @Test func sharingForwardsTheAccountAndAllAudiencesToRustOnStdin() async throws {
+        for audience in ["link", "team", "user"] {
+            let (binary, folder) = try previewCLI(reply: #"{"ok":true,"value":{"url":"https://shared.standin.invalid/preview/shared-one"}}"#)
+            defer { try? FileManager.default.removeItem(at: folder) }
+            let api = try previewAPI(binary: binary, folder: folder)
+            let result = try await api.sharePreview("vm-one", port: 3000, audience: audience, userID: "user-recipient")
+            #expect(result.url == "https://shared.standin.invalid/preview/shared-one")
+            let data = try Data(contentsOf: folder.appendingPathComponent("stdin"))
+            let request = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+            #expect(request["api"] as? String == "https://machines.standin.invalid")
+            #expect(request["machine"] as? String == "vm-one")
+            #expect(request["credential"] as? String == "person-access")
+            #expect(request["team"] as? String == "team-one")
+            #expect(request["app_version"] as? String == "preview-test")
+            let ask = try #require(request["ask"] as? [String: Any])
+            #expect(ask["operation"] as? String == "share")
+            #expect(ask["port"] as? Int == 3000)
+            #expect(ask["bootstrap"] as? Bool == false)
+            if audience == "user" {
+                #expect(ask["audience"] as? [String: String] == ["user": "user-recipient"])
+            } else {
+                #expect(ask["audience"] as? String == audience)
+            }
+            let argv = try String(contentsOf: folder.appendingPathComponent("argv"), encoding: .utf8)
+            #expect(argv == "cloud\npreview-account\n", "credentials never go in process arguments")
+            #expect(PreviewAPI.seen.isEmpty, "Swift delegates all preview HTTP orchestration to Rust")
+        }
+    }
+
+    @Test func aRefusedOrMissingRustAnswerNeverRetriesSharingOverHTTP() async throws {
+        for reply in [#"{"ok":false,"error":{"code":"preview.share_failed","message":"recipient refused"}}"#, "not json"] {
+            let (binary, folder) = try previewCLI(reply: reply)
+            defer { try? FileManager.default.removeItem(at: folder) }
+            let api = try previewAPI(binary: binary, folder: folder)
+            do {
+                _ = try await api.sharePreview("vm-one", port: 3000, audience: "link")
+                Issue.record("expected the Rust failure to reach the caller")
+            } catch let error as CloudAPIError {
+                if reply == "not json" {
+                    #expect(error.code == "bad_response")
+                } else {
+                    #expect(error.code == "preview.share_failed")
+                    #expect(error.description == "recipient refused")
+                }
+            }
+            #expect(PreviewAPI.seen.isEmpty)
+        }
+    }
+
     @Test func stagingAndDevelopmentPreviewsUseTheirPlatformWhileOtherOwnersKeepTheirExistingBrowserRoute() {
         var configuration = CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_NEXT_CLOUD_LINK": "app"], process: [:], isDebugBuild: true)
         #expect(configuration.platformPreviewAPIBaseURL(environment: [:])?.absoluteString == "https://cmux-platform-development.debussy.workers.dev")
@@ -75,6 +152,9 @@ struct CloudLivePreviewTests {
         configuration.isDebugBuild = true
         configuration.linkSource = .legacy
         #expect(configuration.platformPreviewAPIBaseURL(environment: [:]) == nil)
+
+        let signedDev = CloudConfiguration.resolve(bundleID: "com.cmuxterm.app.debug.next", bundled: [:], process: [:], isDebugBuild: false)
+        #expect(signedDev.platformPreviewAPIBaseURL()?.absoluteString == "https://cmux-platform-development.debussy.workers.dev")
     }
 
     @Test func artifactsOriginFollowsCloudEnvironmentAndDebugOverrides() {
@@ -116,7 +196,7 @@ struct CloudLivePreviewTests {
     }
 
     @Test func pickerShowsDetectedOriginsAndOpensTheSelectedPort() throws {
-        let spec = CloudHandlers.previewPicker(try inventory(), machineName: "My machine")
+        let spec = CloudPreviewUI.previewPicker(try inventory(), machineName: "My machine")
         let view = CmuxDialogView(spec: spec)
         #expect(view.setValue(.text("3000"), for: "port"))
         #expect(view.values["port"] == .text("3000"))
@@ -129,6 +209,25 @@ struct CloudLivePreviewTests {
         }
         #expect(options.map(\.label) == ["3000 · https://preview.standin.invalid"])
         #expect(!options.contains { $0.label.contains("temporary") }, "bootstrap credentials are not picker labels")
+    }
+
+    @Test func pickerOffersShareAndSharePickerDefaultsToPrivateLink() throws {
+        let spec = CloudPreviewUI.previewPicker(try inventory(), machineName: "My machine")
+        #expect(spec.buttons.map(\.id) == ["cancel", "share", "open"])
+        #expect(spec.defaultButton?.id == "open")
+        let share = CloudPreviewUI.sharePicker(machineName: "My machine")
+        #expect(share.defaultButton?.id == "share")
+        #expect(share.identifier == "cmux.dialog.cloud.sharePreview")
+        guard case .choice(_, _, let options, let selected) = try #require(share.fields.first) else {
+            Issue.record("no audience chooser")
+            return
+        }
+        #expect(options.map(\.value) == ["link", "team", "user"])
+        #expect(selected == "link")
+        #expect(share.fields.contains { field in
+            if case .text(let id, _, _, _, _) = field { return id == "user_id" }
+            return false
+        })
     }
 
     @Test func cliAndMCPReceiveTheDetectedPortsAndPrivateURLs() throws {

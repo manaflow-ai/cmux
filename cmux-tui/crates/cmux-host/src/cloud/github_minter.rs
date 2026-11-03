@@ -47,6 +47,7 @@ const REPLY_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 /// checked (`Err` names what was wrong with it).
 pub enum Ask {
     Github(Result<TokenAsk, String>),
+    Preview(Result<super::preview::PreviewAsk, String>),
     GithubRepos(Result<super::github_repos::ReposAsk, String>),
     /// Which GitHub account is connected (`github_status.rs`): no token.
     GithubStatus(Result<(), String>),
@@ -178,6 +179,14 @@ fn run<H: Http>(
                 } else {
                     match ask {
                         Ask::Github(ask) => answer(client.as_deref_mut(), ask, now(), log),
+                        Ask::Preview(ask) => match (client.as_deref_mut(), ask) {
+                            (_, Err(why)) => github::refusal("request.invalid", &why),
+                            (None, _) => github::refusal(
+                                "vm.unbound",
+                                "Reconnect this machine to cmux Cloud, then retry.",
+                            ),
+                            (Some(client), Ok(ask)) => client.preview(&ask, now()),
+                        },
                         Ask::GithubRepos(ask) => answer_repos(client.as_deref_mut(), ask, now()),
                         Ask::GithubStatus(ask) => answer_status(client.as_deref_mut(), ask, now()),
                         Ask::Handoff(report) => {

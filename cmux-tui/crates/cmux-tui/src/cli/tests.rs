@@ -226,6 +226,8 @@ mod remote_cli_docs {
                 | ["machine", "new" | "create", ..]
                 // cloud_start_chat.rs: the CLI's own Cloud verb, not an app action.
                 | ["cloud", "start-chat", ..]
+                // cloud_preview.rs owns the guest identity and subcommand grammar.
+                | ["cloud", "preview", "ls" | "url" | "share" | "help", ..]
         )
     }
 

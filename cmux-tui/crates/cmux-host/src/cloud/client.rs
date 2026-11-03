@@ -20,6 +20,21 @@ use super::wire::{
 pub trait Http {
     fn post(&self, url: &str, body: &Value, bearer: Option<&str>) -> Result<(u16, Value), String>;
 
+    /// Preview sharing uses PUT in addition to the existing POST transport.
+    fn send(
+        &self,
+        method: &str,
+        url: &str,
+        body: &Value,
+        bearer: Option<&str>,
+    ) -> Result<(u16, Value), String> {
+        match method {
+            "POST" => self.post(url, body, bearer),
+            "GET" => self.get(url, bearer),
+            _ => Err("HTTP method is not supported by this transport".to_owned()),
+        }
+    }
+
     /// Raw, bounded, no-redirect GET (`body=None`) or JSON POST. All calls
     /// in a receiving-policy read share this absolute deadline. Older
     /// transports cannot silently opt into this security-sensitive path.
@@ -497,6 +512,30 @@ impl<H: Http> CloudClient<H> {
     pub fn github_repos(&mut self, ask: &super::github_repos::ReposAsk, now_wall_ms: u64) -> Value {
         let team = self.bound.team.clone();
         super::github_repos::answer(ask, &team, |path| self.github_repos_get(path, now_wall_ms))
+    }
+
+    /// Preview operations always use the bound machine and environment's platform.
+    /// The socket caller cannot select a credential destination or another machine.
+    pub fn preview(&mut self, ask: &super::preview::PreviewAsk, now_wall_ms: u64) -> Value {
+        super::preview::answer(
+            ask,
+            &self.bound.machine.clone(),
+            &self.bound.team.clone(),
+            |method, path, body| {
+                let url = format!("{}{}", self.bound.env.platform_origin(), path);
+                let send = |client: &mut Self| -> Option<(u16, Value)> {
+                    let token = client.token(now_wall_ms).ok()?;
+                    client.http.send(method, &url, body, Some(&token)).ok()
+                };
+                let Some((mut status, mut body)) = send(self) else { return Answer::Transport };
+                if status == 401 {
+                    self.cached = None;
+                    let Some(again) = send(self) else { return Answer::Transport };
+                    (status, body) = again;
+                }
+                Answer::Http { status, body }
+            },
+        )
     }
 
     /// The person's connected GitHub account (`GET /v1/me/github` as this

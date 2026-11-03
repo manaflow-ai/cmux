@@ -44,6 +44,7 @@ pub mod github_repos;
 pub mod github_status;
 pub mod handoff;
 pub mod private_bootstrap;
+pub mod preview;
 pub mod receiver;
 #[cfg(target_os = "linux")]
 pub mod receiver_agent;
@@ -81,3 +82,6 @@ mod receiver_files_tests;
 mod receiver_read_tests;
 #[cfg(test)]
 mod receiver_reply_tests;
+
+#[cfg(test)]
+mod preview_tests;

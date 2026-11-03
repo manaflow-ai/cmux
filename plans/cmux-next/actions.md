@@ -45,13 +45,13 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 - `sidebar`: 91
 - `notifications`: 29
 - `agents`: 129
-- `cloud`: 71
+- `cloud`: 72
 - `remote`: 21
 - `settings`: 140
 
-## Counts (1337 actions)
+## Counts (1338 actions)
 
-Palette 1279, CLI verbs 797, right-click 581, MCP tools 712.
+Palette 1280, CLI verbs 797, right-click 581, MCP tools 712.
 
 ## Menus
 
@@ -128,7 +128,7 @@ Palette 1279, CLI verbs 797, right-click 581, MCP tools 712.
 
 **duplicateOfDefault** (3): `newTab.ofKind`, `newTab.toRight`, `newTab.horizontal`
 
-**ownerVerb** (11): `newTab`, `closeWorkspace`, `space.new`, `closeTab`, `screen.new`, `screen.close`, `browserBack`, `browserForward`, `agentPane.git.commit`, `agentPane.git.push`, `closePane`
+**ownerVerb** (12): `newTab`, `closeWorkspace`, `space.new`, `closeTab`, `screen.new`, `screen.close`, `browserBack`, `browserForward`, `agentPane.git.commit`, `agentPane.git.push`, `cloudPreview`, `closePane`
 
 ## Exemptions: contextMenu
 
@@ -156,7 +156,7 @@ Palette 1279, CLI verbs 797, right-click 581, MCP tools 712.
 
 **secondaryEngine** (2): `openBrowser.webkit`, `browser.openInWebKit`
 
-**duplicateOfDefault** (4): `newTab.afterCurrent`, `newTab.horizontal`, `newTab.submit`, `cloudMachineLink`
+**duplicateOfDefault** (5): `newTab.afterCurrent`, `newTab.horizontal`, `newTab.submit`, `cloudPreview`, `cloudMachineLink`
 
 **minimalMenu** (4): `space.newWindow`, `space.setDefaults`, `space.clearDefaults`, `browserProfile.clearSpaceDefault`
 

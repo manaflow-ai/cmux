@@ -34,6 +34,12 @@ public struct CloudMachinePreview: Decodable, Sendable, Equatable {
     }
 }
 
+/// A share URL, without the owner's private preview bootstrap credential.
+public struct CloudMachinePreviewShare: Decodable, Sendable, Equatable {
+    public var url: String
+    public init(url: String) { self.url = url }
+}
+
 public struct CloudMachinePreviewUnavailable: Decodable, Sendable, Equatable {
     public var port: Int
     public var code: String
@@ -42,7 +48,9 @@ public struct CloudMachinePreviewUnavailable: Decodable, Sendable, Equatable {
 extension CloudAPIClient {
     /// Preview ingress lives at cmux-platform, while the existing guest API keeps its Worker.
     public func previewClient(baseURL: URL) -> CloudAPIClient {
-        CloudAPIClient(baseURL: baseURL, tokens: tokens, teamID: teamID, session: session, appVersion: appVersion)
+        var client = CloudAPIClient(baseURL: baseURL, tokens: tokens, teamID: teamID, session: session, appVersion: appVersion)
+        client.machineIO = machineIO
+        return client
     }
 
     /// New Cloud only: discovers current listeners and reconciles their private preview routes.
@@ -50,6 +58,27 @@ extension CloudAPIClient {
         guard !sendsStackSession else {
             throw CloudAPIError.http(status: 501, code: "machine.previews_unsupported", message: nil)
         }
-        return try await send("POST", "\(machinePath)/\(id)/previews/refresh", timeout: .seconds(30), as: CloudMachinePreviews.self)
+        let inventory = try await send("POST", "\(machinePath)/\(pathSegment(id))/previews/refresh", timeout: .seconds(30), as: CloudMachinePreviews.self)
+        guard inventory.machine == id else { throw CloudAPIError.decoding("machine.preview_wrong_machine") }
+        return inventory
+    }
+}
+
+extension CloudAPIClient {
+    /// The native app forwards its account session to Rust's shared preview operation.
+    public func sharePreview(_ id: String, port: Int, audience: String, userID: String? = nil) async throws -> CloudMachinePreviewShare {
+        guard let machineIO else {
+            throw CloudAPIError.http(status: 501, code: "machine.previews_unsupported", message: nil)
+        }
+        let access: String
+        do { access = try await tokens().access } catch { throw CloudAPIError.notSignedIn }
+        let recipient: any Sendable
+        if audience == "user" { recipient = ["user": userID ?? ""] } else { recipient = audience }
+        let request: [String: any Sendable] = [
+            "api": baseURL.absoluteString, "credential": access, "team": await teamID() ?? "", "machine": id,
+            "ask": ["operation": "share", "port": port, "audience": recipient, "bootstrap": false] as [String: any Sendable],
+            "app_version": appVersion,
+        ]
+        return try await machineIO.preview(request)
     }
 }

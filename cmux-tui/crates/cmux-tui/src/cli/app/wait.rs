@@ -27,7 +27,7 @@ const RECONNECT_BACKOFF: [Duration; 2] = [Duration::from_millis(200), Duration::
 /// [`request_with_retry`] with progress notes while it waits; a transport
 /// failure is the `app.transport` error to print, typed by [`timed_out`]
 /// when the app took the request and never answered.
-pub(super) fn request(
+pub(in crate::cli) fn request(
     global: &GlobalArgs,
     stream: &mut UnixStream,
     method: &str,

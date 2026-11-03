@@ -564,6 +564,11 @@ pub(super) fn overview(japanese: bool) -> String {
     } else {
         "\nCHAT REPOSITORIES (use --socket for the Cloud machine)\n  repo list --session CHAT [--query NAME]\n  repo add --session CHAT --repo NAME [--ref REF]\n  repo wait-github --session CHAT [--timeout-ms N]\n  repo attached --session CHAT\n  repo local\n  repo sync --repos-json JSON [--recent-json JSON] [--install-url URL] [--complete true|false]\n"
     });
+    text.push_str(if japanese {
+        "\nプレビュー（Cloud マシン上では target 不要、Mac では --target machine:ID）\n  preview ls\n  preview url --port N [--bootstrap|--open]\n  preview share --port N --link|--team|--user ID\n"
+    } else {
+        "\nPREVIEWS (on the Mac add --target machine:ID; omit it on the Cloud machine)\n  preview ls\n  preview url --port N [--bootstrap|--open]\n  preview share --port N --link|--team|--user ID\n"
+    });
     text.push('\n');
     text.push_str(if japanese { OUTRO_JA } else { OUTRO_EN });
     text
