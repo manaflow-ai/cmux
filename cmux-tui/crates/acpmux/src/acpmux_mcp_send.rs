@@ -38,7 +38,7 @@ pub(super) fn tool() -> Value {
             "type": "object",
             "properties": {
                 "to": {"type": "string", "description": "The session: its name, id, or host/name for a session on a peer (as ls lists them)."},
-                "text": {"type": "string", "description": "The message, self-contained. Text too large for one RPC is uploaded automatically as a file for the receiver to read."},
+                "text": {"type": "string", "description": "The message, self-contained."},
                 "steer": {"type": "boolean", "description": "true (default): into a running turn at its next tool step. false: queued behind the running turn."},
                 "class": {"type": "string", "enum": ["block", "question", "result", "fyi", "blocker", "action"], "description": "What the message asks of the receiver: block or blocker (you cannot go on until it acts; wakes an idle receiver), question (you wait for its answer; wakes it too), result or action (work you finished or work for it; the default; wakes an idle receiver only when you started it or gave it its first work) or fyi (wakes no one)."},
                 "pr": {"type": "integer", "description": "The pull request this message is about: the receiver's inbox threads it with the others about it."},
