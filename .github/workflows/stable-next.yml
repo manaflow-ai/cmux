@@ -389,7 +389,7 @@ jobs:
     needs: plan
     if: needs.plan.outputs.go == 'true'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
-    timeout-minutes: 330
+    timeout-minutes: 600
     permissions: {}
     steps:
       - name: This runner is not an M6 mini
@@ -400,8 +400,10 @@ jobs:
       - name: Perf budgets gate (exclusive macOS 27 M4 Pro measure worker)
         env:
           COMMIT: ${{ needs.plan.outputs.commit }}
-          # One key per build: a later run or re-run for the same build re-attaches to its step (still
-          # queued, running, or done) instead of queuing a second whole-host measurement.
+          # Keys per build, numbered: a later run or re-run walks the same keys and re-attaches to each
+          # step (queued, running or done) instead of queuing a second whole-host measurement. A step that
+          # ended with no verdict (cancelled, timed out, killed by a host fault) moves on to the next key,
+          # so one fault never leaves the build's gate red; a finished gate verdict (0 or 1) is final.
           KEY: stable-next-${{ needs.plan.outputs.build }}-perf
         run: |
           set -uo pipefail
@@ -410,13 +412,32 @@ jobs:
             echo "::error::$client is not installed on $RUNNER_NAME"
             exit 1
           fi
-          # One step, never resubmitted: an exclusive measure worker can queue for hours (the p90 wait
-          # was about an hour), and a still-queued step (exit 75) keeps its place.
-          "$client" run --class exclusive --measurement --script scripts/measure/split-spring.sh --ref "$COMMIT" \
-            --label measure --label macos-27 --label ram48 --label cmux --key "$KEY" \
-            --artifact artifacts/split-spring/report.json \
-            --arg=--suite=budgets --arg=--gate --arg=--vdisplay=120 \
-            --timeout 7200 --queue-timeout 10800
+          log="$RUNNER_TEMP/perf-step.log"
+          # Attempt 1 may wait 3 h for an idle M4 Pro; a retry after a fault gets 1 h (fits the job's 600 min).
+          for n in 1 2 3; do
+            status=0
+            queue=$([ "$n" = 1 ] && echo 10800 || echo 3600)
+            "$client" run --class exclusive --measurement --script scripts/measure/split-spring.sh --ref "$COMMIT" \
+              --label measure --label macos-27 --label ram48 --label cmux --key "$KEY-$n" \
+              --artifact artifacts/split-spring/report.json \
+              --arg=--suite=budgets --arg=--gate --arg=--vdisplay=120 \
+              --timeout 7200 --queue-timeout "$queue" 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
+            case "$status" in
+              0) exit 0 ;;
+              # Still queued: the step keeps its place; never resubmit it.
+              75) echo "::error title=stable perf::step $KEY-$n still queued after 3 h (kept; not resubmitted)"; exit 75 ;;
+              124) echo "::warning title=stable perf::step $KEY-$n ran past its time limit; measuring again" ;;
+              *)
+                # A gate verdict printed its PERF-BUDGETS lines; a step that never measured did not.
+                if grep -q -E 'cmux-ci: step [0-9a-f]+ (cancelled|failed)' "$log" && ! grep -q 'PERF-BUDGETS rows=' "$log"; then
+                  echo "::warning title=stable perf::step $KEY-$n ended without a verdict; measuring again"
+                else
+                  exit "$status"
+                fi ;;
+            esac
+          done
+          echo "::error title=stable perf::three perf steps for this build ended without a verdict"
+          exit 1
 
   sign:
     needs: plan
