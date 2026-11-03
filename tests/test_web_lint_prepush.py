@@ -733,6 +733,26 @@ class WebLintPrePushTests(unittest.TestCase):
                 self.assertIn("web: not linted here", result.stderr)
                 self.assertIn("web/node_modules/.bin/eslint", result.stderr)
 
+    def test_a_nested_tool_config_a_push_carries_is_check_code(self):
+        # vite-plus 1.3's `vp lint` looks up and runs a nested vite.config.ts the push adds under src/, though
+        # nothing imports it. Any vite, vitest, vite-plus or prettier config, wherever it sits in a package, is check
+        # code.
+        for number, name in enumerate(("webviews/src/deep/vite.config.ts", "webviews/test/vitest.config.mts",
+                                       "webviews/src/x/vite-plus.config.mjs", "webviews/src/y/prettier.config.cjs",
+                                       "webviews/src/z/.prettierrc.json")):
+            with self.subTest(name=name):
+                self.write(name, "export default {};\n")
+                self.write("webviews/src/app.ts", f"export const app = {120 + number};\n")
+                self.commit(f"add {name}")
+
+                result = self.push()
+
+                self.assertIn("webviews: not linted here", result.stderr)
+                self.assertIn(name, result.stderr)
+                self.git("rm", "--quiet", name)
+                self.commit(f"drop {name}")
+                self.push(CMUX_WEB_LINT_SKIP_REASON="fixture: reset between the nested tool config sub-tests")
+
     def test_a_nested_lint_config_a_push_carries_is_never_used(self):
         # oxlint loads a nested .oxlintrc.json (its jsPlugins run as code) from any folder it lints; vite-plus 1.3's
         # `vp lint` ignores one, but that is the tool's choice, not the hook's. The hook refuses it by name, wherever
