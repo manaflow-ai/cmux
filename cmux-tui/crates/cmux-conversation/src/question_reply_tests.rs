@@ -59,7 +59,7 @@ fn renders_stable_global_numbers_and_normalizes_multiline_labels() {
         Which size?\n3. Small size\n4. Large\n\n\
         Reply with an option number or its exact text.";
     assert_eq!(prompt.render(), expected);
-    assert_eq!(prompt.clone().render(), expected);
+    assert_eq!(prompt.render(), expected);
     let choice = resolve(&prompt, "3").unwrap();
     assert_eq!(choice.item_id, "size");
     assert_eq!(choice.selection.option_ids, ["size-option-0"]);
@@ -104,7 +104,7 @@ fn all_rendered_numbers_round_trip_for_multiple_items_and_harnesses() {
         {
             let choice = resolve(&prompt, &(index + 1).to_string()).unwrap();
             assert_eq!(choice.item_id, item.id);
-            assert_eq!(choice.selection.option_ids, [option.id.clone()]);
+            assert_eq!(choice.selection.option_ids.as_slice(), std::slice::from_ref(&option.id));
         }
     }
 }
