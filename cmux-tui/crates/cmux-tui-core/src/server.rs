@@ -103,10 +103,10 @@ pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 #[cfg(unix)]
 mod apps;
 mod jobs;
-pub use jobs::forward_long_jobs;
 #[cfg(unix)]
 pub use apps::start_apps_when_ready;
 pub use cmd_workspaces::WORKSPACE_NAME_SOURCE_CAPABILITY;
+pub use jobs::forward_long_jobs;
 #[cfg(unix)]
 mod browser_runtime;
 #[path = "server/image_paste.rs"]

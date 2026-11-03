@@ -94,7 +94,10 @@ impl<'a> RestoreProgress<'a> {
         // A few ms of slack: a wait slice that ends just short of the
         // interval must not skip every other report.
         let slack = Duration::from_millis(50);
-        if self.last.get().is_some_and(|last| now.duration_since(last) + slack < progress_interval())
+        if self
+            .last
+            .get()
+            .is_some_and(|last| now.duration_since(last) + slack < progress_interval())
         {
             return;
         }
@@ -465,18 +468,19 @@ fn wait_while_starting(
 ) -> Result<Option<ReadyOwner>, EnsureError> {
     let mut busy = BusySince::default();
     loop {
-        let interval = match attempt(spec, expected_session, attempt_deadline(restore_deadline.deadline()))? {
-            Attempt::Ready(ready) => return Ok(Some(ready)),
-            Attempt::Gone | Attempt::Unanswered => return Ok(None),
-            Attempt::Starting(pid) => {
-                busy.answered();
-                progress.restoring(pid, restore_deadline);
-                POLL_INTERVAL
-            }
-            Attempt::Stopped => return Err(EnsureError::NotReady),
-            Attempt::Busy if busy.refused() => return Err(EnsureError::Busy),
-            Attempt::Busy => BUSY_POLL_INTERVAL,
-        };
+        let interval =
+            match attempt(spec, expected_session, attempt_deadline(restore_deadline.deadline()))? {
+                Attempt::Ready(ready) => return Ok(Some(ready)),
+                Attempt::Gone | Attempt::Unanswered => return Ok(None),
+                Attempt::Starting(pid) => {
+                    busy.answered();
+                    progress.restoring(pid, restore_deadline);
+                    POLL_INTERVAL
+                }
+                Attempt::Stopped => return Err(EnsureError::NotReady),
+                Attempt::Busy if busy.refused() => return Err(EnsureError::Busy),
+                Attempt::Busy => BUSY_POLL_INTERVAL,
+            };
         if restore_deadline.expired() {
             return Err(EnsureError::RestoreTimeout);
         }
@@ -503,7 +507,8 @@ fn wait_until_ready(
     let mut seen_alive = false;
     let mut busy = BusySince::default();
     loop {
-        let result = attempt(spec, expected_session, attempt_deadline(restore_deadline.deadline()))?;
+        let result =
+            attempt(spec, expected_session, attempt_deadline(restore_deadline.deadline()))?;
         let refused = matches!(result, Attempt::Busy);
         match result {
             Attempt::Ready(ready) => return Ok(Some(ready)),
@@ -572,7 +577,8 @@ fn wait_for_spawned_owner(
     let mut byte = [0_u8; 1];
     let signaled = matches!((&*pipe).read(&mut byte), Ok(1));
     if signaled
-        && let Attempt::Ready(ready) = attempt(spec, expected, attempt_deadline(restore_deadline.deadline()))?
+        && let Attempt::Ready(ready) =
+            attempt(spec, expected, attempt_deadline(restore_deadline.deadline()))?
     {
         return Ok(Some(ready));
     }

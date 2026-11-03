@@ -134,7 +134,13 @@ fn stage_registry_until_stopped(
     } else {
         eprintln!("cmux-tui: output cleanup: staging {}", staging_path(db_path).display());
     }
-    match stage_segments(&source, &staging, control.next_segment, Some((db_path, copied)), Some(&job))? {
+    match stage_segments(
+        &source,
+        &staging,
+        control.next_segment,
+        Some((db_path, copied)),
+        Some(&job),
+    )? {
         Staged::Stopped => return Ok(StageOutcome::Stopped),
         Staged::Refused(reason) => return Ok(StageOutcome::Refused(reason)),
         Staged::Finished => {}

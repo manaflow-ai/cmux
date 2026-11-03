@@ -23,8 +23,6 @@ mod app_focus;
 #[cfg(unix)]
 mod apps_list;
 #[cfg(unix)]
-mod jobs;
-#[cfg(unix)]
 mod apps_run;
 #[cfg(unix)]
 mod auth_token;
@@ -72,6 +70,8 @@ mod frontend_browser;
 #[cfg(unix)]
 mod host_mount;
 mod internal;
+#[cfg(unix)]
+mod jobs;
 mod launch_credential;
 mod lifecycle;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
