@@ -461,6 +461,11 @@ fn an_idle_cloud_vm_is_paused_once_and_resumed_for_the_next_subagent() {
         "paused once: {calls:?}"
     );
 
+    // A paused VM drops its peer connection until resume brings it back.
+    h.agents.inner.lock().unwrap().machine_status = Some(serde_json::json!({
+        "here": {"os": "macos", "pressure": {"ok": true}},
+        "peers": [{"name": "cloud1", "connected": false, "health": {"os": "linux"}}]
+    }));
     let a = sp.clone();
     run(&mut h, move || a.spawn(vec!["two".into()], None)).unwrap();
     let calls = vms.calls.lock().unwrap().clone();
@@ -1267,7 +1272,7 @@ fn a_paired_agent_gets_the_chiefs_subagent_instructions() {
     let answer = run(&mut h, move || {
         sp.spawn_placed(
             vec!["build a hello iOS view".into()],
-            None,
+            Some("/Users/owner/Projects/docs-worktrees/lane".into()),
             None,
             Some("mini".into()),
         )
@@ -1281,6 +1286,13 @@ fn a_paired_agent_gets_the_chiefs_subagent_instructions() {
         prompts[0].1
     );
     assert!(prompts[0].1.contains("build a hello iOS view"));
+    assert!(prompts[0].0.cwd.as_os_str().is_empty());
+    assert!(
+        prompts[0]
+            .1
+            .contains("/Users/owner/Projects/docs-worktrees/lane")
+    );
+    assert!(prompts[0].1.contains("repo `docs`"));
     assert!(!prompts[0].1.contains("not on the user's Mac"));
 }
 
@@ -1295,8 +1307,11 @@ fn remote_launch_uses_the_resolved_profile_whose_login_was_checked() {
         );
         a.peer_catalogs.insert(
             "mini".into(),
-            serde_json::json!({"harnesses": {"my-direct-login": {
-                "kind": "claude-stdio", "argv": ["/usr/local/bin/claude"], "family": "claude"
+            // remote_guard::after removes argv/env and leaves picker metadata.
+            serde_json::json!({"peer": "mini", "harnesses": {"my-direct-login": {
+                "kind": "claude-stdio", "family": "claude",
+                "hasArgs": true, "hasEnv": false, "hasModelsCommand": false,
+                "hasSessions": false
             }}}),
         );
         a.harness_health.insert(

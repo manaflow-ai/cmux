@@ -279,6 +279,23 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn sanitized_peer_catalog_admits_claude_by_kind_without_command_details() {
+        let catalog = json!({"peer": "mini", "harnesses": {
+            "direct": {"kind": "claude-stdio", "family": "claude",
+                "hasArgs": true, "hasEnv": false, "hasModelsCommand": false, "hasSessions": false},
+            "legacy": {"kind": "acp", "family": "claude",
+                "hasArgs": true, "hasEnv": false, "hasModelsCommand": false, "hasSessions": false}
+        }});
+        let health = json!({"harnesses": [{"id": "direct", "auth": "signedIn"}]});
+        assert_eq!(unavailable(&catalog, &health, "claude"), None);
+        assert_eq!(login_families(&catalog, &health), vec![Family::Claude]);
+        assert!(unavailable(&catalog, &health, "legacy").is_some());
+        let expired = json!({"harnesses": [{"id": "direct", "auth": "expired"}]});
+        assert!(unavailable(&catalog, &expired, "claude").is_some());
+        assert!(login_families(&catalog, &expired).is_empty());
+    }
+
+    #[test]
     fn reserved_claude_route_reads_the_resolved_custom_profiles_login() {
         let catalog = json!({"harnesses": {"my-direct-login": {
             "kind": "claude-stdio", "argv": ["/usr/local/bin/claude"], "family": "claude"
