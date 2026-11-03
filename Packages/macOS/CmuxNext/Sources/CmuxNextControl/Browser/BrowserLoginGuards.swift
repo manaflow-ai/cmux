@@ -16,6 +16,9 @@ import os
     /// - Raw DevTools (sessions reach other frames and targets) is all or nothing per profile: while
     ///   the profile holds ANY filled sign-in, no relay attaches and no raw message passes. Before
     ///   attaching, the whole profile is durably marked scripted, including after detach/restart.
+    ///   A fill that wrote nothing still sent the login to the profile's renderer inside its script
+    ///   (Debugger or a heap snapshot could read it back), so the profile is durably marked exposed
+    ///   and refuses raw DevTools for good, though page-world agent code on the site is released.
 ///
 /// An origin is `scheme://host[:port]` as `location.origin` gives it, keyed with the tab's
 /// profile (each profile has its own storage and service workers). Check and mark happen in one
@@ -48,11 +51,15 @@ public actor BrowserLoginGuards {
         public let admission: FillAdmission
         public let added: Set<String>
         fileprivate let id: UUID?
+        /// The profile key prefix (``key(profile:origin:)`` with an empty origin).
+        fileprivate let profile: String
     }
 
     private struct Saved: Codable {
         var scripted: [String]
         var filled: [String]
+        /// Profile key prefixes whose renderer received a login (absent in older files).
+        var exposed: [String]?
     }
 
     /// What the raw DevTools relay reads and writes without the actor, so it keeps message order
@@ -60,6 +67,8 @@ public actor BrowserLoginGuards {
     private struct Mirror {
         /// The filled keys; nil until the file was read.
         var filled: Set<String>?
+        /// Profile key prefixes whose renderer received a login in a fill script.
+        var exposed: Set<String> = []
         /// Sites a raw relay reached, marked at once (persisted on the actor after).
         var rawScripted: Set<String> = []
         /// Attached raw relays: tab -> profile key prefix.
@@ -71,6 +80,8 @@ public actor BrowserLoginGuards {
     private let file: URL?
     private var scripted: Set<String> = []
     private var filled: Set<String> = []
+    /// Profile key prefixes a fill script carried a login into (raw DevTools refused there for good).
+    private var exposed: Set<String> = []
     /// Completed fills and marks restored from disk never roll back. Pending attempts protect
     /// their whole origin set, including origins another concurrent attempt first reserved.
     private var committedFills: Set<String> = []
@@ -129,6 +140,8 @@ public actor BrowserLoginGuards {
     /// and no tab of the profile gets one while the relay stays attached (``rawDevToolsEnded(tab:)``).
     public func beginRawDevTools(tab: String, profile: String?, origins: [String]?) -> Bool {
         load()
+        // A fill script, even one that wrote nothing, left the login in this profile's renderer.
+        guard !exposed.contains(Self.key(profile: profile, origin: "")) else { return false }
         // A raw session reaches child frames and other targets without a trustworthy origin
         // notification. Reserve the whole profile durably before exposing that capability.
         guard beginScript(profile: profile, origins: ["null"] + (origins ?? [])) else { return false }
@@ -154,11 +167,11 @@ public actor BrowserLoginGuards {
     /// saved; else each origin is marked filled and the answer names the marks it newly added.
     public func beginFill(tab: String, profile: String?, origins: [String]) -> Fill {
         load()
-        func refused(_ admission: FillAdmission) -> Fill { Fill(admission: admission, added: [], id: nil) }
+        let prefix = Self.key(profile: profile, origin: "")
+        func refused(_ admission: FillAdmission) -> Fill { Fill(admission: admission, added: [], id: nil, profile: prefix) }
         if unreadable { return refused(.unreadable) }
         if openedTabs.contains(tab) { return refused(.openedByPage) }
         let keys = origins.map { Self.key(profile: profile, origin: $0) }
-        let prefix = Self.key(profile: profile, origin: "")
         let (rawScripted, attached) = mirrorState.withLock { ($0.rawScripted, $0.attached.values.contains(prefix)) }
         if attached { return refused(.rawAttached) }
         if rawTabs.contains(tab) || scripted.contains(Self.key(profile: profile, origin: "null"))
@@ -177,7 +190,7 @@ public actor BrowserLoginGuards {
             committedFills.formUnion(keys)
             return refused(.unsaved)
         }
-        return Fill(admission: .admitted, added: added, id: id)
+        return Fill(admission: .admitted, added: added, id: id, profile: prefix)
     }
 
     /// A fill succeeded, or its outcome is unknown: protection is permanent even after every
@@ -188,16 +201,22 @@ public actor BrowserLoginGuards {
         committedFills.formUnion(keys)
     }
 
-    /// The fill explicitly wrote nothing. Release only this attempt; any overlapping pending
-    /// attempt, completed fill, or persisted mark keeps its origins protected.
+    /// The fill explicitly wrote nothing. Release only this attempt's origins for agent code; any
+    /// overlapping pending attempt, completed fill, or persisted mark keeps its origins protected.
+    /// Its script still carried the login into the profile's renderer, so the profile stays
+    /// refused to raw DevTools for good (``beginRawDevTools(tab:profile:origins:)``,
+    /// ``rawMessageAllowed(profile:)``).
     public func forgetFill(_ fill: Fill) {
         load()
         guard let id = fill.id, let keys = pendingFills.removeValue(forKey: id) else { return }
+        let newlyExposed = exposed.insert(fill.profile).inserted
         let retained = pendingFills.values.reduce(into: committedFills) { $0.formUnion($1) }
         let removed = keys.subtracting(retained)
-        guard !removed.isEmpty else { return }
         filled.subtract(removed)
         mirror()
+        // The exposure is saved before the release is, in one write: a failed save keeps the old
+        // file, whose filled marks refuse raw DevTools all the same.
+        guard newlyExposed || !removed.isEmpty else { return }
         save(changed: removed)
     }
 
@@ -206,7 +225,7 @@ public actor BrowserLoginGuards {
     public nonisolated func rawMessageAllowed(profile: String?) -> Bool {
         let prefix = Self.key(profile: profile, origin: "")
         return mirrorState.withLock { mirror in
-            guard let filled = mirror.filled else { return false }
+            guard let filled = mirror.filled, !mirror.exposed.contains(prefix) else { return false }
             return !filled.contains { $0.hasPrefix(prefix) }
         }
     }
@@ -247,8 +266,11 @@ public actor BrowserLoginGuards {
     }
 
     private func mirror() {
-        let snapshot = filled
-        mirrorState.withLock { $0.filled = snapshot }
+        let (filledNow, exposedNow) = (filled, exposed)
+        mirrorState.withLock {
+            $0.filled = filledNow
+            $0.exposed = exposedNow
+        }
     }
 
     private func load() {
@@ -265,6 +287,7 @@ public actor BrowserLoginGuards {
         }
         scripted = Set(saved.scripted)
         filled = Set(saved.filled)
+        exposed = Set(saved.exposed ?? [])
         committedFills = filled
     }
 
@@ -274,7 +297,7 @@ public actor BrowserLoginGuards {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
         do {
-            let data = try encoder.encode(Saved(scripted: scripted.sorted(), filled: filled.sorted()))
+            let data = try encoder.encode(Saved(scripted: scripted.sorted(), filled: filled.sorted(), exposed: exposed.sorted()))
             try FileManager.checked.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             try data.blockingWrite(to: file, options: .atomic)
             unsaved.removeAll()
