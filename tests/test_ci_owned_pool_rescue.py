@@ -2397,9 +2397,11 @@ class SideLanes(unittest.TestCase):
         self.assertEqual(api.calls.count("rerun-failed"), 1)
         self.assertIn("re-ran the failed jobs", summary)
 
-    def test_a_stuck_push_run_with_no_newer_push_is_rescued(self):
+    def test_a_stuck_push_run_with_no_newer_push_waits_for_the_failover(self):
         # The branch head is no test: a head commit outside the workflow's paths has
-        # no run, and the newest covering push run must still finish.
+        # no run, and the newest covering push run must still finish. At the tip only the
+        # stall-aware failover moves it (push_tip_failover()): a bot's re-run of its failed
+        # jobs keeps attempt 1's placement and rejoins the owned label's queue, at its back.
         payload = side_event(path=".github/workflows/cmux-next.yml", event="push", pull_requests=[],
                              head_branch="feat-cmux-next")
         clock = Clock()
@@ -2407,8 +2409,85 @@ class SideLanes(unittest.TestCase):
         code, summary = run_main(api, clock, payload=payload)
         self.assertEqual(code, 0)
         self.assertIn("newer:feat-cmux-next", api.calls)
-        self.assertIn("rerun-failed", api.calls)
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
         self.assertNotIn("branch:feat-cmux-next", api.calls)
+        self.assertIn("only the stall-aware failover moves it", summary)
+
+    def test_a_superseded_push_run_with_nothing_running_is_cancelled_not_rerun(self):
+        # Run 41220917513 (2bace735, 2026-10-31): its fast tier waited on the side label from 16:42Z to 18:04Z and
+        # held the branch's fast-tier group, so the newer push runs' fast tiers waited pending behind it. Nothing of
+        # it ran, so a cancel loses nothing and frees the group; it is never re-run.
+        payload = side_event(path=".github/workflows/cmux-next.yml", event="push", pull_requests=[],
+                             head_branch="feat-cmux-next")
+        clock = Clock()
+
+        def queued_only(seconds):
+            done = job("cmux-next macOS placement", status="completed", labels=["blacksmith-4vcpu-ubuntu-2404"],
+                       runner="bs")
+            done["conclusion"] = "success"
+            return [done, job("cmux-next fast tier", labels=[SIDE])]
+        api = SupersedingAPI(clock, queued_only, newer=[RUN_ID + 7])
+        code, summary = run_main(api, clock, payload=payload)
+        self.assertEqual(code, 0)
+        self.assertEqual(api.calls.count("cancel"), 1)
+        self.assertNotIn("rerun", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertIn("nothing of it was running", summary)
+
+    def test_a_tip_push_run_left_by_the_rescue_is_cancelled_once_a_newer_push_supersedes_it(self):
+        # The watch goes on after "not rescued yet": a push run left at its tip is looked at again every
+        # FAILOVER_LOOK_SECONDS, so a newer push that lands later frees the branch group it holds.
+        payload = side_event(path=".github/workflows/cmux-next.yml", event="push", pull_requests=[],
+                             head_branch="feat-cmux-next")
+        clock = Clock()
+
+        def queued_only(seconds):
+            return [job("cmux-next fast tier", labels=[SIDE])]
+        api = SupersedingAPI(clock, queued_only)
+        real = api.newer_push_runs
+
+        def newer(path, run_id, branch):
+            found = real(path, run_id, branch)
+            return [RUN_ID + 9] if api.calls.count(f"newer:{branch}") > 1 else found
+        api.newer_push_runs = newer
+        code, summary = run_main(api, clock, payload=payload)
+        self.assertEqual(code, 0)
+        self.assertEqual(api.calls.count("cancel"), 1)
+        self.assertNotIn("rerun", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertIn("nothing of it was running", summary)
+
+    def test_a_superseded_push_run_with_a_running_linux_job_is_not_cancelled(self):
+        payload = side_event(path=".github/workflows/cmux-next.yml", event="push", pull_requests=[],
+                             head_branch="feat-cmux-next")
+        target = rescue.target_from_event(payload, "manaflow-ai/cmux")
+        clock = Clock()
+        api = SupersedingAPI(clock, lambda seconds: [
+            job("cmux-next fast tier", labels=[SIDE]),
+            job("cmux-next checks", labels=["blacksmith-16vcpu-ubuntu-2404"], status="in_progress", runner="bs")],
+            newer=[RUN_ID + 7])
+        result = rescue.superseded_push_cancel(api, target, "a newer push run", clock.sleep, lambda _: None)
+        self.assertNotIn("cancel", api.calls)
+        self.assertIn("cmux-next checks", result)
+
+    def test_a_superseded_push_runs_cancel_is_dropped_when_a_job_starts_first(self):
+        payload = side_event(path=".github/workflows/cmux-next.yml", event="push", pull_requests=[],
+                             head_branch="feat-cmux-next")
+        target = rescue.target_from_event(payload, "manaflow-ai/cmux")
+        clock = Clock()
+        reads = {"n": 0}
+
+        def starts(seconds):
+            reads["n"] += 1
+            queued = job("cmux-next fast tier", labels=[SIDE])
+            if reads["n"] > 1:  # the guard's read right before the cancel
+                queued.update(status="in_progress", runner="mini-3")
+            return [queued]
+        api = SupersedingAPI(clock, starts, newer=[RUN_ID + 7])
+        result = rescue.superseded_push_cancel(api, target, "a newer push run", clock.sleep, lambda _: None)
+        self.assertNotIn("cancel", api.calls)
+        self.assertIn("started before the cancel", result)
 
     def test_schedule_and_dispatch_side_runs_are_never_superseded(self):
         for kind in ("schedule", "workflow_dispatch"):
@@ -4823,14 +4902,64 @@ class Sweeper(unittest.TestCase):
         # that only waits never fails, so no sweeper ever watched it and the open-head failover never saw it.
         smoke = dict(path=".github/workflows/nightly-next-launch-smoke.yml", status="queued", conclusion=None)
         api = SweepAPI([listed(1, **smoke)], queued=[1])
-        # Listed every SIDE_FAILURE_TICKS ticks, adopted once per attempt.
-        self.assertEqual(self.sweep(api, ticks=rescue.SIDE_FAILURE_TICKS + 1)[0], [(1, 1, False)])
+
+        def forever(sleep):
+            while True:
+                sleep(0.01)
+        # Listed every SIDE_FAILURE_TICKS ticks, adopted once while its watch goes on.
+        self.assertEqual(self.sweep(api, follow=forever, ticks=rescue.SIDE_FAILURE_TICKS + 1)[0], [(1, 1, False)])
         self.assertEqual(api.queued_listings, 2)
+
+    def test_a_queued_side_lane_run_whose_watch_ended_is_watched_again(self):
+        # Runs 41456110862 and 41461805617 (cmux-next pushes, 2026-11-02) stayed queued on glaeda-side-std-xcode-26.6
+        # for hours after a newer push superseded them, each holding a branch job group: a watch ends at its limit,
+        # and the sweeper never looked at the run again. Still queued at the next listing, it is watched anew.
+        push = dict(path=".github/workflows/cmux-next.yml", event="push", pull_requests=[],
+                    head_branch="feat-cmux-next", status="queued", conclusion=None)
+        api = SweepAPI([listed(1, **push)], queued=[1])
+        self.assertEqual(self.sweep(api, ticks=rescue.SIDE_FAILURE_TICKS + 1)[0], [(1, 1, False), (1, 1, False)])
+        self.assertEqual(api.queued_listings, 2)
+
+    def test_a_queued_run_that_is_no_longer_watchable_is_not_read_again(self):
+        # Watched once; then the run reads as finished (sweep_target() refuses it), though a listing still names it:
+        # it is not read again at every listing.
+        push = dict(path=".github/workflows/cmux-next.yml", event="push", pull_requests=[],
+                    head_branch="feat-cmux-next", status="queued", conclusion=None)
+        api = SweepAPI([listed(1, **push)], queued=[1])
+        real = api.run
+
+        def later(run_id):
+            run = dict(real(run_id))
+            if len(api.reads) > 1:
+                run.update(status="completed", conclusion="success")
+            return run
+        api.run = later
+        self.assertEqual(self.sweep(api, ticks=2 * rescue.SIDE_FAILURE_TICKS + 1)[0], [(1, 1, False)])
+        self.assertEqual(api.queued_listings, 3)
+        self.assertEqual(api.reads, [1, 1])
+
+    def test_the_queued_side_lane_listing_looks_back_a_day(self):
+        # A later sweeper still finds a run that has waited past SWEEP_MAX_AGE_SECONDS.
+        api = SweepAPI([], queued=[])
+        seen = []
+        real = api.queued_side_runs
+
+        def listing(count, oldest, pages=1):
+            seen.append(oldest)
+            return real(count, oldest, pages)
+        api.queued_side_runs = listing
+        self.sweep(api, ticks=1)
+        self.assertEqual(seen, [START - dt.timedelta(seconds=rescue.QUEUED_MAX_AGE_SECONDS)])
+        self.assertGreater(rescue.QUEUED_MAX_AGE_SECONDS, rescue.SWEEP_MAX_AGE_SECONDS)
 
     def test_a_queued_side_lane_run_already_watched_through_its_marker_is_not_adopted_again(self):
         next_run = dict(path=".github/workflows/cmux-next.yml", status="queued", conclusion=None)
         api = SweepAPI([listed(4, **next_run)], picker=[4], queued=[4])
-        self.assertEqual(self.sweep(api, ticks=rescue.SIDE_FAILURE_TICKS + 1)[0], [(4, 1, False)])
+
+        def forever(sleep):
+            while True:
+                sleep(0.01)
+        self.assertEqual(self.sweep(api, follow=forever, ticks=rescue.SIDE_FAILURE_TICKS + 1)[0], [(4, 1, False)])
 
     def test_queued_side_runs_lists_queued_side_lane_runs_only(self):
         api = rescue.GitHub("token", "manaflow-ai/cmux")
@@ -4840,6 +4969,8 @@ class Sweeper(unittest.TestCase):
                      {"id": 8, "path": ".github/workflows/ci.yml", "run_attempt": 1, "event": "pull_request"},
                      # A marker adopts cmux-next.yml's runs (sweep()).
                      {"id": 6, "path": rescue.CMUX_NEXT_WORKFLOW_PATH, "run_attempt": 1, "event": "pull_request"},
+                     # A cmux-next.yml push run uploads no marker: listed (push_tip_failover()).
+                     {"id": 4, "path": rescue.CMUX_NEXT_WORKFLOW_PATH, "run_attempt": 1, "event": "push"},
                      # A scheduled smoke is a delivery run (never_fails_over()): not listed.
                      {"id": 5, "path": smoke, "run_attempt": 1, "event": "schedule"}],
                  2: [{"id": 9, "path": smoke, "run_attempt": 1, "event": "pull_request"},
@@ -4850,7 +4981,7 @@ class Sweeper(unittest.TestCase):
             page = int(path.split("&page=")[1].split("&")[0])
             return {"workflow_runs": pages.get(page, [])}
         api.request = request
-        self.assertEqual(api.queued_side_runs(3, START, pages=5), [(9, 1), (7, 2)])
+        self.assertEqual(api.queued_side_runs(3, START, pages=5), [(9, 1), (4, 1), (7, 2)])
         # Only an empty page ends the listing before `pages` (a status-filtered page can come back short).
         self.assertEqual(len(seen), 3)
         self.assertTrue(all("status=queued" in path for path in seen), seen)
@@ -6782,6 +6913,62 @@ class OpenHeadUnstartedFailover(unittest.TestCase):
                 self.assertIn("rerun", api.calls)
                 self.assertNotIn(rescue.OPEN_HEAD_RULE, result)
                 self.assertTrue(any(line.startswith(rescue.OPEN_HEAD_FAILOVER) for line in lines), lines)
+
+    PUSH = {"pr_number": 0, "push_branch": "feat-cmux-next", "event": "push"}
+
+    def push_world(self, jobs, *, newer=(), **kwargs):
+        clock, api, target = self.world(jobs, extra={**self.PUSH, **kwargs.pop("extra", {})}, **kwargs)
+        api.newer_push_runs = lambda path, run_id, branch: api.calls.append(f"newer:{branch}") or list(newer)
+        return clock, api, target
+
+    def test_a_cmux_next_push_run_at_its_tip_fails_over_a_dead_label(self):
+        # Run 41220917513's fast tier (job 124595260374) waited 82 minutes on glaeda-side-std-xcode-26.6 with no
+        # runner, and nothing moved it: no marker, no pull request, and the janitor protects feat-cmux-next pushes.
+        clock, api, target = self.push_world(self.gates)
+        self.assertTrue(rescue.push_tip_failover(target))
+        result, lines = self.run_rescue(api, clock, target)
+        self.assertIn("newer:feat-cmux-next", api.calls)
+        self.assertIn("cancel", api.calls)
+        self.assertIn("rerun", api.calls)
+        self.assertTrue(any(line.startswith(rescue.OPEN_HEAD_FAILOVER) and SESSION in line for line in lines), lines)
+
+    def test_a_push_lands_between_the_look_and_the_cancel(self):
+        # The failover's guard asks again right before the cancel: a re-run of a superseded push run would join the
+        # branch group and replace the newer run's waiting job.
+        clock, api, target = self.push_world(self.gates)
+        reads = {"n": 0}
+
+        def newer(path, run_id, branch):
+            reads["n"] += 1
+            api.calls.append(f"newer:{branch}")
+            return [RUN_ID + 1] if reads["n"] > 2 else []
+        api.newer_push_runs = newer
+        result, _ = self.run_rescue(api, clock, target)
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("rerun", api.calls)
+        self.assertIn("feat-cmux-next's tip", result)
+
+    def test_a_superseded_cmux_next_push_run_never_fails_over(self):
+        clock, api, target = self.push_world(self.gates, newer=[RUN_ID + 1])
+        self.assertEqual(rescue.unstarted_failover(api, target, now=clock.now, sleep=clock.sleep,
+                                                   log=lambda _: None), "")
+        self.assertNotIn("cancel", api.calls)
+
+    def test_a_cmux_next_push_run_on_a_busy_label_is_left(self):
+        clock, api, target = self.push_world(self.gates, running=1)
+        result, _ = self.run_rescue(api, clock, target)
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("rerun", api.calls)
+        self.assertIn("only the stall-aware failover moves it", result)
+
+    def test_only_attempt_1_of_a_plain_cmux_next_push_fails_over(self):
+        for extra in ({"attempt": 2}, {"path": ".github/workflows/cmux-tui.yml"}, {"event": "workflow_dispatch"},
+                      {"display_title": "cmux NEXT DEV daily · " + HEAD}):
+            with self.subTest(**extra):
+                clock, api, target = self.push_world(self.gates, extra=extra)
+                self.assertFalse(rescue.push_tip_failover(target))
+                self.assertEqual(rescue.unstarted_failover(api, target, now=clock.now, sleep=clock.sleep,
+                                                           log=lambda _: None), "")
 
     def test_the_failover_leaves_a_receipt(self):
         clock, api, target = self.world(self.gates)

@@ -68,6 +68,9 @@ FORK_BRANCHES = (
     FORK_LINUX_ARM64_BRANCH,
 )
 OWNER_ONLY_JOB_IF = "if: github.repository_owner == 'manaflow-ai'"
+# The repository check is stricter than the owner check (manaflow-ai/cmux implies owner manaflow-ai), so a job
+# behind it never runs outside manaflow-ai either (fast-checks.yml's checks job since #30529).
+OWNER_ONLY_JOB_IFS = frozenset({OWNER_ONLY_JOB_IF, "if: github.repository == 'manaflow-ai/cmux'"})
 EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}")
 JOB_HEADER = re.compile(r"^  ([A-Za-z0-9_-]+):\s*(?:#.*)?$")
 INPUT_HEADER = re.compile(r"^      ([A-Za-z0-9_-]+):\s*$")
@@ -909,7 +912,7 @@ def ungated_blacksmith_labels(name: str, text: str) -> list[str]:
         header = JOB_HEADER.match(raw)
         if header:
             job = header.group(1)
-        elif job and raw.strip() == OWNER_ONLY_JOB_IF and raw.startswith("    if:"):
+        elif job and raw.strip() in OWNER_ONLY_JOB_IFS and raw.startswith("    if:"):
             owner_only_jobs.add(job)
 
     def input_is_translated(input_name: str) -> bool:
@@ -1634,8 +1637,14 @@ class ForkRunnerRoutingTests(unittest.TestCase):
             "  c:\n"
             "    " + OWNER_ONLY_JOB_IF + "\n"
             "    runs-on: blacksmith-32vcpu-ubuntu-2404\n"
+            "  d:\n"
+            "    if: github.repository == 'manaflow-ai/cmux'\n"
+            "    runs-on: ${{ needs.admit.outputs.runner || 'blacksmith-8vcpu-ubuntu-2404' }}\n"
         )
         self.assertEqual(ungated_blacksmith_labels("x.yml", text), [])
+        # Another repository's check is not an owner gate.
+        other = "jobs:\n  e:\n    if: github.repository == 'someone/cmux'\n    runs-on: blacksmith-8vcpu-ubuntu-2404\n"
+        self.assertEqual(len(ungated_blacksmith_labels("x.yml", other)), 1)
 
 
 if __name__ == "__main__":
