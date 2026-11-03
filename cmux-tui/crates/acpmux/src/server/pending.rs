@@ -51,6 +51,17 @@ pub(super) fn permission_pending(session_id: &str, rec: &EventRecord, via: &str)
     p
 }
 
+/// Whether a record opens or closes an MCP connect card (`hub/mcp_connect.rs`).
+pub(super) fn is_mcp_connect_card(kind: &str) -> bool {
+    matches!(kind, "mcp_connect_request" | "mcp_connect_decision")
+}
+
+/// The `_acpmux/mcp_connect_pending` notification: the card (no secret is ever in it) or the
+/// decision that closed it.
+pub(super) fn mcp_connect_pending(session_id: &str, rec: &EventRecord) -> Value {
+    json!({"sessionId": session_id, "seq": rec.seq, "kind": rec.kind, "card": rec.msg})
+}
+
 /// A peer's `_acpmux/permission_pending` for a watcher of this daemon that
 /// did not attach the session (`hub/person.rs` (c)): the peer's own
 /// notification (its `decisionNonce` and `personInstance` included), for the
