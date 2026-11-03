@@ -3,7 +3,7 @@
 // the bar belongs to the chat's column and sits left of the panel, never under it (Leo, 2026-11-03: "oh
 // no the command f overlaps with the session info.."). Wide panes: in the gutter at 1600px, pushing at
 // 1100px, over the chat at 1200px. Narrow panes: over the chat at 740px with the bar narrowed beside it;
-// at 528px the chat has no room for the bar beside the panel, so the panel steps aside while Find shows
+// at 528px the chat has no room for the bar beside the panel, so the panel steps aside when Find opens
 // (findBarCramped).
 import type { Play } from "../../../gallery/play";
 import { setHeaderState } from "../header/headerState";
@@ -40,9 +40,7 @@ export const findBesidePanel: Play = async (ctx) => {
     throw new Error(`Find bar ${bar.left}-${bar.right} overlaps Session Info ${panel.left}-${panel.right}`);
 };
 
-export const findBarCovers = [
-  "agent-session/acpmux/conversation/ChatFindBar.tsx#ChatFindBar",
-];
+export const findBarCovers = ["agent-session/acpmux/conversation/ChatFindBar.tsx#ChatFindBar"];
 export const findBarLoad = async () => {
   setHeaderState({ inspector: true });
   setSessionInfoOpen(true);

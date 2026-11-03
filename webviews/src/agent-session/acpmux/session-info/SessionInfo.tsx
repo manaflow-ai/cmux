@@ -52,7 +52,7 @@ import { chatGlass, chatUnderGlass } from "../chatUnderGlass";
 import { usePresence, type Presence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
 import { CHAT_LAYOUT_EVENT, chatColumnOf, useChatSizing, type ChatColumn } from "../chatWidth";
-import { FIND_OPEN_EVENT } from "../conversation/chatFind";
+import { FIND_HIDE_EVENT, FIND_OPEN_EVENT } from "../conversation/chatFind";
 import { PanelToggle } from "../header/PanelToggle";
 import { useHeaderState, type HeaderPullRequest } from "../header/headerState";
 import { useTabRow } from "../header/tabRow";
@@ -257,8 +257,8 @@ export const FIND_BAR_MIN = 230;
 export const FIND_BAR_INSET = 10;
 
 /// Whether a chat `chatWidth` wide has no room for Find in Chat's bar at its narrowest beside the panel
-/// (`clear`, sessionInfoClear): Session Info then steps aside while Find shows (FIND_OPEN_EVENT), as it
-/// does for a diff in place, instead of covering the bar. Unmeasured (0) counts as room.
+/// (`clear`, sessionInfoClear): Session Info then steps aside when Find opens (FIND_OPEN_EVENT), as it
+/// does for a diff in place, instead of covering the bar; its toggle brings it back. Unmeasured (0) counts as room.
 export const findBarCramped = (chatWidth: number, clear: number) =>
   chatWidth > 0 && chatWidth - clear - 2 * FIND_BAR_INSET < FIND_BAR_MIN;
 
@@ -953,13 +953,10 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
       delete shell.dataset.sessionInfoChatPlacement;
       shell.style.removeProperty("--acpmux-header-room");
       shell.style.removeProperty(SESSION_INFO_COLUMN);
-      shell.style.removeProperty(SESSION_INFO_CLEAR);
       shell.dispatchEvent(new (shell.ownerDocument.defaultView?.Event ?? Event)(CHAT_LAYOUT_EVENT));
       return;
     }
     shell.dataset.sessionInfoChatPlacement = push ? "push" : "overlay";
-    // Find in Chat's bar keeps left of the panel (sessionInfoClear, conversation.css .acpmux-find__bar).
-    shell.style.setProperty(SESSION_INFO_CLEAR, `${clear}px`);
     // Pushing, the transcript's column keeps the width it has in the whole pane on every frame of the
     // slide, and only moves left (pushKeepsColumn, sessionInfo.css).
     if (push && paneWidth > 0)
@@ -969,22 +966,35 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     // Push always narrows the transcript, not the header: native tabs reserve the tools at the
     // pane's trailing edge. Reuse the measured room (excluding an artifact beside the chat).
     if (paneWidth > 0) shell.style.setProperty("--acpmux-header-room", `${paneWidth}px`);
-  }, [shell, drawn, push, paneWidth, column, clear]);
-  // Where the chat has no room for Find's bar beside the panel, the panel steps aside when Find opens
-  // (findBarCramped): the bar is never under it.
+  }, [shell, drawn, push, paneWidth, column]);
+  // Find in Chat's bar keeps left of the panel (sessionInfoClear, conversation.css .acpmux-find__bar). Its
+  // own effect, so a width drag only moves the bar and fires no chat layout event per frame.
+  useLayoutEffect(() => {
+    if (!shell || !drawn) return;
+    shell.style.setProperty(SESSION_INFO_CLEAR, `${clear}px`);
+    return () => {
+      shell.style.removeProperty(SESSION_INFO_CLEAR);
+    };
+  }, [shell, drawn, clear]);
+  // Where the chat has no room for Find's bar beside the panel (findBarCramped), the panel steps aside
+  // when Find opens, and Find steps aside when the toggle opens the panel over an open bar: the bar is
+  // never under it. The panel stays aside after Find closes, until its toggle opens it.
   useEffect(() => {
     if (!shell || !drawn || !cramped) return;
     const away = () => onSuppress();
+    if (shell.querySelector(".acpmux-find__bar")) {
+      if (asked) shell.dispatchEvent(new (shell.ownerDocument.defaultView?.Event ?? Event)(FIND_HIDE_EVENT));
+      else onSuppress();
+    }
     shell.addEventListener(FIND_OPEN_EVENT, away);
     return () => shell.removeEventListener(FIND_OPEN_EVENT, away);
-  }, [shell, drawn, cramped, onSuppress]);
+  }, [shell, drawn, cramped, asked, onSuppress]);
   useLayoutEffect(() => {
     if (!shell) return;
     return () => {
       delete shell.dataset.sessionInfoChatPlacement;
       shell.style.removeProperty("--acpmux-header-room");
       shell.style.removeProperty(SESSION_INFO_COLUMN);
-      shell.style.removeProperty(SESSION_INFO_CLEAR);
       shell.dispatchEvent(new (shell.ownerDocument.defaultView?.Event ?? Event)(CHAT_LAYOUT_EVENT));
     };
   }, [shell]);

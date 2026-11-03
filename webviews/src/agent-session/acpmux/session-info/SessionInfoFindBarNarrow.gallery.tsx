@@ -21,7 +21,7 @@ export default componentEntry<Props>({
   styles,
   variants: {
     "find-open": {
-      note: "At 740px the panel lies over the chat and the bar narrows to the room left of it. At 528px even the bar's narrowest has no room beside the panel, so the panel steps aside while Find shows (its toggle opens it again).",
+      note: "At 740px the panel lies over the chat and the bar narrows to the room left of it. At 528px even the bar's narrowest has no room beside the panel, so the panel steps aside when Find opens; its toggle brings it back and closes Find.",
       props: { surface: "transcript", find: true },
       play: findBesidePanel,
     },

@@ -5105,7 +5105,7 @@ a.cv-sha:focus-visible {
    (float, push, over the chat), keeping the panel's reach into the chat (--acpmux-session-info-clear,
    SessionInfo.tsx sessionInfoClear) and its inset, and narrows (its field shrinks) to the room left of
    it, never under the panel (Leo, 2026-11-03: "oh no the command f overlaps with the session info..").
-   Where even its narrowest does not fit, the panel steps aside while Find shows (findBarCramped). */
+   Where even its narrowest does not fit, the panel steps aside when Find opens and Find closes when the toggle opens the panel (findBarCramped). */
 .acpmux-find__bar {
   position: absolute;
   top: var(--find-pill-inset, 10px);
