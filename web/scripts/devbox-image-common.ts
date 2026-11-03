@@ -822,7 +822,9 @@ export function devboxSudoPasswordKeepsDaemonCommand(): string {
     `printf '%s\\n' '${DEVBOX_WORK_USER} ALL=(ALL) PASSWD:ALL' > /etc/sudoers.d/zz-verify-sudo-password`,
     "chmod 0440 /etc/sudoers.d/zz-verify-sudo-password",
     "visudo -c >/dev/null",
-    `! setpriv --reuid=${DEVBOX_WORK_USER} --regid=${DEVBOX_WORK_USER} --init-groups sudo -n true >/dev/null 2>&1`,
+    // Not `! setpriv ...`: bash ignores set -e for a `!` command, so that line can never fail.
+    `sudo_refusal=$(setpriv --reuid=${DEVBOX_WORK_USER} --regid=${DEVBOX_WORK_USER} --init-groups sudo -n true 2>&1 || true)`,
+    `case "$sudo_refusal" in *"password is required"*) ;; *) echo "sudo did not require a password: $sudo_refusal" >&2; exit 1 ;; esac`,
     `previous=$(${running})`,
     'test -n "$previous"',
     'kill -TERM "$previous"',
