@@ -157,7 +157,12 @@ export const Body = Schema.Union([
     type: Schema.Literal("chief"),
     chief: Schema.String.check(isPattern(/^agent_[A-Za-z0-9_.-]{1,64}$/)),
     conversation: ConversationId,
-    prompt: NonEmptyText(8000)
+    prompt: NonEmptyText(8000),
+    destination: Schema.optionalKey(Schema.Struct({
+      type: Schema.Literal("slack"),
+      slackTeamId: Schema.String.check(isPattern(/^T[A-Z0-9]+$/)),
+      channelId: Schema.String.check(isPattern(/^[CDG][A-Z0-9]+$/))
+    }))
   }),
   /** Chief-written Workflows code (decision A11) at a pinned commit; runs on Tier 1 Dynamic Workers. */
   Schema.Struct({

@@ -64,6 +64,11 @@ export type Body = {
   readonly chief: string
   readonly conversation: ConversationId
   readonly prompt: string
+  readonly destination?: {
+    readonly type: "slack"
+    readonly slackTeamId: string
+    readonly channelId: string
+  }
 } | {
   readonly type: "code"
   readonly ref: CodeRef

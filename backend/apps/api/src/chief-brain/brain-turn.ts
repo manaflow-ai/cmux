@@ -1,3 +1,4 @@
+import { finishJobDestinations } from "../chief-brain-cc/job-destination.ts"
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context"
 import { ackWake, chiefPrincipal, postReply, readConversation, typing } from "./brain-io.ts"
 import { flushMarks, lastTalk, markPending, runError, type Run, type Step, upsertStep } from "./brain-runs.ts"
@@ -141,7 +142,9 @@ export async function steerQueued(b: ChiefBrainDO, conversation: string): Promis
   const t = b.sql.exec<{ m: string; k: string; r: string | null }>(`SELECT trigger_message AS m, trigger_kind AS k, trigger_thread_root AS r FROM cb_turn WHERE id = ?`, turn).toArray()[0]
   const root = t?.r ?? null
   // Only the turn's own thread joins it (its reply goes there; a subagent report names that thread); other threads wait for their own turn.
-  const rows = b.sql.exec<{ n: number; message: string; seq: number; text: string; effect_authorized: number }>(`SELECT n, message, seq, text, effect_authorized FROM cb_inbox WHERE state = 'queued' AND conversation = ? AND (thread_root IS ? OR thread_root IS ?) ORDER BY n`, conversation, root, t ? turnThread(t.k, t.m, root) : root).toArray()
+  // A destination job's final answer leaves the chat: unrelated input never joins that turn.
+  if (b.sql.exec(`SELECT 1 FROM cb_job_destinations d JOIN cb_turn t ON t.trigger_message = d.message WHERE t.id = ?`, turn).toArray().length) return
+  const rows = b.sql.exec<{ n: number; message: string; seq: number; text: string; effect_authorized: number }>(`SELECT n, message, seq, text, effect_authorized FROM cb_inbox WHERE state = 'queued' AND conversation = ? AND (thread_root IS ? OR thread_root IS ?) AND message NOT IN (SELECT message FROM cb_job_destinations) ORDER BY n`, conversation, root, t ? turnThread(t.k, t.m, root) : root).toArray()
   if (rows.length === 0) return
   const op = `${turn}:steer:${rows[0]!.n}`
   const text = rows.map((r) => r.text).join("\n\n")
@@ -212,12 +215,13 @@ export async function drain(b: ChiefBrainDO): Promise<void> {
       continue
     }
     // Only a woken message starts a turn; the messages before it ride along as context.
-    const woken = b.sql.exec<{ conversation: string; thread_root: string | null }>(`SELECT conversation, thread_root FROM cb_inbox WHERE state = 'queued' AND woke = 1 ORDER BY n LIMIT 1`).toArray()[0]
+    const woken = b.sql.exec<{ conversation: string; thread_root: string | null; message: string }>(`SELECT conversation, thread_root, message FROM cb_inbox WHERE state = 'queued' AND woke = 1 ORDER BY n LIMIT 1`).toArray()[0]
     if (!woken) return
+    const destinationJob = b.sql.exec(`SELECT 1 FROM cb_job_destinations WHERE message = ?`, woken.message).toArray().length > 0
     const cfg = b.config()
     const a = cfg.agent && cfg.owner ? await b.admitted(cfg.agent, cfg.owner, true).catch((): Admission => ({ ok: false, reason: "owner.unreachable" })) : ({ ok: false, reason: "unbound" } as Admission)
     const rows = b.sql
-      .exec<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; own_root: number; text: string; woke: number; effect_authorized: number }>(`SELECT n, message, seq, kind, thread_root, own_root, text, woke, effect_authorized FROM cb_inbox WHERE state = 'queued' AND conversation = ? AND thread_root IS ? ORDER BY n`, woken.conversation, woken.thread_root)
+      .exec<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; own_root: number; text: string; woke: number; effect_authorized: number }>(`SELECT n, message, seq, kind, thread_root, own_root, text, woke, effect_authorized FROM cb_inbox WHERE state = 'queued' AND conversation = ? AND thread_root IS ? AND (CASE WHEN ? THEN message = ? ELSE message NOT IN (SELECT message FROM cb_job_destinations) END) ORDER BY n`, woken.conversation, woken.thread_root, destinationJob ? 1 : 0, woken.message)
       .toArray()
     if (!a.ok && a.reason === "owner.unreachable") return void (await b.schedule("drain", "drain", Date.now() + RETRY_MS))
     if (!a.ok) {
@@ -241,7 +245,7 @@ export async function drain(b: ChiefBrainDO): Promise<void> {
     markPending(b.sql, "settled")
     // Messages that came during the wait ride along (the same conversation's queue, read again).
     const all = b.sql
-      .exec<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; own_root: number; text: string; woke: number; effect_authorized: number }>(`SELECT n, message, seq, kind, thread_root, own_root, text, woke, effect_authorized FROM cb_inbox WHERE state = 'queued' AND conversation = ? AND thread_root IS ? ORDER BY n`, woken.conversation, woken.thread_root)
+      .exec<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; own_root: number; text: string; woke: number; effect_authorized: number }>(`SELECT n, message, seq, kind, thread_root, own_root, text, woke, effect_authorized FROM cb_inbox WHERE state = 'queued' AND conversation = ? AND thread_root IS ? AND (CASE WHEN ? THEN message = ? ELSE message NOT IN (SELECT message FROM cb_job_destinations) END) ORDER BY n`, woken.conversation, woken.thread_root, destinationJob ? 1 : 0, woken.message)
       .toArray()
     if (!fresh) console.warn(JSON.stringify({ msg: "chief_brain.settle_timeout", first: b.memory.first(), len: b.memory.len(), failures: b.compactor.failures().length }))
     if (all.length > 0) b.openTurn(woken.conversation, all, fresh)
@@ -453,6 +457,7 @@ export async function post(b: ChiefBrainDO, id: string, admission?: Promise<Admi
 
 /** Typing off and the wake cursor moved past the run's messages. */
 export async function finish(b: ChiefBrainDO, id: string): Promise<void> {
+  finishJobDestinations(b, id)
   const t = b.sql.exec<{ conversation: string; last_seq: number }>(`SELECT conversation, last_seq FROM cb_turn WHERE id = ?`, id).toArray()[0]
   const cfg = b.config()
   if (!t || !cfg.agent || !cfg.owner) return

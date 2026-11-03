@@ -1,3 +1,4 @@
+import type { SlackDestination } from "../chief-slack.ts"
 import { Client as QStash, QstashError, Receiver } from "@upstash/qstash"
 import { Client as WorkflowClient } from "@upstash/workflow"
 import { serve } from "@upstash/workflow/cloudflare"
@@ -127,6 +128,7 @@ export type JobView = {
   triggers: Array<Record<string, unknown>>
   next_run_at: number | null
   prompt: string | undefined
+  destination?: SlackDestination
   last_run?: unknown
   webhook?: { url: string }
 }
@@ -138,6 +140,7 @@ const viewOf = (c: Config, team: string, j: JobRecord): JobView => ({
   triggers: [j.trigger as Record<string, unknown>],
   next_run_at: j.trigger.type === "cron" && !j.paused ? nextFire(j.trigger.expr, j.trigger.tz, Date.now()) : null,
   prompt: j.prompt,
+  ...(j.destination ? { destination: j.destination } : {}),
   last_run: j.last_run,
   ...(j.trigger.type === "webhook" ? { webhook: { url: `${origin(c)}${chiefJobHookPath(team, j.id)}` } } : {})
 })
@@ -147,7 +150,7 @@ const hookOf = async (env: Env, c: Config, team: string, id: string) => ({
   scheme: "x-cmux-timestamp: unix seconds; x-cmux-signature: v1=hex(HMAC-SHA256(secret, x-cmux-timestamp + '.' + body)); a repeat of the same timestamp and body runs once"
 })
 
-export type UpstashCreate = { readonly name: string; readonly prompt: string; readonly when: string | null; readonly tz: string }
+export type UpstashCreate = { readonly name: string; readonly prompt: string; readonly when: string | null; readonly tz: string; readonly destination?: SlackDestination }
 
 /** Jobs made before the engine was on (SchedulerDO automations, jobs.ts): still listed, run, paused and removed. */
 export type LegacyJobs = {
@@ -208,7 +211,7 @@ export const upstashAuto = async (
     const blocked = await gate(all.length + (await legacy.list(null)).length)
     if (blocked) return blocked
     const id = newId(p.agent!)
-    const made = await store<JobRecord>(env, team, { op: "insert", job: { id, agent: p.agent!, owner: p.user!, conversation, name: create.name, prompt: create.prompt, trigger: parsed.trigger } })
+    const made = await store<JobRecord>(env, team, { op: "insert", job: { id, agent: p.agent!, owner: p.user!, conversation, name: create.name, prompt: create.prompt, ...(create.destination ? { destination: create.destination } : {}), trigger: parsed.trigger } })
     if (parsed.trigger.type === "cron") {
       try {
         await qstash(c).schedules.create({

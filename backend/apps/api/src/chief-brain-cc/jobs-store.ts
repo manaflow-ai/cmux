@@ -1,3 +1,4 @@
+import type { SlackDestination } from "../chief-slack.ts"
 import type { ChiefBrainDO } from "../chief-brain/brain-do.ts"
 import { brainName } from "../chief-brain/brain-do.ts"
 import { sha256Hex } from "../ingress/verify.ts"
@@ -33,6 +34,7 @@ export interface JobRecord {
   readonly conversation: string
   readonly name: string
   readonly prompt: string
+  readonly destination?: SlackDestination
   readonly trigger: JobTrigger
   readonly paused: boolean
   readonly created_at: number
@@ -80,11 +82,12 @@ export const MAX_FILTERS = 8
 
 const ready = (b: ChiefBrainDO) => {
   for (const s of SCHEMA) b.sql.exec(s)
+  if (!b.sql.exec<{ name: string }>(`PRAGMA table_info(cc_jobs)`).toArray().some((c) => c.name === "destination")) b.sql.exec(`ALTER TABLE cc_jobs ADD COLUMN destination TEXT`)
 }
 /** Does this object keep jobs? (An event for a team with no Chief jobs writes nothing.) */
 const exists = (b: ChiefBrainDO) => b.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'cc_jobs'`).one().n > 0
 
-type Row = { id: string; agent: string; owner: string; conversation: string; name: string; prompt: string; trigger: string; paused: number; created_at: number; last_run: string | null }
+type Row = { id: string; agent: string; owner: string; conversation: string; name: string; prompt: string; trigger: string; paused: number; created_at: number; last_run: string | null; destination: string | null }
 const record = (r: Row): JobRecord => ({
   id: r.id,
   agent: r.agent,
@@ -92,6 +95,7 @@ const record = (r: Row): JobRecord => ({
   conversation: r.conversation,
   name: r.name,
   prompt: r.prompt,
+  ...(r.destination ? { destination: JSON.parse(r.destination) as SlackDestination } : {}),
   trigger: JSON.parse(r.trigger) as JobTrigger,
   paused: r.paused === 1,
   created_at: r.created_at,
@@ -242,7 +246,7 @@ export const jobsStore = async (b: ChiefBrainDO, team: string, o: StoreOp, send:
       return getJob(b, o.id)
     case "insert": {
       const j = o.job
-      b.sql.exec(`INSERT INTO cc_jobs (id, agent, owner, conversation, name, prompt, trigger, paused, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)`, j.id, j.agent, j.owner, j.conversation, j.name, j.prompt, JSON.stringify(j.trigger), Date.now())
+      b.sql.exec(`INSERT INTO cc_jobs (id, agent, owner, conversation, name, prompt, trigger, destination, paused, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`, j.id, j.agent, j.owner, j.conversation, j.name, j.prompt, JSON.stringify(j.trigger), j.destination ? JSON.stringify(j.destination) : null, Date.now())
       return getJob(b, j.id)
     }
     case "remove":
@@ -284,6 +288,7 @@ const fire = async (b: ChiefBrainDO, body: FireBody, run: string): Promise<FireR
     chief: job.agent,
     conversation: job.conversation,
     prompt: job.prompt,
+    ...(job.destination ? { destination: job.destination } : {}),
     trigger: body.trigger,
     ...(body.input === undefined ? {} : { input: body.input }),
     // Charged to the owner the job was made for; the brain refuses it unless that is the Chief's owner.

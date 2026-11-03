@@ -350,6 +350,39 @@
                 "min_length": 1,
                 "max_length": 8000
               }
+            },
+            "destination": {
+              "required": false,
+              "type": {
+                "kind": "object",
+                "fields": {
+                  "type": {
+                    "required": true,
+                    "type": {
+                      "kind": "enum",
+                      "values": [
+                        "slack"
+                      ]
+                    }
+                  },
+                  "slackTeamId": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "string",
+                      "pattern": "^T[A-Z0-9]+$"
+                    }
+                  },
+                  "channelId": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "string",
+                      "pattern": "^[CDG][A-Z0-9]+$"
+                    }
+                  }
+                }
+              }
             }
           }
         },
@@ -9556,6 +9589,31 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 8000
+                  },
+                  "destination": {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "slack"
+                        ]
+                      },
+                      "slackTeamId": {
+                        "type": "string",
+                        "pattern": "^T[A-Z0-9]+$"
+                      },
+                      "channelId": {
+                        "type": "string",
+                        "pattern": "^[CDG][A-Z0-9]+$"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "slackTeamId",
+                      "channelId"
+                    ],
+                    "additionalProperties": true
                   }
                 },
                 "required": [
@@ -10290,6 +10348,31 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 8000
+                  },
+                  "destination": {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "slack"
+                        ]
+                      },
+                      "slackTeamId": {
+                        "type": "string",
+                        "pattern": "^T[A-Z0-9]+$"
+                      },
+                      "channelId": {
+                        "type": "string",
+                        "pattern": "^[CDG][A-Z0-9]+$"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "slackTeamId",
+                      "channelId"
+                    ],
+                    "additionalProperties": true
                   }
                 },
                 "required": [
@@ -11353,6 +11436,31 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 8000
+                  },
+                  "destination": {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "slack"
+                        ]
+                      },
+                      "slackTeamId": {
+                        "type": "string",
+                        "pattern": "^T[A-Z0-9]+$"
+                      },
+                      "channelId": {
+                        "type": "string",
+                        "pattern": "^[CDG][A-Z0-9]+$"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "slackTeamId",
+                      "channelId"
+                    ],
+                    "additionalProperties": true
                   }
                 },
                 "required": [
@@ -12255,6 +12363,31 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 8000
+                  },
+                  "destination": {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "slack"
+                        ]
+                      },
+                      "slackTeamId": {
+                        "type": "string",
+                        "pattern": "^T[A-Z0-9]+$"
+                      },
+                      "channelId": {
+                        "type": "string",
+                        "pattern": "^[CDG][A-Z0-9]+$"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "slackTeamId",
+                      "channelId"
+                    ],
+                    "additionalProperties": true
                   }
                 },
                 "required": [
@@ -13271,6 +13404,31 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 8000
+                  },
+                  "destination": {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "slack"
+                        ]
+                      },
+                      "slackTeamId": {
+                        "type": "string",
+                        "pattern": "^T[A-Z0-9]+$"
+                      },
+                      "channelId": {
+                        "type": "string",
+                        "pattern": "^[CDG][A-Z0-9]+$"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "slackTeamId",
+                      "channelId"
+                    ],
+                    "additionalProperties": true
                   }
                 },
                 "required": [
@@ -15047,6 +15205,31 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 8000
+                  },
+                  "destination": {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "slack"
+                        ]
+                      },
+                      "slackTeamId": {
+                        "type": "string",
+                        "pattern": "^T[A-Z0-9]+$"
+                      },
+                      "channelId": {
+                        "type": "string",
+                        "pattern": "^[CDG][A-Z0-9]+$"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "slackTeamId",
+                      "channelId"
+                    ],
+                    "additionalProperties": true
                   }
                 },
                 "required": [
@@ -15781,6 +15964,31 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 8000
+                  },
+                  "destination": {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "slack"
+                        ]
+                      },
+                      "slackTeamId": {
+                        "type": "string",
+                        "pattern": "^T[A-Z0-9]+$"
+                      },
+                      "channelId": {
+                        "type": "string",
+                        "pattern": "^[CDG][A-Z0-9]+$"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "slackTeamId",
+                      "channelId"
+                    ],
+                    "additionalProperties": true
                   }
                 },
                 "required": [
@@ -57337,6 +57545,31 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 8000
+                  },
+                  "destination": {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "slack"
+                        ]
+                      },
+                      "slackTeamId": {
+                        "type": "string",
+                        "pattern": "^T[A-Z0-9]+$"
+                      },
+                      "channelId": {
+                        "type": "string",
+                        "pattern": "^[CDG][A-Z0-9]+$"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "slackTeamId",
+                      "channelId"
+                    ],
+                    "additionalProperties": true
                   }
                 },
                 "required": [
