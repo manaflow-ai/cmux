@@ -115,6 +115,24 @@ struct BrowserDownloadWaitPathTests {
         }
     }
 
+    /// The download was saved at the requested path, then removed before
+    /// the wait: there is nothing to report as downloaded.
+    @Test func savedFileAtThePathThatIsGoneIsNotADownload() async throws {
+        try await withPanel { panel, params, root in
+            let destination = root.appendingPathComponent("x.txt")
+            let delegate = try #require(panel.downloadDelegate)
+            delegate.onDownloadStarted?("x.txt", "download-6")
+            delegate.onDownloadSaved?("x.txt", destination, true, "download-6")
+
+            var wait = params
+            wait["path"] = destination.path
+            wait["timeout_ms"] = 5_000
+            let response = try await request("browser.download.wait", wait)
+            #expect(response["ok"] as? Bool == false, "\(response)")
+            #expect((response["error"] as? [String: Any])?["code"] as? String == "io_error")
+        }
+    }
+
     @Test func relativePathIsRejected() async throws {
         try await withPanel { _, params, _ in
             var wait = params
