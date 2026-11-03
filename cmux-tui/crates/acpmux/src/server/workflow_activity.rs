@@ -246,10 +246,9 @@ async fn handle(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
                 let _gate = hub.workflow_runs.gate(&run_id).lock_owned().await;
                 if let Ok(current) =
                     hub.workflow_runs.store().authorize(&run_id, generation, &owner)
+                    && let Err(error) = hub.workflow_cancel_activity(&current, &record.id).await
                 {
-                    if let Err(error) = hub.workflow_cancel_activity(&current, &record.id).await {
-                        result = Err(error);
-                    }
+                    result = Err(error);
                 }
                 let _ = hub.workflow_runs.store().complete_activity(
                     &run_id,

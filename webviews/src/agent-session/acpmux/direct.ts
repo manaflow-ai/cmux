@@ -159,6 +159,8 @@ export type AcpmuxHostConfig = {
   draft?: string;
   /** A new chat's first prompt, sent once the client connects (onboarding's first task). */
   prompt?: string;
+  /** Attachments of the seeded prompt, with file references on this chat's machine. */
+  promptAttachments?: ComposerAttachment[];
   /** The model a new chat starts on before its first prompt. */
   model?: string;
   /** Explicit startup harness; omitted uses the existing daemon default. */

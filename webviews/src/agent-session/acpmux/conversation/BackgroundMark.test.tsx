@@ -144,7 +144,9 @@ test("a background task's end without its call names the command in a few words"
     'export PATH="/Applications/cmux NIGHTLY.app/Contents/Resources/bin:$PATH"; B=~/Projects/leo-workspace; cmux browser open https://example.com';
   const container = await render(<BackgroundTaskNote task={{ toolCallId: "bg9", command, state: "completed" }} />);
   const note = container.querySelector(".cv-bgtask")!;
-  expect(note.textContent).toBe(translate("bgTask.completed", { command: "cmux browser open https://example.com" }));
+  // "Background command completed" (muted), then the command (Leo, 2026-11-03, on Claude Code desktop's
+  // tool rows: "claude code desktop's summarization of tool calls/parsing of them seem kinda good?").
+  expect(note.textContent).toBe(`${translate("bgTask.completedLead")} cmux browser open https://example.com`);
   expect(note.textContent).not.toContain("export PATH");
   // No tooltip: the whole command is one click away, in the opened note.
   expect(note.getAttribute("title")).toBeNull();
