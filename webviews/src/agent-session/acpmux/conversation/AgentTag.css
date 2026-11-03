@@ -10,14 +10,14 @@
   min-width: 0;
   /* The row's words in a box no taller than they are (Leo, 2026-11-03: "i thought we made this
      stuff smaller"): the row's own size, 2px over its glyphs, no ring. */
-  height: calc(1em + 4px);
+  height: calc(1em + var(--ds-space-1));
   padding: 0 var(--cv-disclosure-gap);
   overflow: hidden;
   border-radius: 4px;
   color: var(--cv-text);
   background: color-mix(in srgb, var(--cv-fg, var(--cv-text)) 8%, transparent);
   font-size: inherit;
-  line-height: calc(1em + 4px);
+  line-height: calc(1em + var(--ds-space-1));
   letter-spacing: inherit;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -44,7 +44,7 @@ button.cv-agent-tag.is-open {
   align-self: center;
   box-sizing: border-box;
   gap: var(--ds-space-1);
-  height: calc(1em + 4px);
+  height: calc(1em + var(--ds-space-1));
   padding: 0 var(--ds-space-1);
   border-radius: 4px;
   color: var(--cv-text);
@@ -52,7 +52,7 @@ button.cv-agent-tag.is-open {
   box-shadow: none;
   font-size: inherit;
   letter-spacing: inherit;
-  line-height: calc(1em + 4px);
+  line-height: calc(1em + var(--ds-space-1));
 }
 .cv-agent-tag__label {
   min-width: 0;

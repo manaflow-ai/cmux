@@ -282,9 +282,22 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
       // An earlier turn's footer shows on hover: point at its reply, as Leo would to read it.
       const reply = page.locator('[data-row-id="received-reply"]');
       if ((await reply.count()) > 0) await reply.hover();
-      await page.evaluate(
-        () => new Promise((resolve) => setTimeout(() => requestAnimationFrame(() => resolve(undefined)), 400)),
-      );
+      // Let the footer's reveal and any other finite motion end, then a few frames paint.
+      await page.evaluate(async () => {
+        const frame = () => new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+        await frame();
+        const finite = () =>
+          document
+            .getAnimations()
+            .filter(
+              (animation) =>
+                animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().endTime),
+            );
+        for (let moving = finite(); moving.length > 0; moving = finite())
+          await Promise.allSettled(moving.map((animation) => animation.finished));
+        await frame();
+        await frame();
+      });
       const result = await measureStatus(page);
       if (process.env.FAST_CHECKS_OUT)
         await page.screenshot({ path: path.join(process.env.FAST_CHECKS_OUT, `status-${variant}-${theme.file}.png`) });
