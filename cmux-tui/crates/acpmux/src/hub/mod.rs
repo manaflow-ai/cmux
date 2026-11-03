@@ -123,7 +123,6 @@ mod pool;
 pub(crate) use pool::SESSION_NEW_BUDGET;
 pub(crate) mod prompt_images;
 mod prompt_ledger;
-mod prompt_ids;
 mod prompt_line;
 #[cfg(test)]
 mod prompt_line_tests;
@@ -1282,7 +1281,6 @@ impl Hub {
             append_lock: StdMutex::new(()),
             meta_writer: Default::default(),
             message_ids: StdMutex::new(None),
-            logged_prompt_ids: StdMutex::new(None),
             log_deferral: StdMutex::new(Default::default()),
             loading: AtomicBool::new(false),
             replaying: StdMutex::new(Vec::new()),
@@ -1954,7 +1952,6 @@ impl Hub {
         };
         if stored {
             session.note_transfer_event(&record);
-            session.note_logged_prompt(&record);
         }
         // A closed session's log is not held open: its last records (`status`,
         // then the agent's `stopped`) each close it again (`store.rs` Writers).

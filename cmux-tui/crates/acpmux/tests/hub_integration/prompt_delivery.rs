@@ -1,8 +1,9 @@
 //! A prompt or steer a client sent is applied once, never lost and never twice, across a cancel,
 //! a client reconnect and a daemon restart (HQ#6740: "Each prompt or steer carries a
 //! client-generated id. The daemon acks on durable append. The client retries until acked, and
-//! the daemon dedupes by id"). A retry is the same prompt under the same id, with or without
-//! `_meta.acpmux.resend`: the web pane cannot set that flag.
+//! the daemon dedupes by id"). A client's retry is the same prompt under the same id with
+//! `_meta.acpmux.resend` (the web pane's `resendLost`, the Mac journal); an id reused without it
+//! after a restart is a new prompt (`prompt_approval.rs`).
 
 use super::*;
 use acpmux::store::{EventRecord, Store as _};
@@ -71,9 +72,9 @@ async fn ran(hub: &Arc<Hub>, id: &str, prompt_id: &str) -> Value {
 }
 
 /// A duplicate id is applied once: the client retries a prompt it sent before the daemon
-/// restarted, under the same id and without the resend flag, and gets the first run's outcome.
+/// restarted, under the same id, and gets the first run's outcome.
 #[tokio::test]
-async fn a_retry_after_a_restart_without_the_resend_flag_is_applied_once() {
+async fn a_retry_after_a_restart_is_applied_once() {
     let (cfg, dir) = (on_disk(BTreeMap::new()), dir("dup"));
     let (hub, mut c) = daemon(&cfg, &dir).await;
     let id = new_session(&mut c, "dup").await;
@@ -86,7 +87,7 @@ async fn a_retry_after_a_restart_without_the_resend_flag_is_applied_once() {
 
     let (hub, mut c) = daemon(&cfg, &dir).await;
     let again =
-        c.request(method::SESSION_PROMPT, prompt_with_id(&id, "hi", "p-dup", false)).await.unwrap();
+        c.request(method::SESSION_PROMPT, prompt_with_id(&id, "hi", "p-dup", true)).await.unwrap();
     let (messages, turns) =
         (naming(&hub, &id, "user_message", "p-dup"), naming(&hub, &id, "turn_started", "p-dup"));
     hub.shutdown_all().await;
@@ -152,7 +153,7 @@ async fn a_prompt_accepted_before_its_turn_started_runs_once_after_a_restart() {
     hub.resume_queues();
     let result = ran(&hub, &id, "p-cut").await;
     let retry =
-        c.request(method::SESSION_PROMPT, prompt_with_id(&id, "hi", "p-cut", false)).await.unwrap();
+        c.request(method::SESSION_PROMPT, prompt_with_id(&id, "hi", "p-cut", true)).await.unwrap();
     let turns = naming(&hub, &id, "turn_started", "p-cut");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
@@ -161,53 +162,42 @@ async fn a_prompt_accepted_before_its_turn_started_runs_once_after_a_restart() {
     assert_eq!(turns, 1, "the accepted prompt ran {turns} times");
 }
 
-/// Cancel during a steer: the person's steer is taken, then Stop ends the turn before the agent
-/// reads it. The steer settles with the stopped turn, and its retry after a restart (the page
-/// never saw the answer) is answered from the log: it is not run as a new prompt.
-#[tokio::test]
-async fn a_steer_a_stop_cut_off_is_not_run_again_by_its_retry() {
-    let step = std::env::temp_dir().join(format!("acpmux-delivery-step-{}", uuid::Uuid::now_v7()));
-    assert!(std::process::Command::new("mkfifo").arg(&step).status().unwrap().success());
-    let env = BTreeMap::from([
-        ("FAKE_CLAUDE_STEER".to_owned(), "1".to_owned()),
-        ("FAKE_STEER_STEP".to_owned(), step.display().to_string()),
-    ]);
+/// Cancel during a steer: the person steers into the running turn, then Stops it. The steer
+/// settles with the stopped turn, and its retry after a restart (the page never saw the answer)
+/// is answered from the log: it is not run again as a prompt of its own.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_steer_into_a_stopped_turn_is_not_run_again_by_its_retry() {
+    let env = BTreeMap::from([("FAKE_CLAUDE_STEER".to_owned(), "1".to_owned())]);
     let (cfg, dir) = (on_disk(env), dir("steer"));
     let (hub, mut c) = daemon(&cfg, &dir).await;
     let id = new_session(&mut c, "steer").await;
-    let steer = |text: &str| {
-        json!({"sessionId": id, "prompt": [{"type": "text", "text": text}],
-            "_meta": {"acpmux": {"promptId": "p-steer", "steer": true}}})
+    let steer = |resend: bool| {
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "also this"}],
+            "_meta": {"acpmux": {"promptId": "p-steer", "steer": true, "resend": resend}}})
     };
     c.send(method::SESSION_PROMPT, prompt_with_id(&id, "until-cancel", "p-run", false)).await;
     c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "running").await;
-    let sent = c.send(method::SESSION_PROMPT, steer("also this")).await;
-    c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-steer").await;
+    let sent = c.send(method::SESSION_PROMPT, steer(false)).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "steer: also this")
+        .await;
     hub.cancel(&hub.resolve(&id).unwrap()).await.expect("the Stop is refused");
-    let (answer, _) = tokio::time::timeout(Duration::from_secs(30), c.response(sent))
-        .await
-        .expect("the steer was never answered");
+    let (answer, _) = c.response(sent).await;
     ran(&hub, &id, "p-run").await;
     hub.shutdown_all().await;
     drop(c);
     drop(hub);
 
     let (hub, mut c) = daemon(&cfg, &dir).await;
-    let retry = c.request(method::SESSION_PROMPT, steer("also this")).await;
+    let retry = c.request(method::SESSION_PROMPT, steer(true)).await;
     let (messages, turns) = (
         naming(&hub, &id, "user_message", "p-steer"),
         naming(&hub, &id, "turn_started", "p-steer"),
     );
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
-    let _ = std::fs::remove_file(&step);
-    // The first answer says it did not run on: the stopped turn's, or a refusal.
-    if let Ok(answer) = &answer {
-        assert_eq!(answer["stopReason"], "cancelled", "{answer}");
-    }
-    match &retry {
-        Ok(v) => assert_eq!(v["_meta"]["acpmux"]["duplicate"], true, "{v}"),
-        Err(e) => assert!(answer.is_err(), "a refusal the first time only: {e:?}"),
-    }
+    let answer = answer.expect("the steer failed");
+    let retry = retry.expect("the retry failed");
+    assert_eq!(retry["_meta"]["acpmux"]["duplicate"], true, "{retry}");
+    assert_eq!(retry["stopReason"], answer["stopReason"], "{retry} vs {answer}");
     assert_eq!((messages, turns), (1, 0), "the steer's retry ran it again");
 }

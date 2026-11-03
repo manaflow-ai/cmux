@@ -82,9 +82,6 @@ pub struct Session {
     /// message acceptance/recovery touches this, never streamed tokens.
     /// Dedupe key is message id plus the target session for sender copies.
     pub(super) message_ids: StdMutex<Option<std::collections::HashSet<String>>>,
-    /// The client prompt ids its log holds, read once on first use and kept as records are stored
-    /// (`prompt_ids.rs`): an id it holds is a resend.
-    pub(super) logged_prompt_ids: StdMutex<Option<std::collections::HashSet<String>>>,
     /// Tool output snapshots held back from the log while a newer one may replace them
     /// (`store/deferred.rs`); taken only under `append_lock`.
     pub(super) log_deferral: StdMutex<crate::store::Deferral>,

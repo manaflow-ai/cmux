@@ -220,11 +220,8 @@ impl Hub {
             }
             Ok(outcome) => outcome,
         };
-        // A resend: the client said so, or the log holds the id already (a retry after a lost
-        // connection or a restart, which may not say so; `prompt_ids.rs`).
-        let resend = opts.resend || self.prompt_id_logged(session, &prompt_id);
         // A resent inbox message answers as its notice did, a failure as the same error.
-        if resend
+        if opts.resend
             && let Some(answer) = self.logged_inbox_answer(session, &prompt_id)
         {
             if let Some(f) = opts.on_accepted.take() {
@@ -235,7 +232,7 @@ impl Hub {
             prompt_ledger::prune(&mut ledger);
             return answer;
         }
-        if resend
+        if opts.resend
             && let Some(logged) = self.logged_prompt(session, &prompt_id)
         {
             if let Some(f) = opts.on_accepted.take() {
