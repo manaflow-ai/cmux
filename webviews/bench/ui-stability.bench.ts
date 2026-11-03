@@ -123,7 +123,8 @@ async function round(
       };
     } else {
       const steps = reports.play?.steps ?? [];
-      const last = steps.findLastIndex((step) => step.action !== "wait");
+      let last = steps.length - 1;
+      while (last >= 0 && steps[last]!.action === "wait") last -= 1;
       if (last < 0)
         throw new Error(`${surface.entry}#${surface.variant}: no play step (${reports.play?.error ?? "none"})`);
       const start = actionStarts[last];
@@ -149,7 +150,7 @@ try {
   const builtAt = performance.now();
   // `gallery:build` (package.json): the generated strings, then the static gallery.
   const strings = Bun.spawnSync(["node", "scripts/pages/gen-strings.mjs"], { cwd: webviews, stdout: "ignore" });
-  if (strings.exitCode !== 0) throw new Error(`gen-strings exited ${strings.exitCode}: ${strings.stderr}`);
+  if (strings.exitCode !== 0) throw new Error(`gen-strings exited ${strings.exitCode}: ${strings.stderr.toString()}`);
   process.env.CMUX_GALLERY_OUT_DIR = out;
   const { build } = await import("vite");
   await build({ root: webviews, configFile: path.join(webviews, "vite.config.gallery.ts"), logLevel: "error" });
@@ -189,7 +190,7 @@ try {
       } catch (error) {
         failed += 1;
         console.log(
-          `ui-stability: ${engine} ${surface.name} FAILED: ${error instanceof Error ? error.message : error}`,
+          `ui-stability: ${engine} ${surface.name} FAILED: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
     }
