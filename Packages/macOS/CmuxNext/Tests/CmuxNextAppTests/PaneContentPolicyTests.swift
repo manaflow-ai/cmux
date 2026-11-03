@@ -174,6 +174,44 @@ struct PaneContentPolicyTests {
         return await session.io.gridsUntilMarker()
     }
 
+    /// A tab switch to another terminal during a key hold: the terminal that joins follows the pane from its first frame,
+    /// and its surface takes the size the press rests at (one grid), measured from the size the hold began at, never
+    /// from the pane's size in the frame it joined.
+    @Test func aTerminalThatJoinsDuringAHoldFollowsAndRestsAtTheFinalSize() async throws {
+        let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
+        defer { rig.close() }
+        rig.root.context.contentPolicyOverride = true
+        let pane = try #require(rig.root.context.hosts["p2"]?.content as? PaneContentView)
+        let io = GridRecordingTerminalIO()
+        let joining = TerminalSession(io: io)
+        defer {
+            joining.close()
+            io.finish()
+        }
+        #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
+        rig.root.syncWithModel()
+        rig.root.layoutSubtreeIfNeeded()
+        for _ in 1...6 { _ = rig.frame() }
+        // The tab switch: the joining terminal takes the pane's content area in the middle of the spring.
+        pane.show(joining.view)
+        rig.root.layoutSubtreeIfNeeded()
+        var off: [String] = []
+        let frames = try Self.run(rig) { frame in
+            let host = joining.view, area = try #require(host.superview)
+            if host.frame.size != area.bounds.size { off.append("frame \(frame): the joining host \(host.frame.size) in \(area.bounds.size)") }
+        }
+        #expect(frames > 3, "the spring landed before the switch (\(frames) frames left)")
+        #expect(off.isEmpty, "the joining terminal's host did not follow its pane: \(off.prefix(3))")
+        let host = joining.view
+        #expect(joining.surfaceView.frame.size == host.surfaceSize(forHostSize: host.bounds.size),
+                "the joining surface rests at \(joining.surfaceView.frame.size) in a \(host.bounds.size) host")
+        joining.surfaceView.bridge.takeUnretainedValue().input.focusGained()
+        let grids = await io.gridsUntilMarker()
+        let final = try #require(joining.surfaceView.fittedGrid)
+        #expect(grids.last == final && grids.filter({ $0 != final }).count <= 1,
+                "the joining terminal asked its PTY for \(grids), not its final grid \(final)")
+    }
+
     // MARK: Note 5: S3c
 
     /// A closing pane shows the ground it had at the close (a theme change during the close changes nothing), it shows no

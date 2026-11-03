@@ -25,12 +25,12 @@ public final class PaneContentAreaView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    /// The edges the held subviews ride; nil at rest. Setting nil lets them go at once (``release(from:followed:)``).
+    /// The edges the held subviews ride; nil at rest. Setting nil lets them go at once (``release(from:)``).
     public var hold: PaneMotionHold? {
         didSet {
             guard hold != oldValue else { return }
             if hold != nil, heldSize == nil { heldSize = bounds.size }
-            if hold == nil, let held = heldSize { release(from: held, followed: oldValue?.containersFollow == true) } else { showHeld(handing: true) }
+            if hold == nil, let held = heldSize { release(from: held) } else { showHeld(handing: true) }
         }
     }
 
@@ -44,14 +44,9 @@ public final class PaneContentAreaView: NSView {
     /// that joins mid-hold (a tab switch) is held with the rest and its pane's rest-size change applies to it too.
     public var contentBounds: CGRect { heldSize.map { CGRect(origin: .zero, size: $0) } ?? bounds }
 
-    /// The rect `view` takes when it fills the area: ``contentBounds``, or the area's bounds for a container that follows
-    /// the pane through this hold (FRAME OWNER S3).
-    public func contentBounds(for view: NSView) -> CGRect {
-        guard hold?.containersFollow == true, let follower = view as? any PaneMotionHoldFollowing, follows(follower) else { return contentBounds }
-        return bounds
-    }
-
-    /// The containers handed this hold (``PaneMotionHoldFollowing``): one shown or added later hears it in its first frame.
+    /// The containers handed this hold (``PaneMotionHoldFollowing``), which follow the area until it ends: one shown or added
+    /// during the hold hears it in its first frame; one whose producer stops holding (a page whose DevTools docked) keeps
+    /// following and lays its producer out live.
     private var handed: Set<ObjectIdentifier> = []
 
     /// A hold ended since the last call: the owner runs, once, the work it left alone during the hold.
@@ -89,9 +84,16 @@ public final class PaneContentAreaView: NSView {
         let origin = hold.boundsOrigin(holding: heldSize, in: bounds.size)
         if bounds.origin != origin { setBoundsOrigin(origin) }
         guard hold.containersFollow else { return }
-        for case let follower as any PaneMotionHoldFollowing in subviews where follows(follower) {
-            let first = handed.insert(ObjectIdentifier(follower)).inserted
-            if handing || first { follower.followPaneMotion(hold, heldSize: heldSize) }
+        for case let follower as any PaneMotionHoldFollowing in subviews {
+            let id = ObjectIdentifier(follower)
+            if !handed.contains(id) {
+                // A container joins once, when it is shown and can hold (a hidden one, a parked tab, stays held).
+                guard follows(follower) else { continue }
+                handed.insert(id)
+                follower.followPaneMotion(hold, heldSize: heldSize)
+            } else if handing {
+                follower.followPaneMotion(hold, heldSize: heldSize)
+            }
             if follower.frame != bounds {
                 follower.frame = bounds
                 follower.needsLayout = true // its ground, toolbar and producer placement, in this frame's layout pass
@@ -102,13 +104,18 @@ public final class PaneContentAreaView: NSView {
     /// A shown container that follows now (a hidden one, a parked tab, stays held and lays out at the release).
     private func follows(_ follower: any PaneMotionHoldFollowing) -> Bool { !follower.isHidden && follower.followsPaneMotion }
 
-    /// A container that joins during a following hold (a tab switch) follows from now on.
+    /// A container that joins during a following hold (a tab switch) follows from now on. It came in at the held rect
+    /// (``contentBounds``), so what it measured on its way in (a terminal's rest size) is from the held size, as for the
+    /// containers that were there when the hold began.
     public override func didAddSubview(_ subview: NSView) {
         super.didAddSubview(subview)
-        guard let heldSize, let hold, hold.containersFollow, let follower = subview as? any PaneMotionHoldFollowing, follows(follower) else { return }
-        handed.insert(ObjectIdentifier(follower))
+        guard let heldSize, let hold, hold.containersFollow, let follower = subview as? any PaneMotionHoldFollowing, follows(follower),
+              handed.insert(ObjectIdentifier(follower)).inserted else { return }
         follower.followPaneMotion(hold, heldSize: heldSize)
-        if follower.frame != bounds { follower.frame = bounds }
+        if follower.frame != bounds {
+            follower.frame = bounds
+            follower.needsLayout = true
+        }
     }
 
     /// A container that leaves during a following hold (a tab moved to another pane) stops following.
@@ -120,12 +127,13 @@ public final class PaneContentAreaView: NSView {
 
     /// The hold ended: each subview takes the area's size as autoresizing from `held` places it; one that fills the area
     /// (one that joined during the hold too, at the size it joined at) fills it now. A container that followed hears the
-    /// end first (`followed`), so it lays its producer out at this size.
-    private func release(from held: CGSize, followed: Bool) {
+    /// end first, so it lays its producer out at this size.
+    private func release(from held: CGSize) {
+        let followed = handed
         (heldSize, handed) = (nil, [])
         if bounds.origin != .zero { setBoundsOrigin(.zero) }
         for view in subviews {
-            if followed { (view as? any PaneMotionHoldFollowing)?.followPaneMotion(nil, heldSize: nil) }
+            if followed.contains(ObjectIdentifier(view)) { (view as? any PaneMotionHoldFollowing)?.followPaneMotion(nil, heldSize: nil) }
             if view.autoresizingMask.isSuperset(of: [.width, .height]) {
                 if view.frame != bounds { view.frame = bounds }
             } else {
