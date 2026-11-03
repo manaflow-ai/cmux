@@ -148,10 +148,12 @@ class ClassifyTests(unittest.TestCase):
                 self.assertEqual(risk.classify_path(path), ("high", "the risk gate itself"))
 
     # The pre-push hook's trust boundary (docs/contributor-verification.md): the code that decides which check code
-    # the hook runs on a push, and the hook and trusted copy it runs from. A normal change could make the hook run
-    # code a push controls (#34124 closed nine such routes). The lint rules themselves stay normal.
-    PREPUSH_TRUST = ("scripts/web_lint_prepush.py", "scripts/cmux-next/run-check-pieces.py",
-                     "scripts/git-hooks/pre-push", "scripts/git-hooks/refresh_checks.py", "scripts/install-git-hooks.sh")
+    # the hook runs on a push (the web lint and the cmux-next gate, which each pick the reviewed copy or the pushed
+    # code), the hook itself, and how its reviewed copy is installed and refreshed. A normal change could make the hook
+    # run code a push controls (#34124 finds and closes several such routes). The lint rules themselves stay normal.
+    PREPUSH_TRUST = ("scripts/web_lint_prepush.py", "scripts/cmux-next/prepush-gate.py",
+                     "scripts/git-hooks/pre-push", "scripts/git-hooks/post-merge", "scripts/git-hooks/refresh_checks.py",
+                     "scripts/install-git-hooks.sh")
 
     def test_the_pre_push_trust_boundary_is_high(self):
         for path in self.PREPUSH_TRUST:
@@ -160,7 +162,9 @@ class ClassifyTests(unittest.TestCase):
                 self.assertEqual(self.tier(path, "webviews/src/app.ts"), "high")
 
     def test_the_hooks_lint_rules_stay_normal(self):
+        # run-check-pieces.py runs `bun run check` by hand and in CI; the hook expands the pieces itself, never runs it.
         for path in ("scripts/cmux-next/check-text-focus-rings.py", "scripts/cmux-next/gen-type-scale.py",
+                     "scripts/cmux-next/run-check-pieces.py", "scripts/cmux-next/guardrails.py",
                      "scripts/cmux-next/check-system-blue.py", "webviews/package.json", "config/vite-plus/check.ts",
                      "webviews/scripts/check-design-tokens.ts", "scripts/web-lint.sh"):
             with self.subTest(path=path):
