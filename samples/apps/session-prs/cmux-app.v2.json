@@ -13,7 +13,7 @@
   "engines": { "cmux": "^2.0" },
   "runtime": { "main": "dist/main.js" },
   "implements": {
-    "cmux.sessionInfoSection/1": {
+    "cmux.session.info.section/1": {
       "export": "renderSessionPRs",
       "title": { "en": "Branch pull requests", "ja": "ブランチのプルリクエスト" },
       "symbol": "arrow.triangle.pull",
@@ -27,6 +27,6 @@
   "optionalScopes": {
     "integration:github:read": "Use your connected GitHub account (private repositories) without seeing its token."
   },
-  "activation": ["onInterface:cmux.sessionInfoSection/1"],
+  "activation": ["onInterface:cmux.session.info.section/1"],
   "files": ["dist/"]
 }

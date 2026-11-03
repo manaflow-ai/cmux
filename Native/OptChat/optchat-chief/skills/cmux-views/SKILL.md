@@ -23,7 +23,7 @@ the scopes its manifest asks for. Nobody restarts or clicks Install.
     `defaultRegion: "bottom"` is the band under the workspace list.
   - `contributes.sessionInfoSections`: the same entry without `defaultRegion`;
     it shows in each chat's Session Info.
-  - `activation`: `onSidebarSection:<id>` / `onSessionInfoSection:<id>` for each.
+  - `activation`: `onSidebarSection:<id>` for each sidebar section.
 - `main.js`: a classic script (no `import` or `export`) using the scene globals
   (`VStack`, `Row`, `ForEach`, `EmptyState`, `signal`, `computed`, `cmux`). It
   ends with `globalThis.__cmuxAppExports = { renderA, renderB }`, one entry per

@@ -22,6 +22,5 @@
   "contributes": {
     "sessionInfoSections": [{ "id": "branch-prs", "title": { "en": "Branch pull requests", "ja": "ブランチのプルリクエスト" }, "symbol": "arrow.triangle.pull", "render": "renderSessionPRs", "maxRows": 8 }]
   },
-  "activation": ["onSessionInfoSection:branch-prs"],
   "files": ["dist/"]
 }

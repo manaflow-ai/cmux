@@ -7,9 +7,6 @@ that lists the chat branch's pull requests. cmux watches the folder: each save
 reloads the app, and the first save installs it with the scopes its manifest
 asks for. There is no restart and no install click.
 
-`cmux-tui/crates/cmux-app-manifest/tests/customize_example.rs` validates the two
-files below exactly as written here.
-
 ## The manifest
 
 `~/.config/cmux/customize/cmux-app.json`:
@@ -43,7 +40,7 @@ files below exactly as written here.
       "properties": { "login": { "type": "string", "title": "GitHub login", "default": "" } }
     }
   },
-  "activation": ["onSidebarSection:recent", "onSessionInfoSection:branch"]
+  "activation": ["onSidebarSection:recent"]
 }
 ```
 
@@ -160,8 +157,8 @@ There is one customize app, so a new view goes into the same two files. Read
 them first and keep everything already there:
 
 1. Add an entry with a new id and a new render name to `sidebarSections` (or
-   `sessionInfoSections`), next to the existing entries, and add
-   `onSidebarSection:<id>` (or `onSessionInfoSection:<id>`) to `activation`.
+   `sessionInfoSections`), next to the existing entries. A sidebar section
+   also gets `onSidebarSection:<id>` in `activation`.
 2. Add the render function to `main.js` and add its name to the existing
    `globalThis.__cmuxAppExports` object. Do not write a second
    `__cmuxAppExports` assignment: the last one replaces the first, and the
