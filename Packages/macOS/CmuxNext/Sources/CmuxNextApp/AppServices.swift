@@ -256,7 +256,7 @@ final class AppServices {
         return ModelRouterLease(tokens: cloud.auth, apiBaseURL: feed.apiBaseURL, acpmuxHome: acpmux.home,
                                 logger: Logger(subsystem: "com.cmuxterm.next", category: "model-router"))
     }()
-    /// The cmux sign-in lent to acpmux for GitHub App tokens (Cloud/GitHubAppLease.swift).
+    /// The cmux sign-in lent to acpmux for GitHub App tokens (CmuxNextHomeEngine GitHubAppLease).
     private(set) lazy var githubAppLease = GitHubAppLease(identity: cloud.installIdentity,
                                                           apiBaseURL: cloud.configuration.ownerAPIBaseURL(),
                                                           environment: { [weak self] in self.flatMap(QuitAgents.environment) })
