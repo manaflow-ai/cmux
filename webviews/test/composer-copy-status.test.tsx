@@ -128,7 +128,7 @@ function copySelection(kind: "copy" | "cut" = "copy") {
   expect(copy.defaultPrevented).toBe(true);
 }
 
-function stageHost(mode: "pause" | "fail-once" | "complete") {
+function stageHost(mode: "pause" | "fail-once" | "complete" | "incomplete") {
   let begins = 0;
   let bigChunks = 0;
   let failed = false;
@@ -137,6 +137,7 @@ function stageHost(mode: "pause" | "fail-once" | "complete") {
   const held = deferred<void>();
   const cancelled = deferred<void>();
   const published = deferred<void>();
+  const republished = deferred<void>();
   setNativeHost(async (method, params) => {
     if (method === "composer.copy.begin")
       return { token: `token-${++begins}`, batchToken: "batch", chunkSize: 512 * 1024 };
@@ -164,12 +165,15 @@ function stageHost(mode: "pause" | "fail-once" | "complete") {
     if (method === "composer.copy.staged" || method === "composer.copy") {
       committed++;
       published.resolve();
+      if (committed > 1) republished.resolve();
       const items = params.items as { name: string }[];
-      return { copyID: "copy-id", files: items.map((item, index) => ({ item: index, name: item.name })) };
+      const files = items.map((item, index) => ({ item: index, name: item.name }));
+      if (mode === "incomplete" && committed === 1) files.pop();
+      return { copyID: "copy-id", files, skipped: items.length - files.length };
     }
     return {};
   });
-  return { paused, held, cancelled, published, commits: () => committed, begins: () => begins };
+  return { paused, held, cancelled, published, republished, commits: () => committed, begins: () => begins };
 }
 
 test("a 4 MiB copy shows acknowledged progress and Cancel without committing partial data", async () => {
@@ -279,6 +283,40 @@ test("a failed 4 MiB Cut keeps its draft until Retry commits the copy", async ()
   expect(box.field().value()).toBe("");
   expect(box.attachmentIds()).toEqual([]);
   expect(native.commits()).toBe(1);
+});
+
+test.each(["copy", "cut"] as const)("an incomplete 4 MiB %s warns and preserves its entire draft", async (kind) => {
+  const native = stageHost("incomplete");
+  const box = await openBox(4 * 1024 * 1024);
+  act(() =>
+    box.addAttachment({
+      id: "missing",
+      kind: "text",
+      name: "deleted.txt",
+      mimeType: "text/plain",
+      size: 4,
+      path: "/deleted.txt",
+    }),
+  );
+  const draft = box.field().value();
+  act(() => copySelection(kind));
+  await act(async () => {
+    await native.published.promise;
+  });
+  expect(native.commits()).toBe(1);
+  expect(box.field().value()).toBe(draft);
+  expect(box.attachmentIds()).toEqual(["file", "missing"]);
+  const status = host.querySelector(".acpmux-composer-copy-status")!;
+  expect(status.textContent).toContain("Some attachments couldn’t be copied.");
+  expect(status.querySelector("button")!.textContent).toBe("Retry");
+  act(() => status.querySelector<HTMLButtonElement>("button")!.click());
+  await act(async () => {
+    await native.republished.promise;
+  });
+  expect(native.commits()).toBe(2);
+  expect(host.querySelector(".acpmux-composer-copy-status")).toBeNull();
+  expect(box.field().value()).toBe(kind === "cut" ? "" : draft);
+  expect(box.attachmentIds()).toEqual(kind === "cut" ? [] : ["file", "missing"]);
 });
 
 test("a 4 MiB Cut deletes its original selection after commit even if the caret moves", async () => {

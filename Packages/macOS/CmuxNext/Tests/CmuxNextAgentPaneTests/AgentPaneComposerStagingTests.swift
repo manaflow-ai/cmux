@@ -103,9 +103,9 @@ struct AgentPaneComposerStagingTests {
     }
 
     /// A complete small staged copy, including the web path's separate ordering metadata.
-    private static func smallStagedCopy(_ model: AgentPaneModel) async throws -> [String: Any] {
+    private static func smallStagedCopy(_ model: AgentPaneModel, fileSize: Int = 4) async throws -> [String: Any] {
         let payloads = [Payload(name: "selection", size: 4, byte: 0x73), Payload(name: "order", size: 2, byte: 0),
-                        Payload(name: "one.txt", size: 4, byte: 0x61)]
+                        Payload(name: "one.txt", size: fileSize, byte: 0x61)]
         let manifest = Self.manifest(payloads)
         model.transport.gestures.record()
         var batch: String?
@@ -264,10 +264,13 @@ struct AgentPaneComposerStagingTests {
         var batch: String?
         let payload = Payload(name: "selection", size: 4, byte: 0x73)
         let text = try await Self.stage(model, payload, index: 0, manifest: Self.manifest([payload]), batch: &batch)
-        #expect(Self.failed(await Self.ask(model, "composer.copy.staged", ["text": text.reference, "items": [
+        let answer = try Self.value(await Self.ask(model, "composer.copy.staged", ["text": text.reference, "items": [
             ["name": "remote-name.txt", "mimeType": "text/plain", "path": local.path],
-        ]])))
-        #expect(effects.copied.isEmpty)
+        ]]))
+        #expect(answer["copied"] as? Int == 0)
+        #expect(answer["skipped"] as? Int == 1)
+        #expect(effects.copied.first?.count == 1)
+        #expect(effects.copied.first?.first?.string(forType: .string) == "ssss")
     }
 
     @Test func aPublishedCopyKeepsOnlyItsAttachmentFiles() async throws {
@@ -281,6 +284,28 @@ struct AgentPaneComposerStagingTests {
         #expect(file.lastPathComponent == "one.txt")
         #expect(try String(contentsOf: file, encoding: .utf8) == "aaaa")
         // The selection and ordering metadata cannot accumulate alongside published attachments.
+        #expect(Self.regularFiles(in: folder) == Set([file.resolvingSymlinksInPath()]))
+    }
+
+    @Test func anUnavailablePathDoesNotDiscardTheOtherFourMiBAttachment() async throws {
+        let (folder, model, effects) = try Self.fixture()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        var params = try await Self.smallStagedCopy(model, fileSize: 4 * Self.mib)
+        var items = try #require(params["items"] as? [[String: Any]])
+        items.append(["name": "deleted.txt", "mimeType": "text/plain", "path": folder.appendingPathComponent("deleted.txt").path])
+        params["items"] = items
+        let answer = try Self.value(await Self.ask(model, "composer.copy.staged", params))
+        #expect(answer["copied"] as? Int == 1)
+        #expect(answer["skipped"] as? Int == 1)
+        let board = try #require(effects.copied.first)
+        #expect(board.count == 2)
+        #expect(board.first?.string(forType: .string) == "ssss")
+        let file = try #require(board.last?.string(forType: .fileURL).flatMap(URL.init(string:)))
+        let actual = try await Self.digest(file)
+        #expect(actual.size == 4 * Self.mib)
+        var expected = SHA256()
+        for _ in 0..<16 { expected.update(data: Data(repeating: 0x61, count: Self.chunkBytes)) }
+        #expect(actual.hash == Array(expected.finalize()))
         #expect(Self.regularFiles(in: folder) == Set([file.resolvingSymlinksInPath()]))
     }
 
