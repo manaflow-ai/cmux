@@ -1383,7 +1383,7 @@ class OpenP0(unittest.TestCase):
             reader = Path(tmp) / "ledger.py"
             reader.write_text("def live_rows(path):\n    return []\n")
             mod.P0_LEDGER_READER = reader
-            facts = mod.p0_reader_facts()
+            _, _, facts = mod.p0_ledger_reader()
             self.assertEqual(facts, {"path": str(reader), "sha256": hashlib.sha256(reader.read_bytes()).hexdigest()})
             mod.OPEN_P0, mod.P0_LEDGER = Path(tmp) / "list.txt", Path(tmp) / "ledger"
             mod.OPEN_P0.write_text("j k o S1\n")
@@ -1399,9 +1399,10 @@ class OpenP0(unittest.TestCase):
             # note 1 at 19c5ce5159b: a second read named a hash that did not run).
             reader.write_text(ran + "# changed after the check\n")
             self.assertEqual(used, [{"path": str(reader), "sha256": hashlib.sha256(ran.encode()).hexdigest()}])
-            # A reader that needs its module in sys.modules (a dataclass) loads.
-            reader.write_text("import dataclasses, json\n@dataclasses.dataclass\nclass R:\n    x: int = 0\n"
-                              "def live_rows(path):\n    return [json.loads(l) for l in open(path)]\n")
+            # A correct reader that needs its module at CALL time (pickle of its own class) is no blocker (review
+            # note 1 at ee816fba901: the module was taken out of sys.modules after the load, so every .pass refused).
+            reader.write_text("import json, pickle\nclass R:\n    pass\n"
+                              "def live_rows(path):\n    pickle.dumps(R())\n    return [json.loads(l) for l in open(path)]\n")
             self.assertEqual(mod.open_p0_blockers("J"), [])
             mod.P0_READER_FROM_ENV = True  # what the env override sets at import
             blockers = mod.open_p0_blockers("J")
@@ -1417,6 +1418,48 @@ class OpenP0(unittest.TestCase):
             else:
                 os.environ["SMOKE_GATE_P0_LEDGER_READER"] = old
         self.assertFalse(load_gate().P0_READER_FROM_ENV)
+
+    def test_main_writes_the_hash_of_the_reader_that_ran_into_the_pass(self):
+        # Review note 2 at ee816fba901: no test checked that main() writes the facts of the load. Here the reader file
+        # changes after the open-P0 check and before the .pass is written; the .pass must name the bytes that ran.
+        import hashlib
+        with tempfile.TemporaryDirectory() as tmp:
+            runner = os.path.join(tmp, "fake_run.py")
+            open(runner, "w").write(FAKE)
+            env = {"SMOKE_PLAN": json.dumps(["pass"] * 10), "SMOKE_GATE_CMUX_CI": "/bin/false",
+                   "SMOKE_JOURNEY": str(HERE / "journeys" / "dogfood" / "smoke-dogfood.json")}
+            saved = {k: os.environ.get(k) for k in env}
+            os.environ.update(env)
+            try:
+                mod = load_gate()
+                mod.OPEN_P0, mod.P0_LEDGER = Path(tmp) / "open-p0.txt", Path(tmp) / "ledger"
+                mod.OPEN_P0.write_text("# no open P0 journeys\n")
+                mod.P0_WAIVERS = Path(tmp) / "waivers.txt"
+                mod.VIDEO_GOLDENS, mod.GOLDEN_LEDGER = Path(tmp) / "video-goldens.txt", Path(tmp) / "golden-ledger"
+                reader = Path(tmp) / "ledger.py"
+                ran = "def live_rows(path):\n    return []\n"
+                reader.write_text(ran)
+                mod.P0_LEDGER_READER = reader
+                clean = type("Done", (), {"stdout": "", "returncode": 0})()
+                head = type("Done", (), {"stdout": "a" * 40 + "\n", "returncode": 0})()
+                mod.git = lambda *args: head if args[:1] == ("rev-parse",) else clean
+                real_goldens = mod.golden_blockers
+
+                def goldens_then_change(*args, **kwargs):
+                    reader.write_text(ran + "# changed after the open-P0 check\n")
+                    return real_goldens(*args, **kwargs)
+                mod.golden_blockers = goldens_then_change
+                code = mod.main(["--build", "job123", "--rounds", "10", "--runner", runner, "--out", os.path.join(tmp, "out"),
+                                 "--handoff", os.path.join(tmp, "handoff"), "--hosts", "cmux99", "--whole-host", "cmux99"])
+            finally:
+                for k, v in saved.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+            self.assertEqual(code, 0)
+            written = json.loads(open(os.path.join(tmp, "handoff", "job123.pass")).read())
+            self.assertEqual(written["open_p0_reader"], {"path": str(reader), "sha256": hashlib.sha256(ran.encode()).hexdigest()})
 
     def test_the_gate_reads_each_real_ledger_with_the_runners_own_reader(self):
         # One rule in one place (lead 2026-11-03): the gate's rows are exactly the runner's live_rows on the judged
