@@ -305,9 +305,10 @@ struct AgentShareTests {
 
     /// The sheet runs the op's own work: Invite sends the field's account with the role, clears the
     /// field and reads the list again; a refusal stays on the sheet as its status, the field kept.
-    /// The sheet is AppKit (no SwiftUI host): it draws the model's rows, each with its role, and a
-    /// row's Remove runs the work for that account.
-    @Test func theSheetIsAppKitAndRemovesFromItsRow() async throws {
+    /// The sheet is AppKit (no SwiftUI host). Presented the way the overlay host presents it
+    /// (detached, then put in a window), it follows the model with no manual redraw: loaded rows
+    /// show with their role, typing turns Invite on, and a row's Remove runs the work for that account.
+    @Test func theSheetIsAppKitAndFollowsTheModelOnceShown() async throws {
         @MainActor final class Daemon {
             var removed: [String] = []
             var shares = [AgentSessionShare(shareId: "s", state: "active", session: AgentShareTests.session, surface: 1,
@@ -321,22 +322,28 @@ struct AgentShareTests {
                 daemon.removed.append(account)
                 daemon.shares = []
             }))
-        await model.load()
         let card = AgentShareInviteCard(model: model)
-        card.update()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 600), styleMask: [.borderless], backing: .buffered, defer: true)
+        card.removeFromSuperview()
+        window.contentView?.addSubview(card)
+        defer { card.removeFromSuperview() }
         func all(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(all) }
+        func rows() -> [AgentShareInviteRowView] { all(card).compactMap { $0 as? AgentShareInviteRowView } }
+        func settle(until done: () -> Bool) async { for _ in 0..<200 where !done() { await Task.yield() } }
         #expect(!all(card).contains { String(describing: type(of: $0)).contains("NSHostingView") })
-        let rows = all(card).compactMap { $0 as? AgentShareInviteRowView }
-        try #require(rows.count == 1)
-        #expect(rows[0].account.stringValue == "@theo")
-        #expect(rows[0].detail.stringValue == model.roleTitle("view"))
         #expect(!card.inviteButton.isEnabled, "Invite is off with an empty field")
-        rows[0].removePressed()
-        for _ in 0..<50 where daemon.removed.isEmpty || !model.rows.isEmpty { await Task.yield() }
+        await model.load()
+        await settle { rows().count == 1 }
+        let shown = try #require(rows().first)
+        #expect(shown.account.stringValue == "@theo")
+        #expect(shown.detail.stringValue == model.roleTitle("view"))
+        model.account = "@ana"
+        await settle { card.inviteButton.isEnabled }
+        #expect(card.inviteButton.isEnabled)
+        shown.removePressed()
+        await settle { !daemon.removed.isEmpty && rows().isEmpty }
         #expect(daemon.removed == ["@theo"])
-        card.update()
-        #expect(all(card).compactMap { $0 as? AgentShareInviteRowView }.isEmpty)
-        #expect(!card.empty.isHidden)
+        #expect(rows().isEmpty && !card.empty.isHidden)
     }
 
     /// An account typed while an invite runs stays in the field.
