@@ -133,6 +133,7 @@ cmux browser --surface <surface> highlight <selector>
 cmux browser --surface <surface> screenshot
 cmux browser --surface <surface> download list [--limit <1...25>]
 cmux browser --surface <surface> download wait --timeout-ms 10000
+cmux browser --surface <surface> download wait --path /tmp/report.csv --timeout-ms 30000
 ```
 
 `download list` returns the newest records for that browser surface without
@@ -145,6 +146,10 @@ The legacy positional form treats a bare token as a destination path, so use
 the explicit `download wait <path>` or `download --path <path>` spelling when
 you want to make that intent unambiguous. `download list` is the only listing
 subcommand.
+With a path, `download wait` takes the surface's next finished download and
+saves a copy there (a relative path is resolved against the caller's folder),
+replacing a file already at that path. A failed or cancelled download returns
+`download_failed`, and a directory at the path is rejected before waiting.
 
 `cookies clear` requires an explicit scope (`--url`, `--domain`, `--name`,
 `--path`, another cookie filter, or `--all`). URL scope follows cookie
