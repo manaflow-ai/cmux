@@ -742,7 +742,7 @@ fn daemon_skew_on_another_platform_has_no_host_update_try() {
     };
     assert_eq!(result.reason, Some("peer_version_skew"));
     assert!(result.data.is_none(), "{result:?}");
-    assert!(result.fix.unwrap().contains("host doctor box --fix"));
+    assert!(result.fix.unwrap().contains("machine doctor box --fix"));
 
     // A custom `--remote-binary` install: ~/.local/bin/acpmux links to a file
     // outside the probed folders, and the daemon names that resolved file as
@@ -757,7 +757,7 @@ fn daemon_skew_on_another_platform_has_no_host_update_try() {
         Verdict::OtherBuild(result) => result,
         other => panic!("{other:?}"),
     };
-    assert!(result.fix.unwrap().contains("host doctor box --fix"), "a resolved link is current");
+    assert!(result.fix.unwrap().contains("machine doctor box --fix"), "a resolved link is current");
 }
 
 /// Runs the scripts in a local `sh` with `HOME` at a temp folder, so the
