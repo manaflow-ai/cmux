@@ -159,6 +159,30 @@ public nonisolated struct LinkHintPendingKeys<Key> {
     /// they run through `session` as typed once its labels show: hint letters and Backspace narrow and pick; a pick,
     /// Escape or a key that is no hint key ends it, and that key (not Escape) and every key after it are the page's.
     /// With nothing to label, the hint letters before such a key are the session's.
+    /// The page said no text field has the keyboard, before its labels come: the held keys run through `session` as typed
+    /// now (review 6597001821), so later keys are handled live and nothing waits for the targets. Escape ends it and is its
+    /// own; a key that is no hint key ends it, and it and every key after it are the page's.
+    public mutating func resolveNoField(_ session: inout LinkHintSession) -> (page: [Key], ended: Bool) {
+        defer { (entries, downs) = ([], []) }
+        var ended = false, page: [Key] = [], pageDowns: Set<UInt16> = []
+        for entry in entries {
+            switch entry {
+            case .up(let key, let code): if pageDowns.remove(code) != nil { page.append(key) }
+            case .down(let key, let kind, let code):
+                switch (ended, kind) {
+                case (true, _), (false, .other):
+                    ended = true
+                    page.append(key)
+                    pageDowns.insert(code)
+                case (false, .escape): ended = true
+                case (false, .letter(let letter)): _ = session.type(letter)
+                case (false, .backspace): _ = session.type(nil)
+                }
+            }
+        }
+        return (page, ended)
+    }
+
     public mutating func resolve(_ session: inout LinkHintSession, targets: [LinkHintTarget], editing: Bool) -> Resolution {
         guard !editing else { return Resolution(page: releaseAll(), outcome: .passThrough, noLinks: false) }
         defer { (entries, downs) = ([], []) }

@@ -58,7 +58,12 @@ public final class LinkHintController {
             // No text field has the keyboard: the keys typed now are hint keys, the session's whatever the targets
             // take (a heavy page), and never a page's (review 6594559342: a page shortcut on a hint letter would run).
             bound.cancel()
-            session?.noField = true
+            guard var current = session, current.tab === tab else { return }
+            let early = current.pending.resolveNoField(&current.keys) // the held keys are hint keys now, handled live after
+            current.noField = true
+            session = current
+            deliver(early.page)
+            if early.ended { return cancel() }
             let targets = await targetsAnswer(tab)
             guard !Task.isCancelled else { return }
             collected((false, targets ?? []), from: tab)
@@ -102,7 +107,7 @@ public final class LinkHintController {
         guard var current = session, let tab = current.tab, let home = current.window,
               window === home || window?.parent === home, current.isFocused() else { cancel(); return false }
         let kind = Self.kind(of: event)
-        guard current.keys.hints != nil else { // the page has not answered: every key waits for its answer, in order
+        guard current.keys.hints != nil || current.noField else { // the page has not answered: every key waits for its answer
             current.pending.hold(event, kind: kind, code: event.keyCode)
             session = current
             return true
@@ -136,7 +141,7 @@ public final class LinkHintController {
         bound.cancel()
         guard let current = session else { return }
         session = nil
-        if current.keys.hints == nil { var pending = current.pending; deliver(pending.releaseAll()) }
+        if current.keys.hints == nil, !current.noField { var pending = current.pending; deliver(pending.releaseAll()) } // hint keys never
         guard let tab = current.tab else { return }
         // task-owner: fire-and-forget overlay removal; nothing waits on it.
         Task { _ = try? await tab.evaluate(LinkHintSession.removeScript, world: .isolated, gesture: .cmux) }
