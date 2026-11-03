@@ -27,9 +27,9 @@ import Testing
 /// focus report sent after a step is a marker (`GridRecordingTerminalIO`). Frames step at a fixed 120 Hz dt, and the
 /// landing's after-commit work runs when the test says (`LayoutViewContext.afterCommit`).
 ///
-/// The same release runs for a pane at rest that a structural change lets go while a later press springs the panes
-/// beside it (`PaneHostView.endKeyResizeHold`): it must lay the pane's content out at its rest size before the
-/// content hears it settled, too.
+/// A structural change during a key spring lets go of every key hold (`PaneHostView.endKeyResizeHold`): a pane at rest
+/// lays its content out at its rest size before the content hears it settled, and a pane the change takes over on its
+/// spring lays its content out at its live size before the content hears the size the change rests at.
 @MainActor
 @Suite(.serialized, .closesItsWindows)
 struct KeyboardResizeOneGridReportTests {
@@ -203,12 +203,13 @@ struct KeyboardResizeOneGridReportTests {
         }
     }
 
-    /// A pane the first press held is let go at rest (`PaneHostView.endKeyResizeHold`). The first press's landing frame
-    /// commits, and lets go of what it held, when the run loop next waits; input that comes first runs before that: a
-    /// second press (Ctrl-Shift-J) springs the panes beside the first one, and a close arrives during that spring. The
-    /// pane at rest lays its content out at its rest size before its terminal hears it settled: the terminal sends no
-    /// grid after the final one of the first press, and its surface never takes its start size again.
-    @Test func aPaneACloseLetsGoAtRestDuringASecondPressSendsNoSecondGrid() async throws {
+    /// A close during a second key press lets go of both key holds (`PaneHostView.endKeyResizeHold`). The first press's
+    /// landing frame commits, and lets go of what it held, when the run loop next waits; input that comes first runs
+    /// before that: a second press (Ctrl-Shift-J) springs the panes beside the first one, and a close arrives during that
+    /// spring. p1 is at rest: its terminal sends no grid after the final one of the first press, and its surface never
+    /// takes its start size again. p2 is on the second press's spring, which the close takes over: its terminal sends one
+    /// grid for the close, the final one, measured from its live size (not from the size its key hold kept).
+    @Test func aCloseDuringASecondPressSendsEachTerminalOnlyItsFinalGrid() async throws {
         let rig = try Rig(Self.besideStack)
         defer { rig.close() }
         for pane in rig.panes { _ = try await rig.grids(pane) }
@@ -229,9 +230,15 @@ struct KeyboardResizeOneGridReportTests {
         #expect(PaneResize.press("p2", .down, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
         #expect(try rig.screen.holdsContentForKeyResize, "the second press did not hold the pane contents (K3)")
-        #expect(rig.root.advanceFrame(1.0 / 120), "the second press did not spring")
-        rig.root.layoutSubtreeIfNeeded()
+        for frame in 1...6 {
+            #expect(rig.root.advanceFrame(1.0 / 120), "the second press landed after \(frame) frames")
+            rig.root.layoutSubtreeIfNeeded()
+        }
         #expect(!host.isOnLayoutSpring, "the second press moved p1")
+        let p2 = try rig.terminal("p2")
+        try #require(rig.root.context.hosts["p2"]?.isOnLayoutSpring == true, "p2 is not on the second press's spring when p3 closes")
+        // What p2 asked for up to the close (the final grids of both presses) is not the close's.
+        _ = try await rig.grids("p2")
         let layout = try #require(rig.model.screen(containing: "p1")?.layout)
         rig.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: Self.closing("p3", in: layout))])
         rig.root.syncWithModel()
@@ -246,6 +253,13 @@ struct KeyboardResizeOneGridReportTests {
         #expect(after.isEmpty, "p1: after the final grid \(final) at the first press, letting its content go asked the PTY for \(after) (start grid \(startGrid))")
         #expect(!log.sizes.contains(start.size), "p1's surface took its start size \(start.size) again after the first press: \(log.sizes)")
         #expect(host.content.frame.size == host.contentRect.size, "p1's content is not at its rest size: \(host.content.frame.size) in \(host.contentRect.size)")
+
+        let p2Final = try #require(p2.surface.fittedGrid, "p2's terminal fits no grid")
+        let p2Grids = try await rig.grids("p2")
+        #expect(p2Grids == [p2Final], "p2: the close that took over its key spring asked the PTY for \(p2Grids), not its final grid \(p2Final) once")
+        let p2Host = p2.session.view
+        #expect(p2.surface.frame.size == p2Host.surfaceSize(forHostSize: p2Host.bounds.size),
+                "p2's surface rests at \(p2.surface.frame.size) in a \(p2Host.bounds.size) host")
     }
 
     /// `layout` with `pane` closed and every other split kept: its sibling takes its split's place.
