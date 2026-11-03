@@ -345,9 +345,70 @@ _cmux_private_dirs() {
             return 1
         fi
         [[ -d "$dir" && ! -L "$dir" && -O "$dir" ]] || return 1
+        if [[ "${OSTYPE:-}" == darwin* && -x /usr/bin/stat ]]; then
+            _cmux_private_path_chain_stat "$dir" || return 1
+            continue
+        fi
         # Bash can't read mode bits; find's -type d uses lstat here.
         [[ "$(/usr/bin/find "$dir" -prune -type d ! -perm -020 ! -perm -002 -print 2>/dev/null)" == "$dir" ]] || return 1
         _cmux_private_path_chain "$dir" || return 1
+    done
+}
+
+# The same checks as _cmux_private_path_chain plus the directory's own mode,
+# from one realpath and one BSD stat for the whole chain, so a new shell's cost
+# doesn't grow with the folder's depth. stat doesn't follow symlinks either.
+_cmux_private_path_chain_stat() {
+    local start="$1"
+    local canonical=""
+    canonical="$(_cmux_resolve_path "$start")" || return 1
+    local -a nodes=()
+    _cmux_private_path_chain_append_nodes "$start"
+    [[ "$canonical" == "$start" ]] || _cmux_private_path_chain_append_nodes "$canonical"
+    local stats=""
+    stats="$(/usr/bin/stat -f '%u %Mp%Lp %HT' -- "${nodes[@]}" 2>/dev/null)" || return 1
+    local rest="$stats"$'\n'
+    local line="" uid="" mode="" kind=""
+    local index=0
+    local bits=0
+    while [[ -n "$rest" ]]; do
+        line="${rest%%$'\n'*}"
+        rest="${rest#*$'\n'}"
+        uid="${line%% *}"
+        line="${line#* }"
+        mode="${line%% *}"
+        kind="${line#* }"
+        [[ "$mode" =~ ^[0-7]+$ ]] || return 1
+        [[ "$uid" == "$EUID" || "$uid" == 0 ]] || return 1
+        bits=$((8#$mode))
+        case "$kind" in
+            Directory)
+                # Only an ancestor may be shared through the sticky bit.
+                if (( index == 0 && bits & 8#022 )); then
+                    return 1
+                fi
+                (( !(bits & 8#022) || bits & 8#1000 )) || return 1
+                ;;
+            "Symbolic Link")
+                (( index > 0 )) || return 1
+                ;;
+            *)
+                return 1
+                ;;
+        esac
+        index=$((index + 1))
+    done
+    (( index == ${#nodes[@]} ))
+}
+
+# Appends the path and every folder above it to the caller's `nodes`.
+_cmux_private_path_chain_append_nodes() {
+    local current="$1"
+    while true; do
+        nodes+=("$current")
+        [[ "$current" == "/" ]] && return 0
+        current="${current%/*}"
+        [[ -n "$current" ]] || current="/"
     done
 }
 
