@@ -52,10 +52,13 @@ pub(super) fn call<B: Backend>(backend: &B, arguments: &Map<String, Value>) -> V
             return tool_error(envelope(v2_tools::invalid(message), "not_run", None));
         }
     };
-    let action = request
-        .get("action")
-        .and_then(Value::as_str)
-        .expect("workflow request always has an action");
+    let Some(action) = request.get("action").and_then(Value::as_str) else {
+        return tool_error(envelope(
+            v2_tools::invalid("workflow action is required"),
+            "not_run",
+            None,
+        ));
+    };
     let mutation = action != "status";
     let key = arguments.get("idempotency_key").and_then(Value::as_str);
     match backend.acpmux(METHOD, Value::Object(request), Duration::from_secs(60), key, mutation) {
@@ -111,7 +114,7 @@ fn request(arguments: &Map<String, Value>) -> Result<Map<String, Value>, String>
                 .ok_or_else(|| format!("{NAME}: run_id is required for {action}"))?;
             output.insert("runId".into(), Value::String(run_id));
         }
-        _ => unreachable!(),
+        _ => return Err(format!("{NAME}: unsupported action {action:?}")),
     }
     // Idempotency keys are consumed by the transport/daemon; don't pass the
     // snake-case MCP spelling into the daemon request body.

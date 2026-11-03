@@ -19,7 +19,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     }
     if rest.is_empty() || rest.iter().any(|arg| matches!(arg.as_str(), "--help" | "-h")) {
         println!(
-            "cmux workflow start <file> [--args-json JSON] [--name NAME]\ncmux workflow status [run-id]\ncmux workflow pause|resume <run-id>"
+            "cmux workflow start <file> [--args-json JSON] [--name NAME] [--session SESSION]\ncmux workflow status [run-id]\ncmux workflow pause|resume <run-id>"
         );
         return Some(0);
     }
@@ -56,7 +56,13 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
                     arguments.insert("action".into(), json!("resume"));
                     arguments.insert("run_id".into(), json!(run_id));
                 }
-                Invocation::Run { .. } => unreachable!(),
+                Invocation::Run { .. } => {
+                    return Some(super::wire::print_local_error(
+                        &json!({"code":"usage.invalid","message":"runner invocation needs the internal runner dispatch"}),
+                        global.output,
+                        2,
+                    ));
+                }
             }
             super::mcp::workflow_command(global, Value::Object(arguments))
         }

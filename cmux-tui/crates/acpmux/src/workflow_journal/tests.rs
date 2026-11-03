@@ -202,5 +202,5 @@ fn native_workflow_journal_restores_parallel_delivery_order() {
         super::Activity::Replay(_)
     ));
     assert_eq!(journal.next_replay(&[first.clone(), second.clone()]), Some(second));
-    assert_eq!(journal.next_replay(&[first.clone()]), Some(first));
+    assert_eq!(journal.next_replay(std::slice::from_ref(&first)), Some(first));
 }

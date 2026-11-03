@@ -272,7 +272,7 @@ fn handle<B: Backend>(
                     (name.as_str(), json!(arguments))
                 }
                 code_mode::Request::Docs { query } => ("cmux.docs", json!({"query":query})),
-                _ => unreachable!(),
+                _ => return Err("unexpected workflow host request".into()),
             };
             match journal.begin("call", name, &arguments).map_err(|error| error.to_string())? {
                 Activity::Replay(Ok(answer)) => Ok(answer),
