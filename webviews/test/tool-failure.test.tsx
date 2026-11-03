@@ -188,6 +188,15 @@ test("a large JSON error is read whole", () => {
   expect(toolFailure(call(big))?.cause).toBe("quota exceeded");
 });
 
+test("a 4 MiB failure keeps complete detail and shell output beyond the bounded cause scan", () => {
+  const body = `${"x".repeat(2 << 20)}\nunique middle diagnostic\n${"y".repeat(2 << 20)}\nError: failed`;
+  const output = `Exit code 1\n${body}`;
+  const failure = toolFailure(call(output));
+  expect(failure?.cause).toBe("failed");
+  expect(failure?.detail).toBe(output);
+  expect(failure?.output).toBe(body);
+});
+
 test("a folded run says how many of its calls failed", () => {
   const html = renderToStaticMarkup(
     <ToolRun items={[item(call("Exit code 1\nboom")), item(call("ok", { status: "completed" }))]} disclosureKey="r">

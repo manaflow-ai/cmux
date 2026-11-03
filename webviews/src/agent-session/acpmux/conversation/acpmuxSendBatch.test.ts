@@ -292,11 +292,64 @@ describe("acpmuxMcpSends", () => {
       delivery: "queued",
       state: "sent",
     });
-    // More than the tool takes (32 items): it sent nothing, so no rows are drawn for it.
-    const many = Array.from({ length: 33 }, (_, at) => ({ to: `lane-${at}`, text: "hi" }));
-    expect(acpmuxMcpSends(mcp({ messages: many }))).toBeUndefined();
     // The tool's bare name is read too.
     expect(acpmuxMcpSends({ ...mcp({ to: "a", file: "/tmp/a.md" }), title: "acpmux_send" })?.[0]?.target).toBe("a");
+  });
+
+  test("1024 messages retain every body and result beyond the former item cap", () => {
+    const messages = Array.from({ length: 1024 }, (_, index) => ({
+      to: `recipient-${index}`,
+      text: `body-${index}\n${"x".repeat(4096)}`,
+    }));
+    const output = JSON.stringify({
+      results: messages.map(({ to }, index) => ({ index, to, ok: index !== 1023, delivery: "queued" })),
+    });
+    const parts = acpmuxMcpSends(mcp({ messages }, { output }));
+    expect(parts).toHaveLength(messages.length);
+    for (const [index, message] of messages.entries()) {
+      expect(parts![index]).toMatchObject({
+        target: message.to,
+        text: message.text,
+        index,
+        count: messages.length,
+        state: index === 1023 ? "failed" : "sent",
+      });
+    }
+  });
+
+  test("1025 tag recipients retain structured and text receipts beyond the former row cap", () => {
+    const targets = Array.from({ length: 1025 }, (_, index) => `recipient-${index}`);
+    const outputs = [
+      JSON.stringify({ results: targets.map((to) => ({ index: 0, to, ok: true })) }),
+      targets.map((to) => `Sent to ${to}: steered into its running turn.`).join("\n"),
+    ];
+    for (const output of outputs) {
+      const parts = acpmuxMcpSends(mcp({ tag: "area=docs", text: "hello" }, { output }));
+      expect(parts?.map((part) => part.target)).toEqual(targets);
+      expect(parts?.at(-1)).toMatchObject({ text: "hello", index: 1024, count: targets.length });
+    }
+  });
+
+  test("an unchanged large MCP send is parsed once; changed receipts invalidate the memo", () => {
+    const tool = mcp({
+      messages: Array.from({ length: 1024 }, (_, index) => ({ to: `recipient-${index}`, text: "hi" })),
+    });
+    const parse = JSON.parse;
+    let reads = 0;
+    JSON.parse = (source, reviver) => {
+      if (source === tool.inputSummary) reads += 1;
+      return parse(source, reviver);
+    };
+    try {
+      for (let token = 0; token < 50; token += 1) acpmuxMcpSends(tool);
+      expect(reads).toBe(1);
+      tool.status = "failed";
+      expect(acpmuxMcpSends(tool)?.at(-1)?.state).toBe("failed");
+      tool.output = JSON.stringify({ results: [{ index: 1023, to: "recipient-1023", ok: true, delivery: "queued" }] });
+      expect(acpmuxMcpSends(tool)?.[0]).toMatchObject({ target: "recipient-1023", state: "sent", delivery: "queued" });
+    } finally {
+      JSON.parse = parse;
+    }
   });
 
   test("the first shape with a file: its result line, sent or not", () => {

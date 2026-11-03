@@ -10,6 +10,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
+import type { FindRevealTarget } from "../src/agent-session/acpmux/conversation/chatFind";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -93,12 +94,19 @@ const row = (items: AcpmuxActivity[]): AcpmuxRow => ({
   items,
 });
 
-async function render(items: AcpmuxActivity[]) {
+async function render(items: AcpmuxActivity[], reveal?: FindRevealTarget) {
   const { createRoot } = await import("react-dom/client");
   const { ToolRows } = await import("../src/agent-session/acpmux/conversation/TurnRows");
+  const { FindReveal } = await import("../src/agent-session/acpmux/conversation/chatFind");
   act(() => root?.unmount());
   root = createRoot(host);
-  await act(async () => root!.render(<ToolRows row={row(items)} />));
+  await act(async () =>
+    root!.render(
+      <FindReveal.Provider value={reveal}>
+        <ToolRows row={row(items)} />
+      </FindReveal.Provider>,
+    ),
+  );
 }
 
 const labels = () => [...host.querySelectorAll(".cv-tool__text")].map((node) => node.textContent?.trim());
@@ -107,6 +115,78 @@ const click = async (button: HTMLButtonElement) =>
   act(async () => {
     button.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
   });
+
+const largeSend = (count: number, tag = false): AcpmuxActivity => ({
+  kind: "tool",
+  text: "mcp__cmux__acpmux_send",
+  tool: {
+    id: `large-send-${count}-${tag}`,
+    title: "mcp__cmux__acpmux_send",
+    kind: "other",
+    status: "completed",
+    inputSummary: JSON.stringify(
+      tag
+        ? { tag: "area=docs", text: "hello" }
+        : {
+            messages: Array.from({ length: count }, (_, index) => ({
+              to: `recipient-${index}`,
+              text: `body-${index}`,
+            })),
+          },
+    ),
+    output: JSON.stringify({
+      results: Array.from({ length: count }, (_, index) => ({
+        index: tag ? 0 : index,
+        to: `recipient-${index}`,
+        ok: true,
+      })),
+    }),
+  },
+});
+
+for (const [count, tag] of [
+  [1024, false],
+  [1025, true],
+] as const) {
+  test(`${count} MCP send recipients are all reachable with at most 32 mounted rows`, async () => {
+    await render([largeSend(count, tag)]);
+    const seen: string[] = [];
+    let pages = 0;
+    for (;;) {
+      const recipients = [...host.querySelectorAll(".cv-sent .cv-recipient")].map((node) => node.textContent);
+      expect(recipients.length).toBeGreaterThan(0);
+      expect(recipients.length).toBeLessThanOrEqual(32);
+      seen.push(...(recipients as string[]));
+      pages += 1;
+      const next = host.querySelector<HTMLButtonElement>('[data-send-page="next"]');
+      expect(next).not.toBeNull();
+      if (next!.disabled) break;
+      await click(next!);
+      expect(pages).toBeLessThanOrEqual(Math.ceil(count / 32));
+    }
+    expect(seen).toEqual(Array.from({ length: count }, (_, index) => `recipient-${index}`));
+    expect(pages).toBe(Math.ceil(count / 32));
+    await click(host.querySelector<HTMLButtonElement>('[data-send-page="previous"]')!);
+    expect(host.querySelector(".cv-sent .cv-recipient")?.textContent).toBe(`recipient-${(pages - 2) * 32}`);
+  });
+}
+
+test("Find reaches an off-page recipient and opens only its full Raw call", async () => {
+  const item = largeSend(1024, true);
+  await render([item], {
+    rowId: "activity",
+    card: false,
+    toolId: item.tool!.id,
+    needle: "recipient-1023",
+    repaint: () => {},
+  });
+  expect(host.querySelectorAll(".cv-sent")).toHaveLength(32);
+  expect([...host.querySelectorAll(".cv-sent .cv-recipient")].map((node) => node.textContent)).toContain(
+    "recipient-1023",
+  );
+  expect(host.querySelectorAll(".cv-subsession__under")).toHaveLength(1);
+  expect(host.querySelector(".cv-subsession__under")?.textContent).toContain("recipient-1023");
+});
 
 for (const [harness, call] of [
   ["Claude", claudeCall],
