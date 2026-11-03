@@ -420,10 +420,16 @@ fn messages_page_by_date_when_rowids_are_out_of_order() {
     let oldest = fx.message(chat, alice, false, 1, Some("oldest"));
     let middle = fx.message(chat, alice, false, 5, Some("middle"));
     let reader = fx.reader();
-    let rowids = |messages: Vec<cmux_imessage::Message>| messages.iter().map(|m| m.rowid).collect::<Vec<_>>();
+    let rowids = |messages: Vec<cmux_imessage::Message>| {
+        messages.iter().map(|m| m.rowid).collect::<Vec<_>>()
+    };
     assert_eq!(rowids(reader.messages(chat, None, 50).unwrap()), vec![oldest, middle, newest]);
     assert_eq!(rowids(reader.messages(chat, None, 2).unwrap()), vec![middle, newest]);
-    assert_eq!(rowids(reader.messages(chat, Some(middle), 2).unwrap()), vec![oldest], "pages back from the anchor by date");
+    assert_eq!(
+        rowids(reader.messages(chat, Some(middle), 2).unwrap()),
+        vec![oldest],
+        "pages back from the anchor by date"
+    );
     assert!(reader.messages(chat, Some(oldest), 2).unwrap().is_empty());
 }
 
@@ -440,7 +446,8 @@ fn stickers_and_app_messages_show_but_tapbacks_and_events_do_not() {
     fx.message_with(chat, alice, false, 5, Some("Removed a heart"), None, 0, 3000);
     fx.message_with(chat, alice, false, 6, Some("Loved (iOS 18)"), None, 0, 2007);
     fx.message_with(chat, alice, false, 7, None, None, 1, 0);
-    let shown: Vec<i64> = fx.reader().messages(chat, None, 50).unwrap().iter().map(|m| m.rowid).collect();
+    let shown: Vec<i64> =
+        fx.reader().messages(chat, None, 50).unwrap().iter().map(|m| m.rowid).collect();
     assert_eq!(shown, vec![text, sticker, app]);
 }
 
@@ -459,14 +466,24 @@ fn edits_and_unsends_reach_live_updates() {
     let edited_at = BASE_DATE_NS + 3 * 60 * 1_000_000_000;
     let unsent_at = BASE_DATE_NS + 4 * 60 * 1_000_000_000;
     fx.db
-        .execute("UPDATE message SET text = 'typo', date_edited = ?1 WHERE ROWID = ?2", params![edited_at, second])
+        .execute(
+            "UPDATE message SET text = 'typo', date_edited = ?1 WHERE ROWID = ?2",
+            params![edited_at, second],
+        )
         .unwrap();
     fx.db
-        .execute("UPDATE message SET text = NULL, date_retracted = ?1 WHERE ROWID = ?2", params![unsent_at, first])
+        .execute(
+            "UPDATE message SET text = NULL, date_retracted = ?1 WHERE ROWID = ?2",
+            params![unsent_at, first],
+        )
         .unwrap();
 
     let changed = reader.changed_since(mark, 50).unwrap();
-    assert_eq!(changed.iter().map(|m| m.rowid).collect::<Vec<_>>(), vec![second, first], "in change order");
+    assert_eq!(
+        changed.iter().map(|m| m.rowid).collect::<Vec<_>>(),
+        vec![second, first],
+        "in change order"
+    );
     assert!(changed[0].edited && !changed[0].unsent);
     assert_eq!(changed[0].text.as_deref(), Some("typo"));
     assert_eq!(changed[0].chat_id, chat);
@@ -482,7 +499,8 @@ fn edits_and_unsends_reach_live_updates() {
 
 #[test]
 fn databases_without_edit_columns_report_no_changes() {
-    let old_schema = SCHEMA.replace(",\n    date_edited INTEGER DEFAULT 0, date_retracted INTEGER DEFAULT 0", "");
+    let old_schema = SCHEMA
+        .replace(",\n    date_edited INTEGER DEFAULT 0, date_retracted INTEGER DEFAULT 0", "");
     assert!(!old_schema.contains("date_edited"));
     let fx = Fixture::with_schema(&old_schema);
     let alice = fx.handle("+15550001111");
