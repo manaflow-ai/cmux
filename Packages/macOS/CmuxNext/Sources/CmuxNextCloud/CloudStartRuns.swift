@@ -24,6 +24,9 @@ public final class CloudStartRuns<Answer: Sendable, Machine: Sendable> {
 
     public typealias Outcome = Result<Fields, any Error>
 
+    // A generic main-actor class: its isolated deinit crashes the Release optimizer (#23050).
+    nonisolated deinit {}
+
     private final class Run {
         var task: Task<Outcome, Never>?
         /// Callers waiting for its end now: each is resumed when it ends, with the failure it
@@ -36,6 +39,8 @@ public final class CloudStartRuns<Answer: Sendable, Machine: Sendable> {
         var forgotten = false
         /// When it ended with nobody waiting (kept for the next same ask).
         var kept: ContinuousClock.Instant?
+
+        nonisolated deinit {}
     }
 
     public static var kept: Duration { .seconds(600) }
