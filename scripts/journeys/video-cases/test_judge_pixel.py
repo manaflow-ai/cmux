@@ -154,6 +154,9 @@ def frame(k, variant):
     if variant == "held" and 12 <= k <= 40:
         a_view = A_REST  # A's content keeps its rest width while its pane grows
     draw_tui(img, 0, a_view, picture_w=a_width(max(s - 3, 0), variant) if variant == "cut" else None, y0=y0)
+    if variant == "wide-ground":
+        # The divider band shows ground color (cyan): A's strip and B's would run together through it.
+        img[:, int(round(aw)):int(round(aw)) + DIV_PX] = CYAN
     if variant == "glyph":
         # A ruler digit in the old black-class ink just inside A's left ring 3, on every row.
         img[y0:, PAD + 3 * CW + 2:PAD + 3 * CW + 6] = GLYPH
@@ -291,7 +294,7 @@ class JudgePixelTests(unittest.TestCase):
         cls.reports = {v: jp.judge(build(cls.tmp, v, v)) for v in ("clean", "lag1", "gap2", "hidden", "spring", "spring-slow", "cut",
                                                                     "backdrop", "strip", "strip-lag", "pill-lag", "d4-cover", "glyph",
                                                                     "samefill", "cue", "held", "reduce-drag", "reduce-keys",
-                                                                    "strip-touch", "strip-scrolled")}
+                                                                    "strip-touch", "strip-scrolled", "wide-ground")}
 
     @classmethod
     def tearDownClass(cls):
@@ -446,10 +449,26 @@ class JudgePixelTests(unittest.TestCase):
         self.assertEqual(hi["frames"], 60)
         self.assertLessEqual(abs(hi["max_edge_dev_px"]), 1.0, hi["dev_top"])
         self.assertFalse([s for s in r["summary"].values() if s["label"] == "strip p0" and s["side"] == "lo" and s["frames"]])
-        self.assertFalse([s for s in r["summary"].values() if s["label"] == "p0" and s["side"] == "lo" and s["frames"]])
-        self.assertEqual(side(r, "p0", "row@110", "hi")["max_edge_dev_px"], 0.0)
+        # A's left edge (rows cross it) is hidden: never judged. Its top edge (the col@100 line's lo) shows and is.
+        self.assertFalse([s for s in r["summary"].values() if s["label"] == "p0" and s["side"] == "lo"
+                          and s["line"].startswith("row@") and s["frames"]])
+        self.assertEqual(side(r, "p0", "col@100", "lo")["max_edge_dev_px"], 0.0)
+        # Row 110 runs along one of A's ring rows here (no fill: not judged); row 180 crosses A's fill.
+        self.assertEqual(side(r, "p0", "row@180", "hi")["max_edge_dev_px"], 0.0)
         self.assertNotIn("tab strip edge off", [f["check"] for f in r["findings"]])
         self.assertNotIn("shell inside the pane", [f["check"] for f in r["findings"]])
+
+    def test_the_ground_strip_stops_at_its_own_width(self):
+        """The ground strip is Ghostty's padding and the whole-cell remainder: at most a cell and the padding. A
+        neighbour that shows only ground color (an empty terminal) beside it is not this pane's strip (base03f6
+        px-window-resize-4-s1 frame 167: p0's lo strip ran through the cyan pane beside it to x=416: -1057 px)."""
+        r = self.reports["wide-ground"]
+        b_lo = side(r, "p1", "row@110", "lo")
+        a_hi = side(r, "p0", "row@110", "hi")
+        self.assertLessEqual(abs(a_hi["max_edge_dev_px"]), 1.0, a_hi["dev_top"])
+        self.assertLessEqual(a_hi["strip_max_px"], 4.0 + 16.0)
+        self.assertEqual(a_hi["cut_ring_frames"], 0)
+        self.assertEqual(b_lo["max_edge_dev_px"], 0.0)
 
     def test_tab_strip_lag_found(self):
         r = self.reports["strip-lag"]
