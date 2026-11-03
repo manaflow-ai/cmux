@@ -1532,7 +1532,8 @@ class TrustBoundaryTests(unittest.TestCase):
         for path in ("scripts", "config", "scripts/cmux-next", "webviews/check.sh"):
             with self.subTest(path=path):
                 self.assertEqual(lint.executed_changes(webviews, [path]), [path])
-        for path in ("scripts2", "webviews/src/a.ts", "README.md", "configs"):
+        # A file directly in the root is above the package (above_package()); these are one folder down.
+        for path in ("scripts2/x.py", "webviews/src/a.ts", "docs/README.md", "configs/a.json"):
             with self.subTest(path=path):
                 self.assertEqual(lint.executed_changes(webviews, [path]), [])
         web = lint.ESLINT_PACKAGES[0]
@@ -1554,12 +1555,16 @@ class TrustBoundaryTests(unittest.TestCase):
             (repo / "webviews/src/x").write_text("")
             (repo / "Scripts").symlink_to("webviews/src")
             (repo / "webviews/check.sh").symlink_to("src/x")
+            (repo / "NOTES.md").write_text("")
+            (repo / "AGENTS.md").symlink_to("NOTES.md")  # check code to check code: allowed
+            (repo / "out.md").symlink_to("../elsewhere")  # out of the repository: refused
             run("add", "-A")
             run("-c", "user.email=a@b", "-c", "user.name=n", "commit", "--quiet", "-m", "x")
             head = run("rev-parse", "HEAD").stdout.decode().strip()
             sources = tuple(f"webviews/{d}" for d in lint.SOURCE_DIRS)
-            self.assertEqual(lint.executed_symlinks(repo, head, webviews.executed, sources),
-                             ["Scripts", "webviews/check.sh"])
+            self.assertEqual(lint.executed_symlinks(repo, head, webviews.executed, sources,
+                                                    lint.package_directories(webviews)),
+                             ["Scripts", "out.md", "webviews/check.sh"])
             with self.assertRaises(SystemExit):
                 lint.tree_symlinks(repo, "0" * 40)
 
@@ -1618,11 +1623,13 @@ class TrustBoundaryTests(unittest.TestCase):
         for package in lint.SCRIPT_PACKAGES:
             with self.subTest(package=package.directory):
                 sources = tuple(f"{package.directory}/{d}" for d in lint.SOURCE_DIRS)
-                self.assertEqual(lint.executed_symlinks(SOURCE, head, package.executed, sources), [])
+                self.assertEqual(lint.executed_symlinks(SOURCE, head, package.executed, sources,
+                                                        lint.package_directories(package)), [])
                 scripts = lint.package_scripts(SOURCE, package)
                 self.assertEqual(lint.escaping_paths(SOURCE, lint.named_scripts(package, scripts)), [])
         for package in lint.ESLINT_PACKAGES:
-            self.assertEqual(lint.executed_symlinks(SOURCE, head, package.executed), [])
+            self.assertEqual(lint.executed_symlinks(SOURCE, head, package.executed, (),
+                                                    lint.package_directories(package)), [])
 
 
 if __name__ == "__main__":

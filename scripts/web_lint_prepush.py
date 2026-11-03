@@ -25,7 +25,8 @@ measured from where the pushed commit meets the reviewed branches (<remote>/feat
 not from the branch's last pushed head, so an earlier push of the same branch that changed check code keeps every
 later push of it out too (trust_base()). It counts deletes and type changes, and a change to a parent folder of
 check code (a folder turned into a symlink). Check code may hold no symlink in the pushed commit, at its paths or
-any parent folder (executed_symlinks()), and before anything runs every executed folder and every script a check
+any parent folder (executed_symlinks()). A file directly in a folder above a package, or in a node_modules there,
+is check code too: tools search upward for their config (above_package()). Before anything runs every executed folder and every script a check
 names must resolve, symlinks followed, to that same path in the tree being linted (escaping_paths()).
 
 Which files: a push's own range (scripts/cmux-next/push_range.py, the definition the
@@ -272,7 +273,9 @@ def under(path: str, prefixes: tuple[str, ...]) -> bool:
 def fold(path: str) -> str:
     """PATH as a case-insensitive, normalization-insensitive file system (macOS) sees it: two paths with one fold
     are one file there, so the trust checks compare folds."""
-    return unicodedata.normalize("NFC", path).casefold()
+    normal = unicodedata.normalize("NFC", path)
+    # HFS+ ignores some format characters (U+200C, U+FEFF ...) in names: drop every one of that category.
+    return "".join(char for char in normal if unicodedata.category(char) != "Cf").casefold()
 
 
 def folded(prefixes: tuple[str, ...]) -> tuple[str, ...]:
@@ -284,27 +287,61 @@ def above(path: str, prefixes: tuple[str, ...]) -> bool:
     return any(p.startswith(f"{path.rstrip('/')}/") and p.rstrip("/") != path.rstrip("/") for p in prefixes)
 
 
-def is_check_code(path: str, executed: tuple[str, ...], sources: tuple[str, ...] = ()) -> bool:
-    """PATH, folded, is at, inside (outside SOURCES) or a parent folder of an EXECUTED path, folded."""
+def folders_above(directories: tuple[str, ...]) -> tuple[str, ...]:
+    """The folders above each of DIRECTORIES, up to the repository root ("")."""
+    found = []
+    for directory in directories:
+        parts = directory.strip("/").split("/")
+        found += ["/".join(parts[:n]) for n in range(len(parts))]
+    return tuple(dict.fromkeys(found))
+
+
+def above_package(path: str, directories: tuple[str, ...]) -> bool:
+    """PATH lies directly in a folder above one of DIRECTORIES, or in a node_modules there. Tools search upward from
+    a package for what they load: Vite a PostCSS config up to the workspace root (which a root package.json or
+    pnpm-workspace.yaml moves), TypeScript and bun their configs, Node node_modules. So every such file is check
+    code; no push to these folders' own files is common (2 in 410 web pushes, both .gitignore)."""
+    path = fold(path)
+    for folder in folded(folders_above(directories)):
+        inside = path[len(folder) + 1:] if folder else path
+        if folder and not path.startswith(f"{folder}/"):
+            continue
+        if "/" not in inside or inside.startswith("node_modules/"):
+            return True
+    return False
+
+
+def is_check_code(path: str, executed: tuple[str, ...], sources: tuple[str, ...] = (),
+                  directories: tuple[str, ...] = ()) -> bool:
+    """PATH, folded, is at, inside (outside SOURCES) or a parent folder of an EXECUTED path, or directly in a folder
+    above one of DIRECTORIES (the package and its local builds; above_package())."""
+    if directories and above_package(path, directories):
+        return True
     path, executed, sources = fold(path), folded(executed), folded(sources)
     return (under(path, executed) and not under(path, sources)) or above(path, executed)
 
 
+def package_directories(package) -> tuple[str, ...]:
+    """The folders a package's check runs tools in: its own and its local builds'."""
+    return (package.directory, *(build.directory for build in getattr(package, "builds", ())))
+
+
 def executed_changes(package: ScriptPackage, files: list[str]) -> list[str]:
     sources = tuple(f"{package.directory}/{d}" for d in SOURCE_DIRS)
-    return [path for path in files if is_check_code(path, package.executed, sources)]
+    return [path for path in files if is_check_code(path, package.executed, sources, package_directories(package))]
 
 
 def eslint_executed_changes(package: EslintPackage, files: list[str]) -> list[str]:
     executed = folded(package.executed)
-    return [f for f in files if fold(f) in executed or above(fold(f), executed)]
+    return [f for f in files if fold(f) in executed or above(fold(f), executed)
+            or above_package(f, package_directories(package))]
 
 
 # The branches whose history is reviewed: check code that matches where a pushed commit meets one of them is
 # reviewed code. The remote's HEAD (main) counts too, for a main-based branch. Only on a reviewed remote
 # (reviewed_remotes()): a fork's feat-cmux-next is whatever its owner pushed.
 REVIEWED_BRANCHES = ("feat-cmux-next", "HEAD")
-REVIEWED_URL = re.compile(r"github\.com[:/]+manaflow-ai/cmux(\.git)?/?$")
+REVIEWED_URL = re.compile(r"^(?:(?:https|ssh|git)://(?:[^@/]+@)?|[^@/:]+@)github\.com[:/]manaflow-ai/cmux(?:\.git)?/?$")
 # `git config --add cmux.reviewedRemote NAME`: a remote of this clone whose branches are reviewed though its URL is not
 # manaflow-ai/cmux's (a mirror). Local config, which no push can set.
 REVIEWED_REMOTE_CONFIG = "cmux.reviewedRemote"
@@ -355,13 +392,28 @@ def trust_files(repo: Path, base: str, head: str) -> list[str]:
 SYMLINK_MODE = "120000"
 
 
-def executed_symlinks(repo: Path, sha: str, executed: tuple[str, ...], sources: tuple[str, ...] = ()) -> list[str]:
+def executed_symlinks(repo: Path, sha: str, executed: tuple[str, ...], sources: tuple[str, ...] = (),
+                      directories: tuple[str, ...] = ()) -> list[str]:
     """The symlinks commit SHA holds at check code: at an EXECUTED path, inside one (outside SOURCES, which the
     check never runs), or at a parent folder of one. One `git ls-tree` over their top-level folders."""
-    found = []
-    for path in tree_symlinks(repo, sha):
-        if is_check_code(path, executed, sources):
-            found.append(path)
+    links = tree_symlinks(repo, sha)
+    candidates = [path for path in links if is_check_code(path, executed, sources, directories)]
+    if not candidates:
+        return []
+    # A link at check code is safe only when it points at another file that is itself check code (inside the
+    # repository, not a link): any change to that target is then a change to check code (AGENTS.md -> CLAUDE.md).
+    names = set(links)
+    files = CommitFiles(repo, sha)
+    try:
+        found = []
+        for path in candidates:
+            target_text = (files.read(path) or b"").decode("utf-8", "surrogateescape")
+            target = posixpath.normpath(posixpath.join(posixpath.dirname(path), target_text))
+            if (target_text.startswith("/") or target.startswith("../") or target == ".." or target in names
+                    or files.read(target) is None or not is_check_code(target, executed, sources, directories)):
+                found.append(path)
+    finally:
+        files.close()
     return sorted(found)
 
 
@@ -387,8 +439,11 @@ JS_EXTENSIONS = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
 # What a module names as code it loads: an import or export from, a side-effect import, import(), require() and
 # new URL(..., import.meta.url) (a loader path handed to a tool), with a quoted literal.
 IMPORT_SPEC = re.compile(r"""(?:\bfrom|(?<![@\w.$])import|\brequire\s*\(|\bimport\s*\(|\bnew\s+URL\s*\()\s*(["'`])([^"'`\n]+)\1""")
-# import(...) or require(...) of anything but a quoted literal: the module it loads can't be told from the source.
-COMPUTED_IMPORT = re.compile(r"""(?<![@\w.$])(?:import|require)\s*\(\s*(?![\s"'])(?!`[^`$]*`)""")
+# import(...) or require(...) of anything but one plain string literal (a name built with + or ${} too): the module
+# it loads can't be told from the source.
+COMPUTED_IMPORT = re.compile(r"""(?<![@\w.$])(?:import|require)\s*\(\s*(?!(["'])[^"'\n]*\1\s*[,)])(?!`[^`$\n]*`\s*[,)])""")
+# A line that is all comment: an import() it mentions loads nothing.
+COMMENT_LINE = re.compile(r"^\s*(?://|/\*|\*)")
 # In a JSON config a tool reads (an Oxlint `jsPlugins` list): a relative path string names a module it loads.
 JSON_MODULE = re.compile(r'"(\.{1,2}/[^"\n]+(?:%s))"' % "|".join(re.escape(e) for e in JS_EXTENSIONS))
 LIFECYCLE_SCRIPTS = ("preinstall", "install", "postinstall", "prepare")
@@ -409,7 +464,10 @@ class CommitFiles:
         if path not in self.cache:
             self.process.stdin.write(f"{self.sha}:{path}\n".encode("utf-8", "surrogateescape"))
             self.process.stdin.flush()
-            header = self.process.stdout.readline().split()
+            line = self.process.stdout.readline()
+            if not line:  # git died: never read that as "no such file"
+                raise SystemExit(f"web-lint: git cat-file stopped while reading {self.sha}; nothing was linted")
+            header = line.split()
             if len(header) == 3 and header[1] == b"blob":
                 data = self.process.stdout.read(int(header[2]))
                 self.process.stdout.read(1)
@@ -425,49 +483,36 @@ class CommitFiles:
         self.process.wait()
 
 
-def without_comments(text: str) -> str:
-    """TEXT, a JS or TS module, with its // and /* */ comments blanked and its strings and template literals kept, so a
-    comment that mentions import() reads as no import. Only reviewed modules are read this way (a module a push
-    changed is check code the push changed, refused before this matters), so it needs to be right, not hardened."""
-    out, index, size, depth = [], 0, len(text), []
-    while index < size:
-        char, pair = text[index], text[index:index + 2]
-        if depth and depth[-1] == "`":
-            if char == "\\":
-                out.append(text[index:index + 2]); index += 2; continue
-            if char == "`":
-                depth.pop()
-            elif pair == "${":
-                depth.append("{"); out.append(pair); index += 2; continue
-            out.append(char); index += 1; continue
-        if pair == "//":
-            end = text.find("\n", index)
-            index = size if end == -1 else end
-            continue
-        if pair == "/*":
-            end = text.find("*/", index + 2)
-            index = size if end == -1 else end + 2
-            out.append(" ")
-            continue
-        if char in "'\"":
-            end = index + 1
-            while end < size and text[end] != char and text[end] != "\n":
-                end += 2 if text[end] == "\\" else 1
-            out.append(text[index:end + 1]); index = end + 1; continue
-        if char == "`":
-            depth.append("`")
-        elif char == "{" and depth:
-            depth.append("{")
-        elif char == "}" and depth and depth[-1] == "{":
-            depth.pop()
-        out.append(char); index += 1
-    return "".join(out)
+def package_entry_points(text: str) -> list[str]:
+    """The files a folder's package.json names as what importing the folder loads (main, module, browser, exports),
+    as specifiers relative to the package.json; an unreadable one names none (its folder's index files still count)."""
+    try:
+        manifest = json.loads(text)
+    except ValueError:
+        return []
+    found = []
+
+    def walk(value):
+        if isinstance(value, str):
+            found.append(value if value.startswith(("./", "../")) else f"./{value}")
+        elif isinstance(value, dict):
+            for item in value.values():
+                walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+    if isinstance(manifest, dict):
+        for key in ("main", "module", "browser", "exports"):
+            walk(manifest.get(key))
+    return found
 
 
 def module_candidates(importer: str, spec: str) -> list[str]:
-    """The repository paths a relative SPEC in IMPORTER may load, in the order Node, Vite and TypeScript try them."""
+    """The repository paths a relative SPEC in IMPORTER may load: every file Node, bun, Vite or TypeScript may try
+    (a folder's package.json is read for the files it names)."""
     path = posixpath.normpath(posixpath.join(posixpath.dirname(importer), spec.split("?", 1)[0]))
-    found = [path, *(path + ext for ext in JS_EXTENSIONS), *(f"{path}/index{ext}" for ext in JS_EXTENSIONS)]
+    found = [path, *(path + ext for ext in JS_EXTENSIONS), f"{path}/package.json",
+             *(f"{path}/index{ext}" for ext in JS_EXTENSIONS)]
     for js, typed in ((".js", (".ts", ".tsx")), (".mjs", (".mts",)), (".cjs", (".cts",)), (".jsx", (".tsx",))):
         if path.endswith(js):
             found += [path[:-len(js)] + ext for ext in typed]
@@ -483,7 +528,7 @@ def executed_sources(repo: Path, sha: str, package: ScriptPackage, scripts: dict
     entries = set()
     for script in ("check", "check:fix", *LIFECYCLE_SCRIPTS):
         entries.update(named_scripts(package, scripts, script))
-    top = git(repo, "ls-tree", "-z", "--name-only", sha, "--", f"{package.directory}/", check=False)
+    top = git(repo, "ls-tree", "-z", "--name-only", sha, "--", f"{package.directory}/")
     entries.update(name for name in top.split("\0") if re.search(r"\.config\.[cm]?[jt]s$", name))
     files = CommitFiles(repo, sha)
     reached, problems, unresolved = set(), [], set()
@@ -499,12 +544,16 @@ def executed_sources(repo: Path, sha: str, package: ScriptPackage, scripts: dict
                 continue
             reached.add(path)
             text = data.decode("utf-8", "replace")
-            if path.endswith(".json"):
+            if path.endswith("/package.json"):
+                specs = package_entry_points(text)
+            elif path.endswith(".json"):
                 specs = JSON_MODULE.findall(text)
             else:
-                code = without_comments(text)
-                specs = [match.group(2) for match in IMPORT_SPEC.finditer(code)]
-                if COMPUTED_IMPORT.search(code):
+                # The raw text, comments too: a literal in a comment only adds a module, never hides one (a regex
+                # literal that looks like a comment opener can't blank code). An import() whose argument is not one
+                # literal refuses the package, unless its line is all comment.
+                specs = [match.group(2) for match in IMPORT_SPEC.finditer(text)]
+                if any(COMPUTED_IMPORT.search(line) and not COMMENT_LINE.match(line) for line in text.splitlines()):
                     problems.append(f"{path} (loads a module whose name is computed)")
             for spec in specs:
                 if spec.startswith("#"):
@@ -596,7 +645,8 @@ def make_plan(repo: Path, files: list[str], guard_executed: bool, exists=None, t
         risky = executed_changes(package, trusted_files) if guard_executed else []
         if guard_executed and sha:
             sources = tuple(f"{package.directory}/{d}" for d in SOURCE_DIRS)
-            risky += [f"{path} (a symlink)" for path in executed_symlinks(repo, sha, package.executed, sources)]
+            risky += [f"{path} (a symlink)" for path in
+                      executed_symlinks(repo, sha, package.executed, sources, package_directories(package))]
             loaded, problems = executed_sources(repo, sha, package, package_scripts(repo, package, read))
             risky += [f for f in trusted_files if fold(f) in loaded and f not in risky] + problems
         if risky:
@@ -612,7 +662,8 @@ def make_plan(repo: Path, files: list[str], guard_executed: bool, exists=None, t
             continue
         risky = eslint_executed_changes(package, trusted_files) if guard_executed else []
         if guard_executed and sha:
-            risky += [f"{path} (a symlink)" for path in executed_symlinks(repo, sha, package.executed)]
+            risky += [f"{path} (a symlink)" for path in
+                      executed_symlinks(repo, sha, package.executed, (), package_directories(package))]
         if risky:
             plan.untrusted.append((package.directory, risky))
         else:
