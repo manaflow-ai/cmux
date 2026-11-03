@@ -38,7 +38,6 @@ final class CloudService {
     /// One app-lifetime owner of confirmed, per-account Codex delivery.
     let codexBroker: CloudCodexBrokerAdapter
     @ObservationIgnored private let work: BackgroundWork
-    @ObservationIgnored private let clearPeerSnapshots: @Sendable () async throws -> Void
     @ObservationIgnored private(set) var hub: CloudTunnelHub?
     /// Whether a cmux Pro offer is on screen (CloudPresenter.offerPro).
     @ObservationIgnored var proOfferOpen = false
@@ -201,12 +200,6 @@ final class CloudService {
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
         let environment = ProcessInfo.processInfo.environment
         let userHome = FileManager.default.homeDirectoryForCurrentUser
-        clearPeerSnapshots = {
-            let acpmux = try await work.run(.userVisible, mayBlock: .files) {
-                AcpmuxEnvironment.resolve(build: build, bundledBinDirectory: bin, environment: environment, userHome: userHome)
-            }
-            try await acpmux?.clearPeerSnapshots()
-        }
         codexBroker = CloudCodexBrokerAdapter(root: paths.root, registry: CloudCodexBrokerRegistry(),
             currentScope: {
                 guard auth.isSignedIn, let user = auth.user else { return nil }
@@ -896,13 +889,12 @@ final class CloudService {
         startSessionAsks.endAll()
         for hook in willSignOut { hook() }
         await codexBroker.signOut()
-        AgentPaneTailCache.shared.clear()
         // No ensure starts from here until the session's final endLink (the
         // signed-out branch above, after auth.signOut).
         link.beginEnding()
         dropAllMachines()
         await link.endLink(final: false)
-        do { try await clearPeerSnapshots() } catch { logger.error("clear peer tails on sign-out: \(String(describing: error), privacy: .public)") }
+        do { try await AcpmuxEnvironment.clearPeerTails(build: LaunchIdentity.current().build, work: work) } catch { logger.error("clear peer tails on sign-out: \(String(describing: error), privacy: .public)") }
         desktopRdTokens.removeAll()
         if let hub { await hub.revoke() }
         // Revoke the install while the Stack session still exists.
