@@ -39,7 +39,7 @@
 /* A line that starts with its toggle: the hover plate keeps its inset, the icon stays in the
    shared column. */
 .cv-disclosure__line > :is(.cv-disclosure__toggle, .cv-disclosure__open):first-child:not(.is-chevron) {
-  margin-inline-start: calc(-0.5 * var(--ds-space-1));
+  margin-inline-start: calc(-1 * var(--ds-space-1));
 }
 /* A line that opens a chat (`.cv-disclosure__open`) ends at its status; its chevron is the panel's
    own toggle right after it. */
@@ -77,7 +77,10 @@
 .cv-disclosure__label:empty {
   display: none;
 }
-.cv-disclosure__toggle:not(:has(> .cv-disclosure__label:not(:empty), > .cv-disclosure__icon)) {
+/* Only after a leading part (a received line's sender): a line that starts with its toggle keeps
+   that toggle's inset rule above. */
+.cv-disclosure__line
+  > * + .cv-disclosure__toggle:not(.is-chevron):not(:has(> .cv-disclosure__label:not(:empty), > .cv-disclosure__icon)) {
   padding-inline-start: 0;
   margin-inline-start: calc(-1 * var(--ds-space-1));
 }
