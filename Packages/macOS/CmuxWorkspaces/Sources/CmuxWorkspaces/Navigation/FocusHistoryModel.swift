@@ -621,6 +621,16 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
         return true
     }
 
+    @discardableResult
+    public func navigateToLastFocusedSurface() -> Bool {
+        false
+    }
+
+    @discardableResult
+    public func navigateToLastFocusedWorkspace() -> Bool {
+        false
+    }
+
     public var canNavigateBack: Bool {
         let currentEntry = currentFocusHistoryEntry
         return historyIndex > 0 && focusHistory.prefix(historyIndex).contains { record in
