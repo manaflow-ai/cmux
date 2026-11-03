@@ -76,7 +76,7 @@ grep -qxF "CHIEF_BOX_USER=chief" "$pre/chief-box.env" || fail "chief-box.env los
 mv "$pre/model.env" "$tmp/model.env.real"
 ln -s "$tmp/model.env.real" "$pre/model.env"
 if "$here/install.sh" "${base[@]}" > "$tmp/out.log" 2>&1; then fail "install.sh accepted a symlinked model.env"; fi
-grep -q "model.env is not a regular file" "$tmp/out.log" || fail "symlinked model.env refused for another reason: $(cat "$tmp/out.log")"
+grep -q -E "model.env is not a regular file|refusing to write through a symlink: .*/model.env" "$tmp/out.log" || fail "symlinked model.env refused for another reason: $(cat "$tmp/out.log")"
 rm "$pre/model.env"; mv "$tmp/model.env.real" "$pre/model.env"
 chmod 0644 "$pre/model.env"
 if "$here/install.sh" "${base[@]}" > "$tmp/out.log" 2>&1; then fail "install.sh accepted a 0644 model.env"; fi
