@@ -857,6 +857,11 @@ fn linux_keeper_args_with_exe(
         }
         out.extend(["--api-port".into(), port.to_string(), "--api-loopback-v4".into()]);
     }
+    // A router on another host (a cloud VM's sr2 :4016): open that port as the
+    // macOS profile does; 80 and 443 are open already.
+    if let Some((port, false)) = bound.api_port.filter(|(p, _)| !matches!(p, 80 | 443)) {
+        out.extend(["--api-remote-port".into(), port.to_string()]);
+    }
     out.push("--".into());
     out.push("/usr/bin/env".into());
     for key in REFUSED_ENV {

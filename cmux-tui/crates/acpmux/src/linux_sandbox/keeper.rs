@@ -134,6 +134,10 @@ struct Options {
     paths: Paths,
     proxy_port: u16,
     api: Option<SocketAddr>,
+    /// Claude's API port on another host (`--api-remote-port`): the proxy
+    /// lets that port through to non-loopback addresses, as Seatbelt does on
+    /// macOS. No listener is made for it.
+    api_remote: Option<u16>,
     program: String,
     args: Vec<String>,
 }
@@ -165,7 +169,10 @@ fn parse(args: Vec<OsString>) -> Result<Options> {
             | "--claude-tmp-project"
             | "--claude-project"
             | "--proxy-port"
-            | "--api-port" => input.next().ok_or_else(|| format!("missing value for {flag}"))?,
+            | "--api-port"
+            | "--api-remote-port" => {
+                input.next().ok_or_else(|| format!("missing value for {flag}"))?
+            }
             _ => return Err(format!("unknown option: {flag}")),
         };
         if values.insert(flag.as_str(), value).is_some() {
@@ -191,6 +198,12 @@ fn parse(args: Vec<OsString>) -> Result<Options> {
     if (v4 && v6) || api_port.is_some() != (v4 || v6) || api_port == Some(proxy_port) {
         return Err("API needs one loopback family and a port distinct from the proxy".into());
     }
+    let api_remote = values.get("--api-remote-port").map(|v| port(v)).transpose()?;
+    if api_remote.is_some() && (api_port.is_some() || api_remote == Some(proxy_port)) {
+        return Err(
+            "a remote API port excludes a loopback one and must differ from the proxy".into()
+        );
+    }
     let program = args.get(end + 1).ok_or("missing program after --")?;
     absolute(program)?;
     Ok(Options {
@@ -203,6 +216,7 @@ fn parse(args: Vec<OsString>) -> Result<Options> {
         },
         proxy_port,
         api: api_port.map(|p| SocketAddr::new(Ipv4Addr::LOCALHOST.into(), p)),
+        api_remote,
         program: program.clone(),
         args: args.get(end + 2..).unwrap_or_default().to_vec(),
     })
@@ -602,9 +616,11 @@ async fn session(
 }
 
 /// The proxy's port policy: the loopback API port (served by the forwarder),
-/// else 80/443 only.
+/// else a remote API port, else 80/443 only.
 fn net_policy(options: &Options) -> proxy::NetPolicy {
-    proxy::NetPolicy { api: options.api.map(|a| (a.port(), true)) }
+    proxy::NetPolicy {
+        api: options.api.map(|a| (a.port(), true)).or(options.api_remote.map(|p| (p, false))),
+    }
 }
 
 fn init_prefix(
