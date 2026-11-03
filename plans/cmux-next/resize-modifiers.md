@@ -50,7 +50,8 @@ those defaults; they never invent a third model.
   monitor only between press and release.
 - While a key changes the drag, a toast at the bottom of the window names the mode
   ("⌥ Push: the column grows and moves the columns after it"); it names only modes that apply to the
-  handle and goes on release. The snap haptic (`.alignment`) plays as before.
+  handle and goes on release. While Shift is held, the snap haptic (`.alignment`) plays when the snap (or
+  preset width) the release would land on changes, on split dividers and column edges.
 - Double-click stays: a split divider evens its chain, a column edge steps to the next preset.
 - Row edges ignore the modifiers (their own fit-and-scroll rules, rows.md Z1).
 - Option on a vertical divider, a `splits` screen or a docked column has nothing to push: the drag is

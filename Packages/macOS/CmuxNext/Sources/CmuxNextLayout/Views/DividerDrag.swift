@@ -155,6 +155,8 @@ struct DividerDrag {
     private func splitTargets(_ id: SplitID, drag: inout DividerDragState, point: CGPoint, phase: LayoutGesturePhase) -> [DividerDragValue] {
         let style = screen.context.style
         if drag.modifiers.push, let push = drag.push {
+            // A push lands where the pointer is (Option-Shift too, resize-modifiers.md): no Shift landing to keep.
+            drag.snapped = nil
             return push.targets(delta: (drag.axis == .horizontal ? point.x : point.y) - drag.pressAt)
         }
         // Where the pointer is, a fling's release too; Shift's release on the nearest snap, where its spring carries it.
