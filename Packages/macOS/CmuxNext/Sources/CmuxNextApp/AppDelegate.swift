@@ -551,7 +551,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings?.stop()
         services?.mobile.stop()
         services?.iphone.stop()
+        services?.dockMenu.stop()
         services?.daemon.shutdownConnection()
+    }
+
+    /// The Dock icon's menu, from rows the controller already holds: it never waits on acpmux or disk.
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        services?.dockMenu.menu()
     }
 
     /// The app stays running with no windows (standard macOS behavior): a window closes when its

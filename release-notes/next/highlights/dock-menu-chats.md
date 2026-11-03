@@ -1,0 +1,5 @@
+title: Start or continue a chat from the Dock
+category: new
+
+Right-click cmux in the Dock for New Chat, New Chat in a harness or on another machine, Continue your
+last chat, and your unread and recent chats.
