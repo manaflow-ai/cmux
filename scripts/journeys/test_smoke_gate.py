@@ -1322,7 +1322,10 @@ class OpenP0(unittest.TestCase):
             # A record that names a non-fail, or has an empty run_at or out, is refused by the reader: no .pass.
             for change in ({"status": "not_run"}, {"run_at": ""}, {"out": ""}):
                 got = blockers([fail, misread, passed, record(fail, **change)])
+                # The reader's own error, with the file and the record's line (line 4), not a load failure.
                 self.assertTrue(got and "no .pass" in got[0][1], (change, got))
+                self.assertIn("LedgerError", got[0][1], change)
+                self.assertIn("J.jsonl line 4", got[0][1], change)
             self.assertIn("FAILED on J", blockers([fail, passed, dict(record(fail), id="other")])[0][1])
             # A second, unnamed fail of the journey still blocks.
             again = dict(fail, run_at="T4", out="/a4", reason="real")
@@ -1388,7 +1391,17 @@ class OpenP0(unittest.TestCase):
             mod.P0_LEDGER.mkdir()
             ok = {"kit_dirty": False, "options": {}, "runner": "p0-journey-runner"}
             (mod.P0_LEDGER / "J.jsonl").write_text(json.dumps({"id": "j", "status": "pass", "build_job": "J", **ok}) + "\n")
-            reader.write_text("import json\ndef live_rows(path):\n    return [json.loads(l) for l in open(path)]\n")
+            ran = "import json\ndef live_rows(path):\n    return [json.loads(l) for l in open(path)]\n"
+            reader.write_text(ran)
+            used = []
+            self.assertEqual(mod.open_p0_blockers("J", reader_used=used), [])
+            # The .pass names the bytes that ran, also when the file changes before the .pass is written (review
+            # note 1 at 19c5ce5159b: a second read named a hash that did not run).
+            reader.write_text(ran + "# changed after the check\n")
+            self.assertEqual(used, [{"path": str(reader), "sha256": hashlib.sha256(ran.encode()).hexdigest()}])
+            # A reader that needs its module in sys.modules (a dataclass) loads.
+            reader.write_text("import dataclasses, json\n@dataclasses.dataclass\nclass R:\n    x: int = 0\n"
+                              "def live_rows(path):\n    return [json.loads(l) for l in open(path)]\n")
             self.assertEqual(mod.open_p0_blockers("J"), [])
             mod.P0_READER_FROM_ENV = True  # what the env override sets at import
             blockers = mod.open_p0_blockers("J")
@@ -1409,7 +1422,7 @@ class OpenP0(unittest.TestCase):
         # One rule in one place (lead 2026-11-03): the gate's rows are exactly the runner's live_rows on the judged
         # ledgers (e543e68d, 64ef2a21, 634398d4, ecf26eee, 8e149f2e; STATUS 9567).
         mod = load_gate()
-        live_rows, why = mod.p0_ledger_reader()
+        live_rows, why, _ = mod.p0_ledger_reader()
         if live_rows is None:
             self.skipTest(why)
         folder = Path("/Users/lawrence/fun/wt/handoff/open-p0-results")
@@ -1424,7 +1437,7 @@ class OpenP0(unittest.TestCase):
                 want = [r for r in live_rows(str(folder / f"{job}.jsonl")) if r.get("build_job") == job]
                 seen = []
                 real = mod.p0_ledger_reader
-                mod.p0_ledger_reader = lambda: ((lambda path: seen.append(path) or live_rows(path)), None)
+                mod.p0_ledger_reader = lambda: ((lambda path: seen.append(path) or live_rows(path)), None, {})
                 try:
                     mod.open_p0_blockers(job)
                 finally:
