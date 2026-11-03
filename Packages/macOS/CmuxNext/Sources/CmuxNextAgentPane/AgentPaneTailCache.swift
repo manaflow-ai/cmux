@@ -7,9 +7,10 @@ public import Foundation
 /// a new tab is a new page, with none, so every page hands its tails here (`chat.tail`) and asks
 /// for one before it attaches (`chat.tail.get`, acpmux/tailCache.ts).
 ///
-/// IN MEMORY ONLY. Nothing is written to disk, so this adds no place a transcript persists and no
-/// setting to turn off: quitting the app forgets every tail, and signing out drops them with the
-/// rest of the session's state (``clear()``). What is held is bounded three ways here, so the
+/// This tier is memory only; a miss is forwarded to acpmux's bounded disk snapshot store for
+/// peer chats (``AgentPaneHostProviding/peerSnapshot(sessionId:)``). Leo's 2026-11-03 instant-open
+/// requirement replaces the earlier memory-only transcript policy. Quitting forgets this tier,
+/// and sign-out clears it with ``clear()``. What is held is bounded three ways here, so the
 /// bound holds whatever a page sends: the most recent ``chats`` chats, ``events`` records of each,
 /// and ``bytes`` of each (``holds(_:)``) — at most about 20 MiB in the worst case, and a small
 /// fraction of that for ordinary chats, which are far under the per-chat bound.

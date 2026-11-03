@@ -7,10 +7,10 @@ import os
 /// the mock; the pane never knows which.
 public nonisolated protocol AgentPaneHostProviding: Sendable {
     func handshake(sessionId: String?) async throws -> AgentPaneHandshake
-    /// Starts the daemon before a page is visible. Callers may treat this as
-    /// best effort because the normal page handshake still reports failures.
     /// Reads this Mac's persisted peer tail without waiting for the page handshake.
     func peerSnapshot(sessionId: String) async -> Data?
+    /// Starts the daemon before a page is visible. Callers may treat this as
+    /// best effort because the normal page handshake still reports failures.
     func prewarm() async throws
     /// The peers listed by the same daemon the composer Environment picker reads.
     func chatPeers() async throws -> [AgentChatPeer]
