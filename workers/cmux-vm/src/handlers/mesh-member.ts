@@ -19,7 +19,7 @@ const addressInMesh = (address: string, cidr: string): boolean => {
     && !(ip[2] === base[2] && ip[3] === 0) && !(ip[2] === base[2]! + 15 && ip[3] === 255);
 };
 
-/** Called under the mesh writer lease; only this exact live attachment is refreshed. */
+/** Takes no writer lock: only this exact live attachment is refreshed, by a compare-and-set on its recorded address. */
 export const readMeshMember = <C, M, V>(caller: Named<C, Principal>, mesh: Named<M, MeshId>, vm: Named<V, VmId>,
   proofs: { readonly ownsMesh: TenantOwnsResource<C, M>; readonly meshScope: KeyHasScope<C, "mesh:read">; readonly vmScope: KeyHasScope<C, "vm:read"> }) =>
   Effect.gen(function* () {

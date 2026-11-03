@@ -41,6 +41,9 @@ public struct AgentPaneDebugAutomationArguments {
                 if let value = params[key]?.doubleValue { options[key] = value }
             }
             return [options]
+        case "idle_probe":
+            // What the page asks for while nobody touches it (idleProbe.ts), over `ms`.
+            return [params["ms"]?.doubleValue.map { ["ms": $0] as [String: Any] } ?? [:]]
         case "open_menu":
             return [params["label"]?.stringValue ?? ""]
         case "acp_log":

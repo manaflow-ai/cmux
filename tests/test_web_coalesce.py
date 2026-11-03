@@ -530,6 +530,13 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'",
                       job["concurrency"]["group"])
         self.assertIn("vars.NEXT_WEB_COALESCE", job["concurrency"]["group"])
+        # #34158: a re-run's own group, so a newer push's pending job never replaces it.
+        shared, own = job["concurrency"]["group"].split("||", 1)
+        self.assertIn("github.run_attempt == '1'", shared)
+        self.assertIn("github.run_attempt", own)
+        # ... and it never saves a marker, so a late save cannot roll the newest one back.
+        save = next(s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/cache/save@"))
+        self.assertIn("github.run_attempt == '1'", save["if"])
         self.assertIn("--hold-minutes 15", next(s for s in job["steps"] if s.get("id") == "wait")["run"])
         self.assertLessEqual(job["timeout-minutes"], 20)
         self.assertIs(self.web["concurrency"]["cancel-in-progress"], False)

@@ -48,7 +48,7 @@ enum AppActions {
         WorkspaceNotesHandlers.bind(into: registry, context: context)
         WorkspaceChecklistHandlers.bind(into: registry, context: context)
         WorkspaceGroupHandlers.bind(into: registry, context: context)
-        SidebarActionSet(host: services, autoArchive: services.autoArchive, settings: { [weak services] in services?.settings }, sidebar: { [weak services] in services?.windows.active?.sidebar.container.sidebarView }).bind(into: registry)
+        SidebarActionSet(host: services, autoArchive: services.autoArchive, settings: { [weak services] in services?.settings }, sidebar: { [weak services] in services?.windows.active?.sidebar.container.sidebarView }, themeColors: { [weak services] in services?.themes.catalog.colors ?? [:] }).bind(into: registry)
         NotificationSoundActions(host: services, gate: services.notifications.soundGate).bind(into: registry)
         RoomHandlers.bind(into: registry, context: context)
         RoomMenuHandlers.bind(into: registry, context: context)
@@ -214,7 +214,9 @@ enum AppActions {
             services.windows.active?.window?.closeWithoutButtonFlash()
         }
         registry.bind("toggleFullScreen") { services.windows.active?.window?.toggleFullScreen(nil) }
+        ActionTargetTitles.setPaletteState("toggleFullScreen", in: registry) { services.windows.active?.window?.styleMask.contains(.fullScreen) == true }
         registry.bind("toggleSidebar") { services.windows.active?.sidebar.model.toggle() }
+        ActionTargetTitles.setPaletteState("toggleSidebar", in: registry) { services.windows.active?.sidebar.model.isHidden == false }
         // The workspace list takes the keyboard; a hidden sidebar shows first.
         // Keyboard focus there survives the workspace switches its arrows make.
         registry.bind("focusSidebar") {

@@ -1757,6 +1757,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_identity.py
 
+      - name: Test the cmux NIGHTLY-identity notary probe of nightly-next
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_identity_probe.py
+
       - name: Validate the rolling nightly-next DMG is the cmux NIGHTLY build
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_rolling_dmg_identity.py
@@ -1777,6 +1781,7 @@ jobs:
           python3 tests/test_ci_nightly_no_hosted_mac.py
           python3 tests/test_ci_runs_on_fallback.py
           python3 tests/test_ci_warm_sources.py
+          python3 tests/test_ci_checkout_lean.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py
           python3 tests/test_ci_killpg_tolerates_eperm.py
 
@@ -1853,6 +1858,7 @@ jobs:
           python3 tests/test_release_signer_nightly.py
           python3 tests/test_dev_app_linux.py
           python3 tests/test_nightly_signer_jobs.py
+          python3 tests/test_hosted_queue_wait.py
           python3 tests/test_fetch_run_artifact.py
           python3 tests/test_signer_parity_compare.py
 

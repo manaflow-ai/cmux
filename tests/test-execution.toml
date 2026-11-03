@@ -2401,6 +2401,10 @@ path = "tests/test_ci_warm_sources.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_checkout_lean.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_workflow_file_size.py"
 lane = "linux-guard"
 
@@ -2533,4 +2537,8 @@ reason = "Lawrence 2026-10-23: no new CI tests. Pins that scripts/ci/chat-probe.
 
 [[test]]
 path = "tests/test_nightly_next_rolling_dmg_identity.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_identity_probe.py"
 lane = "linux-guard"

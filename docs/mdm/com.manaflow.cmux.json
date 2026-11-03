@@ -1978,6 +1978,11 @@
       "title" : "Live Preview in Chat",
       "type" : "boolean"
     },
+    "ComputerUseActsAsPerson" : {
+      "description" : "Computer use can act as me: clicks and key presses computer use makes in a chat count as the person's for Send, Retry and Approve, and nothing else. Off by default. Honored only as a forced value from an installed profile; the person can still turn it off until cmux restarts, and every action it lets through is logged.",
+      "title" : "ComputerUseActsAsPerson",
+      "type" : "boolean"
+    },
     "contextMenus.showCustomizeItem" : {
       "default" : true,
       "description" : "Adds Customize Menu… to the end of every right-click menu.",
@@ -2515,6 +2520,12 @@
       ],
       "title" : "Copy Terminal Notifications to the Feed",
       "type" : "string"
+    },
+    "feed.needsYouInChief" : {
+      "default" : false,
+      "description" : "Open requests, such as permission prompts and questions, are pinned at the top of your Chief's conversation. The Feed always lists them.",
+      "title" : "Pin Needs You in Chief",
+      "type" : "boolean"
     },
     "files.textEditor" : {
       "default" : "",

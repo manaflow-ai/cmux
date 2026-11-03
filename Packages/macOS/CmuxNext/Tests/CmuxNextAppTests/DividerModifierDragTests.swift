@@ -61,7 +61,7 @@ struct DividerModifierDragTests {
         }
 
         /// Moves a pressed handle `dx` points right of where it was pressed, in two steps, then shows one display
-        /// frame: with `motion.frameOwner.timing` on, the frame tick writes a drag's newest pointer.
+        /// frame: the frame tick writes a drag's newest pointer.
         func move(_ view: DividerHandleView, from: CGPoint, by dx: CGFloat, flags: NSEvent.ModifierFlags = []) {
             view.mouseDragged(with: event(.leftMouseDragged, CGPoint(x: from.x + dx / 2, y: from.y), flags))
             view.mouseDragged(with: event(.leftMouseDragged, CGPoint(x: from.x + dx, y: from.y), flags))
@@ -79,8 +79,8 @@ struct DividerModifierDragTests {
             release(view, at: CGPoint(x: from.x + dx, y: from.y), flags: flags)
         }
 
-        /// Presses or lets go of modifier keys mid-drag, then shows one display frame (with `motion.frameOwner.timing`
-        /// on, the frame tick writes the drag's new mode).
+        /// Presses or lets go of modifier keys mid-drag, then shows one display frame (the frame tick writes the drag's
+        /// new mode).
         func flags(_ view: DividerHandleView, _ flags: NSEvent.ModifierFlags) {
             let event = NSEvent.keyEvent(with: .flagsChanged, location: .zero, modifierFlags: flags, timestamp: 0,
                                          windowNumber: window.windowNumber, context: nil, characters: "",
@@ -177,7 +177,7 @@ struct DividerModifierDragTests {
     @Test func shiftLandsADividerOnTheNearestSnapEvenFarFromIt() throws {
         let screen = Screen(.splits(.split("x", axis: .horizontal, ratio: 0.3, a: .leaf("p1"), b: .leaf("p2"))))
         defer { screen.window.closeAfterTest() }
-        // 0.3 + 230 pt of 1600 is about 0.44: free without Shift (8 pt snap reach), a half with it.
+        // 0.3 + 230 pt of 1600 is about 0.44: where the pointer lets go without Shift, a half with it.
         try screen.drag(.split("x"), by: 230, flags: .shift)
         #expect(screen.ratio("x") == 0.5)
     }
