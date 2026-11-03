@@ -43,6 +43,11 @@ one into a config file: run the tool through `cmux vault exec` each time.
 ## 4. Refusals
 
 - `vault.missing`: the name is not there; ask with `cmux vault request`.
+- `vault.disabled`: the vault is off on this Mac. Do not send the person to
+  Debug Settings and do not ask for the value in chat. Hand them the one step
+  instead: in one line, name the variable the task needs (`OPENAI_API_KEY`)
+  and where the program reads it, so they set it themselves; then go on
+  without it, or wait for them to say it is set.
 - `vault.denied`: the person keeps it for themselves (scope `user`). Tell
   them in one line which name and why you need it; only they change the
   scope (Settings > Credential Vault, or `cmux vault scope NAME user,agents`).

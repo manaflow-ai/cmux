@@ -589,9 +589,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
         guard !stopped, !restoringDraftAttachments, let store = controller.store else { return }
         let draft = store.state.ui.draft
         // Typing saves before Return can offer the vault. Keep a detected credential only in
-        // the live field while the person decides; a cancelled offer never writes it to disk.
-        let containsSecret = secretHost != nil && !HomeSecretScan().findings(in: draft.plainText).isEmpty
-        homeStore.setDraft(containsSecret ? "" : draft.text, for: conversation)
+        // the live field while the person decides; a cancelled offer never writes it to disk. The
+        // kept copy has each one replaced by its vault mark, so the rest of the message survives.
+        let findings = secretHost == nil ? [] : HomeSecretScan().findings(in: draft.plainText)
+        let kept = findings.reduce(draft.text) { HomeSecretScan.redacted($0, value: $1.value, name: $1.suggestedName) }
+        homeStore.setDraft(kept, for: conversation)
         homeStore.setDraftAttachments(draftAttachments, for: conversation)
     }
 

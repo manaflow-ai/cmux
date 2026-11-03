@@ -134,7 +134,8 @@ import Testing
         view.projection.draftChanged()
         await store.flushCache()
         #expect(view.draftText == text, "the field still holds what the person typed")
-        #expect(store.draft(for: HomeChatRig.conversation) == nil, "no secret-bearing draft queued for disk")
+        #expect(store.draft(for: HomeChatRig.conversation) == "use [vault:OPENAI_API_KEY]",
+                "the kept draft keeps the message with the key replaced, never the key")
         #expect(!(try String(contentsOf: url, encoding: .utf8)).contains(Self.key), "before Return")
 
         #expect(view.projection.send()?.hasPrefix("held") == true)
@@ -147,6 +148,7 @@ import Testing
         await store.flushCache()
         #expect(view.draftText == text, "cancelling keeps the field intact")
         #expect(!(try String(contentsOf: url, encoding: .utf8)).contains(Self.key), "after cancelling")
+        #expect(store.draft(for: HomeChatRig.conversation) == "use [vault:OPENAI_API_KEY]", "after cancelling, the rest of the text is still kept")
 
         view.setDraft("ordinary text again")
         view.projection.draftChanged()
