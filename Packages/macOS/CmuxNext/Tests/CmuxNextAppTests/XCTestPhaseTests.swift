@@ -15,10 +15,17 @@ import XCTest
 ///       -> the run-loop guard's block -> guard_hold_the_main_loop -> CFRunLoopRun (for good)
 ///
 /// XCTest waits for its start-up work with a turn of the main run loop whenever that work is not
-/// done yet (there, xctest's own Contacts lookup failing for 22 s). The run-loop guard
+/// done yet (there, a Contacts store lookup in xctest failed for 22 s first; on aws-m4pro-1 the
+/// same hang came with no Contacts line at all). The run-loop guard
 /// (Tests/Support/CmuxNextTestExitTrace) had queued a block that never returns, so that one turn
 /// took xctest's main thread and XCTest never ran its suite.
 struct XCTestPhaseTests {
+    @Test func theRunLoopGuardHoldsOnlyTheSwiftTestingHelper() {
+        #expect(cmux_next_test_runloop_guard_holds_in("swiftpm-testing-helper") == 1)
+        #expect(cmux_next_test_runloop_guard_holds_in("xctest") == 0)
+        #expect(cmux_next_test_runloop_guard_holds_in(nil) == 0)
+    }
+
     /// An XCTest wait in `xctest` must come back: the probe below waits the way XCTest's own
     /// start-up does, in a child `xctest` of this same bundle. On the base the guard held the
     /// child's main thread, and it was killed here at the limit.
@@ -82,9 +89,9 @@ struct XCTestPhaseTests {
     }
 }
 
-/// Run by ``XCTestPhaseTests`` in a child `xctest` only (no Swift Testing suite and no `--filter`
-/// in the lanes names it). It waits on an expectation the way XCTest's start-up does: the wait
-/// turns the main run loop until the expectation is met.
+/// Run by ``XCTestPhaseTests`` in a child `xctest`, and by the XCTest phase of a whole-package
+/// `swift test`, where it passes in about 50 ms. It waits on an expectation the way XCTest's
+/// start-up does: the wait turns the main run loop until the expectation is met.
 final class XCTestPhaseRunLoopProbe: XCTestCase {
     func testAnXCTestWaitReturns() {
         let turned = expectation(description: "the main run loop turned")

@@ -12,6 +12,10 @@ int cmux_next_test_backtrace_kept_from_children(void);
 /// 1 once the main run loop survives being stopped at its outermost run (installed with the trace).
 int cmux_next_test_runloop_guard_installed(void);
 
+/// 1 when the guard holds the main run loop in a process of this name: only `swift test`'s Swift
+/// Testing helper (`swiftpm-testing-helper`), never `xctest` or another test host.
+int cmux_next_test_runloop_guard_holds_in(const char *process_name);
+
 /// How many times the guard has entered the main run loop again after it was stopped.
 int cmux_next_test_runloop_guard_reentries(void);
 
