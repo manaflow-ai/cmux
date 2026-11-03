@@ -23,7 +23,7 @@ import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { WriteLabel, writeCall } from "./WriteLabel";
 import { ToolLabel } from "./ToolVerb";
 import { toolFailure } from "./toolFailure";
-import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
+import { failureWord, InlineFailureCause, InStep, ToolFailureCause } from "./ToolFailureCause";
 
 function groupIcon(kind: ToolGroupKind): ReactNode {
   switch (kind) {
@@ -280,16 +280,19 @@ export function ToolGroupRow({
               data-kind={kind}
               data-tool-group-items={disclosureKey}
             >
-              {entries.map(({ at, key, thought }) => (
-                <Step
-                  key={thought < 0 ? key : thoughtId(thought)}
-                  probeKey={key}
-                  item={items[at]!}
-                  commands={kind === "commands"}
-                  thoughtId={thought < 0 ? "" : thoughtId(thought)}
-                  lead={at === 0 && thought === 0}
-                />
-              ))}
+              {/* Every call here is a step: a failure reads as one plain line (InStep). */}
+              <InStep.Provider value>
+                {entries.map(({ at, key, thought }) => (
+                  <Step
+                    key={thought < 0 ? key : thoughtId(thought)}
+                    probeKey={key}
+                    item={items[at]!}
+                    commands={kind === "commands"}
+                    thoughtId={thought < 0 ? "" : thoughtId(thought)}
+                    lead={at === 0 && thought === 0}
+                  />
+                ))}
+              </InStep.Provider>
             </div>
           )}
         </div>

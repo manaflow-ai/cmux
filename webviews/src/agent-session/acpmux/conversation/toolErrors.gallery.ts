@@ -156,6 +156,39 @@ const mcp = calls("Take a screenshot of the preview and read the inbox", [
   ],
 ]);
 
+/// A finished turn whose run of four commands had one fail, as in the "Scheduled check" Leo said
+/// yes to (2026-11-02): opened, the failed step is one plain line, "failed" at its edge, and its
+/// error output waits behind the step's own chevron.
+const ok = (command: string, description: string, at: number) =>
+  tool(command, "execute", "completed", { command, description, output: "ok\n", exitCode: 0, ...times(at) });
+const failedStep = chat(
+  [
+    user("Check the lanes and summarize what is stuck", 6),
+    activity(
+      [
+        ok("acpmux ls --json > /tmp/ls.json", "Check states of my routed lanes", 5.8),
+        shell(
+          "sed -n '/^==== Stuck/,/^====/p' NOW.md | ==== ",
+          "Read NOW.md and summarize stuck lanes",
+          "Exit code 1\n(eval):1: ==== not found",
+          5.6,
+        ),
+        ok("python3 - < summarize.py", "Summarize live lane states", 5.4),
+        ok("python3 - < pending.py", "List live lanes with stuck or pending state", 5.2),
+      ],
+      5.8,
+    ),
+    assistant("One lane is paused on its queue: studio-mac/land-queue. Nothing else is stuck.", 5),
+  ],
+  { harness: "claude", model: "claude-opus-5-5" },
+);
+
+/// Opens the run, to show its steps.
+const openRun = async (ctx: PlayContext) => {
+  await ctx.click({ role: "button", name: /Ran 4 commands/ });
+  await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-steps .cv-command__failed")));
+};
+
 /// Opens the traceback's call, to show its raw output under it.
 const openTraceback = async (ctx: PlayContext) => {
   await ctx.click({ role: "button", name: /Check the retry schedule/ });
@@ -172,8 +205,9 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/ToolRow.tsx",
     "agent-session/acpmux/conversation/CommandRow.tsx",
     "agent-session/acpmux/conversation/McpCallRows.tsx",
+    "agent-session/acpmux/conversation/ToolGroupRow.tsx",
   ],
-  keywords: ["error", "failed", "hook", "denied", "exit code", "timeout", "mcp"],
+  keywords: ["error", "failed", "hook", "denied", "exit code", "timeout", "mcp", "step", "group"],
   variants: {
     "claude-code": {
       note: "Claude Code: a hook refusal, Exit code 1 with a traceback, a declined edit, a tool_use_error, a timeout.",
@@ -186,6 +220,11 @@ export default agentPaneEntry({
     mcp: {
       note: "An MCP server's JSON error, an MCP result marked isError, a fetch that got a 404.",
       snapshot: mcp,
+    },
+    "failed-step": {
+      note: 'A run of four commands with one failure, opened: the group says "1 failed", the failed step is one plain line with "failed" at its edge, and its error output ("(eval):1: ==== not found") waits behind its own chevron. A lone command still says Exit 1 and the cause.',
+      snapshot: failedStep,
+      play: openRun,
     },
     "exit-opened": {
       note: "The traceback's call opened: the Shell block says Exit code 1 once, under the output.",
