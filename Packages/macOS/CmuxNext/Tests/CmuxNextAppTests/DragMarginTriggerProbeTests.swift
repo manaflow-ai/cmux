@@ -27,6 +27,9 @@ struct DragMarginTriggerProbeTests {
         next[1] = PaneMotionBench.column(1, rows: 2, width: 0.25)
         probe.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(next))])
         for _ in 0..<4 { await Task.yield() }
+        // On screen, so AppKit runs its display cycle (and its drag-margin observer) for each commit.
+        probe.window.orderFrontRegardless()
+        print("HPA-MARGIN on_screen=\(probe.window.isVisible) occlusion_visible=\(probe.window.occlusionState.contains(.visible))")
         MarginSpy.reset()
         var frames = 0
         var moving = true
