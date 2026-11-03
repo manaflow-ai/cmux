@@ -14,8 +14,9 @@ import CmuxNextWakeups
 /// - a tab switch reads nothing unless the tab shown was marked.
 @MainActor
 final class CEFExtensionActionReads {
-    /// Tabs whose actions changed while they were not on screen.
-    private var stale = Set<ObjectIdentifier>()
+    /// Tabs whose actions changed while they were not on screen (weak: a closed tab's entry never
+    /// matches a new tab at the same address).
+    private var stale: [ObjectIdentifier: WeakCEFTab] = [:]
     /// Runs work after the current pass's frame committed (tests pass their own).
     var afterFrame: (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) }
 
@@ -33,20 +34,32 @@ final class CEFExtensionActionReads {
     /// `tab`'s actions may have changed: it reads them now when it is on screen, else when it next shows.
     func refresh(_ tab: CEFTab) {
         guard Self.isShown(tab) else {
-            stale.insert(ObjectIdentifier(tab))
+            stale[ObjectIdentifier(tab)] = WeakCEFTab(tab)
             return
         }
-        stale.remove(ObjectIdentifier(tab))
+        stale[ObjectIdentifier(tab)] = nil
         tab.refreshExtensionActions()
+    }
+
+    /// A command names `tab` (`browser.extension.run` on a background tab): actions marked stale are read now,
+    /// shown or not, so the command sees the tab's current actions.
+    func readIfStale(_ tab: CEFTab) {
+        guard isStale(tab) else { return }
+        stale[ObjectIdentifier(tab)] = nil
+        tab.refreshExtensionActions()
+    }
+
+    private func isStale(_ tab: CEFTab) -> Bool {
+        stale[ObjectIdentifier(tab)]?.tab === tab
     }
 
     /// `tab` came on screen: a marked tab reads its actions after this frame, so the switch's own frame
     /// waits for no icon encoding.
     func tabShown(_ tab: CEFTab) {
-        let id = ObjectIdentifier(tab)
-        guard stale.contains(id) else { return }
+        guard isStale(tab) else { return }
         afterFrame { [weak self, weak tab] in
-            guard let self, let tab, Self.isShown(tab), stale.remove(id) != nil else { return }
+            guard let self, let tab, Self.isShown(tab), isStale(tab) else { return }
+            stale[ObjectIdentifier(tab)] = nil
             tab.refreshExtensionActions()
         }
     }

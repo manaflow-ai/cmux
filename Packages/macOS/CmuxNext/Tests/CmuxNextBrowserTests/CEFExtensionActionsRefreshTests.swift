@@ -82,6 +82,21 @@ import Testing
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         #expect(ExtActionsSpyShim.reads.isEmpty, "a tab whose icons did not change reads none on a switch")
     }
+
+    /// Review of #32967: `browser.extension.run` may name a background tab. Its actions changed while it
+    /// was hidden, so the command reads them first (once), as the tab never showed to read them itself.
+    @Test func aCommandOnAHiddenTabReadsItsStaleActionsFirst() throws {
+        let pane = try Self.pane(tabs: 3)
+        defer { try? FileManager.default.removeItem(at: pane.root) }
+        pane.runtime.handle(.tab(.extensionActionsChanged, browser: 10, window: 1, value: 0))
+        ExtActionsSpyShim.reads = []
+        pane.tabs[2].readExtensionsForCommand()
+        #expect(ExtActionsSpyShim.reads == [12], "the command read the hidden tab's changed actions")
+        ExtActionsSpyShim.reads = []
+        pane.tabs[2].readExtensionsForCommand()
+        pane.tabs[0].readExtensionsForCommand()
+        #expect(ExtActionsSpyShim.reads.isEmpty, "actions already current are not read again")
+    }
 }
 
 /// Stand-in shim functions: `cmux_shim_create_window` reports the browser started, `cmux_shim_tab_add`

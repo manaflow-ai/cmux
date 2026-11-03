@@ -82,6 +82,8 @@ final class BrowserPageBars {
             bar.centerXAnchor.constraint(equalTo: page.centerXAnchor),
             density.bind(bar.leadingAnchor.constraint(greaterThanOrEqualTo: page.leadingAnchor)) { BrowserMetrics.overlayInset },
         ])
+        // Observe again so the tokens these new bindings read are tracked too (a live inset change reaches the bar).
+        density.start()
         return bar
     }
 
