@@ -30,6 +30,9 @@ CMUX_UPDATE_ACTION_SURFACES=1 swift test ${cmux_next_swift_args[@]+"${cmux_next_
 (( status == 0 )) || echo "::warning::the action parity tests failed (exit $status); the exports were still regenerated"
 cd "$root"
 for file in "${exports[@]}"; do
+  # OUT can sit in a kept .build (a fleet warm slot): drop an earlier run's copy, so only
+  # what this run regenerated is handed over.
+  rm -f -- "$out/$file"
   git diff --quiet -- "$file" && continue
   mkdir -p "$out/$(dirname "$file")"
   cp "$file" "$out/$file"

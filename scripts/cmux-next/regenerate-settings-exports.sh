@@ -85,6 +85,9 @@ while IFS= read -r path; do
   grep -qxF -- "$path" <<<"$listed" || { echo "::error::the settings export wrote $path, which regenerate-settings-exports.sh does not list" >&2; exit 1; }
 done < <(git status --porcelain --untracked-files=all -- docs/mdm schemas/settings | cut -c4-)
 for file in "${exports[@]}"; do
+  # OUT can sit in a kept .build (a fleet warm slot): drop an earlier run's copy, so only
+  # what this run regenerated is handed over.
+  rm -f -- "$out/$file"
   [[ -f "$file" ]] || { echo "::error::$file was not written by the settings export" >&2; exit 1; }
   # An export test that failed before it wrote leaves the old copy: a failed regeneration, not a fresh one.
   [[ "$file" -nt "$marker" ]] || { echo "::error::the settings export did not rewrite $file" >&2; exit 1; }
