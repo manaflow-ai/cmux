@@ -111,7 +111,6 @@ import Testing
         /// Each set acpmux took, in order (`surface granted`).
         var sets: [String] { lock.withLock { log.sets } }
 
-
         init(socket: String, key: String, connections: Int = 1) throws {
             self.key = key
             expected = connections

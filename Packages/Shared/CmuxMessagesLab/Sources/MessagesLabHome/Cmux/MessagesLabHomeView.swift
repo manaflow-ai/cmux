@@ -11,6 +11,11 @@ import CmuxHomeRender
 public final class MessagesLabHomeView: NSView {
     let controller: ChatController
     let projection: HomeProjection
+    /// The app supplies its existing person-input classifier; an unconfigured view grants nothing.
+    public var isPersonApprovalEvent: (NSEvent) -> Bool {
+        get { projection.isPersonApprovalEvent }
+        set { projection.isPersonApprovalEvent = newValue }
+    }
     public var approvals: (any HomeApprovalDeciding)? {
         get { projection.approvals }
         set { projection.approvals = newValue }
@@ -44,7 +49,7 @@ public final class MessagesLabHomeView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         addSubview(controller.host)
-        HomeApprovalRowProvider.install(for: projection)
+        HomeApprovalRowProvider.install()
         projection.start()
         // Reduce Motion changes (the system setting or the host's pin) still or restart the loops
         // already running (MessagesLabHomeView+Motion.swift).

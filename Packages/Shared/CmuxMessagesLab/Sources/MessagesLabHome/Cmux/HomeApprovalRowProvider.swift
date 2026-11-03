@@ -1,13 +1,11 @@
 import AppKit
 import CmuxAgentQuestion
 import CmuxHomeRender
-import os
 
 /// A narrow Chief subagent approval row using the transcript's text and bubble renderer.
 /// No generic question handling, new motion, or persistent permission choices.
 final class HomeApprovalRowProvider: TranscriptCustomRowProvider {
     static let kind = "cmux.hiddenApproval"
-    static let shared = HomeApprovalRowProvider()
     struct Local: Codable, Equatable {
         var busy = false
         var note: String?
@@ -19,15 +17,9 @@ final class HomeApprovalRowProvider: TranscriptCustomRowProvider {
         var pointer: Bool?
         var takesClicks: Bool { question.isPending && !local.busy && !local.ended }
     }
-    // Lock carve-out: off-main bitmap and layout reads; tiny local-state map only.
-    private let states = OSAllocatedUnfairLock<[String: Local]>(initialState: [:])
-    @MainActor private let owners = NSHashTable<HomeProjection>.weakObjects()
-    @MainActor static func install(for owner: HomeProjection) {
-        if CustomRows.provider(kind) == nil { CustomRows.register(shared) }
-        shared.owners.add(owner)
+    @MainActor static func install() {
+        if CustomRows.provider(kind) == nil { CustomRows.register(HomeApprovalRowProvider()) }
     }
-    func local(_ key: String) -> Local { states.withLock { $0[key] } ?? Local() }
-    func setLocal(_ key: String, _ value: Local) { states.withLock { $0[key] = value } }
     /// This marker identifies the narrow card shape; authorization compares the full request snapshot.
     static func digest(_ question: AgentQuestion) -> String? {
         guard question.source.harness == .chief, question.source.permission != nil,
@@ -37,9 +29,9 @@ final class HomeApprovalRowProvider: TranscriptCustomRowProvider {
         let digest = String(item.id.dropFirst("approval:".count))
         return digest.count == 64 && digest.allSatisfy({ "0123456789abcdef".contains($0) }) ? digest : nil
     }
-    func part(_ question: AgentQuestion) -> Part? {
+    static func part(_ question: AgentQuestion, local: Local = .init()) -> Part? {
         guard Self.digest(question) != nil,
-              let custom = Self.custom(Payload(question: question, local: local(question.id))) else { return nil }
+              let custom = Self.custom(Payload(question: question, local: local)) else { return nil }
         return .custom(custom)
     }
     static func custom(_ payload: Payload) -> CustomPart? {
@@ -121,8 +113,5 @@ final class HomeApprovalRowProvider: TranscriptCustomRowProvider {
             TextDraw.line(title, font: font, color: color, x: r.midX - TextDraw.width(title, font: font) / 2,
                           baseline: r.midY + (font.ascender + font.descender) / 2, in: ctx)
         }
-    }
-    @MainActor func click(_ ref: PartRef, allow: Bool) {
-        for owner in owners.allObjects where owner.decideApproval(ref, allow: allow) { return }
     }
 }

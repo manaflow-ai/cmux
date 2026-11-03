@@ -141,6 +141,8 @@ public final class HomeNativeFixture {
         let decider = HomeFixtureApprovalDecider(decision)
         approvalDecider = decider
         view?.approvals = decider
+        // This isolated fixture's decider only updates mock state, never acpmux.
+        view?.isPersonApprovalEvent = { _ in true }
         let permission = "fixture-" + UUID().uuidString
         let snapshot = #"{"toolCall":{"title":"Bash","rawInput":{"command":"printf 'Hello from the subagent'"}},"options":[{"optionId":"yes","kind":"allow_once"},{"optionId":"no","kind":"reject_once"}]}"#
         let question = AgentQuestion(id: permission,
@@ -159,6 +161,18 @@ public final class HomeNativeFixture {
 
     /// The mock decider's actual calls, for a real-pointer capture's oracle. Reading sends nothing.
     public var debugApprovalAttempts: [Bool] { approvalDecider?.attempts ?? [] }
+
+    /// Foundation-compatible wire data, confined to this mock fixture. Reading sends nothing.
+    public func debugApprovalState() -> [String: Any] {
+        guard let view, let window = view.window else { return ["error": "no mock Home fixture is shown"] }
+        let cards: [[String: Any]] = view.debugApprovalCards().map { card in
+            ["id": card.id, "text": card.text, "pending": card.pending, "busy": card.busy, "ended": card.ended,
+             "allow": HomeNativeTranscriptView.debugBox(card.allow), "deny": HomeNativeTranscriptView.debugBox(card.deny)]
+        }
+        return ["ok": !cards.isEmpty, "mock": true, "cards": cards,
+                "attempts": debugApprovalAttempts.map { $0 ? "allow" : "deny" },
+                "windowHeight": Double(window.frame.height), "scale": Double(window.backingScaleFactor)]
+    }
 
     /// The mock's people `debug.home.drive` `presence` shows by default (made-up fixture people).
     public static let presencePeople = ["user_austin", "user_aziz", "user_leo"]

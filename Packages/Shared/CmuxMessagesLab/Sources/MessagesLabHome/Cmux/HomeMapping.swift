@@ -145,7 +145,7 @@ enum HomeMapping {
         for (i, p) in item.parts.enumerated() {
             let shown: [Part]
             if summary?.owner == .local, isChief(item.author, summary), case .question(let question) = p,
-               let card = HomeApprovalRowProvider.shared.part(question) { shown = [card] }
+               let card = HomeApprovalRowProvider.part(question) { shown = [card] }
             else { shown = self.parts(p, media: media, progress: item.attachmentProgress, markdown: markdown, links: links) }
             parts += shown
             owners += Array(repeating: i, count: shown.count)

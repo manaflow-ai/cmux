@@ -104,8 +104,8 @@ import Testing
         #expect(rig.view.projection.decideApproval(ref, allow: true))
         #expect(decider.calls.isEmpty)
         #expect(currentQuestion(item, in: rig)?.isPending == true)
-        #expect(HomeApprovalRowProvider.shared.local(question.id).note == CmuxStrings.approvalFailed)
-        #expect(!HomeApprovalRowProvider.shared.local(question.id).ended)
+        #expect(rig.view.projection.approvalState(question.id).note == CmuxStrings.approvalFailed)
+        #expect(!rig.view.projection.approvalState(question.id).ended)
     }
 
     @Test(arguments: [true, false])
@@ -223,4 +223,19 @@ import Testing
         #expect(rig.view.projection.approvalWrites.isEmpty)
         #expect(!gate.write { Issue.record("a closed transcript wrote an answer") })
     }
+
+    @Test func theAppMustClassifyTheNativeEventAsThePersonsInput() throws {
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let stamp = ProcessInfo.processInfo.systemUptime
+        let event = try #require(NSEvent.mouseEvent(with: .leftMouseUp, location: .zero, modifierFlags: [],
+            timestamp: stamp, windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+        #expect(HomeApprovalGesture.capture(event, in: window, after: -1, isPerson: { _ in false }) == nil,
+                "a posted pointer must not become a permission gesture")
+        #expect(HomeApprovalGesture.capture(event, in: window, after: -1, isPerson: { _ in true }) != nil)
+        #expect(HomeApprovalGesture.capture(event, in: window, after: stamp, isPerson: { _ in true }) == nil,
+                "this view already claimed the same pointer event")
+    }
+
 }

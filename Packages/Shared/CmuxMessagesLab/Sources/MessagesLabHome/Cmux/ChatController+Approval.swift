@@ -11,7 +11,7 @@ extension ChatController {
     }
     func approvalClicked(at point: CGPoint) -> Bool {
         guard let target = approvalTarget(at: point) else { return false }
-        HomeApprovalRowProvider.shared.click(target.ref, allow: target.allow)
+        approvalDecision?(target.ref, target.allow)
         return true
     }
 }

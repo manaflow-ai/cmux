@@ -1,36 +1,47 @@
-import CmuxHomeRender
-import CmuxNextAgentPane
-import CmuxNextHomeEngine
+public import CmuxHomeRender
+public import CmuxNextAgentPane
+import CmuxNextCompat
+public import CmuxNextWakeups
 import Foundation
 import os
 
 /// Answers one unchanged permission using the app's person proof and the existing once-only path.
 /// A named Chief may use its own daemon, the default home's, or this app's; every read verifies
 /// the session's exact parent home and refuses peers, turn sessions and the other-person floor.
-@MainActor final class ChiefApprovalDecider: HomeApprovalDeciding {
+@MainActor public final class ChiefApprovalDecider: HomeApprovalDeciding {
     private let home: ChiefHome
     private let app: AcpmuxEnvironment?
+    private let work: BackgroundWork
+    private let environment: @Sendable (ChiefHome) -> AcpmuxEnvironment?
+    // concurrency-allow: the socket callback reads this boolean synchronously before claiming a click; no I/O under the lock.
     private let rollout = OSAllocatedUnfairLock(initialState: false)
-    var enabled: Bool {
+    /// Whether the current app settings offer this approval surface.
+    public var enabled: Bool {
         get { rollout.withLock { $0 } }
         set { rollout.withLock { $0 = newValue } }
     }
-    init(home: ChiefHome, app: AcpmuxEnvironment?, enabled: Bool) {
-        (self.home, self.app) = (home, app)
+    /// Uses the app's files lane and resolver; this type never resolves app services itself.
+    public init(home: ChiefHome, app: AcpmuxEnvironment?, enabled: Bool, work: BackgroundWork,
+                environment: @escaping @Sendable (ChiefHome) -> AcpmuxEnvironment?) {
+        (self.home, self.app, self.work, self.environment) = (home, app, work, environment)
         self.enabled = enabled
     }
 
-    func decide(_ request: HomeApprovalRequest, allow: Bool, through gate: @escaping @Sendable (() -> Void) -> Bool) async -> HomeApprovalDecision {
+    /// Answers the exact pending request only while the native click and rollout remain valid.
+    public func decide(_ request: HomeApprovalRequest, allow: Bool, through gate: @escaping @Sendable (() -> Void) -> Bool) async -> HomeApprovalDecision {
         guard enabled, let session = Self.localSession(request.session),
               let expected = AcpmuxApprovalAnswerer.requestDigest(request.requestJSON),
               request.chief == "agent_mux" || request.chief.hasPrefix("agent_") else { return .refused }
         let brain = Self.brainHome(of: request.chief, in: home)
         let file = brain.muxHome.appendingPathComponent("optchat/home-id")
-        // task-owner: one tiny pinned-home read, kept off the main actor.
-        let pinned = await Task.detached { Self.pinnedID(try? String(contentsOf: file, encoding: .utf8)) }.value
-        let id = pinned ?? String(ChiefHomeAcpmux.host(muxHome: brain.muxHome).dropFirst("chief:".count))
+        let home = home, app = app, resolve = environment
+        // Resolving a daemon checks its executable on disk, on the same files lane as the pinned ID.
+        guard let (id, candidates) = try? await work.run(.userBlocking, mayBlock: .files, {
+            let pinned = Self.pinnedID(try? String(blockingContentsOf: file, encoding: .utf8))
+            let id = pinned ?? String(ChiefHome.tabHost(muxHome: brain.muxHome).dropFirst(ChiefHome.tabHostPrefix.count))
+            return (id, [resolve(brain), resolve(home), app].compactMap { $0 })
+        }) else { return .refused }
         var seen = Set<String>()
-        let candidates = [ChiefHomeAcpmux.environment(home: brain), ChiefHomeAcpmux.environment(home: home), app].compactMap { $0 }
         for environment in candidates where seen.insert(environment.socketPath).inserted {
             let answerer = AcpmuxApprovalAnswerer(environment: environment, chiefHomeID: id)
             await answerer.prepareForHome()
