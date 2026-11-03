@@ -61,7 +61,8 @@ public struct RemoteTmuxPaneHistoryPlan: Equatable, Sendable {
     public let chunks: [Chunk]
     /// History rows the chunks cover.
     public let historyRows: Int
-    /// Whether tmux holds more history than ``maximumRows``.
+    /// Whether the plan reads less history than tmux holds, either because tmux holds more
+    /// than ``maximumRows`` or because a wide pane runs out of ``maximumChunks`` first.
     public let isTruncated: Bool
 
     /// Cells per chunk for a stream whose command blocks hold at most `bytes`, so that a
