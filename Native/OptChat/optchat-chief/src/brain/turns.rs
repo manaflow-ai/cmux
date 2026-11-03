@@ -452,6 +452,16 @@ impl Brain {
         // (`turn_permission`), with no question to anyone.
         self.turn_ask = items.iter().any(Queued::requires_approval);
         self.last_turn_ask = self.turn_ask;
+        self.turn_relay = if self.turn_ask {
+            super::steer::trusted_relays(&items)
+        } else {
+            None
+        };
+        if let Some(from) = &self.turn_relay {
+            (self.log)(&format!(
+                "turn {key}: a trusted agent's message ({from}): it may tell and spawn this Chief's subagents"
+            ));
+        }
         // Who this turn speaks for (rights_gate.rs): the hook and the audit.
         self.begin_turn_people(&items, &key);
         self.turn_denied.clear();

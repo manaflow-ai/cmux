@@ -78,7 +78,9 @@
         // cloud-platform-dev is cmux-platform development's key, cloud-platform-staging cmux-platform staging's).
         // cloud-native-dev: the same Native receiver image with cmux-tui 8ac30a41 (acpmux clone boot, cmux#33140), bake run
         // 41613000089, for cmux-platform development only (sign-in-once seeding, cmux-platform#627).
-        "VM_BOOT_IMAGES": "[{\"id\":\"cloud-standard\",\"revision\":\"ci-41026036265-1\",\"displayName\":\"Cloud development\",\"snapshotId\":\"sh-0afbb63e9a6046b4a58068dfe30a5bc7\",\"services\":[\"cloud-driver\"]},{\"id\":\"cloud-native\",\"revision\":\"ci-41315172830-1\",\"displayName\":\"Cloud Native\",\"snapshotId\":\"sh-b601e8b3084a4876911688c8b464fb5e\",\"services\":[\"cloud-platform-dev\",\"cloud-platform-staging\"]},{\"id\":\"cloud-native-dev\",\"revision\":\"ci-41613000089-1\",\"displayName\":\"Cloud Native (development)\",\"snapshotId\":\"sh-85749fec238a4dbd8d6a3216752c1625\",\"services\":[\"cloud-platform-dev\"]}]",
+        // cloud-native-dev-772323f (ids are unique in this list): the same image again with cmux-tui 772323f0 (it also has 8ac30a41), so the root
+        // Native receiver journals why each bootstrap fails (cmux#33424); bake run 41616651292, development only.
+        "VM_BOOT_IMAGES": "[{\"id\":\"cloud-standard\",\"revision\":\"ci-41026036265-1\",\"displayName\":\"Cloud development\",\"snapshotId\":\"sh-0afbb63e9a6046b4a58068dfe30a5bc7\",\"services\":[\"cloud-driver\"]},{\"id\":\"cloud-native\",\"revision\":\"ci-41315172830-1\",\"displayName\":\"Cloud Native\",\"snapshotId\":\"sh-b601e8b3084a4876911688c8b464fb5e\",\"services\":[\"cloud-platform-dev\",\"cloud-platform-staging\"]},{\"id\":\"cloud-native-dev\",\"revision\":\"ci-41613000089-1\",\"displayName\":\"Cloud Native (development)\",\"snapshotId\":\"sh-85749fec238a4dbd8d6a3216752c1625\",\"services\":[\"cloud-platform-dev\"]},{\"id\":\"cloud-native-dev-772323f\",\"revision\":\"ci-41616651292-1\",\"displayName\":\"Cloud Native (development, cmux-tui 772323f0)\",\"snapshotId\":\"sh-c0c282178a034ad582f1e3d7d739d37f\",\"services\":[\"cloud-platform-dev\"]}]",
         // The Cloud guest's coderouter.cmux.internal proxy targets this exact origin.
         "VM_HTTPS_PROXY_ORIGINS": "[\"https://cmux-staging.vercel.app\"]",
         // Mesh experiment (cx-0op): on for internal manaflow dogfood teams only (coordinator, 2026-10-07),
@@ -90,7 +92,11 @@
         // they act for: cmux Cloud's dev and staging platforms make each team's mesh in that team's personal tenant, which
         // no hand-kept tenant list would know in advance. Only those services' own requests pass; the
         // tenant's other callers still get 404.
-        "CMUX_VM_MESH_SERVICE_IDS": "cloud-platform-dev,cloud-platform-staging"
+        "CMUX_VM_MESH_SERVICE_IDS": "cloud-platform-dev,cloud-platform-staging",
+        // Mesh ACL scopes added to those service keys (their entries are write-only secrets minted with mesh read/write
+        // only): cmux-platform writes each team Cloud mesh's first ACL, devices to VMs on ssh and the daemon. Only
+        // acl:read and acl:write may be granted here (src/auth/service-keys.ts).
+        "CMUX_VM_SERVICE_KEY_SCOPE_GRANTS": "{\"cloud-platform-dev\":[\"acl:read\",\"acl:write\"],\"cloud-platform-staging\":[\"acl:read\",\"acl:write\"]}"
       }
     },
     // Workers custom domain in the cmux.dev zone; attached by the first
