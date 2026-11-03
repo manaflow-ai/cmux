@@ -159,7 +159,15 @@ public struct Palette {
     public static var onAccent: NSColor { color(\.onAccent, opaque: true, dynamic: PaletteDynamic.onAccent) }
     /// A highlighted row in a cmux-drawn panel (the extensions panel): `accentFill` as a faint wash,
     /// so labels keep their own ink. Right-click menus are native and use the system highlight. A neutral theme gets a gray wash.
-    public static var menuHighlight: NSColor { accentFill.withAlphaComponent(menuHighlightOpacity) }
+    /// In a scope the wash is lighter where 20% would take the label under 4.5:1 on the card
+    /// (``ThemeTokens/menuHighlightShare(on:)``).
+    public static var menuHighlight: NSColor {
+        guard let tokens = ThemeContext.active else { return accentFill.withAlphaComponent(menuHighlightOpacity) }
+        // glass-opaque-allow: the card's worst ground (its tint over the far desktop) to measure the wash on; nothing draws it.
+        let card = CardMaterial(tokens, lift: ChromeTunables.opaqueOverlayLift.value, minimumOpacity: ChromeTunables.cardOpacity.value)
+        let ground = card.tint.composited(over: tokens.isDark ? .white : .black)
+        return tokens.accent.withAlpha(tokens.menuHighlightShare(on: ground)).nsColor
+    }
     static let menuHighlightOpacity: CGFloat = 0.2
 
     /// The app accent. Deliberately neutral so any control that reads the
