@@ -147,7 +147,8 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              - workspace_list, workspace_get, pane_list {{workspace}}, tab_list {{pane | \
              workspace}}, terminal_list, terminal_get: ids and names. Lists answer {{items: \
              [...]}}; a change answers {{value: {{...}}}} with the new ids (value.terminal_id, \
-             value.pane_id, value.tab_id).\n\
+             value.pane_id, value.tab_id). workspace_list also lists Cloud machines' \
+             workspaces, each with machine_id; {{machine}} picks one machine's.\n\
              - pane_neighbor_get {{pane: \"current\", direction: \"right\"}} answers {{pane: \
              {{id, ...}}}} for the pane on the person's right, or {{pane: null}}; \
              terminal_process_get {{terminal}} names the program running in a terminal.\n\
