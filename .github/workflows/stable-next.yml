@@ -318,10 +318,9 @@ jobs:
           echo "stable serves $served ($base); candidate $COMMIT"
           python3 -I .stable-tooling/scripts/ci/stable_next.py crash-delta --base-tree "$RUNNER_TEMP/base-tree" --head-tree "$RUNNER_TEMP/head-tree"
 
-  # Every CmuxNext test target, four shards, each on an owned M4 Pro GUI mini (macOS 27, a console
-  # session: the suites that need a display run). The same runs-on as cmux-next.yml's swift test:
-  # the gui pool on attempt 1, Blacksmith macOS on a re-run. package-test-lane.sh suite runs the same
-  # way under Actions as in a fleet step (it fetches GhosttyKit, the web bundles and the cmux-tui tree).
+  # Every CmuxNext test target, four shards, each a build-fleet step (package-test-lane.sh suite) on a
+  # macOS 27 M4 Pro worker, submitted from an owned GUI-pool runner (a fleet client); a re-run lands on
+  # Blacksmith, where cmux-ci is missing, and fails closed.
   swift-suites:
     needs: plan
     if: needs.plan.outputs.go == 'true'
@@ -330,7 +329,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
-    timeout-minutes: 240
+    timeout-minutes: 330
     permissions:
       contents: read
     env:
@@ -342,25 +341,39 @@ jobs:
           chip="$(sysctl -n machdep.cpu.brand_string)"
           echo "runner $RUNNER_NAME: $chip, macOS $(sw_vers -productVersion)"
           case "$chip" in *M6*) echo "::error::stable-next never uses an M6 mini ($RUNNER_NAME)"; exit 1 ;; esac
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ needs.plan.outputs.commit }}
-          persist-credentials: false
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
-      - name: Every CmuxNext suite of shard ${{ matrix.shard }}
+      # The shard runs as a build-fleet step (package-test-lane.sh suite), not on this runner: run on a
+      # GUI runner directly, each suite's XCTest pass hung ~10 min on the runner account's own Contacts
+      # store after its Swift tests passed (run 41582798853: every suite "failed" at ~659 s). The fleet
+      # routes display suites to its console workers itself. macos-27 + ram48: M4 Pro only, never an M6.
+      - name: Every CmuxNext suite of shard ${{ matrix.shard }} (build fleet, macOS 27)
         env:
+          COMMIT: ${{ needs.plan.outputs.commit }}
           FILTERS: ${{ matrix.filters }}
-          # CmuxNextAppTests runs about 15 min on a GUI mini; the lane's 900 s per-suite watchdog cut it
-          # off as "stalled/timeout" every night (908 s, run 41419773317).
-          CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS: "2400"
+          KEY: stable-next-${{ needs.plan.outputs.build }}-suites-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::error::$client is not installed on $RUNNER_NAME"
+            exit 1
+          fi
           # One retry: one flaky suite does not lose the night; a suite red twice is red.
+          # CmuxNextAppTests runs about 15 min, so each suite gets 2400 s (the lane's default is 900).
           for attempt in 1 2; do
             status=0
-            ./scripts/ci/package-test-lane.sh suite Packages/macOS/CmuxNext "$FILTERS" || status=$?
+            "$client" run --class light --script scripts/ci/package-test-lane.sh --ref "$COMMIT" \
+              --label macos-27 --label ram48 --key "$KEY-$attempt" \
+              --arg=suite --arg=Packages/macOS/CmuxNext --arg="$FILTERS" \
+              --env "CMUX_CI_XCODE_APP=$STABLE_XCODE_APP" --env CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=26 \
+              --env CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS=2400 \
+              --timeout 6000 --queue-timeout 3600 || status=$?
             [ "$status" = 0 ] && exit 0
+            # 75: the step is still queued and keeps its place; a new key would queue a duplicate that
+            # nobody waits on (fleet rule: never resubmit). Only a finished red or a timeout retries.
+            if [ "$status" = 75 ]; then
+              echo "::error title=stable swift suites::shard ${{ matrix.shard }} still queued after 60 min (step kept; not resubmitted)"
+              exit 75
+            fi
             echo "::warning title=stable swift suites::shard ${{ matrix.shard }} attempt $attempt exited $status"
           done
           exit "$status"
@@ -393,6 +406,10 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+      # ... and the webviews app build needs node 22.18 or newer (run 41582798853).
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
       - name: Perf budgets gate
         run: CI_SHARED_CACHE_DIR="$RUNNER_TEMP/stable-perf-cache" bash scripts/measure/split-spring.sh --suite=budgets --gate --vdisplay=120
       - name: Upload the perf report
