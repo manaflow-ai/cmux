@@ -1,0 +1,222 @@
+{
+ "id": "reopen-browser-blank-page",
+ "priority": "P0",
+ "title": "reopen-browser-plain-keys with a page that paints NOTHING (default background, no visible element) until its first key (reopen-f4; exploratory)",
+ "why": "Lead request (STATUS 6493, review of #32207): plain keys (no Cmd/Ctrl) after a reopen must reach the restored page; reopen-browser-first-key starts with Cmd-L and cannot see their loss. No click (STATUS 7302/7362).",
+ "source": "REOPEN VIDEO for reopen-f4",
+ "budget_seconds": 240,
+ "steps": [
+  {
+   "do": "require_whole_host"
+  },
+  {
+   "do": "wait",
+   "seconds": 5,
+   "title": "set-up: Home finishes its first load"
+  },
+  {
+   "do": "key",
+   "key": "n",
+   "modifiers": [
+    "cmd"
+   ]
+  },
+  {
+   "do": "wait",
+   "seconds": 2
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ]
+  },
+  {
+   "do": "focused_terminal",
+   "as": "term"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo t-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "t"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: the terminal works",
+   "since": "t",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "t-${nonce}-42"
+    }
+   ]
+  },
+  {
+   "do": "outwait_hold"
+  },
+  {
+   "do": "page_server",
+   "var": "page_url",
+   "lines": [
+    "<!doctype html><html><head><title>keys</title><script>",
+    "var s='',ev=[];",
+    "function show(){document.getElementById('o').textContent='seen'+s.split('').reverse().join('')+'end'+s.length;",
+    "document.getElementById('e').textContent='ev '+ev.slice(-12).join(' ');",
+    "var a=document.activeElement;document.getElementById('h').textContent='hasfocus '+(document.hasFocus()?'yes':'no')+' active '+(a?a.tagName.toLowerCase():'none')}",
+    "addEventListener('keydown',function(e){start();if(e.key.length==1){s+=e.key}ev.push('kd');show()},true);",
+    "['mousedown','mouseup','click','focus','blur','focusin','focusout'].forEach(function(n){addEventListener(n,function(e){ev.push(n+(e.target&&e.target.tagName?'.'+e.target.tagName.toLowerCase():''));if(started)show()},true)});",
+    "var started=false;function start(){if(started)return;started=true;document.getElementById('r').textContent='pg'+'ok'+(6*7)+'cy'+(new URLSearchParams(location.search).get('c')||'0');setInterval(show,200)}",
+    "</script></head><body style='font:24px sans-serif'>",
+    "<p id=r></p><input id=f autofocus autocomplete=off style='font:24px sans-serif;width:600px;border:0;outline:0;background:transparent;caret-color:transparent'><p id=o></p><p id=h></p><p id=e></p>",
+    "",
+    "</body></html>"
+   ],
+   "title": "set-up: a local page (127.0.0.1, a driver thread) with an autofocused text field; it shows every key it gets, reversed and counted ('seen' + keys reversed + 'end' + count), document.hasFocus(), the active element, and its cycle (?c=N)"
+  },
+  {
+   "do": "key",
+   "key": "l",
+   "modifiers": [
+    "cmd",
+    "shift"
+   ],
+   "mark": "bar1",
+   "title": "cycle 1: Cmd-Shift-L opens a browser tab"
+  },
+  {
+   "do": "expect",
+   "title": "cycle 1: the address bar takes the keys",
+   "since": "bar1",
+   "timeout": 15,
+   "all": [
+    {
+     "key_window_focus": {
+      "in": [
+       "addressBar"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "${page_url}?c=1",
+   "mark": "url1"
+  },
+  {
+   "do": "key",
+   "key": "return",
+   "modifiers": [],
+   "mark": "loaded1"
+  },
+  {
+   "do": "expect",
+   "title": "cycle 1: the page loaded from the address bar; the page's text field is its active element and the focus model says browserPage (empty page variant: the page shows no text before a key, so only the key window is checked)",
+   "since": "loaded1",
+   "timeout": 20,
+   "all": [
+    {
+     "key_window_focus": {
+      "in": [
+       "browserPage"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "do": "reopen_browser_keys",
+   "cmd_l": false,
+   "mark": "reA",
+   "title": "cycle A: a real Cmd-Q (Keep) and reopen; no key until the restored page has loaded"
+  },
+  {
+   "do": "expect",
+   "title": "cycle A: the restored page loaded; its text field is the active element and the focus model says browserPage (empty page variant: the page shows no text before a key, so only the key window is checked)",
+   "since": "reA",
+   "timeout": 20,
+   "all": [
+    {
+     "key_window_focus": {
+      "in": [
+       "browserPage"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "do": "hid_line",
+   "text": "latekeysca",
+   "enter": false,
+   "mark": "keysA",
+   "title": "cycle A: then a word with real plain keys (CuaDriver desktop scope)"
+  },
+  {
+   "do": "expect",
+   "title": "cycle A: every key reached the restored page in order (shown reversed) and the field shows the word",
+   "since": "keysA",
+   "timeout": 10,
+   "all": [
+    {
+     "frame_text": "seenacsyeketalend10"
+    },
+    {
+     "frame_text": "latekeysca"
+    },
+    {
+     "key_window_focus": {
+      "in": [
+       "browserPage"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "do": "reopen_browser_keys",
+   "text": "earlykeyscb",
+   "cmd_l": false,
+   "mark": "reB",
+   "title": "cycle B: a real Cmd-Q (Keep), reopen, and as soon as the main window is listed only plain keys (a word, no modifier) (the restored page may still be loading: the app must hold or deliver the keys; a red here can be that, not the key window)"
+  },
+  {
+   "do": "expect",
+   "title": "cycle B: every key typed at once reached the restored page in order (shown reversed) and the field shows the word",
+   "since": "reB",
+   "timeout": 15,
+   "all": [
+    {
+     "frame_text": "seenbcsyekylraeend11"
+    },
+    {
+     "frame_text": "earlykeyscb"
+    },
+    {
+     "key_window_focus": {
+      "in": [
+       "browserPage"
+      ]
+     }
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "rpc_try",
+   "method": "debug.focus",
+   "title": "evidence: debug.focus at the end (creation_hold and creation_hold_end per window; reopen-f4)"
+  },
+  {
+   "do": "input_journal",
+   "name": "inputjournal",
+   "last": 300
+  }
+ ]
+}
