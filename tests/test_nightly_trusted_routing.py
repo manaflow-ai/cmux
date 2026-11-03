@@ -480,9 +480,6 @@ class NightlyTrustedRouting(unittest.TestCase):
             runs_on = job.get('runs-on', '')
             if not isinstance(runs_on, str) or 'ubuntu' not in runs_on or 'macos' in runs_on or name in SIGNER_ROUTE_JOBS:
                 continue
-            # Only a fork takes ubuntu-24.04 here; DaemonBesideTheApp pins the owned nightly pool route.
-            if name in OWNED_NIGHTLY_POOL_JOBS:
-                continue
             checked += 1
             source = runs_on.removeprefix('${{').removesuffix('}}')
             for runner in ('', 'ubuntu-24.04', 'blacksmith-4vcpu-ubuntu-2404', *sorted(members)):
@@ -894,10 +891,6 @@ class PrimaryPreparationOnFleetLinux(unittest.TestCase):
         self.assertEqual(step['run'], 'python3 scripts/ci/portable_job_placement.py')
 
 
-# Nightly jobs whose only Linux label is the fork fallback: they run on the owned nightly-only Mac pool.
-OWNED_NIGHTLY_POOL_JOBS = ('build-nightly-remote-daemon', 'attest-nightly-remote-daemon')
-
-
 class DaemonBesideTheApp(unittest.TestCase):
     """build-nightly-remote-daemon (a Go cross-compile on Linux) builds while build-nightly-app compiles,
     not after it: its queue and build sat between the app and signing (Leo, 2026-10-31, on "the daemon
@@ -934,42 +927,39 @@ class DaemonBesideTheApp(unittest.TestCase):
         self.assertIn('--next-base "$(python3 scripts/ci/nightly_version.py next-base)"', build['run'])
 
     def test_the_daemon_takes_the_helper_pick_else_the_owned_nightly_pool(self):
-        # Nightlies never run on Blacksmith (user, Oct 30): run 41683652930 built the daemon on
-        # blacksmith-32vcpu-ubuntu-2404 because the helper pick was empty.
+        # Nightlies take our own runners first: run 41683652930 built the daemon on
+        # blacksmith-32vcpu-ubuntu-2404 because the helper pick was empty. With no helper, NEXT's first
+        # attempt takes the all-nightly reservation; the Linux pool stays its overflow (no pins).
         source = DOC['jobs']['build-nightly-remote-daemon']['runs-on'].removeprefix('${{').removesuffix('}}')
         mini = 'glaeda-side-std-xcode-26.6'
-        base = {'github.repository_owner': 'manaflow-ai', 'github.ref': 'refs/heads/nightly-next', 'github.run_attempt': 1,
+        base = {'github.repository_owner': 'manaflow-ai', 'github.repository': 'manaflow-ai/cmux',
+                'github.ref': 'refs/heads/nightly-next', 'github.run_attempt': 1,
+                'needs.decide.outputs.track': 'nightly-next',
                 'vars.LINUX_RUNNER': 'blacksmith-32vcpu-ubuntu-2404',
-                'vars.RUNNER_POOLS': '{"linux_16":"blacksmith-16vcpu-ubuntu-2404","linux_32":"blacksmith-32vcpu-ubuntu-2404"}',
                 'vars.CI_NIGHTLY_ONLY_RUNNER': 'glaeda-nightly-only-m4pro',
                 'needs.pick-nightly-build-runner.outputs.attempt': '1',
                 'needs.pick-nightly-build-runner.outputs.helper': mini,
                 'needs.pick-nightly-build-runner.outputs.dedicated': 'glaeda-nightly-dedicated'}
         self.assertEqual(evaluate(parse_expression(source), base), mini)
         for changes in ({'needs.pick-nightly-build-runner.outputs.helper': ''},
-                        {'needs.pick-nightly-build-runner.outputs.dedicated': mini},
-                        {'github.run_attempt': 2},
-                        {'github.ref': 'refs/heads/main'},
-                        {'github.ref': 'refs/heads/main', 'vars.CI_NIGHTLY_ONLY_RUNNER': ''}):
+                        {'needs.pick-nightly-build-runner.outputs.dedicated': mini}):
             with self.subTest(changes=changes):
                 self.assertEqual(evaluate(parse_expression(source), {**base, **changes}), 'glaeda-nightly-only-m4pro')
-        self.assertNotIn('blacksmith', source)
-        self.assertNotIn('RUNNER_POOLS', source)
+        for changes in ({'github.run_attempt': 2},
+                        {'github.ref': 'refs/heads/main', 'needs.decide.outputs.track': 'nightly'},
+                        {'needs.pick-nightly-build-runner.outputs.helper': '', 'vars.CI_NIGHTLY_ONLY_RUNNER': ''}):
+            with self.subTest(changes=changes):
+                self.assertIn('RUNNER_POOLS', source)
+                self.assertNotEqual(evaluate(parse_expression(source), {**base, **changes}), 'glaeda-nightly-only-m4pro')
         self.assertEqual(evaluate(parse_expression(source), {**base, 'github.repository_owner': 'fork'}), 'ubuntu-24.04')
 
-    def test_the_daemon_attestation_runs_on_the_owned_nightly_pool(self):
+    def test_the_daemon_attestation_takes_the_owned_nightly_pool_first(self):
         job = DOC['jobs']['attest-nightly-remote-daemon']
         source = job['runs-on'].removeprefix('${{').removesuffix('}}')
-        self.assertNotIn('blacksmith', source)
-        self.assertNotIn('RUNNER_POOLS', source)
-        for attempt in (1, 2, 3):
-            for pool in ('', '{"linux":"blacksmith-32vcpu-ubuntu-2404"}'):
-                context = {'github.repository_owner': 'manaflow-ai', 'github.run_attempt': attempt,
-                           'vars.RUNNER_POOLS': pool, 'vars.CI_NIGHTLY_ONLY_RUNNER': 'glaeda-nightly-only-m4pro'}
-                with self.subTest(attempt=attempt, pool=pool):
-                    self.assertEqual(evaluate(parse_expression(source), context), 'glaeda-nightly-only-m4pro')
-                    context['vars.CI_NIGHTLY_ONLY_RUNNER'] = ''
-                    self.assertEqual(evaluate(parse_expression(source), context), 'glaeda-nightly-only-m4pro')
+        context = {'github.repository_owner': 'manaflow-ai', 'github.repository': 'manaflow-ai/cmux',
+                   'github.ref': 'refs/heads/nightly-next', 'github.run_attempt': 1,
+                   'vars.CI_NIGHTLY_ONLY_RUNNER': 'glaeda-nightly-only-m4pro'}
+        self.assertEqual(evaluate(parse_expression(source), context), 'glaeda-nightly-only-m4pro')
         self.assertEqual(evaluate(parse_expression(source), {'github.repository_owner': 'fork'}), 'ubuntu-24.04')
         self.assertEqual(job['permissions'], {'contents': 'read', 'attestations': 'write', 'id-token': 'write'})
 
@@ -1007,7 +997,7 @@ class PickerReRun(unittest.TestCase):
                 self.assertIs(step['with'].get('overwrite'), True, step['with'].get('name'))
 
 
-CREDENTIALED_CONTROL_JOBS = ('route-visual-gate-nightly', 'published-in')
+CREDENTIALED_CONTROL_JOBS = ('attest-nightly-remote-daemon', 'route-visual-gate-nightly', 'published-in')
 CREDENTIALED_CONTROL_MEMBERS = ('blacksmith-16vcpu-ubuntu-2404', 'blacksmith-32vcpu-ubuntu-2404')
 
 
@@ -1054,8 +1044,10 @@ class CredentialedControls(unittest.TestCase):
             self.assertEqual(self.select(job, 'not json', owner='someone'), 'ubuntu-24.04')
 
     def test_credential_permissions_remain_scoped_to_each_control(self):
-        self.assertEqual(DOC['jobs'][CREDENTIALED_CONTROL_JOBS[0]]['environment'], 'ci-routing-agent')
-        self.assertEqual(DOC['jobs'][CREDENTIALED_CONTROL_JOBS[1]]['permissions'], {
+        self.assertEqual(DOC['jobs'][CREDENTIALED_CONTROL_JOBS[0]]['permissions'], {
+            'contents': 'read', 'attestations': 'write', 'id-token': 'write'})
+        self.assertEqual(DOC['jobs'][CREDENTIALED_CONTROL_JOBS[1]]['environment'], 'ci-routing-agent')
+        self.assertEqual(DOC['jobs'][CREDENTIALED_CONTROL_JOBS[2]]['permissions'], {
             'contents': 'read', 'pull-requests': 'write'})
 
 
