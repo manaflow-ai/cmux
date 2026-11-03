@@ -65,6 +65,7 @@ pub use pacing::Priority;
 pub use probe_schedule::ProbeConfig;
 pub use single_path::MIN_SEND_BUFFER;
 pub use stream::WgStream;
+pub use timers::TimerSchedule;
 pub use underlay::{
     DatagramSocket, DueProbes, Origin, RECEIVE_BUFFER, Received, SocketPath, UdpUnderlay, Underlay,
 };

@@ -211,6 +211,7 @@ jobs:
       early_mini_runner: ${{ steps.place-early-mac.outputs.mini_runner || steps.place-reserved.outputs.mini_runner }}
       early_mini_jobs: ${{ steps.place-early-mac.outputs.mini_jobs || steps.place-reserved.outputs.mini_jobs }}
       early_attempt: ${{ github.run_attempt }}
+      hosted_slow: ${{ steps.hosted-wait.outputs.hosted_slow }}
       should_build: ${{ steps.decide.outputs.should_build }}
       head_sha: ${{ steps.decide.outputs.head_sha }}
       short_sha: ${{ steps.decide.outputs.short_sha }}
@@ -280,7 +281,19 @@ jobs:
             /scripts/ci/side_lane_placement.py
             /scripts/ci/next_macos_cascade.py
             /scripts/ci/simple_pool_picker.py
+            /scripts/ci/hosted_queue_wait.py
           sparse-checkout-cone-mode: false
+
+      # How long hosted Ubuntu took to start this job: over 2 min, the signer route skips it (hosted_queue_wait.py).
+      - name: Read hosted Ubuntu's start wait
+        id: hosted-wait
+        if: github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_NAME: decide
+        run: python3 scripts/ci/hosted_queue_wait.py
 
       - name: Decide whether a nightly build is needed
         id: decide
@@ -2304,6 +2317,9 @@ jobs:
       - name: Build nightly app (Release)
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true'
         env:
+          # The opt-in Cloud Tunnel ships only on a channel with a provisioning profile
+          # (plans/cmux-next/cloud-tunnel-DESIGN.md); cloud-tunnel-prepare.sh signs or removes it.
+          CMUX_CLOUD_TUNNEL: ${{ needs.decide.outputs.profile_channel != '' && needs.decide.outputs.notary_probe != 'true' && 'YES' || '' }}
           IMPORT_VARIANT: ${{ needs.decide.outputs.import_variant }}
           SWIFT_IMPORT_FLAGS: ${{ needs.decide.outputs.swift_import_flags }}
           EMPTY_BROWSER_SOURCES: ${{ needs.decide.outputs.empty_browser_sources }}
@@ -3317,14 +3333,14 @@ jobs:
     # pool on a re-run (the signer pick route in tests/test_ci_self_hosted_guard.sh). The all-nightly
     # reservation queued it 7-12 min behind the builds (runs 41561996502, 41563477649), and before
     # that Blacksmith 16 vCPU queued it 5-14 min (#31642); it sits on the path to the feed.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && fromJSON(vars.RUNNER_POOLS).linux_4 || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.run_attempt > 1 || needs.decide.outputs.hosted_slow == 'true') && fromJSON(vars.RUNNER_POOLS).linux_4 || 'ubuntu-24.04' }}
     # The owned pick mints the routing token (GLAEDA_ROUTE_APP_KEY), so the key is read in the
     # routing environment, as pick-nightly-build-runner does (tests/test_supplychain_security.py).
     environment: ci-routing-agent
-    # Room for every step budget in turn (the read token mint 1, the Blacksmith pick 2, then the owned pick's token
-    # mints 1 + 1, the verify picker 2, the signing picker 2 and the overtaken check 1) plus checkout, so the job is never
-    # cut off before its outputs; the Blacksmith pick runs before the owned steps so `runner` is set first.
-    timeout-minutes: 16
+    # Room for every step budget in turn (the hosted wait read 1, the read token mint 1, the Blacksmith pick 2, then the
+    # owned pick's token mints 1 + 1, the verify picker 2, the signing picker 2 and the overtaken check 1) plus checkout, so
+    # the job is never cut off before its outputs; the Blacksmith pick runs before the owned steps so `runner` is set first.
+    timeout-minutes: 17
     permissions:
       # The queue janitor's pool snapshot (an artifact).
       actions: read
@@ -3354,6 +3370,8 @@ jobs:
       attempt: ${{ github.run_attempt }}
       # A newer run's build is already on the feed: signer-app and build-sign-notarize-nightly skip.
       overtaken: ${{ steps.overtaken.outputs.overtaken }}
+      # Hosted Ubuntu was slow to start decide or this job: the signer route takes Blacksmith Linux 4 vCPU.
+      hosted_slow: ${{ steps.hosted-wait.outputs.hosted_slow || needs.decide.outputs.hosted_slow }}
     steps:
       - name: Checkout publication tooling at the workflow commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -3362,6 +3380,19 @@ jobs:
           ref: ${{ github.sha }}
           path: .publish-tooling
           sparse-checkout: scripts/ci
+
+      - name: Read hosted Ubuntu's start wait
+        id: hosted-wait
+        if: github.run_attempt == 1
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
+          GH_TOKEN: ${{ github.token }}
+          JOB_NAME: pick-nightly-sign-runner
+          INHERITED_SLOW: ${{ needs.decide.outputs.hosted_slow }}
+        run: python3 -I .publish-tooling/scripts/ci/nightly_sign_runner.py hosted-wait
 
       # As pick-nightly-build-runner (run 41051244674's 403s were here).
       - name: Mint the glaeda read token
@@ -3827,6 +3858,16 @@ jobs:
         run: bash -e scripts/ci/nightly-steps/embed-provisioning-profile.sh
 
 
+      # The opt-in Cloud Tunnel: channel identity, its own profile, the app's two tunnel
+      # entitlements; removed when the channel has no tunnel profile.
+      - name: Prepare the Cloud Tunnel extension
+        if: hashFiles('scripts/ci/nightly-steps/cloud-tunnel-prepare.sh') != ''
+        env:
+          PROFILE_CHANNEL: ${{ needs.decide.outputs.profile_channel }}
+          TUNNEL_PROVISIONING_PROFILE_BASE64: ${{ needs.decide.outputs.profile_channel != '' && secrets[format('APPLE_{0}_TUNNEL_PROVISIONING_PROFILE_BASE64', needs.decide.outputs.profile_channel)] || '' }}
+        run: bash scripts/ci/nightly-steps/cloud-tunnel-prepare.sh
+
+
       # The Computer Use helper has its own notarization ticket (a copy outside
       # the app stays Gatekeeper-valid). Its submission starts here, signed
       # with its final Developer ID signature, so Apple's wait overlaps the
@@ -3867,7 +3908,7 @@ jobs:
           fi
           CMUX_SIGN_MODE="$sign_mode" ./scripts/sign-cmux-bundle.sh \
             "$CHANNEL_APP_PATH" \
-            "$CHANNEL_ENTITLEMENTS" \
+            "${CMUX_APP_TUNNEL_ENTITLEMENTS:-$CHANNEL_ENTITLEMENTS}" \
             "$APPLE_SIGNING_IDENTITY"
 
 
@@ -4326,7 +4367,13 @@ jobs:
         if: env.TRACK == 'nightly-next'
         run: ./scripts/cmux-next/check-version-surfaces.sh "$CHANNEL_APP_PATH"
 
-      - *older-tree-step-scripts
+      # The same restore for a job with no prepare reuse step: only the tree's age decides.
+      - &older-tree-step-scripts-plain
+        name: Add the workflow commit's new step scripts to an older build tree
+        if: hashFiles('scripts/ci/nightly-steps/prepare-thin-bundle.sh') == ''
+        run: |
+          git fetch -q --no-tags --depth=1 origin "$GITHUB_SHA"
+          git diff --name-only --diff-filter=A HEAD FETCH_HEAD -- scripts/ci/nightly-steps | while read -r f; do git checkout FETCH_HEAD -- "$f"; done
       - name: Verify bundled CLI commands run from the bundle alone
         if: env.TRACK == 'nightly-next' && hashFiles('scripts/cmux-next/check-bundled-cli-commands.sh') != ''
         run: bash scripts/ci/nightly-steps/verify-signed-bundled-cli-commands.sh
@@ -4582,7 +4629,7 @@ jobs:
     environment: ${{ needs.decide.outputs.environment }}
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, signer-build, pick-nightly-sign-runner]
     if: needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.pick-nightly-sign-runner.outputs.overtaken != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.run_attempt > 1 || needs.pick-nightly-sign-runner.outputs.hosted_slow == 'true') && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     timeout-minutes: 75
     permissions:
       contents: read
@@ -4749,8 +4796,7 @@ jobs:
             if (app !== 0) core.setFailed(`fetch_run_artifact.py exited ${app}`)
             else core.exportVariable('SIGNER_APP_FETCHED', 'true')
       # An env flag, not a step outcome, so the ranged step's result decides.
-      - &signer-download-app
-        name: Download the signed app
+      - name: Download the signed app
         id: signer-download-app
         if: env.SIGNER_APP_FETCHED != 'true'
         continue-on-error: true
@@ -4759,16 +4805,14 @@ jobs:
         with:
           name: cmux-nightly-next-signer-app-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           path: signer-app
-      - &signer-download-app-retry
-        name: Download the signed app (retry)
+      - name: Download the signed app (retry)
         if: steps.signer-download-app.outcome == 'failure'
         timeout-minutes: 5
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-nightly-next-signer-app-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           path: signer-app
-      - &signer-unpack-app
-        name: Unpack the signed app
+      - name: Unpack the signed app
         env:
           APP_SHA256: ${{ needs.signer-app.outputs.sha256 }}
         run: bash .publish-tooling/scripts/ci/nightly-steps/signer-unpack-app.sh
@@ -4834,7 +4878,7 @@ jobs:
   signer-dmg:
     environment: ${{ needs.decide.outputs.environment }}
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, signer-build, signer-app, signer-dmg-image, pick-nightly-sign-runner]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.run_attempt > 1 || needs.pick-nightly-sign-runner.outputs.hosted_slow == 'true') && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     timeout-minutes: 40
     permissions:
       contents: read
@@ -6252,7 +6296,7 @@ jobs:
     # picker waited its whole three minutes and then sent it to Blacksmith 4 vCPU in every run (runs
     # 41412703950..41418619409, 2026-11-02: 3.2-3.4 min, about 28 runner reads). The rulebook's measured
     # exception for signing and its picks (Leo, 2026-11-01: "surely github has linux hosted we can just use").
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.run_attempt > 1 || needs.pick-nightly-sign-runner.outputs.hosted_slow == 'true') && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     timeout-minutes: 65
     permissions:
       contents: read
@@ -6640,9 +6684,9 @@ jobs:
   # NIGHTLY_NEXT_LEGACY_POOL=off.
   legacy-signer-app:
     environment: release-next
-    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, signer-build, legacy-identity-target]
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, signer-build, legacy-identity-target, pick-nightly-sign-runner]
     if: "!cancelled() && needs.signer-build.result == 'success' && needs.legacy-identity-target.result == 'success' && needs.legacy-identity-target.outputs.action == 'new' && needs.legacy-identity-target.outputs.source_run == format('{0}', github.run_id) && needs.legacy-identity-target.outputs.build == needs.build-nightly-app.outputs.daemon_build && needs.decide.outputs.notary_paused != 'true' && vars.NIGHTLY_NEXT_LEGACY_POOL != 'off' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.run_attempt > 1 || needs.pick-nightly-sign-runner.outputs.hosted_slow == 'true') && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     # A failure here costs the old feed nothing: the macOS signer signs instead.
     continue-on-error: true
     timeout-minutes: 75
@@ -6783,9 +6827,9 @@ jobs:
   # cmux-nightly-identity-signed and the outputs publish-nightly-identity-legacy reads.
   legacy-signer-dmg:
     environment: release-next
-    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, signer-build, legacy-signer-app, legacy-signer-dmg-image]
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, signer-build, legacy-signer-app, legacy-signer-dmg-image, pick-nightly-sign-runner]
     if: "!cancelled() && needs.legacy-signer-app.outputs.notarized == 'true' && needs.legacy-signer-dmg-image.outputs.sha256 != ''"
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.run_attempt > 1 || needs.pick-nightly-sign-runner.outputs.hosted_slow == 'true') && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     continue-on-error: true
     timeout-minutes: 40
     permissions:
@@ -7548,7 +7592,7 @@ jobs:
 
       - name: Fetch the published span
         run: ./scripts/cmux-next/fetch-release-notes-span.sh origin "$HEAD_SHA" nightly-next "$PUBLISHED_SHA"
-      - *older-tree-step-scripts
+      - *older-tree-step-scripts-plain
       - name: Comment the build on its PRs
         env:
           GH_TOKEN: ${{ github.token }}
@@ -7596,7 +7640,7 @@ jobs:
       # the next one (2026-10-12: 3821558930001 had no notes and its highlights were never shown).
       - *wait-through-github-api-rate-l
 
-      - *older-tree-step-scripts
+      - *older-tree-step-scripts-plain
       - name: Start the span at the newest published notes
         id: span
         run: bash scripts/ci/nightly-steps/release-notes-start-span.sh
@@ -7704,7 +7748,7 @@ jobs:
       - *wait-through-github-api-rate-l
 
       - *download-artifact-step
-      - *older-tree-step-scripts
+      - *older-tree-step-scripts-plain
       - name: Install ffmpeg
         timeout-minutes: 6
         env:
