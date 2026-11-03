@@ -51,7 +51,7 @@ struct MotionFrameAllocationSitesTests {
                 if caller != nil, own != nil { break }
             }
             callers[caller ?? "?", default: 0] += 1
-            let chain = stack.map { name($0).0 }.filter(isOurs).prefix(3).map { String($0.prefix(90)) }.joined(separator: " <- ")
+            let chain = stack.map { AllocSites.name($0).0 }.filter { AllocSites.isOurs($0) }.prefix(3).map { String($0.prefix(90)) }.joined(separator: " <- ")
             chains[chain.isEmpty ? "(no frame of ours)" : chain, default: 0] += 1
             ours[own ?? "(no frame of ours)", default: 0] += 1
             images[image ?? "?", default: 0] += 1
