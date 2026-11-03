@@ -800,6 +800,8 @@ pub struct MoveOptions {
     pub cloud_name: String,
     /// Make the hosted Chief the account's default Chief.
     pub cloud_default: bool,
+    /// The hosted Chief's model (`--cloud-model`), else the cloud's default.
+    pub cloud_model: Option<String>,
 }
 
 /// One step of a move, for the report.
@@ -1226,6 +1228,7 @@ pub fn move_chief(options: &MoveOptions) -> MoveReport {
                 &sha,
                 &options.cloud_name,
                 options.cloud_default,
+                options.cloud_model.as_deref(),
             )?;
             let detail = format!(
                 "hosted Chief {} ({} history messages, {} memory messages, memory {})",
@@ -1566,6 +1569,7 @@ fn watch_template(
             .cloned()
             .unwrap_or_else(|| "Chief".into()),
         cloud_default: false,
+        cloud_model: values.get("cloud-model").cloned(),
     }
 }
 
@@ -1661,7 +1665,7 @@ pub fn rollback(
 
 /// `optchat-chief move ...`.
 pub const USAGE: &str = "optchat-chief move --to local:/path|ssh:HOST[:/path]|cloud[:staging|:URL] [--home DIR] [--stop-host] [--without-transcripts] [--remote-bin PATH]
-                   [--dry-run] [--drain-timeout SECS] [--detach] [--after-turn] [--session-token-file FILE] [--name NAME] [--cloud-default]
+                   [--dry-run] [--drain-timeout SECS] [--detach] [--after-turn] [--session-token-file FILE] [--name NAME] [--cloud-default] [--cloud-model MODEL]
                                    move this Chief: drain, checkpoint, send, restore, verify, mark the source moved.
                                    --detach: a Chief moving itself: the move runs after its turn ends (report: state/move.json).
                                    cloud: the account's session from CMUX_CLOUD_SESSION_TOKEN or a 0600 file; never printed
@@ -1873,6 +1877,7 @@ pub fn cli(args: &[String]) -> i32 {
                             .cloned()
                             .unwrap_or_else(|| "Chief".into()),
                         cloud_default: has("cloud-default"),
+                        cloud_model: a.values.get("cloud-model").cloned(),
                     };
                     if has("detach") {
                         return detach(&home, args);
