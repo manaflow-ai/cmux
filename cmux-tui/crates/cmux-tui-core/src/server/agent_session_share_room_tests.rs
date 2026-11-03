@@ -438,6 +438,46 @@ fn a_provisioned_share_answers_hello_with_its_guests_and_redeems_through_the_dae
 }
 
 #[test]
+fn an_account_redeem_answers_the_invitees_role_and_nothing_else_about_the_account() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, _mux, surface, mut owner) = bridged("room-invite-role", &room);
+    let share = create(&mut owner, surface)["data"].clone();
+    let id = share["share_id"].clone();
+    for (account, role) in [("vera@example.com", "view"), ("tom@example.com", "talk")] {
+        let reply = owner.request(json!({"cmd":"agent-session-share-invite", "share_id":id,
+            "account":account, "role":role}));
+        assert_eq!(reply["ok"], true, "{reply}");
+    }
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    let invited = |request: &str, attempt: &str, account: &str| {
+        json!({"v": 1, "t": "redeem", "request_id": request, "attempt_id": attempt,
+            "account": account, "name": "Vera"})
+    };
+    // The room learns the invitee's role (so a view invitee's page has no composer), and
+    // nothing else about the account: no account, no email, no name.
+    room.send(invited("r1", "attempt-1", "vera@example.com"));
+    let redeemed = room.frame(conn);
+    let guest = redeemed["guest_id"].clone();
+    assert!(guest.is_string(), "{redeemed}");
+    assert_eq!(
+        redeemed,
+        json!({"v": 1, "t": "redeemed", "request_id": "r1", "guest_id": guest, "role": "view"})
+    );
+    // A lost reply's retry names the same guest and role.
+    room.send(invited("r2", "attempt-1", "vera@example.com"));
+    let again = room.frame(conn);
+    assert_eq!((again["guest_id"].clone(), again["role"].clone()), (guest, json!("view")));
+    room.send(invited("r3", "attempt-2", "tom@example.com"));
+    assert_eq!(room.frame(conn)["role"], "talk");
+    // A link guest's answer is as before: no role (the room reads none as a link guest).
+    room.send(redeem("r4", "attempt-3", &share["secret"]));
+    let link = room.frame(conn);
+    assert!(link["guest_id"].is_string(), "{link}");
+    assert!(link.get("role").is_none(), "{link}");
+}
+
+#[test]
 fn a_kick_is_resent_until_the_room_acknowledges_it_and_a_revoke_ends_and_deletes() {
     let room = FakeRoom::start(&[]);
     let (_fake, _mux, surface, mut owner) = bridged("room-kick", &room);

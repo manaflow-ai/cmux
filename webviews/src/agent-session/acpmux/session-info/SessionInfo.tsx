@@ -75,6 +75,7 @@ import type { StartedSession } from "../started/startedSessions";
 import { ChangesSection, headerStatus, visibleChanges, type SessionInfoPullRequestStatus } from "./ChangesSection";
 import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { ConnectorsSection } from "./ConnectorsSection";
+import { useIMessage, type IMessageView } from "./imessage";
 import { ContextSection } from "./ContextSection";
 import { EnvironmentSection, type AccessGrant, type ProjectRowLook } from "./EnvironmentSection";
 import { SessionInfoSectionList, type SessionInfoCompactLook } from "./SessionInfoGroup";
@@ -91,6 +92,7 @@ import {
 } from "./subagentScope";
 import {
   bindSessionInfoPane,
+  claimSessionInfoIMessageReveal,
   SESSION_INFO_WIDTH,
   sessionInfoPaneKey,
   setSessionInfoMore,
@@ -1149,7 +1151,10 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           <div
             className="acpmux-session-info-room"
             aria-hidden="true"
-            style={{ width: Math.max(0, room - FLOAT_MARGIN), marginRight: Math.min(room, FLOAT_MARGIN) }}
+            style={{
+              width: Math.max(0, room - FLOAT_MARGIN),
+              marginRight: Math.min(room, FLOAT_MARGIN),
+            }}
           />
         )}
         <NativeSessionInfo
@@ -1554,6 +1559,7 @@ export function SessionInfo({
   more,
   onMore,
   compactLook = "more",
+  imessage: imessageFixture,
 }: {
   summary?: Summary;
   machineName?: string;
@@ -1653,8 +1659,12 @@ export function SessionInfo({
   onMore?: (more: boolean) => void;
   /// How the default view stays short (SessionInfoGroup.tsx); the gallery shows the others.
   compactLook?: SessionInfoCompactLook;
+  /// Gallery fixtures; false suppresses the Mac-only connector.
+  imessage?: IMessageView | false;
 }) {
   const t = useT();
+  const liveIMessage = useIMessage(imessageFixture === undefined);
+  const imessage = imessageFixture || liveIMessage;
   const language = usePaneLanguage();
   const sessionInfoState = useSessionInfoState();
   const showMore = more ?? sessionInfoState.more;
@@ -1662,6 +1672,14 @@ export function SessionInfo({
   const stored = sessionInfoState.sections;
   const state = sections ?? stored;
   const fold = (id: SessionInfoSectionId) => (next: boolean) => (onSection ?? setSessionInfoSection)(id, next);
+  const imessageStatus = imessage?.data.status;
+  useEffect(() => {
+    if (!imessageStatus || imessageStatus === "connected" || !claimSessionInfoIMessageReveal()) return;
+    (onSection ?? setSessionInfoSection)("connectors", true);
+  }, [imessageStatus, onSection]);
+  useEffect(() => {
+    if (imessage?.expanded) (onSection ?? setSessionInfoSection)("connectors", true);
+  }, [imessage?.expanded, onSection]);
   const [gallery, setGallery] = useState(false);
   const usage = compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
   const known = usage !== undefined && usage.size > 0;
@@ -1823,7 +1841,7 @@ export function SessionInfo({
       />
     )
   );
-  const connectors = mcp.length > 0 && (
+  const connectors = (mcp.length > 0 || imessage) && (
     <SessionInfoSection
       id="connectors"
       title={t("rail.connectors")}
@@ -1834,12 +1852,16 @@ export function SessionInfo({
       meta={value(
         reconnect > 0
           ? t("sessionInfo.connectors.reconnect", { count: reconnect })
-          : t("rail.connected", {
-              count: mcp.filter((server) => server.status === "connected").length,
-            }),
+          : mcp.length === 0 && imessage && imessage.data.status !== "connected"
+            ? t("imessage.connect")
+            : t("rail.connected", {
+                count:
+                  mcp.filter((server) => server.status === "connected").length +
+                  (mcp.length === 0 && imessage?.data.status === "connected" ? 1 : 0),
+              }),
       )}
     >
-      <ConnectorsSection servers={mcp} onReconnect={onReconnectMcp} />
+      <ConnectorsSection servers={mcp} onReconnect={onReconnectMcp} imessage={imessage} />
     </SessionInfoSection>
   );
   const changes = pullRequests.length > 0 && (

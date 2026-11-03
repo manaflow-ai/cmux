@@ -207,6 +207,11 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
   "src/files-panel-motion.ts": { count: 2, what: "the files panel slides in from its edge" },
   "src/motion/SyncTitle.tsx": { count: 3, what: "a title's new text cross-fades" },
   "src/motion/useSyncListMotion.ts": { count: 3, what: "list rows arrive, move and leave" },
+  "src/ui/motion/SlidingIndicator.tsx": {
+    count: 1,
+    what: "a tab bar's or segmented control's highlight travels to the selected item",
+  },
+  "src/ui/motion/ViewSwap.tsx": { count: 2, what: "a swapped view's content enters, or an accent band sweeps it" },
 };
 
 /// How many times a script drives the Web Animations API.

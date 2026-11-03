@@ -986,7 +986,18 @@ export class DaemonHomeClient implements PageClient {
         return this.createGroup(params, options);
       case HomeOps.capabilities:
         // New messages and invites are the local owner's (`conversation-create`, `participants.add`).
-        return { start: true, invite: true, chiefs: await this.people.managesChiefs() };
+        return {
+          start: true,
+          invite: true,
+          chiefs: await this.people.managesChiefs(),
+          chiefWork: await this.capable("chief-work-v1"),
+        };
+      case HomeOps.chiefWork:
+        // The owner resolves this Chief and scopes the inventory; the page never requests a
+        // machine-wide session/process list. Unsupported owners fail rather than invent an empty list.
+        if (!(await this.capable("chief-work-v1")))
+          throw pageError("cmux.page.unavailable", "Chief work is unavailable on this owner");
+        return this.local.request("chief-work", { chief: params.chief });
       case HomeOps.directory:
         return { people: await this.people.directory(participant) };
       case HomeOps.startConversation: {
