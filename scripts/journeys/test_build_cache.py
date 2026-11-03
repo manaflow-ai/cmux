@@ -124,5 +124,70 @@ class OneDownload(unittest.TestCase):
         self.assertEqual(len(self.log.read_text().splitlines()), 1)
 
 
+class Fill(unittest.TestCase):
+    """build_cache.py alone: the store URL (curl, sha256 checked), its fallback, and an older copy's download."""
+    def setUp(self):
+        t = OneDownload("test_a_filled_cache_makes_no_download")
+        t.setUp()
+        self.t, self.env = t, dict(t.env, JOURNEYS_CACHE_ROOT=str(t.home / ".cache" / "cmux-journeys"))
+        import hashlib, zipfile
+        site = t.tmp / "site"
+        site.mkdir()
+        with zipfile.ZipFile(site / "app.zip", "w") as z:
+            z.writestr("cmux DEV s.app/Contents/Info.plist", "<plist/>")
+        self.sha = hashlib.sha256((site / "app.zip").read_bytes()).hexdigest()
+        self.server = subprocess.Popen([sys.executable, "-u", "-m", "http.server", "0", "--bind", "127.0.0.1"], cwd=site,
+                                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        line = self.server.stdout.readline()  # "Serving HTTP on 127.0.0.1 port N ..."
+        self.url = f"http://127.0.0.1:{line.split(' port ')[1].split()[0]}/app.zip"
+
+    def tearDown(self):
+        self.server.terminate()
+        self.server.wait(timeout=10)
+        self.server.stdout.close()
+
+    def fill(self, sha, url, job="JOB2"):
+        return subprocess.run([sys.executable, "-I", str(HERE / "build_cache.py"), job, sha, "3", "b" * 40],
+                              env=self.env, input=url + "\n", capture_output=True, text=True, timeout=120)
+
+    def downloads(self):
+        return self.t.log.read_text().splitlines() if self.t.log.exists() else []
+
+    def test_the_store_url_is_read_and_checked(self):
+        done = self.fill(self.sha, self.url)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertTrue(done.stdout.strip().endswith("cmux DEV s.app"), done.stdout)
+        self.assertEqual(self.downloads(), [])  # no cmux-ci read
+        self.assertEqual((Path(done.stdout.strip()).parent / "capture-commit").read_text(), "b" * 40 + "\n")
+
+    def test_a_wrong_hash_falls_back_to_cmux_ci(self):
+        done = self.fill("1" * 64, self.url)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("sha256 does not match", done.stderr)
+        self.assertEqual(len(self.downloads()), 1)
+
+    def test_a_crawling_older_download_does_not_hold_the_fill(self):
+        builds = self.t.home / ".cache" / "cmux-journeys" / "builds"
+        builds.mkdir(parents=True, exist_ok=True)
+        other = subprocess.Popen(["sleep", "60"])  # an older harness copy's shell: alive, its folder does not grow
+        try:
+            (builds / f"JOB2.tmp.{other.pid}").mkdir()
+            done = subprocess.run([sys.executable, "-I", str(HERE / "build_cache.py"), "JOB2", self.sha, "3"],
+                                  env=dict(self.env, JOURNEYS_TAKEOVER_PROBE_SECONDS="1"), input=self.url + "\n",
+                                  capture_output=True, text=True, timeout=60)
+        finally:
+            other.kill()
+            other.wait()
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("crawls", done.stderr)
+
+    def test_the_newest_three_builds_stay(self):
+        for job in ("J1", "J2", "J3", "J4"):
+            self.assertEqual(self.fill(self.sha, self.url, job).returncode, 0)
+            time.sleep(1.1)
+        builds = self.t.home / ".cache" / "cmux-journeys" / "builds"
+        self.assertEqual(sorted(p.name for p in builds.iterdir()), ["J2", "J3", "J4"])
+
+
 if __name__ == "__main__":
     unittest.main()
