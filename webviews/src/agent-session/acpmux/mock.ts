@@ -6,6 +6,7 @@ import { MockHandoffs } from "./handoff/mock";
 import {
   claudeModels,
   codexModels,
+  mockResolvable,
   mockSessions,
   newSessionSummary,
   sessionHistory,
@@ -426,6 +427,16 @@ export class MockAcpmuxSocket {
         return this.fork(target, Number(params.throughSeq));
       case "_acpmux/watch":
         return { sessions: this.sessions };
+      // A session this daemon lists (mockFixture.ts `mockResolvable`), by link, id or HOST/NAME.
+      case "_acpmux/resolve": {
+        const query = String(params.query ?? "").trim();
+        const session = query.startsWith("https://")
+          ? undefined
+          : (mockResolvable[query] ?? mockResolvable[query.replace(/^cmux:\/\/agent\/[^/]+\//, "").split("?")[0]!]);
+        if (!session)
+          throw Object.assign(new Error(`no session named or with the id ${JSON.stringify(query)}`), { code: -32001 });
+        return { session: { ...session, qualifiedSessionId: null }, matches: [session], link: null };
+      }
       case "_acpmux/harnesses":
         return {
           // A gallery state can stand for a Mac with no agent CLI (`mockHarnesses`).

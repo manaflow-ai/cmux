@@ -76,10 +76,15 @@ impl std::fmt::Display for SendError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::EmptyText => write!(f, "messages send: the text is empty"),
-            Self::TextTooLong => write!(f, "messages send: the text is over {MAX_TEXT_BYTES} bytes"),
+            Self::TextTooLong => {
+                write!(f, "messages send: the text is over {MAX_TEXT_BYTES} bytes")
+            }
             Self::InvalidChat(detail) => write!(f, "messages send: no such chat: {detail}"),
             Self::NotPermitted(detail) => {
-                write!(f, "messages send: cmux may not control Messages (allow it under Automation): {detail}")
+                write!(
+                    f,
+                    "messages send: cmux may not control Messages (allow it under Automation): {detail}"
+                )
             }
             Self::Unsupported => write!(f, "messages send: osascript is not available"),
             Self::TimedOut => write!(f, "messages send: timed out"),
@@ -189,7 +194,11 @@ pub fn send(request: &SendRequest, runner: &dyn CommandRunner) -> Result<(), Sen
 /// `service;-;handle` (1:1) or `service;+;room` (group), with no control characters, and not
 /// starting with `-` (so `osascript` never reads it as an option).
 fn is_chat_guid(guid: &str) -> bool {
-    if guid.is_empty() || guid.len() > 512 || guid.starts_with('-') || guid.chars().any(char::is_control) {
+    if guid.is_empty()
+        || guid.len() > 512
+        || guid.starts_with('-')
+        || guid.chars().any(char::is_control)
+    {
         return false;
     }
     let mut parts = guid.splitn(3, ';');
