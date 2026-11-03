@@ -1015,7 +1015,9 @@ async fn session_info_names_host_sign_in_route_settings_and_limits() {
     )
     .await;
     let info = rpc.call("_acpmux/info", json!({"sessionId": id})).await;
-    assert!(info["host"].as_str().is_some_and(|h| !h.is_empty()), "{info}");
+    assert!(info["machine"].as_str().is_some_and(|h| !h.is_empty()), "{info}");
+    // `host` means a chat on another machine to clients: a local chat's detail has none.
+    assert!(info.get("host").is_none_or(Value::is_null), "{info}");
     assert_eq!(info["authSource"], "Auth token (ANTHROPIC_AUTH_TOKEN, from its profile)", "{info}");
     assert_eq!(info["route"], "SR2 gateway (sr2-gateway.example:4016)", "{info}");
     let settings: Vec<&str> = info["settingsSources"]

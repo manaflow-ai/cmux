@@ -361,7 +361,8 @@ test("usage limits a harness reports as plain text still show as they are", asyn
 // Leo, 2026-11-03: "how come the status doesn't say anything". acpmux's session detail now fills
 // the card's host, sign-in, route and settings rows itself (session_status.rs), top level.
 const LAUNCHED = {
-  host: "cosmic-gray",
+  host: undefined,
+  machine: "cosmic-gray",
   authSource: "SR2 token (sr2 claude)",
   route: "SR2 (sr2 claude)",
   settingsSources: ["~/.claude/settings.json", "~/cmux/.claude/settings.local.json", "autocompact at 400K"],

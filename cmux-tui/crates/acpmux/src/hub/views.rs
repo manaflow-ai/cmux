@@ -653,8 +653,9 @@ impl Hub {
         // The account's plan usage limits, as Claude Code's rate_limit_event last said them.
         v.set("usageLimits", m.usage_limits.clone().unwrap_or(Value::Null));
         // The `/status` card's machine, sign-in, route and settings (`session_status.rs`): this
-        // daemon's, so a peer's chat names the peer's own.
-        v.set("host", json!(crate::pairing::machine_name()));
+        // daemon's, so a peer's chat names the peer's own. `machine`, never `host`: a client
+        // reads `host` as "runs on another machine".
+        v.set("machine", json!(crate::pairing::machine_name()));
         let argv = m.spawn_argv.as_ref().unwrap_or(&m.harness_argv);
         let profile_env = session.launch_env.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let in_profile = |k: &str| profile_env.as_ref().is_some_and(|env| env.contains_key(k));

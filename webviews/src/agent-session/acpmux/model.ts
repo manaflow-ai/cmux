@@ -824,6 +824,9 @@ export type AcpmuxSnapshot = {
     /// autocompact cap, its subagents. Unset while the harness has no readable transcript.
     usageStats?: SessionUsageStats;
     host?: string;
+    /// The machine acpmux runs the chat on (acpmux `machine`), for the `/status` card only:
+    /// unlike `host` it is set for a local chat too.
+    machine?: string;
     peer?: string;
     hostKind?: "local" | "cloud";
     branch?: string;

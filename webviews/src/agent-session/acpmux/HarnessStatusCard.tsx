@@ -107,7 +107,7 @@ export function HarnessStatusCard({
     [t("status.field.version"), version(rows, summary, t)],
     [t("status.field.session"), display(summary.sessionId, t)],
     [t("status.field.cwd"), display(summary.cwd, t)],
-    [t("status.field.host"), display(summary.host ?? summary.peer, t)],
+    [t("status.field.host"), display(summary.host ?? summary.peer ?? summary.machine, t)],
     [t("status.field.model"), display(summary.model, t)],
     [t("status.field.effort"), display(summary.effort, t)],
     [t("status.field.authSource"), auth],

@@ -88,8 +88,10 @@ const PRECEDENCE: [&str; 9] = [
     "",
 ];
 
+/// A source's place in [`PRECEDENCE`], by its leading words (a path inside it never counts).
 fn rank(source: &str) -> usize {
-    PRECEDENCE.iter().position(|needle| source.contains(needle)).unwrap_or(PRECEDENCE.len())
+    let head = source.split(" in ").next().unwrap_or(source);
+    PRECEDENCE.iter().position(|needle| head.contains(needle)).unwrap_or(PRECEDENCE.len())
 }
 
 /// The sign-in Claude Code uses from `found`, and where it came from: `origin` names where an
@@ -185,7 +187,11 @@ pub fn facts(
             return Some(facts.clone());
         }
     }
-    let facts = read(&spawned, cwd, argv, in_profile);
+    // File reads block: off a multi-thread runtime's workers, as `claude_auth::explain`.
+    let work = || read(&spawned, cwd, argv, in_profile);
+    let multi_thread = tokio::runtime::Handle::try_current()
+        .is_ok_and(|h| h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread);
+    let facts = if multi_thread { tokio::task::block_in_place(work) } else { work() };
     let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
     let cache = cache.get_or_insert_with(HashMap::new);
     cache.retain(|_, (at, _, _)| at.elapsed() < FRESH);

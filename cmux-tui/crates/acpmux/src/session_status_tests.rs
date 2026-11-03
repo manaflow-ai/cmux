@@ -149,3 +149,20 @@ fn plan_limits_apply_to_a_subscription_or_a_router_only() {
         "Amazon Bedrock"
     ));
 }
+
+#[test]
+fn a_path_inside_a_source_never_ranks_it() {
+    // "aws" in a home path is not an AWS credential helper: the OAuth token still wins.
+    let f = found(
+        &[
+            "the sign-in saved in ~/laws/.claude/.credentials.json",
+            "a sign-in token (CLAUDE_CODE_OAUTH_TOKEN)",
+        ],
+        &["CLAUDE_CODE_OAUTH_TOKEN"],
+        None,
+    );
+    assert_eq!(
+        auth_label(&f, origin),
+        "Claude OAuth token (CLAUDE_CODE_OAUTH_TOKEN, from its profile)"
+    );
+}
