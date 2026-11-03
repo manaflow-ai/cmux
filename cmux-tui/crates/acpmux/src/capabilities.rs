@@ -239,6 +239,19 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_AGENT_LOGIN_API_KEY,
         ],
     },
+    // The sidebar's Priority view and session tree as windows with row diffs over the
+    // sessions' lanes (`server/priority_windows.rs`); a client without it ranks lanes itself.
+    Capability {
+        id: "priority-window-v1",
+        wire: &[
+            "_acpmux/priority_window",
+            "_acpmux/priority_window_close",
+            "_acpmux/priority_mark",
+            "_acpmux/priority_next",
+            "_acpmux/priority_window_changed",
+            "_acpmux/priority_lagged",
+        ],
+    },
 ];
 
 /// The ids of [`CAPABILITIES`], in its order.

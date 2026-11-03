@@ -1223,6 +1223,40 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/priority_window",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/priority_window_close",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/priority_mark",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/priority_next",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/priority_window_changed",
+      "params": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/priority_lagged",
+      "params": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/transfer_abort",
       "params": true,
       "result": true

@@ -220,6 +220,8 @@ pub struct Conn {
     client_requests: client_request::ClientRequests,
     /// Its windows over the chat index (`chat_windows.rs`).
     chat_windows: chat_windows::ConnWindows,
+    /// Its windows over the sessions' lanes (`priority_windows.rs`).
+    priority_windows: priority_windows::ConnWindows,
     /// Its refused Stops that wait for room (`requests/cancel_refused.rs`).
     cancel_refusals: Arc<requests::cancel_refused::Waiting>,
     /// A WebSocket's compression, which its `initialize` turns on (`frame_compress.rs`); None
@@ -1630,6 +1632,7 @@ async fn serve_connection_from(
         remote_media: media_forward::RemoteMedia::default(),
         client_requests: Default::default(),
         chat_windows: Default::default(),
+        priority_windows: Default::default(),
         cancel_refusals: Default::default(),
         wire,
     });
@@ -2058,6 +2061,7 @@ mod media_forward;
 mod mesh_control_send;
 pub mod mesh_relay;
 pub(super) mod mesh_send;
+mod priority_windows;
 mod team;
 mod trigger_authority;
 mod trigger_chat;

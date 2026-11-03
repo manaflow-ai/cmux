@@ -240,6 +240,9 @@ mod turn_usage;
 mod usage_view;
 pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;
 pub mod background_turn;
+pub(crate) mod priority;
+pub(crate) mod priority_marks;
+pub(crate) mod priority_window;
 #[cfg(all(test, unix))]
 mod trigger_quiet_tests;
 mod turns;
@@ -524,6 +527,8 @@ pub struct Hub {
     pub(super) events: list_guard::Events,
     /// The shared, paced full session list (`list_guard.rs`).
     pub(crate) list_guard: list_guard::ListGuard,
+    /// The person's marks on the Priority view's chats, one copy (`priority_marks.rs`).
+    pub(crate) priority_marks: priority_marks::MarksStore,
     /// Each chat's spend and context as its harness recorded them (`usage_view.rs`).
     pub(crate) usage_stats: usage_view::UsageCache,
     /// `_acpmux/models` replies now asking peers for theirs
@@ -830,6 +835,9 @@ impl Hub {
             start_mode_state::StartModeCell::load(start_mode_state::state_file(&config).as_deref());
         // Beside the peer caches, in the home they are in; a memory store keeps neither.
         let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
+        let priority_marks = priority_marks::MarksStore::open(
+            home.as_deref().map(|home| home.join(priority_marks::FILE)),
+        );
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let usage_limits = StdMutex::new(config.usage_warnings.limits());
@@ -850,6 +858,7 @@ impl Hub {
             inline_btw: StdMutex::new(HashMap::new()),
             events,
             list_guard: Default::default(),
+            priority_marks,
             usage_stats: Default::default(),
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
             shutdown: Notify::new(),

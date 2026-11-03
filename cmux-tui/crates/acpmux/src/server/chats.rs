@@ -124,6 +124,10 @@ pub(super) async fn route(
     if let Some(reply) = heap(|| super::bg_tasks::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
+    // The sidebar's lane windows (`priority_windows.rs`): the local socket only.
+    if let Some(reply) = super::priority_windows::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
     // Moving a chat to another daemon (`hub/transfer_out.rs`): a bundle holds the whole chat and
     // runs its queue with the rules it was sent under, so only the local socket moves one.
     if m.starts_with("_acpmux/transfer_") {

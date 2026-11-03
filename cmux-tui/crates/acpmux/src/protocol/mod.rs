@@ -355,6 +355,13 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/chats_window", Request),
         untyped("_acpmux/chats_window_close", Request),
         untyped("_acpmux/chats_window_changed", Notification),
+        // A client's window over the sessions' lanes (`server/priority_windows.rs`).
+        untyped("_acpmux/priority_window", Request),
+        untyped("_acpmux/priority_window_close", Request),
+        untyped("_acpmux/priority_mark", Request),
+        untyped("_acpmux/priority_next", Request),
+        untyped("_acpmux/priority_window_changed", Notification),
+        untyped("_acpmux/priority_lagged", Notification),
         // Moving a chat to another daemon (`transfer_out.rs`).
         untyped("_acpmux/transfer_abort", Request),
         untyped("_acpmux/transfer_begin", Request),
