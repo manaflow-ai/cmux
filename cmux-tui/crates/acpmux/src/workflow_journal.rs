@@ -30,6 +30,7 @@ struct Entry {
     id: String,
     fingerprint: String,
     result: Option<Result<Value, Value>>,
+    completed_at: Option<usize>,
 }
 
 /// The next activity is either already finished or belongs to this stable identity.
@@ -59,6 +60,7 @@ pub struct Journal {
     fresh_call_limit: usize,
     poisoned: bool,
     stop: Option<Stop>,
+    completions: usize,
 }
 
 impl Journal {
@@ -95,6 +97,7 @@ impl Journal {
             fresh_call_limit,
             poisoned: false,
             stop: None,
+            completions: 0,
         };
         journal.restore()?;
         if journal.source != source {
@@ -137,7 +140,7 @@ impl Journal {
             id: id.clone(),
             fingerprint: fingerprint.clone(),
         })?;
-        self.entries.push(Entry { id: id.clone(), fingerprint, result: None });
+        self.entries.push(Entry { id: id.clone(), fingerprint, result: None, completed_at: None });
         self.cursor += 1;
         self.fresh_calls += 1;
         Ok(Activity::Work { id, recovered: false })
@@ -157,8 +160,28 @@ impl Journal {
         self.append(&Record::Completed { id: id.into(), result: result.clone() })?;
         if let Some(entry) = self.entries.get_mut(ordinal) {
             entry.result = Some(result);
+            entry.completed_at = Some(self.completions);
         }
+        self.completions += 1;
         Ok(())
+    }
+
+    /// Identity reserved by the most recent successful begin, including a replay.
+    pub fn last_id(&self) -> Option<&str> {
+        self.cursor.checked_sub(1).and_then(|n| self.entries.get(n)).map(|entry| entry.id.as_str())
+    }
+
+    /// Resume settles parallel promises in the exact order their outcomes were
+    /// delivered to the original interpreter, rather than current executor timing.
+    pub fn next_replay(&self, pending: &[String]) -> Option<String> {
+        pending
+            .iter()
+            .filter_map(|id| {
+                let entry = self.entries.get(self.ordinal(id)?)?;
+                Some((entry.completed_at?, id))
+            })
+            .min_by_key(|(order, _)| *order)
+            .map(|(_, id)| id.clone())
     }
 
     /// Called before marking a run successful. A script taking a shorter path
@@ -243,7 +266,7 @@ impl Journal {
                     {
                         bail!("invalid workflow activity order or identity");
                     }
-                    self.entries.push(Entry { id, fingerprint, result: None });
+                    self.entries.push(Entry { id, fingerprint, result: None, completed_at: None });
                 }
                 Record::Completed { id, result } => {
                     let ordinal =
@@ -256,6 +279,8 @@ impl Journal {
                         bail!("duplicate workflow completion");
                     }
                     entry.result = Some(result);
+                    entry.completed_at = Some(self.completions);
+                    self.completions += 1;
                 }
             }
             complete_bytes += line.len() as u64;

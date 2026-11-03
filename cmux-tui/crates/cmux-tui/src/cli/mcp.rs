@@ -43,6 +43,7 @@ mod upstream_listing;
 mod v2_tools;
 mod video_tools;
 mod watch;
+mod workflow;
 
 use std::collections::BTreeSet;
 use std::io::{self, BufRead, Read, Write};
@@ -582,6 +583,9 @@ pub(super) struct Server<B> {
     /// `CMUX_MCP_TOOLS`: the only tools listed and callable. It turns code
     /// mode off (the few tools are listed directly).
     allowed: Option<BTreeSet<String>>,
+    /// Only the workflow host adapter can install this one-use operation.
+    /// Script arguments never create an authenticated daemon activity.
+    workflow_activity: Option<workflow::Internal>,
     /// The agent chat's other MCP servers (`upstream`), behind this one.
     upstreams: Vec<upstream::Proxied>,
     /// While a `cmux_exec` script runs: its time limit, which also bounds a
@@ -611,6 +615,7 @@ impl<B: Backend> Server<B> {
             code_mode: false,
             script_limits: code_mode::Limits::default(),
             allowed: None,
+            workflow_activity: None,
             upstreams: Vec::new(),
             call_cap: None,
             call_deadline: None,
@@ -806,6 +811,9 @@ impl<B: Backend> Server<B> {
                 "retryable": false,
             });
             return Ok(tool_error(envelope(error, "not_run", None)));
+        }
+        if name == "cmux_workflow" && let Some(operation) = self.workflow_activity.take() {
+            return Ok(workflow::internal_call(&self.backend, operation));
         }
         if name == code_mode::DOCS {
             let tools = self.list();
