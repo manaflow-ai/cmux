@@ -13,6 +13,13 @@ A's ring 1 (a hidden ring); two more declare a spring and move the divider on it
 add a 24 px black tab strip at the top of each pane with its selected tab's pill (gray 22, white glyphs) and a scan row
 through it: in step, B's strip one frame late, B's pill one frame late. The trace has each page host (`page` rows) on its
 pane; d4-cover puts B's page window 0.5 pt left of its host after the motion, and the film shows B's page 1 px left.
+From the first real films (cmux22, kit ae6563d7d44, 2026-11-03): glyph (a black-class glyph beside A's left ring 3 while
+A's right rings are cut: no walk starts at it), samefill (B a terminal of A's fill that shows nothing for 3 frames: B's
+sides are not found, never A's rings), cue (the divider's drag cue, a 6 px band of near-shell color over B's rings 1
+and 2 while the divider moves: a cue, not a gap or a hidden ring), held (A's pane grows while its content keeps its
+rest width and B shows nothing: the shell inside A's pane, A's gap capped at A's own rect, B not found),
+reduce-drag (a drag under Reduce Motion: input-driven, no finding) and reduce-keys (a key press whose motion takes 20
+samples under Reduce Motion: a finding).
 """
 import json
 import math
@@ -46,6 +53,9 @@ ROWS, COLS = [110, 180], [100, 500]
 SPRING = {"response": 0.23, "damping": 0.95}
 STRIP_PX, STRIP_ROW, PILL = 24, 12, (22, 22, 23)
 WINDOW_X = 100.0           # the window's x on its screen (points): the page rows' screen x less this is window x
+CUE = (252, 16, 254)       # the divider's drag cue: near the shell, not the shell
+GLYPH = (48, 48, 48)       # the old fixtures' ink: the judge's black (ring 3)
+BLUE = (0, 0, 255)
 
 
 def has_strip(variant):
@@ -93,11 +103,22 @@ def draw_tui(img, x0, w, picture_w=None, y0=0):
             img[y0 + PAD + r * CH:y0 + PAD + (r + 1) * CH, x0 + PAD + c * CW:x0 + PAD + (c + 1) * CW] = color
 
 
-def draw_page(img, x0, w, y0=0):
-    """page.html at DPR 2 in [x0, x0 + w) x [y0, H): 2, 4, 6 device px of red, white, black, then green."""
+def draw_tui_at(img, x0, w, fill):
+    """tui_border.py's picture with FILL in [x0, x0 + w) (a second terminal pane)."""
+    x0, w = int(round(x0)), int(round(w))
+    img[:, x0:x0 + w] = CYAN
+    cols, rows = (w - 2 * PAD) // CW, (H - 2 * PAD) // CH
+    for r in range(rows):
+        for c in range(cols):
+            k = min(r, c, rows - 1 - r, cols - 1 - c)
+            img[PAD + r * CH:PAD + (r + 1) * CH, x0 + PAD + c * CW:x0 + PAD + (c + 1) * CW] = [RED, WHITE, BLACK][k] if k < 3 else fill
+
+
+def draw_page(img, x0, w, y0=0, fill=GREEN):
+    """page.html at DPR 2 in [x0, x0 + w) x [y0, H): 2, 4, 6 device px of red, white, black, then the fill."""
     x0, w = int(round(x0)), int(round(w))
     x0c = max(x0, 0)
-    img[y0:, x0c:x0 + w] = GREEN
+    img[y0:, x0c:x0 + w] = fill
     inset = 0
     for color, width in ((RED, 2), (WHITE, 4), (BLACK, 6)):
         a, b = x0 + inset, x0 + w - inset
@@ -119,7 +140,15 @@ def frame(k, variant):
     if variant == "gap2" and 20 <= k <= 25:
         a_view = aw - 2  # A's content stops 2 px short: the shell shows
     y0 = STRIP_PX if has_strip(variant) else 0
+    if variant == "held" and 12 <= k <= 40:
+        a_view = A_REST  # A's content keeps its rest width while its pane grows
     draw_tui(img, 0, a_view, picture_w=a_width(max(s - 3, 0), variant) if variant == "cut" else None, y0=y0)
+    if variant == "glyph":
+        # A ruler digit in the old black-class ink just inside A's left ring 3, on every row.
+        img[y0:, PAD + 3 * CW + 2:PAD + 3 * CW + 6] = GLYPH
+        if 30 <= k <= 33:
+            # A's right rings and ground strip gone (its view shrank before the program redrew): the shell after the fill.
+            img[:, int(round(aw)) - 60:int(round(aw))] = MAGENTA
     b_x = aw + DIV_PX
     if variant == "lag1":
         b_x = a_width(max(k - 2, 0), variant) + DIV_PX  # B's page one frame late
@@ -129,8 +158,15 @@ def frame(k, variant):
         b_x = PAD + (cols - 1) * CW
     if variant == "d4-cover" and s >= 30:
         draw_page(img, b_x - 1, W - b_x + 1, y0=y0)  # the page window 0.5 pt left of its host (and as much wider)
+    elif variant == "samefill":
+        if not 30 <= k <= 32:
+            draw_tui_at(img, b_x, W - b_x, YELLOW)  # B: a terminal of A's own fill; it shows nothing for 3 frames
+    elif variant == "held" and 15 <= k <= 25:
+        pass  # B shows nothing: the shell from A's content to the window's edge
     else:
         draw_page(img, b_x, W - b_x, y0=y0)
+    if variant == "cue" and 12 <= k <= 28:
+        img[:, int(round(b_x)):int(round(b_x)) + 6] = CUE  # the drag cue over B's rings 1 and 2
     if has_strip(variant):
         late = a_width(max(k - 2, 0), variant) + DIV_PX if 11 <= k <= 30 else b_x
         draw_strip(img, 0, aw, 0)
@@ -179,6 +215,19 @@ def build(root, name, variant):
     note = {"scale": SCALE, "panes": {"pa": {"kind": "tui", "fill": "#FFFF00", "label": "p0"},
                                       "pb": {"kind": "page", "fill": "#00FF00", "label": "p1"}},
             "speed": 1, "reduce": False, "input": "drag", "window_frame": [WINDOW_X, 50, 300, 150], "page_backdrop": False}
+    if variant == "samefill":
+        note["panes"]["pb"] = {"kind": "tui", "fill": "#FFFF00", "label": "p1"}
+    if variant.startswith("reduce"):
+        note.update(reduce=True, speed=1.0, input="drag" if variant == "reduce-drag" else "keys")
+    journal = []
+    if variant == "reduce-drag":
+        journal = [{"seq": 1, "uptimeNanos": int((T0 + 9 * P) * 1e9), "kind": {"mouse": {"_0": {"phase": "down", "x": 150, "y": 50}}}}]
+        journal += [{"seq": 2 + i, "uptimeNanos": int((T0 + (10 + i) * P) * 1e9), "kind": {"mouse": {"_0": {"phase": "drag", "x": 151 + i, "y": 50}}}}
+                    for i in range(20)]
+        journal.append({"seq": 30, "uptimeNanos": int((T0 + 30 * P) * 1e9), "kind": {"mouse": {"_0": {"phase": "up", "x": 170, "y": 50}}}})
+    if variant == "reduce-keys":
+        journal = [{"seq": 1, "uptimeNanos": int((T0 + 9.5 * P) * 1e9), "kind": {"key": {"_0": {"phase": "down", "keyCode": 37, "isRepeat": False}}}}]
+    Path(f"{base}.events.json").write_text(json.dumps({"hid": [], "journal": journal}))
     if has_strip(variant):
         a0, b0 = A_REST / SCALE, (A_REST + DIV_PX) / SCALE
         note["lines"] = {"strip_rows": {"pa": STRIP_ROW, "pb": STRIP_ROW}}
@@ -217,7 +266,8 @@ class JudgePixelTests(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.mkdtemp(prefix="judge-pixel-")
         cls.reports = {v: jp.judge(build(cls.tmp, v, v)) for v in ("clean", "lag1", "gap2", "hidden", "spring", "spring-slow", "cut",
-                                                                    "backdrop", "strip", "strip-lag", "pill-lag", "d4-cover")}
+                                                                    "backdrop", "strip", "strip-lag", "pill-lag", "d4-cover", "glyph",
+                                                                    "samefill", "cue", "held", "reduce-drag", "reduce-keys")}
 
     @classmethod
     def tearDownClass(cls):
@@ -364,7 +414,9 @@ class JudgePixelTests(unittest.TestCase):
         r = self.reports["pill-lag"]
         self.assertEqual(side(r, "pill p1", "row@12", "lo")["max_edge_dev_px"], -2.0)
         self.assertEqual(side(r, "strip p1", "row@12", "lo")["max_edge_dev_px"], 0.0)
-        self.assertEqual([f["check"] for f in r["findings"] if f["check"].startswith("tab")], ["tab pill off", "tab pill off"])
+        # A pill's edges move with a tab reflow too (its width follows the strip's): information, not a defect.
+        self.assertEqual([f["check"] for f in r["findings"] if f["check"].startswith("tab")], [])
+        self.assertEqual([f["check"] for f in r["info"] if f["check"].startswith("tab")], ["tab pill off", "tab pill off"])
 
     def test_page_window_off_its_host(self):
         clean = [s for s in self.reports["clean"]["summary"].values() if s["what"] == "page window"]
@@ -396,6 +448,69 @@ class JudgePixelTests(unittest.TestCase):
         self.assertEqual(side(r, "p1", "row@110", "lo")["backdrop_frames"], 4)
         self.assertEqual(side(r, "p1", "row@110", "lo")["backdrop_max_px"], 2.0)
 
+    def test_a_glyph_never_starts_a_walk(self):
+        r = self.reports["glyph"]
+        a_hi = side(r, "p0", "row@110", "hi")
+        self.assertEqual(a_hi["not_found_frames"], 4)
+        self.assertEqual(a_hi["not_found_ranges"], "30-33")
+        self.assertLessEqual(abs(a_hi["max_edge_dev_px"]), 1.0)  # was -1283 px on cmux22
+        self.assertEqual(side(r, "p0", "row@110", "lo")["max_edge_dev_px"], 0.0)
+        self.assertEqual(side(r, "p0", "row@110", "lo")["not_found_frames"], 0)
+        self.assertLessEqual(abs(divider(r, "row@110")["max_edge_dev_px"]), 1.0)
+
+    def test_a_neighbour_of_the_same_fill_is_never_found(self):
+        r = self.reports["samefill"]
+        for which in ("lo", "hi"):
+            b = side(r, "p1", "row@110", which)
+            self.assertEqual(b["not_found_frames"], 3, which)
+            self.assertLessEqual(abs(b["max_edge_dev_px"]), 1.0, which)
+        self.assertEqual(side(r, "p1", "row@110", "lo")["rest"]["rings"], [16.0, 16.0, 16.0])
+        self.assertLessEqual(side(r, "p0", "row@110", "hi")["max_gap_px"], 18.0)
+
+    def test_the_divider_cue_is_a_cue(self):
+        r = self.reports["cue"]
+        b_lo = side(r, "p1", "row@110", "lo")
+        self.assertEqual(b_lo["cue_frames"], 17)
+        self.assertEqual(b_lo["cue_ranges"], "12-28")
+        self.assertEqual(b_lo["hidden_ring_frames"], 0)
+        self.assertEqual(b_lo["max_gap_px"], 0.0)
+        self.assertEqual(b_lo["not_found_frames"], 0)
+        self.assertEqual(side(r, "p0", "row@110", "hi")["max_gap_px"], 0.0)
+        self.assertNotIn("gap", [f["check"] for f in r["findings"]])
+        self.assertNotIn("hidden ring", [f["check"] for f in r["findings"]])
+        self.assertIn("divider cue", [f["check"] for f in r["info"]])
+
+    def test_held_content_shows_the_shell_inside_its_pane(self):
+        r = self.reports["held"]
+        a_hi = side(r, "p0", "row@110", "hi")
+        # A's pane grows 2 px a sample while its content keeps 296 px: the shell inside A's pane, frame by frame.
+        self.assertEqual(a_hi["shell_in_ranges"], "12-40")
+        self.assertEqual(a_hi["shell_in_max_px"], 40.0)
+        self.assertLessEqual(a_hi["max_gap_px"], 40.0 + 16)  # capped at A's own rect (and a divider's width)
+        b_lo = side(r, "p1", "row@110", "lo")
+        self.assertEqual(b_lo["not_found_ranges"], "15-25")
+        self.assertIn("shell inside the pane", [f["check"] for f in r["findings"]])
+
+    def test_reduce_motion_judged_per_input(self):
+        drag = self.reports["reduce-drag"]
+        self.assertNotIn("motion under Reduce Motion", [f["check"] for f in drag["findings"]])
+        self.assertTrue(all(not m.get("reduce_motion_samples") for s in drag["summary"].values() for m in s["motions"]))
+        self.assertTrue(any(m.get("input_driven") for s in drag["summary"].values() for m in s["motions"]))
+        keys = self.reports["reduce-keys"]
+        hits = [f for f in keys["findings"] if f["check"] == "motion under Reduce Motion"]
+        self.assertTrue(hits)
+        self.assertTrue(all("20 samples" in f["detail"] for f in hits), hits)
+
+    def test_track_statistics(self):
+        b_lo = side(self.reports["lag1"], "p1", "row@110", "lo")
+        self.assertEqual(b_lo["frames"], 60)
+        self.assertEqual(b_lo["off_frames"], 20)
+        self.assertEqual(b_lo["off_ranges"], "11-30")
+        self.assertEqual((b_lo["p50_px"], b_lo["p95_px"], b_lo["max_edge_dev_px"]), (0.0, 2.0, -2.0))
+        self.assertEqual(b_lo["dev_top"], [[-2.0, 20]])
+        clean = side(self.reports["clean"], "p1", "row@110", "lo")
+        self.assertEqual((clean["off_frames"], clean["p95_px"], clean["not_found_frames"], clean["shell_in_frames"]), (0, 0.0, 0, 0))
+
     def test_markdown_and_cli(self):
         base = Path(self.tmp) / "gap2"
         out, md = Path(self.tmp) / "gap2.json", Path(self.tmp) / "gap2.md"
@@ -405,8 +520,12 @@ class JudgePixelTests(unittest.TestCase):
         self.assertIn("gap", done.stdout)
         self.assertEqual(json.loads(out.read_text())["case"], "gap2")
         lines = md.read_text().splitlines()
-        self.assertTrue(lines[0].startswith("| case | what | side | line |"))
-        self.assertTrue(any(l.startswith("| gap2 | p0 (tui) | hi | row@180 |") and "| 2 |" in l for l in lines), lines)
+        head = next(l for l in lines if l.startswith("| what |"))
+        for column in ("judged", "off >= 1 px", "p50", "p95", "max dev", "shell in pane", "cue", "not found"):
+            self.assertIn(column, head)
+        row = next(l for l in lines if l.startswith("| p0 (tui) | hi | row@180 |"))
+        self.assertIn("6 (20-25)", row)  # off >= 1 px: 6 frames
+        self.assertIn("-2.0", row)
 
 
 class TuiBorderFrameTest(unittest.TestCase):
