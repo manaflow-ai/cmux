@@ -139,7 +139,9 @@ async fn a_short_chat_gets_no_recap() {
 #[tokio::test]
 async fn the_setting_off_asks_for_none() {
     let mut a = chat(3, &[]).await;
-    a.c.request("_acpmux/chat_settings", json!({"sessionRecap": false})).await.unwrap();
+    // What the app's `_acpmux/chat_settings` `sessionRecap: false` sets (not sent here: it saves
+    // the daemon's settings file, which other tests in this process read at start).
+    a.hub.set_session_recap(false);
     a.show(false).await;
     a.advance(Duration::from_secs(6 * 60), 1).await;
     a.show(true).await;

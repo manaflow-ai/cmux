@@ -81,7 +81,7 @@ fn clean(text: &str) -> Option<String> {
 
 impl Hub {
     /// The app's `agents.chats.sessionRecap`. Off drops every waiting recap.
-    pub(crate) fn set_session_recap(&self, on: bool) {
+    pub fn set_session_recap(&self, on: bool) {
         self.session_recap.store(on, Ordering::SeqCst);
         if !on {
             self.recap_due.lock().unwrap_or_else(|e| e.into_inner()).clear();
@@ -267,7 +267,7 @@ impl Hub {
                         .values()
                         .min()
                         .copied();
-                    next.map(|at| (hub.clock.lock().unwrap().sleep_until(Duration::from_nanos(at))))
+                    next.map(|at| hub.clock.lock().unwrap().sleep_until(Duration::from_nanos(at)))
                 };
                 match next {
                     Some(sleep) => {
