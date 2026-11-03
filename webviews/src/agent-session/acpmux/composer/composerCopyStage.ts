@@ -106,10 +106,10 @@ export async function stageComposerCopy(copy: ComposerCopy, call: Call, options:
         ...manifest[index],
         ...(batchToken ? { batchToken } : { batch: manifest }),
       });
-      if (!started.token) throw new Error("Clipboard staging is unavailable");
+      if (!started.token) throw new Error("composer.copy.stage-unavailable");
       tokens.push(started.token);
       batchToken ??= started.batchToken;
-      if (started.chunkSize < CHUNK_BYTES) throw new Error("Clipboard staging is unavailable");
+      if (started.chunkSize < CHUNK_BYTES) throw new Error("composer.copy.stage-unavailable");
       let offset = 0;
       for (const chunk of chunks(payload)) {
         check();
@@ -119,13 +119,13 @@ export async function stageComposerCopy(copy: ComposerCopy, call: Call, options:
           data: chunk.data,
         });
         offset += chunk.bytes;
-        if (next.offset !== offset) throw new Error("Clipboard staging did not retain the complete chunk");
+        if (next.offset !== offset) throw new Error("composer.copy.incomplete-chunk");
         written += chunk.bytes;
         options.progress?.(written, total);
       }
       check();
       const done = await call<{ reference: string }>("composer.copy.finish", { token: started.token });
-      if (!done.reference) throw new Error("Clipboard staging did not return a file reference");
+      if (!done.reference) throw new Error("composer.copy.missing-reference");
       references.push(done.reference);
     }
     check();
