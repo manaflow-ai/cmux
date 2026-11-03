@@ -241,6 +241,17 @@ impl Brain {
                 }
                 _ => Vec::new(),
             };
+            let person = summary
+                .participants
+                .iter()
+                .find(|p| p.id == message.author)
+                .filter(|p| p.kind == cmux_conversation::ParticipantKind::Human)
+                .map(|p| p.person.as_deref().unwrap_or(&p.id))
+                .filter(|id| *id != cmux_chief::rules::USER_LOCAL);
+            self.trace.emit(
+                "usage.message",
+                serde_json::json!({"id": message.id, "person": person}),
+            );
             let sender = self.settings.membership.agent_sender(summary, &message);
             let logged = super::files::logged_text(
                 &super::images::logged_text(

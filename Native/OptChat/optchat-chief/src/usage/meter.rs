@@ -1,0 +1,288 @@
+//! Local attribution only; no inference events are submitted to a server.
+use super::*;
+
+/// Who paid for inference, derived without retaining the URL or credentials.
+pub fn payer_provider(harness: &str, base_url: Option<&str>) -> (&'static str, &'static str) {
+    let url = base_url.and_then(|s| url::Url::parse(s).ok());
+    let host = url.as_ref().and_then(url::Url::host_str).unwrap_or("");
+    let platform = matches!(host, "coderouter.dev" | "coderouter.cmux.internal")
+        || host == "cmux.dev"
+        || host.ends_with(".cmux.dev")
+        || host == "cmux.com"
+        || host.ends_with(".cmux.com");
+    if platform || matches!(harness, "cmux" | "cmux-router") {
+        return ("platform", "cmux-router");
+    }
+    let provider = match host {
+        "api.anthropic.com" => "anthropic",
+        "api.openai.com" => "openai",
+        "api.deepinfra.com" => "deepinfra",
+        _ if harness.starts_with("claude") => "anthropic",
+        _ if harness.starts_with("codex") => "openai",
+        _ => "unknown",
+    };
+    ("own", provider)
+}
+
+/// Only ids and route labels cross this boundary, never auth or URL fields.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub(super) struct Attribution {
+    pub person: Option<String>,
+    pub team: Option<String>,
+    pub chief: Option<String>,
+    pub harness: Option<String>,
+    pub payer: Option<String>,
+    pub provider: Option<String>,
+    pub machine: Option<String>,
+}
+
+impl Attribution {
+    pub fn event(v: &Value) -> Self {
+        let harness = opt_s(v, "harness");
+        let route = harness
+            .as_deref()
+            .map(|h| payer_provider(h, v["base_url"].as_str()));
+        Self {
+            person: opt_s(v, "person"),
+            team: opt_s(v, "team"),
+            chief: opt_s(v, "chief"),
+            payer: opt_s(v, "payer").or_else(|| route.map(|r| r.0.into())),
+            provider: opt_s(v, "provider").or_else(|| route.map(|r| r.1.into())),
+            machine: opt_s(v, "machine").or_else(|| opt_s(v, "peer")),
+            harness,
+        }
+    }
+
+    pub fn over(mut self, fallback: &Self) -> Self {
+        macro_rules! inherit { ($($field:ident),*) => { $(self.$field = self.$field.or_else(|| fallback.$field.clone());)* }; }
+        inherit!(person, team, chief, harness, payer, provider, machine);
+        self
+    }
+
+    pub fn apply(&self, line: &mut Line) {
+        line.person.clone_from(&self.person);
+        line.team.clone_from(&self.team);
+        line.chief.clone_from(&self.chief);
+        line.harness.clone_from(&self.harness);
+        line.payer.clone_from(&self.payer);
+        line.provider.clone_from(&self.provider);
+        line.machine.clone_from(&self.machine);
+    }
+}
+
+#[derive(Default)]
+pub(super) struct Meter {
+    owner: Attribution,
+    active: Attribution,
+    native_route: Attribution,
+    contexts: HashMap<String, Attribution>,
+    people: HashMap<String, String>,
+}
+
+impl Meter {
+    fn remember(&mut self, key: String, context: Attribution) {
+        if self.contexts.len() >= MAX_REMEMBERED && !self.contexts.contains_key(&key) {
+            self.contexts.clear();
+        }
+        self.contexts.insert(key, context);
+    }
+
+    pub fn observe(&mut self, ev: &str, v: &Value) {
+        match ev {
+            "usage.identity" => self.owner = Attribution::event(v),
+            "usage.native_route" => self.native_route = Attribution::event(v),
+            "usage.message" => {
+                if let (Some(id), Some(person)) = (opt_s(v, "id"), opt_s(v, "person")) {
+                    Fold::remember(&mut self.people, id, person);
+                }
+            }
+            "turn.start" => {
+                let mut context = self.event(v).over(&self.owner);
+                if let Some(person) = v["message_keys"].as_array().and_then(|keys| {
+                    keys.iter()
+                        .find_map(|k| self.people.get(k.as_str()?).cloned())
+                }) {
+                    context.person = Some(person);
+                }
+                self.active = context.clone();
+                if let Some(key) = opt_s(v, "turn") {
+                    self.remember(format!("turn:{key}"), context);
+                }
+            }
+            "spawn" => {
+                if let Some(ids) = v["ids"].as_array() {
+                    for (index, id) in ids
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, id)| Some((i, id.as_str()?)))
+                    {
+                        // A spawn belongs to the turn that requested it, even if
+                        // the queued subagent starts during another person's turn.
+                        let mut context = Attribution::event(v).over(&Attribution {
+                            harness: None,
+                            payer: None,
+                            provider: None,
+                            ..self.active.clone()
+                        });
+                        context.machine = v["peers"]
+                            .get(index)
+                            .and_then(Value::as_str)
+                            .map(str::to_owned)
+                            .or_else(|| Some("here".into()));
+                        self.remember(format!("sub:{id}"), context);
+                    }
+                }
+            }
+            "subagent.start" => {
+                if let Some(id) = opt_s(v, "id") {
+                    let key = format!("sub:{id}");
+                    let fallback = self.contexts.get(&key).unwrap_or(&self.owner);
+                    let mut context = Attribution::event(v).over(fallback);
+                    if context.machine.is_none() {
+                        context.machine = Some("here".into());
+                    }
+                    self.remember(key, context);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn event(&self, v: &Value) -> Attribution {
+        let mut context = Attribution::event(v);
+        if matches!(context.harness.as_deref(), Some("native" | "api")) && v["base_url"].is_null() {
+            context.payer = self.native_route.payer.clone().or(context.payer);
+            context.provider = self.native_route.provider.clone().or(context.provider);
+        }
+        context
+    }
+
+    pub fn apply(&mut self, ev: &str, v: &Value, line: &mut Line) {
+        let key = match ev {
+            "turn.end" => Some(format!("turn:{}", line.key)),
+            "subagent.answer" => line.agent.as_ref().map(|id| format!("sub:{id}")),
+            _ => None,
+        };
+        let current = self.event(v);
+        let context = key.as_ref().and_then(|k| self.contexts.get(k));
+        // End events often omit the route; preserve the route selected at start.
+        let mut attribution = context
+            .cloned()
+            .unwrap_or_default()
+            .over(&current)
+            .over(&self.owner);
+        attribution.person = current.person.or(attribution.person);
+        attribution.apply(line);
+        if ev == "turn.end"
+            && let Some(key) = key
+        {
+            self.contexts.remove(&key);
+        }
+    }
+}
+
+/// A local export row compatible with the router's usage_events vocabulary.
+/// `input_tokens` includes cache reads and writes; cached reads are also
+/// reported as its subset, as in the router. A legacy subagent's timestamp disambiguates repeated prompts.
+pub fn export_row(chief: &Chief, line: &Line) -> Value {
+    let id = line.chief.as_deref().unwrap_or(&chief.id);
+    let (payer, provider) = payer_provider(line.harness.as_deref().unwrap_or(""), None);
+    let key = if line.kind == "subagent" && line.agent.as_deref() == Some(line.key.as_str()) {
+        format!("{}:{}", line.key, line.ts)
+    } else {
+        line.key.clone()
+    };
+    json!({
+        "event_time": chrono::DateTime::from_timestamp_millis(line.ts.min(i64::MAX as u64) as i64).map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)),
+        "stack_user_id": line.person, "team_id": line.team,
+        "provider": line.provider.as_deref().unwrap_or(provider), "agent": line.harness,
+        "model": line.model, "input_tokens": line.input.saturating_add(line.cache_write).saturating_add(line.cache_read),
+        "cached_input_tokens": line.cache_read, "output_tokens": line.output,
+        "total_tokens": line.tokens(), "api_equivalent_usd": line.usd,
+        "request_id": format!("chief:{id}:{}:{key}", line.kind),
+        "status": line.status, "payer": line.payer.as_deref().unwrap_or(payer),
+        "kind": line.kind, "machine": line.machine,
+    })
+}
+
+pub(super) fn ledger_lock(dir: &Path) -> Result<std::fs::File, String> {
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .mode(0o600)
+        .open(dir.join("identity.lock"))
+        .map_err(|e| e.to_string())?;
+    file.lock().map_err(|e| e.to_string())?;
+    Ok(file)
+}
+
+/// Refresh missing people only. Preserve unknown extension fields (tier/route)
+/// and malformed lines, and replace each month atomically under the live lock.
+pub(super) fn backfill_people(root: &Path) -> Result<u64, String> {
+    let ledger = dir(root);
+    let identity: Attribution = std::fs::read(ledger.join("identity.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default();
+    let Some(person) = identity.person else {
+        return Ok(0);
+    };
+    let _lock = ledger_lock(&ledger)?;
+    let mut count = 0;
+    for (_, file) in month_files(&ledger) {
+        let text = std::fs::read_to_string(&file).map_err(|e| e.to_string())?;
+        let mut changed = false;
+        let mut out = String::new();
+        for text in text.lines() {
+            let mut value: Value = serde_json::from_str(text).unwrap_or(Value::Null);
+            if value.is_object() && value["person"].is_null() {
+                value["person"] = json!(person);
+                out.push_str(&value.to_string());
+                changed = true;
+                count += 1;
+            } else {
+                out.push_str(text);
+            }
+            out.push('\n');
+        }
+        if changed {
+            let temp = file.with_extension(format!("meter-{}", std::process::id()));
+            let result = (|| {
+                let mut f = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .mode(0o600)
+                    .open(&temp)?;
+                f.write_all(out.as_bytes())?;
+                f.sync_all()?;
+                std::fs::rename(&temp, &file)
+            })();
+            if let Err(e) = result {
+                let _ = std::fs::remove_file(&temp);
+                return Err(e.to_string());
+            }
+        }
+    }
+    Ok(count)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn payer_is_pure_and_does_not_match_url_substrings() {
+        assert_eq!(payer_provider("claude", None), ("own", "anthropic"));
+        assert_eq!(payer_provider("cmux", None), ("platform", "cmux-router"));
+        assert_eq!(
+            payer_provider("native", Some("https://coderouter.dev/v1")),
+            ("platform", "cmux-router")
+        );
+        assert_eq!(
+            payer_provider("native", Some("https://evil.test/?host=coderouter.dev")),
+            ("own", "unknown")
+        );
+    }
+}

@@ -12,8 +12,9 @@
 //!
 //! ```text
 //! optchat-chief usage [--since 7d] [--until 0] [--bucket hour|day|week|month]
-//!                     [--by chief|agent|model|harness|kind] [--top N] [--json]
+//!                     [--by chief|agent|model|harness|kind|person] [--top N] [--json]
 //!                     [--mux-home DIR]... [--chiefs]
+//! optchat-chief usage export [--since 30d] [--until 0] [--person ID] [--json]
 //! optchat-chief usage backfill [--force] [--mux-home DIR]...
 //! ```
 
@@ -25,6 +26,9 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+
+mod meter;
+pub use meter::{export_row, payer_provider};
 
 /// The ledger line format.
 pub const VERSION: u32 = 1;
@@ -57,6 +61,13 @@ pub struct Line {
     pub model: Option<String>,
     pub harness: Option<String>,
     pub status: Option<String>,
+    /// Signed-in account, team and Chief ids only; never credentials.
+    pub person: Option<String>,
+    pub team: Option<String>,
+    pub chief: Option<String>,
+    pub payer: Option<String>,
+    pub provider: Option<String>,
+    pub machine: Option<String>,
     pub input: u64,
     pub output: u64,
     pub cache_read: u64,
@@ -86,7 +97,16 @@ impl Line {
 fn billable(ev: &str) -> bool {
     matches!(
         ev,
-        "turn.end" | "node" | "subagent.answer" | "request" | "subagent.start"
+        "turn.end"
+            | "node"
+            | "subagent.answer"
+            | "request"
+            | "subagent.start"
+            | "turn.start"
+            | "spawn"
+            | "usage.identity"
+            | "usage.message"
+            | "usage.native_route"
     )
 }
 
@@ -112,6 +132,7 @@ pub struct Fold {
     models: HashMap<String, String>,
     sessions: HashMap<String, String>,
     cum: HashMap<String, f64>,
+    meter: meter::Meter,
 }
 
 impl Fold {
@@ -140,6 +161,7 @@ impl Fold {
     /// The ledger line of `event`, if it ends a billable unit.
     pub fn observe(&mut self, event: &Value, src: &str) -> Option<Line> {
         let ev = event.get("ev").and_then(Value::as_str).unwrap_or("");
+        self.meter.observe(ev, event);
         let ts = u(event, "ts");
         let usage = event.get("usage").unwrap_or(&Value::Null);
         let base = |kind: &str, key: String| Line {
@@ -157,7 +179,7 @@ impl Fold {
             src: src.to_owned(),
             ..Line::default()
         };
-        match ev {
+        let mut line = match ev {
             "request" => {
                 let model = opt_s(event, "model")?;
                 let scope = match (opt_s(event, "turn"), opt_s(event, "subagent")) {
@@ -203,7 +225,8 @@ impl Fold {
                     return None;
                 }
                 let id = opt_s(event, "id")?;
-                let mut line = base("subagent", id.clone());
+                let key = opt_s(event, "prompt_id").unwrap_or_else(|| format!("{id}:{ts}"));
+                let mut line = base("subagent", key);
                 line.agent = Some(id.clone());
                 line.session = self.sessions.get(&id).cloned();
                 line.model = self.models.get(&format!("sub:{id}")).cloned();
@@ -223,7 +246,9 @@ impl Fold {
                 Some(line)
             }
             _ => None,
-        }
+        }?;
+        self.meter.apply(ev, event, &mut line);
+        Some(line)
     }
 }
 
@@ -321,6 +346,22 @@ impl Ledger {
         let ev = event.get("ev").and_then(Value::as_str).unwrap_or("");
         if !billable(ev) {
             return;
+        }
+        let _file_lock = match meter::ledger_lock(&self.writer.dir) {
+            Ok(lock) => lock,
+            Err(_) => return,
+        };
+        if ev == "usage.identity" {
+            let identity = meter::Attribution::event(event);
+            if let Ok(bytes) = serde_json::to_vec(&identity) {
+                let _ = std::fs::OpenOptions::new()
+                    .create(true)
+                    .write(true)
+                    .truncate(true)
+                    .mode(0o600)
+                    .open(self.writer.dir.join("identity.json"))
+                    .and_then(|mut f| f.write_all(&bytes));
+            }
         }
         let mut state = self
             .state
@@ -477,6 +518,7 @@ fn take_lock(path: &Path) -> Result<LockGuard, String> {
 pub fn backfill(root: &Path, force: bool) -> Result<Backfill, String> {
     let ledger = dir(root);
     make_dir(&ledger).map_err(|e| format!("{}: {e}", ledger.display()))?;
+    meter::backfill_people(root)?;
     let marker = ledger.join("backfill.json");
     let done: Option<Value> = std::fs::read_to_string(&marker)
         .ok()
@@ -505,6 +547,13 @@ pub fn backfill(root: &Path, force: bool) -> Result<Backfill, String> {
         dir: ledger.clone(),
     };
     let mut fold = Fold::new();
+    if let Ok(bytes) = std::fs::read(ledger.join("identity.json"))
+        && let Ok(mut identity) = serde_json::from_slice::<Value>(&bytes)
+    {
+        identity["ev"] = json!("usage.identity");
+        fold.observe(&identity, "trace");
+    }
+    let _month_lock = meter::ledger_lock(&ledger)?;
     let mut report = Backfill::default();
     let mut through = after;
     // Months retention would delete at once are not written.
@@ -522,6 +571,11 @@ pub fn backfill(root: &Path, force: bool) -> Result<Backfill, String> {
                 "\"ev\":\"subagent.answer\"",
                 "\"ev\":\"request\"",
                 "\"ev\":\"subagent.start\"",
+                "\"ev\":\"turn.start\"",
+                "\"ev\":\"spawn\"",
+                "\"ev\":\"usage.identity\"",
+                "\"ev\":\"usage.message\"",
+                "\"ev\":\"usage.native_route\"",
             ];
             if !wanted.iter().any(|w| text.contains(w)) {
                 continue;
@@ -707,6 +761,7 @@ pub enum By {
     Model,
     Harness,
     Kind,
+    Person,
 }
 
 impl By {
@@ -717,6 +772,7 @@ impl By {
             By::Model => "model",
             By::Harness => "harness",
             By::Kind => "kind",
+            By::Person => "person",
         }
     }
 
@@ -727,6 +783,7 @@ impl By {
             "model" => By::Model,
             "harness" => By::Harness,
             "kind" => By::Kind,
+            "person" => By::Person,
             _ => return None,
         })
     }
@@ -833,6 +890,7 @@ fn group(by: By, chief: &Chief, line: &Line) -> (String, String) {
         By::Model => line.model.clone().unwrap_or_else(unknown),
         By::Harness => line.harness.clone().unwrap_or_else(unknown),
         By::Kind => line.kind.clone(),
+        By::Person => line.person.clone().unwrap_or_else(unknown),
     };
     (key.clone(), key)
 }
@@ -950,6 +1008,8 @@ pub fn summarize(chiefs: &[(Chief, Vec<Line>)], q: &Query) -> Value {
 #[derive(Debug)]
 struct Args {
     backfill: bool,
+    export: bool,
+    person: Option<String>,
     force: bool,
     since_ms: u64,
     until_ms: u64,
@@ -979,12 +1039,15 @@ fn window_ms(text: &str) -> Result<u64, String> {
 fn parse(args: &[String]) -> Result<Args, String> {
     let mut words = args.to_vec();
     let backfill = words.first().is_some_and(|w| w == "backfill");
-    if backfill {
+    let export = words.first().is_some_and(|w| w == "export");
+    if backfill || export {
         words.remove(0);
     }
-    let (mut since, mut until) = ("7d".to_owned(), "0".to_owned());
+    let (mut since, mut until) = (if export { "30d" } else { "7d" }.to_owned(), "0".to_owned());
     let mut out = Args {
         backfill,
+        export,
+        person: None,
         force: false,
         since_ms: 0,
         until_ms: 0,
@@ -1014,6 +1077,7 @@ fn parse(args: &[String]) -> Result<Args, String> {
             "--chiefs" => out.chiefs = true,
             "--since" => since = value()?,
             "--until" => until = value()?,
+            "--person" => out.person = Some(value()?),
             "--bucket" => {
                 let v = value()?;
                 out.bucket = Some(
@@ -1024,7 +1088,7 @@ fn parse(args: &[String]) -> Result<Args, String> {
             "--by" => {
                 let v = value()?;
                 out.by = By::parse(&v).ok_or(format!(
-                    "bad --by {v:?} (chief, agent, model, harness, kind)"
+                    "bad --by {v:?} (chief, agent, model, harness, kind, person)"
                 ))?;
             }
             "--top" => {
@@ -1207,7 +1271,21 @@ pub fn run(args: &[String]) -> Result<String, String> {
             // Another reader backfilling now: read what is there.
             let _ = backfill(&root, false);
         }
-        chiefs.push((chief_of(home), read(&ledger, args.since_ms, args.until_ms)?));
+        let mut lines = read(&ledger, args.since_ms, args.until_ms)?;
+        if let Some(person) = &args.person {
+            lines.retain(|l| l.person.as_ref() == Some(person));
+        }
+        chiefs.push((chief_of(home), lines));
+    }
+    if args.export {
+        return Ok(chiefs
+            .iter()
+            .flat_map(|(chief, lines)| {
+                lines
+                    .iter()
+                    .map(move |line| format!("{}\n", export_row(chief, line)))
+            })
+            .collect());
     }
     let q = Query {
         since_ms: args.since_ms,

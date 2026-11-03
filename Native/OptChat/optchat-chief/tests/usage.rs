@@ -534,7 +534,12 @@ fn credit_export_and_person_summary_are_cli_json() {
     trace.emit("turn.end", json!({"turn":"k", "person":"user_alice", "team":"team_one", "chief":"chief_one", "harness":"claude", "model":"opus", "status":"ok", "cost_usd":0.1, "usage":{"input":2,"cache_read":3,"cache_write":4,"output":5}}));
     let args = |extra: &[&str]| {
         let mut a: Vec<String> = extra.iter().map(|s| (*s).into()).collect();
-        a.extend(["--mux-home".into(), home.display().to_string(), "--since".into(), "30d".into()]);
+        a.extend([
+            "--mux-home".into(),
+            home.display().to_string(),
+            "--since".into(),
+            "30d".into(),
+        ]);
         a
     };
     let text = usage::run(&args(&["export", "--json", "--person", "user_alice"])).unwrap();
@@ -544,22 +549,28 @@ fn credit_export_and_person_summary_are_cli_json() {
     assert_eq!(row["provider"], "anthropic");
     assert_eq!(row["agent"], "claude");
     assert_eq!(row["cached_input_tokens"], 3);
-    assert_eq!(row["input_tokens"], 6);
+    assert_eq!(row["input_tokens"], 9);
     assert_eq!(row["output_tokens"], 5);
     assert_eq!(row["total_tokens"], 14);
     assert_eq!(row["api_equivalent_usd"], 0.1);
     assert_eq!(row["request_id"], "chief:chief_one:turn:k");
     assert!(chrono::DateTime::parse_from_rfc3339(row["event_time"].as_str().unwrap()).is_ok());
     assert_eq!(usage::run(&args(&["export", "--json"])).unwrap(), text);
-    assert!(usage::run(&args(&["export", "--person", "user_bob"])).unwrap().is_empty());
-    let summary: Value = serde_json::from_str(&usage::run(&args(&["--by", "person", "--json"])).unwrap()).unwrap();
+    assert!(
+        usage::run(&args(&["export", "--person", "user_bob"]))
+            .unwrap()
+            .is_empty()
+    );
+    let summary: Value =
+        serde_json::from_str(&usage::run(&args(&["--by", "person", "--json"])).unwrap()).unwrap();
     assert_eq!(summary["by_kind"], "person");
     assert_eq!(summary["by"][0]["key"], "user_alice");
 }
 
 #[test]
 fn credit_meter_old_v1_and_secrets_do_not_leak() {
-    let old: Line = serde_json::from_str(r#"{"v":1,"ts":1,"kind":"turn","key":"old","input":1}"#).unwrap();
+    let old: Line =
+        serde_json::from_str(r#"{"v":1,"ts":1,"kind":"turn","key":"old","input":1}"#).unwrap();
     assert!(serde_json::to_value(old).unwrap()["person"].is_null());
     let tmp = tempfile::tempdir().unwrap();
     let trace = Trace::open(&tmp.path().join("traces"), false).unwrap();
@@ -567,7 +578,11 @@ fn credit_meter_old_v1_and_secrets_do_not_leak() {
     trace.emit("turn.end", json!({"turn":"t", "harness":"native", "base_url":format!("https://user:{secret}@coderouter.dev/v1?key={secret}"), "api_key":secret, "token":secret, "usage":{"input":1}}));
     let lines = usage::read(&usage::dir(tmp.path()), 0, u64::MAX).unwrap();
     assert_eq!(lines.len(), 1);
-    let written = std::fs::read_dir(usage::dir(tmp.path())).unwrap().flatten().find(|e| e.path().extension().is_some_and(|s| s == "jsonl")).unwrap();
+    let written = std::fs::read_dir(usage::dir(tmp.path()))
+        .unwrap()
+        .flatten()
+        .find(|e| e.path().extension().is_some_and(|s| s == "jsonl"))
+        .unwrap();
     let text = std::fs::read_to_string(written.path()).unwrap();
     assert!(!text.contains(secret));
     assert!(!text.contains("base_url"));
@@ -581,13 +596,36 @@ fn credit_meter_payer_uses_harness_and_parsed_host() {
         ("claude", "", "own", "anthropic"),
         ("codex", "", "own", "openai"),
         ("cmux", "", "platform", "cmux-router"),
-        ("native", "https://coderouter.dev/v1", "platform", "cmux-router"),
+        (
+            "native",
+            "https://coderouter.dev/v1",
+            "platform",
+            "cmux-router",
+        ),
         ("native", "https://api.anthropic.com", "own", "anthropic"),
-        ("native", "https://api.deepinfra.com/v1/openai", "own", "deepinfra"),
-        ("native", "https://coderouter.dev.evil.test/v1", "own", "unknown"),
-        ("claude", "https://coderouter.dev", "platform", "cmux-router"),
+        (
+            "native",
+            "https://api.deepinfra.com/v1/openai",
+            "own",
+            "deepinfra",
+        ),
+        (
+            "native",
+            "https://coderouter.dev.evil.test/v1",
+            "own",
+            "unknown",
+        ),
+        (
+            "claude",
+            "https://coderouter.dev",
+            "platform",
+            "cmux-router",
+        ),
     ] {
-        let line = fold_all(&[json!({"ev":"turn.end","turn":"t","harness":harness,"base_url":base})]).pop().unwrap();
+        let line =
+            fold_all(&[json!({"ev":"turn.end","turn":"t","harness":harness,"base_url":base})])
+                .pop()
+                .unwrap();
         let row = serde_json::to_value(line).unwrap();
         assert_eq!(row["payer"], payer, "{harness} {base}");
         assert_eq!(row["provider"], provider, "{harness} {base}");
@@ -600,17 +638,82 @@ fn credit_backfill_only_fills_missing_people() {
     let home = tmp.path();
     let root = home.join("optchat");
     let trace = Trace::open(&root.join("traces"), false).unwrap();
-    trace.emit("usage.identity", json!({"person":"user_owner", "chief":"chief_one"}));
+    trace.emit(
+        "usage.identity",
+        json!({"person":"user_owner", "chief":"chief_one"}),
+    );
     trace.emit("turn.end", json!({"turn":"old", "harness":"claude"}));
-    trace.emit("turn.end", json!({"turn":"other", "person":"user_other", "harness":"claude"}));
+    trace.emit(
+        "turn.end",
+        json!({"turn":"other", "person":"user_other", "harness":"claude"}),
+    );
     // Simulate a pre-identity line in a private month file.
-    let file = std::fs::read_dir(usage::dir(&root)).unwrap().flatten().find(|e| e.path().extension().is_some_and(|s| s == "jsonl")).unwrap().path();
+    let file = std::fs::read_dir(usage::dir(&root))
+        .unwrap()
+        .flatten()
+        .find(|e| e.path().extension().is_some_and(|s| s == "jsonl"))
+        .unwrap()
+        .path();
     let text = std::fs::read_to_string(&file).unwrap();
-    let mut rows: Vec<Value> = text.lines().map(|s| serde_json::from_str(s).unwrap()).collect();
+    let mut rows: Vec<Value> = text
+        .lines()
+        .map(|s| serde_json::from_str(s).unwrap())
+        .collect();
     rows[0].as_object_mut().unwrap().remove("person");
-    std::fs::write(&file, rows.iter().map(|r| format!("{r}\n")).collect::<String>()).unwrap();
-    usage::run(&["backfill".into(), "--mux-home".into(), home.display().to_string()]).unwrap();
+    std::fs::write(
+        &file,
+        rows.iter().map(|r| format!("{r}\n")).collect::<String>(),
+    )
+    .unwrap();
+    usage::run(&[
+        "backfill".into(),
+        "--mux-home".into(),
+        home.display().to_string(),
+    ])
+    .unwrap();
     let rows = usage::read(&usage::dir(&root), 0, u64::MAX).unwrap();
-    assert_eq!(serde_json::to_value(&rows[0]).unwrap()["person"], "user_owner");
-    assert_eq!(serde_json::to_value(&rows[1]).unwrap()["person"], "user_other");
+    assert_eq!(
+        serde_json::to_value(&rows[0]).unwrap()["person"],
+        "user_owner"
+    );
+    assert_eq!(
+        serde_json::to_value(&rows[1]).unwrap()["person"],
+        "user_other"
+    );
+}
+
+#[test]
+fn credit_meter_multiplayer_keeps_queued_spawn_owner_and_machine() {
+    let rows = fold_all(&[
+        json!({"ev":"usage.identity", "person":"user_owner", "chief":"chief_one"}),
+        json!({"ev":"usage.message", "id":"m1", "person":"user_guest"}),
+        json!({"ev":"turn.start", "turn":"t1", "message_keys":["m1"], "harness":"claude"}),
+        json!({"ev":"spawn", "ids":["a1","a2"], "peers":[null,"vm-one"], "harness":"codex"}),
+        turn_end(T0, "t1", 0.1, 1, 0, 0, 2),
+        json!({"ev":"turn.start", "turn":"t2", "harness":"claude"}),
+        json!({"ev":"subagent.start", "id":"a2", "session":"s2", "harness":"codex", "peer":"vm-one"}),
+        answer(T0 + 1, "a2", 0.1),
+        turn_end(T0 + 2, "t2", 0.1, 1, 0, 0, 2),
+    ]);
+    let rows: Vec<Value> = rows
+        .iter()
+        .map(|r| serde_json::to_value(r).unwrap())
+        .collect();
+    assert_eq!(rows[0]["person"], "user_guest");
+    assert_eq!(rows[1]["person"], "user_guest");
+    assert_eq!(rows[1]["machine"], "vm-one");
+    assert_eq!(rows[2]["person"], "user_owner");
+}
+
+#[test]
+fn credit_meter_native_route_does_not_change_harness_subscriptions() {
+    let rows = fold_all(&[
+        json!({"ev":"usage.native_route", "payer":"platform", "provider":"cmux-router"}),
+        json!({"ev":"turn.start", "turn":"native", "harness":"native"}),
+        json!({"ev":"turn.end", "turn":"native", "usage":{"input":1}}),
+        json!({"ev":"turn.start", "turn":"own", "harness":"claude"}),
+        json!({"ev":"turn.end", "turn":"own", "usage":{"input":1}}),
+    ]);
+    assert_eq!(serde_json::to_value(&rows[0]).unwrap()["payer"], "platform");
+    assert_eq!(serde_json::to_value(&rows[1]).unwrap()["payer"], "own");
 }
