@@ -63,6 +63,7 @@ function stack(working: boolean, { tray = true }: { tray?: boolean } = {}) {
             sessionId: "stack-child-waiting",
             title: "Review the resize fix",
             spawnedBy: SESSION_ID,
+            startedBy: SESSION_ID,
             indicator: "input",
             status: "waiting",
             createdAt: minutesAgo(6),

@@ -10,6 +10,7 @@ import { hoverActions } from "../ui/hoverActions.experiment";
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
 import { cloudStartLook } from "../agent-session/acpmux/cloudStart.experiment";
 import { agentStartLook } from "../agent-session/acpmux/conversation/agentStart.experiment";
+import { liveLineTokens } from "../agent-session/acpmux/conversation/liveLineTokens.experiment";
 import { threadMinimapLayout } from "../agent-session/acpmux/threadMinimap/layout.experiment";
 import { threadMinimapHeight } from "../agent-session/acpmux/threadMinimap/height.experiment";
 import { threadMinimapGutter } from "../agent-session/acpmux/threadMinimap/gutter.experiment";
@@ -25,7 +26,7 @@ import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.exper
 import { codeRouterOffer } from "../agent-session/acpmux/conversation/codeRouterOffer.experiment";
 import { chromiumGlassUnderlay } from "../ui/glass/chromiumUnderlay.experiment";
 import { questionPreviewLayout } from "../agent-session/acpmux/question/previewLayout.experiment";
-import { trayPanelLook, trayRowLook } from "../agent-session/acpmux/subagents/trayPanel.experiment";
+import { trayPanelLook, trayRowLook, trayStopLook } from "../agent-session/acpmux/subagents/trayPanel.experiment";
 import { trayMotionLook } from "../agent-session/acpmux/subagents/trayMotion.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
 import { trayFoldHeadLook } from "../agent-session/acpmux/subagents/trayFoldHead.experiment";
@@ -63,8 +64,10 @@ export const EXPERIMENTS: readonly Experiment[] = [
   toolErrorLook,
   cloudStartLook,
   agentStartLook,
+  liveLineTokens,
   trayPanelLook,
   trayRowLook,
+  trayStopLook,
   trayMotionLook,
   trayHeadLook,
   trayFoldHeadLook,

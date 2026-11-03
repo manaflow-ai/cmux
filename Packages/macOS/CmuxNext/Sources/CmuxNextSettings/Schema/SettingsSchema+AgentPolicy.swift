@@ -273,6 +273,8 @@ extension SettingsSchema {
         "agents.chats.discovery": .privacy,
         "agentPane.scrollToBottomOnSend": .userOnly,
         "agents.chats.enabled": .privacy,
+        // Each recap is an extra model call on the person's usage: theirs to turn on or off.
+        "agents.chats.sessionRecap": .userOnly,
         "picker.pinned": .userOnly,
         // Whether workspaces leave the sidebar on their own: the person decides (auto-archive-DESIGN.md).
         "workspaces.autoArchive.style": .userOnly, "workspaces.autoArchive.idleDays": .userOnly,
@@ -371,6 +373,8 @@ extension SettingsSchema {
         // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
         // What a new chat may do without asking: an agent must not widen its own approvals.
         "agents.defaultPermissionMode": .userOnly,
+        // How long Claude Code chats keep their prompt cache: it moves the person's model bill.
+        "agents.promptCache": .userOnly,
         "computerUse.enabled": .userOnly,
         "computerUse.driver": .userOnly,
         // How hard cmux pulls the person back from another app: theirs to pick, not an agent's.
