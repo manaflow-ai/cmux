@@ -662,6 +662,13 @@ button.cv-subagent > :last-child {
      there's a new subagent or command"). */
   font-variant-numeric: tabular-nums;
 }
+/* Folded, the header names what runs (trayFoldHead.experiment.ts); the rest are a count that, like
+   the time, never truncates: the names give way first. */
+.acpmux-running-tray__more {
+  flex: none;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
 .acpmux-running-tray__time {
   flex: 1 0 auto;
   text-align: left;
@@ -994,6 +1001,19 @@ button.cv-subagent > :last-child {
 .cv-subagent-done-row > .cv-subagent-done__trail {
   flex: none;
   margin-inline-start: auto;
+}
+/* The name chip takes the room the line has and is cut, with an ellipsis, only at the row's edge,
+   never at AgentTag.css's 40% cap (#29754); the words before it keep their width. A block box so
+   text-overflow draws the ellipsis; the 20px line keeps it one line. */
+.cv-subagent-done .cv-agent-activity__sentence > .cv-agent-tag {
+  display: block;
+  flex: 0 1 auto;
+  max-width: none;
+}
+/* What follows the name (why it stopped, why it failed) is cut first, the chip only once it is gone
+   (SubagentDoneLine.tsx: "the line cuts it first"). */
+.cv-subagent-done .cv-agent-activity__sentence > .cv-subagent-done__suffix {
+  flex: 0 1000 auto;
 }
 .cv-subagent-done-row > .cv-tool__chevron {
   flex: none;
