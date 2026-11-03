@@ -55,6 +55,22 @@ test("a failure says the host's words with no spinner, and the New Tab page draw
   expect(html).not.toContain("fix the build");
 });
 
+test("a plan refusal offers Upgrade and preserves a path to run the kept draft on This Mac", () => {
+  const refusal = { ...start, state: "failed" as const, refusal: "cloud_plan_required" as const };
+  const html = renderToStaticMarkup(
+    <CloudStartView start={refusal} onRunHere={() => undefined} onDismiss={() => undefined} />,
+  );
+  expect(html).toContain('href="https://cmux.com/pricing"');
+  expect(html).toContain(">Upgrade</a>");
+  expect(html).toContain(">Run on This Mac</button>");
+  expect(html).toContain(">Not Now</button>");
+  const generic = renderToStaticMarkup(
+    <CloudStartView start={{ ...refusal, refusal: undefined }} onRunHere={() => undefined} />,
+  );
+  expect(generic).not.toContain('href="https://cmux.com/pricing"');
+  expect(generic).not.toContain(">Run on This Mac</button>");
+});
+
 test("the startup checklist skips clone without a repository and explains a missing script", () => {
   const rows = startupChecklist({
     key: "k",
