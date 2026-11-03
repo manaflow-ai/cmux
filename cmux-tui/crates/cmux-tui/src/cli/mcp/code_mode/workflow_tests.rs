@@ -38,7 +38,18 @@ fn native_workflow_engine_runs_claude_meta_phase_parallel_and_pipeline() {
 
 #[test]
 fn native_workflow_engine_forbids_clock_and_randomness_before_effects() {
-    for script in ["return Date.now();", "return Math.random();", "return new Date();"] {
+    for script in [
+        "return Date();",
+        "return Date.now();",
+        "return Date.parse('2026-01-01');",
+        "return Date.UTC(2026, 0, 1);",
+        "return new Date();",
+        "return Math.random();",
+        "return performance.now();",
+        "return crypto.getRandomValues(new Uint8Array(1));",
+        "return crypto.randomUUID();",
+        "return Temporal.Now.instant();",
+    ] {
         let result = workflow_exec(script, json!([]), Limits::default(), &mut |_| {
             panic!("a nondeterministic script dispatched a host call")
         })
