@@ -1,0 +1,99 @@
+{
+ "title": "MCP connect card in a real chat: an agent asks for a remote MCP server, the person connects it, cmux lists its tools. Before: the chat. After: connected. Record it with: cmux-ci capture SHA --state scripts/cmux-next/media/states/mcp-connect-chat-card.json",
+ "launch_args": [
+  "--showcase"
+ ],
+ "steps": [
+  {
+   "title": "Open a main workspace",
+   "cmux": [
+    "action",
+    "run",
+    "newTab",
+    "--name",
+    "MCP connect",
+    "--focus",
+    "--cwd",
+    "/tmp"
+   ]
+  },
+  {
+   "title": "Open a chat",
+   "cmux": [
+    "agent",
+    "new-chat",
+    "--cwd",
+    "/tmp"
+   ]
+  },
+  {
+   "title": "Wait for the chat page",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "chat_state"
+    }
+   }
+  },
+  {
+   "title": "Start the chat's session (the showcase mock answers)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "Connect the DeepWiki MCP server so you can read a repo's docs"
+    }
+   },
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "Before: the chat, no MCP server connected",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "chat_state"
+    }
+   },
+   "wait": 1,
+   "shot": true
+  },
+  {
+   "title": "The agent asks to connect DeepWiki: the card shows the exact address, publisher and scope",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "mcp_connect_ask",
+     "server": "https://mcp.deepwiki.com/mcp",
+     "reason": "Read the docs of a GitHub repo for you",
+     "scope": "chat"
+    }
+   },
+   "wait": 3,
+   "shot": true
+  },
+  {
+   "title": "The person clicks Connect",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "selector": ".acpmux-mcp-card .acpmux-secret-card-action"
+    }
+   },
+   "wait": 8,
+   "shot": false
+  },
+  {
+   "title": "After: connected, its tools listed for this chat",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "chat_state"
+    }
+   },
+   "wait": 1,
+   "shot": true
+  }
+ ]
+}
