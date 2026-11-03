@@ -4,6 +4,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
   useSyncExternalStore,
   type CSSProperties,
@@ -100,17 +101,22 @@ function SceneRow({ node }: { node: SceneNode }) {
 function SceneTextField({ node, dispatch, disabled }: { node: SceneNode; dispatch: SceneDispatch; disabled: boolean }) {
   const external = sceneText(node.props.text);
   const [text, setText] = useState(external);
+  const input = useRef<HTMLInputElement>(null);
+  const autofocus = node.props.autofocus === true;
+  useEffect(() => {
+    if (autofocus) input.current?.focus();
+  }, [autofocus]);
   useEffect(() => {
     setText(external);
   }, [external]);
   return (
     <input
+      ref={input}
       className="cmux-app-scene-field"
       value={text}
       placeholder={sceneText(node.props.placeholder)}
       aria-label={sceneText(node.props.help) || sceneText(node.props.placeholder) || undefined}
       disabled={disabled}
-      autoFocus={node.props.autofocus === true}
       onChange={(event) => {
         const next = event.currentTarget.value;
         setText(next);
@@ -271,7 +277,7 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch }: NodeP
     rendered = (
       <div
         {...shared}
-        role={tappable ? "button" : node.type === "Divider" ? "separator" : undefined}
+        role={tappable ? "button" : node.type === "Divider" ? "separator" : "group"}
         tabIndex={tappable && !disabled ? 0 : undefined}
         aria-disabled={tappable && disabled ? true : undefined}
         onClick={

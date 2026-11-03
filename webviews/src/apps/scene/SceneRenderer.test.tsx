@@ -26,6 +26,7 @@ afterEach(() => {
 function render(ops: SceneOp[], popupHost?: PopupHost, resolveAsset?: SceneAssetResolver) {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
     url: "http://localhost/",
+    pretendToBeVisual: true,
   });
   const values: Record<string, unknown> = {
     window: dom.window,
@@ -34,6 +35,9 @@ function render(ops: SceneOp[], popupHost?: PopupHost, resolveAsset?: SceneAsset
     Node: dom.window.Node,
     HTMLElement: dom.window.HTMLElement,
     Element: dom.window.Element,
+    MutationObserver: dom.window.MutationObserver,
+    requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
+    cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
     MouseEvent: dom.window.MouseEvent,
     KeyboardEvent: dom.window.KeyboardEvent,
     getComputedStyle: dom.window.getComputedStyle,
