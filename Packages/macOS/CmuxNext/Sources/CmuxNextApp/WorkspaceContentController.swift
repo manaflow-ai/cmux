@@ -402,6 +402,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         // So does a link from another app that waited for a workspace made to hold it (#27897):
         // the workspace shows before its first pane mounts.
         if panes.count == 1, !services.externalOpen.pending.isEmpty { Task { [open = services.externalOpen] in open.flush() } }
+        // So does a Dock menu row picked with no window open (New Chat in ▸, Continue, Unread, Recent).
+        if panes.count == 1, services.dockMenu.isWaiting { Task { [dockMenu = services.dockMenu] in dockMenu.windowDidShowContent() } }
         return controller.view
     }
 
