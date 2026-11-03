@@ -262,6 +262,10 @@ pub struct TranslatorSpec {
     pub fast: bool,
     /// Claude's own session id when it is known at spawn.
     pub claude_session_id: Option<String>,
+    /// The prompt cache TTL Claude Code's env gives, when it decides one
+    /// (`claude_stdio::prompt_cache::env_ttl_ms`).
+    #[serde(default)]
+    pub cache_ttl_env_ms: Option<u64>,
 }
 
 impl SpawnSpec {

@@ -498,6 +498,8 @@ impl Started {
             {
                 *fast = true;
             }
+            tr.cache_ttl_env_ms
+                .store(t.cache_ttl_env_ms.unwrap_or(0), std::sync::atomic::Ordering::SeqCst);
             if let Some(sid) = &t.claude_session_id
                 && let Ok(mut slot) = tr.session_id.try_lock()
             {

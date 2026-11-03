@@ -1754,7 +1754,7 @@ export class AcpmuxDirectClient {
   /// receipt (`permissionRecord`, permissions/record.ts).
   private askedPermissions = new Map<string, AcpmuxPermission>();
   private commands: SlashCommand[] = [];
-  private usage: { used: number; size: number; setup?: number } | undefined;
+  private usage: { used: number; size: number; setup?: number; cacheExpiresAt?: number } | undefined;
   /// The running turn's output tokens: its model calls' generated usage added up from
   /// `turn_started`, the running line's count (conversation/WorkingFor.tsx). Unset outside a
   /// turn, and for a turn whose start this client did not see (it missed calls before it attached).
@@ -5529,7 +5529,15 @@ export class AcpmuxDirectClient {
         // next one arrives: the meter reads the model's own until then (compactingUsage).
         if (this.usage && this.usage.size !== size && this.summary?.contextBreakdown)
           this.summary = { ...this.summary, contextBreakdown: undefined };
-        this.usage = setup === undefined ? { used, size } : { used, size, setup };
+        // When the chat's prompt cache lapses (unix ms), as acpmux computed it from the last
+        // model request and the harness's TTL; a report without one has no warm cache to show.
+        const cacheExpiresAt = Number(update._meta?.acpmux?.cacheExpiresAt);
+        this.usage = {
+          used,
+          size,
+          ...(setup === undefined ? {} : { setup }),
+          ...(Number.isFinite(cacheExpiresAt) && cacheExpiresAt > 0 ? { cacheExpiresAt } : {}),
+        };
       }
       return;
     }

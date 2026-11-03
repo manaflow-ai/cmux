@@ -1098,6 +1098,7 @@ impl Hub {
                     effort: effort.clone(),
                     fast,
                     claude_session_id: known.clone(),
+                    cache_ttl_env_ms: crate::claude_stdio::prompt_cache::profile_ttl_ms(&profile),
                 };
                 self.spawn_hosted_child(
                     session,
@@ -1116,6 +1117,9 @@ impl Hub {
                     &effort,
                 );
                 *tr.fast.lock().await = fast;
+                let env_ttl = crate::claude_stdio::prompt_cache::profile_ttl_ms(&profile);
+                tr.cache_ttl_env_ms
+                    .store(env_ttl.unwrap_or(0), std::sync::atomic::Ordering::SeqCst);
                 if let Some(sid) = known {
                     *tr.session_id.lock().await = Some(sid);
                 }

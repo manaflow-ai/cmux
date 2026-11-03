@@ -18,6 +18,7 @@ fn claude_spec(dir: &Path, session: &str) -> SpawnSpec {
         effort: "default".into(),
         fast: false,
         claude_session_id: None,
+        cache_ttl_env_ms: None,
     });
     spec
 }

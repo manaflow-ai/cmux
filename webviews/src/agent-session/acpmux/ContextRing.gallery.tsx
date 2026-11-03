@@ -14,7 +14,13 @@ type Props = {
   breakdown?: unknown;
   details?: boolean;
   wheel?: "compact" | "standard" | "minimal";
+  /// The prompt cache's time left (ms; 0 or less: expired), on a pinned clock.
+  cacheLeftMs?: number;
 };
+
+/// The gallery's pinned clock, so the cache countdown reads the same in every capture.
+const GALLERY_NOW = Date.UTC(2026, 10, 3, 5, 11);
+const galleryNow = () => GALLERY_NOW;
 
 function GalleryContextRing(props: Props) {
   const t = useT();
@@ -29,6 +35,8 @@ function GalleryContextRing(props: Props) {
         size={props.size}
         setup={props.setup}
         breakdown={props.breakdown}
+        cacheExpiresAt={props.cacheLeftMs === undefined ? undefined : GALLERY_NOW + props.cacheLeftMs}
+        now={galleryNow}
         // The chat's Session Info reveal (App.tsx); the gallery has no Session Info to open.
         onOpenDetails={props.details ? () => {} : undefined}
       />
@@ -176,6 +184,40 @@ export default componentEntry<Props>({
         if (!/339\.9K\s*\/\s*400K/.test(line)) throw new Error(`The context card reads "${line}", not / 400K`);
       },
     },
+    ...Object.fromEntries(
+      (
+        [
+          ["cache-warm", 192_000, "Cache warm · 3:12 left"],
+          ["cache-expiring-soon", 24_000, "Cache warm · 0:24 left"],
+          ["cache-expired", 0, "Cache expired"],
+        ] as const
+      ).map(([id, cacheLeftMs, expected]) => [
+        id,
+        {
+          note: `Leo (2026-11-03: "i heard claude's cache time was like 5min... idk if we maybe also wanna be showing that"): the Claude card of his screenshot, 79% · 316.9K / 399.1K, with the prompt cache's line under the bar: "${expected}". acpmux sends the expiry; the card only counts down to it${cacheLeftMs > 0 && cacheLeftMs <= 60_000 ? ", in the warning color in its last minute" : ""}.`,
+          props: {
+            used: 316_900,
+            size: 399_100,
+            details: true,
+            cacheLeftMs,
+            breakdown: {
+              maxTokens: 399_100,
+              categories: [
+                { name: "Messages", kind: "used", tokens: 253_800 },
+                { name: "MCP tools", kind: "used", tokens: 3_000 },
+                { name: "System prompt", kind: "used", tokens: 60_100 },
+                { name: "Free space", kind: "free", tokens: 82_200 },
+              ],
+            },
+          },
+          play: (async (ctx) => {
+            await hoverCard(ctx);
+            const line = ctx.document.querySelector(".acpmux-context-card-cache")?.textContent ?? "";
+            if (line !== expected) throw new Error(`The cache line reads "${line}", not "${expected}"`);
+          }) satisfies Play,
+        },
+      ]),
+    ),
     "popover-near-limit": {
       note: "A near-full context window keeps the usage track legible without expanding the popover or changing the composer row.",
       props: { used: 810_000, size: 1_000_000, details: true },
