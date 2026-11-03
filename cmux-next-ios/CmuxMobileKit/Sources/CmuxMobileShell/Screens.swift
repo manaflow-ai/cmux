@@ -51,6 +51,11 @@ struct HomeScreen: View {
                 }
             }) {
                 SidebarToolbarItem(sidebar: shell.sidebar)
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Cloud chats", systemImage: "cloud") {
+                        shell.cloudChats = ShellModel.CloudChatsPresentation(attention: nil)
+                    }
+                }
             }
             .agentChatDestinations()
         }

@@ -43,17 +43,6 @@ pub struct TickReport {
     pub errors: Vec<(String, String)>,
 }
 
-fn hostname() -> Option<String> {
-    let mut buf = [0u8; 256];
-    // SAFETY: gethostname writes at most `buf.len()` bytes into `buf`.
-    if unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) } != 0 {
-        return None;
-    }
-    // The name ends at the first NUL, or fills the buffer.
-    let name = buf.split(|&b| b == 0).next()?;
-    String::from_utf8(name.to_vec()).ok()
-}
-
 fn start_run(
     store: &Store,
     mut run: Run,
@@ -67,7 +56,7 @@ fn start_run(
         late_seconds: run.late_seconds,
     };
     run.started_at = Some(now);
-    run.runner = hostname();
+    run.runner = crate::sys::hostname();
     match exec.start(&job) {
         Ok(pid) => {
             run.state = RunState::Running;
@@ -94,7 +83,8 @@ fn busy(runs: &[Run], exec: &dyn Executor) -> bool {
 pub fn tick(store: &Store, now: i64, exec: &mut dyn Executor) -> Result<TickReport, StoreError> {
     let mut report = TickReport::default();
     for a in store.list()? {
-        if !a.enabled {
+        // A fenced automation is moving to another store: it never fires here.
+        if !a.enabled || a.fenced() {
             continue;
         }
         let since = store.state(&a.id)?.handled_through;
@@ -144,6 +134,11 @@ pub fn tick(store: &Store, now: i64, exec: &mut dyn Executor) -> Result<TickRepo
                 store.insert_run(&row(t, RunState::Queued, None))?;
             }
         }
+        if let Some(newest) =
+            plan.run.iter().copied().chain(plan.skipped.iter().map(|(t, _)| *t)).max()
+        {
+            store.note_slot(&a.id, newest)?;
+        }
         store.set_handled_through(&a.id, plan.handled_through)?;
         // Start the oldest queued run when none is running.
         let history = store.runs(&a.id)?;
@@ -174,6 +169,9 @@ pub fn start_manual(
     exec: &mut dyn Executor,
 ) -> Result<String, StoreError> {
     let a = store.get(automation)?;
+    if let Some(h) = &a.handoff {
+        return Err(crate::store::moving(&a, h));
+    }
     let run = Run {
         id: manual_run_id(&a.id, key),
         automation: a.id.clone(),

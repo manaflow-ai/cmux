@@ -14,7 +14,8 @@ import type { Env } from "./env.ts"
  *
  *   POST   /v1/cloud/machines/{machine}/exec              {command, timeoutMs?} -> {exitCode, stdout, stderr}
  *          (30 s default; at most 5 min, the provider's inline exec limit, where classic allows 15; at
- *          most OUTPUT_MAX_BYTES of each stream, then a truncation note on stderr)
+ *          most OUTPUT_MAX_BYTES of each stream, then a truncation note on stderr; a command of any
+ *          length: one over INLINE_COMMAND_MAX_BYTES is staged on the machine first)
  *   GET    /v1/cloud/machines/{machine}/fs/dir?path=      -> {entries: [{name, kind, size, mode, modifiedAt}]}
  *   GET    /v1/cloud/machines/{machine}/fs/read?path=     -> {path, dataBase64, size}
  *   GET    /v1/cloud/machines/{machine}/fs/stat?path=     -> {path, kind, size, mode, modifiedAt}
@@ -36,8 +37,15 @@ export const GUEST_PATH = /^\/v1\/cloud\/machines\/(vm_[a-z0-9]{20})\/(exec|fs\/
 type Op = "exec" | "fs/dir" | "fs/read" | "fs/stat" | "fs/write" | "fs/mkdir" | "fs/remove"
 const METHOD: Readonly<Record<Op, string>> = { exec: "POST", "fs/dir": "GET", "fs/read": "GET", "fs/stat": "GET", "fs/write": "POST", "fs/mkdir": "POST", "fs/remove": "DELETE" }
 
-/** Classic's limits: a 64 KiB command, a 30 s default exec, a 4096 byte absolute path. */
-export const COMMAND_MAX_BYTES = 64 * 1024
+/**
+ * The longest command that goes inline. It reaches the machine as one argument (`bash -c` under runuser), and
+ * Linux takes at most 128 KiB in one argument. A longer command is staged as a file of the work user's first, in
+ * STAGE_PIECE_BYTES pieces of stdin, and run from there (stagedCommand), so an exec has no length limit.
+ */
+export const INLINE_COMMAND_MAX_BYTES = 64 * 1024
+/** One staging piece: about what the provider's exec takes as stdin. */
+export const STAGE_PIECE_BYTES = 1024 * 1024
+/** Classic's limits: a 30 s default exec, a 4096 byte absolute path. */
 export const EXEC_DEFAULT_MS = 30_000
 /** The provider answers an exec inline for at most 5 minutes (classic's 15 needs its own background exec). */
 export const EXEC_MAX_MS = PLATFORM_EXEC_MAX_MS
@@ -46,6 +54,16 @@ export const OUTPUT_MAX_BYTES = 1024 * 1024
 const PATH_MAX_BYTES = 4096
 /** One file read or write (classic allows 16 MiB; this one crosses the provider's exec as stdin or stdout). */
 export const FILE_MAX_BYTES = 8 * 1024 * 1024
+/** A directory listing's entries (classic's limit). */
+export const DIR_MAX_ENTRIES = 10_000
+/**
+ * A directory listing's JSON, as the file program writes it. json.dumps escapes every control and
+ * non-ASCII character, so that JSON is printable ASCII; the provider's JSON around it escapes each such
+ * byte as at most 6 (\u003c at worst), so a listing of at most DIR_MAX_BYTES stays within 12 MiB of the
+ * provider's answer, under EXEC_RESPONSE_MAX_BYTES (providers/freestyle/exec.ts). Without it, 10,000
+ * names of 255 control characters would be about 18.6 MiB there. freestyle-exec-errors.test.ts checks it.
+ */
+export const DIR_MAX_BYTES = 2 * 1024 * 1024
 const FS_TIMEOUT_MS = 60_000
 /** A write's JSON body: the base64 of the largest file plus its path and mode. */
 const BODY_MAX = Math.ceil(FILE_MAX_BYTES / 3) * 4 + 16 * 1024
@@ -73,16 +91,20 @@ const ROOT = 47
 export const FS_PROGRAM = `import base64,json,os,shutil,stat,sys,tempfile
 op,p=sys.argv[1],sys.argv[2]
 M=${FILE_MAX_BYTES}
+DN,DB=${DIR_MAX_ENTRIES},${DIR_MAX_BYTES}
 def k(m):return "directory" if stat.S_ISDIR(m) else "symlink" if stat.S_ISLNK(m) else "file"
 def i(s):return {"kind":k(s.st_mode),"size":s.st_size,"mode":stat.S_IMODE(s.st_mode),"modifiedAt":int(s.st_mtime*1000)}
 try:
  if op=="stat":o={"path":p,**i(os.lstat(p))}
  elif op=="dir":
-  e=[]
+  e=[];n=16
   with os.scandir(p) as d:
    for x in d:
-    if len(e)>=10000:sys.exit(${TOO_LARGE})
-    e.append({"name":x.name,**i(x.stat(follow_symlinks=False))})
+    if len(e)>=DN:sys.exit(${TOO_LARGE})
+    y={"name":x.name,**i(x.stat(follow_symlinks=False))}
+    n+=len(json.dumps(y))+2
+    if n>DB:sys.exit(${TOO_LARGE})
+    e.append(y)
   o={"entries":e}
  elif op=="read":
   s=os.stat(p)
@@ -166,6 +188,16 @@ sys.exit(r if r>=0 else 128-r)
 /** An exec's command as the work user, with its output capped on the machine. */
 export const execCommand = (command: string): string => asWorkUser(["python3", "-c", shellQuote(OUTPUT_CAP_PROGRAM), String(OUTPUT_MAX_BYTES), shellQuote(command)].join(" "))
 
+/**
+ * The work user's command that writes its stdin to a staged command's file: the first piece creates it (0600,
+ * never over an existing file), the others append.
+ */
+export const stageCommand = (path: string, first: boolean): string =>
+  asWorkUser(first ? `umask 077 && set -C && cat > ${shellQuote(path)}` : `cat >> ${shellQuote(path)}`)
+
+/** Runs a staged command: bash reads it from an open descriptor, and the file is removed before any of it runs. */
+export const stagedCommand = (path: string): string => `exec 3<${shellQuote(path)} && rm -f ${shellQuote(path)} && exec bash /dev/fd/3`
+
 /** The root command for one file operation. */
 export const fsCommand = (op: "dir" | "read" | "stat" | "write" | "mkdir" | "remove", path: string, mode?: number): string =>
   ["python3", "-c", shellQuote(FS_PROGRAM), op, shellQuote(path), ...(mode === undefined ? [] : [String(mode)])].join(" ")
@@ -193,7 +225,8 @@ const REFUSAL: Readonly<Record<Exclude<MachineExecReply, { ok: true }>["refusal"
   not_found: [404, "vm_not_found", "no such machine in this team"],
   forbidden: [403, "vm_forbidden", "this user may not use the team's machines"],
   not_running: [409, "vm_not_running", "the machine is not running; start it first"],
-  provider_failed: [502, "vm_unavailable", "the machine did not answer; retry"]
+  provider_failed: [502, "vm_unavailable", "the machine did not answer; retry"],
+  output_limit: [413, "vm_output_too_large", "the machine's answer exceeded the response limit; its output was discarded"]
 }
 
 /** A JSON object body of at most BODY_MAX bytes, or the refusal. */
@@ -232,8 +265,24 @@ export const handleCloudMachineGuest = async (request: Request, env: Env, machin
     if (body instanceof Response) return body
     const command = body.command
     if (typeof command !== "string" || command.trim() === "") return refuse(400, "vm_invalid_command", "command must be a non-empty string")
-    if (new TextEncoder().encode(command).byteLength > COMMAND_MAX_BYTES) return refuse(413, "vm_command_too_large", `the command is over ${COMMAND_MAX_BYTES} bytes`)
-    const r = await run(execCommand(command), null, execTimeout(body.timeoutMs))
+    const bytes = new TextEncoder().encode(command)
+    // Only an inline command is quoted into the wrapper (quoting a long one could take many times its size).
+    let staged: string | null = null
+    if (bytes.byteLength > INLINE_COMMAND_MAX_BYTES) {
+      const path = `/tmp/.cmux-exec-${crypto.randomUUID().replaceAll("-", "")}`
+      for (let at = 0; at < bytes.byteLength; at += STAGE_PIECE_BYTES) {
+        const piece = await run(stageCommand(path, at === 0), bytes.subarray(at, at + STAGE_PIECE_BYTES), FS_TIMEOUT_MS)
+        if (piece instanceof Response || piece.exitCode !== 0) {
+          // Nothing of the command ran; what was staged goes.
+          await run(asWorkUser(`rm -f ${shellQuote(path)}`), null, FS_TIMEOUT_MS)
+          return piece instanceof Response ? piece : refuse(502, "vm_unavailable", (piece.stderr || "the command could not be staged on the machine").slice(-500))
+        }
+      }
+      staged = path
+    }
+    const r = await run(execCommand(staged === null ? command : stagedCommand(staged)), null, execTimeout(body.timeoutMs))
+    // Refused before it started (busy, not running, unreachable): the staged file goes too.
+    if (r instanceof Response && staged !== null) await run(asWorkUser(`rm -f ${shellQuote(staged)}`), null, FS_TIMEOUT_MS)
     return r instanceof Response ? r : ok({ exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr })
   }
 
@@ -261,7 +310,7 @@ export const handleCloudMachineGuest = async (request: Request, env: Env, machin
   if (r.exitCode === NOT_FOUND) return refuse(404, "vm_file_not_found", `no such file: ${path}`)
   if (fsOp === "remove" && r.exitCode === ROOT) return refuse(400, "vm_invalid_path", "the path is the machine's root")
   if (r.exitCode === WRONG_KIND) return refuse(400, "vm_invalid_path", fsOp === "dir" ? "not a directory" : "the path is a directory, or a part of it is a file")
-  if (r.exitCode === TOO_LARGE) return refuse(413, "vm_file_too_large", fsOp === "dir" ? "the directory has over 10000 entries" : `the file is over ${FILE_MAX_BYTES} bytes`)
+  if (r.exitCode === TOO_LARGE) return refuse(413, "vm_file_too_large", fsOp === "dir" ? `the directory has over ${DIR_MAX_ENTRIES} entries, or its listing is over ${DIR_MAX_BYTES} bytes` : `the file is over ${FILE_MAX_BYTES} bytes`)
   let value: unknown = null
   try {
     value = r.exitCode === 0 ? JSON.parse(r.stdout) : null

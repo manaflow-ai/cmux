@@ -23,7 +23,7 @@ extension PaneController {
         case .reorder(let id, _, let to): StripOrder.reorder(id, to: to, in: self)
         case .reorderTabs(let order): StripOrder.reorder(toward: order, in: self)
         case .newTab(_, let opensWorkspace, let sameKind):
-            StripNewTab.request(pane: paneKey, opensWorkspace: opensWorkspace, sameKind: sameKind) {
+            StripNewTab.request(pane: paneKey, machineID: daemon.machineID, opensWorkspace: opensWorkspace, sameKind: sameKind) {
                 _ = services.registry.perform($0, invocation: $1)
             }
         case .pin(let id), .unpin(let id): setPinned(id, pinned: { if case .pin = intent { true } else { false } }())
@@ -36,7 +36,7 @@ extension PaneController {
                                           invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: id.rawValue), origin: .user))
         // A tab's double-click runs Toggle Pane Zoom on this pane, Cmd-Shift-Return's one path.
         case .toggleZoom:
-            _ = services.registry.perform(PaneToolbar.zoom, invocation: Self.zoomInvocation(pane: paneKey))
+            _ = services.registry.perform(PaneToolbar.zoom, invocation: Self.zoomInvocation(pane: paneKey, machineID: daemon.machineID))
         case .moveToNewSplit(let id, let direction):
             guard let tab = tab(id) else { return }
             TabMoves.toNewSplit(tab, pane: pane, edge: direction == .right ? .right : .bottom, services: services)
@@ -52,14 +52,16 @@ extension PaneController {
 
     /// Toggle Pane Zoom for pane `pane` (a tab's double-click): the pane, not the tab, so a window's
     /// own page or browser tab, which the store does not list, zooms its pane too.
-    static func zoomInvocation(pane: String) -> ActionInvocation {
-        ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane), origin: .user)
+    static func zoomInvocation(pane: String, machineID: String? = nil) -> ActionInvocation {
+        ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane), origin: .user).onMachine(machineID)
     }
 
     /// A user selection (strip click, shortcut, palette, CLI): goes through
     /// the focus coordinator, which selects and focuses (`applySelection`).
     /// An action run without view-change permission selects nothing.
     func select(_ id: StripTabID, source: FocusEvent.Source = .intent) {
+        // The record can list the tab a main-actor hop before this strip (the focus topology) does: else the select is dropped.
+        if stripIsStale { syncStripFromStore() }
         // Only a switch this action may show is timed (a refused one never ends its interval).
         if stripModel.selectedID != id, workspace != nil || ActionRunScope.viewChangeAllowed() { DebugTabSwitch.began(self) }
         // A user's tab switch may end link-tab opener relations (Chrome's rule).
@@ -158,7 +160,7 @@ extension PaneController {
             do {
                 var start = cwd
                 if let agent, let agentCwd = await agent.workingContext()?.cwd, WorkingURL.isDirectory(agentCwd) { start = agentCwd }
-                let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: start, size: size, workspace: workspace, keep: keep)); BenchSpans.mark("daemon.newTab.returned")
+                let created = try await connection.newTab(in: try await daemon.store.daemonTarget(handle), options: SpawnOptions(cwd: start, size: size, workspace: workspace, keep: keep)); BenchSpans.mark("daemon.newTab.returned")
                 if let text { try await connection.send(created.surface, text: text) }
                 if let page {
                     try await services.newTabTypeAhead.drain(page) { try await connection.send(created.surface, text: $0) }
@@ -232,9 +234,10 @@ extension PaneController {
     func newBrowserTab(url: URL? = nil, engine requested: String? = nil, inherited: String? = nil,
                        adopting child: (any BrowserTab)? = nil, background: Bool = false, profile: String? = nil,
                        notice: String? = nil, opener: SurfaceID? = nil, placementOwner: Bool = false,
-                       then: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
+                       split: BrowserTabSplitRequest? = nil, then: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
         PaneBrowserTabOpener(controller: self).open(url: url, engine: requested, inherited: inherited, adopting: child, background: background,
-                                                    profile: profile, notice: notice, opener: opener, placementOwner: placementOwner, then: then)
+                                                    profile: profile, notice: notice, opener: opener, placementOwner: placementOwner,
+                                                    split: split, then: then)
     }
 
     /// Several tabs (close others, to the left, to the right) close in one
@@ -267,6 +270,7 @@ extension PaneController {
     /// and then calls its `finish`.
     func prepareClose(_ ids: [StripTabID]) -> PreparedTabClose? {
         guard !ids.isEmpty else { return nil }
+        for id in ids { services.closedTabs?.undoToasts.hiddenPages.lift(id.rawValue) } // a tab hidden while its page decided: this close's intent takes it out now
         var commands: [DaemonService.CloseRun] = []
         var surfaces: [SurfaceID] = []
         var keys: [String] = []
@@ -383,8 +387,7 @@ extension PaneController {
     /// New <Kind> Tab reads as the kind `sameKind` names ("New Browser Tab").
     /// `selectionPins`: the menu is on one of several selected tabs, its rows act on all of them, and Pin pins them (true) or unpins.
     static func tabMenu(_ id: String, tab: TabModel?, keepsTab: Bool, sameKind: NewTabKind, registry: ActionRegistry, selectionPins: Bool? = nil, machineID: String? = nil) -> NSMenu {
-        let menu = tabMenuEntries(id, tab: tab, keepsTab: keepsTab, registry: registry, arguments: selectionPins == nil ? [:] : ActionInvocation.tabSelectionArguments)
-        if let machineID { registry.scopeMenuAction(menu, action: "palette.toggleTabUnread", toMachine: machineID) }
+        let menu = tabMenuEntries(id, tab: tab, keepsTab: keepsTab, registry: registry, arguments: selectionPins == nil ? [:] : ActionInvocation.tabSelectionArguments, machineID: machineID)
         // It sits in a submenu (More > New).
         func all(_ menu: NSMenu) -> [NSMenuItem] { menu.items + menu.items.compactMap(\.submenu).flatMap(all) }
         if let item = all(menu).first(where: { ActionRegistry.menuRun(of: $0)?.id == "newTab.ofKind" }),
@@ -394,7 +397,7 @@ extension PaneController {
         return selectionPins.map { menu.namingTabSelection(pins: $0) } ?? menu
     }
 
-    private static func tabMenuEntries(_ id: String, tab: TabModel?, keepsTab: Bool, registry: ActionRegistry, arguments: [String: ActionValue]) -> NSMenu {
+    private static func tabMenuEntries(_ id: String, tab: TabModel?, keepsTab: Bool, registry: ActionRegistry, arguments: [String: ActionValue], machineID: String?) -> NSMenu {
         let target = ActionTargetRef(kind: .tab, id: id)
         // Home keeps its own tab: no promote entries (TabPromotion).
         let kept = Set(TabPromotion.menuRemovals(keepsTab: keepsTab))
@@ -403,13 +406,13 @@ extension PaneController {
             // Reload, Mute and Picture in Picture are a page's rows (Chrome's Reload, Mute Site).
             let pageRows: Set<ActionID> = ["hibernateTab", "wakeTab", "neverHibernateSite", "toggleTabAudioMute", "reloadTab", PictureInPictureHandlers.actionID]
             let entries = registry.contextMenuEntries(for: .tab, removing: kept.union(pageRows).union(TabRestart.hiddenMenuItems(tab)).union(CloudMove.hiddenMenuItems(tab)))
-            return registry.makeContextMenu(for: .tab, target: target, entries: entries, arguments: arguments, customize: true)
+            return registry.makeContextMenu(for: .tab, target: target, entries: entries, arguments: arguments, customize: true, machineID: machineID)
         }
         // A browser tab offers the engine it is not on.
         let other: ActionID = tab.browserEngine == BrowserEngineTag.cef.rawValue ? "browser.openInChromium" : "browser.openInWebKit"
         // Terminal themes and keep-running do not apply to a page.
         let entries = registry.contextMenuEntries(for: .tab, removing: kept.union([other, "terminal.setTheme", "terminal.clearTheme", "terminal.keep", TabRestart.action, CloudMove.action, CloudBringBack.action]))
-        return registry.makeContextMenu(for: .tab, target: target, entries: entries, implied: .browserFocused, arguments: arguments, customize: true)
+        return registry.makeContextMenu(for: .tab, target: target, entries: entries, implied: .browserFocused, arguments: arguments, customize: true, machineID: machineID)
     }
 
     func contextMenu(for target: TabContextTarget) -> NSMenu? {
@@ -427,12 +430,13 @@ extension PaneController {
             return registry.makeContextMenu(for: .tabGroup, target: ActionTargetRef(kind: .tabGroup, id: group.rawValue),
                                             entries: TabGroupPinMenu.entries(saved: saved, registry: registry), customize: true).themeRows(in: view.themeScope.fullStrength)
         case .emptyStrip:
-            let entries = registry.contextMenuEntries(for: .newTab) + [.separator] + registry.contextMenuEntries(for: .pane)
-            return registry.makeContextMenu(for: .pane, target: ActionTargetRef(kind: .pane, id: paneKey), entries: entries, customize: true).themeRows(in: view.themeScope.fullStrength)
+            // The tab bar's menu, the strip's or the vertical list's (makeTabStripMenu).
+            return registry.makeTabStripMenu(target: ActionTargetRef(kind: .pane, id: paneKey), machineID: daemon.machineID)
+                .themeRows(in: view.themeScope.fullStrength)
         case .newTabButton:
             // The engine menu predicts a Chromium tab (ChromiumWarmup).
             services.chromiumWarmup.chromiumLikely(.newTabMenu)
-            return registry.makePaneCreationMenu(target: ActionTargetRef(kind: .pane, id: paneKey))
+            return registry.makePaneCreationMenu(target: ActionTargetRef(kind: .pane, id: paneKey), machineID: daemon.machineID)
                 .themeRows(in: view.themeScope.fullStrength)
         }
     }

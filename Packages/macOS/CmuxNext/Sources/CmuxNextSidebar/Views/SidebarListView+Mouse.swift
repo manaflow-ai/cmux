@@ -62,7 +62,7 @@ extension SidebarListViewComponents {
                 // Keep the multi-selection so it can be dragged; collapse it
                 // on mouse-up if no drag happens.
                 press.deferredClick = id
-            } else if SidebarTunables.multiView.value {
+            } else if SidebarTunables.multiViewOn {
                 // The multi-view prototype (#23437): a press selects nothing; the release on this row navigates.
                 press.clickOnRelease = id
             } else {
@@ -205,7 +205,9 @@ extension SidebarListViewComponents {
             if flags == [.command, .option] {
                 model.moveSelection(up ? .up : .down)
             } else if flags.isEmpty || flags == .shift {
-                model.moveActive(by: up ? -1 : 1, extending: flags == .shift, visibleOrder: selectionOrder)
+                let order = selectionOrder
+                model.moveActive(by: up ? -1 : 1, extending: flags == .shift, visibleOrder: order)
+                if flags.isEmpty { forwardStepAhead(up ? -1 : 1, in: order) }
             } else {
                 return super.keyDown(with: event)
             }

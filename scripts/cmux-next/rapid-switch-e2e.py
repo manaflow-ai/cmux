@@ -57,9 +57,8 @@ def action(name, args=None):
 
 
 def key(name, modifiers):
-    """Previous / Next run as the palette runs them: since Leo 2026-10-12 the browser-style keys
-    are Chrome tab keys that select sidebar items (chrome-tab-keys-e2e.py), and these two
-    actions have no default key. The reply names the action, as `debug.key`'s did."""
+    """Previous / Next run as the palette runs them: these two actions have no default key (the tab
+    keys run Next / Previous Tab in Pane). The reply names the action, as `debug.key`'s did."""
     command = "navigate.next" if name == "}" else "navigate.previous"
     action(command)
     time.sleep(0.5)  # test harness: the switch settles

@@ -51,6 +51,39 @@ test("acpmux_send, as harnesses name it behind the cmux server or on its own", (
   expect(agentMessage(call("mcp__cmux__acpmux_send", { text: "y" }))).toBeUndefined();
 });
 
+test("acpmux team_send and inbox_reply", () => {
+  expect(agentMessage(call("mcp__acpmux__team_send", { to: "@team/reviewer", body: "PR is up." }))).toEqual({
+    channel: "agent",
+    to: "@team/reviewer",
+    text: "PR is up.",
+  });
+  // Codex's shape.
+  expect(
+    agentMessage(
+      call("acpmux", { server: "acpmux", tool: "team_send", arguments: { to: "@lawrence/coordinator", body: "Hi" } }),
+    ),
+  ).toEqual({ channel: "agent", to: "@lawrence/coordinator", text: "Hi" });
+  // A reply names the thread's sender, or the session its JSON result says it went to.
+  const reply = (thread: string, output?: string) => ({
+    ...call("mcp__acpmux__inbox_reply", { thread, text: "On it." }),
+    output,
+  });
+  expect(agentMessage(reply("from:lane-a/pr:42", "Sent into thread from:lane-a/pr:42 (promptId p1)."))).toEqual({
+    channel: "agent",
+    to: "lane-a",
+    text: "On it.",
+  });
+  expect(agentMessage(reply("pr:42"))?.to).toBe("pr:42");
+  expect(agentMessage(reply("from:lane-a", JSON.stringify({ sessionId: "s-123", threadId: "from:lane-a" })))?.to).toBe(
+    "s-123",
+  );
+  // Another server's tool of the same name, or no recipient: an ordinary tool row.
+  expect(agentMessage(call("mcp__slack__team_send", { to: "x", body: "y" }))).toBeUndefined();
+  expect(agentMessage(call("mcp__acpmux__team_send", { body: "y" }))).toBeUndefined();
+  expect(agentMessage(call("mcp__acpmux__inbox_reply", { text: "y" }))).toBeUndefined();
+  expect(agentMessage(call("mcp__acpmux__inbox_read", { thread: "from:a" }))).toBeUndefined();
+});
+
 test("a send's delivery: sending, sent, queued, delivered or failed, from its state and result", async () => {
   const { messageDelivery } = await import("./agentMessages");
   const done = (output?: string) => ({ status: "completed", output });

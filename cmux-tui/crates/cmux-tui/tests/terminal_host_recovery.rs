@@ -5290,6 +5290,13 @@ mod durable_tab_links;
 #[path = "terminal_host_recovery/host_orphan.rs"]
 mod host_orphan;
 
+#[path = "terminal_host_recovery/restart_host_leak.rs"]
+mod restart_host_leak;
+
+#[cfg(unix)]
+#[path = "terminal_host_recovery/pty_release.rs"]
+mod pty_release;
+
 #[path = "terminal_host_recovery/false_exit.rs"]
 mod false_exit;
 
@@ -5332,6 +5339,9 @@ mod kitty_budget_resync;
 
 #[path = "terminal_host_recovery/parallel_new_tabs.rs"]
 mod parallel_new_tabs;
+
+#[path = "terminal_host_recovery/startup_adoption_order.rs"]
+mod startup_adoption_order;
 
 #[path = "terminal_host_recovery/host_scrollback.rs"]
 mod host_scrollback;

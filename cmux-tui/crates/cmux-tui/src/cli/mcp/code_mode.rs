@@ -20,8 +20,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use cmux_json::JsonSet as _;
-use rquickjs::{CatchResultExt, Context, Function, Object, Runtime};
+use rquickjs::{CatchResultExt, Context, Function, Object, Persistent, Runtime};
 use serde_json::{Map, Value, json};
+
+mod workflow;
 
 pub(super) const DOCS: &str = "cmux_docs";
 pub(super) const EXEC: &str = "cmux_exec";
@@ -121,6 +123,7 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
     // the one description every turn shows: in code mode a server's own instructions reach the
     // agent only through `cmux.docs`, and a Codex chat has no hook to steer its shell.
     let bg = if tools.iter().any(|t| t["name"] == BG_START) { BG_STEER } else { "" };
+    let github = if tools.iter().any(|t| t["name"] == GITHUB_STATUS) { GITHUB_STEER } else { "" };
     let grouped = families(tools);
     // A harness that shows one tool must still find computer use in it: a
     // chat asked to "open Calculator" used osascript (2026-10-27).
@@ -147,7 +150,8 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              - workspace_list, workspace_get, pane_list {{workspace}}, tab_list {{pane | \
              workspace}}, terminal_list, terminal_get: ids and names. Lists answer {{items: \
              [...]}}; a change answers {{value: {{...}}}} with the new ids (value.terminal_id, \
-             value.pane_id, value.tab_id).\n\
+             value.pane_id, value.tab_id). workspace_list also lists Cloud machines' \
+             workspaces, each with machine_id; {{machine}} picks one machine's.\n\
              - pane_neighbor_get {{pane: \"current\", direction: \"right\"}} answers {{pane: \
              {{id, ...}}}} for the pane on the person's right, or {{pane: null}}; \
              terminal_process_get {{terminal}} names the program running in a terminal.\n\
@@ -173,19 +177,33 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              not every record.\n\
              - tab_rename {{tab, name}}, tab_close {{tab}}, tab_focus {{tab}}; workspace_rename \
              {{workspace, name}}; tab_move {{tab, destination_pane}} (or destination_workspace: \
-             its active pane; it goes last); workspace_create {{name}}; terminal_input_keys \
+             its active pane; it goes last); workspace_create {{name}} (it opens with a terminal \
+             pane that a moved tab can go into; initial_content: \"empty\" has no pane); \
+             terminal_input_keys \
              {{terminal, keys: [\"ctrl+c\"]}} presses keys (enter, escape, up).\n\
-             - Groups: tab_group_create {{tabs: [ids], name}}; workspace_group_create {{name}}, \
-             then workspace_place {{workspace, group: <its id>}} for each member.\n\
+             - Groups: tab_group_create {{tabs: [ids], name}}; workspace_group_create {{name, \
+             reuse: true}} (the space's group of that name, made only when none has it; ask once, \
+             not once per member), then workspace_place {{workspace, group: <its id>}} for each \
+             member.\n\
+             - Open a file, diff or page in cmux (not a terminal): open {{kind: \"file\" | \
+             \"diff\" | \"page\", path | url, where}} in one call; where: right (default), \
+             left, below, above, here, sticky (a docked column; edge), pane {{pane}}, workspace \
+             {{workspace}}. Several opens with where: right share one column. To make an \
+             existing column sticky: column_update {{screen, column, dock: true, edge}} \
+             (column: its column_id in screen_layout_export).\n\
              - workspace_status_set {{workspace, key, text}} (a sidebar status pill); \
              workspace_status_clear {{workspace, key}} removes it (an empty text leaves an empty \
              pill); \
-             notification_create {{title, body}}.\n\n\
+             notification_create {{title, body}}.\n\
+             - A video file (a screen recording, an attached .mp4 or .mov): video_frames {{path, \
+             at: [seconds] | range: {{from, to, count}} | scenes: true, maxSide}} answers its \
+             frames as images you see, with each one's time; video_info {{path}} its length, \
+             size, fps and audio. Use these instead of ffmpeg.\n\n\
              Anything else: `await cmux.docs(\"words\")` answers {{tools: [{{name, description, \
              inputSchema}}], more: [names]}}; a tool's exact name finds it first. \
              app_* tools are the app's menu actions. A failed call throws an Error whose `cmux` \
              field has the error, its state and its idempotency key; its message names the fix. \
-             A failed script reports the calls that already ran. Families: {families}.{bg}"
+             A failed script reports the calls that already ran. Families: {families}.{bg}{github}"
         ),
         "inputSchema": {
             "type": "object",
@@ -209,6 +227,14 @@ const BG_STEER: &str = " Long-running commands (a dev server, a watcher, a long 
     test run) go to `cmux.acpmux_bg_start({command, cwd})`, not a background shell or terminal \
     of your own: this chat's agent hibernates after 2 idle minutes and its own background shells \
     end with it, while that task keeps running; `cmux.acpmux_bg_output({id, fromByte})` reads it.";
+
+/// acpmux's `github_status` behind this server (acpmux `github_status.rs`).
+const GITHUB_STATUS: &str = "acpmux_github_status";
+const GITHUB_STEER: &str = " When the person asks about their GitHub (can you see my GitHub, \
+    which account), call `cmux.acpmux_github_status({})`: it lists the GitHub accounts cmux can \
+    see for this chat and how cmux checked each, with no token. Answer with those logins and say \
+    they are connected through cmux; an organization account is the one their cmux team \
+    connected, not the person.";
 
 /// Tool names grouped by their first word (`pane_split` is `pane`).
 fn families(tools: &[Value]) -> BTreeMap<String, Vec<String>> {
@@ -459,6 +485,10 @@ pub(super) enum Request {
     Call { name: String, arguments: Map<String, Value> },
     /// `cmux.docs(query)`.
     Docs { query: String },
+    /// Launch or reattach without waiting; the workflow runner journals it first.
+    ActivityStart { kind: String, prompt: String, options: Map<String, Value> },
+    /// Wait for one of the named activities; the journal records completion order.
+    ActivityWait { ids: Vec<String> },
 }
 
 enum ToServer {
@@ -480,6 +510,16 @@ pub(super) fn exec(
     limits: Limits,
     answer: &mut dyn FnMut(Request) -> Value,
 ) -> Result<Value, String> {
+    exec_mode(arguments, limits, answer, None)
+}
+
+fn exec_mode(
+    arguments: &Map<String, Value>,
+    limits: Limits,
+    answer: &mut dyn FnMut(Request) -> Value,
+    workflow_inputs: Option<Value>,
+) -> Result<Value, String> {
+    let workflow_mode = workflow_inputs.is_some();
     if let Some(name) = arguments.keys().find(|name| name.as_str() != "script") {
         return Err(format!("{EXEC} has no argument {name:?}"));
     }
@@ -487,7 +527,7 @@ pub(super) fn exec(
         Some(Value::String(script)) if !script.trim().is_empty() => script.clone(),
         _ => return Err(format!("{EXEC} needs script, a non-empty string")),
     };
-    if script.len() > MAX_SCRIPT_BYTES {
+    if workflow_inputs.is_none() && script.len() > MAX_SCRIPT_BYTES {
         return Err(format!("{EXEC} script is larger than {} KiB", MAX_SCRIPT_BYTES >> 10));
     }
     let (to_server, from_script) = mpsc::channel();
@@ -495,7 +535,7 @@ pub(super) fn exec(
         .name("cmux-mcp-code-mode".into())
         .stack_size(THREAD_STACK)
         .spawn(move || {
-            let outcome = run_script(&script, limits, &to_server);
+            let outcome = run_script(&script, limits, &to_server, workflow_inputs);
             let _ = to_server.send(ToServer::Done(outcome));
         })
         .map_err(|error| format!("{EXEC} cannot start its engine: {error}"))?;
@@ -510,6 +550,8 @@ pub(super) fn exec(
             ToServer::Request(request, reply) => {
                 let name = match &request {
                     Request::Call { name, .. } => Some(name.clone()),
+                    Request::ActivityStart { kind, .. } => Some(kind.clone()),
+                    Request::ActivityWait { .. } => None,
                     Request::Docs { .. } => None,
                 };
                 let answered = answer(request);
@@ -558,17 +600,40 @@ pub(super) fn exec(
     Ok(match outcome.result {
         Ok(result) => {
             value.set("result", result);
-            super::success(fit(value), applied)
+            if workflow_mode {
+                json!({"isError":false,"content":[],"structuredContent":value})
+            } else {
+                super::success(fit(value), applied)
+            }
         }
         Err(error) => {
             value.set("error", error);
             // `partial`: some call may have applied; `call_log` says which,
             // with each failed call's state and idempotency key.
             value.set("state", json!(if applied { "partial" } else { "not_run" }));
-            super::tool_error(fit(value))
+            if workflow_mode {
+                json!({"isError":true,"content":[],"structuredContent":value})
+            } else {
+                super::tool_error(fit(value))
+            }
         }
     })
 }
+
+/// The daemon-owned runner uses this entry point with pinned inputs and source.
+pub(super) fn workflow_exec(
+    script: &str,
+    inputs: Value,
+    limits: Limits,
+    answer: &mut dyn FnMut(Request) -> Value,
+) -> Result<Value, String> {
+    let mut arguments = Map::new();
+    arguments.insert("script".into(), Value::String(workflow::body(script)));
+    exec_mode(&arguments, limits, answer, Some(inputs))
+}
+
+#[cfg(test)]
+mod workflow_tests;
 
 /// Keeps a result under the server's limit: a large `result` becomes a
 /// text preview, then logs are cut.
@@ -760,7 +825,13 @@ fn block_end(text: &str, open: usize) -> Option<usize> {
 }
 
 /// Runs one script on this (the engine) thread.
-fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) -> Outcome {
+fn run_script(
+    script: &str,
+    limits: Limits,
+    to_server: &mpsc::Sender<ToServer>,
+    workflow_inputs: Option<Value>,
+) -> Outcome {
+    let workflow_mode = workflow_inputs.is_some();
     let logs = Rc::new(RefCell::new((Vec::<String>::new(), 0usize, 0usize)));
     let done = Rc::new(RefCell::new(None::<Result<Value, Value>>));
     let failed = |message: String| Outcome {
@@ -781,7 +852,7 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
         let progress = progress.clone();
         let stopped = stopped.clone();
         runtime.set_interrupt_handler(Some(Box::new(move || {
-            let over = started.elapsed() > limits.total
+            let over = (!workflow_mode && started.elapsed() > limits.total)
                 || progress.lock().map(|at| at.elapsed() > limits.compute).unwrap_or(true);
             if over && let Ok(mut stopped) = stopped.lock() {
                 *stopped = true;
@@ -794,6 +865,7 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
         Err(error) => return failed(format!("engine: {error}")),
     };
     let calls = Rc::new(RefCell::new(0usize));
+    let mut workflow_poll: Option<Persistent<Function<'static>>> = None;
     let evaluated = context.with(|ctx| -> Result<(), String> {
         let native = Object::new(ctx.clone()).map_err(|e| e.to_string())?;
         let count = calls.clone();
@@ -802,7 +874,9 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
             let progress = progress.clone();
             move |request: Request| -> String {
                 let mut used = count.borrow_mut();
-                if *used >= MAX_CALLS {
+                // The workflow journal counts fresh activities after replay
+                // lookup. Its budget resets per resume; only internal waits are free.
+                if !workflow_mode && *used >= MAX_CALLS {
                     return failure(
                         "script.too_many_calls",
                         &format!("a script makes at most {MAX_CALLS} calls and docs searches"),
@@ -810,7 +884,7 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
                 }
                 *used += 1;
                 drop(used);
-                if started.elapsed() > limits.total {
+                if !workflow_mode && started.elapsed() > limits.total {
                     return failure(
                         "script.timeout",
                         &format!("a script runs at most {} s", limits.total.as_secs()),
@@ -828,6 +902,7 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
                 value.to_string()
             }
         };
+        let workflow_request = request.clone();
         let call_request = request.clone();
         native
             .set(
@@ -884,6 +959,11 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
             .map_err(|e| e.to_string())?;
         ctx.globals().set("__cmuxNative", native).map_err(|e| e.to_string())?;
         ctx.eval::<(), _>(PRELUDE).catch(&ctx).map_err(|e| format!("prelude: {e}"))?;
+        if let Some(inputs) = workflow_inputs {
+            let poll = workflow::install(&ctx, workflow_request, inputs)
+                .catch(&ctx).map_err(|error| format!("workflow prelude: {error}"))?;
+            workflow_poll = Some(Persistent::save(&ctx, poll));
+        }
         // The body runs inside an async function so it can await and return.
         // `finish` leaves the global scope first, so the script cannot
         // report a result of its own through it.
@@ -910,7 +990,33 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
     loop {
         match runtime.execute_pending_job() {
             Ok(true) => {}
-            Ok(false) => break,
+            Ok(false) => {
+                // Activity starts are short host calls. After JS has launched
+                // every runnable branch, wait for any activity to complete.
+                // The journal preserves that completion order on replay.
+                let polled = match &workflow_poll {
+                    Some(poll) if done.borrow().is_none() => context.with(|ctx| {
+                        let poll = poll.clone().restore(&ctx).map_err(|error| error.to_string())?;
+                        poll.call::<_, usize>((false,))
+                            .catch(&ctx)
+                            .map_err(|error| error.to_string())
+                    }),
+                    _ => Ok(0),
+                };
+                match polled {
+                    Ok(0) => break,
+                    Ok(_) => continue,
+                    Err(error) => {
+                        let mut outcome = take_logs(&logs);
+                        let interrupted = stopped.lock().map(|stopped| *stopped).unwrap_or(false);
+                        outcome.result = Err(json!({
+                            "code": if interrupted { "script.timeout" } else { "workflow.wait" },
+                            "message": error,
+                        }));
+                        return outcome;
+                    }
+                }
+            }
             Err(error) => {
                 if let Ok(mut logs) = logs.try_borrow_mut() {
                     let line = format!("[error] job: {error}");
@@ -930,6 +1036,15 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
     let mut outcome = take_logs(&logs);
     let interrupted = stopped.lock().map(|stopped| *stopped).unwrap_or(false);
     let result = done.borrow_mut().take();
+    // A settled root promise must not hide running children, including siblings
+    // left behind when Promise.all rejects early. Inspect without waiting.
+    let pending = match &workflow_poll {
+        Some(poll) if !interrupted => context.with(|ctx| {
+            let poll = poll.clone().restore(&ctx).map_err(|error| error.to_string())?;
+            poll.call::<_, usize>((true,)).catch(&ctx).map_err(|error| error.to_string())
+        }),
+        _ => Ok(0),
+    };
     outcome.result = if interrupted {
         // The interrupt also stops the rejection handler, so `done` may hold
         // the engine's bare "interrupted" or nothing.
@@ -940,6 +1055,14 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
                 limits.compute.as_millis(),
                 limits.total.as_secs()
             ),
+        }))
+    } else if !matches!(&pending, Ok(0)) {
+        Err(json!({
+            "code": "script.unfinished",
+            "message": match pending {
+                Ok(count) => format!("the script ended with {count} unfinished workflow activities"),
+                Err(message) => format!("cannot inspect unfinished workflow activities: {message}"),
+            },
         }))
     } else {
         match result {
@@ -979,8 +1102,9 @@ fn closed() -> Value {
 }
 
 /// Images a script's calls returned that one `cmux_exec` result carries
-/// (a computer use screenshot), and their total base64 bytes.
-const MAX_IMAGES: usize = 8;
+/// (a computer use screenshot, a `video_frames` call's frames), and their
+/// total base64 bytes.
+const MAX_IMAGES: usize = super::video_tools::MAX_FRAMES;
 const MAX_IMAGE_BYTES: usize = 8 << 20;
 
 /// A tool result as a script sees it. A result without structured content
@@ -1070,6 +1194,22 @@ mod bg_steer_tests {
         assert!(text.contains("hibernates after 2 idle minutes"), "{text}");
         let without = descriptors(&[json!({"name": "pane_split"})]);
         assert!(!without[0]["description"].as_str().unwrap().contains("acpmux_bg_start"));
+    }
+}
+
+#[cfg(test)]
+mod github_steer_tests {
+    use super::*;
+
+    /// A chat with acpmux's `github_status` is told when to call it in `cmux_exec`'s own
+    /// description; one without it is not.
+    #[test]
+    fn the_exec_description_names_github_status_only_where_it_is() {
+        let with = descriptors(&[json!({"name": GITHUB_STATUS})]);
+        let text = with[0]["description"].as_str().unwrap();
+        assert!(text.contains("cmux.acpmux_github_status({})"), "{text}");
+        let without = descriptors(&[json!({"name": "pane_split"})]);
+        assert!(!without[0]["description"].as_str().unwrap().contains("github_status"));
     }
 }
 

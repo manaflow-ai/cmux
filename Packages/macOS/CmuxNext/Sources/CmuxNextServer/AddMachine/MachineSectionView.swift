@@ -144,7 +144,8 @@ public final class MachineSectionView: NSView {
         var y = Metrics.space2
         for item in arranged {
             y += item.gap
-            let height = item.view.intrinsicContentSize.height
+            // A machine row is as tall as its name needs at this width (a long name wraps).
+            let height = (item.view as? MachineSectionRowView)?.height(forWidth: bounds.width) ?? item.view.intrinsicContentSize.height
             item.view.frame = NSRect(x: 0, y: y, width: bounds.width, height: height)
             y += height
         }
@@ -202,7 +203,8 @@ final class MachineSectionHeaderView: NSView {
     }
 }
 
-/// One machine: its kind's icon in the icon column, its name and last check, its link state (a second
+/// One machine: its kind's icon in the icon column, its name (whole: a name too long for its column wraps
+/// onto more lines and the row grows, never cut mid-word) and last check, its link state (a second
 /// line, or at the trailing edge when it is not connected: a spinner while connecting or resuming, the
 /// server's state in words for a paused, failed or deleted Cloud machine), and New
 /// Workspace as a trailing button that shows while the pointer is on the row or its menu is open. The
@@ -232,9 +234,13 @@ final class MachineSectionRowView: NSView {
         icon.imageScaling = .scaleProportionallyDown
         icon.setAccessibilityElement(false)
         for label in [nameLabel, stateLabel] {
-            label.lineBreakMode = .byTruncatingMiddle
             label.setAccessibilityElement(false)
         }
+        // The name is shown whole (Leo's DEV build cut a long name mid-word, "abc-defghi...-xyz"):
+        // it wraps at its column, at a hyphen where it can.
+        nameLabel.lineBreakMode = .byWordWrapping
+        nameLabel.maximumNumberOfLines = 0
+        stateLabel.lineBreakMode = .byTruncatingMiddle
         nameLabel.font = Typography.body
         stateLabel.font = Typography.caption
         spinner.isHidden = true
@@ -292,11 +298,40 @@ final class MachineSectionRowView: NSView {
         newWorkspace(row.id)
     }
 
+    /// One line high at any width; the section sizes the row with ``height(forWidth:)``.
     override var intrinsicContentSize: NSSize {
-        let text = showsStateLine
-            ? nameLabel.naturalSize.height + Metrics.space1 / 2 + stateLabel.naturalSize.height
-            : nameLabel.naturalSize.height
-        return NSSize(width: NSView.noIntrinsicMetric, height: max(MachineSectionMetrics.rowHeight, ceil(text + 2 * Metrics.space2)))
+        NSSize(width: NSView.noIntrinsicMetric, height: height(forWidth: .greatestFiniteMagnitude))
+    }
+
+    /// The row's height in a section `width` wide: a name too long for its column wraps, and the row
+    /// grows to hold its lines.
+    func height(forWidth width: CGFloat) -> CGFloat {
+        let name = nameHeight(column: columns(width: width).name)
+        let text = showsStateLine ? name + Metrics.space1 / 2 + stateLabel.naturalSize.height : name
+        return max(MachineSectionMetrics.rowHeight, ceil(text + 2 * Metrics.space2))
+    }
+
+    /// The text's columns in a row `width` wide: where the text starts, the width left for the name
+    /// (before its health mark, the trailing state, the spinner and New Workspace) and the trailing
+    /// state's width (0 when it is on its own line or hidden).
+    private func columns(width: CGFloat) -> (textX: CGFloat, name: CGFloat, state: CGFloat) {
+        let inset = MachineSectionMetrics.inset
+        let textX = inset + MachineSectionMetrics.iconColumn + MachineSectionMetrics.iconGap
+        var trailing = width - inset - MachineSectionMetrics.buttonSide - Metrics.space2
+        if !spinner.isHidden { trailing -= Metrics.smallIconSize + Metrics.space2 }
+        var state: CGFloat = 0
+        if !showsStateLine, !stateLabel.isHidden {
+            state = min(stateLabel.textWidth, max(0, trailing - textX))
+            trailing -= state + Metrics.space2
+        }
+        let mark = health.health == nil ? 0 : MachineHealthMarkView.side + Metrics.space2
+        return (textX, max(0, trailing - textX - mark), state)
+    }
+
+    /// The name's height in a column `column` wide: one line when it fits, else its wrapped lines.
+    private func nameHeight(column: CGFloat) -> CGFloat {
+        guard nameLabel.textWidth > column, column > 0 else { return nameLabel.naturalSize.height }
+        return nameLabel.size(forWidth: column + 2 * nameLabel.padding).height
     }
 
     override func layout() {
@@ -316,19 +351,18 @@ final class MachineSectionRowView: NSView {
             spinner.frame = NSRect(x: trailing - size, y: mid - size / 2, width: size, height: size)
             trailing = spinner.frame.minX - Metrics.space2
         }
-        let textX = icon.frame.maxX + MachineSectionMetrics.iconGap
-        let nameHeight = nameLabel.naturalSize.height, stateHeight = stateLabel.naturalSize.height
-        if !showsStateLine, !stateLabel.isHidden {
-            let width = min(stateLabel.textWidth, max(0, trailing - textX))
-            stateLabel.place(textX: trailing - width, y: mid - stateHeight / 2, maxTextWidth: width)
-            trailing -= width + Metrics.space2
+        let column = columns(width: bounds.width), textX = column.textX
+        let lineHeight = nameLabel.naturalSize.height, stateHeight = stateLabel.naturalSize.height
+        if column.state > 0 {
+            stateLabel.place(textX: trailing - column.state, y: mid - stateHeight / 2, maxTextWidth: column.state)
         }
-        let mark = health.health == nil ? 0 : MachineHealthMarkView.side + Metrics.space2
+        let nameHeight = nameHeight(column: column.name)
         let textHeight = showsStateLine ? nameHeight + Metrics.space1 / 2 + stateHeight : nameHeight
         let top = mid - textHeight / 2
-        let nameWidth = min(nameLabel.textWidth, max(0, trailing - textX - mark))
+        let nameWidth = min(nameLabel.textWidth, column.name)
         nameLabel.place(textX: textX, y: top, maxTextWidth: nameWidth)
-        health.frame = NSRect(x: textX + nameWidth + Metrics.space2, y: top + nameHeight / 2 - MachineHealthMarkView.side / 2,
+        nameLabel.frame.size.height = nameHeight
+        health.frame = NSRect(x: textX + nameWidth + Metrics.space2, y: top + lineHeight / 2 - MachineHealthMarkView.side / 2,
                               width: MachineHealthMarkView.side, height: MachineHealthMarkView.side)
         if showsStateLine {
             stateLabel.place(textX: textX, y: top + nameHeight + Metrics.space1 / 2, maxTextWidth: trailing - textX)
@@ -693,12 +727,14 @@ private extension ChromeLabel {
     /// The text's own width on one line (no padding).
     var textWidth: CGFloat { intrinsicContentSize.width }
 
+    /// The padding on each side of the text inside the label's frame.
+    var padding: CGFloat { max(0, (naturalSize.width - textWidth) / 2) }
+
     /// Places the label so its text starts at `x` and is at most `maxTextWidth` wide. A label's frame
     /// is its text plus a padding on each side (``ChromeLabel/naturalSize``), so the frame starts that
     /// padding before `x`: the text lines up with the column, and a text that fits is never truncated.
     func place(textX x: CGFloat, y: CGFloat, maxTextWidth: CGFloat) {
         let natural = naturalSize
-        let padding = max(0, (natural.width - textWidth) / 2)
         let width = min(textWidth, max(0, maxTextWidth))
         frame = NSRect(x: x - padding, y: y, width: width + 2 * padding, height: natural.height)
     }

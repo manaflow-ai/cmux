@@ -8,8 +8,8 @@ import { rowIconSize } from "../icons/iconSize";
 import { phaseAgents, tally } from "./foldWorkflows";
 import type { WorkflowAgent, WorkflowPhase, WorkflowSummary } from "./workflow";
 import { useNow } from "../subagents/SubagentGroup";
-import { WorkflowAgentRow } from "../inspector/WorkflowTasks";
-import { StopButton } from "../inspector/TasksSection";
+import { WorkflowAgentRow } from "../session-info/WorkflowTasks";
+import { StopButton } from "../session-info/TasksSection";
 import "./WorkflowSideTab.css";
 
 export type WorkflowSideTabLayout = "timeline" | "lanes" | "table";

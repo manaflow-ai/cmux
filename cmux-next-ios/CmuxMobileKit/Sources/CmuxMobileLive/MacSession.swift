@@ -16,8 +16,12 @@ final class MacSession {
     let link: LinkController
     let workspaces: WorkspaceSync
     let acpmux = AcpmuxHub()
+    /// Separate ACP clients: VM-local session ids never collide with this Mac's.
+    var cloudChats: [String: CloudChatRelay] = [:]
     let feed: LiveFeed
     let terminalFeed: TerminalFeed
+    /// The Mac app's own Feed requests (held PRs, sign-ins, consent cards).
+    let needsYou: MacNeedsYouFeed
     /// Workspace and tab changes on this Mac.
     let creation: LiveWorkspaceCreationBackend
 
@@ -61,6 +65,7 @@ final class MacSession {
         feed = LiveFeed(store: feedStore, hub: nil, place: { _ in nil })
         feed.macID = macID.isEmpty ? nil : macID
         terminalFeed = TerminalFeed(store: feedStore)
+        needsYou = MacNeedsYouFeed(store: feedStore)
         creation = LiveWorkspaceCreationBackend(sync: workspaces, link: link, acpmux: nil)
         feed.hub = acpmux
         feed.terminal = terminalFeed

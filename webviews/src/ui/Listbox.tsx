@@ -1,8 +1,10 @@
 // A focusable listbox of actions (recent items): one Tab stop, Up/Down/Home/End move, typing a
 // letter jumps to the next row starting with it, Return or Space opens, a click opens. Base UI 1.8
 // has no standalone listbox, so this is the wrapper's one implementation (aria-activedescendant).
-import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { cx } from "./cx";
+import { useScrollEdges } from "./scrollEdges";
+import "./popupSurface.css";
 
 export interface ListboxProps<T> {
   items: readonly T[];
@@ -38,6 +40,16 @@ export function Listbox<T>({
 }: ListboxProps<T>) {
   const [highlight, setHighlight] = useState(Math.max(0, initialIndex));
   const focused = useRef(false);
+  const listEdges = useScrollEdges();
+  const listRef = useCallback(
+    (element: HTMLDivElement | null) => {
+      listEdges(element);
+      if (!element || !autoFocus || focused.current) return;
+      focused.current = true;
+      element.focus({ preventScroll: true });
+    },
+    [autoFocus, listEdges],
+  );
   const typed = useRef({ text: "", at: 0 });
   const id = useId();
   const current = Math.min(highlight, items.length - 1);
@@ -77,12 +89,8 @@ export function Listbox<T>({
 
   return (
     <div
-      ref={(element) => {
-        if (!element || !autoFocus || focused.current) return;
-        focused.current = true;
-        element.focus({ preventScroll: true });
-      }}
-      className={cx("ui-listbox", className)}
+      ref={listRef}
+      className={cx("ui-listbox ui-scroll-edge-fade", className)}
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a native select cannot hold rich rows.
       role="listbox"
       tabIndex={0}
@@ -102,6 +110,8 @@ export function Listbox<T>({
           {...itemAttributes?.(item)}
           onMouseMove={() => index !== current && setHighlight(index)}
           onMouseDown={(event) => {
+            // Secondary/middle press and macOS Control-click keep the system context menu.
+            if (event.button !== 0 || event.ctrlKey) return;
             event.preventDefault();
             onOpen(item);
           }}

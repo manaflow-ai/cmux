@@ -1,6 +1,6 @@
 import { Schema } from "effect"
 import { describe, expect, it } from "vitest"
-import { cloudOpByName, cloudOps, Grant, Install, mutationErrors, PublicJwk } from "../src/index.ts"
+import { cloudOpByName, cloudOps, CloudVmNetwork, Grant, Install, mutationErrors, PublicJwk, ServerNetworkProof } from "../src/index.ts"
 
 // The cloud operation catalog is the contract for the API Worker, MCP, the CLI and the generated
 // clients (catalog:export). These checks hold for every op, so a new op cannot break them silently.
@@ -53,6 +53,14 @@ describe("cloud operation catalog", () => {
 })
 
 describe("shared schemas round-trip", () => {
+  it("round-trips a confirmed Cloud VM network and accepts a Native proof", () => {
+    const network = { tenant: "tenant_1", mesh: `mesh_${"a".repeat(26)}`, ipv4_cidr: "10.0.0.0/24", ipv4: "10.0.0.2" }
+    expect(Schema.decodeUnknownSync(CloudVmNetwork)(network)).toEqual(network)
+    const proof = { signedAt: 1, nonce: "A".repeat(22), signature: "A".repeat(86) + "==" }
+    expect(Schema.decodeUnknownSync(ServerNetworkProof)(proof)).toEqual(proof)
+    expect(Schema.decodeUnknownExit(CloudVmNetwork)({ ...network, mesh: "mesh_bad" })._tag).toBe("Failure")
+  })
+
   const jwk = { kty: "EC", crv: "P-256", x: "a".repeat(43), y: "b".repeat(43) } as const
   const grant = { id: `grant_${"a".repeat(20)}`, grantee: "install_1", op_classes: ["read"], approval: "none", expires_at: null, revoked_at: null, created_from: "install" } as const
 

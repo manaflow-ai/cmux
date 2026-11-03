@@ -32,7 +32,7 @@ pub(super) use wait::{
     DEFAULT_TIMEOUT_SECONDS as DEFAULT_WAIT_SECONDS, MAX_TIMEOUT_SECONDS as MAX_WAIT_SECONDS,
 };
 
-const HELP: &str = "Usage: cmux agents <snapshot|workspace|tab|terminal|palette|dialog|chat|wait|events|doctor>\n\nAgent-facing JSON topology. Mutations return the changed result and a fresh topology snapshot. Palette and dialogs are owned by the cmux app.\n\n  cmux agents snapshot\n  cmux agents workspace select <workspace-id>\n  cmux agents workspace create [--name <name>] [--empty]\n  cmux agents tab select <tab-id>\n  cmux agents terminal focus <tab-id>\n  cmux agents terminal split <left|right|up|down> [--surface <pane-id>]\n  cmux agents palette open\n  cmux agents dialog list [--all]\n  cmux agents dialog answer <request-id> --mode <mode>\n  cmux agents dialog answer <request-id> --selection <value> [--selection <value> ...]\n  cmux agents chat new [--workspace <ws>|--pane <pane>] [--harness <h>] [--model <m>] [--effort <e>] [--mode <m>] [--policy <p>] [--cwd <dir>] [--name <n>] [--] [<prompt>]\n  cmux agents chat send <chat> [--] <text>\n  cmux agents chat read <chat> [--after <item-id>] [--limit <n>]\n  cmux agents chat state <chat>\n  cmux agents chat interrupt <chat>\n  cmux agents chat continue <chat> [[--] <text>]\n  cmux agents wait --until idle|dialog|text [--target <id>] [--text <text> [--regex]] [--timeout <seconds>]\n  cmux agents events [--after <cursor>] [--kind dialog|notification|tab|workspace|agent ...] [--timeout <seconds>] [--limit <n>] [--json]\n  cmux agents doctor [--json]\n";
+const HELP: &str = "Usage: cmux agents <snapshot|workspace|tab|terminal|palette|dialog|chat|wait|events|doctor>\n\nAgent-facing JSON topology. Mutations return the changed result and a fresh topology snapshot. Palette and dialogs are owned by the cmux app.\n\n  cmux agents snapshot\n  cmux agents workspace select <workspace-id>\n  cmux agents workspace create [--name <name>] [--empty] [--top]\n  cmux agents tab select <tab-id>\n  cmux agents terminal focus <tab-id>\n  cmux agents terminal split <left|right|up|down> [--surface <pane-id>]\n  cmux agents palette open\n  cmux agents dialog list [--all]\n  cmux agents dialog answer <request-id> --mode <mode>\n  cmux agents dialog answer <request-id> --selection <value> [--selection <value> ...]\n  cmux agents chat new [--workspace <ws>|--pane <pane>|--top] [--harness <h>] [--model <m>] [--effort <e>] [--mode <m>] [--policy <p>] [--cwd <dir>] [--name <n>] [--] [<prompt>]\n  cmux agents chat send <chat> [--] <text>\n  cmux agents chat read <chat> [--after <item-id>] [--limit <n>]\n  cmux agents chat state <chat>\n  cmux agents chat interrupt <chat>\n  cmux agents chat continue <chat> [[--] <text>]\n  cmux agents wait --until idle|dialog|text [--target <id>] [--text <text> [--regex]] [--timeout <seconds>]\n  cmux agents events [--after <cursor>] [--kind dialog|notification|tab|workspace|agent ...] [--timeout <seconds>] [--limit <n>] [--json]\n  cmux agents doctor [--json]\n";
 
 /// Handles the `agents` namespace before the normal daemon grammar.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
@@ -426,7 +426,11 @@ fn run_app<B: Backend>(
             let pending_only = !args.iter().any(|arg| arg == "--all");
             ("feed.list", json!({"pending_only": pending_only}), app::READ_TIMEOUT)
         }
-        "dialog.answer" => dialog_answer(args).map_err(|error| AgentFailure::Usage(error.0))?,
+        "dialog.answer" => {
+            let (method, params, timeout) =
+                dialog_answer(args).map_err(|error| AgentFailure::Usage(error.0))?;
+            (method, with_answerer(params, origin, |key| std::env::var(key).ok()), timeout)
+        }
         _ => return Err(AgentFailure::Usage("unknown app action".into())),
     };
     // Feed replies change the app but take no key; only `action.run` does.
@@ -436,6 +440,24 @@ fn run_app<B: Backend>(
         .app(method, params, timeout, key.as_deref(), mutation)
         .map_err(AgentFailure::Owner)?;
     Ok((result, key))
+}
+
+/// A dialog answer with who sends it: the app takes an app ask's Start (an
+/// agent's Cloud start card) only from the person, a CLI with no agent
+/// session, or from an agent the person delegated it to
+/// (cmux-cloud-start-core `ask`). `origin` is `mcp` for the MCP tool, else
+/// `cli`; the caller goes along when it is an agent session or a Chief turn
+/// (a terminal alone is the person's).
+fn with_answerer(mut params: Value, origin: &str, env: impl Fn(&str) -> Option<String>) -> Value {
+    if let Some(object) = params.as_object_mut() {
+        object.insert("origin".into(), json!(if origin == "mcp" { "mcp" } else { "cli" }));
+        if let Some(caller) =
+            app::caller_from(env).filter(|caller| caller.get("terminal_id").is_none())
+        {
+            object.insert("caller".into(), caller);
+        }
+    }
+    params
 }
 
 fn dialog_answer(args: &[String]) -> Result<(&'static str, Value, Duration), UsageError> {
@@ -499,7 +521,8 @@ fn receipt<B: Backend>(
     result: Value,
     idempotency_key: Option<String>,
 ) -> Value {
-    let state = fresh_state(backend, session);
+    // A read (the dialog list) wrote nothing to wait for: its snapshot is the app's last one.
+    let state = state_after(backend, session, action != "dialog.list");
     let mut receipt =
         json!({"schema_version": 1, "action": action, "result": result, "state": state});
     if let Some(key) = idempotency_key {
@@ -510,10 +533,19 @@ fn receipt<B: Backend>(
 
 /// A fresh composed snapshot, the `state` of every receipt.
 fn fresh_state<B: Backend>(backend: &B, session: Option<&str>) -> Value {
+    state_after(backend, session, true)
+}
+
+/// A composed snapshot. With `writes`, the app's part waits for the app to
+/// catch up with the daemon (the read barrier, `after: "sync"`); without, it
+/// is the app's last published snapshot (`after: 0`), which no daemon round
+/// trip can hold up.
+fn state_after<B: Backend>(backend: &B, session: Option<&str>, writes: bool) -> Value {
+    let params = if writes { json!({}) } else { json!({"after": 0}) };
     compose_snapshot(
         backend.resource(session, snapshot_plan(), &[]).map_err(mcp::agent_failure_value),
         backend
-            .app("snapshot.get", json!({}), app::READ_TIMEOUT, None, false)
+            .app("snapshot.get", params, app::READ_TIMEOUT, None, false)
             .map_err(mcp::agent_failure_value),
     )
 }

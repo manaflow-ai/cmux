@@ -52,15 +52,8 @@ const PANE = `
   </div>
   <button data-expect="default" data-name="started chat row" type="button" class="acpmux-started-row">A chat</button>
   <div class="ui-glass cv-link-preview acpmux-pr-card"><button data-expect="default" data-name="hover card Open" type="button" class="cv-link-preview__open">Open</button></div>
-  <a data-expect="default" data-name="inspector pull request" class="acpmux-chat-inspector-pr__link" href="https://github.com/o/r/pull/3">PR</a>
+  <a data-expect="default" data-name="inspector pull request" class="acpmux-session-info-pr__link" href="https://github.com/o/r/pull/3">PR</a>
   <a data-expect="default" data-name="summary link" class="acpmux-summary-row acpmux-summary-link" href="https://example.com/doc">Doc</a>
-  <section class="acpmux-pr-dock">
-    <div class="acpmux-pr-dock__chip">
-      <a data-expect="default" data-name="pull request bar" class="acpmux-pr-dock__bar" href="https://github.com/o/r/pull/2"><span data-expect="default" data-name="pull request bar number" class="acpmux-pr-dock__number">#2</span></a>
-      <button data-expect="default" data-name="pull request bar dismiss" type="button" class="cv-iconbtn cv-iconbtn--compact acpmux-pr-dock__dismiss"></button>
-    </div>
-    <button data-expect="default" data-name="pull request dock more" type="button" class="acpmux-pr-dock__more">2 more</button>
-  </section>
   <form class="acpmux-composer"><div class="acpmux-composer-box">
     <button data-expect="default" data-name="composer Stop" type="button" class="acpmux-send acpmux-cancel"><svg data-expect="default" data-name="Stop icon"></svg></button>
     <button data-expect="default" data-name="composer Mic" type="button" class="acpmux-mic"></button>
@@ -334,7 +327,7 @@ test("only a disabled selector is exempt", () => {
 test("no stylesheet sets the pointing hand", () => {
   const classes = clickableClasses();
   // Sanity: the classes of the bars and buttons Leo pointed at are known clickable.
-  const known = ["acpmux-pr-dock__bar", "acpmux-send", "acpmux-mic", "cv-chip", "ui-menu-item", "cv-tool", "files-row"];
+  const known = ["acpmux-send", "acpmux-mic", "cv-chip", "ui-menu-item", "cv-tool", "files-row"];
   expect(known.filter((name) => !classes.has(name))).toEqual([]);
   // Sanity: the rule right after ui.css's @import lines is read (it once was not).
   const uiFirst = styleRules()

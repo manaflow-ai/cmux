@@ -24,11 +24,14 @@ import UserNotifications
         #expect(PushActions().plan(for: chat).map(\.action) == [.reply])
     }
 
-    @Test func aTerminalAgentsApprovalOpensItsTab() {
+    @Test func aTerminalAgentsApprovalOpensItsTab() throws {
         let approval = payload(.permission)
         #expect(approval.category == .terminal)
         #expect(PushActions().plan(for: approval).map(\.action) == [.answer])
-        #expect(PushBanner(payload: approval).title == "Claude needs permission")
+        // The Mac's approval prompt style (ApprovalBanner), with no Deny or Allow to offer.
+        #expect(PushBanner(payload: approval).title == "Claude wants to act on Mac")
+        let card = try #require(ApprovalBanner(payload: approval))
+        #expect(card.detail == "Bash" && card.deny == nil && card.allow == nil && card.more.isEmpty)
         // An error from a terminal agent stays the terminal's notification on the Mac; one
         // that arrives as `failed` (an older Mac) still takes no Reply.
         let error = payload(.failed)

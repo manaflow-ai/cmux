@@ -40,8 +40,7 @@ public final class UpdaterService {
     public internal(set) var managedChannel: AppChannelSwitchTarget?
     /// `MinimumVersion` from the managed policy, or nil.
     public internal(set) var managedMinimumVersion: String?
-    /// Whether the circle shows the last probe's result (the user asked, in a
-    /// build without Sparkle).
+    /// Whether the circle shows the last probe's result (the user asked, in a build without Sparkle).
     public internal(set) var showsProbeResult = false
     /// A fixed circle phase for screenshots (`debug.update_indicator`).
     public var debugIndicatorPhase: UpdateIndicatorPhase? {
@@ -63,8 +62,7 @@ public final class UpdaterService {
     /// The app-owned per-PR kill-switch reader; retaining it cancels its observation with the updater.
     /// ``startKillSwitchReader()`` stops the one before through this property.
     @ObservationIgnored var killSwitchReader: KillSwitchReader?
-    /// The notice whose timeout is pending, and its one-shot deadline on the
-    /// injected clock (no `asyncAfter`).
+    /// The notice whose timeout is pending, and its one-shot deadline on the injected clock (no `asyncAfter`).
     @ObservationIgnored var expiringCard: UpdateCard?
     @ObservationIgnored let cardTimer: DemandTimer
     /// When the install phase began (``installStatus``), nil outside it.
@@ -88,8 +86,7 @@ public final class UpdaterService {
     @ObservationIgnored var releasePushRetry: DemandTimer
     /// Opens the changelog page (set by the App; the What's New page's link).
     @ObservationIgnored public var openChangelog: (() -> Bool)?
-    /// Opens the changelog page for the releases after `from` up to `to`
-    /// (set by the App).
+    /// Opens the changelog page for the releases after `from` up to `to` (set by the App).
     @ObservationIgnored public var openChangelogSpan: ((_ from: String, _ to: String) -> Bool)?
     /// Opens a web release notes page in a browser tab (set by the App;
     /// "See all changes" when the staged build has no signed notes).
@@ -106,18 +103,18 @@ public final class UpdaterService {
     /// What's New after an update (WHATS-NEW-AFTER-UPDATE): the bundled
     /// documents and this feed's nightly digests. The App loads it at launch.
     public let whatsNew: WhatsNewCenter
-    /// Where a staged update is recorded for the next build's What's New
-    /// (nil: not recorded).
+    /// Where a staged update is recorded for the next build's What's New (nil: not recorded).
     @ObservationIgnored let lastUpdates: WhatsNewLastUpdateStore?
     /// The record last written, so an unchanged one is not written again.
     @ObservationIgnored var recordedUpdate: WhatsNewLastUpdate?
     /// The running bundle's keep for rollback (``keepRunningBuildForRollback()``).
     @ObservationIgnored var keptRunningBuild: KeepState?
     @ObservationIgnored var keepTask: Task<Void, Never>?
-    /// The click that installs, before Sparkle takes over (set by the App:
-    /// the windows go at once). ``installAbandoned`` undoes it when the
-    /// install ends without a relaunch.
-    @ObservationIgnored public var willInstallStaged: (() -> Void)?
+    /// Takes the windows off the screen as Sparkle commits to a relaunch the
+    /// person asked for (set by the App: ``UpdateWindowHandoff/hide()``), not
+    /// at the click. ``installAbandoned`` undoes it when the install ends
+    /// without a relaunch.
+    @ObservationIgnored public var hidesForRelaunch: (() -> Void)?
     @ObservationIgnored public var installAbandoned: (() -> Void)?
     /// Reads a build's verified notes (``releaseNotes`` in the app; replaced by tests).
     @ObservationIgnored var notesLoader: (@Sendable (String) async -> ReleaseNotes?)?
@@ -177,6 +174,17 @@ public final class UpdaterService {
     /// The cancel returns whether an installer was held and is now cancelled.
     @ObservationIgnored var cancelStaged: () -> Bool = { false }
     @ObservationIgnored var acceptAvailable: () -> Void = {}
+    /// Stops Sparkle's running download (its cancellation deletes the partial file); returns
+    /// whether a download was running. Replaced by tests.
+    @ObservationIgnored var cancelDownloadNow: () -> Bool = { false }
+    /// The download the person cancelled: the card shows its found update again until another
+    /// check or download starts (``cancelDownloadClicked()``).
+    var cancelledDownload: CancelledDownload?
+    /// The Update click on a cancelled download's card started a check: the update it finds
+    /// downloads (``followCancelledDownload(_:)``).
+    @ObservationIgnored var downloadAfterCheck = false
+    /// The phase ``followCancelledDownload(_:)`` saw last.
+    @ObservationIgnored var lastCancelFollowed: UpdateIndicatorPhase = .hidden
     @ObservationIgnored var phaseObservation: Task<Void, Never>?
     @ObservationIgnored var pathMonitor: NWPathMonitor?
     @ObservationIgnored var network: (constrained: Bool, expensive: Bool) = (false, false)
@@ -220,6 +228,8 @@ public final class UpdaterService {
     @ObservationIgnored var automaticInstallInFlight = false
     /// The build Sparkle said it installs (`updaterWillInstallUpdate`): the relaunch's focus record names it.
     @ObservationIgnored var installingBuild: String?
+    /// The build whose install the last relaunch left undone, and why (``UpdateInstallCheck``).
+    public internal(set) var failedInstall: (build: String, failure: UpdateInstallFailure)?
     /// The frontmost app when the automatic install in flight started (``UpdateRelaunchFocus``).
     @ObservationIgnored var automaticInstallFrontmost: UpdateFrontmostApp?
     /// Whether this app is the frontmost one, and the app that is (``UpdateRelaunchFocus``); AppKit in
@@ -312,6 +322,11 @@ public final class UpdaterService {
             installStaged = { [weak controller] in controller?.installStagedUpdate() }
             cancelStaged = { [weak controller] in controller?.cancelStagedUpdate() ?? false }
             acceptAvailable = { [weak controller] in controller?.acceptAvailableUpdate() }
+            cancelDownloadNow = { [weak controller] in
+                guard case .downloading(let download)? = controller?.model.state else { return false }
+                download.cancel()
+                return true
+            }
             stagedBuild = { [weak controller] in controller?.stagedUpdate?.versionString }
             availableBuild = { [weak controller] in
                 guard case .updateAvailable(let available)? = controller?.model.state else { return nil }
@@ -324,6 +339,7 @@ public final class UpdaterService {
         }
         restorePinnedTestFeed()
         restoreRollbackSkip()
+        failedInstall = UpdateInstallCheck.launchFailure(defaults: defaults, build: identity.build, now: now(), log: log)
         releasePush.onNewerBuild = { [weak self] in self?.releasePushed($0) }
         tipState = TipState(defaults: defaults)
         // The app settled the install before making the updater (AppServices): an install that ran
@@ -436,8 +452,7 @@ public final class UpdaterService {
         }
     }
 
-    /// Reads the feed and records what it offers this Mac. Joins a probe
-    /// already in flight.
+    /// Reads the feed and records what it offers this Mac. Joins a probe already in flight.
     @discardableResult
     public func probe() -> Task<String?, Never> {
         if let probeTask { return probeTask }
@@ -575,19 +590,21 @@ public final class UpdaterService {
 }
 
 extension UpdaterService {
-    /// ``switchChannel(to:)`` by name (`stable`, `nightly`); nil means the
-    /// counterpart of the running app.
+    /// ``switchChannel(to:)`` by name (`stable`, `nightly`, `dev`); nil means the counterpart of
+    /// the running app. On the DEV app `nightly` names cmux NEXT's NIGHTLY, its counterpart.
     @discardableResult
     public func switchChannel(named name: String?) throws -> Task<String?, Never> {
-        let requested = name.flatMap { AppChannelSwitchTarget(rawValue: $0.lowercased()) }
+        let counterpart = identity.channelSwitchTarget
+        let requested = name.flatMap { name in
+            counterpart.flatMap { $0.isNamed(name) ? $0 : nil } ?? AppChannelSwitchTarget(rawValue: name.lowercased())
+        }
         guard let target = requested ?? identity.channelSwitchTarget, name == nil || requested != nil else {
             throw UpdaterUnavailable.cannotSwitch(to: name ?? "?", from: identity.track)
         }
         return try switchChannel(to: target)
     }
 
-    /// Why switching channels is impossible here (DEV/RC builds have no
-    /// counterpart), or nil.
+    /// Why switching channels is impossible here (DEV/RC builds have no counterpart), or nil.
     public var channelSwitchUnavailableReason: String? {
         guard let target = identity.channelSwitchTarget else {
             return UpdaterUnavailable.cannotSwitch(to: "stable/nightly", from: identity.track).description

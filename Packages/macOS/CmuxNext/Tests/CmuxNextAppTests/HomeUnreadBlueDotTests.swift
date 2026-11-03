@@ -121,6 +121,10 @@ struct HomeUnreadBlueDotTests {
 
     @Test(arguments: cases)
     func homeDrawsTheWorkspaceRowsBlueDot(_ density: SidebarDensity, _ dark: Bool) throws {
+        // The static look (Reduce Motion) draws done as a green check, not the blue dot. Pin it off:
+        // a runner with the system's Reduce Motion on (Blacksmith macOS) otherwise fails here.
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
         let saved = DesignSettings.shared.sidebarSections.density
         DesignSettings.shared.sidebarSections.density = density
         defer { DesignSettings.shared.sidebarSections.density = saved }

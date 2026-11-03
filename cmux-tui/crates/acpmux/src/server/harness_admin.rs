@@ -240,9 +240,7 @@ pub(super) async fn handle(
                     !params.get("noPrompt").and_then(Value::as_bool).unwrap_or(false)
                 }),
                 timeout: Duration::from_secs(secs),
-                lookup_env: Box::new(|var| {
-                    crate::login_env::allowed_var(var).or_else(|| std::env::var(var).ok())
-                }),
+                lookup_env: Box::new(crate::login_env::reference_var),
                 lookup_keychain: Box::new(profiles::keychain_lookup),
             };
             admin::doctor_value(&doctor(&cfg, &id, &opts).await)

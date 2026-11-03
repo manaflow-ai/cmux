@@ -21,9 +21,9 @@ enum RowDraw {
 
     /// Horizontal span that needs pixels (cell bitmaps stay small).
     static func drawSpan(_ spec: RowSpec) -> ClosedRange<CGFloat> {
-        if case .typing = spec.kind { return 0...min(spec.width, 140) }
-        if case .receipt = spec.kind { return max(0, spec.metrics.receiptRight - 170)...spec.width }
-        guard case let .part(p) = spec.kind else { return 0...spec.width }
+        if case .typing = spec.kind { return span(0, min(spec.width, 140)) }
+        if case .receipt = spec.kind { return span(max(0, spec.metrics.receiptRight - 170), spec.width) }
+        guard case let .part(p) = spec.kind else { return span(0, spec.width) }
         let x = p.cmuxBodyX(rightEdge: spec.metrics.rightEdge) // cmux: a group's incoming bubbles sit right of the avatar column
         // Media carry a save button 14 + 28 pt beside them.
         var media = false
@@ -31,7 +31,16 @@ enum RowDraw {
         let extra: CGFloat = media ? 46 : 0
         // cmux: the span starts at the avatar column when the row draws an avatar.
         let lower = min(x - 36 - (p.outgoing ? extra : 0), p.cmuxAvatar == nil ? .infinity : SenderAvatar.left - 1)
-        return max(0, lower)...min(spec.width, x + p.size.width + 20 + (p.outgoing ? 0 : extra))
+        return span(max(0, lower), min(spec.width, x + p.size.width + 20 + (p.outgoing ? 0 : extra)))
+    }
+
+    /// cmux: `lower...upper`, empty at `lower` when the row is narrower than where its content starts
+    /// (a collapsed or zero-width pane, a negative or NaN width mid-layout). `lower...upper` trapped there
+    /// ("Range requires lowerBound <= upperBound", nightly 4115843934401, cmux issue 28977). An empty span
+    /// draws a 1 px transparent bitmap (UIGraphicsImageRenderer's minimum).
+    static func span(_ lower: CGFloat, _ upper: CGFloat) -> ClosedRange<CGFloat> {
+        let lo = lower.isFinite ? lower : 0
+        return lo...(upper.isFinite ? max(lo, upper) : lo)
     }
 
     /// Whether a row's bitmap is the same at every row width: its drawn span is the same size at

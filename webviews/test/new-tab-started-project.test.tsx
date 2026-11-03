@@ -10,6 +10,8 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { noChat, session } from "../src/gallery/fixtures/acpmux";
 import { EMPTY_OMNIBAR } from "../src/agent-session/acpmux/omnibar";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 
 const HOME = "/Users/you";
 const PICKED = "/Users/you/src/atlas";
@@ -31,6 +33,8 @@ const keys = [
   "IS_REACT_ACT_ENVIRONMENT",
   "Node",
   "Element",
+  "MutationObserver",
+  "getSelection",
   "getComputedStyle",
   "requestAnimationFrame",
   "cancelAnimationFrame",
@@ -57,11 +61,11 @@ beforeAll(() => {
     navigator: window.navigator,
     HTMLElement: window.HTMLElement,
     IS_REACT_ACT_ENVIRONMENT: true,
-    Node: window.Node,
     Element: window.Element,
     getComputedStyle: window.getComputedStyle.bind(window),
     requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
     cancelAnimationFrame: (id: number) => clearTimeout(id),
+    ...proseMirrorGlobals(window as unknown as Window & typeof globalThis),
     // Every agent page shares one store for the run (AgentPaneView.sharedDataStore).
     localStorage: {
       getItem: (key: string) => stored.get(key) ?? null,
@@ -150,14 +154,20 @@ async function newTab(
       />,
     ),
   );
-  const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
-  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+  // The field is the composer's Markdown field (#26567): type through its handle once it is made,
+  // and Return on its contenteditable.
+  const field = host.querySelector<MarkdownFieldElement>(".nt-field")!;
+  for (let turn = 0; turn < 200 && !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")); turn++)
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   await act(async () => {
-    setValue.call(field, "fix the flaky upload test");
-    field.dispatchEvent(new window.Event("input", { bubbles: true }));
+    field.acpmuxMarkdownField!.focus();
+    field.acpmuxMarkdownField!.type("fix the flaky upload test");
   });
+  const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
   const chip = host.querySelector(".nt-location")?.textContent ?? "";
-  await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+  await act(async () =>
+    editor.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
+  );
   return { chip, folder: calls[0]?.[2] };
 }
 

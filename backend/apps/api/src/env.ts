@@ -12,6 +12,7 @@ import type { HandDO } from "./hand-do.ts"
 import type { WireTicketDO } from "./wire-ticket.ts"
 import type { TeamVmDO } from "./team-vm-do.ts"
 import type { CloudDO } from "./cloud-do.ts"
+import type { TrajectoryDO } from "./cloud-trajectory-store.ts"
 import type { ConnectionDO } from "./connection-do.ts"
 import type { FeedDO } from "./feed-do.ts"
 import type { UsageMeterDO } from "./usage-meter-do.ts"
@@ -87,6 +88,10 @@ export interface Env {
   readonly HAND_RELEASE_COMMIT?: string
   /** Single-use wire tickets for browser sockets, 256 shards (wire-ticket.ts). */
   readonly WIRE_TICKET_DO: DurableObjectNamespace<WireTicketDO>
+  /** ACP chat trajectories kept outside Cloud VMs, one object per team and machine (cloud-trajectory.ts, #25584). */
+  readonly TRAJECTORY_DO: DurableObjectNamespace<TrajectoryDO>
+  /** "1": the trajectory routes answer (development, tests). Unset: 404 cloud.trajectory.disabled. */
+  readonly CLOUD_TRAJECTORIES_ENABLED?: string
   /** One TeamVmDO per team: the team VM record, wake leases, provider calls (plans/cmux-next/team-vm-plan.md S2). */
   readonly TEAM_VM_DO: DurableObjectNamespace<TeamVmDO>
   /**
@@ -161,12 +166,16 @@ export interface Env {
   readonly CLOUD_ALLOWED_TEAMS?: string
   /** Var: "on" = Cloud machine limits follow the team's paid plan (cloud-entitlements.ts); anything else = off (stub plan only). Production stays off until go-live. */
   readonly CLOUD_PLAN_ENTITLEMENTS?: string
+  /** Var: "on" turns automatic pauses of Freestyle VMs back on (auto-pause.ts); anything else, or unset, = off (Leo, 2026-10-30). */
+  readonly CLOUD_IDLE_PAUSE?: string
   /** Var: "on" = PlatformMachines (platform-machines.ts) answers bound Workers; anything else refuses every call. Development only today. */
   readonly PLATFORM_MACHINES?: string
   /** Named AgentGateway binding: on only in development; every MCP write still requires exact approval. */
   readonly PLATFORM_AGENT_GATEWAY?: string
   /** Service binding to cmux-platform-<env> (platform-forward.ts); absent in every environment until its cutover deploy. */
   readonly PLATFORM?: Fetcher
+  /** Binding-internal Slack bridge token shared with cmux-platform; never a public client credential. */
+  readonly INTERNAL_TOKEN?: string
   /** Var: comma-separated surfaces the platform serves ("cloud"); unset or empty = every request stays in this Worker. */
   readonly PLATFORM_SURFACES?: string
   /**
@@ -422,6 +431,12 @@ export interface Env {
   readonly SENDBLUE_WEBHOOK_SECRET?: string
   /** Header that carries the SendBlue webhook secret (default sb-signing-secret; UNVERIFIED until the first staging webhook). */
   readonly SENDBLUE_WEBHOOK_HEADER?: string
+  /** Texting Chief switch, fail-closed: only "on" routes inbound texts to Chiefs and texts their replies (text-chief.ts). */
+  readonly TEXT_CHIEF?: string
+  /** Secret, JSON `{"+1555…": "user_…" | "email"}`: senders allowed to text Chief before an in-app phone link exists. */
+  readonly TEXT_CHIEF_PEOPLE?: string
+  /** JSON `{"+1555…": {"owner"?: "user_…|email", "chief"?: "agent_…"}}`: more SendBlue lines; the shared SENDBLUE_FROM_NUMBER is always one. */
+  readonly TEXT_CHIEF_LINES?: string
   /** Staging, development and previews only: comma-separated recipients invites may reach; missing = none. */
   readonly HOME_INVITE_ALLOWLIST_EMAILS?: string
   readonly HOME_INVITE_ALLOWLIST_PHONES?: string

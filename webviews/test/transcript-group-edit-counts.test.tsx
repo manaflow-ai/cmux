@@ -159,6 +159,19 @@ test("a folded run and an edits group inside it, both ending on one edit, keep t
   expect(summary().querySelector(".cv-edit-diff__add")?.textContent).toBe("+4");
 });
 
+test("a run that grows keeps one count, not every earlier prefix", async () => {
+  const { editTotalsEntries } = await import("../src/agent-session/acpmux/conversation/EditCounts");
+  const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+  resetTranscriptDisclosure();
+  const items: AcpmuxActivity[] = [edit("grow-0", "/repo/grow-0.ts", "", "x\n"), command(50)];
+  for (let n = 1; n <= 40; n++) {
+    items.push(edit(`grow-${n}`, `/repo/grow-${n}.ts`, "", "x\n"));
+    await draw([...items], 100 + n);
+  }
+  expect(summary().querySelector(".cv-edit-diff__add")?.textContent).toBe("+41");
+  expect(editTotalsEntries(items[0]!.tool!)).toBeLessThanOrEqual(4);
+});
+
 test("editTotals: no diffs, no totals; a Write over unknown contents adds nothing", async () => {
   const { editTotals } = await import("../src/agent-session/acpmux/conversation/EditCounts");
   expect(editTotals([command(30).tool!])).toBeUndefined();

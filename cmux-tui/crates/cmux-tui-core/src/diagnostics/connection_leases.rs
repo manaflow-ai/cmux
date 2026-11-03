@@ -32,8 +32,9 @@ pub struct ConnectionLease {
     hung_up: AtomicBool,
     peer_closed: Option<PeerClosed>,
     /// Also holds a terminal slot (`ConnectionStats::try_claim_terminal`,
-    /// #27698), given back with the main slot.
-    terminal: bool,
+    /// #27698), given back with the main slot; inside, the terminal it came
+    /// from (nil when unknown).
+    terminal: Option<Option<u32>>,
 }
 
 impl ConnectionLease {
@@ -43,7 +44,7 @@ impl ConnectionLease {
     pub fn new(
         stats: Arc<ConnectionStats>,
         peer_closed: Option<PeerClosed>,
-        terminal: bool,
+        terminal: Option<Option<u32>>,
     ) -> Arc<Self> {
         let watched = peer_closed.is_some();
         let lease =
@@ -68,8 +69,8 @@ impl Drop for ConnectionLease {
             self.stats.hung_up.fetch_sub(1, Ordering::AcqRel);
         } else {
             self.stats.release();
-            if self.terminal {
-                self.stats.release_terminal();
+            if let Some(client) = self.terminal {
+                self.stats.release_terminal(client);
             }
         }
     }
@@ -107,8 +108,8 @@ impl ConnectionStats {
                 continue;
             }
             self.release();
-            if lease.terminal {
-                self.release_terminal();
+            if let Some(client) = lease.terminal {
+                self.release_terminal(client);
             }
             freed += 1;
         }

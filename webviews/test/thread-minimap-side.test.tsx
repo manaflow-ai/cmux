@@ -127,9 +127,9 @@ test.each(["compact", "full"])(
           />,
         ),
       );
-      // Pinned to the pane's left edge at its spacing-token inset (useRailPlacement: 10 px here).
+      // Pinned to the pane's left edge at its spacing-token inset (useRailPlacement: the widest step, 16 px, here).
       expect(rail().dataset.side).toBe("left");
-      expect(rail().style.left).toBe("10px");
+      expect(rail().style.left).toBe("16px");
       expect(rail().style.right).toBe("");
 
       let written = nextWrite();
@@ -137,7 +137,7 @@ test.each(["compact", "full"])(
       expect(chatDisplay().railSide).toBe("right");
       expect(rail().dataset.side).toBe("right");
       // The same inset, from the right edge.
-      expect(rail().style.right).toBe("10px");
+      expect(rail().style.right).toBe("16px");
       expect(rail().style.left).toBe("");
       expect(await written).toEqual([RAIL_SIDE_KEY, "right"]);
 
@@ -149,14 +149,14 @@ test.each(["compact", "full"])(
       const anchor = document.querySelector<HTMLElement>(".acpmux-minimap__anchor")!;
       expect(anchor.style.right).toBe("0px");
       expect(anchor.style.left).toBe("auto");
-      expect(card.style.transform).toMatch(/^translate3d\(-46px, .*\) translateX\(-100%\)$/);
+      expect(card.style.transform).toMatch(/^translate3d\(-52px, .*\) translateX\(-100%\)$/);
       await act(async () => tick(5).blur());
 
       // And back: the key goes, so the default holds again.
       written = nextWrite();
       await move(3, "Move to Left Edge");
       expect(rail().dataset.side).toBe("left");
-      expect(rail().style.left).toBe("10px");
+      expect(rail().style.left).toBe("16px");
       expect(await written).toEqual([RAIL_SIDE_KEY, null]);
 
       // The host's own event (cmux.json, Settings, another pane's menu) moves it too.
@@ -171,12 +171,15 @@ test.each(["compact", "full"])(
   },
 );
 
-// A pane too narrow for the rail beside the text hides it at rest on either edge and keeps the live
-// hover strip at that same edge (design/session-rail.md: never removed for pane width).
+// Under the edge-strip gutter (gutter.experiment.ts), a pane too narrow for the rail beside the text
+// hides it at rest on either edge and keeps the live hover strip at that same edge
+// (design/session-rail.md: never removed for pane width).
+const experiments = (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments!;
 for (const side of ["left", "right"] as const)
   test(`a ${side} rail in a narrow pane keeps its hover strip on the ${side}`, async () => {
     paneWidth = 300;
     setChatDisplay({ "agentPane.display.minimap": "compact", [RAIL_SIDE_KEY]: side });
+    experiments["thread-minimap-gutter"] = "edge-strip";
     const root = createRoot(document.getElementById("root")!);
     try {
       await act(async () =>
@@ -197,6 +200,7 @@ for (const side of ["left", "right"] as const)
       await act(async () => root.unmount());
       paneWidth = 1040;
       setChatDisplay({});
+      delete experiments["thread-minimap-gutter"];
     }
   });
 
@@ -224,9 +228,9 @@ for (const side of ["left", "right"] as const)
         ),
       );
       if (side === "right") {
-        expect(rail().style.right).toBe("76px");
+        expect(rail().style.right).toBe("82px");
         expect(document.querySelector<HTMLElement>(".acpmux-minimap__strip")!.style.right).toBe("66px");
-      } else expect(rail().style.left).toBe("10px");
+      } else expect(rail().style.left).toBe("16px");
     } finally {
       await act(async () => root.unmount());
       setChatDisplay({});

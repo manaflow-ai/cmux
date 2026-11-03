@@ -32,6 +32,7 @@ import { platformForward } from "./platform-forward.ts"
 export { AccountIndexDO } from "./account-index-do.ts"
 // Named entrypoint for service bindings only (the platform Worker's environment setups); no HTTP route reaches it.
 export { PlatformMachines } from "./platform-machines.ts"
+export { PlatformChief } from "./platform-chief.ts"
 export { AgentGateway } from "./agent-gateway.ts"
 export { HandoffDO } from "./handoffs/handoff-do.ts"
 export { HandoffIndexDO } from "./handoffs/index-do.ts"
@@ -56,8 +57,10 @@ import { HAND_PATH, handleHands } from "./hand-routes.ts"
 export { TeamVmDO } from "./team-vm-do.ts"
 export { CloudDO } from "./cloud-do.ts"
 export { WireTicketDO } from "./wire-ticket.ts"
+export { TrajectoryDO } from "./cloud-trajectory-store.ts"
 import { handleCloudBind, handleCloudKeyset } from "./cloud-link.ts"
 import { ACPMUX_PATH, handleCloudAcpmux } from "./cloud-acpmux.ts"
+import { handleCloudTrajectory, TRAJECTORY_PATH, type TrajectoryAction } from "./cloud-trajectory.ts"
 import { CLIENT_SESSION_PATH, handleCloudClientSession } from "./cloud-client-session.ts"
 import { GUEST_PATH, handleCloudMachineGuest } from "./cloud-machine-guest.ts"
 import { BILLING_LEVELS_PATH, BILLING_SYNC_PATH, handleBillingLevels, handleBillingSync } from "./billing-levels.ts"
@@ -213,6 +216,9 @@ export default {
     // The keyed acpmux start (cx-kvmz): outside the op path, so the key never becomes an op or a log line.
     const acpmux = url.pathname.match(ACPMUX_PATH)
     if (acpmux) return handleCloudAcpmux(request, env, acpmux[1]!, acpmux[2] as "keyed-start" | "person-holds")
+    // ACP chat trajectories kept outside the VM (#25584): a log stream, not an op.
+    const trajectory = url.pathname.match(TRAJECTORY_PATH)
+    if (trajectory) return handleCloudTrajectory(request, env, trajectory[1]!, trajectory[2] as TrajectoryAction)
     // A scoped provider token for one of the caller's machines (cloud-client-session.ts): outside the op path, never logged.
     const clientSession = url.pathname.match(CLIENT_SESSION_PATH)
     if (clientSession) return handleCloudClientSession(request, env, clientSession[1]!)
@@ -239,7 +245,7 @@ export default {
     // A chief's Durable Object brain (chief-brain/routes.ts): its owner's settings, and runs for conversation members.
     const chiefBrain = url.pathname.match(CHIEF_BRAIN_PATH)
     // A Chief that runs the opencode brain (chief-brain-opencode/) keeps its runs there.
-    const chiefBrainPath = chiefBrain?.[2] === "brain" || chiefBrain?.[2] === "github" || chiefBrain?.[2] === "memory" || chiefBrain?.[2] === "peer" ? chiefBrain[2] : "runs"
+    const chiefBrainPath = chiefBrain?.[2]?.startsWith("machine-login") ? "machine-login" : chiefBrain?.[2] === "brain" || chiefBrain?.[2] === "github" || chiefBrain?.[2] === "memory" || chiefBrain?.[2] === "peer" ? chiefBrain[2] : "runs"
     if (chiefBrain && chiefBrainPath === "runs" && (opencodeOn(env) || durableOn(env))) return handleOpencodeRuns(request, env, chiefBrain[1]!, chiefBrain[3], () => handleChiefBrain(request, env, chiefBrain[1]!, "runs", chiefBrain[3]))
     if (chiefBrain) return handleChiefBrain(request, env, chiefBrain[1]!, chiefBrainPath, chiefBrain[3])
     const fault = url.pathname.match(FAULT_PATH)

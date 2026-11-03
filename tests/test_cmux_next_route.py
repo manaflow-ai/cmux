@@ -747,10 +747,13 @@ class BundleInputs(unittest.TestCase):
         import cmux_next_route as route_module
         cls.route = route_module
 
-    # Page JavaScript a suite runs, and the ways a suite gives the page its own document.
+    # Page JavaScript a suite runs, and the ways a suite gives the page its own document. An agent pane
+    # pointed at a dev server URL (AgentPaneSource.devURLVariable, honored in Debug test builds) loads that
+    # URL, not the built bundle: AgentPageHibernationTests points it at a loopback port nobody serves and
+    # waits for that load to end (#30312).
     TALKS_TO_PAGE = re.compile(r"\b(?:evaluateJavaScript|callAsyncJavaScript|waitUntilLoaded|WKUserScript)\b")
     OWN_DOCUMENT = re.compile(r'loadHTMLString|registerBundledRoot|allowFixtureRoot|AgentPageTestRoot'
-                              r'|source:\s*\.bundled\(|index\.html|\.html"')
+                              r'|source:\s*\.bundled\(|index\.html|\.html"|AgentPaneSource\.devURLVariable')
     OPT_IN = re.compile(r"\.enabled\(if:\s*ProcessInfo\.processInfo\.environment\[")
 
     def test_the_bundle_targets_are_the_ones_the_bundle_build_writes_into(self):
@@ -962,10 +965,12 @@ class WorkflowRoute(unittest.TestCase):
         for tier in ("macos", "fast_tier", "swift", "native", "full"):
             self.assertEqual(result[tier], "false", tier)
 
-    def test_a_linux_job_no_mac_job_needs_runs_no_mac_tier(self):
+    def test_a_pool_backed_job_change_keeps_the_mac_tier_conservatively(self):
         base = self.base_without("    name: cmux-next checks (god files, concurrency, crash safety, l10n)",
                                  "    name: cmux-next checks (old)")
-        self.assertEqual(self.route_with_base(base)["macos"], "false")
+        # Pool-backed runner expressions are route-sensitive until the workflow comparator
+        # resolves the declared pool, so a workflow edit conservatively keeps the Mac tier.
+        self.assertEqual(self.route_with_base(base)["macos"], "true")
 
     def test_a_portable_placement_runner_reads_as_linux_and_no_other_output_does(self):
         """checks takes a free mini through portable placement; it runs no Mac tier there, so an edit to it

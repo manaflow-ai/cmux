@@ -161,7 +161,11 @@ struct HomeAgentMessagesTests {
         let group = HomeAgentMessageRow.groupID(author: chief, anchor: IdempotencyKey("question"))
         let rows = book.inserting(into: [question()], summary: nil, expanded: [group])
         #expect(rows.count == 5)
-        #expect(rows[1].agentMessage == HomeAgentMessageRow(group: group, kind: .fold(count: 3, peers: ["a1", "a2"], expanded: true)))
+        var expectedFold = HomeAgentMessageRow(group: group, kind: .fold(count: 3, peers: ["a1", "a2"], expanded: true))
+        // a1's newest message is its report, a2 has only the Chief's message; the newest words are the report.
+        expectedFold.peerStates = [.reported, .told]
+        expectedFold.latest = "checked"
+        #expect(rows[1].agentMessage == expectedFold)
         #expect(rows[2].agentMessage?.kind == .message(from: "agent_mux", to: "a1", outgoing: true, text: "please check"))
         #expect(rows[3].agentMessage?.kind == .message(from: "agent_mux", to: "a2", outgoing: true, text: "please build"))
         #expect(rows[4].agentMessage?.kind == .message(from: "a1", to: "agent_mux", outgoing: false, text: "checked"))
@@ -179,6 +183,38 @@ struct HomeAgentMessagesTests {
         #expect(rows.count == 2)
         let row = try #require(rows.last)
         #expect(row.agentMessage?.kind == .message(from: "a1", to: "agent_mux", outgoing: false, text: "checked"))
+    }
+
+    @Test func hundredsOfPeersKeepACompactFallbackAndAllTheirIdentities() throws {
+        var book = HomeAgentMessages()
+        let messages: [HomeAgentRun.Message] = (0..<300).map { index in
+            .init(id: "report:a\(index)", sequence: UInt64(index + 1), revision: 1,
+                  peer: "a\(index)", outgoing: false, text: "Report \(index)", date: date)
+        }
+        _ = book.apply(run(revision: 1, messages: messages))
+        let collapsed = book.inserting(into: [question()], summary: nil)
+        let fold = try #require(collapsed.last)
+        #expect(collapsed.count == 2)
+        #expect(fold.plainText == "▸ a0 · a1 · a2 · …")
+        #expect(fold.agentMessage?.kind == .fold(count: 300,
+               peers: (0..<300).map { "a\($0)" }, expanded: false))
+        let group = HomeAgentMessageRow.groupID(author: chief, anchor: IdempotencyKey("question"))
+        let expanded = book.inserting(into: [question()], summary: nil, expanded: [group])
+        #expect(expanded.count == 302) // question + disclosure + all 300 reports
+        #expect(expanded.contains { $0.plainText.hasSuffix("Report 299") })
+
+        // 300 agents that stopped with no report: one notes row, the same short preview.
+        var stopped = HomeAgentMessages()
+        _ = stopped.apply(run(revision: 1, messages: (0..<300).map { index in
+            .init(id: "note:a\(index)", sequence: UInt64(index + 1), revision: 1, peer: "a\(index)", outgoing: false,
+                  text: "(stopped without a report: its session is Disconnected)", date: date)
+        }))
+        let notes = try #require(stopped.inserting(into: [question()], summary: nil).last)
+        #expect(notes.plainText == "▸ a0 · a1 · a2 · …")
+        guard case let .notes(count, peers, _, _)? = notes.agentMessage?.kind else {
+            Issue.record("expected the notes row"); return
+        }
+        #expect(count == 300 && peers.count == 300)
     }
 
     @Test func foldToggleLinkRoundTripsOnlyItsOwnForm() throws {
@@ -202,6 +238,78 @@ struct HomeAgentMessagesTests {
         #expect(store.isAgentMessagesExpanded("0123456789abcdef", in: id))
         store.toggleAgentMessages("0123456789abcdef", in: id)
         #expect(!store.isAgentMessagesExpanded("0123456789abcdef", in: id))
+    }
+
+    /// User 2026-10-31: five "stopped without a report" notes and one real report after one answer
+    /// were six bubbles behind a link. The real report shows by itself; the notes are one quiet row.
+    @Test func statusNotesFoldApartAndARealReportShowsByItself() throws {
+        var book = HomeAgentMessages()
+        var steps = (1...5).map { index in
+            HomeAgentRun.Message(id: "note\(index)", sequence: UInt64(index), revision: 1, peer: "a\(index)", outgoing: false,
+                                 text: "(stopped without a report: its session is Disconnected)", date: date)
+        }
+        steps.append(.init(id: "report", sequence: 6, revision: 1, peer: "a9", outgoing: false, text: "Fixed the feed.", date: date))
+        _ = book.apply(run(revision: 1, messages: steps))
+        let rows = book.inserting(into: [question()], summary: nil)
+        #expect(rows.count == 3)
+        #expect(rows.contains { $0.plainText.hasSuffix("Fixed the feed.") })
+        #expect(!rows.contains { $0.plainText.contains("stopped without a report") })
+    }
+
+    @Test func notesRowNamesItsAgentsAndSharedReasonAndOpensInOrder() throws {
+        var book = HomeAgentMessages()
+        let notes = (1...3).map { index in
+            HomeAgentRun.Message(id: "note\(index)", sequence: UInt64(index), revision: 1, peer: "a\(index)", outgoing: false,
+                                 text: "(stopped without a report: its session is Disconnected)", date: date)
+        }
+        _ = book.apply(run(revision: 1, messages: notes))
+        let group = HomeAgentMessageRow.groupID(author: chief, anchor: IdempotencyKey("question"))
+        let notesGroup = HomeAgentMessageRow.notesGroup(group)
+        #expect(notesGroup != group)
+        let folded = book.inserting(into: [question()], summary: nil)
+        #expect(folded.count == 2)
+        var expectedNotes = HomeAgentMessageRow(group: notesGroup, kind: .notes(
+            count: 3, peers: ["a1", "a2", "a3"], reason: .stopped(session: "Disconnected"), expanded: false))
+        expectedNotes.peerStates = [.stopped, .stopped, .stopped]
+        expectedNotes.latest = "stopped without a report: its session is Disconnected"
+        #expect(folded[1].agentMessage == expectedNotes)
+        let open = book.inserting(into: [question()], summary: nil, expanded: [notesGroup])
+        #expect(open.count == 5)
+        #expect(open[1].key == folded[1].key)
+        #expect(open.dropFirst(2).map(\.agentMessage?.kind) == (1...3).map {
+            HomeAgentMessageRow.Kind?.some(.note(peer: "a\($0)", reason: .stopped(session: "Disconnected"),
+                                                 text: "stopped without a report: its session is Disconnected"))
+        })
+    }
+
+    @Test func oneNoteStillFoldsAndMixedReasonsShareNoReason() throws {
+        var book = HomeAgentMessages()
+        _ = book.apply(run(revision: 1, messages: [
+            .init(id: "n1", sequence: 1, revision: 1, peer: "a1", outgoing: false, text: "(gone: its session no longer exists, so no report will come)", date: date),
+            .init(id: "n2", sequence: 2, revision: 1, peer: "a2", outgoing: false, text: "(its report could not be read: bad utf8)", date: date),
+        ]))
+        let rows = book.inserting(into: [question()], summary: nil)
+        guard case let .notes(count, peers, reason, expanded)? = try #require(rows.last).agentMessage?.kind else {
+            Issue.record("no notes row"); return
+        }
+        #expect(count == 2 && peers == ["a1", "a2"] && reason == nil && !expanded)
+        var single = HomeAgentMessages()
+        _ = single.apply(run(revision: 1, messages: [message(revision: 1, text: "(stopped without a report: its session is Closed)")]))
+        let one = single.inserting(into: [question()], summary: nil)
+        #expect(one.count == 2)
+        #expect(one.last?.agentMessage?.kind == .notes(count: 1, peers: ["a1"], reason: .stopped(session: "Closed"), expanded: false))
+    }
+
+    @Test(arguments: [
+        ("(stopped without a report: its session is Disconnected)", HomeAgentMessageRow.StatusNote?.some(.stopped(session: "Disconnected"))),
+        ("  (gone: its session no longer exists, so no report will come)\n", .some(.gone)),
+        ("(its report could not be read: EOF)", .some(.unreadable)),
+        ("Fixed the feed (build 41).", nil),
+        ("(stopped without a report: its session is Disconnected)\nmore", nil),
+        ("(an aside)", nil),
+    ])
+    func statusNoteReadsOnlyTheProducersThreeForms(text: String, expected: HomeAgentMessageRow.StatusNote?) {
+        #expect(HomeAgentMessageRow.statusNote(text) == expected)
     }
 
     @Test func reportFragmentsWithTheSameTimestampKeepTheirStepSequence() {

@@ -1,9 +1,10 @@
 import AppKit
 import CmuxNextCompat
 
-/// The agent panes a chat's subagents opened in (`chat.subagentPane`), one tracker per acpmux
-/// session, so every pane on that session asks the same one: each subagent's tab, so a second
-/// request shows the open pane instead of a second one. A new one opens where
+/// The agent panes a chat's subagents opened in (`chat.subagentPane`), one tracker per source chat
+/// on an acpmux session, so a click in one chat never reuses a tab opened beside another. Each
+/// subagent's tab is remembered, so a second request shows the open pane instead of a second one.
+/// A new one opens where
 /// ``RightColumnPlacement`` puts anything opened on the right of the chat: a split right of it,
 /// else one split below what is on the right, else a tab in the right column's lower pane (Leo
 /// 2026-10-28: "I mean the right top pane, and then you split to the bottom once so that you get
@@ -35,7 +36,7 @@ public final class AgentSubagentPanes {
 
     private static var sessions: [String: AgentSubagentPanes] = [:]
 
-    /// The tracker of acpmux session `id`, shared by every tab on that session.
+    /// The tracker identified by `id` (the app scopes this to the acpmux session and source chat).
     public static func session(_ id: String) -> AgentSubagentPanes {
         if let panes = sessions[id] { return panes }
         let panes = AgentSubagentPanes()
@@ -195,4 +196,22 @@ public final class AgentSubagentPanes {
     /// The `revealTurn` value that opens a pane on subagent `agent`'s view (the page's
     /// `SUBAGENT_REVEAL`).
     public static func reveal(_ agent: String) -> String { "subagent:\(agent)" }
+}
+
+// One tracker per source chat, and where its remembered tabs still count as beside it (#29676).
+extension AgentSubagentPanes {
+    /// The tracker of source chat `source` on acpmux session `session`: a session can have several chat
+    /// tabs, and each keeps its own remembered subagent tabs, so a click in one chat never reuses a tab
+    /// opened beside another (and never pulls the person into another workspace).
+    public static func chat(_ session: String, source: String) -> AgentSubagentPanes { self.session("\(session):\(source)") }
+
+    /// Whether a remembered subagent tab at `candidate` is still in the clicked chat's pane (`source`) or
+    /// in one of the panes of its current right column (`column`). Pane keys are scoped to a daemon (a
+    /// workspace's store), so both the pane and its owner must match. Nil: not located.
+    public static func isBeside<Pane: Equatable>(source: (pane: Pane, owner: ObjectIdentifier)?, candidate: (pane: Pane, owner: ObjectIdentifier)?,
+                                                 column: () -> [(pane: Pane, owner: ObjectIdentifier)?]) -> Bool {
+        guard let source, let candidate, source.owner == candidate.owner else { return false }
+        if source.pane == candidate.pane { return true }
+        return column().contains { $0.map { $0.owner == candidate.owner && $0.pane == candidate.pane } ?? false }
+    }
 }

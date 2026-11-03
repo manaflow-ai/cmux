@@ -40,10 +40,17 @@
   left: 0;
   display: block;
 }
-/* Keep keyboard navigation mounted and the pane-edge strip live while text leaves no room. */
+/* While text leaves no room the rail stays drawn over it, dimmed, and takes no clicks from the text;
+   the pane-edge strip and keyboard focus reveal it at full strength (Leo, 2026-10-24: "for the narrow
+   windows, i think we should just simply be able to show it. don't shove the ui ... just hide it more"). */
 .acpmux-minimap__rail[data-occluded] {
-  opacity: 0;
+  opacity: 0.4;
   pointer-events: none;
+}
+/* The `dimmed` gutter arm (gutter.experiment.ts): the occluded rail stays drawn, faint, and still
+   leaves the text its clicks. */
+.acpmux-minimap__rail[data-occluded][data-dim] {
+  opacity: 0.4;
 }
 @keyframes acpmux-minimap-in {
   from {
@@ -112,7 +119,7 @@
      its compact focus treatment and marks the control with data-focus-ring="tick". */
   outline: var(--cmux-focus-ring-width, 1.5px) solid var(--cmux-focus-ring-color, var(--agent-text)) !important;
   outline-offset: -1.5px;
-  border-radius: var(--acpmux-inspector-row-radius, 4px);
+  border-radius: var(--acpmux-session-info-row-radius, 4px);
 }
 @media (prefers-contrast: more) {
   .acpmux-minimap__tick:focus-visible {
@@ -204,6 +211,21 @@
 .acpmux-minimap__rail[data-reduce] .acpmux-minimap__dot {
   transition: none;
 }
+/* The hover wave (hoverWave.ts, wave.experiment.ts; Leo 2026-11-03: "it doesn't feel as wave-y as
+   chatgpt's ... it doesn't feel smooth when you're hoving your mouse through it"). While the pointer
+   is on the ticks, each tick's length follows --acpmux-minimap-wave (0 at rest to 1 hovered), which
+   one loop writes on the bars and dots inside the bump's reach as it eases toward the pointer's y.
+   The loop is the easing, so no per-tick transition restarts as the pointer crosses rows. It
+   overrides the stepped fisheye's inline transform; the pointer leaving drops data-wave, and the
+   ticks ease back to rest on the rule above. Transform only: nothing here lays out. */
+.acpmux-minimap__rail[data-wave] .acpmux-minimap__bar {
+  transform: scaleX(calc(0.2308 + 0.7692 * var(--acpmux-minimap-wave, 0))) !important;
+  transition: none !important;
+}
+.acpmux-minimap__rail[data-wave] .acpmux-minimap__dot {
+  transform: translateX(calc(26px * (0.2308 + 0.7692 * var(--acpmux-minimap-wave, 0)))) !important;
+  transition: none !important;
+}
 @media (prefers-reduced-motion: reduce) {
   .acpmux-minimap__rail {
     animation: none;
@@ -267,6 +289,17 @@
 .acpmux-minimap__tick[data-bookmarked][data-tone="active"] .acpmux-minimap__dot {
   opacity: 1;
 }
+/* Another session's message (model.ts promptSender) keeps the person's tick: at rest every tick
+   shares one column, one x and one width, so the rail never reads jagged; its preview card names the
+   sender (PreviewCard.tsx). #31681 set these ticks in and shorter; Leo 2026-11-02, on that rail:
+   "WTF ARE THESE" (leo-workspace design/session-rail.md). With `data-incoming-dim`
+   (incoming.experiment.ts, on by default) their resting tick is a step dimmer than the person's, in
+   the same place and size, so the person's prompts stay the rail's rhythm (Leo, 2026-11-03: "i've
+   always been on the fence about messages from other chats showing up in that prompt jump scroll
+   rail individual elements"). Lit, bookmarked, hovered and focused ticks draw as every other. */
+.acpmux-minimap__rail[data-incoming-dim] .acpmux-minimap__tick[data-incoming][data-tone="rest"]:not([data-bookmarked]) .acpmux-minimap__bar {
+  opacity: var(--acpmux-minimap-incoming, 0.25);
+}
 /* The dot's hit area: the row's right end past the tick (26 px), so the tick keeps its click. It
    remains invisible until the prompt is bookmarked. */
 .acpmux-minimap__dot-hit {
@@ -319,6 +352,15 @@
   -webkit-font-smoothing: antialiased;
   cursor: default;
 }
+/* The sender of another session's message, above its words: secondary text, one line. */
+.acpmux-minimap__from {
+  overflow: hidden;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 .acpmux-minimap__title {
   display: flex;
   align-items: flex-start;
@@ -335,6 +377,27 @@
   -webkit-line-clamp: 3;
   white-space: pre-line;
   overflow-wrap: anywhere;
+}
+/* A prompt not loaded yet (a pending tick): a blank line where its words go, at the line's height, so
+   the card is its usual size and nothing moves when they arrive. */
+.acpmux-minimap__prompt[data-pending] {
+  display: block;
+  flex: none;
+  width: 60%;
+  height: 0.75em;
+  margin-top: 0.375em;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--agent-muted) 24%, transparent);
+}
+/* Its words arriving under the open card fade in where the line was: opacity only, no slide. */
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-minimap__card[data-arrived] :where(.acpmux-minimap__prompt, .acpmux-minimap__reply) {
+    animation: acpmux-minimap-in var(--cmux-motion-micro) ease-out;
+  }
+}
+:root[data-cmux-motion="off"] .acpmux-minimap__card[data-arrived] :where(.acpmux-minimap__prompt, .acpmux-minimap__reply),
+:root[data-cmux-motion="reduced"] .acpmux-minimap__card[data-arrived] :where(.acpmux-minimap__prompt, .acpmux-minimap__reply) {
+  animation: none;
 }
 .acpmux-minimap__bookmark {
   flex: none;

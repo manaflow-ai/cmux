@@ -37,6 +37,9 @@ public struct MobileCompatMethods {
         "mobile.terminal.close": .implemented,
         "mobile.terminal.rename": .implemented,
         "mobile.surface.focus": .acknowledged,
+        "mobile.chat.sessions": .implemented,
+        "mobile.chat.history": .implemented,
+        "mobile.chat.send": .implemented,
     ]
 
     /// Methods listed by `mobile.rpc.methods` (sorted, excluding fallbacks).

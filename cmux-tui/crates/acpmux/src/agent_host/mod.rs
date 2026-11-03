@@ -260,8 +260,18 @@ pub struct TranslatorSpec {
     /// Claude Code's fast mode at spawn (the session's `fast-mode` option).
     #[serde(default)]
     pub fast: bool,
+    /// The chat's prompt suggestions at spawn (its `prompt-suggestions` option, on unless off).
+    #[serde(default = "suggestions_default")]
+    pub prompt_suggestions: bool,
+    /// The chat's session recap choice at spawn (its `session-recap` option).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recap: Option<String>,
     /// Claude's own session id when it is known at spawn.
     pub claude_session_id: Option<String>,
+}
+
+fn suggestions_default() -> bool {
+    true
 }
 
 impl SpawnSpec {
@@ -738,6 +748,36 @@ pub fn write_record_atomic(path: &Path, record: &HostRecord) -> Result<()> {
 #[cfg(not(unix))]
 pub fn write_record_atomic(_path: &Path, _record: &HostRecord) -> Result<()> {
     Err(crate::platform::unsupported("agent host records"))
+}
+
+/// `frame` as the bytes `write_frame` writes (length prefix and JSON), encoded once so
+/// it can be sent and kept without another copy. None when it is over the limit.
+pub fn encode_frame<T: Serialize>(frame: &T) -> Option<std::sync::Arc<[u8]>> {
+    encode_frame_within(frame, MAX_FRAME)
+}
+
+/// [`encode_frame`] with a body of at most `max` bytes.
+pub(crate) fn encode_frame_within<T: Serialize>(
+    frame: &T,
+    max: usize,
+) -> Option<std::sync::Arc<[u8]>> {
+    let body = serde_json::to_vec(frame).ok()?;
+    if body.len() > max {
+        return None;
+    }
+    let len = u32::try_from(body.len()).ok()?;
+    let mut buf = Vec::with_capacity(body.len().saturating_add(4));
+    buf.extend_from_slice(&len.to_be_bytes());
+    buf.extend_from_slice(&body);
+    Some(buf.into())
+}
+
+/// An entry frame serialized from a borrowed entry: the same bytes as
+/// `HostFrame::Entry { h, e }`, without copying the entry first.
+#[derive(Serialize)]
+#[serde(tag = "t", rename_all = "snake_case")]
+pub(crate) enum EntryFrame<'a> {
+    Entry { h: u64, e: &'a Entry },
 }
 
 pub async fn write_frame<W: AsyncWriteExt + Unpin, T: Serialize>(

@@ -31,6 +31,11 @@ import CmuxNextCompat
     /// Gets each push for the page (the view sends it through the bridge) and a completion to call
     /// once the page has run it (it paces the next push).
     public var deliver: (@MainActor (AgentPaneTransportEvent, _ done: @escaping @MainActor @Sendable () -> Void) -> Void)?
+    /// Runs right before anything reaches the page: a push here, a script call or a picture
+    /// (``AgentPaneView/callPageScript(_:arguments:)``, ``AgentPaneView/pageSnapshot()``). A hidden page
+    /// that froze (the app's hibernation) thaws first, so the work runs now instead of waiting on a
+    /// page that runs no script (a push's completion paces the next one).
+    public var beforePageWork: (@MainActor () -> Void)?
     /// Counts pushes, so a late completion of a previous connection's push is ignored.
     private var deliveries = 0
     private var pacerStorage: any AgentPaneTransportPacer
@@ -99,6 +104,8 @@ import CmuxNextCompat
     private(set) var remoteWire = false
     /// The current remote chat's host reader, installed from the same wire that carries its ACP.
     var remoteImageLoader: (@Sendable (String) async throws -> Data)?
+    /// Cloud repository actions use the current machine/attachment daemon frame connection.
+    public var cloudRepository: (@Sendable (String, [String: any Sendable], Duration?) async throws -> Data)?
     /// A `session/new` took the person's send gesture: the first `session/prompt` on that
     /// connection goes with it within ``startCreditLifetime``. On another machine the start needs
     /// that gesture; on this Mac it needs none but carries one it finds.
@@ -112,6 +119,9 @@ import CmuxNextCompat
     /// A folder pick took the person's gesture (``grantPicked(_:)``): the next `session/new` on this
     /// Mac on that connection carries it as its own (``startCredit``). Nothing else spends it.
     var pickCredit = AgentPaneGestureCredit()
+    /// A Cloud chat's Sign in took the person's click (`_acpmux/agent_login/start`): it also opens
+    /// that sign-in's page once (``takeSignInPage(_:)``), so Sign in is one click.
+    var signInPageCredit = AgentPaneGestureCredit()
     /// Home folders of the chat's machine the person chose by Use Home Folder (cx-1bhjj): only
     /// these may be trusted or started in there. Never this Mac's roots (``addedRoots``).
     public internal(set) var remoteHomeChosen: Set<String> = []
@@ -260,12 +270,17 @@ import CmuxNextCompat
         let wire = connection.remote?.makeWire()
         if let wire {
             remoteImageLoader = { path in try await wire.loadRemoteImage(path) }
+            cloudRepository = { method, params, timeout in
+                try await wire.cloudRepository(method: method, params: params, timeout: timeout)
+            }
         } else {
             remoteImageLoader = nil
+            cloudRepository = nil
         }
         if !remoteWire { remoteHomeChosen = [] }
         startCredit.clear()
         pickCredit.clear()
+        signInPageCredit.clear()
         decisions.reset()
         sentFirst = false
         promptRelay = AgentPanePromptRelay(connection, journal: promptJournal)
@@ -351,7 +366,9 @@ import CmuxNextCompat
     }
 
     /// `transport.gesture`: reserves the current gesture for one pick sent later on this connection.
-    public func reserveGesture(_ intent: AgentPaneGestureIntent) -> String? {
+    /// `personOnly`: only the person's own gesture pays for it, never input another process posted under
+    /// "Computer use can act as me" (a credential transfer rides on a Send ticket, but the grant never covers it).
+    public func reserveGesture(_ intent: AgentPaneGestureIntent, personOnly: Bool = false) -> String? {
         guard socket != nil else { return nil }
         // A send ticket bound to a chat only for a chat of this pane.
         if let session = intent.sessionId, !sessions.contains(session) { return nil }
@@ -371,7 +388,7 @@ import CmuxNextCompat
            let fresh = startCredit.take(connection: current, now: gestures.uptime, lifetime: Self.startCreditLifetime) {
             return fresh ? gestures.reserve(connection: current, intent: intent, paid: true) : nil
         }
-        return gestures.reserve(connection: current, intent: intent)
+        return gestures.reserve(connection: current, intent: intent, paid: false, personOnly: personOnly)
     }
 
     /// `uploads.begin {sessionId, promptId, ticket}`: the upload `upload` of the person's send holds
@@ -460,8 +477,9 @@ import CmuxNextCompat
             trustDaemon = nil
             gestures.clearTickets(connection: current)
             localAppToken = nil
-            // A connection the daemon closed: the page was told, so its prompts are the page's again
-            // (Retry), unless Debug Settings agentPane.debug.lostPromptReplay sends them again.
+            // A connection the daemon closed: its prompts go again on the next connection, where the
+            // page waits for them, unless Debug Settings agentPane.debug.lostPromptReplay is off (then
+            // they are the page's again).
             promptRelay?.ended(byDaemon: deliver != nil && !AgentPaneTunables.lostPromptReplay.value)
             // Kept in the log (notice, not info): the page's "connection interrupted" needs its reason.
             Self.logger.notice("agent pane transport closed connection=\(self.current, privacy: .public) code=\(batch.closed?.code ?? 0, privacy: .public) error=\(batch.closed?.error?.rawValue ?? "-", privacy: .public)")
@@ -470,6 +488,7 @@ import CmuxNextCompat
         guard let deliver else { return AgentPaneFlush(delivered: false, more: more) }
         deliveries += 1
         let delivery = deliveries
+        beforePageWork?()
         deliver(event) { [weak self] in
             guard let self, self.deliveries == delivery else { return }
             self.pacer.delivered()

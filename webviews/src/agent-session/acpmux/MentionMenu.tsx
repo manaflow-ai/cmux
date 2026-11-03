@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useEscapingList } from "../../ui/popupHost";
+import { useScrollEdges } from "../../ui/scrollEdges";
+import { useComposerListBox } from "./backdropLayer";
 import { readFileSearch, type FileMatch, type FileSearchSource, type Run } from "./fileSearchModel";
 import { Icon } from "./icons/Icon";
 import type { MentionItem } from "./mentionItems";
 import { PickerOption, PickerOptionList } from "../../ui/PickerPrimitives";
 import { useT } from "./i18n";
+import { FileSearchLoading } from "./FileSearchLoading";
 
 /// How long typing settles before the picker asks again (as Search files does).
 const MENTION_DEBOUNCE_MS = 80;
@@ -112,8 +115,18 @@ export function MentionMenu({
   onPick(item: MentionItem): void;
 }) {
   const t = useT();
-  // Above the composer, or past the window's edge when the pane has no room there (cx-6k6cg).
-  const escape = useEscapingList("top", 6);
+  // Above the composer's box, or past the window's edge when the pane has no room there (cx-6k6cg).
+  // The list draws out of the box (backdropLayer.tsx): the box is what it stands beside.
+  const box = useComposerListBox();
+  const escape = useEscapingList("top", 6, undefined, box);
+  const listEdges = useScrollEdges();
+  const attachList = useCallback(
+    (node: HTMLDivElement | null) => {
+      escape?.(node);
+      listEdges(node);
+    },
+    [escape, listEdges],
+  );
   useEffect(() => {
     document.getElementById(`acpmux-mention-${active}`)?.scrollIntoView?.({ block: "nearest" });
   }, [active]);
@@ -129,12 +142,13 @@ export function MentionMenu({
           : undefined;
   return (
     <PickerOptionList
-      ref={escape}
+      ref={attachList}
       aria-label={t("files.search")}
       aria-busy={state?.kind === "searching"}
-      className="ui-popup ui-glass acpmux-slash-menu acpmux-mention-menu"
+      className="ui-popup ui-glass acpmux-slash-menu acpmux-mention-menu ui-scroll-edge-fade"
       id="acpmux-mention-menu"
     >
+      {state?.kind === "searching" && items.length === 0 && <FileSearchLoading mention />}
       {items.map((item, index) => (
         <PickerOption
           key={item.key}
@@ -165,7 +179,11 @@ export function MentionMenu({
             : item.dir.length > 0 && <span className="acpmux-slash-description">{runs(item.dir)}</span>}
         </PickerOption>
       ))}
-      {note && <output className="acpmux-file-note">{note}</output>}
+      {note && (
+        <output className={state?.kind === "searching" ? "acpmux-file-loading-note" : "acpmux-file-note"}>
+          {note}
+        </output>
+      )}
     </PickerOptionList>
   );
 }

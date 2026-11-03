@@ -604,10 +604,10 @@ impl Hub {
         }
     }
 
-    /// `autoResumeDelaysMs`, or the default waits.
+    /// `autoResumeDelaysMs`, else the Settings waits (`agents.autoRetry.*`), else the default.
     async fn retry_delays(&self) -> Vec<u64> {
-        let delays = self.config.read().await.auto_resume_delays_ms.clone();
-        delays.unwrap_or_else(|| super::auto_resume::DEFAULT_DELAYS_MS.to_vec())
+        let configured = self.config.read().await.auto_resume_delays_ms.clone();
+        super::auto_resume::effective_delays(configured)
     }
 
     /// Records the next attempt's wait and logs it (`scheduled`, or `exhausted` past the

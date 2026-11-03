@@ -9,7 +9,7 @@ extension ActionFeature {
     public init?(controlMethod method: String) {
         switch method {
         // A new sandboxed run is Cloud; waiting on or cancelling one that exists is its cleanup.
-        case "cloud.machines", "cloud.automation", "debug.cloud.link_ensure", "runs.sandbox.create", "vm.agent_key.create": self = .cloud
+        case "auth.token", "cloud.machines", "cloud.automation", "debug.cloud.link_ensure", "runs.sandbox.create", "vm.agent_key.create": self = .cloud
         case "remote.machines": self = .remoteHosts
         default:
             // CodeRouter writes configure the Cloud model plane; its reads stay.

@@ -204,6 +204,11 @@ pub type SteerWait = Box<dyn FnOnce() -> Result<(), String> + Send>;
 pub trait AgentPort: Send + Sync {
     /// Creates a session; returns its id.
     fn new_session(&self, spec: &SessionSpec) -> Result<String, String>;
+    /// [`Self::new_session`] with no preset at all (not the port's turn
+    /// preset): a session on a harness of its own (brain/chief_inbox.rs).
+    fn new_plain_session(&self, spec: &SessionSpec) -> Result<String, String> {
+        self.new_session(spec)
+    }
     /// Sends a prompt as a new turn; the session's signals and the answer go to `signals`.
     fn start_prompt(
         &self,
@@ -262,6 +267,23 @@ pub trait AgentPort: Send + Sync {
     /// session). A port without one refuses every Chief session.
     fn harness_catalog(&self) -> Result<Value, String> {
         Err("this acpmux port reports no harness catalog".into())
+    }
+
+    /// Read-only catalogs on the selected machine; no credential transfer.
+    fn harness_catalog_on(&self, peer: Option<&str>) -> Result<Value, String> {
+        if peer.is_some() {
+            return Err("peer harness catalog is unavailable".into());
+        }
+        self.harness_catalog()
+    }
+
+    fn harness_health_on(&self, _peer: Option<&str>) -> Result<Value, String> {
+        Ok(json!({"harnesses": []}))
+    }
+
+    /// Cached paired-machine health plus this host's current health.
+    fn machine_status(&self) -> Result<Value, String> {
+        Ok(json!({"here": {"os": std::env::consts::OS, "pressure": {"ok": true}}, "peers": []}))
     }
 
     /// Answers a pending permission request of `session`
@@ -1014,9 +1036,10 @@ fn is_local(client: &RpcClient, id: &str) -> Result<bool, InfoError> {
 
 /// The id of the session named `name`, from `_acpmux/info` (unpaced, as
 /// [`session_info`]), as the session list names them: a bare name is this
-/// daemon's own session, a peer's is `peer/name`. The paced list only when
-/// acpmux names several (several share the name, or none has it and it is a
-/// prefix of several) or refuses info.
+/// daemon's own session, a peer's is `peer/name`. An ambiguous lookup is
+/// refused: choosing the first list row can send Chief's message to the wrong
+/// child. Fall back to the paced list only when info cannot answer, and require
+/// exactly one matching name there too.
 pub fn find_named(client: &RpcClient, name: &str) -> Result<Option<String>, String> {
     let error = match info(client, name) {
         // acpmux resolves an exact id, then a name only one session has, then a
@@ -1035,13 +1058,23 @@ pub fn find_named(client: &RpcClient, name: &str) -> Result<Option<String>, Stri
             return Ok(qualified.then_some(s.session_id));
         }
         Ok(Resolved::None) => return Ok(None),
-        Ok(Resolved::Several) => InfoError::Refused(format!("info: {name:?} names several")),
+        Ok(Resolved::Several) => {
+            return Err(format!(
+                "find: {name:?} names several sessions; use a unique name or peer/name"
+            ));
+        }
         Err(e) => e,
     };
-    Ok(listed(client, error)?
+    let mut candidates = listed(client, error)?
         .into_iter()
-        .find(|s| s.name == name)
-        .map(|s| s.session_id))
+        .filter(|s| s.name == name);
+    let first = candidates.next();
+    if candidates.next().is_some() {
+        return Err(format!(
+            "find: {name:?} names several sessions; use a unique name or peer/name"
+        ));
+    }
+    Ok(first.map(|s| s.session_id))
 }
 
 /// `_acpmux/events` after `after`, every page (`hasMore`: a page ends at the daemon's byte limit).
@@ -1119,7 +1152,7 @@ pub fn new_session(
     let request = |meta: &Value| {
         client.request_within(
             "session/new",
-            json!({"cwd": spec.cwd, "mcpServers": [], "_meta": {"acpmux": meta}}),
+            json!({"cwd": if spec.peer.is_some() && spec.cwd.as_os_str().is_empty() { None } else { Some(&spec.cwd) }, "mcpServers": [], "_meta": {"acpmux": meta}}),
             SESSION_NEW_DEADLINE,
         )
     };
@@ -1174,6 +1207,46 @@ pub fn new_session(
     Ok(id)
 }
 
+impl Acpmux {
+    /// Sends `session/prompt` with `_meta.acpmux` = `meta`; the session's
+    /// signals and the answer go to `signals`.
+    fn prompt_with_meta(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        meta: Value,
+        signals: Sender<TurnSignal>,
+    ) -> Result<(), String> {
+        let client = self.client()?;
+        self.turns
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(
+                session.to_owned(),
+                TurnRoute {
+                    tx: signals.clone(),
+                    spoke: false,
+                },
+            );
+        let answer = client.start(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": meta}}),
+        );
+        std::thread::Builder::new()
+            .name("acpmux-prompt".into())
+            .spawn(move || {
+                let done = match answer.recv() {
+                    Ok(Ok(value)) => TurnSignal::Done(Ok(value)),
+                    Ok(Err(RpcError::Remote { message, .. })) => TurnSignal::Done(Err(message)),
+                    Ok(Err(RpcError::Closed | RpcError::Timeout(_))) | Err(_) => TurnSignal::Lost,
+                };
+                let _ = signals.send(done);
+            })
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+}
+
 impl AgentPort for Acpmux {
     fn new_session(&self, spec: &SessionSpec) -> Result<String, String> {
         let ready = self
@@ -1200,6 +1273,10 @@ impl AgentPort for Acpmux {
         new_session(&*self.client()?, spec, preset)
     }
 
+    fn new_plain_session(&self, spec: &SessionSpec) -> Result<String, String> {
+        new_session(&*self.client()?, spec, None)
+    }
+
     fn start_prompt(
         &self,
         session: &str,
@@ -1207,33 +1284,7 @@ impl AgentPort for Acpmux {
         prompt_id: &str,
         signals: Sender<TurnSignal>,
     ) -> Result<(), String> {
-        let client = self.client()?;
-        self.turns
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(
-                session.to_owned(),
-                TurnRoute {
-                    tx: signals.clone(),
-                    spoke: false,
-                },
-            );
-        let answer = client.start(
-            "session/prompt",
-            json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": {"promptId": prompt_id}}}),
-        );
-        std::thread::Builder::new()
-            .name("acpmux-prompt".into())
-            .spawn(move || {
-                let done = match answer.recv() {
-                    Ok(Ok(value)) => TurnSignal::Done(Ok(value)),
-                    Ok(Err(RpcError::Remote { message, .. })) => TurnSignal::Done(Err(message)),
-                    Ok(Err(RpcError::Closed | RpcError::Timeout(_))) | Err(_) => TurnSignal::Lost,
-                };
-                let _ = signals.send(done);
-            })
-            .map_err(|e| e.to_string())?;
-        Ok(())
+        self.prompt_with_meta(session, blocks, json!({"promptId": prompt_id}), signals)
     }
 
     fn events(&self, session: &str, after: u64) -> Result<Vec<AcpmuxEvent>, String> {
@@ -1358,6 +1409,45 @@ impl AgentPort for Acpmux {
         self.client()?
             .request("_acpmux/harnesses", json!({}))
             .map_err(|e| format!("harnesses: {e}"))
+    }
+
+    fn harness_catalog_on(&self, peer: Option<&str>) -> Result<Value, String> {
+        let answer = self
+            .client()?
+            .request(
+                "_acpmux/harnesses",
+                peer.map_or_else(|| json!({}), |p| json!({"_meta": {"acpmux": {"peer": p}}})),
+            )
+            .map_err(|e| format!("harnesses: {e}"))?;
+        if peer.is_some_and(|name| answer["peer"] != name) {
+            return Err("daemon does not support reading the selected peer's harnesses".into());
+        }
+        Ok(answer)
+    }
+
+    fn harness_health_on(&self, peer: Option<&str>) -> Result<Value, String> {
+        let answer = self
+            .client()?
+            .request(
+                "_acpmux/harness/health",
+                peer.map_or_else(|| json!({}), |p| json!({"_meta": {"acpmux": {"peer": p}}})),
+            )
+            .map_err(|e| format!("harness health: {e}"))?;
+        if peer.is_some_and(|name| answer["peer"] != name) {
+            return Err("daemon does not support reading the selected peer's logins".into());
+        }
+        Ok(answer)
+    }
+
+    fn machine_status(&self) -> Result<Value, String> {
+        let client = self.client()?;
+        let peers = client
+            .request("_acpmux/peers", json!({}))
+            .map_err(|e| format!("machines: {e}"))?;
+        let here = client
+            .request("_acpmux/host_health", json!({}))
+            .map_err(|e| format!("machine health: {e}"))?;
+        Ok(json!({"here": here, "peers": peers["peers"]}))
     }
 
     fn trust_folder(&self, cwd: &std::path::Path) -> Result<(), String> {

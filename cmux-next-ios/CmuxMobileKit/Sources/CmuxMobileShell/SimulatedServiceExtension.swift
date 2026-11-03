@@ -24,24 +24,39 @@ struct SimulatedServiceExtension {
         PushRegistration.shared.didRegister(deviceToken: Data(repeating: 0xab, count: 32))
     }
 
+    /// The value is a file path, or the APNs body itself (starting with `{`), which a UI
+    /// test can pass in its launch environment without sharing a file with the app.
     static func deliverIfAsked(environment: [String: String] = ProcessInfo.processInfo.environment) {
-        guard let path = environment[variable], !path.isEmpty,
-              let data = FileManager.default.contents(atPath: path),
-              let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+        guard let value = environment[variable], !value.isEmpty,
+              let data = value.hasPrefix("{") ? Data(value.utf8) : FileManager.default.contents(atPath: value) else { return }
+        // A fresh simulator was never asked: ask first (a no-op once answered), so the push shows.
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { _, _ in post(data) }
+    }
+
+    private static func post(_ data: Data) {
+        guard let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
         let content = UNMutableNotificationContent()
         let aps = body["aps"] as? [String: Any]
         if let alert = aps?["alert"] as? [String: Any] {
             content.title = alert["title"] as? String ?? ""
+            content.subtitle = alert["subtitle"] as? String ?? ""
             content.body = alert["body"] as? String ?? ""
+        } else if let payload = PushPayload(userInfo: body) {
+            // No alert given: the text the Worker writes for this payload (`PushBanner` matches its `alert`).
+            let banner = PushBanner(payload: payload)
+            content.title = banner.title
+            content.subtitle = banner.subtitle ?? ""
+            content.body = banner.body
         }
-        content.categoryIdentifier = aps?["category"] as? String ?? ""
+        // An unsealed push keeps the category APNs delivers it under, so its long look is the content extension's.
+        if let category = aps?["category"] as? String { content.categoryIdentifier = category }
         content.threadIdentifier = aps?["thread-id"] as? String ?? ""
         content.userInfo = body.filter { $0.key != "aps" }
         let keys = PushKeys.current()
         // The extension's own chain (NotificationService).
         let service = ServicePush()
-        let opened = service.opened(content, keys: keys) ?? service.inert(content, trust: keys?.trust())
-            ?? service.categorized(content) ?? content
+        let opened = service.withheld(content, keys: keys) ?? service.opened(content, keys: keys)
+            ?? service.inert(content, trust: keys?.trust()) ?? service.categorized(content) ?? content
         let request = UNNotificationRequest(identifier: "dev-service-push-\(UUID().uuidString)", content: opened, trigger: nil)
         UNUserNotificationCenter.current().add(request) { error in
             if let error { Logger(subsystem: "dev.cmux.mobile", category: "push").error("simulated service push: \(String(describing: error), privacy: .public)") }

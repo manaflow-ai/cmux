@@ -78,6 +78,9 @@ FULL_INPUTS = (
     "scripts/ci/select_package_tests.py",
     "scripts/cmux-next/ci-target-graph.py",
     "scripts/cmux-next/swift-test-with-hang-sampler.sh",
+    # Which suites run in which test process, for every target (#26809).
+    "scripts/cmux-next/main-thread-heavy-suites.py",
+    "scripts/cmux-next/swift-test-shards.py",
     "scripts/cmux-next/compile-string-catalogs.sh",
     "scripts/select-ci-xcode.sh",
     "scripts/ci/xcode-pins.txt",
@@ -103,6 +106,8 @@ DAEMON_PATHS = (
     "scripts/cmux-next/check-daemon-capabilities.sh",
     "scripts/cmux-next/cmux-tui.pin",
     PACKAGE + "Tests/CmuxNextAppTests/FirstLaunchTests.swift",
+    PACKAGE + "Tests/CmuxNextAppTests/MarkdownPageFindTests.swift",
+    PACKAGE + "Tests/CmuxNextAppTests/FileSourceSwitchTests.swift",
     # The classic import and migration suites start the live daemon too.
     PACKAGE + "Tests/CmuxNextAppTests/ClassicImportTests.swift",
     PACKAGE + "Tests/CmuxNextAppTests/ClassicMigrationTests.swift",
@@ -136,6 +141,8 @@ SWIFT_JOB_INPUTS = (
     # sidebar layout reducer's cargo test.
     "cmux-tui/crates/cmux-app-ffi/",
     "cmux-tui/crates/cmux-focus-core/",
+    "cmux-tui/crates/cmux-cloud-start-core/",
+    "cmux-tui/crates/cmux-imessage/",
     "cmux-tui/crates/cmux-layout-reducer/",
     "cmux-tui/crates/cmux-layout-reducer-ffi/",
     "cmux-tui/crates/cmux-rd-core/",
@@ -231,7 +238,9 @@ BUNDLE_INPUTS = (
     # Files outside webviews/ that webviews sources import (web-bundle-key.py --inputs;
     # tests/test_web_bundle_key_inputs.sh keeps this list complete).
     "web/data/model-catalog/*", "Resources/markdown-viewer/viewer-navigation.js", "config/vite-plus/*",
-    "schemas/sync-motion/*",
+    "schemas/sync-motion/*", "schemas/agent-pane/*",
+    # The layout grid the transcript imports (src/agent-session/acpmux/transcriptGrid.ts).
+    "schemas/layout-grid/layout-grid.json",
     # The UI font the gallery frame imports (src/gallery/frame/uiFont.ts).
     "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts/InterVariable.woff2",
 )
@@ -263,7 +272,7 @@ def no_app_input(path: str) -> bool:
 
 
 CI_ONLY = (
-    ".github/workflows/*", ".github/warm-sources.json", "scripts/ci/*", "scripts/gh-merge-green",
+    ".github/workflows/*", ".github/warm-sources.json", ".github/checkout-lean.json", "scripts/ci/*", "scripts/gh-merge-green",
     "tests/test_cmux_next_route.py", "tests/test_cmux_next_route_replay.py",
     "tests/test_cmux_next_checks_workflow.py", "tests/test_gh_merge_green*.py",
     "tests/test_base_red_excuse.py", "tests/test_test_reds.py", "tests/fixtures/test_reds/*", "tests/test_ci_*.py",

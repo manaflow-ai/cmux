@@ -73,7 +73,8 @@ The card opens on the way that fits, with the other two one click away:
 1. **On your network.** The computers your network already knows (Tailscale today, Weft later)
    that are not added yet, online first. One click runs the enroll (`acp host enroll`, path 1):
    reach, install, daemon, harness, peer, name. This is the default when the network has a
-   candidate.
+   candidate. A caption under the help says, before Add, that it needs ssh that signs in with a
+   key, not a password (enroll's reach runs ssh in batch mode).
 2. **It shows a code.** The new computer ran `cmux device join` (or the install line) and shows
    `XXXX-XXXX` and four words. Type the code (or scan the QR with the phone); the card shows the
    computer's name, OS and words under "Do these words match?"; Approve. This is path 5, unchanged
@@ -81,7 +82,10 @@ The card opens on the way that fits, with the other two one click away:
 3. **Set up a new device.** One line per OS to copy (`curl -fsSL https://cmux.com/install | sh -s -- join`,
    PowerShell for Windows), and for a phone the App Store QR. The new device then shows its code
    and the card moves to way 2. This is the Tailscale "Add device" page, with approval built in:
-   nothing joins until a person approves on a device that is already in.
+   nothing joins until a person approves on a device that is already in. For a computer (Mac,
+   Linux or Windows) a row under the line keeps Other Computer… (add by host name) at hand, since
+   the card opens here when the network lists nothing and a computer already reached with an ssh
+   key needs no line (HQ #4877 break 5).
 
 Approval always happens on a device that is already yours: the Mac card, or the phone's approval
 sheet, or `cmux device approve CODE` in a terminal that is yours (the card's same intents, refused

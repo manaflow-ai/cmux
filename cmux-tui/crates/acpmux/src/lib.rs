@@ -8,6 +8,8 @@
 // violated in many render and RPC signatures. Refactoring them is separate
 // work from moving the crate into the cmux-tui workspace.
 #![allow(clippy::too_many_arguments, clippy::type_complexity, clippy::result_large_err)]
+// The generated initialize capability reply is intentionally explicit; keep json! expansion bounded.
+#![recursion_limit = "256"]
 // The Windows port lands in steps (src/platform.rs): until the daemon runs
 // there, code only its Unix paths reach is unused on Windows.
 #![cfg_attr(not(unix), allow(dead_code, unused_imports, unused_variables, unused_mut))]
@@ -21,7 +23,10 @@ pub mod agent;
 pub mod agent_displays;
 pub mod agent_host;
 pub mod agent_link;
+pub mod agent_login;
 pub mod agent_tools;
+mod artifacts_fs;
+pub mod artifacts_sync;
 pub mod attach;
 pub mod author;
 pub mod beads;
@@ -37,6 +42,9 @@ pub mod claude_stdio;
 pub mod cli;
 pub mod client;
 pub mod clock;
+pub mod cloud_host;
+pub mod cloud_repo_mcp;
+pub mod cloud_rewind;
 pub mod codex_app_server;
 #[cfg(unix)]
 mod codex_auth_file;
@@ -47,6 +55,7 @@ pub mod cua_socket;
 pub mod cua_v2;
 pub mod cwd_pin;
 pub mod daemon;
+mod default_harness;
 pub mod deliver;
 pub mod forum;
 pub mod forum_mcp;
@@ -54,6 +63,7 @@ pub mod frame_compress;
 pub mod git_state;
 pub mod github_app_token;
 pub mod github_broker;
+pub mod github_status;
 pub mod hand;
 pub mod harness_admin;
 pub mod harness_config;
@@ -61,6 +71,8 @@ pub mod harness_fixture;
 pub mod harness_health;
 pub mod harness_icon_set;
 pub mod harness_limits;
+pub(crate) mod heap_future;
+pub mod host_load;
 pub mod host_pressure;
 pub mod hub;
 #[cfg(windows)]
@@ -74,6 +86,8 @@ pub mod local_stream;
 pub mod login_env;
 pub mod machine_wake;
 pub mod mailbox;
+pub mod managed_codex;
+pub mod mcp_hint;
 pub mod mesh;
 pub mod mesh_control;
 pub mod mesh_http;
@@ -81,6 +95,7 @@ pub mod model_copies;
 pub mod native;
 pub mod no_panic;
 pub mod offer_mcp;
+pub mod opaque_agent_id;
 pub(crate) mod opencode_ask;
 #[cfg(windows)]
 mod owner_only;
@@ -94,6 +109,7 @@ pub mod placement;
 mod platform;
 pub mod probe_cleanup;
 pub mod probe_prompt;
+pub mod prompt_cache_env;
 pub mod prompt_class;
 pub mod prompt_context;
 pub mod prompt_provenance;
@@ -104,6 +120,7 @@ pub mod qos;
 pub mod question_answer;
 pub mod recovery;
 pub mod registry;
+pub mod resume;
 pub mod review_box;
 pub mod route_account;
 mod route_probe;
@@ -120,6 +137,8 @@ pub mod session_identity;
 pub mod session_liveness;
 pub mod session_name;
 mod session_scope;
+pub mod session_search;
+pub mod session_status;
 pub mod sha256;
 pub mod sr2_cost_labels;
 pub(crate) mod ssh_forward;
@@ -133,6 +152,8 @@ pub mod subsession_worktree;
 pub mod tailnet;
 #[cfg(test)]
 mod test_exec;
+#[cfg(test)]
+mod test_stack;
 pub mod transcript;
 pub mod trust;
 pub mod trust_auto;
@@ -140,9 +161,14 @@ pub mod tui;
 pub mod turn_attestation;
 pub mod usage_stats;
 pub mod user_settings;
+pub mod vault;
+pub mod watch_delta;
 pub mod web_modes;
 pub mod wire_size;
 pub mod wireguard;
+pub mod workflow_journal;
+pub mod workflow_reply;
+pub mod workflow_runs;
 pub mod worktree_sessions;
 
 pub mod model_catalog;

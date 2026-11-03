@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterAll, describe, expect, it } from "vitest"
-import { FS_PROGRAM } from "../src/cloud-machine-guest.ts"
+import { DIR_MAX_BYTES, FS_PROGRAM } from "../src/cloud-machine-guest.ts"
 
 const python = spawnSync("python3", ["--version"]).status === 0
 const DRY = `import os,shutil
@@ -44,5 +44,30 @@ describe.skipIf(!python)("the fs program's remove", () => {
       removed: [`unlink ${join(root, "target", "file")}`],
     })
     expect(remove(join(root, "missing")).code).toBe(44)
+  })
+})
+
+describe.skipIf(!python)("the fs program's dir", () => {
+  // Names of control characters: json.dumps writes each byte as a 6-byte \u0001 escape (an entry is about 1.6 KB).
+  const listing = (count: number) => {
+    const dir = mkdtempSync(join(root, "dir-"))
+    for (let n = 0; n < count; n++) writeFileSync(join(dir, "\u0001".repeat(245) + String(n).padStart(10, "0")), "")
+    const r = spawnSync("python3", ["-c", FS_PROGRAM, "dir", dir], { encoding: "latin1", maxBuffer: 64 * 1024 * 1024 })
+    return { code: r.status, stdout: r.stdout }
+  }
+  const entryBytes = 255 * 6 + 100
+
+  it("answers a listing of at most DIR_MAX_BYTES, printable ASCII only", () => {
+    const count = Math.floor(DIR_MAX_BYTES / entryBytes) - 10
+    const r = listing(count)
+    expect(r.code).toBe(0)
+    expect(r.stdout.length).toBeLessThanOrEqual(DIR_MAX_BYTES)
+    expect(/^[\x20-\x7e]*$/.test(r.stdout)).toBe(true)
+    expect(JSON.parse(r.stdout).entries).toHaveLength(count)
+  })
+
+  it("refuses a listing over DIR_MAX_BYTES with the too-large exit, under the entry count", () => {
+    const r = listing(Math.ceil(DIR_MAX_BYTES / (255 * 6)) + 10)
+    expect(r).toEqual({ code: 46, stdout: "" })
   })
 })
