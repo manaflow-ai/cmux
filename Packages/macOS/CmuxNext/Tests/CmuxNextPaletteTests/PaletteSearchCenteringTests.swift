@@ -38,7 +38,8 @@ struct PaletteSearchCenteringTests {
         let text: ClosedRange<CGFloat>
         /// The leftmost ink right of the magnifier: the first letter's left edge.
         let textMinX: CGFloat
-        /// The caret's x, from the field editor's layout (the caret is not in a cached drawing).
+        /// The x of the line's start, where the caret of the empty field sits, from the field
+        /// editor's layout (the caret is not in a cached drawing).
         let caretX: CGFloat
     }
 
@@ -68,7 +69,9 @@ struct PaletteSearchCenteringTests {
         bar.layoutSubtreeIfNeeded()
         window.makeFirstResponder(bar.field)
         let editor = try #require(bar.field.currentEditor() as? NSTextView)
-        editor.selectedRange = NSRange(location: 0, length: 0)
+        // The caret where the palette leaves it, at the end: moving it to the start of a typed query
+        // scrolls the editor's clip view. The first letter's x comes from the layout instead.
+        editor.selectedRange = NSRange(location: query.utf16.count, length: 0)
         bar.layoutSubtreeIfNeeded()
         let layout = try #require(editor.layoutManager)
         let container = try #require(editor.textContainer)
