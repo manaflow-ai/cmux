@@ -66,8 +66,18 @@ fn chunk(id: &str, n: usize) -> Value {
         "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": format!("w{n} ")}}}})
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+/// Rounds of the whole scenario, each on a fresh hub and fresh connections: a race between the
+/// connections that share one line would show in some round.
+const ROUNDS: usize = 10;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_streamed_tokens_line_is_built_once_for_every_attached_connection() {
+    for round in 0..ROUNDS {
+        one_round(round).await;
+    }
+}
+
+async fn one_round(round: usize) {
     let id = "fanout-encode-chat";
     let (hub, session) = hub_with_chat(id);
     let mut inputs = Vec::new();
@@ -97,16 +107,34 @@ async fn a_streamed_tokens_line_is_built_once_for_every_attached_connection() {
         .expect("every token reaches every attached connection");
         lines.push(got);
     }
-    for other in &lines[1..] {
-        assert_eq!(other, &lines[0], "every connection gets the same line per token");
+    let Some((reference, others)) = lines.split_first() else { panic!("no connection") };
+    for other in others {
+        assert_eq!(
+            other, reference,
+            "round {round}: every connection gets the same line per token, in order"
+        );
     }
-    let first: Value = serde_json::from_str(&lines[0][0]).unwrap();
+    let texts: Vec<String> = reference
+        .iter()
+        .map(|line| {
+            let v: Value = serde_json::from_str(line).unwrap();
+            v.pointer("/params/update/content/text")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_owned()
+        })
+        .collect();
+    let expected: Vec<String> = (0..TOKENS).map(|n| format!("w{n} ")).collect();
+    assert_eq!(texts, expected, "round {round}: each token once, in order");
+    let first: Value = serde_json::from_str(reference.first().unwrap()).unwrap();
     assert_eq!(first["params"]["sessionId"], json!(id));
     assert_eq!(first["params"]["_meta"]["acpmux"]["kind"], json!("agent_message_chunk"));
     let built = hub.session_update_encodes.load(Ordering::Relaxed) - before;
-    eprintln!("FANOUT-ENCODE connections {CONNECTIONS} tokens {TOKENS} lines built {built}");
+    eprintln!(
+        "FANOUT-ENCODE round {round} connections {CONNECTIONS} tokens {TOKENS} lines built {built}"
+    );
     assert_eq!(
         built, TOKENS as u64,
-        "{built} session/update lines built for {TOKENS} tokens to {CONNECTIONS} connections"
+        "round {round}: {built} session/update lines built for {TOKENS} tokens to {CONNECTIONS} connections"
     );
 }
