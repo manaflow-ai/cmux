@@ -641,17 +641,16 @@ fn subagent_asking_with_delivery(
         });
     }
     let mut event = permission_in(&session, "p1", "Bash", json!({"command": "make deploy"}));
-    if !allow_once {
-        if let Input::Agents(event) = &mut event {
-            if let AgentEvent::Permission { request, .. } = event.as_mut() {
-                request["options"]
-                    .as_array_mut()
-                    .unwrap()
-                    .iter_mut()
-                    .filter(|o| o["kind"] == "allow_once")
-                    .for_each(|o| o["kind"] = json!("allow_always"));
-            }
-        }
+    if !allow_once
+        && let Input::Agents(event) = &mut event
+        && let AgentEvent::Permission { request, .. } = event.as_mut()
+    {
+        request["options"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .filter(|o| o["kind"] == "allow_once")
+            .for_each(|o| o["kind"] = json!("allow_always"));
     }
     if let Some(reject) = reject {
         h.owner
