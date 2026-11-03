@@ -43,4 +43,18 @@ import Testing
         #expect(host.statusText == "Process exited", "a lasting status shows at once")
         #expect(Self.banners(in: host).count == 1, "built once")
     }
+
+    /// Review 2 of #33009: a status that comes after a wait's deadline, before the woken task ran,
+    /// shows the label then; it does not start the wait again (another 0.5 s or 5 s).
+    @Test func aStatusAfterTheDeadlineShowsTheLabelAtOnce() async throws {
+        let clock = ManualClock()
+        let host = TerminalHostView(clock: clock)
+        host.showStatus(.restoring)
+        try await clock.waitForSleeper()
+        clock.advance(by: .seconds(TerminalStatusBanner.restoringRevealDelay))
+        // No suspension since the advance: the woken task has not run on the main actor yet.
+        host.showStatus(.restoring)
+        #expect(host.statusText == "Restoring…", "the deadline passed: the label shows, the wait does not start again")
+        #expect(!host.statusLabelWaits)
+    }
 }
