@@ -550,6 +550,30 @@ class SwitchFilmTests(unittest.TestCase):
         self.assertEqual(j.played, [])
 
 
+class SwitchStepTests(unittest.TestCase):
+    """px_switch {key, value}: a journey-level switch (the typing variants set it after the app's relaunch): set, read
+    back, the result kept; a switch that does not take makes the whole round "not run" with the reason."""
+
+    def test_sets_and_reads_back(self):
+        app = FakeApp(switches=[SWITCH])
+        out = X.step_px_switch(FakeJourney(app, tempfile.mkdtemp()), {"key": SWITCH, "value": True})
+        self.assertEqual(out, {"key": SWITCH, "wanted": True, "value": True, "applied": True})
+        self.assertIs(app.overrides[SWITCH], True)
+
+    def test_activates_the_store_first(self):
+        app = FakeApp(active=False, activate=True, switches=[SWITCH])
+        out = X.step_px_switch(FakeJourney(app, tempfile.mkdtemp()), {"key": SWITCH, "value": True})
+        self.assertTrue(out["applied"])
+        self.assertTrue(any(m == "debug.tunables" and p.get("action") == "activate" for m, p in app.calls))
+
+    def test_a_switch_that_does_not_take_is_not_run(self):
+        for app, words in ((FakeApp(), "unknown key"), (FakeApp(active=False, switches=[SWITCH]), "tunable store inactive")):
+            with self.assertRaises(D.NotRun) as caught:
+                X.step_px_switch(FakeJourney(app, tempfile.mkdtemp()), {"key": SWITCH, "value": True})
+            self.assertIn(SWITCH, str(caught.exception))
+            self.assertIn(words, str(caught.exception))
+
+
 class AgentPaneTests(unittest.TestCase):
     """px_agent: palette.newAgentChat aimed at the named pane (target pane:<id>, no focus: the app's targeted path opens
     the chat tab in that pane, AgentHandlers.openTargetedChat; with focus or no target a script's chat goes to a new
@@ -664,6 +688,52 @@ class SwitchVariantTests(unittest.TestCase):
                                   capture_output=True, text=True, timeout=120)
             self.assertEqual(done.returncode, 0, done.stderr)
             self.assertFalse([p.name for p in Path(out).glob("*-sw-*.json")])
+
+
+class TypingSwitchVariantTests(unittest.TestCase):
+    """typing/gen_load.py --switch KEY: typing-load-l6-sw-<short>, typing-load-l6 with the switch set (and read back) right
+    after the relaunch's smoke_ready, every other step and option the same; the switch reset first in finally."""
+
+    def generate(self, out, key=SWITCH):
+        done = subprocess.run([sys.executable, str(HERE / "typing" / "gen_load.py"), "--out", out, "--switch", key],
+                              capture_output=True, text=True, timeout=120)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return [json.loads(p.read_text()) for p in sorted(Path(out).glob("*.json"))]
+
+    def test_variant(self):
+        import run as R
+        base = json.loads((HERE / "journeys" / "video" / "typing-load-l6.json").read_text())
+        with tempfile.TemporaryDirectory() as out:
+            specs = self.generate(out)
+            self.assertEqual([s["id"] for s in specs], ["typing-load-l6-sw-terminals"])
+            v = specs[0]
+            self.assertEqual(R.validate(v), [])
+            i = next(n for n, st in enumerate(v["steps"]) if st["do"] == "probe_relaunch")
+            self.assertEqual(v["steps"][i + 1], {"do": "smoke_ready", "timeout": 60})
+            self.assertEqual(v["steps"][i + 2], {"do": "px_switch", "key": SWITCH, "value": True,
+                                                 "title": f"set-up: {SWITCH} ON (after the relaunch: a bench build keeps tunables in memory only)"})
+            # Every other step the same as typing-load-l6, in order; the same options and budget.
+            self.assertEqual(v["steps"][:i + 2] + v["steps"][i + 3:], base["steps"])
+            for key in ("priority", "budget_seconds", "options", "continue_not_judged", "source"):
+                self.assertEqual(v.get(key), base.get(key), key)
+            self.assertEqual(v["finally"], [{"do": "px_tunable", "key": SWITCH, "value": None,
+                                             "title": f"clean-up: {SWITCH} back to its default"}] + base["finally"])
+            # The films keep typing-load-l6's names (the ledger and the judges read the parts by label).
+            self.assertEqual([st.get("label") for st in v["steps"] if st["do"] == "typist_play"],
+                             [st.get("label") for st in base["steps"] if st["do"] == "typist_play"])
+            self.assertIn(SWITCH, v["title"])
+
+    def test_other_stage_switches(self):
+        with tempfile.TemporaryDirectory() as out:
+            self.assertEqual([s["id"] for s in self.generate(out, "motion.frameOwner.timing")], ["typing-load-l6-sw-timing"])
+        with tempfile.TemporaryDirectory() as out:
+            self.assertEqual([s["id"] for s in self.generate(out, "motion.frameOwner.contentPolicy")],
+                             ["typing-load-l6-sw-contentpolicy"])
+
+    def test_plain_generation_unchanged(self):
+        done = subprocess.run([sys.executable, str(HERE / "typing" / "gen_load.py"), "--check"], capture_output=True, text=True,
+                              timeout=120)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
 
 
 class WindowFrameTests(unittest.TestCase):
