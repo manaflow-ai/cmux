@@ -394,6 +394,27 @@ test("a copy pasted back into the same composer brings copies of its attachments
   );
 });
 
+test("a fresh clipboard screenshot never restores a previous prompt with the same image name", async () => {
+  recordHost();
+  const composer = await openComposer();
+  await act(async () =>
+    composer.current!.restore(`old prompt ${inlineToken(IMAGE.id)}`, [{ ...IMAGE, name: "image.png" }]),
+  );
+  await until(() => Boolean(field().querySelector("[data-inline-attachment]")), "the first inline screenshot");
+  await act(async () => markdownField().selectAll());
+  await clip("copy");
+  act(() => root?.unmount());
+  root = undefined;
+  const next = await openComposer();
+  expect(markdownField().plainText()).toBe("");
+
+  // Control-Shift-Command-4 replaces the clipboard with a screenshot and no prompt text.
+  await pasteBack("", [screenshot()]);
+  expect(markdownField().plainText()).not.toContain("old prompt");
+  await until(() => (next.current!.wakeState().attachments ?? []).length === 1, "the new screenshot");
+  expect(next.current!.wakeState().attachments?.[0]?.id).not.toBe(IMAGE.id);
+});
+
 test("pastePlan: only a paste of the remembered copy is put back in order", () => {
   const store = dom.window.localStorage;
   const copy = composerCopy([{ text: "a " }, { id: "x" }, { text: " b" }], false, [{ ...IMAGE, id: "x" }])!;
