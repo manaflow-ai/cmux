@@ -498,15 +498,14 @@ fn a_crash_inside_the_quarantine_step_never_reuses_a_quarantined_lsn() {
 #[test]
 fn a_damaged_header_in_the_last_segment_never_reuses_its_lsns() {
     let storage = SimStorage::new(51);
-    let mut next = 1;
-    for _ in 0..2 {
-        let (journal, _, _) = open(&storage);
-        for _ in 0..10 {
-            assert_eq!(journal.append(3, Class::Ack, &payload(next)), Ok(next));
-            next += 1;
-        }
-        assert_eq!(journal.seal(WAIT), Ok(next - 1));
+    let config = Config { segment_bytes: 300, ..quick() };
+    let (journal, _, _) = open_at(&storage, config.clone(), 0).unwrap_or_else(|e| panic!("{e}"));
+    for lsn in 1..=20 {
+        let got = journal.append(3, Class::Ack, &payload(lsn)).unwrap_or_else(|e| panic!("{e}"));
+        journal.wait_durable(got, WAIT).unwrap_or_else(|e| panic!("{e}"));
     }
+    assert!(journal.stats().segments_created >= 2, "{:?}", journal.stats());
+    drop(journal);
     let last = storage
         .names_in(&dir())
         .into_iter()
@@ -515,12 +514,13 @@ fn a_damaged_header_in_the_last_segment_never_reuses_its_lsns() {
         .unwrap_or_else(|| panic!("no segment"));
     // One byte of the journal id in its header (media damage).
     storage.corrupt(&dir().join(&last), 20);
-    let (journal, report, seen) = open(&storage.restart(Crash::Process));
+    let (journal, report, seen) =
+        open_at(&storage.restart(Crash::Process), config, 0).unwrap_or_else(|e| panic!("{e}"));
     match report.damage.first() {
         Some(Damage::Corrupt { lost_through, .. }) => assert_eq!(*lost_through, 20, "{report:?}"),
         other => panic!("no damage report: {other:?} ({report:?})"),
     }
-    assert!(seen.len() < 20, "{report:?}");
+    assert!(!seen.is_empty() && seen.len() < 20, "{report:?}");
     assert_eq!(journal.append(3, Class::Ack, b"after"), Ok(21));
 }
 
