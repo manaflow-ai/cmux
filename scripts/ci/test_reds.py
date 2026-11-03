@@ -255,7 +255,8 @@ def lines_of(log: str) -> list[str]:
 # A crash-class rule's failure line (cmux-next-crash-class.yml; crash_class_fast_gate.py lists the prefixes):
 # `objc-selectors: <file>:<line>: super.<sel> (<Class> call:<sel>/<n>): probe needed; run ...` and
 # `cef-objc-contract: <detail>`. The rule is a named failure the way a test is, so a base red there is excused.
-CRASH_RULE = re.compile(r"^(?:##\[error\])?(objc-selectors|cef-objc-contract): (.+?)\s*$")
+CRASH_RULES = ("objc-selectors", "cef-objc-contract")
+CRASH_RULE = re.compile(r"^(?:##\[error\])?(" + "|".join(CRASH_RULES) + r"): (.+?)\s*$")
 CRASH_RULE_SITE = re.compile(r"^(\S+?:\d+): (.+?)(?:: probe needed.*|; .*)?$")
 
 
@@ -268,6 +269,11 @@ def crash_rule_failure(text: str) -> str | None:
     if site := CRASH_RULE_SITE.match(detail):
         return f"{rule} {site.group(1)} {site.group(2)}"
     return f"{rule} {detail}"
+
+
+def is_crash_rule_failure(name: str) -> bool:
+    """Whether a failure name came from crash_rule_failure (a rule line, not a test)."""
+    return name.split(" ", 1)[0] in CRASH_RULES
 
 
 def failed_names(lines: list[str]) -> set[str]:

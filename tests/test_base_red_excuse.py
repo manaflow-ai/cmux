@@ -195,6 +195,18 @@ class JobLogEndpoint(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "new compile failure"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
 
+    def test_a_rule_line_shared_with_base_does_not_hide_a_new_error_line_of_another_step(self):
+        # The crash-class job: the selector step is red on both sides with the same line, the concurrency step
+        # prints only error lines, and the head adds one.
+        github = InProgressJobLogGitHub()
+        objc = CrashClassRuleSignature.OBJC
+        for job_id in (1, 2):
+            github.jobs[job_id]["name"] = SCHEME
+            github.logs[job_id] = log(SCHEME, TEST_STEP, objc, "##[error]concurrency: Sources/Old.swift:3: old rule")
+        github.logs[1] += "\n" + log(SCHEME, TEST_STEP, "##[error]concurrency: Sources/New.swift:9: new rule")
+        with self.assertRaisesRegex(excuse.Refused, "new rule"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
     def test_raw_log_tabs_do_not_hide_no_verdict_annotation(self):
         text = f"2026-10-30T12:00:00.000Z ##[error]No build-fleet verdict for `\t{HEAD}`"
         self.assertIsNotNone(excuse.no_verdict(text))

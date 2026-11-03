@@ -1054,7 +1054,9 @@ def compare_window(repo: str, base: str, name: str, head: tuple, head_log: str, 
                         f"{'; '.join(unmatched)[:600]}")
         head_errors = head_errors - ratchet
     compared = [("failed steps", head_steps, base_steps), ("failing tests", head_tests, base_tests)]
-    if not head_tests:
+    # A crash-class rule line is a named failure, but its job also has steps that print only error lines
+    # (the concurrency rule): those stay compared unless a real test failed.
+    if not any(not test_reds.is_crash_rule_failure(test) for test in head_tests):
         compared.append(("errors", head_errors, base_errors))
     for kind, head, seen in compared:
         if missing := sorted(head - seen):
