@@ -171,7 +171,7 @@ fn signed_in() -> Ran {
 fn started() -> Ran {
     ok(json!({"machine_id": "vm-1", "machine_name": "chat-fresh", "session_id": "sess-1",
               "host": "registry:x", "agent": "claude", "workspace_id": "ws_1",
-              "surface_id": "7", "tab_id": "tab-1", "target": "machine:vm-1"}))
+              "tab_id": "tab-1", "target": "machine:vm-1"}))
 }
 
 #[test]
@@ -184,7 +184,7 @@ fn a_new_chat_starts_on_a_new_machine_sends_waits_and_answers_the_reply() {
         exec_out("@@wait 0\n@@history\n{\"turns\":[]}\n@@last\n{\"replies\":[]}\n"),
         exec_out(
             "@@wait 0\n@@history\n{\"turns\":[{\"seq\":3,\"status\":\"completed\",\"endedAt\":9}]}\n\
-             @@last\n{\"sessionId\":\"sess-1\",\"replies\":[\"4\"]}\n",
+             @@last\n{\"sessionId\":\"sess-1\",\"replies\":[\"4\"]}\n@@lastexit 0\n",
         ),
     ]);
     let asked = request(&["--prompt", "What is 2+2?", "--wait"]);
@@ -195,7 +195,6 @@ fn a_new_chat_starts_on_a_new_machine_sends_waits_and_answers_the_reply() {
         ("session_id", "sess-1"),
         ("workspace_id", "ws_1"),
         ("tab_id", "tab-1"),
-        ("surface_id", "7"),
         ("target", "machine:vm-1"),
     ] {
         assert_eq!(answer[key], value, "{key}");
@@ -299,4 +298,48 @@ fn shell_quote_leaves_plain_words_and_quotes_the_rest() {
     assert_eq!(shell_quote("a b"), "'a b'");
     assert_eq!(shell_quote(""), "''");
     assert_eq!(shell_quote("$(x)"), "'$(x)'");
+}
+
+#[test]
+fn a_reply_that_cannot_be_read_is_an_error_not_an_empty_reply() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
+        exec_out(
+            "@@wait 0\n@@history\n{\"turns\":[{\"seq\":3,\"endedAt\":9}]}\n\
+             @@last\nno such session\n@@lastexit 1\n",
+        ),
+    ]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--prompt", "x", "--wait"]))
+    else {
+        panic!()
+    };
+    assert_eq!(error["code"], "chat.read_failed");
+}
+
+#[test]
+fn each_wait_is_bounded_by_the_time_left() {
+    let running = "@@wait 3\n@@history\n{\"turns\":[{\"seq\":2,\"status\":\"running\"}]}\n";
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
+        exec_out(running),
+        exec_out(running),
+    ]);
+    let asked = request(&["--prompt", "x", "--wait", "--timeout", "7"]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &asked) else { panic!() };
+    assert_eq!(error["code"], "chat.wait_timeout");
+    assert!(fake.ran[3][5].contains("acp wait sess-1 --timeout 7 "), "{:?}", fake.ran[3]);
+    assert!(fake.ran[4][5].contains("acp wait sess-1 --timeout 2 "), "{:?}", fake.ran[4]);
+}
+
+#[test]
+fn output_flags_are_lifted_but_a_flag_value_stays() {
+    let mut output = OutputMode::Human;
+    let words = lift_output(&strings(&["--prompt", "--json", "--wait", "--json"]), &mut output);
+    assert_eq!(words, strings(&["--prompt", "--json", "--wait"]));
+    assert_eq!(output, OutputMode::Json);
+    assert_eq!(request(&["--prompt", "--json", "--wait"]).prompt, "--json");
 }

@@ -19,12 +19,11 @@
 //!    exec's own 25 s limit each time), then the turn's last reply (`cmux-tui acp last`).
 //!
 //! Output: one JSON object (`--json`): the reply text with `machine_id`, `session_id`,
-//! `workspace_id`, `tab_id`, `surface_id` and the follow-up commands. A failure names what
+//! `workspace_id`, `tab_id` and the follow-up commands. A failure names what
 //! to do next: sign in, run the same command again for a machine still starting, or answer
 //! the question the app is asking the person.
 
 use std::io::Read as _;
-use std::process::Command as Process;
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
@@ -46,6 +45,10 @@ const GUEST_CMUX: &str = "cmux-tui";
 /// (`~/.acpmux/acpmux.sock`).
 const GUEST_PRELUDE: &str = "export HOME=\"${HOME:-/home/cmux}\"; c=cmux-tui; \
     [ -x \"$HOME/.cmux/bin/cmux-tui\" ] && c=\"$HOME/.cmux/bin/cmux-tui\"; ";
+
+/// This command's flags that take the next word as their value.
+const TAKES_VALUE: &[&str] =
+    &["--prompt", "-p", "--agent", "--cwd", "--name", "--target", "--timeout"];
 
 /// Which machine the chat starts on.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -82,15 +85,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         return None;
     }
     // `--wait --json`: the global scan takes `--json` as `--wait`'s value.
-    let mut words = Vec::new();
-    for word in rest {
-        match word.as_str() {
-            "--json" => global.output = OutputMode::Json,
-            "--jsonl" => global.output = OutputMode::JsonLines,
-            "--quiet" => global.output = OutputMode::Quiet,
-            _ => words.push(word.clone()),
-        }
-    }
+    let words = lift_output(rest, &mut global.output);
     let parsed = parse(&words, || {
         let mut text = String::new();
         std::io::stdin().read_to_string(&mut text).map(|_| text).map_err(|e| e.to_string())
@@ -113,6 +108,30 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let mut runner = SelfRunner { globals: forwarded_globals(&global) };
     let outcome = run(&mut runner, &request);
     Some(report(&outcome, global.output))
+}
+
+/// `rest` without the output flags the global scan left in it, which set `output`. A value of
+/// one of this command's own flags (`--prompt --json`) stays a value.
+pub(super) fn lift_output(rest: &[String], output: &mut OutputMode) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut value_next = false;
+    for word in rest {
+        if value_next {
+            value_next = false;
+            words.push(word.clone());
+            continue;
+        }
+        match word.as_str() {
+            "--json" => *output = OutputMode::Json,
+            "--jsonl" => *output = OutputMode::JsonLines,
+            "--quiet" => *output = OutputMode::Quiet,
+            _ => {
+                value_next = TAKES_VALUE.contains(&word.as_str());
+                words.push(word.clone());
+            }
+        }
+    }
+    words
 }
 
 /// The words after `cloud start-chat`. `stdin` reads the prompt for `--prompt -`.
@@ -235,7 +254,7 @@ impl Runner for SelfRunner {
                 return Ran { code: 127, stdout: String::new(), stderr: error.to_string() };
             }
         };
-        match Process::new(exe).args(&self.globals).args(args).output() {
+        match cmux_process::Command::new(exe).args(&self.globals).args(args).output() {
             Ok(output) => Ran {
                 code: output.status.code().unwrap_or(1),
                 stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
@@ -255,7 +274,7 @@ impl Runner for SelfRunner {
 
     fn fresh_name(&mut self) -> String {
         let id = uuid::Uuid::new_v4().simple().to_string();
-        format!("chat-{}", &id[..8])
+        format!("chat-{}", id.chars().take(8).collect::<String>())
     }
 }
 
@@ -439,7 +458,6 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
         "session_id": session,
         "workspace_id": started["workspace_id"],
         "tab_id": started["tab_id"],
-        "surface_id": started["surface_id"],
         "host": started["host"],
         "agent": request.agent,
         "follow_up": follow_ups(machine_id, session),
@@ -476,14 +494,18 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     }
 
     // 4. The turn's end and its reply.
-    let deadline = runner.now() + request.timeout;
-    let poll = format!(
-        "{GUEST_PRELUDE}\"$c\" acp wait {sid} --timeout {WAIT_SLICE_SECONDS} >/dev/null 2>&1; \
-         echo \"@@wait $?\"; echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; \
-         echo @@last; \"$c\" acp last {sid} --json 2>&1",
-        sid = shell_quote(session),
-    );
+    let started_at = runner.now();
+    let deadline = started_at.checked_add(request.timeout).unwrap_or(started_at);
     loop {
+        // Each wait is bounded by exec's own limit and by what is left of `--timeout`.
+        let left = deadline.saturating_duration_since(runner.now()).as_secs();
+        let slice = left.clamp(1, WAIT_SLICE_SECONDS);
+        let poll = format!(
+            "{GUEST_PRELUDE}\"$c\" acp wait {sid} --timeout {slice} >/dev/null 2>&1; \
+             echo \"@@wait $?\"; echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; \
+             echo @@last; \"$c\" acp last {sid} --json 2>&1; echo \"@@lastexit $?\"",
+            sid = shell_quote(session),
+        );
         let polled = match exec(runner, machine_id, &poll) {
             Ok(stdout) => stdout,
             Err(error) => return sent_failure(error, answer),
@@ -491,8 +513,18 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
         let polled = sections(&polled);
         let turn = last_turn(polled.get("history")).filter(|turn| turn.seq > baseline);
         if let Some(turn) = turn.as_ref().filter(|turn| turn.ended) {
-            answer["reply"] = json!(reply(polled.get("last")).unwrap_or_default());
             answer["turn"] = turn.value.clone();
+            let read = polled.get("lastexit").map(|code| code.trim()) == Some("0");
+            let Some(text) = reply(polled.get("last")).filter(|_| read) else {
+                return failed(
+                    "chat.read_failed",
+                    "the turn ended, but its reply could not be read; read it with the \
+                     answer's follow_up.last",
+                    json!({"answer": answer, "output": polled.get("last")}),
+                    1,
+                );
+            };
+            answer["reply"] = json!(text);
             if turn.failed() {
                 return Outcome::Failed {
                     error: json!({"code": "chat.turn_failed",
