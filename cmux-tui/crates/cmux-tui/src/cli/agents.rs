@@ -499,7 +499,8 @@ fn receipt<B: Backend>(
     result: Value,
     idempotency_key: Option<String>,
 ) -> Value {
-    let state = fresh_state(backend, session);
+    // A read (the dialog list) wrote nothing to wait for: its snapshot is the app's last one.
+    let state = state_after(backend, session, action != "dialog.list");
     let mut receipt =
         json!({"schema_version": 1, "action": action, "result": result, "state": state});
     if let Some(key) = idempotency_key {
@@ -510,10 +511,19 @@ fn receipt<B: Backend>(
 
 /// A fresh composed snapshot, the `state` of every receipt.
 fn fresh_state<B: Backend>(backend: &B, session: Option<&str>) -> Value {
+    state_after(backend, session, true)
+}
+
+/// A composed snapshot. With `writes`, the app's part waits for the app to
+/// catch up with the daemon (the read barrier, `after: "sync"`); without, it
+/// is the app's last published snapshot (`after: 0`), which no daemon round
+/// trip can hold up.
+fn state_after<B: Backend>(backend: &B, session: Option<&str>, writes: bool) -> Value {
+    let params = if writes { json!({}) } else { json!({"after": 0}) };
     compose_snapshot(
         backend.resource(session, snapshot_plan(), &[]).map_err(mcp::agent_failure_value),
         backend
-            .app("snapshot.get", json!({}), app::READ_TIMEOUT, None, false)
+            .app("snapshot.get", params, app::READ_TIMEOUT, None, false)
             .map_err(mcp::agent_failure_value),
     )
 }

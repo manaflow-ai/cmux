@@ -50,6 +50,8 @@ mod cloud_machines;
 mod cloud_repo;
 #[cfg(unix)]
 mod cloud_secret;
+#[cfg(unix)]
+mod cloud_start_chat;
 mod code_mode;
 #[cfg(unix)]
 mod coderouter;
@@ -501,6 +503,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
+        .or_else(|| cloud_start_chat::run_if_requested(args))
         .or_else(|| cloud_repo::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
         .or_else(|| cloud_machine_io::run_if_requested(args))

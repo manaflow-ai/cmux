@@ -85,3 +85,12 @@ if (!("Element" in scope)) {
   // animations, so keep Base UI's own test switch on and popups close at once, as they did before the shim.
   (scope as { BASE_UI_ANIMATIONS_DISABLED?: boolean }).BASE_UI_ANIMATIONS_DISABLED = true;
 }
+
+// Chromium launches run the system Google Chrome, not Playwright's bundled Chromium, which lacks
+// recent security fixes and runs unsandboxed (support/systemChrome.ts says why). Every file shares
+// playwright's one `chromium` object, so wrapping it here covers each launch.
+{
+  const { useSystemChrome } = await import("./support/systemChrome");
+  const { chromium } = await import("playwright");
+  useSystemChrome(chromium as unknown as Parameters<typeof useSystemChrome>[0]);
+}

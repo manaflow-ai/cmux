@@ -50,9 +50,8 @@
   flex: none;
 }
 
-.cv-agent-activity-row.cv-disclosure__line:is(:hover, :active, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) {
-  color: var(--cv-text);
-}
-.cv-agent-activity-row.cv-disclosure__line:is(:hover, :active, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) .cv-received__preview {
+/* A received message's line keeps one tone under the pointer and focus (conversation.css
+   `.cv-received__text`); other disclosure lines still lift. */
+.cv-agent-activity-row.cv-disclosure__line:not(.cv-received > *):is(:hover, :active, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) {
   color: var(--cv-text);
 }
