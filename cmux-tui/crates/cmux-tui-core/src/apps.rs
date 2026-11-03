@@ -165,7 +165,9 @@ impl AppsSlot {
                         {
                             mux.emit(crate::MuxEvent::AppsChanged(Arc::new(event.clone())));
                         }
-                        if event["event"] == "apps-server" {
+                        if event.get("event").and_then(serde_json::Value::as_str)
+                            == Some("apps-server")
+                        {
                             for observer in server_observers.lock().recover_poison().iter() {
                                 observer();
                             }

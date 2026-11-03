@@ -18,7 +18,8 @@
 //!   except the owner's own journal plugin;
 //! - a live terminal (launching, adopting or running): this includes a
 //!   closed terminal in its Reopen hold until the reaper ends it, and a
-//!   terminal marked `keep`;
+//!   terminal marked `keep`; and a terminal whose new shell is on its way (a
+//!   lost host's respawn in its backoff, or an `on_exit` shell restart);
 //! - its running browser host (an agent in one of its terminals may use it);
 //! - a running app server (an `always` server, or an on-demand server until
 //!   its idle stop).
@@ -47,24 +48,24 @@ use crate::panic_free::RecoverPoison;
 
 /// What keeps an owner running now.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct Keepers {
+pub struct Keepers {
     /// A role-main hello came since the owner started.
-    pub(crate) armed: bool,
+    pub armed: bool,
     /// Connected clients other than the owner's own journal plugin.
-    pub(crate) clients: usize,
+    pub clients: usize,
     /// The running browser host.
-    pub(crate) browser_host: bool,
+    pub browser_host: bool,
     /// Running app server processes.
-    pub(crate) app_servers: usize,
-    /// Live terminals; `None` when not read (a cheaper keeper held, or the
-    /// owner is not armed) or unreadable.
-    pub(crate) terminals: Option<usize>,
+    pub app_servers: usize,
+    /// Live and respawning terminals; `None` when not read (a cheaper
+    /// keeper held, or the owner is not armed) or unreadable.
+    pub terminals: Option<usize>,
 }
 
 impl Keepers {
     /// Whether nothing keeps the owner. An unread or unreadable terminal
     /// count keeps it.
-    pub(crate) fn none(&self) -> bool {
+    pub fn none(&self) -> bool {
         self.armed
             && self.clients == 0
             && !self.browser_host
@@ -90,7 +91,7 @@ pub(crate) fn owner_keepers(mux: &Mux) -> Keepers {
         terminals: None,
     };
     if keepers.terminals_decide() {
-        keepers.terminals = mux.live_terminal_count().ok();
+        keepers.terminals = mux.kept_terminal_count().ok();
     }
     keepers
 }
@@ -132,8 +133,12 @@ impl OwnerKeepersWatch {
 
 /// Starts the watch for `mux`'s owner. The subscription and the wakers exist
 /// before the thread reads anything, so no change before its first read is
-/// missed.
-pub fn watch_owner_keepers(mux: &Arc<Mux>) -> std::io::Result<OwnerKeepersWatch> {
+/// missed. `stopped` runs on the watch thread once the owner is stopping,
+/// with the keepers it last read (all gone), for the caller's log.
+pub fn watch_owner_keepers(
+    mux: &Arc<Mux>,
+    stopped: impl FnOnce(&Mux, Keepers) + Send + 'static,
+) -> std::io::Result<OwnerKeepersWatch> {
     let shared = Arc::new(Shared {
         stopping: AtomicBool::new(false),
         events: Mutex::new(Some(mux.subscribe_terminal_lifecycle())),
@@ -153,11 +158,11 @@ pub fn watch_owner_keepers(mux: &Arc<Mux>) -> std::io::Result<OwnerKeepersWatch>
     let watched = shared.clone();
     let thread = std::thread::Builder::new()
         .name("owner-keepers".into())
-        .spawn(move || run(&owner, &watched))?;
+        .spawn(move || run(&owner, &watched, stopped))?;
     Ok(OwnerKeepersWatch { shared, thread: Some(thread) })
 }
 
-fn run(owner: &Weak<Mux>, shared: &Shared) {
+fn run(owner: &Weak<Mux>, shared: &Shared, stopped: impl FnOnce(&Mux, Keepers)) {
     loop {
         if shared.stopping.load(Ordering::Acquire) {
             return;
@@ -168,11 +173,9 @@ fn run(owner: &Weak<Mux>, shared: &Shared) {
         }
         // The fence repeats the check: a client or terminal that came since
         // this read keeps the owner.
-        if owner_keepers(&mux).none() && stop_orphaned_owner(&mux, || owner_keepers(&mux).none()) {
-            eprintln!(
-                "cmux-tui: owner of session {} stopped: its app left and no client, terminal, browser host or app server keeps it",
-                mux.session
-            );
+        let keepers = owner_keepers(&mux);
+        if keepers.none() && stop_orphaned_owner(&mux, || owner_keepers(&mux).none()) {
+            stopped(&mux, keepers);
             return;
         }
         // Never hold the mux across the wait.

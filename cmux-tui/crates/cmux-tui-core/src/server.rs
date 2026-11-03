@@ -164,7 +164,7 @@ mod orphan_shutdown;
 mod owner_keepers;
 mod page_router;
 pub use orphan_shutdown::stop_orphaned_owner;
-pub use owner_keepers::{OwnerKeepersWatch, watch_owner_keepers};
+pub use owner_keepers::{Keepers, OwnerKeepersWatch, watch_owner_keepers};
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]
 mod starter_exit;
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]
