@@ -121,6 +121,10 @@ final class WorkspaceTabHoverCardRow: NSView {
         needsLayout = true
     }
 
+    /// The title's font and the icon's frame, as drawn (tests).
+    var titleFont: NSFont? { title.font }
+    var iconFrame: CGRect { icon.frame }
+
     /// The width the row needs to show its title and its whole detail line, fill outsets included.
     var preferredWidth: CGFloat {
         let outset = Self.fillOutset
