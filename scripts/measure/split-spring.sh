@@ -36,9 +36,9 @@ set -euo pipefail
 # The measurement's version (scripts/cmux-next/perf-cron.py MEASURE_VERSION_RE): the perf cron measures and compares only
 # commits whose version is the tip's. Bump it in an edit that changes what is measured or how (the build, the display,
 # the suites, the args); a comment, log or report-key edit keeps it, so it keeps the history measurable.
-SPLIT_SPRING_MEASURE_VERSION=4  # 4: STRESS sessions open their extra terminal, Chromium and WebKit tabs (add_tab had a pane target the actions refuse; 3: the virtual display is 1920x1200)
+SPLIT_SPRING_MEASURE_VERSION=5  # 5: idle-only helper profile and warm submodule setup; 4: STRESS sessions open their extra terminal, Chromium and WebKit tabs (add_tab had a pane target the actions refuse; 3: the virtual display is 1920x1200)
 cd "$(git rev-parse --show-toplevel)"
-build_only=0 app_cache=0 vdisplay_hz="" vdisplay_hold=1200 vdisplay_size=1920x1200 args=() reload_config=()
+build_only=0 app_cache=0 vdisplay_hz="" vdisplay_hold=1200 vdisplay_size=1920x1200 args=() reload_config=() build_profile=full
 for arg in "$@"; do
   case "$arg" in
     --build-only) build_only=1 app_cache=1 ;;
@@ -46,6 +46,10 @@ for arg in "$@"; do
     --vdisplay=*) vdisplay_hz="${arg#--vdisplay=}" ;;
     --vdisplay-hold=*) vdisplay_hold="${arg#--vdisplay-hold=}" ;;
     --vdisplay-size=*) vdisplay_size="${arg#--vdisplay-size=}" ;;
+    --suite=*)
+      build_profile=full
+      [[ "$arg" == --suite=idle-budget ]] && build_profile=idle
+      args+=("$arg") ;;
     --config=*) reload_config=(--config "${arg#--config=}") ;;
     *) args+=("$arg") ;;
   esac
@@ -57,6 +61,14 @@ sha="$(git rev-parse HEAD)"
 # A bench build (--config=bench) is cached apart from the default Debug build of the same commit.
 key="$sha"
 [[ ${#reload_config[@]} -gt 0 && "${reload_config[1]}" != debug ]] && key="$sha-${reload_config[1]}"
+# Idle sessions do not use the standalone Ghostty CLI, computer-use helper or
+# remote browser host. Keep the terminal library/resources, CEF and Chief intact.
+# Isolate tagged DerivedData as well as app-cache entries from full builds.
+if [[ "$build_profile" == idle ]]; then
+  tag="split-spring-idle"
+  key="$key-idle-v5"
+  export CMUX_SKIP_ZIG_BUILD=1 CMUX_NEXT_SKIP_CUA_HELPER=1 CMUX_NEXT_SKIP_RB_HOST=1
+fi
 cache=""
 if [[ "$app_cache" == 1 && -n "${CI_SHARED_CACHE_DIR:-}" ]]; then
   cache="$CI_SHARED_CACHE_DIR/split-spring-apps"
@@ -88,9 +100,12 @@ unfollow_log() {
 }
 # <<< follow-log
 if [[ -z "$app" ]]; then
-  for sub in ghostty ghostty-next; do
-    [ -e "$sub/.git" ] || git submodule update --init --depth 1 "$sub"
-  done
+  if [[ -n "${CI_SHARED_CACHE_DIR:-}" ]]; then
+    python3 scripts/measure/split-spring-submodules.py \
+      --cache "$CI_SHARED_CACHE_DIR/split-spring-submodules" ghostty ghostty-next
+  else
+    git submodule update --init --depth 1 -- ghostty ghostty-next
+  fi
   if [ ! -f GhosttyKit.xcframework/Info.plist ]; then
     rm -rf GhosttyKit.xcframework
     if [ -z "${GHOSTTYKIT_ARCHIVE_CACHE_DIR:-}" ] && [ -n "${CI_SHARED_CACHE_DIR:-}" ]; then

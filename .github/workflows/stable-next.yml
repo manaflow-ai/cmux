@@ -386,8 +386,33 @@ jobs:
           persist-credentials: false
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
+      # Only source objects and checksum-verified archives cross runners here.
+      # DerivedData stays local to reload's tagged source path; it is not an
+      # incremental cache across the fresh checkout paths used by this job.
+      - name: Name the setup cache
+        id: setup-key
+        run: |
+          pins="$(git ls-tree HEAD -- ghostty ghostty-next | shasum -a 256 | cut -c1-16)"
+          echo "key=stable-perf-setup-v1-${pins}-${{ needs.plan.outputs.commit }}" >> "$GITHUB_OUTPUT"
+      - name: Restore warm source mirrors and GhosttyKit archives
+        id: setup-restore
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ${{ runner.temp }}/stable-perf-cache/split-spring-submodules
+            ${{ runner.temp }}/stable-perf-cache/ghosttykit-archives
+          key: ${{ steps.setup-key.outputs.key }}
+          restore-keys: stable-perf-setup-v1-
       - name: Perf budgets gate
         run: CI_SHARED_CACHE_DIR="$RUNNER_TEMP/stable-perf-cache" bash scripts/measure/split-spring.sh --suite=budgets --gate --vdisplay=120
+      - name: Save warm setup inputs
+        if: ${{ success() && steps.setup-restore.outputs.cache-hit != 'true' && (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/nightly-next') }}
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ${{ runner.temp }}/stable-perf-cache/split-spring-submodules
+            ${{ runner.temp }}/stable-perf-cache/ghosttykit-archives
+          key: ${{ steps.setup-key.outputs.key }}
       - name: Upload the perf report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

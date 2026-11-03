@@ -120,6 +120,7 @@ def compile_reasons(job: dict) -> list[str]:
 # with no marker here are declared only; (c) checks the others.
 # ---------------------------------------------------------------------------------------------
 WIRING: dict[str, re.Pattern] = {
+    "git-object-cache": re.compile(_names("split-spring-submodules.py")),
     # Kept DerivedData: the owned Mac's admission state, the nightly seed, the e2e warm copy, the
     # scheme and Release compiles' worker-local tree, or a build handed to the controller's warm slots.
     "deriveddata-reuse": re.compile(
@@ -491,7 +492,8 @@ class ThisTree(unittest.TestCase):
 
     def test_sources_are_the_shared_set(self) -> None:
         self.assertEqual(set(load_table(TABLE)["sources"]), {
-            "deriveddata-reuse", "spm-shared", "ssd-cas", "dev-cas", "actions-cache", "linux-pool-warm", "product-reuse"})
+            "deriveddata-reuse", "spm-shared", "ssd-cas", "dev-cas", "actions-cache", "linux-pool-warm", "product-reuse",
+            "git-object-cache"})
 
 
 def main() -> None:

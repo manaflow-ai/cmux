@@ -1,6 +1,7 @@
 {
   "schema": "warm-sources/v1",
   "sources": {
+    "git-object-cache": {"what": "URL-keyed shallow submodule mirrors in CI_SHARED_CACHE_DIR, copied locally at the exact gitlink without upstream traffic on a hit (scripts/measure/split-spring-submodules.py)", "runbook": "https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/scripts/measure/split-spring-submodules.py"},
     "deriveddata-reuse": {"what": "Per-runner build state kept between runs: an owned Mac's admission DerivedData (scripts/ci/owned_build_state.py), the nightly DerivedData seed (scripts/ci/seed_derived_data.py), the scheme and Release compiles' worker-local tree, a tour's claimed warm slot (media_tag_lock.py), the Chief's per-runner cargo target, or a controller warm slot's DerivedData generation", "runbook": "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/WARM-RESOURCES.md#deriveddata-reuse"},
     "spm-shared": {"what": "The per-mini SwiftPM scratch shared across a mini's slots, so a job resolves and builds packages from what another slot already fetched and built", "runbook": "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/WARM-RESOURCES.md#spm-shared"},
     "ssd-cas": {"what": "glaeda's fleet compiler-CAS node on each owned mini (fleet-cas socket and settings under /Users/Shared/cmux-build-fleet/xcode); its store moves to the controller mini's SSD", "runbook": "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/WARM-RESOURCES.md#ssd-cas"},
@@ -227,7 +228,7 @@
     "seed-swiftpm-manifests.yml:seed": {"class": "warm-seed", "warm": ["ssd-cas", "actions-cache"]},
     "signing-keychain-macos.yml:bash32-syntax": {"class": "linux-build", "warm": ["actions-cache"]},
     "signing-keychain-macos.yml:real-import": {"class": "mac-sign", "warm": [], "exempt": "signs with a throwaway identity to test the keychain helper; compiles nothing"},
-    "stable-next.yml:perf-budgets": {"class": "mac-build", "warm": [], "exempt": "cold: split-spring.sh builds the app with reload.sh; its app cache (CI_SHARED_CACHE_DIR) is in runner.temp; no warm source wired yet"},
+    "stable-next.yml:perf-budgets": {"class": "mac-build", "warm": ["actions-cache", "git-object-cache"]},
     "stable-next.yml:sign": {"class": "mac-sign", "warm": [], "exempt": "signing and notarization only: re-signs the nightly's published DMG as cmux NEXT Stable, compiles nothing"},
     "stable-next.yml:smoke-26": {"class": "mac-run-product", "warm": [], "exempt": "UI tests of the signed cmux NEXT Stable DMG the sign job made; compiles nothing"},
     "stable-next.yml:smoke-27": {"class": "mac-run-product", "warm": [], "exempt": "UI tests of the signed cmux NEXT Stable DMG the sign job made; compiles nothing"},

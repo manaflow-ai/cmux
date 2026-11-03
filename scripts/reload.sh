@@ -2126,6 +2126,8 @@ fi
 CMUX_CUA_HELPER_APP="$APP_PATH/Contents/Library/cmux Computer Use.app"
 if [[ -x "$CMUX_CUA_HELPER_APP/Contents/MacOS/cmux-cua" ]]; then
   echo "Preserving Xcode-built cmux Computer Use helper at $CMUX_CUA_HELPER_APP"
+elif [[ "${CMUX_NEXT_SKIP_CUA_HELPER:-0}" == "1" ]]; then
+  echo "Skipping direct Computer Use helper build (CMUX_NEXT_SKIP_CUA_HELPER=1)"
 else
   "$PWD/scripts/build-cmux-cua.sh" --output "$PWD/build/cmux-cua/cmux-cua" \
     --helper-app "$CMUX_CUA_HELPER_APP"
