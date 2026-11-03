@@ -1510,7 +1510,9 @@ impl Hub {
                 continue;
             }
             // A copy's first start: no restored wait or held message goes in (`clone_boot.rs`).
+            // Its retry wait is settled for good (`restore_auto_resume` writes the skip).
             if self.clone_of().is_some() {
+                self.restore_auto_resume(session);
                 self.start_restored(session);
                 continue;
             }
