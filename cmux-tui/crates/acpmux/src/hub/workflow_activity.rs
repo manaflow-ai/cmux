@@ -316,7 +316,7 @@ impl Hub {
                                 match event {
                                     Ok(event) if event.session_id == session.id => {
                                         waiting = session.status() == SessionStatus::Waiting || session.meta().usage_limits.is_some();
-                                        if !waiting && !nudge_reconciled && let Some(nudge) = &state.nudge {nudge_reconciled=self.workflow_nudge(run,generation,nudge).await?;}
+                                        if admitted && !waiting && !nudge_reconciled && let Some(nudge) = &state.nudge {nudge_reconciled=self.workflow_nudge(run,generation,nudge).await?;}
                                         deadline.as_mut().reset(tokio::time::Instant::now()+stall);
                                     }
                                     Err(tokio::sync::broadcast::error::RecvError::Closed) => return Err(RpcError::internal("workflow event stream closed")),
