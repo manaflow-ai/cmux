@@ -33,8 +33,10 @@ struct TerminalFrameOwnerMainThreadTests {
         let sampler = HangSampler(deadline: .seconds(3))
         sampler.start()
         defer { sampler.stop() }
+        let setupStarted = ContinuousClock.now
         let fixture = try await Fixture()
         defer { fixture.close() }
+        var timings = ["setup \(Self.ms(setupStarted.duration(to: .now)))"]
         let reader = LockingReaderLayer()
         reader.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
         reader.target = fixture.session.surfaceView.layer
@@ -42,6 +44,7 @@ struct TerminalFrameOwnerMainThreadTests {
         fixture.container.layer?.addSublayer(reader)
         defer { reader.removeFromSuperlayer() }
 
+        sampler.enter("switch on and resizes")
         let on = TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, .bool(true))
         try #require(on == .bool(true), "the switch motion.frameOwner.terminals is not registered")
         let offMainBefore = fixture.offMainPresents
@@ -51,9 +54,11 @@ struct TerminalFrameOwnerMainThreadTests {
         for (index, width) in [CGFloat(520), 560, 500].enumerated() {
             fixture.container.terminalWidth = width
             fixture.container.needsLayout = true
-            let until = ContinuousClock.now.advanced(by: .seconds(2))
-            var line = 0, toggle = false
+            let started = ContinuousClock.now
+            let until = started.advanced(by: .seconds(2))
+            var line = 0, toggle = false, commits = 0
             var lastOutput = ContinuousClock.now
+            var longestCommit = Duration.zero
             while ContinuousClock.now < until {
                 if lastOutput.duration(to: .now) >= .milliseconds(4) {
                     fixture.io.send(.output(Data("resize \(index) line \(line)\r\n".utf8)))
@@ -63,13 +68,30 @@ struct TerminalFrameOwnerMainThreadTests {
                 toggle.toggle()
                 reader.setNeedsDisplay()
                 reader.opacity = toggle ? 1 : 0.99
+                let asked = ContinuousClock.now
                 await fixture.commits(1)
+                longestCommit = max(longestCommit, asked.duration(to: .now))
+                commits += 1
             }
+            timings.append("\(Int(width)) pt: \(Self.ms(started.duration(to: .now))), \(commits) commits, longest \(Self.ms(longestCommit))")
         }
+        let stats = TerminalFramePresenter.forWindow(fixture.window).stats
+        print("S4 hang case: \(timings.joined(separator: "; ")); presenter \(stats)")
+        let stalls = await sampler.finish()
+        // Making the first surface on a cold worker (fonts, shaders) is not this case's phase: reported, not failed.
+        for stall in stalls where stall.phase == "setup" { print("S4 hang case: main stalled \(stall) (its sample is in the log)") }
+        let caseStalls = stalls.filter { $0.phase != "setup" }
+        #expect(caseStalls.isEmpty, "the main thread stopped for more than 3 s and came back: \(caseStalls) (each sample is in the log); \(timings.joined(separator: "; "))")
         #expect(reader.reads > 0, "the reader never ran inside a commit")
         #expect(fixture.offMainPresents > offMainBefore,
                 "no frame went to the screen off the main thread (host_off_main_presents \(offMainBefore) -> \(fixture.offMainPresents))")
         #expect(fixture.session.surfaceView.frame.width == 500, "the terminal is \(fixture.session.surfaceView.frame.width) pt wide")
+    }
+
+    /// `duration` in milliseconds, for messages.
+    nonisolated static func ms(_ duration: Duration) -> String {
+        let ms = Double(duration.components.seconds) * 1000 + Double(duration.components.attoseconds) / 1e15
+        return String(format: "%.1f ms", ms)
     }
 
     /// The window's content: its `layout()` gives the terminal the width asked for, as a pane's layout does.
@@ -155,51 +177,120 @@ struct TerminalFrameOwnerMainThreadTests {
     }
 }
 
-/// Pings the main thread from a background queue. A ping that gets no answer within `deadline` samples this process
-/// (`/usr/bin/sample`, 2 s, every thread), writes the sample to stderr and ends the process with exit code 70: a main
-/// thread that stopped for good fails the test with its stack. (Not the app's `MainThreadWatchdog`.)
+/// Pings the main thread from a background queue every 250 ms. A ping with no answer within `deadline` samples this
+/// process (`/usr/bin/sample`, 2 s, every thread) and writes the sample to stderr. A main thread still stopped after the
+/// sample ends the process with exit code 70 (a hang fails the step with its stack and never waits for the runner's
+/// stall limit). One that answered meanwhile is a stall: its length is recorded, and the test fails on it
+/// (``finish()``). (Not the app's `MainThreadWatchdog`.)
 private nonisolated final class HangSampler: Sendable {
-    private let deadline: DispatchTimeInterval
-    private let stopped = DispatchSemaphore(value: 0)
-    private let running = Mutex<Bool>(false)
+    /// A stop of the main thread longer than the deadline that ended, and the test's phase it began in.
+    struct Stall: Sendable, CustomStringConvertible {
+        var phase: String
+        var duration: Duration
+        var description: String { "\(TerminalFrameOwnerMainThreadTests.ms(duration)) in \(phase)" }
+    }
 
-    init(deadline: DispatchTimeInterval) {
+    private struct State {
+        var running = false
+        var ended = false
+        var phase = "setup"
+        var stalls: [Stall] = []
+        /// ``finish()``, waiting for the watcher to end (a sample in progress included).
+        var onEnd: CheckedContinuation<Void, Never>?
+        /// When the main thread ran the latest ping (nil until it did).
+        var answeredAt: ContinuousClock.Instant?
+    }
+
+    private let deadline: Duration
+    private let stopped = DispatchSemaphore(value: 0)
+    private let state = Mutex(State())
+
+    init(deadline: Duration) {
         self.deadline = deadline
     }
 
     func start() {
-        running.withLock { $0 = true }
+        state.withLock { $0.running = true }
         DispatchQueue.global(qos: .userInitiated).async { [self] in watch() }
     }
 
+    /// Stops the watcher (an early exit of the test). ``finish()`` also waits for it.
     func stop() {
-        running.withLock { $0 = false }
+        state.withLock { $0.running = false }
         stopped.signal()
     }
 
-    private func watch() {
-        // wakeup-allow: a test's hang sampler: one ping per 250 ms on a background queue, only while its test runs
-        while running.withLock({ $0 }) {
-            let answered = DispatchSemaphore(value: 0)
-            DispatchQueue.main.async { answered.signal() }
-            if answered.wait(timeout: .now() + deadline) == .timedOut, running.withLock({ $0 }) { sampleAndExit() }
-            // The next ping in 250 ms, or at once when the test stops the watchdog.
-            _ = stopped.wait(timeout: .now() + .milliseconds(250))
-        }
+    /// The test's phase from now on: each stall names the phase it began in.
+    func enter(_ phase: String) {
+        state.withLock { $0.phase = phase }
     }
 
-    private func sampleAndExit() {
+    /// Stops the watcher and returns, once it ended (after a sample in progress), the stalls it saw.
+    func finish() async -> [Stall] {
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            let endedAlready = state.withLock { state -> Bool in
+                state.running = false
+                if !state.ended { state.onEnd = done }
+                return state.ended
+            }
+            stopped.signal()
+            if endedAlready { done.resume() }
+        }
+        return state.withLock { $0.stalls }
+    }
+
+    private var running: Bool { state.withLock { $0.running } }
+
+    private func watch() {
+        // wakeup-allow: a test's hang sampler: one ping per 250 ms on a background queue, only while its test runs
+        while running {
+            let answered = DispatchSemaphore(value: 0)
+            // The previous ping answered (or the process ended): no late answer overwrites this one's.
+            state.withLock { $0.answeredAt = nil }
+            let pinged = ContinuousClock.now
+            let phase = state.withLock { $0.phase }
+            DispatchQueue.main.async { [self] in
+                state.withLock { $0.answeredAt = .now }
+                answered.signal()
+            }
+            let seconds = Double(deadline.components.seconds) + Double(deadline.components.attoseconds) / 1e18
+            if answered.wait(timeout: .now() + seconds) == .timedOut, running {
+                let sample = takeSample()
+                // concurrency-allow: the sampler's background queue; zero timeout, only reads whether main answered
+                if answered.wait(timeout: .now()) == .timedOut {
+                    write("MAIN THREAD HANG (S4 frame owner): the main thread did not answer in \(seconds) s and is still stopped after the sample:\n\(sample)")
+                    exit(70)
+                }
+                let stall = pinged.duration(to: state.withLock { $0.answeredAt } ?? .now)
+                write("MAIN THREAD STALL (S4 frame owner, \(phase)): the main thread answered after \(stall), longer than \(seconds) s. Sample taken during the stall:\n\(sample)")
+                state.withLock { $0.stalls.append(Stall(phase: phase, duration: stall)) }
+            }
+            // The next ping in 250 ms, or at once when the test stops the watcher.
+            _ = stopped.wait(timeout: .now() + .milliseconds(250))
+        }
+        let onEnd = state.withLock { state -> CheckedContinuation<Void, Never>? in
+            state.ended = true
+            defer { state.onEnd = nil }
+            return state.onEnd
+        }
+        onEnd?.resume()
+    }
+
+    /// This process's threads, sampled for 2 s.
+    private func takeSample() -> String {
         let pid = ProcessInfo.processInfo.processIdentifier
-        let file = NSTemporaryDirectory() + "main-thread-hang-\(pid).txt"
+        let file = NSTemporaryDirectory() + "main-thread-hang-\(pid)-\(UUID().uuidString).txt"
         let sample = Process()
         sample.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
         sample.arguments = [String(pid), "2", "-file", file]
         try? sample.run()
         // concurrency-allow: the sampler's background queue, after the main thread was seen stopped; it waits for sample
         sample.waitUntilExit()
-        let text = (try? String(contentsOfFile: file, encoding: .utf8)) ?? "sample did not run"
-        FileHandle.standardError.write(Data("MAIN THREAD HANG (S4 frame owner): the main thread did not answer in 3 s. sample of pid \(pid):\n\(text)\n".utf8))
-        exit(70)
+        return (try? String(contentsOfFile: file, encoding: .utf8)) ?? "sample did not run"
+    }
+
+    private func write(_ text: String) {
+        FileHandle.standardError.write(Data("\(text)\n".utf8))
     }
 }
 
