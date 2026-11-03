@@ -281,8 +281,11 @@ impl Mux {
     /// subscribers hear it. Typing is the state of the process that sent it,
     /// not of its participant: a Chief's brain that crashed or was stopped
     /// mid-turn stops typing even while its tool or profile clients, bound as
-    /// the same Chief, stay connected (cmux#32727).
+    /// the same Chief, stay connected (cmux#32727). Under the publish lock, as
+    /// `publish_typing` is: an `on` sent meanwhile from another connection
+    /// goes out after this `off`, never before it.
     fn end_connection_typing(&self, client: u64) {
+        let _order = self.conversations.publish.lock().unwrap_or_else(PoisonError::into_inner);
         let mut ended: Vec<(String, String)> = Vec::new();
         {
             let mut typing =
@@ -328,6 +331,9 @@ impl Mux {
         if still_bound {
             return;
         }
+        // The bindings lock is released first: the publish lock goes before
+        // the store, and a bind holds bindings while it reads the store.
+        let _order = self.conversations.publish.lock().unwrap_or_else(PoisonError::into_inner);
         let ended: Vec<String> = {
             let mut typing =
                 self.conversations.typing.lock().unwrap_or_else(PoisonError::into_inner);

@@ -420,6 +420,22 @@ fn typing_ends_when_the_connection_that_set_it_closes() {
     let events = mux.subscribe();
     assert!(disconnect_client(&mux, brain, false));
     assert!(changed_events(&events).is_empty(), "nothing left to end: {conversation}");
+
+    // Two connections hold it on: it ends with the second to close.
+    let brain = bind();
+    run(&mux, brain, typing(true)).unwrap();
+    run(&mux, tools, typing(true)).unwrap();
+    let events = mux.subscribe();
+    assert!(disconnect_client(&mux, brain, false));
+    assert!(changed_events(&events).is_empty(), "the tools client's on still holds");
+    assert_eq!(mux.conversation_typing(&conversation), vec!["agent_mux".to_owned()]);
+    assert!(disconnect_client(&mux, tools, false));
+    assert_eq!(
+        changed_events(&events),
+        vec![json!({"event":"conversation-typing","conversation":conversation,
+                    "participant":"agent_mux","on":false})]
+    );
+    assert!(mux.conversation_typing(&conversation).is_empty());
 }
 
 /// `ws-conversations-v1` (cmux#13742): an authenticated WebSocket client is
