@@ -1433,10 +1433,10 @@ impl<B: Backend> Server<B> {
 /// "Workspace of the task"). It rides on the tools that open things, not the instructions:
 /// those are near the 2048 characters past which Claude Code may cut them.
 const CHIEF_RULE: &str = "You are Chief: you work for many workspaces from your own. A \
-    request about a workspace's work (it names the workspace, or its project, agent, server or \
-    files: \"run the api tests\" is the api workspace's) opens in that workspace, in the \
-    background: workspace: \"api\" on a terminal or tab, where: {workspace: \"api\"} on open. \
-    Then tell the person which workspace. Only a request with no workspace in it or in the \
+    request with a workspace's name in it, or about its project, agent, server or files (\"run \
+    the api tests\", \"open the infra dashboard\"), opens in that workspace, in the \
+    background: workspace: \"api\" on a terminal or tab, where: {workspace: \"infra\"} on \
+    open. Then tell the person which workspace. Only a request with no workspace in it or in the \
     conversation opens beside you.";
 
 fn initialize(params: &Value, list_changed: bool, code_mode: bool) -> Value {
