@@ -74,6 +74,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
     var onDraftTextChange: () -> Void = {}
     /// Forward… on a bubble (u5402): the host asks where its text goes; nil offers no Forward….
     var onForward: ((String) -> Void)?
+    /// Retry a committed person message in a Chief conversation. The app
+    /// forwards this canonical owner message id to `chief.retry`.
+    var onChiefRetry: ((MessageID) -> Void)?
     /// Cancel Upload (`HomeStoreBinding.cancelSend`).
     var onCancelSend: (IdempotencyKey) -> Bool = { _ in false }
     /// Bubble pictures and originals.
@@ -320,6 +323,12 @@ final class HomeProjection: @preconcurrency ChatIntents {
         // Rows the store does not list (my local bubbles before HomeStore logs them) only at the end.
         return have.drop(while: { wanted.contains($0) }).allSatisfy { !wanted.contains($0) }
     }
+
+    #if DEBUG
+    /// DEBUG: maps and lays out every shown row again, without animation (the Agent Messages
+    /// Playground registered another fold row style).
+    func debugRebuild() { rebuild() }
+    #endif
 
     /// The whole window again, without animation (MessagesLab has no action
     /// for it): `.replaceWindow`, then the pin or the first visible row's

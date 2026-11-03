@@ -28,12 +28,14 @@
 //!    shipped there, or downloaded once from the immutable per-commit release
 //!    and checked against the pin. A payload that does not match is refused
 //!    before anything reaches the machine. A build without a manifest (dev
-//!    builds) cannot update machines.
+//!    builds) pins its own commit's published manifest, or that of the commit
+//!    that published its cmux-tui tree.
 //! 3. It is written beside the daemon's binary through `fs-v1`, then run once
 //!    in a detached terminal of the machine's own daemon, as the daemon's own
 //!    user, with a fixed argv ([`apply`]): it checks its own checksum again,
 //!    keeps the running binary as `cmux-tui.prev`, renames itself over the
-//!    binary and ends the daemon with SIGTERM, which leaves every terminal
+//!    binary and ends the daemon with SIGTERM (SIGKILL once a minute passes),
+//!    which leaves every terminal
 //!    host and chat running. The supervisor starts the new binary, which
 //!    adopts them. A new daemon that does not serve within 10 minutes is
 //!    rolled back to `cmux-tui.prev`.
@@ -213,7 +215,13 @@ fn update(request: &Request) -> Result<Value, Failed> {
     let daemon_pid = before["pid"].as_u64().ok_or_else(|| {
         Failed::new("machine_update_unsupported", "the machine daemon named no pid").about(&before)
     })?;
-    let (payload, sha256) = pinned_payload()?;
+    let (payload, sha256, pinned_commit) = pinned_payload()?;
+    // A tree-mode DEV bundle pins the build its tree's publishing commit
+    // made, which identifies as that commit: a machine already on it runs
+    // this client's tree, and updating it again would never end.
+    if previous.as_deref() == Some(pinned_commit.as_str()) {
+        return Ok(json!({"updated": false, "build": previous, "same_tree": true}));
+    }
     let folder = install.rsplit_once('/').map_or("", |(folder, _)| folder).to_owned();
     let nonce = nonce();
     // Both named by this update alone, so two updates never share a file.
@@ -224,19 +232,11 @@ fn update(request: &Request) -> Result<Value, Failed> {
         return Err(failed);
     }
     let argv = apply::argv(&staged, &sha256, &install, daemon_pid, &result);
-    let created = machine_gate::call(
-        socket,
-        json!({"cmd": "create-terminal", "detached": true, "argv": argv, "cwd": folder,
-               "name": "cmux machine update"}),
-    );
-    let terminal = match created {
-        Ok(data) => data["terminal_id"].as_str().map(str::to_owned),
-        Err(error) => {
+    let terminal = match start(socket, &argv, &folder, &staged, &result, daemon_pid) {
+        Ok(terminal) => terminal,
+        Err(failed) => {
             let _ = super::sync_cli::delete_remote(socket, &staged);
-            return Err(Failed::new(
-                "machine_update_failed",
-                format!("the update did not start: {error}"),
-            ));
+            return Err(failed);
         }
     };
     let outcome = wait_for_outcome(socket, &result, daemon_pid);
@@ -248,8 +248,95 @@ fn update(request: &Request) -> Result<Value, Failed> {
     }
     let _ = super::sync_cli::delete_remote(socket, &result);
     let _ = super::sync_cli::delete_remote(socket, &staged);
+    let claim = apply::claim_path(Path::new(&result));
+    if let Some(claim) = claim.to_str() {
+        let _ = super::sync_cli::delete_remote(socket, claim);
+    }
     let build = outcome?;
     Ok(json!({"updated": true, "build": build, "previous_build": previous}))
+}
+
+/// How long to wait before each look at a machine whose answer to the start
+/// was lost, and so how many tries the start gets.
+const LOST_START_BACKOFF: [Duration; 3] =
+    [Duration::from_secs(5), Duration::from_secs(10), Duration::from_secs(20)];
+
+/// Starts the apply step in a detached terminal: its terminal id (None when
+/// the daemon named none, or the answer was lost but the step had begun).
+///
+/// A daemon that refuses fails the update. An answer that never came (a
+/// timeout, a close, an answer past the limit) does not say whether the
+/// terminal started: the apply step may already have replaced the daemon,
+/// which ends the connection. So each time the machine is looked at again
+/// after a backoff: a step that began goes on to wait for its outcome, and
+/// one that did not is started again. Still lost after every try is
+/// `machine_unreachable`, a quiet retry for the app, not a failure.
+fn start(
+    socket: &Path,
+    argv: &[String],
+    folder: &str,
+    staged: &str,
+    result: &str,
+    daemon_pid: u64,
+) -> Result<Option<String>, Failed> {
+    let request = json!({"cmd": "create-terminal", "detached": true, "argv": argv, "cwd": folder,
+                         "name": "cmux machine update"});
+    let mut lost = String::new();
+    for (attempt, backoff) in std::iter::once(None).chain(LOST_START_BACKOFF.map(Some)).enumerate()
+    {
+        if let Some(backoff) = backoff {
+            std::thread::sleep(backoff);
+            let seen = AfterLostStart {
+                daemon_pid: machine_gate::identify(socket)
+                    .map(|now| now.get("pid").and_then(Value::as_u64)),
+                apply_seen: !matches!(super::sync_cli::remote_kind(socket, result), Ok(None)),
+                staged_present: matches!(super::sync_cli::remote_kind(socket, staged), Ok(Some(_))),
+            };
+            if lost_start_began(&seen, daemon_pid) {
+                return Ok(None);
+            }
+        }
+        match machine_gate::call_checked(socket, request.clone()) {
+            Ok(data) => return Ok(data["terminal_id"].as_str().map(str::to_owned)),
+            Err(machine_gate::CallFailure::Refused(why)) => {
+                return Err(Failed::new(
+                    "machine_update_failed",
+                    format!("the update did not start: {why}"),
+                ));
+            }
+            Err(machine_gate::CallFailure::Lost(why)) => {
+                lost = format!("{why} (try {})", attempt + 1);
+            }
+        }
+    }
+    Err(Failed::new(
+        "machine_unreachable",
+        format!("the update did not start: {lost}; it is tried again later"),
+    ))
+}
+
+/// What a machine shows a while after a start whose answer was lost.
+struct AfterLostStart {
+    /// The pid `identify` names: `Some(None)` for an answer without one,
+    /// None when the daemon did not answer.
+    daemon_pid: Option<Option<u64>>,
+    /// The apply step's outcome file exists (it writes `running` once it
+    /// holds the update lock), or whether it does is not known.
+    apply_seen: bool,
+    /// The staged build is known to be still at its staged path.
+    staged_present: bool,
+}
+
+/// Whether the apply step began despite the lost answer: its outcome file
+/// exists (`running` from the moment it holds the update lock), the staged
+/// build was renamed over the binary, or the daemon it was to replace no
+/// longer answers or is another process. Anything not known counts as
+/// began. Only the same daemon still serving, the staged build in place and
+/// no outcome file mean it never ran, so starting it again cannot run it
+/// twice (and a second run would find the lock held and leave the first
+/// run's outcome file alone).
+fn lost_start_began(seen: &AfterLostStart, old_pid: u64) -> bool {
+    seen.apply_seen || !seen.staged_present || seen.daemon_pid != Some(Some(old_pid))
 }
 
 /// The daemon's binary, `<home>/.cmux/bin/cmux-tui`, from `identify`'s
@@ -262,8 +349,8 @@ fn install_path(identity: &Value) -> Option<String> {
     plain.then(|| path.to_owned())
 }
 
-/// This client's pinned Linux build and its SHA-256.
-fn pinned_payload() -> Result<(PathBuf, String), Failed> {
+/// This client's pinned Linux build, its SHA-256 and the commit that built it.
+fn pinned_payload() -> Result<(PathBuf, String, String), Failed> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -272,13 +359,15 @@ fn pinned_payload() -> Result<(PathBuf, String), Failed> {
         CLOUD_ARCH,
         cmux_build_identity::BUILD_IDENTITY,
     )) {
-        Ok(Some((path, sha256))) if apply::is_sha256(&sha256) => Ok((path, sha256)),
+        Ok(Some(pinned)) if apply::is_sha256(&pinned.sha256) => {
+            Ok((pinned.path, pinned.sha256, pinned.commit))
+        }
         Ok(Some(_)) => {
             Err(Failed::new("machine_update_payload_rejected", "the pinned checksum is malformed"))
         }
         Ok(None) => Err(Failed::new(
             "machine_update_unavailable",
-            "this cmux build carries no pinned machine build (dev builds cannot update machines)",
+            "this cmux build carries no pinned machine build, and none is published for its commit or cmux-tui tree yet",
         )),
         Err(cmux_remote::ssh_bootstrap::BootstrapError::PayloadDownload(why)) => {
             Err(Failed::new("machine_update_download_failed", why))
@@ -342,7 +431,7 @@ fn wait_for_outcome(socket: &Path, result: &str, daemon_pid: u64) -> Result<Stri
                 Some("updated") => Ok(own.to_owned()),
                 Some("pending") => Err(Failed::new(
                     "machine_update_pending",
-                    "the new build is installed but the daemon did not stop; it runs after the machine's next restart",
+                    "the new build is installed but the daemon did not stop, even after SIGKILL; the next update stops it",
                 )),
                 Some("busy") => Err(Failed::new(
                     "machine_update_busy",

@@ -71,8 +71,8 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     /// Whether `environment` turns agent launches off (`ACPMUX_AGENT_LAUNCH=deny`
     /// or `CMUX_AGENTS_DISABLED=1`, the same test as acpmux's launch_policy.rs).
     public static func agentLaunchDisabled(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
-        let launch = environment["ACPMUX_AGENT_LAUNCH"]?.trimmingCharacters(in: .whitespaces).lowercased()
-        let disabled = environment["CMUX_AGENTS_DISABLED"]?.trimmingCharacters(in: .whitespaces)
+        let launch = environment["ACPMUX_AGENT_LAUNCH"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let disabled = environment["CMUX_AGENTS_DISABLED"]?.trimmingCharacters(in: .whitespacesAndNewlines)
         return launch == "deny" || disabled == "1"
     }
 

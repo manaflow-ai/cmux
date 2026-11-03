@@ -31,7 +31,7 @@ enum WorkspaceSetVerbs {
             let services = context.services
             let pane: PaneController? = switch target.kind {
             case .pane: services.windows.controllers.lazy.compactMap { $0.content?.panes.values.first { $0.paneKey == target.id } }.first
-            case .tab: services.locateTab(target.id).flatMap { services.paneController(for: $0.1) }
+            case .tab: context.targetTab(target.id, invocation).flatMap { services.paneController(for: $0.1) }
             default: nil
             }
             var facts: ActionContext = []
@@ -72,7 +72,7 @@ enum WorkspaceSetVerbs {
     /// whatever the setting).
     private static func newWorkspace(inSection invocation: ActionInvocation, _ context: AppActionContext) throws {
         let layout = context.services.sidebarLayout
-        if let reason = SidebarDocWiring.layoutUnavailableReason(layout) { throw ActionFailure(message: reason) }
+        if let reason = context.services.sidebarDoc.layoutUnavailableReason(layout) { throw ActionFailure(message: reason) }
         let section = try SidebarSectionResolve.section(invocation.target, in: layout.document)
         switch section.content {
         case .workspaces:

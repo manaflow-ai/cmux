@@ -1,11 +1,13 @@
 import CmuxNextActions
+import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import Testing
 
-/// The chat header's Terminal and Browser buttons (cx-qom0): the panes they open line up right of
-/// the chat in the order they were opened, and each button still toggles its own pane. Runs the
-/// header's split path against a store whose layout the split actions change as the daemon would.
+/// The chat header's Terminal and Browser buttons (cx-00n1): they open on the chat's right by
+/// RightColumnPlacement (``AgentChatTabActions/openTool``), never as a split right of the last one, and
+/// each button still toggles its own tab. Runs the header's path against a store whose layout the
+/// split actions and the right-column opens change as the daemon would.
 @MainActor
 struct HeaderSplitOrderTests {
     /// A workspace whose screen is one row of panes, left to right; each pane holds one tab.
@@ -20,6 +22,11 @@ struct HeaderSplitOrderTests {
         private(set) var invocations: [String: ActionInvocation] = [:]
         /// The chat's folder.
         let cwd = "/repo"
+        /// Whether the app places the header's Terminal and Browser on the chat's right (openTool), at the
+        /// right end of the row here; false: the chat is not shown, and the split actions run instead.
+        var places = true
+        /// The right-column opens the header asked for, in order.
+        private(set) var tools: [(kind: RightColumnPlacement.Kind, cwd: String?)] = []
 
         static func id(_ surface: SurfaceID) -> String { "surface:\(surface.rawValue)" }
         var chat: String { Self.id(1) }
@@ -83,7 +90,13 @@ struct HeaderSplitOrderTests {
         }
 
         func click(_ id: String, toggles: AgentChatSplitToggles, url: String? = nil) {
-            let actions = AgentChatTabActions(tab: { [chat] in chat }, registry: { [registry] in registry })
+            var actions = AgentChatTabActions(tab: { [chat] in chat }, registry: { [registry] in registry })
+            actions.openTool = { [unowned self] kind, cwd in
+                guard places else { return false }
+                tools.append((kind, cwd))
+                userOpens(kind == .terminal ? .pty : .browser)
+                return true
+            }
             toggles.toggle(id, cwd: id == "splitRight" ? nil : cwd, url: url, chat: chat, store: store, actions: actions)
         }
 
@@ -107,17 +120,26 @@ struct HeaderSplitOrderTests {
         }
     }
 
-    @Test func terminalThenBrowserOpenRightOfTheChatInThatOrder() {
+    /// Leo, 2026-10-31: "like having it go split instead of just adding a third colujmn",
+    /// "just open it on the existing". Terminal then Browser both open on the chat's right (a tab in the
+    /// pane holding that kind, else a split below it, RightColumnPlacement), never Split Right beside
+    /// the terminal's pane.
+    @Test func terminalThenBrowserOpenOnTheChatsRightNotAsAThirdColumn() {
         let row = Row(), toggles = AgentChatSplitToggles()
         row.click("splitRight", toggles: toggles)
         row.click("splitBrowserRight", toggles: toggles)
-        #expect(row.order == ["chat", "terminal", "browser"])
+        #expect(row.tools.map(\.kind) == [.terminal, .browser])
+        #expect(row.tools.map(\.cwd) == [nil, row.cwd])
+        #expect(row.invocations["splitRight"] == nil && row.invocations["splitBrowserRight"] == nil)
+        #expect(toggles.headerState(chat: row.chat, store: row.store).lit == ["splitBrowserRight", "splitRight"])
     }
 
     /// Terminal asks for a terminal: a person's Split Right from a chat opens the New Tab page
-    /// (cx-jfo7), which the header's Terminal must not (cx-00n1).
+    /// (cx-jfo7), which the header's Terminal must not (cx-00n1). With the chat not shown (no
+    /// right column to measure) the split actions run.
     @Test func terminalAsksForATerminal() {
         let row = Row(), toggles = AgentChatSplitToggles()
+        row.places = false
         row.click("splitRight", toggles: toggles)
         #expect(row.invocations["splitRight"]?.opensTerminal == true)
         row.click("splitBrowserRight", toggles: toggles)

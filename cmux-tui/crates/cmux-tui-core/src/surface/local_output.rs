@@ -217,6 +217,24 @@ impl LocalOutput {
         result
     }
 
+    /// Queue the event-bus `scroll-changed` of a viewport move a resize made
+    /// under this parser, for the reader to publish after the output events
+    /// already queued, and wake the reader. The resize sent it to render taps.
+    #[cfg(unix)]
+    pub(super) fn queue_scroll_changed(&mut self, generation: u64, position: (u64, bool)) {
+        self.pending.push(ParsedOutput {
+            generation,
+            title_update: None,
+            scroll_changed: Some(position),
+            terminal_notifications: Vec::new(),
+            finished_commands: Vec::new(),
+        });
+        if let Some(wake) = self.wake.as_mut() {
+            // Nonblocking: an already queued wake also guarantees publication.
+            let _ = wake.write(&[1]);
+        }
+    }
+
     pub(super) fn take_pending(&mut self) -> Vec<ParsedOutput> {
         std::mem::take(&mut self.pending)
     }
@@ -257,7 +275,7 @@ impl OutputPublisher {
             if let Some((offset, at_bottom)) = scroll_changed {
                 pty.frame_requests.defer_scroll(offset, at_bottom);
             }
-            pty.request_frame(generation);
+            pty.request_frame_from_reader(generation);
             // Mux events take `Mux::state`; publish them only after
             // the terminal lock is released (see PtyTerminalRuntime).
             self.pending_bells.publish(mux, surface.id);

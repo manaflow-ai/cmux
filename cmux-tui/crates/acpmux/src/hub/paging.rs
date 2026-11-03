@@ -30,6 +30,9 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "queue_order",
     "queue_paused",
     "queue_resumed",
+    // The owner approved or declined a prompt that waited for them (`queue_approve.rs`).
+    "queue_approved",
+    "queue_declined",
     "turn_started",
     // Where a chat seeded from a Claude Code transcript's newest page has older turns
     // (`hub/native_history.rs`): the pane that pages back to it reads on from the transcript.
@@ -39,6 +42,8 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "turn_silent",
     "turn_heard",
     "turn_result",
+    // A turn the person did not start, around its rows (`background_turn.rs`).
+    "background_turn",
     "permission_request",
     "permission_auto",
     "permission_decision",
@@ -49,6 +54,9 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     // A policy narrower than approve-all that the chat's harness cannot keep
     // (`policy_mode.rs`): the chat says so where it happened.
     "policy_unenforced",
+    // A line from outside any chat, such as cmux Cloud's after it resized the machine
+    // (`server/host_notice.rs`).
+    "host_notice",
     "forked",
     "imported",
     "session_offer",
@@ -580,6 +588,8 @@ mod transcript_kind_tests {
             "queue_order",
             "queue_paused",
             "queue_resumed",
+            "queue_approved",
+            "queue_declined",
         ] {
             assert!(is_transcript(&mux(kind)), "{kind} is not a transcript record");
         }

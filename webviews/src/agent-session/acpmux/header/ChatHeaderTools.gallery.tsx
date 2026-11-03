@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
 import { avatarRows } from "./avatarRow";
+import { revokeAccessRows } from "./grantsMenu";
 import { cloudMachineRows } from "../cloudMachineMenu";
 import { translate } from "../i18n";
 import type { ChatMenuItem } from "./ChatHeaderTools";
@@ -13,7 +14,8 @@ import type { NativeRowToolsHost } from "./useNativeRowTools";
 import { NeedsYouButton } from "../needsYou/NeedsYou";
 
 type HeaderToolsProps = {
-  treatment?: { size: number; gap: number };
+  /// `more`: the chat menu ⋮'s box width; the rest of the tool size stays at its trailing side.
+  treatment?: { size: number; gap: number; more?: number };
   onTerminal: (mode: "toggle" | "open") => void;
   onSplitDown?: (mode: "toggle" | "open") => void;
   onBrowser: (mode: "toggle" | "open") => void;
@@ -95,6 +97,12 @@ const panelToggle = (shown: boolean, icon = "view.list") =>
     onToggle: () => undefined,
   });
 const summary = panelToggle(false);
+const sessionInfoToggle = createElement(PanelToggle, {
+  className: "acpmux-session-info-toggle",
+  label: "Session Info",
+  shown: true,
+  onToggle: () => undefined,
+});
 
 const openMenu: Play = async (ctx) => {
   await ctx.focus({ role: "button", name: "Chat actions" });
@@ -139,19 +147,39 @@ const groupTreatment =
     const tools = ctx.document.querySelector<HTMLElement>(".acpmux-header-tools")!;
     if (ctx.document.defaultView!.getComputedStyle(tools).gap !== `${gap}px`)
       throw new Error("the group must render at its selected spacing");
-    for (const button of tools.querySelectorAll<HTMLElement>(".acpmux-header-tool")) {
+    for (const button of tools.querySelectorAll<HTMLElement>(".acpmux-header-tool:not(.acpmux-header-more)")) {
       const box = button.getBoundingClientRect();
       if (box.width !== size || box.height !== size) throw new Error("the buttons must render at their selected size");
     }
     await ctx.hover({ role: "button", name: "Terminal" });
   };
 
+// The chat menu's ⋮ beside the other tools (Leo 2026-11-03: "i don't like how this vertical ellipsis looks spaced
+// next to everything else"). Its thin glyph in a full 24px box leaves much more empty space before it than the other
+// glyphs have. Each treatment narrows only its box and keeps the rest at its trailing side, so the row keeps its width;
+// the play checks the ⋮'s centre sits `pitch` px after the tool before it.
+const moreTreatment =
+  (pitch: number): Play =>
+  async (ctx) => {
+    const more = ctx.find({ role: "button", name: "Chat actions" });
+    const last = Array.from(ctx.document.querySelectorAll<HTMLElement>("[data-quick-action]")).at(-1);
+    if (!last) throw new Error("the chat menu must follow the other tools");
+    const center = (element: Element) => {
+      const box = element.getBoundingClientRect();
+      return box.left + box.width / 2;
+    };
+    const measured = Math.round(center(more) - center(last));
+    if (measured !== pitch) throw new Error(`the ⋮ must sit ${pitch}px after the last tool, not ${measured}px`);
+    await ctx.hover({ role: "button", name: "Chat actions" });
+  };
+
 // Plain icons (Leo 2026-10-25: "why do the icons have their own background border situation instead of
 // just being, you know, good"; 2026-10-31: "AND THE FUCKING BACKGROUND ON THIS FUCKING BUILD ON THESE
 // BUTTONS STILL ISN'T FUCKING REMOVESD"): with the right-side panel and Terminal's split open, Terminal
-// hovered and the chat menu open, no header tool draws a fill, a border or a shadow, pressed or not. A
-// pressed one reads as on by its lit ink alone, hovered or not, as the App's pane toolbar toggles do (Leo,
-// 2026-10-26: "why is the button not toggled?" / "i literally meant the ui depicting it as toggled or not").
+// hovered and the chat menu open, no header tool draws a border or a shadow, and none at rest draws a fill.
+// A pressed one reads as on by the filled rounded square and its lit ink, hovered or not, and the open
+// menu's trigger keeps the square too (Leo, 2026-10-26: "why is the button not toggled?"; 2026-11-02:
+// "HAVE THE ... TOGGLED HIGHLIGHT", his reference; #28962 removed only the resting fill).
 const plainIcons: Play = async (ctx) => {
   const { setHeaderState } = await import("./headerState");
   setHeaderState({ lit: ["splitRight"] });
@@ -161,8 +189,8 @@ const plainIcons: Play = async (ctx) => {
   const view = ctx.document.defaultView!;
   const tools = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools .acpmux-header-tool")];
   const clear = (color: string) => /^rgba\(.*,\s*0\)$|^transparent$/.test(color);
-  if (!clear(view.getComputedStyle(panel).backgroundColor))
-    throw new Error("the open panel toggle draws a plate on hover");
+  if (clear(view.getComputedStyle(panel).backgroundColor))
+    throw new Error("the open panel toggle loses its filled square on hover");
   const litInk = view.getComputedStyle(panel).color;
   await ctx.hover({ role: "button", name: "Terminal" });
   await openMenu(ctx);
@@ -176,7 +204,11 @@ const plainIcons: Play = async (ctx) => {
     const style = view.getComputedStyle(tool);
     const name = tool.getAttribute("aria-label");
     const pressed = tool.getAttribute("aria-pressed") === "true";
-    if (!clear(style.backgroundColor)) throw new Error(`header tool ${name} draws a fill: ${style.backgroundColor}`);
+    const lit = pressed || tool.hasAttribute("data-popup-open") || tool.matches(":hover");
+    if (lit && pressed && clear(style.backgroundColor))
+      throw new Error(`header tool ${name} is pressed without its square`);
+    if (!lit && !clear(style.backgroundColor))
+      throw new Error(`header tool ${name} draws a fill at rest: ${style.backgroundColor}`);
     if (pressed && style.color !== litInk) throw new Error(`header tool ${name} is pressed without the lit ink`);
     if (["top", "right", "bottom", "left"].some((side) => style.getPropertyValue(`border-${side}-width`) !== "0px"))
       throw new Error(`header tool ${name} draws a border`);
@@ -187,6 +219,44 @@ const plainIcons: Play = async (ctx) => {
   if (view.getComputedStyle(on).color === view.getComputedStyle(off).color)
     throw new Error("the open panel's toggle has the same ink as a tool at rest");
 };
+
+// Session Info open: its toggle is the filled rounded square with the lit ink, and every other tool
+// has nothing behind it at rest (Leo 2026-11-02: "HAVE THE ... TOGGLED HIGHLIGHT", settled by his
+// reference of the header with its list button highlighted; #28962 removed only the resting fill).
+// `accentless` applies a dark theme with no accent first (the default neutral accent: the lit ink is the
+// primary text), where an ink-only toggle read as off.
+const sessionInfoOpen =
+  (accentless: boolean): Play =>
+  async (ctx) => {
+    if (accentless) {
+      const [{ applyAgentTheme }, { agentPaneTheme }, tokens] = await Promise.all([
+        import("../../shared/theme"),
+        import("../../../gallery/theme/web"),
+        import("../../../gallery/theme/tokens"),
+      ]);
+      const dark = tokens.deriveTokens({ ...tokens.GHOSTTY_DEFAULT, accent: "neutral" });
+      if (!dark.isDark) throw new Error("the fixture theme is not dark");
+      applyAgentTheme(agentPaneTheme(dark, false) as never);
+    }
+    await ctx.waitFor(() => ctx.document.querySelector('.acpmux-session-info-toggle[aria-pressed="true"]'));
+    const view = ctx.document.defaultView!;
+    const clear = (color: string) => /^rgba\(.*,\s*0\)$|^transparent$/.test(color);
+    const toggle = ctx.find({ selector: '.acpmux-session-info-toggle[aria-pressed="true"]' });
+    const style = view.getComputedStyle(toggle);
+    if (clear(style.backgroundColor)) throw new Error("the open Session Info toggle draws no filled square");
+    // The lit ink as the page resolves it (header.css's fallbacks), read from a probe.
+    const probe = ctx.document.createElement("span");
+    probe.style.color = "var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)))";
+    toggle.parentElement!.append(probe);
+    const litInk = view.getComputedStyle(probe).color;
+    probe.remove();
+    if (style.color !== litInk) throw new Error(`the open Session Info toggle is not lit: ${style.color} vs ${litInk}`);
+    for (const tool of ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools .acpmux-header-tool")) {
+      if (tool === toggle || tool.matches(":hover, [data-popup-open], [aria-pressed=true]")) continue;
+      const fill = view.getComputedStyle(tool).backgroundColor;
+      if (!clear(fill)) throw new Error(`header tool ${tool.getAttribute("aria-label")} draws a fill at rest: ${fill}`);
+    }
+  };
 
 // The App found the chat branch's pull request: open, 3 of 5 checks passed, one failing (cx-tcwj).
 const pullRequestChip: Play = async (ctx) => {
@@ -320,6 +390,15 @@ const keyboardMenu: Play = async (ctx) => {
   });
 };
 
+// The chat's grants, revocable with default settings: the chat menu's Revoke Granted Access lists
+// each one (header/grantsMenu.ts), now that the composer's mode menu lists the modes alone.
+const revokeAccessOpen: Play = async (ctx) => {
+  await openMenu(ctx);
+  await ctx.focus({ role: "menuitem", name: "Revoke Granted Access" });
+  await ctx.press("ArrowRight");
+  await ctx.waitFor(() => ctx.document.querySelectorAll('[role="menu"]').length === 2);
+};
+
 const keyboardSubmenu: Play = async (ctx) => {
   await openMenu(ctx);
   await ctx.focus({ role: "menuitem", name: "Hand off to…" });
@@ -401,7 +480,10 @@ export default componentEntry<HeaderToolsProps>({
               ? createElement(
                   "style",
                   null,
-                  `.acpmux-header-tools,.acpmux-header-tool-group{gap:${treatment.gap}px}.acpmux-header-tools .acpmux-header-tool{width:${treatment.size}px;height:${treatment.size}px}`,
+                  `.acpmux-header-tools,.acpmux-header-tool-group{gap:${treatment.gap}px}.acpmux-header-tools .acpmux-header-tool:not(.acpmux-header-more){width:${treatment.size}px;height:${treatment.size}px}` +
+                    (treatment.more === undefined
+                      ? ""
+                      : `.acpmux-header-tools .acpmux-header-tool.acpmux-header-more{width:${treatment.more}px;height:${treatment.size}px;margin-inline-end:${treatment.size - treatment.more}px}`),
                 )
               : null,
             createElement(module.ChatHeaderTools, props),
@@ -431,7 +513,7 @@ export default componentEntry<HeaderToolsProps>({
       props: { ...base, inbox },
     },
     "native-row-tools": {
-      note: "Native row tools opt-in: Summary and quick-action icons move to the native host. Needs You keeps its web button and anchored rich list; the chat menu stays web. No default changes.",
+      note: "Native row tools opt-in: Summary, quick-action icons, their customization menus and chat overflow move to the native host. Needs You keeps its web button and anchored rich list. No default changes.",
       props: {
         ...base,
         inbox,
@@ -444,7 +526,8 @@ export default componentEntry<HeaderToolsProps>({
       play: async (ctx) => {
         await ctx.waitFor(() => !ctx.document.querySelector("[data-quick-action], .acpmux-header-panel-toggle"));
         ctx.find({ selector: ".acpmux-needs-you-button" });
-        ctx.find({ role: "button", name: "Chat actions" });
+        if (ctx.document.querySelector('button[aria-label="Chat actions"]'))
+          throw new Error("native chat overflow must not leave a duplicate DOM trigger");
       },
     },
     "unified-compact": {
@@ -480,6 +563,26 @@ export default componentEntry<HeaderToolsProps>({
       },
       play: groupTreatment(24, 0),
     },
+    "more-even-box": {
+      note: "Before: the ⋮ in the same 24px box as every tool, on the 26px pitch. Its thin glyph leaves about 18px of empty space before it where the others leave about 13px, so it reads as set apart and pushed to the edge (Leo 2026-11-03).",
+      props: { ...base, summary: panelToggle(false), treatment: { size: 24, gap: 2, more: 24 } },
+      play: moreTreatment(26),
+    },
+    "more-optical": {
+      note: "Chosen (header.css): the ⋮'s box is its 16px glyph box, 24px tall, with the 8px it gives up at its trailing side. The space before its dots matches the space between the other glyphs, it sits 4px further from the edge, and the row keeps its width.",
+      props: { ...base, summary: panelToggle(false) },
+      play: moreTreatment(22),
+    },
+    "more-optical-20": {
+      note: "Alternative: a 20px box. Closer than before, but the dots still sit about 3px further from the globe than the globe from Terminal.",
+      props: { ...base, summary: panelToggle(false), treatment: { size: 24, gap: 2, more: 20 } },
+      play: moreTreatment(24),
+    },
+    "more-tight-12": {
+      note: "Alternative: a 12px box. The dots crowd the globe, and its hover and open fill is a sliver narrower than the glyph's own box.",
+      props: { ...base, summary: panelToggle(false), treatment: { size: 24, gap: 2, more: 12 } },
+      play: moreTreatment(20),
+    },
     idle: {
       note: "The complete tab header: Terminal, Browser, summary, and chat actions (New tab, Files and Split Down are in it).",
       props: base,
@@ -497,8 +600,18 @@ export default componentEntry<HeaderToolsProps>({
       play: panelsOpen,
     },
     "panel-open": {
-      note: "Session Info is open: its toggle uses the text ink and selected glyph without a box, matching every other header control.",
+      note: "Session Info is open: its toggle is the filled rounded square with the lit ink and selected glyph; the other header controls have nothing behind them.",
       props: { ...base, summary: panelToggle(true) },
+    },
+    "session-info-open": {
+      note: "Session Info open: its toggle is the filled rounded square (the hover pill's size, a subtle tint) with the lit ink; every other tool has nothing behind it at rest.",
+      props: { ...base, summary: sessionInfoToggle },
+      play: sessionInfoOpen(false),
+    },
+    "session-info-open-accentless": {
+      note: "The same in a dark theme with no accent (the lit ink is the primary text): the filled square still shows the toggle on.",
+      props: { ...base, summary: sessionInfoToggle },
+      play: sessionInfoOpen(true),
     },
     "panel-icon-list": {
       note: "Panel icon option: three list rows with circular markers, matching ChatGPT's session rail control; this is the shipped choice.",
@@ -513,7 +626,7 @@ export default componentEntry<HeaderToolsProps>({
       props: { ...base, summary: panelToggle(false, "agent.session") },
     },
     "plain-icons": {
-      note: "Plain icons: the panel and Terminal's split open, Terminal hovered, the chat menu open; no tool draws a box, and the open panel's toggle is lit by its ink.",
+      note: "Plain icons: the panel and Terminal's split open, Terminal hovered, the chat menu open; no tool at rest draws a box, and the open panel's toggle is the filled rounded square with the lit ink.",
       props: { ...base, summary: panelToggle(true) },
       play: plainIcons,
     },
@@ -637,6 +750,23 @@ export default componentEntry<HeaderToolsProps>({
         },
       },
       play: openMenu,
+    },
+    "menu-revoke-access": {
+      height: 860,
+      note: "A chat whose folder is trusted and that allows a command for the chat: Revoke Granted Access ends the tools rows and lists each grant; a pick revokes it. Grants live here, in every chat with default settings, not in the composer's mode menu (Leo, 2026-10-29).",
+      props: {
+        ...base,
+        menu: () => {
+          const rows = menuRows();
+          const archive = rows.findIndex((row) => row !== "separator" && row.key === "archive");
+          const revoke = revokeAccessRows([
+            { id: "folder-trust", label: "Trusted atlas", onRemove: noop },
+            { id: "chat-permission", label: "Allow for this chat", onRemove: noop },
+          ]);
+          return [...rows.slice(0, archive), ...revoke, "separator", ...rows.slice(archive)];
+        },
+      },
+      play: revokeAccessOpen,
     },
     "menu-cloud-machine-running": {
       height: 860,

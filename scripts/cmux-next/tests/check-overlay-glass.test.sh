@@ -39,6 +39,13 @@ expect_fail tipwindow hover-window 'final class TooltipPanel: NSPanel {
     let blur = NSVisualEffectView()
 }'
 expect_fail previewwindow hover-window 'final class LinkHoverPreviewWindow: NSWindow {}'
+# A SurfaceRole's glass (Glass.makeSurface) is the shared glass too.
+expect_pass tipwindow-role 'final class TooltipPanel: NSPanel {
+    let glass = Glass.makeSurface(.tooltip, cornerRadius: 5, interactive: false)
+}'
+expect_pass menu-panel-role 'final class DemoMenuPanel: NSPanel {
+    let card = Glass.makeSurface(.menu, content: rows)
+}'
 
 # Toasts, sheets, dialogs, cards, banners, bubbles and notices are glass too: their window builds the
 # shared glass, no near-opaque veil lies over it, and the mostly opaque card fill stays in its file.
@@ -48,6 +55,13 @@ expect_fail toast-window surface-window 'final class DemoToastPanel: NSPanel {
 expect_fail sheet-window surface-window 'final class DemoSheetWindow: NSWindow {}'
 expect_pass toast-window-glass 'final class DemoToastPanel: NSPanel {
     let surface = Glass.makeOverlayPanel(content: body, tone: .neutralGlass(.toast))
+}'
+expect_pass sheet-window-surface-role 'final class DemoSheetPanel: NSPanel {
+    let surface = Glass.makeSurface(.sheet, content: body)
+}'
+expect_fail dense-veil-surface-role dense-fill 'final class DemoCard: NSView {
+    let surface = Glass.makeSurface(.card, content: body)
+    func paint() { veil.layer?.backgroundColor = Palette.textPrimary.withAlphaComponent(0.95).cgColor }
 }'
 expect_pass card-window-raw-glass 'final class DemoCardPanel: NSPanel {
     let glass = Glass.makePanel(content: body, style: .regular, cornerRadius: 14)

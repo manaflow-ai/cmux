@@ -16,6 +16,7 @@ import { SessionCwdContext } from "../turnChanges/sessionRows";
 import { EditDiff } from "./EditDiff";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
+import { RowShimmer } from "./ShimmerText";
 import { toolDuration } from "./toolGroups";
 import { cleanText, mcpCall } from "./mcpCalls";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
@@ -25,6 +26,7 @@ import { ToolOutput } from "./ToolOutputBody";
 import { WriteLabel, writeCall } from "./WriteLabel";
 import { ToolLabel } from "./ToolVerb";
 import { callOutput, rowFailed, toolFailure } from "./toolFailure";
+import { RepoRecoveryCard, repoRecoveryFor } from "./RepoRecoveryCard";
 import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { Check, ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
 
@@ -54,7 +56,7 @@ export function toolIcon(kind?: string): ReactNode {
 /// edit opens to its diff.
 // Unchanged item snapshots keep their rendered row as another call streams; local state and
 // context changes (Find, language, cwd) still reach this component through React's subscriptions.
-export const ToolRow = memo(function ToolRow({ item, grouped = false }: { item: AcpmuxActivity; grouped?: boolean }) {
+export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity }) {
   const t = useT();
   // Closed, or open in the Verbose transcript view.
   const [open, setOpen] = useRowDisclosure(item.tool?.id);
@@ -87,7 +89,8 @@ export const ToolRow = memo(function ToolRow({ item, grouped = false }: { item: 
   // An MCP call's plain name ("Hub · read chat", toolPaths.ts) leads with its server, not a verb.
   const plainMcp = useMemo(() => label.includes(" · ") && mcpCall(tool) !== undefined, [label, tool]);
   // Failed by its status or a nonzero exit; in the background, by its status (toolFailure.ts rowFailed).
-  const failed = rowFailed(tool);
+  const recovery = useMemo(() => repoRecoveryFor(tool), [tool]);
+  const failed = rowFailed(tool) && !recovery;
   // Why it failed, in a word on the row and one line under it (toolFailure.ts); read only once it failed.
   const failure = useMemo(() => (failed ? toolFailure(tool) : undefined), [failed, tool]);
   // A Write reads as an edit does: "Writing notes.md", then "Wrote notes.md +18" (WriteLabel.tsx).
@@ -135,11 +138,14 @@ export const ToolRow = memo(function ToolRow({ item, grouped = false }: { item: 
     return () => observer.disconnect();
   }, [hasDetails, open, label, expandable]);
   const images = useMemo(() => toolImages(tool), [tool]);
+  const words = write ? <WriteLabel tool={tool} write={write} t={t} /> : <ToolLabel text={label} whole={plainMcp} />;
   const content = (
     <>
       <span className="cv-tool__icon">{toolIcon(tool.kind)}</span>
       <span ref={labelRef} className="cv-tool__text" data-find-skip={(shell && (open || !drawsCommand)) || undefined}>
-        {write ? <WriteLabel tool={tool} write={write} t={t} /> : <ToolLabel text={label} whole={plainMcp} />}
+        {words}
+        {/* While it runs, a light band crosses these words (ShimmerText.tsx RowShimmer). */}
+        {running && <RowShimmer>{words}</RowShimmer>}
         {failure && (
           <span className="cv-tool__failed" data-find-skip>
             {" "}
@@ -150,7 +156,7 @@ export const ToolRow = memo(function ToolRow({ item, grouped = false }: { item: 
       </span>
       {background ? (
         <span className="cv-command__meta cv-tool__meta">
-          <BackgroundMark background={background} showActivity={!grouped} />
+          <BackgroundMark background={background} />
           {duration && <span className="cv-command__time">{duration}</span>}
         </span>
       ) : (
@@ -190,6 +196,7 @@ export const ToolRow = memo(function ToolRow({ item, grouped = false }: { item: 
         </div>
       )}
       <WrittenArtifactButtons tools={[tool]} />
+      {recovery && <RepoRecoveryCard recovery={recovery} />}
       <ToolFailureCause failure={failure} />
       {images.length > 0 && <ToolImages sources={images} />}
       {fold.present && (shell || files.length > 0 || body) && (

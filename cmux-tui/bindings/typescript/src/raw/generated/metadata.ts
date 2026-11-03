@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 440934d902c97a5d430e2f5c26ae15e96ab11f89fa383c70cf209c01f3abd2cb. */
+/* cmux-tui mux protocol 12, IR 7c39669d1126b40e5f9e8759eee6ec5ee6eec5da05b4c5a793d8cb16c32dc31b. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "440934d902c97a5d430e2f5c26ae15e96ab11f89fa383c70cf209c01f3abd2cb" as const;
+export const SDK_IR_SHA256 = "7c39669d1126b40e5f9e8759eee6ec5ee6eec5da05b4c5a793d8cb16c32dc31b" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -648,6 +648,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Trusted local connections only. Ends this connection's interest; the socket closes 60 s after the last subscriber. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    ]
+  },
+  "cloud-environment": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-environments-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The verified native app only; platform_origin comes from its existing platform resolver and access_token is its cmux install JWT. Neither is a page parameter or the Home lease. action list/get/update/derive maps to GET /v1/cloud-environments, GET or PATCH /v1/cloud-environments/{id}, or POST /v1/environments/derive. Params are the documented per-action object; no arbitrary path or headers. Secrets are write-only and never returned; diagnostics must redact access_token and params. See spec/commands.md."
     ]
   },
   "cloud-host-replica-clear": {
@@ -1985,7 +1995,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "frontend-browser-tabs-v1",
-    "fields": {},
+    "fields": {
+      "split": {
+        "since": null,
+        "capability": "frontend-browser-tab-split-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
@@ -2701,6 +2716,17 @@ export const COMMAND_METADATA = {
     "constraints": [
       "Owner-only diagnostics; never journaled and safe to poll.",
       "include names optional result sections (resource_projection, write_path, locks, hook_queue); unknown names are ignored."
+    ]
+  },
+  "set-attach-visibility": {
+    "authority": "frontend",
+    "since": 12,
+    "capability": "attach-visibility-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Applies to the caller's snapshot attaches (attach-surface with snapshot ghostsnp) of the surface on this connection; viewers is 0 when there is none.",
+      "A hidden viewer gets its output once per wall-clock second (every hidden viewer of the daemon on the same second), at once when its batch passes 256 KiB, before any snapshot, and at once when it is shown again; no byte is dropped."
     ]
   },
   "set-cell-pixels": {
@@ -16392,6 +16418,50 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "JsonValue"
     }
   },
+  "cloud-environment": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "access_token": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "action": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "params": {
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "platform_origin": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "cloud-host-replica-clear": {
     "request": {
       "additional_properties": false,
@@ -22141,6 +22211,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "uint16"
           }
         },
+        "split": {
+          "capability": "frontend-browser-tab-split-v1",
+          "default": null,
+          "description": "With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab; pane never lists it. Refused with after.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "ConversationTabSplit"
+          }
+        },
         "title": {
           "default": null,
           "nullable": true,
@@ -25022,6 +25103,44 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "ServerStatsResult"
+    }
+  },
+  "set-attach-visibility": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "visible": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "viewers": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "set-cell-pixels": {

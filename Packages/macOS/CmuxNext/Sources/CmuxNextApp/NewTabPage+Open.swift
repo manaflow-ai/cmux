@@ -61,6 +61,7 @@ extension NewTabPage {
         // The page's folder: the selected tab's, or (an empty pane of another machine) its workspace's there.
         let cwd = page.cwd
         page.inputToken = inputToken
+        page.draft = services.windowController(showing: pane).flatMap { services.agentTabs.unsentDrafts.leftover(inWindow: $0.state.id) }
         // A moved page (another pane, workspace or window) acts in the pane that shows it now; it
         // opened its pick in the pane it left, or nowhere once that pane closed. Its folder stays
         // the one the page shows (`page.cwd`), as a split's page does.
@@ -105,18 +106,22 @@ extension NewTabPage {
         fillPaletteActions(services)
     }
 
-    /// Lists the Commands palette's actions (~30 ms on the main thread) for the New Tab pages that
-    /// show without them, on the frame after the one that shows the page, so Cmd-T never waits for
-    /// them. The web pages take them in place (``AgentPaneView/refreshNewTabActions(_:)``).
+    /// Lists the Commands palette's actions (30-50 ms on the main thread) for the New Tab pages that
+    /// show without them, on the frame after the one that shows the page, so Cmd-T and Cmd-N never
+    /// wait for them. The web pages take them in place (``AgentPaneView/refreshNewTabActions(_:)``);
+    /// a page with no view yet (Cmd-N's first page before its pane shows it) takes them into its
+    /// stored page, so the view made from it later lists them. One pass per call, no repeat.
     static func fillPaletteActions(_ services: AppServices) {
         closeFrame.scheduleFrame {
             closeFrame.scheduleFrameFromMain { [weak services] in
                 guard let services else { return }
                 let tabs = services.agentTabs
                 let views = tabs.newTabPages.keys.compactMap { tabs.views[$0] }.filter { $0.model.newTab?.omnibar.actions.isEmpty == true }
-                guard !views.isEmpty else { return }
+                let unshown = tabs.newTabPages.filter { tabs.views[$0.key] == nil && $0.value.page.omnibar.actions.isEmpty }.map(\.key)
+                guard !views.isEmpty || !unshown.isEmpty else { return }
                 let actions = paletteActions(services)
                 for view in views { view.refreshNewTabActions(actions) }
+                for key in unshown { tabs.newTabPages[key]?.page.omnibar.actions = actions }
             }
         }
     }
@@ -346,7 +351,7 @@ extension NewTabPage {
         case (.agent, true): return page.openAgentTab(seed: AgentPaneSeedSource(AgentPaneSeed(cwd: cwd)))
         case (.browser, false), (.agent, false):
             let arguments: [String: ActionValue] = ["text": .string(request.text), "search": .bool(request.search)]
-            return page.services.registry.perform(NewTabSubmit.action, invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: page.pane.id), arguments: arguments, origin: .user))
+            return page.services.registry.perform(NewTabSubmit.action, invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: page.pane.id), arguments: arguments, origin: .user).onMachine(page.daemon.machineID))
         }
         return true
     }

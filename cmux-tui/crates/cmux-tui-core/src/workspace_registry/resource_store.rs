@@ -10,7 +10,9 @@ use patch_apply::decorate_snapshot_result;
 pub(crate) use patch_apply::{
     apply_resource_patch, apply_resource_patch_timed, apply_resource_patch_unrecorded,
 };
-pub(crate) use topology_load::load_resource_topology;
+pub(crate) use topology_load::{
+    load_resource_topology, load_resource_topology_scoped, load_topology_frame,
+};
 
 /// Completed pure mutations keep a finite exactly-once replay window. Pruning
 /// runs in batches, so a live registry may temporarily retain the interval as

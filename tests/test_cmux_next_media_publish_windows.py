@@ -56,6 +56,13 @@ class FakePrMedia:
         self.gif_calls.append((source, destination, fps, width))
         return ["ffmpeg", str(source), str(destination)]
 
+    def gif_attempts(self, widths, fps=None, source_rate=None):
+        return publish.load_pr_media().gif_attempts(widths, fps, source_rate)
+
+    def source_fps(self, path, runner=None, env=None):
+        # A variable-rate capture's average can read low; publish.py must not probe and use it.
+        return 7.0
+
 
 STEP = {
     "index": 1, "title": "Open the pet", "status": "ok", "shot": "shots/01-open-the-pet.png",
@@ -173,7 +180,8 @@ class MakeVideoTests(unittest.TestCase):
         self.assertNotIn("-framerate", encode)
         self.assertNotIn("-frames:v", encode)
         self.assertEqual(encode[encode.index("-t") + 1], "300")
-        self.assertEqual([call[2] for call in media.gif_calls], [publish.GIF_FPS])
+        # A 60 Hz recording that fits makes a 50 fps gif, the fastest a gif plays in a browser.
+        self.assertEqual([(call[2], call[3]) for call in media.gif_calls], [(50, publish.GIF_WIDTHS[0])])
 
     def test_native_capture_must_be_the_tour_local_regular_file(self):
         with tempfile.TemporaryDirectory() as scratch:
@@ -186,9 +194,38 @@ class MakeVideoTests(unittest.TestCase):
             (directory / "capture.mov").symlink_to(outside)
             self.assertIsNone(publish.capture_file(directory, {"video": "capture.mov"}))
 
-    def test_gif_rate_is_between_twelve_and_fifteen(self):
-        self.assertGreaterEqual(publish.GIF_FPS, 12)
-        self.assertLessEqual(publish.GIF_FPS, 15)
+    def test_the_still_fallback_gif_keeps_its_measured_rate(self):
+        media = FakePrMedia()
+
+        def run(argv, **kwargs):
+            Path(argv[-1]).write_bytes(b"x")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with tempfile.TemporaryDirectory() as scratch, \
+                mock.patch.object(publish.shutil, "which", return_value="/usr/bin/ffmpeg"):
+            publish.make_video(Path(scratch), {"frames": [1, 2], "frame_interval": 0.5}, Path(scratch), media, run=run)
+        self.assertEqual([call[2] for call in media.gif_calls], [2])
+
+    def test_a_gif_over_the_limit_steps_down_instead_of_dropping_to_nothing(self):
+        # Leo, 2026-10-31: "WHY ... IS IT NOT 30/60/120". Smooth first; narrower, then fewer frames, only to fit.
+        media = FakePrMedia()
+        media.INLINE_MAX_BYTES = 1024 * 1024  # the publisher keeps 512 KiB of headroom under it
+
+        def run(argv, **kwargs):
+            out = Path(argv[-1])
+            fits = out.suffix == ".gif" and len(media.gif_calls) >= 4
+            out.write_bytes(b"x" if fits or out.suffix != ".gif" else b"x" * (600 * 1024))
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with tempfile.TemporaryDirectory() as scratch, \
+                mock.patch.object(publish.shutil, "which", return_value="/usr/bin/ffmpeg"):
+            directory = Path(scratch) / "tour"
+            directory.mkdir()
+            (directory / "capture.mov").write_bytes(b"native 60 fps")
+            mp4, gif = publish.make_video(directory, {"video": "capture.mov"}, Path(scratch), media, run=run)
+        self.assertIsNotNone(gif)
+        self.assertEqual([(call[2], call[3]) for call in media.gif_calls],
+                         [(50, 720), (30, 720), (30, 560), (30, 440)])
 
     def argv_for(self, manifest):
         calls = []
@@ -222,7 +259,7 @@ class MakeVideoTests(unittest.TestCase):
         argv = self.argv_for({"frames": list(range(60)), "frame_interval": 1 / 60})
         self.assertEqual(argv[argv.index("-framerate") + 1], "60")
 
-    def test_native_capture_encodes_at_least_thirty_fps_and_gif_at_fifteen(self):
+    def test_native_capture_encodes_at_least_thirty_fps_and_a_smooth_gif(self):
         """Exercise the real ScreenCaptureKit movie handoff and palette GIF chain with a 60fps source."""
         if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
             self.skipTest("ffmpeg and ffprobe are required for the native media integration check")
@@ -249,8 +286,8 @@ class MakeVideoTests(unittest.TestCase):
                     "-show_entries", "stream=nb_read_frames,duration", "-of", "json", str(path),
                 ], capture_output=True, text=True, check=True)
                 stream = json.loads(result.stdout)["streams"][0]
-                # GIF delays use hundredths of a second: 15 fps alternates 6/7 cs.
-                # The demuxer's avg_frame_rate can report 50/3 for that cadence;
+                # GIF delays use hundredths of a second, so the demuxer's
+                # avg_frame_rate can misreport an uneven cadence;
                 # measure decoded frames over the complete playback duration.
                 duration = float(stream["duration"])
                 return int(stream["nb_read_frames"]) / duration, duration
@@ -261,13 +298,14 @@ class MakeVideoTests(unittest.TestCase):
                   f"GIF {gif_rate:.3f} fps / {gif_duration:.3f}s", flush=True)
             self.assertGreaterEqual(float(mp4_rate), 30)
             self.assertAlmostEqual(mp4_duration, 2, delta=0.1)
-            self.assertGreaterEqual(float(gif_rate), 12)
-            self.assertLessEqual(float(gif_rate), 15.1)
+            # A small 60 fps clip fits at the top step: 50 fps (2/100 s a frame), never the old 15.
+            self.assertGreaterEqual(float(gif_rate), 49)
+            self.assertLessEqual(float(gif_rate), 50.1)
             self.assertAlmostEqual(gif_duration, 2, delta=0.1)
 
-    def test_palette_gif_command_uses_a_twelve_to_fifteen_fps_palette_pass(self):
-        command = publish.load_pr_media().gif_argv(Path("capture.mp4"), Path("tour.gif"), publish.GIF_FPS, 720)
-        self.assertIn("fps=15", command[command.index("-filter_complex") + 1])
+    def test_palette_gif_command_uses_the_requested_fps_and_a_palette_pass(self):
+        command = publish.load_pr_media().gif_argv(Path("capture.mp4"), Path("tour.gif"), 50, 720)
+        self.assertIn("fps=50", command[command.index("-filter_complex") + 1])
         graph = command[command.index("-filter_complex") + 1]
         self.assertIn("palettegen", graph)
         self.assertIn("paletteuse", graph)

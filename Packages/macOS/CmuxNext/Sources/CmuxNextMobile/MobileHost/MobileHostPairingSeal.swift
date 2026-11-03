@@ -1,4 +1,4 @@
-import CmuxNextCompat
+public import CmuxNextCompat
 import CryptoKit
 public import Foundation
 import LocalAuthentication
@@ -48,16 +48,19 @@ public enum MobileHostPairingSealError: Error {
 public struct MobileHostKeychainPairingSeal: MobileHostPairingSealStore {
     public let service: String
     let keychain: MobileHostSecItems
+    /// The app's one guard of the Keychain UI switch (the login Keychain fallback).
+    let loginKeychain: LoginKeychain
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mobile.pairing")
 
-    public init(bundleID: String) {
-        self.init(bundleID: bundleID, keychain: .system)
+    public init(bundleID: String, loginKeychain: LoginKeychain) {
+        self.init(bundleID: bundleID, keychain: .system, loginKeychain: loginKeychain)
     }
 
-    init(bundleID: String, keychain: MobileHostSecItems) {
+    init(bundleID: String, keychain: MobileHostSecItems, loginKeychain: LoginKeychain) {
         service = bundleID + ".iphone-host.pairing-seal"
         self.keychain = keychain
+        self.loginKeychain = loginKeychain
     }
 
     /// The item: the data-protection Keychain, the app's default access group, no account sync.
@@ -87,7 +90,7 @@ public struct MobileHostKeychainPairingSeal: MobileHostPairingSealStore {
         let noPrompt = [kSecUseAuthenticationContext as String: Self.noPrompt()]
         let result = call(Self.query(service: service).merging(noPrompt) { $1 })
         guard result.status == errSecMissingEntitlement else { return result }
-        return LoginKeychain.withoutUI { call(Self.loginQuery(service: service).merging(noPrompt) { $1 }) }
+        return loginKeychain.withoutUI { call(Self.loginQuery(service: service).merging(noPrompt) { $1 }) }
     }
 
     public func digest() -> Data? {

@@ -15,15 +15,15 @@
 //! fingerprint hashes file contents, which a coarse file clock cannot hide.
 //! Only a change wakes the watch: inotify also reports every open, and the
 //! reload's own reads open the watched files. An overflowed queue or a watch
-//! error, which can lose events, reads again.
+//! error, which can lose events, reads again. A folder that is missing, or
+//! deleted and made again, is watched once it is there (`Folders`).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Weak};
 
-use notify::Watcher as _;
 use notify::event::{AccessKind, AccessMode, EventKind};
 use serde_json::json;
 
@@ -281,8 +281,9 @@ fn watch(
     mut prints: Prints,
 ) {
     let (sender, events) = channel();
+    let files = sender.clone();
     let watcher = notify::recommended_watcher(move |event| {
-        let _ = sender.send(event);
+        let _ = files.send(Wake::File(event));
     });
     let mut watcher = match watcher {
         Ok(watcher) => watcher,
@@ -291,26 +292,31 @@ fn watch(
             return;
         }
     };
-    // The customization folder may not exist yet: its parent is watched for it.
-    let mut watched_customize = false;
-    let arm = |watcher: &mut notify::RecommendedWatcher, watched_customize: &mut bool| {
-        if let Some(local) = local.as_ref().filter(|dir| dir.is_dir()) {
-            let _ = watcher.watch(local, notify::RecursiveMode::Recursive);
+    let dirs: Vec<PathBuf> = [customize.clone(), local.clone()].into_iter().flatten().collect();
+    // Each folder's entry in its parent (or, while the parent is missing,
+    // the nearest existing ancestor's next missing name) is watched for the
+    // folder appearing, vanishing or being replaced (`Folders`). It is armed
+    // before the folders, so a folder replaced after they are armed hints.
+    // Its first hint only says it is armed: the folders are armed and read
+    // next anyway.
+    let mut armed = false;
+    let entries = cmux_config::watch::Watcher::start(dirs.clone(), move || {
+        if std::mem::replace(&mut armed, true) {
+            let _ = sender.send(Wake::Folder);
         }
-        if let Some(dir) = customize.as_ref() {
-            if !*watched_customize && dir.is_dir() {
-                *watched_customize = watcher.watch(dir, notify::RecursiveMode::Recursive).is_ok();
-            }
-            if let Some(parent) = dir.parent().filter(|parent| parent.is_dir()) {
-                let _ = watcher.watch(parent, notify::RecursiveMode::NonRecursive);
-            }
+    });
+    let _entries = match entries {
+        Ok(entries) => Some(entries),
+        Err(error) => {
+            eprintln!("cmux-tui: apps local folder watch unavailable: {error}");
+            None
         }
     };
-    arm(&mut watcher, &mut watched_customize);
-    // Only events inside the watched app folders count: the customize
-    // folder's parent also holds cmux.json and other files. FSEvents names
-    // the real path, so a folder under a symlink (`/tmp`, a linked
-    // `~/.config`) is matched by its resolved spelling too.
+    let mut folders = Folders::default();
+    folders.arm(&mut watcher, &dirs);
+    // Only events inside the watched app folders count. FSEvents names the
+    // real path, so a folder under a symlink (`/tmp`, a linked `~/.config`)
+    // is matched by its resolved spelling too.
     let mut roots = watch_roots([customize.as_deref(), local.as_deref()]);
     // FSEvents reports only what changes after its stream starts, and the
     // catalog in `prints` was read before this thread armed it: a write in
@@ -322,20 +328,67 @@ fn watch(
     }
     loop {
         let relevant = |path: &Path| roots.iter().any(|root| path.starts_with(root));
-        if !next_burst(&events, &relevant) {
-            return;
+        let root = |path: &Path| roots.iter().any(|root| path == root);
+        let Some(burst) = next_burst(&events, &relevant, &root) else { return };
+        if burst.folder {
+            // Armed before the read: the read sees every file written before
+            // the new folder was watched, and the watch every write after.
+            folders.arm(&mut watcher, &dirs);
+            roots = watch_roots([customize.as_deref(), local.as_deref()]);
         }
         let Some(supervisor) = me.upgrade() else { return };
         prints = supervisor.reload_local_apps(&prints);
-        drop(supervisor);
-        if !watched_customize {
-            arm(&mut watcher, &mut watched_customize);
-            roots = watch_roots([customize.as_deref(), local.as_deref()]);
-            // Arming restarts the stream (see above): read what changed
-            // while it was down.
-            if watched_customize {
-                let Some(supervisor) = me.upgrade() else { return };
-                prints = supervisor.reload_local_apps(&prints);
+    }
+}
+
+/// What woke the watch thread.
+enum Wake {
+    /// A file event from the recursive folder watch.
+    File(notify::Result<notify::Event>),
+    /// A watched folder's entry changed: it appeared, vanished or was
+    /// replaced, or a missing folder on the way to it did.
+    Folder,
+}
+
+/// The burst `next_burst` drained.
+struct Burst {
+    /// It held a `Wake::Folder`, or a watched folder itself was removed or
+    /// renamed: the folders are armed again.
+    folder: bool,
+}
+
+/// The local folders with a recursive watch.
+///
+/// A kernel watch follows the folder, not its path: on Linux inotify's watch
+/// ends with the old folder (IN_DELETE_SELF, IN_IGNORED) or stays on it after
+/// a rename (IN_MOVE_SELF), so a folder deleted and made again (a `git
+/// checkout`, an editor that saves a folder by replacing it, `rm -rf` then a
+/// copy) was never watched again, and its saves were not reloaded until the
+/// daemon restarted. The folder's entry in its parent is watched instead
+/// (`cmux_config::watch`, which climbs to the nearest existing ancestor
+/// while the parent is missing too), and each of its hints arms every folder
+/// again. Its identity cannot tell whether its watch is still on: a folder
+/// deleted and made again at once often gets the freed inode number back,
+/// with no watch on it. On macOS the folder watch is notify's FSEvents,
+/// which watches a path, so it already reported the new folder; there the
+/// entry watch is cmux_config's kqueue vnode watch. Arming again restarts
+/// the FSEvents stream (once for the unwatch and once for the watch, per
+/// folder) on this thread, and the read after it covers what changed while
+/// the stream was down.
+#[derive(Default)]
+struct Folders(HashSet<PathBuf>);
+
+impl Folders {
+    /// Watches each folder in `dirs` that exists, dropping its old watch
+    /// first: a renamed folder keeps its watch, and its events would come
+    /// under this path.
+    fn arm(&mut self, watcher: &mut impl notify::Watcher, dirs: &[PathBuf]) {
+        for dir in dirs {
+            if self.0.remove(dir) {
+                let _ = watcher.unwatch(dir);
+            }
+            if dir.is_dir() && watcher.watch(dir, notify::RecursiveMode::Recursive).is_ok() {
+                self.0.insert(dir.clone());
             }
         }
     }
@@ -359,19 +412,38 @@ fn watch_roots(dirs: [Option<&Path>; 2]) -> Vec<PathBuf> {
     roots
 }
 
-/// Waits for an event that can mean a change (`is_change`), then drains the
-/// burst queued behind it. False when the watch ended.
+/// Waits for a folder hint or an event that can mean a change (`is_change`),
+/// then drains the burst queued behind it. `None` when the watch ended.
 fn next_burst(
-    events: &Receiver<notify::Result<notify::Event>>,
+    events: &Receiver<Wake>,
     relevant: &dyn Fn(&Path) -> bool,
-) -> bool {
+    root: &dyn Fn(&Path) -> bool,
+) -> Option<Burst> {
     loop {
-        let Ok(event) = events.recv() else { return false };
-        if is_change(&event, relevant) {
-            while events.try_recv().is_ok() {}
-            return true;
+        let mut folder = match events.recv().ok()? {
+            Wake::Folder => true,
+            Wake::File(event) if is_change(&event, relevant) => folder_gone(&event, root),
+            Wake::File(_) => continue,
+        };
+        while let Ok(wake) = events.try_recv() {
+            folder |= match wake {
+                Wake::Folder => true,
+                Wake::File(event) => folder_gone(&event, root),
+            };
         }
+        return Some(Burst { folder });
     }
+}
+
+/// Whether `event` says a watched folder itself (`root`) was removed or
+/// renamed. notify ends its own record of a deleted folder's watch only when
+/// it reads the kernel's event: read late, it can end the watch just armed
+/// on the new folder, so the folders are armed again after it.
+fn folder_gone(event: &notify::Result<notify::Event>, root: &dyn Fn(&Path) -> bool) -> bool {
+    use notify::event::ModifyKind;
+    let Ok(event) = event else { return false };
+    matches!(event.kind, EventKind::Remove(_) | EventKind::Modify(ModifyKind::Name(_)))
+        && event.paths.iter().any(|path| root(path))
 }
 
 /// Whether `event` can mean a watched file changed. A read is no change:
@@ -395,11 +467,15 @@ fn is_change(event: &notify::Result<notify::Event>, relevant: &dyn Fn(&Path) -> 
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
-    use std::sync::mpsc::channel;
+    use std::sync::mpsc::{Receiver, channel};
+    use std::time::{Duration, Instant};
 
-    use notify::event::{AccessKind, AccessMode, DataChange, Event, EventKind, Flag, ModifyKind};
+    use notify::event::{
+        AccessKind, AccessMode, DataChange, Event, EventKind, Flag, ModifyKind, RemoveKind,
+        RenameMode,
+    };
 
-    use super::{fingerprint, next_burst};
+    use super::{Folders, Wake, fingerprint, next_burst};
 
     const ROOT: &str = "/apps/customize";
 
@@ -407,10 +483,13 @@ mod tests {
     fn wakes(events: Vec<notify::Result<Event>>) -> bool {
         let (sender, receiver) = channel();
         for event in events {
-            sender.send(event).unwrap();
+            sender.send(Wake::File(event)).unwrap();
         }
         drop(sender);
-        next_burst(&receiver, &|path: &Path| path.starts_with(ROOT))
+        next_burst(&receiver, &|path: &Path| path.starts_with(ROOT), &|path: &Path| {
+            path == Path::new(ROOT)
+        })
+        .is_some()
     }
 
     fn on(kind: EventKind) -> notify::Result<Event> {
@@ -440,6 +519,102 @@ mod tests {
     fn a_watch_that_lost_events_reads_again() {
         assert!(wakes(vec![Ok(Event::new(EventKind::Other).set_flag(Flag::Rescan))]));
         assert!(wakes(vec![Err(notify::Error::generic("inotify read failed"))]));
+    }
+
+    /// A folder hint (the folder appeared, vanished or was replaced), or the
+    /// watched folder itself removed or renamed, arms the folders again, also
+    /// behind a save in the same burst. A save alone arms nothing.
+    #[test]
+    fn a_folder_hint_or_a_removed_folder_arms_the_folders_again() {
+        let burst = |wakes: Vec<Wake>| {
+            let (sender, receiver) = channel();
+            for wake in wakes {
+                sender.send(wake).unwrap();
+            }
+            drop(sender);
+            next_burst(&receiver, &|path: &Path| path.starts_with(ROOT), &|path: &Path| {
+                path == Path::new(ROOT)
+            })
+            .map(|burst| burst.folder)
+        };
+        let write = || Wake::File(on(EventKind::Modify(ModifyKind::Data(DataChange::Any))));
+        let folder = |kind| Wake::File(Ok(Event::new(kind).add_path(PathBuf::from(ROOT))));
+        assert_eq!(burst(vec![Wake::Folder]), Some(true));
+        assert_eq!(burst(vec![write(), Wake::Folder]), Some(true));
+        assert_eq!(burst(vec![folder(EventKind::Remove(RemoveKind::Folder))]), Some(true));
+        assert_eq!(
+            burst(vec![folder(EventKind::Modify(ModifyKind::Name(RenameMode::From)))]),
+            Some(true)
+        );
+        assert_eq!(burst(vec![write()]), Some(false), "a save alone arms nothing");
+    }
+
+    /// Waits (at most 10 s) for a change event naming `want`; panics on one
+    /// naming a path in `never` first.
+    fn change_named(events: &Receiver<notify::Result<Event>>, want: &Path, never: &Path) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            let Ok(event) = events.recv_timeout(left) else {
+                panic!("no event for {} in 10 s", want.display())
+            };
+            let Ok(event) = event else { continue };
+            if matches!(event.kind, EventKind::Access(_)) {
+                continue;
+            }
+            assert!(
+                !event.paths.iter().any(|path| path == never),
+                "the old folder's watch still names {}: {event:?}",
+                never.display()
+            );
+            if event.paths.iter().any(|path| path == want) {
+                return;
+            }
+        }
+    }
+
+    /// A folder deleted and made again at once, or renamed away and made
+    /// again, is watched once armed again: a save in the new folder is seen,
+    /// and the old folder's watch reports nothing under the path. Deleted
+    /// and made at once, the new folder often gets the freed inode number
+    /// back, so its identity did not say that it had no watch (Linux).
+    #[test]
+    fn a_folder_made_again_is_watched_once_armed_again() {
+        let stamp =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let base = std::env::temp_dir().canonicalize().unwrap();
+        let root = base.join(format!("cmux-local-rewatch-{}-{stamp}", std::process::id()));
+        let dir = root.join("customize");
+        std::fs::create_dir_all(&dir).unwrap();
+        let (sender, events) = channel();
+        let mut watcher = notify::recommended_watcher(move |event| {
+            let _ = sender.send(event);
+        })
+        .unwrap();
+        let dirs = vec![dir.clone()];
+        let mut folders = Folders::default();
+        folders.arm(&mut watcher, &dirs);
+        std::fs::write(dir.join("main.js"), "1").unwrap();
+        change_named(&events, &dir.join("main.js"), Path::new("/nothing"));
+
+        // The watch thread arms again once it hears of the removal (a folder
+        // hint, or notify's own event for the folder): so does the test.
+        std::fs::remove_dir_all(&dir).unwrap();
+        change_named(&events, &dir, Path::new("/nothing"));
+        std::fs::create_dir(&dir).unwrap();
+        folders.arm(&mut watcher, &dirs);
+        std::fs::write(dir.join("main.js"), "2").unwrap();
+        change_named(&events, &dir.join("main.js"), Path::new("/nothing"));
+
+        let old = root.join("customize.old");
+        std::fs::rename(&dir, &old).unwrap();
+        std::fs::create_dir(&dir).unwrap();
+        folders.arm(&mut watcher, &dirs);
+        std::fs::write(old.join("stale.js"), "old").unwrap();
+        std::fs::write(dir.join("next.js"), "3").unwrap();
+        change_named(&events, &dir.join("next.js"), &dir.join("stale.js"));
+        drop(watcher);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// A coarse file clock (a timer tick on Linux before 6.13, one second on

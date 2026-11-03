@@ -1,4 +1,4 @@
-import CmuxNextCompat
+public import CmuxNextCompat
 public import CryptoKit
 public import Foundation
 import Security
@@ -14,9 +14,12 @@ public nonisolated protocol CookieBackupKeySource: Sendable {
 public nonisolated struct KeychainCookieBackupKey: CookieBackupKeySource {
     public let service: String
     static let account = "key"
+    /// The app's one guard of the Keychain UI switch.
+    let loginKeychain: LoginKeychain
 
-    public init(bundleID: String?) {
+    public init(bundleID: String?, loginKeychain: LoginKeychain) {
         service = "\(bundleID.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next").cookie-backup-key"
+        self.loginKeychain = loginKeychain
     }
 
     public func key() throws(CookieBackupError) -> SymmetricKey {
@@ -43,7 +46,7 @@ public nonisolated struct KeychainCookieBackupKey: CookieBackupKeySource {
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
         // No UI: an item another signature of this bundle id made is refused, never prompted for.
-        let status = LoginKeychain.withoutUI { SecItemCopyMatching(query as CFDictionary, &result) }
+        let status = loginKeychain.withoutUI { SecItemCopyMatching(query as CFDictionary, &result) }
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess, let data = result as? Data, data.count == 32 else {
             throw CookieBackupError("the cookie backup key could not be read from the Keychain (status \(status))")

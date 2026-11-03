@@ -907,7 +907,7 @@ mark {
   border-radius: 50%;
   background: var(--accent-soft);
   color: var(--muted-text);
-  font-size: 10px;
+  font-size: var(--text-caption);
   font-weight: 600;
 }
 
@@ -2119,4 +2119,12 @@ button.menu-disclosure {
   margin: 0 0 10px;
   color: var(--danger);
   font-size: var(--text-detail);
+}
+
+/* Live storage and phone totals, plus editable numeric tokens, keep equal-width digits. */
+.backdrop-own-bar > .row-help,
+[data-card="mobile"] > .rows:first-of-type > [data-action-row]:first-child .row-help,
+.number-list .token,
+.number-list .token-input {
+  font-variant-numeric: tabular-nums;
 }
