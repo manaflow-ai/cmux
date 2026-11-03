@@ -9,15 +9,19 @@ public nonisolated struct ShownResizeRange {
     let style: LayoutStyle
     /// The device pixels per point the geometry was placed on (`ScreenGeometry.compute`'s `scale`).
     let scale: CGFloat
+    /// Where the strip's camera rests (content-space x of its viewport's leading edge); nil when unknown.
+    let stripOffset: CGFloat?
 
     /// - Parameters:
     ///   - geometry: The screen's geometry at its rest (the one its springs head for).
     ///   - style: The style that geometry was computed with.
     ///   - scale: The backing scale that geometry was computed at.
-    public init(geometry: ScreenGeometry, style: LayoutStyle, scale: CGFloat = 2) {
+    ///   - stripOffset: Where the strip's camera rests: a trade's divider stays in the part of the strip it shows.
+    public init(geometry: ScreenGeometry, style: LayoutStyle, scale: CGFloat = 2, stripOffset: CGFloat? = nil) {
         self.geometry = geometry
         self.style = style
         self.scale = scale
+        self.stripOffset = stripOffset
     }
 
     /// The ratios of `split` that place its divider somewhere new: each side keeps its minimum extent.
@@ -39,6 +43,42 @@ public nonisolated struct ShownResizeRange {
         let lower = ColumnStripGeometry.fraction(forPixelWidth: column.minimumSize(style: style).width,
                                                  viewportWidth: geometry.stripWidth, gap: style.stripGap)
         return lower...max(lower, ColumnWidthPreset.widthRange.upperBound)
+    }
+
+    /// The widths of two neighbor strip columns after a keyboard press moves the divider between them by `delta` (a
+    /// share of the strip; right is positive): `left` takes what `right` gives, or gives what it takes, so the columns
+    /// after them and the strip stay where they are (the trade of an Option-drag, ``StripStart/trading(_:to:)``). The
+    /// move is whole device pixels, so both widths round the same way and neither outer edge moves by a pixel. It stops
+    /// where a column reaches its minimum or the widest share, and where the divider would leave the part of the strip
+    /// the window shows (``stripOffset``): past it the press would move nothing a person sees. Each column counts from
+    /// the width it shows (a stored width below its minimum shows at the minimum). Nil when nothing would move.
+    public func trade(_ left: LayoutColumn, _ right: LayoutColumn, by delta: Double) -> (left: Double, right: Double)? {
+        guard geometry.isColumns, let leftFrame = geometry.columns[left.id], let rightFrame = geometry.columns[right.id],
+              case let unit = geometry.stripWidth - style.stripGap, unit > 0, delta != 0 else { return nil }
+        let range = ColumnWidthPreset.widthRange
+        func floor(_ column: LayoutColumn) -> Double {
+            max(range.lowerBound, ColumnStripGeometry.fraction(forPixelWidth: column.minimumSize(style: style).width,
+                                                               viewportWidth: geometry.stripWidth, gap: style.stripGap))
+        }
+        let shownLeft = min(max(left.width, floor(left)), range.upperBound)
+        let shownRight = min(max(right.width, floor(right)), range.upperBound)
+        // How far the divider may go, in points: right until a column reaches a bound, left the same.
+        var most = CGFloat(min(range.upperBound - shownLeft, shownRight - floor(right))) * unit
+        var least = -CGFloat(min(shownLeft - floor(left), range.upperBound - shownRight)) * unit
+        if let stripOffset {
+            let leading = max(0, geometry.uncoveredMinX - geometry.stripMinX)
+            let trailing = max(0, geometry.stripMinX + geometry.stripWidth - geometry.uncoveredMaxX)
+            most = min(most, stripOffset + geometry.stripWidth - trailing - rightFrame.minX)
+            least = max(least, stripOffset + leading - leftFrame.maxX)
+        }
+        // Toward the arrow only, in whole pixels: the step to the nearest one, the room to the last one inside it
+        // (`edgeTolerance` of a pixel of float slack), so a press never passes a bound.
+        let pixel = scale > 0 ? scale : 1
+        let room = max(0, delta > 0 ? most : -least)
+        let pixels = min((abs(CGFloat(delta)) * unit * pixel).rounded(), (room * pixel + ColumnStripGeometry.edgeTolerance).rounded(.down))
+        guard pixels > 0 else { return nil }
+        let share = Double((delta > 0 ? pixels : -pixels) / pixel / unit)
+        return (min(max(shownLeft + share, range.lowerBound), range.upperBound), min(max(shownRight - share, range.lowerBound), range.upperBound))
     }
 
     /// Every row height of `column` after a keyboard press moves the row edge next to `pane`'s row by `delta`

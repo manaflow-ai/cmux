@@ -1,15 +1,24 @@
 public import CmuxNextLayout
 
 /// Keyboard pane resizing and column navigation over one screen's layout.
-/// Resizing moves the divider nearest the pane in the arrow's direction;
-/// in columns mode a left or right
-/// resize with no horizontal split in the column changes the column width.
-/// A press steps from the size the screen shows and stops at the size it can show (`shown`): one equal step, the
-/// part step that reaches a pane's minimum, or no change at all; never a model change that moves nothing.
+///
+/// One press moves one divider one step in the arrow's direction, as Ghostty's `resize_split` does, and changes only
+/// the two sides of that divider (FRAME OWNER REFACTOR KEYS, lead decision 2026-11-03):
+/// - A split: the deepest split along the arrow's axis that holds the pane; its ratio moves toward the arrow.
+/// - A strip column (columns mode, no split along the axis): the divider is the column's right edge when a strip
+///   column follows it, else its left edge (the last column). The two columns beside it trade width (an Option-drag's
+///   trade): the columns after them and the strip's camera stay. One column alone moves its right edge.
+/// - A side dock: its inner edge (a left dock grows with Right, a right dock shrinks with Right). A top or bottom
+///   dock: its inner edge with Up and Down. A row (rows-v1): the row edge with Up and Down.
+/// A press steps from the size the screen shows and stops at the size it can show (`shown`): one equal step, the part
+/// step that reaches a pane's minimum or the edge of the strip the window shows, or no change at all; never a model
+/// change that moves nothing.
 public nonisolated enum PaneResize {
     public enum Change: Equatable, Sendable {
         case splitRatio(LayoutSplitID, Double)
         case columnWidth(LayoutColumnID, Double)
+        /// Two neighbor strip columns, left then right, trade width across the divider between them.
+        case columnTrade(LayoutColumnID, Double, LayoutColumnID, Double)
         /// Every row height of a rows-v1 column (permille), one row edge moved.
         case rowHeights(LayoutColumnID, [RowHeight])
     }
@@ -45,7 +54,19 @@ public nonisolated enum PaneResize {
             return extent == column.width ? nil : .columnWidth(column.id, extent)
         }
         guard axis == .horizontal else { return nil }
-        return stepped(column.width, by: delta, within: range, shown: shown?.width(of: column)).map { .columnWidth(column.id, $0) }
+        let parts = DockStripGeometry.docks(layout.columns)
+        // A side dock's inner edge: a left dock's right edge, a right dock's left edge.
+        if parts.left?.id == column.id || parts.right?.id == column.id {
+            let grow = parts.right?.id == column.id ? -delta : delta
+            return stepped(column.width, by: grow, within: range, shown: nil).map { .columnWidth(column.id, $0) }
+        }
+        let strip = parts.scrolling
+        guard let index = strip.firstIndex(where: { $0.id == column.id }) else { return nil }
+        guard strip.count > 1 else {
+            return stepped(column.width, by: delta, within: range, shown: shown?.width(of: column)).map { .columnWidth(column.id, $0) }
+        }
+        let (left, right) = index + 1 < strip.count ? (strip[index], strip[index + 1]) : (strip[index - 1], strip[index])
+        return shown?.trade(left, right, by: delta).map { .columnTrade(left.id, $0.left, right.id, $0.right) }
     }
 
     /// `value` moved by `delta` inside `range` cut to `shown`, from where the screen shows it: a value past what the
@@ -67,14 +88,25 @@ public nonisolated enum PaneResize {
     @MainActor
     public static func press(_ pane: LayoutPaneID, _ direction: LayoutDirection, model: LayoutModel, view: LayoutRootView) -> Bool {
         guard let screen = model.screen(containing: pane) else { return true }
-        let change = change(for: pane, direction: direction, in: screen.layout, shown: view.shownResizeRange(ofScreenContaining: pane))
-        // Every pane of the screen keeps its content's size through the spring and lays it out once at the landing.
-        if change != nil { view.keyboardResizeWillChange(screenContaining: pane) }
+        guard let change = change(for: pane, direction: direction, in: screen.layout, shown: view.shownResizeRange(ofScreenContaining: pane)) else {
+            return false
+        }
+        // Every pane of the screen keeps its content's size through the spring and lays it out once at the landing; a
+        // trade keeps its left column (and the camera) in place, so only the divider between the two moves.
+        if case .columnTrade(let left, _, _, _) = change {
+            view.keyboardResizeWillChange(screenContaining: pane, keeping: left)
+        } else {
+            view.keyboardResizeWillChange(screenContaining: pane)
+        }
         switch change {
         case .splitRatio(let split, let ratio): model.setSplitRatio(split, ratio: ratio, transaction: .make(), phase: .ended)
         case .columnWidth(let column, let width): model.setColumnWidth(column, width: width, transaction: .make(), phase: .ended)
+        case .columnTrade(let left, let leftWidth, let right, let rightWidth):
+            // One press, one transaction: the daemon keeps one undo entry for both widths.
+            let transaction = LayoutTransactionID.make()
+            model.setColumnWidth(left, width: leftWidth, transaction: transaction, phase: .ended)
+            model.setColumnWidth(right, width: rightWidth, transaction: transaction, phase: .ended)
         case .rowHeights(let column, let heights): model.setRowHeights(column, heights: heights, fit: heights.reduce(0) { $0 + $1.height } == 1000)
-        case nil: return false
         }
         // The spring starts in the key's own turn (as a split's frame does, `LayoutRootView.syncWithModel`): the very
         // next display frame moves, never one that ran before the layout's observation turn.

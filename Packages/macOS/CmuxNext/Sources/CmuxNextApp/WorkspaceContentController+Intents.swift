@@ -18,13 +18,13 @@ extension WorkspaceContentController {
             focus.send(.focusPane(pane.rawValue, source: .intent))
         case .setSplitRatio(let split, let ratio, let transaction, _):
             guard let handle = handles.splits[split] else { return layoutModel.rejectTransaction(transaction) }
-            let daemonTransaction = nextDaemonTransaction()
+            let daemonTransaction = gestureTransactions.number(for: transaction)
             sendGesture(transaction, label: "set-split-ratio") { connection in
                 try await connection.setSplitRatio(handle, ratio: ratio, transaction: daemonTransaction)
             }
         case .setColumnWidth(_, let anyPane, let width, let transaction, _):
             guard let handle = handles.panes[anyPane] else { return layoutModel.rejectTransaction(transaction) }
-            let daemonTransaction = nextDaemonTransaction()
+            let daemonTransaction = gestureTransactions.number(for: transaction)
             sendGesture(transaction, label: "set-viewport-pane-width") { connection in
                 try await connection.setColumnWidth(of: handle, width: width, transaction: daemonTransaction)
             }
@@ -38,7 +38,7 @@ extension WorkspaceContentController {
             if dock?.edge.isBand == true, !daemon.supports(DaemonCapability.edgeDocks.rawValue) {
                 return layoutModel.rejectTransaction(transaction)
             }
-            let daemonTransaction = nextDaemonTransaction()
+            let daemonTransaction = gestureTransactions.number(for: transaction)
             let wire = dock.map(LayoutMapping.snapshot)
             sendGesture(transaction, label: "set-column-dock") { connection in
                 try await connection.setColumnDock(of: handle, dock: wire, transaction: daemonTransaction)
@@ -200,10 +200,8 @@ extension WorkspaceContentController {
         }
     }
 
-    private func nextDaemonTransaction() -> UInt64 {
-        nextGestureTransaction += 1
-        return nextGestureTransaction
-    }
+    /// The daemon transaction number the newest layout transaction took (``GestureTransactionNumbers/latest``).
+    var nextGestureTransaction: UInt64 { gestureTransactions.latest }
 
     /// Sends a gesture's one command; its result settles or rolls back the layout's override.
     private func sendGesture(_ transaction: LayoutTransactionID, label: String, _ body: @escaping DaemonCommandBody) {
