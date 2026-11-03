@@ -877,3 +877,22 @@ fn legacy_export_ids_are_scoped_to_each_chief_home() {
     assert_eq!(first["request_id"], again["request_id"]);
     assert_ne!(first["request_id"], other["request_id"]);
 }
+
+#[test]
+fn compactor_probe_and_description_exports_are_unique_per_unit() {
+    let chief = Chief {
+        id: "c".into(),
+        label: "Chief".into(),
+        home: "/h".into(),
+    };
+    for key in ["probe", "describe", "5236+4"] {
+        let a: Line =
+            serde_json::from_value(json!({"v":1,"kind":"compactor","key":key,"ts":1})).unwrap();
+        let b = Line { ts: 2, ..a.clone() };
+        assert_eq!(usage::export_row(&chief, &a), usage::export_row(&chief, &a));
+        assert_ne!(
+            usage::export_row(&chief, &a)["request_id"],
+            usage::export_row(&chief, &b)["request_id"]
+        );
+    }
+}
