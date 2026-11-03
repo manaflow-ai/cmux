@@ -251,11 +251,12 @@ export default agentPaneEntry({
       },
     },
     tab: {
-      note: "Its own tab in the chat's right column (backgroundPane.ts; Leo, 2026-11-03: \"it should be opening up on the right pane as a tab instead of this\"): the app reveals the reserved pane id, the panel fills the tab with Clear finished and no Expand or Close.",
+      note: 'Its own tab in the chat\'s right column (backgroundPane.ts; Leo, 2026-11-03: "it should be opening up on the right pane as a tab instead of this"): the app reveals the reserved pane id, the panel fills the tab with Clear finished and no Expand or Close.',
       snapshot: snapshot(false),
       play: async (ctx) => {
-        const bridge = (ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { revealTurn?(value: string): void } })
-          .cmuxAcpmuxBridge;
+        const bridge = (
+          ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { revealTurn?(value: string): void } }
+        ).cmuxAcpmuxBridge;
         if (!bridge?.revealTurn) throw new Error("the page takes the app's reveal");
         bridge.revealTurn(`subagent:${BACKGROUND_PANE}`);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-shell[data-background-pane] > .acpmux-bg"));
@@ -265,8 +266,11 @@ export default agentPaneEntry({
           throw new Error("the panel fills its tab's width");
         if (ctx.document.querySelector(".acpmux-main")?.getClientRects().length)
           throw new Error("the chat's own column is out of sight in the panel's tab");
-        const labels = [...ctx.document.querySelectorAll(".acpmux-bg__head button")].map((b) => b.getAttribute("aria-label"));
-        if (labels.includes("Expand") || labels.includes("Close")) throw new Error("its own tab has no Expand or Close");
+        const labels = [...ctx.document.querySelectorAll(".acpmux-bg__head button")].map((b) =>
+          b.getAttribute("aria-label"),
+        );
+        if (labels.includes("Expand") || labels.includes("Close"))
+          throw new Error("its own tab has no Expand or Close");
         noStrayEdges(ctx);
       },
     },

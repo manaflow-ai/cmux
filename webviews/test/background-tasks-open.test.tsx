@@ -305,7 +305,9 @@ describe("Background tasks opens as a tab in the right column", () => {
       return { opened: true };
     }, "Background tasks");
     expect(opened).toBe(true);
-    expect(calls).toEqual([["chat.subagentPane", { subagent: BACKGROUND_PANE, focus: true, title: "Background tasks" }]]);
+    expect(calls).toEqual([
+      ["chat.subagentPane", { subagent: BACKGROUND_PANE, focus: true, title: "Background tasks" }],
+    ]);
     // The tab's page reads the app's `subagent:<id>` reveal as this panel, never as a subagent.
     expect(isBackgroundPane(revealedSubagent(`subagent:${BACKGROUND_PANE}`))).toBe(true);
     expect(isBackgroundPane(revealedSubagent("subagent:toolu_01"))).toBe(false);
