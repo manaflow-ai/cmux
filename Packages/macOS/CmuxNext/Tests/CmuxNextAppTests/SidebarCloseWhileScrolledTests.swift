@@ -45,6 +45,9 @@ struct SidebarCloseWhileScrolledTests {
         list.reload(animated: false)
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
+        // A closing row keeps its slot only under the motion before #34264 (now a closed row goes at once).
+        let whole = SidebarChangeMotion.use(.wholeList)
+        defer { whole() }
         let clip = try #require(list.enclosingScrollView?.contentView)
 
         // Scrolled so workspace 20 is the first row in view.

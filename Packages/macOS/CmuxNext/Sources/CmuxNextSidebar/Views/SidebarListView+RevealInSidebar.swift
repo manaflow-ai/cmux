@@ -36,7 +36,7 @@ extension SidebarListViewComponents {
         if let clip = enclosingScrollView?.contentView, clip.bounds.height > 0,
            let target = displayed.revealInSidebarOffset(key, from: clip.bounds.minY, height: clip.bounds.height, centre: centre),
            abs(target - clip.bounds.minY) > 0.25 {
-            scrollClip(to: target, animated: true)
+            scrollClip(to: target, animated: !SidebarChangeMotion.movesOnlyChangedRows) // a jump: no row slides by (#34264)
         }
         flashRevealed(row)
         return true

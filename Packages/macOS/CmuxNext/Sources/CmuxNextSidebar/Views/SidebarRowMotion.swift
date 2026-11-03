@@ -15,8 +15,9 @@ struct RowMotion {
     var lines: SidebarGroupLineViews.LineMotion
     /// The chat history blocks with their frames (`SidebarChatHistoryViews.place`): they move with the rows.
     var companions: [(NSView, NSRect)] = []
-    /// How the rows make room for a new workspace row (`sidebar.insertMotion`); nil for any other change, which
-    /// moves on `.move` over the whole distance.
+    /// How the rows make room for a new workspace row (`sidebar.insertMotion`), `.snap` for any other change
+    /// (`SidebarChangeMotion.changedRows`: only the rows it changes animate), nil under `wholeList`, which moves on
+    /// `.move` over the whole distance.
     var insert: SidebarInsertMotion?
     /// How far the rows' edges travel under `insert` (`SidebarInsertMotion.travel`); nil is the whole distance.
     var travel: CGFloat?
@@ -64,7 +65,8 @@ struct RowMotion {
         }
         // Out of a window (or where nothing draws) the springs snap (`SidebarDragSpring.move`): no row opens.
         if list.window == nil || !Motion.canAnimate(in: list) { list.settleOpenings() }
-        passOver(in: list, from: old, to: layout)
+        // Under the snap (travel 0) no row moves, so none passes over another: no row it would cross hides (#34264).
+        if travel != 0 { passOver(in: list, from: old, to: layout) }
         for (view, end) in leaving { view.closingEnd = end }
         let opens = appearing.map(\.0.opens)
         let generations = leaving.map(\.0.reuseGeneration)

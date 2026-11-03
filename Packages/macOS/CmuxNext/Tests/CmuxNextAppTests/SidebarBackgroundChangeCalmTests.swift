@@ -101,6 +101,9 @@ struct SidebarBackgroundChangeCalmTests {
         try #require(window.screen != nil)
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
+        // Rows the reorder shifts slide only under the motion before #34264; this checks the user-intent gate.
+        let whole = SidebarChangeMotion.use(.wholeList)
+        defer { whole() }
 
         // Move to Top from the palette: the user's run marks the sidebar, its change arrives after.
         model.noteUserIntent()
