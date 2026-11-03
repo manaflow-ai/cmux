@@ -146,7 +146,8 @@ public final class BrowserChromeView: NSView {
     /// A committed URL loads in this tab (a typed navigation).
     public var onTypedCommit: (() -> Void)?
 
-    /// Where finished page loads are recorded (omnibar history suggestions).
+    /// Where finished page loads are recorded (omnibar history suggestions). On a pane's shared chrome this is the
+    /// bound tab's (`BrowserChromeTabState.history`); set a tab's hooks on its state, never here.
     public var history: (any BrowserHistoryStore)? {
         get { loads.history }
         set { loads.history = newValue }
@@ -158,7 +159,7 @@ public final class BrowserChromeView: NSView {
     /// page itself.
     public var onReturnFocusToPage: (() -> Void)?
     public var machineBadge: ((URL?) -> (text: String, help: String)?)? { didSet { updateMachineBadge() } } // remote localhost
-    /// Each page that finished loading, once per URL (the App's cookie import offer).
+    /// Each page that finished loading, once per URL (the App's cookie import offer); the bound tab's, as `history`.
     public var onPageFinished: ((URL) -> Void)? {
         get { loads.onPageFinished }
         set { loads.onPageFinished = newValue }

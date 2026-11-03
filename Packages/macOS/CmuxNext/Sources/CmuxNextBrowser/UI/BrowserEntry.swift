@@ -20,8 +20,10 @@ public final class BrowserEntry {
                 history: (any BrowserHistoryStore)? = nil) {
         self.tab = tab
         state.suggestionEngine = suggestionEngine
+        // Its loads are recorded from the start, shown or not. It follows before history is set: a page already
+        // finished when installed (a restored one, marked by the cache right after) is not a new visit (as before).
+        state.loads.follow(tab)
         state.history = history
-        state.loads.follow(tab)  // its loads are recorded from the start, shown or not
     }
 
     public func close() {

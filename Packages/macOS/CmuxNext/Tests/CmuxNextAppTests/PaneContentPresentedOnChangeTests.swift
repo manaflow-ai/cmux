@@ -226,5 +226,8 @@ import Testing
         for tab in tabs.prefix(2) {
             #expect(services.cache.existingBrowser(tab.id)?.tab.contentView.window === window, "tab \(tab.id)'s page left the window")
         }
+        // The pages' queued main-actor work ends while the services it reads (unowned) still live.
+        for tab in tabs.prefix(2) { services.cache.release(tab.id) }
+        await Self.drainMain()
     }
 }
