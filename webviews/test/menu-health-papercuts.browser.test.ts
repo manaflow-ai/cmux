@@ -72,6 +72,64 @@ await requireBrowserLane("menu-health-papercuts.browser.test.ts", async () => {
     }
   });
 
+  test("a short folder popup keeps its first two results visible without scrolling on ArrowDown", async () => {
+    const page = await browser.newPage({ viewport: { width: 620, height: 180 }, deviceScaleFactor: 2 });
+    try {
+      const { port } = vite.httpServer!.address() as { port: number };
+      await page.goto(
+        `http://127.0.0.1:${port}${galleryFrame("agent-pane.composer-context", {
+          variant: "lane-checkouts",
+          width: 620,
+          height: 180,
+        })}`,
+      );
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+      const field = page.locator(".acpmux-folder-popover .acpmux-location-search");
+      const viewport = page.locator(".acpmux-folder-popover .ui-combobox-viewport");
+      const options = viewport.locator('[role="option"]');
+      expect(await options.count()).toBeGreaterThan(2);
+      const bounds = await viewport.boundingBox();
+      expect(bounds).not.toBeNull();
+      const initialScroll = await viewport.evaluate((node) => node.scrollTop);
+      for (const index of [0, 1]) {
+        const option = options.nth(index);
+        const before = await option.boundingBox();
+        expect(before).not.toBeNull();
+        expect(before!.y).toBeGreaterThanOrEqual(bounds!.y - 0.5);
+        expect(before!.y + before!.height).toBeLessThanOrEqual(bounds!.y + bounds!.height + 0.5);
+        await field.press("ArrowDown");
+        await page.waitForFunction(
+          (id) => document.getElementById(id!)?.hasAttribute("data-highlighted"),
+          await option.getAttribute("id"),
+        );
+        await page.evaluate(
+          () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+        );
+        expect(await viewport.evaluate((node) => node.scrollTop)).toBe(initialScroll);
+      }
+      // Navigation must still reveal a result below the viewport.
+      const third = options.nth(2);
+      const hidden = await third.boundingBox();
+      expect(hidden).not.toBeNull();
+      expect(hidden!.y + hidden!.height).toBeGreaterThan(bounds!.y + bounds!.height);
+      await field.press("ArrowDown");
+      await page.waitForFunction(
+        (id) => document.getElementById(id!)?.hasAttribute("data-highlighted"),
+        await third.getAttribute("id"),
+      );
+      await page.evaluate(
+        () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+      );
+      expect(await viewport.evaluate((node) => node.scrollTop)).toBeGreaterThan(initialScroll);
+      const revealed = await third.boundingBox();
+      expect(revealed).not.toBeNull();
+      expect(revealed!.y).toBeGreaterThanOrEqual(bounds!.y - 0.5);
+      expect(revealed!.y + revealed!.height).toBeLessThanOrEqual(bounds!.y + bounds!.height + 0.5);
+    } finally {
+      await page.close();
+    }
+  });
+
   for (const [entry, variant, width, height] of scenes) {
     test(`${entry}#${variant}: scope stays still and menu geometry follows its content`, async () => {
       const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 2 });
