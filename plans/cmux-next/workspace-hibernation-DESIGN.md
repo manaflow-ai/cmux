@@ -75,7 +75,7 @@ Idle local WebKit chat pages release after five minutes hidden by default, indep
 workspace hibernation. `agents.chatPages.enabled` opts out; `hiddenMinutes` changes the timeout.
 An explicit `browser.hibernation` retains its existing timeout or off behavior. Websites, Chief
 pages and Chromium chat defaults retain their existing policy. The untouched New Tab cap applies
-to both engines, subject to successful wake-state and frame capture.
+to both engines after successful wake-state capture; WebKit also requires a saved cover.
 
 The existing `HiddenChatPages` deadline and pressure planner execute defaults from the shared
 `schemas/settings/source/chat-page-hibernation.json`; the existing `SurfaceRetention` reducer
@@ -87,9 +87,11 @@ Working or waiting chats, pinned tabs, disconnected turn watches, shell runs, re
 crash notices, pending trust prompts, IME composition, open popups and unsaved edits retain
 their pages. A pending draft write retains its page until acpmux confirms it. Drafts live in
 acpmux; `AgentPaneWakeState` carries attachments and transcript anchors. An automatic default
-release requires an encoded, appearance-tagged frame; capture failure retains the page and
+WebKit release requires an encoded, appearance-tagged frame; capture failure retains the page and
 retries. After capture, page identity, visibility and activity are checked again before removal.
-The saved frame covers reconstruction until the restored page paints.
+The saved frame covers WebKit reconstruction until the restored page paints. Untouched Chromium
+New Tabs use their existing native-context rebuild without taking a hidden Chromium snapshot:
+Chromium draws over native covers, and the pinned engine cannot safely capture a hidden surface.
 
 Release and freeze use existing one-shot deadlines, with a 15-second retry only while a due
 page cannot safely release. No periodic page polling is added. Showing or closing the tab drops

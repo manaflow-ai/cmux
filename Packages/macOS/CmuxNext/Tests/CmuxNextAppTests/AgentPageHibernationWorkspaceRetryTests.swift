@@ -16,7 +16,7 @@ struct AgentPageHibernationWorkspaceRetryTests {
             return AgentPaneWakeState(holdsPrompts: reads == 1)
         }
         _ = try rig.hiddenChat("tab_workspace", session: "s-workspace")
-        rig.advance(minutes: 31)
+        rig.advance(minutes: 1)
         #expect(!rig.hibernation.hasDeadline)
         #expect(rig.hibernation.releaseForWorkspace("tab_workspace") == nil)
         await rig.settle { rig.hibernation.hasDeadline }

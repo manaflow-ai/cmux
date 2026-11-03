@@ -20,9 +20,9 @@ import os
 /// it again builds the page on the same chat (``AgentTabStore/view(for:)``), which acpmux replays with
 /// its draft. Its last frame is drawn under the pane until the new page paints.
 ///
-/// The App keeps a page that is a New Tab page or another machine's chat, or in which a shell command
-/// ran (closing the page ends the command or drops its output), and keeps awake a New Tab page, a Chief
-/// chat and a crashed page.
+/// Another machine's chat and pages with shell runs stay loaded. Untouched local New Tabs use
+/// the warm-page cap and keep their native context; edited New Tabs stay loaded. New Tabs,
+/// Chief chats and crashed pages do not freeze.
 @MainActor
 final class AgentPageHibernation: HiddenChatPagesHost {
     static var minimumHidden: Double { HiddenChatPages<AgentPageHibernation>.minimumHidden }

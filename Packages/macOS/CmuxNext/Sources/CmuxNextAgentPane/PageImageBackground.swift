@@ -14,12 +14,6 @@ enum PageImageBackground {
     /// Whether `color` hides what is under it (an opaque window), so a page drawn over it needs no alpha.
     static func isOpaque(_ color: ThemeRGB) -> Bool { color.alpha >= 1 }
 
-    /// Whether the page of `surface` paints an opaque background of its own in `scope`'s theme.
-    @MainActor
-    static func pageIsOpaque(_ surface: SurfaceKind, in scope: NSView) -> Bool {
-        scope.performWithTheme { isOpaque(AgentPaneTheme.pageBackground(scope.themeTokens, surface: surface)) }
-    }
-
     /// The picture a pane may draw for its page until the live page paints, or nil when there is none.
     ///
     /// A picture that cannot keep the page's clear pixels (a Chromium capture is a JPEG with no

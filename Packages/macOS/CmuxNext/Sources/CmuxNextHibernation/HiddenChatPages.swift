@@ -255,7 +255,7 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
                 }
                 retryAt[key] = nil
             }
-            let remaining = threshold - (current - at).seconds
+            let remaining = workspaceDue.contains(key) ? 0 : threshold - (current - at).seconds
             if remaining > 0 {
                 next = min(next ?? remaining, remaining)
             } else if keepsPage(key) == nil {
