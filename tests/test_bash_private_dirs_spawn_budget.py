@@ -122,6 +122,8 @@ label=missing; check 0 "$R/missing"
 label=created; check 1 "$R/created"
 label=relative; check 0 "relative/dir"
 label=file; check 0 "$R/file"
+label=unsearchable; check 0 "$R/unsearchable"
+label=newline-component; check 0 "$R/nl"$'\\n'"/child"
 """
 
 EXPECTED = {
@@ -137,6 +139,9 @@ EXPECTED = {
     "created": "accept",
     "relative": "reject",
     "file": "reject",
+    # find fails on both, so the stat path does too.
+    "unsearchable": "reject",
+    "newline-component": "reject",
 }
 
 
@@ -156,6 +161,11 @@ def make_cases(base: Path) -> Path:
     (base / "via").symlink_to(target)
     (base / "via-open").symlink_to(base / "open")
     (base / "file").write_text("x", encoding="utf-8")
+    (base / "unsearchable").mkdir()
+    (base / "unsearchable").chmod(0o600)
+    (base / "nl\n").mkdir(mode=0o700)
+    (base / "nl\n" / "child").mkdir(mode=0o700)
+    (base / "nl").mkdir(mode=0o700)
     return base
 
 
