@@ -190,6 +190,37 @@ for (const family of ["claude", "codex"])
     expect(rows[2]!.laneNoticeBatch!.rows).toHaveLength(2);
   });
 
+test("a run with a lane report among its received lines still folds as a message run", () => {
+  const report = row("user", {
+    text: "",
+    continues: true,
+    incoming: {
+      kind: "message",
+      message: {
+        name: "review-box",
+        sessionId: "review-box",
+        report: true,
+        text: "lane report: turn 1 ended, idle.",
+        raw: "lane report: turn 1 ended, idle.",
+      },
+    },
+  });
+  const rows = turnView(
+    [
+      row("user", { text: "go" }),
+      row("assistant", { text: "Asking the lanes." }),
+      received("lane-a", "one"),
+      report,
+      row("assistant", { text: "done" }),
+      row("turnSummary", { status: "completed" } as Partial<AcpmuxRow>),
+    ],
+    new Set(),
+    { agentFamily: "claude" },
+  );
+  const run = rows.find((r) => r.kind === "messageRun")?.messageRun;
+  expect(run && messageRunSummary(translate, run)).toBe("Received 2 messages");
+});
+
 test("a message run counts an inbox notice's messages, not its threads", () => {
   const send: AcpmuxActivity = {
     kind: "tool",

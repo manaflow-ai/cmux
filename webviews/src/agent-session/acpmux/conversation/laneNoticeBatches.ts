@@ -224,6 +224,16 @@ function receivedMessages(row: AcpmuxRow): readonly AcpmuxRow[] | undefined {
   return [row];
 }
 
+/// Whether a transcript row, before the display projection, draws in a "Received N messages" row:
+/// an inbox notice, or another agent's delivered message that is no lane report (messageRuns.ts
+/// leaves a run of these to that row).
+export function joinsReceivedRow(row: AcpmuxRow): boolean {
+  if (row.kind !== "user" || !isLineRow(row) || row.queuedMessage || deliveryPhase(row) === "waiting") return false;
+  if (row.incoming?.kind === "inbox") return true;
+  if (row.incoming?.kind !== "message" || row.incoming.message.fromPerson) return false;
+  return (noticeOf(row)?.kind ?? "inbox") === "inbox";
+}
+
 const receivedRuns = new WeakMap<AcpmuxRow, { parts: readonly AcpmuxRow[]; row: AcpmuxRow }>();
 
 /// One "Received N messages" row for drawn rows next to each other that each carry received

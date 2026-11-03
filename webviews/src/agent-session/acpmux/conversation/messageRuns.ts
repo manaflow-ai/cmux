@@ -17,6 +17,7 @@
 import { isLineRow, MESSAGE_RUN, type AcpmuxActivity, type AcpmuxMessageRun, type AcpmuxRow } from "../model";
 import type { Translate } from "../i18n";
 import { inboxCounts } from "./inboxNotice";
+import { joinsReceivedRow } from "./laneNoticeBatches";
 import { isWaitingMessage } from "./pendingMessages";
 import { awaitsPermission, isFailed, isRunning, runStretches, toolGroups, type ToolGroup } from "./toolGroups";
 import { toolRunPhrases } from "./toolRunSummary";
@@ -102,9 +103,10 @@ export function foldMessageRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRow[]
     const lines = parts.reduce((sum, part) => sum + part.lines, 0);
     const sent = parts.reduce((sum, part) => sum + part.sent, 0);
     const received = parts.reduce((sum, part) => sum + part.received, 0);
-    // A run of received lines alone is not a message run: they join the turn's other received
-    // lines in one "Received N messages" row (laneNoticeBatches.ts `projectInboxRows`).
-    const onlyReceived = sent === 0 && parts.every((part) => part.received > 0);
+    // A run of received lines that all join the turn's "Received N messages" row is not a message
+    // run: they draw in that row (laneNoticeBatches.ts `projectInboxRows`). One with a lane report,
+    // a task's result or a person's message among them still folds here.
+    const onlyReceived = sent === 0 && members.every(joinsReceivedRow);
     if (lines < 2 || sent + received === 0 || onlyReceived) {
       out?.push(...members);
       index = end;
