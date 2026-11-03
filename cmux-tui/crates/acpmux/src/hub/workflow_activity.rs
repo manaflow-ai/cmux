@@ -6,6 +6,7 @@ use crate::workflow_reply::{
 };
 use crate::workflow_runs::{ActivityRecord, Child, RunRecord};
 use serde::{Deserialize, Serialize};
+mod remote;
 
 #[derive(Serialize, Deserialize, Default)]
 struct Policy {
@@ -47,7 +48,20 @@ impl Hub {
         if options.get("on").is_some_and(|host| !host.is_string()) {
             return Err(RpcError::invalid_params("on must name a machine"));
         }
+        if let Some(host) = options.get("on").and_then(Value::as_str)
+            && host != "local"
+            && host != crate::hub::host_label()
+            && matches!(&activity.child, Child::Agent { .. })
+        {
+            return Box::pin(
+                self.workflow_remote_agent(run, generation, activity, prompt, options, host),
+            )
+            .await;
+        }
         match &activity.child {
+            Child::CiMachine { intent } => {
+                self.workflow_ci_execute(run, generation, activity, intent).await
+            }
             Child::Machine { session_id, task_id, .. } => {
                 let gate = self.workflow_runs.gate(&run.id).lock_owned().await;
                 self.workflow_runs
@@ -142,6 +156,7 @@ impl Hub {
                     Some(run.cwd.clone()),
                     Some(&task_id),
                     None,
+                    false,
                     false,
                 )
                 .await?;
@@ -763,11 +778,17 @@ impl Hub {
             return Ok(());
         };
         for child in run.activities.values().filter(|child| {
-            child.outcome.is_none() && (child.id == activity || workflow_child_of(parent, child))
+            child.outcome.is_none()
+                && (child.id == activity || workflow_child_of(run, parent, child))
         }) {
             match &child.child {
-                Child::Agent { session_id, prompt_id, .. } => {
-                    if let Ok(session) = self.resolve(session_id) {
+                Child::CiMachine { intent } => {
+                    self.workflow_ci_cancel(child, intent).await?;
+                }
+                Child::Agent { session_id, prompt_id, host } => {
+                    if host.as_deref().is_some_and(|host| host != "local") {
+                        self.workflow_cancel_remote(run, child).await?;
+                    } else if let Ok(session) = self.resolve(session_id) {
                         self.remove_queued(&session, prompt_id);
                         self.cancel_prompt(&session, prompt_id).await?;
                     }
@@ -793,7 +814,7 @@ impl Hub {
 
     /// Read the final assistant message inside this prompt's exact persisted turn window.
     /// A person's later messages never become a workflow result; subagent output is excluded.
-    fn workflow_final_reply(
+    pub(crate) fn workflow_final_reply(
         &self,
         session: &Session,
         prompt_id: &str,
@@ -859,7 +880,10 @@ impl Hub {
 /// Internal child kinds cannot be requested by the runner. Require their exact
 /// deterministic identity and owned session/task as well, so a logical sibling
 /// named like `test-prompt-x` is never mistaken for a child of `test`.
-fn workflow_child_of(parent: &ActivityRecord, child: &ActivityRecord) -> bool {
+fn workflow_child_of(run: &RunRecord, parent: &ActivityRecord, child: &ActivityRecord) -> bool {
+    if remote::child_of(&run.id, parent, child) {
+        return true;
+    }
     match (&parent.child, &child.child, child.kind.as_str()) {
         (
             Child::Agent { session_id, prompt_id, host },

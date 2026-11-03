@@ -4660,7 +4660,7 @@ a.cv-sha:focus-visible {
   margin: 0;
   padding: 0 12px 0 8px;
   overflow-x: auto;
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: var(--cv-mono, var(--cmux-diff-code-font-family, "SF Mono", ui-monospace, Menlo, monospace));
   font-size: var(--cv-codeblock-size, 12px);
   line-height: var(--cv-codeblock-line-height, 20px);
   color: var(--cv-codeblock-text);

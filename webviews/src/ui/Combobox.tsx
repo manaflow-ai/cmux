@@ -7,6 +7,7 @@ import { Autocomplete } from "@base-ui/react/autocomplete";
 import { usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup } from "./popupHost";
 import { cx } from "./cx";
+import { useScrollEdges } from "./scrollEdges";
 import { ScrollArea } from "./ScrollArea";
 import { useNativePopup, type NativePopupDescription } from "./nativePopup";
 import type { NativePopupEvent } from "./popupProtocol";
@@ -109,7 +110,10 @@ export function Combobox({
   const nativeModel: NativePopupDescription | undefined = native && {
     ...native.model,
     search: {
-      ...(native.model.search ?? { id: popupSearchId(native.model), placeholder: placeholder ?? label }),
+      ...(native.model.search ?? {
+        id: popupSearchId(native.model),
+        placeholder: placeholder ?? label,
+      }),
       value,
       submitOnReturn: true,
       autoHighlight:
@@ -241,6 +245,15 @@ export function Combobox({
   }, [keep]);
   const held = keep && tallest > 0;
   const hasPinned = Boolean(pinnedSuggestions?.length);
+  const edges = useScrollEdges();
+  const pinnedEdges = useScrollEdges();
+  const attachList = useCallback(
+    (node: HTMLDivElement | null) => {
+      listRef.current = node;
+      edges(hasPinned ? null : node);
+    },
+    [edges, hasPinned],
+  );
   const deliberatelyHighlighted = useRef(false);
   const changeQuery = (next: string) => {
     if (native) setNativeSessionOpen(true);
@@ -359,20 +372,24 @@ export function Combobox({
   );
   const list = (
     <Autocomplete.List
-      ref={listRef}
-      className={cx("ui-combobox-list", hasPinned ? "ui-combobox-pinned-list" : listClassName)}
+      ref={attachList}
+      className={cx(
+        "ui-combobox-list",
+        !hasPinned && "ui-scroll-edge-fade",
+        hasPinned ? "ui-combobox-pinned-list" : listClassName,
+      )}
       render={hasPinned ? <div /> : <ul />}
       hidden={suggestions.length === 0 && !held}
       aria-hidden={held && suggestions.length === 0 ? true : undefined}
       style={held ? { minHeight: tallest, boxSizing: "border-box" } : undefined}
     >
       {hasPinned && (
-        <div className="ui-combobox-pinned">
+        <div ref={pinnedEdges} className="ui-combobox-pinned ui-scroll-edge-fade">
           {pinnedSuggestions!.map((item) => renderOption(item, enabledSuggestions.indexOf(item)))}
         </div>
       )}
       {hasPinned ? (
-        <ScrollArea className={cx("ui-combobox-scroll", listClassName)} viewportClassName="ui-combobox-viewport">
+        <ScrollArea fade className={cx("ui-combobox-scroll", listClassName)} viewportClassName="ui-combobox-viewport">
           <Autocomplete.Collection>
             {(item) => (pinnedSuggestions!.includes(item) ? null : renderOption(item))}
           </Autocomplete.Collection>
