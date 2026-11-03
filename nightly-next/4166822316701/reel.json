@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "build": "4166822316701",
+  "notes": "notes/4166822316701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 33916,
+      "title": "NEXT iPhone: the Mac app's own Feed requests (held PRs, sign-ins, consent) pinned on the phone, pushed once",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33894,
+      "title": "measure: fleet entry for chromium-host-bench (cef-host-input hop_us, ping_us)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33964,
+      "title": "perf(palette): Go to Workspace by id checks the id by one lookup, not by building every workspace's row",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33979,
+      "title": "fix(home): MCP connect key field shows no focus ring (web-lint red since 385cb09a747)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33779,
+      "title": "workflow: execute durable local agent and machine activities",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
