@@ -1284,8 +1284,9 @@ const TOOL_RUN_BOTTOM = 0;
 const LINE_FRAME = TOOL_RUN_TOP + TOOL_RUN_BOTTOM;
 const lineRow = () => LINE_FRAME + toolRowHeight();
 /// A message row (a send, SentMessageLine.tsx and AgentMessageRow.tsx; another agent's received line;
-/// a folded group's head): one tool row, and in the stacked look (conversation/messageLineLook.ts,
-/// the default) its first line's own line under it while it is shut and has one.
+/// a folded group's head): one tool row (the single look, conversation/messageLineLook.ts, the
+/// default), and in the stacked gallery look its first line's own line under it while it is shut and
+/// has one.
 const messagePreviewLine = (shown: boolean) =>
   shown && messageLineLook() === "stacked" ? MESSAGE_PREVIEW_LINE_PT * chromeScale : 0;
 const messageRowHeight = (preview: boolean) => toolRowHeight() + messagePreviewLine(preview);
