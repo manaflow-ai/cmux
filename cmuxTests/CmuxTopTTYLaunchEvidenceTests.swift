@@ -56,6 +56,8 @@ struct CmuxTopTTYLaunchEvidenceTests {
         #expect(intArray(resources["pids"]) == [tree.processOnTTY])
         #expect(processRowPIDs(surface["processes"]) == [tree.processOnTTY])
         #expect(intArray(windows[1]["app_process_pids"]) == [])
+        let windowResources = try #require(windows[1]["resources"] as? [String: Any])
+        #expect(intArray(windowResources["pids"]) == [tree.processOnTTY])
     }
 
     /// The wider evidence must not pull in what #11004 keeps out: only the TTY links
