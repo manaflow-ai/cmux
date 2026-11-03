@@ -45,6 +45,8 @@ type Props = ComponentProps<typeof SessionInfo> & {
   tones?: CSSProperties;
   /// Gallery-only: a different height ceiling, for comparison with the shipped full-room one.
   ceiling?: string;
+  /// Gallery-only: a different edge look, for comparison with the shipped hairline (sessionInfo.css).
+  edge?: string;
   /// Gallery-only: panel width used by narrow workflow layout states.
   panelWidth?: number;
 };
@@ -102,12 +104,14 @@ function GallerySessionInfo({
   header = "title",
   tones,
   ceiling,
+  edge,
   panelWidth = 320,
   ...props
 }: Props) {
   return (
     <div className="acpmux-shell" style={{ display: "flex", justifyContent: "flex-end", height: "100%", ...tones }}>
       {ceiling ? <style>{`.acpmux-session-info[data-placement]{max-height:${ceiling}}`}</style> : null}
+      {edge ? <style>{`.acpmux-session-info[data-placement]{${edge}}`}</style> : null}
       {transcript ? <Transcript /> : null}
       <SessionInfoPanel
         width={panelWidth}
@@ -384,6 +388,29 @@ const noCardBehind: Play = async (ctx) => {
     throw new Error(`The panel paints a card: ${look.backgroundColor} ${look.backgroundImage}`);
   if (!["none", ""].includes(look.backdropFilter) || look.boxShadow !== "none")
     throw new Error(`The panel draws a card's blur or shadow: ${look.backdropFilter} ${look.boxShadow}`);
+};
+
+// The panel's edge: a hairline (at most 1px) in the pane's border color all round, on its rounded corners,
+// and no fill of its own where nothing runs under it (Leo, 2026-11-03: "having a border for it might be better").
+const hairlineEdge: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-session-info"));
+  const panel = ctx.find({ selector: ".acpmux-session-info" });
+  const look = style(ctx, panel);
+  for (const side of ["Top", "Right", "Bottom", "Left"] as const) {
+    const width = Number.parseFloat(look.getPropertyValue(`border-${side.toLowerCase()}-width`));
+    if (!(width > 0 && width <= 1)) throw new Error(`The panel's ${side} edge is ${width}px, not a hairline`);
+    if (look.getPropertyValue(`border-${side.toLowerCase()}-style`) !== "solid")
+      throw new Error(`The panel's ${side} edge does not draw`);
+  }
+  const probe = ctx.document.createElement("div");
+  probe.style.color = "var(--agent-border)";
+  panel.parentElement!.append(probe);
+  const border = style(ctx, probe).color;
+  probe.remove();
+  if (look.borderTopColor !== border)
+    throw new Error(`The edge is ${look.borderTopColor}, not the pane's border ${border}`);
+  if (Number.parseFloat(look.borderTopLeftRadius) <= 0) throw new Error("The edge has square corners");
+  if (!panel.hasAttribute("data-over-chat")) await noCardBehind(ctx);
 };
 
 // Every section title shares the Environment rows' text column, with or without an icon.
@@ -1284,6 +1311,28 @@ export default componentEntry<Props>({
       note: "A section head under the pointer: the six-dot grip shows at the head's right edge (as native #32674). At rest no grip draws, and a pointer over the section's other rows shows none.",
       props: { ...full, placement: "push" },
       play: gripOnHeadHoverOnly,
+    },
+    "edge-hairline": {
+      note: "Chosen. The panel in the gutter with no fill of its own and a hairline edge in the pane's border color (--agent-border, 0.5px) on its rounded corners (Leo, 2026-11-03: \"maybe it's ok...? to HAVE NO BACKGROUND FOR THE SESSION INFO / but i think having a border for it might be better\").",
+      props: { ...full },
+      play: hairlineEdge,
+    },
+    "edge-hairline-over-chat": {
+      note: "Chosen, over the chat's column: the same hairline over the glass. Without the glass the transcript's text would read through the panel's own, so it keeps the blur and tint there.",
+      props: { ...full, transcript: true },
+      play: hairlineEdge,
+    },
+    "edge-none": {
+      note: "Before, for comparison: no fill and no edge, so the panel's sections float on the pane with nothing marking where it ends.",
+      props: { ...full, edge: "border-color:transparent" },
+    },
+    "edge-strong": {
+      note: "Alternative: a stronger edge (--agent-border-strong). It reads as a box drawn around the panel.",
+      props: { ...full, edge: "border-color:var(--agent-border-strong)" },
+    },
+    "over-chat-blur-only": {
+      note: "Alternative over the chat: the hairline and the blur with no tint. Light transcript text still shows through the panel's rows, so the chosen look keeps the tint.",
+      props: { ...full, transcript: true, edge: "--glass-tint:transparent" },
     },
     "subagent-parent": {
       note: "The chat's own panel while a subagent works in a worktree: the chat's folder, branch, context, pull requests and tasks, and its Subagents list, which opens each subagent's own panel.",
