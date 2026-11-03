@@ -76,11 +76,17 @@
   --cv-tool-run-bottom-gap: 0px;
   --cv-tool-run-top-gap: 0px;
   --cv-action-overhang: calc((var(--grid-transcript-action-control) - var(--grid-transcript-icon-box)) / 2);
-  /* A reply footer's buttons, as ChatGPT's (design/transcript-spacing.md "Reply footer"; Leo,
-     2026-11-02: "didn't i always say we can do it like chatgpt"): a 20 glyph in a 32 button, the
-     buttons touching, the first glyph's box on the prose's left edge. */
-  --cv-footer-button: var(--grid-transcript-footer-control);
-  --cv-footer-glyph: var(--grid-transcript-footer-icon);
+  /* A reply footer's line keeps ChatGPT's 32 slot, 8 under the reply (design/transcript-spacing.md
+     "Reply footer"; Leo, 2026-11-02: "didn't i always say we can do it like chatgpt"), so the live
+     line's swap and the row estimates are unchanged. Its buttons are Claude's: a 16 glyph in a 28
+     button, the buttons touching, the first glyph's box on the prose's left edge (Leo, 2026-11-02,
+     of the 20 glyphs in 32 buttons: "WHY ARE THESE SO BIG"). */
+  --cv-footer-row: var(--grid-transcript-footer-control);
+  --cv-footer-button: var(--grid-transcript-action-control);
+  --cv-footer-glyph: var(--grid-transcript-icon-box);
+  /* Their ink at rest, a step under the muted text, full ink under the pointer (Leo, 2026-11-02:
+     "AND THEY'RE REDUCED OPACITY A BIT TOO"). */
+  --cv-footer-ink: color-mix(in srgb, var(--cv-text-muted) 72%, transparent);
   --cv-footer-overhang: calc((var(--cv-footer-button) - var(--cv-footer-glyph)) / 2);
   /* Base's names for the lines below, on the grid (grid.md 5.5): the gap is the stack's, so a line
      adds none of its own. */
@@ -112,6 +118,13 @@
   --cv-row-icon-gap: var(--grid-gap);
   --cv-tool-text-inset: var(--grid-transcript-text-gap);
   --cv-disclosure-gap: var(--ds-space-1, 4px);
+  /* A transcript row's disclosure chevron, ChatGPT's "Worked for 11s ⌄" (Leo, 2026-11-03: "this how
+     chatgpt does their chevrons"): its glyph box, and the gap from the last visible word to its ink.
+     Gallery agent-pane.transcript-chevron-after-label compares sizes and gaps. */
+  --cv-chevron-glyph: 12px;
+  --cv-chevron-gap: 5px;
+  /* The turned ChevronRight's ink starts 4.25/16 into its box (icons.tsx). */
+  --cv-chevron-ink: calc(var(--cv-chevron-glyph) * 0.265625);
   /* A message's hover row fades as Claude Code desktop's (--cds-message-actions-reveal-*): in after
      100ms over 120ms, out at once (Claude's 60ms is off the motion scale: its quick 80ms), both on
      Claude's snap curve. */
@@ -1095,6 +1108,22 @@
   border-radius: var(--cv-code-radius, 5px);
   background: var(--cv-code-bg);
 }
+/* An agent link written as code (conversation/SessionRef.tsx): the code's look in the link's
+   colour, underlined as every link is. A `HOST/NAME` that names a session is the session chip's
+   wash (.acpmux-started-chip) on the code itself, so it keeps its place when it turns into one. */
+.cv-link.cv-session-ref > .cv-code {
+  color: inherit;
+}
+.acpmux-started-chip.cv-session-ref {
+  padding: 0;
+  background: none;
+}
+.acpmux-started-chip.cv-session-ref > .cv-code {
+  background: color-mix(in srgb, var(--cv-text, var(--agent-text)) 9%, transparent);
+}
+.acpmux-started-chip.cv-session-ref:hover > .cv-code {
+  background: color-mix(in srgb, var(--cv-text, var(--agent-text)) 16%, transparent);
+}
 /* Written UTC times stay quiet until the reader points at or focuses them. */
 .cv-time-hover {
   cursor: help;
@@ -2054,7 +2083,7 @@ pre.cv-math-source {
    The line reserves the normal turn gap below it, so the end-of-turn swap does not move anything. */
 .cv-worked.is-below {
   /* The footer's slot (transcriptGrid.ts MARK_FOOTER_SLOT): its 32 line, 8 under a reply. */
-  height: var(--cv-footer-button);
+  height: var(--cv-footer-row);
   padding-top: 0;
 }
 /* Right under a step row it is one more line of the run (model.ts isLiveStep, #29965): 22 tall,
@@ -2348,15 +2377,14 @@ pre.cv-math-source {
 /* The running rows' mark (`Spinner`: compaction, tool groups, MCP calls, command and shell rows).
    WORKING-LOOK: agent work draws the look the app picks, `data-working-look` on the root (Debug
    Settings `status.working`):
-   - spinner (the default, also with no attribute or an unknown value): the faint ring with its
-     turning sweep;
+   - spinner (the default, also with no attribute or an unknown value): the turning arc;
    - breathe (explicit choice only): the accent dot breathing on the shared clock;
    - shimmer: a still dot in the theme accent, and a light band crosses the row's words.
    A loading mark (no `data-working`) is always the ring. Every loop runs on the shared clock
    (ui/spinnerClock.ts), so many rows move as one, and holds still under Reduce Motion and the
    static look (the mark stopped). The mark's own default (dot hidden, the mark turning) lives in
    spinner.css, which `Spinner` imports, so it holds on every page that draws one. */
-:root:is([data-working-look="breathe"], [data-working-look="shimmer"]) .cv-spinner[data-working] :is(.cv-spinner__track, .cv-spinner__sweep) {
+:root:is([data-working-look="breathe"], [data-working-look="shimmer"]) .cv-spinner[data-working] .cv-spinner__arc {
   display: none;
 }
 :root:is([data-working-look="breathe"], [data-working-look="shimmer"]) .cv-spinner[data-working] .cv-spinner__dot {
@@ -2562,8 +2590,9 @@ pre.cv-math-source {
 .cv-iconbtn:focus:not(:focus-visible) {
   outline: none;
 }
-/* One right chevron, turned a quarter when open; a message head's shows on hover. It turns with the
-   fold it opens (fold.ts), on the same token. */
+/* One chevron, the way ChatGPT draws "Worked for 11s ⌄" (Leo, 2026-11-03: "this how chatgpt does
+   their chevrons"): in a transcript row it points down while closed and turns to point up while open.
+   A message head's shows on hover. It turns with the fold it opens (fold.ts), on the same token. */
 .cv-rotor {
   flex: none;
 }
@@ -2586,6 +2615,57 @@ pre.cv-math-source {
 }
 .cv-rotor.is-open {
   transform: rotate(90deg);
+}
+.acpmux-row .cv-rotor {
+  transform: rotate(90deg);
+}
+.acpmux-row .cv-rotor.is-open {
+  transform: rotate(-90deg);
+}
+/* A row's chevron right after its words, never at the line's end: one glyph size, its ink
+   --cv-chevron-gap after the last visible word (the row's flex gap and the glyph's own inset taken
+   back). A cut label keeps it after the ellipsis: the chevron is the label's sibling and never
+   shrinks, the label does. test/transcript-chevron-after-label.test.ts. */
+.acpmux-row svg.cv-rotor {
+  width: var(--cv-chevron-glyph);
+  height: var(--cv-chevron-glyph);
+}
+.acpmux-row :is(.cv-tool__chevron, .cv-worked__chevron, .cv-disclosure__toggle:not(.is-chevron) > .cv-rotor) {
+  flex: none;
+  width: var(--cv-chevron-glyph);
+  height: var(--cv-chevron-glyph);
+  justify-content: flex-start;
+  margin-inline-start: calc(var(--cv-chevron-gap) - var(--grid-gap) - var(--cv-chevron-ink));
+}
+/* A message line (SentMessageLine.tsx, AgentMessageRow.tsx; the whole line still toggles): the
+   sentence takes its words' width, the chevron follows it,
+   then the hover Copy, and the delivery word sits at the line's end. Home's run ledger, outside the
+   transcript, keeps its own layout (ledger.css). */
+.acpmux-row .cv-sent > .cv-agentmsg__sentence,
+.acpmux-row .cv-agentmsg__line .cv-agentmsg__toggle,
+.acpmux-row .cv-agentmsg__line .cv-agentmsg__preview {
+  flex: 0 1 auto;
+}
+/* A message row's hover Copy is inside its sentence (AgentMessageRow.tsx): in the transcript the
+   sentence's parts join the line, so the chevron can come before Copy. The preview still takes the
+   one ellipsis; the chip keeps its own cap. */
+.acpmux-row .cv-agentmsg__line > .cv-agentmsg__sentence {
+  display: contents;
+}
+.acpmux-row .cv-sent > .cv-sent__actions,
+.acpmux-row .cv-agentmsg__line > .cv-agentmsg__sentence > .cv-sent-actions {
+  order: 4;
+}
+.acpmux-row .cv-tool > .cv-tool__trail {
+  order: 5;
+  margin-inline-start: auto;
+}
+/* A line that opens a chat keeps its chevron its own 20px button (DisclosureRow.css), the glyph
+   centred in it. */
+.acpmux-row .cv-disclosure__line > .cv-disclosure__toggle.is-chevron {
+  margin-inline-start: calc(
+    var(--cv-chevron-gap) - var(--grid-gap) - (20px - var(--cv-chevron-glyph)) / 2 - var(--cv-chevron-ink)
+  );
 }
 .cv-rotor.is-hover:not(.cv-tool__chevron) {
   visibility: hidden;
@@ -3454,7 +3534,9 @@ button.cv-video-frames__frame:focus-visible {
 }
 .cv-received .cv-disclosure__label {
   display: flex;
-  flex: 1 1 auto;
+  /* Its words' width, so the chevron follows them (conversation.css "chevron right after its
+     words"); the toggle still takes the line's free width as its target. */
+  flex: 0 1 auto;
   align-items: baseline;
   gap: calc(var(--ds-space-1) + 2px);
   font-weight: 400;
@@ -3462,8 +3544,8 @@ button.cv-video-frames__frame:focus-visible {
 .cv-received__hover {
   position: absolute;
   inset-block: 0;
-  /* Before the chevron (12px), one small gap clear of it. */
-  inset-inline-end: calc(12px + var(--ds-space-1));
+  /* At the line's end: the chevron follows the words, so nothing else sits there. */
+  inset-inline-end: 0;
   display: inline-flex;
   align-items: center;
   padding-inline-start: var(--ds-space-2);
@@ -3555,6 +3637,35 @@ button.cv-video-frames__frame:focus-visible {
   content: "\00B7";
   margin-inline-end: 4px;
 }
+/* A machine with a menu (IncomingMessageCard.tsx MachineMenu) keeps the label's look; its name alone
+   lights on hover and while its menu is open, never the dot before it or the line around it. */
+/* The pane does not load ui.css, so the button resets itself (no border, background or own font). */
+button.cv-received__host {
+  appearance: none;
+  border: 0;
+  background: none;
+  font: inherit;
+  padding: 0;
+  cursor: default;
+  text-align: start;
+}
+.cv-received__host-name {
+  border-radius: var(--ds-radius-control);
+  padding-inline: calc(var(--ds-space-1) / 2);
+  margin-inline: calc(var(--ds-space-1) / -2);
+}
+button.cv-received__host:is(:hover, :focus-visible, [data-popup-open]) {
+  color: var(--cv-text);
+}
+button.cv-received__host:is(:hover, :focus-visible, [data-popup-open]) > .cv-received__host-name {
+  background: color-mix(in srgb, var(--cv-text) 12%, transparent);
+}
+button.cv-received__host:focus-visible {
+  outline: none;
+}
+button.cv-received__host:focus-visible > .cv-received__host-name {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cv-text) 30%, transparent);
+}
 /* The sender's name is the line's first word: it starts on the rows' text column, its tint
    reaching back into the icon gap (transcript-icon-column.test.ts, transcript-row-alignment.test.ts). */
 .cv-received__sender > .cv-agent-tag.is-open {
@@ -3578,16 +3689,13 @@ button.cv-video-frames__frame:focus-visible {
   user-select: text;
   -webkit-user-select: text;
 }
-/* Pointing at the sender's open chip lights the chip alone: the line keeps its tone. */
-.cv-received:is(:hover, :active, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) {
-  color: var(--cv-text);
-}
-.cv-received:is(:hover, :active, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus)))
-  :is(.cv-received__from:not(.is-open), .cv-received__text) {
-  color: var(--cv-text);
-}
+/* One steady tone: pointing at or focusing a received line, its opened card or its sender changes
+   no text's colour, opacity or filter; hover only reveals the line's controls and its plate (Leo,
+   2026-11-03: "i dont think this should light up/dim based off if ur hovered onit or otherwise").
+   The line, its sender and its card keep the activity tone the tool rows rest at (#27074), the
+   preview its dim one (received-message-steady-tone-browser.test.ts). */
 /* Markdown and headings set the primary tone themselves (.cv-md, .cv-h): inside a message from or
-   to another agent they take the container's tone instead, and with it the hover and focus lift. */
+   to another agent they take the container's tone instead. */
 .cv-received__text :is(.cv-md, .cv-h),
 .cv-agentmsg__card :is(.cv-md, .cv-h) {
   color: inherit;
@@ -3968,10 +4076,14 @@ a.cv-sha:focus-visible {
 .cv-turn-actions .cv-iconbtn:not(.cv-turn-retry-menu) {
   width: var(--cv-meta-row);
 }
-/* A reply's footer buttons: ChatGPT's 32 squares with its 8 radius, each around a 20 glyph. */
+/* A reply's footer buttons: Claude's 28 squares with a 7 radius, each around a 16 glyph, in the
+   muted footer ink until pointed at (--cv-footer-ink). */
 .cv-turn-actions:not(.cv-turn-actions--empty) .cv-iconbtn {
   height: var(--cv-footer-button);
-  border-radius: 8px;
+  border-radius: 7px;
+}
+.cv-turn-actions:not(.cv-turn-actions--empty) .cv-message-footer-row .cv-iconbtn:not(.cv-turn-continue, :hover, [data-popup-open], [data-reading]) {
+  color: var(--cv-footer-ink);
 }
 /* Continue is a labelled button (its own width, .cv-turn-continue below) and keeps its small arrow. */
 .cv-turn-actions:not(.cv-turn-actions--empty) .cv-iconbtn:not(.cv-turn-retry-menu, .cv-turn-continue) {
@@ -3983,11 +4095,11 @@ a.cv-sha:focus-visible {
 }
 .cv-turn-actions:not(.cv-turn-actions--empty),
 .cv-turn-actions:not(.cv-turn-actions--empty) .cv-message-footer-row {
-  min-height: var(--cv-footer-button);
+  min-height: var(--cv-footer-row);
 }
 /* Its time on hover in claude.ai's caption size, 6 after the last button (the row's 8 less a half step). */
 .cv-turn-actions:not(.cv-turn-actions--empty) .cv-message-footer-row > .cv-turn-time {
-  height: var(--cv-footer-button);
+  height: var(--cv-footer-row);
   margin-inline-start: calc(-1 * var(--grid-half-step));
   font-size: var(--text-caption);
   letter-spacing: var(--text-caption--letter-spacing);
@@ -4010,7 +4122,7 @@ a.cv-sha:focus-visible {
 .acpmux-row.acpmux-turnSummary {
   contain: layout;
 }
-/* The buttons touch, 32px squares side by side as ChatGPT's, then the time 8px on (.cv-turn-actions' gap). */
+/* The buttons touch, 28px squares side by side, then the time 8px on (.cv-turn-actions' gap). */
 .cv-turn-action-group {
   display: inline-flex;
   align-items: center;
@@ -5277,7 +5389,7 @@ a.cv-sha:focus-visible {
     .cv-plan:not([data-ended])
     .cv-plan__item[data-status="in_progress"]
     .cv-plan__mark {
-    animation: cmux-spin var(--cmux-spinner-period, 1400ms) linear infinite;
+    animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
   }
 }
 
@@ -5310,11 +5422,11 @@ a.cv-sha:focus-visible {
    when the turn ends. */
 .acpmux-row.acpmux-activityLine.acpmux-row--below {
   min-height: 0;
-  height: var(--cv-footer-button);
+  height: var(--cv-footer-row);
   padding-bottom: 0;
 }
 .acpmux-row.acpmux-activityLine.acpmux-row--below .cv-activity {
-  min-height: var(--cv-footer-button);
+  min-height: var(--cv-footer-row);
 }
 /* Right under a step row it is one more line of the run instead (model.ts isLiveStep, #29965). */
 .acpmux-row.acpmux-activityLine.acpmux-row--below.acpmux-row--after-step {

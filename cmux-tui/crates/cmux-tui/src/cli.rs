@@ -52,6 +52,8 @@ mod cloud_repo;
 mod cloud_secret;
 #[cfg(unix)]
 mod cloud_start_chat;
+#[cfg(unix)]
+mod cloud_workspaces;
 mod code_mode;
 #[cfg(unix)]
 mod coderouter;
