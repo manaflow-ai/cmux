@@ -264,6 +264,15 @@ daemon screen's last lines: the scrollback did not jump), `output_advances`, and
 (daemon evidence: the shell's `echo TAG $(stty size)` equals the daemon screen's and the app's
 grid). The file's docstring has every field.
 
+`ext_pixel.py` (group pixel-perfect, `journeys/video/px-*.json` from `video-cases/gen_pixel.py`) films
+pane resizes with loud fixtures: `pixel/tui_border.py` (every cell its own color, three one-cell rings)
+in terminals, `pixel/page.html` (1, 2 and 3 CSS px borders) in Chromium tabs, an agent pane with its
+`agent-pane/theme.css`, a #FF00FF shell and a #00FFFF terminal ground. Steps: `px_springs` (every
+`motion.spring.*` response divided by a speed through `debug.tunables`, or Reduce Motion), `px_tunable`,
+`px_page`, `px_agent_css` and `px_record_start` (ext_video's recorder with scan lines across every pane
+border, and the judge's note). `video-cases/judge_pixel.py` judges the films from the exact scan lines;
+tests: `test_ext_pixel.py` (stdlib) and `video-cases/test_judge_pixel.py` (numpy).
+
 ## Judge
 
 The driver decides, not the author:
