@@ -4,8 +4,12 @@ A complete example for the request "a view of the PRs from the last 24h". It
 writes the customize app (`~/.config/cmux/customize`, id `local/customize`): a
 sidebar section in the band under the workspace list, and a Session Info section
 that lists the chat branch's pull requests. cmux watches the folder: each save
-reloads the app, and the first save installs it with the scopes its manifest
-asks for. There is no restart and no install click.
+reloads the app, and the first save installs it. There is no restart and no
+install click.
+
+The daemon reads manifest v2 only. One app implements each interface once, so
+the customize app has at most one sidebar section (`cmux.section/1`) and one
+Session Info section (`cmux.session.info.section/1`).
 
 ## The manifest
 
@@ -13,36 +17,43 @@ asks for. There is no restart and no install click.
 
 ```json
 {
-  "$schema": "https://cmux.dev/schemas/cmux-app/1.json",
-  "manifestVersion": 1,
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
   "id": "local/customize",
   "name": "My views",
   "version": "1.0.0",
   "description": "Pull requests from the last 24 hours, and the chat branch's pull requests.",
-  "engines": { "cmux": "^1.0" },
-  "main": "main.js",
-  "scopes": {
-    "net:api.github.com": "Search pull requests when GitHub is not connected.",
-    "actions:run": "Open a pull request when you click its row."
-  },
-  "optionalScopes": {
-    "integration:github:read": "Use the connected GitHub account, private repositories included."
-  },
-  "contributes": {
-    "sidebarSections": [
-      { "id": "recent", "title": "PRs · last 24h", "symbol": "clock.arrow.circlepath", "defaultRegion": "bottom", "render": "renderRecent", "maxRows": 10 }
-    ],
-    "sessionInfoSections": [
-      { "id": "branch", "title": "Branch pull requests", "symbol": "arrow.triangle.pull", "render": "renderBranch", "maxRows": 8 }
-    ],
-    "settings": {
-      "type": "object",
-      "properties": { "login": { "type": "string", "title": "GitHub login", "default": "" } }
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "main.js" },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderRecent",
+      "title": "PRs · last 24h",
+      "symbol": "clock.arrow.circlepath",
+      "options": { "defaultRegion": "bottom", "maxRows": 10 }
+    },
+    "cmux.session.info.section/1": {
+      "export": "renderBranch",
+      "title": "Branch pull requests",
+      "symbol": "arrow.triangle.pull",
+      "options": { "maxRows": 8 }
     }
   },
-  "activation": ["onSidebarSection:recent"]
+  "scopes": {
+    "integration:github:read": "Read pull requests with the connected GitHub account.",
+    "actions:run": "Open a pull request when you click its row."
+  }
 }
 ```
+
+### Scopes
+
+A customize app is an unverified local app. At install it gets the read scopes
+it asks for under `scopes`, so `integration:github:read` works at once once
+GitHub is connected in cmux. Any other scope (`actions:run`, `net:<host>`) stays
+off until the person turns it on in Settings > Apps > My views. Until then a
+row shows its URL on hover, and a click does nothing. An agent cannot grant a
+scope; tell the person which one to turn on and why.
 
 ## The script
 
@@ -56,18 +67,9 @@ section's is `{ session_id, cwd, branch?, harness? }`.
 ```js
 const repoOf = (url) => String(url || "").replace("https://api.github.com/repos/", "")
 
-// One GitHub search; `who` is "@me" through the connected account, else the login setting.
 async function search(query) {
-  const login = String(cmux.app.settings().login || "").trim()
-  try {
-    const r = await cmux.integrations.github.request({ method: "GET", path: `/search/issues?q=${encodeURIComponent(query("@me"))}&per_page=50` })
-    return r.items
-  } catch (e) {
-    if (!login) throw new Error("Connect GitHub, or set the login setting of My views.")
-    const r = await cmux.net.fetch(`https://api.github.com/search/issues?q=${encodeURIComponent(query(login))}&per_page=50`, { headers: { Accept: "application/vnd.github+json" } })
-    if (!r.ok) throw new Error(`GitHub answered ${r.status}`)
-    return r.json().items
-  }
+  const r = await cmux.integrations.github.request({ method: "GET", path: `/search/issues?q=${encodeURIComponent(query)}&per_page=50` })
+  return r.items
 }
 
 const toRow = (i) => ({ id: i.id, number: i.number, title: i.title, url: i.html_url, repo: repoOf(i.repository_url), open: i.state === "open", merged: !!(i.pull_request && i.pull_request.merged_at), updated: i.updated_at })
@@ -80,7 +82,9 @@ const prList = (rows, error, empty) =>
         subtitle: () => `${p().repo} #${p().number}${p().merged ? " · Merged" : p().open ? "" : " · Closed"}`,
         symbol: () => (p().merged ? "checkmark.circle" : "arrow.triangle.pull"),
         tint: () => (p().merged ? "accent" : p().open ? "success" : "secondary")
-      }).onTap(() => cmux.actions.run("openBrowser", { url: p().url }))
+      })
+        .help(() => p().url)
+        .onTap(() => cmux.actions.run("openBrowser", { url: p().url }))
     ),
     () => (error() ? EmptyState({ title: "Cannot load pull requests", message: error(), symbol: "exclamationmark.triangle" }) : null),
     () => (!error() && rows() && rows().length === 0 ? EmptyState({ title: empty, symbol: "checkmark.circle" }) : null)
@@ -94,7 +98,7 @@ function renderRecent() {
   const load = async () => {
     const since = new Date(Date.now() - 24 * 60 * 60000).toISOString().slice(0, 19) + "Z"
     try {
-      const batches = await Promise.all(["author", "review-requested", "assignee"].map((role) => search((who) => `is:pr ${role}:${who} updated:>=${since}`)))
+      const batches = await Promise.all(["author", "review-requested", "assignee"].map((role) => search(`is:pr ${role}:@me updated:>=${since}`)))
       const byId = new Map()
       for (const row of batches.flat().map(toRow)) if (row.open || row.merged) byId.set(row.id, row)
       setRows([...byId.values()].sort((a, b) => b.updated.localeCompare(a.updated)))
@@ -116,7 +120,7 @@ function renderBranch(context) {
   const [error, setError] = signal(null)
   const load = async () => {
     try {
-      setRows((await search(() => `is:pr head:${branch}`)).map(toRow))
+      setRows((await search(`is:pr head:${branch}`)).map(toRow))
       setError(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -132,16 +136,16 @@ globalThis.__cmuxAppExports = { renderRecent, renderBranch }
 
 ## Where it shows, and errors
 
-The first time cmux sees the `recent` section it adds it to the end of its
+The first time cmux sees the sidebar section it adds it to the end of its
 `defaultRegion` (`bottom` is the band under the workspace list). A person who
-moves or removes it keeps that choice; cmux never adds it back. To put it back
-on purpose:
+moves or removes it keeps that choice; cmux never adds it back. A v2 section is
+named by its interface, so to put it back on purpose:
 
 ```sh
-cmux apps place local/customize#recent --region bottom
+cmux apps place 'local/customize#cmux.section/1' --region bottom
 ```
 
-The `branch` section appears in every chat's Session Info after the default
+The Session Info section appears in every chat's Session Info after the default
 sections; the person can drag it.
 
 When a section stays empty or shows an error, read the app's log (script
@@ -151,35 +155,35 @@ errors, failed loads, refused scopes):
 cmux raw command --request-json '{"cmd":"apps-logs","app":"local/customize"}'
 ```
 
-## Adding a section to an existing customize app
+## Adding a view to an existing customize app
 
-There is one customize app, so a new view goes into the same two files. Read
-them first and keep everything already there:
+There is one customize app with one sidebar section and one Session Info
+section. Read both files first and keep everything in them.
 
-1. Add an entry with a new id and a new render name to `sidebarSections` (or
-   `sessionInfoSections`), next to the existing entries. A sidebar section
-   also gets `onSidebarSection:<id>` in `activation`.
-2. Add the render function to `main.js` and add its name to the existing
-   `globalThis.__cmuxAppExports` object. Do not write a second
-   `__cmuxAppExports` assignment: the last one replaces the first, and the
-   earlier sections stop rendering.
+- If the slot the new view needs is free, add that interface to `implements`
+  with a new render name, add the function to `main.js`, and add its name to
+  the existing `globalThis.__cmuxAppExports` object.
+- If the slot is taken (a second sidebar view), put the new view inside the
+  existing section: give its render a group per view and keep the old one.
+- Never write a second `__cmuxAppExports` assignment: the last one replaces the
+  first, and the earlier sections stop rendering.
 
-For example, a "Reviews" section next to `recent`:
-
-```json
-{ "id": "reviews", "title": "Reviews", "symbol": "person.2", "defaultRegion": "bottom", "render": "renderReviews", "maxRows": 8 }
-```
+For example, reviews waiting on you under the 24-hour list, in the same
+sidebar section:
 
 ```js
 function renderReviews() {
   const [rows, setRows] = signal(null)
   const [error, setError] = signal(null)
-  search((who) => `is:pr is:open review-requested:${who}`).then((items) => setRows(items.map(toRow)), (e) => setError(String(e)))
+  search("is:pr is:open review-requested:@me").then((items) => setRows(items.map(toRow)), (e) => setError(String(e)))
   return prList(rows, error, "No reviews waiting")
 }
 
-globalThis.__cmuxAppExports = { renderRecent, renderBranch, renderReviews }
+function renderSidebar() {
+  return VStack({ spacing: 8 }, [renderRecent(), Text("Reviews"), renderReviews()])
+}
+
+globalThis.__cmuxAppExports = { renderSidebar, renderBranch }
 ```
 
-Each section is placed once, on its own: moving `recent` does not move
-`reviews`.
+and point `cmux.section/1`'s `export` at `renderSidebar`.

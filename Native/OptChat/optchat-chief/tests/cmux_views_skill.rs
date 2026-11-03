@@ -14,10 +14,10 @@ fn the_cmux_views_skill_ships_to_every_chief() {
     let skill = loaded.iter().find(|s| s.name == "cmux-views").expect("cmux-views loads");
     for needle in [
         "local/customize",
-        "sidebarSections",
-        "sessionInfoSections",
+        "cmux.section/1",
+        "cmux.session.info.section/1",
         "__cmuxAppExports",
-        "cmux apps place local/customize#recent --region bottom",
+        "cmux apps place 'local/customize#cmux.section/1' --region bottom",
         "apps-logs",
     ] {
         let text = std::fs::read_to_string(&skill.path).unwrap();

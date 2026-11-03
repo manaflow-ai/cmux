@@ -104,22 +104,25 @@ Before choosing a preset, template, starter config, or known workflow pattern, r
 
 When someone asks for a view of their own (a sidebar section, a Session Info
 section, "a view of the PRs from the last 24h"), write the customize app in
-`~/.config/cmux/customize`: `cmux-app.json` (id `local/customize`, manifest v1)
+`~/.config/cmux/customize`: `cmux-app.json` (id `local/customize`, manifest v2)
 and `main.js`, a classic script that uses the scene globals (`VStack`, `Row`,
 `ForEach`, `EmptyState`, ...) and ends with
 `globalThis.__cmuxAppExports = { ... }`. cmux watches the folder: every save
-reloads the view, and the app installs itself with the scopes its manifest asks
-for. No restart, no install click.
+reloads the view, and the app installs itself the first time. No restart, no
+install click.
 
-- `sidebarSections` with `defaultRegion` `top`, `middle` or `bottom` (the band
-  under the workspace list); cmux places a section there the first time it sees
-  it, and the person's later move or removal wins. Put one back on purpose with
-  `cmux apps place local/customize#<id> --region bottom`.
-- `sessionInfoSections` for a section in each chat's Session Info; its render
-  function gets `{ session_id, cwd, branch?, harness? }` as its argument.
+- `implements["cmux.section/1"]` is its one sidebar section; `options.defaultRegion`
+  `top`, `middle` or `bottom` (the band under the workspace list). cmux places it
+  there the first time it sees it, and the person's later move or removal wins.
+  Put it back on purpose with `cmux apps place 'local/customize#cmux.section/1' --region bottom`.
+- `implements["cmux.session.info.section/1"]` is its one Session Info section; its
+  render function gets `{ session_id, cwd, branch?, harness? }` as its argument.
+- Scopes: read scopes (`integration:github:read`) are granted at install. Others
+  (`actions:run`, `net:<host>`) need the person to turn them on in Settings > Apps.
 - Script errors: `cmux raw command --request-json '{"cmd":"apps-logs","app":"local/customize"}'`.
-- Adding a view to an existing customize app: keep every existing entry and
-  render function, and add the new name to the one `__cmuxAppExports` object.
+- Adding a view: keep every existing implementation and render function. A taken
+  slot gets the new view inside its existing render; add each new name to the one
+  `__cmuxAppExports` object.
 
-The worked example, as copy-paste files, and the recipe for adding a section:
+The worked example, as copy-paste files, and the recipe for adding a view:
 [references/local-app-views.md](references/local-app-views.md).
