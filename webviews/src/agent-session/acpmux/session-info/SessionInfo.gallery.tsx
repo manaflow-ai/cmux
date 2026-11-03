@@ -397,9 +397,10 @@ const gripLeftOfEveryTitle: Play = async (ctx) => {
     const first = section.querySelector(
       ":scope > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger, :scope > .acpmux-session-info-section__head",
     );
-    const glyph = first?.querySelector(
-      ":scope > .acpmux-session-info-section__icon, :scope > .acpmux-session-info-section__title",
-    );
+    // A bare section (the Environment rows) has no head: its first row's leading icon stands in.
+    const glyph = first
+      ? first.querySelector(":scope > .acpmux-session-info-section__icon, :scope > .acpmux-session-info-section__title")
+      : section.querySelector(":scope > :not(.acpmux-session-info-section__handle) svg");
     if (glyph && grip.right > glyph.getBoundingClientRect().left + 0.5)
       throw new Error(`${section.dataset.section}'s grip is not left of its title`);
     if (grip.left < body.left - 0.5) throw new Error(`${section.dataset.section}'s grip spills out of the panel`);
