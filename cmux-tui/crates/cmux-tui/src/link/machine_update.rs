@@ -427,25 +427,7 @@ fn wait_for_outcome(socket: &Path, result: &str, daemon_pid: u64) -> Result<Stri
     while Instant::now() < deadline {
         std::thread::sleep(Duration::from_secs(1));
         if let Some(outcome) = read_outcome(socket, result) {
-            return match outcome["state"].as_str() {
-                Some("updated") => Ok(own.to_owned()),
-                Some("pending") => Err(Failed::new(
-                    "machine_update_pending",
-                    "the new build is installed but the daemon did not stop, even after SIGKILL; the next update stops it",
-                )),
-                Some("busy") => Err(Failed::new(
-                    "machine_update_busy",
-                    "another update of this machine is running; try again once it ends",
-                )),
-                Some("rolled_back") => Err(Failed::new(
-                    "machine_update_rolled_back",
-                    format!(
-                        "the new daemon did not serve, so the machine runs its old build again: {}",
-                        detail(&outcome)
-                    ),
-                )),
-                _ => Err(Failed::new("machine_update_failed", detail(&outcome))),
-            };
+            return ended(&outcome, own);
         }
         let Some(now) = machine_gate::identify(socket) else { continue };
         if machine_gate::build_id(&now) == Some(own) && now["pid"].as_u64() != Some(daemon_pid) {
@@ -459,6 +441,33 @@ fn wait_for_outcome(socket: &Path, result: &str, daemon_pid: u64) -> Result<Stri
         "machine_update_unresolved",
         "the machine did not report how the update ended; check it, then run the update again",
     ))
+}
+
+/// The update's end, from the apply step's final outcome: the new build, or
+/// what kept it from the machine.
+fn ended(outcome: &Value, own: &str) -> Result<String, Failed> {
+    match outcome["state"].as_str() {
+        Some("updated") => Ok(own.to_owned()),
+        Some("pending") => Err(Failed::new(
+            "machine_update_pending",
+            "the new build is installed but the daemon did not stop, even after SIGKILL; the next update stops it",
+        )),
+        Some("busy") => Err(Failed::new(
+            "machine_update_busy",
+            format!("not now: {}; try again", detail(outcome)),
+        )),
+        // The daemon runs someone's own build from another path: left as it
+        // is, and no failure (the app shows nothing for it).
+        Some("foreign") => Err(Failed::new("machine_update_foreign_daemon", detail(outcome))),
+        Some("rolled_back") => Err(Failed::new(
+            "machine_update_rolled_back",
+            format!(
+                "the new daemon did not serve, so the machine runs its old build again: {}",
+                detail(outcome)
+            ),
+        )),
+        _ => Err(Failed::new("machine_update_failed", detail(outcome))),
+    }
 }
 
 fn detail(outcome: &Value) -> String {

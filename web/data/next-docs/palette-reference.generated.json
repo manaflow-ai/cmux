@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1275,
+    "entries": 1278,
     "shortcuts": 189
   },
   "sections": [
@@ -20,6 +20,12 @@
           "title": "Add People to Group…",
           "shortcut": null,
           "command": "cmux home add-members"
+        },
+        {
+          "id": "home.agentMessagePlayground",
+          "title": "Agent Messages Playground",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "home.attachFiles",
@@ -7120,6 +7126,12 @@
           "command": null
         },
         {
+          "id": "updates.installEarlierBuild",
+          "title": "Install an Earlier Nightly…",
+          "shortcut": null,
+          "command": "cmux settings install-earlier-nightly"
+        },
+        {
           "id": "app.install",
           "title": "Install App…",
           "shortcut": null,
@@ -7412,6 +7424,12 @@
           "title": "Switch Update Channel…",
           "shortcut": null,
           "command": "cmux settings switch-update-channel"
+        },
+        {
+          "id": "debug.tabBarPlayground",
+          "title": "Tab Bar Playground",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "tabs.overflow.scroll",

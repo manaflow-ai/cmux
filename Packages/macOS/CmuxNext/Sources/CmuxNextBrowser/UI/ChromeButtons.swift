@@ -69,9 +69,13 @@ final class ChromeIconButton: ClickableButton {
         applyIcon()
     }
 
+    /// The icon's side instead of the toolbar's or the overlay's (More draws the app's ⋮ at
+    /// `OverflowButton.glyphSize`); read on each density change.
+    var iconSide: (() -> CGFloat)? { didSet { applyIcon() } }
+
     private func applyIcon() {
         let label = iconLabel
-        let side = isToolbar ? OmnibarStyle.toolbarIconSize : CGFloat.iconRowSize(forLabelPointSize: BrowserMetrics.symbolPointSize)
+        let side = iconSide?() ?? (isToolbar ? OmnibarStyle.toolbarIconSize : CGFloat.iconRowSize(forLabelPointSize: BrowserMetrics.symbolPointSize))
         let icon = NSImage.icon(iconName, size: side)
         icon.accessibilityDescription = label
         image = icon

@@ -29,6 +29,8 @@ import {
   environmentSections,
   knownMachines,
   orderEnvironments,
+  savedEnvironmentIsFolder,
+  savedEnvironmentLabel,
   type ConnectKind,
   type EnvironmentKind,
   type OffloadKind,
@@ -181,7 +183,9 @@ export function ComposerContext({
   /// picker offers only these, whatever the machine's kind.
   offloads?: readonly OffloadKind[];
   /// The New Tab page's saved environments, in the environment picker. While one is picked it
-  /// alone names where the chat starts: the folder control steps aside.
+  /// alone names where the chat starts: the folder control steps aside. One that is only a folder on
+  /// this computer is a folder instead: the folder menu lists and picks it, and names it while it is
+  /// picked, with This Mac the machine.
   saved?: SavedEnvironmentRows;
   /// The machine list opened, and every few seconds while it stays open: read the machines and
   /// their status again.
@@ -321,7 +325,19 @@ export function ComposerContext({
     [],
   );
   if (picked.key !== pickKey) setPicked({ key: pickKey });
-  const selectedComputer = picked.key === pickKey && picked.computer ? picked.computer : initialComputer;
+  // New Tab's saved environments that are only a folder on this computer: folders, not machines.
+  const savedFolders = useMemo(
+    () => (newChat ? (saved?.environments ?? []).filter(savedEnvironmentIsFolder) : []),
+    [newChat, saved?.environments],
+  );
+  const savedFolderPick = savedFolders.find((environment) => environment.id === saved?.current);
+  // One picked starts the chat on this Mac (NewTabScreen askInEnvironment), whatever machine was
+  // picked before it, so this Mac is the machine shown.
+  const selectedComputer = savedFolderPick
+    ? "local"
+    : picked.key === pickKey && picked.computer
+      ? picked.computer
+      : initialComputer;
   const setSelectedComputer = (computer: string) => setPicked({ key: pickKey, computer });
   // The chat's own machine (not this Mac) is picked, and its folders were listed for it.
   const ownMachine = selectedComputer !== "local" && selectedComputer === initialComputer && Boolean(machineFolders);
@@ -337,6 +353,15 @@ export function ComposerContext({
   const waitFailed = waitMachine?.stage === "failed";
   const folders = useMemo(() => {
     const known = availableFolders(summary, sessions, selectedComputer);
+    if (selectedComputer === "local") {
+      const seen = new Set(known.map((folder) => folder.id));
+      for (const environment of savedFolders) {
+        const id = normalizeCwd(environment.folder);
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        known.push({ id, label: projectLabel(id), detail: id });
+      }
+    }
     const choices = selectedComputer === "local" ? projectChoices : ownMachine ? machineFolders : undefined;
     if (!choices) return known;
     const projects = choices.map((project) => ({
@@ -347,16 +372,18 @@ export function ComposerContext({
     }));
     const seen = new Set(projects.map((project) => project.id));
     return [...projects, ...known.filter((folder) => !seen.has(folder.id))];
-  }, [summary, sessions, selectedComputer, projectChoices, machineFolders, ownMachine]);
+  }, [summary, sessions, selectedComputer, projectChoices, machineFolders, ownMachine, savedFolders]);
   const summaryFolder = summary?.cwd && computerId(summary) === selectedComputer ? summary.cwd : undefined;
   // A chat in its private agent-home folder has no project yet: the row offers a folder instead.
-  const currentFolder = summaryFolder
-    ? isAgentHome(summaryFolder)
-      ? undefined
-      : normalizeCwd(summaryFolder)
-    : projectChoices
-      ? undefined
-      : folders[0]?.id;
+  const currentFolder = savedFolderPick
+    ? normalizeCwd(savedFolderPick.folder)
+    : summaryFolder
+      ? isAgentHome(summaryFolder)
+        ? undefined
+        : normalizeCwd(summaryFolder)
+      : projectChoices
+        ? undefined
+        : folders[0]?.id;
   const currentComputer = computers.find((computer) => computer.id === selectedComputer) ?? computers[0];
   // A started chat's picker lists only where it runs, with that machine's warning too.
   const currentPickerComputer =
@@ -461,12 +488,22 @@ export function ComposerContext({
   // The computer control is the environment picker where the surface asks for it.
   const environmentsShown = environments && !computerDisabled;
   const savedRows = environmentsShown && !readOnly ? saved : undefined;
-  const savedPick = savedRows?.environments.find((environment) => environment.id === savedRows.current);
+  // A picked saved environment that is only a folder is shown as that folder on This Mac, not here.
+  const savedPick = savedRows?.environments.find(
+    (environment) => environment.id === savedRows.current && !savedEnvironmentIsFolder(environment),
+  );
+  // A folder pick is always the folder (the page's project, which Cloud sends and recent projects
+  // record), then the saved environment that is only that folder, if there is one.
+  const pickFolder = (cwd: string) => {
+    onProject?.(cwd);
+    const environment = savedRows && savedFolders.find((candidate) => normalizeCwd(candidate.folder) === cwd);
+    if (environment) savedRows.onPick(environment.id);
+  };
   // What the environment control names: the row the list checks, so this Mac reads "This Mac" (its
   // own name stays in the tooltip's list row), any other machine its name.
   const placeName =
     waitingName ??
-    savedPick?.name ??
+    (savedPick ? savedEnvironmentLabel(savedPick) : undefined) ??
     (currentComputer?.kind === "local" ? t("composer.thisMac") : currentComputer?.label) ??
     t(CONTEXT_LABELS.chooseComputer);
   const pickEnvironment = (id: string) => {
@@ -520,7 +557,7 @@ export function ComposerContext({
               }
               folders={folders}
               current={currentFolder}
-              onPick={(cwd) => onProject?.(cwd)}
+              onPick={pickFolder}
               onBrowse={onBrowseProject}
               onNoProject={onNoProject}
               noProject={noProject && !currentFolder}

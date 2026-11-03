@@ -1,0 +1,9 @@
+/* The looks SubagentDoneLine.gallery.tsx compares beside the shipped one ("fill"). */
+.subagent-done-gallery[data-look="cap60"] .cv-subagent-done .cv-agent-tag {
+  max-width: 60%;
+}
+.subagent-done-gallery[data-look="before"] .cv-subagent-done .cv-agent-tag {
+  display: inline-flex;
+  flex: none;
+  max-width: 40%;
+}
