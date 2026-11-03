@@ -25,8 +25,18 @@ extra Chromium switches are accepted only there.
 import argparse, collections, json, os, sys, time
 
 
+def argparse_counts(value):
+    try:
+        counts = sorted({int(c) for c in value.split(",") if c.strip()})
+    except ValueError:
+        raise argparse.ArgumentTypeError("counts are whole numbers, comma separated (got %r)" % value)
+    if not counts or counts[0] < 0:
+        raise argparse.ArgumentTypeError("counts are whole numbers >= 0 (got %r)" % value)
+    return counts
+
+
 def argparse_kinds(value):
-    kinds = [k for k in value.split(",") if k]
+    kinds = list(dict.fromkeys(k for k in value.split(",") if k))  # each kind once
     unknown = [k for k in kinds if k not in ("print", "spawn", "both")]
     if unknown or not kinds:
         raise argparse.ArgumentTypeError("kinds are print, spawn, both (got %r)" % value)
@@ -41,7 +51,7 @@ parser.add_argument("--app", required=True)
 parser.add_argument("--out", required=True)
 parser.add_argument("--json")
 parser.add_argument("--kinds", default="print,spawn,both", type=lambda v: ",".join(argparse_kinds(v)))
-parser.add_argument("--counts", default="0,8,24")
+parser.add_argument("--counts", default="0,8,24", type=lambda v: ",".join(str(c) for c in argparse_counts(v)))
 parser.add_argument("--hz", type=float, default=20)
 parser.add_argument("--window", type=float, default=20)
 parser.add_argument("--settle", type=float, default=8)
@@ -152,7 +162,10 @@ def run_kind(kind):
                     break
                 last = size
                 time.sleep(3)  # test harness: waiting for Chromium's file
-            RESULT.setdefault("trace", summarize_trace(trace_file, windows))
+            try:
+                RESULT.setdefault("trace", summarize_trace(trace_file, windows))
+            except Exception as error:  # a malformed trace never costs the measured windows their report
+                RESULT.setdefault("trace", {"error": "%s: %s" % (type(error).__name__, error)})
     except LaunchError as error:
         rows.append({"kind": kind, "error": error.reason})
         print("CEF-PUMP-WAKES " + json.dumps(rows[-1]), flush=True)
@@ -160,14 +173,15 @@ def run_kind(kind):
         rows.append({"kind": kind, "error": "%s: %s" % (type(error).__name__, error)})
         print("CEF-PUMP-WAKES " + json.dumps(rows[-1]), flush=True)
     finally:
+        RESULT["kinds"][kind] = rows  # every way out of the kind, an early return or a failed stop too
         app.stop()
-        RESULT["kinds"][kind] = rows  # every way out of the kind, an early return too
 
 
 def summarize_trace(path, windows):
     """Per window: the tasks run on CrBrowserMain (Chromium's UI thread, cmux's main thread), by posting location."""
     try:
-        doc = json.load(open(path))
+        with open(path) as handle:
+            doc = json.load(handle)
     except (OSError, ValueError) as error:
         return {"error": "%s: %s" % (type(error).__name__, error)}
     events = doc.get("traceEvents", doc) if isinstance(doc, dict) else doc
