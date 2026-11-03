@@ -39,6 +39,10 @@ public final class AgentPaneView: NSView {
     public var deviceChats: [AgentPaneDeviceChat] = [] { didSet { if deviceChats != oldValue { AgentPaneDeviceChat.owe(to: self) } } }
     /// App-wide state pushes held to one per turn, and while nobody sees the pane (``AgentPaneShownPushes``).
     let shownPushes = AgentPaneShownPushes()
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// What each debug MCP connect ask got back, by session (AgentPaneView+DebugMcpConnect.swift).
+    var debugMcpConnectReplies: [String: [String: Any]] = [:]
+    #endif
     /// The newest recently closed items for the New Tab page's Recently Closed section.
     public var recentlyClosed: AgentPaneClosedList = .empty { didSet { if recentlyClosed != oldValue { AgentPaneClosedItem.push(recentlyClosed, to: self) } } }
     public var editedFiles = AgentPaneEditedFilesSetting.fallback {
