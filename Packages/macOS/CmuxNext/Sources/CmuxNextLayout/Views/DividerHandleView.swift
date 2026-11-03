@@ -145,6 +145,13 @@ final class DividerHandleView: NSView {
         return rect.isNull ? .zero : rect
     }
 
+    /// The resize cursor for a point in this handle's bounds, nil where it shows none (outside `cursorClip`).
+    func cursor(atLocal point: CGPoint) -> NSCursor? {
+        guard cursorRectInBounds.contains(point) else { return nil }
+        if #available(macOS 15, *) { return axis == .horizontal ? .columnResize : .rowResize }
+        return axis == .horizontal ? .resizeLeftRight : .resizeUpDown
+    }
+
     override func resetCursorRects() {
         let rect = cursorRectInBounds
         guard !rect.isEmpty else { return }
