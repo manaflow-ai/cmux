@@ -58,7 +58,7 @@ extension CloudService {
             record = try await flow.create(name: name, startedByPerson: startedByPerson, askedBy: askedBy, key: pinned.idempotencyKey,
                                            approved: pinned.approvedRequest, onApproved: { [weak creation] in creation?.markApproved($0, key: pinned.idempotencyKey) },
                                            answering: pinned.answeringRequest, onAnswering: { [weak creation] in creation?.markAnswering($0, key: pinned.idempotencyKey) },
-                                           gate: pinned.wasSent ? .allowed : createGate, environment: environment)
+                                           gate: pinned.wasSent ? .allowed : createGate, environment: environment, madeRoom: { [weak self] in self?.madeRoom?(CloudMachine(next: $0)?.title ?? $0["name"]?.stringValue ?? "") })
         } catch let failure as CloudAppOpFailure where CloudMachineCreateRetry().isDefinitiveRefusal(failure) {
             // The key's stored answer is this refusal; only an uncertain outcome keeps the key. A cancelled
             // attempt (a Retry already started, with this same key) leaves the key to that Retry.
@@ -157,20 +157,12 @@ extension CloudPresenter {
     /// Confirms a Cloud machine create: true only for the person's click on Create; no window answers
     /// false. An agent's or a script's request waits in the sidebar's card (`asks`), the backend's hold in a sheet.
     /// `chatOpen` says whether an agent chat is still open: a card its asking chat had goes, a no, when the chat closes.
-    @MainActor static func confirmCreate(_ prompt: CloudMachineCreateFlow.Prompt, in window: NSWindow?, asks: SidebarAsks?, chatOpen: @escaping @MainActor @Sendable (String) -> Bool = { _ in true },
-                                         openPricing: @MainActor (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }) async -> Bool {
-        if case .upgrade(let need) = prompt {
-            // No window or sidebar to show the card in: nothing is opened without the person's click.
-            guard let asks, window != nil else { return false }
-            let upgrade = await asks.ask(CloudStrings.upgradeTitle, detail: CloudStrings.upgradeDetail(need.reason), symbol: "cloud", yes: CloudStrings.upgradeButton, no: CloudStrings.notNow)
-            if upgrade { openPricing(StaticURL.pricing.url) }
-            return upgrade
-        }
+    @MainActor static func confirmCreate(_ prompt: CloudMachineCreateFlow.Prompt, in window: NSWindow?, asks: SidebarAsks?,
+                                         chatOpen: @escaping @MainActor @Sendable (String) -> Bool = { _ in true }) async -> Bool {
         let intro: String, machine: CloudMachineCreateFlow.Machine
         switch prompt {
         case .agentRequest(let asked): (intro, machine) = (CloudStrings.createRequestDetail, asked)
         case .approval(_, let held): (intro, machine) = (CloudStrings.createConfirmApproval, held)
-        case .upgrade: return false // answered above
         }
         let lines = (machine.name.map { [CloudStrings.createConfirmName($0)] } ?? []) + (machine.sizeShown ? [CloudStrings.createConfirmSize(cpu: machine.cpu, memoryGB: machine.memoryMB / 1024, diskGB: machine.diskMB / 1024)] : [])
         if case .agentRequest = prompt, let asks { return window != nil ? await asks.ask(CloudStrings.createConfirmTitle, detail: intro, lines: lines, symbol: "cloud", yes: CloudStrings.createConfirmButton, no: CloudStrings.cancel, asker: machine.askedBy, present: chatOpen) : false }

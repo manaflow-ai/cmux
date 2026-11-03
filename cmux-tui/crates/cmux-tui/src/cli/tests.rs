@@ -224,6 +224,8 @@ mod remote_cli_docs {
                 | ["docs", "search", ..]
                 // vm.rs owns `machine new` (the app's Cloud create, or the VM API).
                 | ["machine", "new" | "create", ..]
+                // cloud_start_chat.rs: the CLI's own Cloud verb, not an app action.
+                | ["cloud", "start-chat", ..]
         )
     }
 

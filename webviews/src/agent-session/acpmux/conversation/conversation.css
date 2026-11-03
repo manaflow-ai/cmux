@@ -401,10 +401,15 @@
   overflow: auto;
 }
 
-/* A prompt the Chief sent a subagent: a quiet "From the Chief" line above it, and a long task
-   collapsed to its first lines, with Show all leading its action row on the left so the toggle
-   adds no row of its own (ChiefPromptBubble.tsx; Leo 2026-10-31). */
+/* A prompt the Chief sent a subagent: a quiet "Sent from <Chief>" line with the Chief's avatar
+   above it, right-aligned with the bubble as ChatGPT's "Sent from" line (Leo 2026-11-02), and a
+   long task collapsed to its first lines, with Show all leading its action row on the left so the
+   toggle adds no row of its own (ChiefPromptBubble.tsx; Leo 2026-10-31). */
 .cv-user__from {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
   margin-bottom: 2px;
   padding-right: 4px;
   font-family: var(--cv-font);
@@ -412,6 +417,20 @@
   line-height: 18px;
   color: var(--cv-text-muted);
   letter-spacing: var(--text-detail--letter-spacing);
+}
+.cv-user__from-avatar {
+  flex: none;
+  width: 14px;
+  aspect-ratio: 1;
+}
+.cv-user__from-avatar.cv-chief-text-avatar {
+  width: 14px;
+}
+.cv-user__from-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 /* The clamp is on an inner box: on the bubble itself, its bottom padding showed half of the next
    line under the sixth (Leo 2026-10-31). */
@@ -2150,6 +2169,73 @@ pre.cv-math-source {
   /* Plain lit words and timed slots use generated content so the DOM holds the line once. */
   :root:not([data-status-indicators="static"]) .cv-shimmer__lit::before {
     content: attr(data-text);
+  }
+}
+
+/* A running tool row's words shimmer (ShimmerText.tsx RowShimmer; ToolRow.tsx, CommandRow.tsx), as
+   Claude desktop's and ChatGPT's running rows do, in place of a mark at the row's far edge (Leo,
+   2026-11-03: "this is kinda weird looking" / "doesn't claude desktop have the thinking shimmer go
+   across stuff"). While it runs the words rest a step dimmer than a finished row's, as ChatGPT's
+   in-flight row does, and a soft band of the full text colour crosses them on the Thinking line's
+   clock and keyframes, so the line and its rows sweep together. Reduce Motion, the motion gate
+   (`data-cmux-motion` off or reduced) and the static status look keep the dimmed words still; a
+   hidden page pauses the loop (desktop.css); the row's copy unmounts once the call ends. Focus
+   lifts the words to the text colour, as on every row. Gallery: agent-pane.tool-row-shimmer. */
+.cv-tool {
+  --cv-row-shimmer-period: var(--cmux-shimmer-period, 2.8s);
+  /* The band's width, a share of the words', as the Thinking line's (30% to 70% of its mask). */
+  --cv-row-shimmer-width: 40%;
+  --cv-row-shimmer-lit: var(--cv-text);
+}
+.cv-tool.is-live:not(:focus-within) > :is(.cv-tool__text, .cv-command__text):has(> .cv-row-shimmer) {
+  color: var(--cv-text-dim);
+}
+.cv-tool.is-live > :is(.cv-tool__text, .cv-command__text):has(> .cv-row-shimmer) {
+  position: relative;
+}
+.cv-row-shimmer {
+  display: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-status-indicators="static"]):not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"])
+    .cv-tool.is-live
+    .cv-row-shimmer {
+    /* A still clip: the band moves inside it, so the words' box (ToolRow's cut-label check) never grows. */
+    display: block;
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .cv-tool.is-live .cv-row-shimmer__band {
+    display: block;
+    width: 100%;
+    height: 100%;
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 50%, transparent);
+    mask-image: linear-gradient(90deg, transparent, #000 50%, transparent);
+    -webkit-mask-size: var(--cv-row-shimmer-width) 100%;
+    mask-size: var(--cv-row-shimmer-width) 100%;
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    animation: cmux-shimmer-band var(--cv-row-shimmer-period) linear infinite;
+  }
+  /* The lit copy lays out as the words do (one line cut with an ellipsis, or wrapped when opened). */
+  .cv-tool.is-live .cv-row-shimmer__lit {
+    display: block;
+    width: 100%;
+    overflow: hidden;
+    text-overflow: inherit;
+    white-space: inherit;
+    overflow-wrap: inherit;
+    color: var(--cv-row-shimmer-lit);
+    animation: cmux-shimmer-lit var(--cv-row-shimmer-period) linear infinite;
+  }
+  .cv-tool.is-live .cv-row-shimmer__lit * {
+    color: inherit;
   }
 }
 
@@ -5179,7 +5265,7 @@ a.cv-sha:focus-visible {
     .cv-plan:not([data-ended])
     .cv-plan__item[data-status="in_progress"]
     .cv-plan__mark {
-    animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
+    animation: cmux-spin var(--cmux-spinner-period, 1400ms) linear infinite;
   }
 }
 

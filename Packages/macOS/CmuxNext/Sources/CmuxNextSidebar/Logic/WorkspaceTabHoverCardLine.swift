@@ -92,7 +92,8 @@ struct WorkspaceTabHoverCardLine: Equatable {
         case .kind: kindWord(tab.kind)
         case .place: tab.kind == .browser ? pagePlace(tab) : nonEmpty(tab.folder)
         case .branch: nonEmpty(tab.branch)
-        case .state: stateWord(tab.state)
+        // A working tab's spinner says it already, beside its title: no "Working" in the line too.
+        case .state: tab.state.isWorking || tab.state.isLoading ? nil : stateWord(tab.state)
         case .time: tab.lastActivity.flatMap { WorkspaceHoverCardContent.age(since: $0, now: now) }
         case .model: tab.kind == .agentChat || tab.kind == .conversation ? nonEmpty(tab.model) : nil
         case .command: tab.kind == .terminal || tab.kind == .remoteTerminal ? nonEmpty(tab.command) : nil
@@ -109,19 +110,26 @@ struct WorkspaceTabHoverCardLine: Equatable {
         return host + path
     }
 
-    /// Where an agent chat or terminal tab runs; nil for pages and New Tab pages, which run here.
+    /// Where an agent chat or terminal tab runs; nil for pages and New Tab pages, which run here. A Cloud
+    /// or remote workspace's card names its machine once, in its header, so a tab there names a machine
+    /// only when it runs somewhere else (Leo 2026-11-02: "the repeated cloud cloud cloud").
     static func machineText(_ tab: SidebarTab, workspace: SidebarMachine?, namesLocal: Bool) -> String? {
         switch tab.kind {
         case .terminal, .remoteTerminal, .agentChat, .conversation: break
         case .browser, .newTab, .other: return nil
         }
+        if let workspace, workspace.kind != .local {
+            guard let own = nonEmpty(tab.machine) else { return nil }
+            let header = machineWord(workspace)
+            let same = [header, workspace.name].contains { $0.caseInsensitiveCompare(own) == .orderedSame }
+            return same ? nil : own
+        }
         if let own = nonEmpty(tab.machine) { return own }
-        guard let workspace else { return nil }
-        if workspace.kind == .local { return namesLocal ? Strings.hoverCardThisMac : nil }
-        return machineWord(workspace)
+        guard workspace != nil else { return nil }
+        return namesLocal ? Strings.hoverCardThisMac : nil
     }
 
-    /// A machine as the card names it: "This Mac", "Cloud", or its name (the card's host row's words).
+    /// A machine as the card names it: "This Mac", "Cloud", or its name (the words of the card's header).
     static func machineWord(_ machine: SidebarMachine) -> String {
         switch machine.kind {
         case .local: Strings.hoverCardThisMac
@@ -151,7 +159,17 @@ struct WorkspaceTabHoverCardLine: Equatable {
 
     /// The title a tab row shows: a blank page reads "New Tab" (the owner, on the gallery).
     static func title(_ tab: SidebarTab) -> String {
-        tab.kind == .browser && tab.title == "about:blank" ? Strings.hoverCardNewTab : tab.title
+        if tab.kind == .browser && tab.title == "about:blank" { return Strings.hoverCardNewTab }
+        return shortSessionName(tab) ?? tab.title
+    }
+
+    /// An agent chat's session name without its lane prefix ("gcp-codex-swarm-11/nightly-rollback" reads
+    /// "nightly-rollback"); a title with spaces is a sentence, not a session name, and stays whole (Leo
+    /// 2026-11-02, on that row's clipped line: "THE PLACEMENT LOOKS LIKE SHIT").
+    static func shortSessionName(_ tab: SidebarTab) -> String? {
+        guard tab.kind == .agentChat || tab.kind == .conversation, !tab.title.contains(" "),
+              let last = tab.title.split(separator: "/").last, String(last) != tab.title else { return nil }
+        return String(last)
     }
 
     private static func nonEmpty(_ text: String?) -> String? {

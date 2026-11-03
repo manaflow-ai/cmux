@@ -62,14 +62,15 @@ struct CloudNativeFirstLauncherTests {
         #expect(try await launcher.ensure(install: "i").status == "link")
         #expect(launcher.route == "link (native failed: refused(404) at host.network.target)")
         #expect(try await launcher.ensure(install: "i").status == "link")
-        #expect(native.ensures == 2 && reasons == 2 && link.stops == 0)
+        // Each retry stops the link first: both serve from one state folder, which a running link holds locked.
+        #expect(native.ensures == 2 && reasons == 2 && link.stops == 1 && link.ensures == 2)
         native.failure = nil
         #expect(try await launcher.ensure(install: "i").status == "native")
-        #expect(native.ensures == 3 && link.stops == 1)
+        #expect(native.ensures == 3 && link.stops == 2 && link.ensures == 2)
         #expect(launcher.route == "native" && launcher.fallbackReason == nil)
         #expect(native.stops == 2 && native.archives == 0)
         await launcher.stop(install: "i")
-        #expect(native.stops == 3 && link.stops == 1)
+        #expect(native.stops == 3 && link.stops == 2)
     }
 
     /// `cloud.machines`' `link_route` (#32494): the launcher each link source and choice gets, and its route.

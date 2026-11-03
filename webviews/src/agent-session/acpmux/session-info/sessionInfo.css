@@ -70,6 +70,15 @@
   align-self: flex-start;
   margin: var(--acpmux-session-info-top, 0px) var(--acpmux-session-info-inset) 0 0;
 }
+/* Pushing with the App's native panel (SessionInfo.tsx): the page's place for it, the same width and
+   right margin as the pushed card, so the chat's column ends at the panel's left edge. */
+.acpmux-session-info-room {
+  flex: none;
+  min-width: 0;
+  /* The card's inset (--acpmux-session-info-inset below), SessionInfo.tsx FLOAT_MARGIN. */
+  margin-right: var(--grid-gap);
+  pointer-events: none;
+}
 /* Every shell-side panel contributes one term to the native tab row's width. Session Info's
    room is measured before the artifact column by SessionInfo.tsx; subtracting the main column's
    100% leaves the pushed Session Info width and its inset. Keeping each panel as a zero-valued shell
