@@ -19,8 +19,12 @@ export const readVmReceiverPolicy = <C, M, V>(caller: Named<C, Principal>, mesh:
   proofs: { readonly ownsMesh: TenantOwnsResource<C, M>; readonly meshScope: KeyHasScope<C, "mesh:read">; readonly vmScope: KeyHasScope<C, "vm:read"> }) =>
   Effect.gen(function* () {
     const checkedAt = yield* Clock.currentTimeMillis, tenant = caller.value.tenantId, store = yield* MeshStore;
-    const member = yield* readMeshMember(caller, mesh, vm, proofs);
-    const acl = yield* store.currentAcl(tenant, mesh.value).pipe(Effect.catchAll(dependencyDown("mesh.currentAcl")));
+    // The ACL read does not depend on the member read, so it rides along with it (and its provider call).
+    // The inventory is read after the member refresh, so the recorded address it compares is the refreshed one.
+    const [member, acl] = yield* Effect.all([
+      readMeshMember(caller, mesh, vm, proofs),
+      store.currentAcl(tenant, mesh.value).pipe(Effect.catchAll(dependencyDown("mesh.currentAcl"))),
+    ], { concurrency: "unbounded" });
     const aclFingerprint = JSON.stringify(acl);
     const document = Option.match(acl, { onNone: () => ({ rules: [] }), onSome: (v) => v.document });
     const version = Option.match(acl, { onNone: () => 0, onSome: (v) => v.version });
@@ -42,11 +46,14 @@ export const readVmReceiverPolicy = <C, M, V>(caller: Named<C, Principal>, mesh:
     const projection = { schemaVersion: 1 as const, tenantId: tenant, vmId: vm.value, meshId: mesh.value, ipv4: member.ipv4, aclVersion: version, peers };
     const policyDigest = yield* sha256Hex(`cmux-vm-receiver-policy-v1\n${JSON.stringify(projection)}`);
     // Fence identity rotation, deletion, attachment and ACL changes across owner lookups.
-    const again = yield* compileMeshPolicy(tenant, mesh.value, document, false);
-    const currentAcl = yield* store.currentAcl(tenant, mesh.value).pipe(Effect.catchAll(dependencyDown("mesh.currentAcl")));
+    // Every fence read starts after the owner lookups and none depends on another: one round trip, not eight.
+    const [again, currentAcl, ownsMesh, ownsVm] = yield* Effect.all([
+      compileMeshPolicy(tenant, mesh.value, document, false),
+      store.currentAcl(tenant, mesh.value).pipe(Effect.catchAll(dependencyDown("mesh.currentAcl"))),
+      tenantOwnsMesh(caller, mesh).pipe(Effect.catchAll(dependencyDown("ownership.find"))),
+      tenantOwnsVm(caller, vm).pipe(Effect.catchAll(dependencyDown("ownership.find"))),
+    ], { concurrency: "unbounded" });
     const same = fingerprint === JSON.stringify(again) && aclFingerprint === JSON.stringify(currentAcl);
-    const ownsMesh = yield* tenantOwnsMesh(caller, mesh).pipe(Effect.catchAll(dependencyDown("ownership.find")));
-    const ownsVm = yield* tenantOwnsVm(caller, vm).pipe(Effect.catchAll(dependencyDown("ownership.find")));
     const finished = yield* Clock.currentTimeMillis;
     if (!same || ownsVm === null || ownsMesh === null || finished < checkedAt || finished >= expiresAt || !Number.isSafeInteger(version)) return yield* Effect.fail(unavailable());
     return yield* Schema.decodeUnknown(VmReceiverPolicy)({ ...projection, policyDigest, checkedAt, expiresAt }).pipe(Effect.mapError(() => unavailable()));

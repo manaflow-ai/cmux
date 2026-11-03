@@ -34,6 +34,7 @@ on:
       - "skills/cmux-acpmux/SKILL.md"
       - "skills/cmux-browser/**"
       - "skills/cmux-cua/SKILL.md"
+      - "skills/cmux-customization/**"
       - "skills/cmux/SKILL.md"
   pull_request:
     paths:
@@ -63,6 +64,7 @@ on:
       - "skills/cmux-acpmux/SKILL.md"
       - "skills/cmux-browser/**"
       - "skills/cmux-cua/SKILL.md"
+      - "skills/cmux-customization/**"
       - "skills/cmux/SKILL.md"
   workflow_dispatch:
     inputs:

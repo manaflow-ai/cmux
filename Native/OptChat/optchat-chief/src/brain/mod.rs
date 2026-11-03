@@ -30,6 +30,7 @@ mod drafts;
 mod engine_control;
 pub mod files;
 mod harness_offer;
+mod home_approvals;
 mod image_fit;
 pub mod images;
 mod inbox;
@@ -43,8 +44,10 @@ pub mod reaction_wake;
 mod recover;
 mod replies;
 mod reply_ledger;
+mod rights_gate;
+pub use rights_gate::RightsCtx;
 mod screen;
-pub use outcome_ledger::UNTOLD_TAG;
+pub use outcome_ledger::{UNTOLD_TAG, UNTOLD_WAIT};
 pub use reply_ledger::{MAX_REPLY_TRIES, NO_REPLY_TAG, REPLY_RETRY_WAITS};
 mod send;
 mod side;
@@ -150,6 +153,8 @@ pub enum Input {
         place: Option<String>,
         /// `spawn(harness)`: the harness its subagents run on; None: the turn's.
         harness: Option<String>,
+        /// Acpmux's health and login snapshot, read off the brain thread.
+        machines: Vec<crate::place_route::Machine>,
         reply: Sender<Result<crate::subagents::SpawnPlan, String>>,
     },
     /// A queued subagent's launch, saved in its record.
@@ -163,6 +168,8 @@ pub enum Input {
         session_id: String,
         /// The effective session policy (configured policy or spawn floor).
         policy: Option<String>,
+        /// The harness its session runs on.
+        harness: Option<String>,
     },
     /// A subagent's first prompt (view and task) is sent: its inbox follows.
     SubagentPrompted {
@@ -372,6 +379,13 @@ pub enum Input {
     /// The policy floor for a child spawned now (`Brain::spawn_policy`).
     SpawnPolicy {
         reply: Sender<Option<String>>,
+    },
+    /// The turn session's tool hook (`optchat-chief rights-hook`): `phase`
+    /// `pre` or `post`, Claude Code's hook input; answers the hook's output.
+    RightsHook {
+        phase: String,
+        payload: serde_json::Value,
+        reply: Sender<serde_json::Value>,
     },
     /// Whether the turn may run a Chief tool with these arguments
     /// (`Brain::turn_gate`).
@@ -670,6 +684,32 @@ impl Queued {
         !matches!(&self.source, Source::Spawn(r) if r.quiet)
     }
 
+    /// A waking message of the owner (a person's own words): it never waits
+    /// for a turn adopted from before a restart (`adopt_orphans`).
+    fn is_owner_message(&self) -> bool {
+        self.wakes()
+            && matches!(
+                self.source,
+                Source::Message {
+                    requires_approval: false,
+                    ..
+                }
+            )
+    }
+
+    /// The trusted agent session that sent this item, when it is one that
+    /// takes the ask floor only because a trusted agent sent it.
+    fn trusted_relay(&self) -> Option<&str> {
+        match &self.source {
+            Source::Message {
+                requires_approval: true,
+                relay: Some(name),
+                ..
+            } => Some(name),
+            _ => None,
+        }
+    }
+
     fn requires_approval(&self) -> bool {
         matches!(
             self.source,
@@ -684,7 +724,7 @@ impl Queued {
             } | Source::Spawn(crate::state::SpawnRef {
                 requires_approval: true,
                 ..
-            })
+            }) | Source::Peer { .. }
         )
     }
 }
@@ -701,11 +741,19 @@ enum Source {
         id: String,
         remote: Option<String>,
         requires_approval: bool,
+        /// The trusted acpmux session that sent it through the owner's CLI
+        /// (`relay.trustedAgents`): its turn may tell and spawn the Chief's
+        /// own subagents. None for every other message.
+        relay: Option<String>,
     },
     /// A child's report; its record turns `Reported` with this floor when logged.
     Child { session_id: String, floor: u64 },
     /// Anything else (a child's permission request).
     Note,
+    /// Another person's Chief's message through the agent hub
+    /// (peer_chiefs.rs): `from` is its hub name. Always under the floor; the
+    /// rights table holds it to `chief:<from>`'s grants (rights_gate.rs).
+    Peer { from: String },
     /// An explicit owner action, retaining the original turn's policy floor.
     OwnerAction { requires_approval: bool },
     /// A subagent's report (section 9).
@@ -762,6 +810,9 @@ pub struct Brain {
     /// their id, removed by name once acpmux is up.
     stale_sessions: Vec<String>,
     outbox_timer: Option<Instant>,
+    /// Pending attachment jobs of this process; persisted manifests resume
+    /// when this set is empty after a restart.
+    media_uploads: HashSet<String>,
     /// When the last agent message was taken by the owner (epoch ms): the next waits out the gap (G11).
     last_agent_send: Option<u64>,
     fatal: Option<String>,
@@ -819,6 +870,8 @@ pub struct Brain {
     pub(crate) trace: crate::trace::Trace,
     /// Where subagents' workspaces are renamed when they finish.
     workspaces: Option<Arc<dyn crate::workspaces::Workspaces>>,
+    /// Sign-ins waiting on the person, as open Feed requests (needs_you_feed.rs).
+    sign_ins: crate::needs_you_feed::SignInRequests,
     /// Starts a queued subagent by id (`Spawner::queue_starter`).
     sub_starter: Option<Sender<crate::subagents::QueuedStart>>,
     /// B4: the VMs behind cloud peers, how long a peer idles before its VM
@@ -893,12 +946,18 @@ pub struct Brain {
     /// host after it ended is still held to its rules (`turn_gate`) until
     /// the next turn starts.
     last_turn_ask: bool,
+    /// The last ask turn's other-person text came only from trusted agent
+    /// sessions (`relay.trustedAgents`), named here: it may tell and spawn
+    /// the Chief's own subagents (Leo, 2026-11-02). Set at each turn start.
+    turn_relay: Option<String>,
     /// Requests refused in the running turn (`approval::signature`): a
     /// repeat counts toward stopping the turn.
     turn_denied: Vec<String>,
     /// Requests of the running turn denied again because they repeat one
     /// already denied (`approvals::REPEATS_BEFORE_STOP` stops the turn).
     repeat_denials: u32,
+    /// The rights table and the audit (rights_gate.rs); None: off.
+    rights: Option<RightsCtx>,
     /// Writes the log's description of each turn image (None: references only).
     describer: Option<Arc<dyn images::Describe>>,
     /// A user's reaction that may wake the Chief (reaction_wake.rs).
@@ -1017,6 +1076,7 @@ impl Brain {
             sessions: HashMap::new(),
             stale_sessions,
             outbox_timer: None,
+            media_uploads: HashSet::new(),
             last_agent_send: None,
             fatal: None,
             stop_wanted: false,
@@ -1041,6 +1101,7 @@ impl Brain {
             chief,
             turn_ask: false,
             last_turn_ask: false,
+            turn_relay: None,
             turn_denied: Vec::new(),
             repeat_denials: 0,
             after_turn: None,
@@ -1048,6 +1109,7 @@ impl Brain {
             noticed: HashSet::new(),
             trace: crate::trace::Trace::off(),
             workspaces: None,
+            sign_ins: crate::needs_you_feed::SignInRequests::new("", None, Arc::new(|_: &str| {})),
             sub_starter: None,
             cloud_vms: None,
             cloud_idle,
@@ -1111,6 +1173,7 @@ impl Brain {
             steer_deadline: None,
             steer_due: None,
             reply_waits: reply_ledger::REPLY_RETRY_WAITS.to_vec(),
+            rights: None,
         };
         // A host can exit after sub_done persists Done but before deliver
         // queues the report. Recover that durable outbox before accepting new
@@ -1171,6 +1234,27 @@ impl Brain {
 
     pub fn set_workspaces(&mut self, workspaces: Option<Arc<dyn crate::workspaces::Workspaces>>) {
         self.workspaces = workspaces;
+    }
+
+    /// Posts sign-ins that wait on the person to the Feed through `feed`
+    /// (needs_you_feed.rs); None (the default) posts nothing.
+    pub fn set_feed(&mut self, feed: Option<Arc<dyn crate::needs_you_feed::FeedPort>>) {
+        self.sign_ins = crate::needs_you_feed::SignInRequests::new(
+            &self.settings.chief_id,
+            feed,
+            self.log.clone(),
+        );
+    }
+
+    /// `set_feed` while building the brain.
+    pub fn with_feed(mut self, feed: Option<Arc<dyn crate::needs_you_feed::FeedPort>>) -> Brain {
+        self.set_feed(feed);
+        self
+    }
+
+    /// The dedupe keys of the sign-in requests open in the Feed.
+    pub fn open_sign_ins(&self) -> Vec<String> {
+        self.sign_ins.open_keys()
     }
 
     /// Finished subagents' workspaces close (true) or stay with the done
@@ -1414,6 +1498,7 @@ impl Brain {
                 peer,
                 place,
                 harness,
+                machines,
                 reply,
             } => {
                 // `cloud:SIZE`: on the cloud, at that VM size.
@@ -1424,7 +1509,21 @@ impl Brain {
                 let plan = self
                     .spawn_peer(peer.as_deref(), place.as_deref())
                     .and_then(|peers| {
-                        self.register_spawn_sized(&tasks, &peers, place.as_deref(), size.as_deref())
+                        let engine = self.spawn_engine();
+                        let family = self.family_of(
+                            harness
+                                .as_deref()
+                                .or_else(|| engine.as_ref().map(|e| e.harness.as_str()))
+                                .unwrap_or(&self.settings.harness),
+                        );
+                        self.register_spawn_sized(
+                            &tasks,
+                            &peers,
+                            place.as_deref(),
+                            size.as_deref(),
+                            &machines,
+                            family,
+                        )
                     })
                     .map(|mut plan| {
                         if let Some(h) = harness.as_deref() {
@@ -1439,7 +1538,8 @@ impl Brain {
                 id,
                 session_id,
                 policy,
-            } => self.sub_started(&id, session_id, policy),
+                harness,
+            } => self.sub_started(&id, session_id, policy, harness),
             Input::SubagentPrompted { id } => {
                 self.sub_prompted(&id);
                 self.stop_if_cancelled(&id);
@@ -1487,6 +1587,11 @@ impl Brain {
                 queue,
                 reply,
             } => {
+                // The subagent sees who asked for a tell a trusted agent drove.
+                let message = match self.relay_sender() {
+                    Some(from) => format!("[relayed from {from}] {message}"),
+                    None => message,
+                };
                 let answer = self.tell_with(&id, &message, key.as_deref(), queue);
                 let _ = reply.send(answer);
             }
@@ -1521,7 +1626,7 @@ impl Brain {
                 let _ = reply.send(self.watch(call));
             }
             Input::WatchFired(fired) => self.watch_fired(*fired),
-            Input::PeerChiefNote { text } => self.queue(text, Source::Note),
+            Input::PeerChiefNote { text } => self.peer_chief_note(text),
             Input::EscalateAuth {
                 agent,
                 request,
@@ -1581,6 +1686,13 @@ impl Brain {
             }
             Input::SpawnPolicy { reply } => {
                 let _ = reply.send(self.spawn_policy().map(str::to_owned));
+            }
+            Input::RightsHook {
+                phase,
+                payload,
+                reply,
+            } => {
+                let _ = reply.send(self.rights_hook(&phase, &payload));
             }
             Input::TurnGate { tool, input, reply } => {
                 let _ = reply.send(self.turn_gate(&tool, &input));
@@ -1800,6 +1912,27 @@ impl Brain {
                 contact.as_deref().unwrap_or("<unset>")
             ));
         }
+        if key == crate::chief_settings::TRUST_AGENTS {
+            let on = parse_bool(value)?;
+            let mut next = self.chief.clone();
+            next.trust_agents = on;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            (self.log)(&format!("setting {key} = {on}"));
+            return Ok(format!("{key} = {on}"));
+        }
+        if key == crate::chief_settings::TRUSTED_AGENTS {
+            let list = crate::chief_settings::parse_trusted_agents(value)?;
+            let mut next = self.chief.clone();
+            next.trusted_agents = list.clone();
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            let shown = list.join(", ");
+            (self.log)(&format!("setting {key} = [{shown}]"));
+            return Ok(format!("{key} = [{shown}]"));
+        }
         if key == crate::chief_settings::CLOUD_DELETE_AFTER_PAUSED_DAYS {
             let days = crate::chief_settings::parse_paused_days(value)?;
             let mut next = self.chief.clone();
@@ -1903,8 +2036,10 @@ impl Brain {
             return Ok(format!("{key} = {}", ttl.as_str()));
         }
         Err(format!(
-            "unknown setting {key:?} (known: {CONTACT}, {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT}, {SHOW_SUBAGENT_WORKSPACES}, {}, {CLOUD_AUTO_PAUSE_IDLE_SECONDS})",
-            crate::chief_settings::CLOUD_AUTO_PAUSE
+            "unknown setting {key:?} (known: {CONTACT}, {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT}, {SHOW_SUBAGENT_WORKSPACES}, {}, {CLOUD_AUTO_PAUSE_IDLE_SECONDS}, {}, {})",
+            crate::chief_settings::CLOUD_AUTO_PAUSE,
+            crate::chief_settings::TRUST_AGENTS,
+            crate::chief_settings::TRUSTED_AGENTS
         ))
     }
 
@@ -1939,9 +2074,20 @@ impl Brain {
             conversation,
         };
         let wakes = item.wakes();
+        let owner = item.is_owner_message();
         self.queue.push_back(item);
         if human && same && wakes {
             self.interrupt_for_newer();
+        }
+        // A person's message never waits behind a turn adopted from before
+        // a restart (an update relaunch, `orphan_wait`): that turn cannot
+        // take it, so it is folded and ended as at its deadline, and the
+        // next turn reads the message at once, as a running turn is
+        // interrupted for one (steer.rs; user 2026-10-21). Another agent's
+        // message waits for it, as for any running turn.
+        if owner && self.orphan_wait.is_some() {
+            (self.log)("a new message: folding and ending the adopted turn session it waited for");
+            self.adopt_orphans(true);
         }
         self.maybe_start_turn();
     }
@@ -2008,6 +2154,7 @@ fn op_entry(conversation: String, key: &str, op: Op) -> OutboxEntry {
         rate_attempts: 0,
         previews_until: None,
         plain_text: None,
+        pending_media: Vec::new(),
     }
 }
 
@@ -2055,6 +2202,7 @@ fn answer_entry(
         rate_attempts: 0,
         previews_until: None,
         plain_text: None,
+        pending_media: Vec::new(),
     }
 }
 

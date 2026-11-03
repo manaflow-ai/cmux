@@ -452,6 +452,18 @@ impl Brain {
         // (`turn_permission`), with no question to anyone.
         self.turn_ask = items.iter().any(Queued::requires_approval);
         self.last_turn_ask = self.turn_ask;
+        self.turn_relay = if self.turn_ask {
+            super::steer::trusted_relays(&items)
+        } else {
+            None
+        };
+        if let Some(from) = &self.turn_relay {
+            (self.log)(&format!(
+                "turn {key}: a trusted agent's message ({from}): it may tell and spawn this Chief's subagents"
+            ));
+        }
+        // Who this turn speaks for (rights_gate.rs): the hook and the audit.
+        self.begin_turn_people(&items, &key);
         self.turn_denied.clear();
         self.repeat_denials = 0;
         self.interrupt.set_gate(self.turn_ask);
@@ -976,7 +988,8 @@ impl Brain {
                 "turn": key,
                 "first": first,
                 "engine": match self.settings.engine { Engine::Acpmux => "acpmux", Engine::Native(_) => "native" },
-                "harness": self.turn_engine.as_ref().map_or(self.settings.harness.as_str(), |e| e.harness.as_str()),
+                "harness": match self.settings.engine { Engine::Native(_) => "native", Engine::Acpmux => self.turn_engine.as_ref().map_or(self.settings.harness.as_str(), |e| e.harness.as_str()) },
+                "message_keys": self.state.turn.as_ref().map(|p| p.items.iter().filter_map(|i| i.id.clone()).collect::<Vec<_>>()),
                 "model": self.turn_engine.as_ref().and_then(|e| e.model.clone()),
                 "effort": self.turn_engine.as_ref().and_then(|e| e.effort.clone()),
                 "tier": self.turn_route.as_ref().map(|r| r.tier),
@@ -1165,6 +1178,8 @@ impl Brain {
             .turn_clock
             .take()
             .map(|t| t.elapsed().as_millis() as u64);
+        // The turn's cost against its people (rights_gate.rs), trace or not.
+        self.end_turn_spend(outcome.stats.cost);
         if !self.trace.is_on() {
             return;
         }
@@ -1575,6 +1590,16 @@ pub(super) fn cut_kind(outcome: &TurnOutcome) -> Option<Cut> {
     {
         return Some(Cut::Link);
     }
+    // acpmux gave the turn's `session/new` no answer at all within
+    // `acpmux::SESSION_NEW_DEADLINE` (a harness start that hung, as on
+    // claude-sr2-pipe 2026-11-03): nothing ran, so the turn runs again after
+    // an upstream wait instead of posting a dead turn.
+    if outcome.reply.is_none()
+        && error.starts_with("session/new: ")
+        && error.contains("no answer within")
+    {
+        return Some(Cut::Upstream);
+    }
     if UPSTREAM_TRANSIENT.iter().any(|t| error.contains(t)) {
         return Some(Cut::Upstream);
     }
@@ -1835,6 +1860,7 @@ fn source_name(source: &Source) -> &'static str {
         Source::Child { .. } => "child",
         Source::Spawn(_) => "subagents",
         Source::Note => "note",
+        Source::Peer { .. } => "peer_chief",
         Source::OwnerAction { .. } => "owner_action",
         Source::Resume { .. } => "resume",
     }
@@ -1897,6 +1923,14 @@ fn item(queued: &Queued) -> Item {
         Source::Note => Item {
             images,
             note: true,
+            ..Item::default()
+        },
+        // A cut peer turn resumes under the floor (no person to name: the
+        // rights hook then grants nothing).
+        Source::Peer { .. } => Item {
+            images,
+            note: true,
+            requires_approval: true,
             ..Item::default()
         },
     }
@@ -1965,6 +1999,35 @@ fn ended_turn_text(
         (Some(reply), None) => reply,
         (None, Some(error)) => format!("({failed}: {error})"),
         (None, None) => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod cut_kind_tests {
+    use super::{Cut, cut_kind};
+    use crate::turn::TurnOutcome;
+
+    fn failed(error: &str) -> TurnOutcome {
+        TurnOutcome {
+            error: Some(error.to_owned()),
+            ..TurnOutcome::default()
+        }
+    }
+
+    /// Leo, 2026-11-03: "(turn failed on claude-sr2-pipe: session/new: no
+    /// answer within 200 s)" posted as the Chief's reply.
+    #[test]
+    fn session_new_timeout_runs_again() {
+        let outcome = failed("session/new: no answer within 200 s");
+        assert_eq!(cut_kind(&outcome), Some(Cut::Upstream));
+    }
+
+    #[test]
+    fn a_timeout_after_a_reply_or_elsewhere_still_fails() {
+        let mut replied = failed("session/new: no answer within 200 s");
+        replied.reply = Some("Let me check.".to_owned());
+        assert_eq!(cut_kind(&replied), None);
+        assert_eq!(cut_kind(&failed("session/new: env key refused")), None);
     }
 }
 

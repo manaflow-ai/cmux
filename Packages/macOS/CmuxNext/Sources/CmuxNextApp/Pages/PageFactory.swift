@@ -45,7 +45,7 @@ struct PageFactory {
     func appsWebPage(route: String?) -> PageWebView? {
         let confirming = appsStoreProvider()
         let native = AppPageNativeProvider(services: services, page: .apps)
-        let routes = [PageRoute(prefix: "cmux.apps.", provider: confirming), PageRoute(prefix: "cmux.app.", provider: native)]
+        let routes = [PageRoute(prefix: "cmux.apps.", provider: confirming), PageRoute(prefix: "cmux.app.", provider: native), AppsPanelsPageProvider.route(services.apps.client)]
         guard let page = PageWebView(descriptor: .apps, routes: routes, route: route, dynamicResources: AppsGlyphResource()) else { return nil }
         confirming.anchor = { [weak page] in page }
         native.anchor = { [weak page] in page }
@@ -297,6 +297,7 @@ struct PageFactory {
                                         ? nil : DaemonUpdateBoard.updateRefused
                                 })),
                       PageRoute(prefix: WebUpdatesPageProvider.prefix, provider: WebUpdatesPageProvider()),
+                      PageRoute(prefix: AppUpdatePageProvider.prefix, provider: AppUpdatePageProvider(updater: services.updater)),
                       // Chief > Voice input: the home.voiceInput tunable (DEV and NIGHTLY).
                       PageRoute(prefix: ChiefVoiceInputPageRoute.prefix, provider: ChiefVoiceInputPageRoute()),
                       // Settings > Menus: right-click menu arrangements (cmux.json contextMenus).

@@ -12,6 +12,8 @@ import { commandFolder } from "./commandFolder";
 import { menuPartRef } from "./menuParts";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
+import { ReactionMark, ReactionReply } from "./ReactionMark";
+import { ApprovedMark } from "./ApprovedMark";
 import { RowShimmer } from "./ShimmerText";
 import { Check, ChevronRight, TerminalSquare } from "./icons";
 import { isRunning, toolDuration } from "./toolGroups";
@@ -20,12 +22,13 @@ import { ROW_WIDTH, shortCommand } from "./shortCommand";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { rowFailed, toolFailure } from "./toolFailure";
 import { leadingVerb, ToolLabel } from "./ToolVerb";
-import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
+import { failureWord, InlineFailureCause, ToolFailureCause, useInStep } from "./ToolFailureCause";
 
 // direct.ts replaces only the changed item. Keep every expanded sibling out of that stream's
 // render/output work; the row's own disclosure, Find and language subscriptions still update it.
 export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActivity }) {
   const t = useT();
+  const step = useInStep();
   const tool = item.tool!;
   // The Verbose transcript view opens the command to its output.
   const [open, setOpen] = useTranscriptDisclosure(`command:${tool.id}`, false, true);
@@ -51,6 +54,16 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
   // Claude Code says its exit code only in the output ("Exit code 1"): the Shell block says it once.
   const output = (failure?.output ?? tool.output)?.replace(/\n$/, "");
   const duration = toolDuration(t, tool);
+  // A failed call says so in a red word right after its title, before its chevron, as Claude Code
+  // desktop tags one ("Count the fixture cases Failed ⌄"; Leo, 2026-11-03: "claude code desktop's
+  // summarization of tool calls/parsing of them seem kinda good?"). A step of an opened run says
+  // "failed" (drawn "Failed", conversation.css `.cv-command > .cv-command__failed`) and its opened Shell block says
+  // "Exit code N"; a lone command keeps its "Exit 1". A background command that failed says it too.
+  const tag = tool.background
+    ? tool.background.state === "failed"
+      ? t("tools.failed")
+      : undefined
+    : failure && failureWord(t, failure, step);
   // Find counts the line without its leading cd (chatFind.ts), so a line shortened past that is
   // skipped; opened, the Shell block draws it.
   const short = shortCommand(tool.command ?? "", ROW_WIDTH);
@@ -65,7 +78,7 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
       {short}
     </code>
   );
-  const words = tool.description ? (
+  const called = tool.description ? (
     // What the command does in a few words (Claude Code's Bash description); the raw line
     // waits in its Shell block, opened.
     // Find counts the command, not this, so it is not highlighted.
@@ -78,6 +91,19 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
       {after && <span data-find-skip>{after}</span>}
     </ToolLabel>
   );
+  // A command that finished in the background reads as Claude Code desktop notes it, "Background
+  // command completed" in the rows' muted tone, then what it did in their ink.
+  const words =
+    tool.background?.state === "completed" ? (
+      <>
+        <span className="cv-command__lead" data-find-skip>
+          {t("bgTask.completedLead")}
+        </span>{" "}
+        <span className="cv-command__title">{tool.description ? called : line}</span>
+      </>
+    ) : (
+      called
+    );
   return (
     <>
       <button
@@ -101,14 +127,17 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
           {running && <RowShimmer>{words}</RowShimmer>}
           {!tool.background && <InlineFailureCause failure={failure} />}
         </span>
+        {tag && (
+          <span className="cv-command__failed" data-find-skip>
+            {tag}
+          </span>
+        )}
         <span className="cv-command__meta">
-          {foreground ? null : tool.background ? (
+          <ReactionMark reaction={tool.reaction} />
+          {tool.approved && <ApprovedMark />}
+          {foreground || tag ? null : tool.background ? (
             <BackgroundMark background={tool.background} />
-          ) : failure ? (
-            <span className="cv-command__failed" data-find-skip>
-              {failureWord(t, failure)}
-            </span>
-          ) : (
+          ) : failure ? null : (
             <Check size={14} className="cv-command__ok" />
           )}
           {duration && <span className="cv-command__time">{duration}</span>}
@@ -131,6 +160,7 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
             reveal={reveal}
             live={running}
           />
+          <ReactionReply reaction={tool.reaction} />
         </div>
       )}
     </>

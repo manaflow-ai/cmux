@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 7c39669d1126b40e5f9e8759eee6ec5ee6eec5da05b4c5a793d8cb16c32dc31b.
+// cmux-tui mux protocol 12, IR dbb6d5bcff30c1db703c0ff175acb28f75d2bfe02a82ba6de26191fc52ec0976.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2306,6 +2306,8 @@ pub struct MoveTabToColumnRequest {
     pub keep_focus: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub pane: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pane_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub respawn: Optional<T::SplitRespawn>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -4924,6 +4926,10 @@ impl CmuxClient {
         if request.keep_focus.is_some() {
             self.require_protocol_field("move-tab-to-column", 12)?;
             self.require_capability_field("move-tab-to-column", "tab-split-keep-focus-v1")?;
+        }
+        if !request.pane_id.is_missing() {
+            self.require_protocol_field("move-tab-to-column", 12)?;
+            self.require_capability_field("move-tab-to-column", "tab-column-client-pane-v1")?;
         }
         if !request.respawn.is_missing() {
             self.require_protocol_field("move-tab-to-column", 12)?;

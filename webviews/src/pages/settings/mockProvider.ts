@@ -493,6 +493,7 @@ export class MockSettingsProvider {
       "cmux.settings.backdrop.workspace.preview": () => ({}),
       "cmux.settings.art.search": () => ({ results: this.museumArt }),
       "cmux.settings.art.use": () => ({ id: "" }),
+      "cmux.settings.app_update.run": () => ({}),
       "cmux.settings.web_updates.check": () => ({}),
       "cmux.settings.web_updates.rollback": () => ({}),
       "cmux.settings.folders.add": (params) => {
@@ -623,6 +624,7 @@ export class MockSettingsProvider {
       "cmux.settings.backdrop.workspace.preview",
       "cmux.settings.art.search",
       "cmux.settings.art.use",
+      "cmux.settings.app_update.run",
       "cmux.settings.web_updates.check",
       "cmux.settings.web_updates.rollback",
       "cmux.settings.server.restart",
