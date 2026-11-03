@@ -26,7 +26,7 @@ import type { AcpmuxActivity } from "../model";
 import type { AcpmuxSendCallPart, SendState } from "./acpmuxSends";
 import { messagePreview } from "./AgentMessageRow";
 import { messageDelivery } from "./agentMessages";
-import { useFindReveal } from "./chatFind";
+import { FindReveal, useFindReveal } from "./chatFind";
 import { AlertCircle, ChevronRight, Envelope } from "./icons";
 import { AgentMessageBody } from "./AgentMessageBody";
 import { AgentTag } from "./AgentTag";
@@ -36,6 +36,7 @@ import { McpCallDetails } from "./McpCallRows";
 import { mcpCall, mcpRawName } from "./mcpCalls";
 import { ShellBlock } from "./ShellBlock";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { SEND_PAGE_SIZE } from "./toolGroups";
 import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
 import "./AgentMessageRow.css";
 import "./SubsessionCallCard.css";
@@ -316,6 +317,67 @@ export function RawToggle({
 /// in the batch, so each message of one call opens on its own.
 export function sendKey(id: string, index?: number): string {
   return index === undefined ? id : `${id}#${index}`;
+}
+
+/// Large receipts keep one ordinary message row per visible recipient. Paging bounds mounted
+/// bodies without discarding any input or result; indices and disclosure keys stay receipt-wide.
+export function AcpmuxSendBatch({ tool, sends }: { tool: Tool; sends: readonly AcpmuxSendCallPart[] }) {
+  const t = useT();
+  const [page, setPage] = useState(0);
+  const reveal = useContext(FindReveal);
+  const found = useMemo(() => {
+    if (!reveal || (reveal.toolId !== undefined && reveal.toolId !== tool.id)) return -1;
+    const index = sends.findIndex((send) =>
+      [send.target, send.text, send.file].some((value) => value?.includes(reveal.needle)),
+    );
+    if (index >= 0) return index;
+    // A match in other receipt metadata still has the complete call available behind one Raw.
+    return reveal.toolId === tool.id ||
+      tool.inputSummary?.includes(reveal.needle) ||
+      tool.output?.includes(reveal.needle)
+      ? 0
+      : -1;
+  }, [reveal, sends, tool.id, tool.inputSummary, tool.output]);
+  useEffect(() => {
+    if (found >= 0) setPage(Math.floor(found / SEND_PAGE_SIZE));
+  }, [found, reveal]);
+  const lastPage = Math.max(0, Math.ceil(sends.length / SEND_PAGE_SIZE) - 1);
+  const current = Math.min(page, lastPage);
+  const start = current * SEND_PAGE_SIZE;
+  const end = Math.min(start + SEND_PAGE_SIZE, sends.length);
+  return (
+    <>
+      {sends.slice(start, end).map((send, index) => (
+        <FindReveal.Provider key={sendKey(tool.id, send.index)} value={start + index === found ? reveal : undefined}>
+          <AcpmuxSendLine tool={tool} send={send} />
+        </FindReveal.Provider>
+      ))}
+      <div className="cv-send-batch__pages" data-find-skip="">
+        <button
+          type="button"
+          className="cv-subsession__toggle"
+          data-send-page="previous"
+          disabled={current === 0}
+          onClick={() => setPage(current - 1)}
+        >
+          {t("find.previous")}
+        </button>
+        <span aria-live="polite">
+          {/* l10n-allow: the range's punctuation; its surrounding sentence is localized. */}
+          {t("find.count", { current: `${start + 1}–${end}`, total: sends.length })}
+        </span>
+        <button
+          type="button"
+          className="cv-subsession__toggle"
+          data-send-page="next"
+          disabled={current === lastPage}
+          onClick={() => setPage(current + 1)}
+        >
+          {t("find.next")}
+        </button>
+      </div>
+    </>
+  );
 }
 
 /// A message sent by a shell `acpmux send` (acpmuxSends.ts), one of a shell batch's, or one of an

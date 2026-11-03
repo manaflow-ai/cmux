@@ -222,6 +222,33 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__under .cv-md h2"));
       },
     },
+    "large-receipt": {
+      note: "A 1,025-recipient MCP receipt keeps each message row and pages through every recipient, with 32 rows mounted at once.",
+      snapshot: chat([
+        user("Send the report to the documentation agents.", 2),
+        activity(
+          [
+            tool("mcp__cmux__acpmux_send", "other", "completed", {
+              inputSummary: JSON.stringify({ tag: "area=docs", text: "The report is ready." }),
+              output: JSON.stringify({
+                results: Array.from({ length: 1025 }, (_, index) => ({ index: 0, to: `docs-${index}`, ok: true })),
+              }),
+            }),
+          ],
+          1.8,
+        ),
+        assistant("The report went to every documentation agent.", 1.5),
+        summary(1.5, { status: "completed" }),
+      ]),
+      play: async (ctx) => {
+        await openTurn(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector('[data-send-page="next"]'));
+        await ctx.click({ selector: '[data-send-page="next"]' });
+        await ctx.waitFor(() =>
+          [...ctx.document.querySelectorAll(".cv-sent .cv-recipient")].some((node) => node.textContent === "docs-32"),
+        );
+      },
+    },
     "written-file": {
       note: 'Before: a send of a file Claude Code\'s Write made opened to Raw alone, and Raw to the shell command (Leo: "I EXPAND THEN ALL I SEE IS RAW"). After: opening it renders the written Markdown, the command behind Raw. A send whose words the transcript never held opens straight to its call.',
       snapshot: writtenFile(),

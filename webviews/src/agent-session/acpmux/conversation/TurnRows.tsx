@@ -9,7 +9,7 @@ import { MessageCard } from "./MessageCard";
 import { DispatchCard } from "./DispatchCard";
 import { McpCallRows } from "./McpCallRows";
 import { SubsessionCallCard } from "./SubsessionCallCard";
-import { AcpmuxSendLine, sendKey } from "./SentMessageLine";
+import { AcpmuxSendBatch, AcpmuxSendLine, sendKey } from "./SentMessageLine";
 import { mcpNames, McpNamesContext } from "./mcpCalls";
 import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRow } from "./ToolRow";
@@ -150,6 +150,8 @@ function groupNode(
     case "dispatch":
       return <DispatchCard key={group.item.tool!.id || index} item={group.item} call={group.call} />;
     case "send":
+      if (group.batch)
+        return <AcpmuxSendBatch key={group.item.tool!.id || index} tool={group.item.tool!} sends={group.batch} />;
       return (
         <AcpmuxSendLine
           key={sendKey(group.item.tool!.id, group.send.index) || index}

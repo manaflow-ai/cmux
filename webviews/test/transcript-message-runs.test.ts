@@ -43,8 +43,11 @@ test("a 1024-recipient MCP batch keeps its full summary count and a bounded init
     ]);
   const small = { ...batch(32), foldRun: true };
   const large = { ...batch(1024), foldRun: true };
-  const folded = foldMessageRuns([large], new Set());
-  expect(folded[0]?.messageRun?.sent).toBe(1024);
+  // A second coordination line makes the containing run fold, where its heading must count
+  // every recipient even though the large call mounts a bounded page.
+  const companion = send("recipient-companion", "hello");
+  const foldedRun = foldMessageRuns([{ ...large, items: [...large.items!, companion] }], new Set());
+  expect(foldedRun[0]?.messageRun?.sent).toBe(1025);
   const smallHeight = layoutConversation([small], 720).heights[0]!;
   const largeHeight = layoutConversation([large], 720).heights[0]!;
   // The large batch initially mounts the same 32 rows plus one shared-grid pager line.
