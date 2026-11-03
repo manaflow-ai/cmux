@@ -2,7 +2,7 @@ import { afterEach, expect, spyOn, test } from "bun:test";
 import { machineLoginApi, MachineLoginError } from "./machineLogin";
 import { ExpiredSession } from "./wire";
 
-const login = { loginId: "login_1", url: "https://claude.ai/oauth/authorize", needsCode: true };
+const login = { loginId: "login_1", url: "https://claude.com/cai/oauth/authorize", needsCode: true };
 const signal = () => new AbortController().signal;
 let fetchMock: ReturnType<typeof spyOn<typeof globalThis, "fetch">> | undefined;
 afterEach(() => {

@@ -104,7 +104,7 @@ await requireBrowserLane("chief-web-contract-browser.test.ts", async () => {
     let resumed = fixture.login?.resumed ?? false;
     const login = {
       loginId: "login_test",
-      url: "https://claude.ai/oauth/authorize",
+      url: "https://claude.com/cai/oauth/authorize",
       needsCode: fixture.login?.harness !== "codex",
       ...(fixture.login?.harness === "codex" ? { userCode: "ABCD-1234" } : {}),
     };
@@ -290,7 +290,7 @@ await requireBrowserLane("chief-web-contract-browser.test.ts", async () => {
       const card = fixture.page.getByTestId("chief-machine-login");
       await card.getByRole("button", { name: "Sign in to Claude", exact: true }).click();
       const link = card.getByRole("link", { name: "Open sign-in page" });
-      expect(await link.getAttribute("href")).toBe("https://claude.ai/oauth/authorize");
+      expect(await link.getAttribute("href")).toBe("https://claude.com/cai/oauth/authorize");
       expect(await link.getAttribute("rel")).toContain("noreferrer");
       await card.getByRole("textbox", { name: "Sign-in code" }).fill("synthetic-code");
       await card.getByRole("button", { name: "Continue", exact: true }).click();
