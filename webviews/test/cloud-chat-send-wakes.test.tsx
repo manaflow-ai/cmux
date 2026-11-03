@@ -105,11 +105,14 @@ test("a wake that fails gives its prompts back, and leaves the folder's own held
   await act(async () => shown!.hold("one", [], undefined, true));
   await act(async () => shown!.hold("two", [], undefined, true));
   expect(reserved).toHaveLength(1);
+  // A chat shown under its recorded id while it is not listed still lists its waking prompts.
+  await act(async () => shown!.hold("unlisted", [], { chat: "chat-missing", cwd: undefined }, true));
+  expect(shown!.rowsIn("chat-missing").map((row) => [row.prompt, row.waking])).toEqual([["unlisted", true]]);
   let back: Entry[] = [];
   await act(async () => {
     back = shown!.takeWaking();
   });
-  expect(back.map((entry) => entry.text)).toEqual(["one", "two"]);
+  expect(back.map((entry) => entry.text)).toEqual(["one", "two", "unlisted"]);
   expect(shown!.rows.map((row) => row.prompt)).toEqual(["held for trust"]);
   expect(shown!.wakingAny()).toBe(false);
   expect(sent).toEqual([]);

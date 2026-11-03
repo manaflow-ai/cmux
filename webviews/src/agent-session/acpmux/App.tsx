@@ -9255,7 +9255,9 @@ function AcpmuxPane() {
   const cloudWakeChat = cloudSendWakes({
     cloud: cloudChatIdentity !== undefined,
     chat: snapshot.sessionId ?? snapshot.missingSession,
-    linkUp: cloudLinkUp && Boolean(window.cmuxAcpmuxActions?.["chat.send"]),
+    // `connected`, not `cloudLinkUp`: a prompt's own failure on an open socket also reads "failed",
+    // and that chat's machine is live.
+    linkUp: connected && Boolean(window.cmuxAcpmuxActions?.["chat.send"]),
     paused: cloudRecovery.state === "paused",
     unavailable: !!snapshot.unavailable,
   });
@@ -9829,7 +9831,9 @@ function AcpmuxPane() {
   // Stop reaches acpmux even when pressed while the pane reconnects (stopThroughReconnect.ts).
   const stopThroughReconnect = useStopThroughReconnect(snapshot, cancelTurn);
   const keptStopping = stopThroughReconnect.stopping;
-  const heldRows = trustHeld.rows;
+  // A chat not listed yet (its machine wakes) shows the prompts held for it under its recorded id.
+  const heldRows =
+    !snapshot.sessionId && snapshot.missingSession ? trustHeld.rowsIn(snapshot.missingSession) : trustHeld.rows;
   /// Sends a prompt the folder's trust held, with its own send's ticket, in the chat it was sent in:
   /// settles with the session acpmux took it in (a new chat's, once its start made it), or rejects
   /// with its refusal; a refusal is the hold's to handle (trustHeld.ts).

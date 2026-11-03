@@ -351,6 +351,9 @@ export function useTrustHeldPrompts({
       }
       return inFlight ? [inFlight, ...held] : held;
     },
+    /// The held prompts of chat `shownChat` as queue rows, for a chat the pane shows under the id its tab
+    /// recorded while it is not listed (a Cloud machine that wakes, cloudWake.ts).
+    rowsIn: (shownChat: string) => heldQueueRows(held, shownChat, undefined),
     /// Whether any prompt waits for a Cloud machine to wake (cloudWake.ts).
     wakingAny: () => now.current.held.some((entry) => entry.waking),
     /// Takes every prompt that waits for a Cloud machine to wake out, in order: the wake failed, so
