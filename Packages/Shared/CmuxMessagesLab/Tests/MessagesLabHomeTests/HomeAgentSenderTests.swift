@@ -35,7 +35,7 @@ import Testing
         let people = Dictionary(uniqueKeysWithValues: conv.participants.map { ($0.id, $0) })
         #expect(people["agent-sender:grok bot › ada"]?.displayName == "Grok bot › Ada")
         #expect(people["agent-sender:grok bot › ada"]?.avatar == .brand("grok"))
-        #expect(people["agent-sender:muse"]?.avatar == .monogram("M"))
+        #expect(people["agent-sender:muse"]?.avatar == .brand("meta"), "Muse is Meta's Muse Code")
 
         let rows = RowBuilder.rows(AppState(conversation: conv), messages: conv.messages, now: G.date(60))
         let names = rows.compactMap { row -> String? in
@@ -46,10 +46,10 @@ import Testing
             if case let .part(p) = row.kind, !p.outgoing { p.cmuxAvatar } else { nil }
         }
         #expect(avatars.first == .brand("grok"))
-        #expect(avatars.dropFirst().first == .monogram("M"))
+        #expect(avatars.dropFirst().first == .brand("meta"))
     }
 
-    @Test(arguments: [("Claude Code › 3fa9c1d2@mini", "claude"), ("Codex", "openai"), ("Grok bot", "grok")])
+    @Test(arguments: [("Claude Code › 3fa9c1d2@mini", "claude"), ("Codex", "openai"), ("Grok bot", "grok"), ("Muse", "meta")])
     func knownAppsWearTheirBrandMark(label: String, brand: String) throws {
         let sender = try #require(HomeAgentSender(label: label))
         #expect(sender.avatar == .brand(brand))
