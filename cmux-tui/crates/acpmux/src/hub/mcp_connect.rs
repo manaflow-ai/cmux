@@ -20,6 +20,7 @@
 //!   `signInNeeded` with the server's RFC 9728 metadata URL, go on the card and to the agent.
 
 use super::{Hub, Session, SessionStatus};
+use crate::no_panic::{JsonExt as _, JsonField as _};
 use crate::rpc::RpcError;
 use cmux_json::JsonSet as _;
 use cmux_mcp_connect::registry::{AuthKind, Registry};
@@ -194,12 +195,16 @@ impl Hub {
         // An OAuth server: the sign-in starts now, so the agent can hand its page to the person
         // (Chief's `escalate_auth`) and the card's Sign in is not the only way. The page only
         // asks the person; the verifier and the token stay here (`mcp_oauth.rs`).
-        if reply["connect"] == "signInNeeded"
-            && let Some(id) = reply["connectionId"].as_str().map(str::to_owned)
+        if *reply.field("connect") == "signInNeeded"
+            && let Some(id) = reply.field("connectionId").as_str().map(str::to_owned)
         {
             match self.mcp_sign_in(&id).await {
-                Ok(started) => reply["signInUrl"] = started["authorizeUrl"].clone(),
-                Err(e) => reply["signInError"] = json!(e.message),
+                Ok(started) => {
+                    reply.set("signInUrl", started.field("authorizeUrl").clone());
+                }
+                Err(e) => {
+                    reply.set("signInError", json!(e.message));
+                }
             }
         }
         Ok(reply)
@@ -266,7 +271,7 @@ impl Hub {
         };
         let mut result = result;
         if let Some(id) = self.keep_connection(session, card, scope, &mut result, key) {
-            result["connectionId"] = json!(id);
+            result.set("connectionId", json!(id));
         }
         let mut record = result.clone();
         record.set("requestId", json!(request_id));

@@ -20,6 +20,7 @@
 use super::Hub;
 use super::mcp_probe::{KeyHeader, Probe};
 use super::mcp_store::{Connection, OauthClient};
+use crate::no_panic::JsonField as _;
 use crate::rpc::RpcError;
 use cmux_mcp_connect::discovery::{
     AuthServer, AuthorizeRequest, ProtectedResource, Token, auth_server_url, choose_scopes,
@@ -128,7 +129,11 @@ async fn discover(client: &reqwest::Client, conn: &Connection) -> Result<Plan, S
     };
     let pr = ProtectedResource::parse(&get_metadata(client, &pr_url).await?).map_err(|r| r.0)?;
     pr.check(&conn.url).map_err(|r| r.0)?;
-    let issuer = pr.authorization_servers[0].clone();
+    let issuer = pr
+        .authorization_servers
+        .first()
+        .cloned()
+        .ok_or_else(|| "the server names no authorization server".to_owned())?;
     let auth = AuthServer::parse(
         &get_metadata(client, &auth_server_url(&issuer).map_err(|r| r.0)?).await?,
     )
@@ -177,7 +182,7 @@ async fn read_callback(sock: &mut tokio::net::TcpStream) -> Option<String> {
         if n == 0 {
             return None;
         }
-        buf.extend_from_slice(&chunk[..n]);
+        buf.extend_from_slice(chunk.get(..n).unwrap_or_default());
         if buf.len() > MAX_REQUEST_BYTES {
             return None;
         }
@@ -231,7 +236,8 @@ impl Hub {
             let text = read_capped(resp, MAX_METADATA_BYTES).await?;
             let value: Value = serde_json::from_str(&text)
                 .map_err(|_| "the registration answer is not JSON".to_owned())?;
-            value["client_id"]
+            value
+                .field("client_id")
                 .as_str()
                 .filter(|c| !c.is_empty() && c.len() <= 512)
                 .map(str::to_owned)
@@ -391,16 +397,13 @@ impl Hub {
         conn: &Connection,
     ) -> Result<Option<Zeroizing<String>>, &'static str> {
         let Some(secret) = self.mcp_store.secrets.get(&conn.id)? else { return Ok(None) };
-        let value: Zeroizing<Value> =
-            Zeroizing::new(serde_json::from_str(&secret).unwrap_or(Value::Null));
-        let expires_at = value.get("expiresAt").and_then(Value::as_u64);
+        let value = super::mcp_secrets::StoredSecret::parse(&secret);
+        let expires_at = value.expires_at;
         let due = expires_at.is_some_and(|at| at <= crate::store::now_ms() + REFRESH_EARLY_MS);
         if !due {
             return Ok(Some(secret));
         }
-        let (Some(refresh), Some(oauth)) =
-            (value.get("refreshToken").and_then(Value::as_str), &conn.oauth)
-        else {
+        let (Some(refresh), Some(oauth)) = (value.refresh_token.as_deref(), &conn.oauth) else {
             self.mcp_store.update(&conn.id, |c| c.state = "needsSignIn".to_owned());
             return Err("mcp.sign_in_expired");
         };

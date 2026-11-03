@@ -12,6 +12,7 @@
 //!   agent's tool list changes in the same chat (MCP `notifications/tools/list_changed`).
 
 use super::mcp_secrets::McpSecrets;
+use crate::no_panic::{JsonExt as _, JsonField as _};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -104,7 +105,7 @@ impl Connection {
         pin.approved(&self.tools)
             .into_iter()
             .filter(|t| {
-                let name = t["name"].as_str().unwrap_or_default();
+                let name = t.field("name").as_str().unwrap_or_default();
                 self.tool_policy.get(name).map(String::as_str).unwrap_or("ask") != "never"
             })
             .collect()
@@ -117,7 +118,7 @@ impl Connection {
             "verified": self.verified, "url": self.url, "auth": self.auth, "scope": self.scope,
             "state": self.state, "hasSecret": self.has_secret, "addedAt": self.added_at,
             "tools": self.tools.iter().map(|t| {
-                let name = t["name"].as_str().unwrap_or_default();
+                let name = t.field("name").as_str().unwrap_or_default();
                 json!({
                     "name": name,
                     "policy": self.tool_policy.get(name).map(String::as_str).unwrap_or("ask"),
@@ -140,10 +141,9 @@ pub(crate) fn tool_prefix(name: &str) -> String {
 }
 
 pub(crate) fn new_id() -> String {
-    let mut bytes = [0u8; 8];
-    // No randomness means no safe id: as for a connection nonce.
-    getrandom::fill(&mut bytes).expect("the OS random generator for an MCP connection id"); // crash-allow: no randomness
-    format!("mcp_{}", cmux_local_auth::frontend_proof::hex(&bytes))
+    // The first 64 bits of a connection nonce (the OS random generator; no randomness, no daemon).
+    let nonce: String = super::person::new_nonce().chars().take(16).collect();
+    format!("mcp_{nonce}")
 }
 
 struct Audit {
@@ -177,7 +177,7 @@ impl McpStore {
             .and_then(|d| std::fs::read_to_string(d.join("audit.jsonl")).ok())
             .and_then(|text| {
                 let last: Value = serde_json::from_str(text.lines().last()?).ok()?;
-                Some((last["seq"].as_u64()?, last["hash"].as_str()?.to_owned()))
+                Some((last.field("seq").as_u64()?, last.field("hash").as_str()?.to_owned()))
             })
             .unwrap_or((0, String::new()));
         let secrets = match home {
@@ -303,11 +303,11 @@ impl McpStore {
     pub(crate) fn audit(&self, mut event: Value) {
         let mut audit = self.audit.lock().unwrap_or_else(|e| e.into_inner());
         audit.seq += 1;
-        event["seq"] = json!(audit.seq);
-        event["at"] = json!(crate::store::now_ms());
-        event["prev"] = json!(audit.prev);
+        event.set("seq", json!(audit.seq));
+        event.set("at", json!(crate::store::now_ms()));
+        event.set("prev", json!(audit.prev));
         let hash = hex_sha256(event.to_string().as_bytes());
-        event["hash"] = json!(hash);
+        event.set("hash", json!(hash));
         audit.prev = hash;
         match (&audit.file, &self.dir) {
             (Some(file), Some(dir)) => {
@@ -341,9 +341,10 @@ impl McpStore {
 /// Whether `lines` form an unbroken chain: each `prev` is the hash of the line before, and each
 /// `hash` is the sha256 of its line without the hash.
 pub(crate) fn audit_chain_ok(lines: &[Value]) -> bool {
-    let mut prev = lines.first().and_then(|l| l["prev"].as_str()).unwrap_or_default().to_owned();
+    let mut prev =
+        lines.first().and_then(|l| l.field("prev").as_str()).unwrap_or_default().to_owned();
     for line in lines {
-        if line["prev"].as_str() != Some(prev.as_str()) {
+        if line.field("prev").as_str() != Some(prev.as_str()) {
             return false;
         }
         let mut body = line.clone();
