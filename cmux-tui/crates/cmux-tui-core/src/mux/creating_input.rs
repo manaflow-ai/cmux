@@ -312,6 +312,22 @@ impl Mux {
         }
     }
 
+    /// Runs `hold` while this thread holds the creating-input lock (tests: a person's key must not wait for it).
+    #[cfg(test)]
+    pub(crate) fn hold_creating_inputs_for_test(&self, hold: &dyn Fn()) {
+        let _held = self.creating_inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
+        hold();
+    }
+
+    /// Whether a thread holds the creating-input lock now (tests).
+    #[cfg(test)]
+    pub(crate) fn creating_inputs_held_for_test(&self) -> bool {
+        matches!(
+            self.creating_inputs.terminals.try_lock(),
+            Err(std::sync::TryLockError::WouldBlock)
+        )
+    }
+
     /// The live terminal surface whose host id is `terminal_id`.
     #[track_caller]
     fn live_surface_for_terminal(&self, terminal_id: &str) -> Option<Arc<Surface>> {
