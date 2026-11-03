@@ -1062,6 +1062,13 @@ def reach_app(a):
     return app
 
 
+def nonnegative(text):
+    value = int(text)
+    if value < 0:
+        raise argparse.ArgumentTypeError("0 or more")
+    return value
+
+
 def cmd_run(a):
     if not a.app_socket:
         print("load_profiles: --app-socket is required (no default: the person's cmux is never a target)",
@@ -1179,7 +1186,7 @@ def main(argv=None):
     p.add_argument("--out", help="folder (default $TMPDIR/tk-load-SEED)")
     p.add_argument("--rate", type=int, default=100, help="L1: CLI and socket calls a second in total")
     p.add_argument("--workers", type=int, default=L1.WORKERS, help="L1: storm workers (each waits for its call)")
-    p.add_argument("--storm-max-tabs", type=int, default=0,
+    p.add_argument("--storm-max-tabs", type=nonnegative, default=0,
                    help="L1: storm tabs alive at once, all workers together (0: 3 a worker); keeps L6 under the PTY limit")
     p.add_argument("--storm-after-ready", action="store_true",
                    help="L6: start the L1 storm only once L2..L5 are ready (their set-up is not starved by the storm)")

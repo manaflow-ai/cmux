@@ -38,5 +38,30 @@ class Parse(unittest.TestCase):
         self.assertEqual(s["by_command"], {"host": 3, "other": 2})
 
 
+class Verdict(unittest.TestCase):
+    def base(self, **kw):
+        r = {"made": 50, "closes": [{"ok": True}] * 50,
+             "samples": [{"at": "start", "daemon_tree": 1, "total": 9},
+                         {"at": "before burst (50 tabs open)", "daemon_tree": 51, "total": 59},
+                         {"at": "10 s after the burst", "t_s": 10.1, "daemon_tree": 1, "total": 9}],
+             "fast": [{"t_s": 0.02, "daemon_tree": 40}, {"t_s": 1.03, "daemon_tree": 1}]}
+        r.update(kw)
+        return pty_release.verdict(r)
+
+    def test_released_within_a_second_is_no_leak(self):
+        v = self.base()
+        self.assertEqual((v["count"], v["rise"], v["leak_suspect"]), ("daemon_tree", 50, False))
+        self.assertEqual(v["at_1s"]["t_s"], 1.03)  # the real time of the sample, not its name
+
+    def test_kept_ptys_are_a_leak(self):
+        v = self.base(fast=[{"t_s": 0.02, "daemon_tree": 51}, {"t_s": 1.2, "daemon_tree": 50}])
+        self.assertTrue(v["leak_suspect"])
+
+    def test_a_count_that_did_not_rise_is_not_measured_and_no_close_is_not_measured(self):
+        flat = [{"at": "start", "daemon_tree": 1, "total": 9}, {"at": "before burst (50 tabs open)", "daemon_tree": 1, "total": 9}]
+        self.assertIn("not_measured", self.base(samples=flat))
+        self.assertIn("not_measured", self.base(closes=[{"ok": False}] * 50))
+
+
 if __name__ == "__main__":
     unittest.main()

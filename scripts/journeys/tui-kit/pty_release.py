@@ -87,6 +87,25 @@ def ptmx_holders():
     return held
 
 
+def pids_fds(pids):
+    """/dev/ptmx fds held by the processes PIDS (lsof -a -p a,b,c: only those, fast), or None for no pids. A pid
+    that has exited counts 0 (lsof skips it)."""
+    if not pids:
+        return None
+    done = subprocess.run(["lsof", "-a", "-n", "-P", "-p", ",".join(str(p) for p in sorted(pids)), "-F", "f",
+                           "/dev/ptmx"], capture_output=True, text=True, timeout=30)
+    return sum(1 for line in done.stdout.splitlines() if line.startswith("f"))
+
+
+def fast(at, t0, pids):
+    """A quick sample of the daemon tree's /dev/ptmx count (the tree as it was before the burst), timed; the
+    host-wide scan takes 0.5-2 s, too slow for the 0.1-1 s samples (review FIX at 48bd6dc87f9)."""
+    start = time.monotonic()
+    n = pids_fds(pids)
+    return {"at": at, "t_s": None if t0 is None else round(start - t0, 3), "lsof_ms": round((time.monotonic() - start) * 1000, 1),
+            "daemon_tree": n}
+
+
 def sample(at, t0, root):
     start = time.monotonic()
     held = ptmx_holders()
@@ -98,6 +117,112 @@ def sample(at, t0, root):
             "total": sum(n for _, n in held.values()),
             "daemon_tree": sum(n for pid, (_, n) in held.items() if pid in mine),
             "by_command": dict(sorted(by_command.items(), key=lambda kv: -kv[1]))}
+
+
+def close_workspace(app, wid):
+    """True when the workspace closed (a confirm, as L1's teardown does, when the plain close is refused)."""
+    try:
+        app.cmux("workspace", wid, "close", timeout=30)
+        return True
+    except heavy_profile.Refused as error:
+        try:
+            app.rpc("action.run", {"action": "closeWorkspace", "workspace_id": wid, "confirm": True}, timeout=30)
+            return True
+        except (OSError, ValueError, heavy_profile.Refused):
+            return str(error)[:400]
+
+
+def measure(app, a, result, root, wid, pane):
+    tabs = []
+    for _ in range(a.tabs):
+        try:
+            v = app.cmux("tab", "create", "terminal", "--workspace", wid, "--pane", pane, timeout=30)
+            if isinstance(v, dict) and v.get("tab_id"):
+                tabs.append(v["tab_id"])
+        except heavy_profile.Refused as error:
+            result.setdefault("create_errors", []).append(str(error)[:400])
+    result["made"] = len(tabs)
+    time.sleep(2.0)  # every new terminal's shell has started
+    result["samples"].append(sample("before burst (%d tabs open)" % len(tabs), None, root))
+    pids = tree(root)  # the daemon and its terminal hosts as they are now (a host that exits then counts 0)
+    result["tree_pids"] = len(pids)
+
+    lock, queue = threading.Lock(), list(tabs)
+
+    def closer():
+        while True:
+            with lock:
+                if not queue:
+                    return
+                tab = queue.pop()
+            start = time.monotonic()
+            try:
+                app.cmux("tab", tab, "close", timeout=30)
+                ok, err = True, None
+            except heavy_profile.Refused as error:
+                ok, err = False, str(error)[:400]
+            with lock:
+                result["closes"].append({"tab": tab, "ms": round((time.monotonic() - start) * 1000, 1), "ok": ok,
+                                         "error": err})
+
+    burst_start = time.monotonic()
+    threads = [threading.Thread(target=closer) for _ in range(max(1, a.threads))]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    t0 = time.monotonic()
+    result["burst_s"] = round(t0 - burst_start, 3)
+    # Fast samples (the daemon process only) at their real times; the slow host-wide scan only at 10 s.
+    result["fast"] = [fast("as soon as the last close answered", t0, pids)]
+    for wait in (0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0):
+        left = t0 + wait - time.monotonic()
+        if left > 0:
+            time.sleep(left)
+        result["fast"].append(fast("%g s after the burst" % wait, t0, pids))
+    left = t0 + 10.0 - time.monotonic()
+    if left > 0:
+        time.sleep(left)
+    result["samples"].append(sample("10 s after the burst", t0, root))
+    result["workspace_closed"] = close_workspace(app, result["workspace"])
+    time.sleep(5.0)
+
+
+def verdict(result):
+    """Released PTYs against what the tabs added (not one per tab by assumption: review FIX at 48bd6dc87f9)."""
+    by = {s_["at"]: s_ for s_ in result["samples"]}
+    start = result["samples"][0]
+    before = next((s_ for s_ in result["samples"] if s_["at"].startswith("before burst")), None)
+    closed_ok = sum(1 for c in result["closes"] if c["ok"])
+    made = result.get("made") or 0
+    v = {"made": made, "closed_ok": closed_ok}
+    if before is None or not made or not closed_ok:
+        v["not_measured"] = "no tabs made or no close worked"
+        return v
+    # The daemon tree when the tabs' PTYs show there (it is what a leak would hold), else the whole user's count.
+    key = "daemon_tree" if (before.get("daemon_tree") or 0) - (start.get("daemon_tree") or 0) >= 0.9 * made else "total"
+    v["count"] = key
+    v["start"], v["before"] = start[key], before[key]
+    v["rise"] = before[key] - start[key]
+    if v["rise"] < 0.9 * made:
+        v["not_measured"] = "the %s /dev/ptmx count rose %d for %d tabs: a tab does not hold one countable PTY" % (key, v["rise"], made)
+        return v
+    per_tab = v["rise"] / made
+    expect = closed_ok * per_tab
+    fast_ = [f for f in result.get("fast", []) if f.get("daemon_tree") is not None] if key == "daemon_tree" else []
+    at1 = next((f for f in fast_ if f["t_s"] >= 1.0), None)
+    if at1 is not None:
+        v["at_1s"] = {"t_s": at1["t_s"], "count": at1["daemon_tree"], "released": before[key] - at1["daemon_tree"]}
+    ten = by.get("10 s after the burst")
+    if ten is not None:
+        v["at_10s"] = {"t_s": ten["t_s"], "count": ten[key], "released": before[key] - ten[key]}
+    v["first_full_release_s"] = next((f["t_s"] for f in fast_ if before[key] - f["daemon_tree"] >= 0.9 * expect), None)
+    released_1s = (v.get("at_1s") or {}).get("released")
+    if released_1s is None and ten is not None:  # no fast samples (the tabs' PTYs are outside the daemon tree)
+        v["leak_suspect_10s"] = (before[key] - ten[key]) < 0.9 * expect
+    v["leak_suspect"] = None if released_1s is None else released_1s < 0.9 * expect
+    v["expected_release"] = round(expect, 1)
+    return v
 
 
 def main(argv=None):
@@ -138,67 +263,16 @@ def main(argv=None):
         result["ptmx_max"] = None
     result["samples"].append(sample("start", None, root))
     ws = app.cmux("workspace", "create", "--name", "tk-pty-release-%d" % a.seed)
-    wid, pane = ws.get("workspace_id"), ws.get("pane_id")
+    wid, pane = (ws or {}).get("workspace_id"), (ws or {}).get("pane_id")
     result["workspace"] = wid
-    tabs = []
-    for i in range(a.tabs):
-        try:
-            v = app.cmux("tab", "create", "terminal", "--workspace", wid, "--pane", pane, timeout=30)
-            if isinstance(v, dict) and v.get("tab_id"):
-                tabs.append(v["tab_id"])
-        except heavy_profile.Refused as error:
-            result.setdefault("create_errors", []).append(str(error)[:400])
-    result["made"] = len(tabs)
-    time.sleep(2.0)  # every new terminal's shell has started
-    result["samples"].append(sample("before burst (%d tabs open)" % len(tabs), None, root))
-
-    lock, queue = threading.Lock(), list(tabs)
-
-    def closer():
-        while True:
-            with lock:
-                if not queue:
-                    return
-                tab = queue.pop()
-            start = time.monotonic()
-            try:
-                app.cmux("tab", tab, "close", timeout=30)
-                ok, err = True, None
-            except heavy_profile.Refused as error:
-                ok, err = False, str(error)[:400]
-            with lock:
-                result["closes"].append({"tab": tab, "ms": round((time.monotonic() - start) * 1000, 1), "ok": ok,
-                                         "error": err})
-
-    burst_start = time.monotonic()
-    threads = [threading.Thread(target=closer) for _ in range(max(1, a.threads))]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
-    t0 = time.monotonic()
-    result["burst_s"] = round(t0 - burst_start, 3)
-    result["samples"].append(sample("as soon as the last close answered", t0, root))
-    for wait in (0.25, 0.5, 1.0, 2.0, 5.0, 10.0):
-        left = t0 + wait - time.monotonic()
-        if left > 0:
-            time.sleep(left)
-        result["samples"].append(sample("%g s after the burst" % wait, t0, root))
     try:
-        app.cmux("workspace", wid, "close", timeout=30)
-        result["workspace_closed"] = True
-    except heavy_profile.Refused as error:
-        result["workspace_closed"] = str(error)[:400]
-    time.sleep(5.0)
-    result["samples"].append(sample("5 s after the workspace close", t0, root))
-    before = result["samples"][1]["total"]
-    by = {s["at"]: s["total"] for s in result["samples"]}
-    one_s = next(s["total"] for s in result["samples"] if s["at"] == "1 s after the burst")
-    closed_ok = sum(1 for c in result["closes"] if c["ok"])
-    result["verdict"] = {"closed_ok": closed_ok, "before": before, "after_1s": one_s,
-                         "released_by_1s": before - one_s,
-                         "released_by_10s": before - by.get("10 s after the burst", before),
-                         "leak_suspect": (before - one_s) < closed_ok * 0.9}
+        measure(app, a, result, root, wid, pane)
+    finally:  # never leave the tabs behind, whatever failed
+        if wid and result.get("workspace_closed") is not True:
+            result["workspace_closed"] = close_workspace(app, wid)
+        save()
+    result["samples"].append(sample("5 s after the workspace close", None, root))
+    result["verdict"] = verdict(result)
     save()
     print("PTY-RELEASE %s" % json.dumps(result["verdict"]), flush=True)
     return 0
