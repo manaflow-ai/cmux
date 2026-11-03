@@ -239,11 +239,14 @@ impl SubagentTree {
     /// Learns `id`'s name from `event` when it names it, or gives `event` the name learned before
     /// when it carries neither a name nor a task.
     fn name_event(&mut self, id: String, event: &mut Value) {
-        let text = |key: &str| event.get(key).and_then(Value::as_str).filter(|v| !v.trim().is_empty());
+        let text =
+            |key: &str| event.get(key).and_then(Value::as_str).filter(|v| !v.trim().is_empty());
         // Secrets are masked before the cut, as `note_running`'s labels are: a token across the cut
         // would no longer match the scanner.
         let label = |t: &str| {
-            truncate_label(&crate::secret_scan::mask(t).split_whitespace().collect::<Vec<_>>().join(" "))
+            truncate_label(
+                &crate::secret_scan::mask(t).split_whitespace().collect::<Vec<_>>().join(" "),
+            )
         };
         if let Some(name) = text("name") {
             // The newest name wins: a workflow's launch renames the run it started as "Workflow".
