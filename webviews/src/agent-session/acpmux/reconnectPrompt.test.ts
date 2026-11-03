@@ -137,7 +137,7 @@ test("a prompt lost with a remote connection goes again on the next one under th
       };
     }
   }
-  type Client = InstanceType<typeof AcpmuxDirectClient>;
+  type Client = Awaited<ReturnType<typeof AcpmuxDirectClient.connect>>;
   const clients = clientWaiter<Client>();
   const one = await AcpmuxDirectClient.connect(
     mockHost,

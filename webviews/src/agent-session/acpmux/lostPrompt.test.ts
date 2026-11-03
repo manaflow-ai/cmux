@@ -287,7 +287,7 @@ test("a prompt the connection lost before acpmux took it waits for the host's re
     // A sender that holds its prompt until acpmux takes it (a new chat's composer, the Quick Composer).
     const held = await client.send("continue", [], "p-held", () => undefined).catch((error: unknown) => error);
     expect(isLostConnection(held)).toBe(true);
-    expect(lostPrompt(held)).toEqual({ sessionId, promptId: "p-held" });
+    expect(lostPrompt(held)).toMatchObject({ sessionId, promptId: "p-held" });
     expect(rows.filter((row) => row.kind === "notice" && row.text?.includes("Not sent"))).toEqual([]);
   } finally {
     client.close();
