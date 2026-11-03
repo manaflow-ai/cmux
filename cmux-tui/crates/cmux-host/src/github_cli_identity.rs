@@ -61,10 +61,6 @@ fn github_host(host: Option<&String>) -> bool {
 /// The identity question `args` (gh's own arguments) asks, if it is one this
 /// answers. Any flag outside the listed ones leaves it to gh.
 pub fn identity_ask(args: &[String]) -> Option<IdentityAsk> {
-    // RED: stub (no identity answers yet); the next commit answers them.
-    if std::hint::black_box(true) {
-        return None;
-    }
     let (verb, rest) = args.split_first()?;
     let mut it = rest.iter();
     match verb.as_str() {
