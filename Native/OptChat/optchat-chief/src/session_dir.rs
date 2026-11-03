@@ -276,13 +276,7 @@ pub const TURN_DENIED_TOOLS: [&str; 24] = [
 /// Folded `acpmux_*` tools reach coordinator sessions. They are not in
 /// `approval::turn_allowed_tools`: an ask turn still refuses them.
 /// Background tasks stay out because a turn session is temporary.
-/// One app action is kept: `app_browser_import_cookies` (Import Cookies from
-/// Browser, #32960), so the Chief can bring the user's sign-ins from Chrome
-/// into cmux browser tabs when the user asks. The app shows the user a
-/// consent panel naming the Chief and its reason before it reads anything,
-/// and a turn another person started still refuses it (not in
-/// `approval::turn_allowed_tools`).
-pub const CHIEF_CMUX_TOOLS: [&str; 23] = [
+pub const CHIEF_CMUX_TOOLS: [&str; 22] = [
     "agents_snapshot",
     "agents_workspace_create",
     "agents_workspace_select",
@@ -305,7 +299,6 @@ pub const CHIEF_CMUX_TOOLS: [&str; 23] = [
     "acpmux_info",
     "acpmux_inbox_read",
     "acpmux_inbox_reply",
-    "app_browser_import_cookies",
 ];
 
 /// The turn presets' env that keeps `cmux` and its folded `acpmux` server

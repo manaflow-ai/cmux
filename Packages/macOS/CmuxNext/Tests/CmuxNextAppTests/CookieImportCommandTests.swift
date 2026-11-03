@@ -80,6 +80,9 @@ import Testing
         var agentAtCLI = ActionInvocation(origin: .cli)
         agentAtCLI.callerAgentSession = "01a15270"
         #expect(CookieImportService.needsReason(agentAtCLI))
+        var chiefAtCLI = ActionInvocation(origin: .cli)
+        chiefAtCLI.callerHomeChat = true
+        #expect(CookieImportService.needsReason(chiefAtCLI), "a Chief turn is an agent")
         #expect(CookieImportService.needsReason(ActionInvocation(origin: .mcp)))
         #expect(CookieImportService.needsReason(ActionInvocation(origin: .script)), "an agent's shell tool has no terminal")
     }

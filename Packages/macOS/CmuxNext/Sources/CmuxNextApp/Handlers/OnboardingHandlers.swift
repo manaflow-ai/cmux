@@ -41,7 +41,7 @@ enum OnboardingHandlers {
                         CookieImportCandidate(tabID: tab.id, title: tab.displayTitle, workspace: workspace.displayName,
                                               agentSession: agentTabs.sessions[agentTabs.resolve(tab.id)] ?? tab.agentSession?.session,
                                               terminalIDs: [tab.terminalID?.rawValue, tab.terminalResourceID?.rawValue].compactMap(\.self),
-                                              isHomeChat: workspace.isAnyHome && tab.isHomeDockPage)
+                                              isHomeChat: tab.isHomeDockPage && workspace.kind == "home")
                     }
                 }
                 // The caller's acpmux session, by id (O(1)): its title and latest reply.
