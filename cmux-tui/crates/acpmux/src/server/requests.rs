@@ -776,12 +776,12 @@ pub(super) async fn handle_request(
     match m {
         method::SESSION_PROMPT => {
             crate::prompt_class::declared(&params)?;
-            crate::prompt_provenance::notice_of(&params)?;
+            crate::prompt_provenance::notice_checked(&params)?;
         }
         method::MUX_SEND_QUEUE => {
             if let Some(request) = params.get("request") {
                 crate::prompt_class::declared(request)?;
-                crate::prompt_provenance::notice_of(request)?;
+                crate::prompt_provenance::notice_checked(request)?;
             }
         }
         _ => {}
@@ -1348,15 +1348,9 @@ async fn dispatch_request(
             let author = crate::author::of_prompt(&params)?;
             // A tool's notice (`prompt_provenance::notice_of`): never a Web client's, and a named
             // sender's message, never the person's, whatever else the prompt says.
-            let notice = crate::prompt_provenance::notice_of(&params)?;
+            let notice = crate::prompt_provenance::notice_checked(&params)?;
             if notice.is_some() && web {
                 return Err(crate::prompt_provenance::notice_origin_refused());
-            }
-            if notice.is_some() && given_provenance {
-                return Err(RpcError::invalid_params(
-                    "a notice carries its own provenance: send one or the other",
-                )
-                .with_data(json!({"reason": "notice.value_refused", "field": "provenance"})));
             }
             let notice_sender = notice
                 .as_ref()

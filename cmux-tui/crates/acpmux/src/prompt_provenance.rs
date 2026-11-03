@@ -393,6 +393,20 @@ pub fn notice_of(params: &Value) -> Result<Option<Value>, RpcError> {
     Ok(Some(Value::Object(out)))
 }
 
+/// [`notice_of`], and a notice beside a caller's own provenance refused: a notice carries its
+/// own. Every place that admits a prompt checks it (the dispatch, `_acpmux/send_queue`, a peer
+/// forward, which drops the caller's provenance).
+pub fn notice_checked(params: &Value) -> Result<Option<Value>, RpcError> {
+    let notice = notice_of(params)?;
+    if notice.is_some() && present(params.pointer("/_meta/acpmux")) {
+        return Err(notice_refused(
+            "provenance",
+            "sent alone: a notice carries its own provenance",
+        ));
+    }
+    Ok(notice)
+}
+
 /// The provenance of a tool's notice ([`notice_of`] checked it) to session `to`: a named
 /// sender's message, as [`named_sender`] is, that carries the notice itself.
 pub fn notice(notice: &Value, to: &str) -> Value {
@@ -926,6 +940,15 @@ mod notice_tests {
         let run = "https://x.dev/run?id=5&attempt=2";
         assert_eq!(notice_link(run), json!({"url": run}));
         assert_eq!(notice_link(&format!("{run}=run 5")), json!({"url": run, "label": "run 5"}));
+    }
+
+    #[test]
+    fn a_notice_beside_a_callers_provenance_is_refused() {
+        let mut both = params(fire());
+        both["_meta"]["acpmux"]["provenance"] = json!({"kind": "agent_message"});
+        let e = notice_checked(&both).unwrap_err();
+        assert_eq!(field_of(&e), (&json!("notice.value_refused"), &json!("provenance")));
+        assert!(notice_checked(&params(fire())).unwrap().is_some());
     }
 
     #[test]

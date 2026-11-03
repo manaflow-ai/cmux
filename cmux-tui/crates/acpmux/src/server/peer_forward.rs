@@ -315,7 +315,7 @@ async fn forward_inner(
         // (`prompt_provenance::notice_of`).
         if m == method::SESSION_PROMPT {
             crate::author::of_prompt(params)?;
-            crate::prompt_provenance::notice_of(params)?;
+            crate::prompt_provenance::notice_checked(params)?;
         }
         // A prompt that waits for the owner, and the owner's answer to one, go only to a peer
         // that holds it (`hub/queue_approve.rs`): an older one would run it unapproved.
