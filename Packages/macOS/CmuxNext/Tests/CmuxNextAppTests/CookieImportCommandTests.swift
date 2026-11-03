@@ -105,6 +105,19 @@ import Testing
         #expect(requester == CookieImportRequester(kind: .agentChat, name: "old chat"))
     }
 
+    /// A Chief's run (`caller.home_chat` with its turn's temporary session, #32960) names the Chief
+    /// and reveals Home's chat, never the turn session's raw id.
+    @Test func requesterOfAChiefTurnIsTheChiefInHome() {
+        var invocation = ActionInvocation(origin: .mcp)
+        invocation.callerAgentSession = "optchat-turn-9f2"
+        invocation.callerHomeChat = true
+        let tabs = Self.tabs + [CookieImportCandidate(tabID: "tab-home", title: "Home", workspace: "Home", agentSession: nil,
+                                                      terminalIDs: [], isHomeChat: true)]
+        let requester = CookieImportRequester(invocation, among: tabs) { _ in (title: "optchat-turn-9f2", preview: "Importing your GitHub sign-in") }
+        #expect(requester == CookieImportRequester(kind: .agentChat, name: "Chief", workspace: "Home", tabID: "tab-home",
+                                                   latestMessage: "Importing your GitHub sign-in"))
+    }
+
     @Test func requesterIsTheTerminalTheCallerNames() {
         var invocation = ActionInvocation(origin: .cli)
         invocation.callerTerminal = "res-7"
