@@ -266,9 +266,8 @@ extension CEFRuntime {
         switch kind {
         case .extensionActionsChanged, .inserted, .removed:
             if kind == .inserted { orphans.placeUnplaced(browser: browser, window: window) }
-            for host in hosts.values where host.owns(window: window) {
-                host.refreshExtensionActions()
-            }
+            // Only a tab whose actions may have changed reads them, the shown one at once (#32912).
+            extensionActionReads.tabEvent(kind, tab: tabsByBrowser[browser]) { hosts.values.filter { $0.owns(window: window) } }
             if kind == .extensionActionsChanged { extensionStores.refresh(window: window, browser: browser) }
         case .extensionsChanged:
             extensionStores.refresh(window: window, browser: browser)

@@ -1,0 +1,431 @@
+use std::sync::{Arc, Mutex};
+
+use base64::Engine as _;
+use serde_json::{Value, json};
+
+use super::super::tests::{
+    CREDENTIAL, Ran, command, entry, fake, far, mint_answer, never, no_secret, parsed, platform,
+    run_with,
+};
+use super::super::{AddArgs, Hooks, RunOptions, Verb, bootstrap, run};
+use super::*;
+
+const VALUE: &str = "sk-live-vault-value-0123456789";
+
+fn run_vault(words: &[&str], origin: &str, output: OutputMode, value: &str) -> Ran {
+    let command = command(words);
+    let platform = platform(origin);
+    let mut out = Vec::new();
+    let mut asked = Vec::new();
+    let mut confirm = |question: &str| {
+        asked.push(question.to_owned());
+        true
+    };
+    let value = value.to_owned();
+    let mut read_value = move |_: &str| -> Result<zeroize::Zeroizing<String>, String> {
+        Ok(zeroize::Zeroizing::new(value.clone()))
+    };
+    let mut ssh = |_: &bootstrap::SshPlan| -> std::io::Result<i32> { panic!("no ssh here") };
+    let mut hooks = Hooks { confirm: &mut confirm, read_value: &mut read_value, ssh: &mut ssh };
+    let options = RunOptions { interactive: false, every: std::time::Duration::from_millis(20) };
+    let code = run(&command, &platform, output, options, &mut out, &mut hooks, never());
+    Ran { code, out: String::from_utf8(out).unwrap(), asked }
+}
+
+fn no_value(text: &str) {
+    no_secret(text);
+    let encoded = base64::engine::general_purpose::STANDARD.encode(VALUE);
+    assert!(!text.contains(VALUE), "the value leaked in {text:?}");
+    assert!(!text.contains(&encoded), "the encoded value leaked in {text:?}");
+}
+
+fn vault_of(words: &[&str]) -> VaultVerb {
+    match command(words).verb {
+        Verb::Vault(verb) => verb,
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn vault_verbs_parse_and_a_value_never_comes_from_argv() {
+    assert_eq!(
+        vault_of(&["machine", "vault", "set", "OPENAI_API_KEY"]),
+        VaultVerb::Set { name: "OPENAI_API_KEY".into() }
+    );
+    assert_eq!(vault_of(&["machine", "vault", "ls"]), VaultVerb::Ls);
+    assert_eq!(
+        vault_of(&["machine", "vault", "list", "--platform", "https://p.example"]),
+        VaultVerb::Ls
+    );
+    assert_eq!(
+        vault_of(&["machine", "vault", "rm", "GITHUB_TOKEN"]),
+        VaultVerb::Rm { name: "GITHUB_TOKEN".into() }
+    );
+    assert_eq!(
+        vault_of(&["machine", "vault", "grant", "mini-9"]),
+        VaultVerb::Grant { machine: "mini-9".into(), granted: true }
+    );
+    assert_eq!(
+        vault_of(&["machine", "vault", "revoke", "m_1", "--cloud-token-file", "/t"]),
+        VaultVerb::Grant { machine: "m_1".into(), granted: false }
+    );
+    let error = parsed(&["machine", "vault", "set", "API_KEY", VALUE]).unwrap().unwrap_err();
+    assert!(error.0.contains("never the command line"), "{}", error.0);
+    assert!(!error.0.contains(VALUE));
+    let error = parsed(&["machine", "vault", "set", "API_KEY", "--cloud-token-stdin"])
+        .unwrap()
+        .unwrap_err();
+    assert!(error.0.contains("reads its value from stdin"), "{}", error.0);
+    for bad in [
+        vec!["machine", "vault"],
+        vec!["machine", "vault", "set"],
+        vec!["machine", "vault", "set", "PATH"],
+        vec!["machine", "vault", "set", "CMUX_TOKEN"],
+        vec!["machine", "vault", "set", "1BAD"],
+        vec!["machine", "vault", "set", "A-B"],
+        vec!["machine", "vault", "logins", "save"],
+        vec!["machine", "vault", "ls", "extra"],
+        vec!["machine", "vault", "grant"],
+        vec!["machine", "vault", "ls", "--bogus"],
+    ] {
+        assert!(parsed(&bad).is_some_and(|r| r.is_err()), "{bad:?}");
+    }
+    // The Credential Vault's own noun is not ours.
+    assert!(parsed(&["vault", "ls"]).is_none());
+}
+
+#[test]
+fn set_sends_the_value_base64_with_its_fingerprint_and_never_prints_it() {
+    for output in [OutputMode::Human, OutputMode::Json, OutputMode::JsonLines, OutputMode::Quiet] {
+        let (origin, requests) = fake(Arc::new(|request: &str| {
+            if request.starts_with("PUT /v1/vault/env/OPENAI_API_KEY ") {
+                return (200, json!({"name": "OPENAI_API_KEY", "revision": 4}).to_string());
+            }
+            (404, "{}".to_owned())
+        }));
+        let ran = run_vault(&["machine", "vault", "set", "OPENAI_API_KEY"], &origin, output, VALUE);
+        assert_eq!(ran.code, Ok(0), "{output:?}");
+        no_value(&ran.out);
+        match output {
+            OutputMode::Human => {
+                assert_eq!(ran.out, "OPENAI_API_KEY saved to your vault (revision 4).\n");
+            }
+            OutputMode::Quiet => assert!(ran.out.is_empty()),
+            _ => assert_eq!(
+                serde_json::from_str::<Value>(ran.out.trim()).unwrap(),
+                json!({"name": "OPENAI_API_KEY", "revision": 4})
+            ),
+        }
+        let request = requests.recv().unwrap();
+        let (head, body) = request.split_once("\r\n\r\n").unwrap();
+        assert!(head.to_ascii_lowercase().contains(&format!("authorization: bearer {CREDENTIAL}")));
+        assert!(!head.contains(VALUE), "the value is only in the body");
+        let body: Value = serde_json::from_str(body).unwrap();
+        let sent = base64::engine::general_purpose::STANDARD
+            .decode(body["valueBase64"].as_str().unwrap())
+            .unwrap();
+        assert_eq!(sent, VALUE.as_bytes());
+        assert_eq!(body["fingerprint"], fingerprint(VALUE.as_bytes()));
+        assert_eq!(body.as_object().unwrap().len(), 2, "{body}");
+    }
+}
+
+#[test]
+fn set_refuses_an_empty_value_and_errors_never_carry_the_value() {
+    let (origin, requests) = fake(Arc::new(|_: &str| (500, "{}".to_owned())));
+    let ran = run_vault(&["machine", "vault", "set", "API_KEY"], &origin, OutputMode::Human, "");
+    assert_eq!(ran.code.unwrap_err().exit, 2);
+    assert!(requests.try_recv().is_err(), "nothing was sent");
+    // A server that echoes what it got: none of it reaches the message.
+    let echo = Arc::new(|request: &str| {
+        (400, json!({"code": "vault.invalid", "message": request}).to_string())
+    });
+    let (origin, _requests) = fake(echo);
+    let failure =
+        run_vault(&["machine", "vault", "set", "API_KEY"], &origin, OutputMode::Json, VALUE)
+            .code
+            .unwrap_err();
+    assert_eq!(failure.message, "the cmux platform refused the value: 400 vault.invalid");
+    no_value(&failure.message);
+}
+
+#[test]
+fn ls_prints_names_revisions_and_times_only() {
+    let listed = json!({"entries": [
+        {"name": "OPENAI_API_KEY", "revision": 3, "updatedAt": "2026-11-02T10:00:00Z", "value": VALUE},
+        {"name": "GITHUB_TOKEN", "revision": 1, "updatedAt": "2026-11-01T09:00:00Z", "valueBase64": VALUE},
+        {"name": "../bad", "revision": 1},
+    ]});
+    for output in [OutputMode::Human, OutputMode::Json] {
+        let listed = listed.clone();
+        let (origin, _requests) = fake(Arc::new(move |request: &str| {
+            assert!(request.starts_with("GET /v1/vault/env "), "{request}");
+            (200, listed.to_string())
+        }));
+        let ran = run_vault(&["machine", "vault", "ls"], &origin, output, VALUE);
+        assert_eq!(ran.code, Ok(0));
+        no_value(&ran.out);
+        if output == OutputMode::Human {
+            assert_eq!(
+                ran.out,
+                "OPENAI_API_KEY  r3  2026-11-02T10:00:00Z\nGITHUB_TOKEN  r1  2026-11-01T09:00:00Z\n"
+            );
+        } else {
+            let value: Value = serde_json::from_str(ran.out.trim()).unwrap();
+            assert_eq!(value["entries"].as_array().unwrap().len(), 2);
+            assert_eq!(
+                value["entries"][0],
+                json!({"name": "OPENAI_API_KEY", "revision": 3, "updatedAt": "2026-11-02T10:00:00Z"})
+            );
+        }
+    }
+    let (origin, _requests) = fake(Arc::new(|_: &str| (404, "{}".to_owned())));
+    let failure =
+        run_vault(&["machine", "vault", "ls"], &origin, OutputMode::Human, VALUE).code.unwrap_err();
+    assert_eq!(failure.message, "the vault isn't available on this server yet (it answered 404)");
+}
+
+#[test]
+fn rm_deletes_and_a_missing_name_says_so() {
+    let (origin, requests) = fake(Arc::new(|request: &str| {
+        if request.starts_with("DELETE /v1/vault/env/API_KEY ") {
+            return (200, "{}".to_owned());
+        }
+        (404, json!({"code": "vault.not_found"}).to_string())
+    }));
+    let ran = run_vault(&["machine", "vault", "rm", "API_KEY"], &origin, OutputMode::Json, VALUE);
+    assert_eq!(ran.code, Ok(0));
+    assert_eq!(
+        serde_json::from_str::<Value>(ran.out.trim()).unwrap(),
+        json!({"name": "API_KEY", "removed": true})
+    );
+    assert!(requests.recv().unwrap().starts_with("DELETE /v1/vault/env/API_KEY "));
+    let failure =
+        run_vault(&["machine", "vault", "rm", "OTHER"], &origin, OutputMode::Human, VALUE)
+            .code
+            .unwrap_err();
+    assert_eq!(failure.code, "machine_vault.not_found");
+    assert_eq!(failure.message, "your vault has no OTHER");
+}
+
+#[test]
+fn grant_and_revoke_put_the_machines_vault_flag_by_name() {
+    for (verb, granted) in [("grant", true), ("revoke", false)] {
+        let bodies = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&bodies);
+        let (origin, _requests) = fake(Arc::new(move |request: &str| {
+            if request.starts_with("GET /v1/machines/credentials ") {
+                return (200, json!([entry("jt_1")]).to_string());
+            }
+            if request.starts_with("PUT /v1/machines/m_1/vault ") {
+                seen.lock().unwrap().push(request.split_once("\r\n\r\n").unwrap().1.to_owned());
+                return (200, json!({"granted": granted}).to_string());
+            }
+            (404, "{}".to_owned())
+        }));
+        let ran =
+            run_vault(&["machine", "vault", verb, "lane-vm-3"], &origin, OutputMode::Json, VALUE);
+        assert_eq!(ran.code, Ok(0), "{verb}");
+        assert_eq!(
+            serde_json::from_str::<Value>(ran.out.trim()).unwrap(),
+            json!({"machineId": "m_1", "name": "lane-vm-3", "granted": granted})
+        );
+        let body: Value = serde_json::from_str(&bodies.lock().unwrap()[0]).unwrap();
+        assert_eq!(body, json!({"granted": granted}));
+    }
+}
+
+#[test]
+fn the_consent_names_every_env_var_and_no_login() {
+    assert_eq!(
+        consent_text(&["OPENAI_API_KEY".into(), "GITHUB_TOKEN".into()]),
+        "This machine gets 2 env vars from your vault: OPENAI_API_KEY, GITHUB_TOKEN. Continue?"
+    );
+    assert_eq!(
+        consent_text(&["OPENAI_API_KEY".into()]),
+        "This machine gets 1 env var from your vault: OPENAI_API_KEY. Continue?"
+    );
+    assert!(consent_text(&[]).starts_with("This machine gets your vault (it has no env vars yet"));
+    for text in [consent_text(&[]), consent_text(&["A_B".into()])] {
+        assert!(!text.to_ascii_lowercase().contains("login"), "{text}");
+    }
+}
+
+/// A platform with a vault of two vars that mints, recording each mint's body.
+fn vault_platform(mint_status: u16) -> (String, std::sync::mpsc::Receiver<String>) {
+    fake(Arc::new(move |request: &str| {
+        if request.starts_with("GET /v1/vault/env ") {
+            return (
+                200,
+                json!({"entries": [{"name": "OPENAI_API_KEY", "revision": 1}, {"name": "GITHUB_TOKEN", "revision": 2}]})
+                    .to_string(),
+            );
+        }
+        if request.starts_with("POST /v1/machines/join-tokens ") {
+            if mint_status == 403 {
+                return (403, json!({"code": "machine.vault_personal_only"}).to_string());
+            }
+            return (200, mint_answer(far()));
+        }
+        (404, "{}".to_owned())
+    }))
+}
+
+#[test]
+fn add_vault_asks_with_the_names_then_mints_with_vault_true() {
+    let (origin, requests) = vault_platform(200);
+    let ran =
+        run_with(&["machine", "add", "--vault"], &origin, OutputMode::Json, false, true, never());
+    assert_eq!(ran.code, Ok(0));
+    assert_eq!(
+        ran.asked,
+        vec![
+            "This machine gets 2 env vars from your vault: OPENAI_API_KEY, GITHUB_TOKEN. Continue?"
+        ]
+    );
+    assert!(requests.recv().unwrap().starts_with("GET /v1/vault/env "));
+    let mint = requests.recv().unwrap();
+    assert!(mint.starts_with("POST /v1/machines/join-tokens "));
+    let body: Value = serde_json::from_str(mint.split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert_eq!(body, json!({"vault": true}));
+    // A no: no token is made.
+    let (origin, requests) = vault_platform(200);
+    let ran =
+        run_with(&["machine", "add", "--vault"], &origin, OutputMode::Human, false, false, never());
+    assert_eq!(ran.code.unwrap_err().exit, 2);
+    assert!(requests.recv().unwrap().starts_with("GET /v1/vault/env "));
+    assert!(requests.try_recv().is_err(), "nothing minted after a no");
+    // --yes asks nothing; --quiet without --yes refuses before any call.
+    let (origin, _requests) = vault_platform(200);
+    let ran = run_with(
+        &["machine", "add", "--vault", "--yes"],
+        &origin,
+        OutputMode::Json,
+        false,
+        false,
+        never(),
+    );
+    assert_eq!(ran.code, Ok(0));
+    assert!(ran.asked.is_empty());
+    let (origin, requests) = vault_platform(200);
+    let ran =
+        run_with(&["machine", "add", "--vault"], &origin, OutputMode::Quiet, false, true, never());
+    assert_eq!(ran.code.unwrap_err().exit, 2);
+    assert!(requests.try_recv().is_err());
+    // Without --vault, nothing about the vault changes.
+    let (origin, requests) = vault_platform(200);
+    let ran = run_with(&["machine", "add"], &origin, OutputMode::Json, false, true, never());
+    assert_eq!(ran.code, Ok(0));
+    assert!(ran.asked.is_empty());
+    let mint = requests.recv().unwrap();
+    let body: Value = serde_json::from_str(mint.split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert_eq!(body, json!({}));
+}
+
+#[test]
+fn add_vault_on_a_team_says_the_vault_is_personal_only() {
+    let (origin, _requests) = vault_platform(403);
+    let failure = run_with(
+        &["machine", "add", "--vault", "--yes"],
+        &origin,
+        OutputMode::Json,
+        false,
+        true,
+        never(),
+    )
+    .code
+    .unwrap_err();
+    assert_eq!(failure.code, "machine_join.vault_personal_only");
+    no_secret(&failure.message);
+}
+
+#[test]
+fn add_flags_parse_together_and_refuse_what_does_not_fit() {
+    assert_eq!(
+        command(&["machine", "add", "--vault", "-y"]).verb,
+        Verb::Add(AddArgs { vault: true, yes: true, ..AddArgs::default() })
+    );
+    assert_eq!(
+        command(&["machine", "add", "leo@mini-9", "--bootstrap"]).verb,
+        Verb::Add(AddArgs {
+            host: Some("leo@mini-9".into()),
+            bootstrap: true,
+            ..AddArgs::default()
+        })
+    );
+    assert_eq!(
+        command(&["machine", "add", "--vault", "--destination", "mini-9"]).verb,
+        Verb::Add(AddArgs { host: Some("mini-9".into()), vault: true, ..AddArgs::default() })
+    );
+    assert_eq!(
+        command(&["machine", "add", "--usb", "/Volumes/STICK", "--ttl", "5m"]).verb,
+        Verb::Add(AddArgs {
+            usb: Some("/Volumes/STICK".into()),
+            ttl: Some(300),
+            ..AddArgs::default()
+        })
+    );
+    // Without --vault or --bootstrap a host is still the app's card.
+    assert!(parsed(&["machine", "add", "leo@mini-9"]).is_none());
+    for bad in [
+        vec!["machine", "add", "--yes"],
+        vec!["machine", "add", "--bootstrap"],
+        vec!["machine", "add", "--usb", "/x", "leo@mini-9", "--vault"],
+        vec!["machine", "add", "--usb", "/x", "--ttl", "25h"],
+        vec!["machine", "add", "--usb", "/x", "--ttl", "1h"],
+        vec!["machine", "add", "--usb", "/x", "--wait"],
+        vec!["machine", "add", "--usb"],
+        vec!["machine", "add", "--ttl", "1h"],
+        vec!["machine", "add", "-oProxyCommand=x", "--vault"],
+        vec!["machine", "add", "--destination", "-oProxyCommand=x", "--vault"],
+        vec!["machine", "add", "a b", "--bootstrap"],
+    ] {
+        assert!(parsed(&bad).is_some_and(|r| r.is_err()), "{bad:?}");
+    }
+}
+
+#[test]
+fn an_empty_usb_or_destination_is_refused_before_anything_runs() {
+    for bad in [
+        vec!["machine", "add", "--usb", ""],
+        vec!["machine", "add", "--usb="],
+        vec!["machine", "add", "--vault", "--usb="],
+        vec!["machine", "add", "--vault", "--destination="],
+    ] {
+        let error = parsed(&bad).expect("ours").unwrap_err();
+        assert!(error.0.ends_with("needs a value"), "{bad:?}: {}", error.0);
+    }
+    // Refused at parse: `run_if_requested` fails before reading a credential, so nothing is
+    // minted and no line is printed.
+}
+
+#[test]
+fn machine_adds_switches_leave_json_to_the_global_output_mode() {
+    let words = |w: &[&str]| w.iter().map(|s| (*s).to_owned()).collect::<Vec<String>>();
+    for args in [
+        vec!["machine", "add", "leo@mini-9", "--bootstrap", "--json"],
+        vec!["machine", "add", "--vault", "--json", "--yes"],
+        vec!["machine", "add", "--vault", "--yes", "--json"],
+        vec!["machine", "add", "--wait", "--json"],
+        vec!["machine", "vault", "ls", "--cloud-token-stdin", "--json"],
+    ] {
+        let (global, rest) = match crate::cli::parse_globals(&words(&args)) {
+            Ok(parsed) => parsed,
+            Err((error, _)) => panic!("{args:?}: {}", error.0),
+        };
+        assert_eq!(global.output, OutputMode::Json, "{args:?}");
+        assert!(!rest.contains(&"--json".to_owned()), "{args:?}: {rest:?}");
+        assert!(
+            parsed(&rest.iter().map(String::as_str).collect::<Vec<_>>()).is_some_and(|r| r.is_ok()),
+            "{rest:?}"
+        );
+    }
+    // Elsewhere `--bootstrap` keeps its value (`cloud new-machine --bootstrap NAME`).
+    let (_, rest) =
+        match crate::cli::parse_globals(&words(&["cloud", "new-machine", "--bootstrap", "--json"]))
+        {
+            Ok(parsed) => parsed,
+            Err((error, _)) => panic!("{}", error.0),
+        };
+    assert_eq!(rest, words(&["cloud", "new-machine", "--bootstrap", "--json"]));
+}
