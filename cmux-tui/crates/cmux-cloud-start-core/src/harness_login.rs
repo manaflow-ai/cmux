@@ -260,10 +260,12 @@ fn summary(d: &Inputs, step: Step, reason: Reason) -> String {
     line
 }
 
-/// Whether this build passes the harness login: the setting when set, else only DEV and dogfood
-/// builds (`defaults write ... cmux.cloud.passHarnessLogin -bool NO` makes a DEV build behave as production).
+/// Whether this build passes the harness login: only DEV and dogfood builds, never Release, and
+/// in them the setting may turn it off (`defaults write ... cmux.cloud.passHarnessLogin -bool NO`
+/// makes a DEV build behave as production). The setting never turns it on in Release: a Release
+/// build never copies a subscription login off the Mac.
 pub fn passes_harness_login(dogfood: bool, setting: Option<bool>) -> bool {
-    setting.unwrap_or(dogfood)
+    dogfood && setting.unwrap_or(true)
 }
 
 /// `d` with its raw facts resolved into the fields the rules read.
