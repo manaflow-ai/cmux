@@ -29,6 +29,34 @@ struct CmuxToastOneWindowTests {
         result.dismiss()
     }
 
+    /// The result is quiet (the person closed the same failure a moment ago): it still ends the working
+    /// toast, in its own window too, instead of leaving it up for good.
+    @Test func aQuietResultStillEndsTheWorkingToast() {
+        let center = CmuxToastCenter(host: SilentToastHost())
+        let window = Self.window()
+        defer { window.closeAfterTest() }
+        let failure = CmuxToast(id: "cloud-start-t4", message: "Couldn't copy the folder", duration: .seconds(12), oneWindow: true)
+        center.show(failure, in: window)
+        _ = center.close(id: "cloud-start-t4", in: window)
+        #expect(center.isQuieted(failure))
+        let working = center.show(CmuxToast(id: "cloud-start-t4", message: "Moving", duration: CmuxToast.untilClosed, oneWindow: true), in: window)
+        let again = center.show(failure, in: window)
+        #expect(again.isDismissed)
+        #expect(working.isDismissed, "the working toast stayed up after a quiet result")
+        #expect(center.toasts(in: window).isEmpty)
+    }
+
+    /// `close(id:)` ends the toast in every window (Run on This Mac after the person switched windows).
+    @Test func closeByIDEndsItInEveryWindow() {
+        let center = CmuxToastCenter(host: SilentToastHost())
+        let first = Self.window(), second = Self.window()
+        defer { first.closeAfterTest(); second.closeAfterTest() }
+        let working = center.show(CmuxToast(id: "cloud-start-t5", message: "Moving", duration: CmuxToast.untilClosed, oneWindow: true), in: first)
+        center.close(id: "cloud-start-t5")
+        #expect(working.isDismissed)
+        #expect(center.toasts(in: first).isEmpty && center.toasts(in: second).isEmpty)
+    }
+
     /// Without the flag a toast stays per window, as before.
     @Test func anOrdinaryToastStaysPerWindow() {
         let center = CmuxToastCenter(host: SilentToastHost())
