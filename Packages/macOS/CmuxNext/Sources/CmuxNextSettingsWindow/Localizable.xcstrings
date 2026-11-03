@@ -1186,127 +1186,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reply to confirm this conversation. Text STOP to disconnect."
+            "value": "Follow the confirmation instructions to connect. Text STOP to disconnect."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "رد لتأكيد هذه المحادثة. أرسل STOP لإلغاء الربط."
+            "value": "اتبع تعليمات التأكيد للاتصال. أرسل STOP لإلغاء الربط."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Odgovorite da potvrdite ovaj razgovor. Pošaljite STOP za prekid veze."
+            "value": "Slijedite upute za potvrdu da se povežete. Pošaljite STOP za prekid veze."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Svar for at bekræfte denne samtale. Skriv STOP for at afbryde forbindelsen."
+            "value": "Følg bekræftelsesvejledningen for at oprette forbindelse. Skriv STOP for at afbryde forbindelsen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Antworte, um diese Unterhaltung zu bestätigen. Sende STOP, um die Verbindung zu trennen."
+            "value": "Folge den Bestätigungsanweisungen, um die Verbindung herzustellen. Sende STOP, um sie zu trennen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Responde para confirmar esta conversación. Envía STOP para desconectar."
+            "value": "Sigue las instrucciones de confirmación para conectar. Envía STOP para desconectar."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Répondez pour confirmer cette conversation. Envoyez STOP pour vous déconnecter."
+            "value": "Suivez les instructions de confirmation pour vous connecter. Envoyez STOP pour vous déconnecter."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rispondi per confermare questa conversazione. Invia STOP per scollegarti."
+            "value": "Segui le istruzioni di conferma per collegarti. Invia STOP per scollegarti."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "返信してこの会話を確認してください。切断するにはSTOPと送信してください。"
+            "value": "確認手順に従って接続してください。切断するにはSTOPと送信してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ឆ្លើយតបដើម្បីបញ្ជាក់ការសន្ទនានេះ។ ផ្ញើ STOP ដើម្បីផ្តាច់។"
+            "value": "អនុវត្តតាមការណែនាំបញ្ជាក់ដើម្បីភ្ជាប់។ ផ្ញើ STOP ដើម្បីផ្តាច់។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "답장해 이 대화를 확인하세요. 연결을 끊으려면 STOP을 보내세요."
+            "value": "확인 안내에 따라 연결하세요. 연결을 끊으려면 STOP을 보내세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Svar for å bekrefte denne samtalen. Send STOP for å koble fra."
+            "value": "Følg bekreftelsesinstruksjonene for å koble til. Send STOP for å koble fra."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Odpowiedz, aby potwierdzić tę rozmowę. Wyślij STOP, aby się rozłączyć."
+            "value": "Postępuj zgodnie z instrukcjami potwierdzenia, aby się połączyć. Wyślij STOP, aby się rozłączyć."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Responda para confirmar esta conversa. Envie STOP para desconectar."
+            "value": "Siga as instruções de confirmação para conectar. Envie STOP para desconectar."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ответьте, чтобы подтвердить эту беседу. Отправьте STOP для отключения."
+            "value": "Следуйте инструкциям подтверждения для подключения. Отправьте STOP для отключения."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ตอบกลับเพื่อยืนยันการสนทนานี้ ส่ง STOP เพื่อตัดการเชื่อมต่อ"
+            "value": "ทำตามคำแนะนำการยืนยันเพื่อเชื่อมต่อ ส่ง STOP เพื่อตัดการเชื่อมต่อ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu konuşmayı onaylamak için yanıtlayın. Bağlantıyı kesmek için STOP gönderin."
+            "value": "Bağlanmak için onay talimatlarını izleyin. Bağlantıyı kesmek için STOP gönderin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Дайте відповідь, щоб підтвердити цю розмову. Надішліть STOP для відключення."
+            "value": "Дотримуйтеся інструкцій підтвердження для підключення. Надішліть STOP для відключення."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trả lời để xác nhận cuộc trò chuyện này. Nhắn STOP để ngắt kết nối."
+            "value": "Làm theo hướng dẫn xác nhận để kết nối. Nhắn STOP để ngắt kết nối."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "回复以确认此对话。发送 STOP 即可断开连接。"
+            "value": "按照确认说明完成连接。发送 STOP 即可断开连接。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "回覆以確認此對話。傳送 STOP 即可中斷連線。"
+            "value": "按照確認指示完成連接。傳送 STOP 即可中斷連線。"
           }
         }
       }

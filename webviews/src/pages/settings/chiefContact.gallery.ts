@@ -4,12 +4,11 @@ import type { Play } from "../../gallery/play";
 import type { ContactGalleryProps } from "./components/ChiefContactGallery";
 
 const request: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.find({ role: "textbox", name: "Phone number or Apple ID email" }));
-  await ctx.waitFor(
-    () => !ctx.find({ role: "textbox", name: "Phone number or Apple ID email" }).hasAttribute("disabled"),
-  );
-  await ctx.type("+1 555 555 0123", { role: "textbox", name: "Phone number or Apple ID email" });
-  await ctx.click({ role: "button", name: "Send confirmation text" });
+  const input = { selector: "#chief-contact-handle" };
+  await ctx.waitFor(() => ctx.find(input));
+  await ctx.waitFor(() => !ctx.find(input).hasAttribute("disabled"));
+  await ctx.type("+1 555 555 0123", input);
+  await ctx.click({ selector: '.chief-contact-form button[type="submit"]' });
 };
 
 export default componentEntry<ContactGalleryProps>({
