@@ -18,10 +18,27 @@ struct AcpmuxPaneInboundNativeTests {
         text.utf8.withContiguousStorageIfAvailable { _ in true } == true
     }
 
+    @Test func nativeUTF8KeepsTextAndNativeStringsAsTheyAre() {
+        let text = Self.chunk(bytes: 4_096)
+        #expect(Self.isNative(text))
+        #expect(AcpmuxPaneSocket.nativeUTF8(text) == text)
+        #expect(AcpmuxPaneSocket.nativeUTF8("") == "")
+    }
+
     #if canImport(ObjectiveC)
     /// What URLSessionWebSocketTask's `.string(text)` hands over: a CFString decoded from UTF-8.
     static func bridged(_ text: String) -> String {
         NSString(data: Data(text.utf8), encoding: String.Encoding.utf8.rawValue)! as String
+    }
+
+    @Test func nativeUTF8TranscodesABridgedFrame() {
+        let text = Self.chunk(bytes: 8_192)
+        let frame = Self.bridged(text)
+        #expect(!Self.isNative(frame))
+        let native = AcpmuxPaneSocket.nativeUTF8(frame)
+        #expect(Self.isNative(native))
+        #expect(native == text)
+        #expect(Array(native.utf8) == Array(text.utf8))
     }
 
     /// Red at base: an opaque notification reached the page queue as the bridged string it arrived as.
@@ -45,6 +62,27 @@ struct AcpmuxPaneInboundNativeTests {
         #expect(batch.frames.allSatisfy(Self.isNative))
     }
 
+    /// The inbound pass over 1,000 bridged frames as they arrive, and over the same frames made
+    /// native first (the transcode included). Prints ms per 1,000 frames for the PR's table.
+    @Test(arguments: [2_048, 20_480])
+    func inboundPassOverBridgedFramesIsFasterNative(bytes: Int) {
+        let frames = (0..<1_000).map { Self.bridged(Self.chunk(bytes: bytes, index: $0)) }
+        #expect(frames.allSatisfy { !Self.isNative($0) })
+        let ids = AcpmuxRequestIds()
+        func pass(_ convert: Bool) -> Duration {
+            ContinuousClock().measure {
+                for frame in frames {
+                    let text = convert ? AcpmuxPaneSocket.nativeUTF8(frame) : frame
+                    _ = text.utf8.count
+                    guard case .page = ids.toPage(text) else { Issue.record("frame was not forwarded"); return }
+                }
+            }
+        }
+        let bridged = pass(false)
+        let native = pass(true)
+        print("inbound pass, 1,000 frames of \(bytes) B: bridged \(bridged), native \(native)")
+        #expect(native < bridged)
+    }
     #endif
 
     /// A reply with an escaped character is parsed once, not twice (escape check, then reply path).
