@@ -1780,16 +1780,19 @@ enum CmuxEmbeddedConfigSchema {
         "showAgentModel": {
           "type": "boolean",
           "default": true,
+          "descriptionKey": "schemaDescriptions.sidebar.showAgentModel",
           "description": "Include the model name in the agent usage shown by showAgentUsage."
         },
         "showAgentContext": {
           "type": "boolean",
           "default": true,
+          "descriptionKey": "schemaDescriptions.sidebar.showAgentContext",
           "description": "Include the context-window percentage in the agent usage shown by showAgentUsage."
         },
         "showAgentCost": {
           "type": "boolean",
           "default": true,
+          "descriptionKey": "schemaDescriptions.sidebar.showAgentCost",
           "description": "Include the estimated API cost in the agent usage shown by showAgentUsage."
         },
         "showAgentActivity": {

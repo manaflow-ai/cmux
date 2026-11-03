@@ -2265,6 +2265,9 @@
           "notificationMessageLineLimit": "Numero massimo di righe mostrate per la notifica più recente sotto il titolo di ogni area di lavoro.",
           "rightMaxWidth": "Larghezza massima in punti della barra laterale destra. Se omessa, si applica il limite dinamico integrato.",
           "showAgentUsage": "Aggiunge l’uso dell’agente di codice alla voce di stato di Claude Code o Codex: modello e finestra di contesto utilizzata e, per Claude Code, un costo API stimato (thread principale e subagenti) ai prezzi di listino pubblicati da Anthropic. Il costo è una stima, non la tua fattura di abbonamento; i livelli batch e priority, i prezzi per i partner, la modalità veloce e le tariffe degli strumenti server non sono considerati.",
+          "showAgentModel": "Includi il nome del modello nell’utilizzo dell’agente mostrato da showAgentUsage.",
+          "showAgentContext": "Includi la percentuale della finestra di contesto nell’utilizzo dell’agente mostrato da showAgentUsage.",
+          "showAgentCost": "Includi il costo API stimato nell’utilizzo dell’agente mostrato da showAgentUsage.",
           "showCloudDeviceIcons": "Mostra le icone dei computer Cloud e dei dispositivi accanto ai titoli degli spazi di lavoro remoti, indipendentemente dai dettagli del branch Git e della directory.",
           "beta": {
             "conversations": {

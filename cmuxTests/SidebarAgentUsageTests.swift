@@ -98,7 +98,8 @@ struct SidebarAgentUsageTests {
     }
 
     @Test func eachPartSettingDropsOnlyItsComponent() {
-        let claude = Self.statusEntry(key: "claude_code", value: "Running")
+        // A reporter tooltip, so dropping the cost must visibly keep it.
+        let claude = SidebarStatusEntry(key: "claude_code", value: "Running", timestamp: Date(timeIntervalSince1970: 10), helpText: "Reporter tooltip")
         func shown(_ parts: SidebarAgentUsage.Parts) -> SidebarStatusEntry {
             SidebarAgentUsageFormatter(locale: Locale(identifier: "en_US"), shownParts: parts)
                 .decorate([claude], usageByStatusKey: ["claude_code": Self.usage])[0]
@@ -107,7 +108,7 @@ struct SidebarAgentUsageTests {
         #expect(shown([.context, .cost]).value == "Running · 42% · ~$1.20")
         #expect(shown([.model, .cost]).value == "Running · Opus 4.8 · ~$1.20")
         #expect(shown([.model, .context]).value == "Running · Opus 4.8 · 42%")
-        #expect(shown([.model, .context]).helpText == claude.helpText)
+        #expect(shown([.model, .context]).helpText == "Reporter tooltip")
         #expect(shown([.cost]).helpText == SidebarAgentUsageFormatter.costHelpText)
         #expect(shown([]) == claude)
     }

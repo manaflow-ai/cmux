@@ -2265,6 +2265,9 @@
           "notificationMessageLineLimit": "Maksimalan broj redova prikazanih za najnoviju obavijest ispod naslova svakog radnog prostora.",
           "rightMaxWidth": "Maksimalna širina desne bočne trake u tačkama. Ako se izostavi, primjenjuje se ugrađeno dinamičko ograničenje.",
           "showAgentUsage": "Dodaje potrošnju agenta za kod u stavku statusa za Claude Code ili Codex: model i iskorišteni kontekstni prozor, a za Claude Code i procijenjeni trošak API-ja (glavna nit i podagenti) prema objavljenim cjenovnicima Anthropica. Trošak je procjena, a ne račun za vašu pretplatu; batch i prioritetni nivoi, partnerske cijene, brzi način rada i naknade za serverske alate nisu uračunati.",
+          "showAgentModel": "Uključi naziv modela u korištenje agenta koje prikazuje showAgentUsage.",
+          "showAgentContext": "Uključi postotak kontekstnog prozora u korištenje agenta koje prikazuje showAgentUsage.",
+          "showAgentCost": "Uključi procijenjeni trošak API-ja u korištenje agenta koje prikazuje showAgentUsage.",
           "showCloudDeviceIcons": "Prikaži ikone Cloud računara i uređaja pored naslova udaljenih radnih prostora nezavisno od detalja Git grane i direktorija.",
           "beta": {
             "conversations": {
