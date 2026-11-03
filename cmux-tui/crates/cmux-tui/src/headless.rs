@@ -69,6 +69,11 @@ where
     // running (dev_orphan_exit.rs).
     #[cfg(unix)]
     let orphan_exit = dev_orphan_exit::start_for_owner(mux);
+    // An app session's owner stops once its app has left and nothing keeps
+    // it (R-LIFECYCLE stage 1, behind its switch; owner_keepers.rs). Only an
+    // owner that clients reach through its socket alone, as below.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    let keepers = start_owner_keepers(mux, reachable.is_some());
     // An owner whose socket or state directory is gone, with no client
     // connected, stops: nothing can reach it again (lost_paths.rs).
     #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -108,7 +113,38 @@ where
     if let Some(lost_paths) = lost_paths {
         lost_paths.stop();
     }
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    if let Some(keepers) = keepers {
+        keepers.stop();
+    }
     Ok(())
+}
+
+/// R-LIFECYCLE stage 1's switch (handoff/rewrites/R-LIFECYCLE/DESIGN.md
+/// section 7): `1` arms the keepers rule; it is deleted when the stage passes.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+const OWNER_KEEPERS_ENV: &str = "CMUX_TUI_OWNER_KEEPERS";
+
+/// The keepers watch for an app session's owner (`cmux-app`, `cmux-app-*`)
+/// that clients reach only through its socket, when the stage's switch is on.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn start_owner_keepers(
+    mux: &Arc<Mux>,
+    reached_only_by_socket: bool,
+) -> Option<cmux_tui_core::server::OwnerKeepersWatch> {
+    let app_session = mux.session == "cmux-app" || mux.session.starts_with("cmux-app-");
+    let on = std::env::var(OWNER_KEEPERS_ENV).is_ok_and(|value| value == "1");
+    if !(on && app_session && reached_only_by_socket) {
+        return None;
+    }
+    match cmux_tui_core::server::watch_owner_keepers(mux) {
+        Ok(watch) => Some(watch),
+        Err(error) => {
+            // No watch thread: the owner runs on as it would without the switch.
+            eprintln!("cmux-tui: cannot start the owner keepers watch: {error}");
+            None
+        }
+    }
 }
 
 /// macOS: a memory fault ends a headless owner at once, with no handler.
