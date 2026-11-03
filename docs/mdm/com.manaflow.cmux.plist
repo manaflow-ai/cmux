@@ -8070,6 +8070,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Open requests, such as permission prompts and questions, are pinned at the top of your Chief's conversation. The Feed always lists them.</string>
+			<key>pfm_name</key>
+			<string>feed.needsYouInChief</string>
+			<key>pfm_title</key>
+			<string>Pin Needs You in Chief</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>steady</string>
 			<key>pfm_name</key>
 			<string>notifications.attention.style</string>

@@ -2522,6 +2522,12 @@
       "title" : "Copy Terminal Notifications to the Feed",
       "type" : "string"
     },
+    "feed.needsYouInChief" : {
+      "default" : false,
+      "description" : "Open requests, such as permission prompts and questions, are pinned at the top of your Chief's conversation. The Feed always lists them.",
+      "title" : "Pin Needs You in Chief",
+      "type" : "boolean"
+    },
     "files.textEditor" : {
       "default" : "",
       "description" : "The app Open in Text Editor uses for a path: an app name, a bundle ID or the path of an app. Empty uses the app that opens source code.",
