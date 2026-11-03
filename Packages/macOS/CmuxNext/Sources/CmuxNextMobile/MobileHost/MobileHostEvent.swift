@@ -39,6 +39,9 @@ public enum MobileHostEvent: Sendable, Equatable {
     /// The owner removed this Mac from the account's devices; hostd exits and must not
     /// be restarted until the person allows iPhone connections again.
     case removed
+    /// A paired phone answered a Computer Use app approval (`cu_approval_answer`,
+    /// docs/computer-use-approvals.md "Phone wire"). The app checks it again before it counts.
+    case computerUseAnswer(MobileHostComputerUseAnswer)
 
     /// Parses one stdout line; nil for anything that is not a known event.
     public init?(line: some StringProtocol) {
@@ -92,6 +95,11 @@ public enum MobileHostEvent: Sendable, Equatable {
             self = .surfaceStop(tab: tab)
         case "removed":
             self = .removed
+        case "cu_approval_answer":
+            guard let phone = wire.phoneDeviceId, let digest = wire.digest, let decision = wire.decision,
+                  let expires = wire.expiresAt else { return nil }
+            self = .computerUseAnswer(MobileHostComputerUseAnswer(phoneDeviceID: phone, digest: digest, decision: decision,
+                                                                  expiresAt: expires, signature: wire.signature))
         default:
             return nil
         }
@@ -117,5 +125,29 @@ public enum MobileHostEvent: Sendable, Equatable {
         var request: UInt64?
         var tab: String?
         var url: String?
+        var digest: String?
+        var decision: String?
+        var expiresAt: Int64?
+        var signature: String?
+    }
+}
+
+/// A phone's answer to a Computer Use app approval, as hostd forwards it.
+public struct MobileHostComputerUseAnswer: Sendable, Equatable {
+    public var phoneDeviceID: String
+    public var digest: String
+    /// `once`, `session`, `always` or `deny`.
+    public var decision: String
+    /// Unix seconds.
+    public var expiresAt: Int64
+    /// The approval key's signature (raw `r || s` hex); nil for a deny.
+    public var signature: String?
+
+    public init(phoneDeviceID: String, digest: String, decision: String, expiresAt: Int64, signature: String?) {
+        self.phoneDeviceID = phoneDeviceID
+        self.digest = digest
+        self.decision = decision
+        self.expiresAt = expiresAt
+        self.signature = signature
     }
 }

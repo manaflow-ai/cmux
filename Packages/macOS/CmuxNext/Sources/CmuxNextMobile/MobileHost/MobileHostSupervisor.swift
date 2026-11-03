@@ -60,6 +60,11 @@ public actor MobileHostSupervisor {
     /// thread, so every hostd start and restart hands over the newest list, never one that an
     /// update still on its way to this actor would replace.
     private nonisolated let newestDevicesLine = Mutex<Data?>(nil)
+    /// Phones' answers to Computer Use app approvals (``MobileHostEvent/computerUseAnswer(_:)``), in order.
+    public nonisolated let computerUseAnswers: AsyncStream<MobileHostComputerUseAnswer>
+    private let computerUseQueue = MobileHostQueue<MobileHostComputerUseAnswer>(capacity: 32)
+    /// Open Computer Use questions by digest (their `cu_approval` lines): sent to each new hostd.
+    private var computerUseAsks: [String: Data] = [:]
     /// The last `phone_credentials` line (secrets, memory only): sent to each new hostd and on
     /// every change.
     private var phoneCredentialsLine: Data?
@@ -98,6 +103,7 @@ public actor MobileHostSupervisor {
     public init(clock: any Clock<Duration> = ContinuousClock(), now: @escaping @Sendable () -> Date = { Date() }) {
         (states, continuation) = AsyncStream.makeStream(of: MobileHostState.self, bufferingPolicy: .bufferingNewest(1))
         pairing = pairingQueue.stream
+        computerUseAnswers = computerUseQueue.stream
         self.clock = clock
         self.now = now
     }
@@ -109,6 +115,8 @@ public actor MobileHostSupervisor {
     /// arrives while this one waits for the old run to end wins.
     public func start(_ inputs: Inputs) async {
         generation &+= 1
+        // Another account's phones never get this one's Computer Use questions; the app asks again.
+        computerUseAsks.removeAll()
         let mine = generation
         await halt()
         guard generation == mine else { return }
@@ -170,6 +178,18 @@ public actor MobileHostSupervisor {
         let line = MobileHostLaunch.phoneCredentialsLine(credentials)
         phoneCredentialsLine = line
         process?.send(line)
+    }
+
+    /// Asks the paired phones a Computer Use question (kept for a restarted hostd until ``computerUseDone(digest:)``).
+    public func computerUseAsk(digest: String, line: Data) {
+        computerUseAsks[digest] = line
+        process?.send(line)
+    }
+
+    /// The Computer Use question `digest` is settled or gone.
+    public func computerUseDone(digest: String) {
+        guard computerUseAsks.removeValue(forKey: digest) != nil else { return }
+        process?.send(MobileHostLaunch.computerUseApprovalDoneLine(digest: digest))
     }
 
     /// Shows a phase without running hostd (for example, not signed in).
@@ -283,6 +303,8 @@ public actor MobileHostSupervisor {
                 await sendAcpmux(child, inputs: inputs)
             case .pairRequest, .unpaired:
                 await pairingQueue.send(event)
+            case let .computerUseAnswer(answer):
+                await computerUseQueue.send(answer)
             case let .needBrowser(request, tab, url):
                 startBrowser(child, inputs: inputs, request: request, tab: tab, url: url)
             case let .browserStop(tab):
@@ -310,6 +332,7 @@ public actor MobileHostSupervisor {
         if let identity = inputs.macIdentity { child.send(MobileHostLaunch.macIdentityLine(identity)) }
         if let devicesLine = devicesForNextHostd() { child.send(devicesLine) }
         if let phoneCredentialsLine { child.send(phoneCredentialsLine) }
+        for line in computerUseAsks.values { child.send(line) }
         await tokens.request()
         await sendAcpmux(child, inputs: inputs)
     }

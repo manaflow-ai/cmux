@@ -104,6 +104,7 @@ public nonisolated enum ActionCatalog {
         PaneActionCatalog.self,
         TabActionCatalog.self,
         CmuxRemoteActionCatalog.self,
+        ComputerUseApprovalActionCatalog.self,
         TabIconActionCatalog.self,
         ResourceActionCatalog.self,
         HomeActionCatalog.self,

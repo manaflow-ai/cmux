@@ -165,3 +165,115 @@ or a 0600 key file on a headless box, reported as lower assurance).
 
 `approvals approve` from the CLI opens the app's card (macOS) or the local
 collector; it never decides by itself.
+
+## Phone wire (macOS)
+
+On a Mac with the cmux app, the phone collector rides the iPhone host
+(`cmux-mobile-host`, "hostd"), the same path that carries agent permission
+pushes and their Face ID signed replies (`cmux-next-ios/PROTOCOL.md`, "Push
+notifications", "Phone actions", "Reply mailbox"). The app stays the one that
+decides: hostd forwards, the app checks the signature again with its own copy
+of the phone's paired approval key before an answer counts.
+
+### App → hostd (stdin control lines)
+
+- `{"type":"cu_approval","request":{…},"always":true|false}`: ask every paired
+  phone of the signed-in owner. `request` is the worker's request object
+  byte for byte as parsed (the contract's fields, `digest` included). `always`
+  is true only while `computerUse.phoneAlwaysAllow` is on. The app sends it
+  again to a restarted hostd while the question is pending; the same `digest`
+  twice is the same question.
+- `{"type":"cu_approval_done","digest":"<64 hex>"}`: the question was answered
+  (on the Mac card or by a phone), cancelled by the worker, or passed
+  `answerable_until_ms`. hostd drops it; a later answer for it is refused
+  `not_pending`.
+
+### hostd → Worker (`POST /v1/devices/:macId/notify`)
+
+- `kind`: `computer_use` (new). `eventId` and `permissionId`: `cu-` + the
+  first 32 hex digits of `digest`. `agent`, `workspace` as in the request,
+  `title`: the target's `name`, `state`: `waiting`.
+- `computerUse`: `{"request":{…},"always":bool}`, the request object as the app
+  sent it, so the phone shows exactly what the Mac asks and recomputes the
+  digest (canonical JSON, contract above) before it offers an Allow. A sealed
+  push carries the same object inside `box`.
+- APNs `category`: `CMUX_MOBILE_COMPUTER_USE`. Banner: "<agent> wants to use
+  <name>", subtitle "<workspace> · <Mac>".
+
+### Phone actions
+
+| Identifier | Options | Delivery |
+| --- | --- | --- |
+| `cmux.cu.once` | foreground, authenticationRequired | the app opens, Face ID, signed `once` |
+| `cmux.cu.session` | foreground, authenticationRequired | the app opens, Face ID, signed `session` |
+| `cmux.cu.always` (only when `always` is true) | foreground, authenticationRequired | the app opens, Face ID, signed `always` |
+| `cmux.cu.deny` | destructive, authenticationRequired | background, unsigned `deny` |
+
+The signature: the phone's **approval key** (Secure Enclave,
+`.privateKeyUsage` + `.userPresence`, `verify/phone-approvals.md`), so every
+signature is a Face ID (or passcode) check. ECDSA P-256 / SHA-256, raw
+`r || s` as lowercase hex, over
+
+```
+cmux-cu-phone-approval-v1 \0 phone \0 digest \0 decision \0 expiresAt
+```
+
+`phone` is the phone's link device id, `decision` one of `once`, `session`,
+`always`, `deny`, `expiresAt` Unix seconds as a decimal string (the phone uses
+now + 120 s). `deny` is sent unsigned (narrowing needs no proof).
+
+### Phone → hostd
+
+- Over the link, on the `daemon` channel: `cu-approval-answer
+  {digest, decision, expires_at, signature?}`, answered by hostd itself (as
+  `notification-reply`); `phone` is the link's device id, never an argument.
+- Through the reply mailbox: `kind` `computer_use`, `target` `{digest}`,
+  `action` `{type: "allow" | "deny", optionId: "once" | "session" | "always" | "deny"}`,
+  `approval` `{approver, expiresAt, signature}` (absent for `deny`).
+
+hostd checks that the phone is paired, the digest is a pending `cu_approval`,
+`always` only when that question allowed it, `now <= expiresAt <= now + 300`,
+and the signature with that phone's paired approval key; then it answers the
+phone `{ok}` (else `not_paired`, `not_pending`, `refused`, `expired`,
+`bad_signature`) and tells the app:
+
+### hostd → App (stdout event)
+
+```json
+{"type":"cu_approval_answer","phone_device_id":"<link device id>","digest":"<64 hex>",
+ "decision":"once"|"session"|"always"|"deny","expires_at":1793400120,"signature":"<128 hex>"}
+```
+
+(`signature` absent for `deny`.) The app applies it only when the digest is
+still pending on this Mac, before `answerable_until_ms`, with an allow's
+signature valid for that phone's approval key in the app's own paired list
+(`MobileHostPairedDevices`), and an `always` only while
+`computerUse.phoneAlwaysAllow` is on; otherwise it drops it. The first valid
+answer from any collector wins; the app then sends `cu_approval_done`.
+
+## Mac app wire (worker configure, socket)
+
+- The app passes the mode and its client to the worker in its `configure`
+  line: `"permission_mode": "ask" | "standard" | "bounded" | "unrestricted"`
+  (`computerUse.mode`) and `"client": "<this app's bundle id>"`, the value the
+  worker puts in each request's `client` (the app refuses a question for any
+  other client). A mode change stops the worker's channel and opens a new one
+  (cmux Remote starts a new worker) with the new value.
+- The app also refuses, without asking anyone, a question whose
+  `answerable_until_ms` is more than 11 minutes after `created_ms` or after its
+  own clock, and one whose target is cmux itself (its own bundle id or any
+  `com.cmuxterm.*`).
+- The card has no Return default and no Command key on an allow: Escape is
+  Deny, and an allow needs a click. A card panel takes the keyboard only after
+  the person clicked it.
+- App socket methods (Lane 3's CLI and MCP): `computer_use.approvals.list`
+  → `{client, apps:[{bundle_id|executable, name, added_ms, via}]}`;
+  `computer_use.approvals.revoke {app?: {bundle_id|executable}, all?: true}`
+  → `{revoked: n}` (sends `revoke` to the worker); `computer_use.approvals.pending`
+  → `{pending:[{id, digest, agent, workspace, client, target, tool, risk,
+  wait_until_ms, answerable_until_ms}]}`; `computer_use.approvals.prompt {id}`
+  shows that question's card again (it never decides). `id` is the first 16
+  hex digits of the digest. `computer_use.mode.set {mode}` writes
+  `computerUse.mode`: a lower mode at once, a higher one only after the person
+  confirms a cmux dialog (`{ok:false, declined:true}` otherwise).
+  `computer_use.status` → `{mode, phone_always_allow, saved, pending, worker}`.

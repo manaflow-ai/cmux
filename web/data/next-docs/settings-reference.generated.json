@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 530,
+  "count": 533,
   "sections": [
     {
       "id": "general",
@@ -418,9 +418,9 @@
         {
           "key": "computerUse.driver",
           "title": "Computer Use Driver",
-          "help": "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.",
+          "help": "cmux Remote runs Computer Use and holds its macOS permissions, with no relaunch after you grant them. Classic Helper uses the cmux Computer Use helper of an installed classic cmux.",
           "kind": "choice",
-          "default": "legacy",
+          "default": "upstream",
           "group": "Computer Use",
           "values": [
             "legacy",
@@ -430,7 +430,7 @@
         {
           "key": "computerUse.enabled",
           "title": "Computer Use",
-          "help": "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them.",
+          "help": "Lets agents see and use your apps through cmux Remote. Grant it Accessibility and Screen Recording once; cmux never needs a relaunch.",
           "kind": "toggle",
           "default": false,
           "group": "Computer Use"
@@ -441,6 +441,28 @@
           "help": "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity.",
           "kind": "toggle",
           "default": true,
+          "group": "Computer Use"
+        },
+        {
+          "key": "computerUse.mode",
+          "title": "Agents Using Apps",
+          "help": "Ask Before Using Apps asks you the first time an agent uses each app, on this Mac and on your iPhone. Approved Apps Only runs the apps you set up and asks for the rest. Standard runs routine clicks and typing without asking. Unrestricted never asks; use it only on a disposable machine.",
+          "kind": "choice",
+          "default": "ask",
+          "group": "Computer Use",
+          "values": [
+            "ask",
+            "bounded",
+            "standard",
+            "unrestricted"
+          ]
+        },
+        {
+          "key": "computerUse.phoneAlwaysAllow",
+          "title": "Allow Always from iPhone",
+          "help": "Your iPhone can answer Always Allow for an app, after Face ID. Off, it can allow once or for one agent session, and Always Allow stays on this Mac.",
+          "kind": "toggle",
+          "default": false,
           "group": "Computer Use"
         },
         {
@@ -948,6 +970,14 @@
           "kind": "folder_list",
           "default": [],
           "group": "Folder Picker"
+        },
+        {
+          "key": "remote.headless",
+          "title": "Keep Sharing When cmux Is Quit",
+          "help": "cmux Remote keeps this Mac available to your devices and shows their requests while cmux is quit. Off, a session ends when cmux quits.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Screen Sharing"
         },
         {
           "key": "screenshots.findTools",

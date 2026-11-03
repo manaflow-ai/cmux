@@ -16,7 +16,7 @@ import CmuxNextDesign
 import CmuxNextMobileHost
 import CmuxNextDaemon
 import CmuxNextDaemonService
-import CmuxNextMacScreen
+public import CmuxNextMacScreen
 import CmuxNextDaemonRecovery
 import CmuxNextFeed
 import CmuxNextFloating
@@ -853,3 +853,4 @@ extension AppServices {
         if PaidPlanOnboarding(defaults: .standard).hasPending { await cloud.refresh() }
     }
 }
+extension IPhoneHostService: ComputerUsePhoneHost {} // Computer Use approvals' phone (docs/computer-use-approvals.md)

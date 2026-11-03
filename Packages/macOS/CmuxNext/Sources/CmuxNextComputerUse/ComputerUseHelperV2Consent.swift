@@ -23,12 +23,13 @@ nonisolated enum ComputerUseHelperV2Consent {
     /// (the helper's `{"ok":true}` or a refusal of this app) are logged.
     static func serve(_ link: ComputerUseHelperV2HostLink, pid: pid_t,
                       consent: @escaping @Sendable () async -> Data?,
-                      refused: @escaping @Sendable (String) async -> Void) async {
+                      refused: @escaping @Sendable (String) async -> Void,
+                      approval: (@Sendable (ComputerUseApprovalWire.Incoming) -> Void)? = nil) async {
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use-v2")
         let send: @Sendable (Data) async -> Void = { line in await link.send(line) }
         for await line in link.lines {
             guard let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
-                  !handle(object, send: send, consent: consent, refused: refused) else { continue }
+                  !handle(object, send: send, consent: consent, refused: refused, approval: approval) else { continue }
             let text = String(decoding: line.prefix(512), as: UTF8.self)
             logger.notice("cmux Computer Use helper v2 host link pid=\(pid, privacy: .public) \(text, privacy: .public)")
         }
@@ -36,10 +37,25 @@ nonisolated enum ComputerUseHelperV2Consent {
 
     /// Handles one line from the helper's host consent socket. True when it was a consent
     /// line (answered or forwarded); such lines are not logged, since the
-    /// helper sends one per tool call.
+    /// helper sends one per tool call. App approval questions
+    /// (docs/computer-use-approvals.md) go to `approval`; without one (the legacy helper, a
+    /// build with no approvals wired) each question is answered `ok:false`: fail closed.
     static func handle(_ object: [String: Any], send: @escaping @Sendable (Data) async -> Void,
                        consent: @escaping @Sendable () async -> Data?,
-                       refused: @escaping @Sendable (String) async -> Void) -> Bool {
+                       refused: @escaping @Sendable (String) async -> Void,
+                       approval: (@Sendable (ComputerUseApprovalWire.Incoming) -> Void)? = nil) -> Bool {
+        if let incoming = ComputerUseApprovalWire.parse(object) {
+            if let approval {
+                approval(incoming)
+            } else if case .question(let id, _) = incoming {
+                // task-owner: one refusal line per question; nothing waits on it.
+                Task { await send(ComputerUseApprovalWire.unanswered(id: id)) }
+            } else if case .malformed(let id) = incoming {
+                // task-owner: one refusal line per question; nothing waits on it.
+                Task { await send(ComputerUseApprovalWire.unanswered(id: id)) }
+            }
+            return true
+        }
         switch object["type"] as? String {
         case "machine_consent":
             guard let id = object["id"] as? Int else { return true }

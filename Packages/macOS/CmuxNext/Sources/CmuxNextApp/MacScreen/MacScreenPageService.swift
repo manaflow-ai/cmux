@@ -201,15 +201,13 @@ extension AppServices {
     /// cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen
     /// Sharing; ``CmuxRemoteService`` does the work, this only passes it the app's parts.
     func startCmuxRemote(_ settings: SettingsController) {
-        let bundleID = environment.launch.bundleID ?? "com.cmuxterm.app.next"
-        let auth = cloud.auth
+        let bundleID = environment.launch.bundleID ?? "com.cmuxterm.app.next", auth = cloud.auth
         guard let devices = cmuxRemote.start(bundleID: bundleID, deviceHub: deviceHub, pages: macScreenPages,
                                              computerUse: ComputerUseHelperDaemon.shared.upstream,
                                              tokens: { try await auth.tokens().access }) else { return }
         let consent = joinConsent, previous = consent.changed
         devices.setConsentSource { @MainActor [weak consent] in
-            guard let consent else { return (true, false, false) }
-            return (consent.enabled, consent.permitsMacScreen(control: false), consent.permitsMacScreen(control: true))
+            consent.map { ($0.enabled, $0.permitsMacScreen(control: false), $0.permitsMacScreen(control: true)) } ?? (true, false, false)
         }
         consent.changed = { [weak consent] in
             previous()
@@ -218,7 +216,7 @@ extension AppServices {
             // task-owner: one consent line to the worker; it serves with the app quit too.
             Task { await devices.consent(enabled: on, view: view, full: full) }
         }
-        cmuxRemote.follow(settings) { [weak self, weak settings] in
+        cmuxRemote.follow(settings, phone: iphone) { [weak self, weak settings] in
             guard let self, let settings else { return (false, false, true) }
             let computerUse = settings.snapshot.computerUse
             _ = daemon.identity?.capabilities.count // a reconnected daemon sends the switches again

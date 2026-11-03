@@ -802,7 +802,7 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
-			<string>Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them.</string>
+			<string>Lets agents see and use your apps through cmux Remote. Grant it Accessibility and Screen Recording once; cmux never needs a relaunch.</string>
 			<key>pfm_name</key>
 			<string>computerUse.enabled</string>
 			<key>pfm_title</key>
@@ -812,9 +812,9 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>legacy</string>
+			<string>upstream</string>
 			<key>pfm_description</key>
-			<string>Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.</string>
+			<string>cmux Remote runs Computer Use and holds its macOS permissions, with no relaunch after you grant them. Classic Helper uses the cmux Computer Use helper of an installed classic cmux.</string>
 			<key>pfm_name</key>
 			<string>computerUse.driver</string>
 			<key>pfm_range_list</key>
@@ -836,6 +836,37 @@
 			<string>computerUse.livePreview</string>
 			<key>pfm_title</key>
 			<string>Live Preview in Chat</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>ask</string>
+			<key>pfm_description</key>
+			<string>Ask Before Using Apps asks you the first time an agent uses each app, on this Mac and on your iPhone. Approved Apps Only runs the apps you set up and asks for the rest. Standard runs routine clicks and typing without asking. Unrestricted never asks; use it only on a disposable machine.</string>
+			<key>pfm_name</key>
+			<string>computerUse.mode</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>ask</string>
+				<string>bounded</string>
+				<string>standard</string>
+				<string>unrestricted</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Agents Using Apps</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Your iPhone can answer Always Allow for an app, after Face ID. Off, it can allow once or for one agent session, and Always Allow stays on this Mac.</string>
+			<key>pfm_name</key>
+			<string>computerUse.phoneAlwaysAllow</string>
+			<key>pfm_title</key>
+			<string>Allow Always from iPhone</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -8294,6 +8325,18 @@
 			<string>macScreen.debug.relayOnly</string>
 			<key>pfm_title</key>
 			<string>Relay Only</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>cmux Remote keeps this Mac available to your devices and shows their requests while cmux is quit. Off, a session ends when cmux quits.</string>
+			<key>pfm_name</key>
+			<string>remote.headless</string>
+			<key>pfm_title</key>
+			<string>Keep Sharing When cmux Is Quit</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>

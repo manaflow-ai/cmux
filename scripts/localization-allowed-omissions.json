@@ -2719,6 +2719,10 @@
     "source": "Computer Use",
     "class": "brand"
   },
+  "computerUse.status.title": {
+    "source": "Computer Use",
+    "class": "brand"
+  },
   "settings.section.mobile": {
     "source": "Mobile",
     "identityLocales": {

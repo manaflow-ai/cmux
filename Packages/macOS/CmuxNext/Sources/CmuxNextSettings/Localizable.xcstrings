@@ -1,6 +1,1316 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.computerUse.mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدام الوكلاء للتطبيقات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenti koriste aplikacije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenters brug af apps"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App-Nutzung durch Agenten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents Using Apps"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso de apps por agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation des apps par les agents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso delle app da parte degli agenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントによる App の使用"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារប្រើកម្មវិធី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트의 앱 사용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenters bruk av apper"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Używanie aplikacji przez agentów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso de Apps por Agentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использование приложений агентами"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การใช้แอปของเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aracıların Uygulama Kullanımı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використання програм агентами"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác tử dùng ứng dụng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理使用 App"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式使用 App"
+          }
+        }
+      }
+    },
+    "settings.computerUse.mode.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يطلب «السؤال قبل استخدام التطبيقات» إذنك في أول مرة يستخدم فيها وكيل كل تطبيق، على هذا الـ Mac وعلى iPhone. يشغّل «التطبيقات المعتمدة فقط» التطبيقات التي أعددتها ويسأل عن الباقي. يشغّل «قياسي» النقرات والكتابة الروتينية دون سؤال. لا يسأل «بلا قيود» أبدًا؛ استخدمه فقط على جهاز يمكن الاستغناء عنه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Pitaj prije korištenja aplikacija“ pita vas prvi put kada agent koristi svaku aplikaciju, na ovom Macu i na vašem iPhoneu. „Samo odobrene aplikacije“ pokreće aplikacije koje ste postavili i pita za ostale. „Standardno“ izvršava rutinske klikove i kucanje bez pitanja. „Bez ograničenja“ nikad ne pita; koristite ga samo na jednokratnoj mašini."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spørg før brug af apps spørger dig, første gang en agent bruger hver app, på denne Mac og på din iPhone. Kun godkendte apps kører de apps, du har konfigureret, og spørger om resten. Standardtilstand udfører rutinemæssige klik og indtastning uden at spørge. Ubegrænset spørger aldrig; brug det kun på en maskine, der kan kasseres."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Vor App-Nutzung fragen“ fragt dich, wenn ein Agent eine App zum ersten Mal verwendet, auf diesem Mac und auf deinem iPhone. „Nur freigegebene Apps“ führt die von dir eingerichteten Apps aus und fragt bei allen anderen. „Standardmodus“ führt Routineklicks und Eingaben ohne Nachfrage aus. „Uneingeschränkt“ fragt nie; nutze es nur auf einer Wegwerfmaschine."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask Before Using Apps asks you the first time an agent uses each app, on this Mac and on your iPhone. Approved Apps Only runs the apps you set up and asks for the rest. Standard runs routine clicks and typing without asking. Unrestricted never asks; use it only on a disposable machine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preguntar antes de usar apps te pregunta la primera vez que un agente usa cada app, en este Mac y en tu iPhone. Solo apps aprobadas ejecuta las apps que configuraste y pregunta por el resto. Estándar realiza clics y escritura rutinarios sin preguntar. Sin restricciones nunca pregunta; úsalo solo en una máquina desechable."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demander avant d’utiliser des apps vous interroge la première fois qu’un agent utilise chaque app, sur ce Mac et sur votre iPhone. Apps approuvées uniquement exécute les apps que vous avez configurées et demande pour les autres. Mode standard effectue les clics et la saisie courants sans demander. Sans restriction ne demande jamais ; utilisez-le uniquement sur une machine jetable."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiedi prima di usare le app ti chiede la prima volta che un agente usa ciascuna app, su questo Mac e sul tuo iPhone. Solo app approvate esegue le app che hai configurato e chiede per le altre. Modalità standard esegue clic e digitazione di routine senza chiedere. Senza restrizioni non chiede mai; usalo solo su una macchina usa e getta."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「App の使用前に確認」は、エージェントが各 App を初めて使うときに、この Mac と iPhone で確認します。「承認済みの App のみ」は設定した App を実行し、それ以外は確認します。「標準」は通常のクリックや入力を確認なしで行います。「制限なし」は確認しません。使い捨てのマシンでのみ使用してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«សួរមុនពេលប្រើកម្មវិធី» សួរអ្នកនៅពេលភ្នាក់ងារប្រើកម្មវិធីនីមួយៗជាលើកដំបូង នៅលើ Mac នេះ និងនៅលើ iPhone របស់អ្នក។ «តែកម្មវិធីដែលបានអនុម័ត» ដំណើរការកម្មវិធីដែលអ្នកបានរៀបចំ ហើយសួរសម្រាប់កម្មវិធីផ្សេងទៀត។ «ស្តង់ដារ» ចុច និងវាយអក្សរទម្លាប់ដោយមិនសួរ។ «គ្មានការរឹតត្បិត» មិនដែលសួរទេ សូមប្រើវាតែនៅលើម៉ាស៊ីនបណ្ដោះអាសន្នប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‘앱 사용 전에 묻기’는 에이전트가 각 앱을 처음 사용할 때 이 Mac과 iPhone에서 묻습니다. ‘승인된 앱만’은 설정한 앱을 실행하고 나머지는 묻습니다. ‘표준’은 일상적인 클릭과 입력을 묻지 않고 실행합니다. ‘제한 없음’은 묻지 않으므로 일회용 머신에서만 사용하십시오."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spør før bruk av apper spør deg første gang en agent bruker hver app, på denne Macen og på iPhonen din. Bare godkjente apper kjører appene du har satt opp, og spør om resten. Standardmodus utfører rutinemessige klikk og skriving uten å spørre. Ubegrenset spør aldri; bruk det bare på en maskin du kan kaste."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Pytaj przed użyciem aplikacji” pyta Cię za pierwszym razem, gdy agent używa danej aplikacji, na tym Macu i na Twoim iPhonie. „Tylko zatwierdzone aplikacje” uruchamia skonfigurowane aplikacje i pyta o pozostałe. „Standardowy” wykonuje rutynowe kliknięcia i pisanie bez pytania. „Bez ograniczeń” nigdy nie pyta; używaj go tylko na maszynie jednorazowej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perguntar Antes de Usar Apps pergunta a você na primeira vez que um agente usa cada app, neste Mac e no seu iPhone. Somente Apps Aprovados executa os apps que você configurou e pergunta sobre os demais. Padrão executa cliques e digitação de rotina sem perguntar. Sem Restrições nunca pergunta; use somente em uma máquina descartável."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Спрашивать перед использованием приложений» спрашивает вас, когда агент впервые использует каждое приложение, на этом Mac и на iPhone. «Только одобренные приложения» запускает настроенные вами приложения и спрашивает об остальных. «Стандартный» выполняет обычные нажатия и ввод без вопросов. «Без ограничений» никогда не спрашивает; используйте его только на одноразовой машине."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“ถามก่อนใช้แอป” จะถามคุณเมื่อเอเจนต์ใช้แต่ละแอปเป็นครั้งแรก ทั้งบน Mac เครื่องนี้และบน iPhone ของคุณ “เฉพาะแอปที่อนุมัติแล้ว” จะเรียกใช้แอปที่คุณตั้งค่าไว้และถามสำหรับแอปอื่น “มาตรฐาน” จะคลิกและพิมพ์ตามปกติโดยไม่ถาม “ไม่จำกัด” จะไม่ถามเลย ใช้เฉพาะบนเครื่องที่ใช้แล้วทิ้งได้เท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“Uygulamaları Kullanmadan Önce Sor”, bir aracı her uygulamayı ilk kez kullandığında bu Mac’te ve iPhone’unuzda size sorar. “Yalnızca Onaylı Uygulamalar”, ayarladığınız uygulamaları çalıştırır ve diğerleri için sorar. “Standart”, rutin tıklamaları ve yazmayı sormadan yapar. “Kısıtlamasız” hiç sormaz; yalnızca gözden çıkarılabilir bir makinede kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Питати перед використанням програм» питає вас, коли агент уперше використовує кожну програму, на цьому Mac і на вашому iPhone. «Лише схвалені програми» запускає налаштовані вами програми й питає про решту. «Стандартний» виконує звичайні натискання та введення без запитань. «Без обмежень» ніколи не питає; використовуйте його лише на одноразовій машині."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hỏi trước khi dùng ứng dụng sẽ hỏi bạn vào lần đầu tác tử dùng mỗi ứng dụng, trên máy Mac này và trên iPhone của bạn. Chỉ ứng dụng đã phê duyệt chạy các ứng dụng bạn đã thiết lập và hỏi với các ứng dụng còn lại. Tiêu chuẩn thực hiện các thao tác nhấp và gõ thông thường mà không hỏi. Không giới hạn không bao giờ hỏi; chỉ dùng trên máy dùng một lần."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“使用 App 前询问”会在代理首次使用每个 App 时，在这台 Mac 和你的 iPhone 上询问你。“仅限已批准的 App”会运行你设置的 App，其余的则询问。“标准”会直接执行常规的点按和键入，无需询问。“不受限制”从不询问；请仅在一次性机器上使用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「使用 App 前詢問」會在代理程式首次使用每個 App 時，在這部 Mac 和你的 iPhone 上詢問你。「僅限已核准的 App」會執行你設定的 App，其餘的則詢問。「標準」會直接執行例行的點按和輸入，無需詢問。「不受限制」從不詢問；請僅在一次性機器上使用。"
+          }
+        }
+      }
+    },
+    "settings.computerUse.mode.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متى يسأل الوكلاء قبل استخدام تطبيق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada agenti pitaju prije korištenja aplikacije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvornår agenter spørger, før de bruger en app"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wann Agenten vor der Nutzung einer App fragen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When agents ask before using an app"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuándo preguntan los agentes antes de usar una app"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quand les agents demandent avant d’utiliser une app"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando gli agenti chiedono prima di usare un’app"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが App を使う前に確認するタイミング"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលដែលភ្នាក់ងារសួរមុនពេលប្រើកម្មវិធី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 앱을 사용하기 전에 묻는 시점"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når agenter spør før de bruker en app"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiedy agenci pytają przed użyciem aplikacji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando os agentes perguntam antes de usar um app"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда агенты спрашивают перед использованием приложения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เวลาที่เอเจนต์ถามก่อนใช้แอป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aracıların bir uygulamayı kullanmadan önce ne zaman soracağı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коли агенти питають перед використанням програми"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi nào tác tử hỏi trước khi dùng ứng dụng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理何时在使用 App 前询问"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式何時在使用 App 前詢問"
+          }
+        }
+      }
+    },
+    "settings.computerUse.mode.ask": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السؤال قبل استخدام التطبيقات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pitaj prije korištenja aplikacija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spørg før brug af apps"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vor App-Nutzung fragen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask Before Using Apps"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preguntar antes de usar apps"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demander avant d’utiliser des apps"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiedi prima di usare le app"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App の使用前に確認"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សួរមុនពេលប្រើកម្មវិធី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "앱 사용 전에 묻기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spør før bruk av apper"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pytaj przed użyciem aplikacji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perguntar Antes de Usar Apps"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спрашивать перед использованием приложений"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ถามก่อนใช้แอป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uygulamaları Kullanmadan Önce Sor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Питати перед використанням програм"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hỏi trước khi dùng ứng dụng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 App 前询问"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 App 前詢問"
+          }
+        }
+      }
+    },
+    "settings.computerUse.mode.bounded": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التطبيقات المعتمدة فقط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Samo odobrene aplikacije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kun godkendte apps"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur freigegebene Apps"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approved Apps Only"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo apps aprobadas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apps approuvées uniquement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo app approvate"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認済みの App のみ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តែកម្មវិធីដែលបានអនុម័ត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "승인된 앱만"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bare godkjente apper"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tylko zatwierdzone aplikacje"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Somente Apps Aprovados"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Только одобренные приложения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เฉพาะแอปที่อนุมัติแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yalnızca Onaylı Uygulamalar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лише схвалені програми"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chỉ ứng dụng đã phê duyệt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅限已批准的 App"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅限已核准的 App"
+          }
+        }
+      }
+    },
+    "settings.computerUse.mode.standard": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قياسي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardtilstand"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardmodus"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estándar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mode standard"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modalità standard"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្តង់ដារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "표준"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardmodus"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardowy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Padrão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стандартный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มาตรฐาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standart"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стандартний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiêu chuẩn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标准"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準"
+          }
+        }
+      }
+    },
+    "settings.computerUse.mode.unrestricted": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بلا قيود"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bez ograničenja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ubegrænset"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uneingeschränkt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unrestricted"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin restricciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sans restriction"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Senza restrizioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "制限なし"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានការរឹតត្បិត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제한 없음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ubegrenset"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bez ograniczeń"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem Restrições"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Без ограничений"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่จำกัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kısıtlamasız"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Без обмежень"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không giới hạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不受限制"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不受限制"
+          }
+        }
+      }
+    },
+    "settings.computerUse.phoneAlwaysAllow": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح دائمًا من iPhone"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uvijek dozvoli s iPhonea"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillad altid fra iPhone"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Immer erlauben vom iPhone"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Always from iPhone"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir siempre desde el iPhone"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toujours autoriser depuis l’iPhone"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consenti sempre da iPhone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone から常に許可"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាតជានិច្ចពី iPhone"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone에서 항상 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillat alltid fra iPhone"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zawsze pozwalaj z iPhone’a"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sempre Permitir pelo iPhone"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всегда разрешать с iPhone"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาตเสมอจาก iPhone"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone’dan Her Zaman İzin Ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завжди дозволяти з iPhone"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Luôn cho phép từ iPhone"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从 iPhone 始终允许"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從 iPhone 永遠允許"
+          }
+        }
+      }
+    },
+    "settings.computerUse.phoneAlwaysAllow.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن لـ iPhone الرد بـ«السماح دائمًا» لتطبيق ما بعد Face ID. عند إيقافه، يمكنه السماح مرة واحدة أو لجلسة وكيل واحدة، ويبقى «السماح دائمًا» على هذا الـ Mac."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaš iPhone može odgovoriti s „Uvijek dozvoli“ za aplikaciju nakon Face ID-a. Kada je isključeno, može dozvoliti jednom ili za jednu sesiju agenta, a „Uvijek dozvoli“ ostaje na ovom Macu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Din iPhone kan svare Tillad altid for en app efter Face ID. Når den er slået fra, kan den tillade én gang eller for én agentsession, og Tillad altid forbliver på denne Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein iPhone kann nach Face ID für eine App „Immer erlauben“ antworten. Wenn diese Option aus ist, kann es einmal oder für eine Agentensitzung erlauben, und „Immer erlauben“ bleibt auf diesem Mac."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your iPhone can answer Always Allow for an app, after Face ID. Off, it can allow once or for one agent session, and Always Allow stays on this Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu iPhone puede responder Permitir siempre para una app, tras Face ID. Si está desactivado, puede permitir una vez o durante una sesión del agente, y Permitir siempre queda en este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre iPhone peut répondre Toujours autoriser pour une app, après Face ID. Si l’option est désactivée, il peut autoriser une fois ou pour une session d’agent, et Toujours autoriser reste sur ce Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il tuo iPhone può rispondere Consenti sempre per un’app, dopo Face ID. Se disattivato, può consentire una volta o per una sessione dell’agente, e Consenti sempre resta su questo Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone は Face ID の後に App に対して「常に許可」で応答できます。オフの場合は、1回だけ、または1つのエージェントセッションに限り許可でき、「常に許可」はこの Mac でのみ行えます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone របស់អ្នកអាចឆ្លើយ «អនុញ្ញាតជានិច្ច» សម្រាប់កម្មវិធីមួយ បន្ទាប់ពី Face ID។ នៅពេលបិទ វាអាចអនុញ្ញាតម្ដង ឬសម្រាប់វគ្គភ្នាក់ងារមួយ ហើយ «អនុញ្ញាតជានិច្ច» នៅតែនៅលើ Mac នេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone에서 Face ID 인증 후 앱에 대해 ‘항상 허용’으로 응답할 수 있습니다. 끄면 한 번 또는 하나의 에이전트 세션에 대해서만 허용할 수 있으며, ‘항상 허용’은 이 Mac에서만 가능합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhonen din kan svare Tillat alltid for en app etter Face ID. Når det er av, kan den tillate én gang eller for én agentøkt, og Tillat alltid forblir på denne Macen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twój iPhone może odpowiedzieć „Zawsze pozwalaj” dla aplikacji po Face ID. Gdy ta opcja jest wyłączona, może pozwolić raz lub na jedną sesję agenta, a „Zawsze pozwalaj” pozostaje na tym Macu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seu iPhone pode responder Sempre Permitir para um app, após o Face ID. Desativado, ele pode permitir uma vez ou por uma sessão do agente, e Sempre Permitir fica neste Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш iPhone может ответить «Всегда разрешать» для приложения после Face ID. Если параметр выключен, iPhone может разрешить один раз или на один сеанс агента, а «Всегда разрешать» остается на этом Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone ของคุณสามารถตอบ “อนุญาตเสมอ” สำหรับแอปได้หลังจากผ่าน Face ID เมื่อปิดอยู่ จะอนุญาตได้ครั้งเดียวหรือสำหรับเซสชันเอเจนต์หนึ่งเซสชัน และ “อนุญาตเสมอ” จะทำได้บน Mac เครื่องนี้เท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone’unuz Face ID’den sonra bir uygulama için “Her Zaman İzin Ver” yanıtını verebilir. Kapalıyken bir kez veya tek bir aracı oturumu için izin verebilir ve “Her Zaman İzin Ver” bu Mac’te kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш iPhone може відповісти «Завжди дозволяти» для програми після Face ID. Якщо параметр вимкнено, iPhone може дозволити один раз або на один сеанс агента, а «Завжди дозволяти» залишається на цьому Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone của bạn có thể trả lời Luôn cho phép cho một ứng dụng sau khi xác thực Face ID. Khi tắt, iPhone chỉ có thể cho phép một lần hoặc trong một phiên tác tử, còn Luôn cho phép vẫn chỉ có trên máy Mac này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 iPhone 可在通过 Face ID 后为 App 回复“始终允许”。关闭时，iPhone 只能允许一次或允许一个代理会话，“始终允许”仅保留在这台 Mac 上。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 iPhone 可在通過 Face ID 後為 App 回覆「永遠允許」。關閉時，iPhone 只能允許一次或允許一個代理程式階段作業，「永遠允許」僅保留在這部 Mac 上。"
+          }
+        }
+      }
+    },
+    "settings.computerUse.phoneAlwaysAllow.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتيح لـ iPhone حفظ موافقة على تطبيق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Omogućava iPhoneu da sačuva odobrenje aplikacije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lader din iPhone gemme en appgodkendelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erlaubt deinem iPhone, eine App-Freigabe zu speichern"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lets your iPhone save an app approval"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite que tu iPhone guarde la aprobación de una app"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permet à votre iPhone d’enregistrer l’autorisation d’une app"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consente al tuo iPhone di salvare l’approvazione di un’app"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone で App の承認を保存できるようにします"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាតឱ្យ iPhone របស់អ្នករក្សាទុកការអនុម័តកម្មវិធី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone에서 앱 승인을 저장할 수 있게 합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lar iPhonen din lagre en appgodkjenning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozwala iPhone’owi zapisać zgodę dla aplikacji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite que seu iPhone salve a aprovação de um app"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Позволяет iPhone сохранять разрешение для приложения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ให้ iPhone ของคุณบันทึกการอนุมัติแอปได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone’unuzun bir uygulama onayını kaydetmesine izin verir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволяє iPhone зберігати дозвіл для програми"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cho phép iPhone của bạn lưu phê duyệt ứng dụng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许你的 iPhone 存储 App 批准"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許你的 iPhone 儲存 App 核准"
+          }
+        }
+      }
+    },
     "settings.tabs.nativeNewTabPage": {
       "extractionState": "manual",
       "localizations": {

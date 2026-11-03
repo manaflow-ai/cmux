@@ -358,6 +358,9 @@ extension SettingsSchema {
         // What a new chat may do without asking: an agent must not widen its own approvals.
         "agents.defaultPermissionMode": .userOnly,
         "computerUse.enabled": .userOnly, "computerUse.driver": .userOnly,
+        // How freely agents use apps, and whether a phone may save an approval: only the person
+        // raises trust (docs/computer-use-approvals.md); `computer_use.mode.set` asks them first.
+        "computerUse.mode": .userOnly, "computerUse.phoneAlwaysAllow": .userOnly,
         // How hard cmux pulls the person back from another app: theirs to pick, not an agent's.
         "notifications.dockBounce": .userOnly,
         // Privacy: whether banners show what agents said is the person's call.

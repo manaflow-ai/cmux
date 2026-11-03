@@ -148,6 +148,9 @@ public final class IPhoneHostService {
     @ObservationIgnored private var followingFolders: Task<Void, Never>?
     @ObservationIgnored private var followingPicks: Task<Void, Never>?
     @ObservationIgnored private var pairingWatch: Task<Void, Never>?
+    /// Computer Use: where a phone's approval answer goes (IPhoneHostService+ComputerUse.swift).
+    @ObservationIgnored public var computerUseAnswered: (@MainActor (String, String, String, Int64, String?) -> Void)?
+    @ObservationIgnored var computerUseWatch: Task<Void, Never>?
     /// App-lifetime wake observer; released on stop or deinit.
     @ObservationIgnored private var wakeObserver: MainActorObservation?
     /// The one reconcile in flight; each waits for the previous one.
@@ -188,6 +191,7 @@ public final class IPhoneHostService {
                 self?.pairingEvent(event)
             }
         }
+        followComputerUseAnswers()
     }
 
     /// Reads the account's phones from the mobile service (latest read wins).
@@ -379,6 +383,7 @@ public final class IPhoneHostService {
         followingAccount?.cancel()
         applying?.cancel()
         pairingWatch?.cancel()
+        computerUseWatch?.cancel()
         followingFolders?.cancel()
         followingPicks?.cancel()
         approverSync?.stop()
