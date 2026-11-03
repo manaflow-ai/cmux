@@ -59,6 +59,22 @@ export function opensBody(toggle: HTMLElement): boolean {
   return expanded?.getAttribute("aria-expanded") === "false";
 }
 
+/// The cut that keeps a row moving up with the bottom stack from drawing past the line the rows
+/// under it hold (App.tsx): `over` is how far the row's foot lands below that line once it settles
+/// (0 for the opened row, less for one above it), `from` how far the stack starts below where it
+/// settles. Keyframes on the stack's own eased progress, so the cut row's foot reaches the line as
+/// the stack carries it there and nothing of it ever covers the held rows; none when it never does.
+export function pushUpCut(over: number, from: number): Keyframe[] {
+  const start = over + from;
+  if (from <= 0.5 || start <= 0.5) return [];
+  const until = Math.min(1, start / from);
+  return [
+    { offset: 0, clipPath: `inset(0 0 ${start}px 0)` },
+    { offset: until, clipPath: "inset(0 0 0px 0)" },
+    { offset: 1, clipPath: "inset(0 0 0px 0)" },
+  ];
+}
+
 export type FoldAnchor = {
   toggle: HTMLElement;
   /// Where the line was drawn when clicked (its viewport top).

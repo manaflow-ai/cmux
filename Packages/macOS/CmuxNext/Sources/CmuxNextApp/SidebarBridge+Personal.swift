@@ -94,7 +94,7 @@ extension SidebarBridge {
         let report: @MainActor (ActionWorkFailure) -> Void = { [weak self] failure in
             self?.services.registry.reportFailure(of: ActionID(rawValue: action.id), title: action.title, failure)
         }
-        let home = services.machines.local
+        let home = services.machines.local, logger = home.logger
         services.personalPlacements.enqueue(on: home, failed: settle) { [weak self] in
             guard let connection = home.connection else {
                 report(ActionWorkFailure("set-personal-workspace", DaemonError.notConnected))
@@ -119,10 +119,16 @@ extension SidebarBridge {
                             failed: report, completed: { finish($0) }) { sending in
                     guard sending === connection else { throw DaemonError.notConnected }
                     for step in plan.steps {
-                        try await sending.state.placePersonalWorkspace(session: step.workspace.session, key: step.workspace.key,
-                                                                          resource: step.workspace.resource,
-                                                                          group: step.moves ? (group.map { .set($0) } ?? .clear) : .unchanged,
-                                                                          index: step.index)
+                        do {
+                            try await sending.state.placePersonalWorkspace(session: step.workspace.session, key: step.workspace.key,
+                                                                              resource: step.workspace.resource,
+                                                                              group: step.moves ? (group.map { .set($0) } ?? .clear) : .unchanged,
+                                                                              index: step.index)
+                        } catch let error as DaemonError where error.isWorkspaceNotFound {
+                            // The workspace ended after the plan read it (an agent open under load whose half-made workspace
+                            // closed): nothing is left to place, and no notice says a move failed (Leo, 2026-11-03).
+                            logger.info("personal placement: workspace \(step.workspace.key.rawValue, privacy: .public) is gone; its step is dropped")
+                        }
                     }
                     guard let first = plan.first else { return }
                     for id in regroup { try await sending.state.updateWorkspaceGroup(id.rawValue, topIndex: .set(first)) }
