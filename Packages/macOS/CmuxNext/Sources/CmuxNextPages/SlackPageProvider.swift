@@ -22,7 +22,7 @@ public final class SlackPageProvider: PageProvider {
             guard let method = params["method"]?.stringValue, ["GET", "POST", "DELETE"].contains(method) else {
                 throw PageError.invalidParams("method must be GET, POST or DELETE")
             }
-            return try JSONDecoder().decode(JSONValue.self, from: await request(method))
+            return try JSONValue.parse(await request(method))
         case "cmux.settings.slack.open":
             guard let text = params["url"]?.stringValue, let url = URL(string: text), url.scheme == "https",
                   let host = url.host, !host.isEmpty, url.user == nil, url.password == nil else {
