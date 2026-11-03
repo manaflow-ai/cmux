@@ -24,8 +24,6 @@ public final class AgentPaneDroppedPaths {
 
     /// How long after the drop or paste the page may ask: it asks as soon as it has read the files.
     public nonisolated static let lifetime: TimeInterval = 5
-    /// The most files one ask names.
-    public nonisolated static let maximumNames = 100
 
     struct Item {
         var url: URL
@@ -73,7 +71,7 @@ public final class AgentPaneDroppedPaths {
     public func stash(_ urls: [URL], kind: Kind) {
         held.removeValue(forKey: kind)?.expiry.cancel()
         let paths = urls.map { url in (url as NSURL).isFileReferenceURL() ? (url as NSURL).filePathURL ?? url : url }
-        guard !paths.isEmpty, paths.count <= Self.maximumNames else { return }
+        guard !paths.isEmpty else { return }
         // A preview's file of any size is pinned: its copy is a clone, never read into memory.
         let items = paths.map { url -> Item in
             let needsSnapshot = AgentPaneRecordingSnapshot.needsSnapshot(url)

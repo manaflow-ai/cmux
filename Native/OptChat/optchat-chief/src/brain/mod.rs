@@ -43,6 +43,8 @@ pub mod reaction_wake;
 mod recover;
 mod replies;
 mod reply_ledger;
+mod rights_gate;
+pub use rights_gate::RightsCtx;
 mod screen;
 pub use outcome_ledger::UNTOLD_TAG;
 pub use reply_ledger::{MAX_REPLY_TRIES, NO_REPLY_TAG, REPLY_RETRY_WAITS};
@@ -373,6 +375,13 @@ pub enum Input {
     SpawnPolicy {
         reply: Sender<Option<String>>,
     },
+    /// The turn session's tool hook (`optchat-chief rights-hook`): `phase`
+    /// `pre` or `post`, Claude Code's hook input; answers the hook's output.
+    RightsHook {
+        phase: String,
+        payload: serde_json::Value,
+        reply: Sender<serde_json::Value>,
+    },
     /// Whether the turn may run a Chief tool with these arguments
     /// (`Brain::turn_gate`).
     TurnGate {
@@ -697,7 +706,7 @@ impl Queued {
             } | Source::Spawn(crate::state::SpawnRef {
                 requires_approval: true,
                 ..
-            })
+            }) | Source::Peer { .. }
         )
     }
 }
@@ -719,6 +728,10 @@ enum Source {
     Child { session_id: String, floor: u64 },
     /// Anything else (a child's permission request).
     Note,
+    /// Another person's Chief's message through the agent hub
+    /// (peer_chiefs.rs): `from` is its hub name. Always under the floor; the
+    /// rights table holds it to `chief:<from>`'s grants (rights_gate.rs).
+    Peer { from: String },
     /// An explicit owner action, retaining the original turn's policy floor.
     OwnerAction { requires_approval: bool },
     /// A subagent's report (section 9).
@@ -915,6 +928,8 @@ pub struct Brain {
     /// Requests of the running turn denied again because they repeat one
     /// already denied (`approvals::REPEATS_BEFORE_STOP` stops the turn).
     repeat_denials: u32,
+    /// The rights table and the audit (rights_gate.rs); None: off.
+    rights: Option<RightsCtx>,
     /// Writes the log's description of each turn image (None: references only).
     describer: Option<Arc<dyn images::Describe>>,
     /// A user's reaction that may wake the Chief (reaction_wake.rs).
@@ -1128,6 +1143,7 @@ impl Brain {
             steer_deadline: None,
             steer_due: None,
             reply_waits: reply_ledger::REPLY_RETRY_WAITS.to_vec(),
+            rights: None,
         };
         // A host can exit after sub_done persists Done but before deliver
         // queues the report. Recover that durable outbox before accepting new
@@ -1538,7 +1554,7 @@ impl Brain {
                 let _ = reply.send(self.watch(call));
             }
             Input::WatchFired(fired) => self.watch_fired(*fired),
-            Input::PeerChiefNote { text } => self.queue(text, Source::Note),
+            Input::PeerChiefNote { text } => self.peer_chief_note(text),
             Input::EscalateAuth {
                 agent,
                 request,
@@ -1598,6 +1614,13 @@ impl Brain {
             }
             Input::SpawnPolicy { reply } => {
                 let _ = reply.send(self.spawn_policy().map(str::to_owned));
+            }
+            Input::RightsHook {
+                phase,
+                payload,
+                reply,
+            } => {
+                let _ = reply.send(self.rights_hook(&phase, &payload));
             }
             Input::TurnGate { tool, input, reply } => {
                 let _ = reply.send(self.turn_gate(&tool, &input));
