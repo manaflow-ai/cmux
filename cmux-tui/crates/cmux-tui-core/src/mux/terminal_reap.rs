@@ -128,22 +128,18 @@ impl ReapSchedule {
         self.deadlines.remove(terminal_id);
     }
 
-    /// Record what a reap attempt of a due terminal came to.
-    pub(crate) fn settle(
-        &mut self,
-        terminal_id: &str,
-        outcome: Result<ReapOutcome, ()>,
-        now: Instant,
-        grace: Duration,
-    ) {
-        match outcome {
-            Ok(ReapOutcome::Reaped | ReapOutcome::Retained) => self.forget(terminal_id),
-            // An attached client keeps the terminal for another full
-            // grace period; its detach does not emit a topology event.
-            Ok(ReapOutcome::Attached) | Err(()) => {
-                self.postpone(terminal_id, deadline_after(now, grace.max(MIN_RETRY)));
-            }
-        }
+    /// A reap of a due terminal was attempted at `now`, whatever it came to.
+    pub(crate) fn tried(&mut self, terminal_id: &str, now: Instant, grace: Duration) {
+        // Every outcome waits a full grace (at least MIN_RETRY) before the
+        // terminal is tried again; a scan that no longer lists it (closed,
+        // placed again or kept) drops the deadline (`observe_unplaced`).
+        // A forget here let the next scan re-add a terminal the attempt left
+        // reapable at its durable unplaced time, already past the grace:
+        // due at once, so the reaper thread waited zero and ran pass after
+        // pass (the app's headless owner at 150% CPU). An attached client
+        // likewise keeps the terminal for another grace; its detach does not
+        // emit a topology event.
+        self.postpone(terminal_id, deadline_after(now, grace.max(MIN_RETRY)));
     }
 
     pub(crate) fn next_deadline(&self) -> Option<Instant> {
@@ -384,14 +380,13 @@ impl Mux {
         };
         let mut reaped = Vec::new();
         for (terminal_id, outcome) in due.into_iter().zip(outcomes) {
-            let outcome = outcome.map_err(|error| {
-                self.report_internal_diagnostic(format!(
+            schedule.tried(&terminal_id, now, grace);
+            match outcome {
+                Ok(ReapOutcome::Reaped) => reaped.push(terminal_id),
+                Ok(ReapOutcome::Retained | ReapOutcome::Attached) => {}
+                Err(error) => self.report_internal_diagnostic(format!(
                     "reap of unplaced terminal {terminal_id} failed: {error}"
-                ));
-            });
-            schedule.settle(&terminal_id, outcome, now, grace);
-            if outcome == Ok(ReapOutcome::Reaped) {
-                reaped.push(terminal_id);
+                )),
             }
         }
         reaped

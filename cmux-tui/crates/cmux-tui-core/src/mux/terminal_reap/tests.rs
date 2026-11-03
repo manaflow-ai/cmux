@@ -81,7 +81,7 @@ fn reaper_wait(schedule: &ReapSchedule, now: Instant) -> Option<Duration> {
 /// at 150% CPU.
 #[test]
 fn terminal_reap_schedule_waits_after_an_attempt_that_left_the_terminal_reapable() {
-    for outcome in [ReapOutcome::Retained, ReapOutcome::Reaped] {
+    {
         let start = Instant::now();
         let reapable: HashMap<String, Duration> = [("stuck".to_string(), 3 * GRACE)].into();
         let mut schedule = ReapSchedule::default();
@@ -94,13 +94,13 @@ fn terminal_reap_schedule_waits_after_an_attempt_that_left_the_terminal_reapable
         while now < start + Duration::from_secs(1) && passes < 1000 {
             schedule.observe_unplaced(now, GRACE, &reapable);
             for terminal_id in schedule.due(now) {
-                schedule.settle(&terminal_id, Ok(outcome), now, GRACE);
+                schedule.tried(&terminal_id, now, GRACE);
             }
             passes += 1;
             now += reaper_wait(&schedule, now).expect("still reapable, so still scheduled");
         }
-        assert_eq!(passes, 1, "{outcome:?}: the reaper ran {passes} passes within a second");
-        assert_eq!(reaper_wait(&schedule, start), Some(GRACE), "{outcome:?}");
+        assert_eq!(passes, 1, "the reaper ran {passes} passes within a second");
+        assert_eq!(reaper_wait(&schedule, start), Some(GRACE));
     }
 }
 
@@ -112,7 +112,7 @@ fn terminal_reap_schedule_drops_a_settled_terminal_once_it_is_no_longer_reapable
     let reapable: HashMap<String, Duration> = [("gone".to_string(), GRACE)].into();
     let mut schedule = ReapSchedule::default();
     schedule.observe_unplaced(start, GRACE, &reapable);
-    schedule.settle("gone", Ok(ReapOutcome::Reaped), start, GRACE);
+    schedule.tried("gone", start, GRACE);
     schedule.observe_unplaced(start, GRACE, &HashMap::new());
     assert_eq!(schedule.next_deadline(), None);
 }
