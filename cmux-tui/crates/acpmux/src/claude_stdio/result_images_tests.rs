@@ -138,7 +138,7 @@ async fn a_large_result_keeps_its_full_image_as_a_file_reference() {
         .expect("a result image beyond the inline budget must retain its original file link");
     let start = link.find("file:///").unwrap();
     let uri = link[start..].split(')').next().unwrap();
-    let path = std::path::PathBuf::from(uri.strip_prefix("file://").unwrap());
+    let path = reqwest::Url::parse(uri).unwrap().to_file_path().unwrap();
     let mut file = std::fs::File::open(&path).unwrap();
     let mut got = Sha256::new();
     let mut total = 0;

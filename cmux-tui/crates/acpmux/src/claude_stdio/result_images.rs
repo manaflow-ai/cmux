@@ -29,7 +29,7 @@ fn inline(data: &str, mime: &str) -> Value {
 
 fn reference(saved: anyhow::Result<std::path::PathBuf>) -> Value {
     let text = match saved.and_then(|path| {
-        url::Url::from_file_path(&path).map_err(|_| anyhow::anyhow!("invalid image file path"))
+        reqwest::Url::from_file_path(&path).map_err(|_| anyhow::anyhow!("invalid image file path"))
     }) {
         Ok(uri) => format!("\n\n[Original tool image]({uri})\n"),
         // A filesystem/invalid-base64 failure is visible rather than silently losing the image.
