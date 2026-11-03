@@ -109,7 +109,8 @@ await requireBrowserLane("agent-pane-subagent-of-untitled.test.ts", async () => 
     await page.getByText("The review is in.").waitFor({ timeout: 25_000 });
     // The line the subagent left where it ended opens its view (subagents/SubagentDoneLine.tsx). A
     // finished Claude turn has no Worked for to open (turns.ts claudeGroups): the line is in sight.
-    await page.locator(".cv-subagent-done", { hasText: "Reviewer" }).click();
+    // It names the subagent by its task first, as the running tray does (#33252).
+    await page.locator(".cv-subagent-done", { hasText: "Review the uploader branch" }).click();
     await page.locator(".cv-subagent-of").waitFor({ timeout: 5_000 });
     const parent = (await page.locator(".cv-subagent-of__parent").textContent())?.trim();
     const pill = (await page.locator(".cv-subagent-of__pill").innerText()).replace(/\s+/g, " ").trim();
