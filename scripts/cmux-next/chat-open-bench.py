@@ -485,30 +485,53 @@ def click_subagent(run):
     return reply
 
 
+def workspace_id(row):
+    """The workspace id of a `debug.sidebar_rows` row: its key reads `workspace(<id>)` (SidebarRowKey's description);
+    None for a row that is not a workspace (a section, a group, an item)."""
+    key = str((row or {}).get("key") or "")
+    return key[len("workspace("):-1] if key.startswith("workspace(") and key.endswith(")") else None
+
+
+def sidebar_rows(run):
+    return [row for window in (run.rpc("debug.sidebar_rows") or {}).get("windows") or [] for row in window.get("rows") or []]
+
+
 def shown_workspace(run):
-    """The key of the workspace the window shows (its selected sidebar row), or None."""
-    for window in (run.rpc("debug.sidebar_rows") or {}).get("windows") or []:
-        for row in window.get("rows") or []:
-            if row.get("selected"):
-                return row.get("key")
+    """The id of the workspace the window shows (its selected sidebar row). A launch can show Home or another layout
+    item, with no workspace row selected: then a new workspace (a terminal, no chat) is made and shown, bounded."""
+    def selected():
+        return next((workspace_id(row) for row in sidebar_rows(run) if row.get("selected") and workspace_id(row)), None)
+
+    found = selected()
+    if found:
+        return found
+    run.app.action("workspace.newAtBottom", focus=True)
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        found = selected()
+        if found:
+            return found
+        time.sleep(0.1)  # test script: the new workspace is not shown yet
+    say("chat-open: no workspace row is selected, even after a new workspace; rows:",
+        json.dumps([[row.get("key"), row.get("selected")] for row in sidebar_rows(run)][:20]))
     return None
 
 
 def background_row(run, session):
     """Opens `session` in a new workspace without showing it (no focus: its pane is made when it shows) and
-    waits, bounded, for the workspace's sidebar row; (key, row, error)."""
+    waits, bounded, for the workspace's sidebar row; (its workspace id, row, error). The id is the row's (`row` of
+    debug.mouse and goToWorkspace take it), which holds the open's key and may qualify it by machine."""
     key = str(uuid.uuid4())
     opened = run.app.action("agent.openSessionWorkspace", wait=False, session=session, key=key)
     if opened.get("error"):
         return None, None, f"open: {opened}"
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
-        for window in (run.rpc("debug.sidebar_rows") or {}).get("windows") or []:
-            row = next((r for r in window.get("rows") or [] if r.get("key") == key and r.get("in_list")), None)
-            if row and row.get("selected"):
-                return key, row, "the background open showed its workspace: the click would measure nothing"
-            if row:
-                return key, row, None
+        row = next((r for r in sidebar_rows(run) if key in (workspace_id(r) or "") and r.get("in_list")), None)
+        if row and row.get("selected"):
+            return workspace_id(row), row, "the background open showed its workspace: the click would measure nothing"
+        if row:
+            return workspace_id(row), row, None
         time.sleep(0.05)  # test script: the workspace is not listed yet
     return key, None, "the workspace's sidebar row never appeared"
 
@@ -568,6 +591,9 @@ def measure_click(run, case, session, base, label):
     key, row, error = background_row(run, session)
     if error:
         return {"error": error, "row": row}
+    # Still not selected right before the click (a late auto-select would leave the click nothing to change).
+    if next((r.get("selected") for r in sidebar_rows(run) if workspace_id(r) == key), False) and case == "click":
+        return {"error": "the chat's workspace was shown before the click: the click would measure nothing", "row": row}
     if case == "click_again":
         run.app.action("goToWorkspace", focus=True, workspace=key)
         deadline = time.monotonic() + 30

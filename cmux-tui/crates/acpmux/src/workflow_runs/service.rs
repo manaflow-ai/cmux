@@ -4,14 +4,14 @@ use super::{RunRecord, Store};
 use anyhow::{Result, ensure};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 
 pub const RUNNER_TOKEN_ENV: &str = "CMUX_WORKFLOW_RUNNER_TOKEN";
 
 pub struct Service {
     root: Option<PathBuf>,
     proofs: Mutex<BTreeMap<(String, u64), String>>,
-    gates: Mutex<BTreeMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    gates: Mutex<BTreeMap<String, Weak<tokio::sync::Mutex<()>>>>,
     runners: Mutex<BTreeMap<(String, u64), Runner>>,
 }
 
@@ -43,12 +43,25 @@ impl Service {
     /// Hold across activity registration + dispatch, or pause + child cancellation. This makes
     /// the pause fence order a dispatch before its cancellation or a refusal after the fence.
     pub fn gate(&self, run_id: &str) -> Arc<tokio::sync::Mutex<()>> {
-        self.gates
+        let mut gates = self.gates.lock().unwrap_or_else(|e| e.into_inner());
+        // Holders and queued callers own the lock. Keep their shared identity, while
+        // dropping expired keys so completed history never accumulates in the daemon.
+        gates.retain(|_, gate| gate.strong_count() > 0);
+        if let Some(gate) = gates.get(run_id).and_then(Weak::upgrade) {
+            return gate;
+        }
+        let gate = Arc::new(tokio::sync::Mutex::new(()));
+        gates.insert(run_id.to_owned(), Arc::downgrade(&gate));
+        gate
+    }
+
+    /// Called under the run's operation gate: a launch owned by this daemon must
+    /// not be replaced by startup recovery, even if it preceded recovery's snapshot.
+    pub fn owns_runner(&self, run_id: &str, generation: u64) -> bool {
+        self.proofs
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .entry(run_id.to_owned())
-            .or_default()
-            .clone()
+            .contains_key(&(run_id.to_owned(), generation))
     }
 
     pub fn issue_runner(&self, run: &RunRecord) -> Result<Option<String>> {
@@ -121,5 +134,45 @@ impl Service {
         ensure!(valid, "workflow runner proof does not match this daemon launch");
         let run = self.store().get(run_id)?;
         self.store().authorize(run_id, generation, &run.owner_session_id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn workflow_runs_gates_preserve_waiters_and_release_finished_runs() {
+        let service = Service::default();
+        let gate = service.gate("wf-live");
+        let held = gate.clone().lock_owned().await;
+        let waiter = service.gate("wf-live");
+        assert!(Arc::ptr_eq(&gate, &waiter));
+        assert!(waiter.try_lock().is_err());
+        let old = Arc::downgrade(&gate);
+        drop(gate);
+        // A held guard must keep every new caller on the same lock.
+        let again = service.gate("wf-live");
+        assert!(Arc::ptr_eq(&waiter, &again));
+        drop(held);
+        let next = waiter.lock_owned().await;
+        assert!(again.try_lock().is_err());
+        drop(next);
+        drop(again);
+        assert!(old.upgrade().is_none(), "a finished run retained its operation lock");
+    }
+
+    #[test]
+    fn workflow_runs_gate_registry_does_not_grow_with_run_history() {
+        let service = Service::default();
+        let live = service.gate("wf-live");
+        for index in 0..100 {
+            drop(service.gate(&format!("wf-finished-{index}")));
+        }
+        assert!(
+            service.gates.lock().unwrap().len() <= 2,
+            "the gate registry retained completed run history"
+        );
+        assert!(Arc::ptr_eq(&live, &service.gate("wf-live")));
     }
 }
