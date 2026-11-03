@@ -22,7 +22,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     private let browserSignIn: HostBrowserSignInFlow
     private let billingPlanClient: BillingPlanClient
     private(set) var billingPlanState = BillingPlanState.unknown
-    var isProActive: Bool { billingPlanState.isPro }
+    var isProActive: Bool { hasLoadedBillingPlan && billingPlanState.isPro }
     /// The signed-in account's tier, or nil while it is unknown.
     var planTier: CmuxPlanTier? { hasLoadedBillingPlan ? billingPlanState.tier : nil }
     /// The tier every upgrade entrypoint offers, or nil to hide them.
@@ -32,7 +32,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// The Settings plan row renders for every tier; it picks its own copy
     /// and actions from ``planTier``. Menus gate on ``upgradeOffer`` instead.
     var isProUpgradeAvailable: Bool { true }
-    var canManageBilling: Bool { billingPlanState.canManageBilling }
+    var canManageBilling: Bool { hasLoadedBillingPlan && billingPlanState.canManageBilling }
     /// Who bills the signed-in account's personal plan, or nil while unknown.
     var planBillingSource: AccountPlanBillingSource? {
         guard hasLoadedBillingPlan, let source = billingPlanState.billingSource else { return nil }
@@ -47,12 +47,12 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// The most recent plan request. Only it may write, so an older request
     /// that finishes late cannot overwrite a newer answer.
     @ObservationIgnored private var billingPlanRequestID: UUID?
-    /// The account and team the current plan answer belongs to.
-    @ObservationIgnored private var billingPlanScope: String?
+    /// The account and team the most recent plan request was made for.
+    @ObservationIgnored private var billingPlanRequestScope: (accountID: String, teamID: String?)?
     /// Whether `isProActive` is a real answer for the signed-in account.
     var hasLoadedBillingPlan: Bool {
-        guard let billingPlanIdentityID else { return false }
-        return billingPlanIdentityID == currentIdentity?.id
+        guard let identityID = currentIdentity?.id else { return false }
+        return billingPlanState.matches(accountID: identityID, teamID: confirmedTeamID)
     }
     var teamObservationRevision: UInt64 = 0
     /// Pending selection is shared by Settings, the menu and socket actions.
@@ -130,6 +130,15 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
 
     var signInIsSlow: Bool {
         browserSignIn.signInIsSlow
+    }
+
+    // A rate-limited callback is still retrying; the failure is not final.
+    var signInFailureTitle: String? {
+        isRetryingAfterRateLimit ? nil : lastSignInFailure?.title
+    }
+
+    var signInFailureRecovery: String? {
+        isRetryingAfterRateLimit ? nil : lastSignInFailure?.recovery
     }
 
     var isCompletingSignIn: Bool {
@@ -236,6 +245,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         analytics.signedOut()
         await browserSignIn.signOut()
         billingPlanState = .unknown
+        billingPlanRequestScope = nil
         restoreAnalyticsIfStillSignedIn()
     }
 
@@ -283,6 +293,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         analytics.signedOut()
         await browserSignIn.signOut(timeout: timeout)
         billingPlanState = .unknown
+        billingPlanRequestScope = nil
         restoreAnalyticsIfStillSignedIn()
     }
 
@@ -294,6 +305,20 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
 
     func refreshBillingPlan() async {
         _ = await refreshBillingPlanAndReportSuccess()
+    }
+
+    /// A plan answer belongs to one team. When the confirmed team changes
+    /// under the same account, fetch the new team's plan here so the Settings
+    /// card, menus and Machines panel do not wait on a surface that happens
+    /// to refetch. A request still in flight for the old team is dropped when
+    /// it lands, so it counts too. The new scope is recorded before the
+    /// request starts, so later observation passes do not start another one.
+    func refreshBillingPlanAfterTeamChange() {
+        guard let scope = billingPlanRequestScope,
+              scope.accountID == currentIdentity?.id,
+              scope.teamID != confirmedTeamID else { return }
+        billingPlanRequestScope = (scope.accountID, confirmedTeamID)
+        Task { await refreshBillingPlan() }
     }
 
     @discardableResult
@@ -309,10 +334,10 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         // response arrives and avoids a false Free/Upgrade state. A refresh
         // of the same account and team keeps its answer, so a failed refresh
         // does not hide every upgrade entrypoint until the next change.
-        let scope = "\(identityID):\(confirmedTeamID ?? "personal")"
-        if billingPlanScope != scope {
+        let teamID = confirmedTeamID
+        billingPlanRequestScope = (identityID, teamID)
+        if !billingPlanState.matches(accountID: identityID, teamID: teamID) {
             billingPlanState = .unknown
-            billingPlanScope = scope
         }
         let tokens = try? await coordinator.currentTokens()
 
@@ -322,12 +347,15 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
                 accessToken: tokens?.accessToken,
                 refreshToken: tokens?.refreshToken
             )
-            guard currentIdentity?.id == identityID, billingPlanRequestID == requestID else { return false }
+            guard currentIdentity?.id == identityID,
+                  confirmedTeamID == teamID,
+                  billingPlanRequestID == requestID else { return false }
             billingPlanState = billingPlanState.applyingSuccess(
                 for: identityID,
                 isPro: details.isPro,
                 canManageBilling: details.canManageBilling,
                 tier: details.tier,
+                teamID: teamID,
                 billingSource: details.billingSource
             )
             analytics.notePlan(accountID: identityID, isPaid: details.isPro)
@@ -335,8 +363,10 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         } catch {
             // A cancelled request (the panel went away) says nothing about the plan.
             if error is CancellationError || (error as? URLError)?.code == .cancelled { return false }
-            guard currentIdentity?.id == identityID, billingPlanRequestID == requestID else { return false }
-            billingPlanState = billingPlanState.applyingFailure(for: identityID)
+            guard currentIdentity?.id == identityID,
+                  confirmedTeamID == teamID,
+                  billingPlanRequestID == requestID else { return false }
+            billingPlanState = billingPlanState.applyingFailure(for: identityID, teamID: teamID)
             return false
         }
     }

@@ -1551,6 +1551,18 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertTrue(methods.contains("mobile.browser.stream.start"))
         XCTAssertTrue(methods.contains("mobile.simulator.stream.start"))
         XCTAssertTrue(methods.contains("mobile.chat.sessions"))
+        XCTAssertTrue(Set(methods).isSuperset(of: [
+            "chief.open",
+            "chief.send",
+            "chief.status",
+            "chief.conversations",
+            "chief.read",
+            "chief.mark_read",
+            "chief.stop",
+            "chief.approve",
+            "chief.answer",
+            "chief.debug",
+        ]))
     }
 #endif
 

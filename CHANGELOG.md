@@ -2,6 +2,60 @@
 
 All notable changes to cmux are documented here.
 
+## Unreleased
+
+### Added
+- Merge Workspace Into moves every tab from one workspace into another, from the sidebar or the Workspace menu ([#19735](https://github.com/manaflow-ai/cmux/pull/19735))
+- A slider in Settings > Workspace Colors sets how strongly a color fills rows that aren't selected ([#21377](https://github.com/manaflow-ai/cmux/pull/21377)) -- thanks @mmartinovich for the report!
+- An SSH machine can write to your clipboard over OSC 52 once you allow it, and cmux remembers the choice ([#18442](https://github.com/manaflow-ai/cmux/pull/18442)) -- thanks @simjak for the report!
+- Review Approval… shows an integration's resume command and environment before you approve it ([#21367](https://github.com/manaflow-ai/cmux/pull/21367)) -- thanks @raal1600 for the report!
+- `cmux browser geolocation` and `cmux browser offline` work in browser panes ([#21039](https://github.com/manaflow-ai/cmux/pull/21039))
+- Custom sidebars can read each workspace's emoji ([#20828](https://github.com/manaflow-ai/cmux/pull/20828)) -- thanks @ezadEzanee for the report!
+
+### Changed
+- Cloud errors say what failed and what to try next ([#18673](https://github.com/manaflow-ai/cmux/pull/18673))
+- The CLI reference matches this build ([#20817](https://github.com/manaflow-ai/cmux/pull/20817))
+
+### Fixed
+- A paused Cloud machine that something wakes is paused again within minutes ([#21638](https://github.com/manaflow-ai/cmux/pull/21638), [#21651](https://github.com/manaflow-ai/cmux/pull/21651))
+- Closing a Cloud terminal view no longer kills its process ([#15851](https://github.com/manaflow-ai/cmux/pull/15851))
+- Cloud terminals fit their pane after a reconnect or resize, and no longer restore blank ([#20944](https://github.com/manaflow-ai/cmux/pull/20944), [#16659](https://github.com/manaflow-ai/cmux/pull/16659))
+- Cloud rows keep their machine and folder ([#20570](https://github.com/manaflow-ai/cmux/pull/20570))
+- Middle-click focuses the Cloud pane you clicked ([#16513](https://github.com/manaflow-ai/cmux/pull/16513))
+- Images from the command buffer reach Cloud terminals ([#16757](https://github.com/manaflow-ai/cmux/pull/16757))
+- Cloud browser tabs follow navigation and drag between workspaces on the same machine ([#20957](https://github.com/manaflow-ai/cmux/pull/20957))
+- New Display works again ([#21294](https://github.com/manaflow-ai/cmux/pull/21294))
+- The Cloud terminal client download resumes instead of starting over ([#16305](https://github.com/manaflow-ai/cmux/pull/16305))
+- Agents on Cloud machines can use computer use, and your MCP settings stay ([#20818](https://github.com/manaflow-ai/cmux/pull/20818))
+- Pro, including Founder's Edition, upgrades to Max from any billing source, and Pro turns on right after checkout ([#20889](https://github.com/manaflow-ai/cmux/pull/20889), [#20852](https://github.com/manaflow-ai/cmux/pull/20852))
+- Welcome clips are no longer cropped ([#20848](https://github.com/manaflow-ai/cmux/pull/20848))
+- Claude tabs no longer come back as plain shells after two quick quits, and a big window no longer starts every agent at once ([#21368](https://github.com/manaflow-ai/cmux/pull/21368), [#21354](https://github.com/manaflow-ai/cmux/pull/21354)) -- thanks @bowernite for the report!
+- Codex keeps its session across relaunches and drags ([#21178](https://github.com/manaflow-ai/cmux/pull/21178), [#20849](https://github.com/manaflow-ai/cmux/pull/20849), [#20850](https://github.com/manaflow-ai/cmux/pull/20850)) -- thanks @apoorvdarshan for the report!
+- `claude --worktree`: the sidebar, new splits and Files follow Claude's worktree, and switch back when Claude exits ([#20292](https://github.com/manaflow-ai/cmux/pull/20292))
+- Claude status from SSH and Cloud panes lands on the right pane ([#16178](https://github.com/manaflow-ai/cmux/pull/16178))
+- Claude Teams keeps its layout and works with a custom Claude path ([#20830](https://github.com/manaflow-ai/cmux/pull/20830), [#20804](https://github.com/manaflow-ai/cmux/pull/20804)) -- thanks @wbratz for the report!
+- A Claude background subagent keeps showing as running after the parent turn ends, until it finishes ([#20346](https://github.com/manaflow-ai/cmux/pull/20346))
+- Antigravity resumes with its hooks ([#20352](https://github.com/manaflow-ai/cmux/pull/20352))
+- OpenCode no longer reports duplicate plugins ([#20819](https://github.com/manaflow-ai/cmux/pull/20819)) -- thanks @apoorvdarshan for the report!
+- Pi's own commands and `--no-extensions` run clean ([#20359](https://github.com/manaflow-ai/cmux/pull/20359)) -- thanks @henjuese for the report!
+- Closing an agent's pane clears its decisions from the feed ([#16317](https://github.com/manaflow-ai/cmux/pull/16317))
+- ⌘V pastes images into plain `ssh -t` sessions ([#21128](https://github.com/manaflow-ai/cmux/pull/21128)) -- thanks @blazejkapala for the report!
+- No more duplicate zsh prompt after a relaunch ([#20347](https://github.com/manaflow-ai/cmux/pull/20347)) -- thanks @soreavis for the report!
+- Remote tmux panes keep shell integration after a reconnect, and are current when they scroll back into view ([#16493](https://github.com/manaflow-ai/cmux/pull/16493), [#16399](https://github.com/manaflow-ai/cmux/pull/16399)) -- thanks @TheTrustedAdvisor and @NestDream for the reports!
+- The socket stays responsive with many `cmux events` streams open ([#21361](https://github.com/manaflow-ai/cmux/pull/21361)) -- thanks @gantoine for the report!
+- Fixes a hang while panes redraw ([#21451](https://github.com/manaflow-ai/cmux/pull/21451))
+- `cmux browser repl` holds its limits against hostile pages ([#18380](https://github.com/manaflow-ai/cmux/pull/18380))
+- `cmux browser` works on a restored tab without selecting it first ([#21041](https://github.com/manaflow-ai/cmux/pull/21041))
+- Passkey checks no longer crash on macOS 26.1 ([#21448](https://github.com/manaflow-ai/cmux/pull/21448))
+- Renames show up in the sidebar right away ([#17616](https://github.com/manaflow-ai/cmux/pull/17616))
+- The right-sidebar shortcut toggles cleanly and returns focus to where it was ([#20348](https://github.com/manaflow-ai/cmux/pull/20348)) -- thanks @jasonkuhrt for the report!
+- Custom right sidebars get workspace groups ([#20354](https://github.com/manaflow-ai/cmux/pull/20354)) -- thanks @basememara for the report!
+- ⌘⇧/ opens Help search from any pane ([#21362](https://github.com/manaflow-ai/cmux/pull/21362)) -- thanks @bowernite for the report!
+- The welcome screen lists shortcuts again ([#20843](https://github.com/manaflow-ai/cmux/pull/20843))
+- Each installed build keeps its own search index ([#16195](https://github.com/manaflow-ai/cmux/pull/16195)) -- thanks @azooz2003-bit for the report!
+- Worktree setup no longer copies a symlink that points outside the repository ([#21627](https://github.com/manaflow-ai/cmux/pull/21627))
+- The app inside the DMG is stapled, so it opens offline ([#21217](https://github.com/manaflow-ai/cmux/pull/21217))
+
 ## [0.65.2] - 2026-10-14
 
 ### Changed

@@ -32,8 +32,12 @@ public struct BrowserClientCertificateCredentialStore {
         completion: @escaping @MainActor @Sendable ([BrowserClientCertificateCredentialCandidate]) -> Void
     ) -> BrowserClientCertificateAuthenticationHandler.CandidateLookupCancellation {
         let acceptedIssuers = protectionSpace.distinguishedNames
+        let preferenceNames = identityPreferenceNames(for: protectionSpace)
         let lookupTask = Task.detached(priority: .userInitiated) {
-            let candidates = BrowserClientCertificateCredentialStore().candidates(acceptedIssuers: acceptedIssuers)
+            let candidates = BrowserClientCertificateCredentialStore().candidates(
+                acceptedIssuers: acceptedIssuers,
+                preferenceNames: preferenceNames
+            )
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 guard !Task.isCancelled else { return }
@@ -49,13 +53,21 @@ public struct BrowserClientCertificateCredentialStore {
     /// - Parameter protectionSpace: The WebKit protection space from the client-certificate challenge.
     /// - Returns: Client-certificate candidates, or an empty array when none can be used.
     public func candidates(for protectionSpace: URLProtectionSpace) -> [BrowserClientCertificateCredentialCandidate] {
-        candidates(acceptedIssuers: protectionSpace.distinguishedNames)
+        candidates(
+            acceptedIssuers: protectionSpace.distinguishedNames,
+            preferenceNames: identityPreferenceNames(for: protectionSpace)
+        )
     }
 
     /// Returns credential candidates for the accepted issuer distinguished names.
-    /// - Parameter acceptedIssuers: DER-encoded issuer names advertised by the server, or `nil`/empty when omitted.
+    /// - Parameters:
+    ///   - acceptedIssuers: DER-encoded issuer names advertised by the server, or `nil`/empty when omitted.
+    ///   - preferenceNames: Keychain identity preference names to consult, most specific first.
     /// - Returns: Client-certificate candidates, or an empty array when none can be used.
-    public func candidates(acceptedIssuers: [Data]?) -> [BrowserClientCertificateCredentialCandidate] {
+    public func candidates(
+        acceptedIssuers: [Data]?,
+        preferenceNames: [String] = []
+    ) -> [BrowserClientCertificateCredentialCandidate] {
         let query = identityLookupQuery(acceptedIssuers: acceptedIssuers)
 
         var result: CFTypeRef?
@@ -73,7 +85,88 @@ public struct BrowserClientCertificateCredentialStore {
             return []
         }
 
-        return identities(from: result).compactMap(candidate(for:))
+        let preferredCertificateData = preferredIdentityCertificateData(
+            preferenceNames: preferenceNames,
+            acceptedIssuers: acceptedIssuers
+        )
+        return identities(from: result).compactMap { identity in
+            candidate(for: identity, preferredCertificateData: preferredCertificateData)
+        }
+    }
+
+    /// Records the picked identity as the Keychain identity preference for the site.
+    ///
+    /// This mirrors what Safari does after its certificate prompt: the preference is
+    /// stored under the site URL and scoped to this app by the Security framework, so
+    /// the next challenge from the same site resolves without a picker. The Keychain
+    /// write runs off the main actor; a failure only means the picker returns next time.
+    /// - Parameters:
+    ///   - candidate: The candidate the user chose in the picker.
+    ///   - protectionSpace: The WebKit protection space from the client-certificate challenge.
+    public func rememberPreferredIdentity(
+        _ candidate: BrowserClientCertificateCredentialCandidate,
+        for protectionSpace: URLProtectionSpace
+    ) {
+        guard let identity = candidate.credential.identity,
+              let name = identityPreferenceNames(for: protectionSpace).first else {
+            return
+        }
+        let logger = logger
+        Task.detached(priority: .utility) {
+            let status = SecIdentitySetPreferred(identity, name as CFString, nil)
+            if status != errSecSuccess {
+                logger.error(
+                    "browser.clientCertificate.setIdentityPreference status=\(status, privacy: .public)"
+                )
+            }
+        }
+    }
+
+    /// Returns the Keychain identity preference names for a protection space, most specific first.
+    ///
+    /// `SecIdentityCopyPreferred` scopes URL names to the calling app and walks parent
+    /// paths and wildcard domains itself, so the site URL finds preferences this app
+    /// recorded. A bare host name is not scoped, so a preference created in Keychain
+    /// Access or with `security set-identity-preference -s host` applies to every app.
+    /// - Parameter protectionSpace: The WebKit protection space from the client-certificate challenge.
+    func identityPreferenceNames(for protectionSpace: URLProtectionSpace) -> [String] {
+        let host = protectionSpace.host
+        guard !host.isEmpty else { return [] }
+        let scheme = protectionSpace.protocol ?? "https"
+        let origin = "\(scheme)://\(host)"
+        var names = [
+            "\(origin):\(protectionSpace.port)/",
+            "\(origin):\(protectionSpace.port)",
+            "\(origin)/",
+            origin,
+            host,
+        ]
+        var seen = Set<String>()
+        names.removeAll { !seen.insert($0).inserted }
+        return names
+    }
+
+    private func preferredIdentityCertificateData(
+        preferenceNames: [String],
+        acceptedIssuers: [Data]?
+    ) -> Data? {
+        guard !preferenceNames.isEmpty else { return nil }
+        let validIssuers: CFArray? = (acceptedIssuers?.isEmpty == false) ? (acceptedIssuers! as CFArray) : nil
+        for name in preferenceNames {
+            guard let identity = SecIdentityCopyPreferred(name as CFString, nil, validIssuers) else {
+                continue
+            }
+            var certificate: SecCertificate?
+            guard SecIdentityCopyCertificate(identity, &certificate) == errSecSuccess,
+                  let certificate else {
+                continue
+            }
+            logger.info(
+                "browser.clientCertificate.identityPreferenceMatched name=\(name, privacy: .private)"
+            )
+            return SecCertificateCopyData(certificate) as Data
+        }
+        return nil
     }
 
     func identityLookupQuery(for protectionSpace: URLProtectionSpace) -> [String: Any] {
@@ -163,7 +256,10 @@ public struct BrowserClientCertificateCredentialStore {
         }
     }
 
-    private func candidate(for identity: SecIdentity) -> BrowserClientCertificateCredentialCandidate? {
+    private func candidate(
+        for identity: SecIdentity,
+        preferredCertificateData: Data?
+    ) -> BrowserClientCertificateCredentialCandidate? {
         var certificate: SecCertificate?
         let status = SecIdentityCopyCertificate(identity, &certificate)
         guard status == errSecSuccess, let certificate else {
@@ -185,10 +281,14 @@ public struct BrowserClientCertificateCredentialStore {
             certificates: [certificate],
             persistence: .forSession
         )
+        let isPreferred = preferredCertificateData.map {
+            $0 == SecCertificateCopyData(certificate) as Data
+        } ?? false
         return BrowserClientCertificateCredentialCandidate(
             title: SecCertificateCopySubjectSummary(certificate) as String?,
             serialNumber: certificateSerialNumber(for: certificate),
-            credential: credential
+            credential: credential,
+            isPreferred: isPreferred
         )
     }
 

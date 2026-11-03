@@ -5,7 +5,7 @@ run-name: iOS App Store screenshots (${{ inputs.request_id || github.run_id }})
 # on the required device classes — 6.9" iPhone + 13" iPad — in every language
 # the app is localized in. The capture runs against a DEBUG build with
 # the CMUX_UITEST_MOCK_DATA hook, so no Apple signing is needed to shoot; only
-# the optional upload-to-ASC step needs the App Store Connect API key.
+# the optional app-store-upload job needs the App Store Connect API key.
 #
 # Manual dispatch remains available for review runs. Stable releases call this
 # workflow as a reusable job, which captures the release tag and publishes the
@@ -178,10 +178,10 @@ jobs:
     # class. Keep enough budget for cold Xcode builds plus the frame lane on
     # shared macOS runners, where simulator resets can be slow.
     timeout-minutes: 300
-    # Only an upload dispatch reads the App Store Connect key, which lives in
-    # the release environment (main and v* tags). Capture-only runs, including
-    # the call from release.yml, enter no environment and read no secret.
-    environment: ${{ github.event_name == 'workflow_dispatch' && inputs.upload && 'release' || '' }}
+    # This job can run on an owned Mac, a reused machine, so it holds no
+    # secret and enters no environment, upload dispatch or not. The App Store
+    # Connect key is only in app-store-upload below, on a literal ephemeral
+    # label (tests/test_ci_fork_runner_routing.py).
     env:
       # An owned Mac's label (glaeda-<class>-xcode-<version>) names the
       # pull-request lane's Xcode pin, so take that Xcode there, as
@@ -193,7 +193,7 @@ jobs:
       - name: Guard trusted upload ref
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload && (inputs.ref != '' || github.ref != 'refs/heads/main') }}
         run: |
-          echo "::error::Screenshot upload uses App Store Connect secrets and must run from main with no ref override. Run capture-only for arbitrary refs, then upload from main." >&2
+          echo "::error::Screenshot upload uses the App Store Connect key and must run from main with no ref override. Run capture-only for arbitrary refs, then upload from main." >&2
           exit 1
 
       - name: Checkout
@@ -341,8 +341,55 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  # The App Store Connect upload, apart from the capture: a short job on a
+  # literal ephemeral Blacksmith macOS label no variable can move, so the key
+  # never reaches the owned Mac the capture may run on. It takes the screenshots
+  # job's ios-appstore-screenshots artifact (the directory deliver reads) and
+  # runs only after a successful capture, on an upload dispatch from main.
+  app-store-upload:
+    needs: [resolve-ref, screenshots]
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    # No upload from CI has been timed yet. deliver deletes the version's screenshots
+    # (overwrite_screenshots) before it uploads about 14 locales x 2 devices x 10 shots
+    # and waits for Apple's processing, so a timeout part way leaves the pending
+    # version with only some screenshots. Keep a wide bound; a re-run repairs it.
+    timeout-minutes: 180
+    # The App Store Connect key lives in the release environment (main and v*
+    # tags). Capture-only runs, including the call from release.yml, skip this job.
+    environment: release
+    steps:
+      - name: Guard trusted upload ref
+        if: ${{ inputs.ref != '' || github.ref != 'refs/heads/main' }}
+        run: |
+          echo "::error::Screenshot upload uses the App Store Connect key and must run from main with no ref override. Run capture-only for arbitrary refs, then upload from main." >&2
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.resolve-ref.outputs.sha }}
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Ensure fastlane
+        run: |
+          set -euo pipefail
+          # The Homebrew fastlane (ships its own Ruby), as the screenshots job uses.
+          if ! command -v fastlane >/dev/null 2>&1; then
+            brew install fastlane
+          fi
+          fastlane --version
+
+      - name: Download screenshots artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ios-appstore-screenshots
+          path: ios/fastlane/screenshots
+
       - name: Materialize App Store Connect API key
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload }}
         env:
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
@@ -353,7 +400,7 @@ jobs:
             echo "Missing ASC_API_KEY_ID / ASC_API_ISSUER_ID / ASC_API_KEY_P8_BASE64 secrets" >&2
             exit 1
           fi
-          KEY_DIR="$HOME/.appstoreconnect/private_keys"
+          KEY_DIR="$RUNNER_TEMP/appstoreconnect/private_keys"
           mkdir -p "$KEY_DIR"
           printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 --decode > "$KEY_DIR/AuthKey_${ASC_API_KEY_ID}.p8"
           chmod 600 "$KEY_DIR/AuthKey_${ASC_API_KEY_ID}.p8"
@@ -364,7 +411,6 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Upload screenshots to App Store Connect
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload }}
         working-directory: ios
         env:
           FASTLANE_SKIP_UPDATE_CHECK: "1"
@@ -372,11 +418,8 @@ jobs:
         run: fastlane upload_screenshots
 
       - name: Remove App Store Connect API key
-        # The key sits in the runner user's home; a reused runner would keep it.
-        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.upload }}
-        env:
-          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+        if: ${{ always() }}
         run: |
-          if [ -n "${ASC_API_KEY_ID:-}" ]; then
-            rm -f "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_API_KEY_ID}.p8"
+          if [ -n "${ASC_API_KEY_PATH:-}" ]; then
+            rm -f "$ASC_API_KEY_PATH"
           fi

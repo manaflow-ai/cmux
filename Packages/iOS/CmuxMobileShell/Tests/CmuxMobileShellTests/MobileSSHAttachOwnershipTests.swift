@@ -14,6 +14,7 @@ struct MobileSSHAttachOwnershipTests {
         typealias EventHandler = @MainActor (MobileSSHAttachEvent) -> Void
 
         let (attaches, attachContinuation) = AsyncStream<Int>.makeStream()
+        let (detaches, detachContinuation) = AsyncStream<Int>.makeStream()
         private(set) var attachCount = 0
         private var pending: [Int: CheckedContinuation<any MobileSSHAttachedTerminal, any Error>] = [:]
         private var handlers: [Int: EventHandler] = [:]
@@ -68,7 +69,10 @@ struct MobileSSHAttachOwnershipTests {
                 owner?.writes[id, default: Data()].append(data)
             }
             func resize(columns: Int, rows: Int) async {}
-            func detach() async { owner?.detached.append(id) }
+            func detach() async {
+                owner?.detached.append(id)
+                owner?.detachContinuation.yield(id)
+            }
         }
     }
 
@@ -94,6 +98,7 @@ struct MobileSSHAttachOwnershipTests {
         computers.viewportChanged(surfaceID: surface, columns: 80, rows: 24)
         computers.replay(surfaceID: surface)
         var attaches = provider.attaches.makeAsyncIterator()
+        var detaches = provider.detaches.makeAsyncIterator()
         let first = try #require(await attaches.next())
 
         // Input queued for A must not cross the detach into B. The real
@@ -109,7 +114,9 @@ struct MobileSSHAttachOwnershipTests {
         #expect(second == 2)
 
         provider.resolve(first)
-        await Task.yield()
+        // A's late completion detaches its own handle; wait for that instead
+        // of relying on one Task.yield() to order it.
+        #expect(await detaches.next() == first)
         provider.emit(first, .output(Data("STALE-A".utf8)))
 
         provider.resolve(second)
@@ -118,6 +125,8 @@ struct MobileSSHAttachOwnershipTests {
         await Task.yield()
 
         #expect(provider.detached == [1])
+        // The stale input reaches neither the late attach nor its replacement.
+        #expect(provider.writes[1] == nil)
         #expect(provider.writes[2] == nil)
         #expect(!(sink.outputs[surface] ?? "").contains("STALE-A"))
         #expect((sink.outputs[surface] ?? "").contains("LIVE-B"))

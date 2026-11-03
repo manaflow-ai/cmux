@@ -256,7 +256,7 @@ struct CmuxConfigExecutor {
             confirm: confirm,
             configSourcePath: configSourcePath,
             globalConfigPath: globalConfigPath,
-            displayCommand: payload.text,
+            displayCommand: payload.promptDisplayText,
             displayTitle: displayTitle,
             presentingWindow: presentingWindow
         ) {

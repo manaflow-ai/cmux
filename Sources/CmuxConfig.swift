@@ -1365,7 +1365,8 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
 
     /// Shared `type: "text"` decoding for buttons and action definitions:
     /// verbatim text (newlines and indentation preserved) minus bidi and
-    /// zero-width controls, blank rejected, `submit` defaulting to false.
+    /// zero-width controls, blank or terminal-control text rejected,
+    /// `submit` defaulting to false.
     private static func decodeTextPayload(
         from container: KeyedDecodingContainer<CodingKeys>
     ) throws -> CmuxTextActionPayload {
@@ -1384,7 +1385,7 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
             throw DecodingError.dataCorruptedError(
                 forKey: .text,
                 in: container,
-                debugDescription: "text must not be blank"
+                debugDescription: "text must not be blank or contain control characters other than tab and newline"
             )
         }
         return payload

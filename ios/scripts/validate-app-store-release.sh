@@ -180,7 +180,7 @@ if [[ "$PREPARE_SUBMISSION" -eq 1 ]]; then
   note "attaching build $BUILD_ID to App Store version $VERSION"
   asc versions attach-build \
     --version-id "$VERSION_ID" \
-    --build "$BUILD_ID"
+    --build-id "$BUILD_ID"
 fi
 
 validate_args=(validate --app "$APP" --version "$VERSION" --platform IOS --output table)
@@ -215,7 +215,7 @@ fi
 
 if [[ "$STAGE_DRY_RUN" -eq 1 ]]; then
   [[ -n "$BUILD_ID" ]] || die "--stage-dry-run requires --build-id or --build-number"
-  stage_args=(release stage --app "$APP" --version "$VERSION" --build "$BUILD_ID" --dry-run --platform IOS --output table)
+  stage_args=(release stage --app "$APP" --version "$VERSION" --build-id "$BUILD_ID" --dry-run --platform IOS --output table)
   if [[ -d "$METADATA_DIR" ]]; then
     stage_args+=(--metadata-dir "$METADATA_DIR")
   elif [[ -n "$COPY_METADATA_FROM" ]]; then
@@ -230,7 +230,7 @@ fi
 
 if [[ "$SUBMIT_DRY_RUN" -eq 1 || "$SUBMIT_REQUESTED" -eq 1 ]]; then
   [[ -n "$BUILD_ID" ]] || die "review submission requires --build-id or --build-number"
-  submit_args=(review submit --app "$APP" --version "$VERSION" --build "$BUILD_ID" --platform IOS --output table)
+  submit_args=(review submit --app "$APP" --version "$VERSION" --build-id "$BUILD_ID" --platform IOS --output table)
   if [[ "$SUBMIT_DRY_RUN" -eq 1 ]]; then
     submit_args+=(--dry-run)
     note "previewing App Store review submission"

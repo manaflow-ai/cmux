@@ -500,11 +500,14 @@ public struct VMListPage: Sendable {
     public let vms: [VMSummary]
     public let limits: VMPlanLimits?
 
-    /// Machines the server counts against `limits.maxActiveVms`: running and
-    /// provisioning ones. Paused machines are listed but free their slot, so
-    /// `vms.count` overstates usage.
+    /// Saved machines counted against the plan, including paused machines.
+    public static func occupiesMachineSlot(forStatus status: String) -> Bool {
+        CloudVMResourcePool.usesResourcePool(forStatus: status)
+            || ["paused", "standby", "stopped"].contains(status.lowercased())
+    }
+
     public var activeMachineCount: Int {
-        limits?.activeVmCount ?? vms.count(where: { CloudVMResourcePool.usesResourcePool(forStatus: $0.status) })
+        limits?.activeVmCount ?? vms.count(where: { Self.occupiesMachineSlot(forStatus: $0.status) })
     }
 }
 
@@ -1904,6 +1907,27 @@ public actor VMClient {
     public func restart(id: String, teamID: String? = nil) async throws -> String {
         return try await withOperation(.restart, foreground: true) {
             try await lifecycleTransition(id: id, action: "restart", teamID: teamID, timeoutSeconds: 60)
+        }
+    }
+
+    /// `POST /api/vm/<id>/hygiene`: disk cleanup on one of the caller's own machines.
+    /// Without `apply` it is a dry-run that only reports what could be removed; the
+    /// server never wakes a paused machine (409 `vm_not_running`) and allows one apply
+    /// at a time (409 `vm_hygiene_busy`). Returns the JSON report as sent.
+    public func hygiene(id: String, apply: Bool, teamID: String? = nil) async throws -> Data {
+        return try await withOperation(.exec, foreground: true) {
+            let encodedID = try pathSegment(id, fieldName: "vm id")
+            let body: [String: Any] = apply ? ["apply": true] : [:]
+            let (data, http) = try await request(
+                "POST",
+                path: "/api/vm/\(encodedID)/hygiene",
+                jsonBody: body,
+                timeoutSeconds: 300,
+                teamID: teamID
+            )
+            try ensureOK(http, data: data)
+            _ = try decodeJSONObject(data)
+            return data
         }
     }
 

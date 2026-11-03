@@ -45,6 +45,7 @@ ADMIT_COMMAND = (
     '--source-run-id "$SOURCE_RUN_ID" --source-run-attempt "$SOURCE_RUN_ATTEMPT" '
     '--out "$RUNNER_TEMP/nightly-sign-source"'
 )
+# Literal labels only (no variable moves the job): Blacksmith Linux, a fork the hosted image.
 LINUX_RUNNER = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}"
 JOB_KEYS = {"name", "if", "runs-on", "timeout-minutes", "permissions", "steps"}
 STEP_KEYS = {"name", "id", "uses", "with", "env", "run"}

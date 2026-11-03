@@ -12,9 +12,9 @@ import {
   RunIdempotencyConflictError,
   storeRunArtifact,
   type RunScope,
-} from "../services/runs/repository";
-import { runAttachTicket } from "../services/runs/attach";
-import { normalizeRunSpec, runSpecDigest, type RunSpec } from "../services/runs/spec";
+} from "../services/runs/legacy/repository";
+import { runAttachTicket } from "../services/runs/legacy/attach";
+import { normalizeRunSpec, runSpecDigest, type RunSpec } from "../services/runs/legacy/spec";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
 const dbTest = runDbTests ? test : test.skip;

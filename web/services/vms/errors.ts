@@ -182,7 +182,7 @@ export interface VmActiveLimitMachine {
   /** Provider machine id, or the row id while provisioning has none yet. */
   readonly id: string;
   readonly name: string;
-  readonly status: "provisioning" | "running";
+  readonly status: "provisioning" | "running" | "paused";
 }
 
 export class VmLimitExceededError extends Data.TaggedError("VmLimitExceededError")<{
@@ -237,7 +237,7 @@ export class VmSavedLimitExceededError extends Data.TaggedError("VmSavedLimitExc
   readonly limit: number;
   readonly current: number;
 }> {}
-export class VmGoShapeError extends Data.TaggedError("VmGoShapeError")<{}> {}
+export class VmGoShapeError extends Data.TaggedError("VmGoShapeError") {}
 
 export class VmCreateCreditsInsufficientError extends Data.TaggedError("VmCreateCreditsInsufficientError")<{
   readonly itemId: string;

@@ -48,6 +48,10 @@
       "schedule": "3,13,23,33,43,53 * * * *"
     },
     {
+      "path": "/api/cron/vm-idle-pause",
+      "schedule": "1,6,11,16,21,26,31,36,41,46,51,56 * * * *"
+    },
+    {
       "path": "/api/cron/vm-reaper",
       "schedule": "49 * * * *"
     },
@@ -78,6 +82,10 @@
     {
       "path": "/api/cron/runs",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/hang-reports-retention",
+      "schedule": "41 4 * * *"
     }
   ]
 }

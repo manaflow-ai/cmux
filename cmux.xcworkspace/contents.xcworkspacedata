@@ -14,6 +14,9 @@
          location = "group:CmuxAgentChat">
       </FileRef>
       <FileRef
+         location = "group:CmuxAgentQuestion">
+      </FileRef>
+      <FileRef
          location = "group:CmuxAPIClient">
       </FileRef>
       <FileRef
@@ -29,10 +32,19 @@
          location = "group:CmuxGhosttyKit">
       </FileRef>
       <FileRef
+         location = "group:CmuxHomeCore">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxHomeRender">
+      </FileRef>
+      <FileRef
          location = "group:CmuxIrohTransport">
       </FileRef>
       <FileRef
          location = "group:CmuxIrxTransport">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMessagesLab">
       </FileRef>
       <FileRef
          location = "group:CMUXMobileCore">
@@ -70,6 +82,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxAgentChatUI">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxConversation">
       </FileRef>
       <FileRef
          location = "group:CmuxMobileAnalytics">
@@ -173,6 +188,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxCanvasUI">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxChief">
       </FileRef>
       <FileRef
          location = "group:CmuxCloud">

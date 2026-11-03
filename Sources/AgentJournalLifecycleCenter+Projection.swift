@@ -10,6 +10,9 @@ extension AgentJournalLifecycleCenter {
         /// The meaningful transition this live event caused, if any. Drives
         /// agent-activity sidebar ordering; startup replay never sets it.
         let activity: AgentLifecycleActivity?
+        /// The app's own drain check settled this pane to idle, so no hook
+        /// will replace its Waiting pill.
+        var settledDrainedBackgroundWork = false
     }
 
     /// - Parameter sourceKind: The kind the producer emitted. The notification
@@ -50,8 +53,36 @@ extension AgentJournalLifecycleCenter {
                 event: sourceKind ?? canonical.kind,
                 from: previousPhase,
                 to: phase
-            )
+            ),
+            settledDrainedBackgroundWork: previousPhase == .backgroundWorkPending
+                && phase == .idle
+                && canonical.draft.nativeEvent == ClaudeBackgroundWorkDrain.nativeEvent
         )
+    }
+
+    /// The drain check's synthetic completion, admitted only while its
+    /// session and pane still wait on background work, and stamped with the
+    /// session's newest event time instead of the check's. A turn that began
+    /// meanwhile keeps the pane whichever of the two commits first: the drain
+    /// never raises the watermark a late-committed hook is judged against.
+    /// Every other event passes through unchanged.
+    static func admittingBackgroundWorkDrain(
+        _ event: AgentJournalEvent,
+        state: AgentLifecycleReducerState
+    ) -> AgentJournalEvent? {
+        guard event.draft.nativeEvent == ClaudeBackgroundWorkDrain.nativeEvent else { return event }
+        guard let surfaceId = event.draft.surfaceId,
+              state.combinedPhase(surfaceId: surfaceId, agentKey: event.agentKey) == .backgroundWorkPending,
+              let session = state.session(
+                  surfaceId: surfaceId,
+                  agentKey: event.agentKey,
+                  sessionKey: AgentLifecycleReducerState.sessionKey(for: event.draft)
+              ),
+              !session.ended,
+              session.phase == .backgroundWorkPending else { return nil }
+        var draft = event.draft
+        draft.occurredAtMs = session.lastOccurredAtMs
+        return AgentJournalEvent(sequence: event.sequence, committedAtMs: event.committedAtMs, draft: draft)
     }
 
     static func reduceStartupReplay(
@@ -86,7 +117,10 @@ extension AgentJournalLifecycleCenter {
             }
             if page.isEmpty { break }
             for event in page.events {
-                let canonical = canonicalized(event, aliases: aliases)
+                guard let canonical = admittingBackgroundWorkDrain(
+                    canonicalized(event, aliases: aliases),
+                    state: state
+                ) else { continue }
                 let decision = notifications.apply(canonical)
                 if decision.disposition != .stale, decision.projectsLifecycle {
                     reducer.apply(notifications.lifecycleEvent(canonical), to: &state)
@@ -180,7 +214,8 @@ extension AgentJournalLifecycleCenter {
     static func apply(
         _ assignment: AgentLifecycleAssignment,
         workspaceHint: String?,
-        activity: AgentLifecycleActivity? = nil
+        activity: AgentLifecycleActivity? = nil,
+        settledDrainedBackgroundWork: Bool = false
     ) {
         guard AgentHibernationLifecycleStatusKeys.isAllowed(assignment.agentKey) else { return }
         guard let panelId = UUID(uuidString: assignment.surfaceId) else { return }
@@ -221,6 +256,13 @@ extension AgentJournalLifecycleCenter {
             )
         } else {
             owner.clearAgentLifecycle(key: assignment.agentKey, panelId: panelId)
+        }
+        if settledDrainedBackgroundWork, assignment.phase == .idle {
+            owner.setStatusEntry(
+                ClaudeBackgroundWorkDrain.idleStatusEntry(),
+                key: assignment.agentKey,
+                panelId: panelId
+            )
         }
         if let activity, case .workspace(let workspace) = owner {
             WorkspaceActivityReorderController.shared.agentActivity(activity, workspaceId: workspace.id)

@@ -666,7 +666,7 @@ struct MobileSSHCmuxTUIInstaller {
     /// Downloads the tarball (cached per version) and verifies npm's
     /// `dist.integrity` SHA-512.
     func download(package: String, version: String) async throws -> Data {
-        let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let cache = (FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
             .appendingPathComponent("cmux-tui/\(package)-\(version).tgz")
         let metadataURL = URL(string: "https://registry.npmjs.org/\(package)/\(version)")!
         let (metadata, _) = try await URLSession.shared.data(from: metadataURL)

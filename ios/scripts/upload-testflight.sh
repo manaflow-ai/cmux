@@ -227,7 +227,21 @@ verify_ipa_app_store_main_entitlements() {
     rm -rf "$workdir"
     return 1
   fi
-  if ! python3 "$SCRIPT_DIR/filter-ios-appstore-entitlements.py" --check "$ent"; then
+  if [[ "${CLOUD_VPN_REQUIRED:-0}" -eq 0 ]]; then
+    if ! python3 "$SCRIPT_DIR/filter-ios-appstore-entitlements.py" \
+      --check --remove-network-extension "$ent"; then
+      rm -rf "$workdir"
+      return 1
+    fi
+  else
+    if ! python3 "$SCRIPT_DIR/filter-ios-appstore-entitlements.py" \
+      --check "$ent"; then
+      rm -rf "$workdir"
+      return 1
+    fi
+  fi
+  if [[ "${CLOUD_VPN_REQUIRED:-0}" -eq 0 && -d "$app/PlugIns/CloudVPN.appex" ]]; then
+    echo "error: App Store IPA embeds CloudVPN.appex even though the App Store lane disables the system VPN: $ipa" >&2
     rm -rf "$workdir"
     return 1
   fi
@@ -1041,11 +1055,18 @@ WORKSPACE="$IOS_DIR/cmux.xcworkspace"
 SCHEME="cmux-ios"
 DEVELOPMENT_TEAM="${IOS_DEVELOPMENT_TEAM:-7WLXT3NR37}"
 CLOUD_VPN_BUNDLE_IDENTIFIER="${PRODUCT_BUNDLE_IDENTIFIER}.CloudVPN"
-# These public apps have provisioned packet-tunnel extensions. Internal/demo
-# app identities are separate Apple registrations and do not opt in implicitly.
+# The beta app has a provisioned packet-tunnel extension. The official App
+# Store app is permanently VPN-free: do not let a stale or manually inherited
+# IOS_APPSTORE_ENABLE_CLOUD_VPN value re-enable Apple's rejected capability.
+# Internal/demo app identities are separate Apple registrations and do not opt
+# in implicitly.
 CLOUD_VPN_REQUIRED=0
-if [[ "$LANE" == "appstore" || "$PRODUCT_BUNDLE_IDENTIFIER" == "dev.cmux.app.beta" ]]; then
+if [[ "$LANE" == "beta" && "$PRODUCT_BUNDLE_IDENTIFIER" == "dev.cmux.app.beta" ]]; then
   CLOUD_VPN_REQUIRED=1
+fi
+APPSTORE_SYSTEM_VPN_DISABLED=0
+if [[ "$LANE" == "appstore" ]]; then
+  APPSTORE_SYSTEM_VPN_DISABLED=1
 fi
 SHARED_XCCONFIG="$IOS_DIR/Config/Shared.xcconfig"
 CHECKED_IN_BETA_MARKETING_VERSION="$(read_xcconfig_setting CMUX_IOS_BETA_MARKETING_VERSION "$SHARED_XCCONFIG")"
@@ -1072,6 +1093,22 @@ PRODUCTION_RUNTIME_BUILD_ARGS=(
   CMUX_IROH_BROKER_BASE_URL=https://cmux.com
   CMUX_PRESENCE_BASE_URL=https://presence.cmux.dev
 )
+
+# Apple review rejected the system VPN API in the public App Store binary.
+# Keep the feature available to beta/internal builds, but compile it out of the
+# official App Store lane and use an entitlement contract without Network
+# Extension permissions. The command-line condition is inherited by the local
+# Swift packages that make up cmuxFeature.
+BUILD_FEATURE_ARGS=()
+if [[ "$APPSTORE_SYSTEM_VPN_DISABLED" -eq 1 ]]; then
+  BUILD_FEATURE_ARGS+=(
+    'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) CMUX_APPSTORE'
+    CMUX_APPSTORE_BUILD=YES
+    CMUX_APP_CODE_SIGN_ENTITLEMENTS=Config/cmux-appstore-release.entitlements
+    CODE_SIGN_ENTITLEMENTS=Config/cmux-appstore-release.entitlements
+    CMUX_CLOUD_VPN_PROVIDER_BUNDLE_IDENTIFIER=
+  )
+fi
 
 # Notes audience is driven by the testing lane (External block for --external).
 NOTES_AUDIENCE="internal"
@@ -1364,6 +1401,7 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       CMUX_CRASH_REPORTING_ENABLED="$CRASH_REPORTING_ENABLED" \
       ${MARKETING_VERSION_ARGS[@]+"${MARKETING_VERSION_ARGS[@]}"} \
       "${PRODUCTION_RUNTIME_BUILD_ARGS[@]}" \
+      ${BUILD_FEATURE_ARGS[@]+"${BUILD_FEATURE_ARGS[@]}"} \
       CODE_SIGN_STYLE=Automatic \
       CODE_SIGNING_ALLOWED=YES \
       CODE_SIGNING_REQUIRED=YES \
@@ -1390,6 +1428,7 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       CMUX_CRASH_REPORTING_ENABLED="$CRASH_REPORTING_ENABLED" \
       ${MARKETING_VERSION_ARGS[@]+"${MARKETING_VERSION_ARGS[@]}"} \
       "${PRODUCTION_RUNTIME_BUILD_ARGS[@]}" \
+      ${BUILD_FEATURE_ARGS[@]+"${BUILD_FEATURE_ARGS[@]}"} \
       CODE_SIGNING_ALLOWED=NO \
       CODE_SIGNING_REQUIRED=NO \
       CODE_SIGN_IDENTITY="" \
@@ -1425,6 +1464,24 @@ if [[ -n "$ARCHIVE_APP" && -d "$ARCHIVE_APP" ]]; then
       exit 1
     fi
   fi
+fi
+
+if [[ "$APPSTORE_SYSTEM_VPN_DISABLED" -eq 1 ]]; then
+  if [[ "$SIGNING" != "manual" ]]; then
+    echo "error: App Store builds without the system VPN must use manual signing so the archive can be stripped and re-signed without Network Extension permissions" >&2
+    exit 2
+  fi
+  ARCHIVE_APPSTORE_BUILD="$($PLISTBUDDY -c 'Print :CMUXAppStoreBuild' "$ARCHIVE_APP/Info.plist" 2>/dev/null || true)"
+  if [[ "$ARCHIVE_APPSTORE_BUILD" != "YES" ]]; then
+    echo "error: App Store VPN-free export requires an archive built with CMUX_APPSTORE; the reused archive is missing CMUXAppStoreBuild=YES" >&2
+    exit 2
+  fi
+  if [[ -d "$ARCHIVE_APP/PlugIns/CloudVPN.appex" ]]; then
+    rm -rf "$ARCHIVE_APP/PlugIns/CloudVPN.appex"
+    echo "removed CloudVPN.appex from the App Store archive"
+  fi
+  "$PLISTBUDDY" -c 'Delete :CMUXCloudVPNProviderBundleIdentifier' "$ARCHIVE_APP/Info.plist" 2>/dev/null || true
+  echo "removed the App Store archive's CloudVPN provider declaration"
 fi
 
 if ! "$REPO_ROOT/scripts/lib/verify-ios-release-origins.sh" --app "$ARCHIVE_APP"; then
@@ -1560,6 +1617,38 @@ if [[ ! -f "$IPA_PATH" ]]; then
   echo "error: IPA was not exported at $IPA_PATH" >&2
   exit 1
 fi
+# The VPN strip runs from a temporary unpack directory; keep the output path
+# absolute so a caller-provided relative CMUX_IOS_UPLOAD_DIR still works.
+IPA_PATH="$(cd "$(dirname "$IPA_PATH")" && pwd)/$(basename "$IPA_PATH")"
+
+if [[ "$APPSTORE_SYSTEM_VPN_DISABLED" -eq 1 ]]; then
+  VPN_STRIP_DIR="$(mktemp -d)"
+  if ! ( cd "$VPN_STRIP_DIR" && unzip -q "$IPA_PATH" ); then
+    echo "error: could not unpack App Store IPA while stripping the disabled system VPN" >&2
+    rm -rf "$VPN_STRIP_DIR"
+    exit 1
+  fi
+  IPA_APP="$(find "$VPN_STRIP_DIR/Payload" -maxdepth 1 -name '*.app' -type d 2>/dev/null | head -n 1 || true)"
+  if [[ -z "$IPA_APP" || ! -d "$IPA_APP" ]]; then
+    echo "error: exported App Store IPA has no Payload/*.app to strip the disabled system VPN from" >&2
+    rm -rf "$VPN_STRIP_DIR"
+    exit 1
+  fi
+  if [[ -d "$IPA_APP/PlugIns/CloudVPN.appex" ]]; then
+    rm -rf "$IPA_APP/PlugIns/CloudVPN.appex"
+    echo "removed CloudVPN.appex from the App Store IPA"
+  fi
+  "$PLISTBUDDY" -c 'Delete :CMUXCloudVPNProviderBundleIdentifier' "$IPA_APP/Info.plist" 2>/dev/null || true
+  rm -f "$IPA_PATH"
+  IPA_MEMBERS=(Payload)
+  for ipa_member in Symbols SwiftSupport BCSymbolMaps; do
+    if [[ -d "$VPN_STRIP_DIR/$ipa_member" ]]; then
+      IPA_MEMBERS+=("$ipa_member")
+    fi
+  done
+  ( cd "$VPN_STRIP_DIR" && zip -qrX "$IPA_PATH" "${IPA_MEMBERS[@]}" )
+  rm -rf "$VPN_STRIP_DIR"
+fi
 
 # Re-sign the exported app with the FULL entitlements (production aps-environment
 # et al.), then point $IPA_PATH at the re-signed IPA so the upload below ships it.
@@ -1606,6 +1695,9 @@ if [[ "$SIGNING" == "manual" ]]; then
   # CODE_SIGN_ENTITLEMENTS = Config/cmux-release.entitlements, so default to that
   # path rather than parsing xcodebuild -showBuildSettings (slower, more brittle).
   RELEASE_ENTITLEMENTS="${IOS_RELEASE_ENTITLEMENTS:-$IOS_DIR/Config/cmux-release.entitlements}"
+  if [[ "$APPSTORE_SYSTEM_VPN_DISABLED" -eq 1 && -z "${IOS_RELEASE_ENTITLEMENTS:-}" ]]; then
+    RELEASE_ENTITLEMENTS="$IOS_DIR/Config/cmux-appstore-release.entitlements"
+  fi
   RESIGN_IDENTITY="${IOS_DISTRIBUTION_IDENTITY:-Apple Distribution: Manaflow, Inc. (7WLXT3NR37)}"
 
   if [[ ! -f "$RELEASE_ENTITLEMENTS" ]]; then
@@ -1779,7 +1871,13 @@ PY
   # Distribution profiles can authorize hotspot-provider even though Apple
   # rejects it in iOS uploads, including TestFlight. Preserve packet-tunnel
   # and Personal VPN permissions while filtering unsupported host values.
-  python3 "$SCRIPT_DIR/filter-ios-appstore-entitlements.py" "$MERGED_ENTITLEMENTS"
+  if [[ "$CLOUD_VPN_REQUIRED" -eq 0 ]]; then
+    python3 "$SCRIPT_DIR/filter-ios-appstore-entitlements.py" \
+      --remove-network-extension "$MERGED_ENTITLEMENTS"
+  else
+    python3 "$SCRIPT_DIR/filter-ios-appstore-entitlements.py" \
+      "$MERGED_ENTITLEMENTS"
+  fi
   plutil -lint "$MERGED_ENTITLEMENTS" >/dev/null
 
   # The archive is built unsigned, so $(AppIdentifierPrefix) in Info.plist

@@ -50,7 +50,7 @@ class PlanWithoutTheApi(unittest.TestCase):
         (bin_dir / "gh").chmod(0o755)
         self.path = f"{bin_dir}:{os.environ['PATH']}"
 
-    def run_plan(self, head: str) -> tuple[int, str, str]:
+    def run_plan(self, head: str, **extra: str) -> tuple[int, str, str]:
         work = self.tmp / "work"
         if work.exists():
             subprocess.run(["rm", "-rf", str(work)], check=True)
@@ -60,7 +60,7 @@ class PlanWithoutTheApi(unittest.TestCase):
         output.write_text("")
         env = {**os.environ, "PATH": self.path, "GH_TOKEN": "t", "EVENT": "pull_request_target", "PR": "1",
                "BASE_SHA": self.base, "HEAD_SHA": head, "REPO": "o/r", "BASE_REF": "main",
-               "GITHUB_OUTPUT": str(output)}
+               "GITHUB_OUTPUT": str(output), **extra}
         result = subprocess.run(["bash", "-e", "-c", step_script()], cwd=work, env=env, capture_output=True, text=True)
         return result.returncode, output.read_text(), result.stdout + result.stderr
 
@@ -80,6 +80,24 @@ class PlanWithoutTheApi(unittest.TestCase):
         # closed rather than pass a migration it could not inspect.
         self.assertNotEqual(code, 0, log)
         self.assertNotIn("migrations=false", output)
+
+
+    def test_a_refused_app_token_falls_back_to_the_workflow_token(self):
+        # READ_TOKEN is the manaflow-glaeda-route App's (its own budget). A refusal of it
+        # (no budget left, say) lists the files on GITHUB_TOKEN instead.
+        log = self.tmp / "tokens"
+        (self.tmp / "bin/gh").write_text(
+            "#!/bin/sh\n"
+            f"echo \"$GH_TOKEN\" >> '{log}'\n"
+            "if [ \"$GH_TOKEN\" = app ]; then echo 'gh: API rate limit exceeded (HTTP 403)' >&2; exit 1; fi\n"
+            "printf 'added\\tbackend/db/migrations/0002_more.sql\\t\\n'\n")
+        (self.src / "backend/db/migrations/0002_more.sql").write_text("create table u (id int);\n")
+        git(self.src, "add", "-A")
+        git(self.src, "commit", "-qm", "migration")
+        code, output, out = self.run_plan(git(self.src, "rev-parse", "HEAD"), READ_TOKEN="app")
+        self.assertEqual(code, 0, out)
+        self.assertIn("migrations=true", output)
+        self.assertEqual(log.read_text().split(), ["app", "t"])
 
 
 if __name__ == "__main__":

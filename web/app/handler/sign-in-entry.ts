@@ -254,10 +254,20 @@ export function hostedAuthErrorRedirect(
   const emailInUse =
     /CONTACT_CHANNEL_ALREADY_USED_FOR_AUTH_BY_SOMEONE_ELSE/.test(detail) ||
     /already used for authentication by another account/i.test(detail);
+  return authErrorHref(emailInUse ? "email-unverified" : null, params);
+}
+
+/**
+ * The sign-in recovery page. Its "back to sign in" keeps whatever return
+ * target `params` carries, so a retry still finishes the original web or app
+ * sign-in.
+ */
+export function authErrorHref(
+  code: string | null,
+  params: { get(name: string): string | null },
+): string {
   const target = new URL("/handler/auth-error", "https://cmux.com");
-  if (emailInUse) target.searchParams.set("code", "email-unverified");
-  // The recovery page's "back to sign in" keeps whatever return target this
-  // URL carries, so a retry still finishes the original web or app sign-in.
+  if (code) target.searchParams.set("code", code);
   for (const name of RETURN_PARAMS) {
     const value = params.get(name);
     if (value) target.searchParams.set(name, value);
@@ -271,17 +281,20 @@ const RETURN_PARAMS = ["after_auth_return_to", "web_return_to", "native_app_retu
 
 /**
  * The provider a remembered account goes straight to, or null for the form.
- * An account with a password always gets the form (it may also have a
- * provider linked that does not sign it in); an account with no password
- * goes to its linked provider, like Gmail's account list.
+ * Any linked provider that signs it in wins, even when the account also has
+ * a password (a Google account that later set one still signs in with
+ * Google), like Gmail's account list. The provider this sign-in came back
+ * from comes first; only an account with no such provider gets the form.
  */
 export function rememberedMethodFor(input: {
-  hasPassword: boolean;
   linked: readonly { type: string; allowSignIn: boolean }[];
   preference: readonly string[];
+  /** The provider this sign-in just returned from, if it was one. */
+  usedProvider?: string | null;
 }): string | null {
-  if (input.hasPassword) return null;
-  return preferredSignInMethod(input.linked, input.preference);
+  const { linked, preference, usedProvider } = input;
+  if (usedProvider && linked.some((provider) => provider.type === usedProvider && provider.allowSignIn)) return usedProvider;
+  return preferredSignInMethod(linked, preference);
 }
 
 /**
@@ -324,4 +337,28 @@ export function parsePendingOAuth(raw: string | null, now: number = Date.now()):
 /** A remembered account whose direct sign-in failed opens the form next time. */
 export function demoteRememberedMethod(history: RememberedAccount[], accountId: string): RememberedAccount[] {
   return history.map((entry) => (entry.id === accountId ? { ...entry, signInMethod: null } : entry));
+}
+
+export type EmailCodeRefusal = "unverified-account" | "sign-up-disabled" | "generic";
+
+/**
+ * Why sending a sign-in code failed. An account whose email is not verified
+ * (made with a password and never verified) can't take a code until it is:
+ * the auth service answers USER_EMAIL_ALREADY_EXISTS with
+ * would_work_if_email_was_verified, and the page points to the method used
+ * to sign up instead of a generic error.
+ */
+export function emailCodeRefusal(error: unknown): EmailCodeRefusal {
+  if (typeof error !== "object" || error === null) return "generic";
+  const { errorCode, details } = error as { errorCode?: unknown; details?: unknown };
+  if (errorCode === "SIGN_UP_NOT_ENABLED") return "sign-up-disabled";
+  if (
+    errorCode === "USER_EMAIL_ALREADY_EXISTS" &&
+    typeof details === "object" &&
+    details !== null &&
+    (details as Record<string, unknown>).would_work_if_email_was_verified === true
+  ) {
+    return "unverified-account";
+  }
+  return "generic";
 }

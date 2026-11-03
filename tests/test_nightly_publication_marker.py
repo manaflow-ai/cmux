@@ -70,11 +70,11 @@ class NightlyPublicationMarkerTests(unittest.TestCase):
                 self.assertEqual(env.ALREADY_PUBLISHED != "true", should_publish)
                 self.assertEqual(eval(closure, {"env": env}), should_close)
 
-    def test_continuation_closes_issue_when_later_failure_comment_has_newer_sha(self):
+    def _run_continuation_close(self, compare_status):
         steps = {step["name"]: step for step in yaml.safe_load(WORKFLOW.read_text())["jobs"]["publish"]["steps"]}
         script = steps["Close deferred nightly failure incident"]["with"]["script"]
-        original_sha = "A" * 40
-        published_sha = "B" * 40
+        original_sha = "a" * 40
+        published_sha = "b" * 40
         issue_body = (
             f"cmux NIGHTLY run https://github.com/manaflow-ai/cmux/actions/runs/1 "
             f"failed on {original_sha} (main) in: build-nightly-app."
@@ -82,11 +82,17 @@ class NightlyPublicationMarkerTests(unittest.TestCase):
         node = f"""
 const calls = [];
 const github = {{
+  paginate: async (fn, args) => (await fn(args)).data,
   rest: {{
     issues: {{
       listForRepo: async () => ({{ data: [{{ number: 18582, body: {json.dumps(issue_body)} }}] }}),
+      listComments: async () => ({{ data: [] }}),
       createComment: async (args) => calls.push(["comment", args]),
       update: async (args) => calls.push(["update", args]),
+    }},
+    repos: {{
+      // Against a branch name: the failed commit is still on its branch.
+      compareCommitsWithBasehead: async ({{ basehead }}) => ({{ data: {{ status: /[.][.][.][0-9a-f]{{40}}$/.test(basehead) ? {json.dumps(compare_status)} : 'ahead' }} }}),
     }},
   }},
 }};
@@ -95,8 +101,11 @@ const context = {{
   serverUrl: "https://github.com",
   runId: 2,
 }};
+const core = {{ info: () => {{}} }};
+process.env.GITHUB_WORKSPACE = {json.dumps(str(ROOT))};
 process.env.CHANNEL = "nightly";
 process.env.SOURCE_HEAD_SHA = {json.dumps(published_sha)};
+process.env.SOURCE_BRANCH = "main";
 (async () => {{
 {script}
   process.stdout.write(JSON.stringify(calls));
@@ -113,10 +122,20 @@ process.env.SOURCE_HEAD_SHA = {json.dumps(published_sha)};
             check=False,
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
-        calls = json.loads(completed.stdout)
+        return published_sha, json.loads(completed.stdout)
+
+    def test_continuation_closes_an_incident_its_commit_includes(self):
+        published_sha, calls = self._run_continuation_close("ahead")
         self.assertEqual([call[0] for call in calls], ["comment", "update"])
         self.assertIn(published_sha, calls[0][1]["body"])
+        self.assertEqual(calls[1][1]["state"], "closed")
 
+    def test_continuation_leaves_open_an_incident_on_a_newer_commit(self):
+        # Push runs build in parallel: an older continuation must not close a
+        # newer commit's failure.
+        published_sha, calls = self._run_continuation_close("behind")
+        self.assertEqual([call[0] for call in calls], ["comment"])
+        self.assertIn("stays open", calls[0][1]["body"])
 
 if __name__ == "__main__":
     unittest.main()

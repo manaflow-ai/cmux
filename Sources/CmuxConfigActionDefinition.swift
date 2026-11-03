@@ -215,7 +215,8 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
     }
 
     /// `type: "text"` decoding for action definitions: verbatim text minus
-    /// bidi and zero-width controls, blank rejected, `submit` default false.
+    /// bidi and zero-width controls, blank or terminal-control text
+    /// rejected, `submit` default false.
     private static func decodeTextPayload(
         from container: KeyedDecodingContainer<CodingKeys>
     ) throws -> CmuxTextActionPayload {
@@ -234,7 +235,7 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
             throw DecodingError.dataCorruptedError(
                 forKey: .text,
                 in: container,
-                debugDescription: "text must not be blank"
+                debugDescription: "text must not be blank or contain control characters other than tab and newline"
             )
         }
         return payload

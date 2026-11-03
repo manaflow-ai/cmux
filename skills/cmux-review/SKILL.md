@@ -17,8 +17,8 @@ suppress style, nits and speculative improvements unless requested.
    original discriminator after repair. A green test counts only if it exercises
    the asserted failure; prefer red-before/green-after evidence.
 3. If fixes were non-trivial, obtain a fresh subagent review of the repair delta.
-4. Merge when the checks that judge the change pass and the approval rule below
-   is met. Report findings with evidence, verification performed and coverage gaps.
+4. Merge when the review subagent passes the change and it causes no red of its
+   own (see below). Report findings with evidence, verification performed and coverage gaps.
 
 Use subagents in the current runtime, not a second model or external review
 service as a gate. Keep review read-only until an authorized repair.
@@ -28,10 +28,25 @@ Do not commit review receipts, scratch reproductions or generated logs.
 
 For implementation handoff or merge, read [dogfood and merge](references/dogfood-and-merge.md)
 for per-change verification, first-pass completion, re-dogfood and merge receipts.
-The main agent owns dogfood, approval, mergeability and every pushed fix.
-App/runtime/UI merges require the user's explicit approval after dogfood **or a
-direct merge directive** (`merge`, `merge it`, `auto-merge`; not `finish`, `lgtm`
-or `ship it`). `main` is nightly: stack fixes, do not revert.
+The main agent owns dogfood, mergeability, the merge and every pushed fix.
+A PR merges when an independent review subagent passes it and it causes no red
+of its own; base reds, flakes and pending checks don't hold it. Don't wait for a
+person. Ship risky user-visible behavior behind a setting or Debug toggle and fix
+a bad default in the next nightly. `main` is nightly: stack fixes, do not revert.
+
+## PR review receipt
+
+Post the verdict as a PR comment whose first line is the receipt, and put nothing
+before it: `Review (<reviewer>): SHIP at <full 40-character head sha>` (or `BLOCK`,
+`FIX`). Findings go below that line. A SHIP counts only for the exact head it
+names. A receipt that carries an older head's SHIP to a new head across a base
+merge is not a review. Mark it in the reviewer label:
+`Review (<reviewer>; carried): SHIP at <new head sha>`. The checkers
+(`scripts/ci/review_receipt.py`, next-autoland) treat a first line as carried when
+the label says carried, or when the line says "carried from" or "carried over". A
+carried SHIP counts only while the newest independent verdict on the PR is a
+SHIP. Do not use "carry", "carries", "carried" or "carrying" in a real review's
+label, or "carried from" / "carried over" on its first line.
 
 ## Adversarial review
 

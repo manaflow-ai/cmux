@@ -123,7 +123,7 @@ def contract_probe_verbs(contract: str) -> list[str]:
     return match.group(1).split("|")
 
 
-CLOUD_SURFACE_METHODS = {"surface.catalog", "surface.project", "surface.new_terminal"}
+CLOUD_SURFACE_METHODS = {"surface.catalog", "surface.project", "surface.new_terminal", "surface.new_display"}
 
 
 def advertised_methods(source: str) -> tuple[set[str], set[str]]:

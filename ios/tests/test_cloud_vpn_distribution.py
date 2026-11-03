@@ -36,7 +36,7 @@ class CloudVPNDistributionTests(unittest.TestCase):
         return path, result
 
     def test_both_exports_share_host_keychain_and_packet_tunnel(self):
-        for lane, host in (("appstore", "com.cmux.app"), ("beta", "dev.cmux.app.beta")):
+        for lane, host in (("beta", "dev.cmux.app.beta"),):
             with self.subTest(lane=lane):
                 path, result = self.export(lane)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -52,6 +52,18 @@ class CloudVPNDistributionTests(unittest.TestCase):
                         self.assertIn("packet-tunnel-provider", ent["com.apple.developer.networking.networkextension"])
                         self.assertNotIn("hotspot-provider", ent["com.apple.developer.networking.networkextension"])
 
+    def test_appstore_export_ignores_vpn_enable_override(self):
+        path, result = self.export("appstore", {"IOS_APPSTORE_ENABLE_CLOUD_VPN": "1"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        options = plistlib.loads((path / "ExportOptions.plist").read_bytes())
+        self.assertNotIn("com.cmux.app.CloudVPN", options["provisioningProfiles"])
+        ipa = next((path / "upload/export").glob("*-resigned.ipa"))
+        with zipfile.ZipFile(ipa) as archive:
+            members = set(archive.namelist())
+            self.assertNotIn("Payload/cmux.app/PlugIns/CloudVPN.appex/Info.plist", members)
+            ent = plistlib.loads(archive.read("Payload/cmux.app/FakeSignedEntitlements.plist"))
+            self.assertNotIn("com.apple.developer.networking.networkextension", ent)
+
     def test_both_exports_reject_signed_hotspot_provider(self):
         self.assert_rejected("CMUX_FAKE_HOST_HOTSPOT_PROVIDER", "hotspot-provider")
 
@@ -65,9 +77,10 @@ class CloudVPNDistributionTests(unittest.TestCase):
         self.assert_rejected("CMUX_FAKE_HOST_MISSING_PACKET_TUNNEL", "packet-tunnel")
 
     def assert_rejected(self, override, diagnostic):
-        for lane in ("appstore", "beta"):
+        for lane in ("beta",):
             with self.subTest(lane=lane):
-                _, result = self.export(lane, {override: "1"})
+                overrides = {override: "1"}
+                _, result = self.export(lane, overrides)
                 self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertIn(diagnostic, result.stderr.lower())
 
