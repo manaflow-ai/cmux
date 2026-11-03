@@ -131,6 +131,10 @@ struct KeyResizeKeyTurnSurfaceTests {
         root.context.afterCommit = { _ in } // the landing is not part of this test
         let screen = try #require(root.screenViews["s"])
         let hosts = [try #require(root.context.hosts["p1"]), try #require(root.context.hosts["p2"])]
+        // The rig's own first main turns (each pane content's observations start, and mark it for layout) run before the
+        // press, so what the turns after the press lay out is the press's (red run 76f88cfe counted them as the press's).
+        await Self.drainTurns()
+        root.layoutSubtreeIfNeeded()
         let frames = hosts.map(\.frame)
         let passes = screen.presentationPasses
         for content in provider.contents.values { content.layouts = 0 }
