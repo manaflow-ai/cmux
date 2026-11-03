@@ -42,7 +42,7 @@ extension SidebarBridge {
         guard machines.sshSession(machineID)?.waitsForUser != true, let status = machineHeader(machineID, in: machines)?.status else { return .stuck }
         // A Cloud link that just ended reads as on its way while its list read runs, but it is down:
         // a use reconnects it now (a connect resumes a paused machine and redials a dropped one).
-        if let cloud = machines.session(machineID), cloud.appLink != nil, cloud.linkEndConfirming { return .down }
+        if let cloud = machines.session(machineID), cloud.appLink != nil, cloud.linkEndConfirming, cloud.linkEnded != nil { return .down }
         switch status.linkState {
         case .connected: return .up
         case .connecting: return .coming

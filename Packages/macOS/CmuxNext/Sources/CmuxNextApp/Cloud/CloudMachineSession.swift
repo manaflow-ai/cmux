@@ -39,8 +39,8 @@ final class CloudMachineSession {
     /// The ended link went down or was revoked, not refused (``CloudLinkError/isDrop(_:)``).
     private(set) var linkDropped = false
     /// The app link ended and one forced machine list read is learning whether a pause ended it
-    /// (``CloudMachineStageInput/linkEndConfirming``); false once it answers.
-    private(set) var linkEndConfirming = false
+    /// (``CloudMachineStageInput/linkEndConfirming``); false once it answers or a connect starts.
+    var linkEndConfirming = false
     /// The link as this session's endpoint calls see it (cx-lu8f): starting,
     /// up, or the last start's failure. Drives the booting and connecting
     /// stages; never set from elapsed time.
@@ -272,6 +272,8 @@ final class CloudMachineSession {
         daemon.shutdownConnection()
         linkEnded = nil
         linkDropped = false
+        // A new connect is this link's answer: the ended link's list read no longer holds it.
+        linkEndConfirming = false
         resumeFailure = nil
         noteLinkStarting()
         let suspendsBefore = suspends
@@ -376,9 +378,11 @@ final class CloudMachineSession {
             // link, and read as on its way until it answers, so a pause never flashes "Disconnected".
             linkEndConfirming = true
             // task-owner: one forced list read per ended link; the reconcile it runs updates this record
+            let connectsAtEnd = connects
             Task { [weak self] in
                 await refresher(true)
-                self?.linkEndConfirming = false
+                // Only this ended link's read clears it; a connect since then already did.
+                if let self, self.connects == connectsAtEnd { self.linkEndConfirming = false }
             }
             return
         }

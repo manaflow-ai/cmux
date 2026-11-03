@@ -93,6 +93,26 @@ struct CloudLinkEndedHeaderTests {
         #expect(header.status == .disconnected)
     }
 
+    /// A use during the ended link's list read reconnects it; once that connect starts, the read
+    /// no longer holds the machine down, so a link that came back is not masked while the read runs.
+    @Test func aConnectDuringTheListReadClearsTheConfirmation() async {
+        let resolver = GateLinkResolver()
+        let id = "vm-confirm-\(UUID().uuidString.prefix(8))"
+        let session = CloudMachineSession(machine: CloudMachine(id: id, status: .running, displayName: "Confirm VM"),
+                                          appLink: CloudLinkSession(key: CloudLinkKey(machine: id), resolver: resolver),
+                                          localIdentity: { nil }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        defer { session.disconnect() }
+        let services = MachineIconTests.services()
+        services.machines.add(session)
+        session.linkEndConfirming = true
+        session.connect(origin: .user)
+        var opened = resolver.opened.makeAsyncIterator()
+        _ = await opened.next()
+        #expect(!session.linkEndConfirming, "the connect is the link's answer")
+        #expect(SidebarBridge.paneUse(session.machineID, in: services.machines) != .down)
+        await resolver.finish()
+    }
+
     /// A paused Cloud machine resumes on use: a send to its chat runs its Reconnect (which connects
     /// the app link and so starts it) instead of failing at once as a link a person must fix.
     @Test func aPausedCloudMachineResumesOnUse() {
