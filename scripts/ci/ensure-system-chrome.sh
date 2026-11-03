@@ -18,6 +18,16 @@ min="156.0.8078.73"
 optional=0
 [ "${1:-}" = --optional ] && optional=1
 
+# No Playwright on Macs (Lawrence, 2026-11-02): no Playwright, Puppeteer or downloaded Chromium on his
+# Mac or a fleet Mac, and Playwright turns the Chromium sandbox off whatever Chrome it drives. So on
+# a Mac outside GitHub Actions this never copies Chrome into /Applications, never installs it
+# through Playwright, and never vouches for a Chrome for Playwright to drive. --optional still exits
+# 0 there, and the Chromium cases skip (the webviews browser files skip on a Mac anyway).
+if [ "${GITHUB_ACTIONS:-}" != true ] && [ "$(uname -s)" = Darwin ]; then
+  echo "ensure-system-chrome.sh: not on a Mac (Lawrence's rule: no Playwright on Macs); run it in CI or on a cloud VM" >&2
+  exit $((1 - optional))
+fi
+
 chrome_bin() {
   case "$(uname -s)" in
     Darwin) echo "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" ;;
