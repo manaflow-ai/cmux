@@ -59,8 +59,7 @@ export function agentRef(text: string): AgentRef | undefined {
     // `?id=` link goes to acpmux whole too.
     const id = params.getAll("id");
     const opaque = id.length === 1 && OPAQUE_ID.test(id[0] ?? "");
-    const query =
-      (harness && session) || opaque ? value : session && SESSION_ID.test(session) ? session : undefined;
+    const query = (harness && session) || opaque ? value : session && SESSION_ID.test(session) ? session : undefined;
     return { kind: "link", href, ...(query && { query }) };
   }
   if (NATIVE_LINK.test(value)) {
