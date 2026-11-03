@@ -465,8 +465,7 @@ final class CreationInputCoordinator {
         }
         // The window's focus applies again, so the responder matches the focus model. The person's claim on the keyboard
         // stays until their next intent, so a primary input (Home's message box) still does not take it.
-        // So does a hold that kept the page the person left from the keys while the focus still waits (P0 INVERSE-KEY).
-        if unshown || controller.focus.state.awaitsOtherTab, let pane = controller.focus.state.pane { controller.focus.send(.contentPresented(pane: pane)) }
+        if unshown || controller.focus.state.awaitsOtherTab, let pane = controller.focus.state.pane { controller.focus.send(.contentPresented(pane: pane)) } // also a page the hold kept from the keys (P0 INVERSE-KEY)
         for (index, event) in pending.enumerated() {
             runAgain(event, in: window, router: router)
             // A replayed key started another creation: the rest wait for that one, in order.

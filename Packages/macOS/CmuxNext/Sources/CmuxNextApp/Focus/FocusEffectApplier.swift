@@ -194,8 +194,7 @@ final class FocusEffectApplier: FocusEffectApplying {
             if !responder(of: window, isInside: page.contentView) { setPageFocus(page, true) }
             return
         }
-        // The page the person left for a creation keeps no keys while it is on its way: this window takes them now (P0 INVERSE-KEY).
-        if controller.services.keyRouter.creationInputCoordinator.keepsKeysFromLeftPage(controller.focus.state, in: window) { return blurChildWindowPage() }
+        if controller.services.keyRouter.creationInputCoordinator.keepsKeysFromLeftPage(controller.focus.state, in: window) { return blurChildWindowPage() } // the page left for a creation: this window takes the keys now (P0 INVERSE-KEY)
         // One key change (#24913): the old page blurs without this window taking the keys back
         // first. Tracked, so focus leaving the page blurs it (`blurChildWindowPage`).
         pageFocus.focus(page, in: window) { responder in
