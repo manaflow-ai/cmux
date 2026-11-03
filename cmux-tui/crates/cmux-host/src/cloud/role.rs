@@ -506,7 +506,7 @@ impl Worker {
         control.set_nonblocking(true)?;
         let trajectories =
             spawn_trajectories(&paths).map_err(|e| log(&format!("trajectory mirror: {e}"))).ok();
-        forget_harness_login_state();
+        forget_harness_login_state(&paths);
         Ok(Worker {
             bootstrap: None,
             bootstrap_retry_at: None,
@@ -1128,8 +1128,8 @@ fn spawn_trajectories(paths: &Paths) -> io::Result<Trajectories<PosterHttp>> {
 /// gets it from their own machine's snapshot, never from a cmux store.
 const OLD_HARNESS_LOGIN_STATE: &str = "/var/lib/cmux/harness-login-sync.json";
 
-fn forget_harness_login_state() {
-    match fs::remove_file(OLD_HARNESS_LOGIN_STATE) {
+fn forget_harness_login_state(paths: &Paths) {
+    match fs::remove_file(paths.at(OLD_HARNESS_LOGIN_STATE)) {
         Ok(()) => log("harness login: removed the old sync state"),
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
         Err(e) => log(&format!("harness login: old sync state: {e}")),
