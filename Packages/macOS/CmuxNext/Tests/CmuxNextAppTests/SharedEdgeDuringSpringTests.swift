@@ -18,13 +18,21 @@ import Testing
 /// - a key press grows column A (its edge springs) and, while it springs, a drag starts on B's column edge;
 /// - the same, with the drag on the split divider inside B;
 /// - a Shift drag of the split divider lands on a snap (its release springs) and, while that springs, a key press
-///   grows column A.
+///   grows column A;
+/// - a key press grows column A and, during that spring, an Option drag of the split in B (B grows, C moves);
+/// - a key press grows column A and, during that spring, a Shift drag of the split in B, released with speed (its
+///   release seeds the spring's velocity).
 /// The test is the display clock (`driver.isManual`, 120 Hz) and checks every frame tick.
 @MainActor
 @Suite(.closesItsWindows)
 struct SharedEdgeDuringSpringTests {
     enum Overlap: String, CaseIterable, Sendable {
         case keySpringThenColumnEdgeDrag, keySpringThenSplitDrag, releaseSpringThenKeyPress
+        /// A key spring on column A, then an Option drag of the split in B (B grows and pushes C).
+        case keySpringThenPushDrag
+        /// A key spring on column A, then a Shift drag of the split in B whose release flings onto a snap: the release
+        /// seeds its spring's velocity (`SplitMotion.seed`) while A still springs.
+        case keySpringThenFlingRelease
     }
 
     final class Panes: LayoutPaneContentProvider {
@@ -131,9 +139,9 @@ struct SharedEdgeDuringSpringTests {
         /// A drag of `kind`, pressed where its handle shows, `moves` steps of `step` points (whole points: the edge
         /// stays on the pixel grid), one display frame per move. In every frame it checks the shared edges, and that
         /// the dragged edge (the right edge of `dragged`) moved with the pointer from where it showed at the press;
-        /// then the release.
+        /// then the release (`releaseSpeed`: the pointer's speed at it, pt/s, set as the drag samples it).
         func drag(_ kind: DividerHandleView.Kind, dragged: PaneID, moves: Int, step: CGFloat, flags: NSEvent.ModifierFlags = [],
-                  edges: [SharedEdge]) throws {
+                  releaseSpeed: CGFloat? = nil, edges: [SharedEdge]) throws {
             let view = try handle(kind)
             let press = try center(kind)
             let tolerance = try halfPixel
@@ -148,6 +156,11 @@ struct SharedEdgeDuringSpringTests {
                 if abs(shown - want) > tolerance {
                     misses.append("drag frame \(move): the dragged edge shows at \(Self.pt(shown)), the pointer put it at \(Self.pt(want))")
                 }
+            }
+            if let releaseSpeed {
+                // The speed is set, not timed: no test sleeps (as DividerDragFollowsPointerTests does).
+                try screen.activeDrag?.velocity = releaseSpeed
+                try screen.activeDrag?.pointer?.time = CACurrentMediaTime()
             }
             view.mouseUp(with: event(.leftMouseUp, pointer, flags))
             root.syncWithModel()
@@ -189,6 +202,23 @@ struct SharedEdgeDuringSpringTests {
                 ? (.columnEdge("B"), "b2") : (.split("x"), "b1")
             try rig.drag(kind, dragged: dragged, moves: 10, step: -3, edges: edges)
             rig.land(edges, "landing")
+        case .keySpringThenPushDrag:
+            #expect(PaneResize.press("a", .right, model: rig.model, view: rig.root), "the key press changed nothing")
+            for tick in 1...3 { rig.frame(edges, "key spring frame \(tick)") }
+            try #require(try rig.screen.hasMotion, "the key press did not start a spring")
+            // Option: the split's left side keeps its width and B grows, pushing C (resize-modifiers.md).
+            try rig.drag(.split("x"), dragged: "b1", moves: 8, step: 4, flags: .option, edges: edges)
+            rig.land(edges, "landing")
+        case .keySpringThenFlingRelease:
+            #expect(PaneResize.press("a", .right, model: rig.model, view: rig.root), "the key press changed nothing")
+            for tick in 1...3 { rig.frame(edges, "key spring frame \(tick)") }
+            try #require(try rig.screen.hasMotion, "the key press did not start a spring")
+            // A Shift drag of the split toward its half, released at 600 pt/s: its release lands on the snap and seeds
+            // the release spring's velocity while A still springs.
+            let room = try #require(try rig.screen.geometry.dividers.first { $0.id == "x" }).container.width
+            try rig.drag(.split("x"), dragged: "b1", moves: 4, step: (room * 0.035).rounded(), flags: .shift, releaseSpeed: 600,
+                         edges: edges)
+            rig.land(edges, "release spring")
         case .releaseSpringThenKeyPress:
             // A Shift drag of the split from 0.3 toward 0.44: its release lands on the half, on a spring.
             let room = try #require(try rig.screen.geometry.dividers.first { $0.id == "x" }).container.width
