@@ -6,6 +6,7 @@
 //! the connection changes, so they are answered before the queue.
 
 use super::*;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// A connection whose dispatcher is busy: it claims to have started and never takes the next
 /// request, as when it runs a request that does not end. Requests queued on it stay unanswered.
@@ -89,14 +90,14 @@ fn identify_with_machine_metadata_keeps_its_place_in_the_queue() {
 fn identify_answers_under_cpu_starvation_while_a_slow_request_holds_the_connection() {
     let mux = test_mux();
     let (client, writer, outbound, scheduler) = busy_connection(&mux);
-    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let stop = Arc::new(AtomicBool::new(false));
     let cores = std::thread::available_parallelism().map_or(4, |count| count.get());
     let spinners: Vec<_> = (0..cores * 4)
         .map(|_| {
             let stop = stop.clone();
             std::thread::spawn(move || {
                 let mut spins = 0u64;
-                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                while !stop.load(Ordering::Relaxed) {
                     spins = std::hint::black_box(spins.wrapping_add(1));
                 }
             })
@@ -109,7 +110,7 @@ fn identify_answers_under_cpu_starvation_while_a_slow_request_holds_the_connecti
         assert!(handle_connection_message(&mux, client, &line, &writer, &scheduler));
     }
     let answered = replies(&outbound, ASKS, Duration::from_secs(60));
-    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    stop.store(true, Ordering::Relaxed);
     for spinner in spinners {
         spinner.join().unwrap();
     }
