@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "build": "4163622263401",
+  "notes": "notes/4163622263401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32940,
+      "title": "test(webviews): message-preview closes the open sent row from its chevron",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33206,
+      "title": "Show app sections in Session Info with persistent ordering",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33713,
+      "title": "Chief: a PR-merge watch waits through glaeda-gh instead of polling gh every 15 s",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33563,
+      "title": "workflow: journal activity results across resume",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33334,
+      "title": "Agent pane: a forced Stop reads as a plain stop, and a message sent after Stop shows below it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33769,
+      "title": "Cloud VM image: pin cmux-tui 4a7a8450 (activity report safety #33468, agent-auth.sh #33566)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33705,
+      "title": "Feed: your PRs held for your trial show in Needs you",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33403,
+      "title": "perf(agent pane): chat-list and Now Playing pushes skip hidden panes and go once per turn",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33654,
+      "title": "native workflow structured-reply policy",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33683,
+      "title": "Chief usage: keep a subagent spend attributed to its harness after a host restart",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33681,
+      "title": "cmux NEXT: see and accept team invitations in Settings > Accounts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33741,
+      "title": "fix(build): read CARGO_MANIFEST_DIR at run time in build scripts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33501,
+      "title": "Agent pane: an inbox notice waiting behind a turn shows with the waiting messages, not as a queued prompt",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
