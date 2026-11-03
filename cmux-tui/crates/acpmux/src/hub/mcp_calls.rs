@@ -19,6 +19,7 @@ use super::mcp_connect::{Answer, Pending};
 use super::mcp_probe::{Called, KeyHeader, call_tool};
 use super::mcp_store::{Connection, hex_sha256, new_id, tool_prefix};
 use super::{Hub, Session, SessionStatus};
+use crate::no_panic::{JsonExt as _, JsonField as _};
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -47,11 +48,11 @@ fn agent_tool_name(prefix: &str, tool: &str) -> Option<String> {
 
 /// The header that carries a connection's secret, from its stored JSON.
 fn auth_header(conn: &Connection, secret: &str) -> Option<(String, Zeroizing<String>)> {
-    let value: Zeroizing<Value> = Zeroizing::new(serde_json::from_str(secret).ok()?);
-    if let Some(token) = value.get("accessToken").and_then(Value::as_str) {
+    let value = super::mcp_secrets::StoredSecret::parse(secret);
+    if let Some(token) = value.access_token.as_deref() {
         return Some(("authorization".to_owned(), Zeroizing::new(format!("Bearer {token}"))));
     }
-    let key = value.get("key").and_then(Value::as_str)?;
+    let key = value.key.as_deref()?;
     let name = conn.key_name.clone().unwrap_or_else(|| "authorization".to_owned());
     Some((name, Zeroizing::new(key.to_owned())))
 }
@@ -93,19 +94,19 @@ impl Hub {
             .and_then(|o| o.remove("_tools"))
             .and_then(|t| serde_json::from_value(t).ok())
             .unwrap_or_default();
-        let state = match result["connect"].as_str()? {
+        let state = match result.field("connect").as_str()? {
             "connected" => "connected",
             "signInNeeded" => "needsSignIn",
             "keyNeeded" => "needsKey",
             _ => return None,
         };
-        let url = card["url"].as_str()?.to_owned();
+        let url = card.field("url").as_str()?.to_owned();
         let id = new_id();
         let report = cmux_mcp_connect::wire::tool_report(&tools);
         let tool_policy: BTreeMap<String, String> = report
             .iter()
             .filter_map(|t| {
-                Some((t["name"].as_str()?.to_owned(), t["policy"].as_str()?.to_owned()))
+                Some((t.field("name").as_str()?.to_owned(), t.field("policy").as_str()?.to_owned()))
             })
             .collect();
         let owner = match scope {
@@ -117,8 +118,8 @@ impl Hub {
             Some(k) => {
                 let secret = Zeroizing::new(json!({"key": k}).to_string());
                 if self.mcp_store.secrets.put(&id, &secret).is_err() {
-                    result["connect"] = json!("failed");
-                    result["why"] = json!("the key could not be saved in the keychain");
+                    result.set("connect", json!("failed"));
+                    result.set("why", json!("the key could not be saved in the keychain"));
                     return None;
                 }
                 true
@@ -127,13 +128,13 @@ impl Hub {
         };
         let conn = Connection {
             id: id.clone(),
-            name: tool_prefix(card["name"].as_str().unwrap_or("server")),
-            title: card["title"].as_str().unwrap_or_default().to_owned(),
-            publisher: card["publisher"].as_str().unwrap_or_default().to_owned(),
-            verified: card["verified"] == true,
+            name: tool_prefix(card.field("name").as_str().unwrap_or("server")),
+            title: card.field("title").as_str().unwrap_or_default().to_owned(),
+            publisher: card.field("publisher").as_str().unwrap_or_default().to_owned(),
+            verified: *card.field("verified") == true,
             url,
-            auth: card["auth"].as_str().unwrap_or("none").to_owned(),
-            key_name: card["keyName"].as_str().map(str::to_owned),
+            auth: card.field("auth").as_str().unwrap_or("none").to_owned(),
+            key_name: card.field("keyName").as_str().map(str::to_owned),
             has_secret,
             scope: scope.to_owned(),
             owner,
@@ -141,8 +142,9 @@ impl Hub {
             tool_policy,
             tools,
             state: state.to_owned(),
-            resource_metadata: result["resourceMetadata"].as_str().map(str::to_owned),
-            challenge_scopes: result["challengeScopes"]
+            resource_metadata: result.field("resourceMetadata").as_str().map(str::to_owned),
+            challenge_scopes: result
+                .field("challengeScopes")
                 .as_array()
                 .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
                 .unwrap_or_default(),
@@ -157,9 +159,9 @@ impl Hub {
         }
         // The stored name may carry a number (two servers, one name).
         let name = self.mcp_store.get(&id).map(|c| c.name).unwrap_or(name);
-        result["toolPrefix"] = json!(name);
+        result.set("toolPrefix", json!(name));
         self.mcp_store.audit(json!({
-            "event": "add", "id": id, "name": name, "url": card["url"], "scope": scope,
+            "event": "add", "id": id, "name": name, "url": card.field("url"), "scope": scope,
             "state": state, "session": session.id, "withKey": has_secret,
         }));
         Some(id)
@@ -179,11 +181,13 @@ impl Hub {
                 continue;
             }
             for tool in conn.listed_tools() {
-                let Some(name) = agent_tool_name(&conn.name, tool["name"].as_str().unwrap_or(""))
+                let Some(name) =
+                    agent_tool_name(&conn.name, tool.field("name").as_str().unwrap_or(""))
                 else {
                     continue;
                 };
-                let description: String = tool["description"]
+                let description: String = tool
+                    .field("description")
                     .as_str()
                     .unwrap_or_default()
                     .chars()
@@ -196,7 +200,7 @@ impl Hub {
                         .unwrap_or_else(|| json!({"type": "object"})),
                 });
                 if let Some(a) = tool.get("annotations").filter(|a| a.is_object()) {
-                    out["annotations"] = a.clone();
+                    out.set("annotations", a.clone());
                 }
                 tools.push(out);
             }
@@ -241,7 +245,7 @@ impl Hub {
                 conn.title, conn.state
             ));
         }
-        if !conn.listed_tools().iter().any(|t| t["name"] == tool) {
+        if !conn.listed_tools().iter().any(|t| *t.field("name") == tool) {
             return error_result(format!(
                 "{tool} of {} is not approved (new, changed or off); the person reviews it in \
                  Settings > MCP Servers",
@@ -318,7 +322,10 @@ impl Hub {
         }
         match called {
             Called::Result(result) => {
-                audit(if result["isError"] == true { "toolError" } else { "ok" }, Some(&result));
+                audit(
+                    if *result.field("isError") == true { "toolError" } else { "ok" },
+                    Some(&result),
+                );
                 result
             }
             Called::SignIn { resource_metadata, scopes } => {
@@ -362,10 +369,10 @@ impl Hub {
             shown = shown.chars().take(MAX_CARD_ARGUMENT_CHARS).collect::<String>() + "…";
         }
         let kind = cmux_mcp_connect::wire::tool_report(
-            &conn.tools.iter().filter(|t| t["name"] == tool).cloned().collect::<Vec<_>>(),
+            &conn.tools.iter().filter(|t| *t.field("name") == tool).cloned().collect::<Vec<_>>(),
         )
         .first()
-        .map(|r| r["kind"].clone())
+        .map(|r| r.field("kind").clone())
         .unwrap_or(Value::Null);
         self.append(
             session,
@@ -462,8 +469,10 @@ impl Hub {
         if !matches!(policy, "always" | "ask" | "never") {
             return Err(RpcError::invalid_params("policy is one of always, ask, never"));
         }
-        let known =
-            self.mcp_store.get(id).is_some_and(|c| c.tools.iter().any(|t| t["name"] == tool));
+        let known = self
+            .mcp_store
+            .get(id)
+            .is_some_and(|c| c.tools.iter().any(|t| *t.field("name") == tool));
         if !known {
             return Err(RpcError::invalid_params("no such tool on that MCP connection"));
         }
@@ -513,7 +522,9 @@ impl Hub {
         let report = cmux_mcp_connect::wire::tool_report(&tools);
         self.mcp_store.update(id, |c| {
             for t in &report {
-                if let (Some(name), Some(policy)) = (t["name"].as_str(), t["policy"].as_str()) {
+                if let (Some(name), Some(policy)) =
+                    (t.field("name").as_str(), t.field("policy").as_str())
+                {
                     c.tool_policy.entry(name.to_owned()).or_insert_with(|| policy.to_owned());
                 }
             }
