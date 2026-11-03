@@ -49,6 +49,7 @@ await requireBrowserLane("menu-scroll-edge-fade.browser.test.ts", async () => {
     ["agent-pane.composer-context", "environment-picker-fleet", ".acpmux-env-popover .ui-combobox-list", 320, 640],
     ["agent-pane.add-project-panel", "long-directory", ".acpmux-add-project-list", 320, 640],
     ["new-tab.quick-model-menu", "short-more-models", ".acpmux-quick-body", 320, 640],
+    ["new-tab.quick-model-menu", "plain-overflow", ".ui-popup-scroll", 320, 640],
     [
       "agent-pane.slash-menu",
       "overflowing",
