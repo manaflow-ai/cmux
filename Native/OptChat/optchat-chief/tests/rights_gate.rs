@@ -179,7 +179,6 @@ fn a_teammate_is_refused_then_allowed_after_a_grant_and_audit_shows_both() {
     assert_eq!(decision(&pre(&mut h, "Bash", status.clone())).as_deref(), Some("deny"));
     // The owner grants it from the chat (answered by the host, no turn).
     say(&mut h, "user_local", "/grant @Ben Bash(git status*)");
-    h.step();
     assert_eq!(decision(&pre(&mut h, "Bash", status.clone())).as_deref(), Some("allow"));
     // The grant covers git status and nothing chained to it.
     assert_eq!(
@@ -207,7 +206,7 @@ fn a_teammate_is_refused_then_allowed_after_a_grant_and_audit_shows_both() {
 
     // /audit from the owner shows both.
     say(&mut h, "user_local", "/audit");
-    h.settle();
+    h.settle_posts();
     let out = posted(&h);
     let audit_text = out.iter().rev().find(|t| t.contains("records, head")).expect("the /audit answer");
     assert!(audit_text.contains("deny run `git status --short`"), "{audit_text}");
@@ -234,7 +233,7 @@ fn only_the_owner_changes_rights_and_others_see_only_their_own_audit() {
     )
     .unwrap();
     say(&mut h, TEAMMATE, "/audit");
-    h.settle();
+    h.settle_posts();
     let out = posted(&h);
     let last = out.last().unwrap();
     assert!(!last.contains("secret owner thing"), "{last}");
@@ -264,7 +263,7 @@ fn a_cap_stops_a_spend() {
     // The Chief's own cap stops the owner too; /cap is still answered.
     say(&mut h, "user_local", "/cap 0.10");
     say(&mut h, "user_local", "@Chief hello");
-    h.settle();
+    h.settle_posts();
     assert!(posted(&h).iter().any(|t| t.contains("this Chief's daily cap of $0.10")), "{:?}", posted(&h));
 }
 
