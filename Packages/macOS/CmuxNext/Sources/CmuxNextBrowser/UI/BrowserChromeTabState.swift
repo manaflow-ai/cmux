@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 
 /// What one browser tab shows in its pane's chrome, kept with the tab while another tab of the pane shows
 /// (Chrome's model: one `BrowserView` and `ToolbarView` per window, and per tab only the state the toolbar
