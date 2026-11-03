@@ -17,8 +17,16 @@
 use super::client::Store;
 use super::wire::{BIND_FILE, BOUND_FILE, Bound, parse_bind_file};
 
-/// Where the marker goes, under the work user's acpmux home (`daemon_spec::WORK_HOME`).
-pub const MARKER: &str = "/home/cmux/.acpmux/clone-boot";
+/// The marker's name in the acpmux home (acpmux `hub/clone_boot.rs` `MARKER`).
+pub const MARKER_NAME: &str = "clone-boot";
+
+/// Where the marker goes: in the work user's acpmux home (`daemon_spec::WORK_HOME`), named by
+/// `role::acpmux_home`, never a literal state root (`scripts/cmux-next/check-state-roots.sh`).
+#[cfg(target_os = "linux")]
+pub fn marker() -> String {
+    let home = super::role::acpmux_home(std::path::Path::new(crate::daemon_spec::WORK_HOME));
+    home.join(MARKER_NAME).to_string_lossy().into_owned()
+}
 
 /// A copy: the machine `bound.json` recorded and the one `bind.json` names now.
 #[derive(Debug, PartialEq, Eq)]

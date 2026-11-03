@@ -453,7 +453,16 @@ fn the_background_shell_hook_denies_only_where_bg_start_is_there() {
     let (a, b) = (|| run_command("with", true, "a"), || run_command("with", true, "b"));
     assert!(a().contains("deny") && b().contains("deny"));
     assert_eq!((a(), b()), (String::new(), String::new()), "interleaved retries were stranded");
-    assert_eq!(run("with", false), "", "a foreground call runs");
+    assert_eq!(run_command("with", false, "git status"), "", "a quick foreground call runs");
+    // A known-slow foreground call is sent to the background once; the same call again runs.
+    let slow: Value = serde_json::from_str(&run("with", false)).unwrap();
+    let reason = slow["hookSpecificOutput"]["permissionDecisionReason"].as_str().unwrap();
+    assert!(reason.contains("a dev server"), "{reason}");
+    assert!(reason.contains("mcp__acpmux__bg_start"), "{reason}");
+    assert_eq!(run("with", false), "", "the same slow call again runs in the foreground");
+    let slow: Value = serde_json::from_str(&run("without", false)).unwrap();
+    let reason = slow["hookSpecificOutput"]["permissionDecisionReason"].as_str().unwrap();
+    assert!(reason.contains("run_in_background: true"), "{reason}");
     assert_eq!(run("without", true), "", "no acpmux server: the native background shell runs");
     assert_eq!(run("no-config", true), "", "no config: the native background shell runs");
     let _ = std::fs::remove_dir_all(&home);
