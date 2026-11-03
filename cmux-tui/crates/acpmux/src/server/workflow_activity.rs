@@ -128,15 +128,20 @@ async fn handle(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
     }
     let prompt = text("prompt")?;
     let options = params.get("options").cloned().unwrap_or_else(|| json!({}));
+    if !options.is_object() {
+        return Err(RpcError::invalid_params("workflow activity options must be an object"));
+    }
     // Command execution on peers remains denied by bg_tasks. A requested placement never
     // silently falls back to this daemon's machine.
-    if let Some(host) = options.get("on").and_then(Value::as_str)
-        && host != "local"
-        && host != crate::hub::host_label()
-    {
-        return Err(RpcError::invalid_params(
-            "remote workflow activities require an authenticated machine executor; no local fallback",
-        ));
+    if let Some(on) = options.get("on") {
+        let host = on.as_str().ok_or_else(|| {
+            RpcError::invalid_params("workflow activity placement 'on' must be a string")
+        })?;
+        if host != "local" && host != crate::hub::host_label() {
+            return Err(RpcError::invalid_params(
+                "remote workflow activities require an authenticated machine executor; no local fallback",
+            ));
+        }
     }
     if let Some(schema) = options.get("schema") {
         crate::workflow_reply::ReplyPolicy::new(
