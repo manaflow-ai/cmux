@@ -101,9 +101,11 @@ pub(crate) fn run(args: &[String]) -> i32 {
     let outcome = json!({"state": state, "detail": detail});
     eprintln!("cmux machine update: {outcome}");
     // The outcome goes only next to this user's own binary.
-    let written = own_install(&args.install)
-        .map_err(std::io::Error::other)
-        .and_then(|()| write_atomically(&args.result, outcome.to_string().as_bytes()));
+    // A second run while one runs leaves that run's outcome file to it.
+    let theirs = state == "busy" && std::fs::symlink_metadata(&args.result).is_ok();
+    let written = own_install(&args.install).map_err(std::io::Error::other).and_then(|()| {
+        if theirs { Ok(()) } else { write_atomically(&args.result, outcome.to_string().as_bytes()) }
+    });
     if written.is_err() || state != "updated" { 1 } else { 0 }
 }
 
@@ -153,14 +155,16 @@ fn apply(args: &Args) -> (&'static str, String) {
     let Some(_lock) = lock(&args.install) else {
         return ("busy", "another update of this machine is running".into());
     };
+    // The Mac sees this step began even when its start's answer was lost,
+    // and so never starts it twice (machine_update.rs `start`).
+    let _ = write_atomically(&args.result, RUNNING.as_bytes());
     let own = match check(args) {
         Ok(own) => own,
         Err(why) => return ("failed", why),
     };
-    // A hard link: no copy, no space, and a planted file there goes first.
     let previous = args.install.with_file_name("cmux-tui.prev");
-    let _ = std::fs::remove_file(&previous);
-    if let Err(error) = std::fs::hard_link(&args.install, &previous) {
+    let exe = PathBuf::from(format!("/proc/{}/exe", args.daemon_pid));
+    if let Err(error) = keep_previous(&args.install, &previous, &exe, own.running) {
         return ("failed", format!("cannot keep the running binary: {error}"));
     }
     // The file at our own path is still the one hashed: same inode, one link.
@@ -203,11 +207,46 @@ fn apply(args: &Args) -> (&'static str, String) {
     restore(args, &previous, "the new daemon did not serve")
 }
 
-/// The staged build that passed [`check`]: its path and the inode hashed.
+/// The staged build that passed [`check`]: its path and the inode hashed,
+/// with the device and inode of the file the daemon runs.
 struct Staged {
     path: PathBuf,
     dev: u64,
     ino: u64,
+    running: Option<(u64, u64)>,
+}
+
+/// The outcome file's content while the step runs.
+const RUNNING: &str = r#"{"state":"running"}"#;
+
+/// Keeps the build the daemon runs as `previous`, the rollback target: a
+/// hard link of `install` when the daemon runs it (no copy, no space), the
+/// file already there when it runs that one, else a copy of the running
+/// file itself through `exe` (its `/proc/<pid>/exe`, which still reads a
+/// file whose path is gone). A daemon left on a replaced build must roll
+/// back to that build, not to the installed one that never served.
+fn keep_previous(
+    install: &Path,
+    previous: &Path,
+    exe: &Path,
+    running: Option<(u64, u64)>,
+) -> std::io::Result<()> {
+    let is_running = |path: &Path| {
+        running.is_some()
+            && std::fs::symlink_metadata(path).ok().map(|file| (file.dev(), file.ino())) == running
+    };
+    if is_running(previous) {
+        return Ok(());
+    }
+    // A planted file at either name goes first.
+    if running.is_none() || is_running(install) {
+        let _ = std::fs::remove_file(previous);
+        return std::fs::hard_link(install, previous);
+    }
+    let part = install.with_file_name(".cmux-tui.prev.part");
+    let _ = std::fs::remove_file(&part);
+    std::fs::copy(exe, &part)?;
+    std::fs::rename(&part, previous)
 }
 
 /// Whether `install` is this user's `~/.cmux/bin/cmux-tui`.
@@ -265,7 +304,7 @@ fn check(args: &Args) -> Result<Staged, String> {
     if identity["pid"].as_i64() != Some(i64::from(args.daemon_pid)) {
         return Err("the daemon pid is not the one serving this machine".into());
     }
-    Ok(Staged { path: own, dev: opened.dev(), ino: opened.ino() })
+    Ok(Staged { path: own, dev: opened.dev(), ino: opened.ino(), running: ran })
 }
 
 /// What `/proc/<pid>/exe` reads for a deleted file.

@@ -2,7 +2,7 @@ use std::os::unix::fs::MetadataExt as _;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use super::{runs_this_install, stop};
+use super::{keep_previous, runs_this_install, stop};
 
 const INSTALL: &str = "/home/u/.cmux/bin/cmux-tui";
 
@@ -90,4 +90,48 @@ fn a_daemon_that_stops_on_sigterm_is_not_killed() {
     assert!(stop(pid, Duration::from_secs(10), Duration::from_secs(10)));
     use std::os::unix::process::ExitStatusExt as _;
     assert_eq!(reaper.join().unwrap().unwrap().signal(), Some(libc::SIGTERM));
+}
+
+fn id(path: &Path) -> Option<(u64, u64)> {
+    std::fs::metadata(path).ok().map(|file| (file.dev(), file.ino()))
+}
+
+/// A folder with an installed build B, a kept build A and a deleted build R
+/// standing in for the file a daemon runs after its path was replaced.
+fn builds() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
+    let folder = tempfile::tempdir().unwrap();
+    let install = folder.path().join("cmux-tui");
+    let previous = folder.path().join("cmux-tui.prev");
+    let running = folder.path().join("running");
+    std::fs::write(&install, b"B").unwrap();
+    std::fs::write(&previous, b"A").unwrap();
+    std::fs::write(&running, b"R").unwrap();
+    (folder, install, previous, running)
+}
+
+#[test]
+fn a_daemon_on_the_installed_binary_keeps_it_as_previous() {
+    let (_folder, install, previous, running) = builds();
+    keep_previous(&install, &previous, &running, id(&install)).unwrap();
+    assert_eq!(id(&previous), id(&install));
+}
+
+#[test]
+fn a_daemon_on_the_kept_build_keeps_it_as_previous() {
+    // An update installed B while the daemon kept running A, now kept as
+    // previous: rolling back must go to A, which served, not to B.
+    let (_folder, install, previous, running) = builds();
+    let kept = id(&previous);
+    keep_previous(&install, &previous, &running, kept).unwrap();
+    assert_eq!(id(&previous), kept);
+    assert_eq!(std::fs::read(&previous).unwrap(), b"A");
+}
+
+#[test]
+fn a_daemon_on_a_deleted_build_keeps_a_copy_of_it_as_previous() {
+    let (_folder, install, previous, running) = builds();
+    keep_previous(&install, &previous, &running, id(&running)).unwrap();
+    assert_eq!(std::fs::read(&previous).unwrap(), b"R");
+    assert_eq!(std::fs::read(&install).unwrap(), b"B");
+    assert!(!install.with_file_name(".cmux-tui.prev.part").exists());
 }

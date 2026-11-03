@@ -284,9 +284,8 @@ fn start(
             std::thread::sleep(backoff);
             let seen = AfterLostStart {
                 daemon_pid: machine_gate::identify(socket).map(|now| now["pid"].as_u64()),
-                outcome_written: read_outcome(socket, result).is_some(),
-                staged_present: super::sync_cli::remote_kind(socket, staged)
-                    .map_or(true, |kind| kind.is_some()),
+                apply_seen: !matches!(super::sync_cli::remote_kind(socket, result), Ok(None)),
+                staged_present: matches!(super::sync_cli::remote_kind(socket, staged), Ok(Some(_))),
             };
             if lost_start_began(&seen, daemon_pid) {
                 return Ok(None);
@@ -316,20 +315,23 @@ struct AfterLostStart {
     /// The pid `identify` names: `Some(None)` for an answer without one,
     /// None when the daemon did not answer.
     daemon_pid: Option<Option<u64>>,
-    /// The apply step's outcome file holds a final state.
-    outcome_written: bool,
-    /// The staged build is still at its staged path (true when unknown).
+    /// The apply step's outcome file exists (it writes `running` once it
+    /// holds the update lock), or whether it does is not known.
+    apply_seen: bool,
+    /// The staged build is known to be still at its staged path.
     staged_present: bool,
 }
 
-/// Whether the apply step began despite the lost answer: it wrote its
-/// outcome, renamed the staged build over the binary, or the daemon it
-/// was to replace no longer answers or is another process. Only the same
-/// daemon still serving, the staged build in place and no outcome mean it
-/// never ran, so starting it again cannot run it twice (and its update lock
-/// would refuse a second run anyway).
+/// Whether the apply step began despite the lost answer: its outcome file
+/// exists (`running` from the moment it holds the update lock), the staged
+/// build was renamed over the binary, or the daemon it was to replace no
+/// longer answers or is another process. Anything not known counts as
+/// began. Only the same daemon still serving, the staged build in place and
+/// no outcome file mean it never ran, so starting it again cannot run it
+/// twice (and a second run would find the lock held and leave the first
+/// run's outcome file alone).
 fn lost_start_began(seen: &AfterLostStart, old_pid: u64) -> bool {
-    seen.outcome_written || !seen.staged_present || seen.daemon_pid != Some(Some(old_pid))
+    seen.apply_seen || !seen.staged_present || seen.daemon_pid != Some(Some(old_pid))
 }
 
 /// The daemon's binary, `<home>/.cmux/bin/cmux-tui`, from `identify`'s
