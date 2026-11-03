@@ -332,7 +332,10 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
     }
   });
 
-  test("the chat's last row, opened and closed with the view at its end, stays on its pixel", async () => {
+  // At the view's end, opening pushes the text above up and the end stays put (Leo, 2026-11-02:
+  // "YOU EXPAND UP WHILE YOUR SCCROLL IS AT THE VERY BOTTOM ... JUST THAT CASE"); closing keeps the
+  // line where it was clicked.
+  test("the chat's last row, opened with the view at its end, pushes the text up; closed, stays on its pixel", async () => {
     const page = await openChat(
       [...Array.from({ length: 6 }, (_, index) => turn(index)).flat(), fromAgent(LONG, "Grid fix", "child-3", "m-end")],
       "Paragraph 1 of the landing report",
@@ -349,14 +352,19 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       await rest(page);
       const opened = await topOf(toggle);
       console.log(`pinned end: line top ${before} -> ${opened} opened`);
-      expect(Math.abs(opened - before)).toBeLessThan(1);
+      expect(opened).toBeLessThan(before - 1);
+      expect(await atLatest(page)).toBe(true);
 
+      // The opened message may have pushed its line above the view: back in view, closing keeps it.
+      await toggle.scrollIntoViewIfNeeded();
+      await rest(page);
+      const shown = await topOf(toggle);
       await toggle.click();
       expect(await toggle.getAttribute("aria-expanded")).toBe("false");
       await rest(page);
       const closed = await topOf(toggle);
-      console.log(`pinned end: line top ${before} -> ${closed} closed`);
-      expect(Math.abs(closed - before)).toBeLessThan(1);
+      console.log(`pinned end: line top ${shown} -> ${closed} closed`);
+      expect(Math.abs(closed - shown)).toBeLessThan(1);
     } finally {
       await page.close();
     }
