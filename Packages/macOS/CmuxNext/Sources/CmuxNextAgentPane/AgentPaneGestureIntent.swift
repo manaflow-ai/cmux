@@ -110,7 +110,12 @@ public nonisolated struct AgentPaneGestureIntent: Equatable, Sendable {
         switch (method, params["configId"], params["promptId"], params["permissionId"]) {
         case ("session/set_config_option", .string(let config)?, _, _): return method + "#" + config
         case ("session/prompt", _, .string(let promptId)?, _): return method + "#" + promptId
-        case ("_acpmux/permission_respond", _, _, .string(let permissionId)?): return method + "#" + permissionId
+        case ("_acpmux/permission_respond", _, _, .string(let permissionId)?):
+            // A pane connection can show multiple sessions. A repeated permission id in another
+            // session must not revoke this ask's still-in-flight answer ticket.
+            guard case .string(let sessionId)? = params["sessionId"] else { return method }
+            // Length-prefix the session to avoid collisions when ids contain delimiters.
+            return method + "#\(sessionId.utf8.count):" + sessionId + permissionId
         default: return method
         }
     }
