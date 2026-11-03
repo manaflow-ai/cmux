@@ -3394,13 +3394,14 @@ button.cv-video-frames__frame:focus-visible {
 }
 /* "⌃B to run in background" while a command runs (BackgroundHint.tsx), at the right of the running
    turn's live line; never on the command's own row. Its live-line hover rule controls visibility. */
+/* At the line's own size, so its words share the command's baseline and middle: a smaller face
+   centered beside it sat on a different baseline (Leo, 2026-11-03: "this isn't really centered with
+   the tool call i think it should be or at least it looks weird?"). The dim color keeps it a hint. */
 .cv-command__bg {
   flex: none;
   margin-left: auto;
   color: var(--cv-text-dim);
-  font-size: var(--text-detail);
   white-space: nowrap;
-  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* A message to another agent (MessageCard.tsx) is the shared agent message row
    (AgentMessageRow.css). Opened, its text grows in place under the line, at the line's text
