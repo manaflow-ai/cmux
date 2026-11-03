@@ -1031,3 +1031,55 @@ async fn chief_subagent_chats_follow_an_asking_start_level() {
     assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{r}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// User 20336: "in acpmux/chat ui, changing permissions doesnt work (it was in edits, then i
+/// changed to bypass, and it was still asking me)". A chat whose own narrower policy (approve-edits,
+/// as an agent's start gave it) holds it in an asking mode refused the person's pick of a mode that
+/// does not ask (`policy_mode`), so the harness kept asking. The person's pick now widens that
+/// chat's policy to approve-all first: the switch takes at once, and the next ask is answered
+/// without them, for Claude Code and for Codex.
+#[tokio::test]
+async fn the_persons_bypass_pick_on_an_edits_chat_stops_the_asking() {
+    let dir = home("policy-person-bypass", json!({"defaultPermissionMode": "fullAccess"}));
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    for (harness, full) in [("claude", "bypassPermissions"), ("codex", "agent-full-access")] {
+        let (id, mode) = app.chat_with_policy(&dir, harness, "approve-edits").await;
+        assert_ne!(mode, full, "{harness}: the approve-edits chat asks first");
+        let r = app.call("session/set_mode", json!({"sessionId": id, "modeId": full})).await;
+        assert!(r.get("error").is_none(), "{harness}: the person's pick takes: {r}");
+        assert_eq!(app.mode(&id).await, full, "{harness}");
+        let info = app.call("_acpmux/info", json!({"sessionId": id})).await;
+        assert_eq!(info["result"]["policy"], "approve-all", "{harness}: {info}");
+    }
+    // The harness asks before a shell command; with the pick, nothing waits for the person.
+    let (claude, _) = app.chat_with_policy(&dir, "claude", "approve-edits").await;
+    let r = app
+        .call("session/set_mode", json!({"sessionId": claude, "modeId": "bypassPermissions"}))
+        .await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r = app
+        .call(
+            "session/prompt",
+            json!({"sessionId": claude, "prompt": [{"type": "text", "text": "always-ask"}]}),
+        )
+        .await;
+    assert!(r.get("error").is_none(), "the turn ends with no answer from the person: {r}");
+    let info = app.call("_acpmux/info", json!({"sessionId": claude})).await;
+    assert_eq!(info["result"]["pendingPermissions"], 0, "{info}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A deny-all lockdown still holds: the person's pick of a mode that does not ask is refused
+/// there, as before (`policy_mode.rs`).
+#[tokio::test]
+async fn the_persons_bypass_pick_on_a_deny_all_chat_is_still_refused() {
+    let dir = home("policy-person-deny", json!({"defaultPermissionMode": "fullAccess"}));
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let (id, _) = app.chat_with_policy(&dir, "codex", "deny-all").await;
+    let r =
+        app.call("session/set_mode", json!({"sessionId": id, "modeId": "agent-full-access"})).await;
+    assert_eq!(r["error"]["data"]["reason"], "policy_mode", "{r}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
