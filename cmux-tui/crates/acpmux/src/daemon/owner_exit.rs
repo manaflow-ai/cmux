@@ -54,6 +54,12 @@ pub(super) fn follow() -> Option<(u32, watch::Receiver<bool>)> {
     }
 }
 
+/// Blocks until `pid` exits (or was already gone); an error when its exit cannot be watched. Also
+/// the agent host's test-owner watch (`agent_host/host/test_owner.rs`).
+pub(crate) fn wait_exit(pid: u32) -> std::io::Result<()> {
+    imp::wait_exit(pid)
+}
+
 fn owner_pid(value: Option<&str>) -> Option<u32> {
     let pid = value?.trim().parse::<u32>().ok()?;
     (pid > 1 && pid != std::process::id() && i32::try_from(pid).is_ok()).then_some(pid)
