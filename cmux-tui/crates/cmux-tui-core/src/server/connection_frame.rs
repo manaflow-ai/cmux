@@ -92,6 +92,7 @@ pub(super) fn handle_connection_frame(
     }
     #[cfg(unix)]
     if let Some(keep_open) = agent_session_attach::try_handle(mux, client, message, writer)
+        .or_else(|| chief_work::try_handle(mux, client, message, writer))
         .or_else(|| mobile_chat::try_handle(mux, client, message, writer))
         .or_else(|| agent_transfer::try_handle(mux, client, message, writer))
         .or_else(|| agent_inventory::try_handle(mux, client, message, writer))

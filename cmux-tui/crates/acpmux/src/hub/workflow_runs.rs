@@ -17,10 +17,8 @@ impl Hub {
     ) -> Result<RunRecord> {
         let meta = owner.meta();
         anyhow::ensure!(!meta.remote_origin, "a remote chat starts no local workflow");
-        let env = self.bg_env(owner, &meta).await.map_err(|e| anyhow::anyhow!(e.message))?;
-        let allowed_tools = env.get(crate::agent_tools::MCP_TOOLS_ENV).map(|v| {
-            v.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned).collect()
-        });
+        let profile = self.workflow_tool_profile(&meta).await?;
+        let allowed_tools = workflow_profile_tools(&profile, &meta);
         let id = format!("wf-{}", uuid::Uuid::now_v7().simple());
         let run = self.workflow_runs.store().start(RunRecord {
             version: 1,
@@ -46,15 +44,9 @@ impl Hub {
     /// Current preset restrictions can narrow a pinned run, never grant it new tools.
     pub async fn workflow_allowed_tools(&self, run: &RunRecord) -> Result<Option<Vec<String>>> {
         let owner = self.resolve(&run.owner_session_id).map_err(|e| anyhow::anyhow!(e.message))?;
-        let env =
-            self.bg_env(&owner, &owner.meta()).await.map_err(|e| anyhow::anyhow!(e.message))?;
-        let current = env.get(crate::agent_tools::MCP_TOOLS_ENV).map(|v| {
-            v.split(',')
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_owned)
-                .collect::<Vec<_>>()
-        });
+        let meta = owner.meta();
+        let profile = self.workflow_tool_profile(&meta).await?;
+        let current = workflow_profile_tools(&profile, &meta);
         Ok(match (&run.allowed_tools, current) {
             (None, current) => current,
             (Some(pinned), None) => Some(pinned.clone()),
@@ -69,13 +61,14 @@ impl Hub {
     async fn workflow_upstreams(&self, run: &RunRecord) -> Result<String> {
         let owner = self.resolve(&run.owner_session_id).map_err(|e| anyhow::anyhow!(e.message))?;
         let meta = owner.meta();
-        let env = self.bg_env(&owner, &meta).await.map_err(|e| anyhow::anyhow!(e.message))?;
-        if crate::agent_tools::left_out(meta.remote_origin, &env, &[]) {
+        let profile = self.workflow_tool_profile(&meta).await?;
+        let env = &profile.env;
+        if crate::agent_tools::left_out(meta.remote_origin, env, &profile.argv) {
             return Ok("[]".into());
         }
         let config = crate::agent_tools::current()
-            .scoped(&env)
-            .without_off(&env)
+            .scoped(env)
+            .without_off(env)
             .for_session(&run.owner_session_id)
             .folded()
             .mcp_config();
@@ -85,6 +78,42 @@ impl Hub {
             .and_then(Value::as_str)
             .unwrap_or("[]")
             .to_owned())
+    }
+
+    pub(crate) async fn workflow_upstream_names(&self, run: &RunRecord) -> Result<Vec<String>> {
+        let specs: Vec<Value> = serde_json::from_str(&self.workflow_upstreams(run).await?)?;
+        Ok(specs
+            .iter()
+            .filter_map(|spec| spec.get("name").and_then(Value::as_str).map(str::to_owned))
+            .collect())
+    }
+
+    async fn workflow_tool_profile(
+        &self,
+        meta: &SessionMeta,
+    ) -> Result<crate::config::HarnessProfile> {
+        // Tool folding reads the resolved session profile before harness_command
+        // strips fold-only OFF_ENV and WORKSPACE_KEY from the agent process env.
+        let (profile, defaults) = {
+            let config = self.config.read().await;
+            let profile = super::resolve::session_profile(
+                &config,
+                &meta.harness,
+                &meta.cwd,
+                meta.remote_origin,
+            )
+            .map_err(|error| anyhow::anyhow!(error))?;
+            (profile, config.defaults_for(&meta.harness))
+        };
+        let mut profile = self
+            .spawn_profile_for(meta, &profile, &defaults.env)
+            .await
+            .map_err(|error| anyhow::anyhow!(error.message))?;
+        tokio::task::spawn_blocking(move || {
+            profile.env = crate::agent::resolved_profile_env(&profile)?;
+            Ok(profile)
+        })
+        .await?
     }
 
     pub async fn workflow_resume(self: &Arc<Self>, id: &str, owner: &str) -> Result<RunRecord> {
@@ -114,11 +143,18 @@ impl Hub {
         for activity in run.activities.values().filter(|a| a.outcome.is_none()) {
             let result: Result<()> = async {
                 match &activity.child {
+                    Child::CiMachine { intent } => {
+                        self.workflow_ci_cancel(activity, intent)
+                            .await
+                            .map_err(|error| anyhow::anyhow!(error.message))?;
+                    }
                     Child::Agent { session_id, prompt_id, host } => {
-                        anyhow::ensure!(
-                            host.as_deref().is_none_or(|host| host == "local"),
-                            "remote workflow agent cancellation is not supported on this route"
-                        );
+                        if host.as_deref().is_some_and(|host| host != "local") {
+                            self.workflow_cancel_remote(run, activity)
+                                .await
+                                .map_err(|e| anyhow::anyhow!(e.message))?;
+                            return Ok(());
+                        }
                         let session = match self.resolve(session_id) {
                             Ok(session) => session,
                             Err(error) if error.code == RpcError::not_found("").code => {
@@ -310,6 +346,20 @@ impl Hub {
     }
 }
 
+fn workflow_profile_tools(
+    profile: &crate::config::HarnessProfile,
+    meta: &SessionMeta,
+) -> Option<Vec<String>> {
+    if crate::agent_tools::left_out(meta.remote_origin, &profile.env, &profile.argv)
+        || meta.tools.off.iter().any(|tool| tool == "mcp:cmux")
+    {
+        return Some(Vec::new());
+    }
+    profile.env.get(crate::agent_tools::MCP_TOOLS_ENV).map(|value| {
+        value.split(',').map(str::trim).filter(|name| !name.is_empty()).map(str::to_owned).collect()
+    })
+}
+
 fn workflow_runner_command() -> Result<tokio::process::Command> {
     let own = crate::self_command::SelfCommand::current()?;
     if !own.prefix.is_empty() {
@@ -333,6 +383,58 @@ fn workflow_runner_command() -> Result<tokio::process::Command> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn workflow_disabled_tool_injection_is_never_an_unrestricted_ceiling() {
+        let mut profile: crate::config::HarnessProfile = serde_json::from_value(json!({
+            "argv":["/bin/true"],"env":{crate::agent_tools::SWITCH_ENV:"0"}
+        }))
+        .unwrap();
+        let mut meta: SessionMeta = serde_json::from_value(json!({
+            "schema":crate::store::META_SCHEMA,"id":"workflow-off","name":"Workflow off",
+            "harness":"fake","cwd":std::env::temp_dir(),"status":"idle","createdAt":1,"updatedAt":1
+        }))
+        .unwrap();
+        assert_eq!(workflow_profile_tools(&profile, &meta), Some(Vec::new()));
+        profile.env.clear();
+        profile.argv.push("--strict-mcp-config".into());
+        assert_eq!(workflow_profile_tools(&profile, &meta), Some(Vec::new()));
+        profile.argv.pop();
+        meta.tools.off.push("mcp:cmux".into());
+        assert_eq!(workflow_profile_tools(&profile, &meta), Some(Vec::new()));
+    }
+
+    #[tokio::test]
+    async fn workflow_tool_fold_keeps_disabled_servers_and_workspace_scope() {
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        cfg.harnesses.insert(
+            "workflow-fold-test".into(),
+            serde_json::from_value(json!({
+                "argv":["/bin/true"], "kind":"claude-stdio"
+            }))
+            .unwrap(),
+        );
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg, store);
+        let meta: SessionMeta = serde_json::from_value(json!({
+            "schema":crate::store::META_SCHEMA,"id":"workflow-fold-test","name":"Workflow fold",
+            "harness":"workflow-fold-test","cwd":std::env::temp_dir(),"status":"idle",
+            "createdAt":1,"updatedAt":1,"workspaceId":"workflow-workspace",
+            "tools":{"off":["mcp:disabled-server"]}
+        }))
+        .unwrap();
+        let profile = hub.workflow_tool_profile(&meta).await.unwrap();
+        let env = &profile.env;
+        assert_eq!(
+            env.get(crate::agent_tools::OFF_ENV).map(String::as_str),
+            Some("disabled-server")
+        );
+        assert_eq!(
+            env.get(crate::agent_displays::WORKSPACE_KEY).map(String::as_str),
+            crate::agent_displays::per_workspace().then_some("workflow-workspace")
+        );
+    }
 
     fn recovery_fixture() -> (tempfile::TempDir, Arc<Hub>, RunRecord) {
         let dir = tempfile::tempdir().unwrap();

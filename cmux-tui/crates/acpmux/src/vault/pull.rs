@@ -270,6 +270,27 @@ pub fn apply(
     (stored, deleted, failed)
 }
 
+/// Delete from the OS store the items a switch to the daemon's memory left
+/// there (`State::os_pending`): what is deleted leaves the list, what fails
+/// stays for the next pull or `forget`. Nothing to do with the OS store active.
+fn clean_os_leftovers(
+    state: &mut State,
+    store: &dyn SecretStore,
+) -> (Vec<String>, Vec<(String, &'static str)>) {
+    let (mut deleted, mut failed) = (Vec::new(), Vec::new());
+    let Some(os) = store.os_leftovers() else { return (deleted, failed) };
+    for name in state.os_pending.clone() {
+        match os.delete(&name) {
+            Ok(()) => {
+                state.os_pending.remove(&name);
+                deleted.push(name);
+            }
+            Err(code) => failed.push((name, code)),
+        }
+    }
+    (deleted, failed)
+}
+
 fn random_salt() -> [u8; 16] {
     let mut salt = [0u8; 16];
     let _ = getrandom::fill(&mut salt);
@@ -312,6 +333,10 @@ pub fn settle(
     if granted && !is_current(credential, current) {
         return Err(Failure::code(CREDENTIAL_CHANGED));
     }
+    // The active store holds this machine's entries; what the other one
+    // still holds is cleaned up from it (never delivered).
+    state.switch_backend(store.kind());
+    let _ = clean_os_leftovers(&mut state, store);
     let binding = state.binding(credential);
     let before: std::collections::BTreeSet<String> = state.env.keys().cloned().collect();
     // Entries another credential's answer authorized are never rebound to this one.
@@ -469,8 +494,12 @@ pub fn forget(home: &Path, store: &dyn SecretStore) -> Result<Outcome, Failure> 
     if !state.env.is_empty() {
         hold(home).map_err(Failure::code)?;
     }
+    state.switch_backend(store.kind());
+    let (mut deleted, mut failed) = clean_os_leftovers(&mut state, store);
     let steps = plan::wipe(&state);
-    let (_, deleted, failed) = apply(&mut state, steps, store, "");
+    let (_, wiped, wipe_failed) = apply(&mut state, steps, store, "");
+    deleted.extend(wiped);
+    failed.extend(wipe_failed);
     let mut outcome = Outcome {
         state: "forgotten",
         hub,
@@ -480,7 +509,8 @@ pub fn forget(home: &Path, store: &dyn SecretStore) -> Result<Outcome, Failure> 
         failed,
         refused: 0,
     };
-    if outcome.failed.is_empty() {
+    // The state file goes only once no item is left in any store.
+    if outcome.failed.is_empty() && state.os_pending.is_empty() {
         match std::fs::remove_file(state_path(home)) {
             Ok(()) => {
                 release(home);

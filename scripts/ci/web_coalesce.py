@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Coalesce cmux-next-web.yml's feat-cmux-next push runs, and bisect a coalesced run's new webview reds.
 
-    web_coalesce.py wait --last LAST.json --sha SHA [--before SHA] [--hold-minutes 15] [--off] --out OUT.json
+    web_coalesce.py wait --last LAST.json --sha SHA [--before SHA] [--hold-minutes 15] [--ref REF] [--off]
+                         --out OUT.json
         the coalesce job: sleep until HOLD minutes after the last push that ran the web checks, then name this push
-        the newest covered one (OUT) and print `base=<the last covered sha>` to $GITHUB_OUTPUT
+        the newest covered one (OUT) and print `base=<the last covered sha>` and `run=true` to $GITHUB_OUTPUT, or,
+        when it slept and REF has moved past SHA, yield to the newer push (`run=false`, nothing recorded)
     web_coalesce.py bisect --base SHA --head SHA --results RESULTS.json... [--history HISTORY.json]
                            --probe PROBE.sh --report REPORT.json
         the web bisect job: for each webview test red at HEAD and not at BASE (the run before it), the first commit
@@ -24,9 +26,14 @@ everything since. Three rules from the decision (claude-sr2-coord, 2026-11-03):
 How the waiting works: the coalesce job has its own concurrency group with cancel-in-progress false. One coalesce
 job runs (waits) at a time; a newer push's coalesce job replaces a pending one, which never started, so that run
 ends cancelled with no job run (readers skip such runs: base_red_excuse.coalesced). Nothing that started is ever
-cancelled. The last covered push is kept in the Actions cache (one small entry a run, newest restored by prefix);
-with none (evicted, the first run) the push runs at once and runs every web check (push base EVERYTHING): a
-push replaced before it may have changed web/ outside its own push range (#33892).
+cancelled. When a job that slept wakes and the branch has moved past its push, it yields (#33872): it records
+nothing and outputs run=false, so its run ends with its checks skipped, and the newest push's coalesce job, pending
+behind it, starts past the deadline and runs at once from the last covered commit. A job that did not sleep never
+yields, so a window always ends in a run however fast pushes land. A yielded run is no verdict either (readers: a run
+whose every job bar `coalesce` was cancelled or skipped). The last covered push is kept in the Actions cache (one
+small entry a run, newest restored by prefix); with none (evicted, the first run) the push runs at once and runs
+every web check (push base EVERYTHING): a push replaced before it may have changed web/ outside its own push range
+(#33892).
 
 Bisect, cheaply: a webview test's verdict changes only with its inputs (webviews_test_history.py inputs: the paths
 the router runs the suite on), so only commits that change those inputs can be a test's first red, and most
@@ -102,7 +109,28 @@ def plan_wait(last: dict | None, sha: str, before: str, now: float, hold_s: floa
     return max(0.0, last["started"] + hold_s - now), last["sha"]
 
 
-def wait(args, sleep=time.sleep, clock=time.time) -> int:
+def branch_tip(ref: str) -> str | None:
+    """REF's sha on the remote (a public read, no credentials), or None when it cannot be read."""
+    server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
+    repo = os.environ.get("GITHUB_REPOSITORY", "")
+    if not repo:
+        return None
+    try:
+        out = subprocess.run(["git", "ls-remote", f"{server}/{repo}.git", ref], capture_output=True, text=True,
+                             timeout=60, check=True).stdout.split()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out[0] if out and SHA.fullmatch(out[0]) else None
+
+
+def emit(base: str, run: bool) -> None:
+    output = os.environ.get("GITHUB_OUTPUT")
+    if output:
+        with open(output, "a", encoding="utf-8") as stream:
+            stream.write(f"base={base}\nrun={'true' if run else 'false'}\n")
+
+
+def wait(args, sleep=time.sleep, clock=time.time, tip=branch_tip) -> int:
     hold_s = 0.0 if args.off else args.hold_minutes * 60
     last = None if args.off else read_last(args.last)
     attempt = int(getattr(args, "attempt", 1) or 1)
@@ -110,8 +138,20 @@ def wait(args, sleep=time.sleep, clock=time.time) -> int:
     seconds, base = plan_wait(last, args.sha, args.before or "", clock(), hold_s, attempt, off=args.off)
     if seconds > 0:
         print(f"the last web checks started on {last['sha'][:12]}; waiting {seconds:.0f} s, so they run at most once "
-              f"every {args.hold_minutes:g} minutes (a newer push's run replaces this wait only while it is pending)")
+              f"every {args.hold_minutes:g} minutes (a newer push's run replaces this wait while it is pending, and "
+              "this run yields to a push that landed while it slept)")
         sleep(seconds)
+        ref = getattr(args, "ref", None)
+        newest = tip(ref) if ref else None
+        if newest and newest != args.sha:
+            # A newer push's coalesce job waits behind this one: it starts past the deadline and runs at once, from the
+            # same last covered commit, so this push's commits are checked there. Nothing is recorded here.
+            print(f"{ref} moved to {newest[:12]} while this push waited: its run checks this push's commits too, so "
+                  "this run yields (no web checks here)")
+            Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.out).write_text(json.dumps(last) + "\n", encoding="utf-8")
+            emit("", False)
+            return 0
     started = clock()
     if rerun and last is not None:
         record = dict(last)  # a re-run is no newer covered push: the marker stays as it was
@@ -127,10 +167,7 @@ def wait(args, sleep=time.sleep, clock=time.time) -> int:
               else f"covering every push since {base[:12] or 'its own push base'}")
     print(f"web checks run on {args.sha[:12]}, {covers}"
           + (" (a re-run: the range its first attempt checked)" if rerun and base != EVERYTHING else ""))
-    output = os.environ.get("GITHUB_OUTPUT")
-    if output:
-        with open(output, "a", encoding="utf-8") as stream:
-            stream.write(f"base={base}\n")
+    emit(base, True)
     return 0
 
 
@@ -322,24 +359,12 @@ def bisect(args, run=subprocess.run) -> int:
                 got = json.loads(out.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 return {f: None for f in files}
-            # Red only when one of the file's new red tests is red here: a test already red at BASE, red in the same
-            # file, says nothing about where the new one broke. A file-level red (no test named) counts any red in
-            # the file. A file the commit does not have yet cannot fail there: green.
-            def verdict(f: str) -> bool | None:
-                mine = {name: ok for name, ok in got.items() if name == f or name.startswith(f + " > ")}
-                wanted = names[f]
-                if f in wanted:
-                    return (not all(mine.values())) if mine else (None if exists(sha, f) else False)
-                if any(mine.get(name) is False for name in wanted):
-                    return True
-                if mine and all(name in mine for name in wanted):
-                    return False  # every new red test ran here and passed
-                if mine and all(mine.values()):
-                    return False  # the file passed whole: the new tests are not in it yet
-                if mine:
-                    return None  # the file failed (a timeout, a load error) before the new tests gave a verdict
-                return None if exists(sha, f) else False
-            return {f: verdict(f) for f in files}
+            try:
+                ran = json.loads(Path(f"{out}.states").read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                ran = {}
+            ran = ran if isinstance(ran, dict) else {}
+            return {f: probe_verdict(f, names[f], got, ran.get(f), lambda f=f: exists(sha, f)) for f in files}
 
         # BASE's verdict is known for a file only when the run before ran it.
         # A file red whole at BASE (a timeout, a load error) gave no verdict for the tests in it.
@@ -349,6 +374,35 @@ def bisect(args, run=subprocess.run) -> int:
     report["skipped"] = skipped
     report["lines"] = report_lines(found, commits, subjects, names, skipped, args.base)
     return finish()
+
+
+def probe_verdict(file: str, wanted: set[str], got: dict, state, present) -> bool | None:
+    """FILE's verdict at a probed commit: True red, False green, None unknown. GOT is the probe's results in the
+    shards' shape (webviews_test_results.py: `FILE: true` for a passing file, each named failure as `FILE > TEST:
+    false`, `FILE: false` for one red with no test named), STATE its run state (`{"result", "completed"}`) or None,
+    PRESENT() whether the commit has the file. WANTED are the file's new red names.
+
+    Red only when one of the new red tests is red here: a test already red at BASE, red in the same file, says
+    nothing about where the new one broke. A file-level red (no test named) counts any red in the file. A file that
+    ran to its end (passed, or failed naming only other tests) is green for the new tests: the results name no
+    passing test, so this is where a test red at BASE beside them still gives a verdict. A file that timed out or
+    died before its end is no verdict, and a file the commit does not have yet cannot fail there: green."""
+    mine = {name: ok for name, ok in got.items() if name == file or name.startswith(file + " > ")}
+    state = state if isinstance(state, dict) else {}
+    completed = state.get("completed") is True or got.get(file) is True
+    if file in wanted:
+        if mine:
+            return not all(mine.values())
+        return None if present() else False
+    if any(mine.get(name) is False for name in wanted):
+        return True
+    if mine and completed and got.get(file) is not False:
+        return False  # the file ran to its end and none of the new red tests failed
+    # A file red with no test named (it did not load, an error outside a test) gives no verdict for the tests in it,
+    # even when bun printed its closing tally.
+    if mine or state:
+        return None  # it failed (a timeout, a crash, a load error) before the new tests gave a verdict
+    return None if present() else False
 
 
 def exists(sha: str, file: str) -> bool:
@@ -368,6 +422,7 @@ def main(argv: list[str] | None = None) -> int:
     w.add_argument("--before", default="")
     w.add_argument("--hold-minutes", type=float, default=HOLD_MINUTES)
     w.add_argument("--attempt", type=int, default=1, help="the run's attempt: a re-run never waits")
+    w.add_argument("--ref", help="the pushed ref: a job that slept yields when it moved past --sha")
     w.add_argument("--off", action="store_true", help="no coalescing: run at once, from the push's own base")
     w.add_argument("--out", required=True)
     b = sub.add_parser("bisect")
