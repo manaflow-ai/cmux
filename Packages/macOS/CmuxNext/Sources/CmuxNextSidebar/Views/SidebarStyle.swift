@@ -61,6 +61,17 @@ enum SidebarStyle {
     /// A workspace row's leading glyph: the size an icon takes beside the
     /// row title (cap height and stroke matched to the text).
     static var kindGlyphSize: CGFloat { .iconRowSize(forLabelPointSize: titleFont.pointSize) }
+    /// A workspace or group icon's glyph square: the leading icon column it sits in, so the icon follows the sidebar
+    /// density (16 compact, 20 comfortable, wider with the text size) instead of one size at every density. Leo
+    /// 2026-11-03: "generally we can have stuff more dynamically sized for compact/etc rn i think it's just a one size
+    /// for these workspace icons". Compact keeps its old 16 pt glyph exactly.
+    static var workspaceGlyphSide: CGFloat { iconColumnBox }
+    /// How much a workspace icon's drawing grows with `workspaceGlyphSide`: 1 at compact.
+    static var workspaceGlyphScale: CGFloat { workspaceGlyphSide / iconBox }
+    /// A workspace icon's symbol point size: the title's, grown with its glyph square.
+    static var workspaceSymbolPointSize: CGFloat { (titleFont.pointSize * workspaceGlyphScale).rounded() }
+    /// A workspace icon's favicon side: the row glyph's, grown with its glyph square.
+    static var workspaceFaviconSide: CGFloat { (kindGlyphSize * workspaceGlyphScale).rounded() }
     /// Reserve the icon column only when a visible icon precedes the title.
     static func titleTextX(leading: CGFloat, iconSide: CGFloat, swatch: Bool = false) -> CGFloat {
         columns(rowWidth: 0, leadingOffset: leading - titleLeading).text(hasLeadingMark: iconSide > 0)
@@ -88,10 +99,15 @@ enum SidebarStyle {
     /// A workspace row's status mark (the shared indicator, or the agent mark in its place): as
     /// tall as the unread badge beside it (Leo 2026-10-13); both read `Metrics.statusMarkSize`.
     static var statusGlyphSize: CGFloat { badgeHeight }
+    /// A color swatch or machine dot (not a status): 6 pt at compact.
     static var dotSize: CGFloat { Metrics.space3 }
-    /// The blue unread dot on a workspace row, an icon or a tile: 8 pt, as Claude's and ChatGPT's unread dot
-    /// (Leo 2026-10-31: "INCREASE THE SIZE OF THESE BLUE DOTS ON THE SIDEBAR"). The one token every unread dot reads.
-    static var unreadDotSize: CGFloat { Metrics.space4 }
+    /// Every status dot's diameter: blue unread, orange needs attention and any other status dot, in every
+    /// row kind (Home and band items, pinned, workspace and nested rows, group header roll-ups, icon and
+    /// tile corners, Priority rows). 8 pt at compact, as Claude's and ChatGPT's unread dot (Leo 2026-10-31:
+    /// "INCREASE THE SIZE OF THESE BLUE DOTS ON THE SIDEBAR"). Lawrence msg 19696 ("dots are different
+    /// size now which is very bad"): the blue dot grew and the orange one did not, so every dot path reads
+    /// this one token (`StatusIndicatorView.dotDiameter` for the indicator's dots); no view sizes its own.
+    static var statusDotSize: CGFloat { Metrics.space4 }
     /// A window rail button's glyph box and glyph (the Codex rail's 15pt
     /// glyphs on 32pt tiles), and its tile's rounding.
     static var railIconBox: CGFloat { Metrics.iconSize + Metrics.space3 }
@@ -219,7 +235,7 @@ enum SidebarStyle {
     /// sits this much before the edge its text aligns to.
     static var labelCellPadding: CGFloat { LayoutGrid.halfStep }
     /// A user-chosen SF Symbol at the title's point size, where symbols match the text beside them.
-    static var glyphConfig: NSImage.SymbolConfiguration { .init(pointSize: titleFont.pointSize, weight: .regular) }
+    static var glyphConfig: NSImage.SymbolConfiguration { .init(pointSize: workspaceSymbolPointSize, weight: .regular) }
     /// A header's disclosure chevron, filling its `Metrics.smallIconSize` box.
     static func chevron(collapsed: Bool) -> NSImage {
         NSImage.icon(collapsed ? .disclosureCollapsed : .disclosureExpanded, size: Metrics.smallIconSize)

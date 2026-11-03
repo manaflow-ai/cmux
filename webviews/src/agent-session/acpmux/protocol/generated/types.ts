@@ -1023,6 +1023,14 @@ export type SessionDetail = {
   tools?: (ToolSummary[] | null);
   /** `_acpmux/set_tools` can change them; omitted from census rows. */
   toolsMutable?: (boolean | null);
+  /**
+   * The seq of its newest transcript record (`hub/paging.rs` `is_transcript`): unlike
+   * `updatedAt` and `lastSeq`, bookkeeping (an agent start's `agent_start_waiting`, usage,
+   * git, process counts) never moves it, so a client that keeps a chat's newest page reads it
+   * again only when this passes the value it read at. An upper bound after a hard stop.
+   * Absent from a peer on an older acpmux.
+   */
+  transcriptSeq?: number;
   turn?: (TurnSummary | null);
   turnCount: number;
   unread: boolean;
@@ -1246,6 +1254,14 @@ export type SessionSummary = {
   tools?: (ToolSummary[] | null);
   /** `_acpmux/set_tools` can change them; omitted from census rows. */
   toolsMutable?: (boolean | null);
+  /**
+   * The seq of its newest transcript record (`hub/paging.rs` `is_transcript`): unlike
+   * `updatedAt` and `lastSeq`, bookkeeping (an agent start's `agent_start_waiting`, usage,
+   * git, process counts) never moves it, so a client that keeps a chat's newest page reads it
+   * again only when this passes the value it read at. An upper bound after a hard stop.
+   * Absent from a peer on an older acpmux.
+   */
+  transcriptSeq?: number;
   turn?: (TurnSummary | null);
   turnCount: number;
   unread: boolean;
