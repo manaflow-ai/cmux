@@ -43,7 +43,9 @@ parent.postMessage({ type: "probe-ran" }, "*");
   });
 
   /// Loads `srcdoc` in a sandboxed frame of a parent page and collects the frame's messages until one
-  /// of type `until` arrives; also every request to the probe host.
+  /// of type `until` arrives (a height report counts once it has a height); also every request to the
+  /// probe host. Chrome lays a sandboxed frame out in a process of its own, and can report the frame
+  /// before it has its size (height 0); the next report has it.
   async function load(engine: string, srcdoc: string, until: string) {
     const page = await browsers.get(engine)!.newPage();
     const requests: string[] = [];
@@ -55,12 +57,14 @@ parent.postMessage({ type: "probe-ran" }, "*");
     const messages = await page.evaluate(
       ({ srcdoc, sandbox, until }) =>
         new Promise<unknown[]>((resolve) => {
-          const got: { type?: string }[] = [];
+          const got: { type?: string; height?: number }[] = [];
           const frame = document.createElement("iframe");
           addEventListener("message", (event) => {
             if (event.source !== frame.contentWindow) return;
             got.push(event.data);
-            if (event.data?.type === until) resolve(got);
+            if (event.data?.type !== until) return;
+            if (until === "cmux-preview-size" && !(event.data.height > 0)) return;
+            resolve(got);
           });
           frame.setAttribute("sandbox", sandbox);
           frame.srcdoc = srcdoc;

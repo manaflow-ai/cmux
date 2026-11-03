@@ -33,11 +33,14 @@ public final class WorkspacePaletteProvider: PaletteProvider {
                 id: "workspace:\(id)",
                 title: workspace.title,
                 subtitle: parents.isEmpty ? nil : parents.joined(separator: " · "),
-                accessory: workspace.isSelected ? PaletteStrings.current
-                    : (workspace.unreadCount > 0 ? PaletteStrings.unreadCount(workspace.unreadCount) : nil),
+                // Every row says its kind in words, not by its icon alone (Leo 2026-11-03: "i also dont know
+                // what the symbols even mean"); Current or the unread count follows it.
+                accessory: PaletteStrings.kindWithState(PaletteStrings.kindWorkspace, state: workspace.isSelected ? PaletteStrings.current
+                    : (workspace.unreadCount > 0 ? PaletteStrings.unreadCount(workspace.unreadCount) : nil)),
                 symbol: "rectangle.stack",
                 section: Self.section,
-                keywords: [PaletteStrings.workspaceKeyword] + [workspace.groupName, workspace.machineName].compactMap { $0 },
+                keywords: [PaletteStrings.workspaceKeyword] + [workspace.groupName, workspace.machineName].compactMap { $0 }
+                    + workspace.keywords,
                 primary: PaletteCommand(id: "select", title: PaletteStrings.switchToWorkspace, symbol: "return", effect: .perform {
                     source.selectWorkspace(id: id)
                 }),

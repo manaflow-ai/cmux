@@ -270,10 +270,12 @@ impl Translator {
                         let tool = p.get("toolCallId").and_then(Value::as_str);
                         let tool = tool.filter(|t| !t.is_empty());
                         // The foreground shells it may move are the person's once they
-                        // move (`inbound.rs` `origin`).
+                        // move (`inbound.rs` `origin`), unless acpmux moves them on its own
+                        // (`auto`, `hub/auto_background.rs`): those stay `auto_backgrounded`.
+                        let auto = p.get("auto") == Some(&Value::Bool(true));
                         let mut asked = Vec::new();
                         for (call, shell) in self.background_shells.lock().await.iter_mut() {
-                            if !shell.background && tool.is_none_or(|t| t == call) {
+                            if !auto && !shell.background && tool.is_none_or(|t| t == call) {
                                 shell.asked = true;
                                 asked.push(call.clone());
                             }
