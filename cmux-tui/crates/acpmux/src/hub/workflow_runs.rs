@@ -189,6 +189,9 @@ impl Hub {
                 }
             };
             let run = current;
+            if self.workflow_runs.owns_runner(&run.id, run.generation) {
+                continue;
+            }
             let result = match run.state {
                 State::Pausing => self.workflow_finish_pause(run).await.map(|_| ()),
                 State::Running => {
