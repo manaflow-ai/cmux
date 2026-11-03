@@ -129,7 +129,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "agentPane.showSubagents",
                 title: String(localized: "action.agentPane.showSubagents", defaultValue: "Show Subagents in Session Info", bundle: .module),
-                keywords: ["agent", "chat", "subagents", "agents", "session info", "inspector", "children"],
+                keywords: ["agent", "chat", "subagents", "agents", "session info", "children"],
                 category: .agents, symbol: "person.2", surfaces: [.palette],
                 requires: [.agentPaneFocused], targets: [.pane], cliName: "agent show-subagents",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
@@ -137,7 +137,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "agentPane.showBackgroundTasks",
                 title: String(localized: "action.agentPane.showBackgroundTasks", defaultValue: "Show Background Tasks in Session Info", bundle: .module),
-                keywords: ["agent", "chat", "background", "tasks", "commands", "servers", "session info", "inspector"],
+                keywords: ["agent", "chat", "background", "tasks", "commands", "servers", "session info"],
                 category: .agents, symbol: "gearshape", surfaces: [.palette],
                 requires: [.agentPaneFocused], targets: [.pane], cliName: "agent show-background-tasks",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
