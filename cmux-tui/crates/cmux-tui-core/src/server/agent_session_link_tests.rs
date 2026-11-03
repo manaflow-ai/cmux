@@ -46,6 +46,37 @@ fn ids(reply: &Value) -> Vec<&str> {
 
 const WAIT: Duration = Duration::from_secs(5);
 
+// Linux admits one connection for listen(0); the next blocking connect waits until accept.
+// Close the listener before joining even on failure, so this regression cannot strand a thread.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_full_accept_backlog_refuses_instead_of_hanging() {
+    let dir = cmux_unix_socket::short_test_dir("asfull");
+    let path = dir.path().join("acpmux.sock");
+    let address = socket2::SockAddr::unix(&path).unwrap();
+    let listener =
+        socket2::Socket::new(socket2::Domain::UNIX, socket2::Type::STREAM, None).unwrap();
+    listener.bind(&address).unwrap();
+    listener.listen(0).unwrap();
+    let queued = UnixStream::connect(&path).unwrap();
+    let (send, receive) = std::sync::mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let refused = match AcpmuxLink::connect(&path, |_| {}) {
+            Ok(link) => {
+                link.close();
+                false
+            }
+            Err(_) => true,
+        };
+        let _ = send.send(refused);
+    });
+    let result = receive.recv_timeout(CONNECT_TIMEOUT + Duration::from_secs(2));
+    drop(listener);
+    drop(queued);
+    worker.join().unwrap();
+    assert!(result.unwrap(), "a queued connection is not a connected ACP agent");
+}
+
 #[test]
 fn pages_in_byte_page_order_are_joined_newest_first() {
     let (link, asked, _dir) = scripted(vec![
