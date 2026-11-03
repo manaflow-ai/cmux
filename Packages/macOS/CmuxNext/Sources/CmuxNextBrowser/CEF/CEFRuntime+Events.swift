@@ -109,6 +109,10 @@ extension CEFRuntime {
             // Untrusted: a compromised renderer can post anything (`CEFPageMessage`).
             if let tab = tabsByBrowser[browser], let message = CEFPageMessage(channel: channel, payload: payload, mainFrame: mainFrame) {
                 tab.agentRelay.pageMessage(message)
+            } else if channel == BrowserFirstPaintScript.channel, let tab = tabsByBrowser[browser], !tab.hasDocument { // PROBE
+                tab.host.lifecycleTrace.record(tab.id, "first-paint-message dropped mainFrame=\(mainFrame) payload=\(payload.prefix(40))")
+            } else if channel == BrowserFirstPaintScript.channel, tabsByBrowser[browser] == nil { // PROBE
+                logger.notice("first-paint message for unknown browser \(browser, privacy: .public)")
             }
         case .evaluateResult(let token, let status, let value):
             evaluationAnswered(token: token, CEFEvaluationResult(status: status, text: value))

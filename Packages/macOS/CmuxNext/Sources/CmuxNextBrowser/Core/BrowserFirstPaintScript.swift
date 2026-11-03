@@ -19,8 +19,14 @@ nonisolated struct BrowserFirstPaintScript {
             const observer = new PerformanceObserver((list) => {
               if (!list.getEntriesByName('first-contentful-paint').length) return;
               observer.disconnect();
-              const report = true;
-              if (\(ready)) { \(post); }
+              let waited = 0;
+              const send = () => {
+                // PROBE (reopen-f4, rpk 1-in-31): the channel can be missing when the paint comes; say how long it waited.
+                if (!(\(ready))) { if (waited++ < 200) setTimeout(send, 25); return; }
+                const report = waited === 0 ? true : 'late' + waited;
+                \(post);
+              };
+              send();
             });
             observer.observe({ type: 'paint', buffered: true });
           } catch (_) {}

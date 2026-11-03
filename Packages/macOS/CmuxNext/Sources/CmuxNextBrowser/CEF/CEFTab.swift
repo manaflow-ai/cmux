@@ -230,7 +230,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var deviceEmulationNeedsReset = false
     @ObservationIgnored var faviconTask: Task<Void, Never>?
     @ObservationIgnored private(set) var isClosed = false
-    @ObservationIgnored private var isOccluded = false
+    @ObservationIgnored private(set) var isOccluded = false
     /// The pane window this tab belongs to. A popup starts in its opener's
     /// Chromium window but belongs to its own popup host from adoption on;
     /// `awaitsWindowMove` is true until Chromium moved it there.
@@ -302,6 +302,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var committedThisLoad = false
     /// Chromium is loading (its last `.loadingState`).
     @ObservationIgnored var chromiumLoading = false
+    /// PROBE (reopen-f4): the readiness state of a page still not ready 1.5 s after attach.
+    @ObservationIgnored let readinessProbe = DemandTimer(owner: "CEFTab.readinessProbe")
 
     /// The main frame's document painted content (`CEFFirstPaintBridge`).
     func documentDidFirstPaint() {
@@ -367,6 +369,16 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         }
         refreshExtensionActions()
         if !navigates { documentArrived() }
+        if navigates {
+            readinessProbe.schedule(after: .milliseconds(1500)) { @MainActor [weak self] in self?.recordReadiness("1500ms") }
+        }
+    }
+
+    /// PROBE (reopen-f4): what a page that is still not ready waits for.
+    func recordReadiness(_ when: String) {
+        guard !hasDocument, !isClosed else { return }
+        let fork = runtime.forkFeatures.rendererPaths
+        host.lifecycleTrace.record(id, "readiness \(when) loaded=\(documentLoaded) painted=\(documentPainted) early=\(paintBeforeCommit) committed=\(committedThisLoad) loading=\(chromiumLoading) error=\(committedIsErrorPage) blank=\(blankIsDocument) occluded=\(isOccluded) shown=\(host.visibleTab === self) vis=\(contentVisibility.reason ?? "visible") pageChannel=\(fork) url=\(committedURL?.host() ?? "-")")
     }
 
     /// The page asked to show something may take keys: its main frame's document loaded (or is an error page) and

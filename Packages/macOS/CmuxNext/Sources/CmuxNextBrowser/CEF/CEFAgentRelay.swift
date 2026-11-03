@@ -135,7 +135,9 @@ public final class CEFAgentRelay {
         case .media: media?.report(message.payload)
         case .protectedMedia: media?.refused(message.payload)
         case .verification: verification?.report(message.payload)
-        case .firstPaint: firstPaint?.painted()
+        case .firstPaint:
+            if let tab, !tab.hasDocument { tab.host.lifecycleTrace.record(tab.id, "first-paint-message payload=\(message.payload)") } // PROBE
+            firstPaint?.painted()
         case .scrollReport:
             if let y = BrowserScrollReport.y(fromPayload: message.payload) { tab?.machine.apply(.pageScrolled(y)) }
         }

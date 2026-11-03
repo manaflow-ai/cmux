@@ -30,7 +30,7 @@ extension CEFTab {
                 machine.apply(.finished(navigation))
             }
             (loadingStopped, chromiumLoading) = (!loading, loading)
-            if !hasDocument { host.lifecycleTrace.record(id, "cef-loading \(loading)") } // the ready-for-keys signals (lead on STATUS 8457)
+            if !hasDocument { host.lifecycleTrace.record(id, "cef-loading \(loading)" + (loading ? "" : " occluded=\(isOccluded) vis=\(contentVisibility.reason ?? "visible")")) } // the ready-for-keys signals (lead on STATUS 8457); PROBE: visibility
             if !loading {
                 documentMayTakeKeys() // CEF reports this after every load end and error of the load
                 clearTitleBeforeCommit()
