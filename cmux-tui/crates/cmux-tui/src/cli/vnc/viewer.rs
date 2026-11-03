@@ -5,9 +5,9 @@
 //!
 //! Threads: one reads terminal events; one per connection runs
 //! [`Session::next_event`] and scales each update to the pane; the main
-//! thread owns the terminal and every decision. They meet on one channel,
-//! and frames coalesce: a frame the main thread has not drawn yet is
-//! replaced, never queued.
+//! thread owns the terminal and every decision. Terminal events have a bounded
+//! channel, separate from network notifications. Frames coalesce: a frame the
+//! main thread has not drawn yet is replaced, never queued.
 
 use std::io::{self, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use cmux_vnc::message::button;
 use cmux_vnc::{Backoff, Cursor, Event, Input, Session, SessionOptions, VncError};
-use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
+use crossbeam_channel::{Receiver, Sender};
 use crossterm::event::{
     self as term, DisableBracketedPaste, DisableFocusChange, DisableMouseCapture,
     EnableBracketedPaste, EnableFocusChange, EnableMouseCapture, KeyboardEnhancementFlags,
@@ -36,6 +36,9 @@ const CURSOR_ID: u32 = 0x5643_0003;
 const RESIZE_SETTLE: Duration = Duration::from_millis(300);
 /// Longest wait on quit or reconnect for queued key and button releases to reach the server.
 const RELEASE_FLUSH: Duration = Duration::from_millis(500);
+/// One terminal event sends at most two operations (wheel or focus release).
+/// Leave room for those and the final key/button releases on exit.
+const INPUT_EVENT_ROOM: usize = 4;
 
 enum Msg {
     Term(term::Event),
@@ -79,6 +82,8 @@ enum State {
 
 pub(super) fn run(config: Config, first: Session) -> io::Result<()> {
     let (tx, rx) = crossbeam_channel::unbounded();
+    let (terminal_tx, terminal_rx) = crossbeam_channel::bounded(1);
+    let (capacity_tx, capacity_rx) = crossbeam_channel::bounded(1);
     let mut terminal_guard = TerminalGuard::enter()?;
     let enhanced = terminal::supports_keyboard_enhancement().unwrap_or(false);
     if enhanced {
@@ -101,10 +106,9 @@ pub(super) fn run(config: Config, first: Session) -> io::Result<()> {
         terminal_guard.pixel_mouse = true;
         io::stdout().write_all(b"\x1b[?1016h")?;
     }
-    let input_tx = tx.clone();
     thread::Builder::new().name("vnc-terminal-input".into()).spawn(move || {
         while let Ok(event) = term::read() {
-            if input_tx.send(Msg::Term(event)).is_err() {
+            if terminal_tx.send(Msg::Term(event)).is_err() {
                 return;
             }
         }
@@ -114,6 +118,7 @@ pub(super) fn run(config: Config, first: Session) -> io::Result<()> {
         canvas: Arc::new(Mutex::new(Canvas { pane: current_pane(), frame: None })),
         config,
         tx,
+        capacity_tx,
         generation: Arc::new(AtomicU64::new(0)),
         state: State::Connecting,
         backoff: Backoff::default(),
@@ -134,7 +139,7 @@ pub(super) fn run(config: Config, first: Session) -> io::Result<()> {
         out: io::stdout(),
     };
     viewer.adopt(first);
-    let result = viewer.run(&rx);
+    let result = viewer.run(&rx, &terminal_rx, &capacity_rx);
     viewer.release_input();
     if let State::Connected { input, .. } = &viewer.state {
         input.close_after_pending(RELEASE_FLUSH);
@@ -149,6 +154,7 @@ struct Viewer {
     config: Config,
     canvas: Arc<Mutex<Canvas>>,
     tx: Sender<Msg>,
+    capacity_tx: Sender<()>,
     /// The live connection's number, shared with the reader threads: a
     /// thread whose number is no longer current closes its connection.
     generation: Arc<AtomicU64>,
@@ -176,20 +182,34 @@ struct Viewer {
 }
 
 impl Viewer {
-    fn run(&mut self, rx: &Receiver<Msg>) -> io::Result<()> {
+    fn run(
+        &mut self,
+        rx: &Receiver<Msg>,
+        terminal_rx: &Receiver<Msg>,
+        capacity_rx: &Receiver<()>,
+    ) -> io::Result<()> {
         self.draw_status()?;
+        let no_input = crossbeam_channel::never();
         loop {
-            let deadline = self.next_deadline();
-            let msg = match deadline {
-                Some(at) => match rx.recv_deadline(at) {
-                    Ok(msg) => Some(msg),
-                    Err(RecvTimeoutError::Timeout) => None,
-                    Err(RecvTimeoutError::Disconnected) => return Ok(()),
+            // Stop reading at the source while input is backpressured. The terminal
+            // reader waits on its bounded channel; network frames and timers keep flowing.
+            let terminal_rx =
+                if self.input().is_none_or(|input| input.has_capacity(INPUT_EVENT_ROOM)) {
+                    terminal_rx
+                } else {
+                    &no_input
+                };
+            let timer = self.next_deadline().map_or_else(crossbeam_channel::never, |at| {
+                crossbeam_channel::after(at.saturating_duration_since(Instant::now()))
+            });
+            let msg = crossbeam_channel::select! {
+                recv(rx) -> msg => match msg { Ok(msg) => Some(msg), Err(_) => return Ok(()) },
+                recv(terminal_rx) -> msg => match msg { Ok(msg) => Some(msg), Err(_) => return Ok(()) },
+                recv(capacity_rx) -> _ => {
+                    if self.resize_at.is_none() { self.schedule_remote_resize(false); }
+                    None
                 },
-                None => match rx.recv() {
-                    Ok(msg) => Some(msg),
-                    Err(_) => return Ok(()),
-                },
+                recv(timer) -> _ => None,
             };
             if let Some(msg) = msg
                 && self.handle(msg)?
@@ -198,6 +218,13 @@ impl Viewer {
             }
             self.fire_timers()?;
         }
+    }
+
+    fn watch_input_capacity(&self, input: &Input) {
+        let ready = self.capacity_tx.clone();
+        input.set_capacity_notifier(move || {
+            let _ = ready.try_send(());
+        });
     }
 
     fn frame_interval(&self) -> Duration {
@@ -247,6 +274,7 @@ impl Viewer {
             Msg::Net(generation, _) if generation != self.current_generation() => {}
             Msg::Net(_, net) => match net {
                 Net::Connected(input, name) => {
+                    self.watch_input_capacity(&input);
                     // The backoff resets only when this session lives long enough.
                     self.name = name;
                     self.state = State::Connected { input };
@@ -354,7 +382,9 @@ impl Viewer {
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         let current = self.generation.clone();
         self.name = session.name().to_owned();
-        self.state = State::Connected { input: session.input() };
+        let input = session.input();
+        self.watch_input_capacity(&input);
+        self.state = State::Connected { input };
         let tx = self.tx.clone();
         let canvas = self.canvas.clone();
         let started = Instant::now();
@@ -559,10 +589,13 @@ impl Viewer {
 
     /// Asks the server once per target size; its answer arrives as an update.
     fn send_remote_resize(&mut self) {
-        if let (Some((w, h, screen)), Some(input)) = (self.remote_resize_target(), self.input()) {
-            let _ = input.resize(w, h, screen);
+        if let (Some((w, h, screen)), Some(input)) = (self.remote_resize_target(), self.input())
+            && input.has_capacity(INPUT_EVENT_ROOM)
+            && input.resize(w, h, screen).is_ok()
+        {
             self.resize_sent = Some((w, h));
         }
+        // A capacity notification reschedules an unsent target without spinning a timer.
     }
 
     fn render(&mut self) -> io::Result<()> {

@@ -6,7 +6,11 @@ use std::io::{self, Write};
 /// becomes a key-down/key-up pair (16 bytes), so a pair never straddles batches.
 const CHUNK_BYTES: usize = 16 * 1024;
 
-pub(crate) fn write(writer: &mut dyn Write, text: &str) -> io::Result<()> {
+pub(crate) fn write(
+    writer: &mut dyn Write,
+    text: &str,
+    mut refresh: impl FnMut(&mut dyn Write) -> io::Result<()>,
+) -> io::Result<()> {
     let mut batch = Vec::with_capacity(CHUNK_BYTES);
     for c in text.chars().filter(|&c| c != '\r') {
         let keysym = crate::keysym::char_keysym(c).to_be_bytes();
@@ -16,9 +20,13 @@ pub(crate) fn write(writer: &mut dyn Write, text: &str) -> io::Result<()> {
         }
         if batch.len() == CHUNK_BYTES {
             flush(writer, &mut batch)?;
+            // A framebuffer request may pass between complete key pairs; later
+            // user input remains behind the logical paste.
+            refresh(writer)?;
         }
     }
     flush(writer, &mut batch)?;
+    refresh(writer)?;
 
     // Send keys first: the first text reaches the application without waiting
     // for a complete clipboard transfer or even a scan of the full string.
