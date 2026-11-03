@@ -274,6 +274,17 @@ extension DaemonStore {
         case .layoutChanged(let screen, let layout?, _):
             // `layout-delta-v1`: patch that one screen (I3).
             return applyLayoutChange(screen: screen, layout: layout)
+        case .selectionChanged(let delta):
+            applySelection(delta)
+            return .none
+        case .workspacePresentationChanged(let delta):
+            // The whole entity, read when the daemon wrote it: O(that workspace).
+            guard let workspace = index.workspacesByID[WorkspaceModel.identity(delta.entity)] else { return .none }
+            let group = workspace.group
+            workspace.update(delta.entity)
+            indexed(workspace)
+            if workspace.group != group { sidebarNeedsRecompute = true }
+            return .none
         case .treeChanged, .layoutChanged:
             return .resync
         case .personalChanged:
@@ -313,6 +324,23 @@ extension DaemonStore {
 
         case .scrollChanged, .bell, .frontendProjectionChanged, .client:
             return .none
+        }
+    }
+
+    /// `selection-changed`: the active screen, each screen's active pane, each pane's active tab and focus
+    /// stamp of one workspace, in O(that workspace). What the store does not hold yet comes with its own
+    /// add delta.
+    private func applySelection(_ delta: SelectionDelta) {
+        guard let workspace = index.workspacesByHandle[delta.workspace] else { return }
+        for selected in delta.screens {
+            guard let screen = workspace.screens.first(where: { $0.handle == selected.id }) else { continue }
+            if screen.isActive != selected.active { screen.isActive = selected.active }
+            if screen.defaultPane != selected.activePane { screen.defaultPane = selected.activePane }
+            for pane in selected.panes {
+                guard let model = screen.pane(pane.id) else { continue }
+                if model.defaultTabIndex != pane.activeTab { model.defaultTabIndex = pane.activeTab }
+                if model.focusedAt != pane.focusedAt { model.focusedAt = pane.focusedAt }
+            }
         }
     }
 
