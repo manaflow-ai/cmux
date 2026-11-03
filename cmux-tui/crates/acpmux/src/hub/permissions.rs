@@ -215,6 +215,8 @@ impl Hub {
                         &mut session.stderr_tail.lock().unwrap_or_else(|e| e.into_inner()),
                         &clean,
                     );
+                    // A line that says why a silent turn is silent (`silent_turn.rs`).
+                    self.quiet_changed(&session);
                     // An agent host's stderr was logged before its ack.
                     if host_seq.is_none() {
                         self.append(&session, "mux", "stderr", json!({"text": line}));

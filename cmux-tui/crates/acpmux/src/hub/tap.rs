@@ -192,6 +192,13 @@ impl Hub {
                         .1;
                 }
                 (Direction::In, Message::Notification { method, params }) => {
+                    // Why a quiet turn is quiet (`silent_turn.rs`): Claude Code retries its API.
+                    if !muted
+                        && method == "claude.system.api_retry"
+                        && let Some(p) = params.as_ref()
+                    {
+                        tap_hub.note_api_retry(&tap_session, p);
+                    }
                     let mut kind = method.clone();
                     let timing = method == RAW_STREAM_EVENT
                         && params.as_ref().is_some_and(|p| times_request(p, &awaiting_first_delta));

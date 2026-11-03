@@ -17,7 +17,8 @@ import { BackgroundHint } from "./BackgroundHint";
 import { useSubsessionInfo } from "../subagents/subsessions";
 import { ShimmerText } from "./ShimmerText";
 import { formatDuration } from "./turns";
-import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
+import { WaitingLabel } from "./WaitingLabel";
+import { WaitingOnContext } from "./waitingOn";
 import { TurnTokens } from "./TurnTokens";
 import { useTicking, WorkingCountsContext, workingParts } from "./WorkingFor";
 
@@ -131,9 +132,7 @@ export function Thinking({
   return (
     <div className={`cv-worked${below ? " is-below" : ""}${quiet ? "" : " is-quiet"}`} data-find-skip>
       {waiting ? (
-        <output className="cv-thinking cv-waiting" data-waiting={waiting}>
-          {t(WAITING_LABEL[waiting])}
-        </output>
+        <WaitingLabel waiting={waiting} label="cv-thinking" />
       ) : (
         <span className="cv-shimmer__row">
           <output className="cv-thinking is-shimmer">

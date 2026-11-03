@@ -689,6 +689,10 @@ pub struct RetryParams {
     /// (`hub/subagent_retry_manual.rs`), never taken as the chat's own turn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subagent_id: Option<String>,
+    /// The chat's running turn is silent (`turn_silent`): end it as failed, then retry it
+    /// (`hub/silent_turn.rs`). Refused with `retry.busy` when the running turn is not silent.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub silent: bool,
 }
 
 /// What `_acpmux/retry` sent: the prompt `promptId` (for the chat's turn `P~resume-n`, the next

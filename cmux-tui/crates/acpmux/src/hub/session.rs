@@ -350,6 +350,11 @@ pub struct Session {
     pub(super) last_model_at: AtomicU64,
     /// The turn that logged `turn_silent` and has not heard its model since (`silent_turn.rs`).
     pub(super) silent_turn: StdMutex<Option<String>>,
+    /// The harness's last `api_retry` since the prompt (Claude Code's retry of its model API):
+    /// why a silent turn is silent (`silent_turn.rs` `quiet_reason`).
+    pub(super) api_retry: StdMutex<Option<Value>>,
+    /// The reason the open `turn_silent` was last logged with: a changed one is logged again.
+    pub(super) silent_reason: StdMutex<Option<Value>>,
     /// The turn cap's timer for the running turn (`turn_cap.rs`); the next turn aborts it.
     pub(super) turn_cap_timer: StdMutex<Option<tokio::task::AbortHandle>>,
     /// Other agents' messages to this chat, in threads (`inbox.rs`).

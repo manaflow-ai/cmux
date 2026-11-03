@@ -68,7 +68,14 @@ impl HarnessFailures {
     }
 }
 
-fn redact(error: &str) -> String {
+/// What an error line says of the harness (`hub/silent_turn.rs` reads a quiet turn's stderr and
+/// API retries with it): the reason a failed turn with that error would count, if any.
+pub fn classify_text(error: &str) -> Option<StuckReason> {
+    classify(&Value::Null, error)
+}
+
+/// `error` with its credentials masked and cut to 500 characters.
+pub fn redact(error: &str) -> String {
     // The shared scanner deliberately ignores short arbitrary tokens. Diagnostics
     // must also hide those when explicitly labelled and all URL query credentials.
     // A credential value is masked whole: a quoted one to its closing quote (escapes

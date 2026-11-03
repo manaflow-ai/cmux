@@ -32,7 +32,8 @@ import { TimedLabel, TurnTokens } from "./TurnTokens";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { formatDuration } from "./turns";
 import { useSubsessionInfo } from "../subagents/subsessions";
-import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
+import { WaitingLabel } from "./WaitingLabel";
+import { WaitingOnContext } from "./waitingOn";
 
 export const workingLabel = (t: Translate, at: number, now: number) =>
   t("turn.working", { time: formatDuration(Math.max(0, now - at)) });
@@ -103,9 +104,7 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
         </span>
       )}
       {waiting ? (
-        <output className="cv-worked__label cv-waiting" data-waiting={waiting}>
-          {t(WAITING_LABEL[waiting])}
-        </output>
+        <WaitingLabel waiting={waiting} />
       ) : doing || row.thinkingNow ? (
         <>
           <span className={doing ? "cv-worked__label cv-worked__doing" : "cv-worked__label"}>

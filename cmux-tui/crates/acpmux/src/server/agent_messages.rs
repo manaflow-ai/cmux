@@ -108,6 +108,12 @@ async fn retry(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Value
         full_access_device: super::remote_guard::full_access_device(hub, conn, params),
         from: None,
     };
+    // Retry on a turn whose model said nothing (`turn_silent`): that turn ends first, as failed.
+    if params.get("silent").and_then(Value::as_bool) == Some(true)
+        && str_param(params, "subagentId").is_none()
+    {
+        hub.end_silent_turn(&s).await?;
+    }
     hub.retry(&s, str_param(params, "subagentId"), by).await
 }
 

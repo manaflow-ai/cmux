@@ -1,4 +1,5 @@
 import { BUBBLE } from "./transcriptSpacing";
+import type { SilentReason } from "./conversation/silentReason";
 import {
   footerAfter,
   gridLength,
@@ -944,6 +945,8 @@ export type AcpmuxSnapshot = {
   /// The running turn's agent has said nothing since its prompt, past acpmux's `silentTurnMs`
   /// (direct.ts `silentTurn`): the turn's line says the model has not answered.
   silentTurn?: true;
+  /// Why it is silent, as acpmux judged it (`turn_silent` `reason`); absent from an older acpmux.
+  silentReason?: SilentReason;
   /// Stop (or Esc) was sent and the running turn has not ended yet (direct.ts `cancel`): Stop
   /// turns and says it is stopping, so a press never looks like it did nothing.
   stopping?: true;

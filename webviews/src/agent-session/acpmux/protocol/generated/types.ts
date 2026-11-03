@@ -725,6 +725,11 @@ export interface RetryParams {
   /** The chat's id, name or unique prefix. */
   sessionId: string;
   /**
+   * The chat's running turn is silent (`turn_silent`): end it as failed, then retry it
+   * (`hub/silent_turn.rs`). Refused with `retry.busy` when the running turn is not silent.
+   */
+  silent?: boolean;
+  /**
    * One of the chat's failed subagents to resume instead, by its id or agent id
    * (`hub/subagent_retry_manual.rs`), never taken as the chat's own turn.
    */

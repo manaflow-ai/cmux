@@ -447,8 +447,11 @@ its path and counts only that.
 (no message, thought, tool call, plan, compaction or request, and no harness line only a
 responding model produces, such as Claude's stream and thinking or Codex's moderation
 notice; the agent's own usage and turn notices do not count) for that long after its
-prompt (a stalled model) logs `turn_silent` {turnId, silentMs} once, so a client can say
-the model has not answered. The model's first sign after it logs `turn_heard` {turnId}.
+prompt (a stalled model) logs `turn_silent` {turnId, silentMs, reason}, so a client can say
+the model has not answered and why (`reason.kind`: `retrying`, `capacity`, `auth`,
+`unavailable` from the harness's API retries and stderr, else `no_answer`; logged again when
+the reason changes). `_acpmux/retry` with `silent: true` ends a silent turn as failed and sends
+it again. The model's first sign after it logs `turn_heard` {turnId}.
 `stalledTurnMs` (default 600000; 0 turns it off): a running turn with no tool call in
 flight whose model has shown no sign for that long has stalled: `lane.stalledSince` (and
 `turn.stalledSince`) say since when, and the lane's state stays `working`. A long build in

@@ -6,6 +6,7 @@ import { isRetryContinuation, subagentRetryNotice, type SubagentRetryNotice } fr
 import { isModelRouterKind } from "./routerKinds";
 import type { SwitchPort } from "./harnessSwitch";
 import { OlderPageDelay } from "./conversation/olderPageDelay";
+import { readSilentReason, type SilentReason } from "./conversation/silentReason";
 import { answeredBy, participant, promptAuthor, type Participant } from "./multiplayer/participants";
 import type {
   AcpmuxActivity,
@@ -1868,6 +1869,8 @@ export class AcpmuxDirectClient {
   /// (`turn_silent`, hub/silent_turn.rs): the line says the model has not answered. acpmux hearing
   /// the model (`turn_heard`), or the turn's end, clears it; the agent's own bookkeeping does not.
   private silentTurn = false;
+  /// Why it is silent, as acpmux judged it (`turn_silent` `reason`, conversation/silentReason.ts).
+  private silentReason: SilentReason | undefined;
   /// The last seq seen when Stop was pressed: only a turn event after it answers that Stop. A
   /// rebuild (loadOlder, lag resync) replays older ones, which must not answer a later Stop.
   private stopAfterSeq?: number;
@@ -5857,6 +5860,7 @@ export class AcpmuxDirectClient {
         this.turnOpen = true;
       } else if (event.kind === "turn_silent") {
         this.silentTurn = this.turnOpen;
+        this.silentReason = this.turnOpen ? readSilentReason(msg.reason) : undefined;
       } else if (event.kind === "turn_heard") {
         this.silentTurn = false;
       } else if (event.kind === "turn_started") {
@@ -6526,6 +6530,9 @@ export class AcpmuxDirectClient {
         ? { turnTokenSplit: this.turnTokenSplit }
         : {}),
       ...(this.replayThrough === undefined && this.turnOpen && this.silentTurn ? { silentTurn: true as const } : {}),
+      ...(this.replayThrough === undefined && this.turnOpen && this.silentTurn && this.silentReason
+        ? { silentReason: this.silentReason }
+        : {}),
       // Only a peer runs on another clock; this computer's own sessions need no correction.
       ...(summary?.peer && this.clockOffset !== undefined ? { clockOffsetMs: this.clockOffset } : {}),
       canFork: this.canFork,
@@ -9330,6 +9337,7 @@ export class AcpmuxDirectClient {
       // The running turn's prompt is the held events', never an older page's.
       turnPrompt: this.turnPrompt,
       silentTurn: this.silentTurn,
+      silentReason: this.silentReason,
       turnTokens: this.turnTokens,
       turnTokenSplit: this.turnTokenSplit,
       streamingAssistant: this.streamingAssistant,

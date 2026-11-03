@@ -1310,6 +1310,8 @@ impl Hub {
             stalled_gen: AtomicU64::new(0),
             last_model_at: AtomicU64::new(0),
             silent_turn: StdMutex::new(None),
+            api_retry: StdMutex::new(None),
+            silent_reason: StdMutex::new(None),
             turn_cap_timer: StdMutex::new(None),
             inbox: StdMutex::new(inbox::Inbox::default()),
             last_active: AtomicU64::new(self.clock_now()),

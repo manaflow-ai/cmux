@@ -238,6 +238,13 @@ impl Hub {
 
     /// The error a stalled turn fails with (`finish_turn`), from its forced answer.
     pub(super) fn stalled_error(answer: &Value) -> Option<RpcError> {
+        // Retry on a silent turn ended it (`silent_turn.rs` `end_silent_turn`).
+        if let Some(ms) = answer.pointer("/_meta/acpmux/silentMs").and_then(Value::as_u64) {
+            let text = format!("the model said nothing for {}; ended to retry it", quiet_for(ms));
+            return Some(
+                RpcError::new(-32000, text).with_data(json!({"detail": "silent", "silentMs": ms})),
+            );
+        }
         let ms = answer.pointer("/_meta/acpmux/stalledMs").and_then(Value::as_u64)?;
         let text = format!(
             "the agent showed no sign of work for {}; acpmux ended the turn (stalledTurnEndMs)",

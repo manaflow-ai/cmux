@@ -3822,6 +3822,11 @@
           "description": "The chat's id, name or unique prefix.",
           "type": "string"
         },
+        "silent": {
+          "default": false,
+          "description": "The chat's running turn is silent (`turn_silent`): end it as failed, then retry it\n(`hub/silent_turn.rs`). Refused with `retry.busy` when the running turn is not silent.",
+          "type": "boolean"
+        },
         "subagentId": {
           "description": "One of the chat's failed subagents to resume instead, by its id or agent id\n(`hub/subagent_retry_manual.rs`), never taken as the chat's own turn.",
           "type": [
