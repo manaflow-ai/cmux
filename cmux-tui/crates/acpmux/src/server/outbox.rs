@@ -637,14 +637,11 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 };
                 // A peer whose link is ready again ends the wait (`Outbox::peer_ready`): a message
                 // to a machine that was down goes the moment it is reachable. A projection intent
-                // keeps its bounded schedule: another peer's reconnects must not use it up. The
-                // wait never runs past the message's day.
-                let left = delivery
-                    .created_at
-                    .saturating_add(RETRY_FOR_MS)
-                    .saturating_sub(crate::store::now_ms());
+                // keeps its bounded schedule: another peer's reconnects must not use it up. A
+                // message's wait never runs past its day; an intent's delays are never cut, so an
+                // intent older than a day after a restart does not spend its retries at once.
                 let sleep =
-                    tokio::time::sleep(Duration::from_secs(secs).min(Duration::from_millis(left)));
+                    tokio::time::sleep(retry_sleep(&delivery, secs, crate::store::now_ms()));
                 let ready = hub.outbox.peer_ready.notified();
                 if delivery.projection_only() {
                     sleep.await;
@@ -657,6 +654,17 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
             }
         }
     }
+}
+
+/// How long `delivery` sleeps before its next attempt, given the schedule's `secs`: a message
+/// no longer than what is left of its day ([`RETRY_FOR_MS`]), a projection intent the whole delay.
+fn retry_sleep(delivery: &Delivery, secs: u64, now: u64) -> Duration {
+    let delay = Duration::from_secs(secs);
+    if delivery.projection_only() {
+        return delay;
+    }
+    let left = delivery.created_at.saturating_add(RETRY_FOR_MS).saturating_sub(now);
+    delay.min(Duration::from_millis(left))
 }
 
 /// Whether `delivery`, a message (not a projection intent, which keeps its own schedule), is
@@ -884,6 +892,20 @@ mod retry_delay_tests {
             assert!(retry_delay(&mut delays, &intent, 2_000).is_some());
         }
         assert_eq!(retry_delay(&mut delays, &intent, 2_000), None);
+    }
+
+    /// A message's wait stops at the end of its day; a projection intent's wait is never cut,
+    /// even when the intent is older than a day (a restart resumed it).
+    #[test]
+    fn only_a_messages_wait_is_cut_at_the_end_of_its_day() {
+        let day_end = 1_000 + RETRY_FOR_MS;
+        assert_eq!(retry_sleep(&delivery(1_000, false), 900, 2_000), Duration::from_secs(900));
+        assert_eq!(
+            retry_sleep(&delivery(1_000, false), 900, day_end - 5_000),
+            Duration::from_secs(5)
+        );
+        assert_eq!(retry_sleep(&delivery(1_000, false), 900, day_end + 1), Duration::ZERO);
+        assert_eq!(retry_sleep(&delivery(1_000, true), 900, day_end + 1), Duration::from_secs(900));
     }
 
     /// A message a day old is not sent (after a restart too); a projection intent is not timed.
