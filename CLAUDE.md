@@ -342,7 +342,9 @@ enforces this.
   (`gh pr merge N --squash --match-head-commit <full head sha>`). A `HOLD:` line in the description or a hold label keeps a reviewed PR from
   landing. The `ready-to-land` label is only a fallback hand-off for a PR its owner can't land: a
   label older than the head's last push doesn't count. `ci.yml`'s `ci-status` does not run here;
-  a red `risk evidence` or `merge freeze` keeps the PR out. Don't wait for, rerun or fix base
+  a red `risk evidence` or `merge freeze` keeps the PR out. A freeze can open after that check ran,
+  so right before you merge, run `scripts/ci/merge_freeze.py check --repo manaflow-ai/cmux --pr N --base feat-cmux-next`
+  and merge only on exit 0 (1 is frozen, 2 is unknown, which counts as frozen). Don't wait for, rerun or fix base
   reds in your PR; a red it causes keeps it out until you fix it. Don't merge with
   `gh-merge-green` here (`--revert` still works), and never with `--admin`.
 - **Into `main`, the normal merge path is `gh-merge-green`** and main's rulesets. It refuses a PR

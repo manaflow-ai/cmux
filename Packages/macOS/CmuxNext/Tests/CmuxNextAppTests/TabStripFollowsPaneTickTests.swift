@@ -29,17 +29,13 @@ import Testing
 @MainActor
 @Suite(.serialized, .closesItsWindows)
 struct TabStripFollowsPaneTickTests {
-    /// The stage's Debug switch, by its key: these tests turn it on, whatever its default.
-    static let frameOwnerSwitch = "motion.frameOwner.tabStrip"
-
-    /// Runs `body` with the switch on, then resets it.
-    static func withFrameOwnerSwitch(_ body: () throws -> Void) rethrows {
+    /// Runs `body` with the stage's Debug switch (`motion.frameOwner.tabStrip`) set to `on`, then resets it.
+    static func withFrameOwnerSwitch(_ on: Bool = true, _ body: () throws -> Void) rethrows {
         let store = TunableStore.shared
         store.activate(file: nil)
-        store.register([TunableDescriptor(key: frameOwnerSwitch, section: .springs, label: "Tab strip follows the pane tick",
-                                          help: "FRAME OWNER REFACTOR S1 test switch.", kind: .bool, defaultSource: .fixed(.bool(true)))])
-        store.set(frameOwnerSwitch, .bool(true))
-        defer { store.set(frameOwnerSwitch, nil) }
+        store.register([DesignTunables.frameOwnerTabStrip.descriptor])
+        store.set(DesignTunables.frameOwnerTabStrip.key, .bool(on))
+        defer { store.set(DesignTunables.frameOwnerTabStrip.key, nil) }
         try body()
     }
 

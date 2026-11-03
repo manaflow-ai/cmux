@@ -434,6 +434,7 @@ enum TabLifecycle {
             if let back, let content = back.workspace { PaneHandlers.focus(back.layoutPaneID, in: content) }
             return
         }
+        if let target = ctx.explicitTarget(invocation, kinds: [.tab]) { ctx.services.closedTabs?.undoToasts.hiddenPages.lift(target.id) } // a tab hidden while its page decided (HiddenPageCloses): found again
         guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
         if let controller = ctx.services.paneController(for: pane) {
             return CloseUndoToasts.close(in: controller, ctx.actingTabs(invocation, controller, StripTabID(tab.id)))

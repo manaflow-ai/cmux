@@ -150,13 +150,14 @@ if ! awk '
   in_prepare && /runs-on: \$\{\{ github\.repository_owner/ { saw_matrix_runner=1 }
   in_prepare && /strategy:/ { saw_serial_fallback=1 }
   in_prepare && /PREPARE_FALLBACK/ { saw_runner_matrix=1; saw_primary_tolerated=1 }
-  in_prepare && /blacksmith-(16|32)vcpu-ubuntu-2404/ { saw_blacksmith=1 }
+  # #33340: the job ends in a declared Linux runner pool (4 vCPU), not a literal Blacksmith label.
+  in_prepare && /fromJSON\(vars\.RUNNER_POOLS\)\.linux_[0-9]+/ { saw_linux_pool=1 }
   in_prepare && /env\.PREPARE_FALLBACK == '\''true'\''/ { saw_fallback=1 }
   in_prepare && /actions\/runs\/\$GITHUB_RUN_ID\/artifacts\?name=/ { saw_artifact_probe=1 }
   in_prepare && /steps\.reuse\.outputs\.exists != '\''true'\''/ { saw_reuse_gate=1 }
-  END { exit !(saw_matrix_runner && saw_runner_matrix && saw_serial_fallback && saw_blacksmith && saw_fallback && saw_primary_tolerated && saw_artifact_probe && saw_reuse_gate) }
+  END { exit !(saw_matrix_runner && saw_runner_matrix && saw_serial_fallback && saw_linux_pool && saw_fallback && saw_primary_tolerated && saw_artifact_probe && saw_reuse_gate) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly preparation must run on Blacksmith Linux, keep its fallback, and reuse a successful artifact"
+  echo "FAIL: nightly preparation must run on a declared Linux runner pool, keep its fallback, and reuse a successful artifact"
   exit 1
 fi
 if ! awk '
@@ -906,19 +907,25 @@ NOT_PUBLISHED="needs.resolve-nightly-cmux-tui-client.outputs.already_published !
 NOT_CONTINUE="needs.decide.outputs.continue_only != 'true'"
 # A nightly-next push that a newer push replaced builds nothing (one build slot, #21917).
 NOT_SUPERSEDED="needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true'"
+# A build a newer published build is already above spends no notarization (#33109): the macOS
+# signer adds it as one more top-level conjunct, so it only narrows the gate.
+NOT_OVERTAKEN="needs.pick-nightly-sign-runner.outputs.overtaken != 'true'"
 # The helper, the variant and the macOS signer each exclude build_only with a top-level `&&`.
 BUILD_GATE="needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE"
 # nightly-next's early controls wait for their admission receipt (#30284): the resolver, the
 # helper lookup and the helper add it as one parenthesized conjunct, so it only narrows them; the
 # app build needs the resolver, so it is skipped with it.
 EARLY_ADMISSION="(github.repository != 'manaflow-ai/cmux' || needs.decide.outputs.track != 'nightly-next' || vars.CI_NIGHTLY_ADMISSION_CHECKS != '1' || inputs.nightly_next_unsigned_run != '' || github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' || needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && needs.decide.outputs.early_admission_ready == 'true')"
+# A run whose build a newer published build is above spends no notarization (#33109): the macOS
+# signer adds it as one more top-level conjunct, after the build gate.
+NOT_OVERTAKEN="needs.pick-nightly-sign-runner.outputs.overtaken != 'true'"
 # The macOS signer is the fallback when the signer jobs did not produce the DMG (#26335); its
 # prefix only adds conjuncts, so the build_only exclusion still holds.
 SIGN_FALLBACK="!cancelled() && needs.decide.result == 'success' && needs.build-nightly-app.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.prepare-nightly-variant.result == 'success' && needs.pick-nightly-sign-runner.result == 'success' && needs.signer-dmg.result != 'success'"
 if [ "$(job_if build-nightly-app)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" ] \
   || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE && $EARLY_ADMISSION" ] \
   || [ "$(job_if prepare-nightly-variant-primary)" != "    if: $BUILD_GATE" ] \
-  || [ "$(job_if build-sign-notarize-nightly)" != "    if: \"$SIGN_FALLBACK && $BUILD_GATE\"" ] \
+  || [ "$(job_if build-sign-notarize-nightly)" != "    if: \"$SIGN_FALLBACK && $BUILD_GATE && $NOT_OVERTAKEN\"" ] \
   || [ "$(job_if resolve-nightly-cmux-tui-client)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $EARLY_ADMISSION" ] \
   || [ "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" != "$(job_if build-nightly-app)" ] \
   || [ "$(job_if publish-nightly)" != "    if: \"always() && !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && needs.decide.outputs.no_publish != 'true' && (((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && (needs.signer-dmg.result == 'success' || needs.verify-signed-nightly.result == 'success') && needs.verify-final-dmg-nightly.result == 'success' && (needs.verify-final-dmg-nightly.outputs.smoked_in_job == 'true' || !(needs.signer-dmg.result == 'success' && vars.NIGHTLY_NEXT_PARALLEL_SMOKE != 'off' && needs.decide.outputs.track == 'nightly-next') && needs.verify-final-dmg-nightly.outputs.image == '' || needs.launch-smoke-nightly.result == 'success' && needs.verify-final-dmg-nightly.outputs.image != '' && needs.launch-smoke-nightly.outputs.image == needs.verify-final-dmg-nightly.outputs.image)) || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))\"" ]; then

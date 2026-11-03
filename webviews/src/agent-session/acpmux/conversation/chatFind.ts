@@ -344,6 +344,16 @@ export function clearFindHighlights() {
  * the active match's range when its row is mounted (its last match when the drawn text has fewer
  * than the row's text, such as a link's hidden address).
  */
+/// Whether text in `element` is outside Find: under a `data-find-skip`, unless a `data-find-keep`
+/// nearer to it brings it back (a tool's notice's title on its line, whose line is a summary that
+/// Find skips: IncomingMessageCard.tsx).
+export function findSkipped(element: Element | null | undefined): boolean {
+  const skip = element?.closest("[data-find-skip]");
+  if (!skip) return false;
+  const keep = element?.closest("[data-find-keep]");
+  return !keep || !skip.contains(keep);
+}
+
 export function paintFindHighlights(
   root: HTMLElement,
   query: string,
@@ -370,7 +380,7 @@ export function paintFindHighlights(
     const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT, {
       // A member row drawn inside this one (`data-find-member`) counts its own matches, never twice.
       acceptNode: (node) =>
-        node.parentElement?.closest("[data-find-skip]") ||
+        findSkipped(node.parentElement) ||
         node.parentElement
           ?.closest("[data-find-member][data-row-id]")
           ?.closest("[data-row-id]:not([data-find-member])") === row
