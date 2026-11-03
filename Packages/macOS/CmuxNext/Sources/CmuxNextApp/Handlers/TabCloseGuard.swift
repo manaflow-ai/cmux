@@ -48,7 +48,8 @@ enum TabCloseGuard {
             return { @MainActor restored in
                 pane.apply(pane.snapshot())
                 if emptied, !restored { _ = pane.showPaneClose() }
-                if emptied, restored, let workspace = pane.workspace, workspace.layoutModel.withdrawPaneClose(pane.layoutPaneID) {
+                // Any tab back shows its pane again, whichever close hid it (a later close of its last other tab: review of #32898).
+                if restored, !pane.stripModel.tabs.isEmpty, let workspace = pane.workspace, workspace.layoutModel.withdrawPaneClose(pane.layoutPaneID) {
                     workspace.applyCurrent()
                     if focused { workspace.layoutModel.focus(pane.layoutPaneID, notify: false); PaneHandlers.focus(pane.layoutPaneID, in: workspace) }
                 }
