@@ -10,7 +10,7 @@ public import AppKit
 ///
 /// Like Chrome's permission prompts (`InputEventActivationProtector`), a click that begins less than
 /// ``activationDelay`` after the prompt shows or moves (``shown(at:)``), or less than that after the
-/// previous mouse-down (a run of fast clicks), is not taken: a click the person aimed at what was
+/// person's previous mouse-down (a run of fast clicks), is not taken: a click the person aimed at what was
 /// there before the prompt never answers it.
 @MainActor
 public final class CmuxDialogPersonClick {
@@ -22,7 +22,7 @@ public final class CmuxDialogPersonClick {
     public let activationDelay: TimeInterval
     /// When the prompt showed or last moved, in system uptime (`NSEvent.timestamp`).
     private var shownAt: TimeInterval?
-    /// The previous mouse-down in the prompt, any poster's.
+    /// The person's previous mouse-down in the prompt (a run of fast clicks is not taken).
     private var lastDown: TimeInterval?
     /// The person's own mouse-down that began the click going on now, with the Allow control enabled when
     /// it came, held until the click ends: AppKit may hand a button the mouse-up in its tracking loop,
@@ -54,8 +54,11 @@ public final class CmuxDialogPersonClick {
         switch event.type {
         case .leftMouseDown:
             personDown = nil
-            if let control = allow(), control.isEnabled, settled(event), isPersonEvent(event) { personDown = (event: event, allow: control) }
-            lastDown = event.timestamp
+            if let control = allow(), control.isEnabled, isPersonEvent(event) {
+                if settled(event) { personDown = (event: event, allow: control) }
+                // Only the person's own: another process's clicks never hold the person's Allow off.
+                lastDown = event.timestamp
+            }
             body()
             guard let up = eventInHand(), up.type == .leftMouseUp else { return false }
             return endClick(up, allow: allow(), in: windowNumber)
@@ -74,7 +77,7 @@ public final class CmuxDialogPersonClick {
 
     /// Whether a mouse-down came late enough to be aimed at the prompt (Chrome's
     /// `IsPossiblyUnintendedInteraction`): not within ``activationDelay`` of the prompt showing, nor of the
-    /// previous mouse-down. A prompt with a delay that never said it showed takes none.
+    /// person's previous mouse-down. A prompt with a delay that never said it showed takes none.
     private func settled(_ down: NSEvent) -> Bool {
         guard activationDelay > 0 else { return true }
         guard let shownAt, down.timestamp >= shownAt + activationDelay else { return false }

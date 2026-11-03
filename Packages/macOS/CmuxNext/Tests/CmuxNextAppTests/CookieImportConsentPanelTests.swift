@@ -92,7 +92,8 @@ import Testing
     /// Allow answers only the person's own click on Allow, read from the click's events in the panel's
     /// dispatch: not a click another process posts (the strict HID check refuses it), not one pressed on
     /// Allow and released elsewhere, and, as Chrome's permission prompts guard, not a click that begins
-    /// right after the panel shows or moves, or right after another click. Then the person's click allows, once.
+    /// right after the panel shows or moves, or right after the person's other click. Then the person's
+    /// click allows, once, even right after another process's click.
     @Test func onlyThePersonsOwnClickOnAllowAllows() async throws {
         _ = NSApplication.shared
         let parent = Self.parent()
@@ -106,7 +107,9 @@ import Testing
         let deny = try #require(Self.find(window.contentView, id: CookieImportConsentPanel.accessibilityID + ".deny"))
         let delay = window.personClick.activationDelay
         #expect(delay >= 0.2, "a click aimed at what was there before the panel is not taken")
-        window.personClick.shown(at: 1000)
+        // Later than any real show, move or occlusion change while the test runs (each arms at the uptime then).
+        let base = ProcessInfo.processInfo.systemUptime + 1000
+        window.personClick.shown(at: base)
         let center = { (view: NSView) in view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil) }
         var number = 0
         let event = { (type: NSEvent.EventType, at: NSPoint, time: TimeInterval) throws -> NSEvent in
@@ -128,17 +131,19 @@ import Testing
                 allow.performClick(nil)
             }
         }
-        try click(allow, allow, true, 1000 + delay / 2) // right after the panel showed
-        try click(allow, allow, false, 1000 + 4 * delay) // another process's posted click
-        try click(allow, deny, true, 1000 + 8 * delay) // pressed on Allow, released on Deny
-        try click(deny, allow, true, 1000 + 12 * delay) // pressed on Deny, released on Allow
-        try click(allow, allow, false, 1000 + 16 * delay)
-        try click(allow, allow, true, 1000 + 16.5 * delay) // right after another click (a double click)
-        window.personClick.shown(at: 1000 + 20 * delay) // the panel moved under the pointer
-        try click(allow, allow, true, 1000 + 20.5 * delay)
+        try click(allow, allow, true, base + delay / 2) // right after the panel showed
+        try click(allow, allow, false, base + 4 * delay) // another process's posted click
+        try click(allow, deny, true, base + 8 * delay) // pressed on Allow, released on Deny
+        try click(deny, allow, true, base + 12 * delay) // pressed on Deny, released on Allow
+        try click(allow, deny, true, base + 16 * delay)
+        try click(allow, allow, true, base + 16.5 * delay) // right after the person's other click (a double click)
+        window.personClick.shown(at: base + 20 * delay) // the panel moved under the pointer
+        try click(allow, allow, true, base + 20.5 * delay)
         for _ in 0..<50 { await Task.yield() }
         #expect(consent.isShown, "no click so far allows")
-        try click(allow, allow, true, 1000 + 24 * delay)
+        // Another process's clicks just before never hold the person's Allow off.
+        try click(allow, allow, false, base + 23.8 * delay)
+        try click(allow, allow, true, base + 24 * delay)
         #expect(await answer.value == .allow)
         #expect(!consent.isShown)
     }

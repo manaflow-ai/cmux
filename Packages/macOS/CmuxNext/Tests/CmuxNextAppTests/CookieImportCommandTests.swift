@@ -69,6 +69,8 @@ import Testing
 
     @Test func onlyAPersonsRunInTheAppSkipsTheConsentPanel() {
         #expect(!CookieImportService.needsConsent(ActionInvocation(origin: .user)))
+        #expect(CookieImportService.needsConsent(ActionInvocation(origin: .user), byPerson: false),
+                "a palette or card run that a posted click or key started asks too")
         for origin in [ActionOrigin.cli, .mcp, .script, .remote, .page] {
             #expect(CookieImportService.needsConsent(ActionInvocation(origin: origin)), "\(origin) asks first")
         }

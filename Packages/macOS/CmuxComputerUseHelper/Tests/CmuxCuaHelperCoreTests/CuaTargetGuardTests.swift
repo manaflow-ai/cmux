@@ -279,7 +279,7 @@ import Testing
     /// cmux's own Computer Use never acts on a window that keeps itself out of screen capture
     /// (`NSWindow.sharingType = .none`: cmux's consent prompts, a password reveal): only the person
     /// answers it. Window 9002 is such a window of an app the policy allows (TextEdit), so only the
-    /// window's capture state refuses it, by every target shape and inside a batch.
+    /// window's capture state refuses it, by every shape that names the window and inside a batch.
     @Test(arguments: [
         ("click", #"{"pid":102,"window_id":9002,"x":1,"y":1}"#),
         ("click", #"{"target":{"kind":"window","pid":102,"window_id":9002},"x":1,"y":1}"#),

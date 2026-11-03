@@ -23,8 +23,9 @@ import CmuxNextCompat
 ///   (``CmuxDialogPersonClick`` with the app's strict check): no
 ///   Accessibility press, programmatic click, key or posted click allows;
 /// - a click that begins less than a double-click interval after the panel
-///   shows or moves is not taken (Chrome's `InputEventActivationProtector`),
-///   so a click aimed at what was there before never allows.
+///   shows or moves is not taken (Chrome's
+///   `InputEventActivationProtector`), so a click aimed at what was there
+///   before never allows.
 /// Deny stays easy: its button and Escape, by anyone.
 @MainActor
 final class CookieImportConsentPanel {
@@ -208,6 +209,8 @@ final class CookieImportConsentPanel {
         for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification] {
             observers.append(MainActorObservation(name, object: window, center: center) { [weak self] in
                 self?.place()
+                // Moved under the pointer (AppKit moves a child window with its parent): not armed.
+                self?.panel.personClick.shown()
             })
         }
         observers.append(MainActorObservation(NSWindow.willCloseNotification, object: window, center: center) { [weak self] in
@@ -223,8 +226,6 @@ final class CookieImportConsentPanel {
         let placed = NSRect(x: frame.midX - size.width / 2, y: frame.midY - size.height / 2, width: size.width, height: size.height)
         guard placed != panel.frame else { return }
         panel.setFrame(placed, display: true)
-        // Moved under the pointer: a click aimed at what was there before is not taken.
-        panel.personClick.shown()
     }
 
     @objc private func showRequester() { onShowRequester?() }
@@ -259,6 +260,18 @@ final class CookieImportConsentWindow: NSPanel {
 
     override func sendEvent(_ event: NSEvent) {
         dispatch(event) { super.sendEvent(event) }
+    }
+
+    /// Moved (placed again, or an Accessibility client set its position): a click aimed at what was
+    /// there before is not taken. A move with its parent is armed by the panel's parent observers.
+    override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+        super.setFrame(frameRect, display: flag)
+        personClick.shown()
+    }
+
+    override func setFrameOrigin(_ point: NSPoint) {
+        super.setFrameOrigin(point)
+        personClick.shown()
     }
 
     /// SECURITY: Allow answers here, from the person's click itself, never from the button's action.

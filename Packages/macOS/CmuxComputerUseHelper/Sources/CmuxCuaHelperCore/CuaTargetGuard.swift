@@ -67,8 +67,10 @@ struct CuaTargetGuard: Sendable {
                 throw unresolved("window_id")
             }
             try check(await resolver.app(forWindowID: nativeID), reference: "window \(id)")
-            // A window out of screen capture is a consent or secret prompt (cmux's cookie import and join
-            // consent, a password reveal): only the person answers it, whatever app shows it.
+            // A window out of screen capture is a consent or secret prompt (cmux's cookie import consent, a
+            // password reveal): only the person answers it, whatever app shows it. Only a call that names the
+            // window is checked here; input by pid or at desktop coordinates can still land on such a window,
+            // and the window's own check refuses it there (cmux's prompts take only the HID system's input).
             if await resolver.isCaptureExcluded(windowID: nativeID) { throw captureExcluded() }
         }
         for key in ["bundle_id", "app_bundle_id"] {

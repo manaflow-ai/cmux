@@ -9,7 +9,7 @@ import Foundation
 /// one profile of another browser on this Mac (Chromium family, Safari,
 /// Firefox family) into a cmux browser profile, optionally only some sites.
 ///
-/// A person's run (palette) imports at once. Any other run (an agent's MCP
+/// A person's run (palette), started by the person's own input, imports at once. Any other run (an agent's MCP
 /// tool, the CLI from a script or agent) must give a reason, and the person
 /// first answers ``CookieImportConsentPanel``, which names the agent's chat or
 /// terminal tab; nothing of the other browser is read before Allow, and only
@@ -40,7 +40,9 @@ public final class CookieImportService {
         do { query = try CookieSourceQuery(from) } catch { throw CookieImportRefusal(message: CookieImportStrings.missingSource) }
         let filter = CookieDomainFilter(invocation["domain"]?.stringValue ?? "")
         let reason = invocation["reason"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let asks = Self.needsConsent(invocation)
+        // A person's run only when the input that started it is the person's own (a click or key that
+        // another process posts into the palette or an Import card is not).
+        let asks = Self.needsConsent(invocation, byPerson: NSApp.currentEvent.map(host.isPersonEvent) ?? false)
         if asks, Self.needsReason(invocation), reason.isEmpty { throw CookieImportRefusal(message: CookieImportStrings.reasonRequired) }
         if asks, asking != nil { throw CookieImportRefusal(message: CookieImportStrings.busy) }
         let target = host.target(invocation)
@@ -51,9 +53,11 @@ public final class CookieImportService {
         })
     }
 
-    /// Every run but a person's in this app asks first (an agent, a script, another client).
-    nonisolated static func needsConsent(_ invocation: ActionInvocation) -> Bool {
-        invocation.origin != .user
+    /// Every run but a person's in this app asks first (an agent, a script, another client). A run with
+    /// the user origin asks too when `byPerson` is false: the event that started it is not the person's
+    /// own input from the HID system (a computer-use tool's click or key in the palette or on a card).
+    nonisolated static func needsConsent(_ invocation: ActionInvocation, byPerson: Bool = true) -> Bool {
+        invocation.origin != .user || !byPerson
     }
 
     /// An agent must say why. A person typing the command at a terminal (`cli` origin with no
