@@ -87,7 +87,7 @@ package final class HiddenChatPages<Host: HiddenChatPagesHost> {
     private var releasing: Set<String> = []
     /// Existing shared LRU: visible pages plus the newest hidden untouched New Tabs. The spare
     /// pool is separate and never enters this set. Visibility updates touch only changed keys.
-    package static var newTabCapacity: Int { 2 }
+    package static var newTabCapacity: Int { Int.max }
     private var newTabs = SurfaceRetention<String>(capacity: HiddenChatPages<Host>.newTabCapacity)
     private var excessNewTabs: Set<String> = []
     package func newTabIsExcess(_ key: String) -> Bool { excessNewTabs.contains(key) }
