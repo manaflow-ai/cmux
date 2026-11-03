@@ -80,11 +80,11 @@ import Testing
 
     /// The editor's Pin row was titled when it opened: an Unpin from the header closes it, so that row
     /// cannot read Unpin Group and pin the group again.
-    @Test func unpinningFromTheHeaderClosesAnOpenGroupEditor() throws {
+    @Test(.enabled("the editor bubble is a window on screen") { await GroupPaletteDefaultTests.hasDisplay() })
+    func unpinningFromTheHeaderClosesAnOpenGroupEditor() throws {
         let harness = try Harness(pinned: true)
         defer { harness.sidebar.list.groupEditor.hide(); harness.window.close() }
         harness.window.orderFrontRegardless() // the editor's bubble opens from a window on a screen
-        try #require(harness.window.screen != nil)
         harness.sidebar.list.groupEditing.open(harness.id, from: .moreButton)
         try #require(harness.sidebar.list.groupEditor.isVisible)
         let header = try harness.hoveredHeader()
