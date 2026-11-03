@@ -20,6 +20,8 @@ import CmuxNextSettings
     var tabsShown = true
     /// Native chrome holes, in page coordinates; Session Info adds its own overlay hole.
     var holes: [CGRect] = []
+    /// The window's top rim the page leaves uncovered over the chat's tools (`nativeHoles`), in points.
+    static let rimHeight: CGFloat = 1
     private var offeredNativeRowTools: Bool?
     /// Only a shared page host has the return event stream needed by native controls.
     var supportsNativeTools = false
@@ -90,11 +92,18 @@ import CmuxNextSettings
 /// The parts of a shared tab row `width` points wide and `height` tall (top-left origin) that the
 /// pane's native chrome draws: its tabs, from the leading edge to where the chat's `tools` begin
 /// (the strip gives up at most half its room, `PaneTabRowSharing.tabRowWidth`), unless `tabs` is
-/// false (a lone tab hides), and its toolbar in the trailing `trailingInset` points.
+/// false (a lone tab hides), and its toolbar in the trailing `trailingInset` points. Between them,
+/// the row's top `AgentPaneTabRow.rimHeight` stays uncovered too: where the row meets the window's
+/// top edge, the page window over it drew a flat gray line in place of the window's lit glass rim,
+/// so the rim broke off where the chat's tools began (Leo 2026-11-03: "there is clearly a rectangle
+/// that is just covering up the glass at the rim of the top of the app"). The three never overlap:
+/// the fork masks the page with them even-odd, and an overlap would cover that part again.
 private func nativeHoles(width: CGFloat, height: CGFloat, trailingInset: CGFloat, tools: CGFloat, tabs: Bool) -> [CGRect] {
     let room = max(0, width - trailingInset)
     let span = min(max(0, tools), room / 2)
-    return [CGRect(x: 0, y: 0, width: tabs ? room - span : 0, height: height),
+    let tabsEnd = tabs ? room - span : 0
+    return [CGRect(x: 0, y: 0, width: tabsEnd, height: height),
+            CGRect(x: tabsEnd, y: 0, width: room - tabsEnd, height: min(AgentPaneTabRow.rimHeight, height)),
             CGRect(x: room, y: 0, width: width - room, height: height)].filter { !$0.isEmpty }
 }
 
