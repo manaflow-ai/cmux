@@ -56,7 +56,6 @@ function host(actions: () => Record<string, Action> | undefined, waitMs: number)
     ready: async (method) => void (await pageAction(actions, method, waitMs)),
     selectSession: () => {},
     openDiff: () => {},
-    diff: () => ({ open: false, paths: [] }),
   };
 }
 

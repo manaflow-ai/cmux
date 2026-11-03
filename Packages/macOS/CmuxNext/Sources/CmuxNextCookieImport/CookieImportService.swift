@@ -9,10 +9,11 @@ import Foundation
 /// one profile of another browser on this Mac (Chromium family, Safari,
 /// Firefox family) into a cmux browser profile, optionally only some sites.
 ///
-/// A person's run (palette) imports at once. Any other run (an agent's MCP
+/// A person's run (palette), started by the person's own input, imports at once. Any other run (an agent's MCP
 /// tool, the CLI from a script or agent) must give a reason, and the person
 /// first answers ``CookieImportConsentPanel``, which names the agent's chat or
-/// terminal tab; nothing of the other browser is read before Allow. After
+/// terminal tab; nothing of the other browser is read before Allow, and only
+/// the person's own click allows (no automation can, the agent's included). After
 /// Allow macOS asks for the browser's Keychain key (Chromium) or cmux needs
 /// Full Disk Access (Safari). Cookies stay in memory between the reader and
 /// the target profile's Chromium jar; only counts leave the run, and no
@@ -39,7 +40,11 @@ public final class CookieImportService {
         do { query = try CookieSourceQuery(from) } catch { throw CookieImportRefusal(message: CookieImportStrings.missingSource) }
         let filter = CookieDomainFilter(invocation["domain"]?.stringValue ?? "")
         let reason = invocation["reason"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let asks = Self.needsConsent(invocation)
+        // A person's run only inside the dispatch of the person's own input that started it: not a click or
+        // key another process posts into the palette or an Import card, and not an Accessibility press,
+        // which runs outside any input dispatch.
+        let byPerson = Self.startedByPerson(host.dispatchingEvent(), now: ProcessInfo.processInfo.systemUptime, isPerson: host.isPersonEvent)
+        let asks = Self.needsConsent(invocation, byPerson: byPerson)
         if asks, Self.needsReason(invocation), reason.isEmpty { throw CookieImportRefusal(message: CookieImportStrings.reasonRequired) }
         if asks, asking != nil { throw CookieImportRefusal(message: CookieImportStrings.busy) }
         let target = host.target(invocation)
@@ -50,15 +55,31 @@ public final class CookieImportService {
         })
     }
 
-    /// Every run but a person's in this app asks first (an agent, a script, another client).
-    nonisolated static func needsConsent(_ invocation: ActionInvocation) -> Bool {
-        invocation.origin != .user
+    /// Every run but a person's own in this app asks first (an agent, a script, another client, a cmux app
+    /// during the person's gesture in it: ``ActionInvocation/isPersonsOwnRun``). The person's own run asks
+    /// too when `byPerson` is false: it did not start in the dispatch of the person's own input from the HID
+    /// system (a computer-use tool's click, key or Accessibility press in the palette or on a card).
+    nonisolated static func needsConsent(_ invocation: ActionInvocation, byPerson: Bool) -> Bool {
+        !invocation.isPersonsOwnRun || !byPerson
+    }
+
+    /// The longest a person's click or key may precede the run it started.
+    static let personInputAge: TimeInterval = 1
+
+    /// SECURITY: whether `event`, the input event being dispatched as a run starts (nil outside a dispatch:
+    /// an Accessibility press, a socket run, a timer), is the person's own click or key that started it: a
+    /// key or mouse-button event, the person's (`isPerson`: the strict HID check), at most ``personInputAge``
+    /// before `now` (system uptime). A mouse move, an old event or none does not count.
+    static func startedByPerson(_ event: NSEvent?, now: TimeInterval, isPerson: @MainActor (NSEvent) -> Bool) -> Bool {
+        guard let event, [.keyDown, .leftMouseDown, .leftMouseUp, .rightMouseUp, .otherMouseUp].contains(event.type) else { return false }
+        return event.timestamp <= now && now - event.timestamp <= personInputAge && isPerson(event)
     }
 
     /// An agent must say why. A person typing the command at a terminal (`cli` origin with no
-    /// agent session) may leave it out; the panel still asks them.
+    /// agent session and no Chief turn) may leave it out; the panel still asks them.
     nonisolated static func needsReason(_ invocation: ActionInvocation) -> Bool {
-        invocation.origin != .user && !(invocation.origin == .cli && invocation.callerAgentSession == nil)
+        invocation.origin != .user
+            && !(invocation.origin == .cli && invocation.callerAgentSession == nil && !invocation.callerHomeChat)
     }
 
     private func importCookies(query: CookieSourceQuery, filter: CookieDomainFilter, reason: String, target: (id: String, name: String),
@@ -81,7 +102,8 @@ public final class CookieImportService {
             let request = CookieImportRequest(requester: requester, reason: reason, source: sourceName,
                                               sourceIsSafari: profile.browser.family == .safari, domains: filter.domains, target: target.name)
             let reveal = host.reveal
-            let panel = CookieImportConsentPanel(request: request, onShowRequester: requester.tabID.map { tab in { reveal(tab) } })
+            let panel = CookieImportConsentPanel(request: request, onShowRequester: requester.tabID.map { tab in { reveal(tab) } },
+                                                 isPersonEvent: host.isPersonEvent)
             asking = panel
             let answer = await panel.ask(on: window)
             asking = nil

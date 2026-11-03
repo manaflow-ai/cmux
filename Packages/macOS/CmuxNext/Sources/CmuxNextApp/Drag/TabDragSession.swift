@@ -111,7 +111,7 @@ final class TabDragSession: NSObject {
             self.settleGhost(drag)
         }) { [weak self, weak drag] tick in
             guard let self, let drag else { return false }
-            return self.tick(drag, elapsed: tick.elapsed)
+            return self.tick(drag, elapsed: tick.frameElapsed)
         }
         drag.link?.activate()
         update(point)

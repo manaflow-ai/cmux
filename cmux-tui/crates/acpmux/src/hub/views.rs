@@ -456,6 +456,7 @@ impl Hub {
             created_at: m.created_at,
             updated_at: m.updated_at,
             last_seq: m.last_seq,
+            transcript_seq: m.transcript_seq,
             event_count: m.event_count,
             turn_count: m.turn_count,
             parent_id: m.parent_id.clone(),
@@ -753,6 +754,9 @@ impl Hub {
             "socket": crate::config::socket_path(),
             "store": cfg.store,
             "sessions": sessions.len(),
+            // Messages handed to this daemon that are not delivered yet (`outbox.rs`):
+            // `acpmux ls` says so, `acpmux send --status` lists them.
+            "outboxPending": self.outbox_unsettled(),
             "liveAgents": live,
             "stuckSessions": stuck,
             "disk": disk,

@@ -179,6 +179,14 @@ STARTED = re.compile(r"◇ Test (?:case passing .+? to )?(\w+)\((.*?)\) started\
 # A test's end (Swift Testing; a case of a parameterized test ends with its test), and XCTest's start and end.
 # ━ is a test that passed with a known issue (withKnownIssue): it finished.
 FINISHED = re.compile(r"[✔✘━] Test (\w+)\(.*?\)(?: with \d+ test cases?)? (?:passed|failed)\b")
+# A pass whose line another stream cut into: Swift Testing prints ✔ only for a test that passed, so
+# "✔ Test aFailureNothingRetriesShowsAtOnceswift runtime: backtrace-on-crash ..." (run 41665450504, the helper killed
+# with the rest of the line unwritten) is that test's pass. spliced_pass matches a started name followed by anything
+# but more of a test name and its "(": foo is not taken for fooBar().
+def spliced_pass(name: str, text: str) -> bool:
+    return re.search(rf"✔ Test {re.escape(name)}(?!\w*\()", text) is not None
+
+
 XC_STARTED = re.compile(r"Test Case '-\[(\S+ \S+)\]' started")
 XC_FINISHED = re.compile(r"Test Case '-\[(\S+ \S+)\]' (?:passed|failed|skipped)")
 CARGO_RUNNING = re.compile(r"^running \d+ tests?$")
@@ -551,6 +559,12 @@ def read(log: str | None, bun: bool = True) -> Result:
         result.failed |= names
         result.ran = True
     unfinished = started - {m.group(1) for text in lines for m in [FINISHED.search(text)] if m}
+    # Each cut-into pass closes one start, the longest name it fits (fooBar(), not foo() too); a run's own
+    # summary ("✔ Test run with 1 test ...") is never one, so it does not close a test named run().
+    for text in lines:
+        if unfinished and "✔ Test " in text and not FINISHED.search(text) and not RUN_ENDED.search(text):
+            if fits := [name for name in unfinished if spliced_pass(name, text)]:
+                unfinished.discard(max(fits, key=len))
     unfinished |= ({m.group(1) for text in lines for m in [XC_STARTED.search(text)] if m}
                    - {m.group(1) for text in lines for m in [XC_FINISHED.search(text)] if m})
     if unfinished:
@@ -853,6 +867,44 @@ def classify_web(head_logs: list, base_logs: list, job: str = "", base: str = "t
     if differ:
         reasons.append(f"{len(differ)} test(s) fail differently on {base}: {'; '.join(differ)[:600]}")
     return Verdict(bool(reasons), reasons, shared)
+
+
+# A coalesced feat-cmux-next web run (cmux-next-web.yml runs its web checks at most once every 15 minutes, on the
+# newest push, routed from the last run's commit) covers several commits. When its webview tests go red, its
+# `web bisect` job (scripts/ci/web_coalesce.py bisect) re-runs only the new red files, only on those commits, and
+# prints one line a file. bisect_report reads them, so a reader of push verdicts (HQ's base-red-watch) still names the
+# first red commit and its pull request rather than the run's whole range:
+#   web bisect: first red at SHA (#N|a direct push) after GREEN_SHA: FILE[ (TESTS)]
+#   web bisect: red before the range at BASE_SHA: FILE       (red at the run before: not this range's)
+#   web bisect: flaky on the base: FILE                      (flips by itself on the base, or no input changed)
+#   web bisect: unresolved between LO_SHA and HI_SHA: FILE   (first red somewhere in (LO, HI])
+BISECT_LINE = re.compile(
+    r"web bisect: (?:first red at (?P<first>[0-9a-f]{40}) \((?:#(?P<pr>\d+)|a direct push)\) after (?P<green>[0-9a-f]{40})"
+    r"|red before the range at (?P<base>[0-9a-f]{40})|(?P<flaky>flaky on the base)"
+    r"|unresolved between (?P<lo>[0-9a-f]{40}) and (?P<hi>[0-9a-f]{40})): (?P<file>\S+?)(?: \(.*\))?$")
+
+
+def bisect_report(log: str | None) -> dict[str, dict]:
+    """{webview test file: {"kind": first|base|flaky|unresolved, "first_red", "green", "pr"}} from a `web bisect` job's
+    log (its echoed script is never read). first: FIRST_RED is the file's first red commit, GREEN the commit before
+    it, PR its pull request number or None for a direct push. unresolved: the first red is after GREEN, at or before
+    FIRST_RED. base and flaky name no commit of the range."""
+    found: dict[str, dict] = {}
+    for text in lines_of(log or ""):
+        match = BISECT_LINE.search(text)
+        if not match:
+            continue
+        if match["first"]:
+            got = {"kind": "first", "first_red": match["first"], "green": match["green"],
+                   "pr": int(match["pr"]) if match["pr"] else None}
+        elif match["base"]:
+            got = {"kind": "base", "first_red": None, "green": None, "pr": None}
+        elif match["flaky"]:
+            got = {"kind": "flaky", "first_red": None, "green": None, "pr": None}
+        else:
+            got = {"kind": "unresolved", "first_red": match["hi"], "green": match["lo"], "pr": None}
+        found.setdefault(match["file"], got)
+    return found
 
 
 # Gallery health's health.json: a shard's broken states and its states over their ready-time budget.

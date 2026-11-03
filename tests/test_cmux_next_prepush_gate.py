@@ -167,7 +167,9 @@ class PrePushGateTests(unittest.TestCase):
         self.repo = self.root / "repository"
         self.origin = self.root / "origin.git"
         self.global_config = self.root / "gitconfig"
-        self.global_config.write_text("[user]\n\tname = Fixture\n\temail = fixture@example.com\n")
+        # The pushes below go into a local bare origin, whose receive-pack reads only config files (git_fixture_env).
+        self.global_config.write_text("[user]\n\tname = Fixture\n\temail = fixture@example.com\n"
+                                      + git_fixture_env.CONFIG_FILE_OPT_OUT)
         self.env = {key: value for key, value in os.environ.items()
                     if not key.startswith("GIT_") and key not in AGENT_VARS}
         self.env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(self.global_config),
@@ -1545,6 +1547,100 @@ let package = Package(
         self.assertNotEqual(result.returncode, 0, output)
         self.assertNotIn("reviewed raises of the pushed crash data", output)
         self.assertEqual(self.remote_head(), before)
+
+    # A ratchet row a push lowers or deletes with the sites it removes (lead 2026-11-03, #33091): the installed
+    # baseline cannot know the push lowered it, so it read the fix as "fewer than the baseline" and refused it. Each
+    # tree reads its own row where that is lower; a raise or a new row still reads the installed copy.
+    SCAN = "cmux-tui/crates/fixture/src/scan.rs"
+
+    def scan_source(self, sites):
+        return "".join("pub fn exe%d(pid: i32) -> String {\n    format!(\"/proc/{pid}/exe\")\n}\n" % i
+                       for i in range(sites))
+
+    def set_scan_row(self, count):
+        path = self.repo / "scripts/cmux-next/process-scan-baseline.tsv"
+        lines = [line for line in path.read_text().splitlines() if not line.startswith(self.SCAN + "\t")]
+        if count:
+            lines.append(f"{self.SCAN}\t{count}\tremove\tfixture")
+        path.write_text("\n".join(lines) + "\n")
+
+    def install_with_scan_sites(self, sites):
+        """A base with SITES process-scan lines and their row, and the hook installed from it."""
+        self.write(self.SCAN, self.scan_source(sites))
+        self.set_scan_row(sites)
+        self.commit(f"base: {sites} process-scan lines")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        installed = subprocess.run(["bash", INSTALLER], cwd=self.repo, env=self.env, text=True, capture_output=True)
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+
+    def test_a_push_that_lowers_a_ratchet_row_with_its_fix_passes(self):
+        self.install_with_scan_sites(2)
+        self.write(self.SCAN, self.scan_source(1))
+        self.set_scan_row(1)
+        self.commit("removes one process-scan line and lowers its row")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_push_that_deletes_the_row_of_a_site_it_removed_passes(self):
+        self.install_with_scan_sites(2)
+        self.write(self.SCAN, "pub fn other() {}\n")
+        self.set_scan_row(0)
+        self.commit("removes both process-scan lines and deletes their row")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_push_that_raises_a_ratchet_row_is_still_refused(self):
+        self.install_with_scan_sites(2)
+        self.write(self.SCAN, self.scan_source(3))
+        self.set_scan_row(3)
+        self.commit("adds a process-scan line and raises its row")
+        before = self.remote_head()
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("No process scanning", output)
+        self.assertIn("has 3 process-scan line(s), baseline 2", output)
+        self.assertEqual(self.remote_head(), before)
+
+    def test_a_push_that_lowers_a_row_below_its_sites_is_refused(self):
+        self.install_with_scan_sites(2)
+        self.write(self.SCAN, self.scan_source(2) + "pub fn other() {}\n")
+        self.set_scan_row(1)
+        self.commit("lowers the row but keeps both lines")
+        before = self.remote_head()
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("has 2 process-scan line(s), baseline 1", output)
+        self.assertEqual(self.remote_head(), before)
+
+    def test_each_ratchet_baseline_shape_takes_only_lower_rows(self):
+        spec = importlib.util.spec_from_file_location("prepush_gate_ratchet_rows", SOURCE / GATE)
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        name = "swift-type-scale-baseline.tsv"
+        self.write(f"scripts/cmux-next/{name}", "# path\tkind\tcount\nA.swift\tsize\t1\nA.swift\tweight\t5\nC.swift\tsize\t4\n")
+        self.commit("pushed type-scale rows: one lower, one higher, one deleted, one new")
+        installed = self.root / "installed"
+        installed.mkdir()
+        (installed / name).write_text("# path\tkind\tcount\nA.swift\tsize\t3\nA.swift\tweight\t2\nB.swift\tsize\t1\n")
+
+        taken = gate.lower_ratchet_baselines(self.repo, "HEAD", installed)
+
+        self.assertEqual((installed / name).read_text(), "# path\tkind\tcount\nA.swift\tsize\t1\nA.swift\tweight\t2\n")
+        self.assertEqual(sorted(taken), [f"{name}: A.swift size 3 -> 1", f"{name}: B.swift size 1 -> 0 (row deleted)"])
+        self.assertEqual(set(gate.RATCHET_BASELINES), {
+            "process-scan-baseline.tsv", "state-roots-baseline.tsv", "raw-spawn-baseline.tsv",
+            "app-id-special-cases-baseline.tsv", "swift-type-scale-baseline.tsv"})
 
     def test_push_that_touches_a_file_with_old_debt_passes(self):
         self.write(f"{PKG}/Sources/CmuxNextKit/Old.swift", OLD.replace('"old"', '"renamed"'))

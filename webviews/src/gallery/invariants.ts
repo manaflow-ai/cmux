@@ -55,6 +55,11 @@ export function leadEdge(icon: { left: number; width: number }): number {
   return icon.width > GLYPH_SLOT ? icon.left : icon.left + icon.width / 2 - GLYPH_SLOT / 2;
 }
 
+/** The logical start edge of a box: its right edge in a right-to-left row, its left edge otherwise. */
+export function startEdge(rect: { left: number; right: number }, rtl: boolean): number {
+  return rtl ? rect.right : rect.left;
+}
+
 /** Rows whose lead edge is near the shared column but not on it. */
 export function offColumn(rows: { key: string; edge: number }[], rule: string, what: string): Violation[] {
   const column = sharedEdge(rows.map(({ edge }) => edge));
@@ -128,6 +133,11 @@ function leadingIcon(row: Element): Element | null {
   return null;
 }
 
+/** The element of `row` that holds an empty icon slot before its words (`data-lead-slot`), if any. */
+function slot(row: Element): Element | null {
+  return row.matches("[data-lead-slot]") ? row : row.querySelector("[data-lead-slot]");
+}
+
 function pxTokens(element: Element): number[] {
   const style = getComputedStyle(element);
   const tokens: number[] = [];
@@ -179,6 +189,10 @@ function transcriptViolations(doc: Document): Violation[] {
               detail: `${key}: its icon centres ${fmt(delta)} px off its first line`,
             });
         }
+      } else if (slot(row)) {
+        // A row that keeps the icon slot empty by design (the running turn's live line, Thinking.tsx
+        // `data-lead-slot`): its words start on the text column, its lead edge is its box's start.
+        leads.push({ key, edge: slot(row)!.getBoundingClientRect().left });
       } else if (text) leads.push({ key, edge: text.left });
     }
     violations.push(...offColumn(leads, "icon-column", "the lead edge"));
@@ -216,7 +230,9 @@ function menuViolations(doc: Document): Violation[] {
       ...offColumn(
         items.flatMap((item) => {
           const label = textRects(item, NOT_LABEL)[0];
-          return label ? [{ key: `${name} ${labelOf(item)}`, edge: label.left }] : [];
+          return label
+            ? [{ key: `${name} ${labelOf(item)}`, edge: startEdge(label, getComputedStyle(item).direction === "rtl") }]
+            : [];
         }),
         "menu-label",
         "the label",
