@@ -99,6 +99,10 @@ await requireBrowserLane("menu-scroll-edge-fade.browser.test.ts", async () => {
     await vite.listen();
     browser = await chromium.launch({ headless: true });
     for (const [entry, variant] of scenes) await warmGalleryFrame(vite, entry, { browser, params: { variant } });
+    await warmGalleryFrame(vite, "agent-pane.model-picker", {
+      browser,
+      params: { variant: "quick-search-field-opencode" },
+    });
   }, 240_000);
   afterAll(async () => {
     await browser?.close();
@@ -198,6 +202,45 @@ await requireBrowserLane("menu-scroll-edge-fade.browser.test.ts", async () => {
       }
     });
   }
+  test("filtering a plain model menu keeps the original scrollport's layout-shift budget", async () => {
+    const page = await browser.newPage({ viewport: { width: 560, height: 560 }, colorScheme: "light" });
+    try {
+      // Drive the same click and character-by-character typing as the gallery health matrix.
+      await page.exposeFunction(
+        "cmuxGalleryInput",
+        async ({ kind, x = 0, y = 0, text = "" }: { kind: string; x?: number; y?: number; text?: string }) => {
+          if (kind === "click") await page.mouse.click(x, y);
+          else if (kind === "type") await page.keyboard.type(text);
+          else throw new Error(`unexpected gallery input: ${kind}`);
+        },
+      );
+      const { port } = vite.httpServer!.address() as { port: number };
+      await page.goto(
+        `http://127.0.0.1:${port}${galleryFrame("agent-pane.model-picker", {
+          variant: "quick-search-field-opencode",
+          theme: "Apple System Colors Light",
+          width: 560,
+          height: 560,
+        })}`,
+      );
+      await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay));
+      const result = await page.evaluate(() => {
+        const report = window.cmuxGalleryPlayReport;
+        return {
+          error: report?.error,
+          step: report?.steps.find((step) => step.step === 'type "deepseek v4"'),
+        };
+      });
+      expect(result.error).toBeUndefined();
+      expect(result.step).toBeDefined();
+      // Base's maximum is 0.0094643 (health baseline 0.00971). Losing the plain menu's
+      // scroll container doubled the same row movements to 0.0189286.
+      expect(result.step!.layoutShift).toBeLessThanOrEqual(0.00971);
+      expect(await page.locator(".acpmux-quick-found").count()).toBe(2);
+    } finally {
+      await page.close();
+    }
+  });
   test("a one-pixel scroll rounding difference leaves the final row and popup fully opaque", async () => {
     const page = await open("ui.menu", "open", 420, 640);
     try {
