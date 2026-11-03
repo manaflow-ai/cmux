@@ -129,6 +129,7 @@ class ContentWaitTests(unittest.TestCase):
         self.check_classes(vj.judge(REAL_BV, movie=False))
 
 
+@unittest.skipUnless(JUDGE_TRACE.is_file(), "this kit has no video-cases/judge_trace.py")
 class PerDragTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
