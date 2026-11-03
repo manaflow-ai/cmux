@@ -20,7 +20,8 @@ export function RecapNote({
   look = "card",
 }: {
   recap: AcpmuxRecap;
-  onDismiss: () => void;
+  /// The ×. Without it (a read-only or replayed transcript) the recap draws no ×.
+  onDismiss?: () => void;
   look?: RecapLook;
 }) {
   const t = useT();
@@ -33,15 +34,17 @@ export function RecapNote({
         </span>
         {recap.text}
       </p>
-      <button
-        type="button"
-        className="cv-recap__close"
-        aria-label={t("awayRecap.dismiss")}
-        title={t("awayRecap.dismiss")}
-        onClick={onDismiss}
-      >
-        <Close />
-      </button>
+      {onDismiss && (
+        <button
+          type="button"
+          className="cv-recap__close"
+          aria-label={t("awayRecap.dismiss")}
+          title={t("awayRecap.dismiss")}
+          onClick={onDismiss}
+        >
+          <Close />
+        </button>
+      )}
     </div>
   );
 }

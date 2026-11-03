@@ -10,24 +10,25 @@ const SHORT =
 const LONG =
   "We're moving the Cloud machine resize onto the platform API so a busy chat never waits on it; the API route and its tests are in. Next: wire the app's resize button to the new route and check a real resize end to end.";
 
-function RecapLooks({ look }: { look: RecapLook }) {
+function RecapLooks({ look, readOnly = false }: { look: RecapLook; readOnly?: boolean }) {
+  const onDismiss = readOnly ? undefined : () => {};
   return (
     <div className="acpmux-shell" style={{ padding: 16, display: "grid", gap: 16 }}>
       <RecapNote
         recap={{ key: `gallery-short-${look}`, text: SHORT, awayMs: 6 * 60_000 }}
-        onDismiss={() => {}}
+        onDismiss={onDismiss}
         look={look}
       />
       <RecapNote
         recap={{ key: `gallery-long-${look}`, text: LONG, awayMs: 42 * 60_000 }}
-        onDismiss={() => {}}
+        onDismiss={onDismiss}
         look={look}
       />
     </div>
   );
 }
 
-export default componentEntry<{ look: RecapLook }>({
+export default componentEntry<{ look: RecapLook; readOnly?: boolean }>({
   id: "agent-pane.recap-note",
   title: "Session recap row",
   area: "Agent pane",
@@ -49,6 +50,10 @@ export default componentEntry<{ look: RecapLook }>({
     rule: {
       note: "A left rule like a quote; reads as quoted text from someone else.",
       props: { look: "rule" },
+    },
+    "read-only": {
+      note: "A shared chat's guest or a replay: the card with no ×, which would do nothing there.",
+      props: { look: "card", readOnly: true },
     },
   },
 });

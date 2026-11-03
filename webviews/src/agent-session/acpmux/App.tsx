@@ -1738,11 +1738,22 @@ const FailoverRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
-/// The recap's ×: the client drops its row (direct.ts dismissRecap), so no empty slot stays.
-const dismissRecap = (rowId: string) => void window.cmuxAcpmuxActions?.["chat.recap.dismiss"]?.({ rowId });
+/// The recap's ×: the client drops its row (direct.ts dismissRecap), so no empty slot stays. The key
+/// names the chat, so a press on a chat a switch still shows never drops the next chat's recap.
+const dismissRecap = (rowId: string, key: string) =>
+  void window.cmuxAcpmuxActions?.["chat.recap.dismiss"]?.({ rowId, key });
 const RecapRow = memo(
   function RecapRow({ row }: RowProps) {
-    return row.recap ? <RecapNote recap={row.recap} onDismiss={() => dismissRecap(row.id)} /> : null;
+    const recap = row.recap;
+    return recap ? <RecapNote recap={recap} onDismiss={() => dismissRecap(row.id, recap.key)} /> : null;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
+/// A recap in a read-only or replayed transcript: no ×, which would do nothing for a guest and act
+/// on the live chat from a replay.
+const ReadOnlyRecapRow = memo(
+  function ReadOnlyRecapRow({ row }: RowProps) {
+    return row.recap ? <RecapNote recap={row.recap} /> : null;
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
@@ -2108,6 +2119,7 @@ export const readOnlyRegistry: NativeRegistry = {
   permission: ReadOnlyPermissionRow,
   [QUEUED_MESSAGE]: ReadOnlyQueuedMessageRow,
   agentPair: ReadOnlyAgentPairRow,
+  recap: ReadOnlyRecapRow,
   sessionOffer: NoRow,
   [OFFER_RESULT]: NoRow,
   [STARTED_SESSIONS]: NoRow,
@@ -8422,6 +8434,8 @@ function AcpmuxPane() {
     if (turn) openDiff(turn.rowId);
   };
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
+  /// A replay's rows act on nothing live: its recaps draw no × (ReadOnlyRecapRow).
+  const replayRegistry = useMemo(() => ({ ...registry, recap: ReadOnlyRecapRow }), [registry]);
   const [newTab, setNewTab] = useState<NewTabHost | undefined>(injectedNewTabContext);
   const newTabStartGeneration = useRef(0);
   const [sessionSelection, setSessionSelection] = useState<
@@ -11679,7 +11693,7 @@ function AcpmuxPane() {
               taken.flatMap((failed) => failed.attachments),
             );
           },
-          "chat.recap.dismiss": async ({ rowId }) => client.dismissRecap(String(rowId)),
+          "chat.recap.dismiss": async ({ rowId, key }) => client.dismissRecap(String(rowId), String(key)),
           "chat.removeFailedPrompt": async ({ rowId, rowIds }) => {
             for (const id of failedRowIds(rowId, rowIds)) client.removeFailedPrompt(id);
           },
@@ -14869,7 +14883,7 @@ function AcpmuxPane() {
                   // A replay draws under its chat's view too (conversation/viewFolds.ts), as the live transcript.
                   expanded={folds}
                   showMinimap={minimapVisible}
-                  registry={registry}
+                  registry={replayRegistry}
                   onToggleActivity={toggleActivity}
                 />
               )}
