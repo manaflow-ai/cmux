@@ -56,11 +56,11 @@ extension PaneContentView {
             return
         }
         parked.removeAll { $0.view == nil || $0.view === view }
-        if let frame = parkedFrame(of: view), view.frame == frame, frame != contentHost.bounds {
-            // A chat parked at the size it shows at (`layoutParked`) keeps it: the pane's next layout
-            // moves the host under the tab row and puts the chat at its origin, at the same size.
-            // Sized to the host here first, its page drew a frame at the strip's height less and
-            // then grew back: the whole chat jumped as it showed.
+        if let frame = parkedFrame(of: view), contentHost.isHolding || (view.frame == frame && frame != contentHost.bounds) {
+            // A chat parked at the size it shows at (`layoutParked`) keeps it: the pane's next layout moves the host under
+            // the tab row and puts the chat at its origin, at the same size. Sized to the host here first, its page drew a
+            // frame at the strip's height less and then grew back: the chat jumped as it showed. In a key resize's hold it
+            // keeps its parked frame, held with the area, and takes its rest frame once at the landing (FRAME OWNER S1B).
             view.autoresizingMask = []
             needsLayout = true
         } else {
