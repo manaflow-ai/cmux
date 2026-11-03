@@ -229,6 +229,22 @@ RESERVED_OK = re.compile(r"^Ghostty-defaults-OK:\s*\S", re.MULTILINE)
 CRASH_ALLOWLIST = SCRIPTS + "/crash-allowlist.json"
 CRASH_BASELINE = SCRIPTS + "/crash-safety-baseline.json"
 CRASH_OK = re.compile(r"^Crash-allow-OK:[ \t]*(\S.*)$", re.MULTILINE)
+# Ratchet baselines a scanner here reads from the scripts folder: file -> (key columns, count column). The hook copies
+# its INSTALLED scripts over both trees, and that copy cannot know that a push removed sites and lowered or deleted
+# their row in the same commit: the check then reads "fewer than the baseline, lower its row" as a new finding and
+# refuses the fix (lead 2026-11-03: the merge service refused #33091, the process-scan base red's fix, this way). So
+# each tree reads its own commit's row wherever it is lower than the installed one (a deleted row counts as 0), and
+# the installed row everywhere else: a raise or a new row is still judged against the installed copy, as before.
+# Left out: crash-safety-baseline.json (a count under its row is only a note there; a raise needs Crash-allow-OK),
+# and the baselines no scanner here reads (godfile, layers, main-actor-work, check-menu-actions, rust-panic,
+# system-blue, type-scale, app-size): their CI checks read the pushed tree's own copy.
+RATCHET_BASELINES = {
+    "process-scan-baseline.tsv": ((0,), 1),
+    "state-roots-baseline.tsv": ((0,), 1),
+    "raw-spawn-baseline.tsv": ((0,), 1),
+    "app-id-special-cases-baseline.tsv": ((0,), 1),
+    "swift-type-scale-baseline.tsv": ((0, 1), 2),
+}
 CRASH_ALLOW_CHECK = "Crash allowlist review (Crash-allow-OK trailer)"
 FREEZE_CHECK = "Coordinator path freeze (WINDOW FREEZE lines)"
 # The coordinator's WINDOW (`FREEZE: <path prefix> token=<token>` lines; a `# LIFTED ...` line is not one). It
@@ -464,6 +480,9 @@ def build_trees(repo: Path, base: str, head: str, changed: list[str], work: Path
         write_tree(repo, dest, files, index)
         if trusted_scripts:
             shutil.copytree(trusted_scripts, dest / SCRIPTS, dirs_exist_ok=True)
+            lowered = lower_ratchet_baselines(repo, rev, dest / SCRIPTS)
+            if lowered and side == "head":
+                log("prepush-gate: these ratchet rows read the push's own lower values:\n  " + "\n  ".join(lowered))
             if side == "head":
                 taken = apply_reviewed_crash_data(repo, base, head, dest / SCRIPTS)
                 if taken:
@@ -773,6 +792,52 @@ def crash_raises(repo: Path, base: str, head: str) -> list[tuple[str, str, str |
             subject = message.strip().splitlines()[0] if message.strip() else ""
             found.append((sha, subject, trailer.group(1).strip() if trailer else None, allow, rows))
     return found
+
+
+def _ratchet_rows(text: str, keys: tuple[int, ...], count: int) -> dict[tuple[str, ...], int]:
+    """{key: count} of a ratchet baseline's rows; comments, blank and malformed lines are not rows."""
+    rows = {}
+    for line in text.splitlines():
+        parts = line.split("\t")
+        if line.startswith("#") or len(parts) <= max(*keys, count) or not parts[count].isdigit():
+            continue
+        rows[tuple(parts[i] for i in keys)] = int(parts[count])
+    return rows
+
+
+def lower_ratchet_baselines(repo: Path, rev: str, scripts_dir: Path) -> list[str]:
+    """Rewrite each RATCHET_BASELINES file in SCRIPTS_DIR (a tree's copy of the installed scripts) so a row reads REV's
+    own count where that is lower (a row REV deleted reads 0 and is dropped); every other line stays the installed
+    one, so a raise or a new row is never taken. REV without the file changes nothing. Returns what was lowered."""
+    taken: list[str] = []
+    for name, (keys, count) in RATCHET_BASELINES.items():
+        path = scripts_dir / name
+        own = git_batch.run(repo, ["show", f"{rev}:{SCRIPTS}/{name}"])
+        if not path.is_file() or own.returncode != 0:
+            continue
+        pushed = _ratchet_rows(own.stdout.decode(errors="replace"), keys, count)
+        lines, changed = [], False
+        for line in path.read_text(encoding="utf-8").splitlines(keepends=True):
+            row = _ratchet_rows(line, keys, count)
+            if not row:
+                lines.append(line)
+                continue
+            (key, installed), = row.items()
+            now = pushed.get(key, 0)
+            if now >= installed:
+                lines.append(line)
+                continue
+            changed = True
+            if now == 0:
+                taken.append(f"{name}: {' '.join(key)} {installed} -> 0 (row deleted)")
+                continue
+            parts = line.rstrip("\n").split("\t")
+            parts[count] = str(now)
+            lines.append("\t".join(parts) + ("\n" if line.endswith("\n") else ""))
+            taken.append(f"{name}: {' '.join(key)} {installed} -> {now}")
+        if changed:
+            path.write_text("".join(lines), encoding="utf-8")
+    return taken
 
 
 def apply_reviewed_crash_data(repo: Path, base: str, head: str, scripts_dir: Path) -> list[str]:
