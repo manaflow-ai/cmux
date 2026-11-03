@@ -176,6 +176,7 @@ public actor CloudTunnelHub {
     }
 
     private func start(generation: UInt64) async throws -> CloudHubEndpoint {
+        logger.notice("hub start: enroll")
         terminateChild()
         try paths.prepare()
         let request = CloudTunnelEnrollment.Request(
@@ -191,6 +192,7 @@ public actor CloudTunnelHub {
         // The config holds the private key: it goes to the hub on stdin, never into a file.
         // Earlier builds wrote it next to the key; that copy goes.
         let config = WireGuardConfig.shared.completed(enrollment, privateKey: key.rawRepresentation.base64EncodedString())
+        logger.notice("hub start: spawn")
         let socketPath = paths.hubSocket
         unlink(socketPath)
         guard FileManager.default.isExecutableFile(atPath: binary.path) else { throw ChildProcessError.missingBinary(binary.path) }

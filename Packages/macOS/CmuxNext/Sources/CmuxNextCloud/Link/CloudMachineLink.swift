@@ -47,6 +47,16 @@ public actor CloudMachineLink {
         self.deviceName = deviceName
     }
 
+    /// `attachEndpoint`'s token read (60 s) and request (30 s), plus a margin: a slow healthy start must not trip it.
+    static let attachBound: Duration = .seconds(95)
+    /// A hub start's token read (60 s), enrollment (60 s) and first line (45 s), plus a margin.
+    static let hubBound: Duration = .seconds(170)
+
+    /// Where a connect got to, so a stuck machine's log says why no link started.
+    public nonisolated static func noteConnect(_ machineID: String, _ what: String) {
+        Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.link").notice("connect \(machineID, privacy: .public): \(what, privacy: .public)")
+    }
+
     public func socketPath() async throws -> String {
         let generation = generation
         try checkGeneration(generation)
@@ -162,14 +172,29 @@ public actor CloudMachineLink {
         child = nil
         socket = nil
         setOwnsVM(false)
+        logger.notice("link start for \(self.machineID, privacy: .public): begin")
         try paths.prepare()
         let deviceFingerprint = paths.loadLinkDeviceFingerprint(machineID: machineID)
         // Lifecycle transitions can run during every await. A stale start
         // must never publish a socket or replace a newer link.
-        let endpoint = try await api.attachEndpoint(machineID, deviceFingerprint: deviceFingerprint)
-        try checkGeneration(generation)
-        let hubEndpoint = try await hub.endpoint()
-        try checkGeneration(generation)
+        // Each wait is bounded past its parts' own deadlines, so only a stuck step (an unbounded hop
+        // such as the team read) trips it: it fails with its name instead of leaving "booting" silently.
+        let (api, hub, machineID) = (api, hub, machineID)
+        logger.notice("link start for \(machineID, privacy: .public): attach endpoint")
+        let endpoint: CloudAttachEndpoint, hubEndpoint: CloudHubEndpoint
+        do {
+            endpoint = try await SandboxDeadline.race(Self.attachBound, timedOut: "link attach endpoint") {
+                try await api.attachEndpoint(machineID, deviceFingerprint: deviceFingerprint)
+            }
+            try checkGeneration(generation)
+            logger.notice("link start for \(machineID, privacy: .public): tunnel hub")
+            hubEndpoint = try await SandboxDeadline.race(Self.hubBound, timedOut: "link tunnel hub") { try await hub.endpoint() }
+            try checkGeneration(generation)
+        } catch {
+            if !(error is CancellationError) { logger.error("link start for \(machineID, privacy: .public) failed: \(String(describing: error), privacy: .public)") }
+            throw error
+        }
+        logger.notice("link start for \(machineID, privacy: .public): spawn")
         unlink(paths.linkSocket(machineID: machineID))
         let inviteFile = endpoint.invitation.map { _ in
             paths.linkState.appendingPathComponent("invite-\(UUID().uuidString.lowercased())")

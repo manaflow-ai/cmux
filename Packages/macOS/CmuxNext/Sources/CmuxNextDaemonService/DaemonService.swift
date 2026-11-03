@@ -323,7 +323,10 @@ public final class DaemonService {
     public func start(remote endpoint: @escaping @Sendable () async throws -> String, bridge: DaemonBridge? = nil,
                requiredCapabilities: [String] = DaemonCapability.required,
                admit: (@MainActor (DaemonIdentity) throws -> Void)? = nil, onEnd: (@MainActor () -> Void)? = nil) {
-        guard runTask == nil, !policyBlock.isBlocked else { return }
+        guard runTask == nil, !policyBlock.isBlocked else {
+            logger.notice("\(self.machineID, privacy: .public): remote start skipped running=\(self.runTask != nil) policy_blocked=\(self.policyBlock.isBlocked)")
+            return
+        }
         remoteEndpoint = { DaemonEndpoint(socketPath: try await endpoint()) }
         let store = store
         if let onEnd { store.onDisconnected = onEnd }
