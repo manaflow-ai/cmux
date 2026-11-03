@@ -154,9 +154,6 @@ def frame(k, variant):
     if variant == "held" and 12 <= k <= 40:
         a_view = A_REST  # A's content keeps its rest width while its pane grows
     draw_tui(img, 0, a_view, picture_w=a_width(max(s - 3, 0), variant) if variant == "cut" else None, y0=y0)
-    if variant == "wide-ground":
-        # The divider band shows ground color (cyan): A's strip and B's would run together through it.
-        img[:, int(round(aw)):int(round(aw)) + DIV_PX] = CYAN
     if variant == "glyph":
         # A ruler digit in the old black-class ink just inside A's left ring 3, on every row.
         img[y0:, PAD + 3 * CW + 2:PAD + 3 * CW + 6] = GLYPH
@@ -198,6 +195,10 @@ def frame(k, variant):
         late = a_width(max(k - 2, 0), variant) + DIV_PX
         draw_page(img, late, W - late)
         img[:, int(round(b_x)):int(round(late))] = GREEN
+    if variant == "wide-ground" and 20 <= k <= 25:
+        # B shows only the terminal ground (an empty terminal, as pane_2dabe in base03f6 px-window-resize-4-s1 frame 167),
+        # over the divider band too: A's ground strip and B's area are one cyan run to the window's edge.
+        img[:, int(round(aw)):] = CYAN
     return img
 
 
@@ -459,16 +460,17 @@ class JudgePixelTests(unittest.TestCase):
         self.assertNotIn("shell inside the pane", [f["check"] for f in r["findings"]])
 
     def test_the_ground_strip_stops_at_its_own_width(self):
-        """The ground strip is Ghostty's padding and the whole-cell remainder: at most a cell and the padding. A
-        neighbour that shows only ground color (an empty terminal) beside it is not this pane's strip (base03f6
-        px-window-resize-4-s1 frame 167: p0's lo strip ran through the cyan pane beside it to x=416: -1057 px)."""
+        """The ground strip is Ghostty's padding and the whole-cell remainder: at most a cell and the padding. Where it
+        runs on into a neighbour that shows only ground color (an empty terminal), this pane's view edge cannot be seen:
+        not found, never a deviation (base03f6 px-window-resize-4-s1 frame 167: p0's lo strip ran through the cyan pane
+        beside it to x=416, -1057 px)."""
         r = self.reports["wide-ground"]
-        b_lo = side(r, "p1", "row@110", "lo")
         a_hi = side(r, "p0", "row@110", "hi")
+        self.assertEqual(a_hi["not_found_ranges"], "20-25")
         self.assertLessEqual(abs(a_hi["max_edge_dev_px"]), 1.0, a_hi["dev_top"])
-        self.assertLessEqual(a_hi["strip_max_px"], 4.0 + 16.0)
+        self.assertLessEqual(a_hi["strip_max_px"], 4.0 + 14.0)
         self.assertEqual(a_hi["cut_ring_frames"], 0)
-        self.assertEqual(b_lo["max_edge_dev_px"], 0.0)
+        self.assertEqual(side(r, "p1", "row@110", "lo")["max_edge_dev_px"], 0.0)
 
     def test_tab_strip_lag_found(self):
         r = self.reports["strip-lag"]
