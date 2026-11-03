@@ -1120,6 +1120,94 @@ fn paired_mac_takes_ios_work_from_a_busy_mac_or_a_linux_chief() {
 }
 
 #[test]
+fn cached_signed_out_default_harness_still_attempts_launch() {
+    for auth in ["signedOut", "expired"] {
+        for on_peer in [false, true] {
+            let mut h = Harness::new(default_script());
+            h.agents.hold(true);
+            {
+                let mut agents = h.agents.inner.lock().unwrap();
+                let machine = if on_peer { "cloud1" } else { "here" };
+                agents.peer_catalogs.insert("cloud1".into(), catalog());
+                agents.harness_health.insert(
+                    machine.into(),
+                    serde_json::json!({
+                        "harnesses": [{"id": "claude", "auth": auth}]
+                    }),
+                );
+            }
+            let sp = spawner(&h, on_peer.then(cloud));
+            let answer = run(&mut h, move || sp.spawn(vec!["hello web".into()], None)).unwrap();
+            let specs = subs(&h);
+            assert_eq!(specs.len(), 1, "cached {auth}, peer {on_peer}: {answer}");
+            assert_eq!(specs[0].0.harness, "claude", "{answer}");
+            assert!(answer.contains("Started a1"), "{answer}");
+        }
+    }
+}
+
+#[test]
+fn disconnected_saved_cloud_peers_are_not_available_but_the_pool_can_provision() {
+    for connected in [false, true] {
+        let mut h = Harness::new(default_script());
+        h.agents.hold(true);
+        h.agents.inner.lock().unwrap().machine_status = Some(serde_json::json!({
+            "here": {"os": "macos", "pressure": {"ok": true}},
+            "peers": [{"name": "cloud1", "connected": connected, "health": {"os": "linux", "pressure": {"ok": true}}}]
+        }));
+        let sp = spawner(&h, None);
+        set_cloud(&mut h, &sp, "cloud1");
+        let answer = run(&mut h, move || sp.spawn(vec!["hello web".into()], None)).unwrap();
+        assert_eq!(
+            subs(&h)[0].0.peer.as_deref(),
+            connected.then_some("cloud1"),
+            "{answer}"
+        );
+    }
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    h.agents.inner.lock().unwrap().machine_status = Some(serde_json::json!({
+        "here": {"os": "macos", "pressure": {"ok": true}},
+        "peers": [{"name": "chief-sub-a1", "connected": false, "health": {"os": "linux"}}]
+    }));
+    let vms = Arc::new(PerAgentVms::default());
+    let sp = per_agent(&mut h, &vms);
+    let answer = run(&mut h, move || sp.spawn(vec!["hello web".into()], None)).unwrap();
+    assert_eq!(
+        subs(&h)[0].0.peer.as_deref(),
+        Some("chief-sub-a1"),
+        "{answer}"
+    );
+    assert!(
+        calls_of(&vms)
+            .iter()
+            .any(|call| call.starts_with("provision chief-sub-a1"))
+    );
+}
+
+#[test]
+fn saved_cloud_load_balancing_uses_only_connected_peers() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    h.agents.inner.lock().unwrap().machine_status = Some(serde_json::json!({
+        "here": {"os": "macos", "pressure": {"ok": true}},
+        "peers": [
+            {"name": "offline", "connected": false, "health": {"os": "linux"}},
+            {"name": "online", "connected": true, "health": {"os": "linux"}}
+        ]
+    }));
+    let sp = spawner(&h, None);
+    set_cloud(&mut h, &sp, "offline,online");
+    let answer = run(&mut h, move || {
+        sp.spawn(vec!["hello web".into(), "another web task".into()], None)
+    })
+    .unwrap();
+    for (spec, _) in subs(&h) {
+        assert_eq!(spec.peer.as_deref(), Some("online"), "{answer}");
+    }
+}
+
+#[test]
 fn older_cloud_daemon_keeps_the_configured_cloud_harness() {
     // An old peer either refuses scoped metadata (no catalog in this fake)
     // or answers without harness rows. Neither proves a signed-out login.
