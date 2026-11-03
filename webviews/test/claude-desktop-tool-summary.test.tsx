@@ -101,6 +101,8 @@ test("while a background command runs, an opened run says how its background com
   const group = renderToStaticMarkup(<ToolGroupRow kind="commands" items={items} disclosureKey="bg-open" />);
   expect(group).toMatch(/class="cv-tool__failed">1 failed</);
   expect(words(group)).toContain("1 background command completed, 1 failed, 1 running");
+  // It is no step: the opened run still lists one step per call.
+  expect(group.match(/class="cv-step"/g)).toHaveLength(3);
 });
 
 test("a failed call's row is its description, then its failure tag, then its chevron", () => {

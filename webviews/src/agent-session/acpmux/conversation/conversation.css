@@ -3158,6 +3158,13 @@ button.cv-video-frames__frame:focus-visible {
 :root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step > .cv-tool > .cv-command__meta {
   grid-column: 4;
 }
+/* A failed step's tag (CommandRow.tsx) has no column between the words and the chevron in these
+   gallery looks: it keeps their old place, at the end of the spacer before the trailing column. */
+:root:is([data-tool-steps-look="card"], [data-tool-steps-look="tree"], [data-tool-steps-look="zebra"]) .cv-step > .cv-command > .cv-command__failed {
+  grid-column: 3;
+  justify-self: end;
+  margin-inline-start: 0;
+}
 /* A thought step: muted words, one line closed; open, its whole text with the disclosure at the
    top of the row's end. */
 .cv-step-thought {
@@ -3212,6 +3219,9 @@ button.cv-video-frames__frame:focus-visible {
 }
 :root[data-tool-steps-look="tree"] .cv-step > .cv-tool > .cv-command__meta {
   grid-column: 5;
+}
+:root[data-tool-steps-look="tree"] .cv-step > .cv-command > .cv-command__failed {
+  grid-column: 4;
 }
 :root[data-tool-steps-look="tree"] .cv-step-thought.is-open {
   grid-template-columns: var(--cv-disclosure-slot);
@@ -3306,9 +3316,18 @@ button.cv-video-frames__frame:focus-visible {
   color: var(--cv-text);
 }
 /* An opened run's "1 background command completed, 1 failed, 1 running" (BackgroundStatusLine.tsx):
-   a quiet line on the steps' grid, not a control. */
+   a quiet line after the steps, its words on their text column and their pitch; not a step or a
+   control, so it adds no row to the steps. */
 .cv-bgstatus {
-  cursor: default;
+  display: flex;
+  align-items: center;
+  min-height: var(--cv-tool-row-height);
+  padding-inline-start: var(--cv-tool-text-inset);
+  overflow: hidden;
+  color: var(--cv-activity-text);
+  line-height: 20px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 /* A failed call's cause (ToolFailureCause.tsx, the `tool-error-look` experiment): one quiet line
    under the row, starting under its words (the 16px glyph and the 8px

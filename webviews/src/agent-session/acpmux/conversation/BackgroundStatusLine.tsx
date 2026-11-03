@@ -52,18 +52,13 @@ export function BackgroundStatusLine({ counts }: { counts: BackgroundCounts }) {
   const t = useT();
   const parts = backgroundStatusParts(t, counts);
   return (
-    <div className="cv-step">
-      <div className="cv-tool cv-bgstatus" role="status" data-find-skip>
-        <span className="cv-tool__icon" />
-        <span className="cv-tool__text">
-          {parts.map((part, at) => (
-            <Fragment key={part.text}>
-              {at > 0 && t("toolRun.separator")}
-              <span className={part.failed ? "cv-tool__failed" : undefined}>{part.text}</span>
-            </Fragment>
-          ))}
-        </span>
-      </div>
-    </div>
+    <output className="cv-bgstatus" data-find-skip>
+      {parts.map((part, at) => (
+        <Fragment key={part.text}>
+          {at > 0 && t("toolRun.separator")}
+          <span className={part.failed ? "cv-tool__failed" : undefined}>{part.text}</span>
+        </Fragment>
+      ))}
+    </output>
   );
 }
