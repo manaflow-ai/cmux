@@ -111,6 +111,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 
 | Mac action (wording) | Phone | State | Notes |
 | --- | --- | --- | --- |
+| Connect iMessage (Session Info > Connectors): Connect, permission walkthrough, contacts and group chats, Disconnect | — | not from a phone | `chat.db` and Full Disk Access belong to the Mac. The phone’s own Messages app is not readable by cmux; connection and conversation reading stay on the Mac. Every outgoing send still needs the person’s click. |
 | Stop | page menu Stop Agent, composer stop | works | `session/cancel`. |
 | Retry / Send this prompt again | Retry on a failed turn | works | |
 | Retry with another model (`RetryModelMenu.tsx`) | answer's **More** > **Retry with another model** (the chat's models, the current one checked); beside Retry on a failed turn | works (menu-rows batch; live) | `session/set_model`, then the prompt again; a refused model sends nothing. A Claude chat the Mac started refuses the model change (acpmux D13): the chat shows acpmux's own words, "This chat runs with your Mac's Claude permissions. Start a new chat from this device to control it remotely.", and the Mac's chat keeps its model and runs no turn. |
