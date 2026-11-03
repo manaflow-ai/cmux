@@ -822,11 +822,13 @@ test("while a Cloud start is out the box takes no edits, and takes them again on
 
 test("picking Cloud drops a saved environment picked before: the send names the folder chip's folder, not the tab's inherited one", async () => {
   const clouded: unknown[][] = [];
+  // A worktree environment: one that is only a folder is the folder menu's, not a Machines… row.
   const repoB: SavedEnvironment = {
     id: "b",
     name: "Repo B",
     kind: "local",
     folder: "/repo/B",
+    worktree: true,
     updatedAt: 1,
   };
   function Page() {
