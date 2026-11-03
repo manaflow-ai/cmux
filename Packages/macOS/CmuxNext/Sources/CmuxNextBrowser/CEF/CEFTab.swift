@@ -305,6 +305,26 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// call failed or timed out. A test answers instead.
     @ObservationIgnored var paintQuery: @MainActor (CEFTab) async -> Bool? = CEFTab.askPagePainted
 
+    /// The pending ``paintQuery`` of the current document; a commit or the browser's end cancels it.
+    @ObservationIgnored var paintAsk: Task<Void, Never>?
+
+    /// The current document loaded and no paint report came: ask the page once whether it painted. Readiness then never
+    /// waits on one pushed event that can be lost (#33940: 1 in 43 restores never got Chromium's first contentful paint
+    /// event, and the keys waited the whole 2 s bound). A blank target or an error page needs no paint.
+    func askPaintIfLoaded() {
+        guard !hasDocument, documentLoaded, !documentPainted, !blankIsDocument, !committedIsErrorPage, paintAsk == nil else { return }
+        paintAsk = Task { [weak self] in
+            guard let self else { return }
+            let painted = await paintQuery(self)
+            guard !Task.isCancelled else { return } // a later document committed, or the browser ended
+            paintAsk = nil
+            guard painted == true, !hasDocument else { return }
+            host.lifecycleTrace.record(id, "paint-query painted")
+            documentPainted = true
+            documentMayTakeKeys()
+        }
+    }
+
     /// The page's answer to ``BrowserFirstPaintScript/query``.
     private static func askPagePainted(_ tab: CEFTab) async -> Bool? {
         guard let value = try? await tab.evaluate(BrowserFirstPaintScript.query, world: .isolated, gesture: .cmux) else { return nil }
@@ -330,6 +350,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         host.lifecycleTrace.record(id, "ready-wait navigates=\(navigates) url=\(pendingURL != nil) restore=\(pendingRestore != nil) agent=\(loadAfterAttach != nil)")
         (hasDocument, documentLoaded, documentPainted, loadingStopped) = (false, false, false, false)
         (paintBeforeCommit, committedThisLoad, chromiumLoading) = (false, false, false)
+        paintAsk?.cancel()
+        paintAsk = nil
         blankIsDocument = pendingURL.map { !PageBackground.isRealPage($0) } ?? false
         isCreationPending = false
         CEFAgentURLGuard.applyShimGuard(self)
@@ -412,6 +434,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// the daemon and reopens at relaunch.
     func browserDidClose(closesTab: Bool = true) {
         browserID = nil
+        paintAsk?.cancel()
+        paintAsk = nil
         agentRelay.browserEnded()
         findRequests.cancel()
         dismissPrompts()
