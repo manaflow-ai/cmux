@@ -109,3 +109,6 @@ they have no memory export. New Computer's discontinued Dot appears only after p
 zip. Pasted summaries use `text:FILE --origin NAME`, deterministic note keys, the common secret
 filter and the same backup/undo path. Import plans all selected sources before writing any row;
 one batch joins their Undo. No live Chief request is inferred from imported text.
+
+Selecting a summary-only source reveals its prompt and paste editor. The default list has no
+repeated per-row paste actions; unchecking the source hides its editor without discarding its draft.

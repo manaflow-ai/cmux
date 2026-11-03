@@ -114,7 +114,7 @@ function SourceRow({
   const t = strings.t;
   const title = t(`history.source.${row.id}`);
   const unavailable = row.kind === "local" && !row.source;
-  const selected = row.selected;
+  const selected = row.kind === "text" ? Boolean(row.expanded) : row.selected;
   return (
     <section className={`history-source phase-${row.phase}`}>
       <div className="history-source-line">
@@ -125,7 +125,11 @@ function SourceRow({
             aria-label={title}
             checked={selected}
             disabled={busy || unavailable || (row.kind === "zip" && !row.source)}
-            onChange={(event) => store.select(row.id, event.target.checked)}
+            onChange={(event) => {
+              const checked = event.target.checked;
+              store.select(row.id, checked);
+              if (row.kind === "text" && Boolean(row.expanded) !== checked) store.expand(row.id);
+            }}
           />
           {row.kind === "zip" ? (
             <button
@@ -161,17 +165,6 @@ function SourceRow({
               aria-label={strings.format("history.chooseFor", title)}
             >
               {t(snapshot.picking === row.id ? "history.choosing" : "history.choose")}
-            </button>
-          )}
-          {row.kind === "text" && (
-            <button
-              type="button"
-              className="history-link"
-              disabled={busy}
-              aria-expanded={Boolean(row.expanded)}
-              onClick={() => store.expand(row.id)}
-            >
-              {t(row.expanded ? "history.hide" : "history.paste")}
             </button>
           )}
         </div>
