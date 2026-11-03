@@ -476,7 +476,8 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     func paneResizeGestureDidChange(active: Bool) {
         guard active else {
             endSyncedDrag()
-            guard heldPageSize != nil else { return }
+            // A key resize's page hold (FRAME OWNER S3) is its pane's to end, not the drag's.
+            guard heldPageSize != nil, pageMotionHold == nil else { return }
             dropHold()
             layoutContent()
             return
@@ -492,10 +493,8 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     /// The page keeps the size it has now; false when it cannot (not a plain page here, no size, out of a window).
     @discardableResult
     func startPageHold() -> Bool {
-        guard heldPageSize == nil, window != nil, pageCanHold, let tab else { return false }
-        let size = tab.host.hostView.frame.size
-        guard size.width > 0, size.height > 0 else { return false }
-        heldPageSize = size
+        guard canStartPageHold, let tab else { return false }
+        heldPageSize = tab.host.hostView.frame.size
         // The held page is cut at this view's edges: its layer here, and the page window by the
         // fork's visible rect, which follows every ancestor whose layer masks to its bounds.
         layer?.masksToBounds = true
@@ -536,6 +535,12 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
         let hostings = syncedDragHostings
         syncedDragHostings = []
         for hosting in hostings { hosting.paneResizeDrag(active: false) }
+    }
+
+    /// A page hold can begin now: none yet, in a window, a plain page with a size.
+    var canStartPageHold: Bool {
+        guard heldPageSize == nil, window != nil, pageCanHold, let size = tab?.host.hostView.frame.size else { return false }
+        return size.width > 0 && size.height > 0
     }
 
     /// A plain page shown here: no docked DevTools taking room, side panel or device fit, which place the page

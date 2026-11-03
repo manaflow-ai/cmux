@@ -13,6 +13,12 @@ extension TerminalHostView: PaneMotionHoldFollowing {
         needsLayout = true
     }
 
+    /// Shown during its pane's key hold (a tab switch to a parked terminal): it follows the pane from this frame.
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        (superview as? PaneContentAreaView)?.followerDidShow()
+    }
+
     /// The host size a pane spring's size change is measured against (``TerminalSurfaceView`` `restSize`): while it
     /// follows a hold, the size it had when the hold began (what the pane's rest size change is measured from), else its
     /// size now.

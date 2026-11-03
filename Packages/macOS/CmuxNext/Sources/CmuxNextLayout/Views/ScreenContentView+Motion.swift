@@ -6,7 +6,7 @@ extension ScreenContentView {
         if !isUserScrolling && (scroll.value != scroll.target || scroll.velocity != 0) { return true }
         if rowsMoving || areasMoving { return true }
         return paneFrames.values.contains { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }
-            || dividerFrames.values.contains { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target } || closingPanes.isMoving
+            || dividerFrames.values.contains { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }
     }
     /// Advances springs by `dt` with the frame's motion `policy`. Returns
     /// true while anything still moves. A screen at rest (a drag frame that
@@ -33,12 +33,9 @@ extension ScreenContentView {
         for key in Array(dividerFrames.keys) {
             if dividerFrames[key]?.advanceUnsettled(dt, parameters: frameSpring) == true { moving = true }
         }
-        // A closing pane is part of the same motion: it collapses on its neighbours' spring and lands with them.
-        closingPanes.step(dt, spring: frameSpring)
-        if paneFrames.values.allSatisfy(\.geometryNearRest) && dividerFrames.values.allSatisfy(\.geometryNearRest) && closingPanes.nearRest {
+        if paneFrames.values.allSatisfy(\.geometryNearRest) && dividerFrames.values.allSatisfy(\.geometryNearRest) {
             for key in Array(paneFrames.keys) { paneFrames[key]?.snapGeometry() }
             for key in Array(dividerFrames.keys) { dividerFrames[key]?.snapGeometry() }
-            closingPanes.snap()
         } else {
             moving = true
         }
@@ -85,7 +82,6 @@ extension ScreenContentView {
                                                   alphaParameters: appear)
         }
         for key in Array(dividerFrames.keys) { _ = dividerFrames[key]?.advanceUnsettled(dt, parameters: frameSpring) }
-        closingPanes.step(dt, spring: frameSpring)
         if scrollRidesFrames {
             if !isUserScrolling { _ = scroll.advance(dt, parameters: frameSpring, epsilon: 0.25) }
             _ = stepRows(dt, spring: frameSpring)
@@ -215,7 +211,7 @@ extension ScreenContentView {
             zoomMotion.track(pane, frame)
             clips.append((host, scrolls && pane != zoomMotion.pane))
         }
-        // The panes a close took out, each on its collapsing frame with its own ground (FRAME OWNER S3c).
+        // The panes a close took out, each with its own ground on what its neighbours have not covered (FRAME OWNER S3c).
         let closing = presentClosingPanes(strip: strip, scale: scale)
         clips += closing.hosts
         if closing.changed { changed = true }

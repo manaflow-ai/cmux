@@ -415,8 +415,6 @@ final class ScreenContentView: NSView {
             }
         }
 
-        // The panes a close took out ride their neighbours' new rests (a change during the close moves them too).
-        closingPanes.retarget(frames: paneFrames)
         if structural { scrollRidesFrames = departing && animateFrames && !covering }
         // A close's neighbours start covering the closed pane's space in the frame it leaves:
         // no frame shows the hole before they move (`leadIfPending`, after `syncScroll`).

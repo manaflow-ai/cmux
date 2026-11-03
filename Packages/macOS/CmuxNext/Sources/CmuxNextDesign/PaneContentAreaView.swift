@@ -101,6 +101,16 @@ public final class PaneContentAreaView: NSView {
         }
     }
 
+    /// A container in it was shown again during a following hold (a parked tab): it joins in this frame's layout pass.
+    public func followerDidShow() {
+        if hold?.containersFollow == true { needsLayout = true }
+    }
+
+    public override func layout() { // perf-hot: 4ms motion-frame
+        super.layout()
+        showHeld(handing: false)
+    }
+
     /// A shown container that follows now (a hidden one, a parked tab, stays held and lays out at the release).
     private func follows(_ follower: any PaneMotionHoldFollowing) -> Bool { !follower.isHidden && follower.followsPaneMotion }
 

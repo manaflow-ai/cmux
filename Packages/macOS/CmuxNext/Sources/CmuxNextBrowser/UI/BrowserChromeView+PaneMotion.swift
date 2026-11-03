@@ -10,6 +10,7 @@ extension BrowserChromeView: PaneMotionHoldFollowing {
     public var followsPaneMotion: Bool { (tab.contentView as? any BrowserPagePaneMotionHolding)?.holdsPageInPaneMotion ?? false }
 
     public func followPaneMotion(_ hold: PaneMotionHold?, heldSize: CGSize?) {
+        paneMotionHold = hold
         (tab.contentView as? any BrowserPagePaneMotionHolding)?.holdPage(for: hold)
         needsLayout = true
     }

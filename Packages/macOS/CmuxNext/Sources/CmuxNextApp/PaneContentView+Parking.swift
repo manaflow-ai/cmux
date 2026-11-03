@@ -64,7 +64,7 @@ extension PaneContentView {
             view.autoresizingMask = []
             needsLayout = true
         } else {
-            if view.frame != contentHost.contentBounds(for: view) { view.frame = contentHost.contentBounds }
+            if view.frame != contentHost.contentBounds { view.frame = contentHost.contentBounds }
             view.autoresizingMask = [.width, .height]
         }
         // Above what still shows (a backdrop or a held page); hidden parked

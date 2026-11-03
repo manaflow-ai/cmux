@@ -17,13 +17,15 @@ extension ScreenContentView {
         let scrolls = before.scrolls(pane: pane)
         let drift = carried && scrolls ? before.viewShift(offset: offset) - baseGeometry.viewShift(offset: offset) : 0
         let style = context.style
-        closingPanes.begin(pane, shown: frame.rect.offsetBy(dx: drift, dy: 0), before: before, frames: paneFrames,
-                           maxGap: max(style.columnGap, style.dividerHitThickness) + 1, viewShift: carried ? baseGeometry.viewShift(offset: offset) : nil)
+        closingPanes.begin(pane, shown: frame.rect.offsetBy(dx: drift, dy: 0), before: before,
+                           maxGap: max(style.columnGap, style.dividerHitThickness) + 1, rank: liveRank(of: pane, in: before),
+                           viewShift: carried ? baseGeometry.viewShift(offset: offset) : nil)
         context.retire(pane, from: screenID, showsGround: true)
     }
 
-    /// A close taken back before it landed: the pane's live frame starts where its closing frame shows, with its velocity.
-    func takeBackClosing(_ pane: PaneID) -> AnimatedFrame? { closingPanes.remove(pane) }
+    /// A close taken back before it landed: the pane's live frame starts where its closing frame shows, with its sides'
+    /// velocities.
+    func takeBackClosing(_ pane: PaneID) -> AnimatedFrame? { closingPanes.remove(pane, frames: paneFrames) }
 
     /// The screen's motion landed (or it settles at once, or it goes: `until` nil): the hosts its closes retired are torn
     /// down (`LayoutViewContext.releaseRetired`), and their closing frames with them.
@@ -38,12 +40,12 @@ extension ScreenContentView {
     func presentClosingPanes(strip: CGFloat, scale: CGFloat) -> (hosts: [(host: PaneHostView, scrolls: Bool)], changed: Bool) { // perf-hot: 4ms motion-frame
         guard !closingPanes.isEmpty else { return ([], false) }
         var hosts: [(host: PaneHostView, scrolls: Bool)] = [], changed = false
+        let rects = closingPanes.rects(frames: paneFrames)
         for (pane, entry) in closingPanes.entries {
-            guard let host = context.closingHost(pane, of: screenID), host.superview === self else {
-                _ = closingPanes.remove(pane)
+            guard let host = context.closingHost(pane, of: screenID), host.superview === self, let rect = rects[pane] else {
+                closingPanes.drop(pane)
                 continue
             }
-            let rect = entry.rect
             let row = entry.rowColumn.flatMap { rowScrolls[$0]?.state.spring.value } ?? 0
             let area = entry.area.flatMap { areaScrolls[$0]?.state.spring.value } ?? 0
             let placed = rect.offsetBy(dx: (entry.scrolls ? strip : 0) - area, dy: -row).pixelEdges(scale)

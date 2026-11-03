@@ -167,6 +167,51 @@ struct PaneContentPolicyTests {
         }
     }
 
+    /// A held key (three Ctrl-Shift-H presses 4 frames apart retarget one spring): each terminal asks its PTY for the
+    /// final grid of each press, once, in that press's turn (at most one grid per press, the last one the final), and its
+    /// surface takes a new size only in a press's turn, never in a frame of the spring or at the landing.
+    @Test func aHeldKeySizesEachSurfaceOnlyInAPressTurn() async throws {
+        let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
+        defer { rig.close() }
+        rig.root.context.contentPolicyOverride = true
+        let panes: [PaneID] = ["p1", "p2"]
+        for pane in panes { _ = try await Self.grids(pane, rig) }
+        var last: [PaneID: CGSize] = [:]
+        for pane in panes { last[pane] = try Self.surface(pane, in: rig).frame.size }
+        var inFrames: [String] = [], grids: [PaneID: [TerminalGridSize]] = [:]
+        func note(_ label: String, frame: Bool) throws {
+            for pane in panes {
+                let size = try Self.surface(pane, in: rig).frame.size
+                if size != last[pane], frame { inFrames.append("\(label): \(pane) \(size)") }
+                last[pane] = size
+            }
+        }
+        var frames = 0
+        for press in 1...3 {
+            #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root), "press \(press) moved nothing")
+            rig.root.syncWithModel()
+            rig.root.layoutSubtreeIfNeeded()
+            try note("press \(press)", frame: false)
+            for pane in panes { grids[pane, default: []] += try await Self.grids(pane, rig) }
+            for _ in 1...4 where rig.frame() {
+                frames += 1
+                try note("frame \(frames)", frame: true)
+            }
+        }
+        try Self.run(rig) { _ in
+            frames += 1
+            try note("frame \(frames)", frame: true)
+        }
+        try note("after the landing", frame: true)
+        #expect(frames > 12, "the presses did not spring (\(frames) frames)")
+        #expect(inFrames.isEmpty, "a surface took a new size outside a press's turn: \(inFrames.prefix(3))")
+        for pane in panes {
+            let final = try #require(try Self.surface(pane, in: rig).fittedGrid)
+            let sent = (grids[pane] ?? []) + (try await Self.grids(pane, rig))
+            #expect(sent.count <= 3 && sent.last == final, "\(pane) asked its PTY for \(sent) over 3 presses (final \(final))")
+        }
+    }
+
     /// The grids `pane`'s terminal asked its PTY for since the last call (a focus report after them is the marker).
     static func grids(_ pane: PaneID, _ rig: Rig) async throws -> [TerminalGridSize] {
         let session = try #require(rig.provider.sessions[pane])
@@ -251,6 +296,53 @@ struct PaneContentPolicyTests {
         #expect(layersAfter <= layersBefore - closedLayers,
                 "the window has \(layersAfter) layers after the landing; \(layersBefore) before the close less the closed pane's \(closedLayers)")
         #expect(host.layer?.superlayer == nil && host.chrome.layer?.superlayer == nil, "a closed pane's layer is still in a layer tree")
+    }
+
+    /// Two closes in a row (Cmd-W twice, the second before the first landed): p1 closes, then p2, beside p3, in one
+    /// column. In every frame the pane hosts cover the column's width beyond the gap it rests at (the first closing pane
+    /// rides the second, which rides p3), and every closing host is under every live host (p3 draws over the grounds it
+    /// moves over).
+    @Test func twoClosesInARowLeaveNoHole() throws {
+        let rig = Rig(PaneGroundCoversPaneTests.column(.split("x", axis: .horizontal, ratio: 1.0 / 3, a: .leaf("p1"),
+                                                                b: .split("y", axis: .horizontal, ratio: 0.5, a: .leaf("p2"), b: .leaf("p3")))),
+                      focused: "p3")
+        defer { rig.close() }
+        rig.root.context.contentPolicyOverride = true
+        let screen = try rig.screen
+        let line = screen.convert(screen.bounds, to: nil)
+        #expect(try rig.uncoveredWidth(of: line) < 3, "SETUP: the column is not covered at rest")
+        var widths: [(label: String, width: CGFloat)] = [], order: [String] = []
+        func check(_ label: String) throws {
+            widths.append((label, try rig.uncoveredWidth(of: line)))
+            let hosts = screen.subviews.compactMap { $0 as? PaneHostView }.filter { !$0.isHidden }
+            let closing = hosts.filter(\.showsClosingGround), live = hosts.filter { !$0.showsClosingGround }
+            let highestClosing = closing.compactMap { screen.subviews.firstIndex(of: $0) }.max() ?? -1
+            let lowestLive = live.compactMap { screen.subviews.firstIndex(of: $0) }.min() ?? Int.max
+            if highestClosing > lowestLive { order.append("\(label): a closing host is above a live one") }
+        }
+        _ = try #require(rig.model.showPaneClose("p1"), "p1 did not close")
+        rig.root.syncWithModel()
+        rig.root.layoutSubtreeIfNeeded()
+        try check("close 1")
+        for frame in 1...4 {
+            #expect(rig.frame(), "the first close landed after \(frame) frames")
+            try check("frame \(frame)")
+        }
+        _ = try #require(rig.model.showPaneClose("p2"), "p2 did not close")
+        rig.root.syncWithModel()
+        rig.root.layoutSubtreeIfNeeded()
+        try check("close 2")
+        var frames = 4
+        try Self.run(rig) { _ in
+            frames += 1
+            try check("frame \(frames)")
+        }
+        let rest = try rig.uncoveredWidth(of: line)
+        let open = widths.filter { $0.width > rest + 1 }
+        #expect(frames > 10, "the closes did not spring (\(frames) frames)")
+        #expect(open.isEmpty, "\(open.count) frames show a hole in the column (rest \(rest) pt): \(open.prefix(4))")
+        #expect(order.isEmpty, "\(order.prefix(3))")
+        #expect(screen.closingPanes.isEmpty, "a closing pane is left after the landing")
     }
 
     /// A close taken back before it landed shows the same host again, with its content, from where its closing frame
