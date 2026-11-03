@@ -221,6 +221,16 @@ def window_state(app):
     return {"main": main, "any_key": any(w.get("key") for w in windows)}
 
 
+def sleepy_windows(app):
+    """Require the scene being measured, not merely an accepted action."""
+    reply = app.rpc("debug.window_list", timeout=10)
+    windows = reply.get("windows", []) if isinstance(reply, dict) else []
+    visible = [w for w in windows if w.get("kind") == "next.sleepyMode" and w.get("visible")]
+    if not visible:
+        raise RuntimeError("Sleepy Mode has no visible overlay window")
+    return visible
+
+
 def sample_threads(pid, seconds, path):
     """`/usr/bin/sample` of `pid` for `seconds` after the window (it suspends the process to sample, so it
     never runs inside the measured window); per thread, the frames with the most samples outside the wait."""
@@ -543,10 +553,16 @@ def main():
             if SESSIONS[session].get("sleepy"):
                 entry["sleepy"] = app.rpc("action.run", {"action": "palette.sleepyMode", "args": {},
                                                          "focus": False, "origin": "script"}, timeout=30)
+                if not isinstance(entry["sleepy"], dict) or entry["sleepy"].get("error"):
+                    raise RuntimeError(f"Sleepy Mode activation failed: {entry['sleepy']}")
             time.sleep(opts.settle)  # bench: the session settles (page loads, Chromium's post-load work) before the window
             instance = procs.Instance(app.app, app.process.pid)
             window_before = window_state(app)
+            if SESSIONS[session].get("sleepy"):
+                entry["sleepy_windows"] = {"start": sleepy_windows(app)}
             result = measure(app, instance, opts.measure)
+            if SESSIONS[session].get("sleepy"):
+                entry["sleepy_windows"]["end"] = sleepy_windows(app)
             result["window_state"] = {"start": window_before, "end": window_state(app)}
             print(f"IDLE-BUDGET-WINDOW {session} " + json.dumps(result["window_state"]), flush=True)
             if opts.sample:
