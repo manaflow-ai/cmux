@@ -53,6 +53,7 @@ test("a 1024-recipient MCP batch keeps its full summary count and a bounded init
   // The large batch initially mounts the same 32 rows plus one shared-grid pager line.
   expect(smallHeight).toBe(32 * 22);
   expect(largeHeight).toBe(smallHeight + 22);
+  expect(layoutConversation([{ ...large, foldRun: undefined }], 720).heights[0]).toBe(largeHeight);
 });
 const read = (path: string) => tool(`Read ${path}`, "read", { locations: [{ path }] });
 const run = (command: string) => tool(command, "execute", { command, output: "ok\n" });

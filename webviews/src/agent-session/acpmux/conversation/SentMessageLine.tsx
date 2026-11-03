@@ -17,6 +17,7 @@ import {
   useContext,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useState,
   useSyncExternalStore,
@@ -26,7 +27,7 @@ import type { AcpmuxActivity } from "../model";
 import type { AcpmuxSendCallPart, SendState } from "./acpmuxSends";
 import { messagePreview } from "./AgentMessageRow";
 import { messageDelivery } from "./agentMessages";
-import { FindReveal, useFindReveal } from "./chatFind";
+import { FindReveal, foldFind, useFindReveal } from "./chatFind";
 import { AlertCircle, ChevronRight, Envelope } from "./icons";
 import { AgentMessageBody } from "./AgentMessageBody";
 import { AgentTag } from "./AgentTag";
@@ -328,17 +329,19 @@ export function AcpmuxSendBatch({ tool, sends }: { tool: Tool; sends: readonly A
   const found = useMemo(() => {
     if (!reveal || (reveal.toolId !== undefined && reveal.toolId !== tool.id)) return -1;
     const index = sends.findIndex((send) =>
-      [send.target, send.text, send.file].some((value) => value?.includes(reveal.needle)),
+      [send.target, send.text, send.file].some(
+        (value) => value !== undefined && foldFind(value).includes(reveal.needle),
+      ),
     );
     if (index >= 0) return index;
     // A match in other receipt metadata still has the complete call available behind one Raw.
     return reveal.toolId === tool.id ||
-      tool.inputSummary?.includes(reveal.needle) ||
-      tool.output?.includes(reveal.needle)
+      foldFind(tool.inputSummary ?? "").includes(reveal.needle) ||
+      foldFind(tool.output ?? "").includes(reveal.needle)
       ? 0
       : -1;
   }, [reveal, sends, tool.id, tool.inputSummary, tool.output]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (found >= 0) setPage(Math.floor(found / SEND_PAGE_SIZE));
   }, [found, reveal]);
   const lastPage = Math.max(0, Math.ceil(sends.length / SEND_PAGE_SIZE) - 1);

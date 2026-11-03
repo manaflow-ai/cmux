@@ -173,19 +173,19 @@ for (const [count, tag] of [
 
 test("Find reaches an off-page recipient and opens only its full Raw call", async () => {
   const item = largeSend(1024, true);
+  item.tool!.output = item.tool!.output!.replaceAll("recipient-1023", "Recİpient-1023");
   await render([item], {
     rowId: "activity",
     card: false,
-    toolId: item.tool!.id,
     needle: "recipient-1023",
     repaint: () => {},
   });
   expect(host.querySelectorAll(".cv-sent")).toHaveLength(32);
   expect([...host.querySelectorAll(".cv-sent .cv-recipient")].map((node) => node.textContent)).toContain(
-    "recipient-1023",
+    "Recİpient-1023",
   );
   expect(host.querySelectorAll(".cv-subsession__under")).toHaveLength(1);
-  expect(host.querySelector(".cv-subsession__under")?.textContent).toContain("recipient-1023");
+  expect(host.querySelector(".cv-subsession__under")?.textContent).toContain("Recİpient-1023");
 });
 
 for (const [harness, call] of [

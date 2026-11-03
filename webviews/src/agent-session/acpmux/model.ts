@@ -1211,6 +1211,8 @@ function noteHeight(text: string | undefined, width: number): number {
 function activityStepHeight(item: AcpmuxActivity, width: number): number {
   const tool = item.tool;
   if (!tool) return item.kind === "note" ? noteHeight(item.text, width) : 26;
+  const sends = acpmuxMcpSends(tool);
+  if (sends?.length) return toolRowHeight() * (sends.length > SEND_PAGE_SIZE ? SEND_PAGE_SIZE + 1 : sends.length);
   // A message to another agent (SendMessage, `acpmux send`, a sub-session's `send_message`) is one
   // line on the tool rows' line (AgentMessageRow.tsx), as every one-line row is.
   if (agentMessage(tool)) return toolRowHeight();
@@ -2531,7 +2533,15 @@ export function scrollLeadRanges(
 }
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
-import { runStretches, sendGroupLines, staysInSight, toolGroups, type ToolGroup } from "./conversation/toolGroups";
+import {
+  runStretches,
+  SEND_PAGE_SIZE,
+  sendGroupLines,
+  staysInSight,
+  toolGroups,
+  type ToolGroup,
+} from "./conversation/toolGroups";
+import { acpmuxMcpSends } from "./conversation/acpmuxMcpSends";
 import { isFoldedRun } from "./conversation/toolRunSummary";
 import { isQuietThought, isThought, mergeThoughts } from "./conversation/thoughts";
 import { previewCardHeight } from "./conversation/previewUrl";
