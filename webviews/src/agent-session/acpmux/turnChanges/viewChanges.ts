@@ -113,7 +113,8 @@ export function viewChangesPatch(
   for (const changed of files) {
     const name = patchName(changed.path, cwd);
     if (path !== undefined && (changed.path === path || changed.canonical === path)) file = name;
-    for (const edit of changed.edits) if (edit.hunks.length > 0) text += editPatch({ ...changed, displayPath: name }, edit);
+    for (const edit of changed.edits)
+      if (edit.hunks.length > 0) text += editPatch({ ...changed, displayPath: name }, edit);
   }
   if (!text || new TextEncoder().encode(text).length > MAX_PATCH_BYTES) return undefined;
   return file === undefined ? { text } : { text, file };

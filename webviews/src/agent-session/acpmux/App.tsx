@@ -12153,19 +12153,17 @@ function AcpmuxPane() {
   // it opens the last turn's own changes in that tab, as the edited-files card does; only where no tab
   // can open does it toggle the page's changes view.
   const toggleChanges = (mode: QuickActionMode) => {
-    void headerChangesInPlace(chatCwd, litSplits.includes(HEADER_ACTIONS.changes), readFolderStatus).then(
-      (inPlace) => {
-        if (!inPlace) return runSplitAction(HEADER_ACTIONS.changes, chatCwd, mode);
-        const turn = cardEdit.turn;
-        const inPage = () => {
-          if (mode === "toggle" || !diffOpen) toggleLastChanges();
-        };
-        if (!turn) return inPage();
-        void diffBeside.current(turn.rowId, undefined, mode).then((opened) => {
-          if (!opened) inPage();
-        }, inPage);
-      },
-    );
+    void headerChangesInPlace(chatCwd, litSplits.includes(HEADER_ACTIONS.changes), readFolderStatus).then((inPlace) => {
+      if (!inPlace) return runSplitAction(HEADER_ACTIONS.changes, chatCwd, mode);
+      const turn = cardEdit.turn;
+      const inPage = () => {
+        if (mode === "toggle" || !diffOpen) toggleLastChanges();
+      };
+      if (!turn) return inPage();
+      void diffBeside.current(turn.rowId, undefined, mode).then((opened) => {
+        if (!opened) inPage();
+      }, inPage);
+    });
   };
   const togglePreview = (url: string | undefined) => {
     ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.preview, ...(url ? { url } : {}), mode: "toggle" }));

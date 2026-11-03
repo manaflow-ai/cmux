@@ -53,7 +53,11 @@ test("an edited-files row's file is the one the tab scrolls to", () => {
 });
 
 test("a turn that changed nothing sends no patch", () => {
-  const rows = [row("u", "user", { text: "hi" }), row("a", "activity"), row("s", "turnSummary", { status: "completed" })];
+  const rows = [
+    row("u", "user", { text: "hi" }),
+    row("a", "activity"),
+    row("s", "turnSummary", { status: "completed" }),
+  ];
   expect(viewChangesPatch(rows, "a", undefined, FOLDER)).toBeUndefined();
 });
 
