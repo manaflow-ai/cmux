@@ -799,7 +799,17 @@ export function ThreadMinimap({
     );
     if (index < 0) return;
     waiting.current = undefined;
-    jump(index, pending.how);
+    // On the next frame, as a pending row's jump: the commit that held the prompt prepended rows above
+    // the reader, and the transcript's restore of the reader's place after it undid a jump made now,
+    // so a click on an earlier prompt's tick read its history in and stayed put. A newer jump, another
+    // chat or an unmount since drops it. Its row is found again by its prompt then.
+    requestAnimationFrame(() => {
+      if (waiting.current || !rail.current?.isConnected || live.current.sessionId !== pending.sessionId) return;
+      const at = live.current.turns.findHeld(
+        (turn) => (turn.id === pending.id || turn.members?.includes(pending.id) === true) && turn.index >= 0,
+      );
+      if (at >= 0) jump(at, pending.how);
+    });
   }, [turns, jump, advance, sessionId]);
 
   // Previous Turn and Next Turn (the app's Ctrl-Opt-Up and Ctrl-Opt-Down) and Previous and Next
