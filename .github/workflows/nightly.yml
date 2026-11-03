@@ -3024,7 +3024,7 @@ jobs:
         if: (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && hashFiles('scripts/ci/nightly-steps/prepare-thin-bundle.sh') == ''
         run: |
           git fetch -q --no-tags --depth=1 origin "$GITHUB_SHA"
-          git diff --name-only --diff-filter=A HEAD FETCH_HEAD -- scripts/ci/nightly-steps | xargs -r git checkout FETCH_HEAD --
+          git diff --name-only --diff-filter=A HEAD FETCH_HEAD -- scripts/ci/nightly-steps | while read -r f; do git checkout FETCH_HEAD -- "$f"; done
 
       - &download-signing-inputs-paralle
         name: Download signing inputs (parallel)
