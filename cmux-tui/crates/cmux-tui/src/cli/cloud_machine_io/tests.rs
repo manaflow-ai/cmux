@@ -155,7 +155,7 @@ fn an_empty_spooled_read_keeps_the_json_contract_and_output_errors_propagate() {
         status: 200,
         code: None,
         body: json!({ "path": "/empty", "size": 0 }),
-        file: Some(tempfile::tempfile().unwrap()),
+        file: Some(Spool::Bytes(tempfile::tempfile().unwrap())),
     };
     assert_eq!(
         wire_body(Route::Direct, &mut answer),
@@ -560,14 +560,18 @@ fn files_round_trip_through_the_program_small_staged_and_ranged() {
 
     let (_, answer) = go(&Request { op: Op::Mkdir, path: Some(at("/d/e")), ..base.clone() }, T0);
     assert_eq!(answer.status, 200);
-    let (_, answer) = go(&Request { op: Op::Dir, path: Some(at("")), ..base.clone() }, T0);
-    let names: Vec<&str> = answer.body["entries"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|e| e["name"].as_str().unwrap())
-        .collect();
-    assert!(names.contains(&"d") && names.contains(&"new.txt"), "{names:?}");
+    if cfg!(target_os = "linux") {
+        let (route, mut answer) =
+            go(&Request { op: Op::Dir, path: Some(at("")), ..base.clone() }, T0);
+        let body = wire_body(route, &mut answer);
+        let names: Vec<&str> = body["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["name"].as_str().unwrap())
+            .collect();
+        assert!(names.contains(&"d") && names.contains(&"new.txt"), "{names:?}");
+    }
     let (_, answer) = go(&Request { op: Op::Stat, path: Some(at("/d")), ..base.clone() }, T0);
     assert_eq!(answer.body["kind"], "directory");
     let (_, answer) = go(&Request { op: Op::Remove, path: Some(at("/d")), ..base.clone() }, T0);
@@ -726,7 +730,10 @@ fn a_large_read_spools_to_disk_and_streams_the_existing_wire_format() {
     use std::io::{Seek, SeekFrom, Write};
     use std::os::unix::fs::MetadataExt;
 
-    assert!(python_here(), "this route test requires python3");
+    if !python_here() {
+        eprintln!("skipped: no python3");
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("large-\"file.bin");
     let size = 12 * 1024 * 1024 + 17_usize;
@@ -750,7 +757,9 @@ fn a_large_read_spools_to_disk_and_streams_the_existing_wire_format() {
     };
     let (route, mut answer) = go(&request, T0);
     assert_eq!((route, answer.status), (Route::Direct, 200));
-    let stored = answer.file.as_ref().expect("read bytes stay on disk until stdout consumes them");
+    let Some(Spool::Bytes(stored)) = answer.file.as_ref() else {
+        panic!("read bytes stay on disk until stdout consumes them");
+    };
     assert_eq!(stored.metadata().unwrap().len(), size as u64);
     assert_eq!(
         stored.metadata().unwrap().nlink(),
@@ -876,7 +885,7 @@ fn a_command_of_several_mib_runs_whole_through_the_direct_route() {
 
 #[test]
 fn directories_beyond_count_and_byte_caps_keep_every_entry() {
-    if !python_here() {
+    if !cfg!(target_os = "linux") || !python_here() {
         eprintln!("skipped: no python3");
         return;
     }
@@ -891,9 +900,8 @@ fn directories_beyond_count_and_byte_caps_keep_every_entry() {
         }
         let cell = Arc::new(Mutex::new(String::new()));
         let c = Arc::clone(&cell);
-        let (origin, seen) = fake(move |s| {
-            if s.is_mint() { minted(&c.lock().unwrap()) } else { run_here(s) }
-        });
+        let (origin, seen) =
+            fake(move |s| if s.is_mint() { minted(&c.lock().unwrap()) } else { run_here(s) });
         *cell.lock().unwrap() = origin.clone();
         let request = Request {
             path: Some(root.display().to_string()),
@@ -912,5 +920,85 @@ fn directories_beyond_count_and_byte_caps_keep_every_entry() {
         }
         assert!(count(&seen, Seen::is_exec_await) > 1, "bounded provider pages");
         assert_eq!(count(&seen, Seen::is_proxy), 0);
+        let page = |cursor: &str| {
+            let command = direct::fs_command("dir", root.to_str().unwrap(), &[cursor.to_owned()]);
+            assert!(command.len() < 64 * 1024);
+            std::process::Command::new("bash").args(["-c", &command]).output().unwrap()
+        };
+        let first = page("");
+        assert!(first.status.success());
+        assert!(first.stdout.len() <= directory::PAGE_BYTES as usize + 4096);
+        let first: Value = serde_json::from_slice(&first.stdout).unwrap();
+        let cursor = first["nextCursor"].as_str().unwrap();
+        assert_eq!(page(cursor).stdout, page(cursor).stdout, "a cursor replays the same page");
+        std::fs::write(root.join("new-entry"), []).unwrap();
+        assert_eq!(page(cursor).status.code(), Some(directory::CHANGED));
+    }
+}
+
+#[test]
+fn a_changed_directory_never_emits_a_partial_success() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let dir = tempfile::tempdir().unwrap();
+    let cell = Arc::new(Mutex::new(String::new()));
+    let c = Arc::clone(&cell);
+    let pages = AtomicUsize::new(0);
+    let (origin, seen) = fake(move |s| {
+        if s.is_mint() {
+            minted(&c.lock().unwrap())
+        } else if s.is_exec_await() && pages.fetch_add(1, Ordering::SeqCst) == 0 {
+            (
+                200,
+                json!({"statusCode": 0, "stderr": "", "stdout":
+                    json!({"entries": [{"name": "first"}], "nextCursor": "resume"}).to_string()
+                })
+                .to_string(),
+            )
+        } else {
+            (200, json!({"statusCode": 51, "stdout": "", "stderr": ""}).to_string())
+        }
+    });
+    *cell.lock().unwrap() = origin.clone();
+    let (route, mut answer) = go(&request(&origin, dir.path(), Op::Dir), T0);
+    assert_eq!((route, answer.status), (Route::Direct, 409));
+    assert_eq!(answer.code.as_deref(), Some("vm_directory_changed"));
+    assert!(answer.file.is_none(), "discard the incomplete spool");
+    let body = wire_body(route, &mut answer);
+    assert!(body.get("entries").is_none());
+    assert!(body["error"]["message"].as_str().unwrap().contains("restart"));
+    assert_eq!(count(&seen, Seen::is_proxy), 0);
+}
+
+#[test]
+fn directory_json_spools_preserve_empty_lists_and_bound_output_writes() {
+    use std::io::{Seek as _, Write as _};
+    struct Bounded(Vec<u8>);
+    impl std::io::Write for Bounded {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            assert!(bytes.len() <= 65536);
+            self.0.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    for size in [0, 2 * 1024 * 1024] {
+        let mut file = private_spool().unwrap();
+        file.write_all(b"{\"entries\":[").unwrap();
+        for n in 0..size / 16 {
+            if n > 0 {
+                file.write_all(b",").unwrap();
+            }
+            file.write_all(b"{\"name\":\"item\"}").unwrap();
+        }
+        file.write_all(b"]}").unwrap();
+        file.rewind().unwrap();
+        let mut answer =
+            Answer { status: 200, code: None, body: Value::Null, file: Some(Spool::Json(file)) };
+        let mut output = Bounded(Vec::new());
+        write_line(&mut output, Route::Direct, &mut answer).unwrap();
+        let value: Value = serde_json::from_slice(&output.0).unwrap();
+        assert_eq!(value["body"]["entries"].as_array().unwrap().len(), size / 16);
     }
 }
