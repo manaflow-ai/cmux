@@ -810,10 +810,8 @@ fn finale(events: &[InputEvent]) -> Vec<InputEvent> {
     };
     for event in events {
         match event {
-            InputEvent::WindowOpened { window } => {
-                if !windows.contains(window) {
-                    windows.push(window.clone());
-                }
+            InputEvent::WindowOpened { window } if !windows.contains(window) => {
+                windows.push(window.clone());
             }
             InputEvent::DialogShown { id, .. } => dialogs.push(*id),
             InputEvent::Focus { event: FocusEvent::Topology { topology }, .. } => {
