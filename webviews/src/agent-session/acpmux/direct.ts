@@ -2655,7 +2655,8 @@ export class AcpmuxDirectClient {
         throw new Error(translate("error.interrupted"));
       this.hasConnected = true;
       this.reconnectDelay = 250;
-      if (connectFailedAfterEarlyTail === this.selectedSessionId) connectFailedAfterEarlyTail = undefined;
+      // acpmux answers again: the next cold open of any chat draws its kept tail early again.
+      connectFailedAfterEarlyTail = undefined;
       this.wire.lifecycle("connected", {
         sessionId: this.selectedSessionId,
         sessions: this.sessions.length,
@@ -3125,6 +3126,12 @@ export class AcpmuxDirectClient {
     const { status: _status, retry: _retry, queue: _queue, ...past } = held.summary ?? {};
     const through = this.drawKeptTail(sessionId, { ...held, summary: held.summary && past, queue: [] });
     if (through === 0) return;
+    // The queue is not drawn, but a teammate's queued prompt keeps the author its row had when the
+    // tail was kept, for when acpmux's list or attach draws the queue (as `drawKeptTail` seeds it).
+    for (const entry of held.queue) {
+      const author = participant(entry?.author?.id, entry?.author?.name);
+      if (author && !this.queueAuthors.has(entry.id)) this.queueAuthors.set(entry.id, author);
+    }
     this.earlyTail = { sessionId, generation, through };
     this.drewKeptTail = true;
     // Drawn now when the socket is still connecting. Once it is open the open holds its snapshots
