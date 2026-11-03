@@ -535,6 +535,11 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         return lines + tabList.reportedLines
     }
 
+    /// The name's font, the caption lines' font and the kind icon's frame in the card, as drawn (tests).
+    var drawnTitleFont: NSFont? { titleLabel.font }
+    var drawnCaptionFont: NSFont? { ageLabel.font }
+    var kindIconFrame: CGRect { kindIcon.convert(kindIcon.bounds, to: self) }
+
     /// The card shows a running time (the status's or a command's): the controller ticks it.
     var isLive: Bool {
         guard detailsExpanded, let content else { return false }
