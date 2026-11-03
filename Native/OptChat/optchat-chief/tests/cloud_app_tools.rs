@@ -213,6 +213,32 @@ fn a_turn_names_the_home_chat_and_a_subagent_does_not() {
     assert_eq!(pinned.get(optchat_chief::cmux_env::HOME_CHAT_KEY), None);
 }
 
+/// A Chief imports the user's sign-ins from another browser when the user asks (#32960): the app's
+/// Import Cookies action, which asks the user on a consent panel first, reaches the turn; every
+/// other app action stays denied.
+#[test]
+fn a_chief_turn_keeps_the_cookie_import_tool() {
+    let cli = FakeCli::new();
+    let session = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(session.path().join(".claude")).unwrap();
+    cli.answer(
+        &["agents_snapshot", "app_browser_import_cookies", "app_show_pane", "app_import_suggest"],
+        true,
+        None,
+    );
+    let denied = cmux_tool_denials(session.path(), &cli.env());
+    assert!(
+        !denied.contains(&"mcp__cmux__app_browser_import_cookies".to_owned()),
+        "the cookie import must reach the Chief's turn: {denied:?}"
+    );
+    for gone in ["app_show_pane", "app_import_suggest"] {
+        assert!(
+            denied.contains(&format!("mcp__cmux__{gone}")),
+            "{gone} stays denied: {denied:?}"
+        );
+    }
+}
+
 /// A Chief turn messages the agent chats the user started (#25571): the cmux chat tools that
 /// send to, read and check a chat stay allowed; starting or interrupting one stays denied.
 #[test]
