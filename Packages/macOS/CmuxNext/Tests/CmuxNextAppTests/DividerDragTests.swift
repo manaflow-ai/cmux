@@ -415,6 +415,10 @@ import Testing
             let point = CGPoint(x: start.x - CGFloat(frame) * 5, y: start.y)
             handle.mouseDragged(with: harness.event(.leftMouseDragged, point, at: 1000 + Double(frame) / 120))
             harness.frames.frame()
+            // The frame's model change reaches the panes as in the app's turn: there the root's model sync
+            // (`Layout.modelSync`, `.sameTurn`) applies in the input-response pass or the pre-wait run loop block,
+            // which a test never runs; without it no pane took a new width and the drag resized nothing.
+            harness.root.syncWithModel()
             harness.root.layoutSubtreeIfNeeded()
             handle.frame = handle.frame.offsetBy(dx: -1, dy: 0)
         }
