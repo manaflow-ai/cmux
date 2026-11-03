@@ -21,6 +21,8 @@ import contextlib
 import io
 import json
 import os
+import shutil
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -67,6 +69,7 @@ class Harness(unittest.TestCase):
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="run-vdisplay-"))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
         ch = self.tmp / "capture-host"
         ch.write_text(FAKE_CH)
         ch.chmod(0o755)
@@ -75,12 +78,18 @@ class Harness(unittest.TestCase):
         self.saved = {name: getattr(run, name) for name in ("remote", "job_status", "harness_state", "load_journeys",
                                                              "build_for_commit")}
         self.scripts, self.inputs, self.vd_answer, self.statuses = [], [], VD_120x2, []
-        self.specs, self.runs = [], 0
+        self.specs, self.runs, self.vd_raises = [], 0, None
 
         def remote(host, script, input=None, timeout=600, check=True):
             self.scripts.append(script)
             self.inputs.append(input)
+            kind = ("vdisplay" if "vdisplay120.m" in script else "pkill" if "pkill" in script else
+                    "driver" if "driver.py" in script else "other")
+            with open(self.tmp / "ch.log", "a") as f:  # one ordered log with the capture-host calls
+                f.write(f"remote {kind}\n")
             if "vdisplay120.m" in script:
+                if self.vd_raises:
+                    raise self.vd_raises
                 return Done(self.vd_answer)
             if "build_cache" in script:
                 return Done(b"/tmp/x/build/cmux DEV t.app")
@@ -135,6 +144,38 @@ class Preflight(Harness):
         self.assertIn("needs --vdisplay 120x", rows["pacing-step"]["reason"])
         self.assertFalse(any(c.startswith("acquire") for c in self.calls()))
 
+    def test_a_require_hz_inside_a_step_group_counts_too(self):
+        # cp/pixel-perfect-kit: 27 of its 39 rate journeys say it in a px_film group's px_record_start (review 1).
+        spec = journey("pacing-group")
+        spec["steps"].insert(0, {"do": "px_film", "steps": [{"do": "wait"}, {"do": "px_record_start", "require_hz": 120}],
+                                 "after": []})
+        self.specs = [spec]
+        code, rows = self.main("--build", "JOB1", "--journey", "pacing-group", "--whole-host")
+        self.assertEqual(rows["pacing-group"]["status"], "not run")
+        self.assertIn("needs --vdisplay 120x1 or 120x2", rows["pacing-group"]["reason"])
+        self.assertFalse(any(c.startswith("acquire") for c in self.calls()))
+        self.assertEqual(self.statuses, [])
+
+    def test_a_journey_that_needs_two_rates_is_a_check_problem(self):
+        spec = journey("two-rates", require_hz=120)
+        spec["steps"].insert(0, {"do": "new_terminal", "options": {"film": {"require_hz": 60}}})
+        problems = [p for p in run.validate(spec) if "require_hz" in p]
+        self.assertTrue(any("60" in p and "120" in p for p in problems), problems)
+
+    def test_require_hz_is_found_at_any_depth(self):
+        spec = journey("deep")
+        spec["steps"].insert(0, {"do": "new_terminal", "groups": [{"steps": [{"film": {"require_hz": 120}}]}]})
+        self.assertEqual(run.required_hz(spec), 120)
+        bad = journey("deep-bad")
+        bad["steps"].insert(0, {"do": "new_terminal", "groups": [{"steps": [{"require_hz": 120.5}]}]})
+        self.assertTrue(any("require_hz" in p for p in run.validate(bad)), run.validate(bad))
+
+    def test_a_60_hz_journey_is_told_what_to_pass_without_a_contradiction(self):
+        self.specs = [journey("sixty", require_hz=60)]
+        code, rows = self.main("--build", "JOB1", "--journey", "sixty", "--whole-host")
+        self.assertIn("needs --vdisplay 60x1 or 60x2", rows["sixty"]["reason"])
+        self.assertNotIn("run at 60 Hz", rows["sixty"]["reason"])
+
     def test_another_rate_is_refused_before_the_lease(self):
         self.specs = [journey("pacing", require_hz=120)]
         code, rows = self.main("--build", "JOB1", "--journey", "pacing", "--whole-host", "--vdisplay", "60x1")
@@ -172,17 +213,18 @@ class Preflight(Harness):
 
     def test_a_malformed_vdisplay_is_a_usage_error(self):
         self.specs = [journey("plain")]
-        for bad in ("120", "120x3", "0x1", "241x1", "x2", "120x", "120X2 "):
+        for bad in ("120", "120x3", "0x1", "241x1", "x2", "120x", "120X2 ", "2x1", "23x1"):
             err = io.StringIO()
-            with self.subTest(vdisplay=bad), self.assertRaises(SystemExit) as caught, contextlib.redirect_stderr(err):
-                run.main(["--build", "JOB1", "--journey", "plain", "--whole-host", "--vdisplay", bad,
-                          "--out", str(self.tmp / "o")])
-            self.assertEqual(caught.exception.code, 2)
-            self.assertIn("--vdisplay takes HZxSCALE", err.getvalue())
+            with self.subTest(vdisplay=bad):
+                with self.assertRaises(SystemExit) as caught, contextlib.redirect_stderr(err):
+                    run.main(["--build", "JOB1", "--journey", "plain", "--whole-host", "--vdisplay", bad,
+                              "--out", str(self.tmp / "o")])
+                self.assertEqual(caught.exception.code, 2)
+                self.assertIn("--vdisplay takes HZxSCALE", err.getvalue())
         self.assertEqual(self.calls(), [])
 
     def test_require_hz_must_be_a_whole_number_of_hz(self):
-        for bad in (120.5, "120", 0, 241, True):
+        for bad in (120.5, "120", 0, 241, True, 2, 23):
             with self.subTest(require_hz=bad):
                 problems = run.validate(dict(journey("pacing"), require_hz=bad))
                 self.assertTrue(any("require_hz" in p for p in problems), problems)
@@ -231,6 +273,59 @@ class VirtualDisplay(Harness):
         self.assertEqual(result["status"], "not run")
         self.assertIn("1512x982 pixels", result["reason"])
         self.assertFalse(any("driver.py" in s for s in self.scripts))
+
+    def refused(self, mode, answer, why):
+        result, out = self.lease(mode, answer)
+        self.assertEqual(result["status"], "not run", result)
+        self.assertIn(why, result["reason"])
+        self.assertFalse(any("driver.py" in s for s in self.scripts))
+        self.assertIn("release slot-cmux99-abc", self.calls())
+        return result
+
+    def test_a_measured_interval_that_is_no_number_is_refused(self):
+        self.refused("120x1", b"ready 7 8.333\nmain 7 mode 1920x1080 pixels 1920x1080 refresh 120.00 interval nan displays 1\n",
+                     "no main line")
+
+    def test_a_mode_of_zero_points_is_refused(self):
+        self.refused("120x2", b"ready 7 8.333\nmain 7 mode 0x0 pixels 0x0 refresh 0.00 interval 8.333 displays 1\n",
+                     "0x0 points")
+
+    def test_a_main_line_with_other_labels_is_refused(self):
+        self.refused("120x1", b"ready 7 8.333\nmain 7 foo 1920x1080 bar 1920x1080 baz 120.00 qux 8.334 quux 2\n",
+                     "no main line")
+
+    def test_the_helpers_error_is_its_own_reason(self):
+        self.refused("120x1", b"error: CGVirtualDisplay unavailable\nmain 1 mode 1920x1080 pixels 1920x1080 refresh 60.00 "
+                              b"interval 16.667 displays 1\n", "the display helper failed: error: CGVirtualDisplay unavailable")
+
+    def test_no_ready_line_is_its_own_reason(self):
+        self.refused("120x1", b"main 1 mode 1920x1080 pixels 1920x1080 refresh 60.00 interval 16.667 displays 1\n",
+                     "no ready line")
+
+    def test_the_tolerance_is_0_35_ms(self):
+        near = b"ready 7 %s\nmain 7 mode 1920x1080 pixels 1920x1080 refresh 120.00 interval %s displays 1\n"
+        self.lease("120x1", near % (b"8.600", b"8.600"))
+        self.assertTrue(any("driver.py" in s for s in self.scripts), "8.600 ms on 120 Hz is within 0.35 ms: it runs")
+        self.scripts.clear()
+        self.refused("120x1", near % (b"8.700", b"8.700"), "8.7 ms")
+
+    def test_a_display_start_that_times_out_is_stopped_before_the_release(self):
+        self.vd_raises = subprocess.TimeoutExpired("ssh", 90)
+        result, out = self.lease("120x1")
+        self.assertEqual(result["status"], "not run")
+        log = self.calls()
+        self.assertIn("remote pkill", log)
+        self.assertLess(log.index("remote pkill"), log.index("release slot-cmux99-abc"), log)
+        stop = next(s for s in self.scripts if "pkill" in s)
+        self.assertIn("/tmp/fake-root/journeys/VD\\.app/", stop)  # the lease's own path, as an exact pattern
+
+    def test_the_display_is_held_no_longer_than_the_lease(self):
+        self.lease("120x1")
+        made = next(s for s in self.scripts if "vdisplay120.m" in s)
+        hold = int(made.split("VD.app --args 120 1 0 0 ")[1].split(";")[0])
+        # It ends by itself 30 s before the lease does (the hog's margin; the driver's budget ends 45 s before).
+        self.assertLessEqual(hold, run.LEASE_SECONDS - 30)
+        self.assertGreater(hold, 0)
 
     def test_the_kit_carries_the_display_helper(self):
         names = tarfile.open(fileobj=io.BytesIO(run.kit_tar([journey("plain")]))).getnames()
