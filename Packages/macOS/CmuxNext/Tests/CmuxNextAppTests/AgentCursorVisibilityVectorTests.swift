@@ -64,6 +64,18 @@ struct AgentCursorVisibilityVectorTests {
         }
     }
 
+    /// A kept resolver refills its arrays on each resolve: every vector, in
+    /// order and then reversed, gets its own answer, never a part of the last
+    /// snapshot (more windows, panes or ids before, fewer after).
+    @Test func aKeptResolverGivesEachSnapshotItsOwnAnswer() throws {
+        let cases = try Self.vectors().cases
+        var resolver = AgentCursorVisibilityResolver()
+        for item in cases + cases.reversed() {
+            let result = resolver.resolve(target: item.target, in: item.snapshot)
+            #expect(Self.describe(result) == item.expect, "\(item.name)")
+        }
+    }
+
     /// A fitted page's emulation scale comes back from the rules; no scale is 1.
     @Test func aVisiblePageKeepsItsScale() throws {
         let cases = try Self.vectors().cases

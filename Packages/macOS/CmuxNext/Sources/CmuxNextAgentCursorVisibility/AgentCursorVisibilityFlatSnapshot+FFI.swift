@@ -4,7 +4,8 @@ import CoreGraphics
 /// A snapshot as `cmux_agent_cursor_visibility` reads it: every id numbered
 /// for the call (the rules compare ids only for identity), and windows,
 /// listed workspaces, sidebar rows, panes and chips as flat arrays with
-/// (offset, count) ranges. FFI glue: no rule here.
+/// (offset, count) ranges. FFI glue: no rule here. `load` refills the same
+/// storage, so a kept snapshot allocates nothing once its arrays are big enough.
 nonisolated struct AgentCursorVisibilityFlatSnapshot {
     /// `CMUX_FOCUS_NONE` (`UINT32_MAX`, which Swift does not import as a constant).
     static let none = UInt32.max
@@ -20,8 +21,17 @@ nonisolated struct AgentCursorVisibilityFlatSnapshot {
     private var tabWorkspace = Self.none
     private var tabPane = Self.none
 
-    init(target id: String, snapshot: AgentCursorVisibilitySnapshot) {
+    /// Replaces the contents with `snapshot` for target `id`, keeping the storage.
+    mutating func load(target id: String, snapshot: AgentCursorVisibilitySnapshot) {
+        numbers.removeAll(keepingCapacity: true)
+        names.removeAll(keepingCapacity: true)
+        windows.removeAll(keepingCapacity: true)
+        ids.removeAll(keepingCapacity: true)
+        rows.removeAll(keepingCapacity: true)
+        panes.removeAll(keepingCapacity: true)
+        chips.removeAll(keepingCapacity: true)
         target = number(id)
+        (tabWorkspace, tabPane) = (Self.none, Self.none)
         if let tab = snapshot.tab {
             tabWorkspace = number(tab.workspace)
             tabPane = number(tab.pane)
@@ -88,14 +98,9 @@ nonisolated struct AgentCursorVisibilityFlatSnapshot {
         return names.indices.contains(index) ? names[index] : nil
     }
 
-    /// `map` as keyed rects, its keys numbered.
-    private mutating func keyed(_ map: [String: AgentCursorRect]) -> [CmuxCursorKeyedRect] {
-        var list: [CmuxCursorKeyedRect] = []
-        list.reserveCapacity(map.count)
-        for (key, rect) in map {
-            list.append(CmuxCursorKeyedRect(key: number(key), reserved: 0, rect: Self.rect(rect)))
-        }
-        return list
+    /// `rect` keyed by `key`'s number.
+    private mutating func keyed(_ key: String, _ rect: AgentCursorRect) -> CmuxCursorKeyedRect {
+        CmuxCursorKeyedRect(key: number(key), reserved: 0, rect: Self.rect(rect))
     }
 
     private mutating func add(_ window: AgentCursorVisibilitySnapshot.Window) {
@@ -104,9 +109,12 @@ nonisolated struct AgentCursorVisibilityFlatSnapshot {
             let listed = number(workspace)
             ids.append(listed)
         }
-        let windowRows = keyed(window.sidebarRows)
-        let (rowsOffset, rowsCount) = (UInt32(rows.count), UInt32(windowRows.count))
-        rows.append(contentsOf: windowRows)
+        let rowsOffset = UInt32(rows.count)
+        for (key, rect) in window.sidebarRows {
+            let row = keyed(key, rect)
+            rows.append(row)
+        }
+        let rowsCount = UInt32(rows.count) - rowsOffset
         let panesOffset = UInt32(panes.count)
         for pane in window.panes { add(pane) }
         var flags: UInt32 = 0
@@ -124,9 +132,12 @@ nonisolated struct AgentCursorVisibilityFlatSnapshot {
     }
 
     private mutating func add(_ pane: AgentCursorVisibilitySnapshot.Pane) {
-        let paneChips = keyed(pane.chips)
-        let (chipsOffset, chipsCount) = (UInt32(chips.count), UInt32(paneChips.count))
-        chips.append(contentsOf: paneChips)
+        let chipsOffset = UInt32(chips.count)
+        for (key, rect) in pane.chips {
+            let chip = keyed(key, rect)
+            chips.append(chip)
+        }
+        let chipsCount = UInt32(chips.count) - chipsOffset
         var flags: UInt32 = 0
         func take(_ rect: AgentCursorRect?, _ bit: UInt32) -> CmuxCursorRect {
             guard let rect else { return CmuxCursorRect() }
