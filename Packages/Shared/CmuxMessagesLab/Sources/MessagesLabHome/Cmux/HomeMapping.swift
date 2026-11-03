@@ -10,6 +10,9 @@ import Foundation
 /// its committed echo share it, TranscriptItem.key), or, for a send this
 /// view started, the local id the reducer gave it (`aliases`).
 enum HomeMapping {
+    static func isChief(_ author: ParticipantID, _ summary: ConversationSummary?) -> Bool {
+        summary?.participants.contains { $0.id == author && $0.kind == .agent && $0.agentClass == .chief } == true
+    }
     static func id(_ item: TranscriptItem, aliases: [IdempotencyKey: ID]) -> ID {
         aliases[item.key] ?? rowSafe(item.key.rawValue)
     }
@@ -96,6 +99,8 @@ enum HomeMapping {
         message.parent = parent(item, roots: roots)
         // Chief's first-launch welcome (CmuxNext ChiefWelcome, client ids "chief-welcome-…"): each bubble its own group.
         if item.key.rawValue.hasPrefix(welcomeKeyPrefix) { message.cmuxStandsAlone = true }
+        // The Chief's messages to its agents and their reports: asides under its reply (no avatar, no name).
+        if item.agentMessage != nil { message.cmuxAside = true }
         if !item.isRetracted, !item.parts.isEmpty, parts.isEmpty {
             // Nothing to read (a Chief turn's done marker, a work part with no preview): kept so
             // its seq still moves the read cursor, drawn as no row and counted as no reply.
@@ -138,7 +143,10 @@ enum HomeMapping {
         let markdown = isAgent(item.author, summary)
         var parts: [Part] = [], owners: [Int] = []
         for (i, p) in item.parts.enumerated() {
-            let shown = self.parts(p, media: media, progress: item.attachmentProgress, markdown: markdown, links: links)
+            let shown: [Part]
+            if summary?.owner == .local, isChief(item.author, summary), case .question(let question) = p,
+               let card = HomeApprovalRowProvider.part(question) { shown = [card] }
+            else { shown = self.parts(p, media: media, progress: item.attachmentProgress, markdown: markdown, links: links) }
             parts += shown
             owners += Array(repeating: i, count: shown.count)
         }

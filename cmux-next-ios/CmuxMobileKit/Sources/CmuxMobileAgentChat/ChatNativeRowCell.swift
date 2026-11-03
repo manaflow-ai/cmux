@@ -26,6 +26,13 @@ struct ChatNativeActions {
 @MainActor
 final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDelegate {
     private var layout: ChatNativeLayout?
+    /// The row's revision and disclosures this cell draws (set when configured): what its
+    /// measurements are of, as a SwiftUI row's (`ChatRowCell.shown`). Without it the layout kept
+    /// none of them, and a row laid out at its estimate went back to it on the next change above.
+    var shown: ChatRowAttributes.Shown?
+    /// The cell width its layout was made for (set when configured): a measurement at another
+    /// width (a rotation before the new layout lands) is laid out but not kept.
+    var layoutWidth: CGFloat = 0
     private var actions = ChatNativeActions()
     private var labels: [UILabel] = []
     /// The labels (by index) that show a markdown heading.
@@ -196,9 +203,9 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
     }
 
     override func preferredLayoutAttributesFitting(_ attributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
-        guard let layout, abs(layout.height - attributes.size.height) > 0.25,
-              let fitted = attributes.copy() as? UICollectionViewLayoutAttributes else { return attributes }
+        guard let layout, let fitted = attributes.copy() as? UICollectionViewLayoutAttributes else { return attributes }
         fitted.size.height = layout.height
+        if abs(layoutWidth - attributes.size.width) < 0.5 { (fitted as? ChatRowAttributes)?.shown = shown }
         return fitted
     }
 

@@ -181,6 +181,8 @@ import Testing
         let scope = try makeScope(), (world, identity) = try await setup([scope], root: root)
         await world.setBadAck()
         let service = try client(scope, world: world, identity: identity, root: root)
-        await #expect(throws: NativeDeviceEnrollmentError.invalidIdentity) { try await service.enroll() }
+        let error = await #expect(throws: NativeDeviceEnrollmentError.self) { try await service.enroll() }
+        guard case .invalidIdentity(let at) = error else { Issue.record("expected invalidIdentity, got \(String(describing: error))"); return }
+        #expect(at.hasPrefix("CmuxNextCloud/NativeDeviceEnrollment.swift:"))
     }
 }

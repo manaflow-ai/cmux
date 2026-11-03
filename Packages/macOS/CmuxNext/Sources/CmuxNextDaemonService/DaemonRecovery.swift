@@ -24,6 +24,17 @@ public final class DaemonRecovery {
     public private(set) var offersRestart = false
     /// Why the last `server ensure` failed; nil after one that worked.
     public private(set) var startFailure: DaemonStartFailure?
+    /// The start keeps failing (``NoticePolicy``): cmux-tui is down until the person acts, so a window that shows
+    /// content says so (`DaemonRecoveryNotice`). False while starts fail only once or twice, or only for a short
+    /// while: a daemon that restarts (a version handoff, a crash, a missed heartbeat on a loaded Mac) is retried
+    /// quietly.
+    public private(set) var startFailurePersists = false
+    /// When the failed starts of ``startFailurePersists`` began; nil after a start that worked.
+    @ObservationIgnored private var failingSince: ContinuousClock.Instant?
+    /// When failed starts count as cmux-tui being down (tests shorten it).
+    @ObservationIgnored var noticePolicy = NoticePolicy.standard
+    /// Now, for ``noticePolicy``'s window (tests move it).
+    @ObservationIgnored var now: () -> ContinuousClock.Instant = { ContinuousClock.now }
     /// The connected daemon leaves its heartbeat unanswered while its process is alive (stopped or wedged):
     /// its connection stays open and its requests keep waiting (P0 2026-10-30), and Restart is offered.
     public private(set) var daemonNotAnswering = false
@@ -34,6 +45,8 @@ public final class DaemonRecovery {
     /// Why the last Restart did not work (the refusal code or error, for Copy
     /// Details); nil after Retry Now or a Restart that worked.
     public private(set) var restartFailure: String?
+    /// ``restartFailure`` is of a Restart the person asked for (not the automatic one): it shows the notice at once.
+    public private(set) var requestedRestartFailed = false
     /// When an unresponsive owner restarts by itself (tests shorten it before `attach`).
     @ObservationIgnored var unresponsivePolicy = UnresponsiveOwnerWatch.Policy.standard
     private nonisolated let restartsUnresponsive = Mutex<@Sendable () -> Bool>({ true })
@@ -41,6 +54,24 @@ public final class DaemonRecovery {
     @ObservationIgnored private var watch: UnresponsiveOwnerWatch?
     @ObservationIgnored private var wake: RetryWake?
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
+
+    /// When failed starts count as cmux-tui being down (``startFailurePersists``): a full disk at once, because only
+    /// the person can free space; any other failure once at least ``failedStarts`` starts in a row failed over at
+    /// least ``sustained``. The reconnect tries at least every 30 s (`RetryPolicy.localReconnect`), so a start that
+    /// stays broken is told within about ``sustained`` plus one attempt.
+    public struct NoticePolicy: Sendable, Equatable {
+        public var failedStarts: Int
+        public var sustained: Duration
+
+        /// Three failed starts over two minutes: past a restart under heavy load (each failed ensure already
+        /// waited 20 s of silence, or the owner's restore bound).
+        public static let standard = NoticePolicy(failedStarts: 3, sustained: .seconds(120))
+
+        public init(failedStarts: Int, sustained: Duration) {
+            self.failedStarts = failedStarts
+            self.sustained = sustained
+        }
+    }
 
     public init() {}
 
@@ -71,9 +102,9 @@ public final class DaemonRecovery {
         let outcome = launcher.ensureOutcome
         outcome.observe { [weak self] in
             guard let self else { return }
-            noteStart(outcome.failure)
+            noteStart(outcome.failure, failedInARow: outcome.failedInARow)
         }
-        noteStart(outcome.failure)
+        noteStart(outcome.failure, failedInARow: outcome.failedInARow)
     }
 
     /// The connected daemon answers its heartbeat (true) or left one more ask unanswered while its connection stays
@@ -110,11 +141,28 @@ public final class DaemonRecovery {
         ownerProbe = nil
     }
 
-    /// The launcher's last ensure ended: `failure` nil when it worked.
-    private func noteStart(_ failure: DaemonStartFailure?) {
+    /// The launcher's last ensure ended: `failure` nil when it worked; `failedInARow` ensures failed since one worked.
+    func noteStart(_ failure: DaemonStartFailure?, failedInARow: Int) {
         if startFailure != failure { startFailure = failure }
+        if failure == nil {
+            failingSince = nil
+        } else if failingSince == nil {
+            failingSince = now()
+        }
+        let persists = failure.map { failure in
+            failure.isDiskFull || (failedInARow >= noticePolicy.failedStarts
+                && failingSince.map { now() - $0 >= noticePolicy.sustained } == true)
+        } ?? false
+        if let failure {
+            // Notice level, so it outlives the in-memory `.info` lines of the connection's reconnect (`log show` finds it).
+            logger.notice("cmux-tui start failed (\(failedInARow, privacy: .public) in a row, \(persists ? "down" : "retrying quietly", privacy: .public)): \(failure.detail, privacy: .public)")
+        }
+        if startFailurePersists != persists { startFailurePersists = persists }
         // An ensure that worked (the owner recovered by itself) ends an earlier Restart's failure.
-        if failure == nil { restartFailure = nil }
+        if failure == nil {
+            restartFailure = nil
+            requestedRestartFailed = false
+        }
         updateOffer()
     }
 
@@ -144,6 +192,7 @@ public final class DaemonRecovery {
     /// Tries to connect now instead of at the next backoff step.
     public func retryNow() {
         restartFailure = nil
+        requestedRestartFailed = false
         wake?.fire()
     }
 
@@ -156,6 +205,7 @@ public final class DaemonRecovery {
         guard let launcher, !isRestarting else { return false }
         isRestarting = true
         restartFailure = nil
+        requestedRestartFailed = false
         let source = automatic ? "automatic" : "requested"
         var replaced = false
         do {
@@ -164,6 +214,7 @@ public final class DaemonRecovery {
             logger.notice("cmux-tui restart (\(source, privacy: .public)): \(result.status, privacy: .public), pid \(result.pid)")
         } catch {
             restartFailure = String(describing: error)
+            requestedRestartFailed = !automatic
             logger.error("cmux-tui restart (\(source, privacy: .public)) failed: \(String(describing: error), privacy: .public)")
         }
         isRestarting = false

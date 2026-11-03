@@ -108,8 +108,13 @@ await requireBrowserLane("model-picker-round-rail.test.ts", async () => {
           harnesses: harnessTabs.map((tab) => {
             const name = tab.querySelector<HTMLElement>(".acpmux-quick-harness-name");
             return {
-              // A symbol shown alone, its name the tab's label and title.
-              symbol: !!tab.querySelector(".agent-mark") && !!name?.classList.contains("sr-only") && !!tab.title,
+              // A mark shown alone, its name the tab's label and title. The mark is the harness's
+              // symbol, or its name's initial when it has none (design/model-picker.md: "A family
+              // with no symbol of its own draws its name's first letter as its mark").
+              symbol:
+                !!tab.querySelector(".agent-mark, .acpmux-quick-rail-initial") &&
+                !!name?.classList.contains("sr-only") &&
+                !!tab.title,
               name: tab.getAttribute("aria-label") ?? "",
               shown: name?.textContent?.trim() ?? "",
               clipped: name ? name.scrollWidth > name.clientWidth + 1 : true,

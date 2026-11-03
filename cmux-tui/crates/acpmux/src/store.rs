@@ -160,6 +160,11 @@ pub struct SessionMeta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_request: Option<String>,
     pub cwd: PathBuf,
+    /// Folders the chat sees beside `cwd` (ACP `session/new` `additionalDirectories`, its
+    /// Sources): every start of its harness gets them (`hub/additional_dirs.rs`). Absolute,
+    /// canonical, each once, never `cwd` itself.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub additional_directories: Vec<PathBuf>,
     #[serde(default)]
     pub agent_session_id: Option<String>,
     /// Claude Code can replace its native session id when a chat is forked. Keep ids this
@@ -183,6 +188,11 @@ pub struct SessionMeta {
     pub updated_at: u64,
     #[serde(default)]
     pub last_seq: u64,
+    /// The seq of the newest record `hub/paging.rs` `is_transcript` keeps (the summary's
+    /// `transcriptSeq`). 0 from an older daemon's `session.json`: no client compares across
+    /// that, since one bump past the value it read is all a client asks of it.
+    #[serde(default)]
+    pub transcript_seq: u64,
     #[serde(default)]
     pub parent_id: Option<String>,
     #[serde(default)]

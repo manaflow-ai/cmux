@@ -92,7 +92,11 @@ No new harness: `run.py` takes the route `cmux-ci capture` (hq `build-fleet/pr-c
    under `~/.local/share/cmux/hq-tools/current/build-fleet/` when `capture-host` is not on
    PATH). A lease lasts at most 10 minutes and is released in every case; journeys that do not
    fit one lease (`budget_seconds`) run in further leases.
-3. The slot downloads the build's artifact (`cmux-ci artifact JOB`) into the lease root, and
+3. The build comes from the mini's build cache (`~/.cache/cmux-journeys/builds/JOB/`); `build_cache.py`
+   fills it once per mini and job, under a lock, so rounds that start at once make one download. It
+   reads the store's signed URL with curl (a connection under 3 MB/s for 10 s is opened again) and
+   checks the sha256, else `cmux-ci artifact JOB`. `run.py --prestage --build JOB --hosts "..."` fills
+   it before any round, outside any lease, on each named mini that capture-host says is free. The slot
    compiles `scripts/ci/pr_media_ocr.swift` once per mini (`~/.cache/cmux-journeys/`).
 4. `capture-host launch` starts the app in the slot: its own clone, bundle id, HOME, TMPDIR,
    control socket and empty settings file, never activated, never another app's state.
@@ -355,7 +359,7 @@ in the shown terminal: grid == fitted grid == drawn grid == fit(the view's bound
 the PTY's size (`stty size`) == the daemon's screen size == the topology tab's size, and a line longer
 than the old width wraps at the new width (`smoke_r3`; every size is in the result; the window check
 also needs the window 160 points narrower and the pane narrower than before). Both are re-read through
-a 1.5 s settle. Then New Column twice (the action, then its key Ctrl-Cmd-D): every existing column
+a 1.5 s settle. Then New Column twice (the action, then its key Ctrl-Cmd-X): every existing column
 (matched by its panes, width from the float view frames) keeps exactly its width, and there is one
 more column each time (`smoke_same_widths`; each old and new width in the result). Cmd-D (Split
 Right) is not used here: it never opens a column (`SplitRoomCheck.toolSplit`), it splits the pane.
@@ -412,7 +416,9 @@ Leases (cmux-ad 09:05Z, binding): a capture lease is held only while journey ste
 (acquire right before the round, release right after it, on every path: run.py turns SIGTERM into an exception so its
 `finally` releases, an acquire stopped by a signal is ended so capture-host unreserves, and fuzz.py passes its own
 SIGTERM to run.py as TERM, never KILL; `test_run_release.py`). The build comes from a per-mini cache outside the slot
-(`~/.cache/cmux-journeys/builds/<job>/`, the newest 3 jobs), so only the first round of a job on a mini downloads it.
+(`~/.cache/cmux-journeys/builds/<job>/`, the newest 3 jobs), so only the first round of a job on a mini downloads it,
+under the mini's lock for that job (`~/.cache/cmux-journeys/locks/<job>.lock`; `test_build_cache.py`), and
+`run.py --prestage` can fill it before the first round.
 Nothing is shrunk inside a lease: fuzz.py runs ddmin with one short replay lease per try (`--shrink-tries`, default 10).
 
 Sets: `layout` (fuzz-catalog row m, the first mode: New Column, Cmd-D, Split Down, Ctrl-`, close pane, divider drag,

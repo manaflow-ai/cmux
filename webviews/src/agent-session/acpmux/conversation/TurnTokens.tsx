@@ -3,9 +3,11 @@
 // ok if we show both, we just ought to split it up"). "out" is only what the model generated (the
 // turn's count, direct.ts `turnTokens`); "in" is all the model read: the fresh input, the prompt
 // cache's reads and its writes; the hover names each. The two are never folded into one total. A
-// turn whose calls named their output but not what they read shows "2.1M out". The running line
-// (Thinking.tsx, WorkingFor.tsx) and a finished turn's "Worked for" (TurnRows.tsx) draw it in the
-// line's quieter tertiary text and tabular numerals (conversation.css `.cv-worked__tokens`).
+// turn whose calls named their output but not what they read shows "2.1M out". The line over a
+// running turn (WorkingFor.tsx) and a finished turn's "Worked for" (TurnRows.tsx) draw it in the
+// line's quieter tertiary text and tabular numerals (conversation.css `.cv-worked__tokens`). The
+// live line at the bottom (Thinking.tsx) says the output alone as Claude Code does, "47.4K tokens",
+// with this split on its hover (liveLineTokens.experiment.ts).
 import type { ReactNode } from "react";
 import { type PaneLanguage, type Translate, usePaneLanguage, useT } from "../i18n";
 import type { TurnTokenSplit } from "../model";

@@ -105,6 +105,7 @@ impl Hub {
             lineage,
             disallowed_tools,
             checked_cwd,
+            additional_directories,
             person,
         } = req;
         // The proven agent session that asked for this one, as it is now; never for a remote
@@ -234,6 +235,8 @@ impl Hub {
         (meta.session_env, meta.chat_store, meta.adopted_cwd, meta.git_branch, meta.git_head) =
             (session_env, chat_store, adopted_cwd, git.branch, git.head);
         meta.workspace_id = workspace_id;
+        meta.additional_directories =
+            super::additional_dirs::without_cwd(additional_directories, &meta.cwd);
         meta.vm_boundary = remote && vm_boundary;
         meta.subsession = subsession;
         meta.lineage = lineage;
@@ -251,6 +254,7 @@ impl Hub {
                     && meta.session_env.is_empty()
                     && route.is_none()
                     && meta.tools.off.is_empty()
+                    && meta.additional_directories.is_empty()
                     && checked_cwd.is_none() =>
             {
                 self.pool_claim(&meta, &profile, &defaults.env).await
@@ -1026,6 +1030,11 @@ impl Hub {
                 if resume.is_none() { Some(uuid::Uuid::now_v7().to_string()) } else { None };
             let effort = current_effort(&meta).unwrap_or_else(|| "default".into());
             let fast = current_option(&meta, "fast-mode").as_deref() == Some("on");
+            let suggestions = crate::claude_stdio::prompt_suggestions::chat_pick(current_option(
+                &meta,
+                crate::claude_stdio::prompt_suggestions::OPTION,
+            ));
+            let recap = current_option(&meta, crate::claude_stdio::RECAP_OPTION);
             let mode = meta
                 .modes
                 .as_ref()
@@ -1080,6 +1089,9 @@ impl Hub {
                 &mode,
                 Some(&model),
             );
+            // The chat's Sources (`additional_dirs.rs`), at every start.
+            let mut plan = plan;
+            plan.args.extend(super::additional_dirs::claude_args(&meta));
             let (plan, profile) = self.remote_chain_plan(session, profile, plan).await?;
             // A fresh process was given its id; a resumed one already has it.
             let known = if fork { None } else { fresh_id.clone().or_else(|| existing_sid.clone()) };
@@ -1090,6 +1102,8 @@ impl Hub {
                     model: model.clone(),
                     effort: effort.clone(),
                     fast,
+                    prompt_suggestions: suggestions,
+                    recap: recap.clone(),
                     claude_session_id: known.clone(),
                 };
                 self.spawn_hosted_child(
@@ -1109,6 +1123,8 @@ impl Hub {
                     &effort,
                 );
                 *tr.fast.lock().await = fast;
+                tr.prompt_suggestions.store(suggestions, std::sync::atomic::Ordering::SeqCst);
+                tr.set_recap(recap.as_deref());
                 if let Some(sid) = known {
                     *tr.session_id.lock().await = Some(sid);
                 }

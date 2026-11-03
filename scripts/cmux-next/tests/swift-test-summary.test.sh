@@ -59,11 +59,10 @@ fi
 # A test that never returns: the wrapper has to end it.
 [[ -z "${STUB_SLEEP:-}" ]] || sleep "$STUB_SLEEP"
 # A run that keeps the CPU busy and finishes nothing for STUB_BUSY seconds: a spin, or a runner so
-# starved that one test takes minutes. Then STUB_AFTER's lines, the finishes it got to.
-if [[ -n "${STUB_BUSY:-}" ]]; then
-  end=$((SECONDS + STUB_BUSY))
-  while (( SECONDS < end )); do :; done
-fi
+# starved that one test takes minutes. Then STUB_AFTER's lines, the finishes it got to. The CPU it
+# uses comes from the busy `ps` stub ($TMP/busy-ps), not a real spin: on a loaded runner a spin
+# got 0.00 s of CPU in its window and was cut as idle (base run 41522830037).
+[[ -z "${STUB_BUSY:-}" ]] || sleep "$STUB_BUSY"
 [[ -z "${STUB_AFTER:-}" ]] || cat "$STUB_AFTER"
 exit "${STUB_STATUS:-0}"
 EOF
@@ -74,6 +73,24 @@ cat > "$TMP/bin/sample" <<'EOF'
 echo "SAMPLED $1"
 EOF
 chmod +x "$TMP/bin/sample"
+
+# The busy cases' `ps`: every CPU reading (`ps -o pid= -o time= -p ...`) says each process used
+# one more second since the last, so the run reads as busy whatever the runner's load. Every other
+# `ps` call is the real one.
+REAL_PS=$(command -v ps)
+mkdir -p "$TMP/busy-ps"
+cat > "$TMP/busy-ps/ps" <<EOF
+#!/usr/bin/env bash
+if [[ "\$*" == "-o pid= -o time= -p "* ]]; then
+  n=\$(( \$(cat "$TMP/busy-ps/calls" 2>/dev/null || echo 0) + 1 ))
+  echo "\$n" > "$TMP/busy-ps/calls"
+  shift 4
+  while (( \$# >= 2 )); do printf '%s %02d:%02d\\n' "\$2" \$(( n / 60 )) \$(( n % 60 )); shift 2; done
+  exit 0
+fi
+exec "$REAL_PS" "\$@"
+EOF
+chmod +x "$TMP/busy-ps/ps"
 
 # run <name> <status>: runs the wrapper on $TMP/<name>.out; sets out, summary, status.
 # STUB_PATH goes ahead of the stub swift on PATH (a slow tee).
@@ -408,7 +425,7 @@ grep -q '^### Cut short by the stall rule: 2 tests finished' <<<"$summary" \
 printf '%s\n' '◇ Test run started.' '◇ Test slowOnAStarvedRunner() started.' > "$TMP/busy.out"
 printf '%s\n' '✔ Test slowOnAStarvedRunner() passed after 6.000 seconds.' \
   '✔ Test run with 1 test in 1 suite passed after 6.001 seconds.' > "$TMP/busy.after"
-STUB_BUSY=6 STUB_AFTER="$TMP/busy.after" CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_BUSY_STUCK_SECONDS=40 \
+STUB_PATH="$TMP/busy-ps" STUB_BUSY=6 STUB_AFTER="$TMP/busy.after" CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_BUSY_STUCK_SECONDS=40 \
   CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run busy 0
 [[ "$out" != *"swift test stuck"* ]] || fail "the watchdog cut a slow run whose test process kept using CPU" "$out"
 [[ "$status" == 0 ]] || fail "a slow run that kept using CPU and then finished exited $status" "$out"
@@ -418,7 +435,7 @@ grep -q 'a slow run, not a hang' <<<"$out" || fail "the watchdog did not say it 
 # Busy and silent past the busy limit (a spin, or a runner too starved to finish anything): ended
 # then, saying the processes were busy, and naming the open test.
 started=$SECONDS
-STUB_BUSY=60 CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_BUSY_STUCK_SECONDS=6 CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run busy 0
+STUB_PATH="$TMP/busy-ps" STUB_BUSY=60 CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_BUSY_STUCK_SECONDS=6 CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run busy 0
 (( SECONDS - started < 40 )) || fail "a busy silent run was ended only after $((SECONDS - started)) s" "$out"
 [[ "$status" != 0 ]] || fail "a busy silent run the watchdog ended exited 0" "$out"
 stuck=$(grep '^::error title=cmux-next swift test stuck' <<<"$out" || true)

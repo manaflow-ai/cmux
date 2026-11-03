@@ -456,6 +456,7 @@ impl Hub {
             created_at: m.created_at,
             updated_at: m.updated_at,
             last_seq: m.last_seq,
+            transcript_seq: m.transcript_seq,
             event_count: m.event_count,
             turn_count: m.turn_count,
             parent_id: m.parent_id.clone(),
@@ -603,6 +604,9 @@ impl Hub {
         // The branch its folder has checked out now (`git_watch.rs`); null on
         // a detached HEAD or outside a repository.
         summary.set("gitBranch", json!(self.git_branch_now(&m)));
+        if let Some(dirs) = super::additional_dirs::acp_value(&m) {
+            summary.set(super::additional_dirs::FIELD, dirs);
+        }
         // Since when work it started runs on past its own turn (`work_below.rs`).
         summary.set("subagentsWorkingSince", json!(self.work_below_since(session)));
         // What runs below it now (the sidebar hover card, Leo 2026-11-01: "this hover preview
@@ -652,6 +656,22 @@ impl Hub {
         v.set("contextBreakdown", m.context_breakdown.clone().unwrap_or(Value::Null));
         // The account's plan usage limits, as Claude Code's rate_limit_event last said them.
         v.set("usageLimits", m.usage_limits.clone().unwrap_or(Value::Null));
+        // The `/status` card's machine, sign-in, route and settings (`session_status.rs`): this
+        // daemon's, so a peer's chat names the peer's own. `machine`, never `host`: a client
+        // reads `host` as "runs on another machine".
+        v.set("machine", json!(crate::pairing::machine_name()));
+        let argv = m.spawn_argv.as_ref().unwrap_or(&m.harness_argv);
+        let profile_env = session.launch_env.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let in_profile = |k: &str| profile_env.as_ref().is_some_and(|env| env.contains_key(k));
+        if let Some(facts) = crate::session_status::facts(&m.id, &m.cwd, argv, in_profile) {
+            v.set("authSource", json!(facts.auth_source));
+            v.set("route", json!(facts.route));
+            v.set("settingsSources", json!(facts.settings));
+            // No plan limits to report (an API key, a cloud provider): the card hides the row.
+            if !facts.plan_limits && m.usage_limits.is_none() {
+                v.set("usageLimitsApply", json!(false));
+            }
+        }
         // The newest command list: a client that has it needs no read of the log for it.
         if let Some(commands) = &m.available_commands {
             v.set("availableCommands", commands.clone());
@@ -734,6 +754,9 @@ impl Hub {
             "socket": crate::config::socket_path(),
             "store": cfg.store,
             "sessions": sessions.len(),
+            // Messages handed to this daemon that are not delivered yet (`outbox.rs`):
+            // `acpmux ls` says so, `acpmux send --status` lists them.
+            "outboxPending": self.outbox_unsettled(),
             "liveAgents": live,
             "stuckSessions": stuck,
             "disk": disk,
