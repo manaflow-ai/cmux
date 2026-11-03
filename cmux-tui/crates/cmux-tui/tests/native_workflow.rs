@@ -260,3 +260,40 @@ fn product_workflow_pause_resume_uses_pinned_source_and_same_agent_child() {
     assert_eq!(agents.len(), 1, "resume duplicated the logical activity");
     assert_eq!(agents[0].child, original, "resume duplicated the child session");
 }
+
+#[test]
+fn product_workflow_reads_machine_result_and_terminal_child_journal() {
+    use base64::Engine;
+    let machine = Machine::start();
+    machine.write(
+        r#"export const meta={name:'Machine result proof'};
+        return await machine("printf 'workflow-machine-result'",{on:'local'});"#,
+    );
+    let started = machine.json(&["workflow", "start", SCRIPT]);
+    let id = started["runId"].as_str().unwrap_or_else(|| panic!("no run: {started}"));
+    let completed = machine.until(id, |run| run.state == State::Completed);
+    let status = machine.json(&["workflow", "status", id]);
+    assert_eq!(status["state"], "completed", "{status}");
+    let result = &status["outcome"]["Ok"]["result"];
+    assert_eq!(result["state"], "exited", "{status}");
+    assert_eq!(result["exitCode"], 0, "{status}");
+    assert_eq!(result["text"], "workflow-machine-result", "{status}");
+    let bytes =
+        base64::engine::general_purpose::STANDARD.decode(result["data"].as_str().unwrap()).unwrap();
+    assert_eq!(bytes, b"workflow-machine-result");
+    assert_eq!(&completed.outcome.as_ref().unwrap().as_ref().unwrap()["result"], result);
+    for kind in ["machine", "machine_task"] {
+        let children = completed
+            .activities
+            .values()
+            .filter(|activity| activity.kind == kind)
+            .collect::<Vec<_>>();
+        assert_eq!(children.len(), 1, "one {kind} child must be journaled");
+        assert!(matches!(children[0].child, Child::Machine { .. }));
+        assert_eq!(
+            children[0].outcome.as_ref().unwrap().as_ref().unwrap(),
+            result,
+            "{kind} journal must retain the exact final machine result"
+        );
+    }
+}
