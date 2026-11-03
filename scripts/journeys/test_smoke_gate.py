@@ -1317,8 +1317,12 @@ class OpenP0(unittest.TestCase):
             # No record: the fail blocks, also with a later pass; an old "superseded_by" mark hides nothing.
             self.assertIn("FAILED on J", blockers([dict(fail, superseded_by="T2"), misread, passed])[0][1])
             # A record that names another attempt, another time, another journey or a non-fail hides nothing.
-            for change in ({"out": "/a9"}, {"run_at": "T9"}, {"status": "not_run"}):
+            for change in ({"out": "/a9"}, {"run_at": "T9"}):
                 self.assertIn("FAILED on J", blockers([fail, misread, passed, record(fail, **change)])[0][1], change)
+            # A record that names a non-fail, or has an empty run_at or out, is refused by the reader: no .pass.
+            for change in ({"status": "not_run"}, {"run_at": ""}, {"out": ""}):
+                got = blockers([fail, misread, passed, record(fail, **change)])
+                self.assertTrue(got and "no .pass" in got[0][1], (change, got))
             self.assertIn("FAILED on J", blockers([fail, passed, dict(record(fail), id="other")])[0][1])
             # A second, unnamed fail of the journey still blocks.
             again = dict(fail, run_at="T4", out="/a4", reason="real")
@@ -1331,6 +1335,75 @@ class OpenP0(unittest.TestCase):
                 self.assertIn("cannot be loaded", blockers([passed])[0][1])
             finally:
                 mod.P0_LEDGER_READER = reader
+
+    def test_a_row_of_another_build_does_not_count_for_this_build(self):
+        # Lead 2026-11-03: a foreign build_job row must not count for this build (not as a pass, and a supersede
+        # record of the file hides only this file's rows).
+        mod = load_gate()
+        with tempfile.TemporaryDirectory() as tmp:
+            mod.OPEN_P0, mod.P0_LEDGER = Path(tmp) / "list.txt", Path(tmp) / "ledger"
+            mod.P0_WAIVERS = Path(tmp) / "waivers.txt"
+            mod.OPEN_P0.write_text("j k o S1\n")
+            mod.P0_LEDGER.mkdir()
+            ok = {"kit_dirty": False, "options": {}, "runner": "p0-journey-runner"}
+            foreign = {"id": "j", "status": "pass", "build_job": "OTHER", "run_at": "T1", "out": "/o", **ok}
+            (mod.P0_LEDGER / "J.jsonl").write_text(json.dumps(foreign) + "\n")
+            self.assertIn("has not passed on J", mod.open_p0_blockers("J")[0][1])
+            mine = dict(foreign, build_job="J", out="/m")
+            (mod.P0_LEDGER / "J.jsonl").write_text(json.dumps(foreign) + "\n" + json.dumps(mine) + "\n")
+            self.assertEqual(mod.open_p0_blockers("J"), [])
+
+    def test_a_reader_that_raises_on_a_bad_record_refuses_the_pass(self):
+        # Lead 2026-11-03: ledger.py live_rows raises on a supersede record with no run_at or no out; the gate then
+        # refuses the .pass (a blocker, never a crash and never "no blockers").
+        mod = load_gate()
+        with tempfile.TemporaryDirectory() as tmp:
+            mod.OPEN_P0, mod.P0_LEDGER = Path(tmp) / "list.txt", Path(tmp) / "ledger"
+            mod.P0_WAIVERS = Path(tmp) / "waivers.txt"
+            mod.OPEN_P0.write_text("j k o S1\n")
+            mod.P0_LEDGER.mkdir()
+            (mod.P0_LEDGER / "J.jsonl").write_text(json.dumps({"record": "supersede", "id": "j", "supersedes": {}}) + "\n")
+            reader = Path(tmp) / "ledger.py"
+            reader.write_text("def live_rows(path):\n    raise ValueError('a supersede record with no run_at or no out')\n")
+            mod.P0_LEDGER_READER = reader
+            blockers = mod.open_p0_blockers("J")
+            self.assertEqual(len(blockers), 1)
+            self.assertIn("no run_at or no out", blockers[0][1])
+            self.assertIn("no .pass", blockers[0][1])
+
+    def test_the_pass_names_the_reader_and_its_hash_and_an_override_refuses_it(self):
+        # Lead 2026-11-03: the .pass names the reader module path and the SHA-256 of the exact bytes the gate ran; the
+        # override SMOKE_GATE_P0_LEDGER_READER is for the gate's own tests only, so a real run with it set gets no .pass.
+        import hashlib
+        mod = load_gate()
+        with tempfile.TemporaryDirectory() as tmp:
+            reader = Path(tmp) / "ledger.py"
+            reader.write_text("def live_rows(path):\n    return []\n")
+            mod.P0_LEDGER_READER = reader
+            facts = mod.p0_reader_facts()
+            self.assertEqual(facts, {"path": str(reader), "sha256": hashlib.sha256(reader.read_bytes()).hexdigest()})
+            mod.OPEN_P0, mod.P0_LEDGER = Path(tmp) / "list.txt", Path(tmp) / "ledger"
+            mod.OPEN_P0.write_text("j k o S1\n")
+            mod.P0_WAIVERS = Path(tmp) / "waivers.txt"
+            mod.P0_LEDGER.mkdir()
+            ok = {"kit_dirty": False, "options": {}, "runner": "p0-journey-runner"}
+            (mod.P0_LEDGER / "J.jsonl").write_text(json.dumps({"id": "j", "status": "pass", "build_job": "J", **ok}) + "\n")
+            reader.write_text("import json\ndef live_rows(path):\n    return [json.loads(l) for l in open(path)]\n")
+            self.assertEqual(mod.open_p0_blockers("J"), [])
+            mod.P0_READER_FROM_ENV = True  # what the env override sets at import
+            blockers = mod.open_p0_blockers("J")
+            self.assertIn("SMOKE_GATE_P0_LEDGER_READER", blockers[0][1])
+        # The env variable sets the flag at import.
+        old = os.environ.get("SMOKE_GATE_P0_LEDGER_READER")
+        os.environ["SMOKE_GATE_P0_LEDGER_READER"] = "/x/ledger.py"
+        try:
+            self.assertTrue(load_gate().P0_READER_FROM_ENV)
+        finally:
+            if old is None:
+                del os.environ["SMOKE_GATE_P0_LEDGER_READER"]
+            else:
+                os.environ["SMOKE_GATE_P0_LEDGER_READER"] = old
+        self.assertFalse(load_gate().P0_READER_FROM_ENV)
 
     def test_the_gate_reads_each_real_ledger_with_the_runners_own_reader(self):
         # One rule in one place (lead 2026-11-03): the gate's rows are exactly the runner's live_rows on the judged
