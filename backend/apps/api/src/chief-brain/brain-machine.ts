@@ -137,8 +137,9 @@ export const machineLoginCancel = async (env: Env, scope: DefaultHandScope, logi
 /** Owner-session routes call this on the conversation brain; codes are used once and never stored. */
 export const machineLogin = async (b: ChiefBrainDO, owner: string, run: string, action: "status" | "start" | "finish" | "cancel", value: { loginId?: string; code?: string } = {}): Promise<unknown> => {
   const cfg = b.config(), route = b.machineRoute(), state = readMachineState(b.sql, run)
+  const resumedKey = `machine-login-resumed:${run}`
   if (cfg.owner !== owner || !cfg.agent || !route) throw new Error("chief.machine.login_not_pending")
-  if (action === "status" && b.sql.exec(`SELECT 1 FROM cb_config WHERE name = ?`, `machine-login-resumed:${run}`).toArray().length) return { signedIn: true, resumed: true }
+  if ((action === "status" || action === "finish") && b.sql.exec(`SELECT 1 FROM cb_config WHERE name = ?`, resumedKey).toArray().length) return { signedIn: true, resumed: true }
   if (state?.phase !== "waiting_auth") throw new Error("chief.machine.login_not_pending")
   const turn = b.sql.exec<{ status: string; effect_authorized: number }>(`SELECT status, effect_authorized FROM cb_turn WHERE id = ?`, run).toArray()[0]
   if (turn?.status !== "running" || turn.effect_authorized !== 1) throw new Error("chief.machine.login_not_pending")
@@ -170,23 +171,35 @@ export const machineLogin = async (b: ChiefBrainDO, owner: string, run: string, 
     b.sql.exec(`DELETE FROM cb_config WHERE name = ?`, loginKey)
     return { cancelled: true }
   }
+  const resume = async () => {
+    // The owner may disable/revoke or change the binding while the provider request is live.
+    await authorizeDefaultMachine(b.doEnv, scope)
+    await authorizeMachineHand(b.doEnv, scope, state.cwd)
+    const latest = await b.admitted(cfg.agent!, owner, false)
+    if (!latest.ok || !latest.machine || defaultHandId({ ...latest.machine.binding, owner, chief: cfg.agent! }) !== state.hand) throw new Error("chief.machine.login_refused")
+    const kicked = b.doCtx.storage.transactionSync(() => {
+      if (b.sql.exec(`SELECT 1 FROM cb_config WHERE name = ?`, resumedKey).toArray().length) return false
+      const still = readMachineState(b.sql, run)
+      const active = b.sql.exec<{ status: string; effect_authorized: number }>(`SELECT status, effect_authorized FROM cb_turn WHERE id = ?`, run).toArray()[0]
+      if (still?.phase !== "waiting_auth" || still.hand !== state.hand || still.operation !== state.operation || active?.status !== "running" || active.effect_authorized !== 1) throw new Error("chief.machine.login_changed")
+      const storedLogin = b.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, loginKey).toArray()[0]?.value
+      if (!storedLogin || (JSON.parse(storedLogin) as LoginStart).loginId !== current.loginId) throw new Error("chief.machine.login_changed")
+      writeConfig(b.sql, { [resumedKey]: "1" })
+      b.sql.exec(`DELETE FROM cb_config WHERE name IN (?, ?)`, MACHINE_STATE(run), loginKey)
+      b.sql.exec(`UPDATE cb_turn SET started = ? WHERE id = ?`, Date.now(), run)
+      return true
+    })
+    if (kicked) b.kick()
+    return { signedIn: true, resumed: true }
+  }
+  // A prior finish may have saved provider credentials but lost its reply. Only this explicit
+  // owner POST can recover that outcome; GET status remains read-only. Never replay its code.
+  if (await machineAuth(b.doEnv, scope, admission.machine.harness, state.cwd) === "ready") return resume()
   if (current.expiresAtMs !== undefined && current.expiresAtMs <= Date.now()) throw new Error("chief.machine.login_expired")
   if (value.code !== undefined && (value.code.length > 8192 || /[\r\n\0]/.test(value.code))) throw new Error("chief.machine.invalid_login_code")
   const signedIn = await machineLoginFinish(b.doEnv, scope, current.loginId, value.code)
   if (!signedIn) return { signedIn: false }
-  // The owner's sign-in click resumes the exact original request, only while its record is still live.
-  await authorizeDefaultMachine(b.doEnv, scope)
-  await authorizeMachineHand(b.doEnv, scope)
-  const latest = await b.admitted(cfg.agent, owner, false)
-  if (!latest.ok || !latest.machine) throw new Error("chief.machine.login_refused")
-  const still = readMachineState(b.sql, run)
-  const active = b.sql.exec<{ status: string; effect_authorized: number }>(`SELECT status, effect_authorized FROM cb_turn WHERE id = ?`, run).toArray()[0]
-  if (still?.phase !== "waiting_auth" || active?.status !== "running" || active.effect_authorized !== 1) throw new Error("chief.machine.login_changed")
-  writeConfig(b.sql, { [`machine-login-resumed:${run}`]: "1" })
-  b.sql.exec(`DELETE FROM cb_config WHERE name IN (?, ?)`, MACHINE_STATE(run), loginKey)
-  b.sql.exec(`UPDATE cb_turn SET started = ? WHERE id = ?`, Date.now(), run)
-  b.kick()
-  return { signedIn: true, resumed: true }
+  return resume()
 }
 
 export interface MachineAgentPorts {

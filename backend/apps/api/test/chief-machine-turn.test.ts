@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from "vitest"
-import { authorizeMachineHand, machineAuthState, machineHarness, machineSignInURL, runMachineAgent, type MachineAgentPorts, type MachineState } from "../src/chief-brain/brain-machine.ts"
+import { authorizeMachineHand, machineAuthState, machineHarness, machineLogin, machineSignInURL, readMachineState, runMachineAgent, type MachineAgentPorts, type MachineState } from "../src/chief-brain/brain-machine.ts"
 import type { StoredEvent } from "../src/hand-wire.ts"
 import { env } from "cloudflare:workers"
 import { runInDurableObject } from "cloudflare:test"
 import type { ChiefBrainDO } from "../src/chief-brain/brain-do.ts"
 import type { Env } from "../src/env.ts"
 import { personalTeamIdFor } from "../src/domains/user.ts"
-import type { DefaultChiefMachine } from "../src/chief-default-hand.ts"
+import { defaultHandId, type DefaultChiefMachine } from "../src/chief-default-hand.ts"
+import { writeConfig } from "../src/chief-brain/brain-store.ts"
 
 const fixture = (initial: MachineState | null = null) => {
   let state = initial
@@ -174,6 +175,88 @@ describe("default Chief activation", () => {
       b.sql.exec(`INSERT INTO cb_config (name, value) VALUES ('enabled', '1')`)
       expect(await b.activateDefault(chief.id, chief.owner_user)).toMatchObject({ ok: true })
       expect(b.sql.exec(`SELECT 1 FROM cb_config WHERE name = 'default_machine_pending'`).toArray()).toEqual([])
+    })
+  })
+})
+
+describe("default machine sign-in recovery", () => {
+  const recovery = async (suffix: string, check: (b: ChiefBrainDO, f: {
+    owner: string; run: string; calls: Array<string>; kick: ReturnType<typeof vi.fn>;
+    auth: "ready" | "signedOut"; revoked: boolean; enabled: boolean; revokeDuringAuth: boolean;
+  }) => Promise<void>) => {
+    const testEnv = env as unknown as Env
+    const owner = `user_login_${suffix}`, chief = `agent_login_${suffix}`, run = "run_login"
+    const binding = { workspace: `chief-default-${owner}`, team: personalTeamIdFor(owner), machine: "machine_default", provider: "freestyle", connection_machine: "vm_abcdefghijklmnopqrst", install: "inst_default" }
+    const scope = { ...binding, owner, chief }, hand = defaultHandId(scope), cwd = "/home/cmux/proj"
+    const route = { binding, harness: "claude" as const }
+    const f = { owner, run, calls: [] as Array<string>, kick: vi.fn(), auth: "signedOut" as "ready" | "signedOut", revoked: false, enabled: true, revokeDuringAuth: false }
+    const fake = {
+      ...testEnv,
+      USER_DO: { idFromName: (x: string) => x, get: () => ({ readOp: async (_e: string, _p: unknown, op: string) => ({ ok: true, revision: "user:1", value: op === "chief.list" ? { chiefs: [{ id: chief, owner_user: owner, archived_at: null, brain_place: null, cloud_machine: binding }] } : { installs: [{ id: binding.install, kind: "vm", grant: "grant_default", revoked_at: null, bound_team: binding.team, bound_machine: binding.connection_machine }], grants: [{ id: "grant_default", grantee: binding.install, revoked_at: null, expires_at: null, op_classes: ["vm-self"] }] } }) }) },
+      HAND_DO: { idFromName: (x: string) => x, get: () => ({ info: async () => ({ ok: true, value: { revoked_at: f.revoked ? 1 : null, paired_at: 1, level: "full", profile: "sandbox", online: true, hello: { profile: "sandbox", roots: [cwd] } } }) }) },
+      CLOUD_DO: { idFromName: (x: string) => x, get: () => ({
+        readOp: async () => ({ ok: true, revision: "cloud:1", value: { machine: { creator: owner, status: "running" } } }),
+        automationExec: async (_e: string, _owner: string, _machine: string, _command: string, stdin: Uint8Array) => {
+          const request = JSON.parse(new TextDecoder().decode(stdin).trim().split("\n")[1]!) as { method: string }
+          f.calls.push(request.method)
+          if (request.method === "_acpmux/agent_login/finish") {
+            f.auth = "ready" // The guest saved credentials, but its successful reply was lost.
+            return { ok: false, refusal: "provider_failed" }
+          }
+          if (f.revokeDuringAuth) f.revoked = true
+          return { ok: true, exitCode: 0, stdout: JSON.stringify({ id: 1, result: { _meta: { acpmux: { features: ["sessionAuth", "agent_login"] } } } }) + "\n" + JSON.stringify({ id: 2, result: { state: f.auth, source: "authCheck" } }) + "\n", stderr: "" }
+        },
+      }) },
+    } as unknown as Env
+    const stub = testEnv.CHIEF_BRAIN_DO.get(testEnv.CHIEF_BRAIN_DO.idFromName(`${chief}/recovery`))
+    const inDO = runInDurableObject as unknown as <T>(stub: unknown, cb: (b: ChiefBrainDO) => Promise<T>) => Promise<T>
+    await inDO(stub, async (b) => {
+      const object = b as unknown as { doEnv: Env }, original = object.doEnv
+      object.doEnv = fake
+      const admission = vi.spyOn(b, "admitted").mockImplementation(async () => f.enabled ? { ok: true, config: b.config(), machine: route } : { ok: false, reason: "disabled" })
+      const kick = vi.spyOn(b, "kick").mockImplementation(f.kick)
+      writeConfig(b.sql, { agent: chief, owner, enabled: "1", machine_route: JSON.stringify(route), [`machine:${run}`]: JSON.stringify({ phase: "waiting_auth", operation: `${owner}/${chief}/recovery/${run}`, hand, cwd, after: 0, text: "" }), [`machine-login:${run}`]: JSON.stringify({ loginId: "consumed-guest-login", url: "https://claude.ai/oauth/authorize", needsCode: true, expiresAtMs: Date.now() + 60_000 }) })
+      b.sql.exec(`INSERT INTO cb_turn (id, conversation, trigger_message, trigger_kind, last_seq, effect_authorized, status, model, started, input) VALUES (?, 'recovery', 'original', 'chief', 1, 1, 'running', 'machine:claude', 1, ?)`, run, '["build me the original hello page"]')
+      try { await check(b, f) } finally { object.doEnv = original; admission.mockRestore(); kick.mockRestore() }
+    })
+  }
+
+  it("recovers an explicit finish after its successful guest response was lost and kicks once", async () => {
+    await recovery("lost", async (b, f) => {
+      await expect(machineLogin(b, f.owner, f.run, "finish", { loginId: "consumed-guest-login", code: "one-use-private-code" })).rejects.toThrow("transport_unavailable")
+      expect(readMachineState(b.sql, f.run)?.phase).toBe("waiting_auth")
+      expect(await machineLogin(b, f.owner, f.run, "finish", { loginId: "consumed-guest-login" })).toEqual({ signedIn: true, resumed: true })
+      expect(await machineLogin(b, f.owner, f.run, "finish", { loginId: "consumed-guest-login" })).toEqual({ signedIn: true, resumed: true })
+      expect(f.calls).toEqual(["_acpmux/session/auth", "_acpmux/agent_login/finish", "_acpmux/session/auth"])
+      expect(f.kick).toHaveBeenCalledOnce()
+      expect(readMachineState(b.sql, f.run)).toBeNull()
+      expect(b.sql.exec<{ input: string }>(`SELECT input FROM cb_turn WHERE id = ?`, f.run).one().input).toBe('["build me the original hello page"]')
+      expect(JSON.stringify(b.sql.exec(`SELECT * FROM cb_config`).toArray())).not.toContain("one-use-private-code")
+    })
+  })
+
+  it("keeps status read-only even when provider auth is ready", async () => {
+    await recovery("get", async (b, f) => {
+      f.auth = "ready"
+      expect(await machineLogin(b, f.owner, f.run, "status")).toMatchObject({ waiting: true })
+      expect(readMachineState(b.sql, f.run)?.phase).toBe("waiting_auth")
+      expect(f.calls).toEqual([])
+      expect(f.kick).not.toHaveBeenCalled()
+    })
+  })
+
+  it("does not resume disabled, revoked, terminal or unapproved work", async () => {
+    for (const mode of ["disabled", "revoked", "done", "unapproved", "revokeDuringAuth"] as const) await recovery(mode, async (b, f) => {
+      f.auth = "ready"
+      if (mode === "disabled") f.enabled = false
+      if (mode === "revoked") f.revoked = true
+      if (mode === "done") b.sql.exec(`UPDATE cb_turn SET status = 'done' WHERE id = ?`, f.run)
+      if (mode === "unapproved") b.sql.exec(`UPDATE cb_turn SET effect_authorized = 0 WHERE id = ?`, f.run)
+      if (mode === "revokeDuringAuth") f.revokeDuringAuth = true
+      await expect(machineLogin(b, f.owner, f.run, "finish", { loginId: "consumed-guest-login" })).rejects.toThrow()
+      expect(readMachineState(b.sql, f.run)?.phase).toBe("waiting_auth")
+      expect(f.calls).not.toContain("_acpmux/agent_login/finish")
+      expect(f.kick).not.toHaveBeenCalled()
     })
   })
 })
