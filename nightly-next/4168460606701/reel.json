@@ -1,0 +1,155 @@
+{
+  "version": 1,
+  "build": "4168460606701",
+  "notes": "notes/4168460606701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 33460,
+      "title": "fix: keep cached chat layout stable through attach",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34068,
+      "title": "ci: attribute inherited panic ratchet hits on pull requests",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33228,
+      "title": "Session Info: Connect iMessage connector (contacts and group chats)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33682,
+      "title": "ask-1b0fa5bed7: show Chief subagents and background commands",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34045,
+      "title": "fix(acpmux): bind cached remote receipts to local reservations",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33785,
+      "title": "workflow: expose daemon runs through the CLI and code-mode tool",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34065,
+      "title": "fix(bench): target a stable terminal before hiding measured New Tabs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34058,
+      "title": "acpmux: thread result_line through bg_start_with_id (compile red since #33347 met #33779)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34053,
+      "title": "fix(acpmux): forward result-line task option through stable start",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34044,
+      "title": "ci: machine vault E2E cancel cleanup ends by its deadline, never leaves the token file",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33660,
+      "title": "cmux-imessage: the connector's status, opt-in and thread list over the app FFI (step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32895,
+      "title": "Session Info: test that dragging the edge wider pushes the chat left, then overlays (test)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26998,
+      "title": "acpmux: bound peer starts and reads without blocking last on subscriptions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32836,
+      "title": "fix(webviews): fade overflowing menu and picker rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33743,
+      "title": "Survive QuickLookUI's drag exception instead of crashing",
+      "author": "lawrencecchen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33787,
+      "title": "Design system foundation: one token source for Tailwind, core controls, token sheet",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32734,
+      "title": "cmux NEXT Cloud: an agent's start-session card in cmux agents dialog list|answer, answered at once as pending, person-only delegation",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33982,
+      "title": "feat(acpmux): durable native workflow CI machines [ask-6ef2624788]",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32820,
+      "title": "gallery: incoming-message-disclosure plays open the \"Received N messages\" row first",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33347,
+      "title": "acpmux: run_wait waits for an Actions run or a PR's checks and wakes the chat once",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33599,
+      "title": "chief: a restart's first turn no longer waits for the old kept session to end; trace time to first words",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33600,
+      "title": "base red: subagent tray and pill tests follow newest-first (#33364) and task-named done lines (#33252)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33766,
+      "title": "ui/motion: spring token, sliding indicator, view swap, hover and depth primitives",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34000,
+      "title": "acpmux: regenerate the protocol IR for mcp_connect_request/answer",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
