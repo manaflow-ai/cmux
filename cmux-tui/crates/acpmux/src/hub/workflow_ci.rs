@@ -190,7 +190,13 @@ impl Client {
             }
         };
         let (id, digest) = binding(&job, intent, None)?;
-        if matches!(job.get("state").and_then(Value::as_str), Some("done" | "failed" | "cancelled"))
+        let state = job.get("state").and_then(Value::as_str);
+        // The controller can temporarily call a stalled pool job cancelled while
+        // stopping it for retry. Its original request still needs cancellation.
+        let stopping_for_retry =
+            job.pointer("/linux_pool/stall_stopping").and_then(Value::as_bool) == Some(true);
+        if matches!(state, Some("done" | "failed"))
+            || (state == Some("cancelled") && !stopping_for_retry)
         {
             return Ok(());
         }
@@ -527,6 +533,9 @@ else: sys.exit(9)
         let before = std::fs::read(dir.path().join("calls.jsonl")).unwrap();
         client.cancel(&intent, Some(&terminal)).await.unwrap();
         assert_eq!(std::fs::read(dir.path().join("calls.jsonl")).unwrap(), before);
+        let mut stopping = terminal;
+        stopping["linux_pool"] = json!({"stall_stopping":true});
+        client.cancel(&intent, Some(&stopping)).await.unwrap();
         let calls: Vec<Value> = std::fs::read_to_string(dir.path().join("calls.jsonl"))
             .unwrap()
             .lines()
@@ -534,6 +543,7 @@ else: sys.exit(9)
             .collect();
         assert_eq!(calls.iter().filter(|call| call[0] == "submit").count(), 3);
         assert_eq!(calls.iter().filter(|call| call[0] == "status").count(), 1);
+        assert_eq!(calls.iter().filter(|call| call[0] == "cancel").count(), 2);
         assert_eq!(
             calls.last().unwrap(),
             &json!([
