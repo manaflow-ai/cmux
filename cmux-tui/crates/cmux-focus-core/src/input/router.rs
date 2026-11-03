@@ -330,7 +330,7 @@ impl InputRouter {
                 Some(Press::Platform) | None => self.push(InputEffect::Platform { id }),
             },
             KeyPhase::Repeat => match self.presses.get(&slot).cloned() {
-                Some(Press::Sink(sink)) => self.to_sink(id, key, sink),
+                Some(Press::Sink(sink)) => self.route_to(id, key, sink),
                 Some(Press::Platform) => self.push(InputEffect::Platform { id }),
                 // A repeat of a press that ran its binding runs it again.
                 Some(Press::Consumed) | None => {
@@ -360,7 +360,7 @@ impl InputRouter {
         if key.composing && !key.modifiers.command {
             return match key.reaches.clone() {
                 Some(sink) => {
-                    self.to_sink(id, key, sink.clone());
+                    self.route_to(id, key, sink.clone());
                     Press::Sink(sink)
                 }
                 None => {
@@ -386,7 +386,7 @@ impl InputRouter {
         }
         match aim.sink {
             Some(sink) => {
-                self.to_sink(id, key, sink.clone());
+                self.route_to(id, key, sink.clone());
                 Press::Sink(sink)
             }
             None => {
@@ -412,7 +412,7 @@ impl InputRouter {
     }
 
     /// Key `id` (a press or a repeat) goes to `sink`, or waits in its lane.
-    fn to_sink(&mut self, id: InputId, key: &KeyRecord, sink: Sink) {
+    fn route_to(&mut self, id: InputId, key: &KeyRecord, sink: Sink) {
         if let Some(reason) = self.facts.gone.get(&sink) {
             let reason = DropReason::SinkGone(*reason);
             self.push(InputEffect::Dropped { id, reason });
