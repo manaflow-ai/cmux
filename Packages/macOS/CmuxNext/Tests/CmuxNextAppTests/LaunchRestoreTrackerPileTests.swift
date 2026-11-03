@@ -46,9 +46,9 @@ struct LaunchRestoreTrackerPileTests {
         #expect(flag.fired, "clearing window b's launch membership did not notify its reader")
     }
 
-    /// 5,000 CLI calls before the restore (a write, then a read of the stale snapshot, as agents' hooks make while the
-    /// daemon starts): the restore's clear of the launch membership stays under 100 ms (a loaded runner's margin; the base takes seconds). On the base each read armed
-    /// one more tracking of the whole build, and the clear cancelled all 5,000.
+    /// 20,000 CLI calls before the restore (a write, then a read of the stale snapshot, as agents' hooks make while the
+    /// daemon starts): the restore's clear of the launch membership stays under 20 ms (the head takes 0.05 ms; the base's cost grows with the calls, 27 ms at 5,000 with this one-window fixture and seconds in the app, whose build reads far more). On the base each read armed
+    /// one more tracking of the whole build, and the clear cancelled every one.
     @Test func cliCallsBeforeTheRestoreLeaveTheRestoresClearCheap() async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
@@ -67,7 +67,7 @@ struct LaunchRestoreTrackerPileTests {
         for _ in 0..<8 { await Task.yield() }
         let builds = publisher.builds
 
-        let calls = 5_000
+        let calls = 20_000
         for _ in 0..<calls {
             try await router.workQueue.run(method: "test.write", deadline: .now + .seconds(10)) {}
             _ = await router.handle(ControlRequest(method: "system.ping"))
@@ -79,6 +79,6 @@ struct LaunchRestoreTrackerPileTests {
         let elapsed = ContinuousClock.now - started
         let ms = Double(elapsed.components.attoseconds) / 1e15 + Double(elapsed.components.seconds) * 1000
         print("restore clear after \(calls) CLI calls: \(String(format: "%.2f", ms)) ms (\(publisher.builds - builds) builds)")
-        #expect(elapsed < .milliseconds(100), "the restore's clear took \(String(format: "%.2f", ms)) ms after \(calls) CLI calls (want < 100 ms)")
+        #expect(elapsed < .milliseconds(20), "the restore's clear took \(String(format: "%.2f", ms)) ms after \(calls) CLI calls (want < 20 ms)")
     }
 }
