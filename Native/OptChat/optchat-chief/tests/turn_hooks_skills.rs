@@ -135,7 +135,11 @@ fn a_chief_turn_keeps_the_named_hooks_skills_and_agent_memory() {
             }),
             "{name}: only the named hooks"
         );
-        assert_eq!(rights, ["PostToolUse post", "PreToolUse pre"], "{name}: the rights hook");
+        assert_eq!(
+            rights,
+            ["PostToolUse post", "PreToolUse pre"],
+            "{name}: the rights hook"
+        );
     }
     let skills = paths.session.join(".claude").join("skills");
     let linked = std::fs::read_link(skills.join("guard-skill")).unwrap();

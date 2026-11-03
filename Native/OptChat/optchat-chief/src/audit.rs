@@ -187,11 +187,14 @@ fn last_of(file: &mut File) -> std::io::Result<(u64, String)> {
             std::io::Error::new(std::io::ErrorKind::InvalidData, format!("audit tail: {e}"))
         })?;
         let seq = v.get("seq").and_then(Value::as_u64).unwrap_or(0);
-        let hash = v.get("hash").and_then(Value::as_str).unwrap_or(GENESIS).to_owned();
+        let hash = v
+            .get("hash")
+            .and_then(Value::as_str)
+            .unwrap_or(GENESIS)
+            .to_owned();
         return Ok((seq, hash));
     }
 }
-
 
 /// Appends `entry` and answers the record written.
 pub fn append(root: &Path, entry: &Entry) -> std::io::Result<Record> {
@@ -245,7 +248,11 @@ pub fn verify(root: &Path) -> Result<Verified, String> {
     let file = match File::open(path(root)) {
         Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(Verified { records: 0, head: GENESIS.into(), broken: None });
+            return Ok(Verified {
+                records: 0,
+                head: GENESIS.into(),
+                broken: None,
+            });
         }
         Err(e) => return Err(e.to_string()),
     };
@@ -254,7 +261,13 @@ pub fn verify(root: &Path) -> Result<Verified, String> {
     for (i, line) in BufReader::new(file).lines().enumerate() {
         let line_no = i as u64 + 1;
         let line = line.map_err(|e| e.to_string())?;
-        let broken = |why: String| Ok(Verified { records: n, head: prev.clone(), broken: Some((line_no, why)) });
+        let broken = |why: String| {
+            Ok(Verified {
+                records: n,
+                head: prev.clone(),
+                broken: Some((line_no, why)),
+            })
+        };
         let v: Value = match serde_json::from_str(&line) {
             Ok(v) => v,
             Err(e) => return broken(format!("not JSON: {e}")),
@@ -272,7 +285,11 @@ pub fn verify(root: &Path) -> Result<Verified, String> {
         prev = hash.to_owned();
         n += 1;
     }
-    Ok(Verified { records: n, head: prev, broken: None })
+    Ok(Verified {
+        records: n,
+        head: prev,
+        broken: None,
+    })
 }
 
 /// `(records, head hash)` without a full verify.
@@ -299,14 +316,26 @@ pub fn query<'a>(records: &'a [Record], who: Option<&str>, n: usize) -> Vec<&'a 
 /// One record as a line for `/audit`.
 pub fn line(r: &Record, name_of: &dyn Fn(&str) -> String) -> String {
     let when = chrono::DateTime::from_timestamp_millis(r.at)
-        .map(|t| t.with_timezone(&chrono::Local).format("%m-%d %H:%M:%S").to_string())
+        .map(|t| {
+            t.with_timezone(&chrono::Local)
+                .format("%m-%d %H:%M:%S")
+                .to_string()
+        })
         .unwrap_or_default();
     let who = if r.entry.who.is_empty() {
         "the host".to_owned()
     } else {
-        r.entry.who.iter().map(|w| name_of(w)).collect::<Vec<_>>().join(" + ")
+        r.entry
+            .who
+            .iter()
+            .map(|w| name_of(w))
+            .collect::<Vec<_>>()
+            .join(" + ")
     };
-    let mut s = format!("#{} {when} {who}: {} {}", r.seq, r.entry.decision, r.entry.what);
+    let mut s = format!(
+        "#{} {when} {who}: {} {}",
+        r.seq, r.entry.decision, r.entry.what
+    );
     if let Some(by) = &r.entry.by {
         s.push_str(&format!(" ({by})"));
     }
@@ -349,14 +378,20 @@ pub fn run(words: &[String], root: &Path, stdin: &mut dyn std::io::Read) -> Resu
             other => rest.push(other.to_owned()),
         }
     }
-    match rest.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
+    match rest
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .as_slice()
+    {
         [] | ["show"] => {
             let records = read(root)?;
             let hits = query(&records, who.as_deref(), last);
             if json {
                 return serde_json::to_string_pretty(&hits).map_err(|e| e.to_string());
             }
-            let names = crate::rights::Rights::load(&crate::rights::Rights::path(root)).unwrap_or_default();
+            let names =
+                crate::rights::Rights::load(&crate::rights::Rights::path(root)).unwrap_or_default();
             let name_of = |id: &str| names.name_of(id).to_owned();
             let mut out: Vec<String> = hits.iter().map(|r| line(r, &name_of)).collect();
             let (n, h) = head(root)?;
@@ -418,7 +453,14 @@ mod tests {
         assert_eq!(a.prev, GENESIS);
         assert_eq!(b.prev, a.hash);
         let v = verify(&root).unwrap();
-        assert_eq!(v, Verified { records: 2, head: b.hash.clone(), broken: None });
+        assert_eq!(
+            v,
+            Verified {
+                records: 2,
+                head: b.hash.clone(),
+                broken: None
+            }
+        );
         assert_eq!(head(&root).unwrap(), (2, b.hash));
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -427,7 +469,11 @@ mod tests {
     fn an_edit_a_removal_or_a_reorder_breaks_the_chain() {
         let root = tmp("tamper");
         for i in 0..4 {
-            append(&root, &entry("user_ben", &format!("run `echo {i}`"), "allow")).unwrap();
+            append(
+                &root,
+                &entry("user_ben", &format!("run `echo {i}`"), "allow"),
+            )
+            .unwrap();
         }
         let p = path(&root);
         let good = std::fs::read_to_string(&p).unwrap();
@@ -452,7 +498,14 @@ mod tests {
         v["what"] = json!("run `echo X`");
         let h = hash_of(&v);
         v["hash"] = json!(h);
-        let forged = [lines[0].to_owned(), canonical(&v), lines[2].to_owned(), lines[3].to_owned()].join("\n") + "\n";
+        let forged = [
+            lines[0].to_owned(),
+            canonical(&v),
+            lines[2].to_owned(),
+            lines[3].to_owned(),
+        ]
+        .join("\n")
+            + "\n";
         std::fs::write(&p, forged).unwrap();
         assert_eq!(verify(&root).unwrap().broken.unwrap().0, 3);
 
@@ -490,10 +543,18 @@ mod tests {
         append(&root, &entry("user_ana", "b", "allow")).unwrap();
         append(&root, &entry("user_ben", "c", "allow")).unwrap();
         let records = read(&root).unwrap();
-        let ben: Vec<_> = query(&records, Some("user_ben"), 10).iter().map(|r| r.entry.what.clone()).collect();
+        let ben: Vec<_> = query(&records, Some("user_ben"), 10)
+            .iter()
+            .map(|r| r.entry.what.clone())
+            .collect();
         assert_eq!(ben, ["a", "c"]);
         assert_eq!(query(&records, None, 1)[0].entry.what, "c");
-        let text = run(&["--who".into(), "user_ben".into()], &root, &mut std::io::empty()).unwrap();
+        let text = run(
+            &["--who".into(), "user_ben".into()],
+            &root,
+            &mut std::io::empty(),
+        )
+        .unwrap();
         assert!(text.contains("user_ben: deny a"), "{text}");
         assert!(text.contains("3 records, head"), "{text}");
         let _ = std::fs::remove_dir_all(&root);
@@ -504,8 +565,14 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let root = tmp("mode");
         append(&root, &entry("user_ben", "a", "deny")).unwrap();
-        assert_eq!(std::fs::metadata(path(&root)).unwrap().permissions().mode() & 0o777, 0o600);
-        assert_eq!(std::fs::metadata(dir(&root)).unwrap().permissions().mode() & 0o777, 0o700);
+        assert_eq!(
+            std::fs::metadata(path(&root)).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(
+            std::fs::metadata(dir(&root)).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -236,24 +236,25 @@ impl Brain {
             // The rights table first (rights_gate.rs), as in the Chief's
             // own conversation; another Chief is a `chief:` person.
             let owner_msg = self.settings.membership.is_owner_message(summary, &message);
-            let lifts_floor = match self.admit(summary, &message, &text, owner_msg, Some(conversation)) {
-                super::rights_gate::Admit::Answered => {
-                    // Answered by the host: never read again. The floor moves
-                    // past it only when nothing earlier waits; else its id
-                    // alone is kept, so a restart still reads what waits.
-                    let waiting = self.queued_messages_of(Some(conversation));
-                    let floor = self.state.side.entry(conversation.to_owned()).or_default();
-                    if waiting {
-                        let seq = floor.seq;
-                        floor.handled(seq, &message.id);
-                    } else {
-                        floor.handled(message.seq, &message.id);
+            let lifts_floor =
+                match self.admit(summary, &message, &text, owner_msg, Some(conversation)) {
+                    super::rights_gate::Admit::Answered => {
+                        // Answered by the host: never read again. The floor moves
+                        // past it only when nothing earlier waits; else its id
+                        // alone is kept, so a restart still reads what waits.
+                        let waiting = self.queued_messages_of(Some(conversation));
+                        let floor = self.state.side.entry(conversation.to_owned()).or_default();
+                        if waiting {
+                            let seq = floor.seq;
+                            floor.handled(seq, &message.id);
+                        } else {
+                            floor.handled(message.seq, &message.id);
+                        }
+                        self.save();
+                        return;
                     }
-                    self.save();
-                    return;
-                }
-                super::rights_gate::Admit::Queue { lifts_floor } => lifts_floor,
-            };
+                    super::rights_gate::Admit::Queue { lifts_floor } => lifts_floor,
+                };
             let remote = message
                 .origin
                 .as_ref()

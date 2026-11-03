@@ -263,8 +263,8 @@ fn main() -> std::process::ExitCode {
                 })
                 .flatten()
                 .collect();
-            let owner = std::env::var("OPTCHAT_CHIEF_OWNER")
-                .unwrap_or_else(|_| "user_local".to_owned());
+            let owner =
+                std::env::var("OPTCHAT_CHIEF_OWNER").unwrap_or_else(|_| "user_local".to_owned());
             let out = if verb == "rights" {
                 optchat_chief::rights::run(&words, &root, &owner)
             } else {

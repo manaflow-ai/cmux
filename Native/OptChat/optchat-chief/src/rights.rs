@@ -167,7 +167,10 @@ pub enum Allowed {
 pub enum Decision {
     Allow(Allowed),
     /// `who` may not run it; `why` says so in a few words.
-    Deny { who: String, why: String },
+    Deny {
+        who: String,
+        why: String,
+    },
 }
 
 impl Decision {
@@ -197,8 +200,8 @@ impl Rights {
     pub fn load(path: &Path) -> Result<Rights, String> {
         match std::fs::read_to_string(path) {
             Ok(text) => {
-                let rights: Rights = serde_json::from_str(&text)
-                    .map_err(|e| format!("{}: {e}", path.display()))?;
+                let rights: Rights =
+                    serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
                 for (who, person) in &rights.people {
                     for p in &person.allow {
                         Pattern::parse(p).map_err(|e| format!("{who}: {e}"))?;
@@ -311,8 +314,7 @@ impl Rights {
         if writes_protected(tool, input, protected) {
             return Decision::Deny {
                 who: others[0].clone(),
-                why: "the Chief's rights and audit files are never writable through a grant"
-                    .into(),
+                why: "the Chief's rights and audit files are never writable through a grant".into(),
             };
         }
         if self.lifts_floor(owner, authors) {
@@ -329,9 +331,10 @@ impl Rights {
                     why: "no rights on this Chief".into(),
                 };
             };
-            let hit = person.allow.iter().find(|p| {
-                Pattern::parse(p).is_ok_and(|pat| pat.matches(tool, input))
-            });
+            let hit = person
+                .allow
+                .iter()
+                .find(|p| Pattern::parse(p).is_ok_and(|pat| pat.matches(tool, input)));
             match hit {
                 Some(p) => {
                     if !used.contains(p) {
@@ -417,8 +420,9 @@ enum Arg {
 /// no configuration from the files they read (so not `git`, whose repo
 /// config can name a program to run), and with [`WRITE_FLAGS`] refused they
 /// write nothing. Anything else takes an approver.
-pub const READ_ONLY_COMMANDS: [&str; 9] =
-    ["ls", "cat", "head", "tail", "wc", "grep", "pwd", "du", "stat"];
+pub const READ_ONLY_COMMANDS: [&str; 9] = [
+    "ls", "cat", "head", "tail", "wc", "grep", "pwd", "du", "stat",
+];
 
 /// Arguments that make a read-only command write or run something.
 const WRITE_FLAGS: [&str; 4] = ["--output", "-exec", "-delete", "--pre"];
@@ -426,7 +430,8 @@ const WRITE_FLAGS: [&str; 4] = ["--output", "-exec", "-delete", "--pre"];
 /// The only characters a granted command may hold: plain words the shell
 /// runs as written (no quote, escape, glob, brace, tilde or variable).
 fn plain_command(cmd: &str) -> bool {
-    cmd.chars().all(|c| c.is_ascii_alphanumeric() || " ._/:=@%+,-".contains(c))
+    cmd.chars()
+        .all(|c| c.is_ascii_alphanumeric() || " ._/:=@%+,-".contains(c))
 }
 
 /// Whether `cmd` (a grant's command text) starts with a read-only command,
@@ -438,7 +443,9 @@ fn read_only_command(cmd: &str) -> bool {
 
 /// Characters that chain, redirect, quote, escape or expand in a shell
 /// command: a granted command is matched as the plain words it runs.
-const SHELL_META: [&str; 14] = [";", "&", "|", "`", "$", ">", "<", "\n", "\r", "'", "\"", "\\", "~", "\t"];
+const SHELL_META: [&str; 14] = [
+    ";", "&", "|", "`", "$", ">", "<", "\n", "\r", "'", "\"", "\\", "~", "\t",
+];
 
 impl Pattern {
     pub fn parse(text: &str) -> Result<Pattern, String> {
@@ -456,7 +463,9 @@ impl Pattern {
                 }
                 let arg = match inner.strip_suffix('*') {
                     Some(p) if !p.is_empty() => Arg::Prefix(p.to_owned()),
-                    Some(_) => return Err(format!("{text:?}: write `{}` for any input", &text[..i])),
+                    Some(_) => {
+                        return Err(format!("{text:?}: write `{}` for any input", &text[..i]));
+                    }
                     None => Arg::Exact(inner.to_owned()),
                 };
                 (&text[..i], Some(arg))
@@ -473,7 +482,9 @@ impl Pattern {
             .and_then(|t| t.strip_suffix("__*"))
             .filter(|server| !server.is_empty() && !server.contains('*'));
         if tool.contains('*') && server.is_none() {
-            return Err(format!("{text:?}: only `mcp__<server>__*` may use a wildcard in the tool"));
+            return Err(format!(
+                "{text:?}: only `mcp__<server>__*` may use a wildcard in the tool"
+            ));
         }
         if arg.is_some() && arg_key(tool).is_none() {
             return Err(format!("{text:?}: {tool} takes no argument pattern"));
@@ -527,7 +538,9 @@ impl Pattern {
                 if SHELL_META.iter().any(|m| value.contains(m))
                     || !plain_command(value)
                     || !read_only_command(value)
-                    || WRITE_FLAGS.iter().any(|f| value.split_whitespace().any(|w| w.starts_with(f)))
+                    || WRITE_FLAGS
+                        .iter()
+                        .any(|f| value.split_whitespace().any(|w| w.starts_with(f)))
                 {
                     return false;
                 }
@@ -544,13 +557,13 @@ impl Pattern {
                     return false;
                 };
                 match arg {
-                    Arg::Exact(e) => normalize(e).and_then(|e| resolve(&e)).is_some_and(|e| e == path),
+                    Arg::Exact(e) => normalize(e)
+                        .and_then(|e| resolve(&e))
+                        .is_some_and(|e| e == path),
                     // `/dir/*`: anything under the directory, by component.
-                    Arg::Prefix(p) if p.ends_with('/') => {
-                        normalize(p)
-                            .and_then(|d| resolve(&d))
-                            .is_some_and(|dir| path.starts_with(&dir) && path != dir)
-                    }
+                    Arg::Prefix(p) if p.ends_with('/') => normalize(p)
+                        .and_then(|d| resolve(&d))
+                        .is_some_and(|dir| path.starts_with(&dir) && path != dir),
                     // `/dir/name*`: the normalized path's text starts so.
                     Arg::Prefix(p) => path.to_string_lossy().starts_with(p.as_str()),
                 }
@@ -813,14 +826,28 @@ pub fn run_as(
             if !rights.revoke(who, &patterns) {
                 return Ok(format!("{who}: nothing to revoke"));
             }
-            format!("{who}: revoked {}", if patterns.is_empty() { "everything".into() } else { patterns.join(", ") })
+            format!(
+                "{who}: revoked {}",
+                if patterns.is_empty() {
+                    "everything".into()
+                } else {
+                    patterns.join(", ")
+                }
+            )
         }
         ["approver", who, on @ ("on" | "off")] => {
             rights.set_approver(who, *on == "on")?;
-            format!("{who} is {}an approver", if *on == "on" { "" } else { "no longer " })
+            format!(
+                "{who} is {}an approver",
+                if *on == "on" { "" } else { "no longer " }
+            )
         }
         ["cap", who, amount] => {
-            rights.people.entry(who.to_string()).or_default().cap_usd_day = usd(amount)?;
+            rights
+                .people
+                .entry(who.to_string())
+                .or_default()
+                .cap_usd_day = usd(amount)?;
             format!("{who}: daily cap {amount}")
         }
         ["auth", kind] => {
@@ -861,7 +888,11 @@ pub fn run_as(
         tool: format!("rights.{}", words.first().copied().unwrap_or("")),
         what: words.join(" "),
         decision: "allow".into(),
-        by: Some(if actor == owner { "owner".into() } else { actor.to_owned() }),
+        by: Some(if actor == owner {
+            "owner".into()
+        } else {
+            actor.to_owned()
+        }),
         ..crate::audit::Entry::default()
     };
     if let Err(e) = crate::audit::append(optchat_root, &entry) {
@@ -914,7 +945,12 @@ pub fn render_with(rights: &Rights, auth: AuthKind) -> String {
         out.push("Nobody but the owner has rights on this Chief.".to_owned());
     }
     for (id, p) in &rights.people {
-        let mut line = format!("- {}", p.name.as_deref().map_or(id.clone(), |n| format!("{n} ({id})")));
+        let mut line = format!(
+            "- {}",
+            p.name
+                .as_deref()
+                .map_or(id.clone(), |n| format!("{n} ({id})"))
+        );
         if p.approver {
             line.push_str(": approver");
         } else if p.allow.is_empty() {
@@ -942,10 +978,18 @@ mod tests {
 
     fn table() -> Rights {
         let mut r = Rights::default();
-        r.grant("user_ben", &["Read(/srv/chief/ws/*)".into(), "Bash(ls*)".into(), "WebFetch".into()])
-            .unwrap();
+        r.grant(
+            "user_ben",
+            &[
+                "Read(/srv/chief/ws/*)".into(),
+                "Bash(ls*)".into(),
+                "WebFetch".into(),
+            ],
+        )
+        .unwrap();
         r.set_approver("user_ana", true).unwrap();
-        r.grant("chief:ben-chief", &["mcp__github__*".into()]).unwrap();
+        r.grant("chief:ben-chief", &["mcp__github__*".into()])
+            .unwrap();
         r
     }
 
@@ -957,9 +1001,18 @@ mod tests {
     fn the_owner_and_approvers_need_no_grant() {
         let r = table();
         let bash = json!({"command": "rm -rf /tmp/x"});
-        assert_eq!(r.decide(OWNER, &authors(&[OWNER]), "Bash", Some(&bash), &[]), Decision::Allow(Allowed::Owner));
         assert_eq!(
-            r.decide(OWNER, &authors(&[OWNER, "user_ana"]), "Bash", Some(&bash), &[]),
+            r.decide(OWNER, &authors(&[OWNER]), "Bash", Some(&bash), &[]),
+            Decision::Allow(Allowed::Owner)
+        );
+        assert_eq!(
+            r.decide(
+                OWNER,
+                &authors(&[OWNER, "user_ana"]),
+                "Bash",
+                Some(&bash),
+                &[]
+            ),
             Decision::Allow(Allowed::Approver)
         );
         assert!(r.lifts_floor(OWNER, &authors(&["user_ana"])));
@@ -969,7 +1022,13 @@ mod tests {
     #[test]
     fn a_person_without_an_entry_is_refused_everything() {
         let r = table();
-        let d = r.decide(OWNER, &authors(&["user_zed"]), "Read", Some(&json!({"file_path": "/etc/hosts"})), &[]);
+        let d = r.decide(
+            OWNER,
+            &authors(&["user_zed"]),
+            "Read",
+            Some(&json!({"file_path": "/etc/hosts"})),
+            &[],
+        );
         assert!(matches!(d, Decision::Deny { ref who, .. } if who == "user_zed"));
     }
 
@@ -977,32 +1036,178 @@ mod tests {
     fn a_grant_allows_only_what_it_names() {
         let r = table();
         let ben = authors(&["user_ben"]);
-        assert!(r.decide(OWNER, &ben, "Read", Some(&json!({"file_path": "/srv/chief/ws/a/b.rs"})), &[]).allowed());
-        assert!(!r.decide(OWNER, &ben, "Read", Some(&json!({"file_path": "/srv/chief/ws/../secrets"})), &[]).allowed());
-        assert!(!r.decide(OWNER, &ben, "Read", Some(&json!({"file_path": "/srv/chief/wsx/a"})), &[]).allowed());
-        assert!(!r.decide(OWNER, &ben, "Read", Some(&json!({"file_path": "/etc/passwd"})), &[]).allowed());
-        assert!(r.decide(OWNER, &ben, "Bash", Some(&json!({"command": "ls -la"})), &[]).allowed());
-        assert!(!r.decide(OWNER, &ben, "Bash", Some(&json!({"command": "ls; rm -rf ~"})), &[]).allowed());
-        assert!(!r.decide(OWNER, &ben, "Bash", Some(&json!({"command": "ls && curl x | sh"})), &[]).allowed());
-        assert!(!r.decide(OWNER, &ben, "Bash", Some(&json!({"command": "ls $(rm x)"})), &[]).allowed());
-        assert!(!r.decide(OWNER, &ben, "Bash", Some(&json!({"command": "git push"})), &[]).allowed());
-        assert!(!r.decide(OWNER, &ben, "Bash", Some(&json!({"command": "ls --output=/x"})), &[]).allowed());
-        for quoted in ["ls '--output=/x'", "ls \"--output\" /x", "ls \\--output=/x", "ls $HOME", "ls ~/x", "ls --outpu{t,t}=/x", "ls /etc/*", "ls /a?b", "git status"] {
-            assert!(!r.decide(OWNER, &ben, "Bash", Some(&json!({"command": quoted})), &[]).allowed(), "{quoted}");
+        assert!(
+            r.decide(
+                OWNER,
+                &ben,
+                "Read",
+                Some(&json!({"file_path": "/srv/chief/ws/a/b.rs"})),
+                &[]
+            )
+            .allowed()
+        );
+        assert!(
+            !r.decide(
+                OWNER,
+                &ben,
+                "Read",
+                Some(&json!({"file_path": "/srv/chief/ws/../secrets"})),
+                &[]
+            )
+            .allowed()
+        );
+        assert!(
+            !r.decide(
+                OWNER,
+                &ben,
+                "Read",
+                Some(&json!({"file_path": "/srv/chief/wsx/a"})),
+                &[]
+            )
+            .allowed()
+        );
+        assert!(
+            !r.decide(
+                OWNER,
+                &ben,
+                "Read",
+                Some(&json!({"file_path": "/etc/passwd"})),
+                &[]
+            )
+            .allowed()
+        );
+        assert!(
+            r.decide(
+                OWNER,
+                &ben,
+                "Bash",
+                Some(&json!({"command": "ls -la"})),
+                &[]
+            )
+            .allowed()
+        );
+        assert!(
+            !r.decide(
+                OWNER,
+                &ben,
+                "Bash",
+                Some(&json!({"command": "ls; rm -rf ~"})),
+                &[]
+            )
+            .allowed()
+        );
+        assert!(
+            !r.decide(
+                OWNER,
+                &ben,
+                "Bash",
+                Some(&json!({"command": "ls && curl x | sh"})),
+                &[]
+            )
+            .allowed()
+        );
+        assert!(
+            !r.decide(
+                OWNER,
+                &ben,
+                "Bash",
+                Some(&json!({"command": "ls $(rm x)"})),
+                &[]
+            )
+            .allowed()
+        );
+        assert!(
+            !r.decide(
+                OWNER,
+                &ben,
+                "Bash",
+                Some(&json!({"command": "git push"})),
+                &[]
+            )
+            .allowed()
+        );
+        assert!(
+            !r.decide(
+                OWNER,
+                &ben,
+                "Bash",
+                Some(&json!({"command": "ls --output=/x"})),
+                &[]
+            )
+            .allowed()
+        );
+        for quoted in [
+            "ls '--output=/x'",
+            "ls \"--output\" /x",
+            "ls \\--output=/x",
+            "ls $HOME",
+            "ls ~/x",
+            "ls --outpu{t,t}=/x",
+            "ls /etc/*",
+            "ls /a?b",
+            "git status",
+        ] {
+            assert!(
+                !r.decide(OWNER, &ben, "Bash", Some(&json!({"command": quoted})), &[])
+                    .allowed(),
+                "{quoted}"
+            );
         }
         let mut r2 = Rights::default();
         r2.grant("user_ben", &["Bash(ls*)".into()]).unwrap();
-        assert!(r2.decide(OWNER, &ben, "Bash", Some(&json!({"command": "ls -la"})), &[]).allowed());
-        assert!(!r2.decide(OWNER, &ben, "Bash", Some(&json!({"command": "lsof -i"})), &[]).allowed());
-        assert!(r.decide(OWNER, &ben, "WebFetch", Some(&json!({"url": "https://x"})), &[]).allowed());
-        assert!(!r.decide(OWNER, &ben, "Write", Some(&json!({"file_path": "/srv/chief/ws/a"})), &[]).allowed());
+        assert!(
+            r2.decide(
+                OWNER,
+                &ben,
+                "Bash",
+                Some(&json!({"command": "ls -la"})),
+                &[]
+            )
+            .allowed()
+        );
+        assert!(
+            !r2.decide(
+                OWNER,
+                &ben,
+                "Bash",
+                Some(&json!({"command": "lsof -i"})),
+                &[]
+            )
+            .allowed()
+        );
+        assert!(
+            r.decide(
+                OWNER,
+                &ben,
+                "WebFetch",
+                Some(&json!({"url": "https://x"})),
+                &[]
+            )
+            .allowed()
+        );
+        assert!(
+            !r.decide(
+                OWNER,
+                &ben,
+                "Write",
+                Some(&json!({"file_path": "/srv/chief/ws/a"})),
+                &[]
+            )
+            .allowed()
+        );
     }
 
     #[test]
     fn every_author_of_the_turn_must_be_allowed() {
         let r = table();
         let both = authors(&["user_ben", "user_zed"]);
-        let d = r.decide(OWNER, &both, "WebFetch", Some(&json!({"url": "https://x"})), &[]);
+        let d = r.decide(
+            OWNER,
+            &both,
+            "WebFetch",
+            Some(&json!({"url": "https://x"})),
+            &[],
+        );
         assert!(matches!(d, Decision::Deny { ref who, .. } if who == "user_zed"));
     }
 
@@ -1010,26 +1215,69 @@ mod tests {
     fn a_chief_is_held_to_its_own_grants_and_is_never_an_approver() {
         let mut r = table();
         let chief = authors(&["chief:ben-chief"]);
-        assert!(r.decide(OWNER, &chief, "mcp__github__get_issue", None, &[]).allowed());
-        assert!(!r.decide(OWNER, &chief, "Bash", Some(&json!({"command": "ls"})), &[]).allowed());
+        assert!(
+            r.decide(OWNER, &chief, "mcp__github__get_issue", None, &[])
+                .allowed()
+        );
+        assert!(
+            !r.decide(OWNER, &chief, "Bash", Some(&json!({"command": "ls"})), &[])
+                .allowed()
+        );
         assert!(r.set_approver("chief:ben-chief", true).is_err());
         // A hand-edited approver flag on a Chief counts for nothing.
         r.people.get_mut("chief:ben-chief").unwrap().approver = true;
         assert!(!r.lifts_floor(OWNER, &chief));
-        assert!(!r.decide(OWNER, &chief, "Bash", Some(&json!({"command": "ls"})), &[]).allowed());
+        assert!(
+            !r.decide(OWNER, &chief, "Bash", Some(&json!({"command": "ls"})), &[])
+                .allowed()
+        );
     }
 
     #[test]
     fn no_grant_writes_through_dot_dot_or_a_relative_path() {
         let mut r = table();
-        r.grant("user_ben", &["Write".into(), "Edit".into()]).unwrap();
+        r.grant("user_ben", &["Write".into(), "Edit".into()])
+            .unwrap();
         let protected = vec![PathBuf::from("/srv/chief/optchat")];
         let ben = authors(&["user_ben"]);
-        for path in ["/srv/chief/optchat/session/../rights.json", "/srv/x/../chief/optchat/audit/audit.jsonl", "rights.json"] {
-            assert!(!r.decide(OWNER, &ben, "Write", Some(&json!({"file_path": path})), &protected).allowed(), "{path}");
-            assert!(!r.decide(OWNER, &ben, "Edit", Some(&json!({"file_path": path})), &protected).allowed(), "{path}");
+        for path in [
+            "/srv/chief/optchat/session/../rights.json",
+            "/srv/x/../chief/optchat/audit/audit.jsonl",
+            "rights.json",
+        ] {
+            assert!(
+                !r.decide(
+                    OWNER,
+                    &ben,
+                    "Write",
+                    Some(&json!({"file_path": path})),
+                    &protected
+                )
+                .allowed(),
+                "{path}"
+            );
+            assert!(
+                !r.decide(
+                    OWNER,
+                    &ben,
+                    "Edit",
+                    Some(&json!({"file_path": path})),
+                    &protected
+                )
+                .allowed(),
+                "{path}"
+            );
         }
-        assert!(r.decide(OWNER, &ben, "Write", Some(&json!({"file_path": "/srv/chief/ws/a"})), &protected).allowed());
+        assert!(
+            r.decide(
+                OWNER,
+                &ben,
+                "Write",
+                Some(&json!({"file_path": "/srv/chief/ws/a"})),
+                &protected
+            )
+            .allowed()
+        );
     }
 
     #[test]
@@ -1044,20 +1292,54 @@ mod tests {
         let ben = authors(&["user_ben"]);
         let link = resolve(&dir.join("ws")).unwrap().join("link");
         let file = resolve(&dir.join("ws")).unwrap().join("ok.txt");
-        assert!(r.decide(OWNER, &ben, "Write", Some(&json!({"file_path": file})), &[]).allowed());
-        assert!(!r.decide(OWNER, &ben, "Write", Some(&json!({"file_path": link})), &[]).allowed());
+        assert!(
+            r.decide(OWNER, &ben, "Write", Some(&json!({"file_path": file})), &[])
+                .allowed()
+        );
+        assert!(
+            !r.decide(OWNER, &ben, "Write", Some(&json!({"file_path": link})), &[])
+                .allowed()
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn no_grant_writes_the_hosts_own_files() {
         let mut r = table();
-        r.grant("user_ben", &["Write(/srv/chief/*)".into()]).unwrap();
+        r.grant("user_ben", &["Write(/srv/chief/*)".into()])
+            .unwrap();
         let protected = vec![PathBuf::from("/srv/chief/optchat")];
         let ben = authors(&["user_ben"]);
-        assert!(r.decide(OWNER, &ben, "Write", Some(&json!({"file_path": "/srv/chief/ws/a"})), &protected).allowed());
-        assert!(!r.decide(OWNER, &ben, "Write", Some(&json!({"file_path": "/srv/chief/optchat/rights.json"})), &protected).allowed());
-        assert!(!r.decide(OWNER, &ben, "Write", Some(&json!({"file_path": "/srv/chief/./optchat/audit/audit.jsonl"})), &protected).allowed());
+        assert!(
+            r.decide(
+                OWNER,
+                &ben,
+                "Write",
+                Some(&json!({"file_path": "/srv/chief/ws/a"})),
+                &protected
+            )
+            .allowed()
+        );
+        assert!(
+            !r.decide(
+                OWNER,
+                &ben,
+                "Write",
+                Some(&json!({"file_path": "/srv/chief/optchat/rights.json"})),
+                &protected
+            )
+            .allowed()
+        );
+        assert!(
+            !r.decide(
+                OWNER,
+                &ben,
+                "Write",
+                Some(&json!({"file_path": "/srv/chief/./optchat/audit/audit.jsonl"})),
+                &protected
+            )
+            .allowed()
+        );
     }
 
     #[test]
@@ -1065,14 +1347,30 @@ mod tests {
         let mut r = table();
         // Personal (the default, and what an unknown login counts as).
         assert!(r.may_prompt(OWNER, OWNER, None).is_ok());
-        assert!(r.may_prompt(OWNER, "user_ben", None).unwrap_err().contains("suggestion"));
-        assert!(r.may_prompt(OWNER, "user_ana", None).is_err(), "an approver too");
+        assert!(
+            r.may_prompt(OWNER, "user_ben", None)
+                .unwrap_err()
+                .contains("suggestion")
+        );
+        assert!(
+            r.may_prompt(OWNER, "user_ana", None).is_err(),
+            "an approver too"
+        );
         // The environment shows an API key.
-        assert!(r.may_prompt(OWNER, "user_ben", Some(AuthKind::ApiKey)).is_ok());
-        assert!(r.may_prompt(OWNER, "user_zed", Some(AuthKind::ApiKey)).is_err());
+        assert!(
+            r.may_prompt(OWNER, "user_ben", Some(AuthKind::ApiKey))
+                .is_ok()
+        );
+        assert!(
+            r.may_prompt(OWNER, "user_zed", Some(AuthKind::ApiKey))
+                .is_err()
+        );
         // A declared personal login wins over what the environment shows.
         r.auth = Some(AuthKind::Personal);
-        assert!(r.may_prompt(OWNER, "user_ben", Some(AuthKind::ApiKey)).is_err());
+        assert!(
+            r.may_prompt(OWNER, "user_ben", Some(AuthKind::ApiKey))
+                .is_err()
+        );
         r.auth = Some(AuthKind::Team);
         assert!(r.may_prompt(OWNER, "user_ben", None).is_ok());
         assert!(r.may_prompt(OWNER, "chief:ben-chief", None).is_ok());
@@ -1081,12 +1379,26 @@ mod tests {
     #[test]
     fn auth_is_detected_only_from_plain_signs() {
         let env = |pairs: &'static [(&'static str, &'static str)]| {
-            move |k: &str| pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| v.to_string())
+            move |k: &str| {
+                pairs
+                    .iter()
+                    .find(|(n, _)| *n == k)
+                    .map(|(_, v)| v.to_string())
+            }
         };
         assert_eq!(AuthKind::detect(&env(&[])), None);
-        assert_eq!(AuthKind::detect(&env(&[("ANTHROPIC_API_KEY", "sk-x")])), Some(AuthKind::ApiKey));
-        assert_eq!(AuthKind::detect(&env(&[("CLAUDE_CODE_USE_BEDROCK", "1")])), Some(AuthKind::Bedrock));
-        assert_eq!(AuthKind::detect(&env(&[("CLAUDE_CODE_USE_VERTEX", "0")])), None);
+        assert_eq!(
+            AuthKind::detect(&env(&[("ANTHROPIC_API_KEY", "sk-x")])),
+            Some(AuthKind::ApiKey)
+        );
+        assert_eq!(
+            AuthKind::detect(&env(&[("CLAUDE_CODE_USE_BEDROCK", "1")])),
+            Some(AuthKind::Bedrock)
+        );
+        assert_eq!(
+            AuthKind::detect(&env(&[("CLAUDE_CODE_USE_VERTEX", "0")])),
+            None
+        );
         assert_eq!(AuthKind::parse("api-key"), Some(AuthKind::ApiKey));
         assert_eq!(AuthKind::parse("max"), None);
     }
@@ -1095,17 +1407,46 @@ mod tests {
     fn command_words_keep_a_pattern_with_spaces_whole() {
         assert_eq!(
             command_words("/grant @Ben Bash(git status*)  Read(/a b/*) WebFetch"),
-            ["/grant", "@Ben", "Bash(git status*)", "Read(/a b/*)", "WebFetch"]
+            [
+                "/grant",
+                "@Ben",
+                "Bash(git status*)",
+                "Read(/a b/*)",
+                "WebFetch"
+            ]
         );
         assert_eq!(command_words("/revoke Ben"), ["/revoke", "Ben"]);
     }
 
     #[test]
     fn patterns_parse_strictly() {
-        for ok in ["Read", "Bash(du*)", "Bash(ls -la)", "mcp__github__*", "Read(/a/*)", "WebFetch(https://docs.rs/*)"] {
+        for ok in [
+            "Read",
+            "Bash(du*)",
+            "Bash(ls -la)",
+            "mcp__github__*",
+            "Read(/a/*)",
+            "WebFetch(https://docs.rs/*)",
+        ] {
             assert!(Pattern::parse(ok).is_ok(), "{ok}");
         }
-        for bad in ["", "Bash(*)", "Read(relative/*)", "*", "mcp__*", "Foo(x)", "Bash(", "Bash()", "Bash", "Bash(cp *)", "Bash(python3*)", "Bash(git push*)", "Bash(git status*)", "Bash(lsof*)", "Bash(date*)"] {
+        for bad in [
+            "",
+            "Bash(*)",
+            "Read(relative/*)",
+            "*",
+            "mcp__*",
+            "Foo(x)",
+            "Bash(",
+            "Bash()",
+            "Bash",
+            "Bash(cp *)",
+            "Bash(python3*)",
+            "Bash(git push*)",
+            "Bash(git status*)",
+            "Bash(lsof*)",
+            "Bash(date*)",
+        ] {
             assert!(Pattern::parse(bad).is_err(), "{bad}");
         }
     }
@@ -1118,9 +1459,16 @@ mod tests {
         run(&w("grant user_ben Read WebFetch"), &dir, OWNER).unwrap();
         run(&w("cap user_ben 2.5"), &dir, OWNER).unwrap();
         run(&w("chief-cap 20"), &dir, OWNER).unwrap();
-        assert_eq!(run(&w("check user_ben Read"), &dir, OWNER).unwrap(), "allow (grant:Read)");
+        assert_eq!(
+            run(&w("check user_ben Read"), &dir, OWNER).unwrap(),
+            "allow (grant:Read)"
+        );
         run(&w("revoke user_ben Read"), &dir, OWNER).unwrap();
-        assert!(run(&w("check user_ben Read"), &dir, OWNER).unwrap().starts_with("deny"));
+        assert!(
+            run(&w("check user_ben Read"), &dir, OWNER)
+                .unwrap()
+                .starts_with("deny")
+        );
         let r = Rights::load(&Rights::path(&dir)).unwrap();
         assert_eq!(r.people["user_ben"].allow, vec!["WebFetch".to_owned()]);
         // Every terminal change is audited.
@@ -1129,11 +1477,22 @@ mod tests {
             .iter()
             .map(|r| r.entry.tool.clone())
             .collect();
-        assert_eq!(changes, ["rights.grant", "rights.cap", "rights.chief-cap", "rights.revoke"]);
+        assert_eq!(
+            changes,
+            [
+                "rights.grant",
+                "rights.cap",
+                "rights.chief-cap",
+                "rights.revoke"
+            ]
+        );
         assert_eq!(r.people["user_ben"].cap_usd_day, Some(2.5));
         assert_eq!(r.chief_cap_usd_day, Some(20.0));
         use std::os::unix::fs::PermissionsExt;
-        let mode = std::fs::metadata(Rights::path(&dir)).unwrap().permissions().mode();
+        let mode = std::fs::metadata(Rights::path(&dir))
+            .unwrap()
+            .permissions()
+            .mode();
         assert_eq!(mode & 0o777, 0o600);
         assert!(run(&w("approver chief:x on"), &dir, OWNER).is_err());
         let _ = std::fs::remove_dir_all(&dir);
@@ -1151,14 +1510,31 @@ mod tests {
             pre[0]["hooks"][0]["command"],
             "'/opt/o'\\''c' rights-hook pre --socket '/h/tools.sock'"
         );
-        assert_eq!(settings["hooks"]["PostToolUse"][0]["hooks"][0]["command"].as_str().unwrap().contains("rights-hook post"), true);
+        assert_eq!(
+            settings["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
+                .as_str()
+                .unwrap()
+                .contains("rights-hook post"),
+            true
+        );
     }
 
     #[test]
     fn a_hook_with_no_host_refuses_before_and_says_nothing_after() {
-        let out = hook("pre", Path::new("/nonexistent/tools.sock"), &mut "{\"tool_name\":\"Bash\"}".as_bytes());
+        let out = hook(
+            "pre",
+            Path::new("/nonexistent/tools.sock"),
+            &mut "{\"tool_name\":\"Bash\"}".as_bytes(),
+        );
         assert!(out.contains("\"deny\""), "{out}");
-        assert_eq!(hook("post", Path::new("/nonexistent/tools.sock"), &mut "{}".as_bytes()), "");
+        assert_eq!(
+            hook(
+                "post",
+                Path::new("/nonexistent/tools.sock"),
+                &mut "{}".as_bytes()
+            ),
+            ""
+        );
     }
 
     #[test]

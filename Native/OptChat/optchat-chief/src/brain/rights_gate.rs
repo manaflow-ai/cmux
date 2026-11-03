@@ -54,7 +54,15 @@ pub(super) enum Admit {
 }
 
 /// The chat commands the host answers itself.
-const COMMANDS: [&str; 7] = ["/audit", "/rights", "/grant", "/revoke", "/approver", "/cap", "/auth"];
+const COMMANDS: [&str; 7] = [
+    "/audit",
+    "/rights",
+    "/grant",
+    "/revoke",
+    "/approver",
+    "/cap",
+    "/auth",
+];
 
 /// The id of a person no message named (fail closed in `decide`).
 const UNKNOWN: &str = "unknown-person";
@@ -63,7 +71,12 @@ const UNKNOWN: &str = "unknown-person";
 const AGENT_SENT: &str = "agent-via-owner-cli";
 
 impl RightsCtx {
-    pub fn new(root: PathBuf, detected: Option<AuthKind>, host: String, cwd: Option<String>) -> RightsCtx {
+    pub fn new(
+        root: PathBuf,
+        detected: Option<AuthKind>,
+        host: String,
+        cwd: Option<String>,
+    ) -> RightsCtx {
         RightsCtx {
             root,
             detected,
@@ -145,16 +158,21 @@ impl Brain {
         if !COMMANDS.contains(&verb) {
             return false;
         }
-        let human = summary.participants.iter().any(|p| {
-            p.id == message.author && p.kind == cmux_conversation::ParticipantKind::Human
-        });
+        let human = summary
+            .participants
+            .iter()
+            .any(|p| p.id == message.author && p.kind == cmux_conversation::ParticipantKind::Human);
         if !human || message.author == self.settings.membership.participant {
             return false;
         }
         let owner_msg = self.settings.membership.is_owner_message(summary, message);
         let owner = self.settings.membership.owner.clone();
         // Another agent's words through the owner's CLI change nothing.
-        let person = if owner_msg { owner.clone() } else { Self::person_of(summary, message) };
+        let person = if owner_msg {
+            owner.clone()
+        } else {
+            Self::person_of(summary, message)
+        };
         if !owner_msg && person == owner {
             return false;
         }
@@ -182,11 +200,16 @@ impl Brain {
             return Admit::Queue { lifts_floor: false };
         }
         let owner = self.settings.membership.owner.clone();
-        let person = if owner_msg { owner.clone() } else { Self::person_of(summary, message) };
+        let person = if owner_msg {
+            owner.clone()
+        } else {
+            Self::person_of(summary, message)
+        };
         let rights = self.rights_table();
         let trimmed = text.trim();
         if trimmed.starts_with('/')
-            && let Some(answer) = self.command(&rights, summary, &person, owner_msg, trimmed, &message.id)
+            && let Some(answer) =
+                self.command(&rights, summary, &person, owner_msg, trimmed, &message.id)
         {
             self.answer_message(target, message, "rights", &answer);
             return Admit::Answered;
@@ -234,7 +257,8 @@ impl Brain {
         }
         if agent_sent {
             if let Some(ctx) = self.rights.as_mut() {
-                ctx.authors.insert(message.id.clone(), AGENT_SENT.to_owned());
+                ctx.authors
+                    .insert(message.id.clone(), AGENT_SENT.to_owned());
             }
             return Admit::Queue { lifts_floor: false };
         }
@@ -248,7 +272,10 @@ impl Brain {
 
     /// Posts `text` as the Chief's reply to `message`.
     fn answer_message(&mut self, target: Option<&str>, message: &Message, kind: &str, text: &str) {
-        let Some(conversation) = target.map(str::to_owned).or_else(|| self.state.conversation.clone()) else {
+        let Some(conversation) = target
+            .map(str::to_owned)
+            .or_else(|| self.state.conversation.clone())
+        else {
             return;
         };
         let mut entry = super::answer_entry(
@@ -331,7 +358,11 @@ impl Brain {
         let root = self.rights.as_ref()?.root.clone();
         let resolve = |w: &str| resolve_person(summary, rights, w);
         let owner_only = |s: &str| -> Option<String> {
-            Some(if owner_msg { s.to_owned() } else { "Only this Chief's owner can change its rights.".into() })
+            Some(if owner_msg {
+                s.to_owned()
+            } else {
+                "Only this Chief's owner can change its rights.".into()
+            })
         };
         let detected = self.rights.as_ref().and_then(|c| c.detected);
         match verb {
@@ -344,8 +375,14 @@ impl Brain {
                         Err(_) if *a == "verify" => {
                             return Some(match audit::verify(&root) {
                                 Ok(v) => match v.broken {
-                                    None => format!("Audit chain holds: {} records, head {}.", v.records, &v.head[..16]),
-                                    Some((line, why)) => format!("Audit chain BROKEN at record {line}: {why}."),
+                                    None => format!(
+                                        "Audit chain holds: {} records, head {}.",
+                                        v.records,
+                                        &v.head[..16]
+                                    ),
+                                    Some((line, why)) => {
+                                        format!("Audit chain BROKEN at record {line}: {why}.")
+                                    }
                                 },
                                 Err(e) => format!("Audit unreadable: {e}"),
                             });
@@ -372,10 +409,19 @@ impl Brain {
                 // that name them. With such readers present, a record must
                 // name every one of them.
                 let owner = self.settings.membership.owner.clone();
-                let me = format!("{}{}", crate::rights::CHIEF_PREFIX, self.settings.membership.participant);
+                let me = format!(
+                    "{}{}",
+                    crate::rights::CHIEF_PREFIX,
+                    self.settings.membership.participant
+                );
                 let readers: Vec<String> = present_people(summary, &owner)
                     .into_iter()
-                    .filter(|p| *p != owner && *p != me && (p.starts_with(crate::rights::CHIEF_PREFIX) || !rights.is_approver(p)))
+                    .filter(|p| {
+                        *p != owner
+                            && *p != me
+                            && (p.starts_with(crate::rights::CHIEF_PREFIX)
+                                || !rights.is_approver(p))
+                    })
                     .collect();
                 let visible: Vec<audit::Record> = records
                     .into_iter()
@@ -393,7 +439,10 @@ impl Brain {
                 lines.push(format!("{count} records, head {}", &head[..16]));
                 Some(lines.join("\n"))
             }
-            "rights" => Some(crate::rights::render_with(rights, rights.auth_kind(detected))),
+            "rights" => Some(crate::rights::render_with(
+                rights,
+                rights.auth_kind(detected),
+            )),
             "grant" | "revoke" | "approver" | "cap" | "auth" if !owner_msg => owner_only(""),
             "grant" | "revoke" | "approver" | "cap" | "auth" => {
                 let mut cli: Vec<String> = vec![verb.to_owned()];
@@ -412,7 +461,10 @@ impl Brain {
                 // restart (its floor not yet saved) finds its record and
                 // changes nothing, so it never undoes a later change.
                 let via = format!("chat:{message_id}");
-                if audit::read(&root).is_ok_and(|rs| rs.iter().any(|r| r.entry.via.as_deref() == Some(via.as_str()))) {
+                if audit::read(&root).is_ok_and(|rs| {
+                    rs.iter()
+                        .any(|r| r.entry.via.as_deref() == Some(via.as_str()))
+                }) {
                     return Some(format!("/{verb}: done already."));
                 }
                 let owner = self.settings.membership.owner.clone();
@@ -429,7 +481,9 @@ impl Brain {
     /// The people of a turn about to run `items`: the persons behind its
     /// messages, plus [`UNKNOWN`] for a gated item no message names.
     pub(super) fn begin_turn_people(&mut self, items: &[super::Queued], key: &str) {
-        let Some(ctx) = self.rights.as_mut() else { return };
+        let Some(ctx) = self.rights.as_mut() else {
+            return;
+        };
         ctx.turn_people.clear();
         ctx.turn_key = Some(key.to_owned());
         self.add_turn_people(items);
@@ -449,16 +503,24 @@ impl Brain {
     /// opening) to the turn's.
     pub(super) fn add_turn_people(&mut self, items: &[super::Queued]) {
         let owner = self.settings.membership.owner.clone();
-        let Some(ctx) = self.rights.as_mut() else { return };
+        let Some(ctx) = self.rights.as_mut() else {
+            return;
+        };
         let mut people: Vec<String> = std::mem::take(&mut ctx.turn_people);
         for item in items {
             let who = match &item.source {
-                super::Source::Message { id, requires_approval, .. } => match ctx.authors.get(id) {
+                super::Source::Message {
+                    id,
+                    requires_approval,
+                    ..
+                } => match ctx.authors.get(id) {
                     Some(p) => Some(p.clone()),
                     None if *requires_approval => Some(UNKNOWN.to_owned()),
                     None => Some(owner.clone()),
                 },
-                super::Source::Peer { from } => Some(format!("{}{from}", crate::rights::CHIEF_PREFIX)),
+                super::Source::Peer { from } => {
+                    Some(format!("{}{from}", crate::rights::CHIEF_PREFIX))
+                }
                 _ if item.requires_approval() => Some(UNKNOWN.to_owned()),
                 _ => None,
             };
@@ -477,7 +539,9 @@ impl Brain {
     /// Forgets the authors of `items` once they are in the turn for good
     /// (started or delivered).
     pub(super) fn forget_authors(&mut self, items: &[super::Queued]) {
-        let Some(ctx) = self.rights.as_mut() else { return };
+        let Some(ctx) = self.rights.as_mut() else {
+            return;
+        };
         for item in items {
             if let super::Source::Message { id, .. } = &item.source {
                 ctx.authors.remove(id);
@@ -487,10 +551,14 @@ impl Brain {
 
     /// Audits the ended turn's cost against its people.
     pub(super) fn end_turn_spend(&mut self, usd: Option<f64>) {
-        let Some(ctx) = self.rights.as_mut() else { return };
+        let Some(ctx) = self.rights.as_mut() else {
+            return;
+        };
         let people = std::mem::take(&mut ctx.turn_people);
         let key = ctx.turn_key.take();
-        let Some(usd) = usd.filter(|u| *u > 0.0) else { return };
+        let Some(usd) = usd.filter(|u| *u > 0.0) else {
+            return;
+        };
         self.audit(Entry {
             who: people,
             via: key,
@@ -506,8 +574,14 @@ impl Brain {
     /// `pre` or `post`, `payload` Claude Code's hook input. Answers the JSON
     /// the hook prints (empty object: no decision).
     pub fn rights_hook(&mut self, phase: &str, payload: &Value) -> Value {
-        let Some(ctx) = self.rights.clone() else { return json!({}) };
-        let tool = payload.get("tool_name").and_then(Value::as_str).unwrap_or("").to_owned();
+        let Some(ctx) = self.rights.clone() else {
+            return json!({});
+        };
+        let tool = payload
+            .get("tool_name")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned();
         let input = payload.get("tool_input");
         let owner = self.settings.membership.owner.clone();
         // The turn's people as this host recorded them; after a restart, as
@@ -535,7 +609,10 @@ impl Brain {
         let ctx = self.rights.clone().unwrap_or(ctx);
         let what = crate::approval::describe(&tool, input);
         let input_sha = input.map(|i| audit::sha256(i.to_string().as_bytes()));
-        let cwd = payload.get("cwd").and_then(Value::as_str).map(str::to_owned);
+        let cwd = payload
+            .get("cwd")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
         if phase == "post" {
             let output = payload.get("tool_response").map(|r| match r {
                 Value::String(s) => s.clone(),
@@ -597,12 +674,12 @@ impl Brain {
                     self.count_denial(&tool, input, super::approvals::DenyWhy::OtherPerson);
                 }
                 (
-                "deny".to_owned(),
-                json!({"hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "deny",
-                    "permissionDecisionReason": format!("refused: {}: {why}", rights.name_of(who)),
-                }}),
+                    "deny".to_owned(),
+                    json!({"hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": format!("refused: {}: {why}", rights.name_of(who)),
+                    }}),
                 )
             }
         };
@@ -736,7 +813,8 @@ fn save_turn_people(root: &std::path::Path, key: &str, people: &[String]) {
 }
 
 fn load_turn_people(root: &std::path::Path) -> Option<(String, Vec<String>)> {
-    let v: Value = serde_json::from_str(&std::fs::read_to_string(root.join("rights-turn.json")).ok()?).ok()?;
+    let v: Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join("rights-turn.json")).ok()?).ok()?;
     let key = v.get("turn")?.as_str()?.to_owned();
     let people = v
         .get("people")?
@@ -766,7 +844,9 @@ fn present_people(summary: &Summary, owner: &str) -> Vec<String> {
         .participants
         .iter()
         .map(|p| match p.kind {
-            cmux_conversation::ParticipantKind::Agent => format!("{}{}", crate::rights::CHIEF_PREFIX, p.id),
+            cmux_conversation::ParticipantKind::Agent => {
+                format!("{}{}", crate::rights::CHIEF_PREFIX, p.id)
+            }
             _ if p.id == owner || p.person.as_deref() == Some(owner) => owner.to_owned(),
             _ => p.person.clone().unwrap_or_else(|| p.id.clone()),
         })

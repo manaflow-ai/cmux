@@ -1836,7 +1836,10 @@ pub fn ask_spawn_policy(path: &Path) -> Result<Option<String>, String> {
 
 /// The turn hook's answer from the live host (the JSON the hook prints).
 pub fn ask_rights_hook(path: &Path, phase: &str, payload: Value) -> Result<String, String> {
-    ask_json(path, &json!({"tool": "rights_hook", "phase": phase, "payload": payload}))
+    ask_json(
+        path,
+        &json!({"tool": "rights_hook", "phase": phase, "payload": payload}),
+    )
 }
 
 /// The browse page from the live host; Err when no host answers on `path`.
