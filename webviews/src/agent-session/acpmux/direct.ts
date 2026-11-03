@@ -8920,7 +8920,7 @@ export class AcpmuxDirectClient {
         phase: "ask",
       };
     } else if (kind === "mcp_connect_decision") {
-      if (connect?.requestId !== msg.requestId) return;
+      if (!connect || connect.requestId !== msg.requestId) return;
       this.pendingMcpConnect = msg.outcome === "approved" ? { ...connect, phase: "connecting" } : undefined;
     } else if (kind === "mcp_connect_result") {
       // A sign-in's result names the connection, not the card.

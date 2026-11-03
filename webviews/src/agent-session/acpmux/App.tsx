@@ -6891,7 +6891,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             ),
           "chat.mcp.signIn": ({ connectionId }) => client.mcpSignIn(String(connectionId)),
           "chat.mcp.setKey": ({ connectionId, key }) => client.mcpSetKey(String(connectionId), String(key ?? "")),
-          "chat.mcp.dismiss": ({ requestId }) => client.dismissMcpConnect(String(requestId)),
+          "chat.mcp.dismiss": async ({ requestId }) => client.dismissMcpConnect(String(requestId)),
           "chat.mcp.call": ({ requestId, approve, always }) =>
             client.mcpCallAnswer(String(requestId), approve === true, always === true),
           "chat.permission": ({ permissionId, optionId, answers, annotations, sessionId }) =>
