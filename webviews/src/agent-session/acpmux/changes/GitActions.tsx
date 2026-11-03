@@ -230,20 +230,24 @@ function CommitForm({
             </label>
           ))}
         </ChoiceGroup>
-        {scope === "all" && (
-          <label className="acpmux-git-include-new">
-            <input
-              type="checkbox"
-              aria-labelledby={`${scopeName}-new`}
-              checked={includeNew}
-              disabled={busy}
-              onChange={(event) => toggleNew(event.target.checked)}
-            />
-            <span id={`${scopeName}-new`}>{t("git.commit.includeNew")}</span>
-          </label>
-        )}
+        <label className="acpmux-git-include-new" data-visible={scope === "all"}>
+          <input
+            type="checkbox"
+            aria-labelledby={`${scopeName}-new`}
+            checked={includeNew}
+            disabled={busy || scope !== "all"}
+            onChange={(event) => toggleNew(event.target.checked)}
+          />
+          <span id={`${scopeName}-new`}>{t("git.commit.includeNew")}</span>
+        </label>
+      </div>
+      <div className="acpmux-git-form-row acpmux-git-submit-row">
         <span className="acpmux-git-scope-hint">
-          {t(scope === "staged" ? "git.commit.stagedHint" : "git.commit.allHint")}
+          {options.map(({ value }) => (
+            <span key={value} data-visible={scope === value} aria-hidden={scope !== value}>
+              {t(value === "staged" ? "git.commit.stagedHint" : "git.commit.allHint")}
+            </span>
+          ))}
         </span>
         <button type="button" className="acpmux-git-secondary" disabled={busy} onClick={onCloseForm}>
           {t("git.cancel")}

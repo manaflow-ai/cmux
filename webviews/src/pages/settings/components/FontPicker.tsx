@@ -132,7 +132,7 @@ export function FontPicker({
         onOpenChange={(next) => (next ? setOpen(true) : close())}
         anchor={anchor}
         label={title}
-        className="domain-panel"
+        className="domain-panel font-picker-panel"
       >
         <Combobox
           inline

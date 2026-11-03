@@ -202,6 +202,11 @@ const MENU = ".ui-popup, [role='menu'], [popover] [role='listbox'], [role='dialo
 const ITEM = ".ui-menu-item, [role='menuitem'], [role='menuitemradio'], [role='menuitemcheckbox'], [role='option']";
 const NOT_LABEL = ".ui-menu-check, .ui-menu-shortcut, kbd, [aria-hidden='true']";
 
+/** Labels align at inline-start; proportional RTL text has different physical left edges. */
+export function labelStart(rect: { left: number; right: number }, direction: string): number {
+  return direction === "rtl" ? rect.right : rect.left;
+}
+
 function menuViolations(doc: Document): Violation[] {
   const violations: Violation[] = [];
   const menus = [...doc.querySelectorAll(MENU)].filter(
@@ -216,7 +221,9 @@ function menuViolations(doc: Document): Violation[] {
       ...offColumn(
         items.flatMap((item) => {
           const label = textRects(item, NOT_LABEL)[0];
-          return label ? [{ key: `${name} ${labelOf(item)}`, edge: label.left }] : [];
+          return label
+            ? [{ key: `${name} ${labelOf(item)}`, edge: labelStart(label, getComputedStyle(item).direction) }]
+            : [];
         }),
         "menu-label",
         "the label",

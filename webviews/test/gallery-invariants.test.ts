@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { COLUMN_REACH, leadEdge, offColumn, offTokenGaps, sharedEdge } from "../src/gallery/invariants";
+import { COLUMN_REACH, labelStart, leadEdge, offColumn, offTokenGaps, sharedEdge } from "../src/gallery/invariants";
 
 test("the column is the edge most rows share", () => {
   expect(sharedEdge([24, 24, 24.2, 26])).toBe(24);
@@ -33,4 +33,28 @@ test("a glyph up to 16 px leads at its 16 px box; a wider glyph (a reply footer'
   expect(leadEdge({ left: 22, width: 12 })).toBe(20);
   expect(leadEdge({ left: 20, width: 16 })).toBe(20);
   expect(leadEdge({ left: 20, width: 20 })).toBe(20);
+});
+
+test("RTL menu labels share their right edge despite different text widths", () => {
+  const labels = [
+    { left: 474.3, right: 550 },
+    { left: 474.3, right: 550 },
+    { left: 475.4, right: 550 },
+    { left: 480.1, right: 550 },
+  ];
+  expect(
+    offColumn(
+      labels.map((rect, index) => ({ key: String(index), edge: labelStart(rect, "rtl") })),
+      "menu-label",
+      "label",
+    ),
+  ).toEqual([]);
+  expect(
+    offColumn(
+      labels.map((rect, index) => ({ key: String(index), edge: labelStart(rect, "ltr") })),
+      "menu-label",
+      "label",
+    ),
+  ).not.toEqual([]);
+  expect(labelStart({ left: 20, right: 100 }, "ltr")).toBe(20);
 });

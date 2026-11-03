@@ -95,8 +95,8 @@ export default componentEntry<Props>({
       play: includeNew,
       checks: {
         layoutShiftMax: {
-          value: 0.05,
-          reason: "Choosing All adds Include new files to the row, so the hint and buttons move along.",
+          value: 0.0005,
+          reason: "Scope controls and both hint translations reserve their space before switching to All.",
         },
       },
     },
@@ -106,8 +106,8 @@ export default componentEntry<Props>({
       play: keyboard,
       checks: {
         layoutShiftMax: {
-          value: 0.05,
-          reason: "Choosing All adds Include new files to the row, so the hint and buttons move along.",
+          value: 0.0005,
+          reason: "Scope controls and both hint translations reserve their space before switching to All.",
         },
       },
     },
