@@ -751,7 +751,7 @@
 {"file":"styles.css","kind":"font-weight","property":"font-weight","values":{"500":10,"700":1}}
 {"file":"styles.css","kind":"height","property":"height","values":{"1px":3,"17px":1,"56px":1,"26px":1,"14px":1,"22px":2,"18px":1,"19px":1,"6px":1}}
 {"file":"styles.css","kind":"height","property":"min-height","values":{"31px":1,"30px":3,"52px":1,"50px":1}}
-{"file":"styles.css","kind":"radius","property":"border-radius","values":{"7px":10,"5px":11,"9px":2,"10px":1,"3px":2,"1.5px":1}}
+{"file":"styles.css","kind":"radius","property":"border-radius","values":{"7px":9,"5px":11,"9px":2,"10px":1,"3px":2,"1.5px":1}}
 {"file":"styles.css","kind":"spacing","property":"bottom","values":{"14px":1}}
 {"file":"styles.css","kind":"spacing","property":"gap","values":{"7px":2,"6px":8,"5px":6,"10px":2,"2px":4,"14px":1,"1.5px":1}}
 {"file":"styles.css","kind":"spacing","property":"left","values":{"-9999px":1}}
