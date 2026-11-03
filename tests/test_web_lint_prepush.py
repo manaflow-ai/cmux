@@ -544,6 +544,58 @@ class WebLintPrePushTests(unittest.TestCase):
         self.assertIn("webviews: not linted here", result.stderr)
         self.assertNotIn("reviewed check", result.stderr, "the check ran")
 
+    def test_a_source_file_that_check_code_imports_is_check_code(self):
+        # A file under src/ is type-checked, not run, unless check code imports it: then a push that changes it changes
+        # code the check runs.
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("needs node to run the importing check")
+        self.write("webviews/package.json", WEBVIEWS_PACKAGE.replace(
+            '"sh check-lanes.sh && sh check-format.sh"', f'"{node} scripts/codegen.mjs && sh check-format.sh"'))
+        self.write("webviews/scripts/codegen.mjs", 'import { ir } from "../src/codegen/ir.mjs";\nconsole.log(ir);\n')
+        self.write("webviews/src/codegen/ir.mjs", 'export const ir = "reviewed";\n')
+        self.commit("a check that imports a source file")
+        seeded = self.push(CMUX_WEB_LINT_SKIP_REASON="fixture: seed the importing check on origin first")
+        self.assertEqual(seeded.returncode, 0, seeded.stderr)
+        marker = self.root / "pushed-code-ran"
+        self.write("webviews/src/codegen/ir.mjs",
+                   f'import fs from "node:fs";\nfs.writeFileSync({str(marker)!r}, "");\nexport const ir = 1;\n')
+        self.commit("change the imported source file")
+
+        result = self.push()
+
+        self.assertFalse(marker.exists(), "the hook ran a source file that check code imports")
+        self.assertIn("webviews: not linted here", result.stderr)
+        self.assertIn("webviews/src/codegen/ir.mjs", result.stderr)
+
+    def test_a_path_that_differs_only_in_case_from_check_code_is_check_code(self):
+        # On a case-insensitive file system (macOS) the lint tree writes Scripts/... into scripts/.
+        self.seed_reviewed_check()
+        self.write("Scripts/cmux-next/json.py", "raise SystemExit(0)\n")
+        self.write("webviews/src/app.ts", "export const app = 60;\n")
+        self.commit("a path that differs only in case")
+
+        result = self.push()
+
+        self.assertIn("webviews: not linted here", result.stderr)
+        self.assertIn("Scripts/cmux-next/json.py", result.stderr)
+
+    def test_an_eslint_or_babel_config_the_tools_find_first_is_check_code(self):
+        for name in ("web/eslint.config.js", "web/eslint.config.ts", "web/babel.config.js", "web/.babelrc",
+                     "web/.npmrc", "web/bunfig.toml"):
+            with self.subTest(name=name):
+                self.write(name, "module.exports = {};\n")
+                self.write("web/app/page.tsx", f"export const page = {len(name)};\n")
+                self.commit(f"add {name}")
+
+                result = self.push()
+
+                self.assertIn("web: not linted here", result.stderr)
+                self.assertIn(name, result.stderr)
+                self.git("rm", "--quiet", name)
+                self.commit(f"drop {name}")
+                self.push(CMUX_WEB_LINT_SKIP_REASON="fixture: reset between the config file sub-tests")
+
     def test_a_symlink_in_executed_code_is_never_followed(self):
         # A symlink already on the base points executed code at a source file, which a push may change.
         self.seed_reviewed_check()
@@ -1193,6 +1245,15 @@ class TuiBindingsTests(unittest.TestCase):
             self.assertRegex(call, r"nice=\d+ GOMAXPROCS=\d+$")
             self.assertGreaterEqual(int(call.split("nice=")[1].split()[0]), 10, call)
 
+    def test_an_install_config_in_the_bindings_is_check_code(self):
+        # npm and bun read a package's own .npmrc and bunfig.toml when they install and build it.
+        lint = load_lint(self.repo)
+        tui = next(p for p in lint.SCRIPT_PACKAGES if p.directory == "cmux-tui/frontends/web")
+        for name in (".npmrc", "bunfig.toml"):
+            path = f"cmux-tui/bindings/typescript/{name}"
+            with self.subTest(name=name):
+                self.assertEqual(lint.executed_changes(tui, [path]), [path])
+
     def test_a_lint_tree_on_a_host_that_runs_no_heavy_checks_shares_the_frontend_node_modules(self):
         # --head of a commit other than the checkout's runs in a lint tree; with nothing built there, the frontend
         # shares the checkout's node_modules and its light piece still runs.
@@ -1402,6 +1463,30 @@ class TrustBoundaryTests(unittest.TestCase):
         web = lint.ESLINT_PACKAGES[0]
         self.assertEqual(lint.eslint_executed_changes(web, ["web", "web/app/page.tsx", "web/package.json"]),
                          ["web", "web/package.json"])
+
+    def test_the_git_side_symlink_scan_sees_every_case_and_fails_closed(self):
+        # git's pathspecs can't match a folder whose case differs, and an empty listing must never mean "no symlink"
+        # when git failed.
+        lint = load_lint(SOURCE)
+        webviews = next(p for p in lint.SCRIPT_PACKAGES if p.directory == "webviews")
+        with tempfile.TemporaryDirectory(prefix="cmux-symlinks-") as temporary:
+            repo = Path(temporary)
+            env = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull}
+            run = lambda *args: subprocess.run(["git", "-C", str(repo), *args], env=env, check=True,
+                                               capture_output=True)
+            run("init", "--quiet")
+            (repo / "webviews/src").mkdir(parents=True)
+            (repo / "webviews/src/x").write_text("")
+            (repo / "Scripts").symlink_to("webviews/src")
+            (repo / "webviews/check.sh").symlink_to("src/x")
+            run("add", "-A")
+            run("-c", "user.email=a@b", "-c", "user.name=n", "commit", "--quiet", "-m", "x")
+            head = run("rev-parse", "HEAD").stdout.decode().strip()
+            sources = tuple(f"webviews/{d}" for d in lint.SOURCE_DIRS)
+            self.assertEqual(lint.executed_symlinks(repo, head, webviews.executed, sources),
+                             ["Scripts", "webviews/check.sh"])
+            with self.assertRaises(SystemExit):
+                lint.tree_symlinks(repo, "0" * 40)
 
     def test_a_path_that_resolves_elsewhere_in_the_tree_escapes(self):
         lint = load_lint(SOURCE)
