@@ -77,7 +77,13 @@ struct DockMenuTests {
         var onReopen: (() -> Void)?
         func dockMenuReopenWindow() { reopens += 1; onReopen?() }
         func dockMenuNewChat(_ arguments: [String: ActionValue]) { newChats.append(arguments) }
-        func dockMenuOpenChat(_ id: String) throws { opened.append(id) }
+        /// Chats a tab already shows: they open with no pane, as a session link reveals its tab.
+        var shownChats: Set<String> = []
+        struct NoPane: Error {}
+        func dockMenuOpenChat(_ id: String) throws {
+            guard dockMenuWindow == .pane || (dockMenuWindow != .closed && shownChats.contains(id)) else { throw NoPane() }
+            opened.append(id)
+        }
         func dockMenuRefuse(_ reason: String) {}
     }
 
@@ -191,6 +197,31 @@ struct DockMenuTests {
         #expect(hookSawWaiting)
         if hookSawWaiting { controller.windowDidShowContent() } // the hook's deferred call
         #expect(host.opened == ["a"])
+        controller.stop()
+    }
+
+    /// The last window closed on a top page (History): it comes back with no pane mounted. A chat a
+    /// tab already shows is revealed at once, as before, instead of waiting for a pane.
+    @Test func aReopenedTopPageWindowRevealsAChatATabShows() {
+        let host = Host()
+        host.dockMenuHasWindow = false
+        host.dockMenuHasPane = false
+        host.shownChats = ["a"]
+        let controller = DockMenuController(lanes: AgentLaneStore(), marks: AgentPriorityMarks(defaults: nil), host: host)
+        host.onReopen = { host.dockMenuHasWindow = true }
+        controller.run(.open(chat: "a"))
+        #expect(host.opened == ["a"] && !controller.isWaiting)
+        controller.stop()
+    }
+
+    @Test func aPlainNewChatDropsAWaitingPick() {
+        let host = Host()
+        host.dockMenuHasWindow = false
+        host.dockMenuHasPane = false
+        let controller = DockMenuController(lanes: AgentLaneStore(), marks: AgentPriorityMarks(defaults: nil), host: host)
+        controller.run(.open(chat: "a"))
+        controller.run(.newChat(harness: nil, machine: nil))
+        #expect(!controller.isWaiting)
         controller.stop()
     }
 }
