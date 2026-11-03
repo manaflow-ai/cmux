@@ -25,12 +25,27 @@ use serde_json::Value;
 use serde_json::json;
 use std::collections::HashMap;
 
+#[cfg(test)]
+thread_local! {
+    /// Panes serialized on this thread (`pane_json`): a unit test reads how much of the tree one
+    /// change builds (#32408).
+    static PANES_BUILT: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Panes serialized on this thread so far.
+#[cfg(test)]
+pub(crate) fn panes_built_for_test() -> u64 {
+    PANES_BUILT.with(std::cell::Cell::get)
+}
+
 pub(super) fn pane_json(
     state: &State,
     id: PaneId,
     short_ids: &HashMap<u64, String>,
     notifications: &TreeDecorations,
 ) -> Value {
+    #[cfg(test)]
+    PANES_BUILT.with(|built| built.set(built.get() + 1));
     let Some(pane) = state.panes.get(&id) else {
         return json!({ "id": id, "dead": true });
     };

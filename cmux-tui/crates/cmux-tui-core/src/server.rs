@@ -2823,6 +2823,8 @@ fn layout_request_to_spec(layout: LayoutRequest) -> anyhow::Result<LayoutSpec> {
 }
 
 mod tree_json;
+#[cfg(test)]
+pub(crate) use tree_json::panes_built_for_test;
 pub(crate) use tree_json::tree_entity_json;
 pub(crate) use tree_json::workspaces_json;
 use tree_json::{pane_json, tree_delta_json};

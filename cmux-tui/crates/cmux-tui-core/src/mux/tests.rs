@@ -15,6 +15,7 @@ mod agent_roster_restore;
 mod cell_pixel_fanout;
 mod cell_pixels;
 mod column_update;
+mod create_entity_cost;
 mod creation_burst;
 mod diagnostics;
 mod dock_columns;
