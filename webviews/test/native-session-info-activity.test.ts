@@ -69,7 +69,14 @@ test("a subagent quiet past the idle window reads Idle in its line and the head,
   const agents: Subagent[] = [
     { id: "busy", parent: null, name: "Busy", state: "running", startedAt: 0, quietSince: now - 1_000 },
     { id: "open", parent: null, name: "Long call", state: "running", startedAt: 0 },
-    { id: "quiet", parent: null, name: "Waits on its build", state: "running", startedAt: 0, quietSince: now - IDLE_AFTER_MS },
+    {
+      id: "quiet",
+      parent: null,
+      name: "Waits on its build",
+      state: "running",
+      startedAt: 0,
+      quietSince: now - IDLE_AFTER_MS,
+    },
     { id: "done", parent: null, name: "Done", state: "completed", startedAt: 0, endedAt: 1_000 },
   ];
   const section = subagentsSection(

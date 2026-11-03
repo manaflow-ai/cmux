@@ -261,6 +261,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 )
                 .into());
             }
+            // A name that reads as an id gets a one-line hint; it is never refused.
+            if let Some(hint) = launch.name.as_deref().and_then(crate::session_name::naming_hint) {
+                eprintln!("{hint}");
+            }
             let setup_name = launch.name.as_deref().unwrap_or("new");
             let client = before_deadline(deadline, setup_name, connect(true)).await?;
             // A machine a person works at places command-line sessions on a fleet host

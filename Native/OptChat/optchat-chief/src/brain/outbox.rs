@@ -18,6 +18,7 @@ impl Brain {
     /// Sends what the outbox holds, then acks the wakes nothing waits for
     /// any more (G9: a woken message is acked after its reply is taken).
     pub(super) fn flush_outbox(&mut self) {
+        self.resume_media_uploads();
         self.flush_entries();
         self.settle_acks();
     }
@@ -32,6 +33,10 @@ impl Brain {
                 self.outbox_timer = None;
                 return;
             };
+            if !entry.attempted && !entry.pending_media.is_empty() {
+                self.outbox_timer = None;
+                return;
+            }
             let (is_message, not_before, attempted, previews_until) = (
                 matches!(entry.op, Op::MessageSend { .. }),
                 entry.not_before,
@@ -126,15 +131,34 @@ impl Brain {
                     if self.state.outbox[0].plain_text.is_some() && has_cards(&op) =>
                 {
                     // The owner refused the link cards (an older or stricter
-                    // owner): the reply goes as its original text, unchanged,
-                    // under a new key, since the refused key is spent.
+                    // owner): retry its text and original attachments under
+                    // a new key, since the refused key is spent.
                     let head = &mut self.state.outbox[0];
                     let text = head.plain_text.take().unwrap_or_default();
-                    let fallback = super::reply_entry(
+                    let mut fallback = super::reply_entry(
                         head.conversation.clone(),
                         &format!("{key}:text"),
                         &text,
                     );
+                    // A card rejection must not discard originals that
+                    // already uploaded successfully alongside the card.
+                    if let (
+                        Op::MessageSend { parts, .. },
+                        Op::MessageSend {
+                            parts: fallback_parts,
+                            ..
+                        },
+                    ) = (&op, &mut fallback.op)
+                    {
+                        fallback_parts.extend(
+                            parts
+                                .iter()
+                                .filter(|part| {
+                                    matches!(part, cmux_conversation::Part::Attachment { .. })
+                                })
+                                .cloned(),
+                        );
+                    }
                     *head = fallback;
                     self.save();
                     (self.log)(&format!(

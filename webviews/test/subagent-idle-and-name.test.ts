@@ -34,7 +34,10 @@ test("a subagent met through its progress is named by its prompt before its id",
   feed(
     fold,
     2_000,
-    update({ sessionUpdate: "subagent_progress" }, { subagents: [{ id: "acp-1/toolu_b", parent: null, state: "running" }] }),
+    update(
+      { sessionUpdate: "subagent_progress" },
+      { subagents: [{ id: "acp-1/toolu_b", parent: null, state: "running" }] },
+    ),
   );
   expect(agent(fold, "acp-1/toolu_b").name).toBe("acp-1/toolu_b");
 });
@@ -46,20 +49,35 @@ test("a running subagent with an open call stays Running; quiet past the window 
   feed(
     fold,
     0,
-    update({ sessionUpdate: "subagent_spawned" }, { subagents: [{ id, parent: null, name: "Build", state: "running" }] }),
+    update(
+      { sessionUpdate: "subagent_spawned" },
+      { subagents: [{ id, parent: null, name: "Build", state: "running" }] },
+    ),
   );
   expect(subagentStatus(agent(fold, id), none, IDLE_AFTER_MS - 1)).toBe("running");
   expect(subagentStatus(agent(fold, id), none, IDLE_AFTER_MS)).toBe("idle");
   // Without the clock nothing is idle (every caller that does not ask).
   expect(subagentStatus(agent(fold, id), none)).toBe("running");
-  feed(fold, 1_000, update({ sessionUpdate: "tool_call", toolCallId: "t1", title: "make", status: "in_progress" }, sub));
+  feed(
+    fold,
+    1_000,
+    update({ sessionUpdate: "tool_call", toolCallId: "t1", title: "make", status: "in_progress" }, sub),
+  );
   expect(subagentStatus(agent(fold, id), none, 10 * IDLE_AFTER_MS)).toBe("running");
   feed(fold, 2_000, update({ sessionUpdate: "tool_call_update", toolCallId: "t1", status: "completed" }, sub));
   expect(subagentStatus(agent(fold, id), none, 2_000 + IDLE_AFTER_MS - 1)).toBe("running");
   expect(subagentStatus(agent(fold, id), none, 2_000 + IDLE_AFTER_MS)).toBe("idle");
   // A progress report that repeats its numbers is not work; new tokens are.
-  feed(fold, 3_000, update({ sessionUpdate: "subagent_progress" }, { subagents: [{ id, parent: null, state: "running", tokens: 5 }] }));
-  feed(fold, 9_000, update({ sessionUpdate: "subagent_progress" }, { subagents: [{ id, parent: null, state: "running", tokens: 5 }] }));
+  feed(
+    fold,
+    3_000,
+    update({ sessionUpdate: "subagent_progress" }, { subagents: [{ id, parent: null, state: "running", tokens: 5 }] }),
+  );
+  feed(
+    fold,
+    9_000,
+    update({ sessionUpdate: "subagent_progress" }, { subagents: [{ id, parent: null, state: "running", tokens: 5 }] }),
+  );
   expect(agent(fold, id).quietSince).toBe(3_000);
   expect(subagentStatus(agent(fold, id), new Set([id]), 10 * IDLE_AFTER_MS)).toBe("waiting");
 });
@@ -68,9 +86,24 @@ test("a call opened before the subagent's identity arrives keeps it Running", ()
   const fold = new SubagentFold();
   const id = "acp-1/toolu_d";
   // A paged log: its open build is read before the progress that names it.
-  feed(fold, 0, update({ sessionUpdate: "tool_call", toolCallId: "b1", title: "make", status: "in_progress" }, { subagent: id }));
-  feed(fold, 1_000, update({ sessionUpdate: "subagent_progress" }, { subagents: [{ id, parent: null, name: "Build", state: "running" }] }));
+  feed(
+    fold,
+    0,
+    update({ sessionUpdate: "tool_call", toolCallId: "b1", title: "make", status: "in_progress" }, { subagent: id }),
+  );
+  feed(
+    fold,
+    1_000,
+    update(
+      { sessionUpdate: "subagent_progress" },
+      { subagents: [{ id, parent: null, name: "Build", state: "running" }] },
+    ),
+  );
   expect(subagentStatus(agent(fold, id), none, 10 * IDLE_AFTER_MS)).toBe("running");
-  feed(fold, 2_000, update({ sessionUpdate: "tool_call_update", toolCallId: "b1", status: "completed" }, { subagent: id }));
+  feed(
+    fold,
+    2_000,
+    update({ sessionUpdate: "tool_call_update", toolCallId: "b1", status: "completed" }, { subagent: id }),
+  );
   expect(subagentStatus(agent(fold, id), none, 2_000 + IDLE_AFTER_MS)).toBe("idle");
 });
