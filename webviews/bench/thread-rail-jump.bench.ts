@@ -470,7 +470,10 @@ export async function measureFirstFrame(page: Page, url: string, turns: number, 
   }
   await page.waitForTimeout(300);
   const frames = await page.evaluate(() => {
-    const probe = window as unknown as { railFrames: { at: number; top: number; height: number; prompts: number }[]; railStop?: boolean };
+    const probe = window as unknown as {
+      railFrames: { at: number; top: number; height: number; prompts: number }[];
+      railStop?: boolean;
+    };
     probe.railStop = true;
     return probe.railFrames;
   });

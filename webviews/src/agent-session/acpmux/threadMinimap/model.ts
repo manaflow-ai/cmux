@@ -529,16 +529,14 @@ export function minimapTurns(
       ? prior!.earlierTurns!
       : [
           ...pendingTurns(sessionId, pending),
-          ...earlierRows.map(
-            (row): MinimapTurn => ({
-              index: -1,
-              id: row.id,
-              key: turnKey(sessionId, row),
-              prompt: (row.text ?? "").trim(),
-              ...withSender(row),
-              reply: [],
-            }),
-          ),
+          ...earlierRows.map((row): MinimapTurn => ({
+            index: -1,
+            id: row.id,
+            key: turnKey(sessionId, row),
+            prompt: (row.text ?? "").trim(),
+            ...withSender(row),
+            reply: [],
+          })),
         ];
     const turns = [...earlier, ...loadedTurns];
     return {
@@ -581,7 +579,14 @@ export function pendingTurns(sessionId: string, count: number): readonly Minimap
     pendingLists.set(sessionId, (list = []));
   }
   for (let at = list.length; at < count; at += 1)
-    list.push({ index: -1, id: `pending:${at}`, key: `${sessionId}#pending:${at}`, prompt: "", reply: [], pending: true });
+    list.push({
+      index: -1,
+      id: `pending:${at}`,
+      key: `${sessionId}#pending:${at}`,
+      prompt: "",
+      reply: [],
+      pending: true,
+    });
   return list.slice(0, count);
 }
 

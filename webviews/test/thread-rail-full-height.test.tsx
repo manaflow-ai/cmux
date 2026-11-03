@@ -305,7 +305,8 @@ for (const count of [45, 80])
         // The same box, list offset and prompt count as the final frame.
         expect({ ...each, ticks: undefined }).toEqual({ ...last, ticks: undefined });
         // Every prompt drawn on both frames sits on the same row.
-        for (const [prompt, y] of Object.entries(each.ticks)) if (prompt in last.ticks) expect([prompt, y]).toEqual([prompt, last.ticks[prompt]!]);
+        for (const [prompt, y] of Object.entries(each.ticks))
+          if (prompt in last.ticks) expect([prompt, y]).toEqual([prompt, last.ticks[prompt]!]);
       }
     } finally {
       await act(async () => root.unmount());
