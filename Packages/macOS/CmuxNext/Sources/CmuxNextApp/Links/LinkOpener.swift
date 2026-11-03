@@ -494,16 +494,17 @@ extension LinkOpener {
         var widths: [String: CGFloat] = [:], kinds: [String: Set<RightColumnPlacement.Kind>] = [:]
         for pane in panes {
             widths[pane.rawValue] = content.panes[pane].flatMap(width(of:))
-            kinds[pane.rawValue] = content.panes[pane].map { pane in Set([.terminal, .browser].filter { holds(pane, $0) }) }
+            kinds[pane.rawValue] = content.panes[pane].map { pane in Set([.terminal, .browser, .document].filter { holds(pane, $0) }) }
         }
         return .init(sourceWidth: width(of: source), panes: panes.map(\.rawValue), widths: widths, kinds: kinds)
     }
 
-    /// Whether `pane` holds a tab of `kind`: a local or remote terminal, or a browser tab.
+    /// Whether `pane` holds a tab of `kind`: a local or remote terminal, a browser tab, or a diff page.
     static func holds(_ pane: PaneController, _ kind: RightColumnPlacement.Kind) -> Bool {
         pane.pane.tabs.contains { tab in
             switch (kind, tab.kind) {
             case (.terminal, .pty), (.terminal, .remoteTerminal), (.browser, .browser): true
+            case (.document, _): tab.page == InternalPageID.diff.rawValue
             default: false
             }
         }
