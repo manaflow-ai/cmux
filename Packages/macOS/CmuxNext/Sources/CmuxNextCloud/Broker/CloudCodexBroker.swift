@@ -496,11 +496,15 @@ public actor CloudCodexBroker {
                 guard await self.currentScope() == expectedScope else { throw CloudCodexBrokerError.scopeChanged }
                 let refreshed = try await self.retryRenewal { try await self.refreshAccess(schedule: false) }
                 let targets = await self.targetList()
+                var undelivered: (any Error)?
                 for target in targets {
                     do { try await self.retryRenewal { try await self.deliver(refreshed, target: target) } }
                     catch CloudCodexBrokerError.scopeChanged { throw CloudCodexBrokerError.scopeChanged }
-                    catch { continue }
+                    catch { if Self.retriesLater(error) { undelivered = error } }
                 }
+                // A machine its VM API failed to reach keeps its old access, which expires before the
+                // refreshed grant's renewal: it takes the backoff instead (cmux#33387).
+                if let undelivered { throw undelivered }
                 await self.rescheduleRefresh(after: refreshed, cycle: cycle)
             } catch {
                 // cancellation, logout, or a stopped VM ends renewal; do not
