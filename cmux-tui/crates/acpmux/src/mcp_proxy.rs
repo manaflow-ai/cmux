@@ -12,6 +12,7 @@
 //! - When the person connects, removes or changes a server, the daemon's version moves and this
 //!   server sends `notifications/tools/list_changed`, so the agent's list changes in the same chat.
 
+use crate::no_panic::JsonField as _;
 use crate::rpc::method;
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
@@ -55,11 +56,11 @@ pub async fn run() -> Result<()> {
     while let Some(line) = lines.next_line().await? {
         let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
         let Some(id) = message.get("id").cloned() else { continue }; // a notification
-        let verb = message["method"].as_str().unwrap_or_default().to_owned();
+        let verb = message.field("method").as_str().unwrap_or_default().to_owned();
         match verb.as_str() {
             "initialize" => {
                 let reply = json!({
-                    "protocolVersion": crate::secret_mcp::protocol_version(&message["params"]),
+                    "protocolVersion": crate::secret_mcp::protocol_version(message.field("params")),
                     "capabilities": {"tools": {"listChanged": true}},
                     "serverInfo": {"name": SERVER_NAME, "version": env!("CARGO_PKG_VERSION")},
                     "instructions": INSTRUCTIONS,
@@ -87,7 +88,7 @@ pub async fn run() -> Result<()> {
             }
             "tools/call" => {
                 let (tx, session, params) =
-                    (tx.clone(), session.clone(), message["params"].clone());
+                    (tx.clone(), session.clone(), message.field("params").clone());
                 tokio::spawn(async move {
                     let result = call(&session, &params).await;
                     let _ = tx.send(response(&id, result)).await;
@@ -113,11 +114,11 @@ fn response(id: &Value, result: Value) -> Value {
 async fn list(session: &str) -> Result<(u64, Value)> {
     let daemon = crate::daemon::connect(false).await?;
     let r = daemon.request(method::MUX_MCP_TOOLS, json!({"sessionId": session})).await?;
-    Ok((r["version"].as_u64().unwrap_or(0), r["tools"].clone()))
+    Ok((r.field("version").as_u64().unwrap_or(0), r.field("tools").clone()))
 }
 
 async fn call(session: &str, params: &Value) -> Value {
-    let name = params["name"].as_str().unwrap_or_default();
+    let name = params.field("name").as_str().unwrap_or_default();
     let arguments = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
     let daemon = match crate::daemon::connect(false).await {
         Ok(d) => d,
@@ -156,7 +157,7 @@ async fn watch(
         match answer {
             Ok(r) => {
                 retry = RETRY_FIRST;
-                let version = r["version"].as_u64().unwrap_or(known);
+                let version = r.field("version").as_u64().unwrap_or(known);
                 if version != known && listed.load(Ordering::SeqCst) {
                     // The agent lists again and stores the new version; until then, wait on it.
                     seen.store(version, Ordering::SeqCst);

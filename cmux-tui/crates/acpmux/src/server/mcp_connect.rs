@@ -65,7 +65,10 @@ async fn connections(
     params: &Value,
 ) -> Result<Value, RpcError> {
     match m {
-        method::MUX_MCP_TOOLS => Ok(hub.mcp_tools(&caller_session(hub, conn, params)?)),
+        method::MUX_MCP_TOOLS => {
+            let session = caller_session(hub, conn, params)?;
+            Ok(hub.mcp_tools(&session))
+        }
         method::MUX_MCP_CALL => {
             let session = caller_session(hub, conn, params)?;
             let name = str_param(params, "name")
@@ -86,7 +89,10 @@ async fn connections(
         {
             Ok(hub.mcp_connections_all())
         }
-        method::MUX_MCP_CONNECTIONS => Ok(hub.mcp_list_for(&caller_session(hub, conn, params)?)),
+        method::MUX_MCP_CONNECTIONS => {
+            let session = caller_session(hub, conn, params)?;
+            Ok(hub.mcp_list_for(&session))
+        }
         _ => {
             // Settings and cards: the person's only.
             if !conn.is_person() {
