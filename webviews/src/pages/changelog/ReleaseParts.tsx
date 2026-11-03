@@ -270,9 +270,9 @@ function Group({ category, items, ctx }: { category: WhatsNewCategory; items: Re
         )}
       </ul>
       {!all && items.length > GROUP_PAGE && (
-        <button type="button" className="cl-more" onClick={() => setAll(true)}>
+        <Button size="sm" variant="ghost" className="cl-more" onClick={() => setAll(true)}>
           {ctx.strings.t("changelog.page.showMore")}
-        </button>
+        </Button>
       )}
     </section>
   );
@@ -339,9 +339,9 @@ export function ChangesFold({
         );
       })}
       {shown < changes.length && (
-        <button type="button" className="cl-more" onClick={() => setShown((n) => n + CHANGES_PAGE * 2)}>
+        <Button size="sm" variant="ghost" className="cl-more" onClick={() => setShown((n) => n + CHANGES_PAGE * 2)}>
           {strings.t("changelog.page.showMore")}
-        </button>
+        </Button>
       )}
       {hidden.length > 0 && (
         <details className="cl-hood">
