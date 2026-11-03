@@ -494,9 +494,10 @@ impl Brain {
                 } else {
                     "the request is no longer answerable here; its denial could not be confirmed"
                 };
-                self.tell_person_once(&p.permission_id, &format!(
-                    "{id}'s approval expired because it was not answered; {outcome}."
-                ));
+                self.tell_person_once(
+                    &p.permission_id,
+                    &format!("{id}'s approval expired because it was not answered; {outcome}."),
+                );
             }
             if let Some(id) = self.state.sub_by_session(&p.session_id)
                 && let Some(sub) = self.state.sub_mut(&id)

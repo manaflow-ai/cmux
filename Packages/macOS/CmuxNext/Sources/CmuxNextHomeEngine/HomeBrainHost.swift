@@ -136,7 +136,7 @@ public nonisolated struct HomeBrainHost: Sendable {
         if usesAppAcpmux { variables["OPTCHAT_ACPMUX_SUPERVISED"] = "1" }
         // No CMUX_MCP_COMMAND: acpmux gives every agent chat, the Chief's
         // turns included, its own `cmux mcp serve` (one server per turn).
-        for key in ["USER", "TMPDIR", "MUX_HARNESS", "CMUX_NEXT_CONFIG_FILE"] {
+        for key in ["USER", "TMPDIR", "MUX_HARNESS"] {
             if let value = ProcessInfo.processInfo.environment[key] { variables[key] = value }
         }
         return variables

@@ -918,7 +918,9 @@ impl Brain {
         let Some((_, sub)) = self.state.sub(id) else {
             return;
         };
-        if Self::approval_workspace_shown(sub) || sub.policy.as_deref() == Some(crate::approval::ASK) {
+        if Self::approval_workspace_shown(sub)
+            || sub.policy.as_deref() == Some(crate::approval::ASK)
+        {
             return;
         }
         let (Some(session_id), Some(p)) = (sub.session_id.clone(), sub.permission.clone()) else {
