@@ -13,7 +13,7 @@ struct AgentPaneTabRowSoloTests {
 
     @Test func aRowNeverOfferedSendsNoSoloFlag() {
         let row = AgentPaneTabRow()
-        row.soloTab = true
+        row.tabsShown = false // the pane hid its lone tab (#33132)
         #expect(row.event.value["soloTab"]?.boolValue == false, "a solo flag went out with no row offered")
     }
 }

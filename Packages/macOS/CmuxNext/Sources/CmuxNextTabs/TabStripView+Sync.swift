@@ -30,7 +30,7 @@ extension TabStripView {
     }
 
     /// One tab or more: the pane lays out again, since a one-tab pane's row is no band over its chat
-    /// (`TabStripModel.holdsOneTab`, the pane's `PaneTabRowSharing.offerTabRow(soloTab:)`). Also on a
+    /// (`TabStripModel.holdsOneTab`, the pane's `PaneTabRowSharing.offerTabRow(tabs:)`, #33132). Also on a
     /// strip shown again after its tabs changed out of sight (`syncShown`).
     func layOutPaneIfOneTabChanged() {
         guard model.holdsOneTab != laidOutOneTab else { return }

@@ -18,12 +18,17 @@ public protocol PaneTabRowSharing: AnyObject {
     /// The row the view may draw its tools in: the top `height` points (0: it does not share the
     /// row now), less `trailingInset` points at the trailing end, where the pane's own toolbar is.
     func setTabRow(height: CGFloat, trailingInset: CGFloat)
-    /// Whether the row the view shares is a one-tab pane's (`TabStripModel.holdsOneTab`): the row has no band
-    /// of its own, so the view may draw under all of it. Set before ``setTabRow(height:trailingInset:)``.
-    func setTabRowSolo(_ solo: Bool)
+    /// Whether the pane draws its tabs at the row's leading end; false while a lone tab hides, so the
+    /// view shows through all of the row but its tools and the pane's toolbar. Called before ``setTabRow(height:trailingInset:)``.
+    func setTabRowTabs(shown: Bool)
+    /// The view takes the whole row when its pane holds one tab, and the pane hides that tab (a chat; Leo 2026-11-03).
+    var tabRowTakesLoneTab: Bool { get }
 }
 
 extension PaneTabRowSharing {
+    public func setTabRowTabs(shown: Bool) {}
+    public var tabRowTakesLoneTab: Bool { false }
+
     /// Points the strip gives up beside the view's tools in a row `room` wide (at most half of it).
     public func tabRowWidth(room: CGFloat) -> CGFloat { min(max(0, tabRowToolsWidth ?? 0), max(0, room / 2)) }
 
@@ -32,18 +37,14 @@ extension PaneTabRowSharing {
     /// the leading tools. Tools that never reported are offered the row once, to learn their width.
     public func fitsTabRow(room: CGFloat) -> Bool { (tabRowToolsNeed ?? 0) <= max(0, room / 2) }
 
-    /// No solo row by default: a view that draws nothing under the row has nothing to change.
-    public func setTabRowSolo(_ solo: Bool) {}
-
-    /// Offers the view the row (`height` 0: none), a one-tab pane's when `soloTab`; a change in its
-    /// tools' width lays `pane` out again while the view is still in it (a view another pane took gets
-    /// its row from that pane).
-    public func offerTabRow(height: CGFloat, trailingInset: CGFloat, soloTab: Bool = false, in pane: NSView) {
+    /// Offers the view the row (`height` 0: none); a change in its tools' width lays `pane` out
+    /// again while the view is still in it (a view another pane took gets its row from that pane).
+    public func offerTabRow(height: CGFloat, trailingInset: CGFloat, tabs: Bool = true, in pane: NSView) {
         onTabRowToolsChange = { [weak self, weak pane] in
             guard let pane, let view = self as? NSView, view.isDescendant(of: pane) else { return }
             pane.needsLayout = true
         }
-        setTabRowSolo(height > 0 && soloTab)
+        setTabRowTabs(shown: tabs || height <= 0)
         setTabRow(height: height, trailingInset: height > 0 ? trailingInset : 0)
     }
 }
@@ -64,7 +65,8 @@ extension PaneTabRowForwarding {
         set { tabRowSharer?.onTabRowToolsChange = newValue }
     }
     public func setTabRow(height: CGFloat, trailingInset: CGFloat) { tabRowSharer?.setTabRow(height: height, trailingInset: trailingInset) }
-    public func setTabRowSolo(_ solo: Bool) { tabRowSharer?.setTabRowSolo(solo) }
+    public func setTabRowTabs(shown: Bool) { tabRowSharer?.setTabRowTabs(shown: shown) }
+    public var tabRowTakesLoneTab: Bool { tabRowSharer?.tabRowTakesLoneTab ?? false }
 }
 
 extension NSView {
