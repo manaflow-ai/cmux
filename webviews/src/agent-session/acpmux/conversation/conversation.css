@@ -4528,6 +4528,7 @@ a.cv-sha:focus-visible {
   margin-top: calc((18px - var(--grid-icon-box)) / 2);
 }
 .cv-turn-error__actions {
+  --cv-fold-duration: var(--cmux-motion-micro);
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -4567,7 +4568,7 @@ a.cv-sha:focus-visible {
   opacity: 0.6;
 }
 /* A Cloud chat's sign-in on its machine (CloudSignIn.tsx): a step takes its own line in the card's
-   actions, with no animation on open; only its controls highlight. */
+   actions. Controls change immediately; the action row resizes over the shared micro duration. */
 .cv-turn-signin {
   display: flex;
   flex-direction: column;
