@@ -1,13 +1,13 @@
 #!/bin/sh
 # Builds the Chief web page (webviews/src/chief-web): the signed-in, mobile-first Chief conversation. The platform
 # (manaflow-ai/cmux-platform) serves index.html at /c/<handle> and every other file of the
-# output under /c/ (assets/, locales/). The output is build output, not committed.
+# output under /c/assets/. The output is build output, not committed.
 #
 #   scripts/cmux-next/build-chief-web.sh              # into webviews/dist/chief-web
 #   scripts/cmux-next/build-chief-web.sh --out DIR    # into DIR
 #
-# The page loads English plus the browser's language before its module (locales/en.js and
-# locales/loader.js, same-origin files; no inline script, so the room can serve it with
+# The page loads English plus the browser's language before its module (assets/locales/en.js and
+# assets/locales/loader.js, same-origin files; no inline script, so the room can serve it with
 # `script-src 'self'`), never the whole string table.
 set -eu
 
@@ -34,11 +34,11 @@ bun scripts/pages/gen-strings.mjs agentPane
 CMUX_CHIEF_WEB_OUT_DIR="$OUT" CMUX_CHIEF_WEB_BASE="$BASE" bun --bun ./node_modules/.bin/vp build --config vite.config.chief-web.mjs
 
 # The strings, one file per language, and the loader that picks one; their URLs under BASE.
-LOADER="$(bun scripts/pages/split-strings.mjs src/agent-session/acpmux/generated/strings.json "$OUT/locales" __cmuxPaneStrings --loader-file)"
-LOADER="$(printf '%s' "$LOADER" | sed "s#src=\"locales/#src=\"${BASE}locales/#g")"
-sed -i.bak "s#'locales/#'${BASE}locales/#; s#\"locales/#\"${BASE}locales/#" "$OUT/locales/loader.js" && rm -f "$OUT/locales/loader.js.bak"
-grep -q "${BASE}locales/" "$OUT/locales/loader.js" || { echo "error: the strings loader does not name ${BASE}locales/" >&2; exit 1; }
+LOADER="$(bun scripts/pages/split-strings.mjs src/agent-session/acpmux/generated/strings.json "$OUT/assets/locales" __cmuxPaneStrings --loader-file)"
+LOADER="$(printf '%s' "$LOADER" | sed "s#src=\"locales/#src=\"${BASE}assets/locales/#g")"
+sed -i.bak "s#'locales/#'${BASE}assets/locales/#; s#\"locales/#\"${BASE}assets/locales/#" "$OUT/assets/locales/loader.js" && rm -f "$OUT/assets/locales/loader.js.bak"
+grep -q "${BASE}assets/locales/" "$OUT/assets/locales/loader.js" || { echo "error: the strings loader does not name ${BASE}assets/locales/" >&2; exit 1; }
 # Before the module script, so the strings are in when the page runs.
 LOADER="$LOADER" perl -0pi -e 's#(<script type="module")#$ENV{LOADER}\n    $1#' "$OUT/index.html"
-grep -q "${BASE}locales/en.js" "$OUT/index.html" || { echo "error: index.html does not load the strings" >&2; exit 1; }
-echo "wrote $OUT (index.html, assets/, locales/), served under $BASE"
+grep -q "${BASE}assets/locales/en.js" "$OUT/index.html" || { echo "error: index.html does not load the strings" >&2; exit 1; }
+echo "wrote $OUT (index.html, assets/), served under $BASE"

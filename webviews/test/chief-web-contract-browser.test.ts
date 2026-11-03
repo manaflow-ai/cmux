@@ -3,6 +3,7 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page, type WebSocketRoute } from "playwright";
+import type { ViteDevServer } from "vite";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -22,33 +23,74 @@ await requireBrowserLane("chief-web-contract-browser.test.ts", async () => {
     messageResults?: { status: number; ok?: boolean }[];
   };
   setDefaultTimeout(240_000);
-  const { createServer } = await import("vite");
-  let vite: Awaited<ReturnType<typeof createServer>>;
+  let vite: ViteDevServer | undefined;
+  let bundleServer: ReturnType<typeof Bun.serve> | undefined;
   let browser: Browser;
   let origin: string;
   beforeAll(async () => {
-    vite = await createServer({
-      configFile: path.resolve(import.meta.dir, "../vite.config.chief-web.mjs"),
-      server: { port: 0, host: "127.0.0.1", strictPort: false },
-      logLevel: "error",
-    });
-    await vite.listen();
-    await warmViteServer(vite, "/c/alex");
-    origin = `http://127.0.0.1:${(vite.httpServer!.address() as { port: number }).port}`;
+    const bundle = process.env.CMUX_CHIEF_WEB_BUNDLE;
+    if (bundle) {
+      const directory = path.resolve(bundle);
+      bundleServer = Bun.serve({
+        hostname: "127.0.0.1",
+        port: 0,
+        async fetch(request) {
+          let pathname: string;
+          try {
+            pathname = decodeURIComponent(new URL(request.url).pathname);
+          } catch {
+            return new Response("Not found", { status: 404 });
+          }
+          // Match the platform's asset-only route, including its file extension allowlist.
+          const relative =
+            pathname === "/c/alex"
+              ? "index.html"
+              : pathname.startsWith("/c/assets/") && /\.(?:js|css|svg|png|woff|woff2)$/.test(pathname)
+                ? pathname.slice("/c/".length)
+                : undefined;
+          if (!relative) return new Response("Not found", { status: 404 });
+          const resolved = path.resolve(directory, relative);
+          if (
+            resolved !== path.join(directory, "index.html") &&
+            !resolved.startsWith(path.join(directory, "assets") + path.sep)
+          )
+            return new Response("Not found", { status: 404 });
+          const file = Bun.file(resolved);
+          return (await file.exists()) ? new Response(file) : new Response("Not found", { status: 404 });
+        },
+      });
+      origin = `http://127.0.0.1:${bundleServer.port}`;
+    } else {
+      const { createServer } = await import("vite");
+      vite = await createServer({
+        configFile: path.resolve(import.meta.dir, "../vite.config.chief-web.mjs"),
+        server: { port: 0, host: "127.0.0.1", strictPort: false },
+        logLevel: "error",
+      });
+      await vite.listen();
+      await warmViteServer(vite, "/c/alex");
+      origin = `http://127.0.0.1:${(vite.httpServer!.address() as { port: number }).port}`;
+    }
     browser = await chromium.launch({ headless: true });
   });
   afterAll(async () => {
     await browser?.close();
     await vite?.close();
+    await bundleServer?.stop(true);
   });
 
-  async function open(fixture: Fixture = {}) {
-    const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
+  async function open(fixture: Fixture = {}, locale = "en-US") {
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, locale });
     const messages: { body: MessageBody; at: number }[] = [];
     const tickets: { method: string; body: string | null }[] = [];
     const errors: string[] = [];
     let socket: WebSocketRoute | undefined;
     page.on("pageerror", (error) => errors.push(error.message));
+    page.on("response", (response) => {
+      const url = new URL(response.url());
+      if (url.origin === origin && url.pathname.startsWith("/c/") && response.status() >= 400)
+        errors.push(`${response.status()} ${url.pathname}`);
+    });
     await page.routeWebSocket("**/v1/chief/wire", (wire) => {
       socket = wire;
       wire.onMessage((raw) => {
@@ -195,6 +237,18 @@ await requireBrowserLane("chief-web-contract-browser.test.ts", async () => {
       expect(fixture.messages).toHaveLength(2);
       expect(fixture.messages[1]!.body).toEqual(fixture.messages[0]!.body);
       expect(fixture.messages[1]!.at - fixture.messages[0]!.at).toBeGreaterThanOrEqual(900);
+      expect(fixture.errors).toEqual([]);
+    } finally {
+      await fixture.page.close();
+    }
+  });
+
+  test("Japanese browser locale loads translated sign-in labels", async () => {
+    const fixture = await open({ meStatus: 401 }, "ja-JP");
+    try {
+      await fixture.page.getByRole("button", { name: "もう一度サインイン" }).waitFor();
+      await fixture.page.getByText("サインアウト中", { exact: true }).waitFor();
+      expect(await fixture.page.locator("html").getAttribute("lang")).toBe("ja");
       expect(fixture.errors).toEqual([]);
     } finally {
       await fixture.page.close();
