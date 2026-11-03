@@ -2230,7 +2230,7 @@ fn chief_tools_open_in_the_workspace_of_the_task() {
         described(Server::new(chief(), None), "open"),
     ] {
         assert!(
-            text.contains("You are Chief") && text.contains("opens in that workspace"),
+            text.starts_with("\"You are Chief") && text.contains("opens in that workspace"),
             "{text}"
         );
     }
@@ -2312,6 +2312,9 @@ fn an_untargeted_diff_names_the_chat_folder() {
     assert!(
         open_tool::untargeted("browser open-diff-viewer", number.as_object().unwrap()).is_none()
     );
+    // A key longer than `open` takes (an action takes up to 200 characters) keeps the action.
+    let long = json!({"path": "/work/a.txt", "idempotency_key": "k".repeat(150)});
+    assert!(open_tool::untargeted("file open", long.as_object().unwrap()).is_none());
 }
 
 /// A history read answers the scrollback as lines of plain text, unstyled, where the
