@@ -203,14 +203,14 @@ pub fn send(request: &SendRequest, runner: &dyn CommandRunner) -> Result<(), Sen
 /// The AppleScript error code osascript ends its diagnostic with (`... (-1743)`), so a code
 /// quoted earlier in the message (inside a chat id, say) never decides the mapping.
 fn terminal_error_code(detail: &str) -> Option<&str> {
-    let inner = detail.trim_end().strip_suffix(')')?;
+    let trimmed = detail.trim_end();
+    let inner = trimmed.strip_suffix(')')?;
     let open = inner.rfind('(')?;
-    let code = &inner[open..];
-    let digits = code.strip_prefix("(-")?;
+    let digits = inner.get(open..)?.strip_prefix("(-")?;
     if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
-    Some(&detail.trim_end()[open..=inner.len()])
+    trimmed.get(open..=inner.len())
 }
 
 /// `service;-;handle` (1:1) or `service;+;room` (group), with no control characters, and not
