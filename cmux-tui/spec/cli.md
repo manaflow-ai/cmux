@@ -237,8 +237,11 @@ bound it fails with `server.stop_restoring` (exit 3, retryable; `details`:
 longer wait, also named in the message) and leaves the owner running. Other
 lifecycle commands fail fast while `lifecycle_ready` is `false` and can be
 retried after the owner is ready. `server ensure` waits for a restoring
-owner (up to 2 minutes, then `server.restore_timeout`) instead of starting
-another. An owner at its connection limit refuses each new connection with a
+owner instead of starting another: while the owner's startup long jobs
+(`long-jobs.json` in the session state directory) report progress, and for
+2 minutes after the last change; then it fails with `server.restore_timeout`.
+An owner that reports no jobs gets 2 minutes. `--restore-progress` lines carry
+the owner's `jobs`. An owner at its connection limit refuses each new connection with a
 `type: "refused"`, `code: "server.busy"` line; `server ensure` waits for
 capacity instead of starting another owner and fails with `server.busy` after
 10 seconds of continuous refusals. `server ensure --replace-unresponsive` replaces an

@@ -333,6 +333,10 @@ pub(crate) fn note_full_start(db_path: &Path) -> anyhow::Result<()> {
 pub(crate) fn remove_previous_registry_when_started(db_path: &Path) {
     let previous = previous_path(db_path);
     if !previous.exists() {
+        // Earlier builds removed the backup and left its sidecars. Without
+        // their main file nothing opens them, and a WAL beside a later backup
+        // of the same name must never be applied to it.
+        remove_orphaned_backup_sidecars(&previous);
         return;
     }
     if !is_swapped_registry(db_path) {
@@ -376,6 +380,22 @@ pub(crate) fn remove_previous_registry_when_started(db_path: &Path) {
                 ),
             }
         });
+}
+
+fn remove_orphaned_backup_sidecars(previous: &Path) {
+    for suffix in ["-wal", "-shm", "-journal"] {
+        let sidecar = sidecar_path(previous, suffix);
+        if !sidecar.exists() {
+            continue;
+        }
+        match remove_if_present(&sidecar) {
+            Ok(()) => eprintln!(
+                "cmux-tui: output cleanup: removed {} left without its backup",
+                sidecar.display()
+            ),
+            Err(error) => eprintln!("cmux-tui: output cleanup: {error:#}"),
+        }
+    }
 }
 
 /// Removes the previous registry, then the sidecars SQLite left beside it
@@ -1072,6 +1092,9 @@ fn verify(
     built: &Built,
     steps: &mut Steps,
 ) -> anyhow::Result<()> {
+    // One SQLite step, so the job does not beat during it. It stays whole:
+    // a per-table check skips the free-list and page accounting, and the new
+    // file holds no output, so it is a small fraction of the old one.
     let integrity: String = staged.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
     steps.mark("integrity check");
     anyhow::ensure!(integrity == "ok", "the new registry failed integrity_check: {integrity}");

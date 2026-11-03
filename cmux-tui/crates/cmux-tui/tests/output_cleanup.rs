@@ -679,9 +679,9 @@ fn stored_output_is_removed_and_the_registry_swapped_at_the_next_start() {
     // The start after a full start on the new registry removes the old file.
     // The swap start's read-only checks of the backup leave SQLite sidecars
     // beside it; they go with it.
-    eprintln!(
-        "backup sidecars before the next start: {:?}",
-        ["-wal", "-shm"].map(|suffix| sidecar(&previous, suffix).exists())
+    assert!(
+        ["-wal", "-shm"].iter().any(|suffix| sidecar(&previous, suffix).exists()),
+        "the backup has no sidecar to remove: this test no longer covers them"
     );
     let owner = Owner::start(&dir.0, session, "after-swap", &[]);
     owner.wait_for_log("output cleanup: removed the previous registry");
@@ -689,6 +689,17 @@ fn stored_output_is_removed_and_the_registry_swapped_at_the_next_start() {
     for suffix in ["-wal", "-shm", "-journal"] {
         let path = sidecar(&previous, suffix);
         assert!(!path.exists(), "{} stayed beside the removed backup", path.display());
+    }
+    owner.stop();
+
+    // Sidecars an older build left without their backup go at the next open.
+    for suffix in ["-wal", "-shm"] {
+        fs::write(sidecar(&previous, suffix), b"left by an older build").unwrap();
+    }
+    let owner = Owner::start(&dir.0, session, "orphaned-sidecars", &[]);
+    for suffix in ["-wal", "-shm"] {
+        let path = sidecar(&previous, suffix);
+        assert!(!path.exists(), "{} stayed without its backup", path.display());
     }
     let (_, reason) = read_journal(&owner.socket());
     assert_eq!(reason, "completed");

@@ -35,6 +35,11 @@ impl<'c> OpenProgress<'c> {
         Self { _beat: job.beat_during_sqlite(connection), job }
     }
 
+    /// The open is alive (between chunks SQLite runs in one step).
+    pub(super) fn beat(&self) {
+        self.job.heartbeat();
+    }
+
     /// Ends the step `step` in `timings` and in the job.
     pub(super) fn lap(&self, timings: &mut StartupTimings, step: &'static str) {
         timings.lap(step);

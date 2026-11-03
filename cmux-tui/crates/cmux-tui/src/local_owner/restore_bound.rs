@@ -40,6 +40,9 @@ pub(crate) struct RestoreBound {
     floor: Instant,
     last_change: Cell<Option<Instant>>,
     mark: RefCell<Vec<(String, u64)>>,
+    /// The owner's pid once a probe or the spawn named it: a status file of
+    /// another process is not this owner's.
+    owner: Cell<Option<u64>>,
 }
 
 impl RestoreBound {
@@ -49,18 +52,41 @@ impl RestoreBound {
             .clone()
             .or_else(platform::workspace_state_dir)
             .map(|root| cmux_tui_core::long_jobs::session_dir(&root, &spec.session));
+        Self::with_floor(status_dir, deadline.max(Instant::now() + restore_stall()))
+    }
+
+    fn with_floor(status_dir: Option<PathBuf>, floor: Instant) -> Self {
         Self {
             status_dir,
-            floor: deadline.max(Instant::now() + restore_stall()),
+            floor,
             last_change: Cell::new(None),
             mark: RefCell::new(Vec::new()),
+            owner: Cell::new(None),
         }
     }
 
-    /// The owner's status file, when a live process wrote it.
+    /// A fixed bound at `deadline` with no status file (tests of the probe
+    /// loops' other bounds).
+    #[cfg(test)]
+    pub(crate) fn fixed(deadline: Instant) -> Self {
+        Self::with_floor(None, deadline)
+    }
+
+    /// The owner the wait is on, when a probe or the spawn knows its pid.
+    pub(crate) fn note_owner(&self, pid: Option<u64>) {
+        if pid.is_some() {
+            self.owner.set(pid);
+        }
+    }
+
+    /// The owner's status file, when a live process wrote it and that
+    /// process is the owner when its pid is known.
     fn status(&self) -> Option<JobsStatus> {
         let status = JobsStatus::read(self.status_dir.as_deref()?)?;
-        process_alive(status.pid).then_some(status)
+        if self.owner.get().is_some_and(|owner| owner != status.pid) {
+            return None;
+        }
+        status.writer_alive().then_some(status)
     }
 
     /// The deadline now: the status file is read, and a change of its
@@ -87,22 +113,4 @@ impl RestoreBound {
     pub(crate) fn jobs(&self) -> Vec<Value> {
         self.status().map(|status| status.jobs).unwrap_or_default()
     }
-}
-
-#[cfg(unix)]
-fn process_alive(pid: u64) -> bool {
-    let Ok(pid) = libc::pid_t::try_from(pid) else { return false };
-    if pid <= 0 {
-        return false;
-    }
-    // SAFETY: signal 0 only checks that the process exists.
-    let result = unsafe { libc::kill(pid, 0) };
-    result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
-}
-
-/// No cheap check off Unix: the file's writer removes it when its jobs end,
-/// and the owner's install removes a stale one.
-#[cfg(not(unix))]
-fn process_alive(_pid: u64) -> bool {
-    true
 }

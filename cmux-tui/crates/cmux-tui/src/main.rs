@@ -2731,6 +2731,9 @@ fn run_server(
     let reachable = (args.headless && reached_only_by_socket)
         .then(|| headless::lost_paths::Reachable::for_owner(&mux, &socket_path))
         .flatten();
+    // The owner serves: clients read its jobs on the socket from now on
+    // (`jobs-list`, `jobs-changed`), so the status file goes.
+    cmux_tui_core::long_jobs::LongJobs::stop_status_file();
     let result = if args.headless {
         mux.mark_server_lifecycle_ready();
         mux.wedge_registry_if_asked();

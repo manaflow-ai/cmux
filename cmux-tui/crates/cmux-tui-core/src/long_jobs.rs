@@ -92,7 +92,11 @@ struct JobState {
 impl JobState {
     fn touch(&self) {
         self.updated_ms.store(unix_ms().max(self.started_ms), Ordering::Release);
-        registry().mark_dirty();
+        // A job too young to show changes nothing published: the publisher
+        // wakes for it at its visibility time.
+        if self.started.elapsed() >= visible_after() {
+            registry().mark_dirty();
+        }
     }
 
     fn snapshot(&self) -> LongJob {
@@ -126,7 +130,14 @@ struct Sinks {
 struct Registry {
     jobs: Mutex<Vec<Arc<JobState>>>,
     next_id: AtomicU64,
+    /// A published value may have changed since the last publish.
     dirty: AtomicBool,
+    /// The publisher waits for a change with nothing scheduled: only then
+    /// does a change notify it. While a publish is deferred (rate limits)
+    /// it sleeps until the due time and reads every change then.
+    idle: AtomicBool,
+    /// The earliest moment a young job becomes visible.
+    wake_at: Mutex<Option<Instant>>,
     wake: Mutex<()>,
     changed: Condvar,
     sinks: Mutex<Sinks>,
@@ -139,6 +150,8 @@ fn registry() -> &'static Registry {
         jobs: Mutex::new(Vec::new()),
         next_id: AtomicU64::new(1),
         dirty: AtomicBool::new(false),
+        idle: AtomicBool::new(false),
+        wake_at: Mutex::new(None),
         wake: Mutex::new(()),
         changed: Condvar::new(),
         sinks: Mutex::new(Sinks::default()),
@@ -147,14 +160,36 @@ fn registry() -> &'static Registry {
 }
 
 impl Registry {
+    /// Notes a change. A heartbeat is one atomic swap: the publisher is
+    /// woken only for the first change after it went idle.
     fn mark_dirty(&self) {
-        if !self.dirty.swap(true, Ordering::AcqRel) {
-            // Taken so a publisher between its check and its wait gets the
-            // notification.
-            drop(self.wake.lock().unwrap_or_else(PoisonError::into_inner));
-            self.changed.notify_one();
+        if !self.dirty.swap(true, Ordering::SeqCst) && self.idle.load(Ordering::SeqCst) {
+            self.notify();
         }
         self.start_publisher();
+    }
+
+    /// Asks the publisher to look again at `at` (a young job's visibility).
+    fn wake_at(&self, at: Instant) {
+        {
+            let mut wake_at = self.wake_at.lock().unwrap_or_else(PoisonError::into_inner);
+            if wake_at.is_some_and(|earlier| earlier <= at) {
+                return;
+            }
+            *wake_at = Some(at);
+        }
+        // An idle publisher waits without a timer: it has to take this one.
+        if self.idle.load(Ordering::SeqCst) {
+            self.notify();
+        }
+        self.start_publisher();
+    }
+
+    fn notify(&self) {
+        // Taken so a publisher between its check and its wait gets the
+        // notification.
+        drop(self.wake.lock().unwrap_or_else(PoisonError::into_inner));
+        self.changed.notify_one();
     }
 
     fn start_publisher(&self) {
@@ -229,7 +264,9 @@ impl LongJobs {
             detail: Mutex::new(None),
         });
         registry.jobs.lock().unwrap_or_else(PoisonError::into_inner).push(state.clone());
-        registry.mark_dirty();
+        // Published once it has run `visible_after`, not now: most jobs end
+        // before that.
+        registry.wake_at(state.started + visible_after());
         LongJobGuard { state }
     }
 
@@ -262,6 +299,14 @@ impl LongJobs {
         let _ = std::fs::remove_file(session_dir.join(STATUS_FILE));
         registry.sinks.lock().unwrap_or_else(PoisonError::into_inner).status_dir =
             Some(session_dir.to_path_buf());
+        registry.mark_dirty();
+    }
+
+    /// Stops the status file and removes it: the owner serves now, and
+    /// clients read the jobs on the socket (`jobs-list`, `jobs-changed`).
+    pub fn stop_status_file() {
+        let registry = registry();
+        registry.sinks.lock().unwrap_or_else(PoisonError::into_inner).status_dir = None;
         registry.mark_dirty();
     }
 }
@@ -343,7 +388,10 @@ impl LongJobGuard {
     /// Beats this job from SQLite while a statement on `connection` runs
     /// (every `steps` virtual machine steps), so one long statement does not
     /// read as a stalled job. The handler is cleared when the returned scope
-    /// drops; it replaces any handler the connection had.
+    /// drops; it replaces any handler the connection had. SQLite runs
+    /// `PRAGMA integrity_check` and `quick_check` in one step, so they
+    /// never beat: chunk them (one table per statement) and beat
+    /// between the chunks.
     pub fn beat_during_sqlite<'c>(
         &self,
         connection: &'c rusqlite::Connection,
@@ -401,7 +449,9 @@ impl Drop for LongJobGuard {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .retain(|job| !Arc::ptr_eq(job, &self.state));
-        registry.mark_dirty();
+        if self.state.started.elapsed() >= visible_after() {
+            registry.mark_dirty();
+        }
     }
 }
 
@@ -430,17 +480,33 @@ fn publish_loop() {
     let mut events = Published::default();
     let mut file = Published { at: None, jobs: Some(Vec::new()) };
     let mut file_dir: Option<PathBuf> = None;
-    let mut next_wake: Option<Instant> = None;
+    // A publish the rate limits put off: the publisher sleeps until then and
+    // ignores changes, which that publish reads.
+    let mut deferred: Option<Instant> = None;
     loop {
         {
             let mut wake = registry.wake.lock().unwrap_or_else(PoisonError::into_inner);
-            while !registry.dirty.load(Ordering::Acquire) {
-                match next_wake {
+            loop {
+                let now = Instant::now();
+                if let Some(due) = deferred {
+                    if now >= due {
+                        break;
+                    }
+                    wake = registry
+                        .changed
+                        .wait_timeout(wake, due - now)
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .0;
+                    continue;
+                }
+                registry.idle.store(true, Ordering::SeqCst);
+                if registry.dirty.load(Ordering::SeqCst) {
+                    break;
+                }
+                let wake_at = *registry.wake_at.lock().unwrap_or_else(PoisonError::into_inner);
+                match wake_at {
+                    Some(at) if now >= at => break,
                     Some(at) => {
-                        let now = Instant::now();
-                        if now >= at {
-                            break;
-                        }
                         wake = registry
                             .changed
                             .wait_timeout(wake, at - now)
@@ -452,10 +518,22 @@ fn publish_loop() {
                     }
                 }
             }
+            registry.idle.store(false, Ordering::SeqCst);
         }
-        registry.dirty.store(false, Ordering::Release);
+        registry.dirty.store(false, Ordering::SeqCst);
+        deferred = None;
         let now = Instant::now();
+        {
+            let mut wake_at = registry.wake_at.lock().unwrap_or_else(PoisonError::into_inner);
+            if wake_at.is_some_and(|at| at <= now) {
+                *wake_at = None;
+            }
+        }
         let (jobs, shows_next) = registry.visible(now);
+        if let Some(at) = shows_next {
+            let mut wake_at = registry.wake_at.lock().unwrap_or_else(PoisonError::into_inner);
+            *wake_at = Some(wake_at.map_or(at, |earlier| earlier.min(at)));
+        }
         let (listeners, status_dir) = {
             let sinks = registry.sinks.lock().unwrap_or_else(PoisonError::into_inner);
             (
@@ -464,13 +542,16 @@ fn publish_loop() {
             )
         };
         if status_dir != file_dir {
-            // A new status directory starts without a file.
+            // The file of a directory this process no longer publishes to
+            // goes; a new one starts without a file.
+            if let Some(old) = file_dir.as_deref() {
+                let _ = write_status_file(old, &[]);
+            }
             file = Published { at: None, jobs: Some(Vec::new()) };
             file_dir = status_dir;
         }
-        next_wake = shows_next;
         let mut later = |due: Instant| {
-            next_wake = Some(next_wake.map_or(due, |next| next.min(due)));
+            deferred = Some(deferred.map_or(due, |next| next.min(due)));
         };
         match events.due(&jobs, EVENT_INTERVAL, now) {
             Ok(true) => {
@@ -550,6 +631,24 @@ impl JobsStatus {
             updated_ms: value.get("updated_ms").and_then(Value::as_u64).unwrap_or(0),
             jobs: value.get("jobs").and_then(Value::as_array).cloned().unwrap_or_default(),
         })
+    }
+
+    /// Whether the process that wrote the file still runs. Off Unix there
+    /// is no cheap check: the writer removes the file when it serves, and
+    /// the next owner removes a stale one.
+    pub fn writer_alive(&self) -> bool {
+        #[cfg(unix)]
+        {
+            let Ok(pid) = libc::pid_t::try_from(self.pid) else { return false };
+            if pid <= 0 {
+                return false;
+            }
+            // SAFETY: signal 0 only checks that the process exists.
+            let result = unsafe { libc::kill(pid, 0) };
+            result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+        }
+        #[cfg(not(unix))]
+        true
     }
 
     /// The jobs that block `startup`.

@@ -88,6 +88,7 @@ impl<'a> RestoreProgress<'a> {
     }
 
     fn restoring(&self, pid: Option<u64>, bound: &RestoreBound) {
+        bound.note_owner(pid);
         let now = Instant::now();
         let first = self.first.get().unwrap_or(now);
         self.first.set(Some(first));
@@ -556,6 +557,7 @@ fn wait_for_spawned_owner(
     progress: &RestoreProgress<'_>,
 ) -> Result<Option<ReadyOwner>, EnsureError> {
     let expected = Some(spec.session.as_str());
+    restore_deadline.note_owner(Some(u64::from(pid)));
     // The pipe stays open while the owner lives, and the owner writes its
     // byte only after its restore, so a live owner is awaited up to the
     // restore bound, never killed at the shorter contact bound (cx-w760).

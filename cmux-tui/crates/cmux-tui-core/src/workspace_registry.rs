@@ -3033,7 +3033,7 @@ impl WorkspaceRegistry {
             eprintln!("cmux-tui: sidebar document migration skipped ({error:#})");
         }
         open_job.lap(&mut timings, "registry.migrations");
-        check_registry_integrity(&connection)?;
+        check_registry_integrity(&connection, &|| open_job.beat())?;
         open_job.lap(&mut timings, "registry.integrity_check");
         {
             let tx = connection.unchecked_transaction()?;
@@ -3991,7 +3991,9 @@ pub(crate) fn first_state_foreign_key_violation(
 /// reads every page of the file, so its cost tracked total journal history;
 /// checking each state table and its indexes keeps startup proportional to
 /// the registry, not to how much output its terminals ever printed.
-fn check_registry_integrity(connection: &Connection) -> anyhow::Result<()> {
+/// `beat` runs before each table's check: one `quick_check` is one SQLite
+/// step, which a progress handler never sees.
+fn check_registry_integrity(connection: &Connection, beat: &dyn Fn()) -> anyhow::Result<()> {
     let tables = {
         let mut statement = connection.prepare(
             "SELECT name FROM sqlite_master
@@ -4008,6 +4010,7 @@ fn check_registry_integrity(connection: &Connection) -> anyhow::Result<()> {
         !skipped_by_open_check(table.as_str())
             && (full || !history_check::is_background_checked(table.as_str()))
     }) {
+        beat();
         let pragma = format!("PRAGMA quick_check('{}')", table.replace('\'', "''"));
         let result: String = connection.query_row(&pragma, [], |row| row.get(0))?;
         if result != "ok" {

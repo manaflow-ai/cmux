@@ -1,6 +1,8 @@
 //! `cmux jobs [--json]`: the daemon's long jobs (`jobs-list`, capability
 //! `long_jobs`): output cleanup, registry open, terminal host adoption,
-//! journal maintenance, with their progress and what they block.
+//! journal maintenance, with their progress and what they block. An owner
+//! still restoring parks connections unanswered; then the jobs come from its
+//! status file (`long-jobs.json` in the session state directory).
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
@@ -39,28 +41,49 @@ fn run(global: &GlobalArgs) -> i32 {
         Ok((socket, _)) => socket,
         Err(code) => return code,
     };
-    match list(&socket) {
+    let (jobs, restoring) = match list(&socket) {
         Ok(data) => {
-            let jobs = data.get("jobs").and_then(Value::as_array).cloned().unwrap_or_default();
-            match global.output {
-                OutputMode::Quiet => {}
-                OutputMode::Json | OutputMode::JsonLines => println!("{}", json!({"jobs": jobs})),
-                OutputMode::Human => print!("{}", table(&jobs)),
-            }
-            0
+            (data.get("jobs").and_then(Value::as_array).cloned().unwrap_or_default(), false)
         }
-        Err(message) => {
-            eprintln!("cmux: {message}");
-            1
+        Err(message) => match restoring_jobs(global) {
+            Some(jobs) => (jobs, true),
+            None => {
+                eprintln!("cmux: {message}");
+                return 1;
+            }
+        },
+    };
+    match global.output {
+        OutputMode::Quiet => {}
+        OutputMode::Json | OutputMode::JsonLines if restoring => {
+            println!("{}", json!({"jobs": jobs, "owner": "restoring"}));
+        }
+        OutputMode::Json | OutputMode::JsonLines => println!("{}", json!({"jobs": jobs})),
+        OutputMode::Human => {
+            if restoring {
+                println!("the session owner is still starting");
+            }
+            print!("{}", table(&jobs));
         }
     }
+    0
+}
+
+/// The jobs of an owner that does not answer yet, from its status file.
+fn restoring_jobs(global: &GlobalArgs) -> Option<Vec<Value>> {
+    let root = cmux_tui_core::platform::workspace_state_dir()?;
+    let session = global.session.as_deref().unwrap_or("main");
+    let dir = cmux_tui_core::long_jobs::session_dir(&root, session);
+    let status = cmux_tui_core::long_jobs::JobsStatus::read(&dir)?;
+    status.writer_alive().then_some(status.jobs)
 }
 
 fn list(socket: &std::path::Path) -> Result<Value, String> {
     let stream = UnixStream::connect(socket).map_err(|error| {
         format!("cannot connect to the session socket {}: {error}", socket.display())
     })?;
-    stream.set_read_timeout(Some(Duration::from_secs(15))).map_err(|e| e.to_string())?;
+    // A restoring owner holds the request unread; a ready one answers at once.
+    stream.set_read_timeout(Some(Duration::from_secs(2))).map_err(|e| e.to_string())?;
     let mut reader = BufReader::new(stream);
     writeln!(reader.get_mut(), "{}", json!({"id": "jobs-1", "cmd": "jobs-list"}))
         .map_err(|e| e.to_string())?;

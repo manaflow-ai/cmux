@@ -154,11 +154,13 @@ fn compact_locked(db_path: &Path) -> anyhow::Result<RegistryCompaction> {
 /// Copies the registry into `staged` with incremental auto-vacuum and checks
 /// the copy. Both connections are closed on return.
 fn write_staged(db_path: &Path, staged: &Path) -> anyhow::Result<()> {
-    // No owner can start while the compaction holds the session.
+    // Runs in the `server compact-registry` process with no owner, so no
+    // status file or socket shows it; the job only labels the work. No owner
+    // can start meanwhile (the session guard), which that command reports.
     let job = crate::long_jobs::LongJobs::start(
         "registry.compact",
         "Compacting the saved session",
-        &[crate::long_jobs::Blocks::Startup, crate::long_jobs::Blocks::Quit],
+        &[crate::long_jobs::Blocks::Quit],
     )
     .unit("steps");
     job.step(0, 2, "copy");
@@ -191,6 +193,7 @@ fn write_staged(db_path: &Path, staged: &Path) -> anyhow::Result<()> {
             // the copy (a separate file; nothing waits on it).
             copy.execute_batch("PRAGMA auto_vacuum=INCREMENTAL; VACUUM;")?;
         }
+        // One SQLite step: the job does not beat during it.
         let check = copy.query_row("PRAGMA quick_check", [], |row| row.get::<_, String>(0))?;
         anyhow::ensure!(check == "ok", "compacted registry failed quick_check: {check}");
         let auto_vacuum = copy.query_row("PRAGMA auto_vacuum", [], |row| row.get::<_, i64>(0))?;

@@ -119,7 +119,7 @@ fn integrity_check_touches_one_content_blob() {
     const BLOBS: usize = 2_000;
     let registry = WorkspaceRegistry::in_memory("open-cost-blobs").unwrap();
     let db = registry.connection.get();
-    let empty = vm_steps(&db, || check_registry_integrity(&db).unwrap());
+    let empty = vm_steps(&db, || check_registry_integrity(&db, &|| {}).unwrap());
     for index in 0..BLOBS {
         let mut digest = [0_u8; 32];
         digest[..8].copy_from_slice(&(index as u64).to_be_bytes());
@@ -131,7 +131,7 @@ fn integrity_check_touches_one_content_blob() {
         )
         .unwrap();
     }
-    let full = vm_steps(&db, || check_registry_integrity(&db).unwrap());
+    let full = vm_steps(&db, || check_registry_integrity(&db, &|| {}).unwrap());
     assert!(
         full.saturating_sub(empty) < 256,
         "the open's integrity check grows with stored blobs: {empty} -> {full} VM steps \

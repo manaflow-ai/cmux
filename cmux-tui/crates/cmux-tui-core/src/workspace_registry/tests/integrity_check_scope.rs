@@ -17,7 +17,7 @@ fn quick_checked_tables(database: &Path) -> Vec<String> {
             Authorization::Allow
         }))
         .unwrap();
-    check_registry_integrity(&connection).unwrap();
+    check_registry_integrity(&connection, &|| {}).unwrap();
     checked.lock().unwrap().clone()
 }
 
