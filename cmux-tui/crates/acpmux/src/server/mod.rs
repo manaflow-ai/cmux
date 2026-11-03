@@ -2084,6 +2084,7 @@ pub mod peer_text;
 mod pending;
 mod place;
 mod processes;
+mod workflow_activity;
 mod workflow_runs;
 mod worktrees;
 pub mod ws_auth;
