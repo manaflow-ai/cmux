@@ -915,6 +915,8 @@ export class MockHomeProvider implements PageClient {
       }
       case HomeOps.chiefAvatar:
         return { avatar: this.pictures.get(String(params.chief)) ?? null } as R;
+      case HomeOps.avatar:
+        return { avatar: this.pictures.get(String(params.participant)) ?? null } as R;
       case "cmux.chief.profile.list":
         if (!this.hostGrants) throw pageError("cmux.protocol.unknown_op", op);
         return {

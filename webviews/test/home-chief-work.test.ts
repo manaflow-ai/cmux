@@ -4,6 +4,7 @@ import { ChiefWorkStore } from "../src/pages/home-channels/ChiefWorkStore";
 import { DaemonHomeClient } from "../src/pages/home-channels/daemonHome";
 import { HomeOps } from "../src/pages/home-channels/types";
 import type { HomeChiefWork } from "../src/pages/home-channels/chiefWorkTypes";
+import { MockHomeProvider } from "../src/pages/home-channels/mockProvider";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -20,6 +21,11 @@ const work = (name: string): HomeChiefWork => ({
   tasks: [{ id: `${name}/server`, sessionId: name, title: "Preview server", status: "running" }],
   truncated: false,
   taskSources: ["harness"],
+});
+
+test("the real Home gallery answers participant picture reads without an unhandled rejection", async () => {
+  const provider = new MockHomeProvider();
+  expect(await provider.call<{ avatar: null }>(HomeOps.avatar, { participant: "agent_mux" })).toEqual({ avatar: null });
 });
 
 function owner() {

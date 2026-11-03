@@ -13,7 +13,6 @@ await requireBrowserLane("home-chief-work-integration-browser.test.ts", async ()
   let vite: Awaited<ReturnType<typeof createServer>>;
   let browser: Browser;
   const entry = "pages.home-channels";
-  const variant = "run";
   beforeAll(async () => {
     vite = await createServer({
       configFile: path.resolve(import.meta.dir, "../vite.config.gallery-dev.ts"),
@@ -22,7 +21,7 @@ await requireBrowserLane("home-chief-work-integration-browser.test.ts", async ()
     });
     await vite.listen();
     browser = await chromium.launch({ headless: true });
-    await warmGalleryFrame(vite, entry, { browser, params: { variant } });
+    await warmGalleryFrame(vite, entry, { browser, params: { variant: "run" } });
   });
   afterAll(async () => {
     await browser?.close();
@@ -39,6 +38,7 @@ await requireBrowserLane("home-chief-work-integration-browser.test.ts", async ()
     [1600, "light"],
   ] as const) {
     test(`${width}px: the real Chief header opens work and Escape closes it`, async () => {
+      const variant = width === 390 ? "run-phone" : "run";
       const page = await browser.newPage({ viewport: { width, height: 844 }, deviceScaleFactor: 2 });
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(error.message));
