@@ -23,6 +23,8 @@ mod app_focus;
 #[cfg(unix)]
 mod apps_list;
 #[cfg(unix)]
+mod apps_place;
+#[cfg(unix)]
 mod apps_run;
 #[cfg(unix)]
 mod auth_token;
@@ -127,6 +129,8 @@ mod tab_capabilities;
 mod terminal_talk;
 mod topology_help;
 mod wire;
+#[cfg(unix)]
+mod workflow;
 use surface::MACHINE_CATALOG_HELP;
 pub(super) use surface::{BIN, Surface};
 
@@ -164,6 +168,7 @@ const PUBLIC_SCOPES: &[&str] = &[
     "settings",
     "config",
     "raw",
+    "workflow",
 ];
 
 /// Scopes only the `cmux-tui` name accepts. Cloud VM guest scripts
@@ -399,7 +404,7 @@ pub(crate) fn rewrite_deprecated_server_lifecycle(args: &mut Vec<String>) {
 /// agents` answered "unknown resource scope".
 pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "agents", "chats", "harness", "remote", "script", "host", "github", "avatar", "chief", "setup",
-    "device",
+    "device", "workflow",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
@@ -494,6 +499,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
     };
     #[cfg(unix)]
     if let Some(code) = mcp::run_if_requested(args)
+        .or_else(|| workflow::run_if_requested(args))
         .or_else(|| agents::run_if_requested(args))
         .or_else(|| chief::run_if_requested(args))
         .or_else(|| chief::run_avatar_if_requested(args))
@@ -512,6 +518,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))
         .or_else(|| apps_list::run_if_requested(args))
+        .or_else(|| apps_place::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))

@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
+use cmux_json::JsonSet as _;
 use std::collections::BTreeMap;
 
 async fn daemon() -> (Arc<crate::hub::Hub>, Arc<Client>, cmux_unix_socket::TestDir) {
@@ -71,11 +72,14 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "team_send",
             "team_inbox",
             "team_ack",
+            "search",
             "github_status",
             "bg_start",
             "bg_list",
             "bg_output",
-            "bg_stop"
+            "bg_stop",
+            "run_wait",
+            "pr_state"
         ]
     );
     let send = tools[0]["description"].as_str().unwrap();
@@ -224,8 +228,8 @@ fn top_level_fields_are_each_items_defaults() {
 
 /// `notice`: a tool's notice, checked as the daemon checks it, its sender this session's name by
 /// default, its links `{url, label?}` or `--link` strings; the text (optional) is its body.
-#[test]
-fn a_notice_argument_is_checked_and_defaults_its_sender_and_host() {
+#[tokio::test]
+async fn a_notice_argument_is_checked_and_defaults_its_sender_and_host() {
     let env = |pairs: &'static [(&'static str, &'static str)]| {
         move |k: &str| pairs.iter().find(|(key, _)| *key == k).map(|(_, v)| (*v).to_owned())
     };
@@ -251,10 +255,19 @@ fn a_notice_argument_is_checked_and_defaults_its_sender_and_host() {
 
     // In a call: the item carries it, its body is optional, and the text is the rendered notice.
     let args = json!({"to": "coord", "notice": {"sender": "s", "host": "h", "severity": "warn", "title": "T"}});
-    let items: Vec<send::Item> =
+    let mut items: Vec<send::Item> =
         send::items(&args).unwrap().into_iter().map(Result::unwrap).collect();
     assert_eq!(items[0].notice.as_ref().unwrap()["severity"], "warn");
-    assert_eq!(send::body(&items[0]).unwrap(), "[notice from s on h · WARN] T");
+    assert_eq!(send::body(&mut items[0]).await.unwrap().0, "[notice from s on h · WARN] T");
+    let dir = tempfile::tempdir().unwrap();
+    let empty = dir.path().join("empty.txt");
+    std::fs::write(&empty, "").unwrap();
+    let mut from_file = send::Item {
+        file: Some(empty.to_str().unwrap().to_owned()),
+        notice: items[0].notice.clone(),
+        ..Default::default()
+    };
+    assert_eq!(send::body(&mut from_file).await.unwrap().0, "[notice from s on h · WARN] T");
     let bad = json!({"to": "coord", "text": "x", "notice": {"sender": "s", "severity": "fire"}});
     let errors: Vec<String> =
         send::items(&bad).unwrap().into_iter().map(Result::unwrap_err).collect();
@@ -292,7 +305,7 @@ async fn a_notice_sent_with_the_tool_is_recorded_as_a_notice() {
     );
 }
 
-/// `file`: the message is the file's contents, read from a file of the caller's, bounded.
+/// `file`: small text stays inline, while large files arrive as attachments.
 #[tokio::test]
 async fn a_message_can_be_a_file_of_yours() {
     let (hub, client, _dir) = daemon().await;
@@ -313,8 +326,6 @@ async fn a_message_can_be_a_file_of_yours() {
     assert_eq!(r["structuredContent"]["sessionId"], json!(lane), "{r}");
     assert!(received(&hub, &lane, "Brief: land #1 when green.").await, "the file never arrived");
 
-    let big = dir.path().join("big.md");
-    std::fs::write(&big, "x".repeat(usize::try_from(send::MAX_FILE_BYTES).unwrap() + 1)).unwrap();
     let binary = dir.path().join("bin");
     std::fs::write(&binary, [0xff, 0xfe, 0x00]).unwrap();
     let empty = dir.path().join("empty");
@@ -324,7 +335,6 @@ async fn a_message_can_be_a_file_of_yours() {
     )
     .unwrap();
     let cases = [
-        (big.clone(), "more than 256 KiB"),
         (binary, "not UTF-8 text"),
         (empty, "the file is empty"),
         (dir.path().to_owned(), "not a regular file"),
@@ -357,6 +367,113 @@ async fn a_message_can_be_a_file_of_yours() {
     let both = json!({"to": "file-lane", "text": "x", "file": brief});
     let r = call(&client, &tool("send", both)).await;
     assert_eq!(text(&r), "give text or file, not both", "{r}");
+}
+
+/// Past both the old 256 KiB file refusal and the 31 MiB RPC envelope: the agent
+/// receives the complete file by reference, through the same durable outbox.
+#[tokio::test]
+async fn a_large_message_file_is_uploaded_and_reaches_the_agent_intact() {
+    large_message_arrives(true, false).await;
+}
+
+#[tokio::test]
+async fn text_past_the_rpc_envelope_reaches_the_agent_intact() {
+    large_message_arrives(false, false).await;
+}
+
+#[tokio::test]
+async fn a_large_notice_keeps_its_metadata_and_complete_body() {
+    large_message_arrives(true, true).await;
+    large_message_arrives(false, true).await;
+}
+
+#[test]
+fn json_expansion_is_counted_before_deciding_to_upload_text() {
+    let plain = "a".repeat(6 << 20);
+    assert!(!send::text_needs_file(&plain));
+    let escaped = "\0".repeat(6 << 20);
+    assert!(send::text_needs_file(&escaped));
+}
+
+async fn large_message_arrives(from_file: bool, notice: bool) {
+    use sha2::Digest;
+    use std::io::{Read, Write};
+    let (hub, client, _socket) = daemon().await;
+    let lane = session(&client, "large-file-lane").await;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("instructions.md");
+    let chunk = b"Read every part of these instructions.\n".repeat(2048);
+    let mut expected = sha2::Sha256::new();
+    {
+        let mut file = std::fs::File::create(&path).unwrap();
+        for _ in 0..540 {
+            file.write_all(&chunk).unwrap();
+            expected.update(&chunk);
+        }
+    }
+    assert!(std::fs::metadata(&path).unwrap().len() > 40 << 20);
+    let mut args = if from_file {
+        json!({"to": "large-file-lane", "file": path})
+    } else {
+        json!({"to": "large-file-lane", "text": std::fs::read_to_string(&path).unwrap()})
+    };
+    if notice {
+        args.set(
+            "notice",
+            json!({"sender": "audit", "host": "test", "severity": "warn", "title": "large brief"}),
+        );
+    }
+    let name = if from_file { "instructions.md" } else { "message.txt" };
+    let started = std::time::Instant::now();
+    let r = call(&client, &tool("send", args)).await;
+    assert_eq!(r["isError"], false, "{r}");
+    eprintln!(
+        "41.133 MiB MCP message (from_file={from_file}) delivered in {:?}",
+        started.elapsed()
+    );
+    assert!(received(&hub, &lane, name).await, "file was not recorded");
+    if notice {
+        let events = hub.events(&lane, 0, 1000).unwrap();
+        let message = events
+            .iter()
+            .find(|e| e.kind == "user_message" && e.msg.to_string().contains("large brief"))
+            .expect("notice message");
+        let provenance = &message.msg["_meta"]["provenance"];
+        assert_eq!(provenance["kind"], "notice", "{}", message.msg);
+        assert_eq!(provenance["notice"]["severity"], "warn", "{}", message.msg);
+        assert!(message.msg.to_string().contains("[notice from audit on test · WARN] large brief"));
+    }
+    let finished = client
+        .request(
+            method::MUX_WAIT,
+            json!({"sessions": [lane], "until": ["ready"], "timeoutMs": 20000}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(finished["timedOut"], false, "{finished}");
+    let reply = last_replies(&client, &lane, 1).await.unwrap().pop().unwrap();
+    // The fake agent prints resource_link:name:mime:file:///path.
+    let uri = reply
+        .split_whitespace()
+        .find_map(|word| {
+            word.strip_prefix("resource_link:")?
+                .split_once(":file://")
+                .map(|(_, path)| format!("file://{path}"))
+        })
+        .unwrap_or_else(|| panic!("agent got no file reference: {reply}"));
+    let saved = reqwest::Url::parse(&uri).unwrap().to_file_path().unwrap();
+    assert_eq!(saved.file_name().unwrap(), name);
+    let mut file = std::fs::File::open(saved).unwrap();
+    let mut actual = sha2::Sha256::new();
+    let mut bytes = [0u8; 65536];
+    loop {
+        let n = file.read(&mut bytes).unwrap();
+        if n == 0 {
+            break;
+        }
+        actual.update(bytes.get(..n).unwrap());
+    }
+    assert_eq!(actual.finalize(), expected.finalize());
 }
 
 /// `supersede`: a second message under the same key replaces the first while it still waits.
@@ -410,6 +527,7 @@ fn target(index: usize, to: &str, key: &str) -> send::Target {
         key: key.to_owned(),
         tag: None,
         text: "x".to_owned(),
+        file: None,
         item: send::Item::default(),
     }
 }
@@ -689,6 +807,16 @@ async fn ls_last_and_info_read_the_sessions() {
     assert!(text(&r).lines().any(|l| l.starts_with("lane-b  [")), "{r}");
     let r = call(&client, &tool("info", json!({"name": "lane-b"}))).await;
     assert_eq!(r["structuredContent"]["sessionId"], json!(lane), "{r}");
+    // `search` reads the named session, or this server's own chat when none is named.
+    let r = search_tool(&client, "", &json!({"query": "HELLO echo", "name": "lane-b"})).await;
+    assert_eq!(r["isError"], false, "{r}");
+    assert!(text(&r).ends_with("(assistant): echo: hello"), "{r}");
+    let r = search_tool(&client, &lane, &json!({"query": "hello", "role": "user"})).await;
+    let hits = r["structuredContent"]["hits"].as_array().unwrap();
+    assert_eq!(hits.len(), 1, "{r}");
+    assert_eq!(hits[0]["snippet"], "hello", "{r}");
+    let r = search_tool(&client, "", &json!({"query": "hello"})).await;
+    assert_eq!(r["isError"], true, "no chat and no name: {r}");
 }
 
 /// A fleet-sized list (thousands of closed sessions, each row carrying its last prompt and

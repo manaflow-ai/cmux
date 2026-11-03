@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextCloudCredentials
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDaemonService
@@ -113,9 +114,17 @@ extension AgentTabStore {
                                  linkScheme: services.linkScheme, settings: services.settings, paneShared: AgentPaneShared(openPanel: services.openPanel, eventSources: services.personInput.sources, apps: services.apps.client),
                                  attentionTabs: services.attentionTabs,
                                  daemons: services.acpmuxDaemons, updates: services.daemonUpdates, peerApprover: services.peerApprover)
+        tabs.onRemoteChatStarted = { [weak services] host, session, cwd, harness in
+            guard let services, services.cloud.movedChats.started(host: host, session: session, remoteChat: cwd, harness: harness) else { return }
+            services.cloud.accessAsks.start(services: services)
+        }
         tabs.cloudRepositoryLocal = { [weak services] in
             guard let services else { throw DaemonError.notConnected }
             return try await services.daemon.cloudRepositoryLocal()
+        }
+        tabs.imessage = { [weak services] action, view in
+            guard let services else { return AgentPaneReply.failure(code: "unavailable", message: "unavailable") }
+            return await services.imessage.respond(action, view: view)
         }
         tabs.machineTargets = { [weak services] in
             // Only the machines of the account signed in now, from a list loaded for it (as the
@@ -206,9 +215,7 @@ extension AgentTabStore {
             // A page beside a chat of another machine shows that machine's folders (cx-k21v).
             // (A chat of this Mac keeps the plain page, as before.)
             let tab = beside.flatMap { services.locateTabOnAnyMachine($0)?.0 }.flatMap { services.machines.daemon(forTab: $0).isLocal ? nil : $0 }
-            // Without the Commands palette's actions (30-50 ms on the main thread, most of Cmd-N's
-            // key time: instant-new-surfaces `newTab.paletteActions`): they fill in on the frame
-            // after the page shows, as Cmd-T's do (``NewTabPage/fillPaletteActions(_:)``).
+            // Without the palette's actions: they fill in after the page shows (``NewTabPage/fillPaletteActions(_:)``).
             var page = NewTabPage.page(services, selected: tab, paletteActions: false)
             page.cwd = cwd ?? page.cwd
             NewTabPage.fillPaletteActions(services)
@@ -547,10 +554,11 @@ extension AgentTabStore {
         }
     }
     /// Signed in (on either link: CloudService.machineAPI serves a legacy and a Worker machine), and
-    /// this build passes the Mac's login at all (DEV and dogfood; production's card signs in on the
-    /// machine instead).
+    /// this build may pass the Mac's login at all (DEV and dogfood, or Release unless the setting
+    /// turns it off; a Release recovery then reads the remote switch and asks the consent first,
+    /// CloudPresenter.recoverCredentials).
     static func cloudCredentialTransferIsAvailable(linkSource: CloudConfiguration.LinkSource, isSignedIn: Bool,
-                                                   passesLogin: Bool = CloudStartChat.passesHarnessLoginHere) -> Bool {
+                                                   passesLogin: Bool = CloudCredentialTransfer.offersLoginCopy(isDogfoodBuild: DevTools.isEnabled, defaults: .standard)) -> Bool {
         isSignedIn && passesLogin
     }
 }

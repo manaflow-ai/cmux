@@ -48,7 +48,7 @@ enum AppActions {
         WorkspaceNotesHandlers.bind(into: registry, context: context)
         WorkspaceChecklistHandlers.bind(into: registry, context: context)
         WorkspaceGroupHandlers.bind(into: registry, context: context)
-        SidebarActionSet(host: services, autoArchive: services.autoArchive, settings: { [weak services] in services?.settings }).bind(into: registry)
+        SidebarActionSet(host: services, autoArchive: services.autoArchive, settings: { [weak services] in services?.settings }, sidebar: { [weak services] in services?.windows.active?.sidebar.container.sidebarView }).bind(into: registry)
         NotificationSoundActions(host: services, gate: services.notifications.soundGate).bind(into: registry)
         RoomHandlers.bind(into: registry, context: context)
         RoomMenuHandlers.bind(into: registry, context: context)

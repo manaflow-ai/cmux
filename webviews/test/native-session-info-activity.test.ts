@@ -102,6 +102,28 @@ test("a subagent quiet past the idle window reads Idle in its line and the head,
   expect(section.rows.find((each) => each.id === "limit")!.title).toBe("Started chats: 0 of 1000 at once");
 });
 
+test("a started chat waiting for a free slot is queued in the head, never done", () => {
+  const section = subagentsSection(
+    {
+      open: true,
+      agents: [],
+      waiting: new Set(),
+      sessions: [
+        { sessionId: "run", title: "Run the suite", state: "running", createdAt: 1 },
+        { sessionId: "held", title: "Audit the strings", state: "idle", waitsForSlot: true, createdAt: 2 },
+        { sessionId: "ended", title: "Draft the notes", state: "idle", createdAt: 3 },
+      ],
+      limits: { maxRunning: 1, maxRunningSource: "session" },
+      language: "en",
+      now: 2_000,
+    },
+    new NativeInfoActions(),
+    t,
+  )!;
+  expect(section.meta).toBe("1 running · 1 queued · 1 done");
+  expect(section.rows.find((row) => row.id === "limit")?.detail).toBe("1 queued");
+});
+
 test("native server rows keep the command plain and expose every named port", async () => {
   const opened: string[] = [];
   const section = tasksSection(

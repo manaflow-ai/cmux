@@ -168,7 +168,8 @@ final class LinkOpener {
         case .besideDock:
             // A lone pinned dock closed to tabs: the daemon makes a tab aimed at it in a new column
             // right of it. Home's dock takes tabs, so the tab is made there and moves to the right,
-            // left out of the dock's strip on the way (``OutboundTab``): it first shows on the right.
+            // left out of the dock's strip on the way (``OutboundTab``): it first shows on the right. Split-first: one create.
+            if let opened = split?(source, .right, { _ in done() }) { if !opened { done() }; return opened }
             guard source.isOpenPinnedDockPane else { defer { done() }; return make(source, nil) }
             let outbound = OutboundTab.begin(in: source)
             shownInPlace = false
@@ -263,7 +264,9 @@ final class LinkOpener {
     /// makes and moves, where the pane's daemon cannot or it has no split room (#23032 review). Its close gives the focus back to `from`.
     func browserSplit(_ url: URL?, profile: String? = nil, returningTo from: PaneController? = nil) -> SplitMake {
         { [weak self, weak from] (pane: PaneController, direction: SplitDirection, finished: @escaping @MainActor (SurfaceID?) -> Void) -> Bool? in
-            guard PaneBrowserTabOpener(controller: pane).opensInSplit, case .split = pane.services.splitRoom(for: pane.pane, edge: direction == .right ? .right : .bottom) else { return nil }
+            // As every split (#23032 review): a chat dock or a pane with no room keeps the move, which refuses or opens a column (Home's dock alone needs no room).
+            let opener = PaneBrowserTabOpener(controller: pane), room = pane.services.splitRoom(for: pane.pane, edge: direction == .right ? .right : .bottom)
+            guard direction == .right && opener.opensBesideDockInSplit || opener.opensInSplit && { if case .split = room { true } else { false } }() else { return nil }
             return pane.newBrowserTab(url: url, profile: profile, split: BrowserTabSplitRequest(direction: direction) { [weak self, weak from] surface in
                 if let surface, let from, let content = from.workspace { self?.returnFocus(of: surface, to: from.layoutPaneID, in: content) }; finished(surface)
             })

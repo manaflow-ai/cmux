@@ -133,7 +133,8 @@ enum BrowserHandlers {
         }
     }
 
-    /// Split Browser Right/Down: a new app-rendered browser tab made in a new split (moved into one on an older daemon).
+    /// Split Browser Right/Down: a new app-rendered browser tab moved into a
+    /// new split in one daemon `split {tab}` call.
     private static func bindSplits(into registry: ActionRegistry, context: AppActionContext) {
         for (id, direction) in [("splitBrowserRight", SplitDirection.right), ("splitBrowserDown", .down)] {
             registry.bindEffect(ActionID(rawValue: id), requires: DaemonCapability.frontendBrowserTabs.rawValue, daemon: context.daemon, effect: { invocation in
@@ -150,9 +151,8 @@ enum BrowserHandlers {
     /// cx-yihq), as Split Right does: refused without room, and from the docked
     /// chat a person's browser is a tab in the strip.
     ///
-    /// Returns what the caller hands the registry (``ActionRegistry/settle(_:of:_:)``, or a bound handler's
-    /// return): `.done` when the split shows with its tab now (``LinkOpener/browserSplit(_:profile:returningTo:)``), else the tab
-    /// open and the move are one waiting effect (`daemonEcho`: nothing shows until the daemon answers), its failure reported.
+    /// Returns what the caller hands the registry (``ActionRegistry/settle(_:of:_:)``, or a bound handler's return).
+    /// Where the daemon serves it the split and its tab show in the key's turn (BrowserTabSplitCommand); else one waiting effect (`daemonEcho`) opens the tab and moves it. Either failure is reported.
     static func splitBrowser(from pane: PaneController, direction: SplitDirection, url: URL? = nil, profile: String? = nil,
                              byPerson: Bool, context: AppActionContext) throws -> ActionEffect {
         let handle = pane.pane.handle, model = pane.pane
@@ -173,7 +173,7 @@ enum BrowserHandlers {
             return .done
         }
         if let refusal = browserTabs.refusal(in: model) { throw ActionFailure(message: refusal) }
-        if context.services.linkOpener.browserSplit(url, profile: profile)(pane, direction, { _ in }) != nil { return .done }
+        if PaneBrowserTabOpener(controller: pane).opensInSplit { _ = pane.newBrowserTab(url: url, profile: profile, split: BrowserTabSplitRequest(direction: direction) { _ in }); return .done } // as a link to the right
         // The split goes to the pane's own machine (cx-2cob); `refusal` named a disconnected one.
         let daemon = context.services.daemon(for: model)
         let connection = try daemon.isLocal ? context.requireConnection() : daemon.connection ?? context.requireConnection()
@@ -181,7 +181,7 @@ enum BrowserHandlers {
         guard case .open(let choice) = browserTabs.resolve(requested: nil, url: url) else { return .done }
         let intent = pane.workspace?.beginFocusIntent()
         let address = url?.absoluteString ?? context.services.newTabAddress(for: choice)
-        // action-wait-allow: no provisional browser split exists yet (a tab opened in the source pane, then moved by the daemon's split); its failure is now reported.
+        // action-wait-allow: an older daemon (no frontend-browser-tab-split-v1) has no provisional browser split; the tab is made, then moved.
         return .waiting(.daemonEcho) {
             do {
                 let surface = try await browserTabs.open(choice, in: model, url: address, profile: profile)
@@ -242,7 +242,7 @@ enum BrowserHandlers {
                     } catch let failure as ActionFailure {
                         chrome?.showNotice(failure.message)
                     } catch {}
-                }, notice: { [weak chrome = entry.chrome] text in chrome?.showNotice(text) })
+                }, noLinks: { [weak chrome = entry.chrome] in chrome?.showNotice(LinkHintStrings.noLinks) })
             })
         }
     }
