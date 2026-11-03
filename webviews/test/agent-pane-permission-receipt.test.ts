@@ -84,6 +84,13 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
     { permissionId: "perm-test", outcome },
   ];
   const picked = (optionId: string) => decided({ outcome: "selected", optionId });
+  /// The approved call runs to its end: while it runs the live line draws it, and its row (with its
+  /// "Approved" mark) once it is done.
+  const ran: Step = [
+    "in",
+    "tool_call_update",
+    update({ sessionUpdate: "tool_call_update", toolCallId: "call-test", status: "completed", rawOutput: "ok" }),
+  ];
   // A mode change can approve an ask that was already waiting. Its auto record keeps the
   // original permission id, and the ordinary decision settles that same pending card.
   const approvedAfterSwitch = (fullAccess: string): Step => [
@@ -317,11 +324,12 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
     }
   });
 
-  test("answered live, the card goes and its receipt shows in the turn", async () => {
+  test("answered live, the card goes and its call says Approved once it ran", async () => {
     const page = await open(LIVE, "Check the build");
     await page.locator(".acpmux-permission-ask").waitFor({ timeout: 5_000 });
     expect(await receipts(page)).toEqual([]);
     push(picked("allow_once"));
+    push(ran);
     await page.locator(".cv-command__approved").first().waitFor({ timeout: 5_000 });
     expect(await page.locator(".acpmux-permission-ask").count()).toBe(0);
     expect(await receipts(page)).toEqual([]);
@@ -339,6 +347,8 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
       push(approvedAfterSwitch(mode), chat);
       push(picked("allow_once"), chat);
       await page.locator(".acpmux-permission-ask").waitFor({ state: "detached", timeout: 5_000 });
+      push(ran, chat);
+      await page.locator(".cv-command__approved").first().waitFor({ timeout: 5_000 });
       expect(await receipts(page)).toEqual([]);
       expect(await approved(page)).toEqual(["call-test"]);
       await page.close();
@@ -368,6 +378,8 @@ await requireBrowserLane("agent-pane-permission-receipt.test.ts", async () => {
     await page.getByText("Tests").first().waitFor({ timeout: 5_000 });
     send({ method: "_acpmux/event", params: record(LAG, chunk(" pass."), 7) });
     await page.getByText("Tests pass.").waitFor({ timeout: 5_000 });
+    send({ method: "_acpmux/event", params: record(LAG, ran, 8) });
+    await page.locator(".cv-command__approved").first().waitFor({ timeout: 5_000 });
     expect(await receipts(page)).toEqual([]);
     expect(await approved(page)).toEqual(["call-test"]);
     await page.close();
