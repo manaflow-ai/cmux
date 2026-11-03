@@ -104,6 +104,11 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/permission_chat_revoke": (["sessionId"], []),
         // No `value` declines the card.
         "_acpmux/secret_submit": (["sessionId", "secretId", "value"], []),
+        // `scope` only with an approval; `key` never (a key goes with `mcp_set_key`).
+        "_acpmux/mcp_connect_answer": (["sessionId", "requestId", "approve", "scope"], []),
+        "_acpmux/mcp_sign_in": (["id"], []),
+        "_acpmux/mcp_set_key": (["id", "key"], []),
+        "_acpmux/mcp_call_answer": (["sessionId", "requestId", "approve", "always"], []),
         "_acpmux/archive": (["sessionId", "archived"], []),
         "_acpmux/markUnread": (["sessionId"], []),
         "_acpmux/harness/health": (["refresh", "rescan"], []),
