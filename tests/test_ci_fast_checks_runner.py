@@ -70,7 +70,7 @@ class _DripServer(socketserver.ThreadingTCPServer):
 
 
 class FastChecksRunnerTests(unittest.TestCase):
-    def test_busy_document_is_rechecked_live_after_waiting(self) -> None:
+    def test_busy_fleet_in_the_shared_document_keeps_the_fleet_without_waiting(self) -> None:
         idle = dict(id=1, name="synthetic-fast-check", os="Linux", status="online", busy=False,
                     labels=[{"name": picker.FLEET}])
         doc = dict(schema="runner-state/v1", repository="manaflow-ai/cmux", complete=True,
@@ -91,9 +91,11 @@ class FastChecksRunnerTests(unittest.TestCase):
              mock.patch.object(picker.pr_runner_pool.GitHub, "get_api", side_effect=api), \
              contextlib.redirect_stderr(io.StringIO()):
             selected = picker.choose(env, sleep=lambda s: clock.__setitem__(0, clock[0] + s), clock=lambda: clock[0])
+        # One look decides: the fleet runner is online (busy), so the checks
+        # queue on the fleet label, where the broker bounds the wait; no poll.
         self.assertEqual(selected, picker.FLEET)
-        self.assertEqual(clock[0], picker.POLL_SECONDS)
-        self.assertEqual(len(paths), 4)
+        self.assertEqual(clock[0], 0.0)
+        self.assertEqual(paths, [])
 
     def test_live_idle_linux_fleet_runner_is_selected(self) -> None:
         rows = [{"status": "online", "busy": False, "os": "Linux",
@@ -113,7 +115,31 @@ class FastChecksRunnerTests(unittest.TestCase):
         selected = picker.choose({"REQUESTED_RUNNER": "", "ROUTE_TOKEN": "read", "GITHUB_REPOSITORY": "manaflow-ai/cmux"}, read=lambda _env, **_kwargs: [],
                                  sleep=lambda seconds: sleeps.append(seconds), clock=lambda: next(now))
         self.assertEqual(selected, "blacksmith-8vcpu-ubuntu-2404")
-        self.assertEqual(sleeps, [15])
+        self.assertEqual(sleeps, [])
+
+    def test_one_census_read_decides_without_polling(self) -> None:
+        # cmux run 41718897738: the picker polled 182 s for an idle fleet
+        # runner, then took Blacksmith 8 vCPU. A readable census decides at once.
+        base = {"REQUESTED_RUNNER": "", "ROUTE_TOKEN": "read", "GITHUB_REPOSITORY": "manaflow-ai/cmux"}
+        busy = {"status": "online", "busy": True, "os": "Linux", "labels": [picker.FLEET]}
+        for rows, expected in (
+            ([busy], picker.FLEET),
+            ([dict(busy, status="offline")], "blacksmith-8vcpu-ubuntu-2404"),
+            ([dict(busy, os="macOS")], "blacksmith-8vcpu-ubuntu-2404"),
+            ([dict(busy, labels=["other"])], "blacksmith-8vcpu-ubuntu-2404"),
+        ):
+            with self.subTest(rows=rows):
+                reads, sleeps = [], []
+                selected = picker.choose(base, read=lambda _env, **_kwargs: (reads.append(1), rows)[1],
+                                         sleep=sleeps.append, clock=lambda: sum(sleeps))
+                self.assertEqual((selected, len(reads), sleeps), (expected, 1, []))
+
+    def test_an_unreadable_census_is_read_once_more_then_overflows(self) -> None:
+        reads, sleeps = [], []
+        selected = picker.choose(
+            {"REQUESTED_RUNNER": "", "ROUTE_TOKEN": "read", "GITHUB_REPOSITORY": "manaflow-ai/cmux"},
+            read=lambda _env, **_kwargs: reads.append(1), sleep=sleeps.append, clock=lambda: sum(sleeps))
+        self.assertEqual((selected, len(reads), sleeps), ("blacksmith-8vcpu-ubuntu-2404", 2, [picker.POLL_SECONDS]))
 
     def test_live_fleet_runner_is_selected_without_waiting(self) -> None:
         rows = [{"status": "online", "busy": False, "os": "Linux",
@@ -307,13 +333,13 @@ class FastChecksRunnerTests(unittest.TestCase):
                 self.assertEqual(selected, "blacksmith-8vcpu-ubuntu-2404")
                 self.assertEqual(sleeps, [])
 
-    def test_permission_403_still_polls_until_the_deadline(self) -> None:
+    def test_permission_403_looks_once_more_then_overflows(self) -> None:
         def api(path):
             raise self._refusal(path, 403, {"X-RateLimit-Remaining": "4321"})
 
         selected, sleeps, _ = self._choose_with_api(api)
         self.assertEqual(selected, "blacksmith-8vcpu-ubuntu-2404")
-        self.assertEqual(sum(sleeps), picker.WAIT_SECONDS)
+        self.assertEqual(sleeps, [picker.POLL_SECONDS])
 
     def test_slow_runner_pages_cannot_push_admission_past_its_deadline(self) -> None:
         # Every census page drips: without one deadline across read_live's

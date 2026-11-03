@@ -380,7 +380,6 @@ import {
   foldHoldTarget,
   foldHolding,
   foldRoomFor,
-  opensBody,
   foldToggleAt,
   holdFold,
   keepFold,
@@ -400,6 +399,7 @@ import { BackgroundTaskOutputContext, type BackgroundTaskOutputReader } from "./
 import { IncomingMessageLine, IncomingNotice } from "./conversation/IncomingMessageCard";
 import type { IncomingMessage } from "./conversation/incomingMessage";
 import { CompactionNote, FailoverNote, PolicyUnenforcedNote } from "./conversation/CompactionNote";
+import { RecapNote } from "./conversation/RecapNote";
 import { BackgroundTurnLine } from "./conversation/BackgroundTurnLine";
 import { TaskLines } from "./conversation/TaskLine";
 import { TASK_LINE } from "./conversation/taskLineKind";
@@ -518,7 +518,7 @@ import {
 import { uniqueArtifacts } from "./conversation/artifactDedupe";
 import { writtenArtifacts } from "./conversation/writtenArtifacts";
 import { artifactVersions } from "./conversation/artifactVersions";
-import { ArtifactLiveSource, mergeArtifactVersions } from "./conversation/artifactLive";
+import { artifactLiveSource, mergeArtifactVersions } from "./conversation/artifactLive";
 import { RenderPages, renderPages, renderVersions } from "./conversation/renderCall";
 import { DateLine } from "./conversation/DateLine";
 import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
@@ -1707,6 +1707,14 @@ const FailoverRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
+/// The recap's ×: the client drops its row (direct.ts dismissRecap), so no empty slot stays.
+const dismissRecap = (rowId: string) => void window.cmuxAcpmuxActions?.["chat.recap.dismiss"]?.({ rowId });
+const RecapRow = memo(
+  function RecapRow({ row }: RowProps) {
+    return row.recap ? <RecapNote recap={row.recap} onDismiss={() => dismissRecap(row.id)} /> : null;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
 const PolicyUnenforcedRow = memo(
   function PolicyUnenforcedRow({ row }: RowProps) {
     return row.policyUnenforced ? <PolicyUnenforcedNote note={row.policyUnenforced} /> : null;
@@ -1995,6 +2003,7 @@ const defaultRegistry: NativeRegistry = {
   backgroundTask: BackgroundTaskRow,
   compaction: CompactionRow,
   failover: FailoverRow,
+  recap: RecapRow,
   policyUnenforced: PolicyUnenforcedRow,
   agentPair: AgentPairRow,
   sessionStart: SessionStartRow,
@@ -2528,7 +2537,9 @@ function holdUnderStack(
   if (stack.line === undefined) {
     const still = rows.filter((each) => {
       const was = stack.drawn.get(each);
-      return was !== undefined && was - each.getBoundingClientRect().top < stack.from / 2;
+      // Opening moves the rows above up (`from` > 0), closing moves them down (`from` < 0): the rows
+      // that kept their place either way are the ones under the line.
+      return was !== undefined && Math.abs(was - each.getBoundingClientRect().top) < Math.abs(stack.from) / 2;
     });
     stack.line = still.length
       ? Math.min(...still.map((each) => each.getBoundingClientRect().top - hostTop))
@@ -3863,15 +3874,11 @@ export function VirtualTranscript({
   /// when the line was clicked. Closing a body at the transcript's end leaves that much room under
   /// the rows instead of letting the browser clamp the offset, which brought every row down by what
   /// closed (Leo, ask-a736047107: "WHEN I COLLAPSE IT JUMPS ME UP"). The room shrinks with the view's
-  /// end as the reader scrolls up unless this was a bottom tool collapse. Bottom room stays until
-  /// the rows grow into it again; a send or Jump to latest releases either kind.
+  /// end as the reader scrolls up; a send or Jump to latest releases it. A close at the very bottom
+  /// keeps none: it pins the bottom instead (`beginBottomStackFold`, Leo 2026-11-03).
   const [foldRoom, setFoldRoom] = useState(0);
   const foldRoomRef = useRef(0);
   foldRoomRef.current = foldRoom;
-  /// A bottom collapse keeps the end created by its open body. Unlike the transient room used to
-  /// hold a line clicked away from the end, this room remains while the reader scrolls up and back.
-  /// It is released only when the rows grow into it, or an explicit latest/send transition drops it.
-  const stickyFoldRoom = useRef<{ shrunk: boolean } | undefined>(undefined);
   /// The content's end without that room, as of the last render.
   const rowsEndRef = useRef(0);
   /// Shrinks the kept room to the view's end at `node`'s offset, and lets it go once nothing holds
@@ -3879,7 +3886,6 @@ export function VirtualTranscript({
   /// Lets the kept room go: a send or Jump to latest heads for the rows' own end. `now` commits it
   /// before the caller reads the layout (Jump to latest's target).
   const dropFoldRoom = useCallback((now = false) => {
-    stickyFoldRoom.current = undefined;
     if (!foldRoomRef.current) return;
     foldRoomRef.current = 0;
     if (now) flushSync(() => setFoldRoom(0));
@@ -3890,20 +3896,6 @@ export function VirtualTranscript({
   const trimFoldRoom = useCallback((node: HTMLElement) => {
     const kept = foldRoomRef.current;
     if (!kept) return;
-    // A tool body opened at the end gives the transcript a larger physical end. Keep that end when
-    // its body closes, including through an upward scroll and a return to the latest row. The room
-    // is still released once the rows themselves grow back to it.
-    if (stickyFoldRoom.current) {
-      // A wheel can release the clicked-line anchor before the collapse's first measurement.
-      // Only growth after an observed shrink may consume this room.
-      if (rowsEndRef.current < kept - 0.5) stickyFoldRoom.current.shrunk = true;
-      if (stickyFoldRoom.current.shrunk && !foldHolding(foldAnchor.current) && rowsEndRef.current >= kept - 0.5) {
-        stickyFoldRoom.current = undefined;
-        foldRoomRef.current = 0;
-        setFoldRoom(0);
-      }
-      return;
-    }
     const holding = foldHolding(foldAnchor.current);
     // A view that follows the latest row again (the reader scrolled back to it) ends at the rows.
     if (followingRef.current && !holding) {
@@ -5444,22 +5436,11 @@ export function VirtualTranscript({
       foldRoomRef.current = end;
       setFoldRoom(end);
     };
-    const keepBottomFoldRoom = () => {
-      if (!node) return;
-      const end = foldRoomFor(node.scrollTop, node.clientHeight, foldRoomRef.current);
-      stickyFoldRoom.current = { shrunk: rowsEndRef.current < end - 0.5 };
-      if (end === foldRoomRef.current) return;
-      foldRoomRef.current = end;
-      setFoldRoom(end);
-    };
     const beginBottomStackFold = (toggle: HTMLElement, line: HTMLElement): boolean => {
-      // Tool/work disclosures, and any line that opens (Leo, 2026-11-02: "YOU EXPAND UP WHILE YOUR
-      // SCCROLL IS AT THE VERY BOTTOM ... JUST THAT CASE"): a thought, the edits card, a cut row.
-      // Closing other controls (Show less) keeps its established row anchor and the room it needs.
-      if (!toggle.matches(".cv-tool.is-toggle, .cv-worked, .cv-subagents") && !opensBody(toggle)) {
-        stopBottomStackFold();
-        return false;
-      }
+      // At the very bottom every disclosure pins the bottom, opening or closing (Leo, 2026-11-02:
+      // "YOU EXPAND UP WHILE YOUR SCCROLL IS AT THE VERY BOTTOM ... JUST THAT CASE"; 2026-11-03:
+      // "it's weird to collapse and get all that empty space at the bottom"). What opens pushes the
+      // text above it up; what closes pulls it down. No blank room is left under the rows.
       if (!atFoldBottom(node.scrollTop, node.clientHeight, node.scrollHeight, FOLLOW_BOTTOM_DEADBAND_PX)) {
         stopBottomStackFold();
         return false;
@@ -5469,15 +5450,9 @@ export function VirtualTranscript({
       stopBottomStackFold();
       followGlide.current?.stop();
       stopJump();
-      // A closing tool keeps its expanded extent and clicked line rather than sliding down.
-      if (toggle.matches(".cv-tool.is-toggle") && toggle.getAttribute("aria-expanded") === "true") {
-        keepBottomFoldRoom();
-        return false;
-      }
-      // Reopening at the physical bottom consumes any room retained by a prior collapse. The
-      // expanded body itself supplies the height; keeping the old blank room would add a second,
-      // jarring gap while the stack moves up.
-      if (!stickyFoldRoom.current || opensBody(toggle)) dropFoldRoom();
+      // The body itself supplies the height: any room kept by an older collapse goes, so neither
+      // a second gap opens nor one stays after the close.
+      dropFoldRoom();
       const drawn = new Map<Element, number>();
       for (const each of thread.current?.children ?? []) drawn.set(each, each.getBoundingClientRect().top);
       const stack: BottomStackFold = {
@@ -6490,7 +6465,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const artifactRows = artifact ? snapshot.rows : undefined;
   const artifactRowsRef = useRef(snapshot.rows);
   artifactRowsRef.current = snapshot.rows;
-  const artifactLive = useRef<ArtifactLiveSource | undefined>(undefined);
+  const artifactLive = useRef<ReturnType<typeof artifactLiveSource>>(undefined);
   if (!artifact) {
     artifactLive.current?.dispose();
     artifactLive.current = undefined;
@@ -6499,7 +6474,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // A pinned preview from another chat does not follow this chat's rows.
   const liveDocument = useMemo(
     () =>
-      artifact?.identity && artifactRows && artifact.sessionId === snapshot.sessionId
+      (artifact?.identity || artifact?.path) && artifactRows && artifact.sessionId === snapshot.sessionId
         ? artifactLive.current?.read(artifactRows)
         : undefined,
     [artifact, artifactRows, snapshot.sessionId],
@@ -6535,7 +6510,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const openArtifact = useCallback(
     (next: Artifact) => {
       artifactLive.current?.dispose();
-      artifactLive.current = next.identity ? new ArtifactLiveSource(next, artifactRowsRef.current) : undefined;
+      artifactLive.current = artifactLiveSource(next, artifactRowsRef.current);
       setArtifact((current) => ({
         ...next,
         sessionId: artifactSession,
@@ -11668,6 +11643,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               taken.flatMap((failed) => failed.attachments),
             );
           },
+          "chat.recap.dismiss": async ({ rowId }) => client.dismissRecap(String(rowId)),
           "chat.removeFailedPrompt": async ({ rowId, rowIds }) => {
             for (const id of failedRowIds(rowId, rowIds)) client.removeFailedPrompt(id);
           },

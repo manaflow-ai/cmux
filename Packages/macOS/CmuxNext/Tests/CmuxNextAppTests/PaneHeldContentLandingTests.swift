@@ -10,7 +10,7 @@ import Testing
 
 /// FRAME OWNER REFACTOR S3a (D1), the release of a spring's held content: a pane whose content keeps the larger of its
 /// start and final size through a split, close or zoom spring (the provider's `holdsContentInMotion`, true for agent
-/// panes; `motion.pane.holdContent` for a host made without a provider). A landing frame that only moves the host (its
+/// panes; the host's injected rule for a host made without a provider). A landing frame that only moves the host (its
 /// size came to rest a frame before its origin) sets the held content to its rest size in that frame, and nothing laid
 /// the content out before it heard the spring land (`PaneHostView.releaseHeldContent`): a terminal in it let its
 /// surface hold go from its stale host, took its start size again and sent its start grid, and the next layout pass
