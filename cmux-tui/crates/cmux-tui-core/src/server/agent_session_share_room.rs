@@ -1194,8 +1194,16 @@ fn answer(mux: &Mux, share_id: &str, frame: &Value, ready: &mut bool) -> Vec<Val
             shares(mux).settle(mux);
             let request_id = frame.get("request_id").unwrap_or(&Value::Null);
             match redeemed {
-                Ok(guest) => vec![json!({"v": 1, "t": "redeemed", "request_id": request_id,
-                    "guest_id": guest.get("guest_id")})],
+                Ok(guest) => {
+                    let mut answer = json!({"v": 1, "t": "redeemed", "request_id": request_id,
+                        "guest_id": guest.get("guest_id")});
+                    // An invitee's role, so a view invitee's page has no composer; nothing else
+                    // about the account reaches the room. A link guest's answer has no role.
+                    if let Some(role) = guest.get("role") {
+                        answer["role"] = role.clone();
+                    }
+                    vec![answer]
+                }
                 // Only the refusals a guest may see reach the room (and the guest page); any
                 // other (storage, provisioning, an unknown share) is `share.unavailable`.
                 Err(code) => {

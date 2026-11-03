@@ -527,6 +527,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   // them (install, the webview and bundle builds, the gallery; gen-feature-tips.mjs).
   const { writeFeatureTips } = await import("./gen-feature-tips.mjs");
   const tipsFailed = writeFeatureTips({ check });
+  // The design scale's Tailwind theme and token list are build output too (gen-design-scale.mjs).
+  const { writeDesignScale } = await import("./gen-design-scale.mjs");
+  const scaleFailed = writeDesignScale({ check, log: () => {} });
   const bestEffort = process.argv.includes("--best-effort") || (!check && process.env.CMUX_STRINGS_BEST_EFFORT === "1");
   const failed = writeStrings({
     check,
@@ -534,5 +537,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     ifStale: process.argv.includes("--if-stale"),
     only: process.argv.slice(2).filter((arg) => !arg.startsWith("--")),
   });
-  process.exit((failed && !bestEffort) || tipsFailed ? 1 : 0);
+  process.exit((failed && !bestEffort) || tipsFailed || scaleFailed ? 1 : 0);
 }

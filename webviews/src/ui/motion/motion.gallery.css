@@ -1,0 +1,162 @@
+/* Gallery stages for ui/motion (MotionDemos.tsx). Not shipped. */
+.motion-demo-stage {
+  display: grid;
+  align-content: start;
+  justify-items: start;
+  gap: 16px;
+  padding: 24px;
+  color: var(--cmux-text, CanvasText);
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+}
+
+.motion-demo-tabs,
+.motion-demo-segmented {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, CanvasText 6%, transparent);
+}
+
+.motion-demo-segmented {
+  border-radius: 8px;
+}
+
+.motion-demo-tab,
+.motion-demo-segment {
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
+  font: inherit;
+}
+
+.motion-demo-segment {
+  height: 24px;
+  border-radius: 6px;
+}
+
+.motion-demo-tabs--chunky .motion-demo-tab {
+  height: 32px;
+  padding: 0 16px;
+  font-weight: 600;
+}
+
+.motion-demo-tab[aria-selected="true"],
+.motion-demo-segment[aria-pressed="true"] {
+  color: var(--cmux-text, CanvasText);
+}
+
+/* "today": no indicator, each item fills itself at once (the pressed plate). */
+[data-today] > .motion-demo-tab[aria-selected="true"],
+[data-today] > .motion-demo-segment[aria-pressed="true"] {
+  background: color-mix(in srgb, CanvasText 10%, transparent);
+}
+
+.motion-demo-receipt {
+  color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
+  font-size: var(--text-detail);
+}
+
+.motion-demo-panel {
+  width: min(100%, 420px);
+}
+
+.motion-demo-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.motion-demo-card {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 0;
+  border-radius: 12px;
+  background: color-mix(in srgb, CanvasText 8%, transparent);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.motion-demo-card span {
+  color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
+  font-size: var(--text-detail);
+}
+
+.motion-demo-card strong {
+  font-size: var(--text-title);
+  font-variant-numeric: tabular-nums;
+}
+
+.motion-demo-rows {
+  display: grid;
+  gap: 4px;
+  width: min(100%, 320px);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.motion-demo-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 28px;
+  padding: 0 4px 0 8px;
+}
+
+.motion-demo-more {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+}
+
+/* Hover timing arms. "scale" is the primitives' own (80 fill, reveal in 120 / out 80). */
+[data-hover-timing="blink"] :is(.ui-hover-fill, .ui-reveal) {
+  transition: none;
+}
+[data-hover-timing="slow"] :is(.ui-hover-fill, .ui-reveal) {
+  transition-duration: var(--cmux-motion-standard, 180ms);
+}
+[data-hover-timing="slow"] .ui-reveal-host:hover .ui-reveal {
+  transition-duration: var(--cmux-motion-standard, 180ms);
+}
+[data-hover-timing="press-dip"] .ui-hover-fill:active {
+  opacity: 0.6;
+  scale: 0.94;
+}
+
+.motion-demo-depth {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 7;
+  margin: 24px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: color-mix(in srgb, CanvasText 4%, Canvas);
+  color: var(--cmux-text, CanvasText);
+  font-family: var(--font-ui);
+}
+
+.motion-demo-depth-content {
+  position: relative;
+  z-index: var(--layer-raised);
+  display: grid;
+  gap: 4px;
+  text-align: center;
+}
+
+.motion-demo-depth-content strong {
+  font-size: var(--text-heading);
+  font-weight: 600;
+}

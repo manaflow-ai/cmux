@@ -402,7 +402,7 @@ final class WindowManager {
         // A window none of whose workspaces is mirrored yet stays off screen
         // until `contentDidAppear` (never an empty frame). The launch window
         // (no workspaces) shows the connecting state at once.
-        if controller.content != nil || hasMirroredWorkspace(window) || window.workspaceIDs.isEmpty {
+        if controller.content != nil || controller.root.content is CloudMachineProgressView || hasMirroredWorkspace(window) || window.workspaceIDs.isEmpty {
             present(controller)
         } else {
             awaitingContent[window.id] = false
@@ -440,7 +440,7 @@ final class WindowManager {
     }
 
     /// Orders a new window in without taking focus under no-activate.
-    private func present(_ controller: WindowController) {
+    func present(_ controller: WindowController) {
         // Tests: never on the user's display. Otherwise one rule: under
         // no-activate behind the others (in front on a test screen), never key.
         let behind = behindWindows.remove(controller.state.id) != nil
