@@ -523,3 +523,66 @@ fn registry_identity_does_not_wait_on_the_registry_lock() {
     drop(held);
     assert_eq!(read.ok(), Some(expected), "the identity waited on the held registry lock");
 }
+
+/// A workspace create states only what it changes in the journal (#32408). Each create restated every workspace
+/// (an upsert of each, with its index and focus), so its journal record and its WAL bytes grew with the session:
+/// 542 KB per create at 50 workspaces, 3434 KB at 500, in the classic import. A create at the end changes the new
+/// workspace and, when it takes the focus, the one that loses it. The journal, folded from the start, still states
+/// every workspace exactly as the session snapshot shows it.
+#[test]
+fn a_workspace_create_journals_only_the_workspaces_it_changes() {
+    let mux = test_mux();
+    for index in 0..40 {
+        let key = format!("018f6e21-7b70-7e70-8000-{index:012}");
+        mux.create_empty_workspace(Some(format!("ws {index}")), Some(key), None).unwrap();
+    }
+    let before = mux.with_state(|state| state.resource_revision);
+    let key = "018f6e21-7b70-7e70-8000-000000009999".to_string();
+    mux.create_empty_workspace(Some("last".into()), Some(key), None).unwrap();
+    let batches = mux.resource_events_after(before).unwrap().batches;
+    let upserted = batches
+        .iter()
+        .flat_map(|batch| batch.changes.as_array().cloned().unwrap_or_default())
+        .filter(|change| change["resource"] == "workspace" && change["kind"] == "upsert")
+        .count();
+    assert!(
+        (1..=2).contains(&upserted),
+        "one create at 40 workspaces journaled {upserted} workspace upserts (the new one, and the one losing focus)"
+    );
+
+    // The journal still states the whole session: fold every workspace change from the start.
+    let mut stated = std::collections::BTreeMap::<String, serde_json::Value>::new();
+    for batch in mux.resource_events_after(0).unwrap().batches {
+        for change in batch.changes.as_array().cloned().unwrap_or_default() {
+            if change["resource"] != "workspace" {
+                continue;
+            }
+            let id = change["id"].as_str().unwrap().to_string();
+            if change["kind"] == "delete" {
+                stated.remove(&id);
+            } else if change["kind"] == "upsert" {
+                stated.insert(id, change["value"].clone());
+            }
+        }
+    }
+    let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+    let live = snapshot["workspaces"].as_array().unwrap();
+    assert_eq!(
+        stated.len(),
+        live.len(),
+        "the journal states {} workspaces, the session has {}",
+        stated.len(),
+        live.len()
+    );
+    for workspace in live {
+        let id = workspace["id"].as_str().unwrap();
+        let journal = &stated[id];
+        for field in ["name", "index", "focused"] {
+            assert_eq!(
+                journal[field], workspace[field],
+                "workspace {id}: the journal states {field} {} but the session has {}",
+                journal[field], workspace[field]
+            );
+        }
+    }
+}
