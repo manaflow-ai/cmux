@@ -152,6 +152,7 @@ mod mcp_calls;
 mod mcp_connect;
 mod mcp_oauth;
 pub(crate) mod mcp_probe;
+mod mcp_resolver;
 pub(crate) mod mcp_secrets;
 pub(crate) mod mcp_store;
 mod meta_save;
