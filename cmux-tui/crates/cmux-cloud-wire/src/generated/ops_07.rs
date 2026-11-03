@@ -5,6 +5,77 @@
 use super::*;
 
 wire_errors! {
+    /// The error codes integration.connect declares.
+    IntegrationConnectError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        IntegrationLimit = "integration.limit",
+        IntegrationNotConfigured = "integration.not_configured",
+        PolicyDenied = "policy.denied",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// List the team's connections the caller may use (no secrets) and which providers this deployment can connect.
+    IntegrationListOp {
+        name: "integration.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:ConnectionDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: IntegrationListParams,
+        result: IntegrationListResult,
+        error: IntegrationListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationListParams {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationListResultProvidersItem {
+    pub provider: IntegrationProvider,
+    pub configured: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationListResult {
+    pub connections: Vec<Connection>,
+    pub providers: Vec<IntegrationListResultProvidersItem>,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes integration.list declares.
+    IntegrationListError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Read the team's integration policy (allowed providers, GitHub repository scope).
+    IntegrationPolicyGetOp {
+        name: "integration.policy.get",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:ConnectionDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: IntegrationPolicyGetParams,
+        result: TeamIntegrationPolicy,
+        error: IntegrationPolicyGetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationPolicyGetParams {}
+
+wire_errors! {
     /// The error codes integration.policy.get declares.
     IntegrationPolicyGetError {
         AuthForbidden = "auth.forbidden",
@@ -827,71 +898,5 @@ wire_enum! {
     MuxConfigureParamsBrain {
         Local = "local",
         Cloud = "cloud",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct MuxConfigureParams {
-    pub agent: AgentId,
-    pub brain: MuxConfigureParamsBrain,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub brain_host: Option<Option<String>>,
-}
-
-wire_errors! {
-    /// The error codes mux.configure declares.
-    MuxConfigureError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidParams = "invalid_params",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// List the caller-owned private Cloud networks.
-    NetworkListOp {
-        name: "network.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:UserDO",
-        risk: "read",
-        principals: [Session],
-        params: NetworkListParams,
-        result: NetworkListResult,
-        error: NetworkListError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct NetworkListParams {}
-
-wire_enum! {
-    NetworkListResultNetworksItemScope {
-        User = "user",
-        Team = "team",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct NetworkListResultNetworksItem {
-    pub id: String,
-    pub cidr: Option<String>,
-    #[serde(rename = "cidrV6")]
-    pub cidr_v6: Option<String>,
-    pub scope: NetworkListResultNetworksItemScope,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct NetworkListResult {
-    pub networks: Vec<NetworkListResultNetworksItem>,
-}
-
-wire_errors! {
-    /// The error codes network.list declares.
-    NetworkListError {
-        AuthUnauthenticated = "auth.unauthenticated",
     }
 }

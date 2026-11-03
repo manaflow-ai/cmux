@@ -540,15 +540,21 @@ button.cv-subagent > :last-child {
   overflow: hidden;
   white-space: nowrap;
 }
-/* The time keeps its own fixed box, its digits against the state word: a tick never changes its
-   width or moves the word. */
+/* The time ends the cluster, after the state word and its dot ("Done · 36s"): it sizes to its
+   tabular digits and its right edge never moves, so a tick moves nothing but a new digit. It never
+   cuts; the state word gives way first. */
 .acpmux-running-tray .acpmux-agent-line__time {
   box-sizing: border-box;
   flex: none;
-  width: var(--acpmux-tray-time-width);
+  max-width: var(--acpmux-tray-time-width);
   overflow: hidden;
   text-align: right;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-running-tray .acpmux-agent-line__sep {
+  flex: none;
+  color: var(--agent-muted);
 }
 .acpmux-running-tray .acpmux-agent-line__meta {
   flex: 0 1 auto;
@@ -605,10 +611,40 @@ button.cv-subagent > :last-child {
   box-shadow: none;
 }
 .acpmux-running-tray[data-settled][data-card][data-surface="tint"] {
-  background: color-mix(in srgb, var(--agent-text) 5%, transparent);
+  --acpmux-tray-fill: color-mix(in srgb, var(--agent-text) 5%, transparent);
 }
 .acpmux-running-tray[data-settled][data-card][data-surface="rim"] {
-  background: color-mix(in srgb, var(--agent-text) 2%, transparent);
+  --acpmux-tray-fill: color-mix(in srgb, var(--agent-text) 2%, transparent);
+}
+/* A card over the composer is the composer's own glass (composerStates.css: the composer surface at
+   70%, or 50% over a see-through window, frosted) with the tray's tint over it, so the transcript
+   never shows through its lines: the reply's footer icons read through a settled line that drew no
+   surface (Leo, 2026-11-02: "this running thing now looks mildly awkward"). It stays glass, never
+   opaque; Reduce Transparency gives it the composer's solid fill, as the card. */
+.acpmux-running-tray[data-card] {
+  --acpmux-tray-glass: color-mix(in srgb, var(--acpmux-composer-solid) 70%, transparent);
+  --acpmux-tray-frost: blur(24px) saturate(1.25);
+  background:
+    linear-gradient(var(--acpmux-tray-fill, color-mix(in srgb, var(--agent-text) 8%, transparent)), var(--acpmux-tray-fill, color-mix(in srgb, var(--agent-text) 8%, transparent))),
+    var(--acpmux-tray-glass);
+  -webkit-backdrop-filter: var(--acpmux-tray-frost);
+  backdrop-filter: var(--acpmux-tray-frost);
+}
+:root[data-cmux-see-through] .acpmux-running-tray[data-card] {
+  --acpmux-tray-glass: color-mix(in srgb, var(--acpmux-composer-solid) 50%, transparent);
+  --acpmux-tray-frost: var(--surface-blur);
+}
+:root[data-reduce-transparency] .acpmux-running-tray[data-card] {
+  /* glass-opaque-allow: the Reduce Transparency fill only, as the composer card's */
+  --acpmux-tray-glass: var(--acpmux-composer-solid);
+  --acpmux-tray-frost: none;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-running-tray[data-card] {
+    /* glass-opaque-allow: the Reduce Transparency fill only, as the composer card's */
+    --acpmux-tray-glass: var(--acpmux-composer-solid);
+    --acpmux-tray-frost: none;
+  }
 }
 /* The header's mark is off by default (trayHead.experiment.ts `bare`, Leo, 2026-11-01: "why did you
    guys not remove the 3/4"): its slot stays, unseen, so the counts keep the text column. */
@@ -624,6 +660,13 @@ button.cv-subagent > :last-child {
   /* Its counts change in place (trayMotion.tsx `Tick` steadyCounts): every digit one width, so a
      count ticking over moves nothing after it but a new digit (Leo, 2026-10-31: "jolting every time
      there's a new subagent or command"). */
+  font-variant-numeric: tabular-nums;
+}
+/* Folded, the header names what runs (trayFoldHead.experiment.ts); the rest are a count that, like
+   the time, never truncates: the names give way first. */
+.acpmux-running-tray__more {
+  flex: none;
+  white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 .acpmux-running-tray__time {
@@ -810,6 +853,26 @@ button.cv-subagent > :last-child {
   border-radius: 0;
   background: none;
 }
+/* A running line's Stop is the filled rounded square of Claude Desktop's running rows, now that the
+   line draws no spinner and no "Running" word (Leo, 2026-11-03: "do we really need a running symbol
+   vs just having the time and a square stop button?"). Its tone is trayStopLook's arm
+   (trayPanel.experiment.ts): the text colour by default, muted like the time, or on a faint box. Its
+   track, size and centre stay the composer Stop's; a refused stop keeps the danger colour. */
+.acpmux-running-tray[data-stop="solid"] :is(.cv-subagent__stop, .acpmux-session-info-stop):not([data-state="failed"]) {
+  color: var(--agent-text);
+}
+.acpmux-running-tray[data-stop="muted"] :is(.cv-subagent__stop, .acpmux-session-info-stop):not([data-state="failed"]) {
+  color: var(--agent-muted);
+}
+.acpmux-running-tray[data-stop="muted"] :is(.cv-subagent__stop, .acpmux-session-info-stop):not([data-state="failed"]):hover {
+  color: var(--agent-text);
+}
+.acpmux-running-tray[data-stop="boxed"] :is(.cv-subagent__stop, .acpmux-session-info-stop) > svg {
+  box-sizing: content-box;
+  padding: var(--ds-space-1);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+}
 /* A line whose context menu is open (its Stop) stays lit while the pointer is in the menu. */
 .acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__button:enabled):hover,
 .acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__button[data-popup-open]),
@@ -959,9 +1022,31 @@ button.cv-subagent > :last-child {
   flex: none;
   margin-inline-start: auto;
 }
+/* The name chip takes the room the line has and is cut, with an ellipsis, only at the row's edge,
+   never at AgentTag.css's 40% cap (#29754); the words before it keep their width. A block box so
+   text-overflow draws the ellipsis; the 20px line keeps it one line. */
+.cv-subagent-done .cv-agent-activity__sentence > .cv-agent-tag {
+  display: block;
+  flex: 0 1 auto;
+  max-width: none;
+}
+/* What follows the name (why it stopped, why it failed) is cut first, the chip only once it is gone
+   (SubagentDoneLine.tsx: "the line cuts it first"). */
+.cv-subagent-done .cv-agent-activity__sentence > .cv-subagent-done__suffix {
+  flex: 0 1000 auto;
+}
 .cv-subagent-done-row > .cv-tool__chevron {
   flex: none;
   pointer-events: none;
+}
+/* In the transcript its mark follows the line's words, before the hover buttons; the time stays at
+   the line's end (conversation.css "chevron right after its words"). It opens a chat, not a fold,
+   so it keeps pointing right. */
+.acpmux-row .cv-subagent-done-row > .cv-subagent-done__chevron {
+  order: 1;
+}
+.acpmux-row .cv-subagent-done-row > .cv-subagent-done__note {
+  order: 2;
 }
 .cv-subagent-done-row > .cv-tool__chevron.is-idle {
   visibility: hidden;
@@ -1130,4 +1215,41 @@ button.cv-subagent > :last-child {
   color: var(--agent-muted);
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
+}
+
+/* The header's panel button (trayOpen.experiment.ts): its own button over the header's open slot, in
+   the lines' Stop column right before the chevron, centred on the header's row. Its hover lights the
+   button alone, never the header (Leo, 2026-10-27: a highlight covers only its control). */
+.acpmux-running-tray[data-opens="button"] {
+  position: relative;
+}
+.acpmux-running-tray__open-slot {
+  flex: 0 0 var(--acpmux-tray-stop-width);
+  width: var(--acpmux-tray-stop-width);
+}
+.acpmux-running-tray__open {
+  position: absolute;
+  top: 0;
+  right: calc(var(--acpmux-tray-inset) + var(--acpmux-tray-chevron-width) + var(--acpmux-tray-gap));
+  box-sizing: border-box;
+  width: var(--acpmux-tray-stop-width);
+  height: var(--ui-row-height, 28px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ds-radius-control, 6px);
+  background: transparent;
+  color: var(--agent-muted);
+  cursor: default;
+}
+.acpmux-running-tray__open:hover {
+  background: color-mix(in srgb, var(--agent-text) 7%, transparent);
+  color: var(--agent-text);
+}
+.acpmux-running-tray__open:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: -2px;
 }

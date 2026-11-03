@@ -36,7 +36,8 @@ import Testing
             approve: { request, _, _ in
                 if calls.closedElsewhere {
                     calls.pending = !calls.answersAfterClose
-                    throw CloudApprovalAnswer.Failure.mismatch(request: request, reason: CloudApprovalAnswer.closedItem)
+                    // What CloudApprovalAnswer answers when the create's own team's item is closed.
+                    throw CloudApprovalAnswer.Failure.answered(request: request)
                 }
                 calls.approved.append(request); calls.pending = false
             },

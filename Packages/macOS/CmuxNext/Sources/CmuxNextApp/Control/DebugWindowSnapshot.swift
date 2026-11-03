@@ -130,7 +130,7 @@ enum DebugWindowSnapshot {
             // overlay panels painted on top at the end.
             let together = window.compositedSnapshotWithOverlays()
             let base = try together.map { (image: $0.image, method: WindowSnapshotMethod.composited) }
-                ?? (webViews.isEmpty ? appKitBaseImage(for: window) : nativeBaseImage(for: window, hiding: webViews))
+                ?? window.renderSnapshot(hiding: webViews)
             // The overlays cut from the composite now, before the page images' awaits: a popover
             // that opened meanwhile is not in the composite, and its cut would be the window under it.
             let overlays = base.method == .composited
@@ -167,7 +167,8 @@ enum DebugWindowSnapshot {
                     // page, the whole New Tab page) show the window there, as
                     // on screen.
                     let holes = page.pageWindowHoles.map { page.contentView.convert($0, to: nil) }
-                    layers.append(.page(try await page.snapshot(), rect, holes: holes))
+                    let clip = WindowImageClip(page.pageWindowClip)
+                    layers.append(.page(try await page.snapshot(), rect, holes: holes, clip: clip))
                 } catch {
                     pagesFailed += 1
                 }
@@ -176,7 +177,7 @@ enum DebugWindowSnapshot {
             let reactPages = PageRegistry.shownChromiumPages(in: window)
             for (page, rect) in reactPages {
                 guard let image = await page.chromiumImage() else { pagesFailed += 1; continue }
-                layers.append(.page(image, rect, holes: page.chromiumWindowHoles)) // a chat leaves its pane's tabs uncovered
+                layers.append(.page(image, rect, holes: page.chromiumWindowHoles, clip: WindowImageClip(page.chromiumWindowClip))) // a chat leaves its pane's tabs uncovered
             }
             var floatingCount = together?.floating ?? 0
             if base.method == .composited {
@@ -262,27 +263,6 @@ enum DebugWindowSnapshot {
             result.append((page, rect))
         }
         return result
-    }
-
-    private static func appKitBaseImage(for window: NSWindow) throws -> (image: CGImage, method: WindowSnapshotMethod) {
-        guard let rep = window.renderSnapshot(), let image = rep.cgImage else { throw CocoaError(.fileWriteUnknown) }
-        return (image, .appkit)
-    }
-
-    private static func nativeBaseImage(for window: NSWindow, hiding webViews: [WKWebView]) throws -> (image: CGImage, method: WindowSnapshotMethod) {
-        let states = webViews.map { ($0, $0.isHidden, $0.layer?.isHidden ?? false) }
-        for (webView, _, _) in states {
-            webView.isHidden = true
-            webView.layer?.isHidden = true
-        }
-        defer {
-            for (webView, isHidden, layerHidden) in states {
-                webView.isHidden = isHidden
-                webView.layer?.isHidden = layerHidden
-            }
-        }
-        window.contentView?.displayIfNeeded()
-        return try appKitBaseImage(for: window)
     }
 
     /// The web views of `window` that are on screen: the ones the snapshot

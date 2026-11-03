@@ -100,6 +100,8 @@ import Foundation
             return ProvisionalWorkspaceOverlay.apply(provisional, index: index, to: store)
         case .closeTabs(let surfaces):
             return TabCloseOverlay(store: store).apply(surfaces)
+        case .dockTab(let surface, let pane, let provisional, let dock, let standIn):
+            return ProvisionalDock.apply(surface: surface, from: pane, provisional: provisional, dock: dock, standIn: standIn, to: store)
         case .splitPane(let target, let direction, let ratio, let provisional):
             return ProvisionalSplit.apply(target: target, direction: direction, ratio: ratio,
                                           provisional: provisional, to: store)
@@ -218,6 +220,8 @@ import Foundation
             CancelledCreation.unhide(.hiddenTab(hidden), in: store)
         case .splitPane(let screen, let layout, let columns, let pane):
             ProvisionalSplit.undo(screen: screen, layout: layout, columns: columns, pane: pane, in: store)
+        case .dockTab(let dock):
+            ProvisionalDock.undo(dock, in: store)
         case .createdWorkspace(let key, let inserted):
             ProvisionalWorkspaceOverlay.undo(key: key, inserted: inserted, in: store)
         case .createdTab(let surface, let pane):

@@ -318,6 +318,7 @@ test("an opened script shows highlighted JavaScript, its calls and a structured 
   expect(details.textContent).not.toContain("mcp__cmux__cmux_exec");
   const raw = details.querySelector(".cv-cmux-exec__raw button")!;
   expect(raw.textContent).toContain("Raw");
+  expect(raw.querySelector(".cv-tool__icon svg[aria-hidden=true]")).not.toBeNull();
   await click(raw);
   expect(details.querySelector(".cv-mcp-call__name")?.textContent).toBe("mcp__cmux__cmux_exec");
 });

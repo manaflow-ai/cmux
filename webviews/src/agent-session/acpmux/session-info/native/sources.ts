@@ -12,6 +12,7 @@ const SYMBOLS: Record<SummarySourceKind, string> = {
   pullRequest: "arrow.triangle.pull",
   issue: "arrow.triangle.pull",
   url: "link",
+  image: "photo",
 };
 
 export type SourcesInput = {
@@ -42,9 +43,9 @@ export function sourcesSection(
     const path = source.kind === "file" ? scopedPath(source.label, cwd) : undefined;
     const failure = path ? input.failures?.[path] : undefined;
     const row: NativeInfoRow = {
-      id: `${source.kind}:${source.url ?? source.label}`,
+      id: source.image ? `image:${source.image.id}` : `${source.kind}:${source.url ?? source.label}`,
       symbol: SYMBOLS[source.kind ?? "url"],
-      title: source.label,
+      title: source.label || t("image.viewer"),
       ...(failure ? { subtitle: failure, tone: "failed" as const, help: failure } : {}),
     };
     if (path && onOpenFile && !failure)

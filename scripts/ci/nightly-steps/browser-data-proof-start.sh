@@ -10,6 +10,12 @@
 # lost and nothing polls. The proof scans the whole bundle, the cmux-tui client
 # build-nightly-app installs in Contents/Resources/bin included: the client carries only
 # browser ids and names (#26120).
+#
+# The step's notes, moved from nightly.yml: in build-nightly-app it scans the bundle just
+# archived (the bundle prepare restores) beside the uploads: it took 74-77 s after packaging
+# on prepare's critical path (runs 41416268105, 41413478144). The finish step gates the job,
+# so prepare and signing never see an unproven app; prepare scans only when this job did not
+# prove it.
 set -euo pipefail
 state="$RUNNER_TEMP/browser-data-proof"
 rm -rf "$state"

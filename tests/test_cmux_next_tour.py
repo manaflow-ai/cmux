@@ -409,6 +409,18 @@ class AppWindowCaptureTests(unittest.TestCase):
                 with self.assertRaisesRegex(tour.TourError, "`rpc` must be"):
                     tour.load_tour(self.tour)
 
+    def test_env_sets_cmux_next_launch_variables_with_the_checkout_path(self) -> None:
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        self.tour.write_text(json.dumps({"title": "Demo", "env": {"CMUX_NEXT_BROWSER_IMPORT_HOME": "{repo}/fixtures/home"},
+                                         "steps": [{"title": "Launch"}]}), encoding="utf-8")
+        self.assertEqual(tour.load_tour(self.tour)["env"], {"CMUX_NEXT_BROWSER_IMPORT_HOME": f"{ROOT}/fixtures/home"})
+        for env in ({"PATH": "/x"}, {"CMUX_NEXT_X": 1}, ["CMUX_NEXT_X"]):
+            with self.subTest(env=env):
+                self.tour.write_text(json.dumps({"title": "Demo", "env": env, "steps": [{"title": "Launch"}]}), encoding="utf-8")
+                with self.assertRaisesRegex(tour.TourError, "`env` maps"):
+                    tour.load_tour(self.tour)
+
     def test_display_must_be_true_or_false(self) -> None:
         self.tour.write_text(json.dumps({"title": "Demo", "steps": [
             {"title": "Launch", "display": "yes"},
@@ -670,6 +682,89 @@ class StopTests(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertTrue(all(process.poll() is not None for process in mine), done.stdout + done.stderr)
         self.assertIsNone(theirs.poll(), "another slot's app was ended")
+
+
+class FixtureCropTests(unittest.TestCase):
+    def setUp(self) -> None:
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        self.tour = tour
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.path = Path(self.temp.name) / "row.png"
+        self.geometry = {"capture": {"x": 10, "y": 20, "width": 120, "height": 40},
+                         "window": {"width": 800, "height": 600}, "scale": 2, "menuVisible": True}
+        self.snapshot = {"method": "composited", "floating_windows": 1}
+        self.size = (1600, 1200)
+        self.config = {"method": "debug.native_row_tools_fixture", "params": {"inspect": True},
+                       "scale": 2, "menu": True}
+        self.app = mock.Mock()
+        self.app.request.side_effect = self.request
+
+    @staticmethod
+    def write_png_header(path: Path, width: int, height: int) -> None:
+        path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR"
+                         + width.to_bytes(4, "big") + height.to_bytes(4, "big"))
+
+    def request(self, method: str, params: dict, **kwargs) -> dict:
+        if method == "debug.window_snapshot":
+            self.write_png_header(Path(params["path"]), *self.size)
+            return self.snapshot
+        self.assertEqual(params, {"inspect": True})
+        return self.geometry
+
+    def crop(self, argv: list[str], **kwargs) -> subprocess.CompletedProcess:
+        self.assertEqual(argv[:7], ["sips", "--cropToHeightWidth", "80", "240", "--cropOffset", "40", "20"])
+        self.write_png_header(Path(argv[-1]), 240, 80)
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    def test_crops_the_composited_menu_at_true_2x(self) -> None:
+        with mock.patch.object(self.tour.subprocess, "run", side_effect=self.crop) as crop:
+            self.assertIsNone(self.tour.capture_fixture(self.app, self.path, self.config))
+        crop.assert_called_once()
+        self.assertEqual(self.tour.png_size(self.path), (240, 80))
+        self.assertFalse(self.path.with_name("row-raw.png").exists())
+
+    def test_rejects_1x_without_upscaling(self) -> None:
+        self.size = (800, 600)
+        with mock.patch.object(self.tour.subprocess, "run") as crop:
+            self.assertIn("no upscaling", self.tour.capture_fixture(self.app, self.path, self.config))
+        crop.assert_not_called()
+        self.assertFalse(self.path.exists())
+
+    def test_rejects_missing_menu_or_appkit_fallback(self) -> None:
+        for fields in ({"floating_windows": 0}, {"method": "appkit"}):
+            with self.subTest(fields=fields):
+                self.snapshot = {"method": "composited", "floating_windows": 1, **fields}
+                self.assertIn("native menu overlay", self.tour.capture_fixture(self.app, self.path, self.config))
+                self.assertFalse(self.path.exists())
+
+    def test_rejects_fixture_that_did_not_open_its_menu(self) -> None:
+        self.geometry["menuVisible"] = False
+        self.assertIn("not visible", self.tour.capture_fixture(self.app, self.path, self.config))
+        self.assertFalse(self.path.exists())
+
+    def test_capture_failure_cannot_leave_a_passing_step(self) -> None:
+        step = {"title": "menu", "capture": self.config, "wait": 0}
+        with mock.patch.object(self.tour, "capture_fixture", return_value="no native menu overlay"):
+            result = self.tour.run_step(self.app, mock.Mock(), step, 1, self.path.parent)
+        self.assertEqual(result["status"], "failed")
+        self.assertNotIn("shot", result)
+
+    def test_rejects_geometry_outside_window_or_nonfinite(self) -> None:
+        for value in (790, -1, float("inf"), float("nan")):
+            with self.subTest(value=value):
+                self.geometry["capture"]["x"] = value
+                self.assertIsNotNone(self.tour.capture_fixture(self.app, self.path, self.config))
+                self.assertFalse(self.path.exists())
+
+    def test_verifies_cropped_pixel_dimensions(self) -> None:
+        def wrong_crop(argv, **kwargs):
+            self.write_png_header(Path(argv[-1]), 120, 40)
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        with mock.patch.object(self.tour.subprocess, "run", side_effect=wrong_crop):
+            self.assertIn("dimensions", self.tour.capture_fixture(self.app, self.path, self.config))
+        self.assertFalse(self.path.exists())
 
 
 class CheckedInToursTests(unittest.TestCase):

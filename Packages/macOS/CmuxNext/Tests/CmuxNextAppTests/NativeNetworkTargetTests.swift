@@ -21,6 +21,8 @@ import Testing
         #expect(target.scope == scope)
         #expect(target.origin == world.origin && target.project == NativeDeviceTestWorld.project)
         #expect(target.ipv4CIDR == "10.128.0.0/20")
+        // The platform's route, not a /v1/read of the op (TeamDO answers that "unknown read").
+        #expect(await world.targetPaths == [explicit ? "/v1/host/network/target?mesh=\(scope.mesh)" : "/v1/host/network/target"])
         #expect(await world.enrollments == 0)
         #expect(await world.binds == 0)
         let enrollment = try NativeDeviceEnrollment(scope: target.scope, identity: identity, paths: CloudPaths(root: root.appendingPathComponent("network")), native: world,
@@ -66,7 +68,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         let (scope, world, identity) = try await fixture(root: root)
         await world.refuseTarget(503)
-        await #expect(throws: NativeDeviceEnrollmentError.refused(503)) { try await identity.nativeNetworkTarget(team: scope.team) }
+        await #expect(throws: NativeDeviceEnrollmentError.refused(503, step: "host.network.target")) { try await identity.nativeNetworkTarget(team: scope.team) }
         #expect(await world.enrollments == 0)
         #expect(await world.auth.requestedTeams == [scope.team])
     }

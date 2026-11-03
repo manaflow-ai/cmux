@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR ea71b8ed99651392573e4ec7590d56149922c5fbc475e71de276e95ea743faa8. */
+/* cmux-tui mux protocol 12, IR dbb6d5bcff30c1db703c0ff175acb28f75d2bfe02a82ba6de26191fc52ec0976. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1005,6 +1005,19 @@ export type Screen = {
   "panes": Array<Pane>;
   "short_id"?: string;
   "zoomed_pane": (Id) | null;
+};
+
+export type SelectionPane = {
+  "active_tab": bigint;
+  "focused_at": bigint;
+  "id": Id;
+};
+
+export type SelectionScreen = {
+  "active": boolean;
+  "active_pane": Id;
+  "id": Id;
+  "panes": Array<SelectionPane>;
 };
 
 export type SendExpectAgent = {

@@ -153,6 +153,7 @@ use resource_store::{
     migrate_resource_tabs_to_multiview, repair_resources_at_open,
     resource_tabs_needs_multiview_normalization, validate_resource_invariants,
 };
+pub(crate) use resource_store::{load_resource_topology_scoped, load_topology_frame};
 pub use screen_store::{
     SavedScreenGroupRecord, SavedScreenMember, ScreenGroupRecord, ScreenPresentationRecord,
     ScreenPresentationState, new_saved_screen_group_id, new_screen_group_id,
@@ -794,7 +795,11 @@ pub struct FrontendProjection {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProjectionCommit {
     pub projection: FrontendProjection,
+    /// No change: a retry of a recorded mutation, or the stored body again.
     pub replayed: bool,
+    /// The commit added a `projection_mutations` ledger row (a new mutation,
+    /// changed or not), which journal maintenance bounds.
+    pub recorded: bool,
 }
 
 /// The sole durable writer for one session. The owning `Mux` serializes all
@@ -3079,63 +3084,12 @@ impl WorkspaceRegistry {
     }
 
     pub fn snapshot(&self) -> anyhow::Result<RegistrySnapshot> {
-        let revision = current_revision(&self.connection.get())?;
-        let resource_revision = current_resource_revision(&self.connection.get())?;
-        let max_numeric_id = self.connection.get().query_row(
-            "SELECT COALESCE(MAX(numeric_id), 0) FROM workspaces",
-            [],
-            |row| row.get::<_, i64>(0),
-        )?;
-        let next_numeric_id = u64::try_from(max_numeric_id)
-            .context("stored workspace id is negative")?
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("workspace id space exhausted"))?;
-        let db = self.connection.get();
-        let mut statement = db.prepare(
-            "SELECT w.numeric_id, w.workspace_key, w.name, w.group_key, rw.public_id,
-                    w.name_source, w.name_revision
-             FROM workspaces w
-             JOIN resource_workspaces rw ON rw.workspace_key = w.workspace_key
-             WHERE w.tombstoned = 0 AND rw.deleted_revision IS NULL
-             ORDER BY w.position ASC",
-        )?;
-        let workspaces = statement
-            .query_map([], |row| {
-                let id: i64 = row.get(0)?;
-                let provenance: (String, i64) = (row.get(5)?, row.get(6)?);
-                Ok((id, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, provenance))
-            })?
-            .map(|row| {
-                let (id, key, name, group_key, public_id, (source, revision)): (
-                    i64,
-                    String,
-                    String,
-                    String,
-                    String,
-                    (String, i64),
-                ) = row?;
-                let (name_source, name_revision) =
-                    workspace_name_store::stored_name_provenance(&source, revision)?;
-                Ok::<RegistryWorkspace, anyhow::Error>(RegistryWorkspace {
-                    id: u64::try_from(id).context("stored workspace id is negative")?,
-                    public_id: WorkspacePublicId::parse(public_id)?,
-                    key,
-                    name,
-                    name_source,
-                    name_revision,
-                    group_key,
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(RegistrySnapshot {
-            registry_id: self.registry_id.clone(),
-            generation: self.generation.clone(),
-            revision,
-            resource_revision,
-            session_id: self.session_id.clone(),
-            next_numeric_id,
-            workspaces,
-        })
+        registry_snapshot_in(
+            &self.connection.get(),
+            &self.registry_id,
+            &self.generation,
+            &self.session_id,
+        )
     }
 
     /// Read the resource cursor without materializing the workspace graph.
@@ -3670,18 +3624,20 @@ impl WorkspaceRegistry {
             }
             let mut stored: FrontendProjection = serde_json::from_str(&result_json)?;
             stored.projection = projection.clone();
-            return Ok(ProjectionCommit { projection: stored, replayed: true });
+            return Ok(ProjectionCommit { projection: stored, replayed: true, recorded: false });
         }
         let stored_now = tx
             .query_row(
-                "SELECT projection_revision, octet_length(payload) FROM frontend_projections
+                "SELECT projection_revision, octet_length(payload),
+                        schema_version = ?4 AND payload = ?5
+                 FROM frontend_projections
                  WHERE frontend = ?1 AND scope = ?2 AND subject_key = ?3",
-                params![frontend, scope, subject_key],
-                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+                params![frontend, scope, subject_key, i64::from(schema_version), &payload],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, bool>(2)?)),
             )
             .optional()?;
         let current = stored_now
-            .map(|(revision, _)| u64::try_from(revision))
+            .map(|(revision, _, _)| u64::try_from(revision))
             .transpose()
             .context("projection revision is negative")?
             .unwrap_or(0);
@@ -3690,29 +3646,43 @@ impl WorkspaceRegistry {
         {
             anyhow::bail!("projection revision conflict: expected {expected}, current {current}");
         }
-        let previous_bytes = stored_now.and_then(|(_, bytes)| usize::try_from(bytes).ok());
-        note_projection_size(frontend, scope, subject_key, previous_bytes, payload.len());
-        let projection_revision = current
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("projection revision exhausted"))?;
-        tx.execute(
-            "INSERT INTO frontend_projections(
+        // The same body (canonical, so key order does not count) and schema
+        // as stored is no change: the row and its revision stay, and the
+        // commit is `replayed`, so the caller emits no change event. The app
+        // saves its documents again on many events with nothing changed, and
+        // each save woke every subscriber and the launch snapshot of an idle
+        // owner. The ledger still records the mutation, so a retry of it
+        // after another mutation's change replays this answer instead of
+        // writing the old body again.
+        let unchanged = stored_now.is_some_and(|(_, _, same)| same);
+        let projection_revision = if unchanged {
+            current
+        } else {
+            let previous_bytes = stored_now.and_then(|(_, bytes, _)| usize::try_from(bytes).ok());
+            note_projection_size(frontend, scope, subject_key, previous_bytes, payload.len());
+            let projection_revision = current
+                .checked_add(1)
+                .ok_or_else(|| anyhow::anyhow!("projection revision exhausted"))?;
+            tx.execute(
+                "INSERT INTO frontend_projections(
                frontend, scope, subject_key, schema_version, projection_revision, payload
              ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT(frontend, scope, subject_key) DO UPDATE SET
                schema_version=excluded.schema_version,
                projection_revision=excluded.projection_revision,
                payload=excluded.payload",
-            params![
-                frontend,
-                scope,
-                subject_key,
-                i64::from(schema_version),
-                i64::try_from(projection_revision)
-                    .context("projection revision exceeds SQLite range")?,
-                payload
-            ],
-        )?;
+                params![
+                    frontend,
+                    scope,
+                    subject_key,
+                    i64::from(schema_version),
+                    i64::try_from(projection_revision)
+                        .context("projection revision exceeds SQLite range")?,
+                    payload
+                ],
+            )?;
+            projection_revision
+        };
         let stored = FrontendProjection {
             frontend: frontend.to_string(),
             scope: scope.to_string(),
@@ -3736,7 +3706,7 @@ impl WorkspaceRegistry {
             ],
         )?;
         tx.commit()?;
-        Ok(ProjectionCommit { projection: stored, replayed: false })
+        Ok(ProjectionCommit { projection: stored, replayed: unchanged, recorded: true })
     }
 }
 
@@ -5086,6 +5056,72 @@ pub(crate) fn meta_value(connection: &Connection, key: &str) -> anyhow::Result<O
 pub(crate) fn required_meta(connection: &Connection, key: &str) -> anyhow::Result<String> {
     meta_value(connection, key)?
         .ok_or_else(|| anyhow::anyhow!("workspace registry is missing {key}"))
+}
+
+/// [`WorkspaceRegistry::snapshot`] on `connection`: the registry's own
+/// connection under its lock, or its read-only connection for a read that
+/// must not wait for a writer (`resource_api::read_committed_registry`).
+pub(crate) fn registry_snapshot_in(
+    connection: &Connection,
+    registry_id: &str,
+    generation: &str,
+    session_id: &SessionPublicId,
+) -> anyhow::Result<RegistrySnapshot> {
+    let revision = current_revision(connection)?;
+    let resource_revision = current_resource_revision(connection)?;
+    let max_numeric_id =
+        connection.query_row("SELECT COALESCE(MAX(numeric_id), 0) FROM workspaces", [], |row| {
+            row.get::<_, i64>(0)
+        })?;
+    let next_numeric_id = u64::try_from(max_numeric_id)
+        .context("stored workspace id is negative")?
+        .checked_add(1)
+        .ok_or_else(|| anyhow::anyhow!("workspace id space exhausted"))?;
+    let mut statement = connection.prepare(
+        "SELECT w.numeric_id, w.workspace_key, w.name, w.group_key, rw.public_id,
+                w.name_source, w.name_revision
+         FROM workspaces w
+         JOIN resource_workspaces rw ON rw.workspace_key = w.workspace_key
+         WHERE w.tombstoned = 0 AND rw.deleted_revision IS NULL
+         ORDER BY w.position ASC",
+    )?;
+    let workspaces = statement
+        .query_map([], |row| {
+            let id: i64 = row.get(0)?;
+            let provenance: (String, i64) = (row.get(5)?, row.get(6)?);
+            Ok((id, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, provenance))
+        })?
+        .map(|row| {
+            let (id, key, name, group_key, public_id, (source, revision)): (
+                i64,
+                String,
+                String,
+                String,
+                String,
+                (String, i64),
+            ) = row?;
+            let (name_source, name_revision) =
+                workspace_name_store::stored_name_provenance(&source, revision)?;
+            Ok::<RegistryWorkspace, anyhow::Error>(RegistryWorkspace {
+                id: u64::try_from(id).context("stored workspace id is negative")?,
+                public_id: WorkspacePublicId::parse(public_id)?,
+                key,
+                name,
+                name_source,
+                name_revision,
+                group_key,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(RegistrySnapshot {
+        registry_id: registry_id.to_string(),
+        generation: generation.to_string(),
+        revision,
+        resource_revision,
+        session_id: session_id.clone(),
+        next_numeric_id,
+        workspaces,
+    })
 }
 
 fn current_revision(connection: &Connection) -> anyhow::Result<u64> {

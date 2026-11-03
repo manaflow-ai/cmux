@@ -31,8 +31,9 @@ internal import os
 /// only values that differ from the last one it emitted (perf-speed-of-light.md
 /// I1): a re-evaluation that gives an equal value wakes no consumer. The
 /// `==` comes from the call site for an element with a nonisolated `Equatable` conformance (the
-/// `Element: Equatable` initializers); for any other element the check is made once per iterator
-/// (`Element.self is any Equatable.Type`), so it holds for every Equatable element, Optional and collections of
+/// `Element: Equatable` initializers); for any other element the check is made once per iterator,
+/// when its second value comes (`Element.self is any Equatable.Type`, a run-time lookup that is not
+/// needed for the first value, which every stream started at launch emits), so it holds for every Equatable element, Optional and collections of
 /// Equatable values included, on both paths. A stream of a non-Equatable
 /// element (`Void`, tuples, classes) emits every re-evaluation: a consumer
 /// that needs a wakeup for a change its value does not show returns `Void`
@@ -136,16 +137,32 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
     }
 
     public func makeAsyncIterator() -> Iterator {
-        let isEqual = knownEquality ?? Self.equality()
+        // The first value needs no ==: an element's run-time lookup waits for a second one (REOPEN-F7).
+        let equality = knownEquality.map(Equality.known) ?? Equality.unresolved
         if let primed = primedForIterator() {
-            return Iterator(legacy: LegacyIterator(emit: emit, state: primed.state), isEqual: isEqual, last: primed.value)
+            return Iterator(legacy: LegacyIterator(emit: emit, state: primed.state), equality: equality, last: primed.value)
         }
         // The system-iterator path (NativeIterator) traps at launch on macOS 27
         // (exit 133); every OS uses the withObservationTracking path until it is fixed.
         if #available(macOS 26, *), ObservationStreamNativeOptIn.enabled {
-            return Iterator(native: NativeIterator(emit), isEqual: isEqual)
+            return Iterator(native: NativeIterator(emit), equality: equality)
         }
-        return Iterator(legacy: LegacyIterator(emit: emit), isEqual: isEqual)
+        return Iterator(legacy: LegacyIterator(emit: emit), equality: equality)
+    }
+
+    /// How an iterator compares a re-evaluation with the value it emitted last.
+    enum Equality {
+        /// `==` from the call site (an element with a nonisolated `Equatable` conformance).
+        case known(@Sendable (Element, Element) -> Bool)
+        /// Not looked up yet: the runtime is asked when a second value comes.
+        case unresolved
+        /// No dedupe: the element is not `Equatable`.
+        case none
+
+        /// `==` looked up at run time, or no dedupe.
+        static func resolved(_ isEqual: (@Sendable (Element, Element) -> Bool)?) -> Equality {
+            isEqual.map(Equality.known) ?? .none
+        }
     }
 
     /// `==` for an `Equatable` element, nil for any other (no dedupe). A runtime conformance lookup:
@@ -166,32 +183,52 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
         /// type that is newer than the deployment target).
         private let native: AnyObject?
         private var legacy: LegacyIterator?
-        /// `==` of an Equatable element; nil emits every value.
-        private let isEqual: (@Sendable (Element, Element) -> Bool)?
-        /// The last value emitted (Equatable elements only).
+        /// How a re-evaluation is compared with ``last``.
+        private(set) var equality: Equality
+        /// The last value emitted (not kept once the element is known not to be `Equatable`).
         private var last: Element?
 
-        fileprivate init(native: AnyObject, isEqual: (@Sendable (Element, Element) -> Bool)?) {
+        fileprivate init(native: AnyObject, equality: Equality) {
             self.native = native
-            self.isEqual = isEqual
+            self.equality = equality
         }
 
-        fileprivate init(legacy: LegacyIterator, isEqual: (@Sendable (Element, Element) -> Bool)?, last: Element? = nil) {
+        fileprivate init(legacy: LegacyIterator, equality: Equality, last: Element? = nil) {
             native = nil
             self.legacy = legacy
-            self.isEqual = isEqual
-            self.last = isEqual == nil ? nil : last
+            self.equality = equality
+            if case .none = equality {} else { self.last = last }
         }
 
         public mutating func next(isolation iteratorIsolation: isolated (any Actor)? = #isolation) async -> Element? {
             while let value = await nextEvaluation(isolation: iteratorIsolation) {
-                guard let isEqual else { return value }
+                if case .none = equality { return value }
+                guard let previous = last else {
+                    last = value
+                    return value
+                }
+                guard let isEqual = resolveEquality() else {
+                    last = nil
+                    return value
+                }
                 // An equal re-evaluation wakes no consumer: wait for the next change.
-                if let last, isEqual(last, value) { continue }
+                if isEqual(previous, value) { continue }
                 last = value
                 return value
             }
             return nil
+        }
+
+        /// `==` of the element, asked of the runtime the first time it is needed; nil: no dedupe.
+        private mutating func resolveEquality() -> (@Sendable (Element, Element) -> Bool)? {
+            switch equality {
+            case .known(let isEqual): return isEqual
+            case .none: return nil
+            case .unresolved:
+                equality = .resolved(ObservationStream.equality())
+                if case .known(let isEqual) = equality { return isEqual }
+                return nil
+            }
         }
 
         private mutating func nextEvaluation(isolation iteratorIsolation: isolated (any Actor)?) async -> Element? {

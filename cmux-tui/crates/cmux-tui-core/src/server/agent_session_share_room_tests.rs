@@ -784,6 +784,7 @@ fn restart_resumes_roomless_pending_deletes_at_expiry_and_frees_capacity() {
                 room: None,
                 pending_room_ops: vec![json!({"op": "delete"})],
                 guests: Vec::new(),
+                invitees: Vec::new(),
             }));
             Ok(((), true))
         })
@@ -1159,6 +1160,7 @@ fn a_restart_reopens_the_host_socket_of_an_active_bridged_share() {
                 room: Some(json!({"url": room.url, "host_token": "kept-host-token"})),
                 pending_room_ops: Vec::new(),
                 guests: Vec::new(),
+                invitees: Vec::new(),
             });
             Ok(((), true))
         })
@@ -1197,6 +1199,7 @@ fn a_kick_of_an_ended_share_holds_no_capacity_and_goes_with_its_delete() {
                 room: Some(json!({"url": room.url, "host_token": "t"})),
                 pending_room_ops: vec![json!({"op": "kick", "guest_id": "g"})],
                 guests: Vec::new(),
+                invitees: Vec::new(),
             }));
             Ok(((), false))
         })
@@ -2015,4 +2018,27 @@ fn a_prompt_in_flight_across_a_host_reconnect_is_sent_again() {
     gate.send(()).unwrap();
     let state = state_of(&room, conn, "c0");
     assert_eq!(state["state"], "held", "{state}");
+}
+
+/// `agent-session-share-room` names the room and the API whose install token it takes, so the app
+/// mints from the room's environment, not from its own build kind (cmux#31372).
+#[test]
+fn share_room_names_the_room_and_its_owner_api() {
+    let fake = FakeAcpmux::start("share-room-api");
+    let mux = mux_with(&fake, "share-room-api");
+    let mut owner = Client::connect(&mux, "share-room-api");
+    let ask = |owner: &mut Client| {
+        let reply = owner.request(json!({"cmd":"agent-session-share-room"}));
+        assert_eq!(reply["ok"], true, "{reply}");
+        reply["data"].clone()
+    };
+    assert_eq!(ask(&mut owner), json!({"room": null, "owner_api": null}));
+    let platform = crate::cloud_conversations::platform::STAGING;
+    assert!(shares(&mux).bridge.configure(Some(&format!("{platform}/")), fast()));
+    assert_eq!(
+        ask(&mut owner),
+        json!({"room": platform, "owner_api": "https://cloud-api-staging.cmux.dev"})
+    );
+    assert!(shares(&mux).bridge.configure(Some("http://127.0.0.1:9"), fast()));
+    assert_eq!(ask(&mut owner), json!({"room": "http://127.0.0.1:9", "owner_api": null}));
 }

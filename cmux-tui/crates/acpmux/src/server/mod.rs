@@ -2084,6 +2084,7 @@ pub mod peer_text;
 mod pending;
 mod place;
 mod processes;
+mod workflow_runs;
 mod worktrees;
 pub mod ws_auth;
 use crate::hub::is_permission_ask;
@@ -2275,6 +2276,10 @@ mod acp_list_tests;
 #[cfg(test)]
 #[path = "list_fit_tests.rs"]
 mod list_fit_tests;
+
+#[cfg(test)]
+#[path = "list_pending_tests.rs"]
+mod list_pending_tests;
 
 #[cfg(test)]
 #[path = "session_list_pages_tests.rs"]

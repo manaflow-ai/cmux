@@ -150,4 +150,37 @@ import Testing
         #expect(routed == ["a:cold", "b:new-terminal", "c:new-terminal"],
                 "keys typed for the person's new workspace went to the cold terminal, or a key was lost or reordered: \(routed)")
     }
+
+    /// Review of #32148, note 2: two new workspaces in one hold, the first one's create failed, then the person acted (a
+    /// click). The failed one is over, so the person left every creation of the hold: a key typed now is no workspace's
+    /// (the focused view's at once, or a cold terminal's surface lane). Before, the failed id still counted, the hold
+    /// never counted as left, and the keys waited without a lane to run as typed at its end, into the second workspace
+    /// if that one showed by then.
+    @Test func aFailedNewWorkspaceCountsAsLeftOnceThePersonActs() {
+        let buffer = CreationInputBuffer(began: .now)
+        let failed = buffer.open(generation: 1, newWorkspace: true)
+        _ = buffer.open(generation: 2, newWorkspace: true)
+        buffer.resolve(failed, awaitsFocus: false)
+        #expect(!buffer.personLeftEveryCreation, "a failed workspace alone ended the person's hold before they acted")
+        buffer.personMovedOn()
+        #expect(buffer.personLeftEveryCreation, "after the click the failed workspace still kept the hold from counting as left")
+        #expect(buffer.passesOn(focusedTab: nil), "a key typed after the click did not go on to the focused view")
+    }
+
+    /// Review of #32352 (note 2): Cmd-N (W1), type, click (W1 left), Cmd-N again (W2). Once the window shows W2 with its
+    /// terminal, W1's kept keys no longer keep the hold open: the keys typed into W2 go on at once, and W1's keys go with
+    /// the hold as before (dropped, its workspace is not the one shown). Before, they kept the hold up to its limit.
+    @Test func aShownSecondWorkspaceEndsTheWaitForALeftOnesKeys() {
+        let buffer = CreationInputBuffer(began: .now)
+        let first = buffer.open(generation: 1, newWorkspace: true)
+        buffer.capture(Self.key("a", code: 0), focusedTab: nil, forNewWorkspace: true)
+        buffer.personMovedOn()
+        let second = buffer.open(generation: 2, newWorkspace: true)
+        buffer.resolve(first, awaitsFocus: true, workspace: "w1")
+        buffer.resolve(second, awaitsFocus: true, workspace: "w2")
+        #expect(buffer.shownWorkspaceToWaitFor == "w2")
+        #expect(buffer.keysKeptForLeftWorkspace(shown: "w1-not-shown", terminalReady: true) != nil, "W1's keys must still wait while W2 is not shown")
+        #expect(buffer.keysKeptForLeftWorkspace(shown: "w2", terminalReady: true) == nil,
+                "W2 shows with its terminal, but W1's kept keys still hold the hold open (keys typed into W2 wait up to 2 s)")
+    }
 }

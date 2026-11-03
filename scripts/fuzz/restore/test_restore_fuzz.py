@@ -187,6 +187,21 @@ class ExecEnv(unittest.TestCase):
         self.assertEqual(env["CMUX_SOCKET_PATH"], "/slot/a.sock")
         self.assertEqual(env["CFFIXED_USER_HOME"], "/slot/home")
 
+    def test_relaunches_turn_chromiums_code_sign_clone_off(self):
+        # The fuzz SIGKILLs the app on purpose, so Chromium's clone cleanup never runs: each relaunch left a ~1 GB
+        # code-sign clone in $TMPDIR/../X until reboot (cmux18-21, 2026-11-02). Both relaunch paths turn it off and
+        # keep the app's own extra switches.
+        app = rf.App.__new__(rf.App)
+        app.full_env = {"HOME": "/slot/home"}
+        app.env = {"HOME": "/slot/home", "CMUX_NEXT_CEF_EXTRA_SWITCHES": "process-per-site"}
+        for env in (app.exec_env(), app.open_env()):
+            self.assertEqual(env["CMUX_NEXT_CEF_EXTRA_SWITCHES"].split(":"),
+                             ["process-per-site", "disable-features=MacAppCodeSignClone"])
+        app.env = {"HOME": "/slot/home"}
+        self.assertEqual(app.open_env()["CMUX_NEXT_CEF_EXTRA_SWITCHES"], "disable-features=MacAppCodeSignClone")
+        app.env = {"HOME": "/slot/home", "CMUX_NEXT_CEF_EXTRA_SWITCHES": "disable-features=MacAppCodeSignClone"}
+        self.assertEqual(app.open_env()["CMUX_NEXT_CEF_EXTRA_SWITCHES"], "disable-features=MacAppCodeSignClone")
+
 
 class EnvLog(unittest.TestCase):
     def test_only_state_path_values_are_logged(self):

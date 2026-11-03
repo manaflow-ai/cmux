@@ -81,7 +81,12 @@ pub const CAPABILITIES: &[Capability] = &[
     // Server-side local/non-closed session-list filters used by native quit
     // census callers. Older daemons keep serving the unfiltered list.
     Capability { id: "session-list-filters-v1", wire: &[method::MUX_SESSIONS] },
+    // `_acpmux/sessions {pendingOnly: true}`: only the chats with a pending ask, without the
+    // list's pace (the app's dialog list). Older daemons would answer the whole list.
+    Capability { id: "session-list-pending-v1", wire: &[method::MUX_SESSIONS] },
     Capability { id: "machine.join.stdin.v1", wire: &[] },
+    // `acpmux machine vault pull|status|forget` (crate::vault): CLI-only, no wire method.
+    Capability { id: crate::vault::CAPABILITY, wire: &[] },
     Capability {
         id: "machine-consent-v1",
         wire: &[method::MUX_MACHINE_CONSENT_SET, method::MUX_MACHINE_CONSENT_GET],
@@ -165,6 +170,8 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "folder-trust-v1", wire: &[method::ACP_TRUST_GET, method::ACP_TRUST_SET] },
     // Resume agent message pairs the runaway guard paused (`hub/agent_pairs.rs`).
     Capability { id: "agent-pairs-v1", wire: &[method::MUX_AGENT_PAIR_RESUME] },
+    // The person takes a managed chat over and hands it back (`hub/agent_hold.rs`).
+    Capability { id: "agent-hold-v1", wire: &[method::MUX_AGENT_HOLD] },
     // Retry a chat's failed last turn now: the Retry button (`hub/auto_resume/retry_turn.rs`).
     Capability { id: "turn-retry-v1", wire: &[method::MUX_RETRY] },
     // `_acpmux/retry` with `subagentId`: resume a failed subagent now
@@ -301,7 +308,8 @@ mod tests {
             crate::protocol::registry().iter().map(|decl| decl.name).collect();
         for capability in CAPABILITIES {
             // Machine onboarding is CLI-only and has no daemon wire method.
-            if capability.id == "machine.join.stdin.v1" {
+            if capability.id == "machine.join.stdin.v1" || capability.id == crate::vault::CAPABILITY
+            {
                 assert!(capability.wire.is_empty());
                 continue;
             }

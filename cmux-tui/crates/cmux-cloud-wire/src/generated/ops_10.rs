@@ -4,6 +4,63 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyHistoryParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyHistoryResult {
+    pub team: TeamId,
+    pub versions: Vec<TeamPolicyVersion>,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes team.policy.history declares.
+    TeamPolicyHistoryError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Apply a retained past version's values as a new version (owners and admins).
+    TeamPolicyRollbackOp {
+        name: "team.policy.rollback",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: TeamPolicyRollbackParams,
+        result: TeamPolicy,
+        error: TeamPolicyRollbackError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyRollbackParams {
+    pub version: i64,
+    pub expected_version: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+wire_errors! {
+    /// The error codes team.policy.rollback declares.
+    TeamPolicyRollbackError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        PolicyInvalid = "policy.invalid",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
 wire_op! {
     /// Set or clear team policy keys as one new version (owners and admins). expected_version is the compare-and-swap; a stale version fails with revision.conflict.
     TeamPolicyUpdateOp {
@@ -837,70 +894,4 @@ wire_errors! {
         UnknownConversation = "unknown_conversation",
         ValidationInvalid = "validation.invalid",
     }
-}
-
-wire_op! {
-    /// Attach an owned WireGuard tunnel to an owned private network.
-    TunnelAttachOp {
-        name: "tunnel.attach",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session],
-        params: TunnelAttachParams,
-        result: TunnelAttachResult,
-        error: TunnelAttachError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TunnelAttachParams {
-    pub device_fingerprint: String,
-    pub network_id: String,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TunnelAttachResult {
-    pub tunnel_id: String,
-    pub network_id: String,
-}
-
-wire_errors! {
-    /// The error codes tunnel.attach declares.
-    TunnelAttachError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Detach an owned WireGuard tunnel from an owned private network.
-    TunnelDetachOp {
-        name: "tunnel.detach",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session],
-        params: TunnelDetachParams,
-        result: TunnelDetachResult,
-        error: TunnelDetachError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TunnelDetachParams {
-    pub device_fingerprint: String,
-    pub network_id: String,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TunnelDetachResult {
-    pub tunnel_id: String,
-    pub network_id: String,
 }

@@ -28,7 +28,7 @@ if (!address || typeof address === "string") {
 }
 const baseUrl = `http://127.0.0.1:${address.port}`;
 try {
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ channel: "chrome" });
   try {
     const context = await browser.newContext({
       viewport: { width: 1000, height: 720 },

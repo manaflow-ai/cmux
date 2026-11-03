@@ -801,6 +801,11 @@ fn attach_replays_the_page_and_streams_live_records_of_that_session_only() {
     assert_eq!(sent["params"]["sessionId"], json!(SESSION), "session comes from the store record");
     assert_eq!(sent["params"]["eventStream"], json!(true));
     assert_eq!(sent["params"]["kinds"], json!(["transcript"]));
+    assert_eq!(
+        sent["params"]["waitLogs"],
+        json!(false),
+        "the open's page does not wait for a restarted daemon's log restore"
+    );
 
     // The record acpmux sent before its reply follows the reply.
     let early = client.event(WAIT).expect("the early record");

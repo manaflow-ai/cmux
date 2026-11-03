@@ -7,7 +7,13 @@
 //!   and applies the effects (first responder, selection, layout reveal,
 //!   registry context) synchronously, in the same turn; it never sends or
 //!   receives the whole state.
-//! - [`close_focus::pane`]: the focused-pane successor when a pane closes.
+//! - [`close_focus`]: the focus successor of every close kind (pane, tab,
+//!   workspace).
+//! - [`close_aim::PaneCloseAim`]: which pane a Close Tab press is aimed at
+//!   after a close emptied a pane.
+//! - [`omnibar_memory::OmnibarFocusMemory`]: Chrome's per-tab address bar
+//!   focus, restored on return to the tab.
+//! - [`invariants`]: the input invariants (model, transition, world).
 //! - [`type_ahead::TypeAheadQueue`]: keys typed before a page can take them.
 //! - [`child_window`]: what a window does when a child window becomes key.
 //! - [`agent_cursor_visibility::resolve`]: where an agent cursor for a
@@ -20,8 +26,11 @@
 
 pub mod agent_cursor_visibility;
 pub mod child_window;
+pub mod close_aim;
 pub mod close_focus;
 pub mod event;
+pub mod invariants;
+pub mod omnibar_memory;
 pub mod reducer;
 pub mod state;
 pub mod topology;

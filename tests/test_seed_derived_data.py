@@ -716,7 +716,7 @@ OWNED_ONLY_NIGHTLY_JOBS = frozenset({"sign-nightly-identity-legacy", "verify-nig
 OWNED_ONLY_NIGHTLY_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}"
 
 
-TOKEN = re.compile(r"\s*(\|\||&&|==|!=|>=|<=|>|<|!|\(|\)|\[|\]|,|'(?:[^']|'')*'|[0-9]+(?:\.[0-9]+)?|[A-Za-z_][A-Za-z0-9_.*-]*)")
+TOKEN = re.compile(r"\s*(\|\||&&|==|!=|>=|<=|>|<|!|\(|\)|\[|\]|\.|,|'(?:[^']|'')*'|[0-9]+(?:\.[0-9]+)?|[A-Za-z_][A-Za-z0-9_.*-]*)")
 
 
 def evaluate(expression, context):
@@ -756,7 +756,12 @@ def evaluate(expression, context):
 
     def primary():
         value = atom()
-        while peek() == "[":
+        while peek() in ("[", "."):
+            if peek() == ".":
+                take()
+                property_name = take()
+                value = value.get(property_name) if isinstance(value, dict) else None
+                continue
             take()
             index = either()
             if take() != "]":
@@ -888,6 +893,9 @@ def evaluate(expression, context):
 
 
 def github_context(event_name, ref="refs/heads/main", **variables):
+    runner_pools = json.loads((ROOT / ".github/runners.json").read_text())["pools"]
+    runner_pools = json.dumps({name: pool["members"][0] for name, pool in runner_pools.items()
+                               if isinstance(pool, dict) and pool.get("members")})
     return {
         "github": {"event_name": event_name, "ref": ref, "repository_owner": "manaflow-ai", "run_attempt": "1"},
         "env": {"CI_OWNED_HEAD_REPOS": '["manaflow-ai/cmux", "teamleaderleo/cmux"]'},
@@ -896,6 +904,7 @@ def github_context(event_name, ref="refs/heads/main", **variables):
             "MACOS_RUNNER_15": "pool-15-paid",
             "CMUX_CI_XCODE_APP_PR": "/Applications/Xcode-pr.app",
             "CMUX_CI_XCODE_APP_MACOS_15": "/Applications/Xcode-15.app",
+            "RUNNER_POOLS": runner_pools,
             **variables,
         },
         "inputs": {"cache_backend": "default", "owned_head_repos": '["manaflow-ai/cmux", "teamleaderleo/cmux"]'},
@@ -1049,7 +1058,10 @@ class Wiring(unittest.TestCase):
         fallback = "vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'"
         self.assertTrue(runs_on.rstrip("} ").endswith(f"{larger} || {fallback}"), runs_on)
         self.assertTrue(own.rstrip("} ").endswith(f"'macos-26' || {fallback}"), own)
-        self.assertIn(fallback, admission)
+        # Admission's fallback now reads the declared macOS 15 pool; the seed
+        # matrix retains its explicit labels because those values are the
+        # per-width seed inputs, not a job-level runs-on route.
+        self.assertIn("fromJSON(vars.RUNNER_POOLS).macos_15", admission)
 
     def test_the_trusted_pool_seeds_j14_only_on_a_main_push_with_the_lane_xcode(self):
         """Owned std minis compile at -j14 (cmuxterm-hq#590). Their seed comes

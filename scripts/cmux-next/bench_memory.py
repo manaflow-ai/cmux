@@ -420,26 +420,46 @@ def control_socket(bundle: str, pid: int, dirs: list[str]) -> str | None:
     return None
 
 
+# Chromium's code-sign clone cleanup helper. CEF clones the app at each launch to
+# $TMPDIR/../X/<bundle id>.code_sign_clone/ (about 1 GB); after the app quits, this
+# helper (`<app>/Contents/MacOS/<exe> --type=code-sign-clone-cleanup`) removes the
+# clone about 1 s later. Ended with the app, it leaves the clone until reboot: 29 GB
+# on cmux18 (2026-11-02). A teardown lets it finish, up to CLONE_CLEANUP_WAIT_S.
+CLONE_CLEANUP = "--type=code-sign-clone-cleanup"
+CLONE_CLEANUP_WAIT_S = 15
+
+
+def is_clone_cleanup(cmd: str) -> bool:
+    return CLONE_CLEANUP in cmd
+
+
 def end_bundle(bundle: str):
     """Ends every process of the bundle, the app first: a live app (it can
     ignore SIGTERM) respawns daemons ended before it. No process of this
-    bundle ran before the launch (`launch`), so every one is this run's."""
+    bundle ran before the launch (`launch`), so every one is this run's.
+    Chromium's clone cleanup helper is ended last, and only when it is still
+    there after CLONE_CLEANUP_WAIT_S."""
     binary_dir = os.path.join(bundle, "Contents/MacOS")
-    apps = {pid for pid, _, cmd in process_table() if cmd.startswith(binary_dir + "/")}
+    apps = {pid for pid, _, cmd in process_table() if cmd.startswith(binary_dir + "/") and not is_clone_cleanup(cmd)}
     bundle_pids(bundle)  # notes the daemons before they go, for their terminal hosts
     end_processes(apps)
-    end_processes(bundle_pids(bundle))
+    cleanups = {pid for pid, _, cmd in process_table() if in_bundle(cmd, bundle) is not None and is_clone_cleanup(cmd)}
+    end_processes(bundle_pids(bundle) - cleanups)
+    deadline = time.monotonic() + CLONE_CLEANUP_WAIT_S
+    end_processes({pid for pid in cleanups if not wait_gone(pid, max(0.0, deadline - time.monotonic()))})
 
 
 def wait_gone(pid: int, seconds: float) -> bool:
+    """True once `pid` is gone; it is checked at least once, also with no time left."""
     deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
+    while True:
         try:
             os.kill(pid, 0)
         except ProcessLookupError:
             return True
+        if time.monotonic() >= deadline:
+            return False
         time.sleep(0.5)  # test script: waiting for the app to quit
-    return False
 
 
 def merged(base: dict, extra: dict) -> dict:
@@ -477,6 +497,11 @@ def exception_records(bundle: str, since: float) -> str:
         return f"\n--- {path}\n{handle.read()[:4000]}"
 
 
+def downloads_dir(scratch: str) -> str:
+    """The folder `launch` gives the app for its downloads (CMUX_NEXT_DOWNLOADS_DIR), in its scratch."""
+    return os.path.join(scratch, "downloads")
+
+
 def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: bool | None = None):
     """Starts the app with a scratch HOME, TMPDIR and config; returns (pid, socket, scratch).
 
@@ -505,9 +530,14 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: boo
     os.makedirs(os.path.join(home, "Library"), exist_ok=True)
     env = {"HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": os.path.join(scratch, "tmp") + "/",
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
-           "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json")}
+           "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json"),
+           # Downloads go to the scratch, never the account's real ~/Downloads (the app ignores HOME there, and
+           # macOS asks for Downloads access in a prompt that covers a fleet Mac's screen). Debug and bench
+           # builds only; a Release app ignores it (DownloadsFolder.swift).
+           "CMUX_NEXT_DOWNLOADS_DIR": downloads_dir(scratch)}
     env.update(extra_env or {})
     os.makedirs(env["TMPDIR"], exist_ok=True)
+    os.makedirs(env["CMUX_NEXT_DOWNLOADS_DIR"], exist_ok=True)
     # Sparkle would otherwise download a newer nightly into the bundle under
     # test mid-run (and its installer counts as the bundle's process).
     with open(env["CMUX_NEXT_CONFIG_FILE"], "w") as handle:

@@ -137,6 +137,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `new-conversation-tab {pane, split}`: a chat or New Tab page tab in a new split, in one
     /// daemon commit and one `pane-added` delta (a person's Cmd-D, atomically).
     case conversationTabSplit = "conversation-tab-split-v1"
+    /// `new-frontend-browser-tab {pane, split}`: a browser tab in a new split, in one daemon
+    /// commit and one `pane-added` delta (a link opened to the right never shows in its pane first).
+    case frontendBrowserTabSplit = "frontend-browser-tab-split-v1"
     /// `send {terminal_id}` to a terminal still being created: the daemon queues the input and
     /// writes it after the commit (cx-wb5.78, ``SendTerminalInputRequest``).
     case terminalInputWhileCreating = "terminal-input-while-creating-v1"
@@ -242,6 +245,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// column and leaves a fresh tab of the same kind (Dock Column on a
     /// screen with one tab).
     case tabColumnRespawn = "tab-column-respawn-v1"
+    /// `move-tab-to-column` `pane_id`: the new column's pane takes the
+    /// client-minted public id, so the dock shows in the input's turn.
+    case tabColumnClientPane = "tab-column-client-pane-v1"
     /// `restart-tab`: a terminal tab whose shell ended restarts under the
     /// same terminal id (Unix daemons).
     case tabRestart = "tab-restart-v1"
@@ -273,10 +279,16 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `conversation-draft` events on `subscribe`: the Chief's running reply,
     /// which Home grows in the Chief's bubble until the reply is posted.
     case conversationDraftEvents = "conversation-draft-events-v1"
+    /// `set-attach-visibility`: a hidden terminal view's output is batched to once per wall-clock second, and sent at
+    /// once when it shows again (SWITCH FRAMES SF-5).
+    case attachVisibility = "attach-visibility-v1"
     /// `subscribe` carries no `scroll-changed`: no subscriber in this app applies it (the scrollbars come from the
     /// terminals' own surfaces), yet every hidden busy terminal's events woke the event pump and asked for a
     /// main-thread frame about 15 times a second (SWITCH FRAMES SF-5). Attach streams still carry it.
     case subscribeScrollOnAttach = "subscribe-scroll-on-attach-v1"
+    /// A selection change that rides with a tree delta comes as `selection-changed` (the workspace's whole
+    /// selection), not as a `tree-changed` that makes the store read the whole tree again (#32408).
+    case treeSelectionDeltas = "tree-selection-deltas-v1"
     /// A Chief's live run (Conversations/ChiefLiveEvents.swift): `conversation-live` / `cloud-conversation-live`
     /// frames and snapshots, and the run-changed events whose end and reply key end its live text.
     case chiefLive = "chief-live-v1"
@@ -533,15 +545,15 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .tabWorkspaceName, .notificationAck, .feedLocalOwner, .tabGroups, .savedTabGroups, .workspacePin,
              .workspaceChecklist, .notificationMarkUnread, .tabMarkUnread, .tabAttention, .tabAttentionRequestID, .workspaceDescription, .workspaceStatus,
              .screenMetadata, .screenGroups, .stateResources, .windowRecords, .terminalEnv, .terminalPlacementEnv,
-             .splitClientKeys, .splitClientSplitID, .rowClientKeys, .conversationTabSplit,
+             .splitClientKeys, .splitClientSplitID, .rowClientKeys, .conversationTabSplit, .frontendBrowserTabSplit,
              .terminalInputWhileCreating, .terminalReap, .resumeCommand, .terminalReaperActive,
              .endTerminalsKeepLayout, .batchClose, .sendExpectForeground, .closeReason, .closeWorkspaceIfEmpty,
              .browserHostProvider, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,
              .browserRuntime, .notificationSource, .terminalShellArgs, .terminalFrontendShellIntegration,
              .launchSnapshot, .profiles, .personalRemoteLocalhost, .sessionIdentity, .remoteTerminalTabs,
              .dockColumns, .edgeDocks, .dockColumnRole, .dockColumnSplitDown, .pinnedDock, .pinnedDockAlone, .rows, .columnMove, .columnLeft,
-             .tabColumnRespawn, .tabRestart, .tabRestartKeptLayout, .tabPark, .detachedTerminals, .personalTerminals,
-             .browserProfiles, .bookmarks, .bookmarkIcon, .history, .localConversations, .conversationDraftEvents, .subscribeScrollOnAttach,
+             .tabColumnRespawn, .tabColumnClientPane, .tabRestart, .tabRestartKeptLayout, .tabPark, .detachedTerminals, .personalTerminals,
+             .browserProfiles, .bookmarks, .bookmarkIcon, .history, .localConversations, .conversationDraftEvents, .attachVisibility, .subscribeScrollOnAttach, .treeSelectionDeltas,
              .chiefLive, .cloudChiefLive, .conversationRuns, .conversationRunAnswers, .cloudConversationRuns, .cloudConversationTyping,
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
              .agentSessionAttach, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,

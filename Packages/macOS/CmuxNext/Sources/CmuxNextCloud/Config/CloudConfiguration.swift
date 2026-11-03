@@ -170,7 +170,8 @@ public struct CloudConfiguration: Sendable, Equatable {
         return URL(string: "https://cloud-api.cmux.dev") ?? Self.inertURL
     }
 
-    /// The API a guest link's owner token comes from. The daemon makes each build's links in its
+    /// The API a guest link's owner token comes from when the daemon does not name its room's
+    /// (`agent-session-share-room`, an older daemon). The daemon makes each build's links in its
     /// room (cmux-tui share_room.rs: DEV the development room), and a room takes only its own
     /// environment's install tokens. A debug build signs in to the staging Worker
     /// (``ownerAPIBaseURL(environment:)``), so its links mint from the development Worker; with
@@ -181,6 +182,19 @@ public struct CloudConfiguration: Sendable, Equatable {
         }
         return URL(string: "https://cmux-api-development.debussy.workers.dev") ?? Self.inertURL
     }
+
+    /// Whether a guest link's owner token may come from `api`, the API the daemon's share room names
+    /// (`agent-session-share-room`, cmux#31372). A release build takes only a cmux API, so the owner's
+    /// credentials never reach another origin; a debug build takes any https origin. Only a bare origin (no
+    /// credentials, port, path, query or fragment) is taken: an install is kept per host (`install-share-<host>`).
+    public func acceptsShareAPI(_ api: URL) -> Bool {
+        guard api.scheme?.lowercased() == "https", let host = api.host?.lowercased(), !host.isEmpty, api.user == nil, api.password == nil,
+              api.path.isEmpty || api.path == "/", api.query == nil, api.fragment == nil else { return false }
+        return api.port == nil && (isDebugBuild || Self.shareAPIHosts.contains(host))
+    }
+
+    /// The cmux APIs a share room takes tokens from (cmux-tui `platform::share_owner_api`).
+    static let shareAPIHosts: Set<String> = ["cloud-api.cmux.dev", "cloud-api-staging.cmux.dev", "cmux-api-development.debussy.workers.dev"]
 
     public static func current(bundle: Bundle = .main, isDebugBuild: Bool) -> CloudConfiguration {
         let bundled = bundle.object(forInfoDictionaryKey: "LSEnvironment") as? [String: String] ?? [:]

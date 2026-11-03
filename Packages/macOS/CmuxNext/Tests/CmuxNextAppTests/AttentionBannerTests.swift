@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import CmuxNextDesign
+@testable import CmuxNextNotifications
 import CmuxNextRemote
 import CmuxNextSettings
 import Foundation
@@ -55,24 +56,24 @@ struct AttentionBannerTests {
         shared.items = [first]
         let service = services.notifications
         service.desktopPostingEnabled = false
-        service.attentionMarksChanged([])
-        service.attentionMarksChanged(shared.items)
+        service.attention.marksChanged([])
+        service.attention.marksChanged(shared.items)
         #expect(shown.isEmpty, "a mark and its banner move nothing")
         let banner = AttentionBannerLifecycle.attentionBannerID(first)
-        #expect(service.attentionBanners.isEmpty, "suppressed posting must not authorize a banner click")
-        service.attentionBanners.insert(banner) // A delivered banner; posting remains disabled in this routing test.
+        #expect(service.attention.posted.isEmpty, "suppressed posting must not authorize a banner click")
+        service.attention.posted.insert(banner) // A delivered banner; posting remains disabled in this routing test.
         #expect(AttentionBannerLifecycle.attentionTab(banner: banner) == key, "the banner names the machine-qualified key")
-        #expect(service.showAttention(banner: banner))
+        #expect(service.attention.show(banner: banner))
         #expect(shown == [key])
         // A newer request on the same tab replaces the banner's: the old banner opens nothing.
         shared.items = [Self.item(key + "-next-request", at: 2_000, reason: "Approve the scopes")]
-        #expect(service.showAttention(banner: banner), "the banner is still the attention kind")
+        #expect(service.attention.show(banner: banner), "the banner is still the attention kind")
         #expect(shown == [key], "a replaced request's banner went to the tab")
         // A cleared mark, or a banner from an earlier launch, opens nothing either.
         shared.items = []
-        #expect(service.showAttention(banner: AttentionBannerLifecycle.attentionBannerID(Self.item(key, at: 2_000))))
+        #expect(service.attention.show(banner: AttentionBannerLifecycle.attentionBannerID(Self.item(key, at: 2_000))))
         #expect(shown == [key], "a cleared mark's banner went to the tab")
-        #expect(!service.showAttention(banner: "cmux-notification-3"), "other banners keep their own path")
+        #expect(!service.attention.show(banner: "cmux-notification-3"), "other banners keep their own path")
     }
 
     /// A banner left in Notification Center by an earlier launch, whose request is still the tab's
@@ -89,8 +90,8 @@ struct AttentionBannerTests {
         shared.items = [live]
         let restarted = services.notifications
         restarted.desktopPostingEnabled = false
-        restarted.attentionMarksChanged(shared.items)
-        #expect(restarted.showAttention(banner: AttentionBannerLifecycle.attentionBannerID(live)))
+        restarted.attention.marksChanged(shared.items)
+        #expect(restarted.attention.show(banner: AttentionBannerLifecycle.attentionBannerID(live)))
         #expect(shown.isEmpty, "an earlier launch's banner went to the tab")
     }
 
@@ -125,15 +126,15 @@ struct AttentionBannerTests {
         let lab = try #require(items.first { $0.tabId == AttentionTabsWatch.key(machine: ssh.machineID, tab: "tab_forked", requestID: String(repeating: "a", count: 32)) })
         let notifications = services.notifications
         notifications.preferences.mutedWorkspaces = [NotificationWorkspaceKey.qualified(machine: ssh.machineID, workspace: labWorkspace.id)]
-        #expect(notifications.attentionArrival(lab).workspaceMuted, "the SSH machine's muted workspace did not silence its tab's banner")
-        #expect(!notifications.attentionArrival(here).workspaceMuted, "muting the SSH workspace silenced this Mac's tab")
+        #expect(notifications.attention.arrival(lab).workspaceMuted, "the SSH machine's muted workspace did not silence its tab's banner")
+        #expect(!notifications.attention.arrival(here).workspaceMuted, "muting the SSH workspace silenced this Mac's tab")
         notifications.preferences.mutedWorkspaces = [hereWorkspace.id] // legacy local key remains readable
-        #expect(notifications.attentionArrival(here).workspaceMuted)
-        #expect(!notifications.attentionArrival(lab).workspaceMuted, "muting this Mac's workspace silenced the SSH machine's tab")
+        #expect(notifications.attention.arrival(here).workspaceMuted)
+        #expect(!notifications.attention.arrival(lab).workspaceMuted, "muting this Mac's workspace silenced the SSH machine's tab")
         let remoteKey = NotificationWorkspaceKey.qualified(machine: ssh.machineID, workspace: labWorkspace.id)
-        #expect(notifications.attentionArrival(lab).soundScope.workspace == remoteKey,
+        #expect(notifications.attention.arrival(lab).soundScope.workspace == remoteKey,
                 "sound rules were not qualified by machine")
-        #expect(!NotificationPolicy(prefs: notifications.preferences).decide(notifications.attentionArrival(here)).desktop,
+        #expect(!NotificationPolicy(prefs: notifications.preferences).decide(notifications.attention.arrival(here)).desktop,
                 "a muted workspace's tab still posts a banner")
         #expect(notifications.attentionMarks(for: hereWorkspace).isEmpty)
         #expect(!notifications.attentionMarks(for: labWorkspace).isEmpty, "legacy local mute hid the remote ring")
@@ -146,8 +147,8 @@ struct AttentionBannerTests {
         notifications.preferences.mutedWorkspaces = []
         notifications.preferences.sounds.events[.needsInput] = "Ping"
         notifications.preferences.sounds.workspaces[hereWorkspace.id] = NotificationSoundRule(sound: "Hero")
-        let hereScope = notifications.attentionArrival(here).soundScope
-        let labScope = notifications.attentionArrival(lab).soundScope
+        let hereScope = notifications.attention.arrival(here).soundScope
+        let labScope = notifications.attention.arrival(lab).soundScope
         #expect(notifications.preferences.sounds.choice(for: .needsInput, in: hereScope, fallback: "default")?.name == "Hero")
         #expect(notifications.preferences.sounds.choice(for: .needsInput, in: labScope, fallback: "default")?.name == "Ping",
                 "a legacy local sound rule affected the cloned remote workspace")
@@ -160,8 +161,8 @@ struct AttentionBannerTests {
         notifications.preferences.suppressWhileTypingSeconds = 60
         let now = ContinuousClock.now
         notifications.recordTyping(tabID: hereTab.id, onMachine: "local", at: now)
-        let recentLocal = notifications.attentionArrival(here)
-        let untouchedRemote = notifications.attentionArrival(lab)
+        let recentLocal = notifications.attention.arrival(here)
+        let untouchedRemote = notifications.attention.arrival(lab)
         #expect(recentLocal.typedAgo != nil)
         #expect(untouchedRemote.typedAgo == nil, "local typing leaked onto the same-id remote tab")
         let policy = NotificationPolicy(prefs: notifications.preferences)
@@ -170,9 +171,9 @@ struct AttentionBannerTests {
         #expect(policy.decide(untouchedRemote).desktop)
         notifications.recordTyping(tabID: hereTab.id, onMachine: "local", at: now.advanced(by: .seconds(-120)))
         notifications.recordTyping(tabID: labTab.id, onMachine: ssh.machineID, at: now)
-        #expect(policy.decide(notifications.attentionArrival(here)).desktop,
+        #expect(policy.decide(notifications.attention.arrival(here)).desktop,
                 "remote typing suppressed the same-id local tab after its quiet period expired")
-        #expect(!policy.decide(notifications.attentionArrival(lab)).desktop)
+        #expect(!policy.decide(notifications.attention.arrival(lab)).desktop)
     }
 
     @Test func launchReconciliationWithdrawsOldRequestsButKeepsConcurrentNewBanners() {
@@ -182,7 +183,7 @@ struct AttentionBannerTests {
         #expect(AttentionBannerLifecycle.staleBannerIDs([old, fresh, "other-banner"], currentLaunch: [fresh]) == [old])
     }
 
-    @Test func attentionUsesNeedsInputSoundVolumeAndSharedCooldown() {
+    @Test func attentionUsesNeedsInputSoundVolumeAndSharedCooldown() throws {
         _ = NSApplication.shared
         let service = NotificationCenterService()
         let now = ContinuousClock.now
@@ -190,11 +191,11 @@ struct AttentionBannerTests {
         service.preferences.desktop = .always
         service.preferences.sounds.events = [.needsInput: "Ping", .finished: "Hero"]
         service.preferences.sounds.volume = 0.25
-        let first = service.attentionDecision(Self.item("request-one", at: 1_000))
+        let first = try #require(service.attention.decision(Self.item("request-one", at: 1_000)))
         #expect(first.soundEvent == .needsInput)
         #expect(first.sound == "Ping")
         #expect(first.soundVolume == 0.25)
-        let burst = service.attentionDecision(Self.item("request-two", at: 2_000))
+        let burst = try #require(service.attention.decision(Self.item("request-two", at: 2_000)))
         #expect(burst.desktop, "sound cooldown must not suppress the new banner")
         #expect(burst.sound == nil, "a second attention request bypassed the shared cooldown")
     }
@@ -251,8 +252,8 @@ struct AttentionBannerTests {
                                                reason: "Rotate the prod key", workspaceTitle: "secret-project", tabTitle: "deploy keys", atMs: 1_000)
         let service = services.notifications
         service.preferences.desktop = .always
-        service.attentionMarksChanged([])
-        service.attentionMarksChanged([item])
+        service.attention.marksChanged([])
+        service.attention.marksChanged([item])
         let posted = try #require(service.desktop.posted.last, "an incognito tab's request posted no banner at all")
         let shown = [posted.title, posted.subtitle ?? "", posted.body].joined(separator: " | ")
         for secret in ["secret-project", "deploy keys", "prod key"] {

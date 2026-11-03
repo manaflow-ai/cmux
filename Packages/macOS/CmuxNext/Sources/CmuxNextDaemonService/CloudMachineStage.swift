@@ -89,7 +89,7 @@ public nonisolated struct CloudMachineStageInput: Hashable, Sendable {
     /// Why the machine's last pause, resume or resize failed on the server
     /// (``CloudMachine/lastChangeFailure``), nil otherwise.
     public var changeFailure: String?
-    /// The ended link went down or was revoked (`CloudAppLinks.isDrop`), not
+    /// The ended link went down or was revoked (`CloudLinkError.isDrop`), not
     /// refused by the provider.
     public var linkDropped = false
 

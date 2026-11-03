@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   cloudPageRefusal,
+  cloudRunsHere,
   cloudStartFolder,
   cloudStartToasted,
   newTabProjectPick,
@@ -41,6 +42,16 @@ test("a refusal keeps its code and the host's words; only a start the host ran w
   expect(cloudStartToasted(off)).toBe(false);
   const lost = await startCloudChat(async () => Promise.reject(new Error("bridge gone")), { task: "t" });
   expect(lost.ok).toBe(false);
+});
+
+test("Run on This Mac from the cap card is no toasted failure: the page sends the prompt here", async () => {
+  const here = await startCloudChat(async () => Promise.reject({ code: "run_on_this_mac" }), { task: "t" });
+  expect(here).toMatchObject({ ok: false, code: "run_on_this_mac" });
+  expect(cloudRunsHere(here)).toBe(true);
+  expect(cloudStartToasted(here)).toBe(false);
+  const failed = await startCloudChat(async () => Promise.reject({ code: "cloud_start_failed" }), { task: "t" });
+  expect(cloudRunsHere(failed)).toBe(false);
+  expect(cloudRunsHere({ ok: true })).toBe(false);
 });
 
 test("a Cloud chat takes text only for now", () => {

@@ -45,6 +45,33 @@ public struct AgentSessionShareListRequest: DaemonRequest {
     public init(surface: UInt64? = nil) { self.surface = surface }
 }
 
+/// `agent-session-share-room`: the room new links go to and the cmux API whose install token it takes
+/// (cmux-tui `platform::share_owner_api`). The owner token for a create comes from that API, so a room
+/// never gets another environment's token (cmux#31372).
+public struct AgentSessionShareRoomRequest: DaemonRequest {
+    public typealias Response = AgentSessionShareRoom
+    public static let command = "agent-session-share-room"
+
+    public init() {}
+}
+
+public struct AgentSessionShareRoom: Decodable, Sendable, Equatable {
+    /// The room's origin; nil when the daemon has none (its links have no URL).
+    public var room: String?
+    /// The API the owner token must come from; nil for a room the daemon does not know.
+    public var ownerApi: String?
+
+    enum CodingKeys: String, CodingKey {
+        case room
+        case ownerApi = "owner_api"
+    }
+
+    public init(room: String?, ownerApi: String?) {
+        self.room = room
+        self.ownerApi = ownerApi
+    }
+}
+
 /// `agent-session-share-revoke`: the link stops working and its guests leave.
 public struct AgentSessionShareRevokeRequest: DaemonRequest {
     public typealias Response = JSONValue
