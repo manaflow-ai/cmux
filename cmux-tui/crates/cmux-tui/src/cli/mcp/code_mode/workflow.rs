@@ -43,16 +43,20 @@ pub(super) fn install<'js>(
 /// Claude workflows allow one leading `export const meta` followed by an async
 /// function body (including top-level return). Remove only that export token,
 /// never text inside strings/comments or an unrelated later statement.
+// The daemon runner in PR #33785 is the production caller of this staged API.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(super) fn body(script: &str) -> String {
     let mut rest = script.trim_start_matches('\u{feff}');
     loop {
         rest = rest.trim_start();
         if let Some(comment) = rest.strip_prefix("//") {
             let Some(end) = comment.find('\n') else { return script.into() };
-            rest = comment.get(end + 1..).unwrap_or_default();
+            let Some(start) = end.checked_add(1) else { return script.into() };
+            rest = comment.get(start..).unwrap_or_default();
         } else if let Some(comment) = rest.strip_prefix("/*") {
             let Some(end) = comment.find("*/") else { return script.into() };
-            rest = comment.get(end + 2..).unwrap_or_default();
+            let Some(start) = end.checked_add(2) else { return script.into() };
+            rest = comment.get(start..).unwrap_or_default();
         } else {
             break;
         }
@@ -73,7 +77,7 @@ pub(super) fn body(script: &str) -> String {
     if !after_meta.trim_start().starts_with('=') {
         return script.into();
     }
-    let offset = script.len() - rest.len();
+    let Some(offset) = script.len().checked_sub(rest.len()) else { return script.into() };
     format!("{}{}", script.get(..offset).unwrap_or_default(), after_export)
 }
 
