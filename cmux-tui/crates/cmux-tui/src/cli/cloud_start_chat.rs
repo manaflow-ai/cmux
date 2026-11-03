@@ -26,6 +26,7 @@
 use std::io::Read as _;
 use std::time::{Duration, Instant};
 
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode, UsageError};
@@ -148,7 +149,7 @@ pub(super) fn parse(
     let mut timeout = DEFAULT_TIMEOUT;
     let mut index = 0;
     while index < words.len() {
-        let word = words[index].as_str();
+        let Some(word) = words.get(index).map(String::as_str) else { break };
         let (flag, inline) = match word.split_once('=') {
             Some((flag, value)) if flag.starts_with("--") => (flag, Some(value.to_owned())),
             _ => (word, None),
@@ -362,8 +363,8 @@ pub(super) fn shell_quote(text: &str) -> String {
 
 /// Whether an app error is the account being signed out.
 fn signed_out(error: &Value) -> bool {
-    let code = error["code"].as_str().unwrap_or_default();
-    let message = error["message"].as_str().unwrap_or_default().to_lowercase();
+    let code = at(&error, "code").as_str().unwrap_or_default();
+    let message = at(&error, "message").as_str().unwrap_or_default().to_lowercase();
     code.contains("signed_out")
         || code.contains("not_signed_in")
         || code == "auth.required"
@@ -397,7 +398,11 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     let machine = match &request.machine {
         Machine::New => {
             let taken = |name: &str| {
-                listed["machines"].as_array().into_iter().flatten().any(|row| row["title"] == name)
+                at(&listed, "machines")
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .any(|row| at(row, "title").as_str() == Some(name))
             };
             let mut name = runner.fresh_name();
             for _ in 0..3 {
@@ -428,7 +433,7 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
         Ok(started) => started,
         Err(error) => return app_failure(error, request, &machine),
     };
-    if started["pending"] == true {
+    if at(&started, "pending").as_bool() == Some(true) {
         let again = again_command(request, &machine);
         return failed(
             "cloud.start_pending",
@@ -436,13 +441,13 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
                 "the machine is still starting; the chat opens in its workspace when it is up. \
                  Run the same command again to keep waiting: {again}"
             ),
-            json!({"again": again, "machine_name": started["machine_name"],
-                   "machine_id": started["machine_id"], "app": started["text"]}),
+            json!({"again": again, "machine_name": at(&started, "machine_name"),
+                   "machine_id": at(&started, "machine_id"), "app": at(&started, "text")}),
             75,
         );
     }
     let (Some(machine_id), Some(session)) =
-        (started["machine_id"].as_str(), started["session_id"].as_str())
+        (at(&started, "machine_id").as_str(), at(&started, "session_id").as_str())
     else {
         return failed(
             "cloud.start_incomplete",
@@ -453,12 +458,12 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     };
     let mut answer = json!({
         "machine_id": machine_id,
-        "machine_name": started["machine_name"],
+        "machine_name": at(&started, "machine_name"),
         "target": format!("machine:{machine_id}"),
         "session_id": session,
-        "workspace_id": started["workspace_id"],
-        "tab_id": started["tab_id"],
-        "host": started["host"],
+        "workspace_id": at(&started, "workspace_id"),
+        "tab_id": at(&started, "tab_id"),
+        "host": at(&started, "host"),
         "agent": request.agent,
         "follow_up": follow_ups(machine_id, session),
     });
@@ -485,9 +490,9 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
             1,
         );
     }
-    answer["sent"] = json!(true);
+    answer.set("sent", json!(true));
     if let Some(delivery) = reported.get("send").map(|text| text.trim()).filter(|t| !t.is_empty()) {
-        answer["delivery"] = json!(delivery);
+        answer.set("delivery", json!(delivery));
     }
     if !request.wait {
         return Outcome::Done(answer);
@@ -513,7 +518,7 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
         let polled = sections(&polled);
         let turn = last_turn(polled.get("history")).filter(|turn| turn.seq > baseline);
         if let Some(turn) = turn.as_ref().filter(|turn| turn.ended) {
-            answer["turn"] = turn.value.clone();
+            answer.set("turn", turn.value.clone());
             let read = polled.get("lastexit").map(|code| code.trim()) == Some("0");
             let Some(text) = reply(polled.get("last")).filter(|_| read) else {
                 return failed(
@@ -524,7 +529,7 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
                     1,
                 );
             };
-            answer["reply"] = json!(text);
+            answer.set("reply", json!(text));
             if turn.failed() {
                 return Outcome::Failed {
                     error: json!({"code": "chat.turn_failed",
@@ -591,12 +596,12 @@ fn exec(runner: &mut dyn Runner, machine: &str, script: &str) -> Result<String, 
         "--json".to_owned(),
     ];
     let result = step_result(&runner.cmux(&args))?;
-    Ok(result["stdout"].as_str().unwrap_or_default().to_owned())
+    Ok(at(&result, "stdout").as_str().unwrap_or_default().to_owned())
 }
 
 /// A failure of a step before the chat existed.
 fn app_failure(error: Value, request: &Request, machine: &Machine) -> Outcome {
-    let message = error["message"].as_str().unwrap_or("the cmux app refused").to_owned();
+    let message = at(&error, "message").as_str().unwrap_or("the cmux app refused").to_owned();
     if signed_out(&error) {
         return failed(
             "cloud.signed_out",
@@ -613,15 +618,15 @@ fn app_failure(error: Value, request: &Request, machine: &Machine) -> Outcome {
             ". From an agent chat the app asks the person first: they answer Start on the card \
              in this chat (`cmux agents dialog list` lists it); then run {again}"
         ));
-        details["again"] = json!(again);
+        details.set("again", json!(again));
     }
-    let code = error["code"].as_str().unwrap_or("cloud.start_failed").to_owned();
+    let code = at(&error, "code").as_str().unwrap_or("cloud.start_failed").to_owned();
     failed(&code, message, details, 1)
 }
 
 /// A failure after the chat started: the answer so far goes with it.
 fn sent_failure(error: Value, answer: Value) -> Outcome {
-    let message = error["message"].as_str().unwrap_or("cloud exec failed");
+    let message = at(&error, "message").as_str().unwrap_or("cloud exec failed");
     failed(
         "chat.unreachable",
         format!("the chat started, but its machine did not answer: {message}"),
@@ -671,11 +676,11 @@ impl Turn {
 
 pub(super) fn last_turn(history: Option<&String>) -> Option<Turn> {
     let value: Value = serde_json::from_str(history?.trim()).ok()?;
-    let turn = value["turns"].as_array()?.last()?.clone();
+    let turn = at(&value, "turns").as_array()?.last()?.clone();
     Some(Turn {
-        seq: turn["seq"].as_u64().unwrap_or(0),
+        seq: at(&turn, "seq").as_u64().unwrap_or(0),
         ended: turn.get("endedAt").is_some_and(|at| !at.is_null()),
-        status: turn["status"].as_str().unwrap_or("completed").to_owned(),
+        status: at(&turn, "status").as_str().unwrap_or("completed").to_owned(),
         value: turn,
     })
 }
@@ -683,7 +688,7 @@ pub(super) fn last_turn(history: Option<&String>) -> Option<Turn> {
 /// The newest reply `acp last --json` printed (`{"sessionId", "replies": [...]}`).
 pub(super) fn reply(last: Option<&String>) -> Option<String> {
     let value: Value = serde_json::from_str(last?.trim()).ok()?;
-    value["replies"].as_array()?.last()?.as_str().map(str::to_owned)
+    at(&value, "replies").as_array()?.last()?.as_str().map(str::to_owned)
 }
 
 /// Prints the outcome and answers the exit code.
@@ -691,25 +696,31 @@ fn report(outcome: &Outcome, output: OutputMode) -> i32 {
     match outcome {
         Outcome::Failed { error, exit } => super::wire::print_local_error(error, output, *exit),
         Outcome::Done(answer) if output == OutputMode::Human => {
-            match answer["reply"].as_str() {
+            match at(&answer, "reply").as_str() {
                 Some(reply) => println!("{reply}"),
                 None => println!(
                     "Sent to {} on {} (machine:{}).",
-                    answer["session_id"].as_str().unwrap_or_default(),
-                    answer["machine_name"].as_str().unwrap_or_default(),
-                    answer["machine_id"].as_str().unwrap_or_default()
+                    at(&answer, "session_id").as_str().unwrap_or_default(),
+                    at(&answer, "machine_name").as_str().unwrap_or_default(),
+                    at(&answer, "machine_id").as_str().unwrap_or_default()
                 ),
             }
             eprintln!(
                 "machine_id {}  session_id {}  tab_id {}",
-                answer["machine_id"].as_str().unwrap_or_default(),
-                answer["session_id"].as_str().unwrap_or_default(),
-                answer["tab_id"].as_str().unwrap_or_default()
+                at(&answer, "machine_id").as_str().unwrap_or_default(),
+                at(&answer, "session_id").as_str().unwrap_or_default(),
+                at(&answer, "tab_id").as_str().unwrap_or_default()
             );
             0
         }
         Outcome::Done(answer) => super::wire::print_local_success(answer, output),
     }
+}
+
+/// `value[key]` without indexing: `Null` when absent.
+fn at<'a>(value: &'a Value, key: &str) -> &'a Value {
+    const NULL: &Value = &Value::Null;
+    value.get(key).unwrap_or(NULL)
 }
 
 #[cfg(test)]
