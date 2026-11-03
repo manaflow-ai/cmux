@@ -75,7 +75,7 @@ fn eventually(check: impl Fn() -> bool) -> bool {
 fn a_zero_record_header_never_checks_out() {
     let header = [0u8; format::RECORD_HEADER_LEN];
     let decoded = format::RecordHeader::decode(&header).unwrap_or_else(|| panic!("decode"));
-    assert!(decoded.verify(&header, &[], 0).is_err(), "a zeroed header must fail its checksum");
+    assert!(decoded.check(&header, &[]).is_err(), "a zeroed header must fail its checksum");
 }
 
 #[test]
@@ -466,9 +466,15 @@ fn damaged_in_the_middle(seed: u64) -> (SimStorage, Config) {
 #[test]
 fn a_crash_inside_the_quarantine_step_never_reuses_a_quarantined_lsn() {
     let (damaged, config) = damaged_in_the_middle(50);
+    // Every storage operation of the open is a crash point once.
+    let probe = damaged.snapshot(Crash::Process);
+    let (journal, report, _) = open_at(&probe, config.clone(), 0).unwrap_or_else(|e| panic!("{e}"));
+    assert!(matches!(report.damage.first(), Some(Damage::Corrupt { .. })), "{report:?}");
+    let operations = probe.ops();
+    drop(journal);
     let mut crashed_after_a_move = 0;
     for crash in [Crash::Process, Crash::Os] {
-        for at in 1..=90 {
+        for at in 1..=operations {
             let storage = damaged.snapshot(Crash::Process);
             storage.crash_after(at);
             let (journal, report) = match open_at(&storage, config.clone(), 0) {

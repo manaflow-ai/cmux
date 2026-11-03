@@ -36,7 +36,7 @@ pub struct JournalStats {
     /// Failed writes, syncs and segment creations. After each, the writer tries again after a
     /// backoff: a failed write in the same segment, anything else in a new segment.
     pub failures: u64,
-    /// The last failure, while the writer has not recovered from it.
+    /// The last failure, while the writer has not recovered from it, or why the writer stopped.
     pub failing: Option<String>,
 }
 
@@ -45,7 +45,7 @@ pub(crate) struct State {
     pub(crate) pending_last: Lsn,
     pub(crate) pending_records: u64,
     pub(crate) pending_ack: bool,
-    /// No appends any more (a seal, or the journal is being dropped).
+    /// No appends any more (a seal, a drop, or the writer stopped).
     pub(crate) closed: bool,
     /// The writer stops after one last attempt (drop).
     pub(crate) stop: bool,
@@ -73,7 +73,7 @@ impl Shared {
 /// Why an append was refused. None of them waits for the disk.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppendError {
-    /// The journal is sealed or being dropped.
+    /// The journal is sealed or being dropped, or its writer stopped (a panic on its thread).
     Closed,
     /// The payload is larger than [`MAX_PAYLOAD_LEN`].
     TooLarge,
@@ -99,7 +99,7 @@ pub enum WaitError {
     Timeout,
     /// The LSN was never appended.
     NotAppended,
-    /// The writer ended (the journal is being dropped).
+    /// The writer ended: the journal is being dropped, or a panic on its thread stopped it.
     WriterEnded,
 }
 
@@ -179,8 +179,10 @@ pub struct Journal {
 impl Journal {
     /// Recovers the journal in `dir` (made when missing) and starts its writer. `replay` gets
     /// every record after `from` (the caller's compaction point), in LSN order, before this
-    /// returns; a replay error aborts the open. Every record handed to `replay` is fully synced
-    /// first, so it is as durable as an acknowledged one.
+    /// returns; a replay error aborts the open. When this returns `Ok`, every record handed to
+    /// `replay` is fully durable (fully synced, or written again into a fully synced segment), so
+    /// it is as durable as an acknowledged one. When it returns an error, the caller drops what
+    /// the replay built: some of those records may not be on the disk.
     pub fn open(
         storage: Arc<dyn Storage>,
         dir: &Path,
@@ -276,6 +278,7 @@ impl Journal {
 
     /// Calls `listener` with the new durable LSN each time it moves, on the writer thread. It
     /// must return quickly and never wait: it only releases the replies that wait for the LSN.
+    /// When the writer stops, the listeners are dropped, so a channel a listener sends on closes.
     pub fn on_durable(&self, listener: impl Fn(Lsn) + Send + Sync + 'static) {
         self.shared
             .listeners

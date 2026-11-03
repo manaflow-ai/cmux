@@ -27,19 +27,29 @@
 //! seal and recovery always sync fully.
 //!
 //! Files (the journal directory): `LOCK` (an exclusive lock held by the one writer), the segments
-//! (`<segment number, 20 digits>.seg`: a header, then records back to back, see `format.rs`), and
-//! `quarantine/` for segments recovery could not read past damage that is not a torn tail. A
-//! segment is only ever appended to; nothing here deletes or shortens one that holds a record.
+//! (`<segment number, 20 digits>.seg`: a header, then records and sync markers back to back, see
+//! `format.rs`), and `quarantine/` for segments recovery could not read past damage that is not a
+//! torn tail. A segment is only ever appended to. The one exception is the writer's own failed
+//! write: it cuts the segment back to its size before that write, so it removes only bytes that
+//! were never synced and never acknowledged. Nothing here deletes a segment or shortens one past
+//! a synced record.
 //!
 //! Recovery ([`Journal::open`]) is the one start path for a clean exit, a crash, a kill -9 and an
 //! OS crash: it syncs the last segment, reads the segments in LSN order, checks each record's
 //! checksum and LSN, and hands every record after the caller's compaction point to the caller's
-//! replay. A torn tail of the last segment (a write that never completed, so never acked) stays in
-//! the file, and the journal goes on in a new segment whose header says where the old one ends.
+//! replay. The records of the last segment after its last sync marker are not known to be on the
+//! disk (a sync of them may have failed), so recovery writes them again into a new segment, fully
+//! synced before open returns. A torn tail (a write that never completed, so never acked) stays in
+//! its file, and the journal goes on in a new segment whose header says where the old one ends.
+//!
+//! A panic on the writer thread (a durable listener's) closes the journal: appends fail with
+//! [`AppendError::Closed`], waits end with [`WaitError::WriterEnded`], and the listeners are
+//! dropped. The daemon then stops; recovery runs at its next start.
 //!
 //! [`Storage`] is the file system seam. [`FsStorage`] is the real one. With the `sim` feature,
-//! `SimStorage` keeps the synced and unsynced bytes of each file apart and can crash at any
-//! storage operation, then lose what a process crash, an OS crash or a power loss would lose.
+//! `SimStorage` simulates a page cache over a disk and an ordered log of names, can fail or crash
+//! at any storage operation, and then keeps what a process crash, an OS crash or a power loss
+//! would keep.
 
 mod format;
 mod journal;

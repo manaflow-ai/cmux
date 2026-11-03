@@ -7,16 +7,29 @@
 //! full one, or, when no batch comes, a full sync runs alone. So an ack waits for a drive cache
 //! flush at most once per interval, and never after an idle time.
 //!
+//! Sync markers (`format.rs`): after each successful sync that covered records, the writer appends
+//! a marker that vouches for them, before anything else it writes to that segment, after the
+//! durable listeners ran (so no reply waits for it). The next sync covers the marker; at a seal and
+//! at a rotation one more full sync covers it, so a sealed or full segment ends vouched for on
+//! the disk. Recovery trusts the last segment only up to its last marker and writes the records
+//! after it again into a new segment.
+//!
 //! Failures:
-//! - A failed write (a full disk): the segment is cut back to its last whole record, and the
+//! - A failed write (a full disk): the segment is cut back to its size before the write, and the
 //!   writer writes the same bytes again after a backoff. If the cut fails too, as below.
 //! - A failed sync, or a failed cut: the writer never writes or syncs that segment again. A failed
 //!   sync can leave the kernel's copy of its pages clean and lost, and a second sync would then
 //!   report success for data that never reached the disk. It keeps every record after the durable
 //!   LSN in memory (`retained`) and, after a backoff, writes them into a new segment whose header
 //!   names the durable LSN as its "previous last LSN", so recovery reads the failed segment only
-//!   through it.
+//!   through it. A restart in the backoff is safe too: the failed segment's records after its last
+//!   marker are written again by recovery.
 //! - A failed segment creation: made again from the start after a backoff.
+//! - A panic on this thread (a listener's): the thread ends and the journal is closed: every
+//!   append fails with `Closed`, every wait ends with `WriterEnded`, the listeners are dropped and
+//!   `JournalStats::failing` says why. The daemon then stops (it never closed the journal itself),
+//!   and recovery runs at its next start. The crate does not abort the process: the daemon owns
+//!   that policy.
 //!
 //! While it backs off, the writer takes no new records; appends end in `AppendError::Backlog`
 //! once `Config::max_pending_bytes` wait. Nothing waits for the disk except this thread.
@@ -31,7 +44,7 @@ use std::sync::{Arc, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use crate::Lsn;
-use crate::format::{SEGMENT_HEADER_LEN, SegmentHeader};
+use crate::format::{self, RECORD_HEADER_LEN, SEGMENT_HEADER_LEN, SegmentHeader};
 use crate::journal::{Shared, State};
 use crate::recovery::{WriterStart, len64, make_segment};
 use crate::storage::{Storage, StorageFile, SyncLevel};
@@ -54,10 +67,32 @@ struct Job {
 
 /// A failed storage operation ([module docs](self)).
 enum Failure {
-    /// A write; the segment is cut back to its last whole record and stays in use.
+    /// A write; the segment is cut back to its size before it and stays in use.
     Write(io::Error),
     /// A sync, a cut or a creation; the segment (if any) is not used again.
     Segment(io::Error),
+}
+
+/// Closes the journal when the writer thread ends, also by a panic ([module docs](self)). The
+/// listeners are dropped first, so whatever a held reply waits on (a channel) closes.
+struct Ended(Arc<Shared>);
+
+impl Drop for Ended {
+    fn drop(&mut self) {
+        let panicked = std::thread::panicking();
+        self.0.listeners.lock().unwrap_or_else(PoisonError::into_inner).clear();
+        {
+            let mut state = self.0.lock();
+            state.ended = true;
+            state.closed = true;
+            if panicked {
+                state.stats.failing =
+                    Some("the journal writer stopped: a panic on its thread".into());
+            }
+        }
+        self.0.durable.notify_all();
+        self.0.wake.notify_all();
+    }
 }
 
 pub(crate) struct Writer {
@@ -77,6 +112,12 @@ pub(crate) struct Writer {
     written: usize,
     /// When the oldest written and unsynced byte was written.
     unsynced_since: Option<Instant>,
+    /// Records were written to `active` after its last marker.
+    unmarked: bool,
+    /// A marker `active` owes, for this LSN.
+    marker: Option<Lsn>,
+    /// A marker was written to `active` after its last sync.
+    marker_unsynced: bool,
     durable: Lsn,
     full_durable: Lsn,
     /// When a barrier sync first made records durable that no full sync covers yet.
@@ -107,6 +148,9 @@ impl Writer {
             retained_ack: false,
             written: 0,
             unsynced_since: None,
+            unmarked: false,
+            marker: None,
+            marker_unsynced: false,
             durable,
             full_durable: durable,
             unfull_since: None,
@@ -116,6 +160,7 @@ impl Writer {
     }
 
     pub(crate) fn run(mut self) {
+        let _ended = Ended(Arc::clone(&self.shared));
         loop {
             let job = self.next_job();
             if let Err(failure) = self.work(job.close) {
@@ -125,8 +170,6 @@ impl Writer {
                 break;
             }
         }
-        self.shared.lock().ended = true;
-        self.shared.durable.notify_all();
     }
 
     /// Waits until something is owed and says what.
@@ -241,6 +284,8 @@ impl Writer {
             // records the failed segment holds through `durable` become fully durable too.
             self.create_segment().map_err(Failure::Segment)?;
         }
+        // A marker that a failed write left owed goes first.
+        self.write_marker()?;
         let now = Instant::now();
         if self.written < self.retained.len() {
             let Some(active) = self.active.as_mut() else {
@@ -248,13 +293,11 @@ impl Writer {
             };
             let unwritten = self.retained.get(self.written..).unwrap_or_default();
             if let Err(error) = active.file.append(unwritten) {
-                return Err(match active.file.truncate(active.size) {
-                    Ok(()) => Failure::Write(error),
-                    Err(_) => Failure::Segment(error),
-                });
+                return Err(cut_back(active, error));
             }
             active.size = active.size.saturating_add(len64(unwritten.len()));
             self.written = self.retained.len();
+            self.unmarked = true;
             if self.unsynced_since.is_none() {
                 self.unsynced_since = Some(now);
             }
@@ -274,9 +317,15 @@ impl Writer {
         if due || (full && owed) {
             let level = if full { SyncLevel::Full } else { SyncLevel::Barrier };
             self.sync(level).map_err(Failure::Segment)?;
+            self.write_marker()?;
+        }
+        if (close || full_segment) && self.marker_unsynced {
+            // A sealed or full segment ends with its marker on the disk, so the next open finds
+            // every record vouched for and writes none again.
+            self.sync_marker().map_err(Failure::Segment)?;
         }
         if full_segment && self.retained.is_empty() {
-            // Fully synced: the next write makes the next segment.
+            // Fully synced: the next record makes the next segment.
             self.active = None;
         }
         Ok(())
@@ -285,9 +334,14 @@ impl Writer {
     fn sync(&mut self, level: SyncLevel) -> io::Result<()> {
         let Some(active) = self.active.as_mut() else { return Err(no_segment()) };
         active.file.sync(level)?;
+        self.marker_unsynced = false;
         let now = Instant::now();
         if !self.retained.is_empty() {
             self.durable = self.retained_last;
+        }
+        if self.unmarked {
+            // Every record in the segment is on the disk now: the next write vouches for them.
+            self.marker = Some(self.durable);
         }
         match level {
             SyncLevel::Full => {
@@ -328,6 +382,32 @@ impl Writer {
         Ok(())
     }
 
+    /// Appends the marker `active` owes ([module docs](self)). It is not synced here: the next
+    /// sync covers it, and recovery syncs the last segment before it reads it.
+    fn write_marker(&mut self) -> Result<(), Failure> {
+        let Some(lsn) = self.marker else { return Ok(()) };
+        let Some(active) = self.active.as_mut() else { return Ok(()) };
+        let mut bytes = Vec::with_capacity(RECORD_HEADER_LEN);
+        format::encode_marker(&mut bytes, lsn);
+        if let Err(error) = active.file.append(&bytes) {
+            return Err(cut_back(active, error));
+        }
+        active.size = active.size.saturating_add(len64(bytes.len()));
+        self.marker = None;
+        self.unmarked = false;
+        self.marker_unsynced = true;
+        Ok(())
+    }
+
+    /// A full sync of `active` for its last marker alone (a seal or a rotation).
+    fn sync_marker(&mut self) -> io::Result<()> {
+        let Some(active) = self.active.as_mut() else { return Err(no_segment()) };
+        active.file.sync(SyncLevel::Full)?;
+        self.marker_unsynced = false;
+        self.publish(|stats| stats.full_syncs = stats.full_syncs.saturating_add(1));
+        Ok(())
+    }
+
     fn create_segment(&mut self) -> io::Result<()> {
         let header = SegmentHeader {
             journal_id: self.journal_id,
@@ -339,6 +419,9 @@ impl Writer {
         self.active = Some(Active { file, size: len64(SEGMENT_HEADER_LEN) });
         self.next_seq = header.seq.saturating_add(1);
         self.written = 0;
+        self.unmarked = false;
+        self.marker = None;
+        self.marker_unsynced = false;
         self.publish(|stats| stats.segments_created = stats.segments_created.saturating_add(1));
         Ok(())
     }
@@ -352,6 +435,9 @@ impl Writer {
                 self.active = None;
                 self.written = 0;
                 self.unsynced_since = None;
+                self.unmarked = false;
+                self.marker = None;
+                self.marker_unsynced = false;
                 error
             }
         };
@@ -367,6 +453,15 @@ impl Writer {
 
     fn publish<T>(&self, change: impl FnOnce(&mut crate::JournalStats) -> T) -> T {
         change(&mut self.shared.lock().stats)
+    }
+}
+
+/// A failed append: the segment is cut back to its size before it. A failed cut ends the
+/// segment's use.
+fn cut_back(active: &mut Active, error: io::Error) -> Failure {
+    match active.file.truncate(active.size) {
+        Ok(()) => Failure::Write(error),
+        Err(_) => Failure::Segment(error),
     }
 }
 
