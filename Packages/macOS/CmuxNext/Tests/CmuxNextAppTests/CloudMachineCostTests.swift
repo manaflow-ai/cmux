@@ -66,6 +66,16 @@ private typealias SidebarStrings = CmuxNextSidebar.Strings
             == "$0.26/h · Running 5m · Est. $0.02 this run")
     }
 
+    @Test func pendingAndUnknownStatesCannotUseAStaleRunningTimestamp() throws {
+        for status in [CloudMachine.Status.provisioning, .starting, .pausing, .unknown] {
+            let cost = try #require(CloudCreationRows.cost(Self.machine(status), limits: nil))
+            #expect(cost.runningSince == nil)
+            #expect(cost.estimatedCostUsd(now: Self.now) == nil)
+            #expect(cost.usage(now: Self.now, locale: Self.enUS)
+                == SidebarStrings.costRateWhenRunning("$0.26"))
+        }
+    }
+
     @Test func aMachineWithoutARateShowsOnlyItsTime() throws {
         let cost = try #require(CloudCreationRows.cost(Self.machine(.running, rate: nil), limits: nil))
         #expect(cost.estimatedCostUsd(now: Self.now) == nil)
