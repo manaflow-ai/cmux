@@ -39,7 +39,11 @@ extension AgentPaneView {
         let holder = model.sessionInfo
         guard drawsSessionInfo, let info = holder.info, info.open else {
             if let panel = holder.panel {
+                // The keyboard was in the panel (a click there, then Esc): it goes back to the chat,
+                // as the page's Esc gave it to the toggle, not to nothing.
+                let hadFocus = (window?.firstResponder as? NSView)?.isDescendant(of: panel) == true
                 panel.removeFromSuperview()
+                if hadFocus { focusChat() }
                 holder.panel = nil
                 applyNativeRects()
             }

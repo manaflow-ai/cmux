@@ -77,6 +77,31 @@ final class AgentPaneSessionInfoPanel: NSView {
 
     /// Esc from inside the panel closes it, as the page's did.
     override func cancelOperation(_ sender: Any?) { store.act("close") }
+
+    // A click anywhere in the panel gives it the keyboard, as a click in the page's panel focused it:
+    // Esc then reaches ``cancelOperation(_:)`` instead of the page, whose focus stayed where it was
+    // (the composer, say) and whose own Esc handler only closes the panel from its toggle.
+    // The panel draws no focus ring (no ring mask); a line or button keeps its own when it takes focus.
+    override var acceptsFirstResponder: Bool { true }
+    override func mouseDown(with event: NSEvent) { takeFocus() }
+
+    /// Takes the keyboard unless the panel or one of its views already has it.
+    func takeFocus() {
+        guard let window else { return }
+        if let focused = window.firstResponder as? NSView, focused.isDescendant(of: self) { return }
+        window.makeFirstResponder(self)
+    }
+}
+
+extension NSView {
+    /// A press inside native Session Info: the panel takes the keyboard (``AgentPaneSessionInfoPanel/takeFocus()``).
+    func focusEnclosingSessionInfoPanel() {
+        var view = superview
+        while let current = view {
+            if let panel = current as? AgentPaneSessionInfoPanel { return panel.takeFocus() }
+            view = current.superview
+        }
+    }
 }
 
 /// What the panel draws and how its clicks reach the page.
@@ -206,6 +231,7 @@ final class AgentPaneSessionInfoEdge: NSView {
 
     override func resetCursorRects() { addCursorRect(bounds, cursor: .resizeLeftRight) }
     override func mouseDown(with event: NSEvent) {
+        focusEnclosingSessionInfoPanel()
         if event.clickCount >= 2 {
             last = nil
             onDoubleClick?()

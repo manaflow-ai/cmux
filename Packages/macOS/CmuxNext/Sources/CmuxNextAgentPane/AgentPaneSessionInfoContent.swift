@@ -811,6 +811,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     override func mouseExited(with event: NSEvent) { hovered = false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func mouseDown(with event: NSEvent) {
+        focusEnclosingSessionInfoPanel()
         let point = convert(event.locationInWindow, from: nil)
         dragStart = line.reorderable && line.id != nil && (grip?.frame.contains(point) == true) ? point : nil
         isDragging = false
@@ -949,7 +950,7 @@ final class SessionInfoButtonView: NSView {
     override func mouseEntered(with event: NSEvent) { hovered = true }
     override func mouseExited(with event: NSEvent) { hovered = false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func mouseDown(with event: NSEvent) {}
+    override func mouseDown(with event: NSEvent) { focusEnclosingSessionInfoPanel() }
     override func mouseUp(with event: NSEvent) {
         guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
         press()
