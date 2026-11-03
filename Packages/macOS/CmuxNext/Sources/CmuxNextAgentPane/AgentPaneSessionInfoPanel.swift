@@ -52,6 +52,8 @@ final class AgentPaneSessionInfoPanel: NSView {
     var zoom: CGFloat = 1
     /// The width a drag of the left edge gives the panel before the page hears it, CSS pixels.
     var dragWidth: Double?
+    /// The drag ended and the page has not answered yet: its next width is the one to draw.
+    private var dragSent = false
     /// Sends a row's, a button's or the panel's own action id to the page.
     var send: (String) -> Void = { _ in }
     /// Sends an action with an optional page-coordinate anchor. The legacy callback remains for
@@ -79,13 +81,22 @@ final class AgentPaneSessionInfoPanel: NSView {
         dragWidth = next
         relayout()
         guard ended else { return }
+        dragSent = true
         send("width:\(Int(next.rounded()))")
     }
 
-    /// The page answered with its width: the drag is over.
+    /// The page answered with its width: the drag is over. After the drag ended the page's width is
+    /// the one drawn even where it differs from the drag's (a pushed panel the pane narrows below the
+    /// drag's 260px, cmuxterm-hq#6137), so the panel's frame is the room the page keeps for it.
     func update(_ next: AgentPaneSessionInfoModel?) {
-        if let next, let dragWidth, abs(next.width - dragWidth) < 1 { self.dragWidth = nil }
-        if next == nil { dragWidth = nil }
+        if let next, let dragWidth, dragSent || abs(next.width - dragWidth) < 1 {
+            self.dragWidth = nil
+            dragSent = false
+        }
+        if next == nil {
+            dragWidth = nil
+            dragSent = false
+        }
         info = next
     }
 }
