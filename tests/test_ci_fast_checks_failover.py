@@ -24,7 +24,7 @@ from pathlib import Path
 
 import yaml
 
-from test_ci_fork_runner_routing import evaluate_runs_on, parse_expression
+from test_ci_fork_runner_routing import evaluate_runs_on, parse_expression, runner_label_errors
 
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "fast-checks.yml"
 POOL = "cmux-fleet-linux-x64"
@@ -66,6 +66,18 @@ class FastChecksFailoverTests(unittest.TestCase):
                     "blacksmith-32vcpu-ubuntu-2404",
                 } else "ubuntu-24.04"
                 self.assertEqual(actual, expected)
+
+    def test_admission_guard_keeps_the_overflow_set_exact(self) -> None:
+        selector = yaml.safe_load(WORKFLOW.read_text())["jobs"]["admit"]["runs-on"]
+        self.assertEqual(runner_label_errors(selector), [])
+        for unsafe in (
+            selector.replace("blacksmith-8vcpu-ubuntu-2404", POOL),
+            selector.replace("'ubuntu-24.04'", "'self-hosted'"),
+            selector.replace("contains(", "startsWith("),
+            selector.replace("&& inputs.runner", "&& inputs.other_runner"),
+        ):
+            with self.subTest(selector=unsafe):
+                self.assertNotEqual(runner_label_errors(unsafe), [])
 
     def run_fast_checks_script(self, command: str, source: str | None = None) -> tuple[subprocess.CompletedProcess[str], dict | None]:
         workflow = WORKFLOW.read_text(encoding="utf-8")
@@ -131,7 +143,7 @@ class FastChecksFailoverTests(unittest.TestCase):
 
     def test_main_hosted_guard_rejects_privileged_or_macos_admission(self) -> None:
         for before, after in (
-            ("    runs-on: ubuntu-24.04 #", "    runs-on: macos-26 #"),
+            (" || 'ubuntu-24.04' }} #", " || 'macos-26' }} #"),
             ("    permissions:\n      contents: read", "    permissions:\n      contents: write"),
         ):
             with self.subTest(change=after):
