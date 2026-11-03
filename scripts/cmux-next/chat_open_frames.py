@@ -10,7 +10,11 @@ the frames the window server composited, not on the page's own first-content mar
   final_frame_ms    the first frame of the settled run: every frame from it to the end of the strip equals
                     the last one, and the run is at least `settle_frames` frames long (else the open never
                     settled inside the strip and has no final frame)
-  first_is_final    the first content frame is the final frame: nothing changed after the chat first drew
+  first_is_final    the first content frame is the final frame and no frame was blank: nothing changed after
+                    the chat first drew
+  transcript_ms     when the page first drew its composer and transcript rows (or its empty chat), from the
+                    page's own layout_watch started at the click: an open counts only when this is inside the
+                    strip, so a strip that settled on the chat's chrome before its transcript came is no pass
   between_frames    frames from first content to the final frame that equal neither (text first, then the view)
   blank_frames      frames the strip marked blank (the content area flat and unlike before and after)
 
@@ -50,7 +54,7 @@ def final_frame(frames, settle_frames=10, tolerance=TOLERANCE):
     if out["settled"]:
         out["final_frame_ms"] = after[final]["ms"]
     if first is not None and out["settled"]:
-        out["first_is_final"] = first >= final
+        out["first_is_final"] = first >= final and out["blank_frames"] == 0
         out["between_frames"] = sum(1 for f in after[first:final] if f["content_vs_final"] > tolerance)
     return out
 
@@ -71,9 +75,18 @@ def row_drift(watch):
             "scroll_jumps": len(watch.get("scroll_jumps") or []), "page_first_content_ms": watch.get("first_content_ms")}
 
 
+def transcript_ms(watch, watch_started_ms, strip_ms):
+    """When the page first drew its transcript, in ms from the click (its layout_watch's first paint plus when the
+    watch started), or None when it did not draw one inside the strip."""
+    if not isinstance(watch, dict) or not _number(watch.get("first_content_ms")) or not _number(watch_started_ms):
+        return None
+    at = round(max(0, watch_started_ms) + watch["first_content_ms"], 1)
+    return at if at <= strip_ms else None
+
+
 def valid(record):
     return not record.get("error") and record.get("settled") and _number(record.get("first_content_ms")) \
-        and _number(record.get("final_frame_ms"))
+        and _number(record.get("final_frame_ms")) and _number(record.get("transcript_ms"))
 
 
 def summarize(records):

@@ -13,7 +13,7 @@
 # Build options (the rest go to the bench):
 #   --app=PATH       measure this app; nothing is built
 #   --skip-build     measure the app this script last built in this checkout, when it was built at this
-#                    commit (.build keeps it between steps on a worker); else build as usual
+#                    commit with these build options (.build keeps it between steps on a worker); else build
 #   --native-arch    build this Mac's architecture only (the default in a fleet measurement step)
 #   --universal      build arm64 + x86_64 (CMUX_RELOAD_NATIVE_ARCH=0)
 #   --derived-data=PATH  reload.sh's DerivedData (a measurement step's default is the checkout's warm
@@ -36,16 +36,18 @@ for arg in "$@"; do
   esac
 done
 set -- ${bench_args[@]+"${bench_args[@]}"}
-head="$(git rev-parse HEAD)"
+# The commit, configuration and architecture an app was built for: --skip-build reuses only a match.
+build_id="$(git rev-parse HEAD)/${reload_config[1]}/${CMUX_RELOAD_NATIVE_ARCH:-default}/${reload_args[*]:-}"
+build_id="${build_id// /,}"
 # What the last build left: its commit and its app, so --skip-build reuses only an app of this commit.
 last_build=".build/chat-open-last-build"
 if [[ -z "$app" && "$skip_build" -eq 1 && -f "$last_build" ]]; then
   read -r built_at built_app <"$last_build" || true
-  if [[ "${built_at:-}" == "$head" && -d "${built_app:-}" ]]; then
+  if [[ "${built_at:-}" == "$build_id" && -d "${built_app:-}" ]]; then
     app="$built_app"
-    echo "chat-open: --skip-build: the app built at $head"
+    echo "chat-open: --skip-build: the app built as $build_id"
   else
-    echo "chat-open: --skip-build: no app built at $head here (last: ${built_at:-none}); building"
+    echo "chat-open: --skip-build: no app built as $build_id here (last: ${built_at:-none}); building"
   fi
 elif [[ -z "$app" && "$skip_build" -eq 1 ]]; then
   echo "chat-open: --skip-build: no earlier build in this checkout; building"
@@ -67,7 +69,7 @@ else
     exit 1
   fi
   mkdir -p .build
-  printf '%s %s\n' "$head" "$app" >"$last_build"
+  printf '%s %s\n' "$build_id" "$app" >"$last_build"
 fi
 mkdir -p artifacts
 # A fleet step has no LaunchServices session: the bench launches the app binary directly.

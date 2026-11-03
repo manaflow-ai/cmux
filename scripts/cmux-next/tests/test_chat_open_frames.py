@@ -46,7 +46,7 @@ class FinalFrameTests(unittest.TestCase):
         out = cof.final_frame(rows, settle_frames=10)
         self.assertEqual(out["first_content_ms"], 16)
         self.assertEqual(out["blank_frames"], 1)
-        self.assertTrue(out["first_is_final"])
+        self.assertFalse(out["first_is_final"])  # a blank flash before the final frame is no first-is-final
 
     def test_unsettled_strip_has_no_final_frame(self):
         rows = strip((0.3, 0.1), (0.3, 0.1), *[(0.3, 0)] * 3)
@@ -66,6 +66,34 @@ class FinalFrameTests(unittest.TestCase):
         self.assertFalse(cof.valid(out))
 
 
+class TranscriptTests(unittest.TestCase):
+    def test_strip_settled_on_chrome_before_the_transcript_is_no_pass(self):
+        # The pane drew its chrome at once and settled, but the page's transcript came after the strip ended.
+        record = cof.final_frame(strip(*[(0.3, 0)] * 12))
+        self.assertTrue(record["first_is_final"])
+        record["transcript_ms"] = cof.transcript_ms({"frames": 80, "first_content_ms": None}, 30, 2500)
+        self.assertIsNone(record["transcript_ms"])
+        self.assertFalse(cof.valid(record))
+        self.assertIsNone(cof.transcript_ms({"frames": 80, "first_content_ms": 2400}, 300, 2500))
+        self.assertIsNone(cof.transcript_ms(None, 30, 2500))
+
+    def test_transcript_inside_the_strip_counts_from_the_click(self):
+        record = cof.final_frame(strip(*[(0.3, 0)] * 12))
+        record["transcript_ms"] = cof.transcript_ms({"frames": 80, "first_content_ms": 20}, 45.5, 2500)
+        self.assertEqual(record["transcript_ms"], 65.5)
+        self.assertTrue(cof.valid(record))
+        # A watch asked before the click counts from the click.
+        self.assertEqual(cof.transcript_ms({"frames": 80, "first_content_ms": 20}, -50, 2500), 20)
+
+    def test_a_blank_frame_breaks_first_is_final(self):
+        rows = strip((0.4, 0.4, 0.999), *[(0.3, 0)] * 12)
+        rows[2]["blank"] = True
+        rows[2]["content_vs_before"] = 0.5
+        rows[2]["flatness"] = 0.999
+        out = cof.final_frame(rows)
+        self.assertFalse(out["first_is_final"])
+
+
 class DriftAndSummaryTests(unittest.TestCase):
     def test_row_drift_takes_the_largest_row_move(self):
         watch = {"frames": 90, "first_content_ms": 40, "scroll_jumps": [{"at_ms": 70}],
@@ -77,7 +105,7 @@ class DriftAndSummaryTests(unittest.TestCase):
         self.assertIsNone(cof.row_drift({"error": "no pane shows an agent tab"}))
 
     def test_summary_needs_every_click_settled(self):
-        good = dict(cof.final_frame(strip(*[(0.3, 0)] * 12)), drift={"max_row_px": 0})
+        good = dict(cof.final_frame(strip(*[(0.3, 0)] * 12)), drift={"max_row_px": 0}, transcript_ms=40)
         bad = cof.final_frame(strip(*[(0, 0)] * 12))
         whole = cof.summarize([good, good])
         self.assertTrue(whole["complete"])

@@ -518,12 +518,13 @@ def watch_layout(run, out, stop_at):
     shows one (before the click the shown workspace has none, so the ask fails at once and is asked again).
     One watch runs; the thread ends with it or at `stop_at`."""
     while time.monotonic() < stop_at:
+        asked = time.monotonic()
         reply = run.rpc("debug.agent_pane", {"action": "layout_watch", "ms": max(100, opts.strip_ms - 200)}, timeout=20)
         if isinstance(reply, dict) and not reply.get("error") and "frames" in reply:
-            out["watch"] = reply
+            out["watch"], out["watch_asked"] = reply, asked
             return
         out["watch_error"] = reply
-        time.sleep(0.016)  # test script: no page shows the chat yet
+        time.sleep(0.033)  # test script: no page shows the chat yet (a few asks a frame would load the main actor)
 
 
 def frame_click(run, key, label):
@@ -536,6 +537,8 @@ def frame_click(run, key, label):
     params = {"action": "frame_strip", "gesture": "mouse", "mouse": {"row": key, "action": "click"}, "above": True,
               "duration_ms": opts.strip_ms, "dir": folder}
     watcher.start()
+    # frame_strip clicks 120 ms after it starts recording (DebugFrameStrip's lead): the click's monotonic time.
+    clicked = time.monotonic() + 0.12
     strip = run.rpc("debug.new_tab", params, timeout=opts.strip_ms / 1000 + 60) or {}
     watcher.join(timeout=max(0.0, stop_at - time.monotonic()) + 20)
     shutil.rmtree(folder, ignore_errors=True)  # the PNGs: the numbers per frame are the evidence kept
@@ -548,7 +551,9 @@ def frame_click(run, key, label):
                    "frames": [[f.get("ms"), round(f.get("content_vs_before") or 0, 4), round(f.get("content_vs_final") or 0, 4),
                                round(f.get("flatness") or 0, 4), bool(f.get("blank"))] for f in strip.get("frames") or []],
                    "frames_columns": ["ms", "content_vs_before", "content_vs_final", "flatness", "blank"],
-                   "layout_watch": out.get("watch"), "drift": cof.row_drift(out.get("watch"))})
+                   "layout_watch": out.get("watch"), "drift": cof.row_drift(out.get("watch")),
+                   "transcript_ms": cof.transcript_ms(out.get("watch"), (out["watch_asked"] - clicked) * 1000 if out.get("watch_asked") else None,
+                                                      opts.strip_ms)})
     if not out.get("watch"):
         record["layout_watch_error"] = out.get("watch_error")
     return record
