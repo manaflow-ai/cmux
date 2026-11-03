@@ -231,25 +231,7 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         let (dir, _) = self.bg_record(session, id)?;
         let path = bg_run::lock_path(&dir, id);
-        tokio::task::spawn_blocking(move || -> Result<(), RpcError> {
-            #[cfg(unix)]
-            {
-                use std::os::fd::AsRawFd;
-                let file = std::fs::File::open(path).map_err(internal)?;
-                // SAFETY: this wait owns the descriptor and closes it when the wait returns.
-                if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH) } != 0 {
-                    return Err(internal(std::io::Error::last_os_error()));
-                }
-                Ok(())
-            }
-            #[cfg(not(unix))]
-            {
-                let _ = path;
-                Err(RpcError::internal("workflow machine tasks require Unix"))
-            }
-        })
-        .await
-        .map_err(internal)??;
+        workflow_bg_wait_lock(path).await?;
         let (dir, record) = self.bg_record(session, id)?;
         let view = tokio::task::spawn_blocking(move || workflow_bg_output(&dir, &record))
             .await
@@ -361,6 +343,38 @@ impl Hub {
             }
         }
         bg_cleared(&dir)
+    }
+}
+
+/// The runner can outlive this daemon, so its potentially unbounded lock wait must not use
+/// Tokio's blocking pool: runtime shutdown waits for that pool even after the future is gone.
+/// This detached thread owns only its descriptor and sender, and closes both when the runner
+/// exits. Dropping the receiver neither stops the runner nor delays daemon shutdown.
+async fn workflow_bg_wait_lock(path: PathBuf) -> Result<(), RpcError> {
+    #[cfg(unix)]
+    {
+        let (finished, result) = tokio::sync::oneshot::channel();
+        std::thread::Builder::new()
+            .name("workflow-bg-wait".into())
+            .spawn(move || {
+                let wait = || -> Result<(), RpcError> {
+                    use std::os::fd::AsRawFd;
+                    let file = std::fs::File::open(path).map_err(internal)?;
+                    // SAFETY: this thread owns the descriptor, which closes on return.
+                    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH) } != 0 {
+                        return Err(internal(std::io::Error::last_os_error()));
+                    }
+                    Ok(())
+                };
+                let _ = finished.send(wait());
+            })
+            .map_err(internal)?;
+        result.await.map_err(internal)?
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Err(RpcError::internal("workflow machine tasks require Unix"))
     }
 }
 
@@ -586,6 +600,40 @@ async fn bg_spawn(runner: &crate::self_command::SelfCommand, spec: &bg_run::Spec
 mod workflow_output_tests {
     use super::*;
     use base64::Engine;
+
+    #[cfg(unix)]
+    #[test]
+    fn workflow_lock_wait_does_not_delay_runtime_shutdown() {
+        use std::future::Future as _;
+        use std::os::fd::AsRawFd;
+
+        let dir = cmux_unix_socket::short_test_dir("workflow-bg-shutdown");
+        let path = dir.path().join("task.lock");
+        let runner = std::fs::File::create(&path).unwrap();
+        // SAFETY: the test owns this descriptor and holds it until after the shutdown check.
+        assert_eq!(unsafe { libc::flock(runner.as_raw_fd(), libc::LOCK_EX) }, 0);
+        let (shutdown, stopped) = std::sync::mpsc::channel();
+        let daemon = std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+            runtime.block_on(async {
+                let mut wait = std::pin::pin!(workflow_bg_wait_lock(path));
+                // Start the actual lock wait before dropping its future and the runtime.
+                std::future::poll_fn(|cx| {
+                    assert!(wait.as_mut().poll(cx).is_pending());
+                    std::task::Poll::Ready(())
+                })
+                .await;
+            });
+            drop(runtime);
+            let _ = shutdown.send(());
+        });
+        let shutdown_before_exit = stopped.recv_timeout(std::time::Duration::from_secs(5));
+        // Release before joining or asserting: the old blocking-pool implementation must also
+        // be able to clean up after its bounded failure, rather than hanging the test process.
+        drop(runner);
+        daemon.join().unwrap();
+        assert!(shutdown_before_exit.is_ok(), "daemon shutdown waited for the machine task");
+    }
 
     fn result(data: &[u8]) -> Value {
         let dir = cmux_unix_socket::short_test_dir("workflow-bg-result");
