@@ -376,6 +376,7 @@ def kit_tar(specs):
         tar.add(HERE / "sck_probe.swift", arcname="sck_probe.swift")  # built only by ext_video's sck_probe step
         tar.add(HERE / "hid_inject.swift", arcname="hid_inject.swift")  # built only by ext_video's hid_inject steps
         tar.add(HERE / "hid_inject_log.py", arcname="hid_inject_log.py")
+        tar.add(HERE / "settle_host.py", arcname="settle_host.py")  # run only with --settle-seconds > 0 (whole host)
         tar.add(OCR_SOURCE, arcname="ocr.swift")
         data = json.dumps([{k: v for k, v in s.items() if not k.startswith("_")} for s in specs]).encode()
         info = tarfile.TarInfo("journeys.json")
@@ -462,8 +463,26 @@ def start_vdisplay(host, work, mode, hold, out, timeout):
     return facts
 
 
+SETTLE_SECONDS = 75  # default bound of the Shortcuts-load wait after the launch (film leases; STATUS 7817)
+SETTLE_MIN_SECONDS = 25  # settle_host.py's 20 s quiet time + SETTLE_START_SECONDS: with less the wait could never be quiet
+DRIVER_RESERVE = 45  # s the lease keeps after the driver's deadline (fetch and release), as `budget` below
+OCR_WARMUP_RESERVE = 60  # s the driver's text-reader warm-up takes inside its own deadline (driver.py main; SETUP_RESERVE)
+SETTLE_SSH_SLACK = 20  # s the settle's ssh call may run past its bound (ssh, zsh -l, python start, a late poll)
+SETTLE_START_SECONDS = 5  # of that slack, what the ssh and the python start take in each call: taken off the bound
+
+
+def settle_bound(settle_seconds, lease_left, specs):
+    """Seconds the settle wait may take: at most SETTLE_SECONDS, and never time the driver needs after it: the batch's
+    budget_seconds, the driver's OCR warm-up, DRIVER_RESERVE and the ssh slack, out of what is left on the lease;
+    0 when that is under SETTLE_MIN_SECONDS."""
+    spare = (lease_left - DRIVER_RESERVE - OCR_WARMUP_RESERVE - SETTLE_SSH_SLACK
+             - sum(float(s.get("budget_seconds") or 0) for s in specs))
+    bound = min(float(settle_seconds), spare)
+    return int(bound) if bound >= SETTLE_MIN_SECONDS else 0
+
+
 def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.0, whole_host=False, run_ident=None,
-              vdisplay=None):
+              vdisplay=None, settle_seconds=0):
     """Plays `specs` in one slot (or, whole_host, on the whole mini with the app active); {id: result} (driver results, or not run with the reason). `exclusive`: the
     lease owns the whole mini (`capture-host acquire --slot --exclusive`: no fleet step runs there meanwhile;
     the fleet rule for any result that is evidence, such as the dogfood smoke gate). `run_ident` ({"run_id",
@@ -542,6 +561,26 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
         if facts.get("socket", "none") == "none":
             raise RuntimeError(f"the app did not answer on its control socket: "
                                f"{(launched.stdout + launched.stderr).decode(errors='replace').strip()[-400:]}")
+        if whole_host and vdisplay and settle_seconds > 0:
+            # A film lease: its new bundles (virtual display app, app clone, its CEF helpers) each make siriactionsd
+            # run a BackgroundShortcutRunner at about 65 % CPU for up to 6 s, until about 45 s after the launch
+            # (STATUS 7817): register the helpers now and wait until no runner ran for 20 s, so no measured journey
+            # has it. Only in the lease time the batch's journeys do not need (settle_bound); it never fails the
+            # lease; OUT/settle-<lease>.json has what it saw (or why it did not run).
+            bound = settle_bound(settle_seconds, deadline - time.monotonic(), specs)
+            text, error = [], ""
+            if not bound:
+                error = "skipped: the lease has no spare time for it after the journeys' budgets"
+            else:
+                try:
+                    settled = remote(host, f"/usr/bin/python3 -I {q(work + '/kit/settle_host.py')} --app {q(facts.get('app', app))} "
+                                           f"--max-seconds {max(1, bound - SETTLE_START_SECONDS)}", timeout=bound + SETTLE_SSH_SLACK, check=False)
+                    text = settled.stdout.decode(errors="replace").strip().splitlines()
+                    error = settled.stderr.decode(errors="replace").strip()[-300:]
+                except (RuntimeError, subprocess.TimeoutExpired) as failure:
+                    error = str(failure)[-300:]
+            (out / f"settle-{lease}.json").write_text((text[-1] if text else json.dumps({"error": error, "bound_s": bound})) + "\n")
+            log(f"settle on {host} (at most {bound}s): {(text[-1] if text else error)[:300]}")
         if hog_started:
             # The rest of the warm-up: the pressure builds before the journeys start.
             time.sleep(max(0.0, HOG_WARMUP_SECONDS - (time.monotonic() - hog_started)))
@@ -780,6 +819,10 @@ def main(argv=None):
     ap.add_argument("--vdisplay", metavar="HZxSCALE",
                     help="whole-host only: make the lease's own virtual display at HZ, 1x or 2x (e.g. 120x1, 120x2) the "
                          "main display before the app launches; OUT/display.json has what was measured")
+    ap.add_argument("--settle-seconds", type=int, default=SETTLE_SECONDS,
+                    help="film leases (--whole-host --vdisplay) only: after the launch, register the app's helper bundles "
+                         "and wait (at most this long, and only in lease time the journeys do not need) until macOS's "
+                         "Shortcuts load from the lease's new bundles is over (STATUS 7817); 0: no wait")
     ap.add_argument("--exclusive", action="store_true",
                     help="take each lease exclusive (the whole mini; capture-host acquire --slot --exclusive): for evidence")
     ap.add_argument("--journey-option", action="append", default=[], metavar="KEY=VALUE",
@@ -855,7 +898,8 @@ def main(argv=None):
     else:
         for group in batches(chosen):
             results.update(run_lease(group, build, out, opts.frame_interval, exclusive=opts.exclusive, vdisplay=opts.vdisplay,
-                                     hog_swap_gb=opts.hog_swap_gb, whole_host=opts.whole_host, run_ident=this_run))
+                                     hog_swap_gb=opts.hog_swap_gb, whole_host=opts.whole_host, run_ident=this_run,
+                                     settle_seconds=opts.settle_seconds))
 
     lines = []
     for spec in chosen:
