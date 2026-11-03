@@ -88,6 +88,7 @@
     "nightly-next-canary.yml:canary": {"class": "nightly-release-compile", "warm": [], "exempt": "launches the feed's published DMG; selects Xcode only for stapler and spctl; compiles nothing"},
     "nightly-next-launch-smoke.yml:smoke": {"class": "nightly-release-compile", "warm": [], "exempt": "launches the feed's published DMG from a fresh home; compiles nothing"},
     "nightly-next-train.yml:build": {"class": "nightly-release-compile", "warm": ["deriveddata-reuse"]},
+    "nightly.yml:decide": {"class": "nightly-control", "warm": [], "exempt": "control and metadata decision only; compiles nothing"},
     "nightly.yml:build-nightly-app": {"class": "nightly-release-compile", "warm": ["actions-cache"]},
     "nightly.yml:build-nightly-ghostty-cli-helper": {"class": "nightly-release-compile", "warm": ["actions-cache"]},
     "nightly.yml:build-sign-notarize-nightly": {"class": "mac-sign", "warm": [], "exempt": "signing and notarization only: consumes the app or DMG an earlier job built, compiles nothing"},

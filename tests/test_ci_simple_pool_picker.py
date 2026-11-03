@@ -735,5 +735,50 @@ class DeadLabelTests(unittest.TestCase):
         self.assertEqual(picker.dead_macos_26(dict(self.snap(), truncated=True)), set())
 
 
+class EveryMacos26LabelDeadTests(unittest.TestCase):
+    """With both Blacksmith macOS 26 labels dead, a --wait-owned pick waits on the owned fleet. Until 2026-10-31
+    state_from() dropped the evidence when it named both (dead_macos_26()), so a cleared 6 vCPU queue read as free
+    slots: DEV publisher run 41250674182 put verify and tip-dmg-build on blacksmith-6vcpu-macos-26, which started
+    nothing, while the std minis were online."""
+
+    LARGE, SMALL = picker.BLACKSMITH[0], picker.BLACKSMITH[1]
+
+    def busy_fleet(self, snapshot: dict, env: dict | None = None):
+        runners = [std_runner(i, busy=True) for i in range(4)]
+        state = picker.state_from(jobs=2, env=env or OWNED_ENV, fork=False, runners=runners, snapshot=snapshot,
+                                  fallback=self.SMALL, owned_enabled=True)
+        # The DEV publisher's --blacksmith-labels: only the macOS 26 labels its jobs run on.
+        return dataclasses.replace(state, wait_on_owned=True, blacksmith=state.blacksmith[:2])
+
+    def snap(self, *, small_started_minutes: int) -> dict:
+        generated = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=2)
+        started = generated - dt.timedelta(minutes=small_started_minutes)
+        return {"generated_at": generated.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "pools": {self.LARGE: {"queued": 0, "running": 0}, self.SMALL: {"queued": 0, "running": 0}},
+                "label_started": {self.SMALL: started.strftime("%Y-%m-%dT%H:%M:%SZ")}}
+
+    def test_both_dead_in_the_snapshot_waits_on_the_owned_fleet(self):
+        state = self.busy_fleet(self.snap(small_started_minutes=70))
+        self.assertTrue(all(item.stalled for item in state.blacksmith[:2]))
+        choice = picker.pick(state)
+        self.assertEqual(choice.label, STD)
+        self.assertTrue(choice.owned)
+
+    def test_runner_pools_dead_marks_count_too(self):
+        now = dt.datetime.now(dt.timezone.utc)
+        mark = (now - dt.timedelta(minutes=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        env = {**OWNED_ENV, "RUNNER_POOLS": json.dumps({"_dead": {self.LARGE: mark, self.SMALL: mark}})}
+        # The snapshot alone shows 6 vCPU alive (a start a minute ago).
+        state = self.busy_fleet(self.snap(small_started_minutes=1), env)
+        self.assertEqual(picker.pick(state).label, STD)
+        # An old mark proves nothing: 6 vCPU, alive in the snapshot, takes the run.
+        old = (now - dt.timedelta(minutes=45)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        env = {**OWNED_ENV, "RUNNER_POOLS": json.dumps({"_dead": {self.LARGE: old, self.SMALL: old}})}
+        self.assertEqual(picker.pick(self.busy_fleet(self.snap(small_started_minutes=1), env)).label, self.SMALL)
+
+    def test_a_live_label_still_takes_the_overflow(self):
+        self.assertEqual(picker.pick(self.busy_fleet(self.snap(small_started_minutes=1))).label, self.SMALL)
+
+
 if __name__ == "__main__":
     unittest.main()

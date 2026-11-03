@@ -28,6 +28,12 @@ for an hour; a snapshot up to six hours old still proves it) is never picked nor
 another label shows life. The stall rule alone could not tell it from a busy label: on 2026-10-30 every DEV
 daily re-run (verify, tip-dmg-build) took the 12 vCPU `alternate` and queued there for hours while that label
 had started nothing for about a day.
+RUNNER_POOLS (vars.RUNNER_POOLS, runner_pools.py's one routing variable) is read too: a label its `_dead` marks
+seen dead within MARK_TTL counts as dead, and with every candidate dead the pick is the variable's live macos_26
+member (the pool keeps its first member then), never the other one. `alternate` never names a label the
+snapshot or a mark shows dead, even when every candidate is dead: then it is `cloud` itself. Until 2026-10-31
+dead_macos_26() dropped the evidence when it showed both labels dead, so a re-run of the DEV daily's verify and
+tip-dmg-build still took blacksmith-12vcpu-macos-26 (05:44Z: 88 queued, none running, the oldest 1403 min).
 `classic_nightly_build_runner.py prepare` prints only `trusted`, read once with no wait, and false
 when the list cannot be read: prepare-nightly-variant (no secrets) takes the same pinned tuple while
 that mini is idle right after the build, else its Blacksmith label. Its three legs ran about 1 min
@@ -37,7 +43,7 @@ mini that had just built the app sat idle. Signing and verify stay on Blacksmith
 It never fails the job and never prints an empty `cloud`:
 
     ROUTE_TOKEN=<runners: read> SNAPSHOT_TOKEN=<actions: read> TRUSTED_POOL=... TRUSTED_RUNNER=...
-    ENABLED=1 classic_nightly_build_runner.py  -> trusted=true|false, cloud=<label>, alternate=<label>
+    RUNNER_POOLS=<vars.RUNNER_POOLS> ENABLED=1 classic_nightly_build_runner.py  -> trusted=true|false, cloud=<label>, alternate=<label>
 """
 
 from __future__ import annotations
@@ -62,6 +68,11 @@ WAIT_SECONDS = 5 * 60
 LOOK_SECONDS = 30
 TRUSTED_POOL = re.compile(r"glaeda-(?:root-)?trusted-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
 TRUSTED_RUNNER = re.compile(r"glaeda-runner-[a-z0-9][a-z0-9-]*")
+# RUNNER_POOLS' dead marks (label -> when last seen dead) and the pool the candidates form. A mark older than
+# runner_pools.DEAD_TTL is one its writer would drop (it re-marks a still-dead label every pass), so it proves nothing.
+DEAD_KEY = picker.DEAD_MARKS_KEY
+POOL = "macos_26"
+MARK_TTL = dt.timedelta(minutes=picker.DEAD_MARK_TTL_MINUTES)
 
 
 def runner_state(pool: str, runner: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
@@ -114,21 +125,50 @@ def candidates(first: str = "") -> tuple[str, ...]:
     return (first, *(label for label in CANDIDATES if label != first)) if first in CANDIDATES else CANDIDATES
 
 
-def dead_labels(evidence: Mapping[str, Any] | None, now: dt.datetime) -> set[str]:
-    """The candidates the snapshot (`evidence`, fresh or not) shows dead, or none when it shows every one dead:
-    with no label showing life it says nothing to choose by, and the caller's own order holds."""
-    return picker.dead_macos_26(evidence, now) & set(CANDIDATES)
+def runner_pools(raw: str | None) -> Mapping[str, Any]:
+    """The RUNNER_POOLS value, or {} when it is unset or not a JSON object (simple_pool_picker.runner_pools())."""
+    return picker.runner_pools(raw)
+
+
+def marked_dead(pools: Mapping[str, Any] | None, now: dt.datetime) -> set[str]:
+    """The candidates RUNNER_POOLS' `_dead` marks saw dead within MARK_TTL of `now` (simple_pool_picker.marked_dead())."""
+    return picker.marked_dead(pools, now) & set(CANDIDATES)
+
+
+def every_dead(evidence: Mapping[str, Any] | None, now: dt.datetime, pools: Mapping[str, Any] | None = None) -> set[str]:
+    """Every candidate the snapshot (`evidence`, fresh or not) or a RUNNER_POOLS mark shows dead, all of them included."""
+    return {label for label in CANDIDATES if picker.blacksmith_dead(evidence, label, now)} | marked_dead(pools, now)
+
+
+def dead_labels(evidence: Mapping[str, Any] | None, now: dt.datetime, pools: Mapping[str, Any] | None = None) -> set[str]:
+    """The candidates every_dead() names, or none when it names every one: with no label showing life it says
+    nothing to choose by, and the caller's own order holds (live_member() leads it then)."""
+    dead = every_dead(evidence, now, pools)
+    return set() if dead >= set(CANDIDATES) else dead
+
+
+def live_member(evidence: Mapping[str, Any] | None, now: dt.datetime, pools: Mapping[str, Any] | None) -> str:
+    """With every candidate dead, RUNNER_POOLS' live macos_26 member (runner_pools.py keeps the pool's first member
+    when every member is marked), else ""."""
+    member = (pools or {}).get(POOL)
+    if member in CANDIDATES and every_dead(evidence, now, pools) >= set(CANDIDATES):
+        return str(member)
+    return ""
 
 
 def blacksmith_route(snapshot: Mapping[str, Any] | None, now: dt.datetime,
-                     first: str = "", evidence: Mapping[str, Any] | None = None) -> tuple[str, str]:
+                     first: str = "", evidence: Mapping[str, Any] | None = None,
+                     pools: Mapping[str, Any] | None = None) -> tuple[str, str]:
     """(the first Blacksmith macOS 26 label whose queue moves, why).
 
     `snapshot` is a fresh snapshot (None when there is none); `evidence` a readable one too old for the stall rule,
-    read only for dead labels (dead_labels())."""
-    order = candidates(first)
+    read only for dead labels (dead_labels()); `pools` the RUNNER_POOLS value, for its dead marks and live member."""
     fresh = isinstance(snapshot, Mapping) and isinstance(snapshot.get("pools"), Mapping)
-    dead = dead_labels(snapshot if fresh else evidence, now)
+    member = live_member(snapshot if fresh else evidence, now, pools)
+    if member:
+        return member, f"every Blacksmith macOS 26 label shows dead; `{member}`, RUNNER_POOLS' live {POOL} member"
+    order = candidates(first)
+    dead = dead_labels(snapshot if fresh else evidence, now, pools)
     if not fresh:
         label = next(label for label in order if label not in dead)
         return label, f"no fresh pool snapshot, so `{label}`" + (
@@ -161,9 +201,10 @@ def blacksmith_route(snapshot: Mapping[str, Any] | None, now: dt.datetime,
 
 
 def alternate(label: str, snapshot: Mapping[str, Any] | None = None, now: dt.datetime | None = None,
-              evidence: Mapping[str, Any] | None = None) -> str:
+              evidence: Mapping[str, Any] | None = None, pools: Mapping[str, Any] | None = None) -> str:
     """The other Blacksmith macOS 26 label, unless the snapshot shows it stalled (`snapshot`, fresh) or dead
-    (`snapshot` or `evidence`, dead_labels()): then `label` itself. The jobs take it on an attempt later than the
+    (`snapshot` or `evidence`, or a RUNNER_POOLS mark in `pools`: every_dead(), so also when every label shows
+    dead): then `label` itself. The jobs take it on an attempt later than the
     one that made the pick (`attempt`): a re-run of failed jobs keeps the pick job's outputs, and GitHub never
     re-routes a queued job, so the re-run leaves the label that stalled after the pick. A re-run of all
     jobs runs the picker again, and that attempt takes the fresh pick. With no snapshot at all the other label
@@ -173,9 +214,9 @@ def alternate(label: str, snapshot: Mapping[str, Any] | None = None, now: dt.dat
     other = next(other for other in CANDIDATES if other != label)
     now = now or dt.datetime.now(dt.timezone.utc)
     fresh = isinstance(snapshot, Mapping) and isinstance(snapshot.get("pools"), Mapping)
-    if other in dead_labels(snapshot if fresh else evidence, now):
+    if other in every_dead(snapshot if fresh else evidence, now, pools):
         return label
-    if fresh and blacksmith_route(snapshot, now, other)[0] != other:
+    if fresh and blacksmith_route(snapshot, now, other, pools=pools)[0] != other:
         return label
     return other
 
@@ -237,15 +278,22 @@ def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
         except Exception as error:  # noqa: BLE001 - the default label keeps its say
             print(f"::warning title=classic nightly build runner::could not read the pool snapshot ({str(error)[:200]})")
     evidence = evidence if isinstance(evidence, Mapping) else None
-    blacksmith, blacksmith_why = blacksmith_route(snapshot, now, (env.get("FIRST") or "").strip(), evidence)
-    other = alternate(blacksmith, snapshot, now, evidence)
+    pools = runner_pools(env.get("RUNNER_POOLS"))
+    blacksmith, blacksmith_why = blacksmith_route(snapshot, now, (env.get("FIRST") or "").strip(), evidence, pools)
+    other = alternate(blacksmith, snapshot, now, evidence, pools)
+    # Every candidate dead (the snapshot, fresh or not, or a RUNNER_POOLS mark): `cloud` is then a label that starts
+    # nothing, so a job with no owned Mac to take (the DEV publisher's advisory tip-deltas) skips rather than queue.
+    dead = every_dead(evidence, now, pools) >= set(CANDIDATES)
     lines = [f"trusted: {'yes' if trusted else 'no'} ({trusted_why})", f"blacksmith: {blacksmith} ({blacksmith_why})"]
+    if dead:
+        lines.append("every Blacksmith macOS 26 label shows dead (dead=true)")
     for line in lines:
         print(f"classic nightly build runner: {line}")
     if env.get("GITHUB_OUTPUT"):
         with open(env["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
             handle.write(f"trusted={'true' if trusted else 'false'}\ncloud={blacksmith}\n"
-                         f"alternate={other}\nattempt={(env.get('GITHUB_RUN_ATTEMPT') or '1').strip()}\n")
+                         f"alternate={other}\nattempt={(env.get('GITHUB_RUN_ATTEMPT') or '1').strip()}\n"
+                         f"dead={'true' if dead else 'false'}\n")
     if env.get("GITHUB_STEP_SUMMARY"):
         with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
             handle.write("\nNightly build runner:\n" + "".join(f"- {line}\n" for line in lines))

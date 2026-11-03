@@ -52,6 +52,8 @@ GROUPS = (
 # imports, a working-directory, a submodule). Paths a step runs directly are
 # derived from ci-guards.yml by direct_path_owners() and need no entry here.
 PATH_OWNERS = {
+    "scripts/ci/signing-runner-claim.sh": frozenset(("ci",)),
+    "scripts/ci/glaeda-signing-hooks.txt": frozenset(("ci",)),
     ".github/workflows/ci-main-full-suite.yml": frozenset(("ci",)),
     # tests/test_ci_gate_absent_signal.py imports the gate verdict.
     "scripts/ci/gate_verdict.py": frozenset(("ci",)),

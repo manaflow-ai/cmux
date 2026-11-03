@@ -725,6 +725,10 @@ path = "tests/test_nightly_promotion_admission.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_defaults_guard_review_rerun.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_notification_semantics.py"
 lane = "linux-guard"
 
@@ -1650,6 +1654,10 @@ path = "tests/test_cla_guard_git_reads.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cla_guard_api_reads.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cla_guard_trusted_reviewers.py"
 lane = "linux-guard"
 
@@ -2189,4 +2197,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_fast_checks_swiftpm_artifacts.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_signing_runner_claim.py"
 lane = "linux-guard"

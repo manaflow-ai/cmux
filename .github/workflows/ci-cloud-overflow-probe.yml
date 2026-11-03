@@ -69,7 +69,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        label: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.probe_label != '' && format('["{0}"]', inputs.probe_label) || '["blacksmith-32vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"]') }}
+        label: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.probe_label != '' && format('["{0}"]', inputs.probe_label) || '["blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"]') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || matrix.label }}
     timeout-minutes: 2
     permissions: {}
@@ -163,9 +163,31 @@ jobs:
             MACOS_RUNNER_TESTS=${{ vars.MACOS_RUNNER_TESTS }}
         run: bash scripts/ci/python-with-yaml.sh scripts/ci/cloud_overflow_switch.py
 
+      # The queue-aware spill (cmux#31884): a size that keeps starting jobs is never dead, so
+      # on 2026-11-02 the linux pool stayed on 4 vCPU with 428 jobs queued beside 535 running
+      # while 16 vCPU had room. The reviewed feat-cmux-next entry point at this pinned commit
+      # runs main's unchanged runner_pools.py policy, then spills linux off a backed-up member.
+      # Only its two files are checked out; main's policy and clients stay this checkout's.
+      - name: Check out the reviewed linux pool spill
+        id: spill-tooling
+        if: always() && steps.switch.outcome != 'skipped'
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: c736d2e6c1db29305963040992f89f9466630f79 # cmux#31884 + #31962 + #31980 on feat-cmux-next
+          path: .runner-pool-tooling
+          sparse-checkout: |
+            scripts/ci/linux_pool_spill.py
+            scripts/ci/runner_pool_reconcile.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
       # The one routing source (docs/ci-runners.md "Runner pools"): point each pool in
       # RUNNER_POOLS at its first member that is not dead, from the probe's per-label health
-      # and the queue janitor's snapshot. Runs whatever the switch decided, with its token.
+      # and the queue janitor's snapshot, and spill linux off a backed-up member (above).
+      # Without the spill checkout, main's runner_pools.py runs alone as before.
+      # Runs whatever the switch decided, with its token.
       - name: Point the runner pools at live members
         if: always() && steps.switch.outcome != 'skipped'
         env:
@@ -174,9 +196,57 @@ jobs:
           SWITCH_TOKEN: ${{ steps.switch-token.outputs.token }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run || inputs.probe_label != '') && 'true' || 'false' }}
           RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
-          # Read live through the API first; this is the job-start value, the fallback.
+          # Read live through the API first; these are the job-start values, the fallback.
           CI_CLOUD_LABEL_HEALTH: ${{ vars.CI_CLOUD_LABEL_HEALTH }}
-        run: python3 scripts/ci/runner_pools.py
+          LINUX_RUNNER: ${{ vars.LINUX_RUNNER }}
+          CI_CLOUD_OVERFLOW_SAVED: ${{ vars.CI_CLOUD_OVERFLOW_SAVED }}
+          SPILL_TOOLING: ${{ steps.spill-tooling.outcome == 'success' && '.runner-pool-tooling/scripts/ci/linux_pool_spill.py' || '' }}
+        run: |
+          if [ -n "$SPILL_TOOLING" ] && [ -f "$SPILL_TOOLING" ]; then
+            python3 "$SPILL_TOOLING" --policy-root "$GITHUB_WORKSPACE" && exit 0
+            echo "::warning title=Runner pools::the linux pool spill failed; main's runner_pools.py runs alone"
+            python3 scripts/ci/runner_pools.py
+          else
+            echo "::warning title=Runner pools::no linux pool spill checkout; main's runner_pools.py runs alone"
+            python3 scripts/ci/runner_pools.py
+          fi
+
+      # The hosted light jobs (feat-cmux-next .github/runners.json hosted_light_jobs: routers,
+      # resolvers, report steps) take GitHub-hosted ubuntu-24.04 on attempt 1 and their
+      # fallback only on a re-run. The reviewed feat-cmux-next rescue at this pinned commit
+      # cancels a pull request run whose only unfinished jobs have waited 3+ minutes on
+      # ubuntu-* with no runner (attempt 1, current head) and re-runs its failed jobs, so
+      # attempt 2 takes the fallback route. At most 10 a pass; never push, dispatch, nightly,
+      # DEV, promote or release runs. It never fails the watch.
+      - name: Check out the reviewed hosted light rescue
+        id: hosted-light-tooling
+        if: always() && steps.switch.outcome != 'skipped'
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: 1ecf8a89abe506ae2ec97feb245d6ba642adfac6 # cmux#32023 + #32120 on feat-cmux-next
+          path: .hosted-light-tooling
+          sparse-checkout: |
+            scripts/ci/hosted_light_rescue.py
+            .github/runners.json
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Fail stalled hosted light jobs over to their re-run route
+        if: always() && steps.hosted-light-tooling.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 4
+        env:
+          # Cancel and re-run with the job's token (actions: write); read on the route App's budget.
+          GH_TOKEN: ${{ github.token }}
+          READ_TOKEN: ${{ steps.switch-token.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run || inputs.probe_label != '') && 'true' || 'false' }}
+        run: >-
+          python3 .hosted-light-tooling/scripts/ci/hosted_light_rescue.py
+          --runners .hosted-light-tooling/.github/runners.json
+          --workflows .signing-workflows/feat-cmux-next/.github/workflows
 
       # Last, in its own step so the summary above is already saved. If the
       # switch did not observe every probe start (one may still be queued),

@@ -8,9 +8,17 @@ name: Cloud capture account provision
 #
 # The password exists only inside the Provision step: masked as soon as it is made, sent to Stack, sealed
 # and dropped. Every run is a rotation, so rerunning is how the credential is replaced. Dispatch it on main.
+#
+# With `grant_email` set, the run only gives that existing capture test account (cmux-cloud-capture…@manaflow.dev,
+# e.g. the no-team owner account) the `pro` operator plan: no password change, nothing sealed or uploaded.
 
 on:
   workflow_dispatch:
+    inputs:
+      grant_email:
+        description: Only grant the pro operator plan to this existing capture test account (no rotation, no bundle)
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -24,7 +32,7 @@ jobs:
     # The staging server key is handed only to main's own code: cloud-vm-staging deploys only to protected
     # branches, and main is the one this workflow runs from.
     if: github.ref == 'refs/heads/main'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     environment: cloud-vm-staging
     timeout-minutes: 10
     steps:
@@ -38,6 +46,7 @@ jobs:
           sparse-checkout-cone-mode: true
 
       - name: libsodium
+        if: inputs.grant_email == ''
         run: |
           set -euo pipefail
           if ! ldconfig -p | grep -q 'libsodium\.so\.23'; then
@@ -45,7 +54,17 @@ jobs:
             sudo apt-get install -y -qq --no-install-recommends libsodium23
           fi
 
+      - name: Grant the operator plan only
+        if: inputs.grant_email != ''
+        env:
+          NEXT_PUBLIC_STACK_PROJECT_ID: ${{ vars.NEXT_PUBLIC_STACK_PROJECT_ID }}
+          NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ${{ vars.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY }}
+          STACK_SECRET_SERVER_KEY: ${{ secrets.STACK_SECRET_SERVER_KEY }}
+          GRANT_EMAIL: ${{ inputs.grant_email }}
+        run: python3 scripts/ci/cloud_capture_provision.py --grant-only "$GRANT_EMAIL"
+
       - name: Provision and seal
+        if: inputs.grant_email == ''
         env:
           NEXT_PUBLIC_STACK_PROJECT_ID: ${{ vars.NEXT_PUBLIC_STACK_PROJECT_ID }}
           NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ${{ vars.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY }}
@@ -53,6 +72,7 @@ jobs:
         run: python3 scripts/ci/cloud_capture_provision.py --out "$RUNNER_TEMP/sealed-secrets.json"
 
       - name: Upload the sealed bundle (ciphertext only)
+        if: inputs.grant_email == ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sealed-secrets
