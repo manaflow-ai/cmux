@@ -21,6 +21,15 @@
         "webviews/src/pages/home-channels/ChiefWorkStore.ts"
       ]
     },
+    "chief-pages": {
+      "spec": "leo-workspace design/chief-pages.md",
+      "aliases": ["Chief Usage", "Chief views", "Chief inspector"],
+      "paths": [
+        "webviews/src/pages/chief-usage/",
+        "webviews/src/pages/chief-views/",
+        "webviews/src/pages/chief-inspector/"
+      ]
+    },
     "chief-web": {
       "spec": "leo-workspace design/chief-web.md",
       "aliases": ["Chief mobile web", "Chief web address"],
