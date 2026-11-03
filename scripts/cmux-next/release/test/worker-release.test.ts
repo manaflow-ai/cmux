@@ -1,7 +1,7 @@
 /** worker-release.ts with a fake Worker (Bun.serve) and a fake wrangler (a script that logs its argv). */
 import { execFileSync } from "node:child_process"
 import { afterAll, describe, expect, it } from "bun:test"
-import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { currentVersion, globRegex, main, selectRoutes, type Route } from "../worker-release.ts"
@@ -17,7 +17,6 @@ writeFileSync(
 echo "$*" >> "${calls}"
 case "$1" in
   deployments) [ -n "$STATUS_JSON" ] && { printf '%s' "$STATUS_JSON"; exit 0; }; echo "no deployments" >&2; exit 1 ;;
-  versions) [ -n "$VERSION_JSON" ] && { printf '%s' "$VERSION_JSON"; exit 0; }; exit 1 ;;
   rollback) [ "$ROLLBACK_FAIL" = 1 ] && { echo "rollback refused" >&2; exit 1; }; echo "rolled back"; exit 0 ;;
 esac
 exit 2
@@ -50,7 +49,7 @@ writeFileSync(routesFile, JSON.stringify({ routes }))
 const run = async (argv: Array<string>, env: Record<string, string> = {}) => {
   const logs: Array<string> = []
   const errors: Array<string> = []
-  const vars = { STATUS_JSON: "", VERSION_JSON: "", ROLLBACK_FAIL: "", ...env }
+  const vars = { STATUS_JSON: "", ROLLBACK_FAIL: "", ...env }
   for (const [k, v] of Object.entries(vars)) process.env[k] = v
   try {
     const code = await main(argv, { log: (l) => logs.push(l), error: (l) => errors.push(l) })
@@ -92,44 +91,97 @@ describe("previous", () => {
 
 describe("advance", () => {
   const repo = join(dir, "source")
-  const git = (...args: Array<string>) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim()
-  execFileSync("git", ["init", "-q", repo])
-  git("config", "user.email", "test@example.invalid"); git("config", "user.name", "test"); git("config", "commit.gpgsign", "false")
-  writeFileSync(join(repo, "code"), "A"); git("add", "code"); git("commit", "-qm", "A")
-  const a = git("rev-parse", "HEAD")
-  writeFileSync(join(repo, "code"), "B"); git("commit", "-qam", "B")
-  const b = git("rev-parse", "HEAD")
+  const origin = join(dir, "origin.git")
+  const gitEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_")))
+  const git = (...args: Array<string>) => execFileSync("git", ["-c", "core.hooksPath=/dev/null", "-C", repo, ...args], { encoding: "utf8", env: gitEnv }).trim()
+  execFileSync("git", ["init", "-q", repo], { env: gitEnv })
+  execFileSync("git", ["init", "-q", "--bare", origin], { env: gitEnv })
+  git("config", "user.email", "test@example.invalid")
+  git("config", "user.name", "test")
+  git("config", "commit.gpgsign", "false")
+  mkdirSync(join(repo, ".github/workflows"), { recursive: true })
+  mkdirSync(join(repo, "backend"))
+  const workflowPath = join(repo, ".github/workflows/backend.yml")
+  writeFileSync(workflowPath, readFileSync(new URL("../../../../.github/workflows/backend.yml", import.meta.url), "utf8"))
+  writeFileSync(join(repo, "backend/code"), "A")
+  const commit = (message: string) => { git("add", "-A"); git("commit", "-qm", message); return git("rev-parse", "HEAD") }
+  const a = commit("A")
+  writeFileSync(join(repo, "backend/code"), "B")
+  const b = commit("B backend change")
   git("checkout", "--detach", a)
-  writeFileSync(join(repo, "code"), "C"); git("commit", "-qam", "C")
-  const c = git("rev-parse", "HEAD")
-  const check = async (candidate: string, serving: string | null) => {
+  writeFileSync(join(repo, "ui.txt"), "UI-only")
+  const ui = commit("UI-only after A")
+  git("checkout", "--detach", a)
+  writeFileSync(join(repo, "backend/code"), "C")
+  const c = commit("divergent backend change")
+  git("checkout", "--detach", a)
+  writeFileSync(workflowPath, "on:\n  push:\n    paths: ['.github/workflows/backend.yml', '!backend/**']\n")
+  const unsupported = commit("unsupported path syntax")
+  git("checkout", "--detach", a)
+  git("mv", "backend/code", "moved-to-ui.txt")
+  const renamed = commit("remove backend input by rename")
+  git("remote", "add", "origin", origin)
+  git("push", "--quiet", "origin", `${b}:refs/heads/feat-cmux-next`, `${ui}:refs/heads/ui`, `${c}:refs/heads/divergent`, `${unsupported}:refs/heads/unsupported`, `${renamed}:refs/heads/renamed`)
+  const check = async (candidate: string, tip: string | null, branch = "feat-cmux-next") => {
     git("checkout", "--detach", candidate)
+    if (tip) execFileSync("git", ["--git-dir", origin, "update-ref", `refs/heads/${branch}`, tip], { env: gitEnv })
     const out = join(dir, "advance-output")
     writeFileSync(out, "")
     const before = wranglerCalls().length
-    const result = await run(["advance", "--worker", "cmux-api-development", "--wrangler", wrangler, "--source-dir", repo, "--github-output", out], {
-      STATUS_JSON: JSON.stringify({ versions: [{ version_id: "serving-version", percentage: 100 }] }),
-      VERSION_JSON: JSON.stringify({ annotations: serving === null ? {} : { "workers/tag": serving.slice(0, 12), "workers/message": `source ${serving} run 123` } }),
-    })
+    const result = await run(["advance", "--branch", branch, "--source-dir", repo, "--github-output", out])
     return { ...result, output: readFileSync(out, "utf8"), calls: wranglerCalls().slice(before) }
   }
-  it("skips older A after B published, before any migration, deployment or rollback", async () => {
+  it("skips older A when a newer backend B is queued, without calling a provider or mutation", async () => {
     const r = await check(a, b)
     expect(r.code).toBe(0)
     expect(r.output).toBe("deploy=false\n")
-    expect(r.logs.join()).toContain("newer source")
-    expect(r.calls).toEqual(["deployments status --name cmux-api-development --json", "versions view serving-version --name cmux-api-development --json"])
+    expect(r.logs.join()).toContain("newer deployment inputs")
+    expect(r.calls).toEqual([])
   })
-  it("admits forward A to B and an explicit same-source retry", async () => {
-    expect((await check(b, a)).output).toBe("deploy=true\n")
-    expect((await check(b, b)).output).toBe("deploy=true\n")
+  it("admits the current protected source, including same-source retries", async () => {
+    const r = await check(b, b)
+    expect(r.code).toBe(0)
+    expect(r.output).toBe("deploy=true\n")
   })
-  it("refuses unknown, unresolvable and divergent serving source without mutation", async () => {
-    for (const serving of [null, "f".repeat(40), c]) {
-      const r = await check(b, serving)
+  it("admits A when the newer protected tip changes only UI and would not trigger backend", async () => {
+    const r = await check(a, ui)
+    expect(r.code).toBe(0)
+    expect(r.output).toBe("deploy=true\n")
+  })
+  it("removing a backend input by renaming it outside the surface supersedes too", async () => {
+    expect((await check(a, renamed)).output).toBe("deploy=false\n")
+  })
+  it("a newer workflow declaration supersedes the candidate too", async () => {
+    expect((await check(a, unsupported)).output).toBe("deploy=false\n")
+  })
+  it("refuses unavailable refs, divergent histories and unsupported declarations", async () => {
+    for (const [candidate, tip, branch] of [[b, null, "missing"], [b, c, "feat-cmux-next"], [unsupported, unsupported, "feat-cmux-next"]] as const) {
+      const r = await check(candidate, tip, branch)
       expect(r.code).toBe(1)
       expect(r.output).toBe("")
-      expect(r.calls.every((call) => call.startsWith("deployments status ") || call.startsWith("versions view "))).toBe(true)
+      expect(r.calls).toEqual([])
+    }
+  })
+})
+
+describe("backend deployment lock wiring", () => {
+  const workflow = Bun.YAML.parse(readFileSync(new URL("../../../../.github/workflows/backend.yml", import.meta.url), "utf8")) as any
+  it("separates trusted NEXT push runs while preserving complete environment locks", () => {
+    expect(workflow.concurrency.group).toContain("github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && format('-{0}', github.sha)")
+    expect(workflow.concurrency["cancel-in-progress"]).toBe(false)
+    for (const environment of ["development", "staging"]) {
+      const job = workflow.jobs[`deploy-${environment}`]
+      expect(job.concurrency).toEqual({ group: `cmux-next-deploy-${environment}`, "cancel-in-progress": false })
+      const guard = job.steps.findIndex((s: any) => s.id === "source")
+      expect(guard).toBeGreaterThan(0)
+      expect(job.steps[guard].env).toBeUndefined()
+      expect(job.steps[guard].run).toContain("advance --branch feat-cmux-next")
+      const mutations = job.steps.slice(guard + 1).filter((s: any) => s.name !== "Newer deployment inputs already queued; skip")
+      expect(mutations.length).toBeGreaterThan(2)
+      for (const step of mutations) expect(step.if).toContain("steps.source.outputs.deploy == 'true'")
+      const smoke = mutations.find((s: any) => s.name.startsWith("Smoke the API Worker"))
+      expect(smoke.if).toContain("always()")
+      expect(smoke.if).toContain("steps.deploy-api.outcome != 'skipped'")
     }
   })
 })
