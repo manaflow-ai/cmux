@@ -48,11 +48,7 @@ public nonisolated extension LinkHintSession {
     /// when no field has the keyboard (lead on STATUS 7898: a heavy page's target walk never delays a field's keys).
     /// A focused same-origin frame is looked into; a focused cross-origin frame (an embedded video, a payment form)
     /// counts as editing, as its focus cannot be read: hints start again once it loses focus.
-    public static let focusScript = """
-    (() => {
-\(editingCheck)      return JSON.stringify({ editing });
-    })()
-    """
+    public static let focusScript = "(() => {\n" + editingCheck + "  return JSON.stringify({ editing });\n})()"
 
     /// The statements that set `editing` (``focusScript``).
     private static let editingCheck = """
@@ -69,7 +65,7 @@ public nonisolated extension LinkHintSession {
       const tag = active?.tagName || '';
       const editing = frame || doc.designMode === 'on' || !!active?.isContentEditable || tag === 'TEXTAREA' || tag === 'SELECT' ||
         (tag === 'INPUT' && !['button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio', 'range', 'reset', 'submit'].includes(active.type));
-"""
+    """
 
     /// Draws `labels` (uppercase, monospace) at each target's top-left
     /// corner, replacing any earlier labels.
