@@ -70,8 +70,12 @@ struct SidebarPriorityMotionTests {
     /// Runs `body` with Reduce Motion pinned off and `ui.animations.newWorkspace` off (the reorder
     /// must not wait on it), then puts both back. `sidebarOff` turns the sidebar's own switch
     /// (`ui.animations.sidebar`) off. Synchronous: all of it is process-wide.
+    /// `motion`: the sidebar's change motion (`sidebar.changeMotion`). These slide checks cover the motion before #34264
+    /// (`wholeList`); `changedRows`, the default, places kept rows at once (`aChangeMovesOnlyTheRowsItChanges`).
     private static func withSidebarMotion<T>(reduceMotion: Bool = false, animationsEnabled: Bool = true, sidebarOff: Bool = false,
-                                             _ body: () throws -> T) rethrows -> T {
+                                             motion: SidebarChangeMotion = .wholeList, _ body: () throws -> T) rethrows -> T {
+        let resetMotion = SidebarChangeMotion.use(motion)
+        defer { resetMotion() }
         let design = DesignSettings.shared
         let (kinds, enabled, categories) = (design.enabledAnimations, design.animationsEnabled, design.disabledAnimationCategories)
         Motion.reduceMotionOverride = reduceMotion
@@ -85,6 +89,26 @@ struct SidebarPriorityMotionTests {
             design.disabledAnimationCategories = categories
         }
         return try body()
+    }
+
+    /// https://github.com/manaflow-ai/cmux/issues/34264: under the default change motion a re-rank places every kept row
+    /// at once, a leaving row goes at once, and a new row fades in at its own slot (no row slides).
+    @Test(.enabled("needs a display that draws frames and animations on, or every change snaps anyway") {
+        await GUIAnimationTestSupport.animatesHere()
+    })
+    func aChangeMovesOnlyTheRowsItChanges() throws {
+        let (view, window) = try Self.shown(["a", "b", "c"])
+        defer { window.closeAfterTest() }
+        let (a, b, c) = (try Self.row("a", in: view), try Self.row("b", in: view), try Self.row("c", in: view))
+        let rowHeight = a.frame.height
+        Self.withSidebarMotion(motion: .changedRows) { view.show(Self.panel(["c", "a", "d"])) }
+        #expect(Self.near(c.frame.minY, 0) && c.alphaValue == 1, "c did not take the top slot at once: \(c.frame)")
+        #expect(Self.near(a.frame.minY, rowHeight) && a.alphaValue == 1, "a did not take its slot at once: \(a.frame)")
+        #expect(b.superview == nil, "the leaving row stayed over the rows in its slot")
+        let d = try Self.row("d", in: view)
+        #expect(Self.near(d.frame, NSRect(x: 0, y: rowHeight * 2, width: a.frame.width, height: rowHeight)),
+                "the new row does not stand at its slot: \(d.frame)")
+        #expect(d.alphaValue < 1, "the new row showed whole in one frame instead of fading in")
     }
 
     @Test(.enabled("needs a display that draws frames and animations on, or every change snaps anyway") {

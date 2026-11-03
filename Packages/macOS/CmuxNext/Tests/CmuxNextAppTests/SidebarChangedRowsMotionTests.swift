@@ -70,8 +70,8 @@ struct SidebarChangedRowsMotionTests {
         }.sorted()
     }
 
-    /// `start` in a window on screen, its first workspace selected, the list at its top, Reduce Motion off and the
-    /// app's default motion settings (new workspace rows do not open: `ui.animations.newWorkspace` is off).
+    /// `start` in a window on screen, its first workspace selected, the list at its top, Reduce Motion off and new
+    /// workspace rows opening.
     private static func sidebar(_ start: [CmuxNextSidebar.SidebarSection], height: CGFloat = 480) throws
         -> (SidebarModel, SidebarListView, NSWindow, restore: () -> Void) {
         let model = SidebarModel(sections: start, activeWorkspaceID: try #require(start.first?.workspaces.first?.id))
@@ -87,8 +87,13 @@ struct SidebarChangedRowsMotionTests {
         sidebar.layoutSubtreeIfNeeded()
         sidebar.list.reload(animated: false)
         Motion.reduceMotionOverride = false
+        // New workspace rows open (`ui.animations.newWorkspace`, off by default), so the reopened row's listing and an
+        // expanded group's members take the animated path too.
+        let kinds = DesignSettings.shared.enabledAnimations
+        DesignSettings.shared.enabledAnimations.insert(.newWorkspace)
         return (model, sidebar.list, window, {
             Motion.reduceMotionOverride = nil
+            DesignSettings.shared.enabledAnimations = kinds
             window.close()
         })
     }
@@ -173,6 +178,7 @@ struct SidebarChangedRowsMotionTests {
             let view = try #require(list.rowViews[key], "\(key) has no view")
             #expect(view.frame == list.frame(for: try #require(list.displayed.row(for: key))), "\(key) does not open at its own slot")
             #expect(Self.springs(view) == 0, "\(key) slides out from under the header")
+            #expect(view.alphaValue < 1, "\(key) showed whole in one frame instead of fading in at its slot")
         }
     }
 

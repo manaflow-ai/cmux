@@ -208,19 +208,20 @@ final class SidebarPriorityPanelView: NSView {
     private func placeChangedRows(targets: [(SidebarPriorityRowView, NSRect)], opening: [(SidebarPriorityRowView, NSRect)],
                                   leaving: [SidebarPriorityRowView]) {
         placement += 1
+        // A kept row still fading in from an earlier change keeps its fade (a streaming chat re-places the rows often).
+        let stillFading = targets.map(\.0).filter { $0.alphaValue < 1 }
         Motion.withoutAnimation {
             for (row, frame) in targets + opening {
                 row.animator().frame = frame
                 row.clipsToBounds = false
             }
-            for (row, _) in targets { row.animator().alphaValue = 1 }
             for (row, _) in opening { row.alphaValue = 0 }
         }
         for row in closing + leaving { row.removeFromSuperview() }
         closing = []
         opensUntil = [:]
-        guard !opening.isEmpty else { return }
-        let fading = opening.map(\.0)
+        let fading = opening.map(\.0) + stillFading
+        guard !fading.isEmpty else { return }
         Motion.sidebar.animate(.tabOpen, in: self, { for row in fading { row.animator().alphaValue = 1 } },
                                settleAtSleep: { [weak self] in self?.placeRows(animated: false) })
     }
