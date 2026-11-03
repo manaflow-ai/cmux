@@ -7271,6 +7271,7 @@ function AcpmuxPane() {
     panelAsks,
     subagentTray,
     workflowLabsEnabled,
+    shownSessionId,
   ]);
   // Every message other sessions sent that the agent has not read yet, the steers its running turn
   // has not taken and the messages queued behind it, is in one group at the end
