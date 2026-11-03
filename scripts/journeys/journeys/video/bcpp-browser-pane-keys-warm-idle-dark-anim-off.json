@@ -1,7 +1,7 @@
 {
  "id": "bcpp-browser-pane-keys-warm-idle-dark-anim-off",
  "priority": "P0",
- "title": "BROWSER OPEN FRAMES step B: browser pane keys (Ctrl-Tab between 2 browser tabs, Shift-Cmd-L into a browser pane, Opt-Cmd-D split browser into a new pane), real HID keys",
+ "title": "BROWSER OPEN FRAMES step B: browser pane keys (Ctrl-Tab between 2 browser tabs, Shift-Cmd-L into a browser pane), real HID keys",
  "why": "Lead 2026-11-03 (step B films): Cmd-T/openBrowser in a browser pane, tab switch, and a browser in a new pane; commit_ms p50/p95/max within one start tier.",
  "source": "handoff/resize-videos/SHORTCUT-FRAMES.md (SHORTCUT FRAMES P0)",
  "budget_seconds": 120,
@@ -32,18 +32,6 @@
    "theme": "dark",
    "animations": "off",
    "build": "pr"
-  },
-  {
-   "name": "splitBrowserRight[opt+cmd+d]/new-pane",
-   "stroke": "option+cmd+d",
-   "action": "splitBrowserRight",
-   "effect": "new-pane",
-   "context": "browser",
-   "arm": "warm",
-   "load": "idle",
-   "theme": "dark",
-   "animations": "off",
-   "build": "pr"
   }
  ],
  "steps": [
@@ -58,11 +46,6 @@
    "do": "new_terminal",
    "via": "socket",
    "name": "p0"
-  },
-  {
-   "do": "name_pane",
-   "as": "main",
-   "title": "the pane the browser tabs open in"
   },
   {
    "do": "neutral_prompt"
@@ -119,7 +102,7 @@
   {
    "do": "video_start",
    "name": "bcpp-browser-pane-keys-warm-idle-dark-anim-off",
-   "seconds": 34.0,
+   "seconds": 24.0,
    "lead": 1.5,
    "title": "start the recording: 6 Ctrl-Tab, 4 Cmd-T in a browser pane, 4 Opt-Cmd-D into a new pane, inside the frame trace"
   },
@@ -393,174 +376,6 @@
     "action": "closeTab"
    },
    "title": "set-up or undo by the socket: closeTab"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.8,
-   "title": "the undo settles"
-  },
-  {
-   "do": "hid_key",
-   "key": "d",
-   "modifiers": [
-    "option",
-    "cmd"
-   ],
-   "mark": "splitBrowserRight[opt+cmd+d]/new-pane/1",
-   "title": "the measured press option+cmd+d (splitBrowserRight[opt+cmd+d]/new-pane/1)"
-  },
-  {
-   "do": "wait",
-   "seconds": 1.0,
-   "title": "settle"
-  },
-  {
-   "do": "rpc",
-   "method": "debug.action_budget",
-   "params": {
-    "limit": 16
-   },
-   "title": "the press's action run (commit_ms, start_uptime_ns)"
-  },
-  {
-   "do": "rpc",
-   "method": "action.run",
-   "params": {
-    "action": "closePane"
-   },
-   "title": "set-up or undo by the socket: closePane"
-  },
-  {
-   "do": "use_pane",
-   "pane": "main",
-   "click": true,
-   "title": "focus back on the browser pane (closePane leaves focus on a neighbor, a pinned dock refuses the next close)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.8,
-   "title": "the undo settles"
-  },
-  {
-   "do": "hid_key",
-   "key": "d",
-   "modifiers": [
-    "option",
-    "cmd"
-   ],
-   "mark": "splitBrowserRight[opt+cmd+d]/new-pane/2",
-   "title": "the measured press option+cmd+d (splitBrowserRight[opt+cmd+d]/new-pane/2)"
-  },
-  {
-   "do": "wait",
-   "seconds": 1.0,
-   "title": "settle"
-  },
-  {
-   "do": "rpc",
-   "method": "debug.action_budget",
-   "params": {
-    "limit": 16
-   },
-   "title": "the press's action run (commit_ms, start_uptime_ns)"
-  },
-  {
-   "do": "rpc",
-   "method": "action.run",
-   "params": {
-    "action": "closePane"
-   },
-   "title": "set-up or undo by the socket: closePane"
-  },
-  {
-   "do": "use_pane",
-   "pane": "main",
-   "click": true,
-   "title": "focus back on the browser pane (closePane leaves focus on a neighbor, a pinned dock refuses the next close)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.8,
-   "title": "the undo settles"
-  },
-  {
-   "do": "hid_key",
-   "key": "d",
-   "modifiers": [
-    "option",
-    "cmd"
-   ],
-   "mark": "splitBrowserRight[opt+cmd+d]/new-pane/3",
-   "title": "the measured press option+cmd+d (splitBrowserRight[opt+cmd+d]/new-pane/3)"
-  },
-  {
-   "do": "wait",
-   "seconds": 1.0,
-   "title": "settle"
-  },
-  {
-   "do": "rpc",
-   "method": "debug.action_budget",
-   "params": {
-    "limit": 16
-   },
-   "title": "the press's action run (commit_ms, start_uptime_ns)"
-  },
-  {
-   "do": "rpc",
-   "method": "action.run",
-   "params": {
-    "action": "closePane"
-   },
-   "title": "set-up or undo by the socket: closePane"
-  },
-  {
-   "do": "use_pane",
-   "pane": "main",
-   "click": true,
-   "title": "focus back on the browser pane (closePane leaves focus on a neighbor, a pinned dock refuses the next close)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.8,
-   "title": "the undo settles"
-  },
-  {
-   "do": "hid_key",
-   "key": "d",
-   "modifiers": [
-    "option",
-    "cmd"
-   ],
-   "mark": "splitBrowserRight[opt+cmd+d]/new-pane/4",
-   "title": "the measured press option+cmd+d (splitBrowserRight[opt+cmd+d]/new-pane/4)"
-  },
-  {
-   "do": "wait",
-   "seconds": 1.0,
-   "title": "settle"
-  },
-  {
-   "do": "rpc",
-   "method": "debug.action_budget",
-   "params": {
-    "limit": 16
-   },
-   "title": "the press's action run (commit_ms, start_uptime_ns)"
-  },
-  {
-   "do": "rpc",
-   "method": "action.run",
-   "params": {
-    "action": "closePane"
-   },
-   "title": "set-up or undo by the socket: closePane"
-  },
-  {
-   "do": "use_pane",
-   "pane": "main",
-   "click": true,
-   "title": "focus back on the browser pane (closePane leaves focus on a neighbor, a pinned dock refuses the next close)"
   },
   {
    "do": "wait",
