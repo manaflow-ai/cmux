@@ -1646,9 +1646,7 @@ const openPreview = (url: string) => void callNative("browser.open", { url }).ca
 const NextStepRow = memo(
   function NextStepRow({ row }: RowProps) {
     const { answer } = useContext(TurnActionsContext);
-    return row.nextStep ? (
-      <NextStepCard ask={row.nextStep.ask} answer={row.nextStep.answer} onAnswer={answer} />
-    ) : null;
+    return row.nextStep ? <NextStepCard ask={row.nextStep.ask} answer={row.nextStep.answer} onAnswer={answer} /> : null;
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
