@@ -32,6 +32,10 @@ export type MinimapTurn = {
   /// The start of the first reply after the prompt.
   reply: ReplyBlock[];
   metadata?: MinimapTurnMetadata;
+  /// A prompt the chat's count says exists but neither the rows nor the prompt index hold yet
+  /// (pendingTurns): it draws a resting tick in its final row so the rail is full length on its
+  /// first frame, and has no card or jump until the index or its page names it.
+  pending?: true;
   /// A run of other chats' messages folded into this one tick (`foldIncoming`): every message's row
   /// id, the first (this turn's own) first. Absent for a tick of one prompt.
   members?: readonly string[];
@@ -418,6 +422,9 @@ export type MinimapTurns = {
   loadedTicks?: readonly MinimapTick[];
   loadedStart?: number;
   earlierTurns?: readonly MinimapTurn[];
+  /// How many of `earlierTurns` are pending ticks (pendingTurns) for prompts the count names but
+  /// nothing holds yet.
+  pendingCount?: number;
   /// The list the next changed turns are written into (the one before `turns`), never `turns`.
   spare?: MinimapTurn[];
 };
@@ -453,6 +460,7 @@ export function minimapTurns(
   previous?: MinimapTurns,
   change?: RowsChange,
   earlierRows: readonly AcpmuxRow[] = EMPTY_EARLIER_ROWS,
+  promptCount = 0,
 ): MinimapTurns {
   const prior = previous?.sessionId === sessionId ? previous : undefined;
   const reuse = prior
@@ -568,20 +576,29 @@ export function minimapTurns(
     spare?: MinimapTurn[],
   ): MinimapTurns => {
     const base = { rows, sessionId, loadedTurns, loadedTicks, ...(spare ? { spare } : {}) };
-    if (!earlierRows.length) return { ...base, turns: loadedTurns, ticks: loadedTicks, loadedStart: 0 };
-    const sameEarlier = prior?.earlierRows === earlierRows && prior.earlierTurns !== undefined;
+    // The prompts the count names that neither the rows nor the index hold yet. They draw as resting
+    // ticks above the held ones, so the rail has its final length and every tick its final row on the
+    // first frame; the index or a page then names them in place (Leo, 2026-11-03: "mostly i just
+    // don't like it when the thing shifts and whatnot trying to center itself").
+    const pending = Math.max(0, promptCount - earlierRows.length - loadedTurns.length);
+    if (!earlierRows.length && !pending) return { ...base, turns: loadedTurns, ticks: loadedTicks, loadedStart: 0 };
+    const sameEarlier =
+      prior?.earlierRows === earlierRows && prior.earlierTurns !== undefined && (prior.pendingCount ?? 0) === pending;
     if (sameEarlier && prior!.loadedTurns === loadedTurns && prior!.loadedTicks === loadedTicks)
       return { ...prior!, ...base };
     const earlier = sameEarlier
       ? prior!.earlierTurns!
-      : earlierRows.map((row): MinimapTurn => ({
-          index: -1,
-          id: row.id,
-          key: turnKey(sessionId, row),
-          prompt: (row.text ?? "").trim(),
-          ...withSender(row),
-          reply: [],
-        }));
+      : [
+          ...pendingTurns(sessionId, pending),
+          ...earlierRows.map((row): MinimapTurn => ({
+            index: -1,
+            id: row.id,
+            key: turnKey(sessionId, row),
+            prompt: (row.text ?? "").trim(),
+            ...withSender(row),
+            reply: [],
+          })),
+        ];
     const turns = [...earlier, ...loadedTurns];
     return {
       ...base,
@@ -590,6 +607,7 @@ export function minimapTurns(
       ticks: sameEarlier && prior!.loadedTicks === loadedTicks ? prior!.ticks : ticksOf(turns, prior?.ticks),
       earlierRows,
       earlierTurns: earlier,
+      pendingCount: pending,
       loadedStart: earlier.length,
     };
   };
@@ -609,33 +627,28 @@ export function minimapTurns(
   return withEarlier(list, loaded, old as MinimapTurn[]);
 }
 
-/// A prompt the chat's count names (the snapshot's `promptCount`) that nothing has loaded yet: no
-/// index entry, no row. Its tick holds the prompt's row on the rail, so the rail is full length from
-/// the first frame and no tick moves as history arrives (Leo, 2026-11-03: "can it be bigger even
-/// without having all the prompts loaded? like it can read the count metadata right?" and "mostly i
-/// just don't like it when the thing shifts and whatnot trying to center itself"). Ids count from the
-/// oldest prompt, so a page that loads the newest of them leaves the others' ids, and keys, as they were.
-const UNHELD_ID = "rail-unheld-";
-export const isUnheld = (turn: { id: string }) => turn.id.startsWith(UNHELD_ID);
-/// The last few lists `unheldRows` built, by length: the same count is the same list, so the rail's
-/// turns and ticks stay as they were while a reply streams.
-const unheldLists = new Map<number, readonly AcpmuxRow[]>();
-const NO_UNHELD: readonly AcpmuxRow[] = [];
-/// `count` rows standing for the oldest prompts not loaded yet, oldest first (none for 0 or less).
-export function unheldRows(count: number): readonly AcpmuxRow[] {
-  if (!(count > 0)) return NO_UNHELD;
-  const kept = unheldLists.get(count);
-  if (kept) return kept;
-  const rows = Array.from({ length: count }, (_, index): AcpmuxRow => ({
-    id: `${UNHELD_ID}${index}`,
-    version: 1,
-    at: 0,
-    kind: "user",
-    text: "",
-  }));
-  if (unheldLists.size >= 8) unheldLists.delete(unheldLists.keys().next().value!);
-  unheldLists.set(count, rows);
-  return rows;
+/// The pending ticks for a chat's first `count` prompts (MinimapTurn `pending`), keyed by their row
+/// from the top, so a page or the index that names some of them leaves the rest as they were. One
+/// list per session, grown as needed; a count asks only for its prefix.
+const pendingLists = new Map<string, MinimapTurn[]>();
+export function pendingTurns(sessionId: string, count: number): readonly MinimapTurn[] {
+  if (count <= 0) return [];
+  let list = pendingLists.get(sessionId);
+  if (!list) {
+    // Only the open chats' lists are kept.
+    if (pendingLists.size >= 16) pendingLists.delete(pendingLists.keys().next().value!);
+    pendingLists.set(sessionId, (list = []));
+  }
+  for (let at = list.length; at < count; at += 1)
+    list.push({
+      index: -1,
+      id: `pending:${at}`,
+      key: `${sessionId}#pending:${at}`,
+      prompt: "",
+      reply: [],
+      pending: true,
+    });
+  return list.slice(0, count);
 }
 
 /// A turn's `from`, only when it has one, so a person's turn keeps the shape it had.

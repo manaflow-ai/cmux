@@ -378,7 +378,7 @@
   white-space: pre-line;
   overflow-wrap: anywhere;
 }
-/* A prompt not loaded yet (an unheld tick): a blank line where its words go, at the line's height, so
+/* A prompt not loaded yet (a pending tick): a blank line where its words go, at the line's height, so
    the card is its usual size and nothing moves when they arrive. */
 .acpmux-minimap__prompt[data-pending] {
   display: block;

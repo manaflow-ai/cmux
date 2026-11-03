@@ -100,7 +100,7 @@ export const PreviewCard = React.forwardRef<
     scroller?: HTMLElement | null;
     /// The prompt's line; a reply's card has none.
     prompt?: string;
-    /// The prompt is not loaded yet (an unheld tick, model.ts `isUnheld`): the card holds a blank
+    /// The prompt is not loaded yet (a pending tick, model.ts `pendingTurns`): the card holds a blank
     /// line where its words go, and they fade in there when they arrive.
     pending?: boolean;
     /// The prompt's sender, when another session sent it (model.ts `promptSender`): a line above it
