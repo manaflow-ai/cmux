@@ -162,11 +162,12 @@ signin_step() {
     if [ "$h" = claude ]; then
       bin="$(find_claude || true)"
       label="Claude Code"
-      hint="run claude here and sign in with its /login"
+      hint="run '$bin' here and sign in with its /login"
     else
       bin="$(find_codex || true)"
       label="Codex"
-      hint="run codex login here"
+      # The managed runtime is not on PATH: name the binary that was found.
+      hint="run '$bin' login here"
     fi
     [ -n "$bin" ] || continue
     if signed_in "$h" "$bin"; then

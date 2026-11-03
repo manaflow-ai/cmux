@@ -305,7 +305,21 @@ fn ssh_join_reports_the_machine_and_offers_the_agents_own_sign_in() {
     let ran = run_add(&["machine", "add", "leo@mini-9", "--vault", "--yes"], &origin, OutputMode::Human, false, &[0]);
     assert_eq!(ran.code, Ok(0));
     assert_eq!(ran.plans.len(), 1);
-    assert!(ran.out.contains("To sign in its agents: ssh -t leo@mini-9, then run `claude`"));
+    assert!(
+        ran.out.contains(&format!(
+            "To sign in its agents there: ssh -t leo@mini-9 'curl -fsSL {origin}/v1/machines/join.sh | CMUX_JOIN_STEP=signin sh'"
+        )),
+        "{}",
+        ran.out
+    );
+    // --no-wait: the join ran, and the machine list is never read.
+    let (origin, requests) = minting();
+    let ran = run_add(&["machine", "add", "leo@mini-9", "--bootstrap", "--no-wait"], &origin, OutputMode::Json, false, &[0]);
+    assert_eq!(ran.code, Ok(0));
+    assert!(requests.recv().unwrap().starts_with("POST /v1/machines/join-tokens "));
+    assert!(requests.try_recv().is_err(), "no list read with --no-wait");
+    let value: Value = serde_json::from_str(ran.out.trim()).unwrap();
+    assert_eq!(value["joined"], Value::Null);
     // --json: one object, no token.
     let (origin, _requests) = minting();
     let ran = run_add(&["machine", "add", "leo@mini-9", "--bootstrap"], &origin, OutputMode::Json, true, &[0]);

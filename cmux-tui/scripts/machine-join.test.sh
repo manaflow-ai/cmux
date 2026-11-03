@@ -611,10 +611,10 @@ suite() {
   check "harnesses: claude installed" test -x "$d/home/.local/bin/claude"
   check "harnesses: says so" out_has "installed Claude Code"
   check "harnesses: codex through acpmux's runtime" grep -q "^acpmux harness codex-runtime install" "$d/log/argv"
-  check "harnesses: claude sign-in line" out_has "sign in to Claude Code: run claude here and sign in with its /login"
-  check "harnesses: codex sign-in line" out_has "sign in to Codex: run codex login here"
+  check "harnesses: claude sign-in line" out_has "sign in to Claude Code: run '$d/home/.local/bin/claude' here and sign in with its /login"
+  check "harnesses: codex sign-in line" out_has "sign in to Codex: run '$d/serve/codex dir/codex' login here"
   check "harnesses: no login was run without a terminal" eval '! grep -q "auth login\|^codex login$" "$d/log/argv"'
-  check "harnesses: the sign-in is last" eval '[ "$(tail -n 1 "$d/out")" = "cmux join: sign in to Codex: run codex login here" ]'
+  check "harnesses: the sign-in is last" eval '[ "$(tail -n 1 "$d/out")" = "cmux join: sign in to Codex: run '"'"'$d/serve/codex dir/codex'"'"' login here" ]'
   check "harnesses: no env leak: $(cat "$d/log/env-leak" 2>/dev/null)" no_env_leak
   check "harnesses: no cmj_ in any argv" no_token_in_argv
   check "harnesses: no token in output" no_token_in_output
@@ -711,7 +711,7 @@ suite() {
   HOME="$d/home" sh "$d/serve/claude-install.sh"
   run_join none CMUX_JOIN_STEP=signin
   check "signin step: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
-  check "signin step: the claude line" out_has "sign in to Claude Code: run claude here"
+  check "signin step: the claude line" out_has "sign in to Claude Code: run '$d/home/.local/bin/claude' here"
   check "signin step: no download, no join" eval '! grep -q "^curl\|host join" "$d/log/argv"'
   run_join env CMUX_JOIN_STEP=signin
   check "signin step with a token: exit 2 (got $rc)" rc_is 2

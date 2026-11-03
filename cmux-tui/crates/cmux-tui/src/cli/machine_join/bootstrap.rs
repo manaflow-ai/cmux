@@ -97,6 +97,11 @@ pub(super) fn signin_plan(origin: &str, host: &str) -> SshPlan {
     }
 }
 
+/// The one command a person runs later to sign in the host's agents through their own flows.
+pub(super) fn signin_hint(origin: &str, host: &str) -> String {
+    format!("ssh -t {host} 'curl -fsSL {origin}/v1/machines/join.sh | CMUX_JOIN_STEP=signin sh'")
+}
+
 /// Runs `plan`: the token (if any) is written to ssh's stdin and the pipe closed; the remote
 /// join's own lines go to stderr, so stdout stays this command's answer. ssh's exit code.
 pub(super) fn run_ssh(plan: &SshPlan) -> std::io::Result<i32> {
@@ -370,11 +375,18 @@ pub(super) fn add_over_ssh(
             format!("the join on {host} did not finish (exit {code}); its own lines above say why"),
         ));
     }
-    let deadline =
-        minted.expires_at_ms.unwrap_or(u64::MAX).min(now_ms() + SSH_SEEN_WITHIN.as_millis() as u64);
-    let end = platform
-        .wait_for_join(&minted.join_token_id, deadline, options.every, interrupt)
-        .unwrap_or(WaitEnd::Expired);
+    // The join already finished on the host; `--no-wait` skips only the look in the list.
+    let end = if args.wait == Some(false) {
+        WaitEnd::Expired
+    } else {
+        let deadline = minted
+            .expires_at_ms
+            .unwrap_or(u64::MAX)
+            .min(now_ms() + SSH_SEEN_WITHIN.as_millis() as u64);
+        platform
+            .wait_for_join(&minted.join_token_id, deadline, options.every, interrupt)
+            .unwrap_or(WaitEnd::Expired)
+    };
     let joined = match &end {
         WaitEnd::Joined(machine) => {
             json!({ "machineId": machine.machine_id, "name": machine.name })
@@ -410,9 +422,12 @@ pub(super) fn add_over_ssh(
         if options.interactive && (hooks.confirm)(&question) {
             let _ = (hooks.ssh)(&signin_plan(&platform.origin, host));
         } else {
+            // The sign-in step finds the agents where they are installed on that Mac (the
+            // managed Codex is not on PATH), so the hint runs it rather than naming a binary.
             writeln!(
                 out,
-                "To sign in its agents: ssh -t {host}, then run `claude` (and `codex login`) there."
+                "To sign in its agents there: {}",
+                signin_hint(&platform.origin, host)
             )
             .map_err(io)?;
         }
