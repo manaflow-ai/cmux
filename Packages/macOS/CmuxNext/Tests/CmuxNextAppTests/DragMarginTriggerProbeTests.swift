@@ -30,8 +30,6 @@ struct DragMarginTriggerProbeTests {
         // On screen, so AppKit runs its display cycle (and its drag-margin observer) for each commit.
         probe.window.styleMask.insert(.fullSizeContentView)
         probe.window.titlebarAppearsTransparent = true
-        NSApp.activate(ignoringOtherApps: true)
-        probe.window.makeKeyAndOrderFront(nil)
         probe.window.orderFrontRegardless()
         print("HPA-MARGIN on_screen=\(probe.window.isVisible) occlusion_visible=\(probe.window.occlusionState.contains(.visible))")
         MarginSpy.reset()
