@@ -128,7 +128,7 @@ test("a selection change places it on the new tab at once and slides on transfor
 test("a size change during a slide re-places the highlight when the slide finishes", async () => {
   const mount = installDom();
   const observed: (() => void)[] = [];
-  const saved = scope.ResizeObserver;
+  const before = scope.ResizeObserver;
   scope.ResizeObserver = class {
     constructor(callback: () => void) {
       observed.push(callback);
@@ -154,8 +154,8 @@ test("a size change during a slide re-places the highlight when the slide finish
     expect(mark.style.transform).toBe("translate(48px, 4px)");
     expect(played).toHaveLength(1);
   } finally {
-    if (saved === undefined) delete scope.ResizeObserver;
-    else scope.ResizeObserver = saved;
+    if (before === undefined) delete scope.ResizeObserver;
+    else scope.ResizeObserver = before;
   }
 });
 
