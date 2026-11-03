@@ -25,6 +25,7 @@ import gzip
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -44,8 +45,9 @@ class FakeApp:
     """The control socket of a bench build with two panes (p0 terminal, p1 page) in one 1200 x 800 pt window at 2x.
     active: the tunable store takes overrides; activate: the build has `debug.tunables activate`."""
 
-    def __init__(self, active=True, activate=False):
+    def __init__(self, active=True, activate=False, switches=()):
         self.active, self.can_activate, self.overrides, self.calls, self.motion = active, activate, {}, [], {}
+        self.switches = set(switches)  # boolean tunables this build has (default false)
         self.page_reads = 0
         self.pid = 4242
 
@@ -78,6 +80,13 @@ class FakeApp:
                     else:
                         self.overrides[key] = value
                 return {"key": key, "value": self.overrides.get(key, default), "default": default, "changed": key in self.overrides}
+            if key in self.switches:
+                if action == "set" and self.active:
+                    if params.get("value") is None:
+                        self.overrides.pop(key, None)
+                    else:
+                        self.overrides[key] = params["value"]
+                return {"key": key, "value": self.overrides.get(key, False), "default": False, "changed": key in self.overrides}
             if key == "browserResize.pageBackdrop":
                 if action == "set" and self.active:
                     if params.get("value") is None:
@@ -488,6 +497,56 @@ class RecorderWaitTests(unittest.TestCase):
         self.assertEqual(j.px["films"][-1]["bytes"], {"movie": 1234, "scan": 56789})
 
 
+SWITCH = "motion.frameOwner.terminals"
+
+
+def switch_film(name, value, speed=None, reduce=False):
+    step = film(name, speed, reduce)
+    step["switch"] = {"key": SWITCH, "value": value}
+    return step
+
+
+class SwitchFilmTests(unittest.TestCase):
+    """px_film {switch: {key, value}}: the switch set (debug.tunables set) and read back before the film; a switch that
+    does not take (an inactive store, a key this build does not have) makes the film "not run" with the reason, never a
+    film at the default."""
+
+    def test_switch_set_and_read_back_before_each_film(self):
+        app = FakeApp(switches=[SWITCH])
+        j = FakeJourney(app, tempfile.mkdtemp())
+        off = X.step_px_film(j, switch_film("f-off-s1", False, speed=1.0))
+        self.assertEqual(off["status"], "recorded")
+        self.assertEqual(off["switch"], {"key": SWITCH, "wanted": False, "value": False, "applied": True})
+        on = X.step_px_film(j, switch_film("f-on-reduce", True, reduce=True))
+        self.assertEqual(on["status"], "recorded")
+        self.assertIs(app.overrides[SWITCH], True)
+        self.assertEqual(j.played, ["f-off-s1 play", "f-off-s1 rebuild", "f-on-reduce play", "f-on-reduce rebuild"])
+        self.assertEqual(j.px["films"][-1]["switch"]["value"], True)
+        # The note px_record_start writes carries the switch the film ran with.
+        self.assertEqual(j.px["switch"], {"key": SWITCH, "wanted": True, "value": True, "applied": True})
+
+    def test_unknown_switch_key_is_not_run(self):
+        app = FakeApp()  # this build has no such tunable
+        j = FakeJourney(app, tempfile.mkdtemp())
+        out = X.step_px_film(j, switch_film("f-on-s1", True, speed=1.0))
+        self.assertEqual(out["status"], "not run")
+        self.assertIn(SWITCH, out["reason"])
+        self.assertIn("unknown key", out["reason"])
+        self.assertEqual(j.played, [])
+
+    def test_inactive_store_switch_is_not_run(self):
+        app = FakeApp(active=False, switches=[SWITCH])
+        j = FakeJourney(app, tempfile.mkdtemp())
+        out = X.step_px_film(j, switch_film("f-on-s1", True, speed=1.0))
+        self.assertEqual(out["status"], "not run")
+        self.assertIn("tunable store inactive", out["reason"])
+        self.assertEqual(j.played, [])
+        # OFF is the default, but a film is never taken on a switch the kit could not set: not run too.
+        off = X.step_px_film(j, switch_film("f-off-s1", False, speed=1.0))
+        self.assertEqual(off["status"], "not run")
+        self.assertEqual(j.played, [])
+
+
 class AgentPaneTests(unittest.TestCase):
     """px_agent: palette.newAgentChat aimed at the named pane (target pane:<id>, no focus: the app's targeted path opens
     the chat tab in that pane, AgentHandlers.openTargetedChat; with focus or no target a script's chat goes to a new
@@ -540,6 +599,59 @@ class AgentPaneTests(unittest.TestCase):
         finally:
             X.D.now, X.time = saved
         self.assertIn("p1", str(caught.exception))
+
+
+class SwitchVariantTests(unittest.TestCase):
+    """gen_pixel.py --switch KEY: each case filmed with the switch OFF and ON at x1 and under Reduce Motion (4 films), in
+    journeys named <case>-sw-<short> (split by budget, -a/-b), the switch reset in finally."""
+
+    S4 = ("px-col-drag-2", "px-row-drag-3r", "px-keys-single-3k", "px-new-column-c2", "px-close-column-c3")
+
+    def generate(self, out, *extra):
+        args = [sys.executable, str(HERE / "video-cases" / "gen_pixel.py"), "--out", out, "--switch", SWITCH]
+        for case in self.S4:
+            args += ["--only", case]
+        done = subprocess.run(args + list(extra), capture_output=True, text=True, timeout=120)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return [json.loads(p.read_text()) for p in sorted(Path(out).glob("*.json"))]
+
+    def test_variants(self):
+        import run as R
+        with tempfile.TemporaryDirectory() as out:
+            specs = self.generate(out)
+            self.assertTrue(specs)
+            self.assertTrue(all("-sw-terminals" in s["id"] for s in specs), [s["id"] for s in specs])
+            self.assertEqual({s["id"]: R.validate(s) for s in specs}, {s["id"]: [] for s in specs})
+            per_case = {}
+            for s in specs:
+                self.assertLessEqual(s["budget_seconds"], 250, s["id"])
+                for f in [st for st in s["steps"] if st["do"] == "px_film"]:
+                    # A film name is <case>-sw-terminals[-a|-b|-c]-<off|on>-<s1|reduce>.
+                    m = re.fullmatch(r"(px-[a-z0-9-]+?)-sw-terminals(?:-[abc])?-(off|on)-(s1|reduce)", f["name"])
+                    self.assertTrue(m, f["name"])
+                    case, state, speed = m.groups()
+                    self.assertEqual(f["switch"], {"key": SWITCH, "value": state == "on"}, f["name"])
+                    self.assertEqual(f.get("speed") if speed == "s1" else f.get("reduce"), 1.0 if speed == "s1" else True, f["name"])
+                    per_case.setdefault(case, []).append(f"{state}-{speed}")
+                self.assertEqual(s["finally"][0], {"do": "px_tunable", "key": SWITCH, "value": None,
+                                                   "title": f"clean-up: {SWITCH} back to its default"})
+                last = [st for st in s["steps"] if st["do"] == "expect"][-1]
+                self.assertEqual({D.KIND[next(iter(c))] for c in last["all"]}, {"app", "daemon", "frame"})
+            # Every case: off-s1, on-s1, off-reduce, on-reduce, in that order.
+            self.assertEqual(sorted(per_case), sorted(self.S4))
+            for case, labels in per_case.items():
+                self.assertEqual(labels, ["off-s1", "on-s1", "off-reduce", "on-reduce"], case)
+            # 5 cases x 4 films: each case one journey of 4 films, split -a/-b only when one lease cannot hold it.
+            names = [n for s in specs for n in s["recordings"]]
+            self.assertEqual(len(names), 20)
+            self.assertEqual(len(names), len(set(names)))
+
+    def test_without_switch_no_variants(self):
+        with tempfile.TemporaryDirectory() as out:
+            done = subprocess.run([sys.executable, str(HERE / "video-cases" / "gen_pixel.py"), "--out", out, "--only", "px-col-drag-2"],
+                                  capture_output=True, text=True, timeout=120)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertFalse([p.name for p in Path(out).glob("*-sw-*.json")])
 
 
 class WindowFrameTests(unittest.TestCase):
@@ -699,6 +811,7 @@ class PixelCasesTests(unittest.TestCase):
             frames = [st for st in film_steps if st["do"] == "px_window_frame"]
             self.assertEqual([st["by"] for st in frames], [[-300, -150], [300, 150]] * 2)  # two films: x1 and Reduce Motion
             self.assertEqual(next(st for st in film_steps if st["do"] == "px_record_start")["input"], "window resize (window_drag)")
+            self.assertFalse([s["id"] for s in specs if "-sw-" in s["id"]], "switch variants only with --switch")
             s1r = {s["id"]: s for s in specs if s["id"].endswith("-s1r")}
             self.assertEqual(len(s1r), 11)
             self.assertTrue(all([n.rsplit("-", 1)[1] for n in s["recordings"]] == ["s1", "reduce"] for s in s1r.values()))
