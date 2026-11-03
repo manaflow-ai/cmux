@@ -55,6 +55,43 @@ struct TerminalFrameOwnerMainThreadTests {
         #expect(fixture.session.surfaceView.frame.width == 520, "the terminal is \(fixture.session.surfaceView.frame.width) pt wide")
     }
 
+    /// The same with the films' recorder load (sample 1 of the hung build did not hang without it): inside the main
+    /// thread's own Core Animation commit, every turn, a 1-point layer reads the terminal layer's contents and bounds
+    /// under `[CATransaction lock]`, as the in-app trace sampler and commit probe do while a film records. A property
+    /// change makes main commit every turn.
+    @Test func theMainThreadKeepsTurningUnderTheRecordersPerCommitLayerReads() async throws {
+        let watchdog = MainThreadWatchdog(deadline: .seconds(3))
+        watchdog.start()
+        defer { watchdog.stop() }
+        let fixture = try await Fixture()
+        defer { fixture.close() }
+        let reader = LockingReaderLayer()
+        reader.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
+        reader.target = fixture.session.surfaceView.layer
+        try #require(fixture.container.layer != nil, "the container has no layer")
+        fixture.container.layer?.addSublayer(reader)
+        defer { reader.removeFromSuperlayer() }
+
+        let on = TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, .bool(true))
+        try #require(on == .bool(true), "the switch motion.frameOwner.terminals is not registered")
+        let offMainBefore = fixture.offMainPresents
+        // Three resizes, each followed by output, with the reader in every main commit.
+        for (index, width) in [CGFloat(520), 560, 500].enumerated() {
+            fixture.container.terminalWidth = width
+            fixture.container.needsLayout = true
+            for turn in 0..<180 {
+                if turn % 6 == 0 { fixture.io.send(.output(Data("resize \(index) line \(turn)\r\n".utf8))) }
+                reader.setNeedsDisplay()
+                reader.opacity = turn % 2 == 0 ? 1 : 0.99
+                await fixture.commits(1)
+            }
+        }
+        #expect(reader.reads > 0, "the reader never ran inside a commit")
+        #expect(fixture.offMainPresents > offMainBefore,
+                "no frame went to the screen off the main thread (host_off_main_presents \(offMainBefore) -> \(fixture.offMainPresents))")
+        #expect(fixture.session.surfaceView.frame.width == 500, "the terminal is \(fixture.session.surfaceView.frame.width) pt wide")
+    }
+
     /// The window's content: its `layout()` gives the terminal the width asked for, as a pane's layout does.
     final class ResizingContainer: NSView {
         var terminalWidth: CGFloat = 600
@@ -184,4 +221,21 @@ nonisolated final class MainThreadWatchdog: Sendable {
         FileHandle.standardError.write(Data("MAIN THREAD HANG (S4 frame owner): the main thread did not answer in 3 s. sample of pid \(pid):\n\(text)\n".utf8))
         exit(70)
     }
+}
+
+/// Reads its target layer's contents and bounds under `[CATransaction lock]` each time Core Animation displays it,
+/// inside a commit (the films' trace sampler and commit probe).
+private nonisolated final class LockingReaderLayer: CALayer {
+    weak var target: CALayer?
+    private(set) var reads = 0
+
+    override func display() {
+        CATransaction.lock()
+        _ = target?.contents
+        _ = target?.bounds
+        reads += 1
+        CATransaction.unlock()
+    }
+
+    override func action(forKey event: String) -> (any CAAction)? { nil }
 }
