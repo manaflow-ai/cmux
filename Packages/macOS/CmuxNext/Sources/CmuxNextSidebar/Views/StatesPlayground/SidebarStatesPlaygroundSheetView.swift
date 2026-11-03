@@ -2,8 +2,8 @@ import AppKit
 import CmuxNextDesign
 
 /// DEV and NIGHTLY (Debug menu > Sidebar States Playground): one appearance's sheet. A title and the legend, then a
-/// grid: one column per density and text size (``SidebarStatesPlaygroundColumn/all``) or per favicon style
-/// (``SidebarStatesPlaygroundColumn/faviconStyles``), one row per state of ``states``, each cell the real row
+/// grid: one column per density and text size (``SidebarStatesPlaygroundColumn/all``, or
+/// ``SidebarStatesPlaygroundColumn/favicons(_:)`` drawn with one favicon style), one row per state of ``states``, each cell the real row
 /// (``SidebarStatesPlaygroundCellView``).
 ///
 /// ``labelFrame`` and ``densityFrames`` name the sheet's parts, so a capture can cut one density's columns out with
@@ -13,7 +13,7 @@ final class SidebarStatesPlaygroundSheetView: NSView {
     let columns: [SidebarStatesPlaygroundColumn]
     /// The rows, in order: every state, or the favicon rows on the favicon styles sheet.
     let states: [SidebarStatesPlaygroundState]
-    /// The sheet's title: the appearance's, or its favicon styles title.
+    /// The sheet's title: the appearance's, or its favicon style's title.
     let title: String
     /// The cells, by column, then state.
     let cells: [SidebarStatesPlaygroundColumn: [SidebarStatesPlaygroundState: SidebarStatesPlaygroundCell]]

@@ -51,10 +51,10 @@ enum SidebarStatesPlaygroundState: String, CaseIterable, Sendable {
     case faviconMono
     /// A browser workspace with a colorful favicon (Google-like).
     case faviconColorful
-    /// A browser workspace whose page has no favicon: the fallback.
+    /// A browser workspace whose page has no favicon: the placeholder globe (``WorkspaceIcon/pagePlaceholder``).
     case faviconMissing
 
-    /// The rows the favicon styles sheet shows (`SidebarStatesPlaygroundColumn.faviconStyles`).
+    /// The rows each favicon styles sheet shows (`SidebarStatesPlaygroundColumn.favicons(_:)`).
     static let favicons: [SidebarStatesPlaygroundState] = [.faviconMono, .faviconColorful, .faviconMissing]
 
     /// The row's caption in the playground.
@@ -88,7 +88,7 @@ enum SidebarStatesPlaygroundState: String, CaseIterable, Sendable {
         case .faviconColorful:
             String(localized: "sidebar.statesPlayground.state.faviconColorful", defaultValue: "Favicon, colorful", bundle: .module)
         case .faviconMissing:
-            String(localized: "sidebar.statesPlayground.state.faviconMissing", defaultValue: "Favicon, missing", bundle: .module)
+            String(localized: "sidebar.statesPlayground.state.faviconPlaceholder", defaultValue: "No favicon, globe placeholder", bundle: .module)
         }
     }
 }

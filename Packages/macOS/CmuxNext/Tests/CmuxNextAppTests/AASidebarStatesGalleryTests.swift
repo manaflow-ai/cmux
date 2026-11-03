@@ -97,9 +97,10 @@ import Testing
         let playground = SidebarStatesPlaygroundView(renderer: renderer)
         let stateSheets = SidebarStatesPlaygroundAppearance.allCases.compactMap { playground.sheets[$0] }
         #expect(stateSheets.count == 2)
-        // The favicon styles sheets (`sidebar.faviconStyle`, Lawrence msg 19869), written as sheet-favicons-<appearance>.png.
-        let faviconSheets = SidebarStatesPlaygroundAppearance.allCases.compactMap { playground.faviconSheets[$0] }
-        #expect(faviconSheets.count == 2)
+        // The favicon styles sheets (`sidebar.faviconStyle`, Lawrence msg 19869), one per style at every density and text
+        // size, written as sheet-favicons-<appearance>-<style>.png.
+        let faviconSheets = SidebarStatesPlaygroundAppearance.allCases.flatMap { playground.faviconSheets[$0] ?? [] }
+        #expect(faviconSheets.count == 2 * SidebarFaviconStyle.allCases.count)
         let sheets = stateSheets + faviconSheets
         // A window as large as the playground's content, so no sheet is clipped by its scroll view.
         let size = NSSize(width: sheets.map(\.frame.width).max() ?? 1200,
@@ -119,7 +120,8 @@ import Testing
             let image = try Self.capture(sheet)
             let name = sheet.appearanceKind.rawValue
             if faviconSheets.contains(where: { $0 === sheet }) {
-                try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: "sheet-favicons-\(name).png"))
+                let style = try #require(sheet.columns.first?.faviconStyle)
+                try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: "sheet-favicons-\(name)-\(style.rawValue).png"))
                 continue
             }
             try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: "sheet-\(name).png"))

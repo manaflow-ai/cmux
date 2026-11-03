@@ -263,133 +263,133 @@
         }
       }
     },
-    "sidebar.statesPlayground.state.faviconMissing": {
+    "sidebar.statesPlayground.state.faviconPlaceholder": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Favicon, missing"
+            "value": "No favicon, globe placeholder"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "أيقونة الموقع، مفقودة"
+            "value": "بلا أيقونة موقع، عنصر نائب على شكل كرة أرضية"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Favicon, nedostaje"
+            "value": "Bez favicona, globus kao zamjena"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Favicon, mangler"
+            "value": "Intet favicon, globus som pladsholder"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Favicon, fehlt"
+            "value": "Kein Favicon, Globus als Platzhalter"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Favicon, ausente"
+            "value": "Sin favicon, globo como marcador"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Favicon, absent"
+            "value": "Pas de favicon, globe en remplacement"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Favicon, mancante"
+            "value": "Nessuna favicon, globo segnaposto"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ファビコン、なし"
+            "value": "ファビコンなし、地球儀のプレースホルダ"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Favicon បាត់"
+            "value": "គ្មាន Favicon, រូបភពផែនដីជំនួស"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "파비콘, 없음"
+            "value": "파비콘 없음, 지구본 자리 표시"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Favicon, mangler"
+            "value": "Ingen favicon, globus som plassholder"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Favicon, brak"
+            "value": "Brak favikony, globus zastępczy"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Favicon, ausente"
+            "value": "Sem favicon, globo como espaço reservado"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Значок сайта отсутствует"
+            "value": "Нет фавикона, глобус-заполнитель"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่มี Favicon"
+            "value": "ไม่มีไอคอนเว็บไซต์ ใช้รูปลูกโลกแทน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Favicon, yok"
+            "value": "Favicon yok, yer tutucu küre"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Значок сайту відсутній"
+            "value": "Немає фавікона, глобус-заповнювач"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Favicon, thiếu"
+            "value": "Không có favicon, biểu tượng quả địa cầu thay thế"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "网站图标，缺失"
+            "value": "无网站图标，以地球图标占位"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "網站圖示，缺少"
+            "value": "無網站圖示，以地球圖示佔位"
           }
         }
       }
@@ -1311,133 +1311,133 @@
         }
       }
     },
-    "sidebar.statesPlayground.faviconStyles": {
+    "sidebar.statesPlayground.faviconStyleSheet": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Favicon styles · %@"
+            "value": "Favicon style: %1$@ · %2$@"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "أنماط أيقونات المواقع · %@"
+            "value": "نمط أيقونة الموقع: %1$@ · %2$@"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Stilovi favicona · %@"
+            "value": "Stil favicona: %1$@ · %2$@"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Favicon-stile · %@"
+            "value": "Favicon-stil: %1$@ · %2$@"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Favicon-Stile · %@"
+            "value": "Favicon-Stil: %1$@ · %2$@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Estilos de favicon · %@"
+            "value": "Estilo de favicon: %1$@ · %2$@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Styles de favicon · %@"
+            "value": "Style de favicon : %1$@ · %2$@"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Stili delle favicon · %@"
+            "value": "Stile della favicon: %1$@ · %2$@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ファビコンのスタイル · %@"
+            "value": "ファビコンのスタイル: %1$@ · %2$@"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "រចនាប័ទ្ម Favicon · %@"
+            "value": "រចនាប័ទ្ម Favicon: %1$@ · %2$@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "파비콘 스타일 · %@"
+            "value": "파비콘 스타일: %1$@ · %2$@"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Favicon-stiler · %@"
+            "value": "Favicon-stil: %1$@ · %2$@"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Style favikon · %@"
+            "value": "Styl favikony: %1$@ · %2$@"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Estilos de favicon · %@"
+            "value": "Estilo de favicon: %1$@ · %2$@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Стили фавиконов · %@"
+            "value": "Стиль фавикона: %1$@ · %2$@"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "รูปแบบไอคอนเว็บไซต์ · %@"
+            "value": "รูปแบบไอคอนเว็บไซต์: %1$@ · %2$@"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Favicon stilleri · %@"
+            "value": "Favicon stili: %1$@ · %2$@"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Стилі фавіконів · %@"
+            "value": "Стиль фавікона: %1$@ · %2$@"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kiểu favicon · %@"
+            "value": "Kiểu favicon: %1$@ · %2$@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "网站图标样式 · %@"
+            "value": "网站图标样式：%1$@ · %2$@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "網站圖示樣式 · %@"
+            "value": "網站圖示樣式：%1$@ · %2$@"
           }
         }
       }
