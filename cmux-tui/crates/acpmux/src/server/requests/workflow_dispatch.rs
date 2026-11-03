@@ -150,6 +150,11 @@ pub(super) async fn cache_remote(
     let flight = flight(hub, id);
     let _gate = flight.gate.lock().await;
     check(&row, identity)?;
+    // The destination's local-reservation proof is never true at a forwarding
+    // daemon. Keeping it would reveal another peer's receipt to peer callers.
+    if let Some(object) = row.as_object_mut() {
+        object.remove("dispatchLocal");
+    }
     if let Some(previous) = hub.briefs.get(id) {
         check(&previous, identity)?;
         if previous.get("outcome").is_some() {
@@ -403,7 +408,13 @@ mod tests {
         let mut finished = pending.clone();
         finished.set("status", json!("reported"));
         finished.set("outcome", json!({"Ok":{"finalReply":"exact reply"}}));
-        cache_remote(&hub, "placement", &identity, finished.clone()).await.unwrap();
+        let mut remote = finished.clone();
+        remote.set("dispatchLocal", json!(true));
+        let cached = cache_remote(&hub, "placement", &identity, remote).await.unwrap();
+        assert!(
+            cached.get("dispatchLocal").is_none(),
+            "a peer's reservation was marked local here"
+        );
         let late = cache_remote(&hub, "placement", &identity, pending).await.unwrap();
         assert_eq!(late, finished, "a late pending response erased the final reply");
         assert_eq!(hub.briefs.get("placement"), Some(finished));
