@@ -159,3 +159,46 @@ fn durable_cancel_fences_delayed_dispatch_and_only_its_exact_prompt() {
             hub.shutdown_all().await;
         });
 }
+
+#[test]
+fn durable_dispatch_crosses_a_real_peer_and_reattaches_by_its_pinned_alias() {
+    tokio::runtime::Builder::new_multi_thread().worker_threads(2).thread_stack_size(32 << 20)
+        .enable_all().build().unwrap().block_on(async {
+            use acpmux::server::{bind_ws,serve_ws_with,WsAuth};
+            use acpmux::server::peer_auth::{PeerAuth,token_path};
+            let root=tempfile::tempdir().unwrap();
+            let local=hub();let remote=hub();
+            let auth=PeerAuth::create(root.path()).unwrap();
+            let peer_token=std::fs::read_to_string(token_path(root.path())).unwrap();
+            let listener=bind_ws("127.0.0.1:0").await.unwrap();
+            let port=listener.local_addr().unwrap().port();
+            let server=tokio::spawn(serve_ws_with(remote.clone(),listener,"durable-peer-test".into(),
+                WsAuth{local_app:None,peer:Some(Arc::new(auth))}));
+            let added=local.add_peer("paired-target",&format!("ws://127.0.0.1:{port}"),
+                Some("durable-peer-test".into()),Some(peer_token),true).await.unwrap();
+            assert_eq!(added["peer"]["connected"],true,"{added}");
+            let params=json!({"briefId":"cross-peer","durable":true,"host":"paired-target","wait":true,
+                "brief":"cross-peer reply","title":"Peer workflow","cwd":std::env::temp_dir(),
+                "harness":"fake","policy":"ask","allowedTools":[]});
+            let first=call(&local,None,method::MUX_DISPATCH,params.clone()).await.unwrap();
+            assert_eq!(first["brief"]["outcome"]["Ok"]["finalReply"],"echo: cross-peer reply","{first}");
+            assert!(first["brief"].get("dispatchLocal").is_none(),"remote receipt was marked local at forwarding host");
+            let replay=call(&local,None,method::MUX_DISPATCH,params.clone()).await.unwrap();
+            assert_eq!(first["brief"]["sessionId"],replay["brief"]["sessionId"]);
+            assert_eq!(first["brief"]["outcome"],replay["brief"]["outcome"]);
+            let mut hidden=params.clone();hidden["host"]=json!("local");
+            assert!(call(&local,Some(Origin::Peer),method::MUX_DISPATCH,hidden).await.is_err(),
+                "peer caller learned a dispatch belonging to another peer");
+            let mut before=params;before["briefId"]=json!("cancel-cross-peer");before["brief"]=json!("until-cancel");
+            let mut stop=before.clone();stop["action"]=json!("cancel");stop["wait"]=json!(false);
+            let cancelled=call(&local,None,method::MUX_DISPATCH,stop).await.unwrap();
+            let sid=cancelled["brief"]["sessionId"].as_str().unwrap();
+            assert!(remote.resolve(sid).is_err(),"remote cancellation created a child");
+            let late=call(&local,None,method::MUX_DISPATCH,before).await.unwrap();
+            assert_eq!(late["brief"]["dispatchCancelled"],true,"{late}");
+            assert!(remote.resolve(sid).is_err(),"delayed send escaped a remote tombstone");
+            local.remove_peer("paired-target").await.unwrap();
+            local.shutdown_all().await;remote.shutdown_all().await;
+            server.abort();
+        });
+}
