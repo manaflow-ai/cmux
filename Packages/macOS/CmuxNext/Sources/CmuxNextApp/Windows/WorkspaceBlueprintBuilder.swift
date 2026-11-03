@@ -29,7 +29,7 @@ struct WorkspaceBlueprintBuilder: Sendable {
         try await build(firstScreen, pane: firstPane.id, initial: initial)
         for screen in blueprint.screens.dropFirst() {
             let created = try await connection.newScreen(in: workspace.id)
-            try await build(screen, pane: try await pane(holding: created.surface), initial: created.surface)
+            try await build(screen, pane: try await connection.pane(of: created), initial: created.surface)
         }
         try await applyRatios(blueprint)
     }
@@ -40,7 +40,7 @@ struct WorkspaceBlueprintBuilder: Sendable {
         var previous = pane
         for column in screen.columns.dropFirst() {
             let created = try await connection.newColumn(rightOf: previous, width: column.width, options: options(for: column.root))
-            let next = try await self.pane(holding: created.surface)
+            let next = try await connection.pane(of: created)
             try await fill(column.root, pane: next, initial: created.surface)
             previous = next
         }
@@ -51,7 +51,7 @@ struct WorkspaceBlueprintBuilder: Sendable {
         switch node {
         case .split(let direction, _, let a, let b):
             let created = try await connection.split(pane, direction: direction, options: options(for: b))
-            let other = try await self.pane(holding: created.surface)
+            let other = try await connection.pane(of: created)
             try await fill(a, pane: pane, initial: initial)
             try await fill(b, pane: other, initial: created.surface)
         case .pane(let tabs):
@@ -93,15 +93,6 @@ struct WorkspaceBlueprintBuilder: Sendable {
     }
 
     static let replayKey = "CMUX_RESTORE_SCROLLBACK_FILE"
-
-    private func pane(holding surface: SurfaceID) async throws -> PaneID {
-        let tree = try await connection.listWorkspaces()
-        let panes = tree.workspaces.first { $0.key == key }?.screens.flatMap(\.panes) ?? []
-        guard let pane = panes.first(where: { $0.tabs.contains { $0.surface == surface } }) else {
-            throw DaemonError.malformedResponse("pane for surface \(surface) not found")
-        }
-        return pane.id
-    }
 
     /// Splits are made at the daemon's default ratio; set each to the
     /// blueprint's by walking both trees together (the builder keeps the

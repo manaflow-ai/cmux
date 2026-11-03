@@ -360,7 +360,7 @@ enum TabMoves {
         let created = try await connection.split(target, direction: direction, movingTab: surface)
         let newPane: PaneID
         if created.surface == surface {
-            newPane = try await pane(holding: surface, connection: connection)
+            newPane = try await connection.pane(of: created)
         } else {
             newPane = try await adopt(surface, into: created, connection: connection)
         }
@@ -373,7 +373,7 @@ enum TabMoves {
     /// Moves `surface` into the pane holding the freshly spawned `created`
     /// tab, then closes the spawned terminal. Returns that pane.
     private static func adopt(_ surface: SurfaceID, into created: SurfaceCreated, connection: DaemonConnection) async throws -> PaneID {
-        let pane = try await pane(holding: created.surface, connection: connection)
+        let pane = try await connection.pane(of: created)
         _ = try await connection.moveTab(surface, to: pane, index: 0)
         if let terminal = created.terminalID {
             try await connection.closeTerminal(terminal, incarnation: created.terminalIncarnation)
@@ -381,13 +381,5 @@ enum TabMoves {
             try await connection.closeTab(created.surface)
         }
         return pane
-    }
-
-    private static func pane(holding surface: SurfaceID, connection: DaemonConnection) async throws -> PaneID {
-        let panes = try await connection.listWorkspaces().workspaces.flatMap(\.screens).flatMap(\.panes)
-        guard let pane = panes.first(where: { $0.tabs.contains { $0.surface == surface } }) else {
-            throw DaemonError.malformedResponse("pane for surface \(surface) not found")
-        }
-        return pane.id
     }
 }

@@ -171,7 +171,7 @@ extension DaemonConnection {
                       options: SpawnOptions = SpawnOptions()) async throws -> SurfaceCreated {
         if let tab {
             let moved = try await moveTabToSplit(tab, pane: pane, edge: direction == .right ? .right : .bottom)
-            return SurfaceCreated(surface: moved.surface ?? tab)
+            return SurfaceCreated(surface: moved.surface ?? tab, pane: moved.pane)
         }
         if supportsPlacementEnv {
             let options = await placed(options)
@@ -431,4 +431,17 @@ extension DaemonConnection {
 
     /// Deadline for `shutdown-daemon end_terminals`, which awaits every host.
     public static let endTerminalsTimeout: Duration = .seconds(60)
+}
+
+extension DaemonConnection {
+    /// The pane that holds a surface a creation just made: the daemon names it in the reply (`pane`); only a
+    /// daemon that does not (older than `pane` in pane-creation results) costs a read of the whole tree.
+    public func pane(of created: SurfaceCreated) async throws -> PaneID {
+        if let pane = created.pane { return pane }
+        let panes = try await listWorkspaces().workspaces.flatMap(\.screens).flatMap(\.panes)
+        guard let pane = panes.first(where: { $0.tabs.contains { $0.surface == created.surface } }) else {
+            throw DaemonError.malformedResponse("pane for surface \(created.surface) not found")
+        }
+        return pane.id
+    }
 }

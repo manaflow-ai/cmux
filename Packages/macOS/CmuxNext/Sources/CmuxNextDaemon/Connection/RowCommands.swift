@@ -33,10 +33,7 @@ public struct RowCommands: Sendable {
     /// no move-tab-to-row: the row opens with a terminal, the tab moves in, that terminal closes.
     public func moveTab(_ surface: SurfaceID, toNewRowBelow pane: PaneID, height: Int) async throws {
         let created = try await newRow(below: pane, height: height)
-        let panes = try await connection.listWorkspaces().workspaces.flatMap(\.screens).flatMap(\.panes)
-        guard let row = panes.first(where: { $0.tabs.contains { $0.surface == created.surface } })?.id else {
-            throw DaemonError.malformedResponse("pane for surface \(created.surface) not found")
-        }
+        let row = try await connection.pane(of: created)
         _ = try await connection.moveTab(surface, to: row, index: 0)
         if let terminal = created.terminalID {
             try await connection.closeTerminal(terminal, incarnation: created.terminalIncarnation)

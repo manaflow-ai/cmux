@@ -165,7 +165,7 @@ pub(super) fn new_pane_right(
             url,
             size,
         )?;
-        return Ok(json!({ "surface": surface.id }));
+        return Ok(browser_pane_result(mux, surface.id));
     }
     let keep = params.content.keep;
     let spawn = params.content.spawn(mux, client)?;
@@ -207,7 +207,7 @@ pub(super) fn split(mux: &Arc<Mux>, client: u64, mut params: SplitParams) -> any
             fields,
             size,
         )?;
-        return Ok(json!({ "surface": surface.id }));
+        return Ok(browser_pane_result(mux, surface.id));
     }
     let keep = params.content.keep;
     let mut spawn = params.content.spawn(mux, client)?;
@@ -222,9 +222,18 @@ pub(super) fn split(mux: &Arc<Mux>, client: u64, mut params: SplitParams) -> any
     placed_pane_result(mux, &created, keep)
 }
 
-/// [`placed_terminal_result`] plus the new pane's and tab's public ids
-/// (`pane_id`, `tab_id`) and `replayed` when a keyed retry returned the
-/// first result (`split-client-keys-v1`).
+/// A new browser pane's result: its surface and its pane (`pane`), so a client
+/// works on the new pane without reading the whole tree.
+fn browser_pane_result(mux: &Mux, surface: crate::SurfaceId) -> Value {
+    let pane = mux.with_state(|state| state.pane_of(surface));
+    json!({ "surface": surface, "pane": pane })
+}
+
+/// [`placed_terminal_result`] plus the new pane (`pane`, its id in this
+/// session, and `pane_id`, its public id), its tab's public id (`tab_id`) and
+/// `replayed` when a keyed retry returned the first result
+/// (`split-client-keys-v1`). With `pane`, a client works on the new pane at
+/// once instead of reading the whole tree (`list-workspaces`) to find it.
 pub(super) fn placed_pane_result(
     mux: &Mux,
     created: &crate::mux::PaneSurfaceCreation,
@@ -232,12 +241,11 @@ pub(super) fn placed_pane_result(
 ) -> anyhow::Result<Value> {
     let mut result = placed_terminal_result(mux, &created.surface, keep)?;
     let surface = created.surface.id;
-    if let Some(pane_id) = mux.with_state(|state| {
-        state
-            .pane_of(surface)
-            .and_then(|pane| state.panes.get(&pane))
-            .map(|pane| pane.public_id.to_string())
+    if let Some((pane, pane_id)) = mux.with_state(|state| {
+        let pane = state.pane_of(surface)?;
+        Some((pane, state.panes.get(&pane)?.public_id.to_string()))
     }) {
+        result.insert("pane", json!(pane));
         result.insert("pane_id", Value::String(pane_id));
     }
     if let Some(identity) = created.surface.resource_identity() {

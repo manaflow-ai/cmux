@@ -69,7 +69,9 @@ pub(super) fn new_screen(
         spec,
     )?;
     let terminal_id = mux.resource_terminal_host_identity(&surface).map(|id| id.terminal_id);
-    Ok(json!({ "surface": surface.id, "screen": screen, "terminal_id": terminal_id }))
+    // The new screen's one pane: a client fills it without reading the whole tree.
+    let pane = mux.with_state(|state| state.pane_of(surface.id));
+    Ok(json!({ "surface": surface.id, "screen": screen, "pane": pane, "terminal_id": terminal_id }))
 }
 
 /// R5 (plans/cmux-next/workspace-create-extension.md): a page never chooses
