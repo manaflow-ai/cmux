@@ -136,3 +136,5 @@ impl Default for Config {
 
 #[cfg(test)]
 mod cmux_journal_tests;
+#[cfg(test)]
+mod sync_bench_tests;
