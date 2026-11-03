@@ -15,6 +15,11 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use cmux_tui_core::terminal_host_runtime::{
+    TerminalHostRecord, load_terminal_host_records, request_terminal_host_pty_custody,
+    terminal_host_root,
+};
+
 /// How long an owner may take to stop once nothing keeps it. The stop is an
 /// event (the last client's departure or the last terminal's exit), so it
 /// takes milliseconds; the rest is room for a loaded runner.
@@ -30,10 +35,16 @@ struct Owner {
     session: String,
     socket: PathBuf,
     identity: Option<(u32, u64)>,
+    /// More environment for `ensure` (the owner it starts inherits it).
+    env: Vec<(&'static str, &'static str)>,
 }
 
 impl Owner {
     fn ensure(name: &str) -> Self {
+        Self::ensure_with(name, Vec::new())
+    }
+
+    fn ensure_with(name: &str, env: Vec<(&'static str, &'static str)>) -> Self {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() % 1_000_000;
         let root = PathBuf::from(format!("/tmp/okp-{name}-{}-{stamp}", std::process::id()));
         fs::create_dir_all(root.join("home")).unwrap();
@@ -43,6 +54,7 @@ impl Owner {
             session: format!("cmux-app-okp-{name}"),
             socket: PathBuf::new(),
             identity: None,
+            env,
         };
         let output = owner
             .command()
@@ -73,8 +85,36 @@ impl Owner {
             .env("TMPDIR", &self.root)
             .env("CMUX_TUI_STATE_DIR", self.root.join("state"))
             .env("CMUX_TUI_CONFIG", self.root.join("home/no-config.toml"))
-            .env("CMUX_TUI_OWNER_KEEPERS", "1");
+            .env("CMUX_TUI_OWNER_KEEPERS", "1")
+            .envs(self.env.iter().copied());
         command
+    }
+
+    /// The host records of this session's terminals (`path`, record).
+    fn host_records(&self) -> Vec<(PathBuf, TerminalHostRecord)> {
+        let root = terminal_host_root(&self.root.join("state"), &self.session);
+        load_terminal_host_records(&root).unwrap_or_default()
+    }
+
+    /// The host record of the session's one terminal once it runs, or once
+    /// it runs an incarnation other than `not`.
+    fn wait_for_host(&self, not: Option<&str>, bound: Duration) -> (PathBuf, TerminalHostRecord) {
+        let deadline = Instant::now() + bound;
+        loop {
+            let found = self
+                .host_records()
+                .into_iter()
+                .find(|(_, record)| not.is_none_or(|old| record.incarnation != old));
+            if let Some(found) = found {
+                return found;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "no terminal host {} within {bound:?}",
+                not.map_or("started".to_string(), |old| format!("other than {old}"))
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
     }
 
     /// Whether the owner this test started still runs (its pid with its own
@@ -226,4 +266,40 @@ mod owner_keepers {
         drop(cli);
         owner.assert_stops("its last client left");
     }
+
+    #[test]
+    fn a_terminal_whose_host_is_lost_keeps_the_owner_through_its_respawn() {
+        // The respawn of a lost host waits a backoff (0, 2, 10, 30, 60 s);
+        // here it waits RESPAWN_HOLD. Its row is exited meanwhile: only the
+        // respawn's mark says a new shell is on its way.
+        const RESPAWN_HOLD: &str = "6000";
+        let owner =
+            Owner::ensure_with("respawn", vec![("CMUX_TUI_TEST_RESPAWN_DELAY_MS", RESPAWN_HOLD)]);
+        let mut app = Client::app(&owner.socket);
+        // A terminal in a tab: a lost host respawns only a placed terminal.
+        let created = app.request(serde_json::json!({"cmd": "new-workspace", "name": "respawn"}));
+        assert_eq!(created["ok"], true, "new-workspace: {created}");
+        let (record_path, record) = owner.wait_for_host(None, STOP_BOUND);
+        drop(app);
+        owner.assert_kept("a live terminal");
+        // Lose the shell with its host: stop the host so it records no exit,
+        // end the shell, then end the host (a host loss, which respawns).
+        let shell = request_terminal_host_pty_custody(&record, &record_path).unwrap().child_pid;
+        signal(record.host_pid, libc::SIGSTOP);
+        signal(shell, libc::SIGKILL);
+        signal(record.host_pid, libc::SIGKILL);
+        owner.assert_kept("a terminal whose new shell waits its backoff");
+        // The shell comes back with no app connected, as it did before the
+        // keepers rule.
+        owner.wait_for_host(Some(&record.incarnation), STOP_BOUND + STOP_BOUND);
+        owner.assert_kept("the respawned terminal");
+    }
+}
+
+/// Sends `signal` to a terminal host or shell this test's owner started
+/// (its own session's host record names it).
+fn signal(pid: u32, signal: libc::c_int) {
+    // SAFETY: `pid` is this test's own terminal host or its shell; the signal
+    // is a constant.
+    assert_eq!(unsafe { libc::kill(pid as libc::pid_t, signal) }, 0, "kill {pid}");
 }
