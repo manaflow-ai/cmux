@@ -255,6 +255,8 @@ type Reply = {
 };
 type Notification = { method: string; params?: any };
 type Listener = (snapshot: AcpmuxSnapshot) => void;
+/// The snapshot's catalog: one empty array, so equal snapshots compare by identity.
+const NO_CATALOG: AcpmuxSnapshot["catalog"] = Object.freeze([]) as unknown as AcpmuxSnapshot["catalog"];
 
 /// A hint that a harness is likely next, so acpmux can warm its adapter (cmux-tui acpmux lane).
 export const PREWARM_METHOD = "_acpmux/prewarm";
@@ -1745,6 +1747,7 @@ export class AcpmuxDirectClient {
   private sessionEntriesOf?: { sessions: Session[]; entries: AcpmuxSessionEntry[] };
   /// The snapshot summary's `usageStats`, kept while acpmux's numbers are the same (sameUsageStats).
   private summaryUsage?: SessionUsageStats;
+  private publishedSummaryOf?: { summary: unknown; usage: unknown; value: AcpmuxSnapshot["summary"] };
   /// The usage read in flight (refreshUsage).
   private usageRead?: Promise<void>;
   private selectedSessionId?: string;
@@ -3315,9 +3318,11 @@ export class AcpmuxDirectClient {
   }
 
   private receive(raw: string, stale = false): void {
-    this.wire.received(raw);
     // A frame that is not a JSON object is dropped like one that is not JSON (`null` would throw at `in`).
-    const message = parseJsonObjectFrame(raw) as Reply | Notification | null;
+    // Parsed once: the wire log takes the parsed frame.
+    const parsed = parseJsonObjectFrame(raw);
+    this.wire.received(raw, parsed);
+    const message = parsed as Reply | Notification | null;
     if (!message) return;
     if ("id" in message && (typeof message.id === "number" || typeof message.id === "string")) {
       const request = this.pending.get(message.id);
@@ -6723,6 +6728,73 @@ export class AcpmuxDirectClient {
     return entries;
   }
 
+  /// The snapshot's `summary`: the same object while the chat's summary and usage are the same
+  /// objects (every change assigns a new one; `effort` and `limits` are read from the summary), so
+  /// the pane compares it by identity. A streamed chunk changes neither (HOT PATH AUDIT area F,
+  /// row W1; review of #34004: comparing it by its JSON cost O(summary) per chunk).
+  private publishedSummary(
+    summary: Record<string, any> | undefined,
+    effort: any,
+    limits: ReturnType<typeof subsessionLimits>,
+  ): AcpmuxSnapshot["summary"] {
+    const kept = this.publishedSummaryOf;
+    if (kept && kept.summary === summary && kept.usage === this.usage) return kept.value;
+    const value: AcpmuxSnapshot["summary"] = summary
+      ? {
+          sessionId: summary.sessionId,
+          cwd: summary.cwd,
+          turnCount: summary.turnCount,
+          usage: this.usage,
+          contextBreakdown: contextBreakdownOf(summary.contextBreakdown),
+          usageStats: (this.summaryUsage = sameUsageStats(summary.usageStats, this.summaryUsage)),
+          host: text(summary.host),
+          machine: text(summary.machine),
+          peer: text(summary.peer),
+          hostKind: hostKind(summary.hostKind),
+          // acpmux's session detail names the folder's branch `gitBranch` (when the session started).
+          branch: text(summary.branch) ?? text(summary.gitBranch),
+          worktree: text(summary.worktree),
+          title: summary.title,
+          name: summary.name,
+          goal: taskGoal(summary.goal),
+          harness: summary.harness,
+          family: typeof summary.family === "string" ? summary.family : undefined,
+          agentInfo:
+            summary.agentInfo && typeof summary.agentInfo === "object" && !Array.isArray(summary.agentInfo)
+              ? summary.agentInfo
+              : undefined,
+          authSource: text(summary.authSource),
+          baseUrl: text(summary.baseUrl),
+          route: text(summary.route),
+          settingsSources: summary.settingsSources,
+          usageLimits: usageLimitsOf(summary.usageLimits) ?? text(summary.usageLimits),
+          ...(summary.usageLimitsApply === false ? { usageLimitsApply: false } : {}),
+          // acpmux reports `model: null` for a harness with no model (one known only from its config).
+          model: text(summary.model),
+          effort: effort?.currentValue,
+          // `audio` only while the picked model hears it (takesAudio).
+          promptCapabilities: summary.agentCapabilities?.promptCapabilities && {
+            ...summary.agentCapabilities.promptCapabilities,
+            audio: takesAudio(summary.agentCapabilities.promptCapabilities, summary.configOptions),
+          },
+          steering: summary.steering === true,
+          backgroundsWork: summary.backgroundsWork === true,
+          queuePaused: summary.queuePaused === true,
+          ...(text(summary.watching) ? { watching: text(summary.watching) } : {}),
+          ...(Array.isArray(summary.mcpServers) ? { mcpServers: summary.mcpServers } : {}),
+          ...(limits ? { subsessionLimits: limits } : {}),
+          status: summary.status,
+          enforcement: sessionEnforcement(summary.enforcement),
+          modes: summary.modes,
+          configOptions: summary.configOptions,
+          tools: chatTools(summary.tools),
+          toolsMutable: summary.toolsMutable === true,
+        }
+      : undefined;
+    this.publishedSummaryOf = { summary, usage: this.usage, value };
+    return value;
+  }
+
   private emitNow(connection: string): void {
     if (this.closed && !this.replayMode && !(this.fedMode && !this.disposed)) return;
     if (this.snapshotHold) {
@@ -6771,58 +6843,7 @@ export class AcpmuxDirectClient {
       peerStates: this.peerStates,
       peerResources: this.peerResources,
       ...(this.forkedAtSeq !== undefined ? { forkedAtSeq: this.forkedAtSeq } : {}),
-      summary: summary
-        ? {
-            sessionId: summary.sessionId,
-            cwd: summary.cwd,
-            turnCount: summary.turnCount,
-            usage: this.usage,
-            contextBreakdown: contextBreakdownOf(summary.contextBreakdown),
-            usageStats: (this.summaryUsage = sameUsageStats(summary.usageStats, this.summaryUsage)),
-            host: text(summary.host),
-            machine: text(summary.machine),
-            peer: text(summary.peer),
-            hostKind: hostKind(summary.hostKind),
-            // acpmux's session detail names the folder's branch `gitBranch` (when the session started).
-            branch: text(summary.branch) ?? text(summary.gitBranch),
-            worktree: text(summary.worktree),
-            title: summary.title,
-            name: summary.name,
-            goal: taskGoal(summary.goal),
-            harness: summary.harness,
-            family: typeof summary.family === "string" ? summary.family : undefined,
-            agentInfo:
-              summary.agentInfo && typeof summary.agentInfo === "object" && !Array.isArray(summary.agentInfo)
-                ? summary.agentInfo
-                : undefined,
-            authSource: text(summary.authSource),
-            baseUrl: text(summary.baseUrl),
-            route: text(summary.route),
-            settingsSources: summary.settingsSources,
-            usageLimits: usageLimitsOf(summary.usageLimits) ?? text(summary.usageLimits),
-            ...(summary.usageLimitsApply === false ? { usageLimitsApply: false } : {}),
-            // acpmux reports `model: null` for a harness with no model (one known only from its config).
-            model: text(summary.model),
-            effort: effort?.currentValue,
-            // `audio` only while the picked model hears it (takesAudio).
-            promptCapabilities: summary.agentCapabilities?.promptCapabilities && {
-              ...summary.agentCapabilities.promptCapabilities,
-              audio: takesAudio(summary.agentCapabilities.promptCapabilities, summary.configOptions),
-            },
-            steering: summary.steering === true,
-            backgroundsWork: summary.backgroundsWork === true,
-            queuePaused: summary.queuePaused === true,
-            ...(text(summary.watching) ? { watching: text(summary.watching) } : {}),
-            ...(Array.isArray(summary.mcpServers) ? { mcpServers: summary.mcpServers } : {}),
-            ...(limits ? { subsessionLimits: limits } : {}),
-            status: summary.status,
-            enforcement: sessionEnforcement(summary.enforcement),
-            modes: summary.modes,
-            configOptions: summary.configOptions,
-            tools: chatTools(summary.tools),
-            toolsMutable: summary.toolsMutable === true,
-          }
-        : undefined,
+      summary: this.publishedSummary(summary, effort, limits),
       connection,
       origin: this.origin,
       ...(this.listedSessions ? { listedSessions: true as const } : {}),
@@ -6873,7 +6894,7 @@ export class AcpmuxDirectClient {
         : {}),
       secret: this.pendingSecret,
       asks: this.asks.list(),
-      catalog: [],
+      catalog: NO_CATALOG,
       commands: this.commands,
       canLoadOlder: this.seqHistoryLeft() || this.nativeBefore() !== undefined,
       ...(this.shownEarlierPrompts().length ? { earlierPrompts: this.shownEarlierPrompts() } : {}),
