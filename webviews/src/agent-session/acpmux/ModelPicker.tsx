@@ -1630,6 +1630,19 @@ export function ModelPicker(props: ModelPickerProps) {
                 {selected && !searching && !starredView && selected.notInstalled ? (
                   <>
                     <div className={emptyNote}>{t("harnesses.notInstalled")}</div>
+                    {/* Catalog models remain discoverable before install, while every row is inert. */}
+                    {choicesFor(selected, lang).map((model) => (
+                      <PickerOption
+                        key={model.id}
+                        type="button"
+                        active={false}
+                        disabled
+                        aria-disabled="true"
+                        className={`acpmux-mp-row ${modelRow} ${rowFill(false)} text-muted`}
+                      >
+                        <span className="acpmux-menu-label min-w-0 flex-1 truncate">{model.name}</span>
+                      </PickerOption>
+                    ))}
                     {onAddAgent && (
                       <button
                         type="button"
