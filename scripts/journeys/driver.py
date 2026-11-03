@@ -92,6 +92,11 @@ NEW_TERMINAL_KEY = {"key": "`", "modifiers": ["control"]}
 LAUNCH_ENV = re.compile(r"^(CMUX_[A-Z0-9_]*|HOME|TMPDIR)$")
 
 
+# A creation's stand-in tab id (ProvisionalTab.idPrefix) and the daemon's public terminal id form.
+PROVISIONAL_TAB_PREFIX = "pending_tab_"
+DAEMON_TERMINAL_PREFIX = "term_"
+
+
 def now():
     return time.monotonic()
 
@@ -955,6 +960,30 @@ class Journey:
             self.host_pid = host_pid
         return {"terminal": self.term, "pane": self.pane, "host_pid": self.host_pid}
 
+    def creation_place(self, view, topo):
+        """((workspace, pane, daemon terminal id), None) of the terminal a debug.surfaces pane row `view` shows,
+        resolved by its creation key, else (None, why not yet). The row's `terminal_id` is the terminal host id the
+        app chose when the terminal was created; every tab of that terminal carries it as `terminal_key`. A key's
+        stand-in tab (`pending_tab_...`) carries it too, but its `terminal` is that host id, which no daemon selector
+        resolves; the daemon's tab takes its place with the daemon's public id (`term_...`). Only that tab counts:
+        never the pane's selected tab, never the only terminal of a workspace, never a probe. A topology without
+        `terminal_key` raises: it cannot name the terminal (STATUS 9672; the kits' #29179)."""
+        tabs = [(ws, pane, tab, term) for ws, pane, tab, term in self.places(topo) if pane.get("id") == view.get("pane")]
+        if tabs and not any("terminal_key" in tab for _, _, tab, _ in tabs):
+            raise StepError(f"pane {view.get('pane')}: this build's topology has no terminal_key, so the terminal a pane "
+                            "shows cannot be named (a build before e348cfc325a8); the driver does not guess")
+        why = None
+        for ws, pane, tab, term in tabs:
+            if not view.get("terminal_id") or tab.get("terminal_key") != view["terminal_id"]:
+                continue
+            if str(tab.get("id", "")).startswith(PROVISIONAL_TAB_PREFIX):
+                why = f"pane {view.get('pane')} still shows the creation's stand-in tab {tab.get('id')}"
+            elif not (term or "").startswith(DAEMON_TERMINAL_PREFIX):
+                why = f"tab {tab.get('id')} of pane {view.get('pane')} has no daemon terminal id yet ({term})"
+            else:
+                return (ws, pane, term), None
+        return None, why or f"pane {view.get('pane')} has no tab of its view's terminal {view.get('terminal_id')} yet"
+
     def wait_screen(self, end):
         """Until the daemon's screen of the current terminal shows any text (the shell's first prompt)."""
         last = "empty screen"
@@ -970,7 +999,16 @@ class Journey:
     def step_focused_terminal(self, step):
         """After a key that makes a terminal (Ctrl-` New Terminal Tab, Cmd-D split, Home's Open a terminal):
         waits for a focused terminal pane showing a terminal the journey has not seen, adopts it (`as` names
-        it) and waits for its shell's first prompt in the daemon's screen."""
+        it) and waits for its shell's first prompt in the daemon's screen.
+
+        The creation is known by its key from the first read: the view's `terminal_id` is the terminal host id the
+        app chose for the create, and every tab of that terminal carries it as `terminal_key`. The key's frame shows
+        a stand-in tab (`pending_tab_...`) whose `terminal` is that host id, which no daemon selector resolves; the
+        daemon's tab takes its place about 0.3 s later with the daemon's public id (`term_...`). So the step adopts
+        only the focused pane's tab whose `terminal_key` is the view's `terminal_id`, once it is the daemon's tab (its
+        id is not a stand-in's and its `terminal` is a `term_` id): never the stand-in's id, never the pane's old
+        selected tab, never a probe of a guess. A topology without `terminal_key` cannot name the creation and is
+        refused by name (STATUS 9672; the kits' #29179)."""
         end = now() + float(step.get("timeout", 20))
         last = None
         while now() < end:
@@ -980,13 +1018,9 @@ class Journey:
                 if view["terminal_id"] in self.known_views:
                     last = f"the focused pane {view.get('pane')} still shows a terminal seen before"
                     continue
-                place = None
-                topo = self.topology()
-                for ws, pane, tab, term in self.places(topo):
-                    if pane.get("id") == view.get("pane") and tab.get("id") == pane.get("selected_tab") and term:
-                        place = (ws, pane, term)
+                place, why = self.creation_place(view, self.topology())
                 if not place:
-                    last = f"pane {view.get('pane')} has no selected terminal tab in the topology yet"
+                    last = why
                     continue
                 self.known_views.add(view["terminal_id"])
                 adopted = self.adopt(place[2], view.get("pane"), int(view["host_pid"]) if view.get("host_pid") else None)
