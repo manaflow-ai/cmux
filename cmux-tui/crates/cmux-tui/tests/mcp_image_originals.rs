@@ -28,6 +28,8 @@ for line in sys.stdin:
             data = base64.b64encode(raw).decode() if not args.get('invalid') else '!not-base64!'
             content.append({'type': 'image', 'data': data, 'mimeType': 'image/png'})
         result = {'content': content}
+        if args.get('structured'):
+            result['structuredContent'] = {'kind': 'chart', 'count': args['count']}
     else:
         result = {}
     print(json.dumps({'jsonrpc': '2.0', 'id': request['id'], 'result': result}), flush=True)
@@ -67,6 +69,16 @@ struct ResultFiles {
 }
 
 fn serve(count: usize, bytes: usize, session: Option<&str>, broken_storage: bool) -> ResultFiles {
+    serve_form(count, bytes, session, broken_storage, false)
+}
+
+fn serve_form(
+    count: usize,
+    bytes: usize,
+    session: Option<&str>,
+    broken_storage: bool,
+    structured: bool,
+) -> ResultFiles {
     let root = tempfile::tempdir().unwrap();
     let upstream = root.path().join("images.py");
     std::fs::write(&upstream, UPSTREAM).unwrap();
@@ -106,7 +118,9 @@ fn serve(count: usize, bytes: usize, session: Option<&str>, broken_storage: bool
     writeln!(input, "{}", json!({"jsonrpc":"2.0", "id":0, "method":"initialize", "params": {
         "protocolVersion":"2025-06-18", "capabilities":{}, "clientInfo":{"name":"image-originals-test", "version":"1"}
     }})).unwrap();
-    let script = format!("return await cmux.images_images({{count:{count}, bytes:{bytes}}});");
+    let script = format!(
+        "return await cmux.images_images({{count:{count}, bytes:{bytes}, structured:{structured}}});"
+    );
     writeln!(
         input,
         "{}",
@@ -198,4 +212,29 @@ fn code_mode_reports_storage_failure_after_the_tool_has_run() {
     assert!(text.contains("the tool ran"), "{text}");
     assert_eq!(result.pointer("/structuredContent/state"), Some(&json!("partial")));
     assert!(!text.contains("dropped"), "{text}");
+}
+
+#[test]
+fn code_mode_keeps_large_images_beside_an_upstreams_structured_content() {
+    let size = (12 << 20) + 17;
+    let ResultFiles { result, root } = serve_form(1, size, Some("structured-owner"), false, true);
+    assert_eq!(result.get("isError"), Some(&json!(false)), "{result}");
+    assert_eq!(
+        result.pointer("/structuredContent/result"),
+        Some(&json!({"kind": "chart", "count": 1})),
+        "the script still receives the upstream's structured value"
+    );
+    let links: Vec<_> = result["content"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|block| block.get("type") == Some(&json!("resource_link")))
+        .collect();
+    assert_eq!(links.len(), 1, "an upstream's structured value never hides its original image");
+    let path = url::Url::parse(links[0]["uri"].as_str().unwrap()).unwrap().to_file_path().unwrap();
+    assert_eq!(
+        path.parent(),
+        Some(root.path().join("state/uploads/structured-owner/tool-results").as_path())
+    );
+    assert_eq!(hash(std::fs::File::open(path).unwrap()), (size, expected(0, size)));
 }
