@@ -6505,6 +6505,7 @@ export class AcpmuxDirectClient {
             contextBreakdown: contextBreakdownOf(summary.contextBreakdown),
             usageStats: (this.summaryUsage = sameUsageStats(summary.usageStats, this.summaryUsage)),
             host: text(summary.host),
+            machine: text(summary.machine),
             peer: text(summary.peer),
             hostKind: hostKind(summary.hostKind),
             // acpmux's session detail names the folder's branch `gitBranch` (when the session started).
@@ -6524,6 +6525,7 @@ export class AcpmuxDirectClient {
             route: text(summary.route),
             settingsSources: summary.settingsSources,
             usageLimits: usageLimitsOf(summary.usageLimits) ?? text(summary.usageLimits),
+            ...(summary.usageLimitsApply === false ? { usageLimitsApply: false } : {}),
             // acpmux reports `model: null` for a harness with no model (one known only from its config).
             model: text(summary.model),
             effort: effort?.currentValue,
