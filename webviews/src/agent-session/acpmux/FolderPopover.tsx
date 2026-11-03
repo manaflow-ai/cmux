@@ -73,10 +73,15 @@ export function FolderPopover({
   // The repositories whose worktrees are open under their row, by group key.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const highlighted = useRef<string | undefined>(undefined);
+  const [highlightAuto, setHighlightAuto] = useState(true);
   const trigger = useRef<HTMLButtonElement>(null);
   // Escape (not a blur) closes back to the strip's control.
   const escaped = useRef(false);
-  const { control, anchor, open, setOpen, side, flip } = useLocationPopover();
+  const { control, anchor, open, setOpen: setPopoverOpen, side, flip } = useLocationPopover();
+  const setOpen = (next: boolean) => {
+    if (next) setHighlightAuto(true);
+    setPopoverOpen(next);
+  };
   const press = usePopoverTrigger(open, (next) => {
     setOpen(next);
     if (!next) {
@@ -332,7 +337,10 @@ export function FolderPopover({
         }}
         anchor={open ? anchor : null}
         label={label}
-        className="acpmux-menu acpmux-location-menu acpmux-folder-popover"
+        className={
+          "acpmux-menu acpmux-location-menu acpmux-folder-popover" +
+          (highlightAuto && query.trim() === "" ? " acpmux-folder-highlight-auto" : "")
+        }
         side={side}
         flip={flip}
         finalFocus={false}
@@ -346,8 +354,9 @@ export function FolderPopover({
           onQuery={setQuery}
           onSubmit={submit}
           onCancel={close}
-          onHighlight={(value) => {
+          onHighlight={(value, by) => {
             highlighted.current = value;
+            setHighlightAuto(by === "none");
           }}
           // Tab completes a folder's path into the field, never an action's.
           onCommand={(event) => {
