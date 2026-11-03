@@ -367,6 +367,7 @@ await requireBrowserLane("chat-switch-prefetch.test.ts", async () => {
             const visible = () => scroller.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
             const snapshot = () => ({
               visible: visible(),
+              composer: document.querySelector(".acpmux-composer")!.getBoundingClientRect().toJSON(),
               rows: [...scroller.querySelectorAll<HTMLElement>("[data-row-id]")].map((row) => {
                 const rect = row.getBoundingClientRect();
                 return {
