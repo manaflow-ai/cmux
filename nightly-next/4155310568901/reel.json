@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "build": "4155310568901",
+  "notes": "notes/4155310568901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32720,
+      "title": "Transcript: a turn's inbox notices and received lines are one \"Received N messages\" row",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32738,
+      "title": "Agent pane: name a harness's own tools by what they do",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32703,
+      "title": "fix(agent-pane): an open toggle keeps its on fill under the pointer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32702,
+      "title": "fix(sidebar): a group's fold clips its members to the group's height",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32591,
+      "title": "Session Info always pushes the chat left, never covers it; a narrow pane narrows it and waits to open",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32623,
+      "title": "ci(web): re-run the change's webview reds alone on the head before charging them",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32711,
+      "title": "Agent pane: a received line names its sender once",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
