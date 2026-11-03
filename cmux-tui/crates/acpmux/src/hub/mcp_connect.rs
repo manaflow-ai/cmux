@@ -21,6 +21,7 @@
 
 use super::{Hub, Session, SessionStatus};
 use crate::rpc::RpcError;
+use cmux_json::JsonSet as _;
 use cmux_mcp_connect::registry::{AuthKind, Registry};
 use cmux_mcp_connect::resolve::{Resolved, resolve};
 use serde_json::{Value, json};
@@ -57,6 +58,11 @@ struct Answer {
 
 /// The longest key accepted, in characters.
 const MAX_KEY_CHARS: usize = 4096;
+
+/// `value[key]` without an index: `Null` for a missing key or a value that is not an object.
+fn field<'a>(value: &'a Value, key: &str) -> &'a Value {
+    value.get(key).unwrap_or(&Value::Null)
+}
 
 fn auth_word(kind: AuthKind) -> &'static str {
     match kind {
@@ -124,14 +130,14 @@ impl Hub {
             };
             return Ok(json!({"status": "unknown", "near": near}));
         };
-        let name = card["name"].as_str().unwrap_or_default().to_owned();
+        let name = field(&card, "name").as_str().unwrap_or_default().to_owned();
         let proposed = if SCOPES.contains(&proposed_scope) { proposed_scope } else { "chat" };
         let reason: String = reason.chars().take(MAX_REASON_CHARS).collect();
         let request_id = super::person::new_nonce();
-        card["requestId"] = json!(request_id);
-        card["reason"] = json!(reason);
-        card["proposedScope"] = json!(proposed);
-        card["scopesOffered"] = json!(SCOPES);
+        card.set("requestId", json!(request_id));
+        card.set("reason", json!(reason));
+        card.set("proposedScope", json!(proposed));
+        card.set("scopesOffered", json!(SCOPES));
         let (tx, rx) = oneshot::channel();
         {
             let mut pending = self.mcp_connects.pending.lock().unwrap_or_else(|e| e.into_inner());
