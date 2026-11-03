@@ -1,3 +1,4 @@
+import CmuxNextBridge
 @testable import CmuxNextLayout
 import Testing
 
@@ -54,5 +55,15 @@ struct EndedValuesTests {
         let model = Self.model()
         #expect(EndedValues([.width("c0", 0.55), .width("c1", 0.45)]).send(in: model))
         #expect(Self.widths(model) == [0.55, 0.45, 0.5])
+    }
+
+    /// Codex review 4: the daemon numbers remembered the newest transaction only, so a change sent between two values of
+    /// another gave the other's second value a new number: two undo steps for one press.
+    @Test func aTransactionKeepsItsNumberWhenAnotherGoesOutBetweenItsValues() throws {
+        var numbers = GestureTransactionNumbers()
+        let a = LayoutTransactionID.make(), b = LayoutTransactionID.make()
+        let first = numbers.number(for: a)
+        _ = numbers.number(for: b)
+        #expect(numbers.number(for: a) == first, "the second value of a took a new number after b went out")
     }
 }
