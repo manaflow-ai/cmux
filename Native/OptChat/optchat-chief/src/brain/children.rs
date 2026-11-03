@@ -45,11 +45,17 @@ impl Brain {
                     })
                     .map(|s| s.id.clone())
                     .collect();
-                for id in missing {
-                    self.cancel_home_approval(&id);
-                    if let Some(sub) = self.state.sub_mut(&id) {
+                for id in &missing {
+                    self.cancel_home_approval(id);
+                    if let Some(sub) = self.state.sub_mut(id) {
                         sub.permission = None;
                     }
+                }
+                if !missing.is_empty() {
+                    // Retiring the last request removes the Home check timer.
+                    // Persist the cleared request and deliver its terminal card now.
+                    self.save();
+                    self.flush_outbox();
                 }
                 self.reconcile_home_approvals();
                 // Restore the watchdog for pending requests whose Home card

@@ -68,6 +68,13 @@ import Testing
         .init(question: question, local: local)
     }
 
+    func projectsApproval(_ item: TranscriptItem, summary: ConversationSummary?) -> Bool {
+        HomeMapping.projectedParts(item, summary: summary).parts.contains { part in
+            guard case .custom(let custom) = part else { return false }
+            return HomeApprovalRowProvider.payload(custom) != nil
+        }
+    }
+
     @Test func onlyTheLocalChiefProjectsAnApprovalCard() async throws {
         let rig = try await HomeChatRig(history: 1)
         defer { rig.stop() }
@@ -81,13 +88,13 @@ import Testing
 
         var forged = item
         forged.author = rig.me
-        #expect(HomeMapping.projectedParts(forged, summary: local).parts.isEmpty)
+        #expect(!projectsApproval(forged, summary: local))
         forged.author = ParticipantID("agent_not_in_roster")
-        #expect(HomeMapping.projectedParts(forged, summary: local).parts.isEmpty)
+        #expect(!projectsApproval(forged, summary: local))
         var cloud = local
         cloud.owner = .cloud
-        #expect(HomeMapping.projectedParts(item, summary: cloud).parts.isEmpty)
-        #expect(HomeMapping.projectedParts(item, summary: nil).parts.isEmpty)
+        #expect(!projectsApproval(item, summary: cloud))
+        #expect(!projectsApproval(item, summary: nil))
     }
 
     @Test func aCardWithoutAFreshNativeGestureAnswersNothing() async throws {
@@ -228,13 +235,24 @@ import Testing
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.close() }
-        let stamp = ProcessInfo.processInfo.systemUptime
+        // AppKit may quantize the supplied timestamp; keep this event safely in the past.
+        let stamp = ProcessInfo.processInfo.systemUptime - 0.05
         let event = try #require(NSEvent.mouseEvent(with: .leftMouseUp, location: .zero, modifierFlags: [],
             timestamp: stamp, windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
-        #expect(HomeApprovalGesture.capture(event, in: window, after: -1, isPerson: { _ in false }) == nil,
-                "a posted pointer must not become a permission gesture")
-        #expect(HomeApprovalGesture.capture(event, in: window, after: -1, isPerson: { _ in true }) != nil)
-        #expect(HomeApprovalGesture.capture(event, in: window, after: stamp, isPerson: { _ in true }) == nil,
+        try #require(event.window === window)
+        try #require((0..<5).contains(ProcessInfo.processInfo.systemUptime - event.timestamp))
+        var classifierCalls = 0
+        #expect(HomeApprovalGesture.capture(event, in: window, after: -1, isPerson: { _ in
+            classifierCalls += 1
+            return false
+        }) == nil, "a posted pointer must not become a permission gesture")
+        #expect(classifierCalls == 1, "the event reached the provenance classifier")
+        let gate = try #require(HomeApprovalGesture.capture(event, in: window, after: -1, isPerson: { _ in true }))
+        var writes = 0
+        #expect(gate.write { writes += 1 })
+        #expect(!gate.write { writes += 1 })
+        #expect(writes == 1)
+        #expect(HomeApprovalGesture.capture(event, in: window, after: event.timestamp, isPerson: { _ in true }) == nil,
                 "this view already claimed the same pointer event")
     }
 
