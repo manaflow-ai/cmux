@@ -115,78 +115,93 @@ class WaitTests(unittest.TestCase):
                 del os.environ["GITHUB_OUTPUT"]
             self.assertEqual(slept, [800.0])
             self.assertEqual(json.loads(out.read_text()), {"sha": A, "started": 1900.0, "covered": {A: B}})
-            self.assertEqual(output.read_text(), f"base={B}\n")
+            self.assertEqual(output.read_text(), f"base={B}\nrun=true\n")
 
-    def test_a_marker_saved_just_before_this_job_routes_from_its_own_base(self):
-        # Its job may have been replaced between its save and its end, its checks never run: check its range again.
-        last = {"sha": B, "started": 1000.0, "covered": {B: C}}
-        self.assertEqual(coalesce.plan_wait(last, A, B, 1010.0, 900, job_started=1005.0), (890.0, C))
-        # Saved well before this job started: that job ended, so its checks ran.
-        self.assertEqual(coalesce.plan_wait(last, A, B, 1100.0, 900, job_started=1000.0 + coalesce.SETTLE_SECONDS),
-                         (800.0, B))
-        # No start given (a caller from before this rule): the marker's sha, as before.
-        self.assertEqual(coalesce.plan_wait(last, A, B, 1010.0, 900), (890.0, B))
-
-    def simulate(self, arrivals, marker, hold=900.0, startup=10.0, save=5.0, cancel_after_save=()):
-        """The coalesce group as GitHub runs it (cancel-in-progress): each push's coalesce job starts on arrival and
-        replaces the one alive, pending or sleeping. It reads the newest marker saved by then (STARTUP after its start)
-        and sleeps to the deadline; one still alive then saves its marker (SAVE later, its last step) and its checks
-        run. A job in CANCEL_AFTER_SAVE (by sha) is replaced after its save and before it ends: no checks. ARRIVALS:
-        (time, sha, push base). Returns the runs: (start time, sha, the base they route from)."""
-        saved = [(marker["started"], marker)]
-        runs = []
+    def run_wait(self, last, sha, before, now, end, tip):
+        """One `wait` call: (the outputs it wrote, the marker it wrote, slept seconds)."""
         with tempfile.TemporaryDirectory() as tmp:
-            for i, (at, sha, before) in enumerate(arrivals):
-                read = at + startup
-                last = max((m for t, m in saved if t <= read), key=lambda m: m["started"])
-                seconds, _ = coalesce.plan_wait(last, sha, before, read, hold, job_started=at)
-                end = read + seconds
-                if i + 1 < len(arrivals) and arrivals[i + 1][0] < end:
-                    continue  # replaced while waiting: nothing saved, no check
-                Path(tmp, "last.json").write_text(json.dumps(last))
-                output = Path(tmp, "output")
-                output.write_text("")
-                args = SimpleNamespace(off=False, hold_minutes=hold / 60, last=str(Path(tmp, "last.json")), sha=sha,
-                                       before=before, out=str(Path(tmp, "new.json")), attempt=1, job_started=at)
-                clock = iter([read, end])
-                with unittest.mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(output)}), \
-                        redirect_stdout(io.StringIO()):
-                    coalesce.wait(args, sleep=lambda s: None, clock=lambda: next(clock))
-                base = dict(line.split("=", 1) for line in output.read_text().splitlines())["base"]
-                saved.append((end + save, json.loads(Path(tmp, "new.json").read_text())))
-                if sha not in cancel_after_save:
-                    runs.append((end, sha, base))
+            marker, out, output = Path(tmp, "last.json"), Path(tmp, "new.json"), Path(tmp, "output")
+            marker.write_text(json.dumps(last))
+            output.write_text("")
+            slept = []
+            clock = iter([now, end])
+            args = SimpleNamespace(off=False, hold_minutes=15, last=str(marker), sha=sha, before=before, out=str(out),
+                                   attempt=1, ref="refs/heads/feat-cmux-next")
+            with unittest.mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(output)}), redirect_stdout(io.StringIO()):
+                coalesce.wait(args, sleep=slept.append, clock=lambda: next(clock), tip=lambda ref: tip)
+            got = dict(line.split("=", 1) for line in output.read_text().splitlines())
+            return got, json.loads(out.read_text()), slept
+
+    def test_a_job_that_slept_yields_when_the_branch_moved_on(self):
+        last = {"sha": A, "started": 0.0, "covered": {A: D}}
+        got, marker, slept = self.run_wait(last, B, A, 60.0, 900.0, tip=C)
+        self.assertEqual((got["run"], got["base"], slept), ("false", "", [840.0]))
+        self.assertEqual(marker, last)  # nothing recorded: the newer push's run covers B
+        # Still the tip: it runs.
+        got, marker, _ = self.run_wait(last, B, A, 60.0, 900.0, tip=B)
+        self.assertEqual((got["run"], got["base"], marker["sha"]), ("true", A, B))
+        # The tip unreadable: it runs, as before.
+        got, _, _ = self.run_wait(last, B, A, 60.0, 900.0, tip=None)
+        self.assertEqual(got["run"], "true")
+
+    def test_a_job_that_did_not_sleep_never_yields(self):
+        # Past the deadline it runs at once whatever landed since, so a window always ends in a run.
+        last = {"sha": A, "started": 0.0, "covered": {A: D}}
+        got, marker, slept = self.run_wait(last, C, B, 905.0, 905.0, tip="e" * 40)
+        self.assertEqual((got["run"], got["base"], slept, marker["sha"]), ("true", A, [], C))
+
+    def simulate(self, arrivals, marker, hold=900.0, startup=10.0):
+        """The coalesce group as GitHub runs it (cancel-in-progress false): one job runs at a time, and a push's job
+        waits pending behind it, replacing the pending one before it; a job out of pending is never cancelled. It
+        starts STARTUP after the group frees, reads the newest marker, sleeps to the deadline, then yields when the
+        branch moved past its push, else runs and records. ARRIVALS: (time, sha, push base), ascending. Returns the runs:
+        (start time, sha, the base they route from)."""
+        runs, saved, free, pending = [], marker, 0.0, None
+        events = list(arrivals)
+        i = 0
+        while i < len(events) or pending:
+            if pending is None:
+                pending, i = events[i], i + 1
+            # Pushes landing while the group is busy replace this job while it is still pending. Once the group is
+            # free it leaves pending (queued for a runner), and nothing replaces it; STARTUP is that runner's pickup.
+            while i < len(events) and events[i][0] < free:
+                pending, i = events[i], i + 1
+            at, sha, before = pending
+            start = max(at, free) + startup
+            pending = None
+            seconds, _ = coalesce.plan_wait(saved, sha, before, start, hold)
+            end = start + seconds
+            tip = max((e for e in events if e[0] <= end), key=lambda e: e[0])[1]
+            got, record, _ = self.run_wait(saved, sha, before, start, end, tip)
+            free = end
+            if got["run"] == "true":
+                runs.append((end, sha, got["base"]))
+                saved = record
         return runs
 
     def test_a_push_arriving_while_a_coalesce_job_sleeps_runs_when_the_window_ends(self):
-        # #33872: A ran at 0; B lands at 60 and C at 120. C replaces B's sleeping job and runs at 900 from A: one run,
-        # every landing since A, and no push waits a second window (before: B at 900, C at 1800).
-        e, f = "e" * 40, "f" * 40
+        # #33872: A ran at 0; B lands at 60 and C at 120. B's job sleeps; C's waits pending. At 900 B yields, and C runs
+        # at once from A: one run, every landing since A, and no push waits a second window (before: B at 900, C at
+        # 1800).
         marker = {"sha": A, "started": 0.0, "covered": {A: D}}
-        self.assertEqual(self.simulate([(60.0, B, A), (120.0, C, B)], marker), [(900.0, C, A)])
-        # The next window's newest push runs from C.
-        runs = self.simulate([(60.0, B, A), (120.0, C, B), (950.0, e, C), (1000.0, f, e)], marker)
-        self.assertEqual(runs, [(900.0, C, A), (1800.0, f, C)])
+        runs = self.simulate([(60.0, B, A), (120.0, C, B)], marker)
+        self.assertEqual([(sha, base) for _, sha, base in runs], [(C, A)])
+        self.assertLess(runs[0][0], 900.0 + 60)
 
     def test_pushes_without_pause_never_starve_the_checks(self):
-        # Review of #34028: a per-push grace restarted by every replacement starved the checks under a push a minute.
-        # The deadline is the marker's: a run starts every window, each from the run before.
+        # Reviews of #34028: whatever the job startup (10 s, 70 s), a push a minute still gets a run every window,
+        # each from the run before, and the last push is checked.
         shas = [f"{n:040x}" for n in range(1, 62)]
         arrivals = [(60.0 * n, shas[n], shas[n - 1]) for n in range(1, 61)]
-        runs = self.simulate(arrivals, {"sha": shas[0], "started": 0.0, "covered": {shas[0]: D}})
-        self.assertEqual([round(t) for t, _, _ in runs], [900, 1800, 2700, 3600, 4500])
-        # The last push lands as the 3600 run starts: it runs in the next window.
-        self.assertEqual([base for _, _, base in runs[1:-1]], [sha for _, sha, _ in runs[:-2]])
-        # The last push started as the 3600 run saved its marker (within SETTLE_SECONDS): it checks that run's range
-        # again rather than trust a job that may have been replaced after its save.
-        self.assertEqual(runs[-1][2], runs[-3][1])
-
-    def test_a_job_replaced_after_its_save_costs_a_recheck_never_a_commit(self):
-        # C's job saved its marker and was replaced before its checks ran. The next push, starting seconds later,
-        # routes from C's own base A, so B and C are still checked.
-        marker = {"sha": A, "started": 0.0, "covered": {A: D}}
-        runs = self.simulate([(60.0, B, A), (120.0, C, B), (910.0, "e" * 40, C)], marker, cancel_after_save={C})
-        self.assertEqual([(sha, base) for _, sha, base in runs], [("e" * 40, A)])
+        for startup in (10.0, 70.0):
+            with self.subTest(startup=startup):
+                runs = self.simulate(arrivals, {"sha": shas[0], "started": 0.0, "covered": {shas[0]: D}},
+                                     startup=startup)
+                gaps = [b[0] - a[0] for a, b in zip(runs, runs[1:])]
+                self.assertTrue(all(gap <= 900.0 + 2 * startup for gap in gaps), gaps)
+                self.assertGreaterEqual(len(runs), 4)
+                self.assertEqual([base for _, _, base in runs[1:]], [sha for _, sha, _ in runs[:-1]])
+                self.assertEqual(runs[-1][1], shas[60])
 
     def test_the_off_switch_never_waits(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -507,29 +522,30 @@ class WorkflowTests(unittest.TestCase):
         self.web = yaml.safe_load(WEB.read_text())
         self.lint = yaml.safe_load(LINT.read_text())
 
-    def test_a_newer_push_replaces_the_waiting_coalesce_job_and_nothing_else(self):
-        # #33872: a newer push's coalesce job replaces the waiting one, pending or sleeping, so the window ends on the
-        # newest push. Only that wait is ever cancelled: the run's own group and every check keep cancel-in-progress
-        # off.
+    def test_the_coalesce_job_waits_one_at_a_time_and_never_cancels_a_started_one(self):
         job = self.web["jobs"]["coalesce"]
-        self.assertIs(job["concurrency"]["cancel-in-progress"], True)
+        self.assertIs(job["concurrency"]["cancel-in-progress"], False)
         self.assertIn("'cmux-next-web-coalesce'", job["concurrency"]["group"])
-        # A dispatch, another branch, the off switch and a re-run get a group of their own: a re-run never replaces
-        # a newer push's wait.
+        # A dispatch, another branch and the off switch get a group of their own.
         self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'",
                       job["concurrency"]["group"])
         self.assertIn("vars.NEXT_WEB_COALESCE", job["concurrency"]["group"])
-        self.assertIn("github.run_attempt == '1'", job["concurrency"]["group"])
-        self.assertIn("github.run_attempt", job["concurrency"]["group"].split("||", 1)[1])
-        wait = next(s for s in job["steps"] if s.get("id") == "wait")["run"]
-        self.assertIn("--hold-minutes 15", wait)
-        self.assertIn('--job-started "$COALESCE_JOB_STARTED"', wait)
+        self.assertIn("--hold-minutes 15", next(s for s in job["steps"] if s.get("id") == "wait")["run"])
         self.assertLessEqual(job["timeout-minutes"], 20)
         self.assertIs(self.web["concurrency"]["cancel-in-progress"], False)
-        self.assertEqual(WEB.read_text().count("cancel-in-progress: true"), 1)
-        # The job start is noted first, and the marker is saved as the job's last step.
-        self.assertIn("COALESCE_JOB_STARTED=$(date +%s)", job["steps"][0]["run"])
-        self.assertTrue(str(job["steps"][-1].get("uses", "")).startswith("actions/cache/save@"))
+        self.assertNotIn("cancel-in-progress: true", WEB.read_text())
+
+    def test_a_yielded_job_runs_no_checks_and_records_nothing(self):
+        # #33872: the job that slept yields to a newer push (run=false): no web checks, no marker.
+        job = self.web["jobs"]["coalesce"]
+        wait = next(s for s in job["steps"] if s.get("id") == "wait")
+        self.assertIn('--ref "$GITHUB_REF"', wait["run"])
+        self.assertEqual(job["outputs"]["run"], "${{ steps.wait.outputs.run }}")
+        save = next(s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/cache/save@"))
+        self.assertIn("steps.wait.outputs.run == 'true'", save["if"])
+        self.assertIn("needs.coalesce.outputs.run != 'false'", self.web["jobs"]["web"]["if"])
+        # The bisect needs a failed web job, so a skipped one never starts it.
+        self.assertIn("needs.web.result == 'failure'", self.web["jobs"]["web-bisect"]["if"])
 
     def test_the_bisect_copies_its_scripts_in_the_layout_they_resolve(self):
         # web_subareas.py finds the bundle key at parents[1]/cmux-next/web-bundle-key.py: a flat copy loses it, and

@@ -25,8 +25,9 @@ permissions:
 # Coalesced (2026-11-03, cmuxterm-hq build-fleet data for 2026-11-02: 919 push runs, about $4.1k of Blacksmith a
 # day, nearly all for a commit a newer push already held): the web checks run at most once every 15 minutes, on
 # the newest push that waited, routed from the commit the last run tested, so each run checks everything since.
-# The `coalesce` job waits (scripts/ci/web_coalesce.py wait); a newer push's coalesce job replaces it, pending or
-# sleeping, so the window ends on the newest push, and the replaced run ends cancelled with no check run. When a
+# The `coalesce` job waits (scripts/ci/web_coalesce.py wait); a newer push's coalesce job replaces one that is
+# still pending, never one that started, and that run ends cancelled with no job run. A job that slept and finds the
+# branch moved on yields: its checks are skipped, and the newest push's job, pending behind it, runs at once. When a
 # coalesced run's webview tests go red, `web bisect` re-runs only the new red files on the commits it covered and
 # names the first red commit and its pull request (test_reds.py bisect_report). Pull requests are unchanged.
 # `web lint (fast)` keeps one run per push in cmux-next-web-lint.yml. vars.NEXT_WEB_COALESCE = '0' runs every push
@@ -45,23 +46,18 @@ jobs:
     # base tier kick does.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 20
-    # One coalesce job waits at a time, and a newer push's replaces it, pending or sleeping (#33872: a sleeping job
-    # that kept its own push made a push arriving during its sleep wait two windows). The deadline is the marker's,
-    # shared by every push, so pushes without pause never starve the checks. Only this wait is ever cancelled: the
-    # checks start after it. A dispatch (next_batch's web lane), a re-run and the off switch get a group of their
-    # own and run at once; a re-run never replaces a newer push's wait.
+    # One coalesce job waits at a time; a newer push's replaces a pending one (never a started one). One that slept
+    # yields to a newer push when it wakes (#33872), so no push waits two windows. A dispatch (next_batch's web lane)
+    # and the off switch get a group of their own and run at once.
     concurrency:
-      group: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && format('{0}', vars.NEXT_WEB_COALESCE) != '0' && github.run_attempt == '1' && 'cmux-next-web-coalesce' || format('cmux-next-web-coalesce-{0}-{1}', github.run_id, github.run_attempt) }}
-      cancel-in-progress: true
+      group: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && format('{0}', vars.NEXT_WEB_COALESCE) != '0' && 'cmux-next-web-coalesce' || format('cmux-next-web-coalesce-{0}', github.run_id) }}
+      cancel-in-progress: false
     outputs:
       base: ${{ steps.wait.outputs.base }}
+      run: ${{ steps.wait.outputs.run }}
     env:
       COALESCE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && format('{0}', vars.NEXT_WEB_COALESCE) != '0' && '1' || '0' }}
     steps:
-      # When this job started: a marker saved just before it may be a replaced job's (web_coalesce.py SETTLE_SECONDS).
-      - name: Note the job start
-        run: echo "COALESCE_JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
-
       - name: Checkout the coalesce helper
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -87,14 +83,12 @@ jobs:
         env:
           PUSH_BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
         run: |
-          off=(); [ "$COALESCE" = 1 ] || off=(--off)
+          off=(--ref "$GITHUB_REF"); [ "$COALESCE" = 1 ] || off=(--off)
           python3 -I scripts/ci/web_coalesce.py wait "${off[@]}" --last "$RUNNER_TEMP/web-coalesce/last.json" \
-            --sha "$GITHUB_SHA" --before "$PUSH_BEFORE" --attempt "$GITHUB_RUN_ATTEMPT" --job-started "$COALESCE_JOB_STARTED" --hold-minutes 15 --out "$RUNNER_TEMP/web-coalesce/last.json"
+            --sha "$GITHUB_SHA" --before "$PUSH_BEFORE" --attempt "$GITHUB_RUN_ATTEMPT" --hold-minutes 15 --out "$RUNNER_TEMP/web-coalesce/last.json"
 
-      # The job's last step, so a job that ended has always saved its marker; one replaced in between is the case
-      # SETTLE_SECONDS covers.
       - name: Record this push as the last covered one
-        if: ${{ env.COALESCE == '1' }}
+        if: ${{ env.COALESCE == '1' && steps.wait.outputs.run == 'true' }}
         continue-on-error: true
         timeout-minutes: 2
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -104,6 +98,8 @@ jobs:
 
   web:
     needs: coalesce
+    # A yielded coalesce job (a newer push's run checks these commits) runs no checks.
+    if: ${{ needs.coalesce.outputs.run != 'false' }}
     uses: ./.github/workflows/ci-web.yml
     with:
       web: ${{ 'true' }}
