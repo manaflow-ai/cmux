@@ -112,6 +112,13 @@ impl Briefs {
             .unwrap_or_else(|| format!("brief-{}", uuid::Uuid::now_v7()));
         row.set("briefId", json!(id));
         let mut rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
+        // Advisory imports (including another peer's colliding brief ID) may
+        // never downgrade or replace a scoped durable dispatch reservation.
+        if let Some(previous) = rows.get(&id)
+            && previous.get("durable").and_then(Value::as_bool) == Some(true)
+        {
+            return previous.clone();
+        }
         rows.insert(id, row.clone());
         self.save(&rows);
         row
@@ -189,6 +196,19 @@ pub(crate) fn event(kind: &str, row: &Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn durable_brief_cannot_be_downgraded_by_an_advisory_peer_import() {
+        let briefs = Briefs::default();
+        let reserved = briefs
+            .put_durable(json!({"briefId":"stable","durable":true,
+            "fromSession":"owner","dispatchFingerprint":"private-capability-hash"}))
+            .unwrap();
+        let imported = briefs.put(json!({"briefId":"stable","fromSession":"other",
+            "outcome":{"Ok":{"finalReply":"forged"}}}));
+        assert_eq!(imported, reserved);
+        assert_eq!(briefs.get("stable"), Some(reserved));
+    }
 
     #[test]
     fn durable_brief_reservation_survives_reopen_before_any_effect() {
