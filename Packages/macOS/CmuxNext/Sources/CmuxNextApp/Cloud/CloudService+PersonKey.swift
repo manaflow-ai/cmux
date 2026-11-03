@@ -25,7 +25,19 @@ extension CloudService {
 
     /// Restarts `session`'s acpmux with a new key; nil on success, else what failed.
     func restartWithApprovals(_ session: CloudMachineSession) async -> AgentPaneRemoteApprovals.Failure? {
-        await restartWithApprovals(machine: session.machineID, route: session.appLink != nil ? workerApprovalsRoute() : legacyApprovalsRoute())
+        guard auth.isSignedIn, !session.isPermanentlyDisconnected else { return .notSingleOwner }
+        let startedAccount = account
+        let startedEpoch = approvalScopeEpoch
+        return await restartWithApprovals(
+            machine: session.machineID,
+            route: session.appLink != nil ? workerApprovalsRoute() : legacyApprovalsRoute(),
+            stillCurrent: { [weak self, weak session] in
+                guard let self, let session else { return false }
+                // Keyed start and person_holds both await the provider. A sign-out, team switch,
+                // policy change or removed session may have happened while either was in flight.
+                return self.auth.isSignedIn && self.account == startedAccount
+                    && self.approvalScopeEpoch == startedEpoch && !session.isPermanentlyDisconnected
+            })
     }
 
     /// Prepares a Cloud machine's acpmux for a new chat when the remote daemon has said that a
@@ -76,7 +88,9 @@ extension CloudService {
     }
 
     /// The shared verifier: new key, keyed start, a fresh nonce, the proof checked against the key, bind.
-    func restartWithApprovals(machine: String, route: ApprovalsRoute) async -> AgentPaneRemoteApprovals.Failure? {
+    /// The final binding is guarded by the account/session that started this request.
+    func restartWithApprovals(machine: String, route: ApprovalsRoute,
+                              stillCurrent: @escaping () -> Bool) async -> AgentPaneRemoteApprovals.Failure? {
         AcpmuxRemotePersonKeys.shared.drop(machine: machine)
         guard let key = AcpmuxSecretKey() else { return .noRandomness }
         do {
@@ -88,7 +102,8 @@ extension CloudService {
             guard held.instance == instance, key.holds(proof: held.proof, instance: instance, nonce: nonce) else {
                 return .keyNotHeld
             }
-            AcpmuxRemotePersonKeys.shared.bind(machine: machine, instance: instance, key: key)
+            guard Self.bindVerifiedApprovalKey(machine: machine, instance: instance, key: key,
+                                               stillCurrent: stillCurrent) else { return .notSingleOwner }
             logger.info("remote approvals on for Cloud machine \(machine, privacy: .public)")
             return nil
         } catch let error as CloudAPIError {
@@ -96,6 +111,16 @@ extension CloudService {
         } catch {
             return .failed(error.localizedDescription)
         }
+    }
+
+    /// Keeping the last account check and the bind in one actor turn prevents an awaited
+    /// owner check from reintroducing a signer that account teardown already revoked.
+    @discardableResult
+    static func bindVerifiedApprovalKey(machine: String, instance: String, key: AcpmuxSecretKey,
+                                        stillCurrent: () -> Bool) -> Bool {
+        guard stillCurrent() else { return false }
+        AcpmuxRemotePersonKeys.shared.bind(machine: machine, instance: instance, key: key)
+        return true
     }
 
     private func legacyApprovalsRoute() -> ApprovalsRoute {
