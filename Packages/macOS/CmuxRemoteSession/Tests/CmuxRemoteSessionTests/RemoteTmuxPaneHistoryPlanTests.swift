@@ -67,6 +67,33 @@ import Testing
         }
     }
 
+    @Test func aVeryWidePaneReadsTheNewestRowsThatFitTheChunkCapAndSaysSo() {
+        // 131,072 cells per chunk at 10,000 columns is 13 rows, so 100,000 rows would
+        // take 7,693 chunks: a command queue of about 360 KB, past the control client's
+        // 256 KiB stdin budget.
+        let plan = RemoteTmuxPaneHistoryPlan(
+            historySize: 100_000, paneWidth: 10_000, maximumCommandBlockBytes: Self.commandBlockBytes)
+        #expect(plan.chunks.count == 2_048)
+        #expect(plan.historyRows == 2_048 * 13)
+        #expect(plan.isTruncated)
+        #expect(plan.chunks.first?.start == "-\(plan.historyRows)")
+        #expect(plan.chunks.last?.end == "-1")
+    }
+
+    @Test func everyPlansChunkCommandsFitInHalfTheStdinBudget() {
+        // The app sends every chunk in one queue, and its control client refuses a write
+        // that would leave more than 256 KiB pending on tmux's stdin.
+        let stdinBudget = 256 * 1_024
+        for width in [80, 1_000, 5_000, 10_000] {
+            let plan = RemoteTmuxPaneHistoryPlan(
+                historySize: 100_000, paneWidth: width, maximumCommandBlockBytes: Self.commandBlockBytes)
+            let bytes = plan.chunks
+                .map { "capture-pane -p -e \($0.captureArguments) -t %99999\n".utf8.count }
+                .reduce(0, +)
+            #expect(bytes <= stdinBudget / 2, "width \(width): \(plan.chunks.count) chunks, \(bytes) bytes")
+        }
+    }
+
     @Test func aPaneWithNoHistoryNeedsNoChunk() {
         let plan = RemoteTmuxPaneHistoryPlan(
             historySize: 0, paneWidth: 80, maximumCommandBlockBytes: Self.commandBlockBytes)
