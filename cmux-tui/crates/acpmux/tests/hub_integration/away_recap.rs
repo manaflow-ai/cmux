@@ -218,7 +218,14 @@ async fn an_idle_chat_is_asked_before_its_process_hibernates() {
     // The daemon's default: an idle process stops after 2 minutes, before the 3-minute ask.
     a.hub.set_idle_child(Some(Duration::from_secs(2 * 60)));
     a.show(false).await;
-    a.advance(Duration::from_secs(2 * 60 + 1), 1).await;
+    // A period that ends while the chat is still in use starts a full one again
+    // (`session_hibernate.rs`): each period, until the reaper reaches it.
+    for _ in 0..5 {
+        if a.asked() > 0 {
+            break;
+        }
+        a.advance(Duration::from_secs(2 * 60 + 1), 1).await;
+    }
     assert_eq!(a.asked(), 1, "asked before the process went");
     // Then it hibernates, and is never asked again for the same turns.
     a.advance(Duration::from_secs(2 * 60 + 1), 1).await;
