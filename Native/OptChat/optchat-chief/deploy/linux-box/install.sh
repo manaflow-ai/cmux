@@ -21,6 +21,11 @@
 #   example ANTHROPIC_API_KEY=..., and declare it with `chief-box rights auth api-key`.
 # --no-system writes the files only: no user, no chown, no systemctl (tests, image builds).
 #
+# Layout: PREFIX (root:USER 0750) holds root-owned bin/, chief-box.env and model.env, and the
+# user's own home/ (HOME: .local, .claude), ws/ (the agents' work dir) and brain/ (state).
+# Root never writes inside the user's directories, and refuses any path through a symlink.
+# --optchat-chief must have `rights` and `audit` (cmux#33003); an older build is refused.
+#
 # Safe to run again: it keeps the user, the memory (PREFIX/brain/mux), the pairing
 # (PREFIX/brain/cloud/install.json), rights.json, the audit log and model.env.
 # The host unit starts only once PREFIX/brain/cloud/install.json is paired and names a chief:
@@ -49,7 +54,7 @@ while (($#)); do
     --bin-dir) BIN_DIR="$2"; shift 2 ;;
     --no-system) SYSTEM=0; START=0; shift ;;
     --no-start) START=0; shift ;;
-    -h|--help) sed -n '2,29p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,34p' "$0"; exit 0 ;;
     *) echo "install.sh: unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -77,37 +82,73 @@ if ((SYSTEM)); then
 fi
 
 B="$PREFIX/brain"
+# Root-owned: the binaries, the settings and the model login. The Chief's user can read and
+# run them but never replace them, so a rerun as root never writes where the Chief points it.
+BIN="$PREFIX/bin"
+# Chief-owned: its home (.local, .claude), the agents' work dir, and the brain's state.
+CH="$PREFIX/home"
 SOCK="$B/daemon/cmux.sock"
 P=chief-box
+
+# No path root writes through may be a symlink, in any component.
+nolink() {
+  local p="" part rest="${1#/}"
+  while [[ -n "$rest" ]]; do
+    part="${rest%%/*}"; [[ "$rest" == */* ]] && rest="${rest#*/}" || rest=""
+    p="$p/$part"
+    [[ ! -L "$p" ]] || die "refusing to write through a symlink: $p"
+  done
+}
+for p in "$PREFIX" "$BIN" "$PREFIX/chief-box.env" "$PREFIX/model.env" "$CH" "$PREFIX/ws" "$B" "$UNIT_DIR" "$BIN_DIR" "$BIN_DIR/chief-box"; do nolink "$p"; done
+for n in optchat-chief cmux-tui acpmux cmux; do nolink "$BIN/$n"; done
+
+# The optchat-chief must have the rights table and the audit log (cmux#33003): `audit head`
+# on an empty home answers "0 <genesis hash>"; an older build prints its usage and exits 2.
+probe="$(mktemp -d)"
+if ! out="$(env -i PATH=/usr/bin:/bin HOME="$probe" MUX_HOME="$probe/mux" "$CHIEF" audit head --mux-home "$probe/mux" 2>&1 </dev/null)" \
+  || ! [[ "$out" =~ ^0\ [0-9a-f]+$ ]]; then
+  rm -rf "$probe"
+  die "this optchat-chief has no rights table or audit log (\`optchat-chief audit head\` answered '${out:0:120}'); build it from a tree with cmux#33003"
+fi
+rm -rf "$probe"
+
 umask 022
 mkdir -p "$UNIT_DIR" "$BIN_DIR"
-
 if ((SYSTEM)); then
-  # A system user with its home in PREFIX: no password, no sudo, no login shell needed by
-  # the units (bash is kept so `chief-box` can run commands as it).
-  id "$U" >/dev/null 2>&1 || useradd --system --home-dir "$PREFIX" --create-home --shell /bin/bash --user-group "$U"
+  # A system user whose home is PREFIX/home: no password, no sudo (bash is kept so
+  # `chief-box` can run commands as it).
+  id "$U" >/dev/null 2>&1 || useradd --system --home-dir "$CH" --no-create-home --shell /bin/bash --user-group "$U"
+  [[ "$(getent passwd "$U" | cut -d: -f6)" == "$CH" ]] || usermod --home "$CH" "$U"
 fi
-install -d -m 0750 "$PREFIX"
-for d in "$PREFIX/ws" "$B" "$B/bin" "$B/mux" "$B/acpmux" "$B/daemon" "$B/cloud" "$B/logs"; do install -d -m 0700 "$d"; done
+[[ -d "$PREFIX" ]] || install -d -m 0750 "$PREFIX"
+[[ -d "$BIN" ]] || install -d -m 0755 "$BIN"
+if ((SYSTEM)); then chown root:"$U" "$PREFIX"; chmod 0750 "$PREFIX"; chown root:root "$BIN"; chmod 0755 "$BIN"; fi
 for pair in "optchat-chief:$CHIEF" "cmux-tui:$TUI" "acpmux:$ACPMUX" "cmux:${CLI:-$TUI}"; do
   name="${pair%%:*}" src="${pair#*:}"
-  rm -f "$B/bin/$name"
-  install -m 0755 "$src" "$B/bin/$name"
+  rm -f "$BIN/$name"
+  install -m 0755 "$src" "$BIN/$name"
 done
 # The non-secret settings `chief-box` and the units share.
 cat > "$PREFIX/chief-box.env" <<EOF
 CHIEF_BOX_USER=$U
 CHIEF_BOX_PREFIX=$PREFIX
+CHIEF_BOX_HOME=$CH
 MUX_HOME=$B/mux
 OPTCHAT_CHIEF_OWNER=$OWNER
 EOF
 chmod 0644 "$PREFIX/chief-box.env"
+# systemd reads it as root; the Chief's processes get its values, never the file.
 [[ -e "$PREFIX/model.env" ]] || : > "$PREFIX/model.env"
 chmod 0600 "$PREFIX/model.env"
-if ((SYSTEM)); then
-  chown "root:$U" "$PREFIX"
-  chown -R "$U:$U" "$PREFIX/ws" "$B" "$PREFIX/model.env"
-fi
+
+# The Chief's own directories sit directly under the root-owned PREFIX, so the Chief cannot
+# swap them; anything inside them is made by the Chief's user, never by root.
+as_user() { if ((SYSTEM)); then runuser -u "$U" -- "$@"; else "$@"; fi; }
+for d in "$CH" "$PREFIX/ws" "$B"; do
+  [[ -d "$d" ]] || install -d -m 0700 "$d"
+  if ((SYSTEM)); then chown -h "$U:$U" "$d"; fi
+done
+as_user mkdir -p -m 0700 "$CH/.local/bin" "$CH/.claude" "$B/mux" "$B/acpmux" "$B/daemon" "$B/cloud" "$B/logs"
 
 # Every Chief process and every agent acpmux starts lives in this slice, so the caps hold
 # for the whole Chief together and a runaway agent cannot starve the box's other work.
@@ -137,8 +178,8 @@ unit() { # name description exec [Key=Value lines...]
     echo "Group=$U"
     echo "Slice=$P.slice"
     echo "WorkingDirectory=$PREFIX/ws"
-    echo "Environment=HOME=$PREFIX"
-    echo "Environment=PATH=$B/bin:$PREFIX/.local/bin:/usr/local/bin:/usr/bin:/bin"
+    echo "Environment=HOME=$CH"
+    echo "Environment=PATH=$BIN:$CH/.local/bin:/usr/local/bin:/usr/bin:/bin"
     echo "EnvironmentFile=$PREFIX/chief-box.env"
     for line in "$@"; do echo "$line"; done
     echo "ExecStart=$x"
@@ -173,12 +214,12 @@ unit() { # name description exec [Key=Value lines...]
 }
 
 unit "$P-daemon" "Chief box cmux-tui daemon (the Chief's own; never shared)" \
-  "$B/bin/cmux-tui --headless --socket $SOCK" \
+  "$BIN/cmux-tui --headless --socket $SOCK" \
   "Environment=ACPMUX_HOME=$B/acpmux" "Environment=CMUX_TUI_CHIEF_TOOLS_SOCKET=$B/mux/optchat/tools.sock"
 
 acpmux_env=("Environment=ACPMUX_HOME=$B/acpmux" "Environment=ACPMUX_CHIEF_MUX_HOME=$B/mux"
   "Environment=CMUX_TUI_SOCKET=$SOCK" "Environment=CMUX_MUX_SOCKET=$SOCK"
-  "Environment=CMUX_CHIEF_OWNER_SOCKET=$SOCK" "Environment=CMUX_BUNDLED_CLI_PATH=$B/bin/cmux"
+  "Environment=CMUX_CHIEF_OWNER_SOCKET=$SOCK" "Environment=CMUX_BUNDLED_CLI_PATH=$BIN/cmux"
   "EnvironmentFile=-$PREFIX/model.env")
 if [[ -n "$CLAUDE_URL" ]]; then
   acpmux_env+=("Environment=ANTHROPIC_BASE_URL=$CLAUDE_URL" "Environment=ANTHROPIC_AUTH_TOKEN=unused-route-signs-in-by-url")
@@ -187,15 +228,15 @@ else
   echo "acpmux Claude route: none given; the model login comes from $PREFIX/model.env"
 fi
 UNIT_AFTER="$P-daemon.service" unit "$P-acpmux" "Chief box acpmux (the Chief's agents)" \
-  "$B/bin/acpmux daemon run" "${acpmux_env[@]}"
+  "$BIN/acpmux daemon run" "${acpmux_env[@]}"
 
 host_env=("Environment=ACPMUX_HOME=$B/acpmux" "Environment=ACPMUX_SOCKET=$B/acpmux/acpmux.sock"
-  "Environment=ACPMUX_BIN=$B/bin/acpmux" "Environment=CMUX_DAEMON_SOCKET=$SOCK"
+  "Environment=ACPMUX_BIN=$BIN/acpmux" "Environment=CMUX_DAEMON_SOCKET=$SOCK"
   "Environment=OPTCHAT_ACPMUX_SUPERVISED=1" "EnvironmentFile=-$PREFIX/model.env")
 [[ -z "$HARNESS" ]] || host_env+=("Environment=MUX_HARNESS=$HARNESS")
 UNIT_AFTER="$P-daemon.service $P-acpmux.service" UNIT_COND="$B/cloud/install.json" \
   unit "$P-host" "Chief box brain host (cloud conversation source)" \
-  "$B/bin/optchat-chief host --conversation-source cloud --cloud-install $B/cloud/install.json --daemon-socket $SOCK --mux-home $B/mux" \
+  "$BIN/optchat-chief host --conversation-source cloud --cloud-install $B/cloud/install.json --daemon-socket $SOCK --mux-home $B/mux" \
   "${host_env[@]}"
 
 # `chief-box`: the owner's commands on the box, run as the Chief's user.
@@ -204,22 +245,24 @@ cat > "$BIN_DIR/chief-box" <<EOF
 # The Chief on this box (deploy/linux-box/README.md). Written by install.sh.
 set -euo pipefail
 . "$PREFIX/chief-box.env"
-B="\$CHIEF_BOX_PREFIX/brain"
+B="\$CHIEF_BOX_PREFIX/brain" BIN="\$CHIEF_BOX_PREFIX/bin"
 as_chief() {
-  if [[ "\$(id -un)" == "\$CHIEF_BOX_USER" ]]; then env MUX_HOME="\$MUX_HOME" OPTCHAT_CHIEF_OWNER="\$OPTCHAT_CHIEF_OWNER" "\$@"
-  else runuser -u "\$CHIEF_BOX_USER" -- env HOME="\$CHIEF_BOX_PREFIX" MUX_HOME="\$MUX_HOME" OPTCHAT_CHIEF_OWNER="\$OPTCHAT_CHIEF_OWNER" "\$@"; fi
+  if [[ "\$(id -un)" == "\$CHIEF_BOX_USER" ]]; then env HOME="\$CHIEF_BOX_HOME" MUX_HOME="\$MUX_HOME" OPTCHAT_CHIEF_OWNER="\$OPTCHAT_CHIEF_OWNER" "\$@"
+  else runuser -u "\$CHIEF_BOX_USER" -- env HOME="\$CHIEF_BOX_HOME" MUX_HOME="\$MUX_HOME" OPTCHAT_CHIEF_OWNER="\$OPTCHAT_CHIEF_OWNER" "\$@"; fi
 }
 case "\${1:-}" in
-  pair) shift; as_chief "\$B/bin/optchat-chief" cloud pair --install "\$B/cloud/install.json" "\$@" ;;
-  status) as_chief "\$B/bin/optchat-chief" cloud status --install "\$B/cloud/install.json"
+  pair) shift; as_chief "\$BIN/optchat-chief" cloud pair --install "\$B/cloud/install.json" "\$@" ;;
+  status) as_chief "\$BIN/optchat-chief" cloud status --install "\$B/cloud/install.json"
           systemctl --no-pager status $P.slice $P-daemon $P-acpmux $P-host | sed -n '1,40p' || true ;;
-  start) as_chief "\$B/bin/optchat-chief" cloud status --install "\$B/cloud/install.json" | grep -q '^token ok' \\
+  start) as_chief "\$BIN/optchat-chief" cloud status --install "\$B/cloud/install.json" | grep -q '^token ok' \\
            || { echo "chief-box: not paired, or no chief placed on this box: run chief-box pair --api-base URL" >&2; exit 1; }
-         systemctl enable --now $P-host ;;
+         # model.env or the binaries may have changed: acpmux and the host read them at start.
+         systemctl restart $P-acpmux; systemctl enable $P-host; systemctl restart $P-host ;;
+  reload-model) systemctl restart $P-acpmux $P-host ;;
   stop) systemctl stop $P-host ;;
-  rights|audit|usage) as_chief "\$B/bin/optchat-chief" "\$@" ;;
+  rights|audit|usage) as_chief "\$BIN/optchat-chief" "\$@" ;;
   logs) journalctl --no-pager -n "\${2:-200}" -u $P-host -u $P-acpmux -u $P-daemon ;;
-  *) echo "usage: chief-box pair --api-base URL | status | start | stop | rights ... | audit [verify|head] | usage | logs [N]" >&2; exit 2 ;;
+  *) echo "usage: chief-box pair --api-base URL | status | start | stop | reload-model | rights ... | audit [verify|head] | usage | logs [N]" >&2; exit 2 ;;
 esac
 EOF
 chmod 0755 "$BIN_DIR/chief-box"
@@ -230,7 +273,7 @@ systemctl daemon-reload
 systemctl enable $P-daemon $P-acpmux >/dev/null 2>&1
 ((START)) || { echo "not started (--no-start)"; exit 0; }
 systemctl restart $P-daemon $P-acpmux
-if runuser -u "$U" -- env HOME="$PREFIX" "$B/bin/optchat-chief" cloud status --install "$B/cloud/install.json" 2>/dev/null | grep -q '^token ok'; then
+if runuser -u "$U" -- env HOME="$CH" "$BIN/optchat-chief" cloud status --install "$B/cloud/install.json" 2>/dev/null | grep -q '^token ok'; then
   systemctl enable $P-host >/dev/null 2>&1; systemctl restart $P-host; echo "started $P-host"
 else
   echo "host NOT started: $B/cloud/install.json is not paired or names no chief"

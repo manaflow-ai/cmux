@@ -11,12 +11,15 @@ the owner shares the Chief's chat with them (cmux#25631, Conversation Info > Add
 `cmux home add-members --conversation <chief conversation> --people "Ben"`). The box needs no
 open port for that; nothing listens beyond its own Unix sockets.
 
+Depends on cmux#33003 (the rights table and the audit log, `optchat-chief rights` and
+`optchat-chief audit`): `install.sh` refuses an optchat-chief built without them.
+
 ## Install (root, once)
 
 Binaries: `optchat-chief`, `cmux-tui` and `acpmux` from one Linux build (and the Rust `cmux`
 CLI if you have it; otherwise `cmux-tui` serves as `cmux`). Claude Code or Codex must be
-installed for the Chief's user after the user exists (`runuser -u chief -- bash -lc 'curl
--fsSL https://claude.ai/install.sh | bash'`).
+installed for the Chief's user after the user exists (`runuser -u chief -- env HOME=/srv/chief/home
+bash -lc 'curl -fsSL https://claude.ai/install.sh | bash'`).
 
 ```
 ./install.sh --optchat-chief ./optchat-chief --cmux-tui ./cmux-tui --acpmux ./acpmux \
@@ -27,16 +30,19 @@ It makes:
 
 | What | Where |
 | --- | --- |
-| System user `chief`, home and everything the Chief writes | `/srv/chief` (`ws/` is the agents' shared work dir, `brain/` the Chief) |
+| Root-owned binaries (the Chief can run, never replace them) | `/srv/chief/bin` (root:root 0755) |
+| System user `chief` and everything it writes | `/srv/chief/home` (its HOME: `.local`, `.claude`), `/srv/chief/ws` (the agents' shared work dir), `/srv/chief/brain` (the Chief's state) |
 | Slice with the caps (`CPUQuota`, `MemoryMax`, `TasksMax`) | `/etc/systemd/system/chief-box.slice` |
 | Units `chief-box-daemon`, `chief-box-acpmux`, `chief-box-host` | `/etc/systemd/system/` (User=chief, `ProtectSystem=strict`, `ReadWritePaths=/srv/chief`, no capabilities, private /tmp) |
-| Settings (owner, paths; no secret) | `/srv/chief/chief-box.env` |
-| The model login (0600, never in a unit) | `/srv/chief/model.env` |
+| Settings (owner, paths; no secret) | `/srv/chief/chief-box.env` (root, 0644) |
+| The model login (root 0600, read by systemd, never in a unit) | `/srv/chief/model.env` |
 | The owner's command | `/usr/local/bin/chief-box` |
 
 Run it again to upgrade the binaries or change a cap; it keeps the memory, the pairing,
 `rights.json`, the audit log and `model.env`. The host unit does not start until the box is
-paired (below).
+paired (below). Root never writes inside the Chief's own directories and refuses a prefix,
+or any path it writes, that runs through a symlink (so pick a real directory, not one under a
+symlinked `/srv`).
 
 ## Sign in as the owner
 
@@ -55,7 +61,8 @@ and the units.
 Teammates' prompts run on the owner's model login. Pick one:
 
 - A key billed to the owner or the org: put `ANTHROPIC_API_KEY=...` (or the Bedrock or Vertex
-  variables) in `/srv/chief/model.env`, then `chief-box rights auth api-key` (or `bedrock`,
+  variables) in `/srv/chief/model.env`, then `chief-box reload-model` and
+  `chief-box rights auth api-key` (or `bedrock`,
   `vertex`, `team`, `enterprise`).
 - The team's model router: `install.sh ... --claude-base-url URL` (acpmux signs in by URL).
 

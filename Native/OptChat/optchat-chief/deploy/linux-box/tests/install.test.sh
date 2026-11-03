@@ -9,7 +9,9 @@ here="$(cd "$(dirname "$0")/.." && pwd)"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/bin"
-for b in optchat-chief cmux-tui acpmux cmux; do printf '#!/bin/sh\nexit 0\n' > "$tmp/bin/$b"; chmod 755 "$tmp/bin/$b"; done
+for b in cmux-tui acpmux cmux old-chief; do printf '#!/bin/sh\necho "usage: ..." >&2; exit 2\n' > "$tmp/bin/$b"; chmod 755 "$tmp/bin/$b"; done
+# An optchat-chief with the audit log (cmux#33003) answers `audit head` on an empty home.
+printf '#!/bin/sh\n[ "$1 $2" = "audit head" ] && { echo "0 0000abcd"; exit 0; }\nexit 0\n' > "$tmp/bin/optchat-chief"; chmod 755 "$tmp/bin/optchat-chief"
 pre="$tmp/srv/chief" units="$tmp/units" bins="$tmp/usrbin"
 base=(--optchat-chief "$tmp/bin/optchat-chief" --cmux-tui "$tmp/bin/cmux-tui" --acpmux "$tmp/bin/acpmux"
   --owner user_ann --prefix "$pre" --unit-dir "$units" --bin-dir "$bins" --no-system)
@@ -19,7 +21,7 @@ has() { grep -qxF -- "$2" "$units/$1" || fail "$1 lacks '$2'"; }
 lacks() { if grep -q -- "$2" "$units/$1"; then fail "$1 has '$2'"; fi; }
 
 run "${base[@]}"
-b="$pre/brain" sock="$pre/brain/daemon/cmux.sock"
+b="$pre/brain" sock="$pre/brain/daemon/cmux.sock" bin="$pre/bin" ch="$pre/home"
 has chief-box.slice "CPUQuota=400%"
 has chief-box.slice "MemoryMax=16G"
 has chief-box.slice "TasksMax=4096"
@@ -28,24 +30,30 @@ for u in daemon acpmux host; do
   [[ -f "$units/$f" ]] || fail "no $f"
   for line in "User=chief" "Group=chief" "Slice=chief-box.slice" "NoNewPrivileges=yes" "ProtectSystem=strict" \
     "ProtectHome=yes" "ReadWritePaths=$pre" "PrivateTmp=yes" "CapabilityBoundingSet=" "UMask=0077" \
-    "Environment=HOME=$pre" "EnvironmentFile=$pre/chief-box.env" "WorkingDirectory=$pre/ws"; do has "$f" "$line"; done
+    "Environment=HOME=$ch" "EnvironmentFile=$pre/chief-box.env" "WorkingDirectory=$pre/ws"; do has "$f" "$line"; done
   lacks "$f" "ANTHROPIC_API_KEY"
 done
-has chief-box-daemon.service "ExecStart=$b/bin/cmux-tui --headless --socket $sock"
+has chief-box-daemon.service "ExecStart=$bin/cmux-tui --headless --socket $sock"
 has chief-box-daemon.service "Environment=ACPMUX_HOME=$b/acpmux"
-has chief-box-acpmux.service "ExecStart=$b/bin/acpmux daemon run"
+has chief-box-acpmux.service "ExecStart=$bin/acpmux daemon run"
 has chief-box-acpmux.service "Environment=ACPMUX_CHIEF_MUX_HOME=$b/mux"
 has chief-box-acpmux.service "Environment=CMUX_CHIEF_OWNER_SOCKET=$sock"
 has chief-box-acpmux.service "EnvironmentFile=-$pre/model.env"
 lacks chief-box-acpmux.service "ANTHROPIC_BASE_URL"
-has chief-box-host.service "ExecStart=$b/bin/optchat-chief host --conversation-source cloud --cloud-install $b/cloud/install.json --daemon-socket $sock --mux-home $b/mux"
+has chief-box-host.service "ExecStart=$bin/optchat-chief host --conversation-source cloud --cloud-install $b/cloud/install.json --daemon-socket $sock --mux-home $b/mux"
 has chief-box-host.service "ConditionPathExists=$b/cloud/install.json"
 has chief-box-host.service "Environment=OPTCHAT_ACPMUX_SUPERVISED=1"
 lacks chief-box-host.service "MUX_HARNESS"
 grep -qxF "OPTCHAT_CHIEF_OWNER=user_ann" "$pre/chief-box.env" || fail "chief-box.env has no owner"
 grep -qxF "MUX_HOME=$b/mux" "$pre/chief-box.env" || fail "chief-box.env has no MUX_HOME"
 [[ "$(stat -c %a "$pre/model.env" 2>/dev/null || stat -f %Lp "$pre/model.env")" == 600 ]] || fail "model.env is not 0600"
-[[ -x "$b/bin/cmux" ]] || fail "no cmux in $b/bin (cmux-tui serves as cmux without --cmux)"
+[[ -x "$bin/cmux" ]] || fail "no cmux in $bin (cmux-tui serves as cmux without --cmux)"
+[[ ! -e "$b/bin" ]] || fail "binaries under the Chief-owned brain/"
+for d in "$ch/.local/bin" "$ch/.claude" "$b/mux" "$b/acpmux" "$b/daemon" "$b/cloud" "$b/logs" "$pre/ws"; do [[ -d "$d" ]] || fail "no $d"; done
+has chief-box-acpmux.service "Environment=PATH=$bin:$ch/.local/bin:/usr/local/bin:/usr/bin:/bin"
+grep -qxF "CHIEF_BOX_HOME=$ch" "$pre/chief-box.env" || fail "chief-box.env has no CHIEF_BOX_HOME"
+grep -q 'reload-model) systemctl restart chief-box-acpmux chief-box-host' "$bins/chief-box" || fail "no chief-box reload-model"
+grep -q 'systemctl restart chief-box-acpmux; systemctl enable chief-box-host' "$bins/chief-box" || fail "chief-box start does not restart acpmux (model.env)"
 [[ -x "$bins/chief-box" ]] || fail "no chief-box command"
 bash -n "$bins/chief-box" || fail "chief-box does not parse"
 grep -q 'cloud pair --install "$B/cloud/install.json"' "$bins/chief-box" || fail "chief-box pair does not pair this box's install"
@@ -61,6 +69,20 @@ has chief-box.slice "MemoryMax=8G"
 has chief-box-host.service "Environment=MUX_HARNESS=codex"
 has chief-box-acpmux.service "Environment=ANTHROPIC_BASE_URL=http://router.test:31415"
 for f in chief-box-daemon.service chief-box-acpmux.service chief-box-host.service; do lacks "$f" "sk-test"; done
+
+# An optchat-chief without the rights table and audit log (before cmux#33003) is refused.
+if "$here/install.sh" "${base[@]/$tmp\/bin\/optchat-chief/$tmp/bin/old-chief}" > "$tmp/out.log" 2>&1; then fail "install.sh accepted an optchat-chief without audit"; fi
+grep -q "no rights table or audit log" "$tmp/out.log" || fail "old optchat-chief refused for another reason: $(cat "$tmp/out.log")"
+
+# Root never writes through a symlink the Chief could plant (brain/ and home/ are the Chief's).
+mv "$bin" "$tmp/bin.real"; ln -s "$tmp/elsewhere" "$bin"
+if "$here/install.sh" "${base[@]}" > "$tmp/out.log" 2>&1; then fail "install.sh wrote through a symlinked bin/"; fi
+grep -q "refusing to write through a symlink: $bin" "$tmp/out.log" || fail "symlinked bin/ refused for another reason: $(cat "$tmp/out.log")"
+[[ ! -e "$tmp/elsewhere" ]] || fail "install.sh wrote outside the prefix"
+rm "$bin"; mv "$tmp/bin.real" "$bin"
+ln -s "$tmp/elsewhere" "$tmp/pre-link"
+if "$here/install.sh" "${base[@]/$pre/$tmp/pre-link}" > "$tmp/out.log" 2>&1; then fail "install.sh accepted a symlinked prefix"; fi
+grep -q "refusing to write through a symlink" "$tmp/out.log" || fail "symlinked prefix refused for another reason: $(cat "$tmp/out.log")"
 
 # Bad input is refused before anything is written.
 cp -R "$units" "$tmp/units.before"
