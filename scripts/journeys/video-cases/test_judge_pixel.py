@@ -446,6 +446,23 @@ class TuiBorderFrameTest(unittest.TestCase):
         self.assertEqual(picture[5], "123" + "." * 14 + "321")
         self.assertEqual(picture[9], "1" * 20)
 
+    def test_glyph_inks_are_never_a_fixture_class(self):
+        """Every glyph's color (the ruler, the centre text) on every fill is "other" for the judge: a black-class ink
+        (48, 48, 48) next to ring 3 started walks at a ruler digit on cmux22 (px-col-drag-2-s1r-s1 frames 516-527)."""
+        import re
+        tool = HERE.parent / "pixel" / "tui_border.py"
+        for fill in ("#FFFF00", "#00FF00", "#0000FF"):
+            done = subprocess.run([sys.executable, "-I", str(tool), "--size", "40x16", "--frames", "1", "--fill", fill],
+                                  capture_output=True, text=True, timeout=30)
+            inks = {tuple(int(v) for v in m.group(1).split(";")) for m in re.finditer(r"\x1b\[38;2;([0-9;]+)m", done.stdout)}
+            self.assertTrue(inks, fill)
+            px = np.array([[list(ink[::-1]) + [255] for ink in sorted(inks)]], np.uint8)
+            self.assertEqual(set(jp.classify(px)[0].tolist()), {jp.OTHER}, f"{fill}: inks {sorted(inks)}")
+        page = (HERE.parent / "pixel" / "page.html").read_text()
+        for gray in re.findall(r'(?:ink|other) = luma\(bg\) > 110 \? "(#[0-9A-F]{6})" : "(#[0-9A-F]{6})"', page)[0]:
+            v = [int(gray[i:i + 2], 16) for i in (1, 3, 5)]
+            self.assertEqual(jp.classify(np.array([[v[::-1] + [255]]], np.uint8))[0, 0], jp.OTHER, gray)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
