@@ -1023,6 +1023,12 @@ fn another_agents_message_through_the_cli_is_that_agents_and_takes_the_ask_floor
     );
     assert!(prompt.contains("acpmux session lane-a"), "{prompt}");
     assert!(prompt.contains("not the user's word"), "{prompt}");
+    // Restricted on purpose: the Chief tells the sender, not the user.
+    assert!(prompt.contains("runs restricted on purpose"), "{prompt}");
+    assert!(
+        prompt.contains("Do not ask the user for access"),
+        "{prompt}"
+    );
     // One send tool (#30082's acpmux_send): the framing names no second route.
     assert!(!prompt.contains("session:lane-a"), "{prompt}");
     h.brain.step(permission(
