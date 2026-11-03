@@ -106,6 +106,8 @@ mod steer_now;
 mod steer_only;
 #[path = "hub_integration/stop.rs"]
 mod stop;
+#[path = "hub_integration/stop_steer_requeue.rs"]
+mod stop_steer_requeue;
 #[path = "hub_integration/stuck_liveness.rs"]
 mod stuck_liveness;
 #[path = "hub_integration/subagent_retry.rs"]
