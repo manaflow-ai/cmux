@@ -438,7 +438,7 @@ fn git_diff_untracked_pages_include_every_file_and_large_line_counts() {
     assert_eq!(first["untracked_skipped"], 525, "commit preview must name omitted files: {first}");
 
     let mut names = Vec::new();
-    let mut after = Value::Null;
+    let mut after = json!("");
     loop {
         let page = client.read(
             "git.diff",
