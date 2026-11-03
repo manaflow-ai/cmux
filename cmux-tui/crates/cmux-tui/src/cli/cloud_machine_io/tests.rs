@@ -873,3 +873,44 @@ fn a_command_of_several_mib_runs_whole_through_the_direct_route() {
     assert!(!std::path::Path::new(&format!("/tmp/.cmux-exec-{staged}")).exists());
     assert!(log.iter().filter(|s| s.is_exec_await()).count() > 6, "the command went in pieces");
 }
+
+#[test]
+fn directories_beyond_count_and_byte_caps_keep_every_entry() {
+    if !python_here() {
+        eprintln!("skipped: no python3");
+        return;
+    }
+    for (count_entries, prefix) in [(10_257, String::new()), (11_050, "\u{1}".repeat(60))] {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("listing");
+        std::fs::create_dir(&root).unwrap();
+        let names: std::collections::BTreeSet<_> =
+            (0..count_entries).map(|n| format!("{prefix}{n:06}")).collect();
+        for name in &names {
+            std::fs::write(root.join(name), []).unwrap();
+        }
+        let cell = Arc::new(Mutex::new(String::new()));
+        let c = Arc::clone(&cell);
+        let (origin, seen) = fake(move |s| {
+            if s.is_mint() { minted(&c.lock().unwrap()) } else { run_here(s) }
+        });
+        *cell.lock().unwrap() = origin.clone();
+        let request = Request {
+            path: Some(root.display().to_string()),
+            ..request(&origin, &dir.path().join("cache"), Op::Dir)
+        };
+        let (route, mut answer) = go(&request, T0);
+        assert_eq!((route, answer.status), (Route::Direct, 200), "{answer:?}");
+        let body = wire_body(route, &mut answer);
+        let entries = body["entries"].as_array().unwrap();
+        assert_eq!(entries.len(), count_entries);
+        let actual: std::collections::BTreeSet<_> =
+            entries.iter().map(|e| e["name"].as_str().unwrap().to_owned()).collect();
+        assert_eq!(actual, names);
+        if !prefix.is_empty() {
+            assert!(body.to_string().len() > 4 * 1024 * 1024);
+        }
+        assert!(count(&seen, Seen::is_exec_await) > 1, "bounded provider pages");
+        assert_eq!(count(&seen, Seen::is_proxy), 0);
+    }
+}
