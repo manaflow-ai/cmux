@@ -9,7 +9,8 @@ import { CopyButton } from "./CopyButton";
 import { toolErrorLook } from "./toolError.experiment";
 import type { ToolFailure } from "./toolFailure";
 
-/// True for a call drawn as one step of an opened "Ran N commands" group (ToolGroupRow.tsx `Step`).
+/// True for a call drawn as one step of an opened "Ran N commands", "Read N files" or "Searched N"
+/// group (ToolGroupRow.tsx `Step`); a lone call, also one in an opened run, keeps its Exit word and cause.
 /// A failed step reads as one plain line, what failed and the word "failed", with no shell
 /// wording ("Exit 1") and no cause line under it; the error output waits behind the step's own
 /// disclosure, in its Shell block, which says the exit code. The group's head already counts the

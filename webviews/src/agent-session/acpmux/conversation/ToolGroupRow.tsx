@@ -262,8 +262,6 @@ export function ToolGroupRow({
       <WrittenArtifactButtons tools={tools} />
       <ToolFailureCause failure={failure} />
       {fold.present && (
-        // Every call under the opened line is a step: a failure reads as one plain line (InStep).
-        <InStep.Provider value>
         <div {...fold.bodyProps}>
           {kind === "edits" ? (
             <div className="cv-tool-group" id={detailsId} data-tool-group-items={disclosureKey}>
@@ -282,20 +280,22 @@ export function ToolGroupRow({
               data-kind={kind}
               data-tool-group-items={disclosureKey}
             >
-              {entries.map(({ at, key, thought }) => (
-                <Step
-                  key={thought < 0 ? key : thoughtId(thought)}
-                  probeKey={key}
-                  item={items[at]!}
-                  commands={kind === "commands"}
-                  thoughtId={thought < 0 ? "" : thoughtId(thought)}
-                  lead={at === 0 && thought === 0}
-                />
-              ))}
+              {/* Every call here is a step: a failure reads as one plain line (InStep). */}
+              <InStep.Provider value>
+                {entries.map(({ at, key, thought }) => (
+                  <Step
+                    key={thought < 0 ? key : thoughtId(thought)}
+                    probeKey={key}
+                    item={items[at]!}
+                    commands={kind === "commands"}
+                    thoughtId={thought < 0 ? "" : thoughtId(thought)}
+                    lead={at === 0 && thought === 0}
+                  />
+                ))}
+              </InStep.Provider>
             </div>
           )}
         </div>
-        </InStep.Provider>
       )}
     </>
   );

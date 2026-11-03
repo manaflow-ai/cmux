@@ -220,7 +220,7 @@ test("a failed step of an opened group is one plain line, its error output behin
   expect(words(html)).not.toContain("Exit 1");
   expect(words(html)).not.toContain("(eval):1");
   expect(html).not.toContain('class="cv-tool-error"');
-  // The same step inside an opened run reads the same.
+  // A command drawn under InStep reads the same.
   const step = renderToStaticMarkup(
     <InStep.Provider value>
       <CommandRow item={failing} />

@@ -206,7 +206,6 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/CommandRow.tsx",
     "agent-session/acpmux/conversation/McpCallRows.tsx",
     "agent-session/acpmux/conversation/ToolGroupRow.tsx",
-    "agent-session/acpmux/conversation/ToolRun.tsx",
   ],
   keywords: ["error", "failed", "hook", "denied", "exit code", "timeout", "mcp", "step", "group"],
   variants: {
