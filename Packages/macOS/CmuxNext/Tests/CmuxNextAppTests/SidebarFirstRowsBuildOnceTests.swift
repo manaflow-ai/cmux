@@ -134,4 +134,21 @@ import Testing
         let clip = try #require(sidebar.list.enclosingScrollView?.contentView)
         #expect(clip.bounds.intersects(row.frame))
     }
+
+    /// Review of #34134 at 7e3916b0 (P2): a reload with no motion that jumps to a far reveal must still finish as the old
+    /// instant scroll did (`realizeVisibleRows`): the old viewport's row views are parked, the group editor follows, the
+    /// hover follows the scroll. Without it the top rows stayed in the list after a jump to row 80.
+    @Test func aNoMotionJumpParksTheOldViewportsRows() throws {
+        let (sidebar, window, _) = Self.firstFrame(active: 0)
+        defer { window.close() }
+        sidebar.model.activeWorkspaceID = WorkspaceID("first-rows-\(Self.active)")
+        sidebar.list.reload(animated: false)
+        sidebar.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        let clip = try #require(sidebar.list.enclosingScrollView?.contentView)
+        let keep = clip.bounds.insetBy(dx: 0, dy: -(SidebarStyle.overscan + SidebarStyle.pruneMargin))
+        let stale = sidebar.list.rowViews.filter { !$0.value.isHidden && !$0.value.frame.intersects(keep) }
+        #expect(stale.isEmpty, "\(stale.count) row views of the old viewport stayed after the jump (\(Self.placement(sidebar)))")
+        #expect(sidebar.list.rowViews[.workspace(WorkspaceID("first-rows-\(Self.active)"))] != nil, "the active row has no view")
+    }
 }
