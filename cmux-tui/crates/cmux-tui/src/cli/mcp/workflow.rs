@@ -9,6 +9,11 @@ const METHOD: &str = "_acpmux/workflow";
 const ACTIVITY_METHOD: &str = "_acpmux/workflow_activity";
 const FRESH_CALL_LIMIT: usize = 2_000;
 
+/// JSON object lookup returns null for an absent member without indexing.
+fn field<'a>(value: &'a Value, name: &str) -> &'a Value {
+    value.get(name).unwrap_or(&Value::Null)
+}
+
 /// Installed only around one host-generated call. User-supplied arguments can
 /// never construct this value, even when the script guesses an internal action.
 pub(super) struct Internal {
@@ -46,7 +51,10 @@ impl Proof {
     fn request(&self, backend: &impl Backend, action: &str) -> Result<Value, String> {
         backend.acpmux(METHOD, self.params(action), Duration::from_secs(60), None, false).map_err(
             |error| {
-                error.error["message"].as_str().unwrap_or("workflow owner unavailable").to_owned()
+                field(&error.error, "message")
+                    .as_str()
+                    .unwrap_or("workflow owner unavailable")
+                    .to_owned()
             },
         )
     }
@@ -66,8 +74,9 @@ pub(super) fn run(global: GlobalArgs, run_id: String, generation: u64) -> i32 {
         }
         let mut server = Server::new(LiveBackend { global }, Some(path));
         let claim = proof.request(&server.backend, "claim")?;
-        let source = claim["source"].as_str().ok_or("workflow claim omitted source")?;
-        let directory = claim["journalDir"].as_str().ok_or("workflow claim omitted journal")?;
+        let source = field(&claim, "source").as_str().ok_or("workflow claim omitted source")?;
+        let directory =
+            field(&claim, "journalDir").as_str().ok_or("workflow claim omitted journal")?;
         // The daemon computes the intersection of the pinned ceiling and the
         // owner's current trusted tool profile. No script option widens it.
         refresh_tools(&mut server, &claim)?;
@@ -89,7 +98,7 @@ pub(super) fn run(global: GlobalArgs, run_id: String, generation: u64) -> i32 {
         let mut fatal: Option<String> = None;
         let outcome = code_mode::workflow_exec(
             source,
-            claim["args"].clone(),
+            field(&claim, "args").clone(),
             server.script_limits,
             &mut |request| {
                 if let Some(message) = &fatal {
@@ -122,18 +131,23 @@ pub(super) fn run(global: GlobalArgs, run_id: String, generation: u64) -> i32 {
         let outcome = match (fatal, outcome) {
             (Some(message), _) => Err(json!({"code":"workflow.host","message":message})),
             (_, Err(message)) => Err(json!({"code":"workflow.engine","message":message})),
-            (_, Ok(answer)) if answer["isError"] == true => {
-                Err(answer["structuredContent"].clone())
+            (_, Ok(answer)) if field(&answer, "isError").as_bool() == Some(true) => {
+                Err(field(&answer, "structuredContent").clone())
             }
             (_, Ok(answer)) => match journal.finish() {
-                Ok(()) => Ok(answer["structuredContent"].clone()),
+                Ok(()) => Ok(field(&answer, "structuredContent").clone()),
                 Err(error) => Err(json!({"code":"workflow.journal","message":error.to_string()})),
             },
         };
         let mut params = proof.params("settle");
         params.set("outcome", serde_json::to_value(outcome).map_err(|error| error.to_string())?);
         server.backend.acpmux(METHOD, params, Duration::from_secs(60), None, true).map_err(
-            |error| error.error["message"].as_str().unwrap_or("cannot settle workflow").to_owned(),
+            |error| {
+                field(&error.error, "message")
+                    .as_str()
+                    .unwrap_or("cannot settle workflow")
+                    .to_owned()
+            },
         )?;
         Ok(())
     };
@@ -215,7 +229,7 @@ fn handle<B: Backend>(
                     params.set("prompt", json!(prompt));
                     params.set("options", json!(options));
                     let answer = internal(server, params, false, images);
-                    if answer["ok"] != true {
+                    if field(&answer, "ok").as_bool() != Some(true) {
                         return Ok(answer);
                     }
                     pending.insert(id.clone(), None);
@@ -236,14 +250,15 @@ fn handle<B: Backend>(
                 ids.iter().map(|id| (transport_id(id), id.clone())).collect::<BTreeMap<_, _>>();
             params.set("activityIds", json!(mapped.keys().collect::<Vec<_>>()));
             let answer = internal(server, params, true, images);
-            if answer["ok"] != true {
+            if field(&answer, "ok").as_bool() != Some(true) {
                 return Ok(answer);
             }
-            let selected =
-                answer["value"]["activityId"].as_str().ok_or("wait omitted activity identity")?;
+            let selected = field(field(&answer, "value"), "activityId")
+                .as_str()
+                .ok_or("wait omitted activity identity")?;
             let id = mapped.get(selected).ok_or("wait returned an unrelated activity")?;
             let result: Result<Value, Value> =
-                serde_json::from_value(answer["value"]["outcome"].clone())
+                serde_json::from_value(field(field(&answer, "value"), "outcome").clone())
                     .map_err(|error| format!("wait returned invalid outcome: {error}"))?;
             journal.complete(id, result.clone()).map_err(|error| error.to_string())?;
             pending.remove(id);
@@ -262,7 +277,7 @@ fn handle<B: Backend>(
                         && !tools
                             .get_or_insert_with(|| server.list())
                             .iter()
-                            .any(|tool| tool["name"] == name.as_str())
+                            .any(|tool| field(tool, "name").as_str() == Some(name.as_str()))
                     {
                         return Ok(refused(
                             "tool.unavailable",

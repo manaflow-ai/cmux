@@ -96,10 +96,17 @@ pub(super) fn workflow_command(global: GlobalArgs, arguments: Value) -> i32 {
     let mut server = Server::new(LiveBackend { global }, None);
     server.allowed = allowed_tools(std::env::var_os(ALLOWED_TOOLS_ENV));
     match server.call(&json!({"name":workflow_tools::NAME,"arguments":arguments})) {
-        Ok(result) if result["isError"] == true => {
-            super::wire::print_local_error(&result["structuredContent"]["error"], output, 1)
+        Ok(result) if result.get("isError").and_then(Value::as_bool) == Some(true) => {
+            super::wire::print_local_error(
+                result.pointer("/structuredContent/error").unwrap_or(&Value::Null),
+                output,
+                1,
+            )
         }
-        Ok(result) => super::wire::print_local_success(&result["structuredContent"], output),
+        Ok(result) => super::wire::print_local_success(
+            result.get("structuredContent").unwrap_or(&Value::Null),
+            output,
+        ),
         Err((code, message)) => {
             super::wire::print_local_error(&json!({"code":code,"message":message}), output, 2)
         }

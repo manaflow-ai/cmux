@@ -86,17 +86,15 @@ pub(crate) enum Invocation {
 /// Parse `cmux workflow ...` words.  `workflow __run` is intentionally an
 /// internal runner entry point and is accepted only with both fenced fields.
 pub(crate) fn parse(words: &[String], cwd: &Path) -> Result<Invocation, String> {
-    let Some(action) = words.first().map(String::as_str) else {
+    let Some((action, rest)) = words.split_first() else {
         return Err("workflow needs start, status, pause or resume".into());
     };
-    match action {
-        "start" => parse_start(&words[1..], cwd),
-        "status" => parse_id_action(&words[1..], |run_id| Invocation::Status { run_id }),
-        "pause" => parse_required_id(&words[1..], "pause", |run_id| Invocation::Pause { run_id }),
-        "resume" => {
-            parse_required_id(&words[1..], "resume", |run_id| Invocation::Resume { run_id })
-        }
-        "__run" => parse_run(&words[1..]),
+    match action.as_str() {
+        "start" => parse_start(rest, cwd),
+        "status" => parse_id_action(rest, |run_id| Invocation::Status { run_id }),
+        "pause" => parse_required_id(rest, "pause", |run_id| Invocation::Pause { run_id }),
+        "resume" => parse_required_id(rest, "resume", |run_id| Invocation::Resume { run_id }),
+        "__run" => parse_run(rest),
         _ => Err(format!("unknown workflow action {action:?}")),
     }
 }
@@ -111,7 +109,7 @@ fn parse_start(words: &[String], cwd: &Path) -> Result<Invocation, String> {
     let mut session_id = None;
     let mut index = 1;
     while index < words.len() {
-        let flag = words[index].as_str();
+        let flag = words.get(index).ok_or("workflow start option is missing")?.as_str();
         let value = words.get(index + 1).ok_or_else(|| format!("{flag} needs a value"))?;
         match flag {
             "--args-json" => {
@@ -156,18 +154,24 @@ fn parse_required_id<F>(words: &[String], action: &str, build: F) -> Result<Invo
 where
     F: FnOnce(String) -> Invocation,
 {
-    if words.len() != 1 || words[0].starts_with('-') {
+    let [id] = words else {
+        return Err(format!("workflow {action} needs one run id"));
+    };
+    if id.starts_with('-') {
         return Err(format!("workflow {action} needs one run id"));
     }
-    Ok(build(nonempty(&words[0], "run id")?))
+    Ok(build(nonempty(id, "run id")?))
 }
 
 fn parse_run(words: &[String]) -> Result<Invocation, String> {
-    if words.len() != 4 || words[0] != "--run-id" || words[2] != "--generation" {
+    let [run_flag, id, generation_flag, generation] = words else {
+        return Err("workflow __run requires --run-id ID --generation N".into());
+    };
+    if run_flag != "--run-id" || generation_flag != "--generation" {
         return Err("workflow __run requires --run-id ID --generation N".into());
     }
-    let run_id = nonempty(&words[1], "--run-id")?;
-    let generation = words[3]
+    let run_id = nonempty(id, "--run-id")?;
+    let generation = generation
         .parse::<u64>()
         .map_err(|_| "--generation must be an unsigned integer".to_owned())?;
     Ok(Invocation::Run { run_id, generation })
