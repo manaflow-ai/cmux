@@ -24,7 +24,10 @@ that an older head's SHIP carries across a base merge, not a verdict: it counts 
 independent verdict names the head and the newest independent verdict on the pull request is a SHIP (next-autoland's ship_receipt, cmuxterm-hq#4975). cmux#27189 landed 2026-10-29 on
 "Review (Astra; carried): SHIP at 127a023e" while the box review of its pre-merge head had returned BLOCK.
 Carried receipts also require both history windows to be below their limits: a full window could hide a verdict naming
-the target head, which a carry cannot replace.
+the target head, which a carry cannot replace. A risk:high pull request never merges on a carried receipt: it needs an
+independent verdict of its own on the exact head (cmux-ad, 2026-10-30, decision 788, as docs/ci/risk-tiers.md says;
+a base merge can change what a risk:high patch does even with no conflict). next-autoland applies the same rule
+(cmuxterm-hq#5420, exact_receipt).
 
 Before that, as next-autoland's review_state() judges it, the newest review-like word on any head must not say wait:
 a change request, "Review (codex): BLOCK", "Verdict: BLOCK", a bare first line "BLOCK at <sha>", "NOT SHIP" or "Do
@@ -53,6 +56,24 @@ TRUSTED = {"OWNER", "MEMBER", "COLLABORATOR"}
 # "Verdict: BLOCK" counts too (autoland reads only lines that say "review"; review of cmux#23067).
 REVIEW_LINE = re.compile(r"review|\bverdict\b", re.I)
 HOLD_LINE = re.compile(r"^\W*hold(?:ing)?\b", re.I)  # "**Holding this PR. ...**"
+# Only these exact first-line forms release a prior human hold. A retained automatic receipt on a line that starts
+# with Hold remains a hold, rather than being mistaken for an automatic SHIP.
+_LIFT = (r"(?:(?:is|was|has been)\s+(?:lifted|released|removed|cleared|withdrawn|over)|lifted|released|removed|"
+         r"cleared|withdrawn)")
+_LANDING = (r"(?:reviewed and\s+)?(?:landing|merging)(?:\s+now)?(?:\s+under the normal path)?"
+            r"(?:\s*\(SHIP at [0-9a-f]{7,40}(?:,\s*compile \d+)?\))?")
+HOLD_LIFTED = re.compile(
+    r"^\W*hold\s+(?:"
+    + _LIFT + r"[*_`]*\s*[.!]?"
+    + r"|(?:" + _LIFT + r"|had no (?:stated )?reason)[*_`]*\s*[.!;,\u2014]\s*" + _LANDING + r"\s*[.!]?"
+    + r")[*_`]*\s*$", re.I)
+
+
+def hold_lifted(first: str) -> bool:
+    """Whether a Hold first line explicitly releases a prior hold."""
+    return bool(HOLD_LIFTED.match(first.strip()))
+
+
 # A first line that is only a wait verdict, with or without a sha: "BLOCK at <sha>", "**BLOCK at <sha>**", "NOT SHIP",
 # "Do not merge". It names no review, so REVIEW_LINE misses it; it still says wait (re-review of cmux#23067).
 WAIT_LINE = re.compile(r"^\W*(?:BLOCK|NOT SHIP|HOLD|DO NOT MERGE)\b", re.I)
@@ -65,6 +86,9 @@ SHIPS = re.compile(LABELLED + r"(?:ship|approved?|lgtm|merge|nothing blocking|no
 WAIT = re.compile(LABELLED + r"(?:block(?:ed|ing|s)?|fix|not ship|hold|changes needed)\b|still owed|do not merge|"
                   r"don't merge", re.I)
 MARKER = re.compile(r"<!-- autoreview verdict=(SHIP|BLOCK) sha=([0-9a-f]{40}) -->")
+# next-review receipts carry the time their automatic review began. This identifies those receipts without treating
+# an ordinary human SHIP that happens to mention next-review as automatic.
+AUTO_SINCE = re.compile(r"<!-- next-review since=(\S+) run=([0-9a-f]+) -->")
 SHA_TOKEN = re.compile(r"\b[0-9a-f]{7,40}\b")
 RECEIPT = re.compile(r"^\W*(?:independent\s+)?review\s*\(([^)\n]*)\)\s*:\W*(ship|block|fix|not ship|hold)(?![\w-])", re.I)
 # A carried receipt: a lane's claim that an older head's SHIP carries to a new head, not a review (cmux#27189). It is
@@ -75,7 +99,7 @@ RECEIPT = re.compile(r"^\W*(?:independent\s+)?review\s*\(([^)\n]*)\)\s*:\W*(ship
 CARRIED = re.compile(r"^\W*(?:independent\s+)?review\s*\([^)\n]*\bcarr(?:y|ies|ied|ying)\b[^)\n]*\)\s*:"
                      r"|\bcarried\s+(?:from|over)\b", re.I)
 QUERY = ("query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){"
-         "headRefOid "
+         "headRefOid labels(first:100){nodes{name}} "
          f"reviews(last:{REVIEWS_WINDOW})"
          "{nodes{state submittedAt body authorAssociation author{__typename login} commit{oid}}} "
          f"comments(last:{COMMENTS_WINDOW})"
@@ -126,6 +150,8 @@ def review_state(pr: dict) -> tuple[str, str]:
     "blocked" (changes requested, a BLOCK verdict, a review still owed), "held" (a comment starting "Hold..."),
     or "none". A port of next_autoland.py's review_state(), with REVIEW_LINE also matching "Verdict:". A carried
     SHIP is not a review, so it never overtakes a hold or a BLOCK here."""
+    # Keep the source body with each entry so an automatic next-review SHIP can be removed when an explicit human
+    # hold is the latest non-automatic decision. The body is not part of the returned detail.
     found = []
     for item in (pr.get("reviews") or {}).get("nodes") or []:
         if not trusted(item):
@@ -134,15 +160,15 @@ def review_state(pr: dict) -> tuple[str, str]:
         body, at = item.get("body") or "", item.get("submittedAt") or ""
         first = next((line for line in body.splitlines() if line.strip()), "")
         if item.get("state") == "APPROVED":
-            found.append((at, "reviewed", f"approved by {login}"))
+            found.append((at, "reviewed", f"approved by {login}", body, False))
         elif item.get("state") == "CHANGES_REQUESTED":
-            found.append((at, "blocked", f"changes requested by {login}"))
+            found.append((at, "blocked", f"changes requested by {login}", body, False))
         elif carried(first):
             continue
         elif WAIT_LINE.search(first):
-            found.append((at, "blocked", first.strip()[:80]))
+            found.append((at, "blocked", first.strip()[:80], body, False))
         elif REVIEW_LINE.search(first) and review_verdict(body):
-            found.append((at, review_verdict(body), first.strip()[:80]))
+            found.append((at, review_verdict(body), first.strip()[:80], body, False))
     for item in (pr.get("comments") or {}).get("nodes") or []:
         if not trusted(item):
             continue
@@ -151,14 +177,48 @@ def review_state(pr: dict) -> tuple[str, str]:
         if body.startswith("<!--") or carried(first):
             continue  # a tool's marked comment (base-red-watch, previews) or a carried SHIP, not a person's review
         if HOLD_LINE.search(first):
-            found.append((item.get("createdAt") or "", "held", first.strip()[:80]))
-        elif WAIT_LINE.search(first):
-            found.append((item.get("createdAt") or "", "blocked", first.strip()[:80]))
+            if not hold_lifted(first):
+                found.append((item.get("createdAt") or "", "held", first.strip()[:80], body, True))
+            continue
+        if WAIT_LINE.search(first):
+            found.append((item.get("createdAt") or "", "blocked", first.strip()[:80], body, True))
         elif REVIEW_LINE.search(first) and review_verdict(body):
-            found.append((item.get("createdAt") or "", review_verdict(body), first.strip()[:80]))
+            found.append((item.get("createdAt") or "", review_verdict(body), first.strip()[:80], body, True))
+
+    # next-review's automatic receipt is intentionally a review for a normal PR, but it must not clear an explicit
+    # human hold. A retained automatic marker on a first-line Hold is excluded here and remains an active hold.
+    auto_candidates = [
+        ((item.get("createdAt") or ""), body) for item in (pr.get("comments") or {}).get("nodes") or []
+        if trusted(item)
+        and AUTO_SINCE.search(body := (item.get("body") or "").strip())
+        and not HOLD_LINE.search(next((line for line in body.splitlines() if line.strip()), ""))
+        and review_verdict(body) == "reviewed"
+    ]
+    # The API has no authored-by-tool bit. For identical automatic-looking comments, retain only the earliest as the
+    # automatic receipt; a later human comment quoting that receipt is a distinct decision and remains authoritative.
+    automatic = {(min((at for at, candidate in auto_candidates if candidate == body), default=""), body)
+                 for _, body in auto_candidates}
+    # Only comments can be automatic receipts; a human review may quote the same body and must retain its own
+    # decision and provenance.
+    decisions = [entry for entry in found if not (entry[4] and (entry[0], entry[3]) in automatic)]
+    if decisions:
+        held_at, state, _, _, _ = max(decisions, key=lambda f: f[0])
+        lifted = any(
+            trusted(item)
+            and (item.get("createdAt") or "") > held_at
+            and hold_lifted(next((line for line in (item.get("body") or "").splitlines() if line.strip()), ""))
+            for item in (pr.get("comments") or {}).get("nodes") or []
+        )
+        if state == "held" and not lifted:
+            found = decisions
+        elif state == "held":
+            # The explicit lift clears the active hold entry before the prior receipt is reconsidered. A later Hold
+            # would be the newest non-automatic decision and would make `lifted` false, so filtering all held entries
+            # here cannot clear a newly placed hold.
+            found = [entry for entry in found if entry[1] != "held"]
     if not found:
         return "none", ""
-    _, state, detail = max(found, key=lambda f: f[0])
+    _, state, detail, _, _ = max(found, key=lambda f: f[0])
     return state, detail
 
 
@@ -207,7 +267,13 @@ def newest_independent(pr: dict) -> tuple[str, str, str] | None:
     return max(found, key=lambda f: f[0]) if found else None
 
 
-def ship_receipt(pr: dict, head: str) -> tuple[str, str] | None:
+def high_risk(pr: dict) -> bool:
+    """The pull request carries the risk:high tier label (any case)."""
+    return any(((node or {}).get("name") or "").lower() == "risk:high"
+               for node in (pr.get("labels") or {}).get("nodes") or [])
+
+
+def ship_receipt(pr: dict, head: str, exact: bool = False) -> tuple[str, str] | None:
     """(since, who) for the head's SHIP, else None. The newest independent verdict naming the head must be a SHIP
     that no independent BLOCK on any head is newer than; with none naming the head, a carried SHIP naming it stands
     only while the newest independent verdict on the pull request is a SHIP. `since` is when the independent SHIP
@@ -222,8 +288,8 @@ def ship_receipt(pr: dict, head: str) -> tuple[str, str] | None:
             return None
         return at, detail
     carry = [f for f in found if f[1] == "carried"]
-    if not carry or not latest or latest[1] != "ship" or window_cut_off(pr, None):
-        return None
+    if exact or not carry or not latest or latest[1] != "ship" or window_cut_off(pr, None):
+        return None  # `exact`: a carried SHIP is no receipt at all (risk:high, decision 788)
     return latest[0], max(carry, key=lambda f: f[0])[2]
 
 
@@ -251,12 +317,14 @@ def decide(pr: dict, head: str) -> tuple[str, str]:
     state, detail = review_state(pr)
     if state in ("blocked", "held"):
         return "", f"no SHIP review receipt on {head} can merge while the newest review says wait: {detail}"
-    found = ship_receipt(pr, head)
+    high = high_risk(pr)
+    found = ship_receipt(pr, head, exact=high)
     if not found:
         latest = newest_independent(pr)
         newer = (f"; the newest independent verdict is a BLOCK ({latest[2]}), so no older or carried SHIP stands"
                  if latest and latest[1] == "block" else "")
-        return "", f"no SHIP review receipt on {head}{newer}"
+        exact = "; risk:high needs an independent review of this exact head, and no carried SHIP counts" if high else ""
+        return "", f"no SHIP review receipt on {head}{newer}{exact}"
     cut = window_cut_off(pr, found[0])
     if cut:
         size = REVIEWS_WINDOW if cut == "reviews" else COMMENTS_WINDOW

@@ -26,11 +26,14 @@ const SESSION_JOURNAL_PROTOCOL_MAXIMUM: u64 = cmux_tui_core::server::PROTOCOL_VE
 
 pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     if plan.stream && global.output == OutputMode::Json {
-        eprintln!("cmux: streams require --jsonl, --quiet, or human output");
+        eprintln!(
+            "{}: streams require --jsonl, --quiet, or human output",
+            crate::cli::program_name()
+        );
         return 2;
     }
     let Some(params) = plan.params.as_object_mut() else {
-        eprintln!("cmux: request params are not an object");
+        eprintln!("{}: request params are not an object", crate::cli::program_name());
         return 2;
     };
     if let Some(machine) = &global.machine
@@ -46,18 +49,18 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     let request = match request_value(&plan) {
         Ok(request) => request,
         Err(error) => {
-            eprintln!("cmux: {error}");
+            eprintln!("{}: {error}", crate::cli::program_name());
             return 2;
         }
     };
     let encoded = match serde_json::to_vec(&request) {
         Ok(encoded) if encoded.len() <= MAX_MESSAGE_BYTES => encoded,
         Ok(_) => {
-            eprintln!("cmux: request exceeds the 4 MiB protocol limit");
+            eprintln!("{}: request exceeds the 4 MiB protocol limit", crate::cli::program_name());
             return 2;
         }
         Err(error) => {
-            eprintln!("cmux: cannot encode request: {error}");
+            eprintln!("{}: cannot encode request: {error}", crate::cli::program_name());
             return 2;
         }
     };
@@ -67,7 +70,11 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     let (socket, socket_is_derived) = match resolve_socket_with_origin(&global) {
         Ok(resolved) => resolved,
         Err(_) => {
-            eprintln!("cmux: {}", crate::localization::catalog().startup.invalid_session_name);
+            eprintln!(
+                "{}: {}",
+                crate::cli::program_name(),
+                crate::localization::catalog().startup.invalid_session_name
+            );
             return 2;
         }
     };
@@ -142,12 +149,12 @@ fn require_server_capability(
     capability: &'static str,
 ) -> Result<(), i32> {
     let request_id = random_request_id().map_err(|error| {
-        eprintln!("cmux: {error}");
+        eprintln!("{}: {error}", crate::cli::program_name());
         2
     })?;
     let request = json!({"id":request_id,"cmd":"identify"});
     let encoded = serde_json::to_vec(&request).map_err(|error| {
-        eprintln!("cmux: cannot encode capability request: {error}");
+        eprintln!("{}: cannot encode capability request: {error}", crate::cli::program_name());
         2
     })?;
     reader
@@ -535,7 +542,8 @@ pub(super) fn print_local_error(error: &Value, output: OutputMode, exit_code: i3
             eprintln!();
         }
         OutputMode::Quiet | OutputMode::Human => {
-            eprint!("{}", human_error_lines(error));
+            let text = human_error_lines(error);
+            eprint!("{}", super::with_program_name(&text, &super::program_name()));
         }
     }
     exit_code

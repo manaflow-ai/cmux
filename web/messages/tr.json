@@ -3515,6 +3515,15 @@
     "download": "Mac için NIGHTLY indir",
     "warning": "Nightly derlemeler hatalar veya tamamlanmamış özellikler içerebilir. Bir sorun oluşursa <githubLink>GitHub</githubLink> veya <discordLink>Discord daki #nightly-bugs</discordLink> kanalında bildirin ve kararlı sürüme geçin."
   },
+  "next": {
+    "title": "cmux NEXT NIGHTLY",
+    "subtitle": "Yeni cmux uygulamasının önizleme sürümleri",
+    "metaTitle": "cmux NEXT NIGHTLY — Önizleme sürümleri",
+    "metaDescription": "Son commit'ten otomatik derlenen yeni cmux uygulamasının önizlemesi cmux NEXT NIGHTLY'yi indirin. Kendi otomatik güncellemeleriyle cmux ile yan yana çalışır.",
+    "description": "cmux NEXT NIGHTLY, son commit'ten otomatik olarak derlenen bir sonraki cmux sürümünün önizlemesidir. Kendi bundle ID'sine sahip olduğundan cmux ve cmux NIGHTLY ile çakışmadan yan yana çalışır. Apple çipli bir Mac gerektirir.",
+    "download": "Mac için NEXT NIGHTLY'yi indir",
+    "warning": "NEXT NIGHTLY sürümleri hatalar veya tamamlanmamış özellikler içerebilir. Bir sorun olursa <githubLink>GitHub</githubLink> üzerinden veya <discordLink>Discord'daki #nightly-bugs</discordLink> kanalında bildirin ve kararlı sürüme geri dönün."
+  },
   "languageSwitcher": {
     "label": "Dil"
   },

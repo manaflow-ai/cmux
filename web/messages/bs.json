@@ -3517,6 +3517,15 @@
     "download": "Preuzmi NIGHTLY za Mac",
     "warning": "Nightly verzije mogu sadržavati greške ili nepotpune funkcije. Ako nešto ne radi, prijavite to na <githubLink>GitHubu</githubLink> ili u <discordLink>#nightly-bugs na Discordu</discordLink> i prebacite se na stabilnu verziju."
   },
+  "next": {
+    "title": "cmux NEXT NIGHTLY",
+    "subtitle": "Pregledne verzije sljedeće cmux aplikacije",
+    "metaTitle": "cmux NEXT NIGHTLY — Pregledne verzije",
+    "metaDescription": "Preuzmite cmux NEXT NIGHTLY, pregled sljedeće cmux aplikacije koji se automatski gradi iz najnovijeg commita. Radi uz cmux s vlastitim automatskim ažuriranjima.",
+    "description": "cmux NEXT NIGHTLY je pregled sljedeće verzije cmux-a, koji se automatski gradi iz najnovijeg commita. Ima vlastiti bundle ID, pa radi uz cmux i cmux NIGHTLY bez sukoba. Zahtijeva Mac s Apple čipom.",
+    "download": "Preuzmi NEXT NIGHTLY za Mac",
+    "warning": "NEXT NIGHTLY verzije mogu sadržavati greške ili nedovršene funkcije. Ako nešto ne radi, prijavite to na <githubLink>GitHub</githubLink> ili u <discordLink>#nightly-bugs na Discordu</discordLink> i vratite se na stabilnu verziju."
+  },
   "languageSwitcher": {
     "label": "Jezik"
   },

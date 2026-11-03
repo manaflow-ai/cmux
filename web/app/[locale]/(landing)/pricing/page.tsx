@@ -162,9 +162,8 @@ const pricingState = cache(async (searchParams?: Promise<PricingQuery>) => {
     currentPlanSnapshot(),
     searchParams ?? Promise.resolve({}),
   ]);
-  // Paid subscribers cannot buy Go. Do not call PostHog for their page view.
-  const goPlanEnabled =
-    !snapshot.isPro && (await isGoPlanEnabled(snapshot.userId));
+  // Plus is offered to every visitor, paid subscribers included.
+  const goPlanEnabled = await isGoPlanEnabled(snapshot.userId);
   return { snapshot, query, goPlanEnabled };
 });
 
@@ -240,7 +239,7 @@ function PricingContent({
   // subscriber's plan current; only the Max card does.
   const isMax = snapshot.planId === MAX_PLAN_ID;
   const isGo = snapshot.planId === GO_PLAN_ID;
-  const showGo = isGo || (goPlanEnabled && !snapshot.isPro);
+  const showGo = isGo || goPlanEnabled;
   const isProCurrent = snapshot.isPro && !isMax && !isGo;
   // A link into /pricing may name its own origin (the CLI trial notice, a
   // campaign with utm_* tags); that beats the page default so the checkout

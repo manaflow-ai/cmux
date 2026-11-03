@@ -3517,6 +3517,15 @@
     "download": "Scarica NIGHTLY per Mac",
     "warning": "Le build nightly possono contenere bug o funzionalità incomplete. In caso di problemi, segnalali su <githubLink>GitHub</githubLink> o in <discordLink>#nightly-bugs su Discord</discordLink> e torna alla versione stabile."
   },
+  "next": {
+    "title": "cmux NEXT NIGHTLY",
+    "subtitle": "Build di anteprima della prossima app cmux",
+    "metaTitle": "cmux NEXT NIGHTLY — Build di anteprima",
+    "metaDescription": "Scarica cmux NEXT NIGHTLY, un'anteprima della prossima app cmux compilata automaticamente dal suo ultimo commit. Funziona accanto a cmux con aggiornamenti automatici propri.",
+    "description": "cmux NEXT NIGHTLY è un'anteprima della prossima versione di cmux, compilata automaticamente dal suo ultimo commit. Ha un proprio bundle ID, quindi funziona accanto a cmux e cmux NIGHTLY senza conflitti. Richiede un Mac con Apple silicon.",
+    "download": "Scarica NEXT NIGHTLY per Mac",
+    "warning": "Le build NEXT NIGHTLY possono contenere bug o funzionalità incomplete. Se qualcosa non funziona, segnalalo su <githubLink>GitHub</githubLink> o in <discordLink>#nightly-bugs su Discord</discordLink> e torna alla versione stabile."
+  },
   "languageSwitcher": {
     "label": "Lingua"
   },

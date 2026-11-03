@@ -167,6 +167,125 @@ fn startup_help_and_version_use_the_public_command_name() {
 }
 
 #[test]
+fn help_errors_and_version_name_the_invoked_program() {
+    let run = |args: &[&str]| {
+        Command::new(bin()).args(args).env_remove("CMUX_TUI_SOCKET").output().unwrap()
+    };
+    let root = run(&["--help"]);
+    assert_success(&root);
+    let root = stdout(&root);
+    assert!(root.starts_with("cmux-tui - "), "{root}");
+    assert!(root.contains("  cmux-tui [GLOBAL OPTIONS] <scope> <action>"), "{root}");
+    assert!(root.contains("Run `cmux-tui <scope> --help`"), "{root}");
+    assert!(!root.lines().any(|line| line.trim_start().starts_with("cmux ")), "{root}");
+
+    let tab = run(&["tab", "--help"]);
+    assert_success(&tab);
+    assert!(stdout(&tab).contains("  cmux-tui tab list"), "{}", stdout(&tab));
+
+    let error = run(&["tab", TAB_ID, "move", "--pane", PANE_ID]);
+    assert_eq!(error.status.code(), Some(2));
+    assert!(stderr(&error).starts_with("cmux-tui: "), "{}", stderr(&error));
+
+    let version = run(&["--version"]);
+    assert_success(&version);
+    assert!(stdout(&version).starts_with("cmux-tui "), "{}", stdout(&version));
+}
+
+#[test]
+fn every_usage_line_is_indented() {
+    for args in [&["--help"][..], &["session", "--help"][..]] {
+        let output = local_cli(args);
+        assert_success(&output);
+        let help = stdout(&output);
+        let usage = help
+            .lines()
+            .skip_while(|line| *line != "USAGE")
+            .skip(1)
+            .take_while(|line| !line.is_empty() && !line.ends_with("OPTIONS"));
+        for line in usage {
+            assert!(line.starts_with("  "), "{args:?}: unindented usage line {line:?}\n{help}");
+        }
+    }
+}
+
+#[test]
+fn action_help_lists_the_flags_of_that_action() {
+    for (args, needles) in [
+        (
+            &["tab", "create", "terminal", "--help"][..],
+            &[
+                "--cwd <path>",
+                "--name <value>",
+                "--workspace <selector>",
+                "--screen <selector>",
+                "--pane <selector>",
+                "--cols <n>",
+                "--rows <n>",
+                "--correlation-key <key>",
+            ][..],
+        ),
+        (
+            &["tab", "create", "browser", "--help"][..],
+            &["--url <url>", "--width-px <n>", "--height-px <n>", "--pane <selector>"][..],
+        ),
+        (
+            &["tab", TAB_ID, "move", "--help"][..],
+            &[
+                "cmux tab <selector> move --workspace <selector> --screen <selector> \
+                 --pane <selector> --index <n>",
+                "(required)",
+            ][..],
+        ),
+        (&["tab", TAB_ID, "rename", "--help"][..], &["--name <value>", "--source"][..]),
+        (
+            &["terminal", TERMINAL_ID, "project", "--help"][..],
+            &["--workspace <selector>", "--index <n>", "--name <value>"][..],
+        ),
+        (
+            &["pane", PANE_ID, "tab", "create", "terminal", "--help"][..],
+            &["cmux tab create terminal", "--cwd <path>"][..],
+        ),
+        (&["help", "tab", "create", "terminal"][..], &["--cwd <path>"][..]),
+    ] {
+        let output = local_cli(args);
+        assert_success(&output);
+        let help = stdout(&output);
+        for needle in needles {
+            assert!(help.contains(needle), "{args:?} help is missing {needle:?}:\n{help}");
+        }
+        assert!(!help.contains("cmux tab list"), "{args:?} printed the scope help:\n{help}");
+    }
+}
+
+#[test]
+fn missing_required_flags_are_reported_together() {
+    let output = local_cli(&["tab", TAB_ID, "move", "--pane", PANE_ID]);
+    assert_eq!(output.status.code(), Some(2));
+    let error = stderr(&output);
+    assert!(error.contains("--workspace, --screen, and --index are required"), "{error}");
+    assert!(error.contains("usage: cmux tab <selector> move --workspace <selector>"), "{error}");
+}
+
+#[test]
+fn unknown_flags_never_take_the_next_argument() {
+    for args in [
+        &["tab", "create", "terminal", "--bogus"][..],
+        &["tab", "create", "terminal", "--bogus", "1"][..],
+        &["tab", "create", "terminal", "--bogus", "--cwd", "/tmp"][..],
+    ] {
+        let output = local_cli(args);
+        assert_eq!(output.status.code(), Some(2), "{args:?}");
+        let error = stderr(&output);
+        assert!(error.contains("unknown flag --bogus"), "{args:?}: {error}");
+    }
+    let output = local_cli(&["tab", "create", "terminal", "--index", "1"]);
+    assert_eq!(output.status.code(), Some(2));
+    let error = stderr(&output);
+    assert!(error.contains("unknown flag --index for `tab create terminal`"), "{error}");
+}
+
+#[test]
 fn nested_non_hyphenated_actions_have_specific_help() {
     for (path, required) in [
         (
@@ -258,7 +377,7 @@ fn old_action_first_commands_are_all_usage_errors() {
         "attach-surface",
         "plugin",
     ] {
-        let output = Command::new(bin())
+        let output = cmux_command()
             .arg("--socket")
             .arg(&missing_socket)
             .arg(removed)
@@ -622,7 +741,7 @@ fn stream_commands_validate_and_print_typed_stream_envelopes() {
         request
     });
 
-    let output = Command::new(bin())
+    let output = cmux_command()
         .args(["--jsonl", "--socket"])
         .arg(&socket)
         .args(["terminal", TERMINAL_ID, "attach"])
@@ -658,7 +777,7 @@ fn raw_command_sends_the_exact_private_request_object() {
         request
     });
 
-    let output = Command::new(bin())
+    let output = cmux_command()
         .args(["--json", "--socket"])
         .arg(&socket)
         .args([
@@ -714,7 +833,7 @@ fn local_plugin_jsonl_never_connects_to_the_session_socket() {
             fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
         }
     }
-    let output = Command::new(bin())
+    let output = cmux_command()
         .args(["--jsonl", "--socket"])
         .arg(dir.join("missing.sock"))
         .args(["sidebar", "plugin", "list"])
@@ -746,7 +865,7 @@ fn local_plugin_jsonl_never_connects_to_the_session_socket() {
     assert_ne!(snapshots[0]["id"], snapshots[1]["id"]);
 
     let alpha_id = snapshots[0]["id"].as_str().unwrap();
-    let selected = Command::new(bin())
+    let selected = cmux_command()
         .args(["--json", "--socket"])
         .arg(dir.join("missing.sock"))
         .args(["sidebar", "plugin", "use", alpha_id])
@@ -761,7 +880,7 @@ fn local_plugin_jsonl_never_connects_to_the_session_socket() {
     assert_eq!(selected["plugin"]["name"], "alpha");
     assert_eq!(selected["plugin"]["active"], true);
 
-    let forced_name = Command::new(bin())
+    let forced_name = cmux_command()
         .args(["--json", "--socket"])
         .arg(dir.join("missing.sock"))
         .args(["sidebar", "plugin", "use", "name:sidebar_plugin_cccccccccccccccccccccccccccccccc"])
@@ -776,7 +895,7 @@ fn local_plugin_jsonl_never_connects_to_the_session_socket() {
     assert_eq!(forced_name["plugin"]["name"], "sidebar_plugin_cccccccccccccccccccccccccccccccc");
     assert_eq!(forced_name["plugin"]["active"], true);
 
-    let builtin = Command::new(bin())
+    let builtin = cmux_command()
         .args(["--json", "--socket"])
         .arg(dir.join("missing.sock"))
         .args(["sidebar", "plugin", "use", "--builtin"])
@@ -795,7 +914,7 @@ fn local_plugin_jsonl_never_connects_to_the_session_socket() {
     );
 
     let beta_id = snapshots[1]["id"].as_str().unwrap();
-    let removed = Command::new(bin())
+    let removed = cmux_command()
         .args(["--json", "--socket"])
         .arg(dir.join("missing.sock"))
         .args(["sidebar", "plugin", "remove", beta_id])
@@ -810,7 +929,7 @@ fn local_plugin_jsonl_never_connects_to_the_session_socket() {
     assert_eq!(removed["plugin"]["active"], false);
     assert_eq!(removed["plugin"]["enabled"], false);
 
-    let invalid = Command::new(bin())
+    let invalid = cmux_command()
         .args(["--json", "--socket"])
         .arg(dir.join("missing.sock"))
         .args(["sidebar", "plugin", "use", "Bad"])
@@ -837,7 +956,7 @@ fn usage_and_transport_failures_use_distinct_exit_codes_and_stderr() {
     assert!(!usage.stderr.is_empty());
 
     let missing_socket = unique_temp_dir("transport-exit").join("missing.sock");
-    let wrong_stream_mode = Command::new(bin())
+    let wrong_stream_mode = cmux_command()
         .args(["--json", "--socket"])
         .arg(&missing_socket)
         .args(["terminal", TERMINAL_ID, "attach"])
@@ -848,7 +967,7 @@ fn usage_and_transport_failures_use_distinct_exit_codes_and_stderr() {
     assert!(wrong_stream_mode.stdout.is_empty());
     assert!(stderr(&wrong_stream_mode).contains("--jsonl"));
 
-    let transport = Command::new(bin())
+    let transport = cmux_command()
         .args(["--json", "--socket"])
         .arg(&missing_socket)
         .args(["workspace", "list"])
@@ -918,7 +1037,7 @@ fn journal_subscription_rejects_a_stale_session_before_sending_the_new_envelope(
         requests
     });
 
-    let output = Command::new(bin())
+    let output = cmux_command()
         .args(["--jsonl", "--socket"])
         .arg(&socket)
         .args(["session", "current", "journal", "subscribe"])
@@ -970,7 +1089,7 @@ fn pre_ready_resource_reload_uses_selected_locale() {
         stream.flush().unwrap();
     });
 
-    let output = Command::new(bin())
+    let output = cmux_command()
         .args(["--socket"])
         .arg(&socket)
         .args(["session", "current", "config", "reload"])
@@ -1021,7 +1140,7 @@ fn pre_ready_resource_reload_json_preserves_server_message() {
         stream.flush().unwrap();
     });
 
-    let output = Command::new(bin())
+    let output = cmux_command()
         .args(["--json", "--socket"])
         .arg(&socket)
         .args(["session", "current", "config", "reload"])
@@ -1103,7 +1222,7 @@ fn journal_subscription_negotiates_then_sends_the_resource_envelope() {
         requests
     });
 
-    let output = Command::new(bin())
+    let output = cmux_command()
         .args(["--session", "journal-capable", "--jsonl", "--socket"])
         .arg(&socket)
         .args(["session", "current", "journal", "subscribe"])
@@ -1181,7 +1300,7 @@ fn journal_subscription_sigint_exits_immediately_and_cleanly() {
         let _ = reader.read_line(&mut line);
     });
 
-    let mut child = Command::new(bin())
+    let mut child = cmux_command()
         .args(["--jsonl", "--socket"])
         .arg(&socket)
         .args(["session", "current", "journal", "subscribe"])
@@ -1285,7 +1404,7 @@ fn fake_resource_cli_with_mode(
         requests
     });
 
-    let mut command = Command::new(bin());
+    let mut command = cmux_command();
     if !mode.is_empty() {
         command.arg(mode);
     }
@@ -1394,7 +1513,7 @@ fn parse_single_json(bytes: &[u8]) -> Value {
 }
 
 fn local_cli(args: &[&str]) -> Output {
-    Command::new(bin()).args(args).env_remove("CMUX_TUI_SOCKET").output().unwrap()
+    cmux_command().args(args).env_remove("CMUX_TUI_SOCKET").output().unwrap()
 }
 
 fn assert_success(output: &Output) {
@@ -1420,6 +1539,29 @@ fn unique_temp_dir(name: &str) -> PathBuf {
     let sequence = NEXT_TEMP_DIR.fetch_add(1, Ordering::Relaxed);
     Path::new("/tmp")
         .join(format!("cmux-resource-cli-{name}-{}-{stamp}-{sequence}", std::process::id()))
+}
+
+/// The binary as the npm `cmux` launcher runs it, so output names `cmux`.
+/// Tests that check the installed `cmux-tui` name run `bin()` directly.
+fn cmux_command() -> Command {
+    #[cfg(unix)]
+    {
+        let mut command = Command::new(bin());
+        std::os::unix::process::CommandExt::arg0(&mut command, "cmux");
+        command
+    }
+    // Windows has no separate argv[0]; run a copy named cmux.exe.
+    #[cfg(not(unix))]
+    {
+        static COPY: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+        Command::new(COPY.get_or_init(|| {
+            let dir = std::env::temp_dir().join(format!("cmux-launcher-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let copy = dir.join("cmux.exe");
+            std::fs::copy(bin(), &copy).unwrap();
+            copy
+        }))
+    }
 }
 
 fn bin() -> &'static str {

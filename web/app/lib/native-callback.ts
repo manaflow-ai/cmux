@@ -32,15 +32,37 @@ export function trustedNativeCallbackScheme(
   return /^cmux-dev-[a-z0-9-]+$/.test(scheme) ? scheme : null;
 }
 
-export function isAllowedNativeReturnTo(
-  href: string,
-  request: NextRequest,
-): boolean {
+/**
+ * A DEV build's callback scheme: `cmux-dev`, or `cmux-dev-<tag>` with the tag
+ * as CloudConfiguration.sanitizedSchemeTag writes it (lowercase letters and
+ * digits joined by single hyphens, any length: build tooling does not cap tags).
+ */
+const DEV_BUILD_SCHEME = /^cmux-dev(?:-[a-z0-9]+)*$/;
+
+/**
+ * Whether a sign-in may hand its session back to `scheme`: a shipped
+ * channel, or any cmux DEV build. A DEV build pointed at production
+ * (`CMUX_AUTH_ENVIRONMENT=production`) signs in through the same hosted page
+ * as the shipped app, and the app that started the sign-in checks the
+ * callback's `cmux_auth_state` against its own attempt, so no per-build
+ * allowlist on the server is needed. Every other scheme is refused.
+ */
+export function isNativeSignInScheme(scheme: string): boolean {
+  if (NATIVE_SCHEMES.has(scheme)) return true;
+  return DEV_BUILD_SCHEME.test(scheme);
+}
+
+/**
+ * Whether after-sign-in may hand the fresh session to `href`: exactly
+ * `<scheme>://auth-callback` for a scheme `isNativeSignInScheme` accepts, on
+ * any host. Billing keeps its own stricter check (`isAllowedNativeScheme`).
+ */
+export function isAllowedNativeReturnTo(href: string): boolean {
   try {
     const url = new URL(href);
     if (url.hostname !== NATIVE_CALLBACK_HOST) return false;
     if (url.pathname !== "" && url.pathname !== "/") return false;
-    return isAllowedNativeScheme(url.protocol.replace(":", ""), request);
+    return isNativeSignInScheme(url.protocol.replace(":", ""));
   } catch {
     return false;
   }
