@@ -160,6 +160,47 @@ import Testing
         #expect(other.sent.contains(" (passed)") && !other.sent.contains("a"), "the page got \(other.sent)")
     }
 
+    /// Review 6599335161 finding 1: a key that is no hint key, held while the page answered, ends the session at the
+    /// "no field" answer and goes to the page. If that key starts link hints again (link hints bound to a chord), the new
+    /// session must live: the old session ends before its keys go to the page, never after.
+    @Test func aHeldKeyThatStartsLinkHintsAgainKeepsTheNewSession() async throws {
+        let harness = try Harness()
+        await harness.start()
+        harness.type(["a", "<cmd-f>"])
+        var restarted = false
+        harness.controller.send = { [weak harness] keys in
+            guard let harness else { return }
+            harness.sent += keys.map(Harness.describe)
+            if keys.contains(where: { $0.charactersIgnoringModifiers == "<cmd-f>" }), !restarted {
+                restarted = true
+                harness.controller.start(.follow, tab: harness.tab, window: harness.shell, isFocused: { true }, openInSplit: { _ in }, noLinks: {})
+            }
+        }
+        harness.focus.give(false)
+        await harness.until { restarted }
+        #expect(restarted, "the held non-hint key did not reach the page")
+        #expect(harness.controller.isActive, "the session the delivered key started was cancelled by the old one's end")
+        harness.controller.cancel()
+    }
+
+    /// Review 6599335161 finding 2: keys held while the page answered and resolved at the "no field" answer: a held key
+    /// that is no hint key ends the session and reaches the page with every key after it; a held Escape ends it and is
+    /// its own; the hint letters before them never reach the page.
+    @Test func heldKeysAtTheNoFieldAnswerEndTheSessionLikeLiveKeys() async throws {
+        let other = try Harness()
+        await other.start()
+        other.type(["a", " ", "b"])
+        other.focus.give(false)
+        await other.until { !other.controller.isActive }
+        #expect(other.sent == [" ", "^ ", "b", "^b"], "the page got \(other.sent)")
+        let escape = try Harness()
+        await escape.start()
+        escape.type(["a", "<esc>", "b"])
+        escape.focus.give(false)
+        await escape.until { !escape.controller.isActive }
+        #expect(escape.sent == ["b", "^b"], "Escape: the page got \(escape.sent)")
+    }
+
     /// A click before the page answered ends the session: every held key goes to the page first, in order.
     @Test func aClickBeforeTheAnswerGivesEveryHeldKeyToThePageInOrder() async throws {
         let harness = try Harness()
