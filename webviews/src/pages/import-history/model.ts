@@ -138,7 +138,7 @@ export class ImportHistoryStore {
   select(id: RowID, selected: boolean): void {
     if (this.busy) return;
     this.row(id, { selected, report: undefined, phase: "idle", error: undefined });
-    this.set({ phase: "ready", error: undefined });
+    this.set({ phase: this.detecting ? "detecting" : "ready", error: undefined });
   }
   expand(id: RowID): void {
     if (!this.busy) this.row(id, { expanded: !this.snapshot.rows.find((row) => row.id === id)?.expanded });
@@ -153,7 +153,7 @@ export class ImportHistoryStore {
       error: undefined,
       source: undefined,
     });
-    this.set({ phase: "ready", error: undefined });
+    this.set({ phase: this.detecting ? "detecting" : "ready", error: undefined });
   }
   async copy(id: Origin, text: string): Promise<void> {
     try {
@@ -184,7 +184,7 @@ export class ImportHistoryStore {
           phase: "idle",
           error: undefined,
         });
-      this.set({ phase: "ready", error: undefined });
+      this.set({ phase: this.detecting ? "detecting" : "ready", error: undefined });
     } catch (error) {
       this.set({ error: message(error) });
     } finally {
@@ -192,7 +192,7 @@ export class ImportHistoryStore {
     }
   }
   async run(): Promise<void> {
-    if (!this.client || !canImport(this.snapshot)) return;
+    if (!this.client || this.detecting || !canImport(this.snapshot)) return;
     this.stopped = false;
     const client = this.client;
     const selected = this.snapshot.rows.filter(
@@ -216,11 +216,11 @@ export class ImportHistoryStore {
       try {
         const origin = row.kind === "text" ? (row.id as Origin) : undefined;
         const source = origin
-          ? (await client.call<{ source: string }>(OPS.prepareText, { origin, text: row.text ?? "" })).source
+          ? (await client.call<{ source: string }>(OPS.prepareText, { summaryOrigin: origin, text: row.text ?? "" })).source
           : row.source;
         if (this.stopped) return;
         if (!source) throw new Error("cmux.importHistory.missing_source");
-        const report = await client.call<ImportReport>(OPS.dryRun, { source, batch, ...(origin ? { origin } : {}) });
+        const report = await client.call<ImportReport>(OPS.dryRun, { source, batch, ...(origin ? { summaryOrigin: origin } : {}) });
         if (this.stopped) return;
         if (
           !Number.isFinite(report.plan.new) ||
@@ -245,7 +245,7 @@ export class ImportHistoryStore {
       }
       this.row(row.id, { phase: "writing" });
       try {
-        const result = await client.call<ImportReport>(OPS.write, { source, batch, ...(origin ? { origin } : {}) });
+        const result = await client.call<ImportReport>(OPS.write, { source, batch, ...(origin ? { summaryOrigin: origin } : {}) });
         if (this.stopped) return;
         this.row(row.id, { phase: "done", report: result });
         if ((result.written ?? 0) > 0) this.set({ canUndo: true });

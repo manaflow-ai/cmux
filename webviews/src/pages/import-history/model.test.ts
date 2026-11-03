@@ -26,7 +26,7 @@ function host(handle?: (call: Call) => unknown | Promise<unknown>) {
         case OPS.pickZip:
           return { source: `zip:/selected/${String(call.params.kind)}.zip`, name: "export.zip" } as R;
         case OPS.prepareText:
-          return { source: `text:/private/${String(call.params.origin)}.txt` } as R;
+          return { source: `text:/private/${String(call.params.summaryOrigin)}.txt` } as R;
         case OPS.dryRun:
           return report() as R;
         case OPS.write:
@@ -65,6 +65,36 @@ describe("Bring your history", () => {
     expect(store.getSnapshot().rows.find((row) => row.id === "dot")?.source).toBe("zip:/selected/dot.zip");
     expect(store.getSnapshot().rows.find((row) => row.id === "dot")?.selected).toBe(true);
   });
+  test("picking and editing sources during detection cannot start a write before its reply", async () => {
+    let finishDetection!: (result: { sources: { source: string }[] }) => void;
+    const detected = new Promise<{ sources: { source: string }[] }>((resolve) => {
+      finishDetection = resolve;
+    });
+    const client = host(({ op }) => (op === OPS.detect ? detected : undefined));
+    const store = new ImportHistoryStore(client);
+    const starting = store.start();
+    await store.pickZip("dot");
+    expect(canImport(store.getSnapshot())).toBe(false);
+    store.paste("muse", "My favourite editor is Helix.");
+    expect(canImport(store.getSnapshot())).toBe(false);
+    store.select("codex", false);
+    expect(store.getSnapshot().phase).toBe("detecting");
+    expect(canImport(store.getSnapshot())).toBe(false);
+    await store.run();
+    expect(client.calls.map(({ op }) => op)).toEqual([OPS.detect, OPS.pickZip]);
+
+    finishDetection({ sources: [] });
+    await starting;
+    expect(store.getSnapshot().phase).toBe("ready");
+    expect(canImport(store.getSnapshot())).toBe(true);
+    expect(store.getSnapshot().rows.find((row) => row.id === "dot")?.selected).toBe(true);
+    await store.run();
+    expect(store.getSnapshot().phase).toBe("done");
+    expect(client.calls.filter(({ op }) => op === OPS.begin)).toHaveLength(1);
+    expect(client.calls.filter(({ op }) => op === OPS.write).map(({ params }) => params.source)).toContain(
+      "zip:/selected/dot.zip",
+    );
+  });
   test("all plans precede any write, unchecked sources stay out, one batch owns Undo", async () => {
     const client = host();
     const store = new ImportHistoryStore(client);
@@ -101,9 +131,9 @@ describe("Bring your history", () => {
     await store.run();
     const ops = client.calls.slice(1);
     expect(ops.map(({ op }) => op)).toEqual([OPS.begin, OPS.prepareText, OPS.dryRun, OPS.write]);
-    expect(ops[1]?.params).toEqual({ origin: "muse", text: "I work on a garden." });
-    expect(ops[2]?.params.origin).toBe("muse");
-    expect(ops[3]?.params.origin).toBe("muse");
+    expect(ops[1]?.params).toEqual({ summaryOrigin: "muse", text: "I work on a garden." });
+    expect(ops[2]?.params.summaryOrigin).toBe("muse");
+    expect(ops[3]?.params.summaryOrigin).toBe("muse");
   });
   test("zero-new and unsafe-cost plans never write", async () => {
     const client = host(({ op, params }) =>
