@@ -61,8 +61,12 @@ await requireBrowserLane("code-block-highlight-height.test.ts", async () => {
     let heldWorkers = 0;
     const workerGate = new Promise<void>((resolve) => (releaseWorker = resolve));
     await page.route(/worker\.js(?:\?|$)/, async (route) => {
-      heldWorkers += 1;
-      await workerGate;
+      // Vite's ?worker import is the synchronous constructor wrapper. Let that module load;
+      // only the worker_file request runs in the worker and may wait for the sampled frames.
+      if (new URL(route.request().url()).searchParams.has("worker_file")) {
+        heldWorkers += 1;
+        await workerGate;
+      }
       await route.continue();
     });
     await installPaintedFrames(page);
