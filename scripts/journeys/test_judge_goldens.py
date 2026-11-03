@@ -66,6 +66,10 @@ def write_judges(root, video=STUB_VIDEO, trace=STUB_TRACE, keys=STUB_KEYS, scan=
     (root / "video-cases" / "judge_trace.py").write_text(textwrap.dedent(trace))
     (root / "video-cases" / "judge_keys.py").write_text(textwrap.dedent(keys))
     (root / "video-cases" / "judge_scan.py").write_text(textwrap.dedent(scan))
+    # The judges' unit tests run with every `run` (the TRUTH tier): stand-in judges carry one passing test.
+    (root / "test_video_judge.py").write_text("import unittest\nclass T(unittest.TestCase):\n"
+                                              "    def test_ok(self): self.assertTrue(True)\n"
+                                              "if __name__ == '__main__':\n    unittest.main()\n")
     return root
 
 

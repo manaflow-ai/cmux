@@ -30,8 +30,8 @@ A film is every <name>.mov.frames.json or <name>.trace.json in a gallery folder 
   judge_scan   judge_scan.py (its own process: exit code and --json) films with .trace.json and .mov.scan
 A judge that raises gives the result {"error": "<type>: <message>"}: a crash is a result, so a fix of it shows.
 
-Results are compared as normalized JSON: the absolute base path dropped, the store path written as <root>, floats
-rounded to 6 decimals, NaN and infinities named. Exit codes: run: 0 every result reproduced, 1 a difference,
+Results are compared as normalized JSON: the store path written as <root> (no key is dropped), floats rounded to
+6 decimals, NaN and infinities named. Exit codes: run: 0 every result reproduced, 1 a difference,
 2 NO VERDICT (a store file changed or is missing, a film of the manifest is not in the store, or the toolchain
 (python, numpy, the ffmpeg binary) is not the blessed one); bless and snapshot: 0 done, 2 refused.
 
@@ -54,6 +54,7 @@ import math
 import multiprocessing
 import os
 import platform
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -84,10 +85,11 @@ FICLONE = 0x40049409  # Linux ioctl: share the source's blocks (a reflink copy)
 # Normalized results
 # ---------------------------------------------------------------------------------------------------------------
 def normalize(value, roots):
-    """VALUE as plain JSON that does not depend on where the store is: no `base` key, ROOTS written as <root>,
-    floats rounded to FLOAT_DECIMALS (-0.0 as 0.0), NaN and infinities as strings, numpy values as Python values."""
+    """VALUE as plain JSON that does not depend on where the store is: ROOTS written as <root>, floats rounded to
+    FLOAT_DECIMALS (-0.0 as 0.0), NaN and infinities as strings, numpy values as Python values. No key is dropped: a
+    path a judge reports (video_judge's `base`) is the same <root> path on every machine."""
     if isinstance(value, dict):
-        return {str(k): normalize(v, roots) for k, v in value.items() if k != "base"}
+        return {str(k): normalize(v, roots) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [normalize(v, roots) for v in value]
     if hasattr(value, "tolist") and not isinstance(value, (str, bytes)):
@@ -519,15 +521,31 @@ def verify_store(store, films_doc, films, jobs):
     return problems
 
 
-def judge_all(store, films_doc, films, judges_dir, jobs):
+class RunnerTimeout(RuntimeError):
+    """The judges did not finish within the run's deadline (a judge that hangs): NO VERDICT, never a difference."""
+
+
+def judge_all(store, films_doc, films, judges_dir, jobs, deadline_s=None):
+    """Every judge result of FILMS, judged in spawned workers that import only JUDGES_DIR's judges. A run longer than
+    DEADLINE_S raises RunnerTimeout naming the films still running (their workers are ended)."""
     ctx = multiprocessing.get_context("spawn")
     results = {}
-    with concurrent.futures.ProcessPoolExecutor(max(1, jobs), mp_context=ctx, initializer=_init_worker,
-                                                initargs=(str(judges_dir),)) as pool:
-        futures = [pool.submit(judge_film, str(store), film, films_doc["films"][film]["judges"]) for film in films]
-        for future in concurrent.futures.as_completed(futures):
-            film, out = future.result()
-            results[film] = out
+    pool = concurrent.futures.ProcessPoolExecutor(max(1, jobs), mp_context=ctx, initializer=_init_worker,
+                                                  initargs=(str(judges_dir),))
+    try:
+        futures = {pool.submit(judge_film, str(store), film, films_doc["films"][film]["judges"]): film for film in films}
+        try:
+            for future in concurrent.futures.as_completed(futures, timeout=deadline_s):
+                film, out = future.result()
+                results[film] = out
+        except concurrent.futures.TimeoutError:
+            left = sorted(film for future, film in futures.items() if not future.done())
+            for proc in list(getattr(pool, "_processes", {}).values()):
+                proc.terminate()  # our own spawned workers only (this pool's children)
+            raise RunnerTimeout(f"{len(left)} films not judged within {deadline_s:.0f} s (a judge that hangs?): "
+                                + ", ".join(left[:8]))
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
     return results
 
 
@@ -567,6 +585,176 @@ def git_state(judges_dir):
 
 
 # ---------------------------------------------------------------------------------------------------------------
+# TRUTH tier: facts known without the judges
+# ---------------------------------------------------------------------------------------------------------------
+CLASS_HI, CLASS_LO = 160, 96  # a channel >= HI is on, <= LO is off, between: no class (a glyph, a blend, chrome)
+RULER_EDGE_FRAMES = 6         # a ruler fact's first and last frame are exact: it must not hold this far beyond
+UNIT_TEST_GLOBS = ("test_video_judge*.py", "video-cases/test_judge_*.py")
+UNIT_TEST_TIMEOUT_S = 900
+
+
+def _scan_layout(path):
+    with open(path, "rb") as f:
+        head = json.loads(f.readline())
+        data = f.read()
+    rows, cols = head["rows"], head["columns"]
+    record = 8 + len(rows) * head["width"] * 4 + len(cols) * head["height"] * 4
+    return head, data, record, len(data) // record
+
+
+def _scan_line(head, data, record, frame, line, at):
+    """The BGRA bytes of scan LINE ("row" or "col") AT (device px) in complete frame FRAME."""
+    width, height, rows, cols = head["width"], head["height"], head["rows"], head["columns"]
+    if line == "row":
+        offset = frame * record + 8 + rows.index(at) * width * 4
+        return data[offset:offset + width * 4]
+    offset = frame * record + 8 + len(rows) * width * 4 + cols.index(at) * height * 4
+    return data[offset:offset + height * 4]
+
+
+def _color_class(hex_color):
+    value = int(str(hex_color).lstrip("#"), 16)
+    r, g, b = (value >> 16) & 255, (value >> 8) & 255, value & 255
+    return tuple(1 if c >= CLASS_HI else 0 if c <= CLASS_LO else -1 for c in (b, g, r))
+
+
+def _class_runs(pixels, want):
+    """[(first px, last px)] of the runs of pixels whose class is WANT."""
+    out, start, n = [], None, len(pixels) // 4
+    for x in range(n):
+        b, g, r = pixels[4 * x], pixels[4 * x + 1], pixels[4 * x + 2]
+        cls = tuple(1 if c >= CLASS_HI else 0 if c <= CLASS_LO else -1 for c in (b, g, r))
+        if cls == want:
+            start = x if start is None else start
+        elif start is not None:
+            out.append((start, x - 1))
+            start = None
+    if start is not None:
+        out.append((start, n - 1))
+    return out
+
+
+def ruler_check(base, fact):
+    """Whether the film at BASE shows FACT, read from its exact scan lines with no judge code: on scan line
+    fact["line"] ("row" or "col") at fact["at"] (device px), a run of fact["class"] (a fixture color: each channel
+    on, >= 160, or off, <= 96) of at least fact["min_run_px"] px starts inside fact["x"] in every complete frame of
+    fact["frames"] (inclusive), and in none of the RULER_EDGE_FRAMES frames before and after them."""
+    head, data, record, count = _scan_layout(f"{base}.mov.scan")
+    want, (lo, hi), (first, last) = _color_class(fact["class"]), fact["x"], fact["frames"]
+    need = int(fact.get("min_run_px", 4))
+
+    def shows(frame):
+        runs = _class_runs(_scan_line(head, data, record, frame, fact["line"], fact["at"]), want)
+        return any(lo <= a <= hi and b - a + 1 >= need for a, b in runs)
+
+    if not (0 <= first <= last < count):
+        return {"holds": False, "missing_in": [], "present_outside": [], "frames": count,
+                "error": f"frames {first}..{last} are not in the film's {count} complete frames"}
+    missing = [f for f in range(first, last + 1) if not shows(f)]
+    outside = [f for f in list(range(max(0, first - RULER_EDGE_FRAMES), first))
+               + list(range(last + 1, min(count, last + 1 + RULER_EDGE_FRAMES))) if shows(f)]
+    return {"holds": not missing and not outside, "missing_in": missing, "present_outside": outside, "frames": count}
+
+
+def _expectation(result, expect):
+    """None when the judge RESULT meets the TRUTH expectation EXPECT, else why not."""
+    if not isinstance(result, dict) or result.get("error") and len(result) == 1:
+        return f"the judge gave no result: {json.dumps(result)[:200]}"
+    if "defect_frames" in expect:  # every frame of these spans is inside some defect finding of the judge
+        spans = [f.get("frames") for f in result.get("findings") or [] if f.get("severity") == "defect"
+                 and isinstance(f.get("frames"), list) and len(f["frames"]) == 2]
+        missed = [k for lo, hi in expect["defect_frames"] for k in range(lo, hi + 1)
+                  if not any(a <= k <= b for a, b in spans)]
+        if missed:
+            return f"{len(missed)} frames of {expect['defect_frames']} are in no defect finding (first {missed[:6]})"
+        return None
+    if "check" in expect or "absent_check" in expect:  # video_judge findings
+        defects = [f for f in result.get("findings") or [] if f.get("severity") == "defect"]
+        if "check" in expect:
+            hits = [f for f in defects if f.get("check") == expect["check"]]
+            if expect.get("frames") is not None and not any(f.get("frames") == list(expect["frames"]) for f in hits):
+                seen = [f.get("frames") for f in hits]
+                return f"no {expect['check']!r} defect over exactly frames {expect['frames']} (it reports {seen or 'none'})"
+            if not hits:
+                return f"no {expect['check']!r} defect"
+            return None
+        hits = [f.get("frames") for f in defects if f.get("check") == expect["absent_check"]]
+        return f"must not report {expect['absent_check']!r}, reports it over frames {hits}" if hits else None
+    if "kind" in expect or "absent_kind" in expect:  # judge_trace defects
+        kinds = collections.Counter(d.get("kind") for d in result.get("defects") or [])
+        if "kind" in expect:
+            want = int(expect.get("count", 1))
+            return None if kinds.get(expect["kind"], 0) >= want else \
+                f"no {expect['kind']!r} defect ({dict(kinds) or 'none'})"
+        n = kinds.get(expect["absent_kind"], 0)
+        return f"must not report {expect['absent_kind']!r}, reports {n}" if n else None
+    return f"an expectation this runner does not know: {json.dumps(expect)[:200]}"
+
+
+def load_truth(manifest):
+    return read_json(Path(manifest) / "truth.json", {"v": 1, "facts": []}) or {"v": 1, "facts": []}
+
+
+def check_truth(store, manifest, results, films=None):
+    """(passed, total, failures, no_verdict) of the truth facts on RESULTS (per film and judge, as judge_all gives),
+    for the facts of FILMS (default: every fact). A ruler fact the film does not show is NO VERDICT (the film or the
+    fact is wrong); an expectation a judge does not meet is a TRUTH failure."""
+    passed = total = 0
+    failures, no_verdict = [], []
+    for fact in load_truth(manifest).get("facts") or []:
+        fid, film = fact.get("id"), fact.get("film")
+        if films is not None and film not in films:
+            continue
+        base = str(Path(store) / "films" / film)
+        if fact.get("ruler"):
+            total += 1
+            try:
+                got = ruler_check(base, fact["ruler"])
+            except (OSError, ValueError, KeyError) as error:
+                got = {"holds": False, "error": f"{type(error).__name__}: {error}"}
+            if got["holds"]:
+                passed += 1
+            else:
+                no_verdict.append(f"{fid} ({film}): the ruler fact does not hold on the stored film: "
+                                  f"{json.dumps({k: v for k, v in got.items() if k != 'holds'})[:300]}")
+        for expect in fact.get("expect") or []:
+            total += 1
+            judge = expect.get("judge")
+            if film not in results or judge not in results[film]:
+                failures.append(f"TRUTH FAIL {fid} ({film}): {judge} did not judge this film")
+                continue
+            why = _expectation(results[film][judge]["result"], expect)
+            if why:
+                failures.append(f"TRUTH FAIL {fid} ({film}): {judge}: {why}")
+            else:
+                passed += 1
+    return passed, total, failures, no_verdict
+
+
+def unit_tests(judges_dir):
+    """Runs the judges' unit tests (UNIT_TEST_GLOBS in JUDGES_DIR) in their own process: (ran, failed, skipped, the
+    names), or None when the folder has none."""
+    judges_dir = Path(judges_dir).resolve()
+    files = sorted({p for g in UNIT_TEST_GLOBS for p in judges_dir.glob(g)})
+    if not files:
+        return None
+    ran = failed = skipped = 0
+    for path in files:
+        done = subprocess.run([sys.executable, "-I", str(path)], capture_output=True, text=True, cwd=str(path.parent),
+                              timeout=UNIT_TEST_TIMEOUT_S)
+        text = done.stdout + done.stderr
+        m = re.search(r"^Ran (\d+) tests?", text, re.M)
+        n = int(m.group(1)) if m else 0
+        ran += n
+        skipped += sum(int(x) for x in re.findall(r"skipped=(\d+)", text))
+        if done.returncode != 0 or not m:
+            bad = re.search(r"FAILED \(([^)]*)\)", text)
+            counts = [int(x) for x in re.findall(r"(?:failures|errors)=(\d+)", bad.group(1))] if bad else []
+            failed += sum(counts) or max(1, n)
+    return ran, failed, skipped, [str(p.relative_to(judges_dir)) for p in files]
+
+
+# ---------------------------------------------------------------------------------------------------------------
 # bless and run
 # ---------------------------------------------------------------------------------------------------------------
 def cmd_bless(opts):
@@ -590,7 +778,19 @@ def cmd_bless(opts):
         print("REFUSED (NO VERDICT): the store is not the one films.json records:\n  " + "\n  ".join(problems[:40]),
               file=sys.stderr)
         return 2
-    results = judge_all(store, films_doc, films, opts.judges, opts.jobs)
+    results = judge_all(store, films_doc, films, opts.judges, opts.jobs, opts.deadline_minutes * 60)
+    passed, total, failures, no_verdict = check_truth(store, manifest, results)
+    if no_verdict:
+        print("REFUSED (NO VERDICT): a TRUTH ruler fact does not hold:\n  " + "\n  ".join(no_verdict), file=sys.stderr)
+        return 2
+    unit = unit_tests(opts.judges)
+    if unit is None or unit[1]:
+        failures.append("unit tests: " + ("none in the judges folder" if unit is None else
+                                          f"{unit[1]} of {unit[0]} failed in {', '.join(unit[3])}"))
+    if failures:
+        print("REFUSED: the judges fail the TRUTH tier, which no bless can change:\n  " + "\n  ".join(failures),
+              file=sys.stderr)
+        return 2
     old = read_json(manifest / "expected.json", {}) or {}
     expected_dir = store / "expected"
     expected_dir.mkdir(parents=True, exist_ok=True)
@@ -605,11 +805,12 @@ def cmd_bless(opts):
             changed.append(film)
     history = list(old.get("history") or [])
     history.append({"at": utc_now(), "reason": opts.reason, "films": len(films), "changed": changed,
-                    "judges": {k: v for k, v in (judges_state or {}).items() if k in ("commit", "blobs")}})
+                    "judges": {k: v for k, v in (judges_state or {}).items() if k in ("commit", "blobs", "dirty")},
+                    **({"git_check": "skipped (--no-git-check)"} if opts.no_git_check else {})})
     write_json(manifest / "expected.json", {"v": 1, "toolchain": toolchain(), "calls": CALLS, "history": history,
                                             "films": entries})
-    print(f"blessed {len(films)} films ({sum(len(v) for v in entries.values())} results); changed {len(changed)}: "
-          f"{opts.reason}")
+    print(f"blessed {len(films)} films ({sum(len(v) for v in entries.values())} results); changed {len(changed)}; "
+          f"truth: {passed} of {total}: {opts.reason}")
     return 0
 
 
@@ -634,7 +835,7 @@ def cmd_run(opts):
     if problems:
         print("NO VERDICT: the store is not the one films.json records:\n  " + "\n  ".join(problems[:40]), file=sys.stderr)
         return 2
-    results = judge_all(store, films_doc, films, opts.judges, opts.jobs)
+    results = judge_all(store, films_doc, films, opts.judges, opts.jobs, opts.deadline_minutes * 60)
     total = same = 0
     diffs, report = [], {}
     for film in films:
@@ -662,10 +863,31 @@ def cmd_run(opts):
             diffs.append(f"DIFF {judge} {film}: {detail or 'same summary'}\n      " + "\n      ".join(paths))
     for line in sorted(diffs):
         print(line)
-    print(f"judge goldens: {len(films)} films, judges in {Path(opts.judges).resolve()}: reproduced {same} of {total}")
+    t_passed, t_total, t_failures, t_no_verdict = check_truth(store, manifest, results, set(films))
+    for line in t_failures:
+        print(line)
+    unit = None if opts.no_unit_tests else unit_tests(opts.judges)
+    unit_line, unit_failed = "unit tests: NOT RUN (--no-unit-tests)", False
+    if not opts.no_unit_tests:
+        if unit is None:
+            unit_line, unit_failed = f"TRUTH FAIL unit tests: none in {Path(opts.judges).resolve()}", True
+        else:
+            ran, failed, skipped, names = unit
+            unit_line = (f"unit tests: {ran - failed} of {ran}" + (f" ({skipped} skipped)" if skipped else "")
+                         + f" in {', '.join(names)}")
+            if failed:
+                unit_line, unit_failed = "TRUTH FAIL " + unit_line, True
+    print(f"judge goldens: {len(films)} films, judges in {Path(opts.judges).resolve()}: reproduced {same} of {total}; "
+          f"truth: {t_passed} of {t_total}; {unit_line}")
     if opts.json:
-        write_json(opts.json, {"reproduced": same, "results": total, "films": report, "differences": sorted(diffs)})
-    return 0 if same == total else 1
+        write_json(opts.json, {"reproduced": same, "results": total, "films": report, "differences": sorted(diffs),
+                               "truth": {"passed": t_passed, "total": t_total, "failures": t_failures,
+                                         "no_verdict": t_no_verdict}, "unit_tests": unit_line})
+    if t_no_verdict:
+        print("NO VERDICT: a TRUTH ruler fact does not hold on the stored film:\n  " + "\n  ".join(t_no_verdict),
+              file=sys.stderr)
+        return 2
+    return 0 if same == total and not t_failures and not unit_failed else 1
 
 
 def main(argv=None):
@@ -681,6 +903,10 @@ def main(argv=None):
     ap.add_argument("--jobs", type=int, default=max(1, min(32, (os.cpu_count() or 4) // 4)))
     ap.add_argument("--json", help="run: write the per-film report here")
     ap.add_argument("--no-git-check", action="store_true", help="bless: accept uncommitted judges (tests only)")
+    ap.add_argument("--no-unit-tests", action="store_true",
+                    help="run: do not run the judges' unit tests (said in the result line; for older judges only)")
+    ap.add_argument("--deadline-minutes", type=float, default=60.0,
+                    help="bless and run: NO VERDICT when the judges have not finished in this long (default 60)")
     ap.add_argument("--settled-minutes", type=float, default=10.0,
                     help="snapshot: take a folder only when no file in it changed for this long (default 10)")
     opts = ap.parse_args(argv)

@@ -177,6 +177,25 @@ class TruthRunTests(unittest.TestCase):
         finally:
             w.close()
 
+    def test_every_band_frame_must_be_in_a_defect_finding(self):
+        partial = TruthWorkspace(video=video_stub(frames=[BAND_FRAMES[0], BAND_FRAMES[1] - 1]))
+        try:
+            partial.write_truth(expect=[{"judge": "video_judge", "defect_frames": [list(BAND_FRAMES)]}])
+            self.assertEqual(partial.snapshot()[0], 0)
+            code, out = partial.bless()
+            self.assertEqual(code, 2, out)
+            self.assertIn("1 frames of", out)
+        finally:
+            partial.close()
+        full = TruthWorkspace()
+        try:
+            full.write_truth(expect=[{"judge": "video_judge", "defect_frames": [list(BAND_FRAMES)]}])
+            self.assertEqual(full.snapshot()[0], 0)
+            code, out = full.bless()
+            self.assertEqual(code, 0, out)
+        finally:
+            full.close()
+
     def test_a_ruler_fact_the_film_does_not_show_is_no_verdict(self):
         w = TruthWorkspace()
         try:
@@ -200,6 +219,17 @@ class TruthRunTests(unittest.TestCase):
             code, out = w.run(broken)
             self.assertEqual(code, 1, out)
             self.assertIn("TRUTH FAIL unit tests", out)
+        finally:
+            w.close()
+
+    def test_a_bless_with_failing_unit_tests_is_refused(self):
+        w = TruthWorkspace(unit=FAILING_UNIT_TESTS)
+        try:
+            w.write_truth()
+            self.assertEqual(w.snapshot()[0], 0)
+            code, out = w.bless()
+            self.assertEqual(code, 2, out)
+            self.assertIn("unit tests: 1 of 2 failed", out)
         finally:
             w.close()
 
