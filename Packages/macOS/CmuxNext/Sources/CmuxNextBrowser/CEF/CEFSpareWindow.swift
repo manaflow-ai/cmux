@@ -26,6 +26,13 @@ import Foundation
 /// cmux tab. A tab Chromium puts into the spare's window anyway (an
 /// extension's `chrome.tabs.create` targets its last window) waits there
 /// (`park`) and is adopted by the first tab that takes the spare.
+///
+/// The spare window also holds one spare page (`page`): a Chromium browser made at the next idle
+/// moment after the window is up, with an empty URL (no navigation, so no history entry), in the
+/// background (Chromium counts it hidden), belonging to no tab. A new tab of the default profile's
+/// own store takes it instead of `cmux_shim_tab_add` (`CEFPaneHost+SparePage`), which held the main
+/// thread about 12 ms per new tab, as Chrome on Android's WarmupManager keeps a spare WebContents
+/// outside the tab model. Each take reports `onNeeded`, so the next idle moment makes the next one.
 final class CEFSpareWindow {
     static let shared = CEFSpareWindow()
     static let panePrefix = "spare-"
@@ -42,6 +49,12 @@ final class CEFSpareWindow {
     var onNeeded: (@MainActor () -> Void)?
     /// Tabs Chromium created in the spare's window before a tab took it.
     private var parked: [(browser: Int32, disposition: BrowserNewTabDisposition, bounds: CGRect?)] = []
+    /// The untaken spare page, the host whose window it is in (the spare's, or the pane's that took
+    /// that window until its placeholder closes) and how it is frozen. At most one.
+    private(set) var page: (browser: Int32, host: CEFPaneHost, freeze: CEFPageFreeze)?
+    /// True inside the `tab_add` that makes the spare page: its OnAfterCreated is no Chromium tab to adopt
+    /// (`CEFRuntime.browserCreated`).
+    private(set) var isMakingPage = false
 
     var state: State {
         guard let host else { return made ? .taken : .none }
@@ -54,10 +67,12 @@ final class CEFSpareWindow {
     /// Starts the spare window: true when it started. Chromium must run, no
     /// untaken spare may exist, and no other Chromium window may be on its
     /// way (a window built beside another one raced it, os-smoke 2026-10-18).
+    /// With the spare window up, makes its spare page instead (`preparePage`).
     @discardableResult
     func prepare(runtime: CEFRuntime) -> Bool {
-        guard host == nil, runtime.state == .ready, runtime.acceptsNewBrowsers,
+        guard runtime.state == .ready, runtime.acceptsNewBrowsers,
               !runtime.hosts.values.contains(where: \.isCreatingWindow) else { return false }
+        if let host { return preparePage(in: host, runtime: runtime) }
         made = true
         let key = Self.spareKey()
         let spare = runtime.host(for: key)
@@ -91,6 +106,63 @@ final class CEFSpareWindow {
         return spare
     }
 
+    /// Makes the spare page in the live spare window: in the background (the placeholder stays its
+    /// active tab), with an empty URL. Needs `cmux_shim_tab_move_to_window` (fork API 3), which takes it
+    /// into a pane's window. True when it was made.
+    private func preparePage(in spare: CEFPaneHost, runtime: CEFRuntime) -> Bool {
+        guard page == nil, spare.isLive, runtime.forkAPIVersion >= 3, let anchor = spare.placeholder?.browserID,
+              let shim = runtime.shim else { return false }
+        isMakingPage = true
+        defer { isMakingPage = false }
+        let add = { shim.tabAdd(anchor, "", -1, 0) }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        let browser = runtime.benchMarks.span("cef.spare_page", add)
+        #else
+        let browser = add()
+        #endif
+        guard browser != 0 else { return false }
+        // No one sees it: no frames, timers or tasks until a tab takes it.
+        page = (browser, spare, CEFPageFreeze.freeze(browser, runtime: runtime))
+        return true
+    }
+
+    /// The spare page for `tab`, which `host` is about to make a browser for in its live window,
+    /// thawed, when one is ready and the tab may take it. Only a tab the person sees (`host` shows it)
+    /// and no agent drives: a hidden or agent-driven background tab never uses up the page that makes
+    /// the person's next new tab fast (the person's input goes before automation). Also the default
+    /// profile's own store, no remote machine's store, not incognito; no history to restore (that needs
+    /// a browser with no committed entries, `tab_add` with an empty URL); in a pane (not a popup host or
+    /// the spare). The page is the tab's from now on; the next idle moment makes the next one.
+    func takePage(for tab: CEFTab, in host: CEFPaneHost) -> (browser: Int32, host: CEFPaneHost)? {
+        guard let page, host.visibleTab === tab, !tab.isAgentDriven, !tab.awaitsWindowMove, tab.pendingRestore == nil,
+              tab.machineStore == nil, host.key.profile == page.host.key.profile, host.key.machineKey == nil,
+              !host.key.offTheRecord, !host.isPopupHost, !host.isSpare else { return nil }
+        self.page = nil
+        page.freeze.thaw(page.browser, runtime: host.runtime)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        host.runtime.benchMarks.point("cef.spare_page_taken")
+        #endif
+        onNeeded?()
+        return (page.browser, page.host)
+    }
+
+    /// The untaken spare page in `host`'s window closes: that window was taken and its placeholder
+    /// closes (`closeSparePlaceholder`), or it has no tab left. A pane window never keeps a page no tab
+    /// of it shows (an extension would see it, and Chromium might activate it).
+    func closePage(in host: CEFPaneHost) {
+        guard let page, page.host === host else { return }
+        self.page = nil
+        host.runtime.shim?.close(page.browser)
+        if self.host != nil { onNeeded?() }
+    }
+
+    /// Chromium closed `browser` before a tab took it (an extension removed it, quit).
+    func browserClosed(_ browser: Int32) {
+        guard page?.browser == browser else { return }
+        page = nil
+        if host != nil { onNeeded?() }
+    }
+
     /// The tab that took `taken` closed before it joined the window, and only
     /// the placeholder is left: `taken` is the spare again.
     func giveBack(_ taken: CEFPaneHost, runtime: CEFRuntime) {
@@ -117,6 +189,11 @@ final class CEFSpareWindow {
 
     /// Closes the untaken spare: its placeholder goes, and the window with it.
     func drop(runtime: CEFRuntime) {
+        // Its page too, and no next one is asked for.
+        if let page {
+            self.page = nil
+            page.host.runtime.shim?.close(page.browser)
+        }
         guard let spare = host, let blank = spare.placeholder else { return }
         host = nil
         spare.placeholder = nil
@@ -126,9 +203,11 @@ final class CEFSpareWindow {
     }
 
     /// A Chromium window came up (`CEFPaneHost.windowCreated`): with no spare ready, ask for one,
-    /// so a Chromium a tab started, not the warm start, gets a spare too.
+    /// so a Chromium a tab started, not the warm start, gets a spare too. The spare window itself
+    /// coming up asks for its spare page.
     func windowCameUp(_ live: CEFPaneHost) {
-        if host == nil, !live.isPopupHost { onNeeded?() }
+        guard !live.isPopupHost else { return }
+        if host == nil || (live === host && page == nil) { onNeeded?() }
     }
 
     /// Chromium put `browser` into the spare's window before a tab took it.
@@ -168,6 +247,8 @@ extension CEFPaneHost {
         guard !isPopupHost, !isSpare, placeholder != nil, placeholder !== tab, tab.browserID != nil else { return }
         Task { @MainActor [weak self, weak tab] in
             guard let self, let tab, let blank = self.placeholder, self.tabs.contains(where: { $0 === tab }) else { return }
+            // A spare page no tab took goes first: never the active tab, so Chromium's activation stays.
+            CEFSpareWindow.shared.closePage(in: self)
             self.placeholder = nil
             // The joined tab is what this host shows: Chromium's activation
             // after the close is this host's own, never a foreign one.
