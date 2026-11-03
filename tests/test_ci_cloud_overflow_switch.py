@@ -17,6 +17,12 @@ import yaml
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+# The trusted-token selector (tests/test_ci_fork_runner_routing.py TRUSTED_RUNNER_EXPRESSION).
+TRUSTED_SELECTOR = (
+    "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('"
+    '["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'
+    "'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
+)
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import check_repo_variables as check  # noqa: E402
@@ -825,15 +831,20 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("if: always() && steps.switch.outputs.outcome != 'started'", self.text)
 
     def test_watch_runs_off_blacksmith_and_passes_every_switched_variable(self) -> None:
-        # Never GitHub-hosted Ubuntu: on 2026-10-27 the watch queued 94 minutes there behind the
-        # switch's own failover and held the concurrency group, so no later run decided anything.
+        # The trusted-token selector, never a single label: on 2026-11-03 the literal
+        # blacksmith-6vcpu-macos-26 was dead and the watch queued 19 minutes (run 41688532704),
+        # so the hosted light rescue it carries ran every 20-25 minutes (cmuxterm-hq#6671).
         runs_on = re.search(r"name: Watch the probe and switch overflow\n(?:.*\n)*?\s+runs-on: (.*)", self.text).group(1)
-        self.assertNotIn("ubuntu-24.04", runs_on)
+        runs_on, _, comment = runs_on.partition(" # ")
+        self.assertEqual(runs_on, TRUSTED_SELECTOR)
+        self.assertTrue(comment.startswith("ephemeral-required:"), comment)
+        # By default (CI_TRUSTED_RUNNER unset or a stray value) it is a Blacksmith Linux size the probes
+        # do not all ask for, and GitHub-hosted only when someone sets CI_TRUSTED_RUNNER to it: on
+        # 2026-10-27 the watch queued 94 minutes on hosted Ubuntu behind the switch's own failover.
         self.assertNotIn("ubuntu-latest", runs_on)
-        self.assertNotIn("github-hosted-required", runs_on)
-        # Blacksmith macOS: never a size the probes ask for, so it never queues behind them.
-        self.assertEqual(runs_on, "blacksmith-6vcpu-macos-26")
-        self.assertNotIn("ubuntu", runs_on)
+        self.assertTrue(runs_on.endswith("|| 'blacksmith-4vcpu-ubuntu-2404' }}"))
+        self.assertIn(switch.TRUSTED_FAILOVER, runs_on)
+        self.assertNotIn(switch.TRUSTED_FAILOVER, switch.PROBE_LABELS)
         names = set(switch.SWITCHED_VARIABLES) | {switch.RECORD_VARIABLE, switch.OVERRIDES_VARIABLE,
                                                   "CMUX_CI_XCODE_APP_PR"}
         for name in names:
@@ -845,10 +856,12 @@ class WorkflowTests(unittest.TestCase):
     def test_the_job_with_the_variable_write_key_runs_on_a_literal_ephemeral_label(self) -> None:
         # The watch mints the GLAEDA_ROUTE_APP_KEY token that writes repository variables. #27022 let
         # CI_CONTROL_RUNNER pick its runner, an owned (reused) Mac for one, so a variable could put that
-        # key on a machine where it outlives the job, and the job could write the variable that picks
-        # its own runner. Only a literal ephemeral label may carry it, as for promote-nightly-next.
+        # key on a machine where it outlives the job. Only a literal ephemeral label, or the trusted
+        # selector whose expression bounds CI_TRUSTED_RUNNER to ephemeral labels, may carry it.
         for name, job in yaml.safe_load(self.text)["jobs"].items():
             if "secrets." not in json.dumps(job) and "create-github-app-token" not in json.dumps(job):
+                continue
+            if job["runs-on"] == TRUSTED_SELECTOR:
                 continue
             self.assertNotIn("${{", job["runs-on"], name)
             self.assertTrue(job["runs-on"].startswith(switch.CLOUD_PREFIX), name)
