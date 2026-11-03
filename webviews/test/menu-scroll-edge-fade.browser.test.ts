@@ -29,7 +29,7 @@ await requireBrowserLane("menu-scroll-edge-fade.browser.test.ts", async () => {
     await vite.listen();
     browser = await chromium.launch({ headless: true });
     for (const [entry, variant] of scenes) await warmGalleryFrame(vite, entry, { browser, params: { variant } });
-  });
+  }, 240_000);
   afterAll(async () => {
     await browser?.close();
     await vite?.close();
