@@ -47,10 +47,10 @@ public actor CloudMachineLink {
         self.deviceName = deviceName
     }
 
-    /// `attachEndpoint`'s 30 s request, with room for its token read.
-    static let attachBound: Duration = .seconds(45)
-    /// A hub start's enrollment (60 s) and first line (45 s), with room for its token read.
-    static let hubBound: Duration = .seconds(120)
+    /// `attachEndpoint`'s token read (60 s) and request (30 s), plus a margin: a slow healthy start must not trip it.
+    static let attachBound: Duration = .seconds(95)
+    /// A hub start's token read (60 s), enrollment (60 s) and first line (45 s), plus a margin.
+    static let hubBound: Duration = .seconds(170)
 
     /// A connect that did nothing, so a stuck machine's log says why no link started.
     public nonisolated static func noteConnectSkipped(_ machineID: String, disconnected: Bool, changing: Bool) {
@@ -178,17 +178,23 @@ public actor CloudMachineLink {
         let deviceFingerprint = paths.loadLinkDeviceFingerprint(machineID: machineID)
         // Lifecycle transitions can run during every await. A stale start
         // must never publish a socket or replace a newer link.
-        // Each wait is bounded so a stuck step fails with its name instead of leaving the machine
-        // "booting" with no error. Past the API call's own 30 s: its token read has no deadline.
+        // Each wait is bounded past its parts' own deadlines, so only a stuck step (an unbounded hop
+        // such as the team read) trips it: it fails with its name instead of leaving "booting" silently.
         let (api, hub, machineID) = (api, hub, machineID)
         logger.notice("link start for \(machineID, privacy: .public): attach endpoint")
-        let endpoint = try await SandboxDeadline.race(Self.attachBound, timedOut: "link attach endpoint") {
-            try await api.attachEndpoint(machineID, deviceFingerprint: deviceFingerprint)
+        let endpoint: CloudAttachEndpoint, hubEndpoint: CloudHubEndpoint
+        do {
+            endpoint = try await SandboxDeadline.race(Self.attachBound, timedOut: "link attach endpoint") {
+                try await api.attachEndpoint(machineID, deviceFingerprint: deviceFingerprint)
+            }
+            try checkGeneration(generation)
+            logger.notice("link start for \(machineID, privacy: .public): tunnel hub")
+            hubEndpoint = try await SandboxDeadline.race(Self.hubBound, timedOut: "link tunnel hub") { try await hub.endpoint() }
+            try checkGeneration(generation)
+        } catch {
+            if !(error is CancellationError) { logger.error("link start for \(machineID, privacy: .public) failed: \(String(describing: error), privacy: .public)") }
+            throw error
         }
-        try checkGeneration(generation)
-        logger.notice("link start for \(machineID, privacy: .public): tunnel hub")
-        let hubEndpoint = try await SandboxDeadline.race(Self.hubBound, timedOut: "link tunnel hub") { try await hub.endpoint() }
-        try checkGeneration(generation)
         logger.notice("link start for \(machineID, privacy: .public): spawn")
         unlink(paths.linkSocket(machineID: machineID))
         let inviteFile = endpoint.invitation.map { _ in
