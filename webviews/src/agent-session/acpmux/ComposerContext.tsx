@@ -610,27 +610,39 @@ export function ComposerContext({
       <LocationFace icon={<ServerIcon />} value={waitingName} chevron />
     ) : (
       <LocationFace
-        icon={cloudPicked && cloudWorksOn ? <EnvironmentIcon kind="local" /> : layout === "cloud-toggle" ? <EnvironmentIcon kind={cloudPicked ? "cloud" : (currentComputer?.kind ?? "local")} name={currentComputer?.label} /> : <ServerIcon />}
+        icon={
+          cloudPicked && cloudWorksOn ? (
+            <EnvironmentIcon kind="local" />
+          ) : layout === "cloud-toggle" ? (
+            <EnvironmentIcon
+              kind={cloudPicked ? "cloud" : (currentComputer?.kind ?? "local")}
+              name={currentComputer?.label}
+            />
+          ) : (
+            <ServerIcon />
+          )
+        }
         value={machineValue}
         chevron
         {...(machineLive !== undefined ? { live: machineLive } : {})}
       />
     );
   // The one combined control's face (a started chat, and the `combined` arm): as before.
-  const combinedFace = waiting && waitingName ? (
-    <LocationFace icon={<EnvironmentIcon kind="cloud" name={waiting.name} />} value={waitingName} chevron />
-  ) : (
-    <LocationFace
-      icon={
-        <EnvironmentIcon
-          kind={savedPick?.kind ?? currentComputer?.kind ?? "local"}
-          name={savedPick ? undefined : currentComputer?.label}
-        />
-      }
-      value={placeName}
-      chevron
-    />
-  );
+  const combinedFace =
+    waiting && waitingName ? (
+      <LocationFace icon={<EnvironmentIcon kind="cloud" name={waiting.name} />} value={waitingName} chevron />
+    ) : (
+      <LocationFace
+        icon={
+          <EnvironmentIcon
+            kind={savedPick?.kind ?? currentComputer?.kind ?? "local"}
+            name={savedPick ? undefined : currentComputer?.label}
+          />
+        }
+        value={placeName}
+        chevron
+      />
+    );
   // Another machine: the first of the person's own machines a chat can start on is the pick (so the
   // strip always says where the chat starts), and the machine chip opens to change it; with none of
   // them listed, Add Machine….

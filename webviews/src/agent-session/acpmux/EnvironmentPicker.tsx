@@ -351,15 +351,30 @@ export function EnvironmentPicker({
       : undefined;
   const addMachine: Action | undefined =
     listRows === "machines" && onConnect
-      ? { value: ACTION + "addMachine", text: t("composer.addMachine"), kind: "local", run: () => onConnect("addMachine") }
+      ? {
+          value: ACTION + "addMachine",
+          text: t("composer.addMachine"),
+          kind: "local",
+          run: () => onConnect("addMachine"),
+        }
       : undefined;
   // Which Cloud machine: under a hairline, New Cloud Machine… and Open Cloud… (where the account's
   // machines are managed).
   const cloudSetup: Action[] =
     listRows === "cloud" && onConnect
       ? [
-          { value: ACTION + "cloudNew", text: t("composer.newCloudMachine"), kind: "cloud", run: () => onConnect("cloud") },
-          { value: ACTION + "cloudPage", text: t("composer.openCloud"), kind: "cloud", run: () => onConnect("cloudPage") },
+          {
+            value: ACTION + "cloudNew",
+            text: t("composer.newCloudMachine"),
+            kind: "cloud",
+            run: () => onConnect("cloud"),
+          },
+          {
+            value: ACTION + "cloudPage",
+            text: t("composer.openCloud"),
+            kind: "cloud",
+            run: () => onConnect("cloudPage"),
+          },
         ]
       : [];
   const actions: Action[] = [
@@ -466,12 +481,12 @@ export function EnvironmentPicker({
       : listRows === "cloud" && list === "main"
         ? cloudChoices
         : machineList
-        ? machines
-        : listRows === "where" || listRows === "run"
-          ? listRows === "run"
-            ? [...ordered.filter(isLocal).map((environment) => environment.id), ...(cloudRow ? [cloudRow] : [])]
-            : where
-          : main;
+          ? machines
+          : listRows === "where" || listRows === "run"
+            ? listRows === "run"
+              ? [...ordered.filter(isLocal).map((environment) => environment.id), ...(cloudRow ? [cloudRow] : [])]
+              : where
+            : main;
   // Cloud's row shows Sandboxed instead while ⌥ is held (or, once picked, until it is).
   const sandboxFace = offersSandbox && sandboxed !== alternate;
 
@@ -580,7 +595,9 @@ export function EnvironmentPicker({
         >
           {listRows === "cloud" ? <ServerIcon /> : <EnvironmentIcon kind="cloud" />}
           <span className="acpmux-menu-text acpmux-location-name">
-            <span className="acpmux-menu-label">{t(listRows === "cloud" ? "composer.newMachine" : "composer.cloud")}</span>
+            <span className="acpmux-menu-label">
+              {t(listRows === "cloud" ? "composer.newMachine" : "composer.cloud")}
+            </span>
             {listRows === "run" && runDetails && <span className="acpmux-menu-description">{runDetails.cloud}</span>}
           </span>
           <span className="acpmux-location-check" aria-hidden="true">
@@ -591,14 +608,21 @@ export function EnvironmentPicker({
     }
     const action = actions.find((candidate) => candidate.value === value);
     if (action) {
-      const checked = (action === another && anotherPicked) || (action === cloud && listRows === "where" && cloudChecked);
+      const checked =
+        (action === another && anotherPicked) || (action === cloud && listRows === "where" && cloudChecked);
       const setupAt = cloudSetup.indexOf(action);
       return (
         <span
           className="acpmux-location-row acpmux-env-row acpmux-env-new"
           data-kind={action.kind}
           data-action={
-            action === another ? "another" : action === addMachine ? "addMachine" : setupAt >= 0 ? action.value.slice(ACTION.length) : undefined
+            action === another
+              ? "another"
+              : action === addMachine
+                ? "addMachine"
+                : setupAt >= 0
+                  ? action.value.slice(ACTION.length)
+                  : undefined
           }
           data-divider={setupAt === 0 && cloudChoices.length > cloudSetup.length ? "" : undefined}
           data-current={checked ? "" : undefined}

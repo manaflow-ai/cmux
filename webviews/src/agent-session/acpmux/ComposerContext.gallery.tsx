@@ -386,10 +386,12 @@ type StripArm = "where-machine" | "where-machine-always" | "cloud-toggle" | "com
 const STRIP_NOTES: Record<StripArm, string> = {
   "where-machine":
     "Arm 1 of 4, shipped (Codex desktop's strip): Project | Where | Machine, three single-purpose chips. The machine chip shows only while the pick is another machine.",
-  "where-machine-always": "Arm 2 of 4: the same three chips, the machine chip always shown (this Mac's own name and its live dot).",
+  "where-machine-always":
+    "Arm 2 of 4: the same three chips, the machine chip always shown (this Mac's own name and its live dot).",
   "cloud-toggle":
     'Arm 3 of 4 (ChatGPT Work): Project | Machine, and a cloud toggle at the strip\'s end whose menu asks "Where should this chat run?".',
-  combined: "Arm 4 of 4, the baseline before this: one control, This Mac and Cloud, the machines behind its right-click Machines….",
+  combined:
+    "Arm 4 of 4, the baseline before this: one control, This Mac and Cloud, the machines behind its right-click Machines….",
 };
 /// ChatGPT Work's two rows' second lines, copied for the cloud-toggle arm only (rule 0 ships none).
 const chatgptRunDetails = {
@@ -409,7 +411,13 @@ function stripVariants(arm: StripArm) {
   const note = (what: string) => `${STRIP_NOTES[arm]} ${what}`;
   const whereOpen = arm === "cloud-toggle" ? openRunToggle : arm === "combined" ? openCombined : openWhere;
   const machineOpen =
-    arm === "where-machine" ? pickAnother : arm === "where-machine-always" ? openMachineChip : arm === "cloud-toggle" ? openMachineControl : openMachineList;
+    arm === "where-machine"
+      ? pickAnother
+      : arm === "where-machine-always"
+        ? openMachineChip
+        : arm === "cloud-toggle"
+          ? openMachineControl
+          : openMachineList;
   return {
     [`strip-${arm}`]: { note: note("Closed, on This Mac with no project: nothing is required to start."), props },
     [`strip-${arm}-where`]: { note: note("Where it runs, open."), props, play: whereOpen },
@@ -444,7 +452,9 @@ function stripVariants(arm: StripArm) {
         }
       : {}),
     [`strip-${arm}-machine-picked`]: {
-      note: note("One of the person's machines picked (gpu-box): the machine chip names it, a server and a green live dot."),
+      note: note(
+        "One of the person's machines picked (gpu-box): the machine chip names it, a server and a green live dot.",
+      ),
       props: { ...props, ...onMachine("gpu-box") },
     },
   };
@@ -783,7 +793,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "environment-picker": {
-      note: 'Where a chat runs (the shipped strip, Codex desktop\'s): This Mac, Cloud and Another machine, one line each, with no machine list and no machine-name subtitle, though gpu-box and a Cloud machine are connected. Cloud gives the new workspace its own new machine; Another machine shows the machine chip. New Cloud Machine…, Open Cloud…, SSH…, Add Machine… and Connect Phone… are the control\'s right-click menu.',
+      note: "Where a chat runs (the shipped strip, Codex desktop's): This Mac, Cloud and Another machine, one line each, with no machine list and no machine-name subtitle, though gpu-box and a Cloud machine are connected. Cloud gives the new workspace its own new machine; Another machine shows the machine chip. New Cloud Machine…, Open Cloud…, SSH…, Add Machine… and Connect Phone… are the control's right-click menu.",
       props: {
         ...baseProps,
         environments: true,
@@ -874,7 +884,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     ...stripVariants("cloud-toggle"),
     ...stripVariants("combined"),
     "strip-cloud-works-on": {
-      note: 'ChatGPT Work\'s model, for comparison only (not built in cmux: a Cloud chat\'s agent runs on its Cloud machine with its files there). Where says the agent lives in Cloud; the machine chip says the computer it works on, as ChatGPT\'s "In the cloud" chat whose files and shell are on the Mac.',
+      note: "ChatGPT Work's model, for comparison only (not built in cmux: a Cloud chat's agent runs on its Cloud machine with its files there). Where says the agent lives in Cloud; the machine chip says the computer it works on, as ChatGPT's \"In the cloud\" chat whose files and shell are on the Mac.",
       props: {
         ...stripMachines,
         stripLayout: "where-machine" as const,
