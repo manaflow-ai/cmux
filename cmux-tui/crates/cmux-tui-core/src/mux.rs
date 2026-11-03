@@ -3948,12 +3948,16 @@ impl Mux {
         let has_restored_placements = restored_public_id.as_ref().is_some_and(|public_id| {
             !state.placements_of_content(&ContentPublicId::Terminal(public_id.clone())).is_empty()
         });
-        if is_template_terminal(&terminal) && !has_restored_placements {
+        if is_template_terminal(&terminal) && restored_public_id.is_none() {
             // Cloud snapshot template, first adoption: its builder's placement
             // was wiped with the builder's registry, so it gets a new one here.
             // The template marker stays on the durable row, so a later daemon
             // start (crash, in-place upgrade) finds the placement this one
             // committed and restores it below instead of placing it twice.
+            // Once adopted it has a public terminal id; if its tab was closed
+            // it is detached, and restoring it detached below is correct. A
+            // fresh placement here would carry no tab identity and fail every
+            // later resource projection, so no terminal could be created.
             self.place_adopted_terminal_in_new_screen(
                 &mut state,
                 &terminal.workspace_key,
