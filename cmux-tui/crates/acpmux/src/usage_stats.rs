@@ -311,7 +311,7 @@ impl Tracker {
             calls24h: known(day.calls),
             cache_read_share24h: cache_read_share(&day).filter(|_| self.complete),
             cost_per_call_usd24h: (self.complete && day.priced_calls > 0)
-                .then(|| (day.cost_usd / day.priced_calls as f64 * 10_000.0).round() / 10_000.0),
+                .then(|| (day.cost_usd / day.priced_calls as f64 * 1e8).round() / 1e8),
             updated_at: now,
         }
     }

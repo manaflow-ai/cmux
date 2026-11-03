@@ -921,7 +921,8 @@ fn the_day_reports_the_cache_read_share_and_the_cost_per_call() {
     // 1h writes at twice the $4 input: 90,000 * 8 = $0.72; 30 input at $4, 300 output at $20,
     // 180,000 reads at $0.20: $0.76212 over three calls.
     assert_eq!(stats.cost_usd24h, Some(0.7621));
-    assert_eq!(stats.cost_per_call_usd24h, Some(0.254));
+    // Per call keeps sub-cent precision, so a cheap call never reads as $0.
+    assert_eq!(stats.cost_per_call_usd24h, Some(0.25404));
 
     // A day later no call is left: the share is unknown, never 0%.
     let later = tracker.refresh(&source, now + DAY_MS, &models()).unwrap();
