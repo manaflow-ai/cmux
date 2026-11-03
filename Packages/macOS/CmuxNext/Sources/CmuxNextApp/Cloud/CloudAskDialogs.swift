@@ -3,11 +3,8 @@ import CmuxNextControl
 import CmuxNextSettings
 import Foundation
 
-/// An agent's Cloud start asks (``CloudStartSessionAsks``) as dialogs of `cmux agents dialog
-/// list|answer` and their MCP tools (``AgentDialogDesk``), so an agent's caller sees what its run
-/// waits on and the person can answer it from their own terminal.
-///
-/// Who may answer is cmux-cloud-start-core's `ask` (``CloudStartCore/askAnswer(origin:agentSession:delegated:selection:)``):
+/// An agent's Cloud start asks (``CloudStartSessionAsks``) as `cmux agents dialog` dialogs
+/// (``AgentDialogDesk``, shapes in ``CloudAskDialog``). Who may answer is cmux-cloud-start-core's `ask` (``CloudStartCore/askAnswer(origin:agentSession:delegated:selection:)``):
 /// Not now is anyone's; Start is the person's (a CLI request that names no agent session), or an
 /// agent's when the person turned on `cloud.agentsStartWithoutAsking` (``CloudAgentStartSetting``),
 /// which agents cannot set. Nothing here answers on its own.
@@ -17,8 +14,7 @@ final class CloudAskDialogs: AgentDialogAppAsks {
     private let delegated: () -> Bool
 
     init(asks: @escaping () -> CloudStartSessionAsks?, delegated: @escaping () -> Bool) {
-        self.asks = asks
-        self.delegated = delegated
+        (self.asks, self.delegated) = (asks, delegated)
     }
 
     convenience init(services: AppServices) {
