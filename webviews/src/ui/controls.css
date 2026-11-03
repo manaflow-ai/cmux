@@ -96,6 +96,11 @@
   background: var(--ds-color-danger);
   color: var(--ds-color-on-accent);
 }
+/* Keep destructive solids in the danger colour family while hovering or holding a popup open. */
+.ui-btn[data-danger][data-variant="solid"]:hover:not([data-disabled]),
+.ui-btn[data-danger][data-variant="solid"][data-popup-open] {
+  background: color-mix(in srgb, var(--ds-color-danger) 88%, var(--ds-color-on-accent));
+}
 .ui-btn[data-disabled] {
   opacity: 0.4;
 }
