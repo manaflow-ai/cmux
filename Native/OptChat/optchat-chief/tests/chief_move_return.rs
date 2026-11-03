@@ -129,7 +129,7 @@ fn fake_cloud_asking(
             let i = memory.len();
             memory.push(json!({"i": i, "kind": if i % 2 == 0 { "user" } else { "talk" }, "text": text, "size": text.len(), "date": "2026-11-02T10:00:00.000Z"}));
         }
-        let history = vec![
+        let history = [
             json!({"id": "msg_A", "seq": 1, "client_msg_id": "c1", "author": USER, "parts": [{"type": "text", "text": "hi"}], "created_at": "2026-10-20T09:00:00.000Z"}),
             json!({"id": "msg_B", "seq": 2, "client_msg_id": "t1", "author": CHIEF, "parts": [{"type": "text", "text": "hello"}], "created_at": "2026-10-20T09:00:01.000Z"}),
             json!({"id": "msg_C", "seq": 3, "client_msg_id": "c3", "author": USER, "parts": [{"type": "text", "text": "new in the cloud"}], "created_at": "2026-11-02T10:00:00.000Z"}),
