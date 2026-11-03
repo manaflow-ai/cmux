@@ -11,7 +11,7 @@ import Observation
 /// the first cell sits exactly Ghostty's padding inside the border
 /// (`TerminalPadding.cmuxDefault` unless the user set their own).
 public final class TerminalHostView: NSView {
-    private weak var current: TerminalSurfaceView?
+    private(set) weak var current: TerminalSurfaceView?
     /// The session's theme; nil paints the config background.
     /// Called with the App Theme's veil this terminal draws on, or nil (``paintBackground()``).
     var onVeil: ((ThemeRGB?) -> Void)?

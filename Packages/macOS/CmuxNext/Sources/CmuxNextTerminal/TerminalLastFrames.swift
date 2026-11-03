@@ -102,7 +102,7 @@ public struct TerminalLastFrames {
     /// renderer catches up). The terminal's new session takes the frame over in the turn it comes (``show(_:on:)``), or
     /// ``withdrawAhead(in:)`` takes it away. Returns whether `content` shows it.
     @discardableResult
-    public mutating func showAhead(_ key: String, in content: NSView) -> Bool { // perf-hot: 1ms workspace-switch (each waiting pane)
+    public mutating func showAhead(_ key: String, in content: NSView) -> Bool {
         if let shown = ahead[ObjectIdentifier(content)] {
             if shown.key == key, shown.content === content { return true }
             withdraw(ObjectIdentifier(content))

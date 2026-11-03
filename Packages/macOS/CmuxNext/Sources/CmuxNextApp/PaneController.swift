@@ -122,7 +122,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         observation?.cancel()
         tabItems.cancelAll()
         services.presentation.cancel(self)
-        launchFrames.withdrawAhead(in: view.contentHost); services.cache.lastFrames.withdrawAhead(in: view.contentHost)
+        services.cache.lastFrames.paneGoes(in: view.contentHost, launch: launchFrames)
         // No-op for a tab that moved to another pane: its new pane owns it.
         services.cache.removePresenter(self)
         services.cache.hibernation?.paneDidGo(ObjectIdentifier(self))
@@ -457,11 +457,11 @@ final class PaneController: SurfacePresenter, PresentablePane {
         DebugTabSwitch.mark(self, "reveal")
         if view.stripView.window != nil { BenchSpans.measure("switch.strip") { view.stripView.syncFromModel() } } // strip + content: one transaction (L4)
         DebugTabSwitch.mark(self, "stripSync")
-        BenchSpans.measure("switch.view") { _ = view.show(content?.view); services.cache.lastFrames.withdrawAhead(in: view.contentHost) }
+        BenchSpans.measure("switch.view") { _ = view.show(content?.view) }
         DebugTabSwitch.mark(self, "view")
         // Terminals come in on their first frame (`LaunchSettle`), or at once with their frame from the last
         // quit or kill (`TerminalLaunchFrames`, which takes over one shown ahead and keeps it on disk); other content is ready once shown.
-        if case .terminal(let terminal) = content, let key { launchFrames.show(key, on: terminal.session, in: view.contentHost); launchFrames.keep(key, session: terminal.session, work: services.work) } else { launchFrames.withdrawAhead(in: view.contentHost) }
+        services.cache.lastFrames.paneShows(key, view: content?.view, in: view.contentHost, launch: launchFrames, work: services.work)
         if let content, !content.isTerminal {
             LaunchReveal.shared.markReady(.pane)
             // The page may have attached while the pane was alpha-held for launch. AppKit's
@@ -489,8 +489,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
     private var launchFrames: TerminalLaunchFrames { .beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()) }
     func showWhileWaiting() { // perf-hot: 1ms launch-first-frame (REOPEN-F1: a visible terminal waiting for its surface shows its last frame)
-        guard presence == .visible, !isSuspended, !view.hostsContent, showsLiveTerminal, let key = stripModel.selectedID?.rawValue else { return services.cache.lastFrames.withdrawAhead(in: view.contentHost) } // no other tab's frame under this one (L4)
-        if !services.cache.lastFrames.showAhead(key, in: view.contentHost) { launchFrames.showAhead(key, in: view.contentHost) } // SWITCH FRAMES item 2
+        let waits = presence == .visible && !isSuspended && !view.hostsContent && showsLiveTerminal
+        services.cache.lastFrames.paneWaits(waits ? stripModel.selectedID?.rawValue : nil, in: view.contentHost, launch: launchFrames)
     }
 
     /// The selected tab is a terminal that will draw a frame (not a dead one).
