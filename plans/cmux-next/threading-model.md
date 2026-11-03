@@ -127,7 +127,9 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
 - Terminal: `com.cmuxterm.next.terminal.output`, `com.cmuxterm.next.localpty.read`, `com.cmuxterm.next.localpty.write`
 - Settings and files: `com.cmuxterm.next.settings.watcher`, `cmux.files.fsevents`, `cmux.files.tree-fsevents`,
   `com.cmuxterm.home.cache` (the `HomeCache` actor's executor, user-initiated: its file writes block this queue,
-  never a pool thread, so the forced quit's last draft write runs with the pool full; CmuxHomeCore, shared with iOS)
+  never a pool thread, so the forced quit's last draft write runs with the pool full; CmuxHomeCore, shared with iOS),
+  `cmux.chief.movedMarker` (the Chief home's `state/moved.json` vnode watch, utility, serial: event delivery only,
+  it blocks on nothing; one re-arm per folder change; ChiefMovedMarkerAttachment)
 - Remote and mobile: `com.cmuxterm.next.remote-localhost`, `com.cmuxterm.next.remote-localhost.peer-scan`, `com.cmuxterm.next.cloud-browser-proxy`,
   `com.cmuxterm.next.cloud-hub-loopback` (Open Desktop's SOCKS connections to the app's WireGuard hub),
   `cmux.cloud.machine-io.stdin` (one Worker machine exec or file call's request into the bundled cmux's stdin,

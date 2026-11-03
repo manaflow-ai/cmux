@@ -135,6 +135,7 @@ pub mod session_env;
 pub mod session_identity;
 pub mod session_liveness;
 pub mod session_name;
+pub mod session_search;
 mod session_scope;
 pub mod session_status;
 pub mod sha256;
