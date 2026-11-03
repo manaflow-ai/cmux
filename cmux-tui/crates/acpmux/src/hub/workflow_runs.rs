@@ -69,7 +69,24 @@ impl Hub {
     async fn workflow_upstreams(&self, run: &RunRecord) -> Result<String> {
         let owner = self.resolve(&run.owner_session_id).map_err(|e| anyhow::anyhow!(e.message))?;
         let meta = owner.meta();
-        let env = self.bg_env(&owner, &meta).await.map_err(|e| anyhow::anyhow!(e.message))?;
+        // Tool folding reads the resolved session profile before harness_command
+        // strips fold-only OFF_ENV and WORKSPACE_KEY from the agent process env.
+        let (profile, defaults) = {
+            let config = self.config.read().await;
+            let profile = super::resolve::session_profile(
+                &config,
+                &meta.harness,
+                &meta.cwd,
+                meta.remote_origin,
+            )
+            .map_err(|error| anyhow::anyhow!(error))?;
+            (profile, config.defaults_for(&meta.harness))
+        };
+        let profile = self
+            .spawn_profile_for(&meta, &profile, &defaults.env)
+            .await
+            .map_err(|error| anyhow::anyhow!(error.message))?;
+        let env = profile.env;
         if crate::agent_tools::left_out(meta.remote_origin, &env, &[]) {
             return Ok("[]".into());
         }
