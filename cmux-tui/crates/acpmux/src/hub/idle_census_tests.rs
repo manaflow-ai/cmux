@@ -315,7 +315,8 @@ fn a_native_wrappers_relayed_agent_and_its_servers_let_it_end() {
 /// ended: 20 of them up for hours on one Mac (2026-11-03), which with the rest pushed it into swap.
 #[test]
 fn a_native_wrappers_numbered_agent_name_relays_to_the_agent() {
-    let servers = from_json(Some(&json!({"cmux": {"command": "/home/u/cmux", "args": ["mcp", "serve"]}})));
+    let servers =
+        from_json(Some(&json!({"cmux": {"command": "/home/u/cmux", "args": ["mcp", "serve"]}})));
     let args = "-p --session-id S --mcp-config /home/u/.acpmux/run/mcp/S.json";
     let sr2 = &format!("/home/u/.local/bin/sr2 claude2 {args}");
     let claude =
@@ -323,7 +324,10 @@ fn a_native_wrappers_numbered_agent_name_relays_to_the_agent() {
     let idle = vec![under(11, 10, &claude), under(12, 11, "/home/u/cmux mcp serve")];
     assert!(matches!(census_of(&idle, sr2, &servers), Census::Clear));
     // Only a number after the agent's name: another word names another program.
-    for leader in [format!("/home/u/.local/bin/sr2 claudex {args}"), format!("/home/u/.local/bin/sr2 claude2x {args}")] {
+    for leader in [
+        format!("/home/u/.local/bin/sr2 claudex {args}"),
+        format!("/home/u/.local/bin/sr2 claude2x {args}"),
+    ] {
         let census = census_of(&idle, &leader, &servers);
         assert!(matches!(census, Census::Busy { pid: 11, .. }), "{leader}");
     }
@@ -341,7 +345,8 @@ fn a_framework_pythons_app_runs_a_python_server() {
     let version = root.join("Cellar/python/3.15.2/Frameworks/Python.framework/Versions/3.15");
     let real = version.join("bin/python3.15");
     let app = version.join("Resources/Python.app/Contents/MacOS/Python");
-    let other = root.join("Other/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python");
+    let other = root
+        .join("Other/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python");
     for file in [&real, &app, &other] {
         std::fs::create_dir_all(file.parent().unwrap()).unwrap();
         std::fs::write(file, "").unwrap();
@@ -352,7 +357,8 @@ fn a_framework_pythons_app_runs_a_python_server() {
     std::os::unix::fs::symlink(&real, bin.join("python3")).unwrap();
     let script = root.join("agent-memory");
     std::fs::write(&script, "#!/usr/bin/env python3\nprint(1)\n").unwrap();
-    let (path, script) = (bin.to_string_lossy().into_owned(), script.to_string_lossy().into_owned());
+    let (path, script) =
+        (bin.to_string_lossy().into_owned(), script.to_string_lossy().into_owned());
     let servers = resolved(vec![sidecar(&script, &["mcp".to_owned()]).unwrap()], &path, &root);
     let text = |p: &Path| p.to_string_lossy().into_owned();
     let found = |python: &str, args: &str| [under(11, 10, &format!("{python} {script} {args}"))];

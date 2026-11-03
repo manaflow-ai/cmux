@@ -509,13 +509,16 @@ fn runs(who: &crate::agent_host::tree::Identity, s: &Sidecar) -> bool {
                 .is_some_and(|(cwd, server)| same_file(&cwd.join(second), Path::new(server)))
     };
     // A script: the executable must be the interpreter its `#!` line runs, not any file named
-    // like one.
+    // like one, or the app a framework Python runs scripts through (`framework_app`).
+    let app = s.interpreter.as_deref().and_then(framework_app);
+    let by_app = |first: &str| {
+        app.as_deref().is_some_and(|app| same_file(Path::new(first), app) && runs_file(who, first))
+    };
     let runs_script = |first: &str, second: &str| {
-        interpreter(first)
+        ((interpreter(first) && s.interpreter.as_deref().is_some_and(is_exe)) || by_app(first))
             && second.contains('/')
             && program(second)
             && script_is(second)
-            && s.interpreter.as_deref().is_some_and(is_exe)
     };
     let at = match who.argv.as_slice() {
         [first, ..] if runs_program(first) => 1,
@@ -539,6 +542,20 @@ fn runs_file(who: &crate::agent_host::tree::Identity, w: &str) -> bool {
 fn same_file(a: &Path, b: &Path) -> bool {
     let canonical = |p: &Path| std::fs::canonicalize(p).ok();
     canonical(a).is_some_and(|a| canonical(b) == Some(a))
+}
+
+/// The app a framework build of Python (Homebrew's, python.org's) runs a script through: its
+/// `Versions/X/bin/python3.X` execs `Versions/X/Resources/Python.app/Contents/MacOS/Python`, so a
+/// `#!/usr/bin/env python3` server runs as that app, never as the `python3` its line names. None
+/// for any other interpreter.
+fn framework_app(interpreter: &str) -> Option<PathBuf> {
+    let real = std::fs::canonicalize(interpreter).ok()?;
+    let name = real.file_name()?.to_str()?;
+    let bin = real.parent()?;
+    let framework = bin.parent()?.parent()?.file_name()? == "Versions"
+        && bin.parent()?.parent()?.parent()?.extension()? == "framework";
+    (name.starts_with("python") && is_interpreter(name) && bin.file_name()? == "bin" && framework)
+        .then(|| bin.with_file_name("Resources/Python.app/Contents/MacOS/Python"))
 }
 
 /// Whether `w` names one of [`INTERPRETERS`] (`python3.12` included).
@@ -623,7 +640,8 @@ struct Wrapper<'a> {
 }
 
 /// A native wrapper harness: a program, not an interpreter, run as `WRAPPER NAME ARGS` with at
-/// least one arg (`sr2 claude -p ...`, `sr codex -c ... app-server`). It runs the agent `NAME`
+/// least one arg (`sr2 claude -p ...`, `sr codex -c ... app-server`; `sr2 claude2 ...` names
+/// `claude` for an account, its number dropped). It runs the agent `NAME`
 /// as its child with those args plus its own (`relays_for`), and that child starts the MCP
 /// servers. Argv is the leader's own to rewrite too, so the executable the kernel says it runs
 /// must be the wrapper: the file argv names, or for a bare name, the one the harness's `path`
@@ -641,6 +659,9 @@ fn wrapper<'a>(
     if args.is_empty() || !bare || is_interpreter(program) {
         return None;
     }
+    // sr2 names an account's agent with a number after it (`sr2 claude2`) and runs `claude`.
+    let agent = name.trim_end_matches(|c: char| c.is_ascii_digit());
+    let name = if agent.is_empty() { name.as_str() } else { agent };
     let runs_wrapper = if program.contains('/') {
         program.starts_with('/') && runs_file(who, program)
     } else {
