@@ -116,6 +116,7 @@ import { sameSessionStart, sessionStartOf } from "./conversation/sessionStart";
 import { reduceAgentPair } from "./conversation/agentPairs";
 import { pasteRanges } from "./conversation/promptCollapse";
 import { BACKGROUND_TURN, backgroundTurnRecord, backgroundTurnRowId } from "./conversation/backgroundTurns";
+import { isVisiblyEmptyMessage } from "./conversation/visibleMessage";
 import { AskTracker, pendingReader, SIDE_SESSION_METHOD } from "./needsYou/asks";
 import { chatTools, toolApplied, type ToolApplied } from "./summary/chatTools";
 import { taskGoal } from "./goal";
@@ -1362,25 +1363,37 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   private backgroundSpans: { id: string; from: number; to?: number }[] = [];
   private readonly backgroundEnds = new Map<string, { seq: number; turn: AcpmuxBackgroundTurn }>();
 
-  /// A background turn's started record at `seq`; how it ended when its ended record came first.
-  openBackground(id: string, seq: number): AcpmuxBackgroundTurn | undefined {
-    if (this.backgroundSpans.some((span) => span.id === id)) return undefined;
+  /// A background turn's started record at `seq`: how it ended when its ended record came first,
+  /// and whether rows its events made before this record was heard draw something (`hasRows`).
+  openBackground(id: string, seq: number): { ended?: AcpmuxBackgroundTurn; hasRows: boolean } {
+    if (this.backgroundSpans.some((span) => span.id === id)) return { hasRows: false };
     const ended = this.backgroundEnds.get(id);
     this.backgroundSpans.push({ id, from: seq, to: ended?.seq });
     this.backgroundEnds.delete(id);
+    let hasRows = false;
     // An older page read later: rows its events made before this record was heard are the turn's too.
     for (const [rowId, order] of this.order) {
       if (this.local.has(rowId) || order <= seq || (ended !== undefined && order >= ended.seq)) continue;
       const row = this.get(rowId);
       if (!row || row.kind === BACKGROUND_TURN || row.kind === "user" || row.inBackground === id) continue;
       const tagged = { ...row, inBackground: id };
+      if (!isVisiblyEmptyMessage(tagged)) hasRows = true;
       super.set(rowId, tagged);
       const at = this.orderedIndex.get(rowId);
       if (this.ordered && at !== undefined) this.ordered[at] = tagged;
       this.snapshot = undefined;
       this.transcriptSummaryVersion = {};
     }
-    return ended?.turn;
+    return { ended: ended?.turn, hasRows };
+  }
+
+  /// A row of background turn `turn` that draws something: its line opens to it from now on.
+  private markBackgroundRows(turn: string, row: AcpmuxRow): void {
+    if (isVisiblyEmptyMessage(row)) return;
+    const id = backgroundTurnRowId(turn);
+    const line = this.get(id);
+    if (!line?.background || line.background.hasRows) return;
+    this.set(id, { ...line, version: line.version + 1, background: { ...line.background, hasRows: true } });
   }
 
   /// A background turn's ended record at `seq`, which says how it ended (`turn`).
@@ -1443,14 +1456,16 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     } else if (this.current !== undefined) this.latest = Math.max(this.latest, this.current);
     // A row an event of a background turn made is that turn's, whoever updates it later. A prompt
     // never is: it starts a turn of its own (acpmux ends the background turn before it).
+    let turn: string | undefined;
     if (this.backgroundSpans.length && row.kind !== BACKGROUND_TURN && row.kind !== "user" && !this.local.has(id)) {
-      const turn = this.backgroundAt(this.order.get(id)!);
+      turn = this.backgroundAt(this.order.get(id)!);
       if (turn !== undefined && row.inBackground !== turn) row = { ...row, inBackground: turn };
     }
     if (this.ordered && !unchanged) this.keepOrdered(id, row, known);
-    const result = super.set(id, row);
+    super.set(id, row);
     if (!unchanged) this.artifactUpdates.note(row, this.current ?? this.order.get(id) ?? row.at);
-    return result;
+    if (turn !== undefined) this.markBackgroundRows(turn, row);
+    return this;
   }
 
   /// Updates the kept order for `row`: in its slot when only its content changed, at the end when it
@@ -5125,7 +5140,7 @@ export class AcpmuxDirectClient {
     this.subagents.closeBatch();
     if (state === "started") {
       // An older page's started record after its ended one: the line keeps how it ended.
-      const ended = this.rows.openBackground(turn.id, event.seq);
+      const { ended, hasRows } = this.rows.openBackground(turn.id, event.seq);
       if (existing) return;
       this.rows.set(id, {
         id,
@@ -5133,13 +5148,18 @@ export class AcpmuxDirectClient {
         at: event.at,
         seq: event.seq,
         kind: BACKGROUND_TURN,
-        background: ended ?? turn,
+        background: { ...(ended ?? turn), ...(hasRows && { hasRows: true as const }) },
       });
       return;
     }
     this.rows.closeBackground(event.seq, turn);
     if (!existing) return;
-    this.rows.set(id, { ...existing, version: existing.version + 1, background: turn });
+    const hasRows = existing.background?.hasRows;
+    this.rows.set(id, {
+      ...existing,
+      version: existing.version + 1,
+      background: { ...turn, ...(hasRows && { hasRows }) },
+    });
   }
 
   private turnStopCause(event: EventRecord): SubagentStopReason | undefined {

@@ -369,6 +369,7 @@ import {
   foldHoldTarget,
   foldHolding,
   foldRoomFor,
+  opensBody,
   foldToggleAt,
   holdFold,
   keepFold,
@@ -5210,9 +5211,10 @@ export function VirtualTranscript({
       setFoldRoom(end);
     };
     const beginBottomStackFold = (toggle: HTMLElement, line: HTMLElement): boolean => {
-      // This ask is for tool/work disclosures. Message Show more/less and other controls retain
-      // their established row anchor, including the room they need when closing at the end.
-      if (!toggle.matches(".cv-tool.is-toggle, .cv-worked, .cv-subagents")) {
+      // Tool/work disclosures, and any line that opens (Leo, 2026-11-02: "YOU EXPAND UP WHILE YOUR
+      // SCCROLL IS AT THE VERY BOTTOM ... JUST THAT CASE"): a thought, the edits card, a cut row.
+      // Closing other controls (Show less) keeps its established row anchor and the room it needs.
+      if (!toggle.matches(".cv-tool.is-toggle, .cv-worked, .cv-subagents") && !opensBody(toggle)) {
         stopBottomStackFold();
         return false;
       }
@@ -5233,7 +5235,7 @@ export function VirtualTranscript({
       // Reopening at the physical bottom consumes any room retained by a prior collapse. The
       // expanded body itself supplies the height; keeping the old blank room would add a second,
       // jarring gap while the stack moves up.
-      if (!stickyFoldRoom.current || toggle.getAttribute("aria-expanded") === "false") dropFoldRoom();
+      if (!stickyFoldRoom.current || opensBody(toggle)) dropFoldRoom();
       const stack: BottomStackFold = { toggle: line, row, beforeTop: layoutScrollTop(node), delta: 0, from: 0 };
       bottomStackFold.current = stack;
       row.setAttribute("data-bottom-fold", "");

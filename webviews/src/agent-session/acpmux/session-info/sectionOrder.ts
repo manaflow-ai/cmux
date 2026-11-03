@@ -15,9 +15,9 @@ import type { SessionInfoSectionId } from "./sessionInfoState";
 
 export type SessionInfoGroupId = "about" | "made" | "running";
 
-/// Each block's sections in their default order: where it runs, what it made, what it runs. A
-/// section's block still draws the hairlines (SessionInfoGroup.tsx): a hairline sits wherever two
-/// adjacent sections come from different blocks, so the default order draws the three blocks.
+/// Each block's sections: where it runs, what it made, what it runs. A section's block draws the
+/// hairlines (SessionInfoGroup.tsx): a hairline sits wherever two adjacent sections come from
+/// different blocks. The order of the #27291 per-block format (parseOrder) is this one.
 export const GROUP_SECTIONS: Readonly<Record<SessionInfoGroupId, readonly SessionInfoSectionId[]>> = {
   about: ["environment", "context", "usage", "connectors"],
   made: ["changes", "sources", "outputs"],
@@ -26,8 +26,22 @@ export const GROUP_SECTIONS: Readonly<Record<SessionInfoGroupId, readonly Sessio
 
 const GROUPS = Object.keys(GROUP_SECTIONS) as SessionInfoGroupId[];
 
-/// Every section in its default place, top to bottom.
-export const DEFAULT_ORDER: readonly SessionInfoSectionId[] = GROUPS.flatMap((group) => GROUP_SECTIONS[group]);
+/// Every section in its default place, top to bottom: the machine (Cloud or this Mac), Context, the
+/// running subagents and background tasks, then Sources (Leo, 2026-11-03: "1. Machines showing up so
+/// I know if it's cloud or not 2. context 3. Subagents/background tasks running 4. Sources"). Usage, a
+/// folded row valued at Context's spend, stays right after Context; the sections he did not name
+/// follow Sources. A person's saved order (a drag) still wins over this one.
+export const DEFAULT_ORDER: readonly SessionInfoSectionId[] = [
+  "environment",
+  "context",
+  "usage",
+  "subagents",
+  "tasks",
+  "sources",
+  "changes",
+  "outputs",
+  "connectors",
+];
 
 /// The block a section belongs to by default.
 export function sectionGroup(id: SessionInfoSectionId): SessionInfoGroupId {

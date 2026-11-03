@@ -419,7 +419,7 @@
     "agent-pane.composer-look#claude-chat-dots": 0,
     "agent-pane.composer-look#codex-chat": 0.01965,
     "agent-pane.composer-look#codex-chat-alt-in-box-row": 0.03081,
-    "agent-pane.composer-look#codex-chat-alt-send-after-mic": 0.00024,
+    "agent-pane.composer-look#codex-chat-alt-send-after-mic": 0.02,
     "agent-pane.composer-look#codex-chat-dots": 0.01965,
     "agent-pane.composer-look#codex-new-chat": 0.025,
     "agent-pane.composer-look#codex-new-chat-alt-plain-strip": 0.025,
