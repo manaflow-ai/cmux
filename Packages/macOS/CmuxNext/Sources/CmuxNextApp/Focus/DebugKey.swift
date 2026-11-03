@@ -58,6 +58,7 @@ enum DebugKey {
                             "action": router.lastInterception.map { .string($0.action.rawValue) } ?? .null,
                             "ran": router.lastInterception.map { .bool($0.ran) } ?? .null])
         }
+        if let refusal = DebugDialog.userOnlyInputRefusal { return refusal }
         let windowID = params["window"]?.stringValue
         let controller = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID })
         // The palette opens with no main window (after Close All Windows), so its keys need none:

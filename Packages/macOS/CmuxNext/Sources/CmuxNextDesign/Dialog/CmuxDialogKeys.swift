@@ -29,6 +29,13 @@ public nonisolated struct CmuxDialogKeys {
     /// The action for one key press in a dialog showing `spec`; nil lets
     /// the key reach the focused control (typing in a field).
     public static func action(for key: Key, modifiers: Modifiers, in spec: CmuxDialogSpec) -> Action? {
+        guard let action = keyAction(for: key, modifiers: modifiers, in: spec) else { return nil }
+        // A click-only button takes no key; the key does nothing rather than reach another control.
+        if case .press(let id) = action, spec.buttons.first(where: { $0.id == id })?.clickOnly == true { return nil }
+        return action
+    }
+
+    private static func keyAction(for key: Key, modifiers: Modifiers, in spec: CmuxDialogSpec) -> Action? {
         let others = modifiers.subtracting(.shift)
         switch key {
         case .return:
@@ -51,6 +58,7 @@ public nonisolated struct CmuxDialogKeys {
     /// ``action(for:modifiers:in:)``: Return for the default button, Escape for the
     /// cancel button, else Command plus the button's `key`; nil when no key presses it.
     public static func hint(for button: CmuxDialogButton, in spec: CmuxDialogSpec) -> CmuxDialogKeyHint? {
+        if button.clickOnly { return nil }
         if spec.defaultButton?.id == button.id { return .return }
         if spec.cancelButton?.id == button.id { return .escape }
         guard let key = button.key, spec.buttons.first(where: { $0.key == key })?.id == button.id else { return nil }

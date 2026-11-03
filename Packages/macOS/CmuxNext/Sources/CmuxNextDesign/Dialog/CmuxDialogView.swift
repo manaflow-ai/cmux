@@ -87,14 +87,16 @@ public final class CmuxDialogView: NSView {
         return true
     }
 
-    /// Gives the keyboard to the first text field, else to the dialog itself:
-    /// never to a button or check box the person did not choose, so a key typed
-    /// on as the dialog opens presses nothing (a Space pressed the focused
-    /// button: QA chrome-parity-v2-1, the paste confirm's Deny). The dialog
-    /// answers Return, Escape and Command keys (`CmuxDialogKeys`); Tab moves
-    /// onto the first control, where Space then presses what the person chose.
+    /// Gives the keyboard to the first text field (unless the spec says not
+    /// to), else to the dialog itself: never to a button or check box the
+    /// person did not choose, so a key typed on as the dialog opens presses
+    /// nothing (a Space pressed the focused button: QA chrome-parity-v2-1, the
+    /// paste confirm's Deny). The dialog answers Return, Escape and Command
+    /// keys (`CmuxDialogKeys`); Tab moves onto the first control, where Space
+    /// then presses what the person chose. A click-only button never gets it.
     public func focusInitial() {
-        window?.makeFirstResponder(focusables.first { $0 is NSTextField } ?? self)
+        let field = spec.focusesField ? focusables.first { $0 is NSTextField } : nil
+        window?.makeFirstResponder(field ?? self)
     }
 
     /// The index in `focusables` of the control with the keyboard.
@@ -206,13 +208,15 @@ public final class CmuxDialogView: NSView {
         stack.addArrangedSubview(row)
         row.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
         // Tab follows what the person sees: left to right on one line, top to bottom when stacked.
-        focusables += row.orientation == .vertical ? main.reversed() : main
+        // A click-only button never takes the keyboard.
+        let keyed = main.filter { !$0.button.clickOnly }
+        focusables += row.orientation == .vertical ? keyed.reversed() : keyed
         let quiet = buttonViews.filter(\.isQuiet)
         if !quiet.isEmpty {
             let quietRow = Self.quietRow(quiet, width: contentWidth)
             stack.setCustomSpacing(Metrics.space2, after: row)
             stack.addArrangedSubview(quietRow)
-            focusables += quiet
+            focusables += quiet.filter { !$0.button.clickOnly }
         }
         for field in trailing {
             for view in fieldViews(field, width: contentWidth) { stack.addArrangedSubview(view) }

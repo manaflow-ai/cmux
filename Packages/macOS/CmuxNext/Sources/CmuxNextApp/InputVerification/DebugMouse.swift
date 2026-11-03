@@ -35,6 +35,7 @@ import CmuxNextSettings
 /// clicks Chromium's page view instead (`DebugMouse+Page`).
 enum DebugMouse {
     static func send(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+        if let refusal = DebugDialog.userOnlyInputRefusal { return refusal }
         if params["target"]?.stringValue == "page" {
             return params["action"]?.stringValue == "scroll" ? scrollPage(params, services: services) : clickPage(params, services: services)
         }

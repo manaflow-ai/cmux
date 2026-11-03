@@ -1387,6 +1387,7 @@
           "text" : "Chief"
         },
         "trail" : [
+          "credentialVault",
           "notices"
         ]
       },
