@@ -28,7 +28,8 @@ pub(super) fn claude_retry(line: &Value) -> Value {
     if let Some(n) = line.get("error_status").and_then(Value::as_u64) {
         out.insert("errorStatus".into(), json!(n));
     }
-    if let Some(e) = line.get("error").and_then(Value::as_str).filter(|e| !e.is_empty() && *e != "unknown")
+    if let Some(e) =
+        line.get("error").and_then(Value::as_str).filter(|e| !e.is_empty() && *e != "unknown")
     {
         out.insert("error".into(), json!(e));
     }
@@ -69,22 +70,22 @@ pub(super) fn codex_retry(err: &Value) -> Value {
 
 /// The last `N/M` in `text` ("Reconnecting... 2/5"), with `0 < N <= M`.
 fn attempt_of(text: &str) -> Option<(u64, u64)> {
-    text.split(|c: char| c.is_whitespace() || c == '(' || c == ')' || c == '…')
-        .rev()
-        .find_map(|word| {
+    text.split(|c: char| c.is_whitespace() || c == '(' || c == ')' || c == '…').rev().find_map(
+        |word| {
             let (a, b) = word.trim_end_matches(['.', ',', ';', ':']).split_once('/')?;
             let (a, b) = (a.parse::<u64>().ok()?, b.parse::<u64>().ok()?);
             (a > 0 && a <= b).then_some((a, b))
-        })
+        },
+    )
 }
 
 /// An HTTP status anywhere in Codex's `codexErrorInfo` (`{"responseStreamDisconnected":
 /// {"httpStatusCode": 502}}`).
 fn http_status(info: &Value) -> Option<u64> {
     match info {
-        Value::Object(map) => map.iter().find_map(|(k, v)| {
-            if k == "httpStatusCode" { v.as_u64() } else { http_status(v) }
-        }),
+        Value::Object(map) => map
+            .iter()
+            .find_map(|(k, v)| if k == "httpStatusCode" { v.as_u64() } else { http_status(v) }),
         _ => None,
     }
 }
@@ -117,7 +118,10 @@ mod tests {
                 "errorStatus": 503, "error": "server_error"})
         );
         let bare = json!({"attempt": 1, "max_retries": 10, "error": "unknown"});
-        assert_eq!(claude_retry(&bare), json!({"source": "claude", "attempt": 1, "maxRetries": 10}));
+        assert_eq!(
+            claude_retry(&bare),
+            json!({"source": "claude", "attempt": 1, "maxRetries": 10})
+        );
     }
 
     #[test]
@@ -131,7 +135,10 @@ mod tests {
                 "error": "stream disconnected before completion"})
         );
         let plain = json!({"message": "stream error: connection reset", "willRetry": true});
-        assert_eq!(codex_retry(&plain), json!({"source": "codex", "error": "stream error: connection reset"}));
+        assert_eq!(
+            codex_retry(&plain),
+            json!({"source": "codex", "error": "stream error: connection reset"})
+        );
         let bare = json!({"message": "Reconnecting... 1", "willRetry": true});
         assert_eq!(codex_retry(&bare), json!({"source": "codex", "attempt": 1}));
     }

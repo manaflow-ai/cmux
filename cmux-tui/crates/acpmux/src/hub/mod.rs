@@ -174,7 +174,6 @@ mod startup;
 mod steer_end;
 mod store_load;
 mod stream;
-mod turn_retry;
 mod tags;
 mod tailnet_controller;
 mod tap;
@@ -183,6 +182,7 @@ mod tool_paths;
 mod tool_shell;
 mod tools;
 pub(crate) mod turn_cap;
+mod turn_retry;
 mod watch;
 pub use new_request::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,

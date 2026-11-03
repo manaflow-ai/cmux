@@ -231,7 +231,8 @@ impl Hub {
                         crate::claude_stdio::leave_out_bodies(&kind, &mut line);
                         let retry = (!muted && method == "claude.system.api_retry")
                             .then(|| super::turn_retry::claude_retry(&line));
-                        let logged = tap_hub.append_logged(&tap_session, "in", &kind, line, host_seq).1;
+                        let logged =
+                            tap_hub.append_logged(&tap_session, "in", &kind, line, host_seq).1;
                         // The model request failed and Claude Code tries again (`turn_retry.rs`).
                         if let Some(retry) = retry {
                             tap_hub.turn_retrying(&tap_session, retry);
