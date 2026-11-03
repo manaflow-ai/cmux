@@ -56,8 +56,9 @@
   },
   {
    "do": "new_terminal",
-   "via": "socket",
-   "name": "p0"
+   "via": "key",
+   "name": "p0",
+   "title": "set-up: New Terminal Tab by key (a socket newTab does not take the keyboard from Home's composer, which failed 3 head rounds and 3 base ones)"
   },
   {
    "do": "neutral_prompt"
