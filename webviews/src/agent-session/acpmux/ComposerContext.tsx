@@ -549,6 +549,9 @@ export function ComposerContext({
   const pickedOff = selectedComputer !== "local" && !savedPick;
   const cloudSide =
     cloudPicked || (!sandboxPicked && (waiting !== undefined || (pickedOff && currentComputer?.kind === "cloud")));
+  // Leaving Another machine for Cloud or Sandboxed ends its open request, so a later This Mac pick
+  // (which may skip the Where onPick when Cloud already cleared the machine) shows no machine chip.
+  if (machineAsk !== undefined && (cloudSide || sandboxPicked)) setMachineAsk(undefined);
   // A saved environment on this Mac is This Mac's; one on an SSH machine is Another machine's.
   const offMac = !cloudSide && !sandboxPicked && (pickedOff || (savedPick !== undefined && savedPick.kind !== "local"));
   const whereName = sandboxPicked

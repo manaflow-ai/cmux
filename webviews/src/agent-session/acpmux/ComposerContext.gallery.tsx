@@ -367,6 +367,11 @@ const openMachineControl: Play = async (ctx) => {
   await ctx.click({ role: "button", name: /^Environment/ });
   await waitRows("machines")(ctx);
 };
+/// The combined arm's one control: This Mac and Cloud.
+const openCombined: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: /^Environment/ });
+  await waitRows("combined")(ctx);
+};
 const openRunToggle: Play = async (ctx) => {
   await ctx.click({ role: "button", name: /^Where should this chat run/ });
   await waitRows("run")(ctx);
@@ -402,7 +407,7 @@ function stripVariants(arm: StripArm) {
     ...(arm === "cloud-toggle" ? { runDetails: chatgptRunDetails } : {}),
   };
   const note = (what: string) => `${STRIP_NOTES[arm]} ${what}`;
-  const whereOpen = arm === "cloud-toggle" ? openRunToggle : openWhere;
+  const whereOpen = arm === "cloud-toggle" ? openRunToggle : arm === "combined" ? openCombined : openWhere;
   const machineOpen =
     arm === "where-machine" ? pickAnother : arm === "where-machine-always" ? openMachineChip : arm === "cloud-toggle" ? openMachineControl : openMachineList;
   return {
