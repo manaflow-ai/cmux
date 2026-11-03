@@ -652,13 +652,14 @@ git_q -C "$src" checkout -q --detach "$head"
 
 # A commit whose app is the one the feed already publishes is not requested: nothing that
 # reaches the app changed since the commit the nightly-next tag names. The classifier
-# (scripts/ci/nightly_build_inputs.py) is stubbed: only App.swift and cmux-tui/ reach the app.
+# (scripts/ci/nightly_build_inputs.py) is stubbed: only App.swift reaches the app, so a
+# cmux-tui change is caught by its tree key alone.
 git_q -C "$src" checkout -q -b app-identical "$head"
 git_q -C "$src" tag -f nightly-next "$head"
 cat > "$src/scripts/ci/nightly_build_inputs.py" <<'PY'
 import json, sys
 paths = [line.strip() for line in sys.stdin if line.strip()]
-hit = [p for p in paths if p == "App.swift" or p.startswith("cmux-tui/")]
+hit = [p for p in paths if p == "App.swift"]
 print(json.dumps({"build_inputs_changed": bool(hit),
                   "reason": f"{hit[0]} reaches the app" if hit else "no changed path reaches the app the Nightly publishes"}))
 PY
@@ -673,6 +674,15 @@ echo app2 > "$src/App.swift"; git_q -C "$src" add -A; git_q -C "$src" commit -m 
 changed=$(git -C "$src" rev-parse HEAD)
 request --sha "$changed" --release-compile-green
 [[ "$status" == 0 ]] && dispatched "$changed" || fail "an app change since the published commit must be promoted:" "$out" "$(cat "$TMP/gh.log")"
+# A change to the bundled cmux-tui binaries' inputs that the classifier calls neutral is
+# promoted: its tree key differs from the published commit's.
+git_q -C "$src" tag -f nightly-next "$changed"
+echo tui-runtime > "$src/cmux-tui/a"; git_q -C "$src" add -A; git_q -C "$src" commit -m "tui input the classifier misses"
+tuichange=$(git -C "$src" rev-parse HEAD)
+publish "$tuichange"
+request --sha "$tuichange" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$tuichange" || fail "a cmux-tui tree change must be promoted even when the classifier finds nothing:" "$out" "$(cat "$TMP/gh.log")"
+git_q -C "$src" checkout -q --detach "$changed"
 # A move out of the app (App.swift into docs/) removes an app input: promoted, never read as docs only.
 git_q -C "$src" tag -f nightly-next "$changed"
 mkdir -p "$src/docs"; git_q -C "$src" mv App.swift docs/App.swift; git_q -C "$src" commit -m "move the app file into docs"

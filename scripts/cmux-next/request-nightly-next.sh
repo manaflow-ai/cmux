@@ -165,7 +165,8 @@ already_promoted() { # <sha>
 # and every path the nightly workflow runs). Such a promotion builds and publishes the same app
 # again: of 92 NEXT nightlies published 2026-11-01/02 only 3 were app-identical, but each costs a
 # full build, signing and two notarizations. Any doubt (no published commit, history too shallow,
-# not a descendant, an unreadable classifier) answers 1, and the commit is promoted.
+# not a descendant, an unreadable classifier, a different cmux-tui tree key) answers 1, and the
+# commit is promoted.
 app_unchanged_reason=""
 app_unchanged() { # <sha>
   app_unchanged_reason=""
@@ -181,6 +182,13 @@ app_unchanged() { # <sha>
   fi
   verdict="$(printf '%s\n' "$files" | python3 "$repo_root/scripts/ci/nightly_build_inputs.py" --files-from - 2>/dev/null)" || return 1
   [[ "$verdict" == *'"build_inputs_changed": false'* ]] || return 1
+  # The classifier does not see every input of the bundled cmux-tui binaries (workers/cmux-vm/cli,
+  # skills/cmux-browser are tree inputs it calls neutral): the tree key must match too. Read only
+  # here, after the classifier found nothing, so an app change pays nothing for it.
+  local key_published key_sha
+  key_published="$(python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "$published" 2>/dev/null)" || return 1
+  key_sha="$(python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "$1" 2>/dev/null)" || return 1
+  [[ "$key_published" =~ ^[0-9a-f]{40}$ && "$key_published" == "$key_sha" ]] || return 1
   app_unchanged_reason="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["reason"])' "$verdict" 2>/dev/null || echo unchanged)"
 }
 
