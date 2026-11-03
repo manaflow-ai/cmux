@@ -141,14 +141,6 @@ impl AttachState {
 }
 
 impl AgentSessions {
-    /// Runs `hold` while this thread holds the host proxy authors lock (test hook: a person's key must not wait for
-    /// it, R-DAEMON-STATE S1).
-    #[cfg(test)]
-    pub(super) fn hold_proxy_authors_for_test(&self, hold: impl FnOnce()) {
-        let _authors = self.proxy_authors.lock().unwrap_or_else(|e| e.into_inner());
-        hold();
-    }
-
     /// The live attachment of `surface` on `client`; an ended one is dropped.
     fn attachment(&self, client: u64, surface: SurfaceId) -> Option<Arc<Attachment>> {
         let mut state = self.lock();

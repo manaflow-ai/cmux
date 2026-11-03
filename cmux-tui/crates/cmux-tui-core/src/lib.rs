@@ -73,6 +73,8 @@ mod pty_write;
 mod terminal_title;
 use cmux_tui_remote_access::remote_relay_state;
 mod login_shell;
+/// The R-DAEMON-STATE stage switches (one per stage, deleted when the stage passes).
+mod rds_switch;
 pub mod release;
 mod request_origin;
 pub mod resource;

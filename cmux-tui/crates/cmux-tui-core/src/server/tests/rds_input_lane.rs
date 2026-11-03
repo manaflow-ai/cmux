@@ -1,20 +1,18 @@
 //! R-DAEMON-STATE stage S1 (handoff/rewrites/R-DAEMON-STATE/DESIGN.md, section 2.6): the person's key takes no lock
 //! that another terminal, another connection, a reader or a writer of the session takes.
 //!
-//! #31940 took the session lock (`Mux::state`) off the key. The key still waits for other shared locks: the client
-//! registry (five times per line), the link peers, the host proxy authors, the surface admission budget, the client
-//! sizing lock, the creating-input lock and the activity lock. Their other holders are every connect, attach,
-//! resize and request of every client, and the sizing and creating-input holders take `Mux::state` and resize PTYs
-//! under them. Under the L6 storm the fixed build still showed a daemon key part of p99 20-24 ms and max 74-223 ms
-//! (STATUS 7761).
+//! #31940 took the session lock (`Mux::state`) off the key. The key line still takes the client registry lock about
+//! nine times: the daemon handoff checks, the remote-client and remote-device checks, the request's actor, the kept
+//! terminal of the key and the reply's incognito filter. Every connect, disconnect, attach, detach and capability
+//! change of every client holds that lock, and an agent storm connects and disconnects about 120 times a second.
+//! Under the L6 storm the fixed build still showed a daemon key part of p99 20-24 ms and max 74-223 ms (STATUS 7761).
 //!
 //! The test drives a key line through the real connection path (the line handler, the connection's dispatcher, the
-//! `send` handler) while another thread holds one shared lock for 300 ms. A key that waits for the lock reaches its
-//! PTY after about 300 ms; a key that does not wait reaches it in well under a millisecond. Two keys go in a row: a
-//! lock taken after the PTY write (sizing, activity) delays the second key, which waits on the connection's
-//! dispatcher behind the first.
+//! `send` handler) while another thread holds one lock for 300 ms. A key that waits for the lock reaches its PTY after
+//! about 300 ms; a key that does not wait reaches it in well under a millisecond. Two keys go in a row: a lock taken
+//! after the PTY write delays the second key, which waits on the connection's dispatcher behind the first.
 
-// The test terminal's in-process PTY runtime and the host proxy lock exist on Unix only (as for input_lane.rs).
+// The test terminal's in-process PTY runtime is Unix-only (as for input_lane.rs).
 #![cfg(unix)]
 
 use super::*;
@@ -22,10 +20,10 @@ use base64::Engine;
 use std::sync::mpsc;
 use std::time::Instant;
 
-/// How long the other thread holds each lock.
+/// How long the other thread holds the lock.
 const HOLD: Duration = Duration::from_millis(300);
-/// A key that took longer than this waited for the held lock. Well above scheduling noise on a loaded fleet host,
-/// well below `HOLD`.
+/// A key that took longer than this waited for the held lock: well above scheduling noise on a loaded fleet host,
+/// well below `HOLD` (the budget of input_lane.rs).
 const BUDGET: Duration = Duration::from_millis(150);
 
 /// Records when each write reached the test terminal's PTY input.
@@ -101,7 +99,7 @@ impl TypingConnection {
         }
     }
 
-    /// Waits for the replies to `ids`, so the connection's dispatcher is idle again.
+    /// Waits for the replies to `ids` (each must be ok), so the connection's dispatcher is idle again.
     fn settle(&self, ids: &[&str]) {
         let deadline = Instant::now() + Duration::from_secs(5);
         let mut left: Vec<&str> = ids.to_vec();
@@ -109,10 +107,10 @@ impl TypingConnection {
             match self.outbound.try_pop() {
                 Some(line) => {
                     let value: Value = serde_json::from_str(&line).unwrap_or_default();
-                    if let Some(id) = value["id"].as_str() {
-                        if value["type"] == "response" || value.get("ok").is_some() {
-                            assert_eq!(value["ok"], true, "key {id} failed: {value}");
-                        }
+                    if let Some(id) = value["id"].as_str()
+                        && value.get("ok").is_some()
+                    {
+                        assert_eq!(value["ok"], true, "key {id} failed: {value}");
                         left.retain(|pending| *pending != id);
                     }
                 }
@@ -129,45 +127,26 @@ impl TypingConnection {
     }
 }
 
-/// Holds one shared lock on another thread until released or `HOLD` passed.
+/// Holds one lock on another thread and runs `hold` while it holds it.
 type Holder = fn(&Arc<Mux>, &dyn Fn());
 
-/// Every shared lock the key line may meet, each with a holder. `Mux.state` and the workspace registry are controls:
-/// #31940 already took them off the key, so their rows pass on the base too.
-fn hold_each() -> Vec<(&'static str, Holder)> {
-    let mut locks: Vec<(&'static str, Holder)> = Vec::new();
-    locks.push(("client registry (ClientRegistry.state)", |mux, hold| {
-        let _held = mux.control_clients.state.lock().unwrap_or_else(|e| e.into_inner());
-        hold();
-    }));
-    locks.push(("link peers (RemoteRelayState.peers)", |mux, hold| {
-        let _held = mux.remote_relay().peers.lock().unwrap_or_else(|e| e.into_inner());
-        hold();
-    }));
-    locks.push(("host proxy authors (AgentSessions.proxy_authors)", |mux, hold| {
-        mux.control_clients.agent_sessions.hold_proxy_authors_for_test(hold);
-    }));
-    locks.push(("surface admission (ServerSurfaceOperationAdmission.state)", |mux, hold| {
-        let _held = mux.surface_operation_admission.state.lock().unwrap_or_else(|e| e.into_inner());
-        hold();
-    }));
-    locks.push(("creating input (CreatingInputs.terminals)", |mux, hold| {
-        mux.hold_creating_input_lock_for_test(hold);
-    }));
-    locks.push(("client sizing (Mux.client_sizing)", |mux, hold| {
-        mux.hold_client_sizing_lock_for_test(hold);
-    }));
-    locks.push(("activity (ActivityStream)", |mux, hold| mux.activity.hold_lock_for_test(hold)));
-    locks.push(("session (Mux.state)", |mux, hold| mux.with_state(|_| hold())));
-    locks.push(("workspace registry (Mux.workspace_registry)", |mux, hold| {
-        let _held = mux.workspace_registry.lock().unwrap_or_else(|e| e.into_inner());
-        hold();
-    }));
-    locks
+fn hold_client_registry(mux: &Arc<Mux>, hold: &dyn Fn()) {
+    let _held = mux.control_clients.state.lock().unwrap_or_else(|e| e.into_inner());
+    hold();
 }
 
-#[test]
-fn a_key_waits_for_no_shared_lock() {
+fn hold_session(mux: &Arc<Mux>, hold: &dyn Fn()) {
+    mux.with_state(|_| hold());
+}
+
+fn hold_workspace_registry(mux: &Arc<Mux>, hold: &dyn Fn()) {
+    let _held = mux.workspace_registry.lock().unwrap_or_else(|e| e.into_inner());
+    hold();
+}
+
+/// Sends two keys while another thread holds each lock in turn, and fails when a key waited for one of them.
+fn assert_keys_wait_for_none(locks: &[(&str, Holder)]) {
+    crate::rds_switch::set_input_lane_for_test(true);
     let connection = TypingConnection::open();
     // The first key of a view may take the long way; every key after it must not wait.
     connection.submit("warm", b'w');
@@ -175,7 +154,7 @@ fn a_key_waits_for_no_shared_lock() {
     connection.settle(&["warm"]);
 
     let mut waits = Vec::new();
-    for (index, (name, holder)) in hold_each().into_iter().enumerate() {
+    for (index, (name, holder)) in locks.iter().copied().enumerate() {
         let first = b'a' + u8::try_from(index * 2).unwrap_or(0);
         let second = first + 1;
         let (held, holding) = mpsc::channel();
@@ -213,9 +192,27 @@ fn a_key_waits_for_no_shared_lock() {
         .collect();
     assert!(
         blocked.is_empty(),
-        "the person's keys waited for {} shared lock(s) held by another thread (budget {BUDGET:?}, held \
-         {HOLD:?}): {}",
+        "the person's keys waited for {} lock(s) another thread held (budget {BUDGET:?}, held {HOLD:?}): {}",
         blocked.len(),
         blocked.join("; ")
     );
+}
+
+/// Stage S1 step 1: the key line reads the facts of the session's connections from the client registry's published
+/// projection, never through its lock.
+#[test]
+fn a_key_waits_for_no_client_registry_lock() {
+    assert_keys_wait_for_none(&[(
+        "client registry (ClientRegistry.state)",
+        hold_client_registry as Holder,
+    )]);
+}
+
+/// #31940 and TYPING FIX 2 took these two off the key; this keeps them off on the stage's new path.
+#[test]
+fn a_key_waits_for_neither_the_session_nor_the_workspace_registry_lock() {
+    assert_keys_wait_for_none(&[
+        ("session (Mux.state)", hold_session as Holder),
+        ("workspace registry (Mux.workspace_registry)", hold_workspace_registry as Holder),
+    ]);
 }

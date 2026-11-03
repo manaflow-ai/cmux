@@ -8,14 +8,6 @@ pub(super) use grid_hold::AppliedSeat;
 pub(crate) mod host_policy;
 
 impl Mux {
-    /// Runs `hold` while this thread holds the client sizing lock (test hook: a person's key must not wait for it,
-    /// R-DAEMON-STATE S1).
-    #[cfg(test)]
-    pub(crate) fn hold_client_sizing_lock_for_test(&self, hold: impl FnOnce()) {
-        let _sizing = self.client_sizing.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        hold();
-    }
-
     /// Activity by one client view: attach, explicit focus-click, or keyboard,
     /// paste or mouse input. Under the default `latest` policy the view takes
     /// the grid when it has reported a viewport. Returns whether the
