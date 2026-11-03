@@ -12,6 +12,7 @@ import {
   foldToggleAt,
   holdFold,
   keepFold,
+  opensBody,
   trimmedFoldRoom,
   verticalWheel,
 } from "./foldAnchor";
@@ -87,9 +88,14 @@ describe("foldToggleAt", () => {
     ["a sub-session's Raw", '<button class="cv-subsession__toggle" aria-expanded="false">Raw</button>', "button"],
     ["a file list's +N more", '<button class="acpmux-edited-more" aria-expanded="false">+3 more</button>', "button"],
     [
-      "an agent message's words",
-      '<div class="cv-tool cv-agentmsg__line"><span class="cv-agentmsg__words" data-interactive="">Asked</span></div>',
-      "span",
+      "an agent message's line",
+      '<div class="cv-tool cv-agentmsg__line" data-header-toggle=""><span class="cv-agentmsg__words">Asked</span></div>',
+      ".cv-agentmsg__words",
+    ],
+    [
+      "the edits card's header, at its icon",
+      '<div class="acpmux-edited-head" data-header-toggle=""><span class="acpmux-edited-icon"><svg></svg></span></div>',
+      ".acpmux-edited-icon",
     ],
     ["a summary", "<details><summary>Context</summary>body</details>", "summary"],
     [
@@ -249,5 +255,34 @@ describe("hold timing", () => {
   test("only a vertical wheel lets go", () => {
     expect(verticalWheel({ deltaX: 0, deltaY: 40 })).toBe(true);
     expect(verticalWheel({ deltaX: 60, deltaY: 4 })).toBe(false);
+  });
+});
+
+describe("opensBody", () => {
+  // Leo, 2026-11-02: "YOU EXPAND UP WHILE YOUR SCCROLL IS AT THE VERY BOTTOM ... JUST THAT CASE".
+  const dom = (html: string) => {
+    const { document } = new JSDOM(`<body>${html}</body>`).window;
+    return document.querySelector<HTMLElement>("[data-t]")!;
+  };
+  test("a closed disclosure opens; an open one closes", () => {
+    expect(opensBody(dom('<button data-t aria-expanded="false"></button>'))).toBe(true);
+    expect(opensBody(dom('<button data-t aria-expanded="true"></button>'))).toBe(false);
+  });
+  test("a header toggle reads its own button, not a menu's", () => {
+    expect(
+      opensBody(
+        dom(
+          '<div data-t data-header-toggle><button aria-haspopup="menu" aria-expanded="false"></button><button aria-expanded="false"></button></div>',
+        ),
+      ),
+    ).toBe(true);
+    expect(opensBody(dom('<div data-t data-header-toggle><button aria-expanded="true"></button></div>'))).toBe(false);
+  });
+  test("a summary opens its closed details", () => {
+    expect(opensBody(dom("<details><summary data-t>More</summary>Body</details>"))).toBe(true);
+    expect(opensBody(dom("<details open><summary data-t>More</summary>Body</details>"))).toBe(false);
+  });
+  test("a control that says nothing of its state opens nothing", () => {
+    expect(opensBody(dom("<button data-t>Raw</button>"))).toBe(false);
   });
 });

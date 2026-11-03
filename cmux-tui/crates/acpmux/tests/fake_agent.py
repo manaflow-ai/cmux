@@ -13,6 +13,7 @@ Behaviour per prompt text:
   "cancel-errors" -> streams "running", then answers session/cancel with an error
   "works-through-cancel" -> a tool call every 100 ms, titled "step N pid P", through every
                  session/cancel; answers end_turn after 60 s
+  "works-through-cancel-beside-background" -> the same after starting background subagent bg-1
   "answer-then-exit" -> answers, then the agent exits between turns
   "gate: <p>"  -> streams before-gate, waits for a write to FIFO <p>, then after-gate
   "work-gate: <p>" -> a plan step in progress and a running tool call, then as "gate:"
@@ -92,6 +93,9 @@ known = set()
 
 
 LAST_MCP_SERVERS = None
+# The additionalDirectories of the last session/new, load or fork ("dirs" replies with them).
+LAST_DIRS = None
+RUNNING_MCP = []
 # Whether the client asked for native subagent sessions the way codex-acp 1.10.0
 # reads it: the JetBrains AIR capability in clientCapabilities._meta (its ACP
 # schema strips the draft `subagents` field, so that one does not count).
@@ -174,6 +178,8 @@ def codex_store_prompt(rid, params):
                         and r["payload"]["content"][0]["text"] != "history-probe"],
             "sessions": sorted({r["payload"]["id"] for r in records if r["type"] == "session_meta"}),
         })
+    # Native rollouts retain the assistant reply as well as the user's prompt.
+    codex_write(sid, "response_item", {"type": "message", "role": "assistant", "phase": "final_answer", "content": [{"type": "output_text", "text": reply}]})
     update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": reply}})
     send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
     # Codex's rollout writer flushes a turn's last records after the turn
@@ -376,6 +382,12 @@ def handle_prompt(rid, params):
     if sid in net_flaky:
         net_flaky.discard(sid)
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
+        return
+    # Recovery fixtures: preserve the session, fail the first turn with the supplied
+    # provider error, then answer the continuation normally.
+    if text.startswith("recover-once: ") and sid not in failed_once:
+        failed_once.add(sid)
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": text.removeprefix("recover-once: ")}})
         return
     # "cap-fail-once: X" fails that prompt once per session with the SR2 gateway's capacity
     # error (every pooled account exhausted for a moment); the session's next prompt runs.
@@ -867,6 +879,11 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(LAST_MCP_SERVERS)}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "dirs" replies with the additionalDirectories of the last session/new, load or fork.
+    if text == "dirs":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(LAST_DIRS)}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "argv" replies with this process's arguments as JSON, for spawn-time checks.
     if text == "argv":
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(sys.argv[1:])}})
@@ -913,8 +930,11 @@ def handle_prompt(rid, params):
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "API Error: 503 no non-exhausted claude accounts available. (error type server_error, HTTP 503)"}})
         time.sleep(0.05)
         os._exit(0)
+    # "limit:": a usage limit (a sign-in failure with FAKE_AUTH_FAIL=1, which fails over where a
+    # usage limit waits for its reset, #27924).
     if text.startswith("limit:"):
-        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "You've reached your usage limit for this account"}})
+        message = "Not logged in" if os.environ.get("FAKE_AUTH_FAIL") == "1" else "You've reached your usage limit for this account"
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": message}})
         return
     # "big-output:N" answers with one message of N MiB: one update too large for a frame.
     if text.startswith("big-output:"):
@@ -1106,7 +1126,12 @@ def handle_prompt(rid, params):
     # "works-through-cancel" ignores every session/cancel and keeps calling tools, as a harness
     # that went on working after Stop (2026-10-29): a tool call every 100 ms, each titled with
     # its number and this process's pid, until it ends its turn by itself 60 s later.
-    if text == "works-through-cancel":
+    # "works-through-cancel-beside-background" does the same after starting background subagent
+    # bg-1, which outlives the turn (a Claude Agent call with run_in_background).
+    if text in ("works-through-cancel", "works-through-cancel-beside-background"):
+        if text == "works-through-cancel-beside-background":
+            update(sid, {"sessionUpdate": "subagent_spawned", "subagentSessionId": "bg-1", "name": "Background",
+                         "task": "Background audit", "background": True, "capabilities": {}})
         for n in range(600):
             update(sid, {"sessionUpdate": "tool_call", "toolCallId": f"work-{os.getpid()}-{n}",
                          "title": f"step {n} pid {os.getpid()}", "kind": "execute", "status": "in_progress"})
@@ -1180,12 +1205,14 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "tdh-1", "status": "completed"})
         time.sleep(3600)
         return
-    # "slow-limit": a usage limit after a second, then on the fallback profile (FAKE_FALLBACK=1)
-    # an answer (`hub/full_access_bound.rs`, a family message that fails over).
+    # "slow-limit": a usage limit after a second (a sign-in failure with FAKE_AUTH_FAIL=1, which
+    # fails over where a usage limit now waits for its reset), then on the fallback profile
+    # (FAKE_FALLBACK=1) an answer (`hub/full_access_bound.rs`, a family message that fails over).
     if text == "slow-limit":
         if os.environ.get("FAKE_FALLBACK") != "1":
             time.sleep(1)
-            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "You've reached your usage limit for this account"}})
+            message = "Not logged in" if os.environ.get("FAKE_AUTH_FAIL") == "1" else "You've reached your usage limit for this account"
+            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": message}})
             return
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
@@ -1193,7 +1220,8 @@ def handle_prompt(rid, params):
     # and nothing more (`hub/stalled_turn.rs`, a stalled turn after a failover).
     if text == "limit-then-hang":
         if os.environ.get("FAKE_FALLBACK") != "1":
-            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "You've reached your usage limit for this account"}})
+            message = "Not logged in" if os.environ.get("FAKE_AUTH_FAIL") == "1" else "You've reached your usage limit for this account"
+            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": message}})
             return
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "working"}})
         time.sleep(3600)
@@ -1275,7 +1303,7 @@ def own_pri():
 
 
 def main():
-    global LAST_MCP_SERVERS
+    global LAST_MCP_SERVERS, LAST_DIRS
     # `--fake-login` (the terminal sign-in): sign in and exit.
     if "--fake-login" in sys.argv[1:]:
         open(os.environ["FAKE_AUTH_FILE"], "w").close()
@@ -1331,6 +1359,7 @@ def main():
             sys.exit(1)
         if m in ("session/new", "session/load", "session/fork"):
             LAST_MCP_SERVERS = params.get("mcpServers")
+            LAST_DIRS = params.get("additionalDirectories")
         if m == "session/new" and os.environ.get("FAKE_CLASS_LOG"):
             with open(os.environ["FAKE_CLASS_LOG"], "a") as log:
                 log.write(json.dumps({"pid": os.getpid(), "pri": own_pri()}) + "\n")
@@ -1385,6 +1414,26 @@ def main():
                 effort["currentValue"] = params.get("value")
                 send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": options}})
             continue
+        # FAKE_RUN_MCP=<path>: on session/new, run each stdio MCP server the daemon gave, as a
+        # harness does (its stdin held open, so it serves until the harness ends), and write
+        # their pids to <path>.<this harness pid>.
+        if m == "session/new" and os.environ.get("FAKE_RUN_MCP"):
+            import subprocess
+            pids = []
+            for srv in params.get("mcpServers") or []:
+                if not srv.get("command"):
+                    continue
+                env = dict(os.environ)
+                env.update({e["name"]: e["value"] for e in srv.get("env") or []})
+                proc = subprocess.Popen([srv["command"], *srv.get("args", [])], env=env,
+                                        stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.DEVNULL)
+                RUNNING_MCP.append(proc)
+                pids.append(str(proc.pid))
+            out = f"{os.environ['FAKE_RUN_MCP']}.{os.getpid()}"
+            with open(f"{out}.tmp", "w") as f:
+                f.write("\n".join(pids))
+            os.replace(f"{out}.tmp", out)
         # FAKE_SETSID_CHILD=<path>: on session/new, start a child that leaves this
         # process group (setsid), as a harness that daemonizes a helper does, and
         # write its pid to <path>.<this harness pid>. Every harness with the env

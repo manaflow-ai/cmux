@@ -1139,6 +1139,52 @@ def side_run(*, queued_at=0, started_at=None, gate_done_at=None, done_at=None):
 
 
 class SideLanes(unittest.TestCase):
+    def test_shared_dev_dispatch_keeps_completed_delivery_work(self):
+        # Parse the actual shared-workflow event: this is a side lane, not E2E.
+        for title_key in ("name", "display_title"):
+            with self.subTest(title_key=title_key):
+                payload = side_event(path=rescue.CMUX_NEXT_WORKFLOW_PATH,
+                                     event="workflow_dispatch", pull_requests=[],
+                                     **{title_key: f"cmux NEXT DEV daily · {HEAD}"})
+                target = rescue.target_from_event(payload, "manaflow-ai/cmux")
+                self.assertIsInstance(target, rescue.Target)
+                self.assertTrue(target.side)
+                self.assertFalse(target.e2e)
+                clock = Clock()
+                api = FakeAPI(clock, lambda _: [
+                    {**job("dev-daily-build", status="completed", runner="mini"),
+                     "conclusion": "success"},
+                    job("dev-daily-publish", labels=[MINI]),
+                ])
+                result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep,
+                                       log=lambda _: None)
+                self.assertIn("started delivery work", result)
+                self.assertNotIn("cancel", api.calls)
+                self.assertNotIn("force-cancel", api.calls)
+                self.assertNotIn("rerun", api.calls)
+                self.assertNotIn("rerun-failed", api.calls)
+
+    def test_shared_workflow_ordinary_dispatch_remains_rescuable(self):
+        for title in ("", f"cmux-next · {HEAD}", f"cmux-next tip Swift suite · {HEAD}"):
+            with self.subTest(title=title):
+                target = rescue.target_from_event(side_event(
+                    path=rescue.CMUX_NEXT_WORKFLOW_PATH, event="workflow_dispatch",
+                    pull_requests=[], display_title=title), "manaflow-ai/cmux")
+                self.assertFalse(rescue.is_delivery_target(target))
+                clock = Clock()
+                api = FakeAPI(clock, lambda _: [job("swift-test", labels=[MINI])])
+                rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lambda _: None)
+                self.assertIn("cancel", api.calls)
+                self.assertIn("rerun", api.calls)
+
+    def test_shared_workflow_pull_request_title_is_not_delivery(self):
+        target = rescue.target_from_event(side_event(
+            path=rescue.CMUX_NEXT_WORKFLOW_PATH,
+            name=f"cmux NEXT DEV daily · {HEAD}",
+            display_title=f"cmux NEXT DEV daily · {HEAD}"), "manaflow-ai/cmux")
+        self.assertIsInstance(target, rescue.Target)
+        self.assertFalse(rescue.is_delivery_target(target))
+
     def test_every_side_workflow_is_watched_like_a_pull_request(self):
         for path in sorted(rescue.SIDE_WORKFLOW_PATHS):
             target = rescue.target_from_event(side_event(path=path), "manaflow-ai/cmux")
@@ -1576,11 +1622,40 @@ class Nightly(unittest.TestCase):
         clock = Clock()
         api = NightlyAPI(clock, nightly_run(), newer=[RUN_ID + 7])
         _, summary = run_main(api, clock, payload=payload, env_extra={"RESCUE_SECONDS": "30"})
-        self.assertIn("cancel", api.calls)
+        self.assertNotIn("cancel", api.calls)
         self.assertNotIn("rerun-failed", api.calls)
         self.assertIn("newer:nightly-next", api.calls)
         self.assertNotIn("newer:main", api.calls)
-        self.assertIn("a newer nightly run on nightly-next", summary)
+        self.assertIn("started delivery work", summary)
+
+    def test_finished_visual_router_does_not_protect_an_unstarted_build(self):
+        clock = Clock()
+        def jobs(_seconds):
+            return [job("decide", status="completed"),
+                    job("route-visual-gate-nightly", status="completed", runner="mini"),
+                    job("build-nightly-app", status="queued")]
+        api = NightlyAPI(clock, jobs, head="b" * 40)
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, side=True, nightly=True,
+                               path=rescue.NIGHTLY_WORKFLOW_PATH, event="push",
+                               push_branch="nightly-next")
+        result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep,
+                               log=lambda _: None)
+        self.assertIn("cancelled", result)
+        self.assertIn("cancel", api.calls)
+
+    def test_completed_build_protects_a_later_queued_signer(self):
+        clock = Clock()
+        def jobs(_seconds):
+            return [job("decide", status="completed"),
+                    {**job("build-nightly-app", status="completed", runner="mini"), "conclusion": "success"},
+                    job("sign-nightly-identity", status="queued", labels=["blacksmith-6vcpu-macos-26"])]
+        api = NightlyAPI(clock, jobs)
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, side=True, nightly=True,
+                               path=rescue.NIGHTLY_WORKFLOW_PATH, event="push")
+        result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep,
+                               log=lambda _: None)
+        self.assertIn("started delivery work", result)
+        self.assertNotIn("cancel", api.calls)
 
     def test_a_next_run_whose_head_is_no_longer_the_tip_is_never_rerun(self):
         # nightly-next pushes share one job-level build slot, which the workflow-level
@@ -1734,8 +1809,9 @@ class Nightly(unittest.TestCase):
         api = NightlyAPI(clock, nightly_run())
         code, summary = run_main(api, clock, payload=nightly_event(), env_extra={"RESCUE_SECONDS": "30"})
         self.assertEqual(code, 0)
-        self.assertIn("cancel", api.calls)
-        self.assertEqual(api.calls[-1], "rerun-failed")
+        self.assertNotIn("cancel", api.calls)
+        self.assertEqual(api.calls[-1], "jobs")
+        self.assertIn("started delivery work", summary)
         self.assertNotIn("rerun", api.calls)
         self.assertNotIn("pull", api.calls)
         self.assertIn(f"queued on {TRUSTED}", summary)
@@ -1746,7 +1822,7 @@ class Nightly(unittest.TestCase):
         clock = Clock()
         api = NightlyAPI(clock, nightly_run(), newer=[RUN_ID + 7])
         _, summary = run_main(api, clock, payload=nightly_event(), env_extra={"RESCUE_SECONDS": "30"})
-        self.assertIn("cancel", api.calls)
+        self.assertNotIn("cancel", api.calls)
         self.assertNotIn("rerun-failed", api.calls)
         self.assertIn("a newer nightly run on main", summary)
 
@@ -1808,7 +1884,7 @@ class Nightly(unittest.TestCase):
         code, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"),
                                  env_extra={"RESCUE_SECONDS": "30"})
         self.assertEqual(code, 0)
-        self.assertIn("cancel", api.calls)
+        self.assertNotIn("cancel", api.calls)
         self.assertIn(f"build-nightly-app queued on {TRUSTED}", summary)
 
     def test_only_the_app_build_or_the_trusted_pool_is_judged(self):
@@ -1819,8 +1895,14 @@ class Nightly(unittest.TestCase):
                                                  "labels": ["glaeda-gui-std-xcode-26.6"]}))
         # decide on the nightly slot is judged, so a busy slot moves it to Blacksmith Linux on the re-run.
         self.assertTrue(rescue.nightly_watched({"name": "decide", "labels": ["glaeda-nightly-std-xcode-26.6"]}))
+        self.assertTrue(rescue.nightly_watched({"name": "decide", "labels": ["gcp-linux-control"]}))
         self.assertFalse(rescue.nightly_watched({"name": "decide", "labels": ["blacksmith-32vcpu-ubuntu-2404"]}))
         self.assertFalse(rescue.nightly_watched({"name": "other", "labels": ["glaeda-nightly-std-xcode-26.6"]}))
+
+    def test_nightly_control_runner_is_rescued_but_hosted_labels_are_not(self):
+        control = {"name": "decide", "labels": ["gcp-linux-control"], "status": "queued"}
+        self.assertEqual(rescue.queued_pool(control), "gcp-linux-control")
+        self.assertIsNone(rescue.queued_pool({**control, "labels": ["ubuntu-24.04"]}))
 
 
 SESSION = "glaeda-session-std-xcode-26.6"

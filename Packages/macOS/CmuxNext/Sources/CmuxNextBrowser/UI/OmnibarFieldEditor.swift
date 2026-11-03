@@ -99,6 +99,8 @@ final class OmnibarFieldEditor: NSTextView {
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
         super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
         isChangingText = false
+        // A composition hides the placeholder the field's cell draws under this editor.
+        (delegate as? NSView)?.needsDisplay = true
         sink?.fieldEditorDidChange(kind: .insert)
     }
 
@@ -110,6 +112,7 @@ final class OmnibarFieldEditor: NSTextView {
         super.unmarkText()
         guard composing else { return }
         isChangingText = false
+        (delegate as? NSView)?.needsDisplay = true
         sink?.fieldEditorDidChange(kind: .insert)
     }
 

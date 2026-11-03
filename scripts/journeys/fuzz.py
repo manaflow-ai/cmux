@@ -297,8 +297,22 @@ class Runner:
 
 def summarize(rounds, opts, started):
     test = [r for r in rounds if r["build"] == "test"]
+    base = [r for r in rounds if r["build"] == "base"]
     fails = [r for r in test if r.get("failure")]
-    base_fails = [r for r in rounds if r["build"] == "base" and r.get("failure")]
+    base_fails = [r for r in base if r.get("failure")]
+    # The test side treats a failed step without a fuzz oracle as broken. The baseline is
+    # also essential to a CLEAN A/B certificate: its failed/missing evidence is unjudged.
+    # A real baseline fuzz failure *with an oracle* remains judged when the test fixes it.
+    unjudged_base = [r for r in base if (
+        r.get("journey_problems")
+        or r.get("status") not in ("pass", "fail")
+        or (r.get("status") == "fail" and not r.get("failure"))
+        or not r.get("played")
+        or r.get("seconds") is None
+    )]
+    base_by_round = {r["round"]: r for r in base}
+    missing_base = [r["round"] for r in test if r["round"] not in base_by_round
+                    or r.get("seed") != base_by_round[r["round"]].get("seed")]
     not_run = [r for r in rounds if r["status"] == "not run" and not r.get("failure")]
     broken = [r for r in test if r.get("journey_problems") or (r["status"] == "fail" and not r.get("failure")
                                                                and not r.get("findings"))]
@@ -320,6 +334,7 @@ def summarize(rounds, opts, started):
                   ("played", "hold", "red", "pass_hold", "pass_not_judged", "refused", "creation_hold")}
     speed = speed_table([dict(s, build=r["build"], seed=r["seed"]) for r in rounds for s in r.get("speed") or []])
     reds = [s for s in speed if s["red"]]
+    base_speed_samples = sum(row["base"]["n"] for row in speed)
     fuzz_s = sum(r.get("seconds") or 0 for r in test)
     actions = sum(r.get("played") or 0 for r in test)
     if fails or reds or broken or (new_findings if opts.base else findings):
@@ -330,7 +345,8 @@ def summarize(rounds, opts, started):
         verdict = "REPLAY PASSED (NOT JUDGED)"
     elif not opts.base:
         verdict = "NO A/B (NOT JUDGED)"  # a clean file needs the speed A/B against a base build
-    elif not_run or opts.minutes <= 0 or not actions or fuzz_s < opts.minutes * 60:
+    elif (not_run or unjudged_base or missing_base or not base_speed_samples
+          or opts.minutes <= 0 or not actions or fuzz_s < opts.minutes * 60):
         verdict = "NOT JUDGED"
     else:
         verdict = "CLEAN"
@@ -343,6 +359,9 @@ def summarize(rounds, opts, started):
             "findings": sorted(findings.values(), key=lambda f: (f["on_base"], f["oracle"])),
             "split_type": split, "split_type_base": split_base,
             "broken_rounds": [{k: r.get(k) for k in ("round", "seed", "host", "status", "reason", "journey_problems")} for r in broken],
+            "unjudged_base_rounds": [{k: r.get(k) for k in ("round", "seed", "host", "status", "reason", "journey_problems")}
+                                      for r in unjudged_base],
+            "missing_base_rounds": missing_base, "base_speed_samples": base_speed_samples,
             "base_failures": [{k: r.get(k) for k in ("round", "seed", "host", "failure", "shrunk", "corpus")} for r in base_fails],
             "speed": speed, "speed_reds": reds,
             "weak_oracles": (["typeable at once (keys wait out the 2.5 s creation hold after a create)",
@@ -374,6 +393,13 @@ def text_of(summary):
     for r in s["broken_rounds"]:
         lines.append(f"  BROKEN round {r['round']} seed {r['seed']} on {r['host']}: "
                      + "; ".join(r.get("journey_problems") or [str(r.get("reason"))])[:300])
+    for r in s["unjudged_base_rounds"]:
+        lines.append(f"  UNJUDGED BASE round {r['round']} seed {r['seed']} on {r['host']}: "
+                     + "; ".join(r.get("journey_problems") or [f"{r['status']}: {r.get('reason') or 'no fuzz result'}"])[:300])
+    if s["missing_base_rounds"]:
+        lines.append(f"  MISSING BASE round(s) or seed mismatch: {s['missing_base_rounds']}")
+    if s["base"] and not s["base_speed_samples"]:
+        lines.append("  UNJUDGED BASE speed: zero timing samples from the comparison build")
     for f in s["findings"]:
         lines.append(f"  {'base finding (also on the base)' if f['on_base'] else 'FINDING'} {f['oracle']} x{f['count']} in "
                      f"{f['rounds']} rounds, seeds {f['seeds'][:5]}: {str(f['detail'])[:200]}")

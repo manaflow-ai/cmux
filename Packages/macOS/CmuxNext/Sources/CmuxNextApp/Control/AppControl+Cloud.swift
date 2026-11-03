@@ -30,6 +30,7 @@ extension AppControl {
                 let rows: [JSONValue] = services.machines.cloud.map { .object(Self.cloudMachineRow($0, services.machines)) }
                 return .value(.object(["machines": .array(rows), "loaded": .bool(services.cloud.hasLoadedCurrentMachines),
                                        "creations": .array(services.cloud.creations.controlRows),
+                                       "link_route": .string(services.cloud.linkRoute()),
                                        "last_error": services.cloud.lastError.map(JSONValue.string) ?? .null]))
             },
             // `cmux automation --target cloud`: one Cloud automation op as the signed-in user (CloudAutomationRelay).
@@ -118,6 +119,7 @@ extension AppControl {
             "api_status": .string(session.machine.status.rawValue),
             "stage": .string(session.stage.name),
             "stage_detail": session.stage.failure.map(JSONValue.string) ?? .null,
+            "link_ended_detail": session.linkEndedDetail.map(JSONValue.string) ?? .null,
             // Why a paused machine is paused (`idle` or `user`), and its idle auto-pause (0: Off).
             "pause_reason": session.machine.pauseReason.map { .string($0.rawValue) } ?? .null,
             "idle_pause_minutes": session.machine.idlePauseMinutes.map { .number(Double($0)) } ?? .null,
@@ -132,7 +134,13 @@ extension AppControl {
             "missing_required": .array((compat?.missingRequired ?? []).map(JSONValue.string)),
             "missing_features": .array((compat?.missingOptional ?? []).map(JSONValue.string)),
             "file_ops": fileOps.map(JSONValue.bool) ?? .null,
-            "workspaces": .array(store.workspaces.map { .object(["id": .string($0.id), "name": .string($0.displayName)]) }),
+            "harness_login": session.harnessLogin.map { .string($0.summary) } ?? .null,
+            // Each workspace's durable id (`workspace_id` in `cloud new-workspace`'s answer) and its
+            // `ws_…` id on registry daemons; `cmux workspace list` and MCP `workspace_list` list them.
+            "workspaces": .array(store.workspaces.map { workspace in
+                .object(["id": .string(workspace.id), "name": .string(workspace.displayName),
+                         "resource_id": workspace.resourceID.map { .string($0.rawValue) } ?? .null])
+            }),
         ]
     }
 }
@@ -140,8 +148,8 @@ extension AppControl {
 // `runs.sandbox.create|runs.wait|runs.cancel`: the methods `cmux run --sandboxed` sends
 // (hq#3367). The app holds the Stack session, so the CLI never sees a token: it asks the
 // app, the app asks cmux.com's Run API (messages in Resources/Runs.xcstrings), and the answer (the Run's view and its receipt,
-// which hold no secrets or provider handles) passes through as JSON. Behind Labs >
-// Show Preview Features while sandboxes are being shaped.
+// which hold no secrets or provider handles) passes through as JSON. Not behind Labs
+// (Leo, 2026-10-30): signed in and Cloud allowed by policy.
 extension AppControl {
     private func registerRunMethods(_ services: AppServices) {
         service?.router.register([

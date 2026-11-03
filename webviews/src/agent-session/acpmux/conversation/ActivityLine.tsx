@@ -7,6 +7,8 @@ import { useSubsessionInfo } from "../subagents/subsessions";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { BackgroundHint } from "./BackgroundHint";
+import { Envelope, TerminalSquare } from "./icons";
+import { TranscriptActivityRow } from "./TranscriptActivityRow";
 import { formatDuration } from "./turns";
 import { useTicking, workingLabel } from "./WorkingFor";
 
@@ -15,13 +17,32 @@ export function ActivityLine({ row, now = Date.now }: { row: AcpmuxRow; now?: ()
   const time = useTicking(true, now);
   // A message going out reads "Sending message to tests", never its raw command (turns.ts `sendingTo`).
   const sendName = useSubsessionInfo(row.doingSendSession)?.name ?? row.doingSendTo;
+  if (sendName !== undefined) {
+    // Keep the lane name as the same tag used by sent and received transcript rows. A sentinel
+    // lets localization supply the words around the interpolated name without hard-coding them.
+    const [before, after = ""] = t("send.sending", { target: "\u0000" }).split("\u0000");
+    return (
+      <TranscriptActivityRow
+        icon={<Envelope />}
+        before={before}
+        name={sendName}
+        after={after}
+        meta={<span className="cv-command__meta">{formatDuration(Math.max(0, time - row.at))}</span>}
+        className="cv-activity-row"
+        // It opens nothing, so it draws no chevron (a row shows one only with something to show).
+        chevron={false}
+        ariaLabel={t("send.sending", { target: sendName })}
+      />
+    );
+  }
   return (
-    <div className="cv-activity">
+    <div className="cv-activity cv-tool">
+      <span className="cv-tool__icon" aria-hidden="true">
+        {row.doingCommand ? <TerminalSquare /> : null}
+      </span>
       {row.text ? (
         <>
-          <span className="cv-activity__label">
-            {sendName !== undefined ? t("send.sending", { target: sendName }) : row.text}
-          </span>
+          <span className="cv-activity__label">{row.text}</span>
           <span className="cv-activity__time">{formatDuration(Math.max(0, time - row.at))}</span>
         </>
       ) : (

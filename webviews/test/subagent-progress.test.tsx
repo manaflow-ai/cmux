@@ -138,9 +138,10 @@ test("a running workflow and a background agent show what they do and what they 
     },
   ]);
   expect(await openRows(fold)).toEqual([
-    // No tokens or tool uses on the row (Leo, 2026-10-31: "we can remove the symbols and the tokens").
-    ["probeworkflow", "Count: n2 · 1/3 agents"],
-    ["Watch the buildgeneral-purpose", "Bash"],
+    // No kind subtitle beside the name (design/chat-transcript.md "Subagent row anatomy") and no tokens
+    // or tool uses (Leo, 2026-10-31: "we can remove the symbols and the tokens").
+    ["probe", "Count: n2 · 1/3 agents"],
+    ["Watch the build", "Bash"],
   ]);
 });
 

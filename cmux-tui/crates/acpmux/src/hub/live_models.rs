@@ -27,7 +27,7 @@ struct Target {
 /// its own argv, and every Codex-family ACP profile, through the real `codex`
 /// (the adapter's `CODEX_PATH`, else `codex` on the login PATH).
 fn targets(harnesses: &BTreeMap<String, HarnessProfile>) -> Vec<Target> {
-    let codex = || crate::config::which("codex");
+    let codex = crate::managed_codex::codex_binary;
     harnesses
         .iter()
         .filter_map(|(name, profile)| {

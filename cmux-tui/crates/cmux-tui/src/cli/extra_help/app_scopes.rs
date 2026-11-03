@@ -55,6 +55,7 @@ fn text(args: &[String]) -> Option<String> {
             format!("{}\n", messages.browser_page_usage)
         }
         ["notify", ..] => return Some(super::super::scope_help::NOTIFY_HELP.to_owned()),
+        ["space", ..] => return Some(super::super::scope_help::SPACE_HELP.to_owned()),
         ["status", ..] => return Some(super::super::scope_help::STATUS_HELP.to_owned()),
         ["agent", "open"] => return Some(messages.agent_open_usage.to_owned()),
         ["agent", "open-tab"] => return Some(messages.agent_open_tab_usage.to_owned()),

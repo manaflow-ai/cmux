@@ -110,7 +110,7 @@ public final class ActionRegistry {
     /// Called while a choices submenu (`ContextMenuEntry.choices`) is open:
     /// with the hovered value (action, argument name, value, target), and
     /// with a nil value when the menu closes. The App previews themes here.
-    @ObservationIgnored public var choicePreview: (@MainActor (ActionID, String, String?, ActionTargetRef?) -> Void)?
+    @ObservationIgnored public var choicePreview: (@MainActor (ActionID, String, String?, ActionTargetRef?, _ machineID: String?) -> Void)?
     /// Live previews by action (`ActionRegistry+Preview`) and the one on screen.
     @ObservationIgnored var previews: [ActionID: ActionPreview] = [:]
     @ObservationIgnored var activePreview: ActivePreview?
@@ -170,7 +170,29 @@ public final class ActionRegistry {
     @ObservationIgnored var capturedResults: [ActionResultWork]?
     @ObservationIgnored private var indexByID: [ActionID: Int] = [:]
     @ObservationIgnored var descriptorIndexByID: [ActionID: Int] = [:]
-    @ObservationIgnored var shortcutIndex: ShortcutIndex?
+    @ObservationIgnored var shortcutIndex: ShortcutIndex? {
+        didSet { if shortcutIndex == nil { askToWarmBindingTable() } }
+    }
+    /// Builds a stale key-binding table before a key needs it (TYPING UNDER LOAD F3: the first key after a
+    /// change paid for `makeTable()`, 27.6 ms on the main thread). The App gives it a budgeted background batch
+    /// on its main-thread scheduler, which yields to a person's input; nil (tests, tools): the first key builds
+    /// the table, as before.
+    @ObservationIgnored public var warmBindingTable: (@MainActor (@escaping @MainActor () -> Void) -> Void)? {
+        // A new hook drops the old one's queued work: ask again through the new one.
+        didSet { bindingTableWarmQueued = false; if shortcutIndex?.bindingTable == nil { askToWarmBindingTable() } }
+    }
+    /// A warm is queued and has not run yet: further changes need no second one.
+    @ObservationIgnored private var bindingTableWarmQueued = false
+
+    private func askToWarmBindingTable() {
+        guard let warm = warmBindingTable, !bindingTableWarmQueued else { return }
+        bindingTableWarmQueued = true
+        warm { [weak self] in
+            guard let self else { return }
+            self.bindingTableWarmQueued = false
+            _ = RegistryKeyBindings(self).table
+        }
+    }
 
     /// An empty registry with no catalog whose runs are not timed.
     public convenience init() {

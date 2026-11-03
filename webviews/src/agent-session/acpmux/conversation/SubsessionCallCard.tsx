@@ -22,11 +22,12 @@ import {
 } from "../subagents/subsessions";
 import { retryLabel, sessionRetry } from "../subagents/retryState";
 import { useFindReveal } from "./chatFind";
-import { Spinner } from "./icons";
+import { ToolGroup } from "./icons";
 import { Markdown } from "./Markdown";
 import { McpCallDetails } from "./McpCallRows";
 import { mcpCall, mcpRawName } from "./mcpCalls";
 import { CardCopy } from "./CardCopy";
+import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { RawToggle, SentMessageLine } from "./SentMessageLine";
 import type { SubsessionCall, SubsessionDelivery, SubsessionReply } from "./subsessionCalls";
 import "./SubsessionCallCard.css";
@@ -101,14 +102,7 @@ function StartedGroup({ entries }: { entries: readonly StartedGroupEntry[] }) {
         />
       }
       label={t("subsession.startedGroup", { n: entries.length, names: names.join(", ") })}
-      status={
-        status ? (
-          <>
-            {working && <Spinner size={12} loading />}
-            {status}
-          </>
-        ) : undefined
-      }
+      status={status || undefined}
     >
       {entries.map(({ call, tool }, index) => (
         <StartedCard key={tool.id || index} call={call} tool={tool} />
@@ -117,12 +111,12 @@ function StartedGroup({ entries }: { entries: readonly StartedGroupEntry[] }) {
   );
 }
 
-/// A call still running: one line with the working spinner.
+/// A call still running: one line, its tool glyph at rest (Leo: no spinners on tool calls).
 function RunningLine({ children }: { children: ReactNode }) {
   return (
     <div className="cv-tool cv-subsession is-live">
       <span className="cv-tool__icon">
-        <Spinner size={16} loading />
+        <ToolGroup />
       </span>
       <span className="cv-tool__text">{children}</span>
     </div>
@@ -179,7 +173,6 @@ function SessionCard({
   shown,
   disclosure = false,
   disclosureKey,
-  started = false,
   children,
 }: {
   tool: Tool;
@@ -194,7 +187,6 @@ function SessionCard({
   fallback?: Pick<SubsessionReply, "state" | "waiting" | "slot">;
   disclosure?: boolean;
   disclosureKey?: string;
-  started?: boolean;
   children?: ReactNode;
 }) {
   const t = useT();
@@ -224,7 +216,8 @@ function SessionCard({
       disclosure={disclosure}
       disclosureKey={disclosureKey}
       findItems={findItems}
-      disclosureLabel={started ? t("subsession.started", { name: live?.name ?? name }) : undefined}
+      // The row is the session's name by its harness's mark, no "Started sub-session" in front of it
+      // (design/chat-transcript.md: no narration, the icon names the type; transcript audit HQ#5154).
       onOpen={sessionId && open ? () => open(sessionId) : undefined}
     >
       {children}
@@ -247,7 +240,6 @@ function StartedCard({ call, tool }: { call: Extract<SubsessionCall, { tool: "st
       shown={call.prompt}
       disclosure={true}
       disclosureKey={`subsession-start:${tool.id}`}
-      started
     >
       {call.prompt && <CardCopy text={call.prompt} />}
       {call.prompt && (
@@ -263,9 +255,10 @@ function StartedCard({ call, tool }: { call: Extract<SubsessionCall, { tool: "st
 /// Markdown cut to its first three lines, with a toggle to show the rest when there is more (a
 /// prompt's "Show prompt"). Whether there is more is measured: the pane's width decides the wrap,
 /// so a resize can bring the toggle in or take it away (one observer per cut, gone with it).
-export function Cut({ text, prompt }: { text: string; prompt?: boolean }) {
+/// Keep the reader's choice when the card closes or the transcript virtualizes this result.
+export function Cut({ text, prompt, disclosureKey }: { text: string; prompt?: boolean; disclosureKey: string }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey);
   const [long, setLong] = useState(false);
   useFindReveal(
     useMemo((): AcpmuxActivity[] => [{ kind: "note", text }], [text]),
@@ -337,6 +330,7 @@ function McpDetails({ tool, reveal = 0, promptFindId }: { tool: Tool; reveal?: n
       call={call}
       raw={mcpRawName(tool, call)}
       output={tool.output}
+      tool={tool}
       strip={false}
       reveal={reveal}
       requestFindAlternatives={promptFindId ? { prompt: promptFindId } : undefined}
@@ -407,7 +401,9 @@ function SessionCards({ call, tool }: { call: Extract<SubsessionCall, { tool: "w
           disclosureKey={`subsession-result:${tool.id}:${session.sessionId}`}
         >
           {session.reply && session.state !== "working" && <CardCopy text={session.reply} />}
-          {session.reply && session.state !== "working" && <Cut text={session.reply} />}
+          {session.reply && session.state !== "working" && (
+            <Cut text={session.reply} disclosureKey={`subsession-reply:${tool.id}:${session.sessionId}`} />
+          )}
         </SessionCard>
       ))}
       <Raw tool={tool} />

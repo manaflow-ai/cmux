@@ -14,17 +14,22 @@ export const SOURCES_DEADLINE_MS = 1500;
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 
-const callHost: Call = (method, params) => {
+/// The host's answer to `method`: the page's direct action when it has one (the gallery, a test), else the bridge.
+export const callHost: Call = (method, params) => {
   const direct = window.cmuxAcpmuxActions?.[method];
   return direct ? Promise.resolve(direct(params)) : postNative(method, params);
 };
 
-/// The host's `chat.attach.source {kind, names}` answer for `files`: each file's source in order,
-/// undefined for one it does not know (and for all of them from an older host, or past the deadline).
+/// The host's `chat.attach.source {kind, names, gestureAt}` answer for `files`: each file's source in
+/// order, undefined for one it does not know (and for all of them from an older host, or past the
+/// deadline: a late answer is dropped). `gestureAt`: when the page took the gesture (`Date.now()`,
+/// the Mac's own clock, as the host's). The host answers only from a record made before it, so an ask
+/// that reaches the host late never takes a newer gesture's record (AgentPaneDroppedPaths.swift).
 export async function attachSources(
   kind: SourceKind,
   files: readonly File[],
   call: Call = callHost,
+  gestureAt: number = Date.now(),
 ): Promise<(AttachmentSource | undefined)[]> {
   const none = files.map(() => undefined);
   if (files.length === 0) return none;
@@ -34,7 +39,7 @@ export async function attachSources(
   });
   try {
     const answer = await Promise.race([
-      call("chat.attach.source", { kind, names: files.map((file) => file.name) }).catch(() => undefined),
+      call("chat.attach.source", { kind, names: files.map((file) => file.name), gestureAt }).catch(() => undefined),
       late,
     ]);
     const sources = (answer as { sources?: unknown } | null | undefined)?.sources;

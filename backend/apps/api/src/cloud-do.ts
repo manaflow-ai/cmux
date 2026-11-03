@@ -6,8 +6,10 @@ import { roleHas } from "./domains/team-roles.ts"
 import { cloudDriver, cloudConfig } from "./cloud-driver.ts"
 import { parseBindRequest, sha256Hex, type BindReply } from "./cloud-link.ts"
 import { parseSigningKeys, publicKeyset } from "./link-token.ts"
+import { isMachineInstallKind } from "./machine-installs.ts"
 import { connectInfo, machineBySelector, mintLinkToken, type MintReply } from "./cloud-connect.ts"
-import { registerVmInstall, sendEphemeral, VmEventBuckets, vmEventEmit, vmSelfGet, vmStatusReport, type VmReply } from "./cloud-vm.ts"
+import { registerVmInstall, sendEphemeral, VmEventBuckets, vmEventEmit, vmGate, vmSelfGet, vmStatusReport, type VmReply } from "./cloud-vm.ts"
+import type { TrajectoryScope } from "./cloud-trajectory.ts"
 import { PLATFORM_IDENTITY_PREFIX, TABLE_LEDGER, TABLE_MACHINE, TABLE_SNAPSHOT, TABLE_TOMBSTONE, type CloudState, type LedgerRow, type MachineRow } from "./domains/cloud.ts"
 import type { SnapshotRow } from "./domains/cloud-snapshot.ts"
 import { platformCall, platformShape, type PlatformCall, type PlatformReply, type PlatformHost } from "./cloud-platform.ts"
@@ -197,6 +199,31 @@ export class CloudDO extends CloudIdle {
   }
   private readonly vmEvents = new VmEventBuckets()
 
+  /**
+   * #25584, RPC from POST /v1/cloud/machines/{machine}/trajectories/* (cloud-trajectory.ts): the machine whose
+   * kept ACP chats this principal may use. Writes: the machine's own VM install only (the cloud.vm.* gate), into
+   * that machine's store. Reads: that install, or the machine's creator (a session, or the creator's own install
+   * with the read class). `parent`: the VM install reads its restore source's store (MachineRow.trajectory_parent),
+   * or none. Not an op: nothing is committed.
+   */
+  async trajectoryScope(entity: string, principal: Principal, machine: string, write: boolean, parent: boolean): Promise<TrajectoryScope> {
+    const rows = this.isBound(entity) ? this.bind(entity).rows : undefined
+    if (principal.kind === "install" && principal.install_kind === "vm") {
+      const g = vmGate(entity, principal, machine, rows)
+      if (!g.ok) return { ok: false, status: g.code === "cloud.machine.not_found" ? 404 : 403, code: g.code, message: g.message }
+      if (!parent) return { ok: true, store: g.row.id }
+      return write ? { ok: false, status: 403, code: "auth.forbidden", message: "a restore source's chats are read only" } : { ok: true, store: g.row.trajectory_parent ?? null }
+    }
+    // Review 2 blocker: any other machine install (a team VM's) has no access to chats (machine-installs.ts).
+    if (isMachineInstallKind(principal.install_kind)) return { ok: false, status: 403, code: "auth.forbidden", message: "a machine install has no access to chats" }
+    if (write || parent) return { ok: false, status: 403, code: "auth.forbidden", message: "only the machine itself writes its chats" }
+    if (principal.team !== entity || !principal.user) return { ok: false, status: 403, code: "auth.forbidden", message: "not this team's machines" }
+    if (principal.kind === "install" && !principal.grant_classes?.includes("read")) return { ok: false, status: 403, code: "auth.forbidden", message: "this install cannot read" }
+    const row = rows?.get<MachineRow>(TABLE_MACHINE, machine)?.row
+    if (!row || row.creator !== principal.user) return { ok: false, status: 404, code: "cloud.machine.not_found", message: "no such machine of yours in this team" }
+    return { ok: true, store: row.id }
+  }
+
   async mintLinkToken(entity: string, principal: Principal, params: unknown, request: string = crypto.randomUUID()): Promise<MintReply> {
     if (principal.team !== entity) return { ok: false, code: "auth.forbidden", message: "not this team's machines" }
     const rows = this.isBound(entity) ? this.bind(entity).rows : undefined
@@ -353,8 +380,8 @@ export class CloudDO extends CloudIdle {
    * team: boot, exec, snapshot and delete through the person's own ops (cloud-platform.ts). No public
    * route reaches it; only a Worker bound to PlatformMachines does.
    */
-  async platformMachine(entity: string, user: string, call: PlatformCall, recoveryOnly = false): Promise<PlatformReply> {
-    return platformCall(this.platformHost(entity), user, call, recoveryOnly)
+  async platformMachine(entity: string, user: string, call: PlatformCall, recoveryOnly = false, agent: string | null = null): Promise<PlatformReply> {
+    return platformCall(this.platformHost(entity), user, call, recoveryOnly, agent)
   }
 
   private readonly platformOperations = new PlatformOperations(this.sqlStore)
@@ -365,7 +392,7 @@ export class CloudDO extends CloudIdle {
       team: entity,
       operations: this.platformOperations,
       get now() { return now() },
-      providerInfo: () => ({ protocolVersion: 1, provider: "freestyle", region: "global", available: (this.env.ENVIRONMENT === "development" || this.env.ENVIRONMENT === "test") && this.env.PLATFORM_MACHINES === "on" && (this.env.CLOUD_VM_TRANSPORT === undefined || this.env.CLOUD_VM_TRANSPORT === "direct") && directCloudProvider(this.env).id === "freestyle" && cloudConfig(this.env).image !== null, shapeSelection: "grow-to-fit", minimumShape: null, memoryPause: true, fork: true }),
+      providerInfo: () => ({ protocolVersion: 1, provider: "freestyle", region: "global", available: this.env.PLATFORM_MACHINES === "on" && (this.env.CLOUD_VM_TRANSPORT === undefined || this.env.CLOUD_VM_TRANSPORT === "direct") && directCloudProvider(this.env).id === "freestyle" && cloudConfig(this.env).image !== null, shapeSelection: "grow-to-fit", minimumShape: null, memoryPause: true, fork: true }),
       arm: async (at) => {
         this.bind(entity)
         const realAt = Math.max(Date.now(), at - this.skewMs)
@@ -379,6 +406,7 @@ export class CloudDO extends CloudIdle {
       },
       submit: (p, f) => this.submit(entity, p, f),
       machine: (id) => rows()?.get<MachineRow>(TABLE_MACHINE, id)?.row,
+      changing: (id) => this.isBound(entity) && Object.values(this.bind(entity).currentState.pending).some((e) => e.machine === id),
       resources: async (row) => {
         const driver = await Promise.resolve().then(() => this.driverFor(row)).catch(() => null)
         const r = driver ? await driver.resourcesOf(row.provider_name, { team: entity, machine: row.id }).catch(() => null) : null
@@ -493,12 +521,13 @@ export class CloudDO extends CloudIdle {
   }
 
   /** Test only (ENVIRONMENT=test): drive the fake provider and the object's clock. */
-  async fakeControl(cmd: { snapshot_delete_refuse?: number; power_refuse?: number; vm_state?: { name: string; state: string }; image_size?: { cpu: number; memory: number; storage: number }; resize_partial?: number; resize_refuse?: number; power_then_fail?: number; fail_revokes?: number; link_keys?: string; unset?: ReadonlyArray<"CLOUD_API_ORIGIN" | "ENVIRONMENT_TAG" | "CLOUD_ALLOWED_TEAMS">; fail_next?: number; drop_results?: number; advance_ms?: number; delete_vm?: string; fail_list?: boolean; add_vm?: { name: string; team: string; machine: string }; edge_host?: string | null; entitlements?: "on" | "off"; exec_build_exit?: number; exec_log?: string; guest_reply?: { exitCode: number; stdout: string; stderr: string } | null }) {
+  async fakeControl(cmd: { snapshot_delete_refuse?: number; power_refuse?: number; vm_state?: { name: string; state: string }; image_size?: { cpu: number; memory: number; storage: number }; resize_partial?: number; resize_refuse?: number; power_then_fail?: number; fail_revokes?: number; link_keys?: string; unset?: ReadonlyArray<"CLOUD_API_ORIGIN" | "ENVIRONMENT_TAG" | "CLOUD_ALLOWED_TEAMS">; fail_next?: number; drop_results?: number; advance_ms?: number; delete_vm?: string; fail_list?: boolean; add_vm?: { name: string; team: string; machine: string }; edge_host?: string | null; auto_pause?: boolean | null; entitlements?: "on" | "off"; exec_build_exit?: number; exec_log?: string; guest_reply?: { exitCode: number; stdout: string; stderr: string } | null }) {
     if (this.env.ENVIRONMENT !== "test") throw new Error("fakeControl is test only")
     cloudDriver(this.env, this.sqlStore)
     if (cmd.entitlements !== undefined) this.entitlements.enabled = cmd.entitlements === "on"
     if (cmd.edge_host !== undefined) this.edge.testHost = cmd.edge_host
     if (cmd.unset) this.testUnset = new Set(cmd.unset)
+    if (cmd.auto_pause !== undefined) this.testAutoPause = cmd.auto_pause
     if (cmd.link_keys !== undefined) this.testLinkKeys = cmd.link_keys
     if (cmd.fail_revokes !== undefined) this.failRevokes = cmd.fail_revokes
     if (cmd.snapshot_delete_refuse !== undefined) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET snapshot_delete_refuse = ? WHERE id = 1`, cmd.snapshot_delete_refuse)

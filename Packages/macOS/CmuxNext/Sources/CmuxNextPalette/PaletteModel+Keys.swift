@@ -30,7 +30,7 @@ extension PaletteModel {
         case .pageUp: moveSelection(by: -Self.pageStep, wrap: false)
         case .pageDown: moveSelection(by: Self.pageStep, wrap: false)
         case .moveToFirst: selectRow(at: 0, scroll: true)
-        case .moveToLast: selectRow(at: rows.count - 1, scroll: true)
+        case .moveToLast: selectRow(at: selectableRows.count - 1, scroll: true)
         case .submit, .submitAlternate:
             // Rows of an older query wait for the current query's first
             // batch in the reducer, then run.
@@ -81,6 +81,13 @@ extension PaletteModel {
         return true
     }
 
+    /// Runs the Cmd-W that waited on a search, now that it delivered.
+    func closeIfPending() {
+        guard pendingClose else { return }
+        pendingClose = false
+        handle(.closeItem)
+    }
+
     /// Cmd-W. With the selected row's close command: runs it, keeps the
     /// palette open, re-reads the page's providers (the row leaves once
     /// the owner's visible state drops it; nothing is hidden here) and
@@ -88,9 +95,6 @@ extension PaletteModel {
     /// page that owns the key (`PalettePageSpec.ownsCloseKey`) consumes it
     /// also without such a row. While a search is in flight it waits for
     /// that search, like Return.
-    /// Runs the Cmd-W that waited on a search, now that it delivered.
-    func closeIfPending() { if pendingClose { pendingClose = false; handle(.closeItem) } }
-
     func handleCloseItem() -> Bool {
         let owns = currentPageOwnsCloseKey
         guard owns || selectedItem?.closeCommand != nil else { return false }
@@ -244,8 +248,17 @@ extension PaletteModel {
 
     static let pageStep = 8
 
-    func moveSelection(by delta: Int, wrap: Bool) {
+    /// The rows on screen navigation may select: the reducer's rows, never an older query's answer still shown
+    /// as a stand-in (compared by id: on a full page the two lists can hold the same number of rows).
+    var selectableRows: [PaletteRow] {
+        guard let top = nav.top else { return rows }
+        let ids = Set(top.rows.map(\.id))
         let rows = self.rows
+        return rows.allSatisfy { ids.contains($0.id) } ? rows : rows.filter { ids.contains($0.id) }
+    }
+
+    func moveSelection(by delta: Int, wrap: Bool) {
+        let rows = selectableRows
         guard !rows.isEmpty else {
             // Even an empty-list navigation key is explicit navigation: release
             // an exhausted-section suppression before a later batch arrives.
@@ -263,7 +276,7 @@ extension PaletteModel {
     }
 
     func selectRow(at index: Int, scroll: Bool) {
-        let rows = self.rows
+        let rows = selectableRows
         guard rows.indices.contains(index) else {
             // Home/End on an empty page still count as explicit navigation.
             send(.move(0))

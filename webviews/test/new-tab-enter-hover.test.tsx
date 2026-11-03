@@ -13,6 +13,9 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import { EMPTY_OMNIBAR } from "../src/agent-session/acpmux/omnibar";
+import { classicField } from "./support/classicNewTabField";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 import type { SuggestionOrder } from "../src/agent-session/acpmux/newtab/suggestionOrder";
 
 const scope = globalThis as Record<string, unknown>;
@@ -24,6 +27,8 @@ const keys = [
   "IS_REACT_ACT_ENVIRONMENT",
   "Node",
   "Element",
+  "MutationObserver",
+  "getSelection",
   "getComputedStyle",
   "requestAnimationFrame",
   "cancelAnimationFrame",
@@ -43,6 +48,7 @@ beforeAll(() => {
     },
   });
   Object.assign(scope, {
+    ...proseMirrorGlobals(window as unknown as Window & typeof globalThis),
     window,
     document: window.document,
     navigator: window.navigator,
@@ -94,15 +100,17 @@ async function render(calls: unknown[][], order?: SuggestionOrder) {
 }
 
 async function type(text: string) {
-  const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
-  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+  const field = host.querySelector<MarkdownFieldElement>(".nt-field")!;
+  for (let turn = 0; turn < 200 && !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")); turn++)
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const handle = field.acpmuxMarkdownField!;
+  const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
   await act(async () => {
-    setValue.call(field, text);
-    field.dispatchEvent(new window.Event("input", { bubbles: true }));
+    handle.writeText(text, text.length, text.length);
+    editor.focus();
+    handle.setCaret(text.length);
   });
-  field.focus();
-  field.setSelectionRange(field.value.length, field.value.length);
-  return field;
+  return editor;
 }
 
 const rows = () => [...window.document.querySelectorAll<HTMLElement>('[role="option"]')];
@@ -121,7 +129,7 @@ async function hover(option: HTMLElement) {
   });
 }
 
-async function press(field: HTMLTextAreaElement, key: string, init: KeyboardEventInit = {}) {
+async function press(field: HTMLElement, key: string, init: KeyboardEventInit = {}) {
   const event = new window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init });
   await act(async () => field.dispatchEvent(event));
   return event;
@@ -244,25 +252,17 @@ async function classicEnter(hoverOther: boolean) {
       />,
     ),
   );
-  const field = host.querySelector<HTMLInputElement>(".acpmux-newtab-field")!;
-  await act(async () => field.focus());
-  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
-  await act(async () => {
-    setValue.call(field, "helo");
-    field.dispatchEvent(new window.Event("input", { bubbles: true }));
-  });
+  // The page's field is the chat composer's prompt editor (MarkdownField).
+  const field = await classicField(host);
+  await field.type("helo");
   const options = rows();
   expect(options.length).toBeGreaterThan(1);
   const target = options.findIndex((option) => option.getAttribute("aria-selected") === "true");
   expect(target).toBeGreaterThanOrEqual(0);
   if (hoverOther) await hover(options.find((_, index) => index !== target)!);
   expect(rows().findIndex((option) => option.getAttribute("aria-selected") === "true")).toBe(target);
-  // Return in the field submits its form (implicit submission, which jsdom does not run for a
-  // dispatched key): the keydown, then the form's submit.
-  await act(async () => {
-    field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
-    field.form!.requestSubmit();
-  });
+  // Return in the field opens what it names (the editor's Enter, MarkdownField onSubmit).
+  await press(field.editor, "Enter");
   return submitted;
 }
 

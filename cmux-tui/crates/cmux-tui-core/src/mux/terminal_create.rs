@@ -295,7 +295,7 @@ impl Mux {
             drop(workspace_lifecycle);
             return Ok((placement, surface, created_path));
         }
-        let notifications = self.tree_decorations();
+        let notifications = self.tree_decorations_placing(&surface);
         let active_at = self.next_active_at();
         let mut rollback_removed = Vec::new();
         let attached = {

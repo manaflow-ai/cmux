@@ -9,6 +9,8 @@ import { PASTE_FILE_CHARS, pastedTextBlocks } from "./pastedText";
 
 import type { StringKey } from "./i18n";
 import type { VideoInfo } from "./composer/videoAttachments";
+import { videoFrameBlocks } from "./composer/videoPrompt";
+import type { VideoTranscript } from "./composer/videoTranscript";
 
 export type ComposerAttachment = {
   id: string;
@@ -36,6 +38,8 @@ export type ComposerAttachment = {
   originalName?: string;
   /** A video link's poster, length and key frames, as the host read them (composer/videoAttachments.ts). */
   video?: VideoInfo;
+  /** The speech in that video, as the host heard it (composer/videoTranscript.ts); the prompt's hidden context. */
+  transcript?: VideoTranscript;
   /** The app it came from, as the host said (composer/attachmentSources.ts); none when unknown. */
   source?: AttachmentSource;
 };
@@ -356,7 +360,7 @@ export type OrderedDraftPart =
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 export { IMAGE_BUDGET_BYTES, MAX_IMAGE_SIDE, base64 } from "./composer/imageWork";
 /** The bytes a PDF may have to go as a document block: its base64 (13.4 MiB) stays under acpmux's
- * 15 MiB bound on one message (#23247), below the WebSocket's 16 MiB frame, with room for the rest
+ * 31 MiB bound on one message (#23247), below the app's 32 MiB frame, with room for the rest
  * of the prompt; the same cap as a file sent to an ssh peer (`_acpmux/file_put`). A larger PDF goes
  * as a link to its copy (intakeFiles.ts). */
 export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
@@ -550,7 +554,11 @@ export function attachmentBlocks(attachment: ComposerAttachment): PromptBlock[] 
   else if (attachment.kind === "audio" && attachment.data)
     blocks.push({ type: "audio", mimeType: attachment.mimeType, data: attachment.data });
   else if (attachment.kind === "link" && attachment.path)
-    blocks.push({ type: "resource_link", uri: fileUri(attachment.path), name: attachment.name });
+    // A video's frames note and frames follow its link (composer/videoPrompt.ts).
+    blocks.push(
+      { type: "resource_link", uri: fileUri(attachment.path), name: attachment.name },
+      ...videoFrameBlocks(attachment),
+    );
   if (attachment.kind === "image" && attachment.originalPath)
     blocks.push({
       type: "resource_link",
@@ -596,12 +604,11 @@ export function promptBlocks(
 export type LinkItem = { path: string; folder: boolean };
 
 /// How files came in from the person's own gesture, for the host's record of where they are
-/// (`chat.attach.dropped`): a drop on the page, or a paste.
-export type DroppedKind = "drop" | "paste";
-/// The gesture whose source the host is asked for (`chat.attach.source`): a drop, a paste, or the
-/// person's pick in the composer's file input (+ > Attach files). A pick asks only where its files
-/// came from; the page already has their bytes, so it never asks where they are.
-export type SourceKind = DroppedKind | "choose";
+/// (`chat.attach.dropped`): a drop on the page, a paste, or the person's pick in the composer's
+/// file input (+ > Attach files), which a chat on this Mac links in place as it does a drop.
+export type DroppedKind = "drop" | "paste" | "choose";
+/// The gesture whose source the host is asked for (`chat.attach.source`): the same gestures.
+export type SourceKind = DroppedKind;
 
 /// The files and folders of the host's `{items: [{path, folder}]}` answer (`chat.attach.choose`,
 /// `chat.attach.dropped`), in order: absolute paths only, a folder only when the host says so.

@@ -76,4 +76,24 @@ import Testing
         card.configure(SidebarNoticeCard(id: "tip", eyebrow: "Tip", title: "Drag a tab to split the pane"))
         try Self.expectCardSurface(card, "notice")
     }
+
+    /// Leo 2026-11-02, on the Updated card as a gray card over his themed sidebar: "why is the
+    /// update thing unthemed". The Updated card's veil is the theme's glass tint (the purple
+    /// theme's background) at the card veil's opacity, not the neutral gray.
+    @Test func theUpdatedCardTakesTheThemesTint() throws {
+        let host = SidebarUpdatedCardHost(frame: NSRect(x: 0, y: 0, width: 216, height: 80))
+        #expect(host.surface.takesThemeTint, "the Updated card draws the neutral gray veil")
+        let surface = host.surface
+        surface.frame = host.bounds
+        let (fill, veil) = try Self.fills(surface)
+        let drawn = try #require(fill?.usingColorSpace(.sRGB), "the Updated card draws no fill")
+        let gray = try #require(veil.usingColorSpace(.sRGB))
+        let tint = try #require(ThemedOverlayColorsTests.purpleRoom().perform { Palette.glassTint }.usingColorSpace(.sRGB))
+        #expect(abs(drawn.alphaComponent - gray.alphaComponent) < 0.01,
+                "the Updated card's fill is \(drawn.alphaComponent) opaque, not the card veil's \(gray.alphaComponent)")
+        #expect(abs(drawn.redComponent - tint.redComponent) < 0.01 && abs(drawn.greenComponent - tint.greenComponent) < 0.01
+                && abs(drawn.blueComponent - tint.blueComponent) < 0.01,
+                "the Updated card's fill \(drawn) is not the theme's glass tint \(tint)")
+        #expect(drawn.blueComponent - drawn.greenComponent > 0.1, "the Updated card's fill \(drawn) has no purple cast")
+    }
 }

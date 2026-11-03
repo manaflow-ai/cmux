@@ -28,20 +28,25 @@ pub(super) struct TerminalSessions {
 
 impl TerminalSessions {
     /// Whether the peer a peer key names runs in one of the session's
-    /// terminals.
+    /// terminals (tests; the accept loop asks ``terminal_of_peer``).
+    #[cfg(test)]
     pub(super) fn contains_peer(&self, mux: &Mux, peer_key: Option<&str>) -> bool {
-        let Some(session) = peer_key
+        self.terminal_of_peer(mux, peer_key).is_some()
+    }
+
+    /// The process session of the terminal the peer runs in (one client of the
+    /// terminal lane: its shell, the agent in it, the agent's hooks and a `cmux`
+    /// run in it), or nil when the peer runs in none.
+    pub(super) fn terminal_of_peer(&self, mux: &Mux, peer_key: Option<&str>) -> Option<u32> {
+        let session = peer_key
             .and_then(super::origin_gate::peer_pid)
-            .and_then(super::origin_gate::peer_session_id)
-        else {
-            return false;
-        };
+            .and_then(super::origin_gate::peer_session_id)?;
         // A known terminal answers at once: a burst of agents costs no read.
         // A miss (the app, a new terminal) reads the terminals again.
         if self.last.lock().recover_poison().contains(&session) {
-            return true;
+            return Some(session);
         }
-        self.current(mux).contains(&session)
+        self.current(mux).contains(&session).then_some(session)
     }
 
     fn current(&self, mux: &Mux) -> Arc<HashSet<u32>> {

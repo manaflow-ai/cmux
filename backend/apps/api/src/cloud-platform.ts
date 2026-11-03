@@ -17,9 +17,10 @@ import type { PlatformOperations } from "./cloud-platform-operations.ts"
  * The principal is the named user in the named team, with its own identity (`platform:<user>`) so
  * its idempotency keys never meet the person's. Boot, exec and snapshot first check that the user may
  * use the team's machines (personal team, or a member with team.resources now); find and delete do
- * not, so cleanup outlives a departure. Exec, snapshot and delete reach only machines a platform boot
+ * not, so cleanup outlives a departure. Exec, snapshot, resize and delete reach only machines a platform boot
  * of the same user made (the row's `platform` flag), never a person's own machine. Exec runs as the
- * image's work user, never root.
+ * image's work user, never root. An agent acting for the person (PlatformCaller.agent) keeps the person's
+ * identity and may only read and exec (AGENT_REFUSED); its execs are audited with the agent.
  */
 
 /** Shown in the team's machine and snapshot lists. */
@@ -36,6 +37,7 @@ export type PlatformCall =
   | { readonly op: "shape"; readonly machine: string }
   | { readonly op: "pause"; readonly machine: string }
   | { readonly op: "resume"; readonly machine: string }
+  | { readonly op: "resize"; readonly machine: string; readonly shape: PlatformShape }
   | { readonly op: "fork"; readonly machine: string; readonly name: string }
   | { readonly op: "exec"; readonly machine: string; readonly command: string; readonly stdin: string | null; readonly timeoutMs: number }
   | { readonly op: "snapshot"; readonly machine: string; readonly name: string }
@@ -57,6 +59,8 @@ export interface PlatformHost {
   mayUse(user: string): Promise<boolean>
   submit(principal: Principal, frame: { t: "op"; op: string; params: unknown; idempotency_key: string; origin: "script" }): Promise<SubmitResult>
   machine(id: string): MachineRow | undefined
+  /** A provider call for this machine (any op) is still pending in the team's ledger. */
+  changing(id: string): boolean
   /** Authoritative provider resources; null/error never confirms a requested reservation. */
   resources(row: MachineRow): Promise<PlatformShape | null>
   ledger(key: string): LedgerRow | undefined
@@ -71,9 +75,31 @@ export interface PlatformHost {
   audit(entry: Record<string, unknown>): void
 }
 
-export const platformPrincipal = (team: string, user: string): Principal => ({ identity: `${PLATFORM_IDENTITY_PREFIX}${user}`, kind: "session", user, team })
+export const platformPrincipal = (team: string, user: string, agent: string | null = null): Principal => ({
+  identity: `${PLATFORM_IDENTITY_PREFIX}${user}`,
+  user,
+  team,
+  ...(agent !== null ? { kind: "agent" as const, agent } : { kind: "session" as const }),
+})
+/**
+ * What an agent acting for the person may not do, as CloudDO's own rules (domains/cloud.ts authorize): create,
+ * delete, pause or start machines; resizes and snapshots need a person. Refused before anything runs, since create,
+ * fork and the delete's cancel never reach that authorize.
+ */
+const AGENT_REFUSED: Partial<Record<PlatformCall["op"], string>> = {
+  boot: "an agent cannot create machines",
+  create: "an agent cannot create machines",
+  fork: "an agent cannot create machines",
+  destroy: "an agent cannot delete machines",
+  pause: "an agent cannot pause or start machines",
+  resume: "an agent cannot pause or start machines",
+  resize: "an agent cannot resize machines",
+  snapshot: "an agent cannot take snapshots",
+  deleteSnapshot: "an agent cannot delete snapshots",
+}
 const key = (kind: "boot" | "snapshot" | "destroy" | "deleteSnapshot", name: string) => `platform-env:${kind}:${name}`
 const machineKey = (kind: "pause" | "resume", machine: string, revision: string) => `platform-env:${kind}:${machine}:${revision}`
+const sameShape = (a: PlatformShape, b: PlatformShape) => a.vcpu === b.vcpu && a.memGiB === b.memGiB && a.diskGiB === b.diskGiB
 const ok = <T>(value: T): PlatformReply<T> => ({ ok: true, value })
 export const refused = (code: string, message: string, retryable: boolean): PlatformReply<never> => ({ ok: false, code, message, retryable })
 type Reply = { t: "result"; value?: any } | { t: "reject"; code: string; message: string; retryable?: boolean }
@@ -108,7 +134,9 @@ export const platformMetadata = (m: MachineRow): PlatformReply<PlatformMachine> 
   return ok({ id: m.id, region: "global", state, shape })
 }
 
-export const platformCall = async (host: PlatformHost, user: string, call: PlatformCall, recoveryOnly = false): Promise<PlatformReply> => {
+export const platformCall = async (host: PlatformHost, user: string, call: PlatformCall, recoveryOnly = false, agent: string | null = null): Promise<PlatformReply> => {
+  const agentRefusal = agent !== null ? AGENT_REFUSED[call.op] : undefined
+  if (agentRefusal) return refused("auth.forbidden", agentRefusal, false)
   // Find and delete reach only this user's own platform boots, and a delete only stops cost: both work
   // after the user lost access to the team, so a setup's cleanup always deletes its builder.
   const cleanup = call.op === "find" || call.op === "destroy" || call.op === "providerInfo" || call.op === "deleteSnapshot"
@@ -117,7 +145,7 @@ export const platformCall = async (host: PlatformHost, user: string, call: Platf
     if (call.op === "create" || call.op === "fork") return host.operations.recover(host, user, call)
     return refused("auth.forbidden", "this user may not use the team's machines", false)
   }
-  const p = platformPrincipal(host.team, user)
+  const p = platformPrincipal(host.team, user, agent)
   const submit = (op: string, params: unknown, k: string) => host.submit(p, { t: "op", op, params, idempotency_key: k, origin: "script" }).then(replyOf)
   /** A machine this user's platform boots made, or a refusal (another person's machine is not found). */
   const own = (id: string): MachineRow | PlatformReply<never> => {
@@ -170,6 +198,35 @@ export const platformCall = async (host: PlatformHost, user: string, call: Platf
       if (now?.status === (wantPause ? "pausing" : "starting")) return refused("mutation.indeterminate", "the machine power change is still running; retry", true)
       return r?.t === "reject" ? fromReject(r) : refused("cloud.provider.unavailable", "the machine power change did not settle", true)
     }
+    case "resize": {
+      const m = own(call.machine)
+      if ("ok" in m) return m
+      if (host.operations.busy(host, m.id)) return refused("mutation.indeterminate", "the machine is still provisioning", true)
+      if (m.transport === "vm-api") return refused("cloud.provider.unsupported", "this machine belongs to another provider transport", false)
+      // A boot's machine has no journal: it is provisioning, with nothing pending, until its VM binds.
+      if (m.status === "provisioning") return refused("mutation.indeterminate", "the machine is still provisioning", true)
+      // The provider's own answer decides "already there": the row takes the target size as soon as a
+      // resize is accepted, so it cannot tell a finished grow from one still running.
+      const actual = await host.resources(m).catch(() => null)
+      if (actual && sameShape(actual, call.shape)) return host.operations.metadata(host, m.id)
+      // A change still running answers here, before any intent: CloudDO runs one change per machine.
+      const indeterminate = refused("mutation.indeterminate", "the machine change is still running; retry", true)
+      if (host.changing(m.id)) return indeterminate
+      // A fresh key per call, never one per revision: a refusal (grow_only, size.locked, not_running) is
+      // recorded under its key, and a later call for another size or after a plan change must be decided
+      // again. A duplicate grow cannot follow: the provider's shape and the one-change-per-machine rule
+      // above answer every retry of an accepted resize.
+      const k = `platform-env:resize:${m.id}:${crypto.randomUUID()}`
+      const r = await submit("cloud.machine.resize", { machine: m.id, size: { cpu: call.shape.vcpu, memory_mb: call.shape.memGiB * 1024, disk_mb: call.shape.diskGiB * 1024 } }, k)
+      // The ledger first: submit answers a failed provider call with a generic cloud.provider.unavailable,
+      // while the ledger keeps the provider's own code (cloud.provider.refused, say).
+      const l = host.ledger(ledgerKey(p.identity, k))
+      if (l?.state === "pending") return indeterminate
+      if (l?.state === "done") return host.operations.metadata(host, m.id)
+      if (l) return refused(l.error?.code ?? "cloud.provider.unavailable", l.error?.message ?? "the machine resize failed", false)
+      if (r?.t === "reject") return r.code === "cloud.machine.busy" ? indeterminate : fromReject(r)
+      return r?.t === "result" ? indeterminate : fromReject(r)
+    }
     case "find": {
       const l = host.ledger(ledgerKey(p.identity, key("boot", call.name)))
       const m = l?.op === "create" ? host.machine(l.machine) : undefined
@@ -186,11 +243,11 @@ export const platformCall = async (host: PlatformHost, user: string, call: Platf
         r = await host.exec(m, asWorkUser(call.command), stdin, Math.min(Math.max(1, call.timeoutMs), PLATFORM_EXEC_MAX_MS))
       } catch (error) {
         if (!(error instanceof DriverError) || error.code !== "cloud.exec.output_limit") throw error
-        host.audit({ action: "platform.exec", machine: m.id, who: p.identity, at: Date.now(), outcome: "output_limit" })
+        host.audit({ action: "platform.exec", machine: m.id, who: p.identity, ...(agent !== null ? { agent } : {}), at: Date.now(), outcome: "output_limit" })
         return refused("cloud.exec.output_limit", "the command's output exceeded the response limit; its output was discarded", false)
       }
       // Never the command or its stdin (a repository token may be on it).
-      host.audit({ action: "platform.exec", machine: m.id, who: p.identity, at: Date.now(), outcome: r ? `exit ${r.exitCode}` : "provider_failed" })
+      host.audit({ action: "platform.exec", machine: m.id, who: p.identity, ...(agent !== null ? { agent } : {}), at: Date.now(), outcome: r ? `exit ${r.exitCode}` : "provider_failed" })
       return r ? ok({ exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr }) : refused("cloud.provider.unavailable", "the machine did not answer", true)
     }
     case "snapshot": {

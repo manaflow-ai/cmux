@@ -433,8 +433,14 @@ impl Translator {
                             Some(diffs) if !is_err => {
                                 settle_write(diffs, &text, line.get("tool_use_result"))
                             }
+                            // The text, then any images it returned (a Read of a PNG, an MCP
+                            // screenshot), so a chat on another machine shows them inline.
                             _ => {
-                                json!([{"type": "content", "content": {"type": "text", "text": text}}])
+                                let mut blocks = vec![
+                                    json!({"type": "content", "content": {"type": "text", "text": text}}),
+                                ];
+                                blocks.extend(result_images(c.get("content")));
+                                Value::Array(blocks)
                             }
                         };
                         out.push(upd(json!({
@@ -691,8 +697,15 @@ impl Translator {
                 // turn. That is startup noise, not the end of our prompt; a
                 // failed result is never noise. A local slash command's result
                 // looks the same but follows its output, and ends the prompt.
+                // 2.1.305 can replay /compact after that output, clearing
+                // turn_output. Its explicit local_command still proves it ended.
+                let local_command = line
+                    .get("local_command")
+                    .and_then(Value::as_str)
+                    .is_some_and(|command| !command.is_empty());
                 let startup_noise = sub == "success"
                     && !is_error
+                    && !local_command
                     && !self.turn_output.load(Ordering::SeqCst)
                     && line.get("num_turns").and_then(Value::as_u64) == Some(0)
                     && line.get("duration_api_ms").and_then(Value::as_u64) == Some(0)
@@ -748,20 +761,24 @@ impl Translator {
                     }
                 }
                 // A steered line Claude Code has not read yet: it runs it next, as a turn of its
-                // own (when echoes come at all; without them the steer fails below). A clean end
-                // ends this prompt's turn here, and the next turn is that one (`carry.rs`). A
-                // stopped or failed turn, or a step a Send now interrupted, runs it as one more
-                // turn of this prompt, whose result ends it; a stop stays in force for that turn
+                // own (when echoes come at all; without them the steer fails below). A clean end,
+                // or the step a Send now stopped, ends this prompt's turn here, and the next turn
+                // is that one (`carry.rs`; Leo, 2026-11-03: "idk why we're getting into these
+                // weird thinking states"). A stopped or failed turn runs it as one more turn of
+                // this prompt, whose result ends it; a stop stays in force for that turn
                 // (`cancelled` is kept).
+                let step_stopped = self.step_stopped.swap(false, Ordering::SeqCst);
                 let unread = !self.steers.lock().await.is_empty();
                 let mut carried = None;
+                // The turn a Send now ended: it ends `cancelled`, whatever the stopped step said.
+                let mut sent_now = false;
                 if unread && self.prompt_echo.lock().await.is_none() {
-                    let clean = !self.cancelled.load(Ordering::SeqCst)
-                        && !is_error
-                        && !sub.starts_with("error");
-                    if !clean {
+                    let stopped = self.cancelled.load(Ordering::SeqCst);
+                    let clean = !stopped && !is_error && !sub.starts_with("error");
+                    if !clean && (stopped || !step_stopped) {
                         return out;
                     }
+                    sent_now = !clean;
                     carried = Some(self.carry_unread().await);
                 }
                 if carried.is_none() {
@@ -796,6 +813,7 @@ impl Translator {
                     .collect();
                 let cancelled = self.cancelled.swap(false, Ordering::SeqCst);
                 let stop = if cancelled
+                    || sent_now
                     || (sub == "error_during_execution"
                         && line.get("result").map(Value::is_null).unwrap_or(true))
                 {

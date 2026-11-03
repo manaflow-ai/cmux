@@ -7,7 +7,7 @@ import { type ReactNode, useContext, useId, useMemo, useState } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { stripsEnvelopeImages, toolImages } from "../toolImages";
-import { ChevronRight, Spinner, ToolGroup } from "./icons";
+import { ChevronRight, CodeBrackets, ToolGroup } from "./icons";
 import { menuPartRef } from "./menuParts";
 import {
   cleanText,
@@ -26,7 +26,9 @@ import { RawToggle } from "./SentMessageLine";
 import { isFailed, isRunning } from "./toolGroups";
 import { ToolOutput } from "./ToolOutputBody";
 import { ToolImages } from "./ToolRow";
-import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { VideoFramesCard } from "./VideoFramesCard";
+import { videoFrames } from "./videoFrames";
+import { useRowDisclosure, useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { ToolLabel } from "./ToolVerb";
 import { useMoreBelow } from "./moreBelow";
@@ -44,7 +46,8 @@ export function McpCallRows({ items, disclosureKey }: { items: readonly AcpmuxAc
 function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[]; disclosureKey: string }) {
   const t = useT();
   const names = useContext(McpNamesContext);
-  const [open, setOpen] = useTranscriptDisclosure(disclosureKey);
+  // The Verbose transcript view opens the calls.
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, false, true);
   useFindReveal(items, () => setOpen(true));
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   const detailsId = useId();
@@ -73,7 +76,7 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
         onClick={fold.toggle}
       >
         <span className="cv-tool__icon">
-          {running ? <Spinner size={16} /> : <ToolGroup size={16} strokeWidth={1.2} />}
+          <ToolGroup size={16} strokeWidth={1.2} />
         </span>
         <span className="cv-tool__text" data-find-skip>
           <ToolLabel text={label} />
@@ -89,7 +92,7 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
         <div {...fold.bodyProps}>
           <div className="cv-tool-group" id={detailsId}>
             {items.map((item, index) => (
-              <McpCallRow key={item.tool!.id || index} item={item} />
+              <McpCallRow key={item.tool!.id || index} item={item} grouped />
             ))}
           </div>
         </div>
@@ -98,10 +101,11 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
   );
 }
 
-function McpCallRow({ item }: { item: AcpmuxActivity }) {
+function McpCallRow({ item }: { item: AcpmuxActivity; grouped?: boolean }) {
   const t = useT();
   const names = useContext(McpNamesContext);
-  const [open, setOpen] = useState(false);
+  // Closed, or open in the Verbose transcript view.
+  const [open, setOpen] = useRowDisclosure(item.tool?.id);
   const [reveal, setReveal] = useState(0);
   useFindReveal(
     useMemo(() => [item], [item]),
@@ -117,12 +121,18 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
   // The machine name stays at hand as the opened call's first line (no tooltip: the line's text
   // already shows, test/tooltip-rules.ts).
   const raw = mcpRawName(tool, call);
+  // A look at a video's frames reads as one ("Looked at 8 video frames") over its filmstrip, which
+  // names the video (videoFrames.ts); opened, the call's response is the tool's note without the frames.
+  const video = useMemo(() => videoFrames(tool), [tool]);
   const label = useMemo(
-    () => cmuxTitle(t, [call], [tool], names) ?? mcpLabel(t, [call], names),
-    [t, call, tool, names],
+    () =>
+      video
+        ? t("tools.videoFrames", { n: video.count })
+        : (cmuxTitle(t, [call], [tool], names) ?? mcpLabel(t, [call], names)),
+    [t, video, call, tool, names],
   );
   const exec = isCmuxExec(call);
-  const images = useMemo(() => toolImages(tool), [tool]);
+  const images = useMemo(() => (video ? [] : toolImages(tool)), [video, tool]);
   const running = isRunning(tool);
   // An MCP server's error is often JSON: its message, in one line (toolFailure.ts).
   const failure = useMemo(() => (tool.status === "failed" ? toolFailure(tool) : undefined), [tool]);
@@ -137,7 +147,7 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
         onClick={fold.toggle}
       >
         <span className="cv-tool__icon">
-          {running ? <Spinner size={16} /> : <ToolGroup size={16} strokeWidth={1.2} />}
+          <ToolGroup size={16} strokeWidth={1.2} />
         </span>
         <span className="cv-tool__text" data-find-skip>
           <ToolLabel text={label} />
@@ -151,17 +161,19 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
         />
       </button>
       <ToolFailureCause failure={failure} />
+      {video && <VideoFramesCard video={video} />}
       {images.length > 0 && <ToolImages sources={images} />}
       {fold.present && (
         <div {...fold.bodyProps}>
-          {exec ? (
+          {exec && failure?.kind !== "hook" ? (
             <CmuxExecDetails id={detailsId} tool={tool} call={call} raw={raw} reveal={reveal} />
           ) : (
             <McpCallDetails
               id={detailsId}
               call={call}
               raw={raw}
-              output={tool.output}
+              output={video ? video.text : tool.output}
+              tool={tool}
               strip={stripsEnvelopeImages(tool)}
               reveal={reveal}
             />
@@ -204,6 +216,7 @@ export function McpCallDetails({
   call,
   raw,
   output,
+  tool,
   strip,
   reveal,
   requestFindAlternatives = {},
@@ -212,6 +225,8 @@ export function McpCallDetails({
   call: McpCall;
   raw: string;
   output?: string;
+  /// The original call distinguishes a hook refusal from output that merely quotes one.
+  tool?: NonNullable<AcpmuxActivity["tool"]>;
   /// Whether the call's strip shows its envelope's images, which its response then leaves out.
   strip: boolean;
   reveal: number;
@@ -220,7 +235,10 @@ export function McpCallDetails({
 }) {
   const t = useT();
   const request = useMemo(() => prettyValue(call.args), [call]);
-  const response = useMemo(() => mcpOutputResult(output, strip, call.tool), [output, strip, call.tool]);
+  const failure = useMemo(() => (tool ? toolFailure(tool) : undefined), [tool]);
+  const blocked = failure?.kind === "hook";
+  const shownOutput = blocked ? failure.output : output;
+  const response = useMemo(() => mcpOutputResult(shownOutput, strip, call.tool), [shownOutput, strip, call.tool]);
   const requestBox = useMoreBelow<HTMLPreElement>(request);
   return (
     <div id={id} className="cv-mcp-call" ref={menuPartRef({ output: response?.text })}>
@@ -237,12 +255,12 @@ export function McpCallDetails({
           </pre>
         </div>
       )}
-      {response && (
+      {(response || blocked) && (
         <div className="cv-mcp-call__part">
           <div className="cv-mcp-call__head" data-find-skip>
-            {t("tools.mcp.response")}
+            {blocked ? t("tools.blockedByHook") : t("tools.mcp.response")}
           </div>
-          <ToolOutput result={response} reveal={reveal} />
+          {response && <ToolOutput result={response} reveal={reveal} />}
         </div>
       )}
     </div>
@@ -371,12 +389,21 @@ export function CmuxExecDetails({
           </pre>,
         )}
       <div className="cv-cmux-exec__raw" data-find-skip>
-        <RawToggle open={rawOpen} onOpenChange={setRawOpen}>
+        <RawToggle
+          open={rawOpen}
+          onOpenChange={setRawOpen}
+          icon={
+            <span className="cv-tool__icon">
+              <CodeBrackets size={16} strokeWidth={1.2} />
+            </span>
+          }
+        >
           <McpCallDetails
             id={`${id}-raw`}
             call={call}
             raw={raw}
             output={tool.output}
+            tool={tool}
             strip={stripsEnvelopeImages(tool)}
             reveal={reveal}
           />

@@ -185,7 +185,7 @@ export function narrowProblems(document: Document): string[] {
       problems.push(`${row.className.toString().split(" ")[0]}: Send wraps below the chips`);
   }
   // The turn's own controls never shrink: a squeezed Send is the first thing a narrow pane breaks.
-  for (const selector of [".acpmux-send", ".acpmux-cancel", ".acpmux-steer-now", ".acpmux-mic"])
+  for (const selector of [".acpmux-send", ".acpmux-cancel", ".acpmux-mic"])
     for (const control of document.querySelectorAll(selector)) {
       if (!visible(control)) continue;
       const rect = control.getBoundingClientRect();
