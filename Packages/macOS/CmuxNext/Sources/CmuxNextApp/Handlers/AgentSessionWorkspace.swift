@@ -27,6 +27,10 @@ import Foundation
 /// sidebar's session tree nests the new workspace under the caller's even
 /// when the session's daemon lists no lineage (a remote or older daemon).
 enum AgentSessionWorkspace {
+    /// How long an agent-opened workspace keeps asking for its create and first chat tab through late
+    /// daemon replies (one budget for both): a Chief session may be starting on a busy host.
+    static let firstTabBudget: Duration = .seconds(120)
+
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("agent.openSessionWorkspace", run: { invocation in
             try open(invocation, context: context)
@@ -54,7 +58,8 @@ enum AgentSessionWorkspace {
     @discardableResult
     static func open(session: String, name: String?, defaultName: String? = nil, key: WorkspaceKey = .generate(), cwd: String?, host: String? = nil,
                      group: String? = nil, top: Bool = false, focus: Bool = false, parent: AgentSessionParents.Identity? = nil,
-                     services: AppServices) throws -> ActionWork {
+                     services: AppServices,
+                     beforeFirstTab: (@MainActor @Sendable () async -> Void)? = nil) throws -> ActionWork {
         guard services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
         let daemon = services.daemon
         guard let connection = daemon.connection, case let repair = services.emptyWorkspaces else {
@@ -80,14 +85,21 @@ enum AgentSessionWorkspace {
         let instant = window.flatMap { window in PendingWorkspaceRows.shared.add(creating: key.rawValue, window: window, machine: machine, name: shownName, opensPage: true, slot: placed.slot, byDefault: placed.rule, unpinned: true); return tabs.showWorkspace(key, name: shownName, index: nil, cwd: nil, token: nil, session: (session, host, true), on: daemon, repair: repair) }
         return Task { @MainActor in
             do {
+                // A Chief session may be starting on a busy host. Keep one generous deadline for
+                // workspace creation and its first chat tab; abandoning the tab after the short
+                // control deadline leaves the daemon's late about:blank commit as a bare row.
+                let giveUp = ContinuousClock.now + Self.firstTabBudget
                 // The session's chat is the workspace's first tab: a workspace store tab bound to
                 // the session (agent-session-tabs-v1), saved and restored with the workspace like any
                 // tab. No terminal first: one running `acpmux attach` landed as a bare "~" shell
                 // whenever its start missed the deadline (Leo, 2026-10-21 and 2026-10-28).
                 if let instant { do { _ = try await instant.confirm(DaemonConnection.lateReplyDeadline()) } catch { windows.forgetCreate(key.rawValue); throw error } }
                 let tab = if let instant { tabs.resolve(instant.tabKey) } else {
-                    try await WorkspaceCreation.createWithFirstTab(key, name: name ?? defaultName, on: connection, repair: repair) { created in
-                        try await WorkspaceCreation.sessionTab(session, in: created, host: host, linked: true, on: daemon, tabs: tabs)
+                    try await WorkspaceCreation.createWithFirstTab(key, name: name ?? defaultName, on: connection, repair: repair,
+                                                                   giveUp: giveUp) { created in
+                        await beforeFirstTab?()
+                        return try await WorkspaceCreation.sessionTab(session, in: created, host: host, linked: true,
+                                                                      until: giveUp, on: daemon, tabs: tabs)
                     }
                 }
                 // The workspace's first pane once the store mirrors it, found
@@ -124,6 +136,7 @@ enum AgentSessionWorkspace {
                                            windows: WindowManager) -> (slot: WorkspaceSlot?, rule: NewWorkspaceDefaultSlot?) {
         var join: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)?
         if let group {
+            PendingWorkspaceRows.shared.groupJoins.hold(id) // listed loose by the daemon, joined a hop later: shown once joined
             join = { id, sidebar in
                 guard let sidebar = sidebar as? SidebarBridge else { return }
                 AgentSessionWorkspace.join(id, group: group, sidebar: sidebar)
@@ -172,7 +185,8 @@ enum AgentSessionWorkspace {
     /// undoable sidebar edit.
     @MainActor static func join(_ id: String, group name: String, sidebar: SidebarBridge) {
         let ids = [SidebarWorkspaceID(id)]
-        if let target = SidebarEdits.group(named: name, accepting: SidebarWorkspaceID(id), in: sidebar.model.sections) {
+        let machine = sidebar.services.machines.daemon(forWorkspace: id).map { MachineID($0.machineID) } // its row is held out of the list
+        if let target = SidebarEdits.group(named: name, accepting: SidebarWorkspaceID(id), in: sidebar.model.sections, machine: machine) {
             sidebar.handle(.move(ids, toGroup: target))
             return
         }

@@ -33,6 +33,8 @@ mod agent_inbox;
 mod agent_pairs;
 #[path = "hub_integration/auto_resume.rs"]
 mod auto_resume;
+#[path = "hub_integration/away_recap.rs"]
+mod away_recap;
 #[path = "hub_integration/carried_turns.rs"]
 mod carried_turns;
 #[cfg(unix)]
@@ -104,6 +106,8 @@ mod steer_now;
 mod steer_only;
 #[path = "hub_integration/stop.rs"]
 mod stop;
+#[path = "hub_integration/stop_steer_requeue.rs"]
+mod stop_steer_requeue;
 #[path = "hub_integration/stuck_liveness.rs"]
 mod stuck_liveness;
 #[path = "hub_integration/subagent_retry.rs"]

@@ -23,11 +23,15 @@ export function PlainCode({
   lang,
   open = false,
   actions,
+  artifactIdentity,
+  artifactRevision,
 }: {
   code: string;
   lang: string;
   open?: boolean;
   actions?: ReactNode;
+  artifactIdentity?: string;
+  artifactRevision?: number;
 }) {
   const t = useT();
   const look = useCodeHeaderLook(lang);
@@ -44,7 +48,7 @@ export function PlainCode({
       ref={menuPartRef({ code })}
     >
       <CodeHeader look={look} lang={lang}>
-        {!open && <OpenPreview code={code} lang={lang} />}
+        <OpenPreview code={code} lang={lang} identity={artifactIdentity} revision={artifactRevision} />
         <CopyButton text={code} label={t("code.copy")} />
         {actions}
       </CodeHeader>
@@ -65,14 +69,22 @@ export function PlainCode({
 const HANDOFF_LIMIT_MS = 1_000;
 
 /// A fence that closed while the reply streamed: highlighted once, then faded in over the plain card.
-export function CodeHandoff({ code, lang, actions }: { code: string; lang: string; actions?: ReactNode }) {
+type CodeHandoffProps = {
+  code: string;
+  lang: string;
+  actions?: ReactNode;
+  artifactIdentity?: string;
+  artifactRevision?: number;
+};
+
+export function CodeHandoff(props: CodeHandoffProps) {
   // A diagram stays the plain card (CodeBlock.tsx): nothing to hand over.
-  const diagram = useMemo(() => isDiagram(code, lang), [code, lang]);
-  if (diagram) return <PlainCode code={code} lang={lang} actions={actions} />;
-  return <CodeHandoffFade code={code} lang={lang} actions={actions} />;
+  const diagram = useMemo(() => isDiagram(props.code, props.lang), [props.code, props.lang]);
+  if (diagram) return <PlainCode {...props} />;
+  return <CodeHandoffFade {...props} />;
 }
 
-function CodeHandoffFade({ code, lang, actions }: { code: string; lang: string; actions?: ReactNode }) {
+function CodeHandoffFade({ code, lang, actions, artifactIdentity, artifactRevision }: CodeHandoffProps) {
   const [stage, setStage] = useState<"plain" | "fading" | "done">("plain");
   const ref = useRef<HTMLDivElement>(null);
   // A fence that closed while the chat was hidden (or as it shows again) hands over without the
@@ -117,7 +129,15 @@ function CodeHandoffFade({ code, lang, actions }: { code: string; lang: string; 
   }, [stage]);
   return (
     <div ref={ref} className={`cv-code-handoff is-${stage}`}>
-      {stage !== "done" && <PlainCode code={code} lang={lang} actions={actions} />}
+      {stage !== "done" && (
+        <PlainCode
+          code={code}
+          lang={lang}
+          actions={actions}
+          artifactIdentity={artifactIdentity}
+          artifactRevision={artifactRevision}
+        />
+      )}
       <div
         className="cv-code-handoff__real"
         // Keep duplicate highlighted controls out of keyboard and assistive technology traversal
@@ -126,7 +146,13 @@ function CodeHandoffFade({ code, lang, actions }: { code: string; lang: string; 
         inert={stage !== "done" || undefined}
         onAnimationEnd={() => setStage("done")}
       >
-        <CodeBlock code={code} lang={lang} actions={stage === "done" ? actions : undefined} />
+        <CodeBlock
+          code={code}
+          lang={lang}
+          actions={stage === "done" ? actions : undefined}
+          artifactIdentity={artifactIdentity}
+          artifactRevision={artifactRevision}
+        />
       </div>
     </div>
   );

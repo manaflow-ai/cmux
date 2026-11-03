@@ -235,7 +235,7 @@ export function SentMessageLine({
             row's is (MessageCard.tsx); its click never toggles the row. */}
         {text && (
           // oxlint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events
-          <span onClick={(event) => event.stopPropagation()}>
+          <span className="cv-sent__actions" onClick={(event) => event.stopPropagation()}>
             <SentActions text={text} />
           </span>
         )}

@@ -190,9 +190,28 @@ public final class StatusIndicatorLayer {
 
     // MARK: Geometry
 
-    /// The square the glyph fills: the host's bounds scaled by the setting.
+    /// The diameter a dot glyph (the `.dot` glyph, or a mark drawing ``StaticStatusGlyph/dot``) paints,
+    /// centered in the host whatever the host's size; nil paints it at its share of the host. A host
+    /// whose dots share a column sets one diameter for them all (the sidebar's `statusDotSize`,
+    /// Lawrence msg 19696: "dots are different size now which is very bad").
+    public var dotDiameter: CGFloat? {
+        didSet { if dotDiameter != oldValue, plan.glyph != .none { rebuild() } }
+    }
+
+    /// The share of its square the dot art fills (12 of the art's 20 units), measured once.
+    private static let dotArtShare = StaticStatusGlyph.dot.path(in: CGRect(x: 0, y: 0, width: 1, height: 1)).boundingBoxOfPath.width
+
+    /// The square the glyph fills: the host's bounds scaled by the setting, or, for a dot with a
+    /// ``dotDiameter``, the square in which the dot paints that diameter.
     var glyphRect: CGRect {
-        let side = min(bounds.width, bounds.height) * config.settings.scale
+        var side = min(bounds.width, bounds.height) * config.settings.scale
+        if let dotDiameter {
+            switch plan.glyph {
+            case .dot where config.dotScale > 0: side = dotDiameter / CGFloat(config.dotScale)
+            case .mark(.vector(.dot)) where Self.dotArtShare > 0: side = dotDiameter / Self.dotArtShare
+            default: break
+            }
+        }
         return CGRect(x: bounds.midX - side / 2, y: bounds.midY - side / 2, width: side, height: side)
     }
 
@@ -223,18 +242,6 @@ public final class StatusIndicatorLayer {
             shape.lineWidth = thickness
             shape.strokeStart = 0
             shape.strokeEnd = progress
-        case .sweep:
-            removeNative(); removeBraille(); removeDots()
-            let track = makeTrack(frame: rect)
-            track.path = StatusGlyphGeometry.ringPath(in: track.bounds, thickness: thickness)
-            track.lineWidth = thickness
-            track.opacity = Float(config.trackOpacity)
-            let shape = makeGlyph(frame: rect)
-            shape.path = CGPath(ellipseIn: shape.bounds.insetBy(dx: thickness / 2, dy: thickness / 2), transform: nil)
-            shape.fillColor = nil
-            shape.lineWidth = thickness
-            shape.strokeStart = 0
-            shape.strokeEnd = StatusIndicatorPlan.sweepLength
         case .native:
             removeGlyph(); removeTrack(); removeBraille(); removeDots()
             let native = makeNative(frame: rect)

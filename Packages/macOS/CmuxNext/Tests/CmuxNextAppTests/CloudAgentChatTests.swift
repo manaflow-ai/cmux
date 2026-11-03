@@ -80,25 +80,29 @@ struct CloudAgentChatTests {
     }
 
     /// The GUI's default first send: the page names no folder (a fresh Cloud workspace's New Tab
-    /// page has none of its own), so the chat starts in the folder the machine's workspace
-    /// reports there, and once the person trusts it the agent runs on the machine.
-    @Test func aFirstSendWithNoFolderStartsInTheWorkspacesFolderOnTheMachine() async throws {
+    /// page has none of its own). On the owner's Cloud machine the app sends no folder and the
+    /// machine's daemon starts the chat at once in a fresh folder of its own, `~/chats/<chat>` on
+    /// the machine (#31186: never the workspace's folder, which could reopen an earlier chat, and
+    /// never a folder of this Mac); the machine's own chat folder needs no trust question.
+    @Test func aFirstSendWithNoFolderStartsInAFreshChatFolderOnTheMachine() async throws {
         try await Self.withMachine { world in
             let chat = try await world.openChat()
             let wire = try #require(try await world.page(chat.key).wire)
             let frames = try await Frames.open(wire)
             let newChat: [String: Any] = ["mcpServers": [Any](), "_meta": ["acpmux": ["harness": "sample"]]]
-            let first = try await frames.call(wire, "session/new", newChat)
-            #expect(first.errorCode == "agent_session.untrusted_folder", "the default first send: \(first.raw)")
-            // The folder the machine's workspace reports there (its terminal's), never one of this Mac.
-            let folder = try #require(first.errorData?["cwd"] as? String, "\(first.raw)")
-            #expect(folder == world.workspace.firstTabFolder, "the chat's folder is not its workspace's on the machine")
-            #expect(folder == world.work.path, "the chat's folder is not the machine's work folder")
-            let trusted = try await frames.call(wire, "acp.trust.set", ["cwd": folder, "level": "trusted"])
-            #expect(trusted.errorCode == nil, "\(trusted.raw)")
             let started = try await frames.call(wire, "session/new", newChat)
-            #expect(started.result?["sessionId"] is String, "\(started.raw)")
-            #expect(world.agentSessions().count == 1)
+            #expect(started.errorCode == nil, "the default first send: \(started.raw)")
+            let session = try #require(started.result?["sessionId"] as? String, "the chat did not start: \(started.raw)")
+            #expect(world.agentSessions() == [session], "the session does not run in the machine's acpmux")
+            let folder = try #require(world.agentSessionFolder(session), "the machine's acpmux lists no folder for \(session)")
+            let chats = world.home.appendingPathComponent("chats", isDirectory: true).path + "/"
+            #expect(folder.hasPrefix(chats), "the chat's folder \(folder) is not a fresh chat folder under the machine's \(chats)")
+            #expect(folder != world.workspace.firstTabFolder, "the chat started in its workspace's folder")
+            var isFolder: ObjCBool = false
+            #expect(FileManager.default.fileExists(atPath: folder, isDirectory: &isFolder) && isFolder.boolValue,
+                    "the machine has no chat folder at \(folder)")
+            let bound = await world.until { world.machineTab(chat.surface)?.agentSession?.session == session }
+            #expect(bound, "the machine's store did not bind the started session to the chat's tab")
             wire.cancel(code: 1000, reason: "test")
         }
     }
@@ -205,6 +209,15 @@ struct CloudAgentChatTests {
         /// The sessions the machine's acpmux holds (`cmux acp --json ls` on its home). No acpmux
         /// socket is none; an answer that is not a session list is an issue, never an empty list.
         func agentSessions() -> [String] {
+            sessionList().compactMap { ($0["sessionId"] ?? $0["id"]) as? String }
+        }
+
+        /// The folder the machine's acpmux runs `session` in, as `cmux acp --json ls` lists it.
+        func agentSessionFolder(_ session: String) -> String? {
+            sessionList().first { (($0["sessionId"] ?? $0["id"]) as? String) == session }?["cwd"] as? String
+        }
+
+        private func sessionList() -> [[String: Any]] {
             guard FileManager.default.fileExists(atPath: acpmuxHome.appendingPathComponent("acpmux.sock").path) else { return [] }
             let output = CloudAgentChatTests.run(binary, ["acp", "--json", "ls"], environment: ["ACPMUX_HOME": acpmuxHome.path])
             let object = (try? JSONSerialization.jsonObject(with: output)) as Any
@@ -212,7 +225,7 @@ struct CloudAgentChatTests {
                 Issue.record("`cmux acp --json ls` gave no session list: \(String(decoding: output, as: UTF8.self))")
                 return []
             }
-            return list.compactMap { ($0["sessionId"] ?? $0["id"]) as? String }
+            return list
         }
 
         /// True once `condition` holds, false after 30 seconds.
@@ -303,7 +316,7 @@ struct CloudAgentChatTests {
         let macHome = root.appendingPathComponent("mac-home", isDirectory: true)
         let home = root.appendingPathComponent("vm-home", isDirectory: true)
         // HOME/work is automatically trusted for an owner. A project folder keeps the first
-        // two tests on the explicit trust path; the owner-on-team test selects work itself.
+        // test on the explicit trust path; the owner-on-team test selects work itself.
         let work = home.appendingPathComponent(workFolder, isDirectory: true)
         let acpmuxHome = root.appendingPathComponent("vm-acpmux", isDirectory: true)
         try FileManager.default.createDirectory(at: macHome, withIntermediateDirectories: true)

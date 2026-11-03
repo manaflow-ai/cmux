@@ -47,8 +47,10 @@ struct WorkspaceTabHoverCardStyle: Hashable, Sendable {
     var twoLines = true
     /// The detail line's facts, in order; empty facts are skipped. A row with none shows its kind.
     var detail: [Field] = [.command, .place, .model, .state, .machine, .time]
-    /// Whether a tab on this Mac names it too ("This Mac"), or only a tab elsewhere names its machine.
-    var namesLocalMachine = true
+    /// Whether a tab on this Mac names it too ("This Mac"), or only a tab elsewhere names its machine. Off:
+    /// a row names a machine only when it differs from the workspace's (Leo 2026-11-02, on a clipped
+    /// "… · Working · This Mac" line: "THE PLACEMENT LOOKS LIKE SHIT").
+    var namesLocalMachine = false
     /// A text column at the row's trailing end, before the status mark; nil for none.
     var trailing: Field?
     /// Tabs listed under a muted kind label (terminals, agents, pages), each group in its tabs' order.
