@@ -119,6 +119,38 @@ await requireBrowserLane("thread-rail-foot-card.test.ts", async () => {
     await settle(page);
   };
 
+  test("the shift gallery's four-line composer: the rail keeps its top, inset and full length while the stack leaves it room", async () => {
+    const port = (vite!.httpServer!.address() as { port: number }).port;
+    const page = await browser!.newPage({ viewport: { width: 900, height: 640 }, reducedMotion: "reduce" });
+    try {
+      const frame = (variant: string) =>
+        `http://127.0.0.1:${port}${galleryFrame("agent-pane.thread-minimap-shift", { variant, colorScheme: "dark", width: 900, height: 640 })}`;
+      const read = async (variant: string) => {
+        await page.goto(frame(variant));
+        await page.waitForFunction(() => document.documentElement.dataset.galleryReady);
+        await settle(page);
+        return page.evaluate(() => {
+          const rail = document.querySelector("nav.acpmux-minimap__rail")!.getBoundingClientRect();
+          return {
+            rail: { x: rail.x, top: rail.top, height: rail.height },
+            dockTop: document.querySelector(".acpmux-dock")!.getBoundingClientRect().top,
+          };
+        });
+      };
+      const open = await read("open-chat");
+      const grown = await read("composer-grows");
+      if (out) await page.screenshot({ path: path.join(out, "rail-foot-shift-composer-grows.png") });
+      expect(grown.dockTop).toBeLessThan(open.dockTop);
+      expect(grown.rail.top + grown.rail.height).toBeLessThanOrEqual(grown.dockTop - FADE + 0.5);
+      expect({ x: grown.rail.x, top: grown.rail.top }).toEqual({ x: open.rail.x, top: open.rail.top });
+      // Shortened only where the grown stack reached past the rail's foot.
+      const room = Math.floor(grown.dockTop - FADE - 4 - open.rail.top);
+      expect(Math.round(grown.rail.height)).toBe(Math.round(Math.min(open.rail.height, room)));
+    } finally {
+      await page.close();
+    }
+  });
+
   for (const [name, variant] of [
     ["a pane with a tab row band", "resting"],
     ["a one-tab pane", "solo-tab-hovered"],
