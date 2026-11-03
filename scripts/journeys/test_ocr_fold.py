@@ -35,7 +35,7 @@ class OcrFold(unittest.TestCase):
             self.assertTrue(D.ocr_contains(["J> echo 733287-$((6*7))", read, "J>"], "733287-42"), read)
 
     def test_dropping_accents_still_needs_every_digit(self):
-        for read in ("733287-43", "733287-4", "733287-$((6*7))", "733288-42", "733287-4źą3"):
+        for read in ("733287-43", "733287-4", "733287-$((6*7))", "733288-42", "733287-4ą"):
             self.assertFalse(D.ocr_contains([read], "733287-42"), read)
 
     def test_a_t_read_as_plus_still_shows_the_output_line(self):

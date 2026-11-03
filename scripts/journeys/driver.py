@@ -37,6 +37,7 @@ import subprocess
 import sys
 import threading
 import time
+import unicodedata
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # build_names.py beside it, also under -I
@@ -519,7 +520,11 @@ def apply_daemon_skew(status, reason, skew):
 
 
 def _ocr_fold(text):
-    return re.sub(r"\s+", "", text).translate(OCR_FOLD).lower()
+    # Accents first: recognition (en-US) can print a shown digit as an accented look-alike, e.g. "2" as "ź" or "ł"
+    # (run 64ef2a21, STATUS 9303); NFKD plus no combining marks gives "z" (then "2"), and "ł", which has no
+    # decomposition, becomes "l" (then "1": the fold of a clear "1"; ł is never in a journey's text).
+    bare = "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
+    return re.sub(r"\s+", "", bare.replace("ł", "l").replace("Ł", "L")).translate(OCR_FOLD).lower()
 
 
 def ocr_contains(lines, wanted):
