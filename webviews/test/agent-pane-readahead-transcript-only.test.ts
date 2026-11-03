@@ -207,6 +207,16 @@ test("rows that move only for bookkeeping are not read again; a transcript chang
     // fixed-wait: past the read-ahead's idle timer, so a read it would send has gone out.
     await settle();
     expect(daemon.reads.slice(before)).toEqual([said.sessionId, said.sessionId]);
+
+    // Its log goes back to an older seq (a peer restored from an older copy): read again too.
+    now += TICK_MS;
+    setSystemTime(new Date(now));
+    said.updatedAt = now;
+    said.transcriptSeq = 2;
+    daemon.changed("status", { ...said });
+    // fixed-wait: past the read-ahead's idle timer, so a read it would send has gone out.
+    await settle();
+    expect(daemon.reads.slice(before)).toEqual([said.sessionId, said.sessionId, said.sessionId]);
   } finally {
     client.close();
   }

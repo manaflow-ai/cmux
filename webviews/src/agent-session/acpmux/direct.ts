@@ -8628,7 +8628,8 @@ export class AcpmuxDirectClient {
   /// Chats read ahead, by the row's `transcriptSeq` when their read went out: acpmux moves it only
   /// for a transcript record, so a chat whose row moved only for bookkeeping (an agent start's
   /// `agent_start_waiting` every 10 s, usage, git, process counts all move `updatedAt`) is not read
-  /// again. Absent for a row without one (a peer on an older acpmux): `updatedAt` decides instead.
+  /// again. Any other value is a change, a lower one too (a peer's chat restored to an older log).
+  /// Absent for a row without one (a peer on an older acpmux): `updatedAt` decides instead.
   private readAheadSeq = new Map<string, number>();
   /// Reads out now, by chat, so a switch to one can wait on it briefly.
   private readingAhead = new Map<string, Promise<void>>();
@@ -8667,7 +8668,7 @@ export class AcpmuxDirectClient {
       if (!first && listed?.status === "running" && keptTail(sessionId)) return false;
       const seq = transcriptSeq(listed);
       const seen = this.readAheadSeq.get(sessionId);
-      const ranOn = seq !== undefined && seen !== undefined ? seq > seen : Number(listed?.updatedAt ?? 0) > readAt;
+      const ranOn = seq !== undefined && seen !== undefined ? seq !== seen : Number(listed?.updatedAt ?? 0) > readAt;
       return ranOn || !keptTail(sessionId);
     });
     const rest = this.readAheadQueue.filter((sessionId) => !wanted.includes(sessionId));
