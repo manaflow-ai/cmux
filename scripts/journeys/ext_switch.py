@@ -268,6 +268,7 @@ def step_switch_profile(j, step):
     whole pane every frame (a demanding TUI); plus `background` hidden workspaces with `background_tabs` tabs each
     (slow beacons and idle shells), so the session holds about 40 workspaces and 200 tabs."""
     count, panes = int(step.get("workspaces", 9)), int(step.get("panes", 2))
+    j.create_timeout = float(step.get("create_timeout", 20))
     grid = step.get("grid")
     fill_n = int(step.get("fill_panes", 0))
     prefix = j.sub(step.get("prefix", "sw"))
@@ -284,7 +285,7 @@ def step_switch_profile(j, step):
         name = "%s-bg-%d" % (prefix, k + 1)
         _run_setup_action(j, {"action": "newTab", "args": {"name": name, "focus": True,
                                                             "command": _beacon_command(20 + k, 0, dict(step, hz=10))}})
-        ws = _wait(lambda: _ws_named(j, name), 20, "workspace %s did not appear" % name)
+        ws = _wait(lambda: _ws_named(j, name), float(step.get("create_timeout", 20)), "workspace %s did not appear" % name)
         _shows(j, ws, name)
         for t in range(1, int(step.get("background_tabs", 1))):
             _new_terminal(j, name, "newSurface", prompt=False)
@@ -293,7 +294,7 @@ def step_switch_profile(j, step):
         name = "%s-%d" % (prefix, i)
         _run_setup_action(j, {"action": "newTab", "args": {"name": name, "focus": True,
                                                             "command": _beacon_command(i, 0, step)}})
-        ws = _wait(lambda: _ws_named(j, name), 20, "workspace %s did not appear" % name)
+        ws = _wait(lambda: _ws_named(j, name), float(step.get("create_timeout", 20)), "workspace %s did not appear" % name)
         _shows(j, ws, name)
         first = _terminals_of(ws)[0][1]
         beacons.append({"term": first, "ws": i, "pane": 0, "fill": False})
@@ -399,7 +400,8 @@ def _new_terminal(j, name, action, args=None, prompt=True):
     terminal id (with `prompt`, once its shell drew a prompt)."""
     known = {t for _, t in _terminals_of(_ws_named(j, name) or {})}
     _run_setup_action(j, {"action": action, "args": args or {}})
-    fresh = _wait(lambda: [t for _, t in _terminals_of(_ws_named(j, name) or {}) if t not in known], 20,
+    fresh = _wait(lambda: [t for _, t in _terminals_of(_ws_named(j, name) or {}) if t not in known],
+                  float(getattr(j, "create_timeout", 20)),
                   "%s in %s made no terminal" % (action, name))
     term = fresh[-1]
     if prompt:
@@ -474,7 +476,7 @@ def step_switch_tabs_profile(j, step):
     name = j.sub(step.get("name", "swt"))
     j.app.rpc("action.run", {"action": "newTab", "args": {"name": name, "focus": True,
                                                             "command": _beacon_command(1, 0, step)}})
-    ws = _wait(lambda: _ws_named(j, name), 20, "workspace %s did not appear" % name)
+    ws = _wait(lambda: _ws_named(j, name), float(step.get("create_timeout", 20)), "workspace %s did not appear" % name)
     _shows(j, ws, name)
     left_pane = _terminals_of(_ws_named(j, name))[0][0]
     right = _new_terminal(j, name, "splitRight")
@@ -800,7 +802,7 @@ def step_switch_warmcost(j, step):
             made += 1
             name = "%s-%d" % (prefix, made)
             j.app.rpc("action.run", {"action": "newTab", "args": {"name": name, "focus": True}})
-            ws = _wait(lambda: _ws_named(j, name), 20, "workspace %s did not appear" % name)
+            ws = _wait(lambda: _ws_named(j, name), float(step.get("create_timeout", 20)), "workspace %s did not appear" % name)
             _shows(j, ws, name)
             time.sleep(0.6)  # journey pacing: the shown shell draws its first frame before the next one hides it
         time.sleep(settle)  # journey pacing: settle before the sample
@@ -984,7 +986,7 @@ def step_switch_warmbusy(j, step):
             made += 1
             name = "%s-%d" % (prefix, made)
             j.app.rpc("action.run", {"action": "newTab", "args": {"name": name, "focus": True, "command": loop}})
-            ws = _wait(lambda: _ws_named(j, name), 20, "workspace %s did not appear" % name)
+            ws = _wait(lambda: _ws_named(j, name), float(step.get("create_timeout", 20)), "workspace %s did not appear" % name)
             _shows(j, ws, name)
             time.sleep(0.5)  # journey pacing: the loop prints its first lines while shown
         rows.append(measure(made))

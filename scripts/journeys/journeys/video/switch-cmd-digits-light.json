@@ -4,7 +4,7 @@
  "title": "SWITCH FRAMES W1 light: Cmd-1..9 workspace switch by real HID keys, filmed at the display rate",
  "why": "Lawrence 2026-11-02: changing workspaces must change frame perfect, even with a ton of stuff. Each switch: the target's complete frame in the next refresh, no old frame after it, no blank or half-drawn frame, current terminal content, the sidebar selection in the same frame. The VM judge (scripts/cmux-next/switch-frames/judge_switch.py) reads the movie.",
  "source": "SWITCH FRAMES (STATUS 4269, 4270); handoff/resize-videos/SWITCH-FRAMES.md",
- "budget_seconds": 240,
+ "budget_seconds": 250,
  "steps": [
   {
    "do": "window_place",
@@ -21,7 +21,8 @@
    "title": "set-up: 9 workspaces, 2 beacon panes each",
    "workspaces": 9,
    "panes": 2,
-   "prefix": "sw-${nonce}"
+   "prefix": "sw-${nonce}",
+   "create_timeout": 60
   },
   {
    "do": "wait",

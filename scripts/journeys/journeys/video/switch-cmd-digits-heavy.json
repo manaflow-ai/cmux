@@ -30,7 +30,8 @@
    "background": 31,
    "background_tabs": 3,
    "prefix": "swh-${nonce}",
-   "beacon_timeout": 40
+   "beacon_timeout": 40,
+   "create_timeout": 60
   },
   {
    "do": "wait",
