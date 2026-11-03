@@ -362,7 +362,9 @@ const chevronOnHoverAfterTitle: Play = async (ctx) => {
 };
 
 /// As native #32674: the six-dot grip draws nothing at rest, nor for a pointer over a section's other
-/// rows; it shows while its section's head is hovered, at the head's right edge.
+/// rows; it shows while its section's head is hovered, left of the title (Leo, 2026-11-03: "why dont
+/// we have the drag grabber to the left of the title"), overlapping neither the title nor the head's
+/// icon, and the title does not move when it shows.
 const gripOnHeadHoverOnly: Play = async (ctx) => {
   const handles = () => [...ctx.document.querySelectorAll(".acpmux-session-info-section__handle")];
   await ctx.waitFor(() => handles().length > 0);
@@ -378,12 +380,46 @@ const gripOnHeadHoverOnly: Play = async (ctx) => {
     });
     if (style(ctx, handle).opacity !== "0") throw new Error("A body row's hover showed its section's grip");
   }
+  const title = head.querySelector(".acpmux-session-info-section__title")!;
+  const before = title.getBoundingClientRect();
   await ctx.hover({
     selector: `[data-section="${section.dataset.section}"] > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger`,
   });
   await ctx.waitFor(() => style(ctx, handle).opacity === "1");
-  if (handle.getBoundingClientRect().left < head.getBoundingClientRect().right - 0.5)
-    throw new Error("The grip is not at the head's right edge");
+  const after = title.getBoundingClientRect();
+  if (after.left !== before.left || after.width !== before.width)
+    throw new Error("The title moved when the grip showed");
+  if (handle.getBoundingClientRect().right > after.left + 0.5) throw new Error("The grip is not left of the title");
+  const icon = head.querySelector(".acpmux-session-info-section__icon");
+  if (icon && handle.getBoundingClientRect().right > icon.getBoundingClientRect().left + 0.5)
+    throw new Error("The grip overlaps the head's icon");
+};
+
+/// Leo, 2026-11-03: "why dont we have the drag grabber to the left of the title". Every section's grip,
+/// icon heads (Context, Usage, Connectors) and the bare Environment rows included, ends at or before its
+/// head's first glyph (its icon, else its title) and sits far from the panel's right edge, where the
+/// scrollbar's thumb runs.
+const gripLeftOfEveryTitle: Play = async (ctx) => {
+  const sections = () => [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-session-info-section")];
+  await ctx.waitFor(() => sections().some((s) => s.querySelector(":scope > .acpmux-session-info-section__handle")));
+  const body = ctx.find({ selector: ".acpmux-session-info__body" }).getBoundingClientRect();
+  for (const section of sections()) {
+    const handle = section.querySelector(":scope > .acpmux-session-info-section__handle");
+    if (!handle || handle.getClientRects().length === 0) continue;
+    const grip = handle.getBoundingClientRect();
+    const first = section.querySelector(
+      ":scope > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger, :scope > .acpmux-session-info-section__head",
+    );
+    // A bare section (the Environment rows) has no head: its first row's leading icon stands in.
+    const glyph = first
+      ? first.querySelector(":scope > .acpmux-session-info-section__icon, :scope > .acpmux-session-info-section__title")
+      : section.querySelector(":scope > :not(.acpmux-session-info-section__handle) svg");
+    if (glyph && grip.right > glyph.getBoundingClientRect().left + 0.5)
+      throw new Error(`${section.dataset.section}'s grip is not left of its title`);
+    if (grip.left < body.left - 0.5) throw new Error(`${section.dataset.section}'s grip spills out of the panel`);
+    if (grip.right > body.left + body.width / 2)
+      throw new Error(`${section.dataset.section}'s grip is on the right, by the scrollbar's thumb`);
+  }
 };
 
 /// As native #32661: pushed beside the chat (or in the empty gutter) the panel draws no card behind its
@@ -1420,9 +1456,14 @@ export default componentEntry<Props>({
       play: chevronOnHoverAfterTitle,
     },
     "header-grip-hover": {
-      note: "A section head under the pointer: the six-dot grip shows at the head's right edge (as native #32674). At rest no grip draws, and a pointer over the section's other rows shows none.",
+      note: "A section head under the pointer: the six-dot grip shows left of the title, in the head's leading padding (Leo, 2026-11-03: \"why dont we have the drag grabber to the left of the title\"). The title does not move. At rest no grip draws, and a pointer over the section's other rows shows none.",
       props: { ...full, placement: "push" },
       play: gripOnHeadHoverOnly,
+    },
+    "header-grip-left": {
+      note: "Every section's grip, icon heads and the bare Environment rows included, sits left of its head's icon or title, away from the scrollbar's thumb on the right.",
+      props: { ...full, placement: "push" },
+      play: gripLeftOfEveryTitle,
     },
     "edge-hairline": {
       note: "Chosen. The panel in the gutter with no fill of its own and a hairline edge in the pane's border color (--agent-border, 0.5px) on its rounded corners (Leo, 2026-11-03: \"maybe it's ok...? to HAVE NO BACKGROUND FOR THE SESSION INFO / but i think having a border for it might be better\").",
