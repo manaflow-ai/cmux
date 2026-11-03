@@ -36,6 +36,8 @@
 .acpmux-cloud-start__row { display: grid; grid-template-columns: 20px max-content max-content 1fr; align-items: start; gap: 8px; min-height: 28px; color: var(--agent-text); }
 .acpmux-cloud-start__row[data-status="pending"], .acpmux-cloud-start__row[data-status="skipped"] { color: var(--agent-muted); }
 .acpmux-cloud-start__row[data-status="error"] { color: var(--agent-danger, #f87171); }
+/* The mark's status in words, for screen readers only: the pane does not load the global .visually-hidden. */
+.acpmux-cloud-start__mark .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .acpmux-cloud-start__mark { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 20px; color: var(--agent-accent, #4ade80); }
 .acpmux-cloud-start__row[data-status="pending"] .acpmux-cloud-start__mark, .acpmux-cloud-start__row[data-status="skipped"] .acpmux-cloud-start__mark { color: var(--agent-muted); }
 .acpmux-cloud-start__row[data-status="error"] .acpmux-cloud-start__mark { color: inherit; }
