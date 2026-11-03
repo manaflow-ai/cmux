@@ -1470,6 +1470,34 @@ async fn dispatch_request(
                 (blocks, saved) =
                     received.await.map_err(|e| RpcError::internal(e.to_string()))??;
             }
+            // Validate against resolved inline attachments too, then retain original
+            // positions in a manifest before the queue or transcript sees the prompt.
+            let upload_display = if crate::prompt_uploads::any(&blocks) {
+                let id = s.id.clone();
+                let raw = mux_meta(&params).and_then(|meta| meta.get("inlineParts")).cloned();
+                let compacted = tokio::task::spawn_blocking(move || {
+                    let mut display = crate::prompt_uploads::display_parts(raw.as_ref(), &blocks);
+                    // The guard also cleans up an unobserved blocking-task result.
+                    let manifest = crate::attach::OwnedUploads(
+                        crate::prompt_uploads::manifest::compact(
+                            &id,
+                            web,
+                            &mut blocks,
+                            &mut display,
+                        )?
+                        .into_iter()
+                        .collect(),
+                    );
+                    Ok::<_, RpcError>((blocks, display, manifest))
+                });
+                let (back, display, mut manifest) =
+                    compacted.await.map_err(|error| RpcError::internal(error.to_string()))??;
+                blocks = back;
+                owned.0.extend(manifest.take());
+                Some(display)
+            } else {
+                None
+            };
             // From here the prompt's own uploads go only if the session refuses it.
             let saved = crate::attach::Saved::with_owned(saved, &s.id, owned.take());
             let cloud_turn: Option<crate::cloud_rewind::CloudTurnEnvelope> =
@@ -1522,25 +1550,12 @@ async fn dispatch_request(
                 class,
                 after_turn: None,
                 supersede,
-                display_parts: {
-                    let parts = crate::hub::prompt_images::validated_display_parts(
+                display_parts: upload_display.unwrap_or_else(|| {
+                    crate::prompt_uploads::display_parts(
                         mux_meta(&params).and_then(|meta| meta.get("inlineParts")),
                         &blocks,
-                    );
-                    (!parts.is_empty()).then(|| {
-                        let mut parts: Vec<_> = parts.into_iter().collect();
-                        parts.sort_by_key(|(index, _)| *index);
-                        Value::Array(
-                            parts
-                                .into_iter()
-                                .map(|(index, mut part)| {
-                                    part["blockIndex"] = Value::Number((index as u64).into());
-                                    part
-                                })
-                                .collect(),
-                        )
-                    })
-                },
+                    )
+                }),
                 full_access_device: super::remote_guard::full_access_device(hub, conn, &params),
                 no_queue: false,
                 admitted: false,
@@ -2374,6 +2389,23 @@ async fn dispatch_request(
         // A lending Mac counts once this answer is queued (`server/mod.rs`, `github_owner.rs`).
         method::MUX_WATCH => super::list_reply::watch(hub, conn, &params).await,
         method::MUX_EVENTS | method::MUX_ATTACHMENT => {
+            if m == method::MUX_EVENTS && params.get("uploadManifest").is_some() {
+                let session = hub.resolve(session_key(&params)?)?;
+                let web = super::remote_guard::control_of(conn.origin, conn.auth, &params)
+                    == crate::hub::Control::Web;
+                return tokio::task::spawn_blocking(move || {
+                    let mut page =
+                        crate::prompt_uploads::manifest::page(&session.id, web, &params)?;
+                    let meta = session.meta();
+                    page.set("events", json!([]));
+                    page.set("lastSeq", json!(meta.last_seq));
+                    page.set("pageThrough", json!(meta.last_seq));
+                    page.set("createdAt", json!(meta.created_at));
+                    Ok(page)
+                })
+                .await
+                .map_err(|error| RpcError::internal(error.to_string()))?;
+            }
             events::handle(hub, m, &params, conn.caller())
         }
         // A read, for whoever may read the log, as `_acpmux/events` (`hub/queue_text.rs`).

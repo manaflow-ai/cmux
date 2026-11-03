@@ -7,11 +7,11 @@ Leo, 2026-10-26: "I ALREADY SAID WE NEED ARBITARRILY LARGE FILES OF ANY TYPE".
 
 - No size or count cap on files: no limit per file, on the files of one prompt together, or on
   how many a chat holds.
-- One prompt is still one JSON-RPC message (`rpc::MAX_MESSAGE_BYTES`, 15 MiB) on every hop. That
+- One prompt is still one JSON-RPC message (`rpc::MAX_MESSAGE_BYTES`, 31 MiB) on every hop. That
   bounds the prompt's own text and references, never the files' bytes. A reference with its
   path note is a few hundred bytes, so one prompt names tens of thousands of files. A prompt
-  whose references alone would not fit is refused with `upload.tooMany`; send the files in more
-  than one prompt.
+  whose expanded links would not fit uses a complete streamed attachment manifest instead of
+  an `upload.tooMany` refusal (section 5b).
 - No base64 in the page binding: file bytes go from the app's native side to the daemon, never
   through the page.
 - The prompt names the uploads and stays a few hundred bytes.
@@ -404,11 +404,39 @@ These are refused before anything is recorded:
 | `upload.invalid` | `uploadId` or `fileName` is missing; a `resource_link` whose `uri` is not `acpmux-upload:<the same uploadId>`; an image with a `uri`; any other block type |
 | `upload.missing` | not a finished upload of this chat, or (at its turn) a waiting prompt's file was swept |
 | `upload.unreadable` | the file is there but cannot be read (not a real folder, another hard link, permissions) |
-| `upload.tooMany` | the prompt's links alone pass one message (15 MiB); send the files in more than one |
 | `upload.remote` | the prompt came from a Web client |
 | `upload.unsupported` | the chat is on a peer without `promptUploads` |
 
 A queue edit (`_acpmux/queue_edit`) cannot carry a reference; it is refused with `attach.edit`.
+
+## 5b. Expanded lists that do not fit a message
+
+The receiving daemon groups large expanded upload-link lists into an owner-only JSONL file
+before queueing or recording the prompt. Text and inline images stay in the prompt. One named
+`<count>-attachments.jsonl` resource link and an instruction to read every row replace the links.
+The manifest is written incrementally, never buffered as a whole, and contains every original
+`{blockIndex, block, displayPart?}` in order. `displayPart` is validated against the original
+block indexes before grouping, including the source attribution.
+
+The link carries `_meta.acpmux.uploadManifest {uploadId, fileName, proof}`. Its separate private
+read proof identifies that file and whether it was minted for Web control. Local forks can retain
+their parent's resolved link; Web reads require the same originating chat and cannot reuse a local
+manifest. Queued dispatch streams the manifest and checks and touches
+every original upload again, applying Web provenance checks to its original links. The normal
+upload age sweep and chat purge cover the manifest too. A refused newly created manifest is
+removed with the prompt's owned uploads.
+
+The transcript's manifest file descriptor keeps `uploadManifest: <the resource_link block>`.
+The app can read it without downloading a giant event:
+
+```
+_acpmux/events {sessionId, uploadManifest, manifestOffset?: 0, maxBytes?: 65536}
+-> {attachments: [{blockIndex, block, displayPart?}], hasMore, manifestOffset}
+```
+
+Continue with the returned byte offset while `hasMore` is true. Each page holds at least one
+row and otherwise fits `maxBytes`; seeking to the offset avoids rescanning previous pages.
+The complete list remains on disk and is never silently omitted from the prompt or transcript.
 
 ## 6. What the agent and the transcript get
 

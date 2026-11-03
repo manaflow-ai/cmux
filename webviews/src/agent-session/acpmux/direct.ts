@@ -1,4 +1,5 @@
 import { markAgentProgressSource } from "./subagents/agentProgressSource";
+import { attachmentManifestPage, type AttachmentManifestPage, type UploadManifest } from "./attachmentManifest";
 import { UNKNOWN_AUTH, type SessionAuthQuery } from "./sessionAuth";
 import { autoResumeAttempt, autoResumeStatus } from "./autoResumeStatus";
 import { parseJsonObjectFrame } from "../../protocol/jsonFrame";
@@ -7396,6 +7397,23 @@ export class AcpmuxDirectClient {
       }),
     );
     return read.filter((attachment): attachment is ComposerAttachment => attachment !== undefined);
+  }
+  async attachmentManifestPage(
+    sessionId: string,
+    uploadManifest: UploadManifest,
+    manifestOffset: number,
+  ): Promise<AttachmentManifestPage> {
+    const generation = this.selectionGeneration;
+    if (sessionId !== this.selectedSession) throw new Error("Attachment manifest session changed");
+    const reply = await this.request("_acpmux/events", {
+      sessionId,
+      uploadManifest,
+      manifestOffset,
+      maxBytes: 64 << 10,
+    });
+    if (generation !== this.selectionGeneration || sessionId !== this.selectedSession)
+      throw new Error("Attachment manifest session changed");
+    return attachmentManifestPage(reply, manifestOffset);
   }
   /// The image `id` a prompt of the open chat sent, as a data URL; undefined when acpmux has none.
   /// An id names the image's bytes, so one read serves every bubble that shows it.

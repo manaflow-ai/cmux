@@ -678,6 +678,23 @@ button.acpmux-attachment-pasted-open:hover {
   vertical-align: middle;
 }
 .acpmux-file-chip--removable { padding-right: 32px; }
+.acpmux-manifest-trigger { all: unset; display: inline-flex; max-width: 100%; border-radius: 6px; cursor: pointer; }
+.acpmux-manifest-trigger:hover { background: var(--agent-control-hover); }
+.acpmux-manifest-trigger:focus-visible { outline: 2px solid var(--agent-accent-soft); }
+.cv-user__files > .acpmux-manifest-trigger { background: var(--agent-control); }
+.acpmux-manifest-dialog { width: min(600px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 0; color: var(--agent-text); --ui-dialog-open: 0s; }
+.acpmux-manifest-contents { display: flex; flex-direction: column; min-height: 0; }
+.acpmux-manifest-list { list-style: none; margin: 0; padding: 4px 16px; overflow: auto; max-height: 55dvh; }
+.acpmux-manifest-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.acpmux-manifest-index { flex: none; min-width: 4ch; text-align: end; color: var(--agent-muted); font-variant-numeric: tabular-nums; }
+.acpmux-manifest-source { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--agent-muted); font-size: var(--text-caption); }
+.acpmux-manifest-status { padding: 8px 16px; color: var(--agent-muted); font-size: var(--text-detail); }
+.acpmux-manifest-pages { display: flex; justify-content: space-between; padding: 0 16px 12px; gap: 8px; }
+.acpmux-manifest-pages button, .acpmux-manifest-status button { font: inherit; color: var(--agent-text); background: var(--agent-control); border: 0; border-radius: 6px; padding: 4px 8px; }
+.acpmux-manifest-status button { margin-inline-start: 8px; }
+.acpmux-manifest-pages button:hover:enabled, .acpmux-manifest-status button:hover { background: var(--agent-control-hover); }
+.acpmux-manifest-pages button:disabled { opacity: .45; }
+.acpmux-manifest-pages button:focus-visible, .acpmux-manifest-status button:focus-visible { outline: 2px solid var(--agent-accent-soft); }
 .acpmux-file-chip > svg { flex: none; color: var(--agent-muted); }
 .acpmux-file-chip .acpmux-file-chip__name { display: flex; min-width: 0; }
 .acpmux-file-chip .acpmux-file-chip__head {

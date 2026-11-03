@@ -409,6 +409,24 @@ def handle_prompt(rid, params):
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
         return
     links = [b for b in blocks if isinstance(b, dict) and b.get("type") == "resource_link"]
+    if text.startswith("manifest-read:"):
+        # A real tool-style consumer of the file reference: stream every JSONL
+        # row and read every original, rather than only echoing the link back.
+        import urllib.parse
+        for link in links:
+            if link.get("mimeType") != "application/x-ndjson":
+                continue
+            count = 0
+            digest = hashlib.sha256()
+            with open(urllib.parse.unquote(urllib.parse.urlparse(link["uri"]).path)) as manifest:
+                for line in manifest:
+                    row = json.loads(line)
+                    original = urllib.parse.unquote(urllib.parse.urlparse(row["block"]["uri"]).path)
+                    with open(original, "rb") as source:
+                        while chunk := source.read(64 * 1024):
+                            digest.update(chunk)
+                    count += 1
+            text += f" manifest-rows:{count} manifest-sha:{digest.hexdigest()}"
     if links:
         text += " " + " ".join(
             "resource_link:{name}:{mime}:{uri}".format(

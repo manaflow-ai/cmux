@@ -3,6 +3,8 @@ import { usePaneLanguage } from "./i18n";
 import { FileDoc, Folder } from "./conversation/icons";
 import type { AttachmentSource } from "./attachments";
 import { SourceBadge, useSourceLabel, withSourceLabel } from "./composer/SourceBadge";
+import type { UploadManifest } from "./attachmentManifest";
+import { AttachmentManifest } from "./AttachmentManifest";
 
 export type FileAttachmentInfo = {
   name: string;
@@ -11,6 +13,7 @@ export type FileAttachmentInfo = {
   path?: string;
   /** The app it came from: its icon rides the file glyph's top-right corner (composer/SourceBadge.tsx). */
   source?: AttachmentSource;
+  uploadManifest?: UploadManifest;
 };
 
 export function attachmentPath(uri: string | undefined): string | undefined {
@@ -36,6 +39,10 @@ export function fileSizeLabel(size: number | undefined, language: string): strin
 
 /** The same quiet file body in a draft and a sent message. Images keep their own thumbnails. */
 export function FileAttachment({ file, remove }: { file: FileAttachmentInfo; remove?: ReactNode }) {
+  return file.uploadManifest ? <AttachmentManifest file={file} /> : <FileAttachmentBody file={file} remove={remove} />;
+}
+
+export function FileAttachmentBody({ file, remove }: { file: FileAttachmentInfo; remove?: ReactNode }) {
   const language = usePaneLanguage();
   const folder = file.name.endsWith("/");
   const type = file.name.split(".").at(-1)?.toLowerCase() ?? "";

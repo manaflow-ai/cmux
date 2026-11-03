@@ -87,6 +87,7 @@ export function PromptFile({ part }: { part: Exclude<PromptContentPart, { kind: 
           size: part.size,
           mimeType: part.mimeType,
           path: attachmentPath(part.uri),
+          uploadManifest: part.uploadManifest,
           // The app it came from: its icon and tooltip line, as the legacy band's file chip has.
           source: part.source,
         }}

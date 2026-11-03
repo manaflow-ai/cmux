@@ -46,6 +46,8 @@ export type TurnActions = {
   /// The image `id` a prompt of this chat sent (its `images`), as a data URL; undefined when acpmux
   /// has none.
   promptImage?: (id: string) => Promise<string | undefined>;
+  attachmentManifestSession?: string;
+  attachmentManifestPage?: import("../attachmentManifest").AttachmentManifestReader;
   /// Send a turn's prompt again (the last turn's Retry), preserving its attachments.
   retry?: (rowId: string, prompt: string) => void;
   /// A failed last turn's Retry (turnRetry.ts): acpmux's turn retry of the chat the row was drawn

@@ -10,6 +10,7 @@ import {
   type PromptBlock,
 } from "./attachments";
 import { translate } from "./i18n";
+import { uploadManifest } from "./attachmentManifest";
 import type { AcpmuxRow, PromptContentPart } from "./model";
 import { parseVideoInfo } from "./composer/videoAttachments";
 import { frameTextOf, isFramesNote, isVideoFrameName, rowImageNames, videoFromFrames } from "./composer/videoPrompt";
@@ -132,10 +133,12 @@ export function normalizePromptContentPart(value: unknown): PromptContentPart | 
       ...sourceField(raw.source),
     };
   if (!["file", "document", "audio", "pasted", "resource_link"].includes(String(kind))) return undefined;
+  const manifest = uploadManifest(raw.uploadManifest);
   return {
     kind: kind === "resource_link" ? "file" : kind,
     name: typeof raw.name === "string" ? raw.name : String(kind),
     ...(typeof raw.uri === "string" ? { uri: raw.uri } : {}),
+    ...(manifest ? { uploadManifest: manifest } : {}),
     ...(typeof raw.text === "string" ? { text: raw.text } : {}),
     ...(typeof raw.mimeType === "string" ? { mimeType: raw.mimeType } : {}),
     ...(typeof raw.size === "number" ? { size: raw.size } : {}),

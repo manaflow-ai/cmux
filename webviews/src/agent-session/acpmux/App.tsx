@@ -7962,6 +7962,14 @@ function AcpmuxPane() {
   const queuedMessageActionsRef = useRef<QueuedMessageActionsValue | undefined>(undefined);
   // The chat's Codex skills, for its sent prompts' `/$name` (conversation/skillWords.ts).
   const skillWords = useSkillWords(snapshot.commands);
+  const readAttachmentManifest = useCallback<import("./attachmentManifest").AttachmentManifestReader>(
+    (sessionId, manifest, offset) => {
+      const client = directClient.current;
+      if (!client) return Promise.reject(new Error("Attachment manifest connection unavailable"));
+      return client.attachmentManifestPage(sessionId, manifest, offset);
+    },
+    [],
+  );
   const turnActions = useMemo<TurnActions>(
     () => ({
       queuedMessages: () => queuedMessageActionsRef.current,
@@ -7979,6 +7987,8 @@ function AcpmuxPane() {
         promptTurns: stablePromptSeqs,
       }),
       promptImage: (id: string) => directClient.current?.promptImage(id) ?? Promise.resolve(undefined),
+      attachmentManifestSession: snapshot.sessionId,
+      attachmentManifestPage: readAttachmentManifest,
       ...(stableEditSeqs.size > 0 && {
         edit: {
           seqs: stableEditSeqs,
@@ -8149,6 +8159,7 @@ function AcpmuxPane() {
     }),
     [
       access,
+      readAttachmentManifest,
       chatAccounts,
       snapshot.sessionId,
       stableBranches,

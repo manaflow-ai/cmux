@@ -36,6 +36,8 @@ use serde_json::{Value, json};
 use std::io::Read;
 use std::path::Path;
 
+pub(crate) mod manifest;
+
 /// The `initialize` feature of a daemon that resolves upload references in a prompt.
 pub const FEATURE: &str = "promptUploads";
 /// The `uri` of a `resource_link` that names an upload: `acpmux-upload:<uploadId>`.
@@ -118,11 +120,16 @@ fn refused(reason: &str, message: String) -> RpcError {
 /// the inline image or the link to its file, and adds the note of their paths (module docs).
 /// `web`: only owned Web uploads and their authenticated resolved links. Blocking.
 pub fn resolve(session: &str, web: bool, blocks: &mut Vec<Value>) -> Result<(), RpcError> {
+    for block in blocks.iter().filter(|block| manifest::is_manifest(block)) {
+        manifest::validate(session, web, block)?;
+    }
     // Validate every block independently: mixing an owned reference with a
     // forged/local resolved link must not grant access to the latter.
     if web {
         for block in blocks.iter() {
-            let valid = if let Some(upload) = upload_of(block) {
+            let valid = if manifest::is_manifest(block) {
+                true // Authenticated, including its sources, above.
+            } else if let Some(upload) = upload_of(block) {
                 let id = upload.get("uploadId").and_then(Value::as_str);
                 let owner = upload.get("owned").and_then(Value::as_str);
                 id.zip(owner).is_some_and(|(id, owner)| {
@@ -243,23 +250,36 @@ pub fn resolve(session: &str, web: bool, blocks: &mut Vec<Value>) -> Result<(), 
             "<cmux-attachments-context>\nThe files sent with this message, saved on this machine:\n{}{more}\n</cmux-attachments-context>",
             shown.join("\n")
         ),
-        "_meta": {"acpmux": {"context": true}},
+        "_meta": {"acpmux": {"context": true, "uploadContext": true}},
     }));
-    if blocks.iter().map(|b| b.to_string().len()).sum::<usize>() > crate::rpc::MAX_MESSAGE_BYTES {
-        let message = format!(
-            "{total} files do not fit one message's links ({} MiB): send them in more than one",
-            crate::rpc::MAX_MESSAGE_BYTES >> 20
-        );
-        return Err(refused("upload.tooMany", message));
-    }
     Ok(())
+}
+
+/// Validated display descriptors in their original block order. Validate before
+/// grouping, so every file's original position and source can enter the manifest.
+pub(crate) fn display_parts(raw: Option<&Value>, blocks: &[Value]) -> Option<Value> {
+    let checked = crate::hub::prompt_images::validated_display_parts(raw, blocks);
+    let mut checked: Vec<_> = checked.into_iter().collect();
+    checked.sort_by_key(|(index, _)| *index);
+    let parts: Vec<_> = checked
+        .into_iter()
+        .map(|(index, mut part)| {
+            part.set("blockIndex", json!(index));
+            part
+        })
+        .collect();
+    (!parts.is_empty()).then_some(Value::Array(parts))
 }
 
 /// Whether every file a resolved prompt links to by path is still there: a prompt that waited
 /// (queued, held, restored after a restart) is refused at its turn when an upload was swept
 /// meanwhile, instead of handing the agent a path to nothing. Blocking.
-fn still_there(blocks: &[Value]) -> Result<(), RpcError> {
+fn still_there(session: &str, web: bool, blocks: &[Value]) -> Result<(), RpcError> {
     for block in blocks {
+        if manifest::is_manifest(block) {
+            manifest::validate(session, web, block)?;
+            continue;
+        }
         let Some(path) = block.pointer("/_meta/acpmux/uploadPath").and_then(Value::as_str) else {
             continue;
         };
@@ -271,9 +291,9 @@ fn still_there(blocks: &[Value]) -> Result<(), RpcError> {
         }
         let _held = crate::hub::file_uploads::IN_USE.lock().unwrap_or_else(|e| e.into_inner());
         let name = block.get("name").and_then(Value::as_str).unwrap_or("a file");
-        if !std::fs::symlink_metadata(path).is_ok_and(|m| m.is_file()) {
-            return Err(refused("upload.missing", format!("upload {name} was removed")));
-        }
+        crate::hub::file_uploads::open_finished(path).map_err(|error| {
+            refused("upload.missing", format!("upload {name} is unavailable: {error}"))
+        })?;
         crate::hub::file_uploads::touch(path).map_err(|e| not_marked(name, &e))?;
     }
     Ok(())
@@ -314,7 +334,16 @@ pub async fn resolve_off_runtime(
     }
     let (id, mut owned) = (session.to_owned(), std::mem::take(blocks));
     let read = tokio::task::spawn_blocking(move || {
-        let result = resolve(&id, web, &mut owned).and_then(|()| still_there(&owned));
+        let mut manifest = crate::attach::OwnedUploads(Vec::new());
+        let result = resolve(&id, web, &mut owned)
+            .and_then(|()| {
+                manifest.0.extend(manifest::compact(&id, web, &mut owned, &mut None)?);
+                Ok(())
+            })
+            .and_then(|()| still_there(&id, web, &owned));
+        if result.is_ok() {
+            let _ = manifest.take(); // The turn retains its files under the normal upload TTL.
+        }
         (result, owned)
     });
     let (result, back) = read.await.map_err(|e| RpcError::internal(e.to_string()))?;

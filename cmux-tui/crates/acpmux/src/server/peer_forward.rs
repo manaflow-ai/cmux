@@ -756,7 +756,10 @@ async fn forward_inner(
         // What the client reads of a peer's chat is kept here too, so the chat
         // paints while the peer is paused or offline (`hub/peer_snapshot.rs`).
         // A page that lost records here no longer holds every seq it covers.
-        if matches!(m, method::MUX_ATTACH | method::MUX_EVENTS) && held(&result) == before {
+        if matches!(m, method::MUX_ATTACH | method::MUX_EVENTS)
+            && params.get("uploadManifest").is_none()
+            && held(&result) == before
+        {
             let on = (peer.name.as_str(), peer.generation, link, asked);
             hub.capture_peer_page(on, (&id, m == method::MUX_EVENTS), params, &result);
         }

@@ -122,11 +122,15 @@ pub struct EventsParams {
     /// Every prompt before `beforeSeq`, oldest first, each cut to its id and the start of its text,
     /// in one reply (`Hub::prompt_index`): `kinds`, `limit` and `maxBytes` are not read.
     pub prompt_index: Option<bool>,
+    /// A daemon-issued attachment manifest resource link, read instead of log records.
+    pub upload_manifest: Option<Value>,
+    /// Byte offset returned by the preceding manifest page; default zero.
+    pub manifest_offset: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-#[schemars(transform = require_all)]
+#[schemars(transform = events_result_required)]
 pub struct EventsResult {
     pub events: Vec<SessionEvent>,
     pub has_more: bool,
@@ -138,6 +142,24 @@ pub struct EventsResult {
     /// The session the page is of (its `createdAt`): a session recreated under the same id while
     /// the page was asked is another journal (`hub/peer_snapshot.rs`).
     pub created_at: u64,
+    /// Present only when reading an upload manifest. Every row retains its original
+    /// blockIndex, resource-link block and optional validated displayPart.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attachments: Option<Vec<Value>>,
+    /// The byte offset of the next manifest page; absent for ordinary log reads.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub manifest_offset: Option<u64>,
+}
+
+fn events_result_required(schema: &mut schemars::Schema) {
+    require_all(schema);
+    if let Some(required) = schema
+        .as_object_mut()
+        .and_then(|object| object.get_mut("required"))
+        .and_then(Value::as_array_mut)
+    {
+        required.retain(|name| !matches!(name.as_str(), Some("attachments" | "manifestOffset")));
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]

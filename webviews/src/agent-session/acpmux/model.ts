@@ -290,6 +290,7 @@ export type PromptContentPart =
       text?: string;
       pageCount?: number;
       uri?: string;
+      uploadManifest?: import("./attachmentManifest").UploadManifest;
       video?: VideoInfo;
       source?: AttachmentSource;
     };

@@ -184,6 +184,8 @@ export interface EventsParams {
   kinds?: (EventKinds | null);
   /** Default 5000. */
   limit?: (number | null);
+  /** Byte offset returned by the preceding manifest page; default zero. */
+  manifestOffset?: (number | null);
   maxBytes?: (number | null);
   /**
    * Every prompt before `beforeSeq`, oldest first, each cut to its id and the start of its text,
@@ -191,9 +193,16 @@ export interface EventsParams {
    */
   promptIndex?: (boolean | null);
   sessionId: string;
+  /** A daemon-issued attachment manifest resource link, read instead of log records. */
+  uploadManifest?: unknown;
 }
 
 export type EventsResult = {
+  /**
+   * Present only when reading an upload manifest. Every row retains its original
+   * blockIndex, resource-link block and optional validated displayPart.
+   */
+  attachments?: (unknown[] | null);
   /**
    * The session the page is of (its `createdAt`): a session recreated under the same id while
    * the page was asked is another journal (`hub/peer_snapshot.rs`).
@@ -202,6 +211,8 @@ export type EventsResult = {
   events: SessionEvent[];
   hasMore: boolean;
   lastSeq: number;
+  /** The byte offset of the next manifest page; absent for ordinary log reads. */
+  manifestOffset?: (number | null);
   /**
    * How far the page holds: every record of the kinds asked after `afterSeq` up to it is in the
    * page (`hub/peer_snapshot.rs`). The log's last seq, read before the page, when the page reads

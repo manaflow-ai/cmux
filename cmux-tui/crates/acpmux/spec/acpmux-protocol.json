@@ -2319,6 +2319,15 @@
             "null"
           ]
         },
+        "manifestOffset": {
+          "description": "Byte offset returned by the preceding manifest page; default zero.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "maxBytes": {
           "format": "uint64",
           "minimum": 0,
@@ -2336,6 +2345,9 @@
         },
         "sessionId": {
           "type": "string"
+        },
+        "uploadManifest": {
+          "description": "A daemon-issued attachment manifest resource link, read instead of log records."
         }
       },
       "required": [
@@ -2345,6 +2357,14 @@
     },
     "EventsResult": {
       "properties": {
+        "attachments": {
+          "description": "Present only when reading an upload manifest. Every row retains its original\nblockIndex, resource-link block and optional validated displayPart.",
+          "items": true,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "createdAt": {
           "description": "The session the page is of (its `createdAt`): a session recreated under the same id while\nthe page was asked is another journal (`hub/peer_snapshot.rs`).",
           "format": "uint64",
@@ -2364,6 +2384,15 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "manifestOffset": {
+          "description": "The byte offset of the next manifest page; absent for ordinary log reads.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "pageThrough": {
           "description": "How far the page holds: every record of the kinds asked after `afterSeq` up to it is in the\npage (`hub/peer_snapshot.rs`). The log's last seq, read before the page, when the page reads\nto its end; else (`beforeSeq`, or `hasMore`) the page's own last record.",

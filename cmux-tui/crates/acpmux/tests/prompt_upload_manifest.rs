@@ -112,12 +112,17 @@ async fn expanded_links_reach_a_busy_agent_and_remain_completely_readable() {
     let mut blocks = vec![json!({"type": "text", "text": "manifest-read: every attached file"})];
     blocks.extend(std::iter::repeat_n(reference, count));
     blocks.push(json!({"type": "text", "text": "after attachments"}));
+    blocks.push(json!({"type": "resource", "resource": {"uri": "inline:mix",
+        "mimeType": "application/octet-stream", "blob": "bWl4"},
+        "_meta": {"acpmux": {"attachment": {"name": "mixed-inline.bin"}}}}));
     assert!(serde_json::to_vec(&blocks).unwrap().len() > 3 << 20);
     let prompt_id = uuid::Uuid::now_v7().to_string();
     let request = json!({"sessionId": session, "prompt": blocks,
-    "_meta": {"acpmux": {"promptId": prompt_id, "inlineParts": [
+    "_meta": {"acpmux": {"promptId": prompt_id, "context": "workspace-context-sentinel", "inlineParts": [
         {"kind": "file", "blockIndex": count, "name": "last original", "placed": true,
-         "source": {"name": "Finder", "bundleId": "com.apple.finder"}}
+         "source": {"name": "Finder", "bundleId": "com.apple.finder"}},
+        {"kind": "file", "blockIndex": count + 2, "name": "mixed-inline-display",
+         "source": {"name": "Screenshot"}}
     ]}}});
     client
         .post(
@@ -141,6 +146,15 @@ async fn expanded_links_reach_a_busy_agent_and_remain_completely_readable() {
         client.call(method::MUX_EVENTS, json!({"sessionId": session, "kinds": ["queued"]})).await;
     let queued = &page["result"]["events"][0]["msg"];
     assert!(queued.pointer("/_meta/acpmux/omitted").is_none(), "{queued}");
+    assert!(
+        queued["inlineParts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|part| part["name"] == "mixed-inline-display"
+                && part["source"]["name"] == "Screenshot"),
+        "mixed inline attachment display metadata was lost: {queued}"
+    );
     let manifest = queued["prompt"]
         .as_array()
         .unwrap()
@@ -154,6 +168,9 @@ async fn expanded_links_reach_a_busy_agent_and_remain_completely_readable() {
         std::fs::metadata(&manifest_path).unwrap().len() > acpmux::rpc::MAX_MESSAGE_BYTES as u64
     );
     let manifest_bytes = std::fs::metadata(&manifest_path).unwrap().len();
+    client.post(method::SESSION_CANCEL, json!({"sessionId": session})).await;
+    let result = client.until(|v| v.get("id") == Some(&json!(asked))).await;
+    assert!(result.get("error").is_none(), "{result}");
     let mut offset = 0;
     let mut read = 0;
     loop {
@@ -213,15 +230,13 @@ async fn expanded_links_reach_a_busy_agent_and_remain_completely_readable() {
         )
         .await;
     assert_eq!(denied["error"]["data"]["reason"], "upload.remote", "{denied}");
-    client.post(method::SESSION_CANCEL, json!({"sessionId": session})).await;
-    let result = client.until(|v| v.get("id") == Some(&json!(asked))).await;
-    assert!(result.get("error").is_none(), "{result}");
     assert!(
         client.text.contains(manifest["uri"].as_str().unwrap()),
         "agent never got the manifest"
     );
     assert_eq!(std::fs::read(&path).unwrap(), b"all");
     assert!(client.text.contains(&format!("manifest-rows:{count}")), "{}", client.text);
+    assert!(client.text.contains("workspace-context-sentinel"), "{}", client.text);
     use sha2::Digest;
     let mut digest = sha2::Sha256::new();
     for _ in 0..count {
@@ -229,6 +244,72 @@ async fn expanded_links_reach_a_busy_agent_and_remain_completely_readable() {
     }
     let expected = format!("{:x}", digest.finalize());
     assert!(client.text.contains(&format!("manifest-sha:{expected}")), "{}", client.text);
+    // The separate read proof also works after a local fork retains the link.
+    let fork = client.call(method::SESSION_NEW, json!({"cwd": root, "mcpServers": []})).await;
+    let fork = fork["result"]["sessionId"].as_str().unwrap();
+    let fork_page = client
+        .call(
+            method::MUX_EVENTS,
+            json!({"sessionId": fork, "uploadManifest": manifest,
+            "maxBytes": 64 << 10}),
+        )
+        .await;
+    assert!(fork_page["result"]["attachments"].as_array().is_some(), "{fork_page}");
+    // A genuine Web manifest remains page-readable without exposing the upload's
+    // write capability. Reuse across chats is denied even with the correct proof.
+    let begun = web
+        .call(
+            method::MUX_FILE_PUT_BEGIN,
+            json!({"sessionId": session,
+            "fileName": name, "size": 3, "forPrompt": true}),
+        )
+        .await;
+    let web_id = begun["result"]["uploadId"].as_str().unwrap();
+    let owner = begun["result"]["ownerToken"].as_str().unwrap();
+    let put = web
+        .call(
+            method::MUX_FILE_PUT_CHUNK,
+            json!({"sessionId": session,
+            "uploadId": web_id, "ownerToken": owner, "offset": 0,
+            "data": base64::engine::general_purpose::STANDARD.encode(b"web")}),
+        )
+        .await;
+    assert!(put.get("error").is_none(), "{put}");
+    let done = web
+        .call(
+            method::MUX_FILE_PUT_FINISH,
+            json!({"sessionId": session,
+            "uploadId": web_id, "ownerToken": owner, "fileName": name, "size": 3}),
+        )
+        .await;
+    assert!(done.get("error").is_none(), "{done}");
+    let web_reference = json!({"type": "resource_link", "name": name,
+        "uri": format!("acpmux-upload:{web_id}"),
+        "_meta": {"acpmux": {"upload": {"uploadId": web_id,
+            "fileName": name, "owned": owner}}}});
+    let mut web_blocks: Vec<_> = std::iter::repeat_n(web_reference, count).collect();
+    acpmux::prompt_uploads::resolve_off_runtime(&session, true, &mut web_blocks).await.unwrap();
+    let web_manifest = web_blocks
+        .iter()
+        .find(|block| block.pointer("/_meta/acpmux/uploadManifest").is_some())
+        .unwrap();
+    assert!(!serde_json::to_string(web_manifest).unwrap().contains(owner));
+    let allowed = web
+        .call(
+            method::MUX_EVENTS,
+            json!({"sessionId": session,
+        "uploadManifest": web_manifest, "maxBytes": 64 << 10}),
+        )
+        .await;
+    assert!(allowed["result"]["attachments"].as_array().is_some(), "{allowed}");
+    let wrong_chat = web
+        .call(
+            method::MUX_EVENTS,
+            json!({"sessionId": fork,
+        "uploadManifest": web_manifest}),
+        )
+        .await;
+    assert_eq!(wrong_chat["error"]["data"]["reason"], "upload.remote", "{wrong_chat}");
     // A manifest cannot hide a source swept while its prompt was waiting.
     std::fs::remove_file(path).unwrap();
     let missing = client

@@ -319,6 +319,11 @@ pub(super) fn inline_parts(
                     }
                     let name = block.get("name").and_then(Value::as_str).unwrap_or(uri);
                     let mut part = json!({"kind": "file", "name": name, "uri": uri});
+                    if crate::prompt_uploads::manifest::is_manifest(block) {
+                        // A read-only, session-scoped reference for bounded list reads.
+                        // The complete original block indexes and display sources are in it.
+                        part.set("uploadManifest", block.clone());
+                    }
                     if let Some(mime_type) = block.get("mimeType").and_then(Value::as_str) {
                         part.set("mimeType", Value::String(mime_type.into()));
                     }

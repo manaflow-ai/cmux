@@ -67,7 +67,14 @@ impl Hub {
             if crate::prompt_uploads::any(&blocks) {
                 crate::prompt_uploads::resolve(&id, web, &mut blocks)?;
             }
-            crate::attach::receive(&id, web, &mut blocks).map(|saved| (blocks, saved))
+            let mut manifest = crate::attach::OwnedUploads(
+                crate::prompt_uploads::manifest::compact(&id, web, &mut blocks, &mut None)?
+                    .into_iter()
+                    .collect(),
+            );
+            let saved = crate::attach::receive(&id, web, &mut blocks)?;
+            let saved = crate::attach::Saved::with_owned(saved, &id, manifest.take());
+            Ok::<_, RpcError>((blocks, saved))
         });
         let (blocks, saved) = received.await.map_err(|e| RpcError::internal(e.to_string()))??;
         let saved = crate::attach::Saved::with_owned(saved, &target.id, owned.take());
