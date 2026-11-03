@@ -14,7 +14,11 @@ extension AppControl {
             guard let connection = await MainActor.run(body: { daemon?.connection }) else {
                 throw ControlError(code: "unavailable", message: offline)
             }
-            _ = try await connection.request(IdentifyRequest())
+            // No wall clock (#32724): the daemon answers `identify` before its connection's queue,
+            // so only load delays it, and load must not fail a request. The ask ends with its
+            // reply or the connection's end; the heartbeat ends a local connection only when the
+            // daemon process is gone.
+            _ = try await connection.request(IdentifyRequest(), timeout: nil)
             guard let sequence = await connection.eventSequence() else {
                 throw ControlError(code: "unavailable", message: offline)
             }
