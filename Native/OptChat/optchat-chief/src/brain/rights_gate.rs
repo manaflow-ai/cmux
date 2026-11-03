@@ -310,16 +310,19 @@ impl Brain {
                 // of people present, and in a shared conversation none that
                 // are the owner's alone (the owner reads those in a 1:1 or
                 // with `optchat-chief audit`).
+                // Everyone here reads the answer, so a record is shown only
+                // when every reader may see it: the owner and approvers see
+                // everything, anyone else (a Chief included) only records
+                // that name them. With such readers present, a record must
+                // name every one of them.
                 let owner = self.settings.membership.owner.clone();
-                let present = present_people(summary, &owner);
-                let shared = present.iter().any(|p| *p != owner && !p.starts_with(crate::rights::CHIEF_PREFIX));
+                let readers: Vec<String> = present_people(summary, &owner)
+                    .into_iter()
+                    .filter(|p| *p != owner && (p.starts_with(crate::rights::CHIEF_PREFIX) || !rights.is_approver(p)))
+                    .collect();
                 let visible: Vec<audit::Record> = records
                     .into_iter()
-                    .filter(|r| {
-                        let all_here = !r.entry.who.is_empty() && r.entry.who.iter().all(|w| present.contains(w));
-                        let owner_only = r.entry.who.iter().all(|w| *w == owner);
-                        all_here && !(shared && owner_only)
-                    })
+                    .filter(|r| readers.iter().all(|u| r.entry.who.contains(u)))
                     .collect();
                 let name_of = |id: &str| rights.name_of(id).to_owned();
                 let mut lines: Vec<String> = audit::query(&visible, who.as_deref(), n)

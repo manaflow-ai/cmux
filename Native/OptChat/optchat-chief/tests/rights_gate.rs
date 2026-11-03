@@ -245,6 +245,16 @@ fn only_the_owner_changes_rights_and_others_see_only_their_own_audit() {
     let last = out.last().unwrap();
     assert!(last.contains("records, head"), "{last}");
     assert!(!last.contains("secret owner thing"), "{last}");
+    // Another teammate's records never reach Ben.
+    audit::append(
+        &root(&h),
+        &audit::Entry { who: vec!["user_ana".into()], tool: "Bash".into(), what: "run `ana only`".into(), decision: "allow".into(), ..Default::default() },
+    )
+    .unwrap();
+    say(&mut h, "user_local", "/audit");
+    h.settle_posts();
+    let out = posted(&h);
+    assert!(!out.last().unwrap().contains("ana only"), "{:?}", out.last());
 }
 
 #[test]

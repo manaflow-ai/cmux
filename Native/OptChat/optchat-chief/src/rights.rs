@@ -439,8 +439,9 @@ fn read_only_command(cmd: &str) -> bool {
     })
 }
 
-/// Characters that chain or redirect a shell command.
-const SHELL_META: [&str; 9] = [";", "&", "|", "`", "$(", ">", "<", "\n", "\r"];
+/// Characters that chain, redirect, quote, escape or expand in a shell
+/// command: a granted command is matched as the plain words it runs.
+const SHELL_META: [&str; 14] = [";", "&", "|", "`", "$", ">", "<", "\n", "\r", "'", "\"", "\\", "~", "\t"];
 
 impl Pattern {
     pub fn parse(text: &str) -> Result<Pattern, String> {
@@ -968,6 +969,9 @@ mod tests {
         assert!(!r.decide(OWNER, &ben, "Bash", Some(&json!({"command": "git status $(rm x)"})), &[]).allowed());
         assert!(!r.decide(OWNER, &ben, "Bash", Some(&json!({"command": "git push"})), &[]).allowed());
         assert!(!r.decide(OWNER, &ben, "Bash", Some(&json!({"command": "git status --output=/x"})), &[]).allowed());
+        for quoted in ["git status '--output=/x'", "git status \"--output\" /x", "git status \\--output=/x", "git status $HOME", "git status ~/x"] {
+            assert!(!r.decide(OWNER, &ben, "Bash", Some(&json!({"command": quoted})), &[]).allowed(), "{quoted}");
+        }
         let mut r2 = Rights::default();
         r2.grant("user_ben", &["Bash(ls*)".into()]).unwrap();
         assert!(r2.decide(OWNER, &ben, "Bash", Some(&json!({"command": "ls -la"})), &[]).allowed());
