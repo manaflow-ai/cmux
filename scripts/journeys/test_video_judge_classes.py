@@ -230,6 +230,19 @@ class DragFollowUpTests(unittest.TestCase):
         self.assertLessEqual(report["movie"]["complete"], len(frames), report["movie"])
         self.assertLessEqual(report["movie"]["frames_in_motion"], len(frames), report["movie"])
 
+    def test_idle_frames_before_the_motion_are_not_a_drop(self):
+        """While the screen does not change, the capture writes only idle rows; the first complete frame of the motion
+        follows the last complete frame of the rest long before it. That is not a drop, with or without a split
+        (review of 21ec8aa412c: feat-rv5-var2-120x2/rv-split-1pane-idle-dark got a false 241.67 ms movie drop)."""
+        xs = [100.0] * 20 + [100.0 + 2 * k for k in range(1, 9)] + [116.0] * 4
+        trace = two_pane_trace(xs)
+        t0, t = trace["t0_s"], [s["t"] for s in trace["samples"]]
+        frames = [[t0 + (v + 0.5) / 1000, "complete" if (k < 3 or k >= 21) else "idle", True] for k, v in enumerate(t)]
+        for events in (None, {"hid": [], "journal": [mouse_down(t0, t[19])]}):
+            report = self.jt.judge(trace, frames, 2.0, events)
+            movie_drops = [d for d in report["defects"] if d["kind"] == "dropped" and d["frame"] is None]
+            self.assertEqual(movie_drops, [], (events is not None, movie_drops))
+
     def test_drag_labels_name_the_drag_that_starts_the_part(self):
         """Two mouse-downs before the trace starts (-2000 and -1000 ms) both cut at sample 0, then drags at 34 ms and
         at 300 ms. Each part is labelled with the last drag that starts it: drags 1, 2, 3, at -1000, 34, 300 ms."""
