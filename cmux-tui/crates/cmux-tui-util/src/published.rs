@@ -279,7 +279,7 @@ mod tests {
         let published = Published::new(Counter::default(), project, false);
         assert!(!published.publishing());
         published.lock().unwrap_or_else(|poison| poison.into_inner()).value = 3;
-        assert_eq!(**published.load_full_for_test(), 0, "a change was published while off");
+        assert_eq!(*published.load_full_for_test(), 0, "a change was published while off");
         published.set_publishing_for_test(true);
         assert!(published.publishing());
         assert_eq!(**published.load().unwrap_or_else(|poison| poison.into_inner()), 3);
