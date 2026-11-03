@@ -121,6 +121,21 @@ final class PaneHostView: NSView, RestingPlacement {
         }
     }
 
+    /// A structural change (a split, a close, a zoom) took over the screen while its key-resize spring ran: a pane
+    /// already on that spring keeps moving without a new start, so it leaves the key hold here and follows the
+    /// structural spring as any spring does (live, or held with `motion.pane.holdContent`).
+    func endKeyResizeHold() {
+        guard holdsUntilAfterLanding else { return }
+        guard isOnLayoutSpring else {
+            releaseHeldContent()
+            return
+        }
+        holdsUntilAfterLanding = false
+        heldPin = nil
+        heldContentSize = holdsContentInMotion() ? content.frame.size : nil
+        layoutClip()
+    }
+
     /// The one layout at the size the spring landed at, before the content hears it landed.
     private func releaseHeldContent() {
         holdsUntilAfterLanding = false
@@ -156,8 +171,9 @@ final class PaneHostView: NSView, RestingPlacement {
     /// A host at its rest place and size holds nothing, whatever its spring flag says.
     private func contentFrame(in clip: CGRect) -> CGRect {
         if holdsUntilAfterLanding, let held = heldContentSize {
-            // Pinned at the edge nearer its rest, as below, picked while the pane moves and kept to the release.
-            if let restSize, restOffset != .zero || frame.size != restSize {
+            // Pinned at the edge nearer its rest, as below, picked once when the pane first moves and kept to the
+            // release: on a 2x screen the last frames are half a point from rest, too close to say which edge moved.
+            if heldPin == nil, let restSize, restOffset != .zero || frame.size != restSize {
                 let trailing = abs(restOffset.dx + restSize.width - frame.width) < abs(restOffset.dx) - 0.5
                 let bottom = heldAnchor.map { $0 == .bottom } ?? (abs(restOffset.dy + restSize.height - frame.height) < abs(restOffset.dy) - 0.5)
                 heldPin = (trailing, bottom)

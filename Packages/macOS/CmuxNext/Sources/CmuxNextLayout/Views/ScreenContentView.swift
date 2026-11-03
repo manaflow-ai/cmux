@@ -203,6 +203,15 @@ final class ScreenContentView: NSView {
         #if DEBUG
         let shapeBefore = structural && !isHidden && canvas == nil && !self.zoomed && !zoomed ? restColumns : nil
         #endif
+        // A structural change during a key-resize spring takes the screen over: the panes on that spring keep moving
+        // on the new one without starting it, so their key hold ends here (one pass per change, not per frame).
+        if structural || zooming || unzooming, holdsContentForKeyResize {
+            holdsContentForKeyResize = false
+            for pane in self.layout.panes {
+                guard let host = context.hosts[pane], host.superview === self else { continue }
+                host.endKeyResizeHold()
+            }
+        }
         self.layout = layout
         self.zoomed = zoomed
         // The release's intent is in this layout (or was refused).
