@@ -295,15 +295,33 @@ mod tests {
         let mut cfg = crate::config::Config::default();
         cfg.store.mode = crate::config::StoreMode::Memory;
         let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let meta: SessionMeta = serde_json::from_value(json!({
+            "schema":crate::store::META_SCHEMA,"id":"workflow-child","name":"Workflow child",
+            "harness":"fake","cwd":std::env::temp_dir(),"status":"idle","createdAt":1,"updatedAt":1
+        }))
+        .unwrap();
+        store.save(&meta).unwrap();
         let hub = Hub::new(cfg, store);
-        let session = hub
-            .new_session(NewRequest { cwd: Some(std::env::temp_dir()), ..Default::default() })
-            .await
-            .unwrap();
+        let session = hub.resolve("workflow-child").unwrap();
+        *session.turn.lock().unwrap() = Some(TurnInfo {
+            trigger: false,
+            started_at: 1,
+            client: "person".into(),
+            prompt_preview: String::new(),
+            masked_preview: String::new(),
+            turn_id: "person-turn".into(),
+            prompt_id: "person-prompt".into(),
+            turn_seq: 1,
+            control: Control::Local,
+            doing: Default::default(),
+            notice: false,
+            persons: true,
+        });
         let before = session.cancels.load(Ordering::SeqCst);
         // The activity ended before pause arrived; it must not change even the
         // session-wide cancellation generation that a later prompt will observe.
         hub.cancel_prompt(&session, "already-ended-workflow-prompt").await.unwrap();
         assert_eq!(session.cancels.load(Ordering::SeqCst), before);
+        assert_eq!(session.turn().unwrap().prompt_id, "person-prompt");
     }
 }
