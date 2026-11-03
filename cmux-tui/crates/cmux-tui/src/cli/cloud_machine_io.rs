@@ -166,7 +166,9 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     if cloud != "cloud" || noun != "machine-io" {
         return None;
     }
-    let stdout = &mut std::io::stdout();
+    let stdout_handle = std::io::stdout();
+    let mut buffered = std::io::BufWriter::with_capacity(64 * 1024, stdout_handle.lock());
+    let stdout = &mut buffered;
     if !rest.is_empty() {
         let _ = writeln!(
             stdout,
@@ -205,7 +207,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         Err(message) => (Route::Proxy, Answer::error(0, "transport", &message)),
     };
     let mut answer = scrub(answer, &request.credential);
-    if write_line(stdout, route, &mut answer).is_err() {
+    if write_line(stdout, route, &mut answer).and_then(|()| stdout.flush()).is_err() {
         return Some(1);
     }
     Some(if (200..300).contains(&answer.status) { 0 } else { 1 })
