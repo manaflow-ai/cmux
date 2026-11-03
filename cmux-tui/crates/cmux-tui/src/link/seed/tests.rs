@@ -390,6 +390,9 @@ fn sparse_patterns_are_sent() {
     assert!(!f.work.join("gone.txt").exists());
     write(&f.work.join("src/new.rs"), "new\n");
     write(&f.work.join("outside.txt"), "untracked outside the patterns\n");
+    write(&f.work.join("src/.env.local"), "FAKE_SPARSE_SECRET_ONLY\n");
+    let secret_id = git(&f.work, &["hash-object", "src/.env.local"]);
+    assert!(!git_has_blob(&f.work, &secret_id));
     let before = snapshot(&f.work);
     let planned = plan(&f.work, &f.path("seed.bundle")).unwrap();
     let sparse = planned.params.sparse.clone().expect("sparse patterns");
@@ -400,6 +403,11 @@ fn sparse_patterns_are_sent() {
     assert!(tree.lines().any(|path| path == "gone.txt"), "{tree}");
     assert!(tree.lines().any(|path| path == "src/new.rs"), "{tree}");
     assert!(tree.lines().any(|path| path == "outside.txt"), "{tree}");
+    assert!(!tree.lines().any(|path| path == "src/.env.local"), "{tree}");
+    assert!(
+        !git_has_blob(&f.work, &secret_id),
+        "sparse seed wrote an excluded secret blob into local Git"
+    );
     assert_eq!(snapshot(&f.work), before);
 }
 
