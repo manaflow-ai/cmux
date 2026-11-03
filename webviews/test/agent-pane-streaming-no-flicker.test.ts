@@ -219,7 +219,6 @@ await requireBrowserLane("agent-pane-streaming-no-flicker.test.ts", async () => 
       }
     });
 
-  type Box = { el: number; x: number; y: number; w: number; h: number; o: string; v: string; text: boolean };
   type Report = {
     frames: number;
     keys: string[];
