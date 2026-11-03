@@ -20,6 +20,25 @@ const NO_FILL = /^(none|transparent)$/;
 const LIT_INK = /^var\(--agent-lit-glyph[,)]/;
 // A state that may draw the pill: the pointer on it, its panel open (pressed), or its menu open.
 const LIT_STATE = /:hover|\[aria-pressed=true\]|\[data-popup-open\]/;
+// A selector list's parts, split at its top-level commas only (not inside `:is(…)` or `:not(…)`).
+function parts(selector: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < selector.length; index += 1) {
+    const char = selector[index];
+    if (char === "(") depth += 1;
+    else if (char === ")") depth -= 1;
+    else if (char === "," && depth === 0) {
+      out.push(selector.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  out.push(selector.slice(start).trim());
+  return out;
+}
+// Whether a part names a lit state outside a `:not(…)` (`:not(:hover)` is not one).
+const lit = (part: string) => LIT_STATE.test(part.replace(/:not\((?:[^()]|\([^()]*\))*\)/g, ""));
 const isFill = (property: string, value: string) =>
   (property === "background" || property === "background-color") && !NO_FILL.test(value);
 
@@ -53,11 +72,11 @@ function rules(): { file: string; selector: string; body: Map<string, string> }[
 test("no header tool draws a fill at rest, nor a border or shadow in any state", () => {
   const boxed: string[] = [];
   for (const { file, selector, body } of rules()) {
-    const parts = selector.split(",").filter((part) => HEADER_TOOL.test(part));
-    if (parts.length === 0) continue;
+    const tools = parts(selector).filter((part) => HEADER_TOOL.test(part));
+    if (tools.length === 0) continue;
     for (const [property, value] of body) {
       // A fill only in a lit state: every header-tool part of the rule names one.
-      const fill = isFill(property, value) && !parts.every((part) => LIT_STATE.test(part));
+      const fill = isFill(property, value) && !tools.every(lit);
       const border =
         /^border(-(top|right|bottom|left|width|style|color))?$/.test(property) && !/^(0|none)$/.test(value);
       const shadow = property === "box-shadow" && value !== "none";
@@ -73,7 +92,7 @@ test("the header tools' focus rule clears the shared focus gradient without draw
   const focus = rules().find(
     ({ file, selector }) =>
       file === "header/header.css" &&
-      selector.split(",").includes(".acpmux-header-tools .acpmux-header-tool:focus-visible"),
+      parts(selector).includes(".acpmux-header-tools .acpmux-header-tool:focus-visible"),
   );
   expect(focus?.body.get("background-image")).toBe("none");
   for (const [property, value] of focus?.body ?? []) expect(isFill(property, value)).toBe(false);
@@ -99,13 +118,25 @@ test("an open panel's toggle reads as on by the filled rounded square and its li
   for (const host of [".acpmux-header-tools", ".acpmux-floating-header", ".acpmux-floating-bar"]) {
     const filled = all.some(
       ({ selector, body }) =>
-        selector
-          .split(",")
-          .some((part) => part.startsWith(`${host} .acpmux-header-tool`) && /\[aria-pressed=true\]/.test(part)) &&
-        [...body].some(([property, value]) => isFill(property, value)),
+        parts(selector).some(
+          (part) => part.startsWith(`${host} .acpmux-header-tool`) && lit(part) && /\[aria-pressed=true\]/.test(part),
+        ) && [...body].some(([property, value]) => isFill(property, value)),
     );
     expect(filled ? host : `${host}: no pressed fill`).toBe(host);
   }
+  // The hover pill never paints over an on toggle's square (it would lighten it): a hover fill excludes it.
+  const hoverFills = all.flatMap(({ selector, body }) =>
+    [...body].some(([property, value]) => isFill(property, value))
+      ? parts(selector).filter(
+          (part) =>
+            HEADER_TOOL.test(part) &&
+            /:hover/.test(part) &&
+            !/\[aria-pressed=true\]/.test(part.replace(/:not\((?:[^()]|\([^()]*\))*\)/g, "")),
+        )
+      : [],
+  );
+  expect(hoverFills.length).toBeGreaterThan(0);
+  expect(hoverFills.filter((part) => !/:not\([^)]*\[aria-pressed=true\]/.test(part))).toEqual([]);
   const focus = all.find(({ selector }) => selector === ".acpmux-header-tool:focus-visible")?.body.get("outline");
   expect(focus).toMatch(/solid/);
 });
