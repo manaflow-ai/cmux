@@ -2897,18 +2897,23 @@ def run_push(repo: Path, ranges: list, ratchet: Ratchet | None = None) -> bool:
 def tree_sites(repo: Path, head: str, rule_id: str) -> list[str]:
     """Every site RULE_ID finds in HEAD's whole tree (base debt included), as `path:line: text`, sorted.
 
-    The rule judges what HEAD adds over an empty commit, so each count is the debt a slice of work pays down
+    The rule judges what HEAD adds over the empty tree, so each count is the debt a slice of work pays down
     (threading item 1, #25852: `--sites main-blocking` counts the main-thread blocking sites). A warning rule's
     sites (maybe-main-blocking) count the same way."""
-    env = {**os.environ, "GIT_AUTHOR_NAME": "guardrails", "GIT_AUTHOR_EMAIL": "guardrails@localhost",
-           "GIT_COMMITTER_NAME": "guardrails", "GIT_COMMITTER_EMAIL": "guardrails@localhost"}
-    tree = subprocess.run(["git", "-C", str(repo), "hash-object", "-w", "-t", "tree", "--stdin"], input=b"",
-                          capture_output=True, check=True, env=env).stdout.decode().strip()
-    empty = subprocess.run(["git", "-C", str(repo), "commit-tree", tree, "-m", "guardrails --sites: empty base"],
-                           capture_output=True, check=True, env=env).stdout.decode().strip()
-    refusals, warnings = settle(*measure(repo, empty, git(repo, "rev-parse", head).strip()))
+    # The empty tree (git knows it without storing it), not a written empty commit: no loose objects.
+    empty = subprocess.run(["git", "-C", str(repo), "hash-object", "-t", "tree", "--stdin"], input=b"",
+                           capture_output=True, check=True).stdout.decode().strip()
+    found, warnings = measure(repo, empty, git(repo, "rev-parse", head).strip())
+    # measure() fails open (a warning) when the diff, the generic-signature context or this rule fails; a count
+    # that silently left the rule out would read as debt paid down, so the count fails closed instead.
+    failed = [text for source, text in warnings if source == "guardrails"
+              and text.startswith(("could not read", "generic-signature context", f"rule {rule_id} "))]
+    if failed:
+        raise SystemExit("guardrails --sites: no count, the rule did not run on the whole tree:\n" + "\n".join(failed))
+    refusals, _ = settle(found, [])
     sites = [f"{h.path}:{h.number}: {h.text.strip()}" for rule, hits in refusals if rule.id == rule_id for h in hits]
-    sites += [text for rule, text in warnings if rule == rule_id]
+    sites += [f"{h.path}:{h.number}: {h.text.strip()}" for rule, hits in found if rule.id == rule_id
+              for h in hits if getattr(h, "warn", False) and not (isinstance(h, NetHit) and h.additive and h.excess <= 0)]
     return sorted(sites)
 
 
