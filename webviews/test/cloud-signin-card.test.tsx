@@ -623,8 +623,10 @@ test("no Use an API key here on a failure that is not a sign-in", async () => {
   expect(button("Use an API key")).toBeUndefined();
 });
 
-const MANUAL = "https://claude.com/cai/oauth/authorize?code=true&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&state=s";
-const AUTO = "https://claude.com/cai/oauth/authorize?code=true&redirect_uri=http%3A%2F%2Flocalhost%3A54545%2Fcallback&state=s";
+const MANUAL =
+  "https://claude.com/cai/oauth/authorize?code=true&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&state=s";
+const AUTO =
+  "https://claude.com/cai/oauth/authorize?code=true&redirect_uri=http%3A%2F%2Flocalhost%3A54545%2Fcallback&state=s";
 const autoStart = () => ({ loginId: "login-a", url: MANUAL, autoUrl: AUTO, callbackPort: 54545, needsCode: true });
 
 test("Claude's automatic page: an allowed page whose one redirect is the machine's localhost callback", () => {

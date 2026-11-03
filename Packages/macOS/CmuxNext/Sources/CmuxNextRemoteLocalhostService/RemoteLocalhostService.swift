@@ -173,10 +173,9 @@ public final class RemoteLocalhostService {
     /// Tabs whose localhost is a chat's machine, by tab id, whatever machine's tree holds them:
     /// a Cloud chat's sign-in page (Claude's automatic page, AgentPaneSignInPage.swift), whose
     /// approve redirects to `http://localhost:<port>/callback` on the chat's machine. Kept for this
-    /// launch (the sign-in is done well before a relaunch), at most ``boundLimit``.
+    /// launch (the sign-in is done well before a relaunch). A binding ends only when its tab is
+    /// gone (closed): a live tab is never unbound, so it never falls back to this Mac's localhost.
     private var boundTabs: [String: String] = [:]
-    private var boundOrder: [String] = []
-    private static let boundLimit = 64
 
     /// `page`, made in the profile's store with a `.noLoopback` guard, is for a tab whose localhost
     /// is the machine of daemon `machine` (a chat's): the tab that adopts it within a minute
@@ -193,8 +192,9 @@ public final class RemoteLocalhostService {
     public func adoptPage(_ page: AnyObject, key: String) {
         guard !expectedPages.isEmpty, let expected = expectedPages.removeValue(forKey: ObjectIdentifier(page)),
               expected.until > .now else { return }
-        if boundTabs.updateValue(expected.machine, forKey: key) == nil { boundOrder.append(key) }
-        if boundOrder.count > Self.boundLimit { boundTabs.removeValue(forKey: boundOrder.removeFirst()) }
+        // Drop the bindings of tabs that are gone; keep every live one.
+        boundTabs = boundTabs.filter { tab(id: $0.key) != nil }
+        boundTabs[key] = expected.machine
     }
 
     /// The route of a tab bound to daemon `machine`: that machine's, as for a tab of its own tree

@@ -105,8 +105,12 @@ struct AgentPaneSignInPageTests {
         #expect(model.transport.gestures.isAvailable, "the click stays for the code page")
 
         let opens = Opens()
-        model.onOpenSignInOnMachine = { url in
-            url == Self.automatic ? { opens.count += 1; return true } : nil
+        let open: @MainActor () -> Bool = {
+            opens.count += 1
+            return true
+        }
+        model.onOpenSignInOnMachine = { (url: URL) -> (@MainActor () -> Bool)? in
+            url == Self.automatic ? open : nil
         }
         #expect(await model.respond(to: request)["ok"] as? Bool == true)
         #expect(opens.count == 1)

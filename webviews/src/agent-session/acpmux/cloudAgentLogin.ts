@@ -215,7 +215,8 @@ export function localApiKeyLogin(options: LoginOptions): CloudSignIn | undefined
 /// The agent's own login on the chat's machine, or undefined for a chat not connected, not Claude or
 /// Codex, or on an acpmux that does not advertise `agent_login`.
 function agentLogin(options: LoginOptions): CloudSignIn | undefined {
-  const { connected, sessionId, harness, supported, gesture, openURL, openOnMachine, isCurrent, currentClient } = options;
+  const { connected, sessionId, harness, supported, gesture, openURL, openOnMachine, isCurrent, currentClient } =
+    options;
   const agent = agentKey(harness?.split("/").pop());
   if (!connected || !sessionId || !supported || (agent !== "claude" && agent !== "codex")) return undefined;
   const client = () => {
