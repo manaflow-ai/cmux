@@ -35,6 +35,17 @@ pub fn payer_provider(harness: &str, base_url: Option<&str>) -> (&'static str, &
     ("own", provider)
 }
 
+/// A missing account or a local conversation label cannot identify a payer.
+fn account_id(person: Option<&str>) -> Option<&str> {
+    person.map(str::trim).filter(|id| {
+        !id.is_empty()
+            && *id != "unknown"
+            && *id != cmux_chief::rules::USER_LOCAL
+            && !id.starts_with("remote_")
+            && !id.starts_with("agent_")
+    })
+}
+
 /// Only ids and route labels cross this boundary, never auth or URL fields.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -55,7 +66,7 @@ impl Attribution {
             .as_deref()
             .map(|h| payer_provider(h, v["base_url"].as_str()));
         Self {
-            person: opt_s(v, "person"),
+            person: account_id(v["person"].as_str()).map(str::to_owned),
             team: opt_s(v, "team"),
             chief: opt_s(v, "chief"),
             payer: opt_s(v, "payer").or_else(|| route.map(|r| r.0.into())),
@@ -72,7 +83,11 @@ impl Attribution {
     }
 
     pub fn apply(&self, line: &mut Line) {
-        line.person.clone_from(&self.person);
+        line.person = Some(
+            account_id(self.person.as_deref())
+                .unwrap_or("unknown")
+                .to_owned(),
+        );
         line.team.clone_from(&self.team);
         line.chief.clone_from(&self.chief);
         line.harness.clone_from(&self.harness);
@@ -124,7 +139,10 @@ impl Meter {
             "usage.identity" => self.owner = Attribution::event(v),
             "usage.native_route" => self.native_route = Attribution::event(v),
             "usage.message" => {
-                if let (Some(id), Some(person)) = (opt_s(v, "id"), opt_s(v, "person")) {
+                if let (Some(id), Some(person)) = (
+                    opt_s(v, "id"),
+                    account_id(v["person"].as_str()).map(str::to_owned),
+                ) {
                     Fold::remember(&mut self.people, id, person);
                 }
             }
@@ -224,15 +242,18 @@ pub fn export_row(chief: &Chief, line: &Line) -> Value {
     } else {
         line.key.clone()
     };
+    let person = account_id(line.person.as_deref());
+    let payer = line.payer.as_deref().unwrap_or(payer);
     json!({
         "event_time": chrono::DateTime::from_timestamp_millis(line.ts.min(i64::MAX as u64) as i64).map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)),
-        "stack_user_id": line.person, "team_id": line.team,
+        "stack_user_id": person.unwrap_or("unknown"), "team_id": line.team,
+        "billable": person.is_some() && payer == "platform",
         "provider": line.provider.as_deref().unwrap_or(provider), "agent": line.harness,
         "model": line.model, "input_tokens": line.input.saturating_add(line.cache_write).saturating_add(line.cache_read),
         "cached_input_tokens": line.cache_read, "output_tokens": line.output,
         "total_tokens": line.tokens(), "api_equivalent_usd": line.usd,
         "request_id": format!("chief:{id}:{}:{key}", line.kind),
-        "status": line.status, "payer": line.payer.as_deref().unwrap_or(payer),
+        "status": line.status, "payer": payer,
         "kind": line.kind, "machine": line.machine,
     })
 }
@@ -258,7 +279,7 @@ pub(super) fn backfill_people(root: &Path) -> Result<u64, String> {
         .ok()
         .and_then(|b| serde_json::from_slice(&b).ok())
         .unwrap_or_default();
-    let Some(person) = identity.person else {
+    let Some(person) = account_id(identity.person.as_deref()) else {
         return Ok(0);
     };
     let _migration = take_lock(&ledger.join("identity-backfill.lock"))?;

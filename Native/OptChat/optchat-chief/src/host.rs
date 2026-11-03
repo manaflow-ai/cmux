@@ -833,7 +833,7 @@ fn start(
             install.team.clone(),
             install.chief.clone(),
         ),
-        Source::Local { .. } => (None, None, None),
+        Source::Local { .. } => (Some("unknown".to_owned()), None, None),
     };
     trace.emit(
         "usage.identity",

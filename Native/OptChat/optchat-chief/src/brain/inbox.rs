@@ -340,10 +340,11 @@ impl Brain {
                 }
                 _ => Vec::new(),
             };
-            let person = summary
-                .participants
-                .iter()
-                .find(|p| p.id == message.author)
+            // Local participants are conversation labels, not signed-in
+            // accounts. Only the Cloud source carries account identities.
+            let person = (self.settings.membership.owner != cmux_chief::rules::USER_LOCAL)
+                .then_some(summary)
+                .and_then(|summary| summary.participants.iter().find(|p| p.id == message.author))
                 .filter(|p| p.kind == cmux_conversation::ParticipantKind::Human)
                 .map(|p| p.person.as_deref().unwrap_or(&p.id))
                 .filter(|id| *id != cmux_chief::rules::USER_LOCAL);
