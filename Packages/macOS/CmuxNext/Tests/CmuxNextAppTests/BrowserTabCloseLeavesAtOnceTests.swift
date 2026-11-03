@@ -42,6 +42,32 @@ struct BrowserTabCloseLeavesAtOnceTests {
         }
     }
 
+    /// A page that asks ("Leave site?") brings its tab back at its place, selected, before the
+    /// question (`HiddenPageCloses.restore`, which the page's question and its `.activate` run).
+    @Test func aPageThatAsksBringsItsTabBackSelected() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let store = services.daemon.store
+            let pane = try #require(services.windows.active?.focusedPane)
+            let handle = pane.pane.handle
+            let kept = try await connection.newFrontendBrowserTab(url: "https://example.com/kept", engine: .webkit, in: handle, activate: false)
+            let asking = try await connection.newFrontendBrowserTab(url: "https://example.com/form", engine: .webkit, in: handle, activate: false)
+            try await PinnedPageTests.until({ [kept, asking].allSatisfy { store.tab(surface: $0.surface).map { pane.orderedIDs.map(\.rawValue).contains($0.id) } == true } })
+            let id = try #require(store.tab(surface: asking.surface)).id
+            let order = pane.orderedIDs
+            let undo = try #require(services.closedTabs?.undoToasts)
+            undo.pageDecidesClose = { _, tab in tab.rawValue == id }
+
+            #expect(services.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: id), origin: .user)))
+            try #require(!pane.orderedIDs.map(\.rawValue).contains(id))
+            #expect(undo.hiddenPages.restore(id))
+            #expect(pane.orderedIDs == order, "the tab came back out of place: \(pane.orderedIDs) for \(order)")
+            try await PinnedPageTests.until({ pane.stripModel.selectedID?.rawValue == id },
+                                            report: { "the asking tab is not selected: \(pane.stripModel.selectedID?.rawValue ?? "-")" })
+            #expect(!undo.hiddenPages.contains(id))
+            #expect(store.tab(surface: asking.surface) != nil)
+        }
+    }
+
     /// A pane whose last tab is a deciding page leaves its window in the click's turn (the right
     /// pane Leo closed); the page's close then closes the pane for real.
     @Test func aPaneWhoseLastTabIsADecidingPageLeavesInTheClicksTurn() async throws {

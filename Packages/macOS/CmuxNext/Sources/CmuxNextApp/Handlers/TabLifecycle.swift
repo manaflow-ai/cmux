@@ -434,6 +434,9 @@ enum TabLifecycle {
             if let back, let content = back.workspace { PaneHandlers.focus(back.layoutPaneID, in: content) }
             return
         }
+        // A tab out of its strip while its page decided a person's close (`HiddenPageCloses`): the page's own
+        // close (or a script's) closes it now; the hide lifts in this turn and the close takes it out again.
+        if let target = ctx.explicitTarget(invocation, kinds: [.tab]) { ctx.services.closedTabs?.undoToasts.hiddenPages.lift(target.id) }
         guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
         if let controller = ctx.services.paneController(for: pane) {
             return CloseUndoToasts.close(in: controller, ctx.actingTabs(invocation, controller, StripTabID(tab.id)))
