@@ -223,19 +223,6 @@ public final class StatusIndicatorLayer {
             shape.lineWidth = thickness
             shape.strokeStart = 0
             shape.strokeEnd = progress
-        case .sweep:
-            removeNative(); removeBraille(); removeDots()
-            let thickness = thickness * CGFloat(StatusIndicatorPlan.workingStrokeScale)
-            let track = makeTrack(frame: rect)
-            track.path = StatusGlyphGeometry.ringPath(in: track.bounds, thickness: thickness)
-            track.lineWidth = thickness
-            track.opacity = Float(config.trackOpacity)
-            let shape = makeGlyph(frame: rect)
-            shape.path = CGPath(ellipseIn: shape.bounds.insetBy(dx: thickness / 2, dy: thickness / 2), transform: nil)
-            shape.fillColor = nil
-            shape.lineWidth = thickness
-            shape.strokeStart = 0
-            shape.strokeEnd = StatusIndicatorPlan.workingArcLength
         case .native:
             removeGlyph(); removeTrack(); removeBraille(); removeDots()
             let native = makeNative(frame: rect)
