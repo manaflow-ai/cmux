@@ -192,7 +192,9 @@ no fixture or earlier run can show the expected text) and `${prompt}` (`J> `).
 | `{"app_pane": {"field": value}}` | app | the pane's `debug.surfaces` fields equal these (`focused`, `link`, ...) |
 | `{"process_present": {"match": "RE", "bind": "NAME", "foreground": true}}` | process | a process under the terminal matches RE (its full command line); `foreground`: it has a controlling tty and is in the tty's foreground group (`ps` stat `+`); `bind` keeps it as NAME |
 | `{"process_gone": "NAME"}` | process | the bound process is gone (or a zombie) |
-| `{"frame_text": "TEXT"}` | frame | a fresh snapshot of the window shows TEXT to text recognition (spaces dropped, look-alike letters folded) |
+| `{"frame_marker": "TOKEN"}` | frame | a fresh snapshot of the window shows the marker of TOKEN, read from its pixels (`ext_marker.py`, below); use it for every line the journey itself writes |
+| `{"frame_marker_lacks": {"token": T, "with": W}}` | frame | negative: a fresh snapshot shows W's marker, no marker of T and no unreadable marker |
+| `{"frame_text": "TEXT"}` | frame | a fresh snapshot of the window shows TEXT to text recognition (spaces dropped, look-alike letters folded); only for app text a journey cannot mark |
 | `{"daemon_lacks": "TEXT"}` | daemon | negative: the daemon's screen does not contain TEXT |
 | `{"app_text_lacks": "TEXT"}` | app | negative: the pane's viewport text does not contain TEXT |
 | `{"daemon_history": {...}}` | daemon | the daemon's scrollback (`terminal ID history read`): `rows` `oldest`/`newest`, `count`; `contains`, `lacks` (negative) TEXT; `pattern` (one group: a row number) with `contiguous` and `last` N |
@@ -219,6 +221,28 @@ every poll and holds only when it holds together with the positive ones at the e
 `within` (seconds) makes a timing claim: each condition must first hold within that long of
 `since`, or it fails with the measured time. Frame checks are read after the other conditions
 hold (text recognition takes about a second) and do not count against `within`.
+
+### The journey's own lines: frame markers, not text recognition
+
+A frame check of a line the journey writes (`${nonce}-42`) is a marker, not `frame_text`: on 2026-11-03 the text
+reader read "733287-42" as "733287-4źął", "jq-447486-400" as "j9-447486-400", and returned no line at all for a
+correct frame (STATUS 9303, 9402, 9444). `ext_marker.py` makes the terminal draw the token as one row of 30
+truecolor cells under its text line, and reads it back from the snapshot's pixels with a check (no language model;
+`test_ext_marker.py` decodes a corpus of thousands, through the color changes a capture can make, and refuses every
+corrupted one).
+
+```json
+{"do": "marker_install"},
+{"do": "type", "text": "${marker} ok-${nonce}-$((6*7))", "enter": true, "mark": "typed"},
+{"do": "expect", "since": "typed", "all": [
+  {"daemon_line": "ok-${nonce}-42"}, {"app_text_line": "ok-${nonce}-42"}, {"frame_marker": "ok-${nonce}-42"}]}
+```
+
+`marker_install` writes the program to `/tmp/jr-m-<nonce>` and binds `${marker}`; the program prints the token as a
+text line (the daemon and app checks see what `echo` printed) and the marker below it. The pane needs at least 30
+columns (the program says so and exits 3 otherwise). `frame_marker_lacks {"token": T, "with": W}` replaces
+`frame_lacks`: it holds only on a frame that shows W's marker. A check's detail lists each marker it found (its
+position, cell width and 24-bit digest, the first six hex digits of sha256 of its token).
 
 ### Step groups (`ext_*.py`)
 
