@@ -46,11 +46,11 @@
   },
   {
    "do": "window_place",
-   "title": "set-up: the window at 90% x 90% of the screen",
+   "title": "set-up: the window at the full screen width x 90% (six panes of 200 pt need 1235 pt beside the sidebar)",
    "fraction": [
+    0.0,
     0.05,
-    0.05,
-    0.9,
+    1.0,
     0.9
    ]
   },

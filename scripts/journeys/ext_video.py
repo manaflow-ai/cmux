@@ -278,8 +278,13 @@ def _target_point(j, target):
     win_w, win_h = (sample.get("window") or [1e9, 1e9])[:2]
     # Only dividers that show inside the window (a strip wider than the window scrolls: its dividers can sit at
     # negative x or past the right edge; round 02:45Z on cmux23 dragged at x -362).
-    dividers = [d for d in sample.get("dividers") or [] if isinstance(d, list) and len(d) >= 5
-                and d[1] >= 8 and d[1] + d[3] <= win_w - 8 and d[2] >= 0 and d[2] + d[4] <= win_h + 1]
+    # A divider counts when the point the drag grabs (its centre) is inside the window: a horizontal divider of a
+    # split spans the whole content width and ends at the window's right edge (feat 585171513e37, cmux22 03:01Z:
+    # "no horizontal divider 0" with one shown), so its full extent is not a test.
+    def inside(d):
+        cx, cy = d[1] + d[3] / 2, d[2] + d[4] / 2
+        return 8 <= cx <= win_w - 8 and 0 <= cy <= win_h
+    dividers = [d for d in sample.get("dividers") or [] if isinstance(d, list) and len(d) >= 5 and inside(d)]
     if "divider" in target:
         vertical = sorted((d for d in dividers if d[4] > d[3]), key=lambda d: d[1])
         index = int(target["divider"])

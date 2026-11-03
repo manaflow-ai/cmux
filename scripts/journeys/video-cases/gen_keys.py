@@ -247,6 +247,13 @@ def tiered_drags(journeys_dir):
             if st.get("do") == "video_stop":
                 steps.append({"do": "tiers_stop", "name": "tiers"})
         rid = "rkd-" + src[len("rv-"):]
+        if src == "rv-col-drag-6-heavy-dark":
+            # Six panes across need 6 x 200 pt (layout.minimumPaneWidth) plus 5 gaps: the 90% window leaves 1153 pt of
+            # content beside the sidebar on the 1512 pt 2x display, room for 5. The full-width window leaves 1304 pt.
+            for st in steps:
+                if st.get("do") == "window_place":
+                    st["fraction"] = [0.0, 0.05, 1.0, 0.9]
+                    st["title"] = "set-up: the window at the full screen width x 90% (six panes of 200 pt need 1235 pt beside the sidebar)"
         for st in steps:
             if st.get("do") in ("video_start", "video_stop") and st.get("name") == src:
                 st["name"] = rid
