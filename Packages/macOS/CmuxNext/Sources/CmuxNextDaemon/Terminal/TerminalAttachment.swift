@@ -284,7 +284,7 @@ public actor TerminalAttachment: TerminalByteChannel {
             try transport.sendNoReply(cmd: SendInputRequest.command, onError: { error in
                 logger.error("send failed: \(error.description, privacy: .public)")
             }) { id in
-                try WireCoding.encodeRequest(SendInputRequest(surface: surface, bytes: data, flow: flow), id: id)
+                SendInputRequest.keyLine(surface: surface, bytes: data, flow: flow, id: id)
             }
             TypingLatencyProbe.shared.mark(.socketSubmit, source: Self.probeSource(surface, object: ObjectIdentifier(self)))
         } catch {

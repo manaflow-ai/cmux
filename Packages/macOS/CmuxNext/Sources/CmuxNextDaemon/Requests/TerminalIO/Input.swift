@@ -129,3 +129,13 @@ public struct AttachSurfaceRequest: DaemonRequest {
         self.snapshotImages = snapshotVersion != nil && snapshotImages ? true : nil
     }
 }
+
+extension SendInputRequest {
+    /// The `send` line of one key press's bytes (`{"bytes":…,"cmd":"send","flow":…,"id":…,"surface":…}`, no
+    /// newline), as ``WireCoding/encodeRequest(_:id:)`` writes it. Every key typed into a daemon terminal
+    /// comes here (`TerminalAttachment.enqueueInput`).
+    static func keyLine(surface: SurfaceID, bytes: Data, flow: UInt64?, id: UInt64) -> Data { // perf-hot: 20us terminal-key (every key typed into a terminal)
+        // A request of a UInt64, Data and an optional UInt64 always encodes.
+        (try? WireCoding.encodeRequest(SendInputRequest(surface: surface, bytes: bytes, flow: flow), id: id)) ?? Data()
+    }
+}
