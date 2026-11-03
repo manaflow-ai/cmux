@@ -3876,6 +3876,7 @@ jobs:
       # Control tests use tight request deadlines and run in their own process so
       # they do not compete with the other MainActor-isolated suites.
       - name: Run package tests (changed suites first, then selected targets)
+        id: broad-tests
         if: ${{ (env.SWIFT_TARGETS != '') && steps.reuse.outputs.hit != 'true' }}
         timeout-minutes: 40
         working-directory: Packages/macOS/CmuxNext
@@ -3951,13 +3952,32 @@ jobs:
           broad_status=0
           if CMUX_NEXT_TUI_TREE_PATH="$tree_path" python3 ../../../scripts/cmux-next/swift-test-shards.py run --targets "$SWIFT_TARGETS" \
               --exclude CmuxNextControlTests --wrapper ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh \
-              --deadline "$deadline" -- ${priority_skip[@]+"${priority_skip[@]}"} --skip BranchStateResourcesTests \
+              --deadline "$deadline" --spill "$RUNNER_TEMP/cmux-next-spilled-shards.json" \
+              -- ${priority_skip[@]+"${priority_skip[@]}"} --skip BranchStateResourcesTests \
               --skip CloudBringBackTests --skip CommitBoundaryAppKitTests ${heavy_skip[@]+"${heavy_skip[@]}"}; then
             :
           else
             broad_status=$?
           fi
           (( priority_status == 0 && broad_status == 0 ))
+
+      # The shards the broad pass had no time for. Each shard there started with the time left to
+      # the pass's deadline, so one slow shard cut the next ones short: in run 41665450504 shard 13
+      # took 867 s and shards 14 and 15 were killed at a 60 s limit, 0 of 447 finished tests red,
+      # and a cut-short run is never a base red. A shard with under its floor left (450 s, the p90
+      # of 28 measured shards; swift-test-shards.py SHARD_FLOOR_SECONDS) is spilled here and runs
+      # with a deadline of its own. It runs after a red broad pass too, so its verdict is not lost.
+      - name: Run package test shards the broad pass spilled
+        if: ${{ !cancelled() && (steps.broad-tests.outcome == 'success' || steps.broad-tests.outcome == 'failure') }}
+        timeout-minutes: 30
+        working-directory: Packages/macOS/CmuxNext
+        env:
+          SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH: "1"
+        run: |
+          set -euo pipefail
+          deadline=$(( $(date +%s) + 1680 ))
+          python3 ../../../scripts/cmux-next/swift-test-shards.py spilled --from "$RUNNER_TEMP/cmux-next-spilled-shards.json" \
+            --wrapper ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --deadline "$deadline"
 
       # Cloud bring-back round trips launch two daemons and mutate shared
       # AppKit/registry state. Run each case in a fresh process so a prior

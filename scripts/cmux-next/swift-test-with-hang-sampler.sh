@@ -208,6 +208,29 @@ names_awk='
     at = index(key, block_sep())
     if (at > 1 && substr(key, 1, at - 1) ~ /^[0-9]+$/) return substr(key, at + 1)
     return key
+  }
+  # A pass line another stream cut into ("✔ Test aFailureNothingRetriesShowsAtOnceswift runtime:
+  # backtrace-on-crash ...", run 41665450504: the helper was killed with the rest of its line
+  # unwritten). ✔ is printed only for a test that passed, so it closes the open start in this block
+  # whose name, up to its "(", begins the line and is not followed by more of a test name and its
+  # "(" (foo() is not taken for fooBar()); the longest such name. KEY when none fits.
+  function spliced_start(key,    cut, i, n, stem, at, best, best_len) {
+    cut = block_name(key)
+    best = key
+    best_len = 0
+    for (i = 1; i <= name_count; i++) {
+      n = names[i]
+      if (index(n, (count_block + 0) block_sep()) != 1 || first_open_run(n) > started[n]) continue
+      stem = block_name(n)
+      at = index(stem, "(")
+      if (at < 2) continue
+      stem = substr(stem, 1, at - 1)
+      if (index(cut, stem) == 1 && substr(cut, at) !~ /^[A-Za-z0-9_]*\(/ && at - 1 > best_len) {
+        best = n
+        best_len = at - 1
+      }
+    }
+    return best
   }'
 # The bookkeeping both readers share. Occurrences matched in order, not a set of names: one log
 # can hold the same name more than once. A finish only closes a start still open; one with no
@@ -226,6 +249,7 @@ count_awk='
   }
   is_finish($0) && $0 !~ /^➜ Test .* skipped/ {
     counted_name = block_key(name_of($0))
+    if (!(counted_name in started) && $0 ~ /^✔ Test /) counted_name = spliced_start(counted_name)
     # Read it into a variable first. Naming first_open[counted_name] as the target of an
     # assignment CREATES that key before the right-hand side is evaluated, so
     # `first_open[n] = first_open_run(n) + 1` made first_open_run take its "already set" branch
