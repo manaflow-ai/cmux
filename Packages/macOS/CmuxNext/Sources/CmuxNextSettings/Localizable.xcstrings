@@ -198158,6 +198158,666 @@
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "更大"}}
       }
     },
+    "settings.group.agentCache": {
+      "comment": "Settings > General: group title for compacting an idle Claude chat before its prompt cache expires",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ذاكرة التخزين المؤقت للمطالبات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keš upita"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt-cache"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt-Cache"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt Cache"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caché de prompts"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cache des prompts"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cache dei prompt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロンプトキャッシュ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឃ្លាំងសម្ងាត់ប្រអប់បញ្ចូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프롬프트 캐시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt-hurtigbuffer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pamięć podręczna promptów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cache de prompts"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кэш промптов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แคชพรอมต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İstem önbelleği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кеш промптів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bộ nhớ đệm lời nhắc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示缓存"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示快取"
+          }
+        }
+      }
+    },
+    "settings.agents.cacheCompact.enabled": {
+      "comment": "Settings > General > Prompt Cache: toggle that compacts an idle Claude chat about 30 seconds before its prompt cache expires",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الضغط قبل انتهاء صلاحية ذاكرة التخزين المؤقت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sažmi prije isteka keša"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komprimér før cachen udløber"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vor Ablauf des Caches komprimieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compact Before the Cache Expires"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compactar antes de que caduque la caché"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compacter avant l’expiration du cache"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compatta prima che scada la cache"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャッシュ期限切れ前に圧縮"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្រួមមុនឃ្លាំងសម្ងាត់ផុតកំណត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "캐시 만료 전에 압축"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komprimer før hurtigbufferen utløper"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompaktuj przed wygaśnięciem pamięci podręcznej"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compactar antes de o cache expirar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сжимать до истечения кэша"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บีบอัดก่อนแคชหมดอายุ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Önbellek süresi dolmadan sıkıştır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стискати до закінчення кешу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nén trước khi bộ nhớ đệm hết hạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在缓存过期前压缩"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在快取過期前壓縮"
+          }
+        }
+      }
+    },
+    "settings.agents.cacheCompact.enabled.help": {
+      "comment": "Settings > General > Prompt Cache: help under the compact-before-expiry toggle; names its cost",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عندما تبقى محادثة Claude خاملة، اضغطها بينما لا تزال ذاكرة التخزين المؤقت دافئة، حتى لا تعيد الرسالة التالية قراءة السياق كاملًا دون تخزين مؤقت. يكلّف استدعاء نموذج واحدًا لكل ضغط، يُقرأ من ذاكرة التخزين المؤقت."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada Claude chat miruje, sažmi ga dok je keš upita još topao, da sljedeća poruka ne čita cijeli kontekst ponovo bez keša. Košta jedan poziv modela po sažimanju, pročitan iz keša."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når en Claude-chat er inaktiv, komprimeres den, mens prompt-cachen stadig er varm, så næste besked ikke læser hele konteksten igen uden cache. Koster ét modelkald pr. komprimering, læst fra cachen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn ein Claude-Chat ruht, wird er komprimiert, solange sein Prompt-Cache noch warm ist, damit die nächste Nachricht nicht den ganzen Kontext ungecacht neu liest. Kostet einen Modellaufruf pro Komprimierung, aus dem Cache gelesen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When a Claude chat sits idle, compact it while its prompt cache is still warm, so the next message doesn't reread the whole context uncached. Costs one model call per compaction, read from the cache."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando un chat de Claude está inactivo, se compacta mientras su caché sigue activa, para que el siguiente mensaje no vuelva a leer todo el contexto sin caché. Cuesta una llamada al modelo por compactación, leída de la caché."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quand un chat Claude est inactif, il est compacté tant que son cache est encore actif, pour que le message suivant ne relise pas tout le contexte sans cache. Coûte un appel au modèle par compactage, lu depuis le cache."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando una chat di Claude è inattiva, viene compattata mentre la cache è ancora attiva, così il messaggio successivo non rilegge tutto il contesto senza cache. Costa una chiamata al modello per compattazione, letta dalla cache."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude チャットがアイドル状態のとき、プロンプトキャッシュが有効なうちに圧縮し、次のメッセージでコンテキスト全体をキャッシュなしで読み直さないようにします。圧縮ごとにキャッシュから読むモデル呼び出しが 1 回かかります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅពេល Claude chat ទំនេរ បង្រួមវាខណៈឃ្លាំងសម្ងាត់នៅក្តៅ ដើម្បីកុំឱ្យសារបន្ទាប់អានបរិបទទាំងមូលឡើងវិញដោយគ្មានឃ្លាំងសម្ងាត់។ ចំណាយការហៅម៉ូដែលមួយដងក្នុងមួយការបង្រួម អានពីឃ្លាំងសម្ងាត់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 채팅이 유휴 상태이면 프롬프트 캐시가 유지되는 동안 압축해 다음 메시지가 전체 컨텍스트를 캐시 없이 다시 읽지 않게 합니다. 압축마다 캐시에서 읽는 모델 호출이 한 번 듭니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når en Claude-chat står inaktiv, komprimeres den mens prompt-hurtigbufferen fortsatt er varm, så neste melding ikke leser hele konteksten på nytt uten hurtigbuffer. Koster ett modellkall per komprimering, lest fra hurtigbufferen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy czat Claude jest bezczynny, kompaktuj go, póki pamięć podręczna jest aktywna, aby następna wiadomość nie czytała całego kontekstu bez pamięci podręcznej. Kosztuje jedno wywołanie modelu na kompaktowanie, odczytane z pamięci podręcznej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando um chat do Claude fica ocioso, ele é compactado enquanto o cache ainda está ativo, para que a próxima mensagem não releia todo o contexto sem cache. Custa uma chamada ao modelo por compactação, lida do cache."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда чат Claude простаивает, он сжимается, пока кэш промпта ещё активен, чтобы следующее сообщение не перечитывало весь контекст без кэша. Стоит один вызов модели на сжатие, прочитанный из кэша."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อแชต Claude ว่าง จะบีบอัดขณะที่แคชพรอมต์ยังอุ่นอยู่ เพื่อไม่ให้ข้อความถัดไปอ่านบริบททั้งหมดใหม่โดยไม่มีแคช มีค่าใช้จ่ายการเรียกโมเดลหนึ่งครั้งต่อการบีบอัด ซึ่งอ่านจากแคช"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir Claude sohbeti boşta kaldığında, istem önbelleği hâlâ sıcakken sıkıştırılır; böylece sonraki mesaj tüm bağlamı önbelleksiz yeniden okumaz. Sıkıştırma başına önbellekten okunan bir model çağrısına mal olur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коли чат Claude простоює, його стискають, поки кеш промпта ще активний, щоб наступне повідомлення не перечитувало весь контекст без кешу. Коштує один виклик моделі на стискання, прочитаний із кешу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi một cuộc trò chuyện Claude rảnh, nén nó khi bộ nhớ đệm lời nhắc còn ấm để tin nhắn tiếp theo không phải đọc lại toàn bộ ngữ cảnh không có bộ nhớ đệm. Tốn một lần gọi mô hình cho mỗi lần nén, đọc từ bộ nhớ đệm."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 聊天空闲时，在提示缓存仍有效时压缩它，这样下一条消息不必在无缓存的情况下重新读取整个上下文。每次压缩消耗一次从缓存读取的模型调用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 聊天閒置時，在提示快取仍有效時壓縮它，讓下一則訊息不必在無快取的情況下重新讀取整個上下文。每次壓縮消耗一次從快取讀取的模型呼叫。"
+          }
+        }
+      }
+    },
+    "settings.agents.cacheCompact.minContext": {
+      "comment": "Settings > General > Prompt Cache: number field, the share of the context window (percent) a chat must use before it is compacted",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فقط فوق نسبة السياق المستخدم (%)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Samo iznad iskorištenog konteksta (%)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kun over brugt kontekst (%)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur ab genutztem Kontext (%)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only Above Context Used (%)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo por encima del contexto usado (%)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seulement au-delà du contexte utilisé (%)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo oltre il contesto usato (%)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用コンテキストがこれを超える場合のみ (%)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តែលើសបរិបទដែលបានប្រើ (%)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용한 컨텍스트가 이 값 이상일 때만 (%)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bare over brukt kontekst (%)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tylko powyżej użytego kontekstu (%)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Só acima do contexto usado (%)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Только при использовании контекста выше (%)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เฉพาะเมื่อใช้บริบทเกิน (%)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yalnızca kullanılan bağlam üzerinde (%)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лише понад використаний контекст (%)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chỉ khi ngữ cảnh đã dùng vượt (%)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅在上下文使用率超过时 (%)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅在上下文使用率超過時 (%)"
+          }
+        }
+      }
+    },
+    "settings.agents.cacheCompact.minContext.help": {
+      "comment": "Settings > General > Prompt Cache: help under the context threshold field",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُترك المحادثات التي تستخدم أقل من هذه النسبة من نافذة السياق كما هي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatovi koji koriste manje konteksta od ovoga ostaju kakvi jesu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats, der bruger mindre af kontekstvinduet end dette, lades være."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats, die weniger ihres Kontextfensters nutzen, bleiben unverändert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats using less of their context window than this are left as they are."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los chats que usan menos de su ventana de contexto que esto se dejan como están."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les chats qui utilisent moins de leur fenêtre de contexte restent tels quels."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le chat che usano meno della loro finestra di contesto restano come sono."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテキストウィンドウの使用量がこれ未満のチャットはそのままにします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat ដែលប្រើបរិបទតិចជាងនេះ ត្រូវបានទុកដដែល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컨텍스트 창을 이보다 적게 쓰는 채팅은 그대로 둡니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatter som bruker mindre av kontekstvinduet enn dette, blir latt være."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czaty używające mniej okna kontekstu pozostają bez zmian."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats que usam menos da janela de contexto que isso ficam como estão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чаты, использующие меньше окна контекста, остаются как есть."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชตที่ใช้บริบทน้อยกว่านี้จะไม่ถูกเปลี่ยน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bağlam penceresini bundan az kullanan sohbetler olduğu gibi bırakılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чати, що використовують менше вікна контексту, залишаються як є."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các cuộc trò chuyện dùng ít ngữ cảnh hơn mức này được giữ nguyên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上下文窗口使用量低于此值的聊天保持不变。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上下文視窗使用量低於此值的聊天保持不變。"
+          }
+        }
+      }
+    },
     "settings.group.agentRetry": {
       "comment": "Settings > Agents: group title for the automatic retry loop after errors",
       "extractionState": "manual",

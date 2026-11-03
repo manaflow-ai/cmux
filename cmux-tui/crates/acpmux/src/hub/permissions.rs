@@ -124,7 +124,7 @@ impl Hub {
                             .unwrap_or_else(|e| e.into_inner())
                             .contains(&agent);
                         self.arm_auto_background(&session, params.as_ref(), replayed);
-                        self.on_update(&session, params.as_ref(), replayed);
+                        self.on_update_cache(&session, params.as_ref(), replayed);
                     } else if m == method::CANCEL_REQUEST
                         && let Some(id) = params.as_ref().and_then(|p| p.get("requestId"))
                     {

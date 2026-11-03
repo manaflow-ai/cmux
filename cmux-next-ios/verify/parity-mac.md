@@ -405,6 +405,7 @@ test, fmt and clippy on rbx.
 | Settings > Mobile "Status" | Settings > **Transport** | works | Phone-only setting. |
 | Notification kinds | Settings > **Notifications**: Questions and permissions, Finished tasks, Errors | works | Match the push kinds. |
 | Settings > General > "Retry After Errors" (`agents.autoRetry.enabled`, `intervalSeconds`, `attempts`) | (none) | partial | The loop runs in the Mac's acpmux, so a chat started or watched from the phone retries the same way, and the error card's Retry works there. The three keys are edited on the Mac (Settings, the palette, `cmux settings set`), like Sub-sessions; the phone has no editor for them. |
+| Settings > General > "Prompt Cache" (`agents.cacheCompact.enabled`, `minContextPercent`) | (none) | partial | The timer runs in the Mac's acpmux, so a chat started or watched from the phone is compacted before its prompt cache expires the same way. The keys are edited on the Mac (Settings, the palette, `cmux settings set`), like Retry After Errors; the phone has no editor for them. |
 
 ### 6. Team switching
 
