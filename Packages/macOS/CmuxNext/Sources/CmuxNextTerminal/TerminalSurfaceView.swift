@@ -283,6 +283,7 @@ public final class TerminalSurfaceView: NSView {
             let joined = isInPaneMotion && joinPaneMotion()
             updateSurfaceSize(forceReport: pendingForcedReport && !joined)
             pendingForcedReport = false
+            requestPresentIfNeeded()
         }
         updateOcclusion()
         updateFocus()
@@ -327,8 +328,7 @@ public final class TerminalSurfaceView: NSView {
         case NSWindow.didChangeOcclusionStateNotification:
             updateOcclusion()
         case NSWindow.didChangeScreenNotification:
-            updateContentScale()
-            updateSurfaceSize()
+            backingDidChange()
         default:
             updateFocus()
         }
@@ -338,8 +338,15 @@ public final class TerminalSurfaceView: NSView {
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         guard !isHiddenOrHasHiddenAncestor else { return }
+        backingDidChange()
+    }
+
+    /// A new display scale or screen: Ghostty's scale and pixel size follow at once; while its window's commit owns
+    /// the frame, the layer takes the new scale with the frame drawn at it (``requestPresentIfNeeded()``).
+    private func backingDidChange() {
         updateContentScale()
         updateSurfaceSize()
+        requestPresentIfNeeded()
     }
 
     /// Every frame of a drag resizes a shown surface at once (a hidden one waits to be shown,
@@ -354,7 +361,8 @@ public final class TerminalSurfaceView: NSView {
         if resized { session?.frameChanges.bump() } // its kept frame has another size now (TerminalLaunchFrameKeeper)
         // Taking the size Ghostty already shows (``landRequestedFrame()``) asks for no new size.
         if resized, isShown, !frameOwnership.landing { updateSurfaceSize() }
-        copyMode.syncCursor()
+        // A landing runs under the Core Animation lock: its cursor box follows after it (``frameDidLand()``).
+        if !frameOwnership.landing { copyMode.syncCursor() }
     }
 
     /// `ghostty_surface_set_content_scale` + `ghostty_surface_set_display_id`
@@ -369,7 +377,8 @@ public final class TerminalSurfaceView: NSView {
         }
         if let window {
             let backing = backingScaleOverride ?? window.backingScaleFactor
-            if layer?.contentsScale != backing {
+            // While its window's commit owns the frame, the layer keeps the scale of the frame it shows.
+            if !holdsScale(backing), layer?.contentsScale != backing {
                 CATransaction.begin()
                 CATransaction.setDisableActions(true)
                 layer?.contentsScale = backing

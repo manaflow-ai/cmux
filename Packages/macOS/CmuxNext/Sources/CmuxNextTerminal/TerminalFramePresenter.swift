@@ -18,7 +18,9 @@ import QuartzCore
 /// beside one divider land in the same commit. A request kept more than ``keepLimit`` refreshes takes its bounds
 /// anyway (counted in ``Stats/fallbacks``). One refresh after a commit that changed a terminal's shown size, the presenter
 /// tells Ghostty that commit is done (`ghostty_surface_host_frame_committed`), so the terminal's echo goes to the screen
-/// off the main thread again.
+/// off the main thread again. A new display scale is the same request: the layer keeps its scale until the frame drawn
+/// at the new one shows (``TerminalSurfaceView/holdsScale(_:)``). The lock span holds only the present and the
+/// geometry; what follows the new size runs after it (``TerminalSurfaceView/frameDidLand()``).
 final class TerminalFramePresenter {
     /// Refreshes a group of requests waits for its slowest member.
     static let groupTicks: UInt64 = 2
@@ -224,6 +226,8 @@ final class TerminalFramePresenter {
     private func landed(_ view: TerminalSurfaceView, id: ObjectIdentifier, watch: Bool, followUp: Bool) {
         // A request the landing made for this view owns it; it is not watched beside it.
         if watch, requests[id] == nil { watched[id] = Watch(view: view) } else if !watch { commits[id] = Watch(view: view) }
+        // Outside the lock span: what follows the new size and reads Ghostty under the terminal's lock.
+        view.frameDidLand()
         if followUp { view.requestWantedFrame() }
     }
 
