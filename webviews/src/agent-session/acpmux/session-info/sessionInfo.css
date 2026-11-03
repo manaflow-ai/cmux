@@ -108,8 +108,8 @@
    itself and its text shouldn't be affected by the session info"). The page pins the column to the
    width it has in the whole pane (--acpmux-session-info-column) and centers it unrounded in the chat
    beside the panel, so no frame of the slide, whatever the chat's width then, takes a pixel off it and
-   wraps a line anew. The settled room is an even number of pixels (pushedRoom), so the column starts on
-   a whole pixel once the slide ends. */
+   wraps a line anew. The settled room keeps the panel's exact dragged width plus its inset (pushedRoom),
+   so an off-grid panel does not leave a painted gap beside the chat. */
 .acpmux-shell[data-session-info-chat-placement="push"] > .acpmux-main {
   --cv-inset: max(var(--cv-edge), calc((100% - var(--acpmux-session-info-column, var(--cv-column))) / 2));
 }
