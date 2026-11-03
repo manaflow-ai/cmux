@@ -4,6 +4,9 @@
 use super::agent_transcript::replay;
 use super::result_images::MAX_RESULT_IMAGE_BYTES;
 use super::*;
+use base64::Engine as _;
+use sha2::{Digest, Sha256};
+use std::io::Read as _;
 
 fn updates(msgs: &[Message]) -> Vec<Value> {
     msgs.iter()
@@ -95,4 +98,46 @@ async fn a_replayed_subagent_transcript_keeps_result_images() {
     let pages = replay(&lines, 0, false).await;
     let done = completion(&pages[1]);
     assert_eq!(done["content"][1], acp_image("iVBORw0KGgo="));
+}
+
+/// The source is larger than both the former result-image budget and the media preview
+/// limit. Its complete bytes must survive the translator, with a small update on the wire.
+#[tokio::test]
+async fn a_large_result_keeps_its_full_image_as_a_file_reference() {
+    let id = format!("result-image-{}", uuid::Uuid::now_v7());
+    struct Cleanup(String);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            crate::hub::file_uploads::remove_session(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(id.clone());
+    let t = Translator::new(id, "default", "haiku", "default");
+    let mut bytes = b"\x89PNG\r\n\x1a\n".to_vec();
+    bytes.resize(12 << 20, 73);
+    let expected = Sha256::digest(&bytes);
+    let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    t.inbound(&read_call("large-result")).await;
+    let out = updates(&t.inbound(&result("large-result", json!([image(&data)]))).await);
+    let done = completion(&out);
+    let link = done["content"].as_array().unwrap().iter()
+        .filter_map(|block| block.pointer("/content/text").and_then(Value::as_str))
+        .find(|text| text.contains("file:///"))
+        .expect("a result image beyond the inline budget must retain its original file link");
+    let start = link.find("file:///").unwrap();
+    let uri = link[start..].split(')').next().unwrap();
+    let path = url::Url::parse(uri).unwrap().to_file_path().unwrap();
+    let mut file = std::fs::File::open(path).unwrap();
+    let mut got = Sha256::new();
+    let mut total = 0;
+    let mut chunk = [0; 64 << 10];
+    loop {
+        let read = file.read(&mut chunk).unwrap();
+        if read == 0 { break }
+        total += read;
+        got.update(&chunk[..read]);
+    }
+    assert_eq!(total, bytes.len());
+    assert_eq!(got.finalize(), expected);
+    assert!(serde_json::to_vec(done).unwrap().len() < 2048, "the original goes by reference");
 }
