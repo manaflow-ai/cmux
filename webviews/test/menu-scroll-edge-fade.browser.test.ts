@@ -13,6 +13,7 @@ await requireBrowserLane("menu-scroll-edge-fade.browser.test.ts", async () => {
   let browser: Browser;
   const scenes = [
     ["ui.menu", "overflowing", ".menu-gallery-popup"],
+    ["ui.select", "overflowing", ".ui-select-popup"],
     ["pages.icon-picker", "categories", ".icon-category-menu"],
     ["agent-pane.project-chooser", "long-no-actions", ".ui-combobox-list"],
     ["new-tab.quick-model-menu", "short-more-models", ".acpmux-quick-body"],
@@ -58,6 +59,7 @@ await requireBrowserLane("menu-scroll-edge-fade.browser.test.ts", async () => {
         await page.waitForFunction(
           (selector) => document.querySelector(selector)?.hasAttribute("data-fade-bottom"),
           selector,
+          { timeout: 5_000 },
         );
         expect(await list.getAttribute("data-fade-top")).toBeNull();
         expect(await list.evaluate((node) => getComputedStyle(node).maskImage)).not.toBe("none");
