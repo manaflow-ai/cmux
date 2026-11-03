@@ -1,5 +1,6 @@
 import { markAgentProgressSource } from "./subagents/agentProgressSource";
 import { UNKNOWN_AUTH, type SessionAuthQuery } from "./sessionAuth";
+import { sameJson } from "./sameJson";
 import { autoResumeAttempt, autoResumeStatus } from "./autoResumeStatus";
 import { parseJsonObjectFrame } from "../../protocol/jsonFrame";
 import { isRetryContinuation, subagentRetryNotice, type SubagentRetryNotice } from "./subagents/retryState";
@@ -3164,6 +3165,7 @@ export class AcpmuxDirectClient {
   private dropTailDrawnWhileConnecting(): void {
     const early = this.earlyTail;
     if (!early || early.sessionId !== this.selectedSessionId) return;
+    if (this.peerCopy?.sessionId === early.sessionId) return;
     connectFailedAfterEarlyTail = early.sessionId;
     this.earlyTail = undefined;
     this.events = [];
@@ -3176,6 +3178,7 @@ export class AcpmuxDirectClient {
 
   private drawKeptTail(sessionId: string, kept = keptTail(sessionId)): number {
     if (!kept) return 0;
+    if (kept.peerCopy) this.peerCopy = { ...kept.peerCopy, attaching: true };
     this.drawnGeneration = typeof kept.summary?.createdAt === "number" ? kept.summary.createdAt : undefined;
     this.rowsGeneration = this.drawnGeneration;
     const keptPeer = (kept.summary as { peer?: unknown } | undefined)?.peer;
@@ -3356,6 +3359,12 @@ export class AcpmuxDirectClient {
   /// agent-gui daemons send {sessionIds, watch, dropped}; older ones send only
   /// {dropped}, so a notice without sessionIds resyncs the selected session.
   private resyncAfterLag(params: any): void {
+    // A list reply that went out after a `session_changed` notice (acpmux `send_serialized`,
+    // `list_changed`) dropped nothing: the notice reached this page before the reply, and the
+    // pager lays every notice since the list started over its pages (`SessionPager.settle`). So
+    // this list is already current; reading it again only sends another whole list, which a busy
+    // daemon makes stale again, so the pane re-listed without end while idle ("im at 100% cpu rn").
+    if (params?.reason === "list_changed" && !(Number(params?.dropped) > 0)) return;
     // Peer state notices may be among the dropped ones: read the snapshot again, so a machine that
     // went down while this client lagged never shows as connected (no session needs to be open).
     if (this.peerEvents.supported) void this.refreshPeerStatesAndEmit();
@@ -4622,6 +4631,18 @@ export class AcpmuxDirectClient {
     if (!session?.sessionId) return;
     this.asks.session(session, typeof params?.kind === "string" ? params.kind : undefined);
     this.sessionPages.changedSession(session);
+    // Another chat's summary sent again unchanged (a busy acpmux re-sends them) changes nothing on
+    // this page: no snapshot, no read-ahead. Each one drew the whole pane, so an idle pane rebuilt its
+    // transcript and list many times a second (Leo, 2026-11-03: "im at 100% cpu rn"). The pane's own
+    // chat, the chat it is waiting to reopen and the chats it started still take every change.
+    if (
+      session.sessionId !== this.selectedSessionId &&
+      session.sessionId !== this.missingSession &&
+      this.sessions.some((item) => item.sessionId === session.sessionId && sameJson(item, session)) &&
+      !this.offerChildIds().includes(session.sessionId) &&
+      !this.isStartedChild(session)
+    )
+      return;
     const added = !this.sessions.some((item) => item.sessionId === session.sessionId);
     this.sessions = [...this.sessions.filter((item) => item.sessionId !== session.sessionId), session];
     const watch = this.attachWatch?.sessionId === session.sessionId ? this.attachWatch : undefined;
