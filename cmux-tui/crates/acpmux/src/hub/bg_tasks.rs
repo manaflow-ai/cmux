@@ -57,12 +57,14 @@ impl Hub {
         cwd: Option<PathBuf>,
         description: Option<String>,
         notify: bool,
+        result_line: bool,
     ) -> Result<Value, RpcError> {
-        self.bg_start_with_id(session, command, cwd, None, description, notify).await
+        self.bg_start_with_id(session, command, cwd, None, description, notify, result_line).await
     }
 
     /// Workflow-only stable identity. The durable claim is written before spawning, so an
     /// uncertain launch is never executed a second time after a daemon crash.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn bg_start_with_id(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -71,6 +73,7 @@ impl Hub {
         fixed_id: Option<&str>,
         description: Option<String>,
         notify: bool,
+        result_line: bool,
     ) -> Result<Value, RpcError> {
         if command.trim().is_empty() {
             return Err(RpcError::invalid_params("command is empty"));
@@ -156,6 +159,7 @@ impl Hub {
             generation,
             description: description.map(|d| d.trim().to_owned()).filter(|d| !d.is_empty()),
             notify,
+            result_line,
         };
         bg_spawn(&runner, &spec).await.map_err(|e| RpcError::internal(format!("{e:#}")))?;
         // A stop or purge that came meanwhile missed it: it ends here.
@@ -542,13 +546,19 @@ pub(super) fn bg_view(dir: &std::path::Path, r: &Record, tail: u64) -> Value {
     let read = bg_run::read_output(dir, &r.id, None, tail).unwrap_or_default();
     let mut view = json!({
         "id": r.id, "sessionId": r.session_id, "command": r.command, "cwd": r.cwd,
-        "description": r.description, "notify": r.notify,
+        "description": r.description, "notify": r.notify, "resultLine": r.result_line,
         "state": state, "pid": r.pid, "startedAt": r.started_at, "endedAt": r.ended_at,
         "exitCode": r.exit_code, "signal": r.signal, "totalBytes": read.total,
         "keptFromByte": read.kept_from, "tail": String::from_utf8_lossy(&read.data),
         // Set when the spool failed (a full disk): output after it is gone, so it is incomplete.
         "outputError": r.output_error,
     });
+    if r.result_line {
+        let end = bg_run::read_output(dir, &r.id, None, LIST_TAIL).unwrap_or_default();
+        let text = String::from_utf8_lossy(&end.data);
+        let last = text.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or_default();
+        view.set("lastLine", json!(last));
+    }
     let (summary, status) = bg_run::outcome(&view);
     view.set("summary", json!(summary));
     view.set("status", json!(status));
