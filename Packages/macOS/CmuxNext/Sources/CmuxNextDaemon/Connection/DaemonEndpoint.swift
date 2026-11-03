@@ -273,6 +273,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// Local conversations owned by the daemon (Home, plans/cmux-next/home.md):
     /// the `conversation-*` commands and `conversation-changed`/`conversation-typing` events.
     case localConversations = "local-conversations-v1"
+    /// Local question answers reach ACP with a person proof before being recorded.
+    case conversationQuestionDelivery = "conversation-question-delivery-v1"
     /// `conversation-draft` events on `subscribe`: the Chief's running reply,
     /// which Home grows in the Chief's bubble until the reply is posted.
     case conversationDraftEvents = "conversation-draft-events-v1"
@@ -550,7 +552,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .launchSnapshot, .profiles, .personalRemoteLocalhost, .sessionIdentity, .remoteTerminalTabs,
              .dockColumns, .edgeDocks, .dockColumnRole, .dockColumnSplitDown, .pinnedDock, .pinnedDockAlone, .rows, .columnMove, .columnLeft,
              .tabColumnRespawn, .tabRestart, .tabRestartKeptLayout, .tabPark, .detachedTerminals, .personalTerminals,
-             .browserProfiles, .bookmarks, .bookmarkIcon, .history, .localConversations, .conversationDraftEvents, .attachVisibility, .subscribeScrollOnAttach, .treeSelectionDeltas,
+             .browserProfiles, .bookmarks, .bookmarkIcon, .history, .localConversations, .conversationQuestionDelivery, .conversationDraftEvents, .attachVisibility, .subscribeScrollOnAttach, .treeSelectionDeltas,
              .chiefLive, .cloudChiefLive, .conversationRuns, .conversationRunAnswers, .cloudConversationRuns, .cloudConversationTyping,
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
              .agentSessionAttach, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,

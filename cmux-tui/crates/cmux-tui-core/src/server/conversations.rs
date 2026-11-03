@@ -4,6 +4,9 @@
 //! only after that commit and never for a replay. Rejects carry `error_code`
 //! `conversation_rejected` and the reason code as the error text.
 
+#[path = "conversation_question.rs"]
+mod question;
+
 use crate::panic_free::JsonFields;
 use std::sync::Arc;
 
@@ -26,6 +29,8 @@ use crate::conversation_store::{
 /// `conversation-changed` and `conversation-typing` events, on trusted local
 /// connections only.
 pub const LOCAL_CONVERSATIONS_CAPABILITY: &str = "local-conversations-v1";
+/// Question answers require person proof and reach ACP before the answer is recorded.
+pub const CONVERSATION_QUESTION_DELIVERY_CAPABILITY: &str = "conversation-question-delivery-v1";
 /// `conversation-search` on the local conversation owner.
 pub const CONVERSATION_SEARCH_CAPABILITY: &str = "conversation-search-v1";
 /// `conversation-draft`: the v1 command of `conversation.draft` for a bound
@@ -256,8 +261,11 @@ pub(super) fn error_details(error: &anyhow::Error) -> Option<Value> {
 
 /// The `error_code` of a conversation reject.
 pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
-    let rejected = error.downcast_ref::<ConversationRejected>().is_some()
-        || error.downcast_ref::<ConversationSearchRejected>().is_some();
+    let rejected =
+        error.downcast_ref::<crate::conversation_store::QuestionDeliveryBusy>().is_some()
+            || error.downcast_ref::<question::Refusal>().is_some()
+            || error.downcast_ref::<ConversationRejected>().is_some()
+            || error.downcast_ref::<ConversationSearchRejected>().is_some();
     if error.downcast_ref::<AttachmentRejected>().is_some() {
         return Some(AttachmentRejected::CODE.to_string());
     }
@@ -590,6 +598,7 @@ pub(super) fn op(mux: &Mux, client: u64, params: OpParams) -> anyhow::Result<Val
     let OpParams { conversation, idempotency_key, actor, transaction, op } = params;
     let actor = resolve_actor(mux, client, actor)?;
     validate_client_transaction(transaction.as_deref())?;
+    let decision = op.pointer("/answer/decision").cloned();
     let op: Op = decode(op, "op")?;
     if let Op::ParticipantsAdd { participant } = &op
         && is_device_id(&participant.id)
@@ -597,7 +606,39 @@ pub(super) fn op(mux: &Mux, client: u64, params: OpParams) -> anyhow::Result<Val
         return Err(device_id_refused());
     }
     let transaction: Option<Arc<str>> = transaction.map(Arc::from);
-    let outcome = commit_op(mux, &conversation, &idempotency_key, &actor, &op, &transaction)?;
+    let outcome = if let Op::QuestionAnswer { message_id, answer, .. } = &op {
+        match mux.with_conversations(|store| {
+            store.prepare_question_answer(&conversation, &idempotency_key, &actor, &op)
+        })? {
+            Err(replayed) => replayed,
+            Ok(asked) => {
+                let mut reservation =
+                    question::Reservation { mux, message: message_id, armed: true };
+                question::deliver(mux, &asked, answer, decision.as_ref())?;
+                // Release and commit under the same store lock. A competing edit/answer cannot
+                // replace the reserved question between delivery and persistence.
+                let outcome = mux.conversation_write(
+                    |store| {
+                        reservation.armed = false;
+                        store.release_question_answer(message_id);
+                        store.apply_op(&conversation, &idempotency_key, &actor, &op)
+                    },
+                    |outcome| {
+                        Some(MuxEvent::Conversation(Arc::new(ConversationEvent::Changed {
+                            conversation: conversation.clone(),
+                            rev: outcome.result.rev,
+                            transaction: transaction.clone(),
+                            change: outcome.result.change.clone(),
+                        })))
+                    },
+                )?;
+                drop(reservation);
+                outcome
+            }
+        }
+    } else {
+        commit_op(mux, &conversation, &idempotency_key, &actor, &op, &transaction)?
+    };
     Ok(op_reply(&outcome, outcome.result.change.clone(), transaction))
 }
 

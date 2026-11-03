@@ -6,13 +6,16 @@ public struct AgentQuestionAnswer: Hashable, Sendable, Codable {
     /// Item id -> what was chosen for it.
     public var selections: [String: Selection]
     public var respondent: Respondent?
+    /// Native person-decision envelope, forwarded to the owner and never recorded in the answer.
+    public var decision: AgentQuestionJSON?
     /// Milliseconds since 1970 (the owners' clock unit), stamped by the owner.
     public var answeredAtMs: Int64?
 
-    public init(selections: [String: Selection], respondent: Respondent? = nil, answeredAtMs: Int64? = nil) {
+    public init(selections: [String: Selection], respondent: Respondent? = nil, answeredAtMs: Int64? = nil, decision: AgentQuestionJSON? = nil) {
         self.selections = selections
         self.respondent = respondent
         self.answeredAtMs = answeredAtMs
+        self.decision = decision
     }
 
     public struct Selection: Hashable, Sendable, Codable {
