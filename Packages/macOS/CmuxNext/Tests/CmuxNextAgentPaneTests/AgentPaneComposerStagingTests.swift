@@ -299,9 +299,9 @@ struct AgentPaneComposerStagingTests {
         // A transport can cancel its reply independently of the page's token-cancel requests.
         let copying = Task { @MainActor in
             withUnsafeCurrentTask { $0?.cancel() }
-            return await Self.ask(model, "composer.copy.staged", params)
+            return Self.failed(await Self.ask(model, "composer.copy.staged", params))
         }
-        #expect(Self.failed(await copying.value))
+        #expect(await copying.value)
         #expect(effects.copied.isEmpty)
         #expect(Self.regularFiles(in: folder).isEmpty)
     }
