@@ -13,11 +13,11 @@ public nonisolated enum AppSceneOp: Sendable, Hashable {
     /// The wire representation used when a page forwards a scene stream.
     public var json: AppJSON {
         switch self {
-        case let .create(id, type, props): ["op": "create", "id": id, "type": type, "props": .object(props)]
-        case let .update(id, props): ["op": "update", "id": id, "props": .object(props)]
-        case let .children(id, children): ["op": "children", "id": id, "children": .array(children.map(AppJSON.string))]
-        case let .remove(id): ["op": "remove", "id": id]
-        case let .root(id): ["op": "root", "id": id]
+        case let .create(id, type, props): ["op": "create", "id": .string(id), "type": .string(type), "props": .object(props)]
+        case let .update(id, props): ["op": "update", "id": .string(id), "props": .object(props)]
+        case let .children(id, children): ["op": "children", "id": .string(id), "children": .array(children.map(AppJSON.string))]
+        case let .remove(id): ["op": "remove", "id": .string(id)]
+        case let .root(id): ["op": "root", "id": .string(id)]
         }
     }
 
