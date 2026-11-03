@@ -136,8 +136,15 @@ impl Hub {
                         },
                     )
                     .map_err(workflow_error)?;
-                self.bg_start_with_id(&session, prompt, Some(run.cwd.clone()), Some(&task_id))
-                    .await?;
+                self.bg_start_with_id(
+                    &session,
+                    prompt,
+                    Some(run.cwd.clone()),
+                    Some(&task_id),
+                    None,
+                    false,
+                )
+                .await?;
                 drop(gate);
                 let result = self.workflow_bg_wait(&session, &task_id).await;
                 self.workflow_complete_child(
