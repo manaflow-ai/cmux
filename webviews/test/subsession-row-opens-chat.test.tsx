@@ -1,6 +1,7 @@
 // A sub-session's transcript row is its chat's button (subagents/AgentCard.tsx over the shared
 // subagents/DisclosureRow.tsx), with no "Open chat" word beside it, and it reads as the rows it sits
-// among: regular weight, the received-message line's 26px in 2px margins (Leo, 2026-10-29: "why is
+// among: regular weight, on the tool rows' line height, with no outer margin of its own (a gap
+// belongs to its container, as the layout grid has it since #27580) (Leo, 2026-10-29: "why is
 // one of these bold? And why is there space, a fucking gap in between them? And why do you have the
 // fucking open chat? Nobody asked for open chat. We can just click. Just have the thing be clickable,
 // and then you can open it.").
@@ -108,17 +109,19 @@ test("a sub-session's card is its chat's button, with no Open chat word", async 
   expect(opened).toEqual(["fleet-mesh"]);
 });
 
-test("the row family is regular weight in the received line's 26px and 2px margins", () => {
+test("the row family is regular weight on the tool rows' line, with no outer margin of its own", () => {
   const css = readFileSync(new URL("../src/agent-session/acpmux/subagents/DisclosureRow.css", import.meta.url), "utf8");
   const rule = (selector: string) =>
     new RegExp(`(^|\\n)${selector.replace(/[.\\-]/g, (c) => `\\${c}`)} \\{([^}]*)\\}`).exec(css)?.[2] ?? "";
-  expect(rule(".cv-disclosure")).toMatch(/margin:\s*2px 0;/);
+  // A child never adds outer margin; the transcript row's frame and its container's gap give the room.
+  expect(rule(".cv-disclosure")).toMatch(/margin:\s*0;/);
   expect(rule(".cv-disclosure__line")).toMatch(/min-height:\s*var\(--cv-disclosure-line-height\);/);
   const conversation = readFileSync(
     new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url),
     "utf8",
   );
-  expect(conversation).toMatch(/--cv-disclosure-line-height:\s*26px;/);
+  // The line is a tool row's height, whatever the density sets it to (#31497).
+  expect(conversation).toMatch(/--cv-disclosure-line-height:\s*var\(--cv-tool-row-height\);/);
   expect(rule(".cv-disclosure__label")).toMatch(/font-weight:\s*400;/);
   expect(css).not.toMatch(/font-weight:\s*(500|600|bold)/);
 });

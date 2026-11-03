@@ -176,7 +176,7 @@ struct RapidWorkspaceCreateTests {
 
         let members = Set(services.windows.registry.members(of: window))
         let created = store.workspaces.filter { !before.contains($0.id) }
-        let order = WindowManager.orderedIDs(of: services.daemon, machines: services.machines).filter(members.contains)
+        let order = WindowManager.orderedIDs(of: services.daemon, machines: services.machines, doc: services.sidebarDoc).filter(members.contains)
         let presses = order.compactMap { id in created.first { $0.id == id }?.name }.compactMap { name in
             (1...Self.presses).first { Self.name($0) == name }
         }
@@ -335,7 +335,7 @@ struct RapidWorkspaceCreateTests {
         // The launch workspace's row shows: the new row has a neighbor whose side it keeps.
         await Self.wait(within: .seconds(30)) { sidebar.allWorkspaces.contains { $0.rowState == .live } }
         let before = Set(sidebar.allWorkspaces.map(\.id.rawValue))
-        let onDocument = SidebarDocWiring.isActive
+        let onDocument = services.sidebarDoc.isActive
 
         let work = services.registry.capturingWork {
             _ = services.registry.perform("newTab", invocation: ActionInvocation(arguments: ["name": .string("slot-01")]))
@@ -407,7 +407,7 @@ struct RapidWorkspaceCreateTests {
         }
         let home = NewWorkspacePlacements.home(services.machines)
         let old = controller.sidebar.model.allWorkspaces.map(\.id.rawValue).filter { $0 != home }
-        let intentBefore = SidebarDocStore.current?.lastIntentKey
+        let intentBefore = services.sidebarDoc.store?.lastIntentKey
 
         // Every frame the list draws from the first press until the creates settled.
         var frames: [[String]] = []
@@ -422,14 +422,14 @@ struct RapidWorkspaceCreateTests {
             }
             frames.append(frame)
             let rowed = Set(personal.workspaces.map(\.workspaceKey.rawValue))
-            let path = SidebarDocStore.current?.shown == nil ? "personal" : "doc"
+            let path = services.sidebarDoc.store?.shown == nil ? "personal" : "doc"
             let members = Set(services.windows.registry.members(of: window))
             let pending = Set(PendingWorkspaceRows.shared.rows(in: window).map(\.id))
             let room = services.windows.states[window]?.profileID ?? .defaultProfile
-            let docOrder = SidebarDocWiring.sections(of: services.machines.local, room: room, machines: services.machines)?
+            let docOrder = services.sidebarDoc.sections(of: services.machines.local, room: room, machines: services.machines)?
                 .flatMap(\.workspaces).map(\.id).filter { $0 != home }
             sources.append(Dictionary(uniqueKeysWithValues: frame.map { id in
-                var tags = path + (SidebarDocWiring.item(workspace: id, services.machines) != nil ? "+d" : "") + (rowed.contains(id) ? "+p" : "")
+                var tags = path + (services.sidebarDoc.item(workspace: id) != nil ? "+d" : "") + (rowed.contains(id) ? "+p" : "")
                 tags += members.contains(id) ? "+m" : ""
                 tags += pending.contains(id) ? "+pend" : ""
                 tags += services.machines.workspace(id: id)?.0.isProvisional == true ? "+prov" : ""
@@ -455,7 +455,7 @@ struct RapidWorkspaceCreateTests {
         var failures: [String] = []
         for task in work { if let failure = await task.value { failures.append(failure.message) } }
         let final = controller.sidebar.model.allWorkspaces.map(\.id.rawValue).filter { $0 != home }
-        let intentAfter = SidebarDocStore.current?.lastIntentKey
+        let intentAfter = services.sidebarDoc.store?.lastIntentKey
         await launched.stop()
 
         // Each frame: the new rows it draws come first, newest first; the old rows follow in their order.
@@ -477,7 +477,7 @@ struct RapidWorkspaceCreateTests {
             if strip.last != shown { strip.append(shown) }
         }
         print("cmd-n-top settings: app newPlacement \(String(describing: services.settings?.snapshot.newWorkspacePlacement)), "
-              + "placesNewRowsFirst \(SidebarDocWiring.docSections.placesNewRowsFirst())")
+              + "placesNewRowsFirst \(services.sidebarDoc.docSections.placesNewRowsFirst())")
         print("cmd-n-top frames: \(frames.count) drawn, \(strip.count) distinct: \(strip.map { $0.joined(separator: ",") }.joined(separator: " | "))")
         #expect(keys.count == 5, "\(keys.count) of 5 presses added a row")
         #expect(!frames.isEmpty, "the list drew no frame")

@@ -28,13 +28,6 @@ enum Strings {
     static var projects: String { String(localized: "sidebar.section.projects", defaultValue: "Projects", bundle: .module) }
     static var noFolder: String { String(localized: "sidebar.folder.none", defaultValue: "No Folder", bundle: .module) }
     static var pinnedEmpty: String { String(localized: "sidebar.section.pinned.empty", defaultValue: "Drop here to pin", bundle: .module) }
-    static var sectionEmpty: String { String(localized: "sidebar.section.empty", defaultValue: "No workspaces", bundle: .module) }
-    static func sectionEmptyHint(shortcut: String?) -> String {
-        guard let shortcut else {
-            return String(localized: "sidebar.section.empty.hint.unbound", defaultValue: "New workspace: +", bundle: .module)
-        }
-        return String(format: String(localized: "sidebar.section.empty.hint", defaultValue: "New workspace: + or %@", bundle: .module), shortcut)
-    }
     /// An open empty group's row (`EmptyGroupRowView`).
     static var groupEmpty: String { String(localized: "sidebar.group.empty", defaultValue: "No workspaces · drag one here", bundle: .module) }
     static var statusConnected: String { String(localized: "sidebar.machine.connected", defaultValue: "Connected", bundle: .module) }
@@ -69,6 +62,10 @@ enum Strings {
     static var statusPaused: String { String(localized: "sidebar.machine.paused", defaultValue: "Paused", bundle: .module) }
     /// A Cloud machine the idle auto-pause parked (not a failure).
     static var statusPausedIdle: String { String(localized: "sidebar.machine.pausedIdle", defaultValue: "Paused (idle)", bundle: .module) }
+    /// A Cloud machine on its way to paused, running again or deleted.
+    static var statusPausing: String { String(localized: "sidebar.machine.pausing", defaultValue: "Pausing…", bundle: .module) }
+    static var statusResuming: String { String(localized: "sidebar.machine.resuming", defaultValue: "Resuming…", bundle: .module) }
+    static var statusDeleting: String { String(localized: "sidebar.machine.deleting", defaultValue: "Deleting…", bundle: .module) }
     /// The status of a computer that cannot connect until the person acts,
     /// nil otherwise: its workspace rows name it in one list (cx-mdo0). A
     /// paused machine is named too (it resumes on attach, nothing to fix).
@@ -83,6 +80,9 @@ enum Strings {
         case .disconnected: statusDisconnected
         case .paused: statusPaused
         case .pausedIdle: statusPausedIdle
+        case .pausing: statusPausing
+        case .resuming: statusResuming
+        case .deleting: statusDeleting
         case .connecting: statusConnecting
         case .connected, .offline, .updateAvailable, .installing: nil
         }
@@ -176,6 +176,15 @@ enum Strings {
             return agent.map { String(format: String(localized: "sidebar.timeline.failedBy", defaultValue: "%@ stopped with an error", bundle: .module), $0) }
                 ?? String(localized: "sidebar.timeline.failed", defaultValue: "Stopped with an error", bundle: .module)
         }
+    }
+
+    /// The usage row's parts: the tokens each call carries ("312K context") and the last 24
+    /// hours' cost ("$1,421 in 24h").
+    static func usageContext(_ tokens: String) -> String {
+        String(format: String(localized: "sidebar.hoverCard.usageContext", defaultValue: "%@ context", bundle: .module), tokens)
+    }
+    static func usageCost(_ cost: String) -> String {
+        String(format: String(localized: "sidebar.hoverCard.usageCost", defaultValue: "%@ in 24h", bundle: .module), cost)
     }
 
     /// The card's stats line: how many prompts, and how long the agents worked.

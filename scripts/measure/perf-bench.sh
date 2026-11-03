@@ -73,6 +73,12 @@ if [ "$cmux" = build ] || [ "$debug" = 1 ]; then
     fi
     ./scripts/download-prebuilt-ghosttykit.sh
   fi
+  # The web bundles need the bun webviews/package.json pins; the account's ~/.bun may hold an older one
+  # (M6 minis 2026-10-31: 1.3.6-1.4.2, webviews pins 1.4.4). The build gets its own checked copy, first on
+  # PATH, as an absolute path: the web builders cd into webviews/ before they run bun.
+  RUNNER_TEMP="$PWD/$work" GITHUB_PATH="$PWD/$work/bun-path" ./scripts/cmux-next/private-bun.sh
+  PATH="$(tail -n 1 "$work/bun-path"):$PATH"
+  export PATH
 fi
 
 apps=()

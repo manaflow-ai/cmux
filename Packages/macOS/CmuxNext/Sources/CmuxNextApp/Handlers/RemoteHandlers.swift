@@ -49,7 +49,7 @@ enum RemoteHandlers {
             let connect = { (text: String) in
                 let session = try ssh.connect(destination: text, session: invocation["session"]?.stringValue,
                                               binary: invocation["binary"]?.stringValue, stateDir: invocation["stateDir"]?.stringValue,
-                                              offerInstall: interactive)
+                                              offerInstall: interactive, byPerson: invocation.isPersonsRequest)
                 if interactive { showWhenConnected(session, context) }
             }
             if let text = invocation["destination"]?.stringValue {
@@ -79,7 +79,7 @@ enum RemoteHandlers {
                 }
             }
             if daemon === home && direction == nil && cwd == nil {
-                registry.perform("newSurface", invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.id)))
+                registry.perform("newSurface", invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.id)).onMachine(home.machineID))
                 return
             }
             if let failure = context.services.remoteTerminals.openTerminal(on: daemon, in: pane, home: home, cwd: cwd, splitting: direction) {
@@ -106,7 +106,7 @@ enum RemoteHandlers {
             registry.track(work)
         }
         CloudHandlers.bind("remote.reconnect", registry, reason: hasMachine) { invocation in
-            ssh.reconnect(try machine(invocation, context))
+            ssh.reconnect(try machine(invocation, context), byPerson: invocation.isPersonsRequest)
         }
         CloudHandlers.bind("remote.disconnect", registry, reason: hasMachine) { invocation in
             ssh.disconnect(try machine(invocation, context))

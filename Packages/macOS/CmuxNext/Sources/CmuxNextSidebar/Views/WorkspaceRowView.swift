@@ -18,6 +18,8 @@ final class WorkspaceRowView: SidebarRowView {
     /// The running agent's brand mark (`SidebarAgentMarkVariant`); hidden when off.
     internal let agentMark = DecorativeImageView() // the row's label says the agent's state
     internal(set) var agentMarkVariant = SidebarAgentMarkVariant.off
+    /// A harness mark with no registered icon or brand takes its workspace's stable color (WorkspaceRowView+Rendering).
+    private(set) var agentMarkFallbackColor: GroupColor?
     /// The last configuration, so a Debug Settings switch of `sidebar.agentMark` redraws the row.
     internal(set) var lastConfiguration: (SidebarWorkspace, SidebarRow, SidebarRowBadgeStyle?)?
     var activityState = StatusIndicatorState.idle
@@ -32,12 +34,6 @@ final class WorkspaceRowView: SidebarRowView {
     /// cap, a huge context, a storm of subagents): a small warning triangle in the trailing
     /// cluster, apart from the working spinner; its tooltip says each rule and the number.
     let usageWarningMark = DecorativeImageView()
-    /// The computer the workspace runs on (`WorkspaceRowContent.machine`): its icon in its
-    /// color, small, before the title; hidden while the sidebar lists one machine.
-    let machineMark = DecorativeImageView() // the row's label names the machine
-    internal(set) var machine: SidebarMachineMark?
-    /// The side `machineMark`'s image was drawn at.
-    private var machineMarkSize: CGFloat = 0
     /// The workspace's tabs play sound (or are muted): a small speaker in the
     /// trailing cluster, always shown while they do, crossed out while they
     /// are muted. A click mutes or unmutes them (`onToggleAudio`).
@@ -83,6 +79,8 @@ final class WorkspaceRowView: SidebarRowView {
     /// Archived in the sidebar document: the row draws dimmed (`SidebarStyle.archivedAlpha`).
     var isArchived = false
     var iconKind: WorkspaceIcon?
+    /// The workspace color as a leading rail or a full fill (`WorkspaceRowView+Color`).
+    var rowColor: (color: GroupColor, style: WorkspaceColorIndicatorStyle)?, colorRail = NSView()
     /// Selected but not active (the active row paints the selection fill).
     var isSecondarySelected = false {
         didSet {
@@ -156,9 +154,7 @@ final class WorkspaceRowView: SidebarRowView {
         usageWarningMark.imageScaling = .scaleProportionallyDown
         usageWarningMark.isHidden = true
         usageWarningMark.setAccessibilityElement(false)
-        machineMark.imageScaling = .scaleProportionallyDown
-        machineMark.isHidden = true
-        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, usageWarningMark, machineMark, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, tabCount, prBadge, placeholderBar, statusBlock,
+        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, usageWarningMark, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, tabCount, prBadge, placeholderBar, statusBlock,
          treeLine, pullRequests, keycap, treeFoldButton, rollUp].forEach(addSubview)
         setUpSessionTree()
         tabCount.isHidden = true
@@ -266,6 +262,7 @@ final class WorkspaceRowView: SidebarRowView {
         let badgesLead = content.rowBadge != .trailing && !isShowingPlaceholder
         icon.configure(icon: shown.icon)
         iconKind = shown.icon
+        configureColor(shown)
         let priorTitle = lastTitle
         if titleArrivalPending || titleArrivalScheduled || titleArrivalActive {
             titleArrivalGeneration &+= 1
@@ -306,6 +303,7 @@ final class WorkspaceRowView: SidebarRowView {
         activityState = shown.activity
         agentMarkVariant = content.agentMark
         let markImage = Self.agentMarkImage(ws, variant: agentMarkVariant, placeholder: isShowingPlaceholder)
+        agentMarkFallbackColor = isShowingPlaceholder ? nil : Self.agentMarkFallbackColor(ws, variant: agentMarkVariant)
         agentMark.image = markImage
         agentMark.isHidden = markImage == nil
         badge.configure(badgesLead ? .none : ws.unread)
@@ -321,15 +319,6 @@ final class WorkspaceRowView: SidebarRowView {
             : NSImage.icon(symbol: "exclamationmark.triangle.fill", size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1))
         usageWarningMark.isHidden = usageWarningMark.image == nil
         usageWarningMark.themedToolTip = usageWarningMark.isHidden ? nil : ws.usageWarnings.joined(separator: "\n")
-        let previousMachine = machine
-        machine = isShowingPlaceholder ? nil : shown.machine
-        // A new image only when the mark or its size changes: every patch and every row scrolled in configures the row.
-        let machineSize = CGFloat.iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)
-        if machine != previousMachine || machineSize != machineMarkSize || (machine != nil && machineMark.image == nil) {
-            machineMarkSize = machineSize
-            machineMark.image = machine.map { Self.machineMarkImage($0, side: machineSize) }
-        }
-        machineMark.isHidden = machineMark.image == nil
         audio = isShowingPlaceholder ? nil : ws.audio
         audioButton.isHidden = audio == nil
         audioButton.icon = audio == .muted ? .browserTabMuted : .browserTabAudio

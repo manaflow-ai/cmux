@@ -340,7 +340,19 @@ impl Hub {
         meta.harness_roots.clear();
         meta.harness_argv.clear();
         meta.spawn_argv = None;
+        meta.launch_digest = None;
         meta.tags.clear();
+        // The folders beside its own: each one under the move's roots, as its `cwd` is; any
+        // other is dropped (`additional_dirs.rs`), so a bundle never widens what it can see.
+        let mut dirs = Vec::new();
+        for d in std::mem::take(&mut meta.additional_directories) {
+            if let Some(c) = guard.folder(&d.to_string_lossy()).await
+                && !dirs.contains(&c)
+            {
+                dirs.push(c);
+            }
+        }
+        meta.additional_directories = super::additional_dirs::without_cwd(dirs, &meta.cwd);
         meta.remote_origin = true;
         if let Some(sid) = meta.agent_session_id.as_deref()
             && !plain_agent_session(sid)
@@ -376,7 +388,8 @@ impl Hub {
         Ok((meta, taken))
     }
 
-    /// A web-guarded chat's mode, and every option that is not a model or effort choice, must be
+    /// A web-guarded chat's mode, and every option that is not a model, effort or speed choice
+    /// (`FREE_CONFIG_IDS`, `CARRIED_CONFIG_IDS`), must be
     /// one this daemon's table lists as asking for its family, never of a family the Web does not
     /// drive. A chat of a family with asking modes must have a recorded mode: a Web prompt for a
     /// chat with none passes dispatch on its policy (`session_asks_now`), and its agent could
@@ -402,6 +415,7 @@ impl Hub {
             let id = o.get("id").and_then(Value::as_str).unwrap_or("");
             let value = o.get("currentValue").and_then(Value::as_str);
             let asks = crate::web_modes::FREE_CONFIG_IDS.contains(&id)
+                || crate::web_modes::CARRIED_CONFIG_IDS.contains(&id)
                 || (id == "mode" && value.is_some_and(&listed));
             if !asks {
                 return Err(guard_error(

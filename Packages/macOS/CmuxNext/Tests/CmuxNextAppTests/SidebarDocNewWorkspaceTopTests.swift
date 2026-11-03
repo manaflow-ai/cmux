@@ -71,7 +71,7 @@ import Testing
             WorkspaceSnapshot(id: WorkspaceHandle(rawValue: UInt64(index + 1)), key: nil, resourceID: ResourceID(rawValue: id), name: id)
         }))
         let current = try #require(store.workspaces.first { $0.resourceID?.rawValue == "ws-2" }).id
-        let doc = SidebarDocSections()
+        let doc = SidebarDocSections(document: { nil })
         doc.placesNewRowsFirst = { newRowsFirst }
         doc.unplacedAnchor = { $0.resourceID?.rawValue == "ws-new" ? .after(current) : nil }
         let order = Self.order(doc.sections(empty, session: Self.session, workspaces: store.workspaces))
@@ -83,7 +83,7 @@ import Testing
     @Test func aNewRowWithNoCurrentWorkspaceListsFirstUnderAfterCurrent() throws {
         let store = Self.store(fresh: ["ws-a", "ws-b"])
         let a = try #require(store.workspaces.first { $0.resourceID?.rawValue == "ws-a" }).id
-        let doc = SidebarDocSections()
+        let doc = SidebarDocSections(document: { nil })
         doc.placesNewRowsFirst = { false }
         doc.unplacedAnchor = { $0.resourceID?.rawValue == "ws-a" ? .first : $0.resourceID?.rawValue == "ws-b" ? .after(a) : nil }
         #expect(Self.order(doc.sections(Self.projection(), session: Self.session, workspaces: store.workspaces))
@@ -95,7 +95,7 @@ import Testing
         let empty = SidebarDocProjection(rows: [], records: SidebarDocRecords(sections: [
             Self.machine: SidebarDocSection(id: Self.machine, kind: .machine(session: Self.session)),
         ], items: [:]), revision: 1)
-        let doc = SidebarDocSections()
+        let doc = SidebarDocSections(document: { nil })
         doc.placesNewRowsFirst = { false }
         doc.unplacedAnchor = { $0.resourceID?.rawValue == "ws-a" ? .first : nil }
         #expect(Self.order(doc.sections(empty, session: Self.session, workspaces: Self.store(fresh: ["ws-a"]).workspaces))
@@ -104,7 +104,7 @@ import Testing
 
     @Test(arguments: [NewWorkspacePlacement.beforeCurrent, .afterCurrent])
     func aMissingCurrentWorkspaceFallsBackToTopFromItsFirstFrame(placement: NewWorkspacePlacement) {
-        let doc = SidebarDocSections()
+        let doc = SidebarDocSections(document: { nil })
         doc.placesNewRowsFirst = { false }
         let anchor = NewWorkspacePlacements.anchor(slot: nil, byDefault: .init(placement: placement, current: "not-in-this-machine"), home: nil)
         doc.unplacedAnchor = { $0.resourceID?.rawValue == "ws-new" ? anchor : nil }
@@ -114,7 +114,7 @@ import Testing
 
     @Test func aLiveWorkspaceTheDocumentDoesNotPlaceYetListsFirstBelowHome() {
         let store = Self.store(fresh: ["ws-new"])
-        let sections = SidebarDocSections().sections(Self.projection(), session: Self.session, workspaces: store.workspaces)
+        let sections = SidebarDocSections(document: { nil }).sections(Self.projection(), session: Self.session, workspaces: store.workspaces)
         #expect(Self.order(sections) == ["ws-home", "ws-new", "ws-1", "ws-2", "ws-3"],
                 "the new row is not first: it jumps from here to the top when its item comes")
         // Loose above every group: the new row is in the first loose section, not a group.
@@ -126,7 +126,7 @@ import Testing
     /// above the rows that were there. The store lists them in creation order.
     @Test func rapidCreatesListNewestFirstAtTheTop() {
         let store = Self.store(fresh: ["ws-a", "ws-b", "ws-c"])
-        let sections = SidebarDocSections().sections(Self.projection(), session: Self.session, workspaces: store.workspaces)
+        let sections = SidebarDocSections(document: { nil }).sections(Self.projection(), session: Self.session, workspaces: store.workspaces)
         #expect(Self.order(sections) == ["ws-home", "ws-c", "ws-b", "ws-a", "ws-1", "ws-2", "ws-3"])
     }
 
@@ -151,7 +151,7 @@ import Testing
         store.apply(snapshot: DaemonTree(workspaces: ["ws-2", "ws-new"].enumerated().map { index, id in
             WorkspaceSnapshot(id: WorkspaceHandle(rawValue: UInt64(index + 1)), key: nil, resourceID: ResourceID(rawValue: id), name: id)
         }))
-        let sections = SidebarDocSections().sections(Self.groupProjection(), session: Self.session, workspaces: store.workspaces)
+        let sections = SidebarDocSections(document: { nil }).sections(Self.groupProjection(), session: Self.session, workspaces: store.workspaces)
         #expect(Self.order(sections) == ["ws-new", "ws-2"])
         #expect(sections.first?.group == nil)
     }
@@ -161,7 +161,7 @@ import Testing
             WorkspaceSnapshot(id: WorkspaceHandle(rawValue: UInt64(index + 1)), key: nil, resourceID: ResourceID(rawValue: id), name: id)
         }))
         let a = try #require(store.workspaces.first { $0.resourceID?.rawValue == "ws-a" }).id
-        let doc = SidebarDocSections()
+        let doc = SidebarDocSections(document: { nil })
         doc.placesNewRowsFirst = { false }
         doc.unplacedAnchor = { workspace in
             switch workspace.resourceID?.rawValue {

@@ -44,7 +44,7 @@ public struct URLSessionSocketConnection: DeviceHubSocketConnection {
     public func receive() async throws -> String {
         let message: URLSessionWebSocketTask.Message
         do { message = try await task.receive() } catch {
-            // The server's close code, when it closed the socket (4000 replaced, 4001 removed).
+            // The server's close code, when it closed the socket (4000 replaced, 4001 removed, 4003 signed out).
             if task.closeCode != .invalid { throw DeviceHubSocket.Closed(code: task.closeCode.rawValue) }
             throw error
         }
@@ -78,6 +78,8 @@ public final class DeviceHubSocket: Sendable {
         case replaced
         /// The hub removed this device (close code 4001): no reconnect.
         case removed
+        /// This device signed out of the hub (close code 4003): no reconnect.
+        case signedOut
     }
 
     /// The server closed the socket with `code`.
@@ -126,8 +128,8 @@ public final class DeviceHubSocket: Sendable {
                 failure = "\(error)"
             }
             if Task.isCancelled { break }
-            if closeCode == 4000 || closeCode == 4001 {
-                await handler(.state(closeCode == 4000 ? .replaced : .removed))
+            if let terminal = closeCode.flatMap(Self.terminalState(closeCode:)) {
+                await handler(.state(terminal))
                 return
             }
             await handler(.state(.reconnecting(failure)))
@@ -135,6 +137,17 @@ public final class DeviceHubSocket: Sendable {
             do { try await backoff.wait(owner: "device-hub.socket", clock: clock) } catch { break }
         }
         await handler(.state(.disconnected))
+    }
+
+    /// The state a server close code ends the socket in, with no reconnect (PROTOCOL.md,
+    /// WebSocket: User DO); nil for a close the socket reconnects after.
+    static func terminalState(closeCode: Int) -> State? {
+        switch closeCode {
+        case 4000: .replaced
+        case 4001: .removed
+        case 4003: .signedOut
+        default: nil
+        }
     }
 
     /// Reads frames and pings until the socket fails or the task is cancelled.

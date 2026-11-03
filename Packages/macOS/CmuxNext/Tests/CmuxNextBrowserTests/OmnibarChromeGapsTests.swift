@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -8,6 +9,7 @@ import Testing
 /// Manage Search Engines, site icons in rows, and the typed-address http
 /// fallback.
 @MainActor
+@Suite(.closesItsWindows)
 struct OmnibarChromeGapsTests {
     // MARK: Fixtures
 
@@ -104,6 +106,7 @@ struct OmnibarChromeGapsTests {
     @Test func beginSearchWaitsForTheFocus() {
         let bar = AddressBarView()
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 80), styleMask: [.titled], backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
         bar.frame = NSRect(x: 10, y: 20, width: 600, height: 34)
         window.contentView!.addSubview(bar)
         bar.beginSearch()

@@ -74,6 +74,20 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         }
     }
 
+    /// The page background (`--cmux-surface-background`) of a page made with these arguments, in the
+    /// active scope: the surface's own background (`appearance.surfaces`) when it has one, else the
+    /// surface token, opaque in an opaque window and clear over a material. A host asks it for what
+    /// the page paints under its content (an agent page's saved picture, `PageImageBackground`).
+    @MainActor
+    public static func pageBackground(_ tokens: ThemeTokens, reduceTransparency: Bool = false, surface surfaceKind: SurfaceKind? = nil,
+                                      backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds) -> ThemeRGB {
+        let pageOpaque = WindowBackdrop.current(tokens, reduceTransparency: reduceTransparency).panesPaintBackground
+        let surface = tokens.surfaceBackground
+        let windowTint = WindowBackdrop.currentTint(tokens)
+        return surfaceKind.flatMap { backgrounds.fill(for: $0, tokens: tokens, windowTint: windowTint) }
+            ?? (pageOpaque ? surface.withAlpha(1) : surface.withAlpha(0))
+    }
+
     /// - Parameter tokens: The theme tokens of the view's scope.
     /// - Parameter reduceTransparency: The user's Reduce Transparency setting.
     /// - Parameter surface: The surface the page is (agent chat, new tab
@@ -88,11 +102,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     public init(_ tokens: ThemeTokens, reduceTransparency: Bool = false, surface surfaceKind: SurfaceKind? = nil,
                 backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds, scrollers: String? = nil,
                 app: AppTheme? = nil, glass: GlassLensMode? = nil) {
-        let pageOpaque = WindowBackdrop.current(tokens, reduceTransparency: reduceTransparency).panesPaintBackground
         let surface = tokens.surfaceBackground
         let windowTint = WindowBackdrop.currentTint(tokens)
-        let page = surfaceKind.flatMap { backgrounds.fill(for: $0, tokens: tokens, windowTint: windowTint) }
-            ?? (pageOpaque ? surface.withAlpha(1) : surface.withAlpha(0))
+        let page = Self.pageBackground(tokens, reduceTransparency: reduceTransparency, surface: surfaceKind, backgrounds: backgrounds)
         let cardMaterial = CardMaterial(tokens, lift: ChromeTunables.opaqueOverlayLift.value,
                                         minimumOpacity: ChromeTunables.cardOpacity.value)
         let tooltip = TooltipSurface(tokens, lift: ChromeTunables.opaqueOverlayLift.value)
@@ -104,6 +116,11 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             "--cmux-surface-solid": Self.css(surfaceKind.map {
                 backgrounds.opaqueFill(for: $0, tokens: tokens, base: surface.withAlpha(1), windowTint: windowTint)
             } ?? surface.withAlpha(1)),
+            // Reading pages (the Markdown viewer): clear over a picture, which hides what is behind
+            // the window, so they show the App Theme's one veil like the terminals; else the page
+            // color made opaque, so desktop text never reads through a document (#30818).
+            "--cmux-reading-background": Self.css(WindowBackdrop.current(tokens, reduceTransparency: reduceTransparency).hidesWhatIsBehind
+                ? tokens.surfaceBackground.withAlpha(0) : tokens.surfaceBackground.withAlpha(1)),
             "--cmux-elevated-background": Self.css(tokens.elevatedBackground),
             // The solid surface of menus, popovers and tooltips (`--surface-popup`), the same
             // opaque fill as native overlays (`Palette.popupSurface`).
@@ -139,6 +156,8 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             // The modal scrim (`Scrim`), the same as native dialogs'.
             "--cmux-scrim": Self.css(tokens.scrim),
         ].merging((app ?? ThemeScope.app.store.appTheme ?? tokens.app).cssVariables) { own, _ in own }
+            // The sidebar cards' sizes at `sidebar.density` (the Updated card's page, 2026-11-01).
+            .merging(SidebarRowTokens.current.card.cssVariables(pageZoom: DesignSettings.shared.uiScale)) { own, _ in own }
         colorScheme = tokens.isDark ? "dark" : "light"
         let colors = ColorTransition.current
         transition = ["duration": colors.cssDuration, "easing": colors.cssEasing, "space": colors.space.rawValue]

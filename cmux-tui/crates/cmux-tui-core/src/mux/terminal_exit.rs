@@ -82,7 +82,7 @@ impl Mux {
             self.emit(MuxEvent::SurfaceExited(id, None));
             return;
         }
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.write().unwrap();
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
         if let Some(surface) = self.surface(id)
             && let Some(identity) = self.resource_terminal_host_identity(&surface)

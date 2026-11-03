@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import CmuxTheme
 import Foundation
 import Testing
@@ -8,7 +9,7 @@ import Testing
 /// Every `sidebar.rowCloseSpot` choice on a hovered working row, dark and light, one sidebar per
 /// column (Leo 2026-10-27: "the rightmost three things, they make sense, but this one, not so much"). Artifact
 /// `sidebar-close-spot-gallery.tar` (`CMUX_TEST_REQUIRE_GUI=1`).
-@MainActor @Suite(.serialized) struct SidebarRowCloseSpotGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarRowCloseSpotGalleryTests {
     static func render(_ spot: SidebarRowCloseSpot, dark: Bool) throws -> CGImage {
         try SidebarRowCloseSpotTests.withCloseSpot(spot) {
             let (_, sidebar, window) = SidebarRowCloseSpotTests.sidebar()

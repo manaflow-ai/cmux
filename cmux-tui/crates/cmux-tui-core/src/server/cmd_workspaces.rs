@@ -5,6 +5,7 @@
 use super::workspace_group_json;
 use super::workspace_groups_json;
 use crate::panic_free::JsonFields;
+use cmux_json::JsonSet as _;
 
 use super::MutationRequest;
 use super::list_workspaces_reply;
@@ -19,8 +20,16 @@ use serde_json::Value;
 use serde_json::json;
 use std::sync::Arc;
 
-pub(super) fn list_workspaces(mux: &Arc<Mux>) -> anyhow::Result<Value> {
-    list_workspaces_reply(mux)
+/// The tree, and the lines its connection had written when it was read (`lines_written_before_read`,
+/// read first): a line past that count may carry a change the tree lacks. The connection writes its
+/// events on another thread than this reply, so such an event can reach the client before the reply
+/// (#32408).
+pub(super) fn list_workspaces(mux: &Arc<Mux>, lines_written: Option<u64>) -> anyhow::Result<Value> {
+    let mut reply = list_workspaces_reply(mux)?;
+    if let Some(lines) = lines_written {
+        reply.set("lines_written_before_read", json!(lines));
+    }
+    Ok(reply)
 }
 
 pub(super) fn new_workspace(

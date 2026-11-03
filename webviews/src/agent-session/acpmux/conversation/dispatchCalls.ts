@@ -55,7 +55,7 @@ export function dispatchCall(item: AcpmuxActivity): DispatchCall | undefined {
     sessionId:
       identityField(values, "to", ["sessionId", "session_id", "session"]) ??
       firstString(values, ["sessionId", "session_id", "session"]),
-    status: firstString(values, ["status", "state"]) ?? statusFromTool(tool),
+    status: dispatchStatus(tool, output),
     stopCondition: firstString(values, ["stopCondition", "stop_condition"]),
     text:
       firstString(
@@ -116,14 +116,12 @@ function operationName(tool: Tool): DispatchKind | undefined {
   return "briefs";
 }
 
-function statusFromTool(tool: Tool): string | undefined {
-  if (tool.status === "pending" || tool.status === "in_progress") return "running";
+function dispatchStatus(tool: Tool, output: unknown): string | undefined {
   if (tool.status === "failed" || (tool.exitCode !== undefined && tool.exitCode !== 0)) return "failed";
-  const output = tool.output?.toLowerCase() ?? "";
-  if (/\bmerged\b/.test(output)) return "merged";
-  if (/\breported\b/.test(output)) return "reported";
-  if (/\bsteered\b/.test(output)) return "steered";
-  return tool.status || undefined;
+  if (tool.status === "pending" || tool.status === "in_progress") return "running";
+  // Input is a requested transition; prose is the report's content. Only the
+  // structured acknowledgement can confirm a brief's lifecycle transition.
+  return firstString([output, ...records(output)], ["status", "state"]) ?? (tool.status || undefined);
 }
 
 /// A plain-text output as the report's text, whole: the card's panel scrolls a long one (Leo,

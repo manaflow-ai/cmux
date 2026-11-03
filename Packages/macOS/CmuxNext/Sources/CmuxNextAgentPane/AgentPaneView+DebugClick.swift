@@ -58,6 +58,27 @@ extension AgentPaneView {
     /// Whether the chat shows in Chromium (its clicks go through DevTools, ``debugPress(x:y:)``).
     public var debugShowsChromium: Bool { page?.showsChromium == true }
 
+    /// Whether the chat is to show in Chromium but Chromium has not attached yet: the page shows
+    /// nothing until it does, or until it falls back to WebKit.
+    public var debugChromiumStarting: Bool { pageDrawsOverCovers && !debugShowsChromium }
+
+    /// Whether the document has painted, independently of the loading cover's give-up deadline.
+    public var debugPageHasPainted: Bool { model.hasPainted && (page?.hasPainted ?? true) }
+
+    /// Whether the chat's Chromium page is one a window snapshot draws: in this window, not parked,
+    /// hidden or under a clear (alpha 0) ancestor, and with a size.
+    public var debugChromiumPageShown: Bool {
+        guard let page, let window = page.window else { return false }
+        return PageRegistry.shownChromiumPages(in: window).contains { $0.page === page }
+    }
+
+    /// The paint and engine state a scene capture must wait for before drawing the agent pane.
+    public var debugCaptureState: AgentPaneCaptureState {
+        AgentPaneCaptureState(attached: webView.window != nil, loading: webView.isLoading,
+                              chromium: debugShowsChromium, chromiumStarting: debugChromiumStarting,
+                              chromiumShown: debugChromiumPageShown, painted: debugPageHasPainted)
+    }
+
     /// The zoom the chat shows at: view points per page CSS pixel.
     public var debugPageZoom: Double {
         guard let page else { return webView.pageZoom * webView.magnification }
@@ -80,9 +101,16 @@ extension AgentPaneView {
     /// The chat's file input `selector` takes the files at `paths`, as a pick in Chromium's open panel
     /// (``PageWebView/debugSetFiles(selector:paths:)``); nil when it did, else why not. On WebKit the next
     /// file input the page opens (a click on + then Attach files) takes them instead of the panel.
+    /// The pick is the person's, as one in the open panel is (the pane's `onFilesChosen`): its
+    /// gesture, which `chat.upload.begin` spends, and where the files are, so a chat on this Mac
+    /// links them in place. Neither scripted path passes the panel, so without this every
+    /// scripted pick's upload was refused for want of a gesture.
     public func debugSetFiles(selector: String, paths: [String]) async -> String? {
-        if let page, page.showsChromium { return await page.debugSetFiles(selector: selector, paths: paths) }
         let files = paths.map { URL(fileURLWithPath: $0) }
+        model.transport.gestures.record()
+        model.droppedPaths.stash(files, kind: .choose)
+        model.droppedPaths.stashSource(files, items: files.count, claimed: nil, kind: .choose)
+        if let page, page.showsChromium { return await page.debugSetFiles(selector: selector, paths: paths) }
         fileChooser?.debugAnswer = files
         page?.debugQueueFiles(files)
         return nil

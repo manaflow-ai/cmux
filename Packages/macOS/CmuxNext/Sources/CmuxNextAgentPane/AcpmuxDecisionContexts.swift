@@ -50,6 +50,9 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
         var decisionSeqBySession: [String: UInt64] = [:]
         var decisionSessionOrder: [String] = []
         var questionVersion: UInt64 = 0
+        /// Bumps on any change to the pending prompts or a group's pending members, questions and
+        /// tool permissions alike (``hasPending(session:)``).
+        var pendingVersion: UInt64 = 0
         var localInstance: String?
         /// How the daemon answered the pane's permission answers since the pane last looked, in
         /// order (at most ``limit``).
@@ -68,6 +71,19 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
     public init() {}
 
     func pendingQuestionVersion() -> UInt64 { state.withLock { $0.questionVersion } }
+
+    /// Changes whenever any pending prompt or group member changes, a question or not.
+    func pendingVersion() -> UInt64 { state.withLock { $0.pendingVersion } }
+
+    /// Whether `session` has any request waiting for an answer: a question, a tool permission or a
+    /// pending member of a permission group. Read from daemon frames only.
+    func hasPending(session: String) -> Bool {
+        let prefix = session + "\u{0}"
+        return state.withLock { state in
+            state.byKey.keys.contains { $0.hasPrefix(prefix) }
+                || state.groups.contains { $0.key.hasPrefix(prefix) && !$0.value.pending.isEmpty }
+        }
+    }
 
     /// Reads one inbound frame, as the page gets it.
     func observe(_ object: [String: Any], replyTo method: String?) {
@@ -154,7 +170,7 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
                 for key in keys {
                     guard seq >= (state.seqByKey[key] ?? 0) else { continue }
                     changed = changed || state.byKey[key]?.isQuestion == true
-                    state.byKey.removeValue(forKey: key)
+                    if state.byKey.removeValue(forKey: key) != nil { state.pendingVersion &+= 1 }
                     state.unsequencedPending.remove(key)
                     state.seqByKey[key] = seq
                 }
@@ -225,6 +241,7 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
                 state.order.append(key)
             }
             Self.trim(&state)
+            if changed { state.pendingVersion &+= 1 }
             if changed, context.isQuestion || previous?.isQuestion == true { state.questionVersion &+= 1 }
         }
     }
@@ -233,7 +250,7 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
         while state.order.count > limit {
             let oldest = state.order.removeFirst()
             if state.byKey[oldest]?.isQuestion == true { state.questionVersion &+= 1 }
-            state.byKey.removeValue(forKey: oldest)
+            if state.byKey.removeValue(forKey: oldest) != nil { state.pendingVersion &+= 1 }
             state.seqByKey.removeValue(forKey: oldest)
             state.unsequencedPending.remove(oldest)
             state.decisionSeqByKey.removeValue(forKey: oldest)
@@ -254,9 +271,9 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
         let key = session + "\u{0}" + id
         state.withLock { state in
             if let known = state.groups[key], known.revision > revision { return }
-            if state.groups.updateValue(Group(revision: revision, pending: pending), forKey: key) == nil {
-                state.groupOrder.append(key)
-            }
+            let previous = state.groups.updateValue(Group(revision: revision, pending: pending), forKey: key)
+            if previous == nil { state.groupOrder.append(key) }
+            if (previous?.pending ?? [:]) != pending { state.pendingVersion &+= 1 }
             if state.groupOrder.count > Self.limit {
                 state.groups.removeValue(forKey: state.groupOrder.removeFirst())
             }

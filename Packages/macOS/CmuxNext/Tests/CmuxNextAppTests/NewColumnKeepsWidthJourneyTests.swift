@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDaemon
 @testable import CmuxNextLayout
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -15,7 +16,7 @@ import Testing
 /// pane inside its own column: no other column changes width. Covers the first column beside a
 /// single pane, the second new column, Cmd-D in a column, New Column and New Column Left under
 /// fitScreen, and a column beside a zoomed pane, under `layout.newColumnWidth` fixed (the default).
-@MainActor @Suite(.serialized, .timeLimit(.minutes(5)),
+@MainActor @Suite(.serialized, .closesItsWindows, .timeLimit(.minutes(5)),
                   .enabled(if: NSScreen.main != nil, "real keys and window frames need a screen: run on a GUI host"),
                   .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct NewColumnKeepsWidthJourneyTests {

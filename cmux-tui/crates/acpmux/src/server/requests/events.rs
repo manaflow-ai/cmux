@@ -26,6 +26,21 @@ pub(super) fn handle(
         let meta = s.meta();
         (meta.last_seq, meta.created_at)
     };
+    // The prompt index (`Hub::prompt_index`): every prompt before `beforeSeq`, cut short, in one
+    // reply, so the rail draws a long chat's every turn before its history pages in. A daemon
+    // without it reads `promptIndex` as nothing and answers the bounded page the pane also asks for.
+    if params.get("promptIndex").and_then(Value::as_bool) == Some(true) {
+        let records =
+            hub.prompt_index(&s.id, before).map_err(|e| RpcError::internal(e.to_string()))?;
+        let through = newest_seq(&records);
+        return Ok(json!({
+            "events": values(&s.id, records),
+            "hasMore": false,
+            "lastSeq": last,
+            "pageThrough": through,
+            "createdAt": created,
+        }));
+    }
     if after > last {
         return Err(RpcError::invalid_params(format!(
             "cursor_future: afterSeq {after} is beyond the last event {last}"

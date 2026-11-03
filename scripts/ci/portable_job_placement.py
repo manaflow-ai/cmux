@@ -20,6 +20,10 @@ attempt 2) of a trusted run. Each job in JOBS, in priority order, gets:
    none while a nightly or release job is queued on any label of its family (the janitor
    snapshot's `reserved_queued`): nightly jobs come first on the fleet. An unread runner list or
    no fresh snapshot places nothing there (nothing is known to be free or to have no nightly).
+   A nightly run's own jobs (NIGHTLY=1, nightly.yml) skip that refusal: they are the nightly
+   jobs that come first. They still take only runners idle now beyond the label's queue, and
+   once queued there the janitor counts them as `reserved_queued`, so pull request placements
+   stay off those minis while they wait.
 3. the job's own Blacksmith expression, which the workflow keeps as the last alternative of
    runs-on (with its CI_CLOUD_OVERFLOW_SAVED failover).
 
@@ -30,9 +34,24 @@ Outputs (GITHUB_OUTPUT), job keys delimited by spaces with one at each end so a 
 contains(' <key> ') matches whole keys only:
 - `linux_runner`: FLEET_LINUX, or empty;
 - `linux_jobs`: the jobs that take it;
-- `mini_runner`: the side label the idle minis carry, or empty;
+- `mini_runner`: the side label the idle minis carry (NIGHTLY_ONLY_LABEL, the all-nightly reservation, first
+  while it has idle runners), or empty;
 - `mini_jobs`: the jobs that take it.
-Anything uncertain writes empty values, and every job keeps its Blacksmith route.
+For early nightly controls, unread capacity keeps portable jobs on the configured
+owned-mini pool. Other callers write empty values and keep their Blacksmith route.
+
+LINUX_ONLY jobs (the nightly signer compiler emits a Linux executable) never
+take a mini. NIGHTLY_WAIT_FOR_FLEET=1 retries placement for at most three minutes
+before returning unplaced jobs to overflow. The process-wide deadline bounds
+reads too, and main always clears its alarm and restores the previous handler.
+REQUIRE_LIVE_CAPACITY=1 never emits an owned-mini label without a fresh
+capacity observation, including after the admission wait expires. The trusted
+runner-state document supplies that observation when its source timestamp is at
+most five minutes old; otherwise the reader calls the live API. Its publisher
+waits 120 seconds between refresh attempts during a whole-fleet repair pass.
+Busy flags reflect that observation and do not reserve a runner. Workflow context captures the
+variable when the run starts, so a delayed picker may need the live fallback even
+when publication continues. REQUIRE_LIVE_CAPACITY keeps the same age bound.
 """
 from __future__ import annotations
 
@@ -42,6 +61,7 @@ import importlib.util
 import os
 import signal
 import sys
+import time
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -60,8 +80,8 @@ side = _load("side_lane_placement")
 
 # Labels that are not our own Linux fleet: Blacksmith, and GitHub's hosted images (never in the
 # routing order at all).
-NOT_FLEET_LINUX = ("blacksmith-", "ubuntu-", "macos-", "windows-")
-# Keep the step below its own timeout; a timed-out read leaves every job on Blacksmith.
+NOT_FLEET_LINUX = ("blacksmith-", "ubuntu-", "macos-", "windows-", "glaeda-")
+# Keep the step below its own timeout; early nightly controls retain their fleet fallback.
 DEADLINE_SECONDS = 60
 
 
@@ -111,13 +131,36 @@ def queued_on(snapshot: Mapping[str, Any] | None, label: str) -> int:
     return int(entry.get("queued") or 0)
 
 
-def eligible(env: Mapping[str, str]) -> str:
-    """Why this run places nothing on a mini before reading anything, or ""."""
+def attempt_refusal(env: Mapping[str, str]) -> str:
+    """Why this attempt keeps its Blacksmith route, or "": only a first attempt (or a rescue's second) moves."""
     attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip() or "1"
     actor = (env.get("GITHUB_TRIGGERING_ACTOR") or "").strip()
     if attempt != "1" and not (attempt == "2" and actor in pool.RESCUE_ACTORS):
         return f"attempt {attempt} keeps its Blacksmith route"
+    return ""
+
+
+def nightly_only_free(label: str, runners: Sequence[Mapping[str, Any]],
+                      snapshot: Mapping[str, Any] | None) -> int:
+    """Idle online runners carrying the all-nightly reservation `label`, less the jobs queued on it."""
+    idle = sum(runner.get("status") == "online" and runner.get("busy") is False
+               and label in pool.runner_labels(runner) for runner in runners)
+    return max(0, idle - queued_on(snapshot, label))
+
+
+def eligible(env: Mapping[str, str]) -> str:
+    """Why this run places nothing on a mini before reading anything, or ""."""
+    refusal = attempt_refusal(env)
+    if refusal:
+        return refusal
     label = (env.get("SIDE_LABEL") or "").strip()
+    jobs = set((env.get("JOBS") or "").split())
+    linux_only = set((env.get("LINUX_ONLY") or "").split())
+    # A Linux-only picker (for example the cmux-tui daemon marker) has no
+    # owned-Mac leg. It must still read the live Linux group even when the
+    # caller has no side-pool label to offer.
+    if jobs and jobs.issubset(linux_only):
+        return ""
     if not label.startswith(pool.SIDE_PREFIX) or not pool.persistent(label):
         return f"`{label or 'no label'}` is not an owned side label"
     if label.startswith("glaeda-aws-"):
@@ -129,9 +172,21 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
            snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Placement:
     jobs = tuple(dict.fromkeys((env.get("JOBS") or "").split()))
     mac_first = set((env.get("MAC_FIRST") or "").split())
+    linux_only = set((env.get("LINUX_ONLY") or "").split())
     linux = fleet_linux(env.get("FLEET_LINUX", ""))
+    problem = pool.snapshot_problem(snapshot, now)
+    if linux and env.get("REQUIRE_LIVE_CAPACITY") == "1":
+        matching = [runner for runner in runners or [] if linux in pool.runner_labels(runner)]
+        # A custom label alone is not proof of Linux: never let a shared Mac
+        # carrying the same label receive a credentialed Linux-only control.
+        linux_members = bool(matching) and all(
+            str(runner.get("os", "")).lower() == "linux" for runner in matching)
+        idle = sum(runner.get("status") == "online" and runner.get("busy") is False
+                   for runner in matching)
+        if problem or not linux_members or idle <= queued_on(snapshot, linux):
+            linux = ""
     linux_jobs = tuple(job for job in jobs if linux and job not in mac_first)
-    rest = tuple(job for job in jobs if job not in linux_jobs)
+    rest = tuple(job for job in jobs if job not in linux_jobs and job not in linux_only)
     notes = [f"{', '.join(linux_jobs)} take fleet Linux `{linux}`"] if linux_jobs else []
     if not linux:
         notes.append("vars.LINUX_RUNNER names no fleet Linux runner")
@@ -145,12 +200,29 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
 
     if not rest:
         return done("")
+    # The all-nightly reservation's light runners (glaeda-nightly-only-m4pro, not the warm builder) exist for
+    # these jobs, but it is no side label, so side_route never offered it: every nightly-next run waited the
+    # whole three minutes on busy side minis and then took Blacksmith (runs 41354494707, 41355147140 and
+    # 41356701375: 186 s each, at the end of build-nightly-app, on the feed's critical path).
+    reserved = (env.get("NIGHTLY_ONLY_LABEL") or "").strip()
+    if reserved and env.get("NIGHTLY") == "1" and runners is not None and not attempt_refusal(env):
+        placed = rest[:nightly_only_free(reserved, runners, snapshot)]
+        if placed:
+            return done(f"{', '.join(placed)} take idle all-nightly runner(s) on `{reserved}`", reserved, placed)
     refusal = eligible(env)
     if refusal:
         return done(refusal)
+    if ((runners is None or problem) and env.get("NIGHTLY") == "1"
+            and env.get("NIGHTLY_WAIT_FOR_FLEET") == "1" and env.get("REQUIRE_LIVE_CAPACITY") != "1"):
+        # An exhausted routing API is not evidence of a fleet no-start. Queue
+        # these secret-free controls on the already configured owned pool,
+        # rather than turn a missing observation into permission for paid work.
+        # This is not a reservation or a bounded no-start overflow mechanism.
+        # `rest` excludes Linux-only work (in particular the signer compiler).
+        return done("capacity unknown; portable nightly controls queue on the owned fleet",
+                    env["SIDE_LABEL"].strip(), rest)
     if runners is None:
         return done("the runners could not be read, so no mini is known to be free")
-    problem = pool.snapshot_problem(snapshot, now)
     if problem:
         return done(f"{problem}, so no mini is known to have no nightly job waiting")
     label = env["SIDE_LABEL"].strip()
@@ -159,7 +231,7 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
     if not route:
         return done(f"no online runner carries `{label}` or a wider class of it")
     waiting = nightly_waiting(snapshot, route)
-    if waiting:
+    if waiting and env.get("NIGHTLY") != "1":
         return done(f"{waiting} nightly or release job(s) wait on `{family(route)}`, so its minis take none")
     idle = pool.live_owned_free(runners, [route])[route]
     free = max(0, idle - queued_on(snapshot, route))
@@ -175,12 +247,15 @@ def delimited(jobs: Sequence[str]) -> str:
     return f" {' '.join(jobs)} " if jobs else ""
 
 
-def read(env: Mapping[str, str], now: dt.datetime
+def read(env: Mapping[str, str], now: dt.datetime, *, use_state: bool = True
          ) -> tuple[Sequence[Mapping[str, Any]] | None, Mapping[str, Any] | None]:
     """The runners (routing App, then cmux-bot) and the janitor's pool snapshot; None when unread."""
     repo = env.get("GITHUB_REPOSITORY", "")
     runners = snapshot = None
-    if not repo or eligible(env):
+    # The all-nightly reservation is no side label: a nightly run that offers it reads capacity even with no
+    # side label to offer (decide's reservation-route placement), still only on an attempt that may move.
+    reserved = env.get("NIGHTLY") == "1" and bool((env.get("NIGHTLY_ONLY_LABEL") or "").strip())
+    if not repo or (eligible(env) and not (reserved and not attempt_refusal(env))):
         return runners, snapshot
     retries = pool.RetryBudget(1)
     for name in ("ROUTE_TOKEN", "ROUTE_TOKEN_FALLBACK"):
@@ -188,7 +263,8 @@ def read(env: Mapping[str, str], now: dt.datetime
         if not token:
             continue
         try:
-            runners = pool.GitHub(token, repo, retry_cap=side.SIDE_RETRY_CAP_SECONDS, retries=retries).runners()
+            client = pool.GitHub(token, repo, retry_cap=side.SIDE_RETRY_CAP_SECONDS, retries=retries)
+            runners = client.runners(use_state=use_state)
             break
         except Exception as error:  # noqa: BLE001 - fail open: every job keeps Blacksmith
             print(f"::warning title=portable placement::could not list runners with {name} ({error})")
@@ -223,10 +299,37 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     now = dt.datetime.now(dt.timezone.utc)
     try:
         signal.signal(signal.SIGALRM, timeout)
-        signal.setitimer(signal.ITIMER_REAL, DEADLINE_SECONDS)
+        # Nightly controls wait for fleet capacity before using paid overflow.
+        # This is placement only: it never cancels a started job or run. Other
+        # callers keep their immediate placement behavior.
+        wait_seconds = 180 if env.get("NIGHTLY_WAIT_FOR_FLEET") == "1" else 0
+        signal.setitimer(signal.ITIMER_REAL, DEADLINE_SECONDS + wait_seconds)
         runners, snapshot = read(env, now)
+        # Waiting is safe only when both runner inventory and the janitor snapshot
+        # are fresh. Unknown or stale capacity must take the bounded Blacksmith
+        # overflow immediately; it must never queue every job on an owned label.
+        if wait_seconds and (runners is None or pool.snapshot_problem(snapshot, now)):
+            wait_seconds = 0
+        stop = time.monotonic() + wait_seconds
+        placed = decide(env, runners, snapshot, now)
+        wanted = set((env.get("JOBS") or "").split())
+        if env.get("REQUIRE_LIVE_CAPACITY") != "1":
+            wanted -= set((env.get("LINUX_ONLY") or "").split())
+        while wait_seconds and not wanted.issubset(set(placed.linux_jobs + placed.mini_jobs)):
+            remaining = stop - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(30, remaining))
+            now = dt.datetime.now(dt.timezone.utc)
+            runners, snapshot = read(env, now, use_state=False)
+            placed = decide(env, runners, snapshot, now)
+            # A re-read that can no longer see capacity (a refused or rate-limited
+            # API, a stale snapshot) ends the wait, as an unread first read does:
+            # waiting out the rest of the three minutes cannot place anything.
+            if runners is None or pool.snapshot_problem(snapshot, now):
+                break
         signal.setitimer(signal.ITIMER_REAL, 0)
-        write(decide(env, runners, snapshot, now), env)
+        write(placed, env)
     except Deadline:
         write(decide(env, None, None, now), env)
     finally:

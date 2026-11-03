@@ -362,9 +362,10 @@ test("an image in the text that cannot be drawn says so, with Retry and Remove t
   expect(fallback()?.querySelector(".acpmux-attachment-failed-text")?.textContent).toBe(translate("image.failed"));
   expect(inlineChip(IMAGE.id)!.querySelector("img")).toBeNull();
   // Retry draws it again.
-  const retry = [...fallback()!.querySelectorAll<HTMLButtonElement>("button")].find(
-    (button) => button.textContent === translate("composer.retryAttachment"),
-  );
+  // One small retry glyph button, named Retry, never a text link.
+  const retry = fallback()!.querySelector<HTMLButtonElement>(".acpmux-attachment-retry") ?? undefined;
+  expect(retry?.getAttribute("aria-label")).toBe(translate("composer.retryAttachment"));
+  expect(retry?.textContent).toBe("");
   expect(retry).toBeDefined();
   await act(async () => retry!.click());
   await until(() => !!inlineChip(IMAGE.id)?.querySelector("img"));

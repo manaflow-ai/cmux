@@ -9,8 +9,8 @@ import CmuxNextDesign
 import Foundation
 import Testing
 
-/// Both suites drive one same-tree daemon each through process-wide state (`SidebarDocStore.current`,
-/// `SidebarDocWiring.docSections`, `PendingWorkspaceRows.shared`), which follows the last app services started:
+/// Both suites drive one same-tree daemon each through process-wide state (`services.sidebarDoc.store`,
+/// `services.sidebarDoc.docSections`, `PendingWorkspaceRows.shared`), which follows the last app services started:
 /// run side by side, one suite's sidebar read the other's placement setting and anchors. One at a time.
 @MainActor @Suite(.serialized)
 struct CmdNRowSlotSuites {
@@ -36,8 +36,8 @@ struct CmdNRowSlotSuites {
             let controller = try #require(services.windows.controller(for: window))
             let state = controller.state
             let list = controller.sidebar.container.sidebarView.list
-            await RapidWorkspaceCreateTests.wait(within: .seconds(30)) { SidebarDocStore.current?.shown != nil }
-            try #require(SidebarDocStore.current?.shown != nil, "the same-tree daemon serves the sidebar document")
+            await RapidWorkspaceCreateTests.wait(within: .seconds(30)) { services.sidebarDoc.store?.shown != nil }
+            try #require(services.sidebarDoc.store?.shown != nil, "the same-tree daemon serves the sidebar document")
             func rows(_ layout: SidebarLayout) -> [String] {
                 layout.rows.compactMap { if case let .workspace(id) = $0.key { id.rawValue } else { nil } }
             }
@@ -71,7 +71,7 @@ struct CmdNRowSlotSuites {
 
             var frames: [[String]] = []
             var tags: [String] = []
-            let doc = try #require(SidebarDocStore.current)
+            let doc = try #require(services.sidebarDoc.store)
             let intentBefore = doc.lastIntentKey
             list.onApply = { layout in
                 let frame = rows(layout)
@@ -89,7 +89,7 @@ struct CmdNRowSlotSuites {
                     return doc.records.items[shownItems[ref] ?? ""] != nil ? "+s+r" : "+s"
                 }
                 tags.append(" v\(doc.version)/\(doc.shownVersion) " + frame.map { id in
-                    let item = SidebarDocWiring.item(workspace: id, services.machines) != nil ? "+d" : ""
+                    let item = services.sidebarDoc.item(workspace: id) != nil ? "+d" : ""
                     let pending = PendingWorkspaceRows.shared.rows(in: window).contains { $0.id == id } ? "+pend" : ""
                     let placing = services.windows.pendingPlacements[id] != nil ? "+placing" : ""
                     let daemon = services.windows.newPlacements.placedByDaemon.contains(id) ? "+daemon" : ""
@@ -143,8 +143,8 @@ struct CmdNRowSlotSuites {
             let controller = try #require(services.windows.controller(for: window))
             let state = controller.state
             let list = controller.sidebar.container.sidebarView.list
-            await RapidWorkspaceCreateTests.wait(within: .seconds(30)) { SidebarDocStore.current?.shown != nil }
-            try #require(SidebarDocStore.current?.shown != nil, "the same-tree daemon serves the sidebar document")
+            await RapidWorkspaceCreateTests.wait(within: .seconds(30)) { services.sidebarDoc.store?.shown != nil }
+            try #require(services.sidebarDoc.store?.shown != nil, "the same-tree daemon serves the sidebar document")
             func rows(_ layout: SidebarLayout) -> [String] {
                 layout.rows.compactMap { if case let .workspace(id) = $0.key { id.rawValue } else { nil } }
             }
@@ -164,7 +164,7 @@ struct CmdNRowSlotSuites {
             try #require(loose.count >= 3, "rows before grouping: \(seeded)")
             let members = Array(loose.prefix(2))
             // The sidebar's New Group of both; a refusal shows in the message below.
-            let doc = try #require(SidebarDocStore.current)
+            let doc = try #require(services.sidebarDoc.store)
             var refused: [String] = []
             let previousRefused = doc.onRefused
             doc.onRefused = { refused.append($0); previousRefused($0) }
@@ -215,7 +215,7 @@ struct CmdNRowSlotSuites {
                 tags.append(fresh.map { id in
                     let pending = PendingWorkspaceRows.shared.rows(in: window).contains { $0.id == id } ? "+pend" : ""
                     let provisional = services.machines.workspace(id: id)?.0.isProvisional == true ? "+prov" : ""
-                    let item = SidebarDocWiring.item(workspace: id, services.machines) != nil ? "+d" : ""
+                    let item = services.sidebarDoc.item(workspace: id) != nil ? "+d" : ""
                     let placing = services.windows.pendingPlacements[id] != nil ? "+placing" : ""
                     let lag = doc.version != doc.shownVersion ? "+lag" : ""
                     let sent = doc.lastIntentKey != intentBefore ? "+sent" : ""

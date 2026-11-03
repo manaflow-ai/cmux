@@ -10,12 +10,13 @@ import CmuxNextFiles
 import CmuxNextPages
 import CmuxNextSettings
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// The Settings page's real provider, writer and renderer, with an isolated config file.
 /// A preview must reach an already-mounted indicator before the bridge answers; a committed
 /// value and its reset must reach both native type and the first-party page's CSS scale.
-@MainActor @Suite(.serialized) struct SettingsLiveAppearanceTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SettingsLiveAppearanceTests {
     private func withPage(_ body: (SettingsPageProvider, SettingsController) async throws -> Void) async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "settings-live-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -179,8 +180,8 @@ import Testing
                 view.frame = NSRect(x: CGFloat(index) * 400, y: 0, width: 400, height: 300)
                 root.addSubview(view)
             }
+            defer { window.closeAfterTest() }
             window.orderFront(nil)
-            defer { window.orderOut(nil) }
             let collection = try #require((grid.view as? NSScrollView)?.documentView as? NSCollectionView)
             let table = try #require((list.view as? NSScrollView)?.documentView as? NSTableView)
             let places = try #require((sidebar.view as? NSScrollView)?.documentView as? NSTableView)

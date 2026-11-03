@@ -130,18 +130,28 @@ the views in the window when its live resize starts and ends, so a host view tha
 (`CEFLayerHosting.windowDidChange`) takes the new window's `inLiveResize` (review 3: a view parked during a live
 resize kept the live-resize wait for every later pane resize).
 
+Divider drags (cmux#26037): Debug Settings `browserResize.dragResize` has a fourth mode, `resizeSync`. The page lays
+out live, and from the drag's first move until its release landed (`PaneResizeGestureFollowing`, the same start and
+end `hold` uses) `CEFLayerHosting.paneResizeDrag` gives every page window over the dragged pane (the page's and a
+docked DevTools'), hosted or not, `browserResize.dragResizeDeadline` (16 ms) under the half-frame cap. The cap is the
+answer to review 1's open point for drags: half the shortest display frame keeps each commit inside its display
+link's target time, so a frame the page misses shows its last frame instead of dropping the app's. Only the drag and
+its landing wait; a spring the drag did not start keeps the pane deadline. Below API 27 the mode is `live`. Still
+open: the split_resize numbers for `resizeSync` against `live`, `hold` and `synced` on one host, which need the
+API 27 pin and the harness's variants, before it can be the default.
+
 ## 3. Features, status
 
 | Feature | Expected with hosting | Status |
 |---|---|---|
-| Mouse, scroll, hover | page window (input target) as today | open (verify the explicit `ignoresMouseEvents` on a no-pixel window) |
-| Keyboard, IME, focus | page window is key, as today | open |
-| Context menus, select popups, bubbles | own windows, as today | open |
+| Mouse, scroll, hover | page window (input target) as today | verified on screen 2026-11-02, cmux.40, both modes (`cef-layer-verify.py --input cua`, fleet step 6bd2fe6a): `click`, `scroll`, `drag` |
+| Keyboard, IME, focus | page window is key, as today | keys verified on screen 2026-11-02, cmux.40, both modes (`cef-layer-verify.py --input cua`, fleet step 6bd2fe6a): `keys`; IME open |
+| Context menus, select popups, bubbles | own windows, as today | verified on screen 2026-11-02, cmux.40, both modes (`cef-layer-verify.py --input cua`, fleet step 6bd2fe6a): `context`, `select.popup`, `select.click`; bubbles open |
 | Accessibility | page window AX tree; `CmuxApplication` maps windows | open |
-| DevTools docked or in its own cmux window | its own page window over its own `CEFHostView` (`CEFDevToolsController.views.host`), so its own context: hosted from `opened` (end of that turn); a tunable change applies at the next open; close turns it off (`removeViews`) | code in, not run (fork API 26 build pending) |
+| DevTools docked or in its own cmux window | its own page window over its own `CEFHostView` (`CEFDevToolsController.views.host`), so its own context: hosted from `opened` (end of that turn); a tunable change applies at the next open; close turns it off (`removeViews`) | docked: verified on screen 2026-11-02, cmux.40, both modes (`cef-layer-verify.py --input cua`, fleet step 6bd2fe6a): `devtools.hosted`, `devtools.pixels`, `devtools.click`; in its own cmux window open |
 | Drag and drop | page window is the drag destination and source | open |
 | Full screen | host layer moves with the cmux window; tracker follows | open |
-| Popup windows | a popup host (`adoptPopup` placeholder window) asks like any pane host (`CEFPaneHost.windowCreated` makes no exception for `isPopupHost`); extension popup windows that attach later (API 13 trackers) are not hosted | open (not verified on screen) |
+| Popup windows | a popup host (`adoptPopup` placeholder window) asks like any pane host (`CEFPaneHost.windowCreated` makes no exception for `isPopupHost`); extension popup windows that attach later (API 13 trackers) are not hosted | `window.open`: verified on screen 2026-11-02, cmux.40, both modes (`cef-layer-verify.py --input cua`, fleet step 6bd2fe6a): `popup.hosted`, `popup.pixels`, `popup.click`; extension popups open |
 
 ## 4. Risks
 
@@ -166,3 +176,74 @@ resize kept the live-resize wait for every later pane resize).
    for a STRESS workspace). Measure input to commit for both directions with the `action.perform`/`action.commit`
    signposts, light and STRESS, then remove the show side (the input window stays ordered in, or moves off screen).
 4. Default on, after parity.
+
+## 6. Measured: hosting off vs on, fork API 30 (2026-11-01)
+
+Build: feat-cmux-next a3c23b79cc5b (with resize sync, #26595) and the engine pinned to cef-154.0.28-cmux.36 (fork API 30,
+`cmux/8037-helper-items`), measurement only: cmux.36 lacks the cmux.38 CVE backport, so it is not a shipping pin. Fleet
+minis in a console session at 60 Hz, a DEV build of the commit (Debug). Steps (fleet `cmux-ci run` ids): A/B
+0e2cfd8e23254fe2a40fdf6b and 93a389c596317f756c8582fa (STRESS on a 1920x1200 virtual display), divider drags
+6497317fab135acce2c326a3, ec26f2b5d8d1c37b906b057c and 2720dca1c3486b2a91bf93d5. One run per mode unless n says
+otherwise: read these as a direction, not a budget.
+
+| metric | off (child window) | on (hosted) | delta | harness |
+|---|---|---|---|---|
+| mode is real (verify `valid`, `hosted`, `hosted.fork`) | pass, page window holds the CALayerHost | pass: fork_api 30, hosted_pages >= 1, CALayerHost in the hosted context, 0 in the page window | | `cef-layer-verify.py --checks hosted` |
+| tab switch, Chromium, 2 tabs click: e2e / commit median | 32.3 / 19.2 ms | 20.0 / 12.0 ms | -12 / -7 ms | `tab-switch-matrix.py --kinds chromium` |
+| tab switch, Chromium, 10 tabs Ctrl-Tab: e2e / commit median | 21.0 / 20.0 ms | 18.6 / 17.1 ms | -2 / -3 ms | same |
+| tab switch, Chromium, 10 tabs click: commit median (two hosts) | 17.4, 19.9 ms | 12.7, 15.4 ms | -5 ms | same |
+| workspace switch to a Chromium workspace, click: input to commit p50 / p95 | 27.7 / 54.0 ms | 27.8 / 46.1 ms | even | `sidebar-stress-bench.py switch_matrix` |
+| light (1x2, 4x2, page top left) split / close / drag: missed frames, 3 rounds | 6 / 2 / 0 (1x2), 4 / 2 / 5 (4x2) | 5 / 3 / 0, 5 / 4 / 7 | +0-2 | `pane-perf-terminal.py --browser` |
+| light 4x2 drag, missed frames, 3 rounds, second host | 27 | 71 | +44 (not seen on the first host, nor in the resize bench: 19 off, 14 on) | same |
+| STRESS split / close / column / column-close / drag: missed frames | 9 / 9 / 19 / 12 / 77 | 10 / 9 / 23 / 13 / 78 | +0-4 | `cef-resize-sync-bench.py` |
+| STRESS column-close: longest frame | 83 ms | 256 ms (syncDeadline 0: 243 ms) | +173 ms, one run | same |
+| STRESS with syncDeadline 0 (`on0`) missed frames, same actions | | 9 / 7 / 18 / 13 / 77 | equals off | same |
+| divider drag beside a page, layout lag p95: median / max of 9 runs | live 0.65 / 26.2 ms | live hosted 9.6 / 9.7 ms | | `split-resize-bench.py` |
+| same, resize sync (`dragResize` resizeSync) | 0.84 / 9.6 ms | 1.98 / 9.7 ms | max -16.5 ms vs live | same |
+| same, app frames dropped per drag (mean of 9) | live 1.67, resizeSync 1.67 | live 1.0, resizeSync 1.56 | even | same |
+
+What this says:
+- Hosting costs no frames in light layouts and at most a few in STRESS, and makes Chromium tab switches 3-7 ms faster
+  to commit (up to 12 ms end to end). The one large miss (a 256 ms column-close frame in STRESS) is one run, and it shows with syncDeadline 0
+  too, so it is not the resize wait.
+- Resize sync caps how far a page lags a dragged divider: the worst p95 of 9 runs is 9.6 ms against 26 ms for live,
+  with no more dropped app frames. `hold` lags 194-226 ms; `synced` is close to resize sync, but it is a launch switch
+  that waits up to 500 ms.
+- Not proven: the verify rows that read pixels or deliver input (`pixels.*`, `show.again`, `click`, `keys`, `scroll`,
+  `drag`, `context`, `resize.top`) fail the same way in mode off on the fleet minis. Window images there hold no
+  Chromium pixels, `screencapture` writes nothing (no Screen Recording grant), and no posted event reaches the page.
+  They need a host with those grants before hosting can default on (section 3's open rows stay open).
+
+Harness fixes made for these runs (same PR): `cef-layer-verify.py --tunables build` read the file path from
+`debug.tunables set`, whose reply is the tunable's row (it now reads `state`), so every A/B run refused to bench.
+It now starts from an empty saved session and writes the mode before launch. show.again goes back to the probe's
+own workspace by id; `workspace.selectFirst` showed the launch's workspace, so every later row read no page. The A/B
+validity gate is the three mode rows, and show.again is recorded. `bench_launch.py` keeps the build's Debug Settings
+file when it moves the saved session aside, so the mode the A/B set still applies.
+
+Remaining before default on (as of 2026-11-01; 2026-11-02 status below):
+1. A shipping pin at fork API >= 27 with the CVE fix: cmux.39 (the API 30 line rebased on the cmux.38 security
+   line). Until then the tunable and resize sync are inert for users (cmux.38 is API 24).
+2. Pixel and input rows on a host with Screen Recording and event posting, both modes.
+3. STRESS column-close, more runs; if the long frame holds, trace it (page-window show and order churn, slice 3).
+4. The post-commit GPU wait (section 1): the fork still calls `Synchronize()` at a 0 deadline.
+5. Popups and DevTools in hosted mode on screen (section 3).
+
+Status 2026-11-02 (engine cef-154.0.34-cmux.40: the cmux.38 security line plus fork API 30):
+1. The pin: #31610. cmux.40 is released; it lands once its archives and the remote browser host are in the cmux-cef
+   R2 bucket.
+2. Done. `cef-layer-verify.py --input cua` drives HID input and reads the display through the capture minis'
+   CuaDriver, which holds Accessibility and Screen Recording. Fleet step 6bd2fe6a: 19 of 20 rows
+   pass in both modes. `pixels.window` fails in both: the app's own window image never holds Chromium's pixels, so
+   `pixels.screen` is the evidence. `resize.top` mid-resize shows the red bar 6-12 px below the top edge in mode on
+   against 2 px off (three runs). That is inside the row's tolerance, and it is the one place on lags off.
+3. Not hosting. Two valid STRESS runs per mode on cmux.40 (steps f24f2c78, 5ca225c9): column-close longest frame
+   380-570 ms off, 492-560 ms on, 481-557 ms on0, with 11-13 missed frames in every mode. The long frame is the STRESS
+   layout's own cost (slice 3 stays the follow-up).
+4. Fixed in the fork for a 0 deadline: cmux.40 skips `Synchronize()` then (fork 7e500143). For a hosted page's
+   deadline, on (8 ms) and on0 (0 ms) match in light and STRESS, so the post-commit wait costs no measurable frames.
+5. Done for `window.open` popups, `<select>` popups and docked DevTools (item 2's step). Still open: DevTools in its
+   own cmux window, and extension popups.
+Idle (`idle-budget.py`, step f5c96d2c, 60 s settle and 60 s window): app wakeups per second 2.9 off / 2.0 on in the light
+session and 8.0 / 7.8 in STRESS-static; the GPU and renderer processes are within 1/s.
+

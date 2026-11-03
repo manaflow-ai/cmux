@@ -10,12 +10,12 @@ import Testing
     @Test func cmuxModelServiceRefusalIsPlain() {
         let copy = TurnFailureCopy(message: Self.routerForbidden, harness: "cmux", harnessName: "Cmux")
         #expect(copy.kind == .modelServiceUnavailable)
-        #expect(copy.sentence == "cmux's model service isn't available for this team yet.")
+        #expect(copy.sentence == "cmux's model service isn't available for this team.")
         #expect(copy.detail == Self.routerForbidden)
         // Same refusal, harness unknown: the message names the router.
         #expect(TurnFailureCopy(message: Self.routerForbidden).kind == .modelServiceUnavailable)
         let machine = #"API Error: 403 {"error":{"code":"auth.forbidden","message":"machine installs cannot use the model router yet"}}"#
-        #expect(TurnFailureCopy(message: machine, harness: "cmux").sentence == "cmux's model service isn't available here yet.")
+        #expect(TurnFailureCopy(message: machine, harness: "cmux").sentence == "cmux's model service isn't available here.")
     }
 
     @Test func relayErrorsSayWhatToDo() {

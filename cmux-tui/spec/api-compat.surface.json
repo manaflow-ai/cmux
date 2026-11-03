@@ -7719,6 +7719,25 @@
         "required": true
       }
     },
+    "request:cloud-environment": {
+      "/access_token": {
+        "ty": "string",
+        "required": true
+      },
+      "/action": {
+        "ty": "string",
+        "required": true
+      },
+      "/params": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      },
+      "/platform_origin": {
+        "ty": "string",
+        "required": true
+      }
+    },
     "request:cloud-host-replica-clear": {
       "/purge": {
         "ty": "boolean"
@@ -9936,6 +9955,22 @@
         "ty": "uint16",
         "nullable": true
       },
+      "/split": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/split/direction": {
+        "ty": "string",
+        "required": true
+      },
+      "/split/pane_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/split/split_id": {
+        "ty": "string",
+        "nullable": true
+      },
       "/title": {
         "ty": "string",
         "nullable": true
@@ -10996,6 +11031,16 @@
       },
       "/include/*": {
         "ty": "string"
+      }
+    },
+    "request:set-attach-visibility": {
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/visible": {
+        "ty": "boolean",
+        "required": true
       }
     },
     "request:set-cell-pixels": {
@@ -12635,6 +12680,12 @@
       }
     },
     "response:cloud-conversation-unsubscribe": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:cloud-environment": {
       "/data": {
         "ty": "json",
         "required": true
@@ -20051,6 +20102,12 @@
       },
       "/data/write_path/writer_registry_locks": {
         "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:set-attach-visibility": {
+      "/data/viewers": {
+        "ty": "uint32",
         "required": true
       }
     },

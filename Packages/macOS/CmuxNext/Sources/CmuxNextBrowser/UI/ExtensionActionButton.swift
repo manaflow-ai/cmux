@@ -74,7 +74,8 @@ final class ExtensionActionButton: ClickableButton, PointerHoverReporting {
             icon.size = NSSize(width: size, height: size)
             image = icon
         } else {
-            let icon = NSImage.icon(.browserToolbarExtensions, size: OmnibarStyle.toolbarIconSize)
+            // The button's side: the glyph is a bitmap, so a smaller one would be stretched up (REOPEN-F7).
+            let icon = NSImage.icon(.browserToolbarExtensions, size: size)
             icon.accessibilityDescription = action.name
             image = icon
         }

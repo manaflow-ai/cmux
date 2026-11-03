@@ -1,11 +1,12 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Leo 2026-10-27, on the hover ✕: "this one, not so much ... Here, I'll just highlight what Chrome has"
 /// (`SidebarRowCloseSpot`). Also the two-workspace sidebar other tests draw (`sidebar()`, `withCloseSpot`).
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarRowCloseSpotTests {
     static let shown = WorkspaceID("tg-shown"), other = WorkspaceID("tg-other")
     static let first = TabID("tg-tab-1"), second = TabID("tg-tab-2")

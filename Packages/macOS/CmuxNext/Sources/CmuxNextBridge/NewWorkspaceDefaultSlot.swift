@@ -27,11 +27,14 @@ package struct NewWorkspaceDefaultSlot: Hashable, Sendable {
 
     /// The known machine of a current row expected in the window's workspace list.
     package var currentMachine: String?
+    /// Its creator named `placement` (`agents chat new --top`): the daemon placed it by the setting, so `move` writes even its top slot.
+    package var named = false
 
-    package init(placement: NewWorkspacePlacement, current: String?, currentMachine: String? = nil) {
+    package init(placement: NewWorkspacePlacement, current: String?, currentMachine: String? = nil, named: Bool = false) {
         self.placement = placement
         self.current = current
         self.currentMachine = currentMachine
+        self.named = named
     }
 
     /// The current row is expected in this machine section but is not in the
@@ -84,7 +87,7 @@ package struct NewWorkspaceDefaultSlot: Hashable, Sendable {
     /// not know is moved to: inside the current workspace's group, after the window's current one.
     package func move(for id: String, section: SectionID, in sections: [SidebarRowSection], home: String?, catchingUp: Bool = false) -> WorkspaceSlot? {
         guard let slot = slot(for: id, section: section, in: sections, home: home, catchingUp: catchingUp) else { return nil }
-        if slot == Self.top(for: id, section: section, in: sections, home: home) { return nil }
+        if !named, slot == Self.top(for: id, section: section, in: sections, home: home) { return nil }
         return slot
     }
 

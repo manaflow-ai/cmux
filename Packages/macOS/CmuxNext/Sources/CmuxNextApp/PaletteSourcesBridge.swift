@@ -15,7 +15,7 @@ enum PaletteSourcesBridge {
         // kind and the agent chats join the palette's own sources. Cmd-P lists only the open items. Agent chats
         // and agent sessions also make up the Chats & agents scope.
         sources.searchContributions = HistoryPalettePages.searchContributions(services) + [
-            PaletteSearchContribution(id: "agentChats", title: AgentChatsPaletteStrings.title, order: 30, searchesChats: true) { [weak services] in
+            PaletteSearchContribution(id: "agentChats", title: AgentChatsPalettePage.title, order: 30, searchesChats: true) { [weak services] in
                 services.map { AgentChatsPalettePage(services: $0).page() }
             },
         ]
@@ -157,7 +157,7 @@ enum PaletteSourcesBridge {
             guard let (workspace, daemon) = services.machines.workspace(id: id), let key = workspace.key else { return }
             guard !HomeRules.isHome(workspace) else { return services.registry.refuse(RefusalStrings.homeNotClosable) }
             let terminals = WorkspaceClose.closing(workspace, on: daemon)
-            daemon.send("close-workspace") { connection in try await WorkspaceClose.close(key, terminals: terminals, on: connection) }
+            daemon.send("close-workspace") { connection in try await WorkspaceClose.close(key, terminals: terminals, on: connection, awaitingReplyOn: daemon) }
         }
     }
 

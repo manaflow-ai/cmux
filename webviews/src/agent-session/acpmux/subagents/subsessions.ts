@@ -17,8 +17,13 @@ export type SubsessionState = "working" | "input" | "failed" | "done";
 
 export type SubsessionInfo = {
   sessionId: string;
+  /// Its harness identity, used by every session list and card.
+  harness?: string;
   /// Its short name, else its title.
   name: string;
+  /// Its title (what the chat is about), when it has one apart from `name`: a finished task's line
+  /// in its parent's transcript names it by this (conversation/TaskLine.tsx).
+  title?: string;
   state: SubsessionState;
   /// Its last turn ended and nobody has looked at it yet.
   unread?: true;
@@ -45,6 +50,57 @@ export type SubsessionInfo = {
   /** Why its turn failed, while it is failed (acpmux's `lane.error`). */
   error?: string;
 };
+
+/// The user-facing name for a session. Keep the raw id in `session.name` for matching and
+/// diagnostics, but never expose an opaque optchat id as the identity in a row.
+export function subsessionDisplayName(t: Translate, session: Pick<SubsessionInfo, "name" | "sessionId">): string {
+  return session.name === session.sessionId || /(?:^|\/)optchat-[0-9a-f]{8,}(?:-[0-9a-f]+)*$/iu.test(session.name)
+    ? t("tray.kind.subagent")
+    : session.name;
+}
+
+/// A subagent's name as a line shows it: until a record names it (history paged in after its spawn
+/// carries none), its name is its raw `<session>/<tool call>` id, which the fold keeps for routing
+/// and the line shows as the localized "Subagent" instead (Leo, 2026-10-22, on "Subagent finished:
+/// 01a15779-…/toolu_01H9…": "this needs to be rendered better"). A raw id is Claude's
+/// `<session>/<tool call>` or Codex's bare thread UUID; a name equal to any other id is a real
+/// name a record gave it, so it stays.
+export function subagentDisplayName(
+  t: Translate,
+  agent: { id: string; name: string; task?: string; kind?: string; prompt?: string },
+): string {
+  return namedBy(agent, agent.name) ?? fallbackName(agent) ?? t("tray.kind.subagent");
+}
+
+/// A subagent's label on the running tray's line: what it was asked to do (Claude's Agent
+/// `description`, a workflow's summary), as Claude Code's and ChatGPT's task rows name a task; else
+/// its name; "Subagent" only when nothing names it (Leo, 2026-11-02, on a done line that read just
+/// "Subagent": "this running thing now looks mildly awkward"). Its name stays in the tooltip.
+export function subagentTaskLabel(
+  t: Translate,
+  agent: { id: string; name: string; task?: string; kind?: string; prompt?: string },
+): string {
+  return namedBy(agent, firstLine(agent.task)) ?? subagentDisplayName(t, agent);
+}
+
+/// `text` when it names the subagent: not empty and not one of its raw ids.
+function namedBy(agent: { id: string; name: string }, text: string | undefined): string | undefined {
+  if (!text) return undefined;
+  const rawId = agent.id.includes("/") || /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(agent.id);
+  return (text === agent.id && rawId) || /(?:^|\/)toolu_[0-9A-Za-z]+$/u.test(text) ? undefined : text;
+}
+
+/// What still names a subagent its record left unnamed: its task, the first line of what it was
+/// asked, then its kind (Explore, general-purpose).
+function fallbackName(agent: { id: string; name: string; task?: string; kind?: string; prompt?: string }) {
+  return namedBy(agent, firstLine(agent.task)) ?? namedBy(agent, firstLine(agent.prompt)) ?? namedBy(agent, agent.kind);
+}
+
+const firstLine = (text: string | undefined) =>
+  text
+    ?.split("\n")
+    .map((line) => line.trim())
+    .find(Boolean);
 
 /// What a sub-session waiting on the person waits for, in one line: a question (and its first
 /// prompt, which the line cuts when there is no room) or a tool's permission. Only the person
@@ -84,9 +140,14 @@ export function subsessionState(entry: AcpmuxSessionEntry): SubsessionState {
 
 export function subsessionInfo(entry: AcpmuxSessionEntry): SubsessionInfo {
   const state = subsessionState(entry);
+  const name = entry.shortName || entry.displayTitle || entry.title || entry.sessionId;
+  const title = entry.displayTitle || entry.title;
   return {
     sessionId: entry.sessionId,
-    name: entry.shortName || entry.displayTitle || entry.title || entry.sessionId,
+    ...(entry.harness ? { harness: entry.harness } : {}),
+    name,
+    // A title acpmux only filled in from the session's name or id is no title of its own.
+    ...(title && title !== name && title !== entry.name && title !== entry.sessionId ? { title } : {}),
     state,
     ...(state === "done" && entry.unread ? { unread: true as const } : {}),
     ...(entry.queued ? { queued: entry.queued } : {}),
@@ -156,6 +217,8 @@ export class SubsessionStore {
   /// sub-session card.
   private named = new Map<string, string>();
   private harnesses = new Map<string, string>();
+  /// By id, the model and thinking effort each listed chat runs on, for a sender's hover.
+  private runs = new Map<string, SenderRun>();
   private hosts = new Map<string, string>();
   /// Where each listed chat works, by id: its folder and the other machine it runs on, for the
   /// files its messages name (IncomingMessageCard.tsx), read with the same listeners.
@@ -174,42 +237,59 @@ export class SubsessionStore {
     let changed = false;
     const named = new Map<string, string>();
     const harnesses = new Map<string, string>();
-    // A name a later chat shares never takes an earlier chat's place; a live chat's name comes
-    // before an archived one's.
-    const live = [...sessions].sort((a, b) => Number(Boolean(a.archived)) - Number(Boolean(b.archived)));
-    for (const field of ["name", "shortName"] as const)
-      for (const entry of live) {
-        const name = entry[field]?.trim();
-        if (name && !named.has(name)) named.set(name, entry.sessionId);
-      }
-    // A chat on another machine is listed as `<peer>/<name>` (acpmux hub/peers.rs); its message
-    // signs with the bare name ("[chief-ui] ..."), which finds it after every chat's full name.
-    for (const entry of live) {
+    // The sending chat can arrive with only a name (no session ID). Across peers, two
+    // live chats can share that name: opening the first one would show the wrong chat.
+    // A name resolves only when it identifies exactly one live session; archived chats
+    // are a fallback when no live session uses the name. All aliases of the same session
+    // count once (its full name, short name and a peer's bare name).
+    const candidates = new Map<string, { live: Set<string>; archived: Set<string> }>();
+    const addName = (name: string | undefined, entry: AcpmuxSessionEntry) => {
+      const label = name?.trim();
+      if (!label) return;
+      let matches = candidates.get(label);
+      if (!matches) candidates.set(label, (matches = { live: new Set(), archived: new Set() }));
+      (entry.archived ? matches.archived : matches.live).add(entry.sessionId);
+    };
+    for (const entry of sessions) {
+      addName(entry.name, entry);
+      addName(entry.shortName, entry);
+      // A peer chat may be listed as `<peer>/<name>` but sign a message with the
+      // bare name. The bare alias is safe only when unique across listed chats.
       const name = entry.name?.trim();
       const bare = entry.peer && name?.startsWith(`${entry.peer}/`) ? name.slice(entry.peer.length + 1) : undefined;
-      if (bare && !named.has(bare)) named.set(bare, entry.sessionId);
+      addName(bare, entry);
+    }
+    for (const [name, matches] of candidates) {
+      const active = matches.live.size ? matches.live : matches.archived;
+      if (active.size === 1) named.set(name, active.values().next().value!);
     }
     const hosts = new Map<string, string>();
     const places = new Map<string, SenderPlace>();
+    const runs = new Map<string, SenderRun>();
     for (const entry of sessions) {
       if (entry.harness) harnesses.set(entry.sessionId, entry.harness);
+      if (entry.model || entry.effort)
+        runs.set(entry.sessionId, {
+          ...(entry.model && { model: entry.model }),
+          ...(entry.effort && { effort: entry.effort }),
+        });
       const host = cloudHost(entry);
       if (host) hosts.set(entry.sessionId, host);
       const cwd = entry.cwd?.trim();
       if (cwd || host) places.set(entry.sessionId, { ...(cwd && { cwd }), ...(host && { host }) });
     }
-    const namedKey = JSON.stringify([
-      [...named],
-      [...harnesses],
-      [...places],
-      sessions.map((entry) => entry.sessionId),
-    ]);
+    // Session-list order can change as activity or priority changes. The same identities
+    // and metadata should not notify every sender card only because rows were reordered.
+    const sorted = <T>(map: Map<string, T>) => [...map].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    const ids = new Set(sessions.map((entry) => entry.sessionId));
+    const namedKey = JSON.stringify([sorted(named), sorted(harnesses), sorted(places), sorted(runs), [...ids].sort()]);
     const renamed = namedKey !== this.namedKey;
     this.named = named;
-    this.ids = new Set(sessions.map((entry) => entry.sessionId));
+    this.ids = ids;
     this.harnesses = harnesses;
     this.hosts = hosts;
     if (renamed) this.places = places;
+    if (renamed) this.runs = runs;
     this.namedKey = namedKey;
     if (renamed) for (const listener of this.nameListeners) listener();
     for (const entry of sessions) {
@@ -254,6 +334,11 @@ export class SubsessionStore {
 
   harness(sessionId: string): string | undefined {
     return this.harnesses.get(sessionId);
+  }
+
+  /// The model and effort listed chat `sessionId` runs on, when the list names them.
+  run(sessionId: string): SenderRun | undefined {
+    return this.runs.get(sessionId);
   }
 
   /// The other machine listed chat `sessionId` runs on; undefined for this Mac's.
@@ -319,6 +404,9 @@ export function useSubsessionInfos(
 /// undefined for this Mac's).
 export type SenderPlace = { cwd?: string; host?: string };
 
+/// The model and thinking effort a listed chat runs on (its sender's hover, IncomingMessageCard.tsx).
+export type SenderRun = { model?: string; effort?: string };
+
 /// Where the chat a message came from works, while the list has it (subsessions.ts `place`).
 export function useSenderPlace(sessionId: string | undefined): SenderPlace | undefined {
   const store = useContext(SubsessionContext)?.store ?? EMPTY;
@@ -333,7 +421,7 @@ export function useSenderPlace(sessionId: string | undefined): SenderPlace | und
 export function useSenderChat(
   name: string,
   sessionId: string | undefined,
-): { sessionId?: string; harness?: string; host?: string } {
+): { sessionId?: string; harness?: string; host?: string; run?: SenderRun } {
   const store = useContext(SubsessionContext)?.store ?? EMPTY;
   const readId = () => sessionId ?? store.find(name);
   const id = useSyncExternalStore(store.subscribeNames, readId, readId);
@@ -341,5 +429,7 @@ export function useSenderChat(
   const harness = useSyncExternalStore(store.subscribeNames, readHarness, readHarness);
   const readHost = () => (id ? store.host(id) : undefined);
   const host = useSyncExternalStore(store.subscribeNames, readHost, readHost);
-  return { ...(id && { sessionId: id }), ...(harness && { harness }), ...(host && { host }) };
+  const readRun = () => (id ? store.run(id) : undefined);
+  const run = useSyncExternalStore(store.subscribeNames, readRun, readRun);
+  return { ...(id && { sessionId: id }), ...(harness && { harness }), ...(host && { host }), ...(run && { run }) };
 }
