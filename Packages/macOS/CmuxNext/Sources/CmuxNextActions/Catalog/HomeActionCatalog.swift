@@ -457,7 +457,8 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
 
     /// DEV builds only: Debug > Agent Messages Playground (the agent-message header variants live in the
     /// real Home transcript, user 2026-11-02). `style` picks a variant (0: the shipped look), `expanded`
-    /// opens the folds, `team` shows a chat with a teammate.
+    /// opens the folds, `team` shows a chat with a teammate, `open` picks what a click on an agent's pill does,
+    /// `peer` opens that agent as a click on its pill does, `dark` picks the dark look.
     private static var debugOnly: [ActionDescriptor] {
         #if DEBUG
         [
@@ -466,9 +467,12 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 keywords: ["home", "chief", "agent", "messages", "playground", "variants", "header", "fold", "debug"],
                 category: .window, symbol: "square.stack.3d.up", surfaces: [.palette, .menu],
                 arguments: [
-                    ActionArgument(name: "style", title: t("argument.home.playgroundStyle", "Header Style"), kind: .int(0...29), isRequired: false),
+                    ActionArgument(name: "style", title: t("argument.home.playgroundStyle", "Header Style"), kind: .int(0...32), isRequired: false),
                     ActionArgument(name: "expanded", title: t("argument.home.playgroundExpanded", "Expanded"), kind: .bool, isRequired: false),
                     ActionArgument(name: "team", title: t("argument.home.playgroundTeam", "Team Chat"), kind: .bool, isRequired: false),
+                    ActionArgument(name: "open", title: t("argument.home.playgroundOpen", "Pill Click"), kind: .int(0...6), isRequired: false),
+                    ActionArgument(name: "peer", title: t("argument.home.playgroundPeer", "Agent"), kind: .string, isRequired: false),
+                    ActionArgument(name: "dark", title: t("argument.home.playgroundDark", "Dark Look"), kind: .bool, isRequired: false),
                 ],
                 mainMenu: .debug, isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
