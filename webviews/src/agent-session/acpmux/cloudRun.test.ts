@@ -5,6 +5,7 @@ import {
   cloudPageRefusal,
   cloudRunsHere,
   cloudStartFolder,
+  cloudStartKeys,
   cloudStartToasted,
   newTabProjectPick,
   oneCloudStart,
@@ -214,4 +215,93 @@ test("the chosen Cloud environment travels with the start; an absent choice pres
   await startCloudChat(call, { task: "hello", home: true }, "default-start");
   expect(calls[0]?.environment).toBe("env_selected");
   expect(calls[1]).not.toHaveProperty("environment");
+});
+
+/// A `localStorage` stand-in that outlives one page's `cloudStartKeys` (a page reload makes a new one).
+function memoryStore() {
+  const items = new Map<string, string>();
+  return {
+    getItem: (name: string) => items.get(name) ?? null,
+    setItem: (name: string, value: string) => void items.set(name, value),
+  };
+}
+
+function counter() {
+  let count = 0;
+  return () => `00000000-0000-4000-8000-${String(++count).padStart(12, "0")}`;
+}
+
+test("a retry of a start whose answer was lost sends the first key again, so the host makes no second machine (#33493)", async () => {
+  const sent: unknown[] = [];
+  const call = async (_method: string, params: Record<string, unknown>) => {
+    sent.push(params.key);
+    // The create answer is lost: the host's start ended without a chat.
+    return Promise.reject({ code: "unavailable" });
+  };
+  const keys = cloudStartKeys(memoryStore(), () => 1_000, counter());
+  const start = { task: "fix it", cwd: "/Users/me/paint", harness: "codex" };
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const key = keys.keyFor(start);
+    keys.ended(start, await startCloudChat(call, start, key));
+  }
+  expect(sent).toEqual([
+    "00000000-0000-4000-8000-000000000001",
+    "00000000-0000-4000-8000-000000000001",
+    "00000000-0000-4000-8000-000000000001",
+  ]);
+});
+
+test("a start's key outlives a page reload while its answer is out, and is new once it opened a chat", () => {
+  const store = memoryStore();
+  const next = counter();
+  const start = { task: "fix it", cwd: "/Users/me/paint" };
+  const first = cloudStartKeys(store, () => 1_000, next).keyFor(start);
+  // The page reloaded mid-create: a new page, the same prompt sent again.
+  const again = cloudStartKeys(store, () => 2_000, next);
+  expect(again.keyFor(start)).toBe(first);
+  again.ended(start, { ok: true });
+  expect(again.keyFor(start)).not.toBe(first);
+});
+
+test("the cap card's Run on This Mac ends the start; a changed prompt, folder or agent is a new start", () => {
+  const keys = cloudStartKeys(memoryStore(), () => 1_000, counter());
+  const start = { task: "fix it", cwd: "/Users/me/paint", harness: "codex" };
+  const first = keys.keyFor(start);
+  expect(keys.keyFor({ ...start, task: "fix it now" })).not.toBe(first);
+  expect(keys.keyFor({ ...start, cwd: "/Users/me/other" })).not.toBe(first);
+  expect(keys.keyFor({ ...start, harness: "claude" })).not.toBe(first);
+  expect(keys.keyFor(start)).toBe(first);
+  keys.ended(start, { ok: false, code: "run_on_this_mac" });
+  expect(keys.keyFor(start)).not.toBe(first);
+});
+
+test("a kept key expires after a day, and a store that refuses writes still dedupes this page's retries", () => {
+  let now = 1_000;
+  const store = memoryStore();
+  const next = counter();
+  const keys = cloudStartKeys(store, () => now, next);
+  const start = { task: "t", home: true };
+  const first = keys.keyFor(start);
+  now += 25 * 60 * 60 * 1000;
+  expect(cloudStartKeys(store, () => now, next).keyFor(start)).not.toBe(first);
+
+  const refusing = cloudStartKeys(
+    {
+      getItem: () => null,
+      setItem: () => {
+        throw new Error("QuotaExceededError");
+      },
+    },
+    () => 1_000,
+    counter(),
+  );
+  expect(refusing.keyFor(start)).toBe(refusing.keyFor(start));
+});
+
+test("the stored entry names the start by a hash, never its prompt", () => {
+  const store = memoryStore();
+  cloudStartKeys(store, () => 1_000, counter()).keyFor({ task: "my secret plan", cwd: "/Users/me/paint" });
+  const saved = store.getItem("cmux.cloudStart.keys") ?? "";
+  expect(saved).not.toContain("secret");
+  expect(saved).not.toContain("paint");
 });

@@ -544,6 +544,8 @@ export type AcpmuxRow = {
   doingDraft?: boolean;
   untimed?: boolean;
   quietKey?: string;
+  /// When the reply `quietKey` names was written, on this page's clock (conversation/turns.ts).
+  quietAt?: number;
   /// The call in flight is a command: the line offers "⌃B to run in background" (BackgroundHint.tsx;
   /// never on the command's own row), and leads with the terminal glyph when it names it
   /// (WorkingFor.tsx).
@@ -1271,6 +1273,12 @@ const TOOL_RUN_BOTTOM = 0;
 /// grid the run adds no frame of its own (the stack's gap is the spacing), so the frame is 0.
 const LINE_FRAME = TOOL_RUN_TOP + TOOL_RUN_BOTTOM;
 const lineRow = () => LINE_FRAME + toolRowHeight();
+/// A message row (a send, SentMessageLine.tsx and AgentMessageRow.tsx; another agent's received line;
+/// a folded group's head): one tool row, and in the stacked look (conversation/messageLineLook.ts,
+/// the default) its first line's own line under it while it is shut and has one.
+const messagePreviewLine = (shown: boolean) =>
+  shown && messageLineLook() === "stacked" ? MESSAGE_PREVIEW_LINE_PT * chromeScale : 0;
+const messageRowHeight = (preview: boolean) => toolRowHeight() + messagePreviewLine(preview);
 
 /// Ordinary tool rows use the compact rhythm. Notes and specialized MCP cards keep a conservative
 /// estimate until their renderer reports its measured height (a wait can contain several three-line replies).
@@ -1296,7 +1304,8 @@ function activityStepHeight(item: AcpmuxActivity, width: number): number {
   if (!tool) return item.kind === "note" ? noteHeight(item.text, width) : 26;
   // A message to another agent (SendMessage, `acpmux send`, a sub-session's `send_message`) is one
   // line on the tool rows' line (AgentMessageRow.tsx), as every one-line row is.
-  if (agentMessage(tool)) return toolRowHeight();
+  const message = agentMessage(tool);
+  if (message) return messageRowHeight(Boolean(message.text.trim()));
   const mcp = mcpCall(tool);
   if (mcp) {
     const subsession = subsessionCall(tool, mcp);
@@ -1318,7 +1327,7 @@ function activityStepHeight(item: AcpmuxActivity, width: number): number {
       return cardHeight("working") + replyHeight(subsession.prompt) + toolRowHeight();
     // A message sent to a sub-session is the sent-message row a shell `acpmux send` draws
     // (SubsessionCallCard.tsx SentLine, SentMessageLine.tsx): one tool row.
-    if (subsession.tool === "send") return toolRowHeight();
+    if (subsession.tool === "send") return messageRowHeight(Boolean(subsession.text.trim()));
     return 40;
   }
   switch (tool.kind) {
@@ -1358,7 +1367,9 @@ function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[], width: num
 /// An entry a folded run keeps on its own line: a group starts closed there (ToolGroupRow.tsx
 /// `folded`), one line, as a sent message's row is (SentMessageLine.tsx); anything else is its calls.
 function foldedGroupHeight(group: ToolGroup, width: number): number {
-  if (group.type === "group" || group.type === "send") return toolRowHeight();
+  if (group.type === "send")
+    return messageRowHeight(group.send.state !== "failed" && Boolean(group.send.text?.trim() || group.send.file));
+  if (group.type === "group") return toolRowHeight();
   // `.cv-tool-group` lists its calls flush too.
   const items = "items" in group ? group.items : [group.item];
   return items.reduce((sum, item) => sum + activityStepHeight(item, width), 0);
@@ -2075,8 +2086,15 @@ function measuredRowHeight(
   // one-line row; opened, each sender's 22px head, then each of its messages as its own row draws
   // it, 24px in, less the frame the row gives a row, which the group has once.
   if (row.kind === LANE_NOTICE_BATCH && row.laneNoticeBatch) {
+    // Shut, a waiting inbox batch's head draws its senders under its count (stacked look); a
+    // delivered one names them only in its hover (LaneNoticeBatch.tsx `received`).
+    if (!messageOpened(sessionId, row.id)) {
+      const waiting = row.laneNoticeBatch.rows.some(
+        (member) => member.kind === "queuedMessage" || member.steer === "waiting",
+      );
+      return finish(lineRow() + messagePreviewLine(row.laneNoticeBatch.kind === "inbox" && waiting));
+    }
     const head = finish(lineRow());
-    if (!messageOpened(sessionId, row.id)) return head;
     // An inbox batch's messages sit on its own columns, with no indent (LaneNoticeBatch.css).
     const inner = row.laneNoticeBatch.kind === "inbox" ? width : width - 24;
     return (
@@ -2089,8 +2107,13 @@ function measuredRowHeight(
     );
   }
   if (row.kind === PENDING_MESSAGES && row.pendingMessages) {
+    // One message waiting draws as its own line, with no group head (PendingMessagesCard.tsx).
+    const shown = row.pendingMessages.displayRows ?? row.pendingMessages.rows;
+    if (shown.length === 1 && shown[0]!.incoming?.kind === "message")
+      return measuredRowHeight(shown[0]!, width, cache, beforeFooter, lastTurn, sessionId);
+    // Shut, its head draws the senders under the count (stacked look).
+    if (!messageOpened(sessionId, row.id)) return finish(lineRow() + messagePreviewLine(true));
     const head = finish(lineRow());
-    if (!messageOpened(sessionId, row.id)) return head;
     const senders = new Set<string>();
     let height = head;
     for (const member of row.pendingMessages.displayRows ?? row.pendingMessages.rows) {
@@ -2118,7 +2141,9 @@ function measuredRowHeight(
     // from the icon column and 10px padding across): the whole text
     // (conversation/IncomingMessageCard.tsx), its images' 128px, and Details' 24px line.
     const line = lineRow();
-    if (!messageOpened(sessionId, row.id)) return finish(line);
+    // Shut, its first line sits under the sender (stacked look); a tool's notice keeps its title
+    // on the line (IncomingMessageCard.tsx).
+    if (!messageOpened(sessionId, row.id)) return finish(line + messagePreviewLine(!row.incoming.message.notice));
     const { lineHeight } = metrics();
     const text = row.incoming.message.text;
     if (receivedPrepared.size > 256) receivedPrepared.clear();
@@ -2136,13 +2161,18 @@ function measuredRowHeight(
     // The group's head is a tool row (MessageGroupHead.tsx) on the one-line rows' line.
     const head = toolRowHeight();
     const grouped = threads.length > 1 && foldsThreads(inboxNoticeLook());
-    if (grouped && !messageOpened(sessionId, row.id)) return finish(head + LINE_FRAME);
+    if (grouped && !messageOpened(sessionId, row.id))
+      return finish(head + LINE_FRAME + messagePreviewLine(inboxNoticeLook() !== "group-count"));
     const { lineHeight } = metrics();
     if (receivedPrepared.size > 256) receivedPrepared.clear();
     let height = (grouped ? head : 0) + (threads.length > 1 && inboxNoticeLook() === "card" ? 6 : 0);
     for (const thread of threads) {
       height += line;
-      if (!messageOpened(sessionId, inboxThreadKey(row.id, thread.threadId))) continue;
+      // Shut, its preview sits under the sender (stacked look).
+      if (!messageOpened(sessionId, inboxThreadKey(row.id, thread.threadId))) {
+        height += messagePreviewLine(true);
+        continue;
+      }
       const text = thread.messages?.map((m) => m.text).join("\n\n") ?? thread.preview;
       const inset = grouped ? 24 : 0;
       height += 2 + 4 + 16 + (text ? textHeight(text, Math.max(80, width - 44 - inset), receivedPrepared) : lineHeight);
@@ -2652,6 +2682,7 @@ import { currentChatMetrics } from "./chatDisplay";
 import { messageOpened } from "./conversation/incomingOpened";
 import { inboxThreadKey } from "./conversation/inboxNotice";
 import { foldsThreads, inboxNoticeLook } from "./conversation/inboxNoticeLook";
+import { MESSAGE_PREVIEW_LINE_PT, messageLineLook } from "./conversation/messageLineLook";
 import { isDiagram, isUnlabeledLang } from "./conversation/codeShape";
 
 /// The pane's fallback accessible name and problem-only header status. A handshake that is

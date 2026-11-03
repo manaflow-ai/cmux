@@ -1250,6 +1250,26 @@ export default agentPaneEntry({
         await waitForTabJump(ctx, "tab", "tab-1");
       },
     },
+    "suggestions-overflow": {
+      note: "Matching open tabs fill the capped suggestions list in a short pane, with soft scroll edges.",
+      ready: newTab({
+        suggestionOrder: "chat",
+        omnibar: {
+          ...RELEASE_OMNIBAR,
+          tabs: Array.from({ length: 20 }, (_, index) => ({
+            id: `release-${index}`,
+            kind: "terminal" as const,
+            title: `Release build ${index}`,
+            detail: "~/src/release",
+          })),
+        },
+      }),
+      snapshot: noChat([]),
+      play: async (ctx) => {
+        await typePrompt(ctx, "release");
+        await ctx.waitFor(() => ctx.document.querySelectorAll('.nt-rows [role="option"]').length >= 6);
+      },
+    },
     "workspace-switch-animation-audit": {
       note: "Workspace switch review: type Release, choose the workspace suggestion, and wait for the native jump receipt. The play runner records settle time, layout shift, and long frames for this transition.",
       ready: newTab({

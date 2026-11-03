@@ -204,7 +204,7 @@ extension KeyRouter {
         var modelPage: PageWebView?
         if case .page(_, _) = controller.focus.state.resolved, let pane = controller.focus.state.resolved.pane,
            case .page(let view)? = controller.content?.paneController(key: pane)?.currentContent {
-            modelPage = view.content as? PageWebView
+            modelPage = PageWebView.shown(in: view.content)
         }
         return Self.keyPage(modelPage: modelPage, in: controller.window)
     }

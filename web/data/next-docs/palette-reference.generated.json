@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1278,
+    "entries": 1281,
     "shortcuts": 189
   },
   "sections": [
@@ -222,6 +222,12 @@
         {
           "id": "recentlyFocused",
           "title": "Location History…",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "home.mcpConnectPlayground",
+          "title": "MCP Connect Card Playground",
           "shortcut": null,
           "command": null
         },
@@ -6016,6 +6022,12 @@
           "command": null
         },
         {
+          "id": "agent.share.invite",
+          "title": "Invite People to Chat…",
+          "shortcut": null,
+          "command": "cmux share invite"
+        },
+        {
           "id": "palette.launchClaudeTeams",
           "title": "Launch Claude Teams",
           "shortcut": null,
@@ -6932,6 +6944,12 @@
           "title": "Add Server…",
           "shortcut": null,
           "command": "cmux servers add"
+        },
+        {
+          "id": "debug.allThemesPlayground",
+          "title": "All Themes Playground",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "layout.centerFocusedColumn.always",

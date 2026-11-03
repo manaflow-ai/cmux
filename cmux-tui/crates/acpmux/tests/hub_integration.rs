@@ -54,6 +54,8 @@ mod inbox_digest;
 mod lanes;
 #[path = "hub_integration/log_retention.rs"]
 mod log_retention;
+#[path = "hub_integration/mcp_connect.rs"]
+mod mcp_connect;
 #[path = "hub_integration/permission_display.rs"]
 mod permission_display;
 #[path = "hub_integration/permission_groups.rs"]
@@ -1003,6 +1005,7 @@ async fn family_defaults_presets_and_the_target_grammar() {
             policy: Some(PermissionPolicy::ApproveAll),
             prefer: vec!["fake-pool".into()],
             env: BTreeMap::new(),
+            permission_mode: None,
         },
     );
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();

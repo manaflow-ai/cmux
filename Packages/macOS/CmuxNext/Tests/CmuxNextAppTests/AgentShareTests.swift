@@ -53,7 +53,14 @@ struct AgentShareTests {
         #expect(share.surfacePlan.mcp?.isOffered == true)
         #expect(share.surfacePlan.contextMenus.map(\.context) == [.tab])
         #expect(share.defaultShortcut == nil)
-        for (id, name) in [(AgentShareActions.list, "share list"), (AgentShareActions.revoke, "share revoke"), (AgentShareActions.kick, "share kick")] {
+        // Invite People is the palette's, the CLI's and MCP's; it asks the owner like a link does.
+        let invite = try #require(registry.descriptor(for: AgentShareActions.invite))
+        #expect(invite.cliName == "share invite" && invite.isPaletteVisible && invite.surfacePlan.mcp?.isOffered == true)
+        #expect(invite.waitsForPerson && invite.waitsForResult)
+        #expect(invite.arguments.map(\.name) == ["account", "role", "surface", "ttl"])
+        #expect(invite.arguments.filter(\.isRequired).map(\.name) == ["account"])
+        for (id, name) in [(AgentShareActions.list, "share list"), (AgentShareActions.revoke, "share revoke"), (AgentShareActions.kick, "share kick"),
+                           (AgentShareActions.uninvite, "share uninvite")] {
             let descriptor = try #require(registry.descriptor(for: id))
             #expect(descriptor.cliName == name && descriptor.surfacePlan.mcp?.isOffered == true)
             #expect(!descriptor.isPaletteVisible, "\(id) is the share sheet's, not the palette's")
@@ -214,5 +221,59 @@ struct AgentShareTests {
         #expect(roomless["url"] == .null)
         #expect(AgentShareResults.ended(.object(["share_id": .string("s1"), "state": .string("revoked")]))
             == ["share_id": .string("s1"), "state": .string("revoked")])
+    }
+
+    /// Invites go on the chat's invite share: the newest live share of that chat that already has
+    /// invitees. A guest link with none (24 hours, one use) is left to the link, so the run makes a
+    /// share for invites instead.
+    @Test func anInviteGoesOnTheChatsInviteShare() {
+        let invitee = AgentSessionShareInvitee(account: "@theo", role: "talk", invitedAt: 1, state: "invited")
+        let removed = AgentSessionShareInvitee(account: "a@cmux.com", role: "view", invitedAt: 1, state: "removed")
+        let shares = [
+            AgentSessionShare(shareId: "link", state: "active", session: Self.session, surface: 1, createdAt: 9),
+            AgentSessionShare(shareId: "old", state: "active", session: Self.session, surface: 1, createdAt: 2, invitees: [invitee]),
+            AgentSessionShare(shareId: "new", state: "active", session: Self.session, surface: 1, createdAt: 5, invitees: [removed]),
+            AgentSessionShare(shareId: "ended", state: "revoked", session: Self.session, surface: 1, createdAt: 8, invitees: [invitee]),
+            AgentSessionShare(shareId: "other", state: "active", session: "another-chat", surface: 1, createdAt: 7, invitees: [invitee]),
+        ]
+        #expect(AgentShareInvites.inviteShare(of: Self.session, in: shares) == "new")
+        #expect(AgentShareInvites.inviteShare(of: Self.session, in: [shares[0]]) == nil, "a guest link is not the invite share")
+        // Uninvite finds every share of the chat that still invites the account, in any case.
+        #expect(AgentShareInvites.sharesInviting(" @Theo ", of: Self.session, in: shares) == ["old", "ended"])
+        #expect(AgentShareInvites.sharesInviting("a@cmux.com", of: Self.session, in: shares).isEmpty, "a removed invitee is not invited")
+    }
+
+    @Test func aRoleIsViewOrTalkAndTalkByDefault() {
+        #expect(AgentShareInvites.role(nil) == "talk")
+        #expect(AgentShareInvites.role(" View ") == "view")
+        #expect(AgentShareInvites.role("talk") == "talk")
+        #expect(AgentShareInvites.role("admin") == nil)
+    }
+
+    /// `share list` shows each share's invitees (account, role, state) and the account a guest joined as.
+    @Test func theListShowsInvitees() {
+        let share = AgentSessionShare(shareId: "s1", state: "active", session: Self.session, surface: 1,
+                                      guests: [AgentSessionShareGuest(guestId: "g1", name: "Theo", joinedAt: 3, state: "active", account: "@theo", role: "view")],
+                                      invitees: [AgentSessionShareInvitee(account: "@theo", role: "view", invitedAt: 2, state: "invited")])
+        let listed = AgentShareResults.list(AgentSessionShareList(shares: [share]))
+        guard case .array(let shares)? = listed["shares"], case .object(let fields)? = shares.first else {
+            Issue.record("list answers its shares"); return
+        }
+        #expect(fields["invitees"] == .array([.object(["account": .string("@theo"), "role": .string("view"), "invited_at": .int(2), "state": .string("invited")])]))
+        guard case .array(let guests)? = fields["guests"], case .object(let guest)? = guests.first else {
+            Issue.record("list answers its guests"); return
+        }
+        #expect(guest["account"] == .string("@theo") && guest["role"] == .string("view"))
+    }
+
+    @Test func anInviteRefusalSaysWhatToDo() {
+        let again = AgentShareStrings.failure(DaemonError.command(cmd: "agent-session-share-invite", message: "uninvite it first", code: "share.invited"))
+        #expect(again.code == "share.invited" && again.message == AgentShareStrings.alreadyInvited)
+        let shape = AgentShareStrings.failure(AgentShareBadAccount())
+        #expect(shape.code == "share.bad_request" && shape.message == AgentShareStrings.badAccount)
+        let missing = AgentShareStrings.failure(AgentShareNotInvited(account: "@theo"))
+        #expect(missing.code == "share.not_invited" && missing.message.contains("@theo"))
+        #expect(AgentShareStrings.failure(AgentShareDeclined(invite: true)).message == AgentShareStrings.inviteDeclined)
+        #expect(AgentShareStrings.failure(AgentShareDeclined()).message == AgentShareStrings.declined)
     }
 }
