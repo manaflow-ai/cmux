@@ -15,8 +15,18 @@ import kit_downloads  # noqa: E402
 
 class KitDownloadsTests(unittest.TestCase):
     def setUp(self):
+        # A private temporary folder for the whole test, so `remove`'s refusal is tried on a folder the test made,
+        # never on a real one (HOME can be inside $TMPDIR in a sandbox).
+        self.root = tempfile.mkdtemp(prefix="kit-downloads-root-")
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.root, ignore_errors=True))
+        self.outside = os.path.join(self.root, "outside")
+        os.makedirs(self.outside)
+        tmp = os.path.join(self.root, "tmp")
+        os.makedirs(tmp)
+        saved = tempfile.tempdir
+        tempfile.tempdir = tmp
+        self.addCleanup(setattr, tempfile, "tempdir", saved)
         self.folder = kit_downloads.make("kit-downloads-test-")
-        self.addCleanup(kit_downloads.remove, self.folder)
 
     def test_a_build_that_reports_no_folder_gives_no_verdict(self):
         for reply in ({"downloads": []}, {"result": {"downloads": []}}, {"error": "unknown method debug.downloads"}, None):
@@ -36,9 +46,10 @@ class KitDownloadsTests(unittest.TestCase):
         open(os.path.join(self.folder, "x.pdf"), "w").close()
         kit_downloads.remove(self.folder)
         self.assertFalse(os.path.exists(self.folder))
-        home = os.path.expanduser("~")
-        kit_downloads.remove(home)  # refused: not inside the temporary folder
-        self.assertTrue(os.path.isdir(home))
+        kit_downloads.remove(self.outside)  # refused: not inside the temporary folder
+        self.assertTrue(os.path.isdir(self.outside))
+        kit_downloads.remove(tempfile.gettempdir())  # refused: the temporary folder itself
+        self.assertTrue(os.path.isdir(tempfile.gettempdir()))
 
 
 if __name__ == "__main__":

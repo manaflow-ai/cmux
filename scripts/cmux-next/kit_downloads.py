@@ -6,6 +6,8 @@ account's ~/Downloads, where the kit must never look (macOS asks for Downloads a
 fleet Mac's screen). So the kit asks the app (`debug.downloads` reports `folder`) and refuses to run when the app
 names no folder or another one, instead of passing with no file looked at.
 """
+from __future__ import annotations  # macOS /usr/bin/python3 is 3.9: `str | None` must stay a string there
+
 import os
 import shutil
 import tempfile
@@ -36,8 +38,9 @@ def require(reply, expected: str) -> str:
     folder = reported_folder(reply)
     if folder is None:
         raise FolderMismatch(
-            f"the app reports no downloads folder (debug.downloads gave {str(reply)[:200]!r}): it is a Release build or "
-            f"older than {KEY}, so a 'nothing was downloaded' check cannot be made; no verdict")
+            f"the app reports no downloads folder (debug.downloads gave {str(reply)[:200]!r}): it did not answer, or it "
+            f"is a Release build or a Debug build older than debug.downloads' `folder`, so a 'nothing was downloaded' "
+            f"check cannot be made; no verdict")
     if os.path.realpath(folder) != os.path.realpath(expected):
         raise FolderMismatch(f"the app saves downloads to {folder!r}, not the kit's {expected!r} ({KEY} did not reach "
                              f"it); a 'nothing was downloaded' check cannot be made; no verdict")
