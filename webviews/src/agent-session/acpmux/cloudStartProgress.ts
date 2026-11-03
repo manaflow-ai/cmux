@@ -36,6 +36,8 @@ export type CloudStartProgress = {
   network?: "full" | "limited";
   /// A failure's words, the host's own.
   message?: string;
+  /// A verified plan refusal from the native host, eligible for recovery actions.
+  refusal?: "cloud_plan_required";
   /// The agent the chat starts, by name ("Claude Code"), for the opening step.
   agent?: string;
   /// No project: nothing is copied, so the card shows no copy step.
@@ -330,5 +332,10 @@ export function cloudStartEnded(
   if (current?.key !== key) return current;
   if (answer.ok) return undefined;
   const message = line(answer.message, 240);
-  return { ...current, state: "failed", ...(message ? { message } : {}) };
+  return {
+    ...current,
+    state: "failed",
+    ...(message ? { message } : {}),
+    ...(answer.code === "cloud_plan_required" ? { refusal: "cloud_plan_required" as const } : {}),
+  };
 }
