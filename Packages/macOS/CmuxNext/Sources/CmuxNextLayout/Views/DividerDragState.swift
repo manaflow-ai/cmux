@@ -5,6 +5,9 @@ import CmuxNextDesign
 struct DividerDragState {
     var kind: DividerHandleView.Kind
     var transaction: LayoutTransactionID
+    /// `motion.frameOwner.sharedEdges` (FRAME OWNER S2B) when the drag started (`DividerDrag.start`): a flip applies
+    /// from the next drag.
+    var sharedEdges = false
     var grabOffset: CGFloat
     var container: CGRect
     var axis: SplitAxis

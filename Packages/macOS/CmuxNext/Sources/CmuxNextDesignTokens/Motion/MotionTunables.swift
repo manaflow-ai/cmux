@@ -66,6 +66,17 @@ public nonisolated enum MotionTunables {
         help: "Bounce of tab, row, pane and divider springs when Animations Bounce is Subtle (0 is critically damped).",
         default: 0.15, range: 0...0.5, step: 0.01, unit: .multiplier, code: "MotionTunables.subtleBounce")
 
+    /// FRAME OWNER REFACTOR stage S2B, a kill switch (default on), latched when a divider, column-edge or row-edge drag
+    /// starts: a flip applies from the next drag. It goes once S2B's films and the first dogfood gate after it pass.
+    /// On: a drag that starts while a spring runs moves only the pane and divider edges the drag changes; every other
+    /// edge stays on its spring (a shared edge is changed for both of its panes or for neither), a release's fling seeds
+    /// only the edges it moved, and the drag measures the pointer from where its edge shows. Off: as before S2B, a drag
+    /// snaps every frame it retargets (all four edges) and measures from the rest layout.
+    public static let frameOwnerSharedEdges = Tunable<Bool>.toggle(
+        "motion.frameOwner.sharedEdges", .springs, "Shared edges (frame owner S2B)",
+        help: "On: a drag that starts while panes spring moves only the edges it changes, so two panes that share an edge show it at one place in every frame, and the dragged edge starts under the pointer. Off: a drag snaps every pane it touches to its rest place.",
+        default: true, code: "MotionTunables.frameOwnerSharedEdges")
+
     // MARK: Fades and loops
 
     /// Every timed fade is a `MotionScale` step (or 0, instant), so nothing reads slow (Leo
@@ -197,7 +208,7 @@ public nonisolated enum MotionTunables {
 
     /// Every Motion tunable, for the catalog.
     public static var all: [TunableDescriptor] {
-        MotionSpring.allCases.compactMap { springs[$0]?.descriptor } + [subtleBounce.descriptor]
+        MotionSpring.allCases.compactMap { springs[$0]?.descriptor } + [subtleBounce.descriptor, frameOwnerSharedEdges.descriptor]
             + MotionFade.allCases.compactMap { fades[$0]?.descriptor }
             + MotionLoop.allCases.compactMap { loops[$0]?.descriptor }
             + [marqueeDelay, marqueeSpeed, marqueeMinimumScroll, marqueeHold, marqueeMinimumTravel,

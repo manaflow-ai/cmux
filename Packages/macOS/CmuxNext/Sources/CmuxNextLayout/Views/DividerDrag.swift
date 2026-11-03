@@ -63,7 +63,7 @@ struct DividerDrag {
             screen.activeDrag?.modifiers = DividerDragModifiers(flags)
             if case .split = kind {
                 // The layout this release makes springs on from the pointer's velocity.
-                screen.releasedDivider = (kind, drag.releaseVelocity(at: CACurrentMediaTime()), CACurrentMediaTime())
+                screen.releasedDivider = (kind, drag.releaseVelocity(at: CACurrentMediaTime()), CACurrentMediaTime(), drag.sharedEdges)
             }
             apply(at: windowPoint, phase: .ended)
             screen.activeDrag?.hintToast?.dismiss()
