@@ -176,7 +176,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   const language = usePaneLanguage();
   const state = useSessionInfoState();
   const { shown, summary, onShowUsage } = props;
-  const contextUsage = props.usage ?? compactingUsage(summary?.usage, summary?.usageStats);
+  const contextUsage = props.usage ?? compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
   const environmentEditor = useSyncExternalStore(subscribeCloudEnvironment, cloudEnvironmentRequest);
   const cloudSession =
     props.cloudRepositoryAvailable && machineOf(summary, props.machineName, props.peerKinds).kind === "cloud"

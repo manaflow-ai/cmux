@@ -5399,6 +5399,10 @@ export class AcpmuxDirectClient {
       }
       if (Number.isFinite(used) && Number.isFinite(size) && size > 0) {
         const setup = usageSetup(update, used);
+        // A new model window (a model switch) makes the last /context's window stale until the
+        // next one arrives: the meter reads the model's own until then (compactingUsage).
+        if (this.usage && this.usage.size !== size && this.summary?.contextBreakdown)
+          this.summary = { ...this.summary, contextBreakdown: undefined };
         this.usage = setup === undefined ? { used, size } : { used, size, setup };
       }
       return;
