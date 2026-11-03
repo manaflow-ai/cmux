@@ -83,6 +83,7 @@ struct Stamp {
 static LOADED: RwLock<Loaded> = RwLock::new(Loaded {
     seen: None,
     signature: String::new(),
+    state: None,
     vars: Vec::new(),
     incomplete_at: None,
 });
