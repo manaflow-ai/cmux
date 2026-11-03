@@ -5,6 +5,7 @@ import "../../theme/messages.css";
 import type { ConnectKind, OffloadKind } from "./environments";
 import type { RunModeRows } from "./sandboxRun";
 import { useEscapingList } from "../../ui/popupHost";
+import { useScrollEdges } from "../../ui/scrollEdges";
 import { ComposerListLayer, useComposerListBox } from "./backdropLayer";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import {
@@ -124,6 +125,8 @@ import { openPicker } from "./pickerOpeners";
 import type { RepickMachine } from "./cloudRepick";
 import { SLASH_MAX_VIEWPORT_PX, slashActiveAfterScroll, slashScrollForActive, slashViewport } from "./slashViewport";
 import { compactingUsage } from "./usageStats";
+import { experimentArm } from "../../experiments/experiment";
+import { promptSuggestionLook } from "./promptSuggestionLook.experiment";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -412,6 +415,8 @@ type Props = {
   authBlock?: string;
   /// Keeps auth refusal blocking sends when its text is represented by another notice.
   authBlocked?: boolean;
+  /// A pending check disables Send and explains its tooltip without adding a temporary layout row.
+  authChecking?: boolean;
   /// Opens Session Info at its Context section: the context ring's card links to it (Details ›).
   onOpenContext?(): void;
 };
@@ -487,6 +492,7 @@ export function Composer({
   locked = false,
   authBlock,
   authBlocked = false,
+  authChecking = false,
   placeholder,
   onOpenContext,
 }: Props) {
@@ -1620,8 +1626,10 @@ export function Composer({
     if (interrupt(event)) return;
     const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
     // Tab takes the suggested prompt into the field; the next Tab moves focus on as usual. Esc puts
-    // it away for this chat (and still does whatever Esc does there).
-    if (suggested && plain && event.key === "Tab") {
+    // it away for this chat (and still does whatever Esc does there). Neither ever sends.
+    // The agent's suggestion takes Right-arrow too, as Claude Code's own prompt does: the field is
+    // empty while it shows, so the caret is at its end.
+    if (suggested && plain && (event.key === "Tab" || (agentSuggestion && event.key === "ArrowRight"))) {
       event.preventDefault();
       if (field.current) field.current.type(suggested);
       else {
@@ -1941,11 +1949,34 @@ export function Composer({
       livePullRequest,
     ],
   );
-  const suggestionKey = suggestion && `${snapshot.sessionId ?? ""}|${cwd}|${suggestion.number}`;
+  // The agent's own guess at the next prompt after a turn (Claude Code's prompt suggestions, acpmux's
+  // `prompt_suggestion`; Leo 2026-11-03: "suggested prompts that you can right arrow/tab to do stuff
+  // with"). The snapshot carries one only between turns; it is spent once the person types, or
+  // when it arrives over a draft (`agentSuggestionSpent`), and the empty field shows it as ghost text.
+  const agentSuggestion =
+    !suggestion &&
+    !shell &&
+    snapshot.promptSuggestion &&
+    !snapshot.isWorking &&
+    remote.canSend &&
+    !blockSend &&
+    !blocked?.reason
+      ? snapshot.promptSuggestion
+      : undefined;
+  const agentSuggestionKey = agentSuggestion && `${snapshot.sessionId ?? ""}|agent|${agentSuggestion.seq}`;
+  const draftShown = text !== "" || attachments.length > 0;
+  // Typing (or a draft already there) spends the agent's suggestion: emptying the field again does
+  // not bring it back. Set during render, so the keystroke that hides it never lets Tab take it.
+  const [agentSuggestionSpent, setAgentSuggestionSpent] = useState<string | undefined>();
+  if (agentSuggestionKey && draftShown && agentSuggestionSpent !== agentSuggestionKey)
+    setAgentSuggestionSpent(agentSuggestionKey);
+  const suggestionKey = suggestion ? `${snapshot.sessionId ?? ""}|${cwd}|${suggestion.number}` : agentSuggestionKey;
   // Exactly empty, as the field draws its placeholder: a typed space hides the suggestion, so Tab
   // must not take it then.
+  const suggestionOpen =
+    !dictating && suggestionKey !== suggestionDismissed && suggestionKey !== agentSuggestionSpent && !draftShown;
   const suggested =
-    suggestion && !dictating && suggestionKey !== suggestionDismissed && text === "" && attachments.length === 0
+    suggestion && suggestionOpen
       ? t(
           suggestion.kind === "failing"
             ? COMPOSER_LABELS.suggestFailing
@@ -1954,7 +1985,11 @@ export function Composer({
               : COMPOSER_LABELS.suggestOpen,
           { number: String(suggestion.number), title: suggestion.title },
         )
-      : undefined;
+      : agentSuggestion && suggestionOpen
+        ? agentSuggestion.text
+        : undefined;
+  const agentSuggested = suggested !== undefined && !suggestion;
+  const suggestionLook = experimentArm(promptSuggestionLook);
   // Focus leaving the composer closes the menu and takes back what + wrote.
   const blur = (event: React.FocusEvent<HTMLFormElement>) => {
     if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
@@ -2223,7 +2258,7 @@ export function Composer({
           {t(remote.note)}
         </p>
       )}
-      {!remote.note && authBlock && (
+      {!remote.note && authBlock && !authChecking && (
         <p className="acpmux-composer-remote-note acpmux-composer-trust-note" role="alert">
           {authBlock}
         </p>
@@ -2280,11 +2315,14 @@ export function Composer({
         field={{
           className: shell
             ? "acpmux-composer-prompt is-hidden"
-            : `acpmux-composer-prompt${dictating ? " is-dictating" : ""}`,
+            : `acpmux-composer-prompt${dictating ? " is-dictating" : ""}${agentSuggested && suggestionLook === "italic" ? " is-suggestion-italic" : ""}`,
           value: text,
           selectionKey: sessionId,
           placeholder: dictating ? t("dictation.listening") : (suggested ?? placeholderText),
-          placeholderKey: suggested && !dictating ? t(COMPOSER_LABELS.suggestionKey) : undefined,
+          placeholderKey:
+            suggested && !dictating && (!agentSuggested || suggestionLook === "keycap")
+              ? t(COMPOSER_LABELS.suggestionKey)
+              : undefined,
           attributes: {
             "aria-description": suggested ? `${suggested}. ${t(COMPOSER_LABELS.suggestionHint)}` : undefined,
             role: "combobox",
@@ -2538,13 +2576,15 @@ function SlashMenu({
   const end = virtual ? view.end : matches.length;
 
   // Above the composer, or past the window's edge when the pane has no room there (cx-6k6cg).
+  const listEdges = useScrollEdges();
   const escape = useEscapingList("top", 6, undefined, box);
   const setList = useCallback(
     (node: HTMLDivElement | null) => {
       list.current = node;
+      listEdges(node);
       escape?.(node);
     },
-    [escape],
+    [escape, listEdges],
   );
   // The menu may be squeezed below its CSS 296px cap in a short pane.
   useLayoutEffect(() => {
@@ -2591,7 +2631,7 @@ function SlashMenu({
   return (
     <div
       ref={setList}
-      className="ui-popup ui-glass acpmux-slash-menu"
+      className="ui-popup ui-glass acpmux-slash-menu ui-scroll-edge-fade"
       id="acpmux-slash-menu"
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
       role="listbox"

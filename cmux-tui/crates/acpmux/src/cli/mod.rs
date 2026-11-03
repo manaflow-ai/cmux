@@ -57,6 +57,7 @@ pub(crate) mod send_relay;
 pub mod sender;
 pub mod session_folder;
 pub mod session_inbox;
+pub mod session_search;
 pub mod session_limits;
 pub(crate) mod session_move_plan;
 pub mod session_queue;

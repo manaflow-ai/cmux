@@ -400,6 +400,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             leave_dirty,
             cwd,
             dry_run,
+            from,
         } => {
             let args = super::session_move::MoveArgs {
                 sessions,
@@ -410,6 +411,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 cwd,
                 dry_run,
                 resume_there: false,
+                from,
             };
             super::session_move::run(args, json_out).await
         }
@@ -604,7 +606,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 let (key, value) =
                     assignment.split_once('=').ok_or_else(|| anyhow!("--set expects KEY=VALUE"))?;
                 let mut cfg = Config::load()?;
-                cfg.set_session_resource(key, value)?;
+                cfg.set(key, value)?;
                 cfg.save()?;
                 // Refresh the local daemon's cached config before reporting success;
                 // a later defaults/token save must retain these resource settings.
@@ -643,6 +645,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 }
             }
             println!("# home: {}", home().display());
+            print_start_modes().await;
             Ok(())
         }
         Command::Web { no_open, show_token, rotate_token } => {
@@ -1143,6 +1146,37 @@ fn config_text_without_tokens(text: &str) -> String {
         }
     }
     serde_json::to_string_pretty(&value).unwrap_or_else(|_| HIDDEN_TOKEN.into())
+}
+
+/// `acpmux config`'s last lines: the permission mode a new chat starts in, as the local daemon
+/// answers `_acpmux/start_mode` (what the app's mode picker shows), for the default harness and
+/// each harness with its own `permissionMode`. Nothing when no daemon runs.
+async fn print_start_modes() {
+    let Ok(cfg) = Config::load() else { return };
+    let Ok(client) = crate::client::Client::connect(&crate::config::socket_path()).await else {
+        return;
+    };
+    let mut names: Vec<Option<String>> = vec![None];
+    names.extend(
+        cfg.defaults
+            .iter()
+            .filter(|(_, d)| d.permission_mode.is_some())
+            .map(|(k, _)| Some(k.clone())),
+    );
+    for name in names {
+        let Ok(v) = client.request(method::MUX_START_MODE, json!({"harness": name})).await else {
+            continue;
+        };
+        let s = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("-").to_owned();
+        println!(
+            "# new {} chats start in: {} ({}, from {})",
+            s("harness"),
+            s("level"),
+            s("modeId"),
+            s("source")
+        );
+    }
+    println!("# change: acpmux config --set permissions.default=yolo|standard|ask|default");
 }
 
 #[cfg(test)]

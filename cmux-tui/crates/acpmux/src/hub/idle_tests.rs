@@ -125,9 +125,7 @@ async fn sessions_at_work_counts_a_running_turn_until_it_ends() {
 async fn sessions_at_work_counts_a_background_process_the_turn_left_running() {
     let (hub, session) = chat().await;
     assert_eq!(hub.sessions_at_work(), 0);
-    let shell = |state: &str| {
-        json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "own", "update": {"sessionUpdate": "background_task_update", "toolCallId": "bg", "taskId": "bg", "state": state, "command": "serve"}}})
-    };
+    let shell = |state: &str| json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "own", "update": {"sessionUpdate": "background_task_update", "toolCallId": "bg", "taskId": "bg", "state": state, "command": "serve"}}});
     let rec = hub.append(&session, "in", "background_task_update", shell("running"));
     hub.note_process(&session, &rec, None);
     assert_eq!(hub.sessions_at_work(), 1, "a background shell still running");

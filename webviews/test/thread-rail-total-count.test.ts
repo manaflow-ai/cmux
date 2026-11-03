@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("thread-rail-total-count.test.ts", async () => {
@@ -72,6 +73,7 @@ await requireBrowserLane("thread-rail-total-count.test.ts", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser!.newPage({ viewport: { width: 1280, height: 820 } });
     await page.emulateMedia({ reducedMotion: "reduce" });
+    await installPaintedFrames(page);
     await page.goto(`http://127.0.0.1:${port}/test/browser/thread-minimap.html`);
     await page.waitForFunction(() => "__showRows" in window);
     return page;
@@ -101,6 +103,89 @@ await requireBrowserLane("thread-rail-total-count.test.ts", async () => {
     const count = shown.all[0]?.setSize ?? 0;
     return shown.all.find((tick) => tick.index === count - (TOTAL - n) - 1)?.top;
   };
+
+  test("10,000 count-only prompts first paint benchmark", async () => {
+    const samples: number[] = [];
+    const rows = Array.from({ length: 12 }, (_, index) => turn(9989 + index)).flat();
+    for (let repeat = 0; repeat < 5; repeat++) {
+      const page = await open();
+      try {
+        const elapsed = await page.evaluate((shown) => {
+          const start = performance.now();
+          (window as unknown as { __showRows(rows: unknown, extra: unknown): void }).__showRows(shown, {
+            promptCount: 10000,
+          });
+          return new Promise<number>((resolve, reject) => {
+            const deadline = setTimeout(() => {
+              stop();
+              reject(new Error("10,000-turn rail did not reach its final frame"));
+            }, 10000);
+            const stop = window.cmuxAfterPaint(() => {
+              const list = document.querySelector<HTMLElement>(".acpmux-minimap__list");
+              const last = list?.querySelector<HTMLElement>('[data-tick="9999"]');
+              const rect = last?.getBoundingClientRect();
+              const box = list?.getBoundingClientRect();
+              if (
+                list?.scrollHeight === 100000 &&
+                rect &&
+                box &&
+                rect.top >= box.top &&
+                rect.bottom <= box.bottom + 1
+              ) {
+                clearTimeout(deadline);
+                resolve(performance.now() - start);
+                return false;
+              }
+            });
+          });
+        }, rows);
+        samples.push(elapsed);
+        expect((await ticks(page)).all.at(-1)?.index).toBe(9999);
+      } finally {
+        await page.close();
+      }
+    }
+    const sorted = [...samples].sort((a, b) => a - b);
+    console.log(
+      `rail-first-paint ${JSON.stringify({ turns: 10000, held: 12, samples_ms: samples, median_ms: sorted[2] })}`,
+    );
+  });
+
+  test("10,000 count-only prompts keep the same rail through paging and indexing", async () => {
+    const page = await open();
+    const count = 10000;
+    const held = (n: number) => Array.from({ length: n }, (_, index) => turn(count - n + index + 1)).flat();
+    try {
+      await show(page, held(12), { promptCount: count });
+      await page.waitForSelector('[aria-setsize="10000"]');
+      await settle(page);
+      const first = await ticks(page);
+      expect(first.all.length).toBeLessThan(150);
+      expect(first.all.at(-1)?.index).toBe(count - 1);
+      const extent = () => page.evaluate(() => document.querySelector(".acpmux-minimap__list")!.scrollHeight);
+      const initialExtent = await extent();
+      expect(initialExtent).toBe(count * 10);
+      await show(page, held(24), { promptCount: count });
+      await settle(page);
+      const paged = await ticks(page);
+      expect(paged).toEqual(first);
+      const earlier = Array.from({ length: count - 24 }, (_, index) => turn(index + 1)[0]!);
+      await show(page, held(24), { earlier });
+      await settle(page);
+      expect(await ticks(page)).toEqual(first);
+      expect(await extent()).toBe(initialExtent);
+      // Browsing the count-only prefix still draws real ticks at their absolute row numbers.
+      await show(page, held(24), { promptCount: count });
+      await page.locator(".acpmux-minimap__list").evaluate((list) => {
+        list.scrollTop = 0;
+        list.dispatchEvent(new Event("scroll"));
+      });
+      await settle(page);
+      expect(await page.locator('[data-tick="0"]').count()).toBe(1);
+    } finally {
+      await page.close();
+    }
+  });
 
   test("the first frame draws a tick for every prompt the count names, held or not", async () => {
     const page = await open();

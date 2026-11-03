@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useEscapingList } from "../../ui/popupHost";
+import { useScrollEdges } from "../../ui/scrollEdges";
 import { useComposerListBox } from "./backdropLayer";
 import { readFileSearch, type FileMatch, type FileSearchSource, type Run } from "./fileSearchModel";
 import { Icon } from "./icons/Icon";
@@ -118,6 +119,14 @@ export function MentionMenu({
   // The list draws out of the box (backdropLayer.tsx): the box is what it stands beside.
   const box = useComposerListBox();
   const escape = useEscapingList("top", 6, undefined, box);
+  const listEdges = useScrollEdges();
+  const attachList = useCallback(
+    (node: HTMLDivElement | null) => {
+      escape?.(node);
+      listEdges(node);
+    },
+    [escape, listEdges],
+  );
   useEffect(() => {
     document.getElementById(`acpmux-mention-${active}`)?.scrollIntoView?.({ block: "nearest" });
   }, [active]);
@@ -133,10 +142,10 @@ export function MentionMenu({
           : undefined;
   return (
     <PickerOptionList
-      ref={escape}
+      ref={attachList}
       aria-label={t("files.search")}
       aria-busy={state?.kind === "searching"}
-      className="ui-popup ui-glass acpmux-slash-menu acpmux-mention-menu"
+      className="ui-popup ui-glass acpmux-slash-menu acpmux-mention-menu ui-scroll-edge-fade"
       id="acpmux-mention-menu"
     >
       {state?.kind === "searching" && items.length === 0 && <FileSearchLoading mention />}

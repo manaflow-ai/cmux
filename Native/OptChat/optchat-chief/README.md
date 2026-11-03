@@ -258,7 +258,7 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   writing in its chat) reports again when it finishes.
 
 - Any number of subagents work at once by default; `OPTCHAT_MAX_LIVE_SUBAGENTS=N`
-  caps it (one spawn takes at most 8 tasks; call spawn again for more). A spawn
+  caps it (one spawn takes at most 24 tasks; call spawn again for more). A spawn
   over the cap answers `a<N>: queued`, naming the cap's source (`control cap N`
   or the env) and that `control cap 0` removes it; a queued subagent starts, with the view
   of that moment and its task, when another finishes. Its record keeps its
@@ -1288,6 +1288,21 @@ there is no approval card, and an `allow` or `deny` message is only a message.
   host-served section 9 `spawn` takes the same floor (`Brain::spawn_policy`).
 - The native engine refuses its bash and editor tools in such a turn and says
   so to the model.
+
+Hidden local owner subagents can show an Allow once / Deny card in Home by
+default. This is another view of an existing harness permission, not a new
+Chief approval gate (#22747): it changes no turn or spawn policy. Only the
+local native app can answer, using its person proof and a fresh click bound
+to the exact pending request. Phone answers, cloud peers, turn sessions and
+other-person `ask` children cannot use this path.
+
+Home delivery never proves that Home is open. Hidden requests retain the
+120-second no-answer deadline from #22941 even after their card is delivered;
+replayed events do not reset it. The Chief can still deny or steer the
+subagent, and opening its local workspace retains the existing answer path.
+A timeout or completed/replaced request closes its card, including a late
+delivery acknowledgement. No Preview Features setting is required, and there
+is no rollout polling timer.
 
 Policy analysis (the relay rules of this repository's CLAUDE.md):
 

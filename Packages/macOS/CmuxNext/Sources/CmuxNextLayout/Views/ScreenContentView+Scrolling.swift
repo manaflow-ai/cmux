@@ -80,7 +80,7 @@ extension ScreenContentView {
     func endUserScroll(timestamp: TimeInterval) {
         scrollbarFlash = true
         // The landing presents the strip (now, or on the fling's frames): nothing waits for a tick.
-        panPresentationPending = false
+        frameInput.panPresentationPending = false
         apply(scrollState.reduce(.gestureEnded(time: timestamp, animated: !context.reduceMotion)))
     }
 

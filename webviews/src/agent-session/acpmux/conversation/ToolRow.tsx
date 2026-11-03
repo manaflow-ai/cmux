@@ -16,6 +16,7 @@ import { SessionCwdContext } from "../turnChanges/sessionRows";
 import { EditDiff } from "./EditDiff";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
+import { ReactionMark, ReactionReply } from "./ReactionMark";
 import { ApprovedMark } from "./ApprovedMark";
 import { RowShimmer } from "./ShimmerText";
 import { toolDuration } from "./toolGroups";
@@ -156,6 +157,7 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
       </span>
       {background ? (
         <span className="cv-command__meta cv-tool__meta">
+          <ReactionMark reaction={tool.reaction} />
           {tool.approved && <ApprovedMark />}
           <BackgroundMark background={background} />
           {duration && <span className="cv-command__time">{duration}</span>}
@@ -163,6 +165,7 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
       ) : (
         (!foreground || tool.approved) && (
           <span className="cv-command__meta">
+            <ReactionMark reaction={tool.reaction} />
             {tool.approved && <ApprovedMark />}
             {!foreground && !failed && <Check size={14} className="cv-command__ok" />}
             {duration && <span className="cv-command__time">{duration}</span>}
@@ -221,6 +224,7 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
           ) : result ? (
             <ToolOutput id={detailsId} result={result} reveal={reveal} />
           ) : null}
+          <ReactionReply reaction={tool.reaction} />
         </div>
       )}
     </>

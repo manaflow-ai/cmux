@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR dbb6d5bcff30c1db703c0ff175acb28f75d2bfe02a82ba6de26191fc52ec0976.
+// cmux-tui mux protocol 12, IR bba25ef6c17ba6206fa161713567d0d998a15d4a2e1103681b3c5badc91feb87.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -326,6 +326,22 @@ pub struct ChiefInspectResult {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub error: Optional<String>,
     pub status: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChiefWorkRequest {
+    pub chief: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChiefWorkResult {
+    pub agents: Vec<T::ChiefWorkAgent>,
+    #[serde(rename = "taskSources")]
+    pub task_sources: Vec<String>,
+    pub tasks: Vec<T::ChiefWorkTask>,
+    pub truncated: bool,
 }
 
 #[rustfmt::skip]
@@ -4271,6 +4287,10 @@ impl CmuxClient {
 
     pub fn chief_inspect(&mut self, request: ChiefInspectRequest) -> Result<ChiefInspectResult> {
         self.execute(&CHIEF_INSPECT_METADATA, &request)
+    }
+
+    pub fn chief_work(&mut self, request: ChiefWorkRequest) -> Result<ChiefWorkResult> {
+        self.execute(&CHIEF_WORK_METADATA, &request)
     }
 
     pub fn clear_history(&mut self, request: ClearHistoryRequest) -> Result<ClearHistoryResult> {
