@@ -43,13 +43,16 @@ struct TabStripFollowsPaneTickTests {
         try body()
     }
 
-    /// A pane's content view: every size it takes.
-    final class Content: NSView {
+    /// A pane's content view: every size it takes. It answers a pane spring's start with `anchor`, the edge its held
+    /// content rides, as a terminal does (`.bottom` while its prompt is on its last row, the common shell case).
+    final class Content: NSView, PaneMotionTargeting {
         var sizes: [CGSize] = []
+        var anchor = PaneMotionAnchor.top
         override func setFrameSize(_ newSize: NSSize) {
             if newSize != frame.size { sizes.append(newSize) }
             super.setFrameSize(newSize)
         }
+        func paneMotionWillRest(sizeChange: CGSize) -> PaneMotionAnchor { anchor }
     }
 
     /// Each pane shows the app's pane content: three tabs over a content view.
@@ -74,7 +77,7 @@ struct TabStripFollowsPaneTickTests {
         }
     }
 
-    /// One column with `root`; the test is the clock.
+    /// One screen of `columns` (one column with `node`); the test is the clock.
     final class Rig {
         let provider = Panes()
         let model: LayoutModel
@@ -83,9 +86,13 @@ struct TabStripFollowsPaneTickTests {
         /// The work the landing left for after its frame's commit, run when the test says.
         var afterCommit: [@MainActor () -> Void] = []
 
-        init(_ node: SplitNode, focused: PaneID) {
+        convenience init(_ node: SplitNode, focused: PaneID) {
+            self.init(columns: [LayoutColumn(id: "c0", width: 1, root: node)], focused: focused)
+        }
+
+        init(columns: [LayoutColumn], focused: PaneID) {
             _ = NSApplication.shared
-            model = LayoutModel(screens: [Self.screen(node)], activeScreenID: "s", focusedPane: focused)
+            model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(columns))], activeScreenID: "s", focusedPane: focused)
             root = LayoutRootView(model: model, contentProvider: provider)
             root.context.reduceMotionOverride = false
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
@@ -164,17 +171,37 @@ struct TabStripFollowsPaneTickTests {
 
     // MARK: (b) key resize: red at feat 07b5f411667 (film E1, trace samples 285/286)
 
-    /// Ctrl-Shift-H/L on p1 | p2 and Ctrl-Shift-K/J on p1 over p2: in every frame of the spring, and at the landing's
-    /// release, each strip's leading, trailing and top edges are its pane's, and its tabs are laid out at that width. The
-    /// content below each strip stays held (RESIZE KEYS K3): it takes a new size at most once per press.
-    @Test(arguments: zip([SplitAxis.horizontal, .horizontal, .vertical, .vertical], [LayoutDirection.left, .right, .up, .down]))
-    func aKeyResizeKeepsEachStripOnItsPaneInEveryFrame(axis: SplitAxis, direction: LayoutDirection) throws {
+    /// One key press: the split's axis, the arrow, and the edge the panes' content asks its held content to ride.
+    nonisolated struct KeyPress: Sendable, CustomTestStringConvertible {
+        let axis: SplitAxis
+        let direction: LayoutDirection
+        let anchor: PaneMotionAnchor
+        var testDescription: String { "\(axis.rawValue) split, \(direction), content rides the \(anchor == .bottom ? "bottom" : "top")" }
+    }
+
+    /// Ctrl-Shift-H and L on p1 | p2; Ctrl-Shift-K and J on p1 over p2, with terminals whose prompt is on the last row
+    /// (their held content rides the bottom edge) and with content that rides the top edge (a page).
+    nonisolated static let keyPresses: [KeyPress] = [
+        KeyPress(axis: .horizontal, direction: .left, anchor: .bottom), KeyPress(axis: .horizontal, direction: .right, anchor: .bottom),
+        KeyPress(axis: .vertical, direction: .up, anchor: .bottom), KeyPress(axis: .vertical, direction: .down, anchor: .bottom),
+        KeyPress(axis: .vertical, direction: .up, anchor: .top), KeyPress(axis: .vertical, direction: .down, anchor: .top),
+    ]
+
+    /// In every frame of a key resize spring, and at the landing's release, each strip's leading, trailing and top
+    /// edges are its pane's, and its tabs are laid out at that width. The content below each strip stays held (RESIZE
+    /// KEYS K3): it takes a new size at most once per press, and it never shows under the strip.
+    @Test(arguments: keyPresses)
+    func aKeyResizeKeepsEachStripOnItsPaneInEveryFrame(_ press: KeyPress) throws {
         try Self.withFrameOwnerSwitch {
+            let (axis, direction) = (press.axis, press.direction)
             let rig = Rig(.split("x", axis: axis, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")), focused: "p2")
             defer { rig.window.closeAfterTest() }
             try #require(rig.provider.views.count == 2)
             try #require(rig.strayStrips("at rest").isEmpty, "\(rig.strayStrips("at rest"))")
-            for content in rig.provider.contents.values { content.sizes.removeAll() }
+            for content in rig.provider.contents.values {
+                content.sizes.removeAll()
+                content.anchor = press.anchor
+            }
             let before = (rig.root.context.hosts["p1"]?.frame, rig.root.context.hosts["p2"]?.frame)
             #expect(PaneResize.press("p2", direction, model: rig.model, view: rig.root))
             rig.root.syncWithModel()
@@ -188,31 +215,48 @@ struct TabStripFollowsPaneTickTests {
         }
     }
 
-    // MARK: (a) split, close and ratio springs: the guard (trace fact 2: the strip follows these springs already)
+    // MARK: (a) split, close, ratio, divider release and column springs: the guard (trace fact 2: the strip follows
+    // these springs already)
 
     enum Spring: String, CaseIterable, Sendable {
         /// Cmd-D on p2: p3 grows in beside it.
         case split
         /// p2 closes: p1 grows to the column's width.
         case close
-        /// The split ratio springs from 0.5 to 0.3 (equalize, a width preset, a released divider's snap).
+        /// The split ratio springs from 0.5 to 0.3 (equalize, a width preset, another client's divider drag).
         case ratio
+        /// A divider drag's release: the ratio springs on from the pointer's velocity (`SplitMotion.seed`).
+        case dividerRelease
+        /// Two columns: the first one's width springs from 0.5 to 0.35 of the window, the second one moves.
+        case columnWidth
     }
 
-    /// In every frame of a split, a close and a ratio spring, each strip's edges are its pane's and its tabs are laid
-    /// out at that width, in the tick.
+    /// In every frame of a split, a close, a ratio spring, a divider release and a column width spring, each strip's
+    /// edges are its pane's and its tabs are laid out at that width, in the tick.
     @Test(arguments: Spring.allCases)
     func aPaneSpringKeepsEachStripOnItsPaneInEveryFrame(_ spring: Spring) throws {
         try Self.withFrameOwnerSwitch {
-            let rig = Rig(.split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")), focused: "p2")
+            let rig = spring == .columnWidth
+                ? Rig(columns: [LayoutColumn(id: "c0", width: 0.5, root: .leaf("p1")), LayoutColumn(id: "c1", width: 0.5, root: .leaf("p2"))], focused: "p1")
+                : Rig(.split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")), focused: "p2")
             defer { rig.window.closeAfterTest() }
             try #require(rig.strayStrips("at rest").isEmpty, "\(rig.strayStrips("at rest"))")
-            let next: SplitNode = switch spring {
-            case .split: .split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .split("y", axis: .horizontal, ratio: 0.5, a: .leaf("p2"), b: .leaf("p3")))
-            case .close: .leaf("p1")
-            case .ratio: .split("x", axis: .horizontal, ratio: 0.3, a: .leaf("p1"), b: .leaf("p2"))
+            switch spring {
+            case .split:
+                rig.model.apply(screens: [Rig.screen(.split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"),
+                                                             b: .split("y", axis: .horizontal, ratio: 0.5, a: .leaf("p2"), b: .leaf("p3"))))])
+            case .close:
+                rig.model.apply(screens: [Rig.screen(.leaf("p1"))])
+            case .ratio:
+                rig.model.setSplitRatio("x", ratio: 0.3, transaction: .make(), phase: .ended)
+            case .dividerRelease:
+                // What `DividerDrag` leaves for the layout its release makes: the pointer's velocity, leftward.
+                let screen = try #require(rig.root.screenViews["s"])
+                screen.releasedDivider = (.split("x"), -900, CACurrentMediaTime())
+                rig.model.setSplitRatio("x", ratio: 0.3, transaction: .make(), phase: .ended)
+            case .columnWidth:
+                rig.model.setColumnWidth("c0", width: 0.35, transaction: .make(), phase: .ended)
             }
-            rig.model.apply(screens: [Rig.screen(next)])
             rig.root.syncWithModel()
             let (frames, strays) = rig.runMotion()
             try #require(frames > 3, "the \(spring.rawValue) did not spring (\(frames) frames)")
@@ -250,7 +294,7 @@ struct TabStripFollowsPaneTickTests {
             try #require(Motion.tabs.animatesMovement, "animation speed is off on this host")
             let reveal = LaunchReveal()
             reveal.markAllReady()
-            let tabs = (0..<8).map { TabItem(id: TabID("tab\($0)"), title: "python3 /tmp/sigwinch.py --seed 100\($0)") }
+            let tabs = (0..<4).map { TabItem(id: TabID("tab\($0)"), title: "python3 /tmp/sigwinch.py --seed 100\($0)") }
             let model = TabStripModel(tabs: tabs, selectedID: tabs[0].id)
             // The app's pane content in no window: Core Animation moves a strip only in a window on a screen
             // (`Motion.canAnimate`), a view in no window animates as one on screen does, so the close moves on any host.
@@ -259,22 +303,24 @@ struct TabStripFollowsPaneTickTests {
             let strip = pane.stripView
             strip.sync(fromModel: true)
             pane.layoutSubtreeIfNeeded()
-            // Eight tabs share the row: their widths follow the strip's.
-            try #require(strip.result.standardWidth < strip.metrics.maxTabWidth - 0.5, "the tabs are not narrowed: \(strip.result.standardWidth)")
             model.tabs.removeLast()
             strip.sync(fromModel: true)
-            try #require(strip.dying.contains(TabID("tab7")), "the close did not animate")
+            try #require(strip.dying.contains(TabID("tab3")), "the close did not animate")
             let closing = Self.moveGenerations(strip)
             try #require(!closing.isEmpty, "the close started no strip move")
-            let viewport = strip.viewportWidth
-            // The pane narrows by 40 pt in one frame.
-            pane.setFrameSize(NSSize(width: 440, height: 300))
+            // The three tabs left share the row between their minimum and maximum widths: their widths follow the strip's.
+            try #require(!strip.result.isOverflowing && strip.result.standardWidth < strip.metrics.maxTabWidth - 0.5,
+                         "the tabs' widths do not follow the strip's: \(strip.result.standardWidth) pt, overflowing \(strip.result.isOverflowing)")
+            let viewport = strip.viewportWidth, widths = strip.result.slots.map(\.width)
+            // The pane narrows by 60 pt in one frame.
+            pane.setFrameSize(NSSize(width: 420, height: 300))
             pane.layoutSubtreeIfNeeded()
             try #require(strip.viewportWidth < viewport && strip.lastViewportWidth == strip.viewportWidth, "the strip did not lay out at the pane's new width")
+            try #require(strip.result.slots.map(\.width) != widths, "the tabs kept their widths: \(widths)")
             let started = Self.moveGenerations(strip).subtracting(closing)
             #expect(started.isEmpty, "the pane's width change started strip moves \(started.sorted()) beside the close's \(closing.sorted())")
             #expect(!Self.moveGenerations(strip).isDisjoint(with: closing), "the close's own move ended when the pane narrowed")
-            #expect(strip.cells[TabID("tab7")] != nil, "the closing tab vanished when the pane narrowed")
+            #expect(strip.cells[TabID("tab3")] != nil, "the closing tab vanished when the pane narrowed")
         }
     }
 }
