@@ -104,8 +104,8 @@ struct KeyboardResizeOneGridReportTests {
             window.contentView = root
             root.layoutSubtreeIfNeeded()
             root.driver.isManual = true
-            root.context.afterCommit = { [unowned self] in self.afterCommit.append($0) }
             panes = tree.panes
+            root.context.afterCommit = { [unowned self] in self.afterCommit.append($0) }
             for pane in panes {
                 let terminal = try #require(provider.terminals[pane], "\(pane) shows no terminal")
                 try #require(terminal.surface.surface != nil, "libghostty created no surface for \(pane)")

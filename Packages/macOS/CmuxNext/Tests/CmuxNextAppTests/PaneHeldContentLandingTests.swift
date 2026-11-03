@@ -25,7 +25,7 @@ import Testing
 @Suite(.serialized, .closesItsWindows)
 struct PaneHeldContentLandingTests {
     /// Runs `body` with `motion.pane.holdContent` on, and puts back what it found.
-    static func withHeldContent<T>(_ body: () async throws -> T) async rethrows -> T {
+    static func withHeldContent<T>(_ body: @MainActor () async throws -> T) async rethrows -> T {
         TunableStore.shared.register(LayoutTunables.all)
         TunableStore.shared.activate(file: nil)
         let before = TunableStore.shared.override(LayoutTunables.holdsContentInMotion.key)
@@ -75,7 +75,7 @@ struct PaneHeldContentLandingTests {
             let surface = session.surfaceView
             try #require(surface.surface != nil, "libghostty created no surface")
             try #require(surface.isShown, "the terminal is not shown in its pane")
-            func grids() async -> [TerminalGridSize] {
+            @MainActor func grids() async -> [TerminalGridSize] {
                 surface.bridge.takeUnretainedValue().input.focusGained()
                 return await io.gridsUntilMarker()
             }
