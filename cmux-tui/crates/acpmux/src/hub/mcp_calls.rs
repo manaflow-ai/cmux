@@ -515,11 +515,15 @@ impl Hub {
         Ok(json!({"connect": "connected", "id": id}))
     }
 
-    /// Records a fresh tool list for `id` after the person signed in or gave a key: tools the
-    /// pin does not know are pinned with their starting policy (the person just approved the
-    /// server again); state `connected`.
+    /// Records a fresh tool list for `id` after the person signed in or gave a key; state
+    /// `connected`. A first list is pinned whole (the person just approved the server). Later, a
+    /// key or a sign-in approves the credential, not new tool text: a tool that is new or whose
+    /// text changed is held (not listed, not callable) until the person approves it with
+    /// `_acpmux/mcp_approve_tools`, and the chat that asked gets an `mcp_tools_changed` record
+    /// (rug pull, threat T9).
     pub(super) fn relist(&self, id: &str, tools: Vec<Value>) {
         let report = cmux_mcp_connect::wire::tool_report(&tools);
+        let mut held = Vec::new();
         self.mcp_store.update(id, |c| {
             for t in &report {
                 if let (Some(name), Some(policy)) =
@@ -528,11 +532,51 @@ impl Hub {
                     c.tool_policy.entry(name.to_owned()).or_insert_with(|| policy.to_owned());
                 }
             }
-            c.tool_pin = cmux_mcp_connect::pin::ToolPin::of(&tools).tools;
+            if c.tool_pin.is_empty() {
+                c.tool_pin = cmux_mcp_connect::pin::ToolPin::of(&tools).tools;
+            } else {
+                let diff =
+                    cmux_mcp_connect::pin::ToolPin { tools: c.tool_pin.clone() }.diff(&tools);
+                for gone in &diff.removed {
+                    c.tool_pin.remove(gone);
+                }
+                held = diff.added.into_iter().chain(diff.changed).collect();
+            }
             c.tools = tools;
             c.has_secret = true;
             c.state = "connected".to_owned();
         });
+        if held.is_empty() {
+            return;
+        }
+        self.mcp_store.audit(json!({"event": "toolsChanged", "id": id, "held": held}));
+        if let Some(conn) = self.mcp_store.get(id)
+            && let Ok(session) = self.resolve(&conn.asked_by)
+        {
+            self.append(
+                &session,
+                "mux",
+                "mcp_tools_changed",
+                json!({"connectionId": id, "name": conn.name, "title": conn.title, "held": held}),
+            );
+        }
+    }
+
+    /// `_acpmux/mcp_approve_tools`: the person approves the tools `id` lists now, held ones
+    /// included (pins their current text).
+    pub fn mcp_approve_tools(&self, id: &str) -> Result<Value, RpcError> {
+        let conn = self
+            .mcp_store
+            .get(id)
+            .ok_or_else(|| RpcError::invalid_params("no MCP connection with that id"))?;
+        let diff =
+            cmux_mcp_connect::pin::ToolPin { tools: conn.tool_pin.clone() }.diff(&conn.tools);
+        let approved: Vec<String> = diff.added.into_iter().chain(diff.changed).collect();
+        self.mcp_store
+            .update(id, |c| c.tool_pin = cmux_mcp_connect::pin::ToolPin::of(&c.tools).tools);
+        self.mcp_store
+            .audit(json!({"event": "toolsApproved", "id": id, "tools": approved, "by": "person"}));
+        Ok(json!({"approved": approved}))
     }
 
     /// The newest audit lines (the person's view).

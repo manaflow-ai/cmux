@@ -356,6 +356,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_MCP_SET_KEY, Request),
         untyped(method::MUX_MCP_SIGN_IN, Request),
         untyped(method::MUX_MCP_REMOVE, Request),
+        untyped(method::MUX_MCP_APPROVE_TOOLS, Request),
         untyped(method::MUX_MCP_AUDIT, Request),
         // Chats (`server/chats.rs`).
         untyped("_acpmux/chats", Request),

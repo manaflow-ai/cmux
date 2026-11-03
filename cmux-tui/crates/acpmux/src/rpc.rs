@@ -680,6 +680,8 @@ pub mod method {
     pub const MUX_MCP_SIGN_IN: &str = "_acpmux/mcp_sign_in";
     pub const MUX_MCP_REMOVE: &str = "_acpmux/mcp_remove";
     pub const MUX_MCP_AUDIT: &str = "_acpmux/mcp_audit";
+    /// The person approves the tools a connection now lists, after they changed (held).
+    pub const MUX_MCP_APPROVE_TOOLS: &str = "_acpmux/mcp_approve_tools";
     /// An agent offers the person a parallel chat (`hub/offers.rs`): a chip
     /// the person accepts or dismisses with `offer_respond`.
     pub const MUX_OFFER_SESSION: &str = "_acpmux/offer_session";

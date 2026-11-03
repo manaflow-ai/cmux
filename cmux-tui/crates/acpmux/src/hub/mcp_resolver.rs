@@ -3,9 +3,54 @@
 
 use std::net::SocketAddr;
 
-/// The addresses of `host` that a request may reach.
-pub(crate) fn allowed(_host: &str, addrs: Vec<SocketAddr>) -> Result<Vec<SocketAddr>, String> {
+use cmux_mcp_connect::target::check_ip;
+use reqwest::dns::{Addrs, Name, Resolve, Resolving};
+
+/// The addresses of `host` that a request may reach: every one must pass ``check_ip`` (no
+/// private, link-local, CGNAT or metadata address), and loopback only for `localhost` names, so
+/// a public name that resolves to 127.0.0.1 (DNS rebinding) never reaches a local service. One
+/// refused address refuses the name: a mixed answer is how a rebinding attack starts.
+pub(crate) fn allowed(host: &str, addrs: Vec<SocketAddr>) -> Result<Vec<SocketAddr>, String> {
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    let local = host == "localhost" || host.ends_with(".localhost");
+    if addrs.is_empty() {
+        return Err(format!("{host} has no address"));
+    }
+    for addr in &addrs {
+        let ip = addr.ip();
+        let mapped = match ip {
+            std::net::IpAddr::V6(v6) => v6.to_ipv4_mapped().map(std::net::IpAddr::V4).unwrap_or(ip),
+            v4 => v4,
+        };
+        if mapped.is_loopback() {
+            if !local {
+                return Err(format!(
+                    "{host} resolves to a loopback address; cmux does not connect there"
+                ));
+            }
+        } else if local {
+            return Err(format!("{host} must resolve to loopback only"));
+        } else {
+            check_ip(ip).map_err(|r| format!("{host}: {}", r.0))?;
+        }
+    }
     Ok(addrs)
+}
+
+/// The DNS resolver of every daemon MCP request: the system lookup, then ``allowed``.
+#[derive(Debug, Default)]
+pub(crate) struct CheckedResolver;
+
+impl Resolve for CheckedResolver {
+    fn resolve(&self, name: Name) -> Resolving {
+        let host = name.as_str().to_owned();
+        Box::pin(async move {
+            let found: Vec<SocketAddr> =
+                tokio::net::lookup_host((host.as_str(), 0)).await?.collect();
+            let addrs: Addrs = Box::new(allowed(&host, found)?.into_iter());
+            Ok(addrs)
+        })
+    }
 }
 
 #[cfg(test)]

@@ -192,15 +192,16 @@ impl Hub {
         if let (Value::Object(extra), Some(out)) = (connected, reply.as_object_mut()) {
             out.extend(extra);
         }
-        // An OAuth server: the sign-in starts now, so the agent can hand its page to the person
-        // (Chief's `escalate_auth`) and the card's Sign in is not the only way. The page only
-        // asks the person; the verifier and the token stay here (`mcp_oauth.rs`).
+        // An OAuth server: the sign-in starts now, so the agent can hand a link to the person
+        // (Chief's `escalate_auth`) and the card's Sign in is not the only way. The link is the
+        // daemon's own one-use `/start`, which redirects to the authorization page: the agent
+        // never sees the OAuth state, the verifier or the token (`mcp_oauth.rs`).
         if *reply.field("connect") == "signInNeeded"
             && let Some(id) = reply.field("connectionId").as_str().map(str::to_owned)
         {
             match self.mcp_sign_in(&id).await {
                 Ok(started) => {
-                    reply.set("signInUrl", started.field("authorizeUrl").clone());
+                    reply.set("signInUrl", started.field("startUrl").clone());
                 }
                 Err(e) => {
                     reply.set("signInError", json!(e.message));
