@@ -138,6 +138,7 @@ import { RowUpdates } from "./rowUpdates";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIcons";
 import { handoffPromptId, namesHandoffTurn } from "./cloudHandoffTurn";
 import { STALL_CHECK_MS, stallLine } from "./stallLog";
+import { runsTurn, statusEndsTurn } from "./hostTurnState";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -4625,6 +4626,9 @@ export class AcpmuxDirectClient {
       latest !== undefined &&
       (latest.seq === undefined || typeof detail.lastSeq !== "number" || latest.seq >= detail.lastSeq);
     if (latestIsNew) this.summary = { ...this.summary, ...latest.session };
+    // The page's records may open a turn whose end acpmux never logged (a cut turn, its status
+    // record older than the page): the summary read with them says whether it still runs.
+    if (this.turnOpen && this.replayThrough === undefined && !runsTurn(this.summary?.status)) this.hostEndedTurn();
     this.queue = mergeQueue(
       this.queue,
       (latestIsNew ? latest?.session.queue : detail.queue) ?? [],
@@ -6300,6 +6304,11 @@ export class AcpmuxDirectClient {
         this.streamingAssistant = undefined;
         this.streamingAssistantMessageId = undefined;
         this.streamingActivity = undefined;
+      } else if (event.kind === "status") {
+        // acpmux's status, in the log's order, is the turn's real state: a turn it cut writes
+        // no end record, only its status (hostTurnState.ts).
+        if (this.turnOpen && statusEndsTurn(this.summary?.status, msg.status)) this.hostEndedTurn();
+        this.reduceLiveState(event);
       } else if (event.kind === "queue_declined") {
         // The owner declined a guest's prompt: one quiet line where it was declined, never gone silently.
         this.declinedRow(event);
@@ -6723,6 +6732,19 @@ export class AcpmuxDirectClient {
           compaction: { ...row.compaction, state: "failed", inferred: true },
         });
       }
+  }
+
+  /// acpmux says no turn runs (hostTurnState.ts) while the pane still holds one open: a turn it
+  /// cut with no end record. The turn closes as its end would, with no summary row: no Stop, no
+  /// typing dots. A late end record still settles it (`turn_end`, `turn_result`).
+  private hostEndedTurn(): void {
+    this.turnOpen = false;
+    this.turnPrompt = undefined;
+    this.turnTokens = undefined;
+    this.turnTokenSplit = undefined;
+    this.endAssistantSegment();
+    this.streamingActivity = undefined;
+    this.rows.delete("typing");
   }
 
   private endAssistantSegment(): void {
