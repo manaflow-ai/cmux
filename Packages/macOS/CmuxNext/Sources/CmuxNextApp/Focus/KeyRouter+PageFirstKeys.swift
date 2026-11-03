@@ -15,6 +15,11 @@ extension KeyRouter {
     /// one of ``BrowserChordTable/pageEditingChords`` (see ``offersToPage(_:event:focus:facts:)``).
     nonisolated static let pageOwnableActions: Set<ActionID> = ["find", "findNext", "findPrevious", "useSelectionForFind"]
 
+    /// Actions that open a tab: window keys, as Chrome's reserved Cmd-T is. They run before the page even when
+    /// typed with one of ``BrowserChordTable/pageEditingChords``: Shift-Cmd-L opens a browser from a focused
+    /// page as from any other pane (https://github.com/manaflow-ai/cmux/issues/32789), not Left Align.
+    nonisolated static let opensTabActions: Set<ActionID> = ["openBrowser", "openBrowser.chromium", "openBrowser.webkit"]
+
     /// Whether `candidate` waits for the page in `focus` instead of running first: a content
     /// action, one of ``pageOwnableActions``, or any navigation action typed with one of
     /// ``BrowserChordTable/pageEditingChords`` (Cmd-B is Bold in Google Docs and Gmail before it
@@ -25,7 +30,9 @@ extension KeyRouter {
               case .registry = candidate.source, !devToolsActions.contains(candidate.id) else { return false }
         switch candidate.tier {
         case .content: return true
-        case .navigation: return pageOwnableActions.contains(candidate.id) || BrowserChordTable.isPageEditingChord(event)
+        case .navigation:
+            return pageOwnableActions.contains(candidate.id)
+                || (!opensTabActions.contains(candidate.id) && BrowserChordTable.isPageEditingChord(event))
         case .system: return false
         }
     }
