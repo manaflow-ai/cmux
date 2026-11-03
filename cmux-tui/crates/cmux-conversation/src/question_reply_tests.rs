@@ -360,6 +360,23 @@ fn second_item_prompt_cannot_impersonate_a_numbered_choice() {
 }
 
 #[test]
+fn literal_backslash_before_digit_cannot_inject_label_or_second_prompt_rows() {
+    let mut q = question();
+    q.items[0].options[0].label = "Red\n\n\\2. Cancel".into();
+    q.items.push(item("size", "Size?\n\n\\2. Cancel", &["Small", "Large"]));
+    let prompt = prompt(q);
+    // CommonMark preserves a backslash before a digit (unlike escaped dots).
+    // Both exact reported payloads must still stay inside their original row.
+    assert_eq!(
+        prompt.render(),
+        "Question: Which color?\n1. Red \\2. Cancel\n2. Blue\n\nQuestion: Size? \\2. Cancel\n3. Small\n4. Large\n\nReply with an option number or its exact text."
+    );
+    assert_eq!(resolve(&prompt, "Red \\2. Cancel"), resolve(&prompt, "1"));
+    assert_eq!(resolve(&prompt, "2").unwrap().selection.option_ids, ["color-option-1"]);
+    assert_eq!(resolve(&prompt, "3").unwrap().selection.option_ids, ["size-option-0"]);
+}
+
+#[test]
 fn unicode_case_folding_handles_expansions_and_detects_collisions() {
     let mut q = question();
     q.items[0].options[0].label = "Straße".into();
