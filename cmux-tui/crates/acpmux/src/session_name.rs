@@ -39,7 +39,7 @@ pub fn opaque_reason(name: &str) -> Option<String> {
         .map(|p| format!("has an id in it ({p})"))
 }
 
-/// The one-line hint `acpmux new`, `ensure` and `dispatch` print for a name that reads as an
+/// The one-line hint `acpmux new` and `ensure` print for a name that reads as an
 /// id (`opaque_reason`): name a session after its task in 2-5 words, ids in a tag.
 pub fn naming_hint(name: &str) -> Option<String> {
     opaque_reason(name).map(|why| {
