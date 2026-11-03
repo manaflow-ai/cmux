@@ -111,16 +111,26 @@ public struct Palette {
 
     /// The notification blue (rgb 57 130 245, sampled from the Codex app): the one color of
     /// every unread mark, the sidebar's unread dot and the pane's unread ring by default. The
-    /// same in every theme, so an unread mark reads the same everywhere.
-    public static var notificationBlue: NSColor { NSColor(srgbRed: 57 / 255, green: 130 / 255, blue: 245 / 255, alpha: 1) }
-    /// The sidebar's unread or new status dot: `systemBlue`, so light and dark match and the color
-    /// means one thing in every row (Lawrence msg 11983).
-    public static var statusUnread: NSColor { .systemBlue }
+    /// same hue in every theme, so an unread mark reads the same everywhere, its lightness moved
+    /// per theme to 3:1 on the rows it sits on (``ThemeTokens/statusDot(_:)``).
+    public static var notificationBlue: NSColor {
+        dot(.notification, dynamic: NSColor(srgbRed: 57 / 255, green: 130 / 255, blue: 245 / 255, alpha: 1))
+    }
+    /// The sidebar's unread or new status dot: `systemBlue`'s hue, so the color means one thing in
+    /// every row (Lawrence msg 11983), at 3:1 on the theme's rows (user 2026-11-03).
+    public static var statusUnread: NSColor { dot(.unread, dynamic: .systemBlue) }
     /// The sidebar's needs-attention status dot (a permission prompt, a question, waiting on the
-    /// user): `systemOrange` (Lawrence msg 11983).
-    public static var statusAttention: NSColor { .systemOrange }
-    /// The sidebar's error status mark (failed, stopped with an error): `systemRed` (Lawrence msg 11983).
-    public static var statusError: NSColor { .systemRed }
+    /// user): `systemOrange`'s hue (Lawrence msg 11983), at 3:1 on the theme's rows.
+    public static var statusAttention: NSColor { dot(.attention, dynamic: .systemOrange) }
+    /// The sidebar's error status mark (failed, stopped with an error): `systemRed`'s hue (Lawrence
+    /// msg 11983), at 3:1 on the theme's rows.
+    public static var statusError: NSColor { dot(.error, dynamic: .systemRed) }
+
+    /// Inside a theme scope the mark's color in that theme; elsewhere `dynamic`.
+    private static func dot(_ mark: StatusDotHue, dynamic: NSColor) -> NSColor {
+        guard let tokens = ThemeContext.active else { return dynamic }
+        return tokens.statusDot(mark).nsColor
+    }
     /// Needs attention (agent waiting for input): the theme's ANSI yellow.
     public static var attention: NSColor { color(\.attention, dynamic: PaletteDynamic.attention) }
     /// Errors: the theme's ANSI red.
