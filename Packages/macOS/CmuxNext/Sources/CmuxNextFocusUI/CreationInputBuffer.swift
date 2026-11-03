@@ -16,6 +16,8 @@ public final class CreationInputBuffer {
     private var earlyTabs: [Int: String] = [:]
     /// Pending creations' provisional tabs, by ticket.
     private var tabs: [Int: String] = [:]
+    /// Every tab a creation of this hold shows, replied or not, for the hold's lifetime (``keepsKeysFromLeftPage``).
+    private var madeTabs: Set<String> = []
     /// Creations that make a new workspace with its terminal (`open(…, newWorkspace: true)`), by ticket, until they
     /// fail. The keys typed for one are that terminal's: they never go to anything else (an agent's message box).
     private var workspaceTickets: Set<Int> = []
@@ -60,8 +62,17 @@ public final class CreationInputBuffer {
         newestGeneration = generation
         if let earlyTab { earlyTabs[nextID] = earlyTab }
         if let tab { tabs[nextID] = tab }
+        if let tab { madeTabs.insert(tab) }
         if newWorkspace { workspaceTickets.insert(nextID) }
         return Ticket(id: nextID, owner: ObjectIdentifier(self))
+    }
+
+    /// Whether the page the person left keeps no keys (P0 INVERSE-KEY): the focus is on its way to another tab
+    /// (`awaitsOtherTab`) and a creation of this hold, asked under their newest intent `generation`, owns the keyboard.
+    /// The focused tab `focusedTab` is never one this hold makes, before or after its reply (a new browser tab's own
+    /// page takes the keys).
+    public func keepsKeysFromLeftPage(awaitsOtherTab: Bool, generation: UInt64, focusedTab: String?) -> Bool {
+        awaitsOtherTab && holdsCreation && newestGeneration == generation && focusedTab.map { !madeTabs.contains($0) } != false
     }
 
     /// The workspace the newest new-workspace creation of this hold made: the window shows it before the keys go on.

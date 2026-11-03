@@ -102,6 +102,7 @@ final class FocusEffectApplier: FocusEffectApplying {
                 // re-applies). Another pane's terminal must not keep the keyboard meanwhile: its next
                 // replay swaps in a fresh surface that takes the keyboard back, and focus followed it
                 // there (Switch to tab from the New Tab page landed on the workspace's old pane).
+                blurChildWindowPage() // nor a Chromium page window: this window takes the keys, a creation hold them in order
                 resignPaneResponder(in: window)
                 return
             }
@@ -156,12 +157,9 @@ final class FocusEffectApplier: FocusEffectApplying {
             blurChildWindowPage()
             // Nothing to type into: the previous content must not keep keys.
             resignPaneResponder(in: window)
-        case .sidebar, .sidebarField, .textField:
-            // Reported by AppKit; the responder is already there.
-            blurChildWindowPage()
-        case .none:
-            // Nothing has the keyboard (an empty workspace): no page keeps it
-            // (input-spec.md bug B3).
+        case .sidebar, .sidebarField, .textField, .none:
+            // Reported by AppKit (the responder is already there), or nothing has the keyboard (an empty
+            // workspace): no page keeps it (input-spec.md bug B3).
             blurChildWindowPage()
         case .overlay:
             break
@@ -196,6 +194,7 @@ final class FocusEffectApplier: FocusEffectApplying {
             if !responder(of: window, isInside: page.contentView) { setPageFocus(page, true) }
             return
         }
+        if controller.services.keyRouter.creationInputCoordinator.keepsKeysFromLeftPage(controller.focus.state, in: window) { return blurChildWindowPage() } // the page left for a creation: this window takes the keys now (P0 INVERSE-KEY)
         // One key change (#24913): the old page blurs without this window taking the keys back
         // first. Tracked, so focus leaving the page blurs it (`blurChildWindowPage`).
         pageFocus.focus(page, in: window) { responder in
@@ -249,6 +248,7 @@ final class FocusEffectApplier: FocusEffectApplying {
     /// W5 200 ms later). Once the app is active, a page window that is not
     /// the target gives the keys back.
     private func reclaimKeyAfterActivation() {
+        if let window = controller.window, controller.services.keyRouter.creationInputCoordinator.keepsKeysFromLeftPage(controller.focus.state, in: window) { return reclaimKeyFromPageWindow() }
         switch controller.focus.state.resolved {
         case .browserPage, .devTools, .overlay: return
         case .page(let pane, let tab) where presented(pane: pane, tab: tab)?.chromiumTab != nil: return
@@ -294,7 +294,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         // the keyboard even when this window sits behind another one (the
         // palette over an explicit window).
         if let window = controller.window,
-           Self.ownerTakesMain(ownedCanBecomeMain: owned.canBecomeMain, ownerIsMain: window.isMainWindow,
+           ChildPageFocus.ownerTakesMain(ownedCanBecomeMain: owned.canBecomeMain, ownerIsMain: window.isMainWindow,
                                ownerCanBecomeMain: window.canBecomeMain) {
             window.makeMain()
         }
@@ -307,12 +307,6 @@ final class FocusEffectApplier: FocusEffectApplying {
         overlayPanelSubscription = WindowEvents.of(owned).subscribe(NSWindow.didResignKeyNotification, owner: "FocusEffectApplier.overlayPanel") { [weak self] in
             self?.overlayPanelDidResignKey()
         }
-    }
-
-    /// Whether the cmux window becomes main when a window it owns becomes
-    /// key. An owned window that may be main (a sheet) settles main itself.
-    nonisolated static func ownerTakesMain(ownedCanBecomeMain: Bool, ownerIsMain: Bool, ownerCanBecomeMain: Bool) -> Bool {
-        !ownedCanBecomeMain && !ownerIsMain && ownerCanBecomeMain
     }
 
     /// The bubble dismisses when it loses the keys.

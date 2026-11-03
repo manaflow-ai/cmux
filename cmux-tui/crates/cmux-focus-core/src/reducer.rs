@@ -16,6 +16,8 @@ struct Before {
     pane: Option<String>,
     resolved: Resolved,
     context: crate::state::Context,
+    /// `FocusState::awaits_other_tab` before the event.
+    awaits_other_tab: bool,
 }
 
 /// Reduces one event into `state`, writing its effects to `effects`
@@ -30,6 +32,7 @@ pub fn reduce(state: &mut FocusState, event: &FocusEvent, effects: &mut Vec<Focu
         pane: state.pane.clone(),
         resolved: state.derived.resolved.clone(),
         context: state.derived.context,
+        awaits_other_tab: state.awaits_other_tab(),
     };
     let next = state;
     let mut force_responder = false;
@@ -225,6 +228,7 @@ pub fn set_topology(
         pane: state.pane.clone(),
         resolved: state.derived.resolved.clone(),
         context: state.derived.context,
+        awaits_other_tab: state.awaits_other_tab(),
     };
     apply_topology(topology, state, effects);
     finish(&old, state, effects, false, false);
@@ -567,7 +571,11 @@ fn finish(
         effects.push(FocusEffect::RevealPane { pane: pane.clone() });
     }
     new.derive();
-    if new.derived.resolved != old.resolved || force_responder {
+    // The focus started or stopped waiting for another tab (a creation's new tab the window does
+    // not show yet): the target applies again in this reduction, so the content the person left
+    // gives up the keys now and takes them back when the wait ends without landing (P0 INVERSE-KEY).
+    let wait_changed = new.awaits_other_tab() != old.awaits_other_tab;
+    if new.derived.resolved != old.resolved || force_responder || wait_changed {
         effects.push(FocusEffect::MoveResponder { resolved: new.derived.resolved.clone() });
     }
     if new.derived.context != old.context || force_context {
