@@ -1462,9 +1462,11 @@ class CheckPiecesTests(unittest.TestCase):
             (tree / relative).parent.mkdir(parents=True, exist_ok=True)
             (tree / relative).write_text(text.replace("MARKER", repr(str(marker))))
         (tree / "webviews").mkdir(exist_ok=True)
-        (holder / "copy").mkdir()
-        (holder / "copy/check.py").write_text(check_source)
-        argv = [sys.executable, "-I", "-c", lint.TRUSTED_RUNNER, str(tree), str(holder / "copy/check.py"),
+        # The hook's copy sits in the checkout's git directory, inside the tree when the lint runs in place.
+        (tree / ".git/cmux-git-hooks/cmux-next-checks").mkdir(parents=True)
+        copy = tree / ".git/cmux-git-hooks/cmux-next-checks/check.py"
+        copy.write_text(check_source)
+        argv = [sys.executable, "-I", "-c", lint.TRUSTED_RUNNER, str(tree), str(copy),
                 str(tree / "scripts/cmux-next/check.py"), "--flag"]
         return subprocess.run(argv, cwd=tree / "webviews", text=True, capture_output=True), marker, tree
 
@@ -1478,13 +1480,41 @@ class CheckPiecesTests(unittest.TestCase):
         self.assertEqual(result.stdout, f"{tree} ['--flag']\n", "it must see the tree as its repository")
         self.assertFalse(marker.exists(), "a module in the pushed tree was imported")
 
-    def test_the_trusted_runner_refuses_a_check_that_puts_the_tree_on_sys_path(self):
-        result, marker, _ = self.run_trusted(
-            "import os, sys\nsys.path.insert(0, os.path.dirname(__file__))\nimport helper\n",
-            {"scripts/cmux-next/helper.py": "open(MARKER, 'w').close()\n"})
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("would import from the pushed tree", result.stderr)
-        self.assertFalse(marker.exists(), "the pushed sibling module ran")
+    def test_the_trusted_runner_refuses_every_way_to_load_code_from_the_tree(self):
+        # Review of 7c0dc5a0877: the import audit event alone missed importlib, runpy, spec_from_file_location and a
+        # sys.path entry equal to the root. A check that tries any of them fails loudly; the pushed module never runs.
+        sibling = "HERE = os.path.dirname(__file__)\nROOT = os.path.dirname(os.path.dirname(HERE))\n"
+        ways = {
+            "import statement": "sys.path.insert(0, HERE)\nimport helper\n",
+            "__import__": "sys.path.insert(0, HERE)\n__import__('helper')\n",
+            "importlib.import_module": "import importlib\nsys.path.insert(0, HERE)\nimportlib.import_module('helper')\n",
+            "the root on sys.path": "sys.path.insert(0, ROOT)\nimport rootmod\n",
+            "spec_from_file_location": "import importlib.util\nspec = importlib.util.spec_from_file_location("
+                                       "'helper', os.path.join(HERE, 'helper.py'))\n"
+                                       "spec.loader.exec_module(importlib.util.module_from_spec(spec))\n",
+            "runpy.run_path": "import runpy\nrunpy.run_path(os.path.join(HERE, 'helper.py'))\n",
+            "a zip on sys.path": "sys.path.insert(0, os.path.join(HERE, 'lib.zip'))\nimport zipped\n",
+        }
+        for way, body in ways.items():
+            with self.subTest(way=way):
+                pushed = {"scripts/cmux-next/helper.py": "open(MARKER, 'w').close()\n",
+                          "rootmod.py": "open(MARKER, 'w').close()\n"}
+                result, marker, tree = self.run_trusted("import os, sys\n" + sibling + body, pushed)
+                if way == "a zip on sys.path":
+                    import zipfile
+                    with zipfile.ZipFile(tree / "scripts/cmux-next/lib.zip", "w") as archive:
+                        archive.writestr("zipped.py", f"open({str(marker)!r}, 'w').close()\n")
+                    result = subprocess.run(result.args, cwd=tree / "webviews", text=True, capture_output=True)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("is in the pushed tree", result.stderr)
+                self.assertFalse(marker.exists(), "pushed code ran")
+
+    def test_the_trusted_runner_still_reads_data_files_in_the_tree(self):
+        result, _, _ = self.run_trusted(
+            "import json, os\nHERE = os.path.dirname(__file__)\n"
+            "print(json.load(open(os.path.join(HERE, 'data.json')))['ok'])\n",
+            {"scripts/cmux-next/data.json": '{"ok": "yes"}'})
+        self.assertEqual((result.returncode, result.stdout), (0, "yes\n"), result.stderr)
 
     def test_a_check_that_only_warns_declares_no_inputs(self):
         # check:system-blue and check:attachment-caps can't fail; running them alone for a push could only cost time.

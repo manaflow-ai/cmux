@@ -444,25 +444,52 @@ def trusted_pieces(repo: Path, package: ScriptPackage, files: list[str], risky: 
 
 
 # Runs a reviewed check script (argv[2]) as if it sat at its own path (argv[3]) in the tree argv[1], so it reads
-# that tree (each check finds its repository from __file__). -I keeps the environment out; '' and the working
-# directory (the pushed package) leave sys.path before anything is imported, so no pushed module can stand in for
-# the stdlib; and an audit hook refuses any import while sys.path names a folder in the tree (a check that put its
-# own folder on sys.path would load the pushed siblings), which fails the check loudly instead.
+# that tree (each check finds its repository from __file__). Nothing from the tree may run as code:
+# * -I keeps the environment and the user site out; '' and the working directory (the pushed package) leave sys.path
+#   before anything is imported, so no pushed module can stand in for the stdlib;
+# * a finder first on sys.meta_path refuses any module whose file is in the tree (the import statement,
+#   __import__ and importlib.import_module all ask it), and the `import` audit event refuses one while sys.path
+#   names the tree or a folder in it;
+# * the `open` audit event refuses to open a code file in the tree (.py, .pyc, .so, .zip, .pth ...), which is how
+#   runpy, spec_from_file_location/exec_module and zipimport read one; `ctypes.dlopen` of a tree path is refused.
+# The reviewed script is read and compiled before the guards go in: the hook's copy lives in the checkout's git
+# directory, which is inside the tree when the lint runs in place. A refusal is an ImportError that fails the check
+# loudly; a check reads data files in the tree as it likes.
 TRUSTED_RUNNER = (
     "import sys\n"
     "sys.path[:] = [p for p in sys.path if p not in ('', '.')]\n"
     "import os\n"
     "sys.path[:] = [p for p in sys.path if os.path.abspath(p) != os.getcwd()]\n"
+    "import importlib.machinery\n"
     "root, script, path, *args = sys.argv[1:]\n"
-    "inside = os.path.realpath(root) + os.sep\n"
-    "def refuse(event, details):\n"
-    "    if event == 'import' and any(os.path.realpath(str(entry) or '.').startswith(inside)\n"
-    "                                 for entry in (details[2] or ())):\n"
-    "        raise ImportError(f'web lint: {details[0]} would import from the pushed tree; the hook runs only its '\n"
-    "                          'reviewed copy, so this check must import nothing beside itself')\n"
-    "sys.addaudithook(refuse)\n"
     "with open(script, encoding='utf-8') as handle:\n"
     "    code = compile(handle.read(), path, 'exec')\n"
+    "inside = os.path.realpath(root)\n"
+    "CODE = ('.py', '.pyc', '.pyo', '.pyw', '.so', '.pyd', '.dylib', '.zip', '.egg', '.whl', '.pth')\n"
+    "def in_tree(entry):\n"
+    "    real = os.path.realpath(os.fsdecode(entry) or '.')\n"
+    "    return real == inside or real.startswith(inside + os.sep)\n"
+    "def no(what):\n"
+    "    raise ImportError(f'web lint: {what} is in the pushed tree; the hook runs only its reviewed copy of the '\n"
+    "                      'check, so it must load no code from the tree')\n"
+    "class TreeFinder:\n"
+    "    @staticmethod\n"
+    "    def find_spec(name, search=None, target=None):\n"
+    "        spec = importlib.machinery.PathFinder.find_spec(name, search)\n"
+    "        if spec is not None and spec.origin and spec.has_location and in_tree(spec.origin):\n"
+    "            no(spec.origin)\n"
+    "        return None\n"
+    "def refuse(event, details):\n"
+    "    if event == 'import' and any(in_tree(str(entry)) for entry in (details[2] or ())):\n"
+    "        no(f'a sys.path entry for {details[0]}')\n"
+    "    elif event == 'open' and isinstance(details[0], (str, bytes, os.PathLike)):\n"
+    "        name = os.fsdecode(details[0])\n"
+    "        if name.lower().endswith(CODE) and in_tree(name):\n"
+    "            no(name)\n"
+    "    elif event == 'ctypes.dlopen' and details[0] and in_tree(details[0]):\n"
+    "        no(details[0])\n"
+    "sys.meta_path.insert(0, TreeFinder)\n"
+    "sys.addaudithook(refuse)\n"
     "sys.argv = [path, *args]\n"
     "exec(code, {'__name__': '__main__', '__file__': path, '__builtins__': __builtins__})\n"
 )
