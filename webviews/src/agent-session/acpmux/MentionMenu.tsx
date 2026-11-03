@@ -151,7 +151,6 @@ export function MentionMenu({
           : undefined;
   return (
     <>
-      {state?.kind === "searching" && items.length === 0 && <FileSearchLoading mention />}
       <Listbox
         listRef={attachList}
         items={items}
