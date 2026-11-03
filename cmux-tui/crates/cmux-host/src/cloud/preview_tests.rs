@@ -264,7 +264,7 @@ fn share(audience: ShareAudience) -> PreviewAsk {
 #[test]
 fn preview_link_sharing_posts_defaults_and_returns_only_the_new_link() {
     let mut calls = Vec::new();
-    let linked = json!({"linkId":"link_test","url":"https://share.cmux.dev/s/new-link"});
+    let linked = json!({"link":{"linkId":"link_test"},"url":"https://share.cmux.dev/s/new-link"});
     let reply = answer(&share(ShareAudience::Link), MACHINE, TEAM, |method, path, body| {
         calls.push((method.to_owned(), path.to_owned(), body.clone()));
         if path == REFRESH {
@@ -285,7 +285,7 @@ fn preview_link_sharing_posts_defaults_and_returns_only_the_new_link() {
     );
     assert_eq!(reply["ok"], true);
     assert_eq!(reply["value"]["url"], linked["url"]);
-    assert_eq!(reply["value"]["linkId"], linked["linkId"]);
+    assert_eq!(reply["value"]["linkId"], linked["link"]["linkId"]);
     assert!(!reply.to_string().contains("owner-only"));
 }
 
@@ -347,7 +347,7 @@ fn preview_share_never_falls_back_to_owner_bootstrap_when_shared_url_is_missing(
         if path == REFRESH {
             return http(inventory(vec![preview(3000, "owner-only")]));
         }
-        http(json!({"linkId":"link_missing_url"}))
+        http(json!({"link":{"linkId":"link_missing_url"}}))
     });
     assert_eq!(reply["ok"], false);
     assert!(reply.get("value").is_none());

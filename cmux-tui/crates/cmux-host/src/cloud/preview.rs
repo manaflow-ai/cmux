@@ -181,7 +181,7 @@ pub fn answer(
     };
     let mut value = json!({"port":ask.port, "url":url});
     if ask.audience == Some(ShareAudience::Link) {
-        if let Some(id) = shared.get("linkId") {
+        if let Some(id) = shared.pointer("/link/linkId") {
             value["linkId"] = id.clone();
         }
     }
