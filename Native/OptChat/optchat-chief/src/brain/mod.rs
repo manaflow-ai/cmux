@@ -46,7 +46,7 @@ mod reply_ledger;
 mod rights_gate;
 pub use rights_gate::RightsCtx;
 mod screen;
-pub use outcome_ledger::UNTOLD_TAG;
+pub use outcome_ledger::{UNTOLD_TAG, UNTOLD_WAIT};
 pub use reply_ledger::{MAX_REPLY_TRIES, NO_REPLY_TAG, REPLY_RETRY_WAITS};
 mod send;
 mod side;
@@ -152,6 +152,8 @@ pub enum Input {
         place: Option<String>,
         /// `spawn(harness)`: the harness its subagents run on; None: the turn's.
         harness: Option<String>,
+        /// Acpmux's health and login snapshot, read off the brain thread.
+        machines: Vec<crate::place_route::Machine>,
         reply: Sender<Result<crate::subagents::SpawnPlan, String>>,
     },
     /// A queued subagent's launch, saved in its record.
@@ -165,6 +167,8 @@ pub enum Input {
         session_id: String,
         /// The effective session policy (configured policy or spawn floor).
         policy: Option<String>,
+        /// The harness its session runs on.
+        harness: Option<String>,
     },
     /// A subagent's first prompt (view and task) is sent: its inbox follows.
     SubagentPrompted {
@@ -692,6 +696,19 @@ impl Queued {
             )
     }
 
+    /// The trusted agent session that sent this item, when it is one that
+    /// takes the ask floor only because a trusted agent sent it.
+    fn trusted_relay(&self) -> Option<&str> {
+        match &self.source {
+            Source::Message {
+                requires_approval: true,
+                relay: Some(name),
+                ..
+            } => Some(name),
+            _ => None,
+        }
+    }
+
     fn requires_approval(&self) -> bool {
         matches!(
             self.source,
@@ -723,6 +740,10 @@ enum Source {
         id: String,
         remote: Option<String>,
         requires_approval: bool,
+        /// The trusted acpmux session that sent it through the owner's CLI
+        /// (`relay.trustedAgents`): its turn may tell and spawn the Chief's
+        /// own subagents. None for every other message.
+        relay: Option<String>,
     },
     /// A child's report; its record turns `Reported` with this floor when logged.
     Child { session_id: String, floor: u64 },
@@ -922,6 +943,10 @@ pub struct Brain {
     /// host after it ended is still held to its rules (`turn_gate`) until
     /// the next turn starts.
     last_turn_ask: bool,
+    /// The last ask turn's other-person text came only from trusted agent
+    /// sessions (`relay.trustedAgents`), named here: it may tell and spawn
+    /// the Chief's own subagents (Leo, 2026-11-02). Set at each turn start.
+    turn_relay: Option<String>,
     /// Requests refused in the running turn (`approval::signature`): a
     /// repeat counts toward stopping the turn.
     turn_denied: Vec<String>,
@@ -1073,6 +1098,7 @@ impl Brain {
             chief,
             turn_ask: false,
             last_turn_ask: false,
+            turn_relay: None,
             turn_denied: Vec::new(),
             repeat_denials: 0,
             after_turn: None,
@@ -1447,6 +1473,7 @@ impl Brain {
                 peer,
                 place,
                 harness,
+                machines,
                 reply,
             } => {
                 // `cloud:SIZE`: on the cloud, at that VM size.
@@ -1457,7 +1484,21 @@ impl Brain {
                 let plan = self
                     .spawn_peer(peer.as_deref(), place.as_deref())
                     .and_then(|peers| {
-                        self.register_spawn_sized(&tasks, &peers, place.as_deref(), size.as_deref())
+                        let engine = self.spawn_engine();
+                        let family = self.family_of(
+                            harness
+                                .as_deref()
+                                .or_else(|| engine.as_ref().map(|e| e.harness.as_str()))
+                                .unwrap_or(&self.settings.harness),
+                        );
+                        self.register_spawn_sized(
+                            &tasks,
+                            &peers,
+                            place.as_deref(),
+                            size.as_deref(),
+                            &machines,
+                            family,
+                        )
                     })
                     .map(|mut plan| {
                         if let Some(h) = harness.as_deref() {
@@ -1472,7 +1513,8 @@ impl Brain {
                 id,
                 session_id,
                 policy,
-            } => self.sub_started(&id, session_id, policy),
+                harness,
+            } => self.sub_started(&id, session_id, policy, harness),
             Input::SubagentPrompted { id } => {
                 self.sub_prompted(&id);
                 self.stop_if_cancelled(&id);
@@ -1520,6 +1562,11 @@ impl Brain {
                 queue,
                 reply,
             } => {
+                // The subagent sees who asked for a tell a trusted agent drove.
+                let message = match self.relay_sender() {
+                    Some(from) => format!("[relayed from {from}] {message}"),
+                    None => message,
+                };
                 let answer = self.tell_with(&id, &message, key.as_deref(), queue);
                 let _ = reply.send(answer);
             }
@@ -1840,6 +1887,27 @@ impl Brain {
                 contact.as_deref().unwrap_or("<unset>")
             ));
         }
+        if key == crate::chief_settings::TRUST_AGENTS {
+            let on = parse_bool(value)?;
+            let mut next = self.chief.clone();
+            next.trust_agents = on;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            (self.log)(&format!("setting {key} = {on}"));
+            return Ok(format!("{key} = {on}"));
+        }
+        if key == crate::chief_settings::TRUSTED_AGENTS {
+            let list = crate::chief_settings::parse_trusted_agents(value)?;
+            let mut next = self.chief.clone();
+            next.trusted_agents = list.clone();
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            let shown = list.join(", ");
+            (self.log)(&format!("setting {key} = [{shown}]"));
+            return Ok(format!("{key} = [{shown}]"));
+        }
         if key == crate::chief_settings::CLOUD_DELETE_AFTER_PAUSED_DAYS {
             let days = crate::chief_settings::parse_paused_days(value)?;
             let mut next = self.chief.clone();
@@ -1943,8 +2011,10 @@ impl Brain {
             return Ok(format!("{key} = {}", ttl.as_str()));
         }
         Err(format!(
-            "unknown setting {key:?} (known: {CONTACT}, {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT}, {SHOW_SUBAGENT_WORKSPACES}, {}, {CLOUD_AUTO_PAUSE_IDLE_SECONDS})",
-            crate::chief_settings::CLOUD_AUTO_PAUSE
+            "unknown setting {key:?} (known: {CONTACT}, {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT}, {SHOW_SUBAGENT_WORKSPACES}, {}, {CLOUD_AUTO_PAUSE_IDLE_SECONDS}, {}, {})",
+            crate::chief_settings::CLOUD_AUTO_PAUSE,
+            crate::chief_settings::TRUST_AGENTS,
+            crate::chief_settings::TRUSTED_AGENTS
         ))
     }
 

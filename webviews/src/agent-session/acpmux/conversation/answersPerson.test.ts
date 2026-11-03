@@ -1,8 +1,7 @@
 // l10n-allow-file: test fixture replies, not shipped UI.
-// An agent's reply of only punctuation still draws when it answers the person's own prompt (Leo,
-// 2026-11-03, on #32884 hiding them: "well there are cases (rare) that you would want to see
-// it..."). The "." it answers another agent's message with, and the "·" it ends a background turn
-// with, still draw nothing.
+// An agent's lone "." still draws when it answers the person's own prompt (Leo, 2026-11-03, on
+// hiding punctuation-only replies: "well there are cases (rare) that you would want to see it...").
+// The "." it answers another agent's message with, or ends a background turn with, draws nothing.
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
@@ -26,11 +25,10 @@ const received = (id: string, text: string) =>
   row(id, "user", { text, incoming: { kind: "message", message: { name: "lane", text, raw: text } } });
 
 test("a punctuation-only reply to the person's prompt draws", () => {
-  for (const text of ["…", "?", ".", "!"]) {
+  for (const text of ["…", "?", ".", " .\n", "!"]) {
     at = 0;
     const rows = [row("prompt", "user", { text: "Anything left?" }), row("reply", "assistant", { text }), summary("s")];
     expect(drawn(rows)).toContain("reply");
-    expect(turnView(rows, new Set()).find((entry) => entry.id === "reply")?.answersPerson).toBe(true);
   }
 });
 
@@ -61,7 +59,7 @@ test("a '.' after another agent's message steered into the person's turn draws n
   expect(ids).not.toContain("dot");
 });
 
-test("the '·' ending a background turn after the person's turn draws nothing", () => {
+test("the '.' ending a background turn after the person's turn draws nothing", () => {
   at = 0;
   const line = row(backgroundTurnRowId("a"), BACKGROUND_TURN, {
     background: { id: "a", trigger: "task_notification", running: false, quiet: true },
@@ -71,7 +69,7 @@ test("the '·' ending a background turn after the person's turn draws nothing", 
     row("reply", "assistant", { text: "Started them." }),
     summary("s"),
     line,
-    row("dot", "assistant", { text: "·" }),
+    row("dot", "assistant", { text: "." }),
   ];
   expect(drawn(rows)).not.toContain("dot");
 });

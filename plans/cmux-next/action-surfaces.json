@@ -6244,7 +6244,7 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "d",
+        "key" : "x",
         "modifiers" : [
           "ctrl",
           "cmd"
@@ -6306,7 +6306,7 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "d",
+        "key" : "x",
         "modifiers" : [
           "ctrl",
           "shift",
@@ -15678,7 +15678,7 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "d",
+        "key" : "x",
         "modifiers" : [
           "opt",
           "cmd"
@@ -15712,7 +15712,7 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "d",
+        "key" : "x",
         "modifiers" : [
           "opt",
           "shift",

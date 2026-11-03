@@ -272,11 +272,33 @@ public final class FeedStore {
     /// The filtered list and the count, kept with the items instead of
     /// recomputed by every body that reads them.
     private func refreshDerived() {
-        let visible = items.filter { !$0.isDone && filter.matches($0) && !mutedWorkspaces.contains($0.workspaceID) }
+        let visible = Self.pinningNeedsYou(items.filter { !$0.isDone && filter.matches($0) && !mutedWorkspaces.contains($0.workspaceID) })
         if visible != visibleItems { visibleItems = visible }
-        let count = items.count(where: { $0.needsYou && !$0.isDone })
-        if count != needsYouCount { needsYouCount = count }
+        let open = Set(items.lazy.filter { $0.needsYou && !$0.isDone }.map(\.id))
+        if open != needsYouIDs { needsYouIDs = open }
+        if open.count != needsYouCount { needsYouCount = open.count }
     }
+
+    /// Needs you first: the asks still waiting on the person lead the list, newest first among
+    /// them, then every other event newest first. The Mac's Feed pins its open requests the same
+    /// way (CmuxNextFeed `FeedLedger`, section 0), so an ask never sinks under later turns.
+    nonisolated static func pinningNeedsYou(_ items: [FeedItem]) -> [FeedItem] {
+        // Stable: each group keeps the order it came in (newest first).
+        guard items.contains(where: \.needsYou) else { return items }
+        return items.filter(\.needsYou) + items.filter { !$0.needsYou }
+    }
+
+    /// Whether the Feed knows the ask with acpmux permission `permissionID` from `mac` closed:
+    /// answered here, on the Mac or on another device, or marked done. Nil `mac` (a push from an
+    /// older Worker) matches the ask on any Mac. False for an ask the Feed has not read yet (a
+    /// reconnect that has not reloaded it); an Allow still waiting for Face ID has no resolution
+    /// yet, so it stays open.
+    public func isClosedAsk(permissionID: String, mac: String?) -> Bool {
+        guard let item = item(id: "ask-\(permissionID)") else { return false }
+        if let mac, let owner = item.macID, mac != owner { return false }
+        return item.isDone || !item.needsYou
+    }
+
     /// Persisted read flags (`FeedReadMarks`); nil keeps them in memory only (tests).
     @ObservationIgnored private var readMarks: FeedReadMarks?
     @ObservationIgnored private var readIDs: [String] = [] {
@@ -378,6 +400,10 @@ public final class FeedStore {
     public private(set) var visibleItems: [FeedItem] = []
 
     public private(set) var needsYouCount = 0
+    /// The ids of the asks still waiting on the person (`needsYou`, not done). It changes only
+    /// when an ask opens or closes: the notification sync keys on it, so a re-render or a re-read
+    /// of the same asks does nothing.
+    public private(set) var needsYouIDs: Set<String> = []
 
     public func count(_ filter: FeedFilter) -> Int { items.count(where: filter.matches) }
 

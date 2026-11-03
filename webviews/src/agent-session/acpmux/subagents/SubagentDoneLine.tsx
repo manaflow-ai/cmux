@@ -22,6 +22,7 @@ import { TranscriptActivityRowShell } from "../conversation/TranscriptActivityRo
 import { formatDuration } from "../conversation/turns";
 import { ChevronRight, Retry } from "../conversation/icons";
 import { TurnActionsContext } from "../conversation/turnActions";
+import { ReactionMark, ReactionReply } from "../conversation/ReactionMark";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { AgentIdentity, SUBAGENT_FALLBACK } from "./AgentIdentity";
@@ -201,6 +202,7 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
           </span>
         )}
         <span className="cv-tool__trail cv-subagent-done__trail cv-agent-activity__trail">
+          <ReactionMark reaction={agent.reaction} />
           {!waiting && <span className="cv-command__meta cv-subagent-done__time">{time}</span>}
         </span>
         {/* The chevron only marks that the line opens; the line's button is the one control. Its
@@ -212,6 +214,9 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
           <ChevronRight size={14} strokeWidth={1.2} />
         </span>
       </TranscriptActivityRowShell>
+      {/* The chat's quiet reply to its end (ReactionMark.tsx), under the line as text Find reads,
+          never only in a tooltip (cmux#33538). */}
+      <ReactionReply reaction={agent.reaction} />
     </div>
   );
 }
