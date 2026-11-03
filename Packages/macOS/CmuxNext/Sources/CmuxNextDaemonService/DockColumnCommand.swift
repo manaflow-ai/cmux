@@ -4,7 +4,8 @@ public import CmuxNextDaemon
 /// docked on the left with `respawn` (a lone chat docked by a new tab from its pane) shows in the
 /// input's turn on a daemon that takes the column's pane id (`tab-column-client-pane-v1`): the
 /// tab moves into a stand-in dock pane and its pane shows its fresh tab's stand-in
-/// (``ProvisionalDock``), as New Column shows its column (``NewColumnCommand``). Otherwise it
+/// (``ProvisionalDock``), as New Column shows its column (``NewColumnCommand``). Otherwise, a
+/// fresh browser tab included (its stand-in's page would not carry over to the daemon's tab), it
 /// waits for the reply.
 public struct DockColumnCommand: Sendable {
     public let move: MoveTabToColumnRequest
@@ -27,8 +28,9 @@ public struct DockColumnCommand: Sendable {
                 } != nil
             }
         }
-        guard case .pane(let source) = move.target, let dock = move.dock, dock.edge == .left, let width = move.width,
-              let transaction = move.transaction, daemon.supports(DaemonCapability.tabColumnClientPane.rawValue) else {
+        guard case .pane(let source) = move.target, case .terminal(var options) = respawn, let dock = move.dock,
+              dock.edge == .left, let width = move.width, let transaction = move.transaction,
+              daemon.supports(DaemonCapability.tabColumnClientPane.rawValue) else {
             return {
                 await daemon.request("move-tab-to-column") { connection -> Void in
                     try await MoveTabToColumnRespawnRequest(move, respawn: respawn).send(on: connection)
@@ -36,8 +38,11 @@ public struct DockColumnCommand: Sendable {
             }
         }
         let provisional = ProvisionalPane(columnWidth: width, left: true)
-        let (sent, standIn) = Self.standIn(of: respawn)
-        let request = MoveTabToColumnRespawnRequest(move, respawn: sent, paneID: provisional.paneID)
+        // The host id is minted here, so the stand-in and the daemon's tab show the same terminal.
+        let terminal = options.terminalID ?? TerminalID.generate()
+        options.terminalID = terminal
+        let standIn = ProvisionalTab().terminal(terminal, cwd: options.cwd)
+        let request = MoveTabToColumnRespawnRequest(move, respawn: .terminal(options), paneID: provisional.paneID)
         let intent = Intent.dockTab(surface: move.surface, pane: source, provisional: provisional, dock: dock, standIn: standIn)
         let send = daemon.intendNowReporting("move-tab-to-column", intent, transaction: transaction) { connection in
             try await request.send(on: connection)
@@ -45,16 +50,4 @@ public struct DockColumnCommand: Sendable {
         return { (try? await send().get()) != nil }
     }
 
-    /// The respawn as sent, and the stand-in of the fresh tab it makes. A terminal's host id is
-    /// minted here, so the stand-in and the daemon's tab show the same terminal.
-    @MainActor static func standIn(of respawn: SplitRespawn) -> (SplitRespawn, TabSnapshot) {
-        switch respawn {
-        case .terminal(var options):
-            let terminal = options.terminalID ?? TerminalID.generate()
-            options.terminalID = terminal
-            return (.terminal(options), ProvisionalTab().terminal(terminal, cwd: options.cwd))
-        case .browser(let url, let engine, let profileID):
-            return (respawn, ProvisionalTab().browser(url: url, engine: engine.rawValue, profile: profileID))
-        }
-    }
 }
