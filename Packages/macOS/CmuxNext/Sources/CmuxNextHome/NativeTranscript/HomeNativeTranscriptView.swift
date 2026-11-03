@@ -149,6 +149,8 @@ public final class HomeNativeTranscriptView: NSView {
     public var onHeaderPanel: (String) -> Void = { _ in }
     /// The header's top-right panel toggles (HomeNativeTranscriptView+HeaderPanels.swift).
     let headerPanels = HomeHeaderPanelBar()
+    /// The section pinned under the header (HomeNativeTranscriptView+PinnedSection.swift) and its measured height.
+    var pinned: (view: NSView, height: CGFloat)?
     /// The window's key and occlusion observers; each token removes itself when released (on any thread).
     private var observers: [MainActorObservation] = []
     /// The window's typing hold for the compose field's cursor rects (HomeCursorRectHold).
@@ -460,6 +462,7 @@ public final class HomeNativeTranscriptView: NSView {
         let top = transcript.headerHeight
         let panel = CGRect(x: 0, y: top, width: bounds.width, height: max(0, transcript.fieldTop - top))
         if firstRun.frame != panel { firstRun.frame = panel }
+        layoutPinnedSection()
         layoutNotice()
     }
 
