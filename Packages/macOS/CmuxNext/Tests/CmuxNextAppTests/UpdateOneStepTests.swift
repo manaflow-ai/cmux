@@ -89,6 +89,16 @@ import Testing
         #expect(ready["progress"] == nil)
     }
 
+    @Test func aDownloadReSendsSettingsOnlyWhenItsPercentChanges() {
+        let (updater, _) = Self.make()
+        Self.move(updater, [.checking, .downloading(.downloading(received: 125 * Self.mb, expected: 250 * Self.mb))])
+        let first = updater.settingsPageJSON
+        Self.move(updater, [.downloading(.downloading(received: 125 * Self.mb + 300_000, expected: 250 * Self.mb))])
+        #expect(updater.settingsPageJSON == first, "the bytes line changed inside one percent")
+        Self.move(updater, [.downloading(.downloading(received: 128 * Self.mb, expected: 250 * Self.mb))])
+        #expect(updater.settingsPageJSON != first, "a new percent did not show")
+    }
+
     @Test func aBackgroundFailureShowsInSettingsWithTryAgain() {
         let (updater, _) = Self.make()
         // A scheduled check and download the person never asked for, then Sparkle's error.

@@ -25,8 +25,8 @@ extension UpdaterService {
     }
 
     /// The card's state (`app_update` in `cmux.settings.host.lists`), every text localized here.
-    /// Live through `cmux.settings.host.changed`: it reads only observable state. The progress is
-    /// whole percent, so a download re-sends the host lists at most a hundred times.
+    /// Live through `cmux.settings.host.changed`: it reads only observable state. A download is
+    /// whole percent (``settingsQuantized(_:)``), so it re-sends the host lists at most a hundred times.
     public var settingsPageJSON: JSONValue {
         let current = UpdateCard.versionLabel(version: identity.shortVersion, build: identity.build)
         var json: [String: JSONValue] = ["title": .string(UpdaterStrings.settingsTitle)]
@@ -40,7 +40,8 @@ extension UpdaterService {
             json["status"] = .string(UpdaterStrings.readyToInstall)
             json["detail"] = .string(version.map(UpdaterStrings.foundVersion) ?? UpdaterStrings.restartKeepsSessions)
             actions = [.install]
-        case .card(let card):
+        case .card(let shown):
+            let card = Self.settingsQuantized(shown)
             let shown = card.presentation(version: identity.shortVersion, build: identity.build,
                                           install: card == .installing ? installStatus : nil)
             json["status"] = .string(shown.title)
@@ -55,6 +56,15 @@ extension UpdaterService {
         json["phase"] = .string(settingsStatus?.kind ?? "idle")
         json["actions"] = .array(actions.map { ["id": .string($0.rawValue), "title": .string($0.title), "prominent": .bool($0.isProminent)] })
         return .object(json)
+    }
+
+    /// `card` with a measured download's bytes rounded down to whole percent, so neither the bar
+    /// nor the bytes line changes between percents and the host lists re-send at most a hundred times.
+    nonisolated static func settingsQuantized(_ card: UpdateCard) -> UpdateCard {
+        guard case .downloading(let transfer) = card, transfer.stage == .downloading,
+              let received = transfer.receivedBytes, let expected = transfer.expectedBytes, expected > 0 else { return card }
+        let percent = min(100, received * 100 / expected)
+        return .downloading(.downloading(received: expected * percent / 100, expected: expected))
     }
 
     /// The card's buttons for a notice `card`: the same as the old sidebar card's (Update,
