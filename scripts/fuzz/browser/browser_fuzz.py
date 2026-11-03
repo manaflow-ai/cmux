@@ -139,9 +139,11 @@ def drain_queued(report, seed: int, ops: list[dict]):
                queued=record)
         take_queued(record)
 WATCH_POLL_S = 5.0
-# Seconds the end-of-seed delete of this run's downloads may take. The files are in the account's real ~/Downloads (the
-# app ignores the step's HOME), where a file operation can wait on a Files and Folders prompt that nobody answers in a
-# fleet session: the delete runs in a daemon thread and the run never waits on it longer than this.
+# Seconds the end-of-seed delete of this run's downloads may take. bench_memory.launch gives the app a downloads folder
+# in the run's scratch (CMUX_NEXT_DOWNLOADS_DIR); a build without that variable (a Release app, or one from before it)
+# saves to the account's real ~/Downloads (the app ignores the step's HOME), where a file operation can wait on a Files
+# and Folders prompt that nobody answers in a fleet session: the delete runs in a daemon thread and the run never waits
+# on it longer than this.
 DOWNLOAD_DELETE_S = 10.0
 # The run has one final verdict: the first thread that claims it (the watchdog, a signal handler or the main thread at
 # the run's end) prints it and exits; every later claim, and the main thread's verdict, finding and launch paths once
@@ -315,6 +317,7 @@ class Session:
         self.pid, self.sock, self.scratch = bench_memory.launch(opts.app, {}, extra, direct=True)
         LIVE["session"] = self
         self.home = os.path.join(self.scratch, "home")
+        self.downloads = bench_memory.downloads_dir(self.scratch)  # the app's CMUX_NEXT_DOWNLOADS_DIR
         self.tabs: list[str] = []
         self.closed: set[str] = set()
         self.cursor = 0
@@ -763,12 +766,15 @@ class Session:
             return
         self.counts["downloads"] += 1
         real = pwd.getpwuid(os.getuid()).pw_dir
-        for folder in (os.path.join(real, "Downloads"), os.path.join(self.home, "Downloads")):
+        # The run's own folder first (its realpath too: the scratch is under /var, a link to /private/var); the
+        # account's folders only for a build that does not read CMUX_NEXT_DOWNLOADS_DIR.
+        for folder in (self.downloads, os.path.realpath(self.downloads), os.path.join(real, "Downloads"),
+                       os.path.join(self.home, "Downloads")):
             # Text only: no stat or realpath inside the account's Downloads folder (see cleanup).
             if os.path.normpath(os.path.dirname(row.get("destination") or "")) == os.path.normpath(folder):
                 break
         else:
-            folder = os.path.join(real, "Downloads")
+            folder = self.downloads
         problem = model.download_violation(row, folder)
         if problem:
             raise Failure("download_path", f"{name[:120]!r}: {problem}", index, {"row": row})

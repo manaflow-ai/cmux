@@ -16,9 +16,10 @@ import { SessionCwdContext } from "../turnChanges/sessionRows";
 import { EditDiff } from "./EditDiff";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
+import { ApprovedMark } from "./ApprovedMark";
 import { RowShimmer } from "./ShimmerText";
 import { toolDuration } from "./toolGroups";
-import { cleanText, mcpCall } from "./mcpCalls";
+import { cleanText } from "./mcpCalls";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { useRowDisclosure } from "./transcriptDisclosure";
 import { toolResult } from "./toolResult";
@@ -27,7 +28,7 @@ import { WriteLabel, writeCall } from "./WriteLabel";
 import { ToolLabel } from "./ToolVerb";
 import { callOutput, rowFailed, toolFailure } from "./toolFailure";
 import { RepoRecoveryCard, repoRecoveryFor } from "./RepoRecoveryCard";
-import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
+import { failureWord, InlineFailureCause, ToolFailureCause, useInStep } from "./ToolFailureCause";
 import { Check, ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
 
 /// ACP tool kinds (`ToolKind`) to row glyphs.
@@ -58,6 +59,7 @@ export function toolIcon(kind?: string): ReactNode {
 // context changes (Find, language, cwd) still reach this component through React's subscriptions.
 export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity }) {
   const t = useT();
+  const step = useInStep();
   // Closed, or open in the Verbose transcript view.
   const [open, setOpen] = useRowDisclosure(item.tool?.id);
   // Find in Chat counts matches in the whole output, so a call it reveals shows all of it.
@@ -86,8 +88,6 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
     cwd,
     t(foreground ? "tools.runningUnnamed" : "tools.ranUnnamed"),
   );
-  // An MCP call's plain name ("Hub · read chat", toolPaths.ts) leads with its server, not a verb.
-  const plainMcp = useMemo(() => label.includes(" · ") && mcpCall(tool) !== undefined, [label, tool]);
   // Failed by its status or a nonzero exit; in the background, by its status (toolFailure.ts rowFailed).
   const recovery = useMemo(() => repoRecoveryFor(tool), [tool]);
   const failed = rowFailed(tool) && !recovery;
@@ -138,7 +138,7 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
     return () => observer.disconnect();
   }, [hasDetails, open, label, expandable]);
   const images = useMemo(() => toolImages(tool), [tool]);
-  const words = write ? <WriteLabel tool={tool} write={write} t={t} /> : <ToolLabel text={label} whole={plainMcp} />;
+  const words = write ? <WriteLabel tool={tool} write={write} t={t} /> : <ToolLabel text={label} />;
   const content = (
     <>
       <span className="cv-tool__icon">{toolIcon(tool.kind)}</span>
@@ -149,20 +149,22 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
         {failure && (
           <span className="cv-tool__failed" data-find-skip>
             {" "}
-            {failureWord(t, failure)}
+            {failureWord(t, failure, step)}
           </span>
         )}
         <InlineFailureCause failure={failure} />
       </span>
       {background ? (
         <span className="cv-command__meta cv-tool__meta">
+          {tool.approved && <ApprovedMark />}
           <BackgroundMark background={background} />
           {duration && <span className="cv-command__time">{duration}</span>}
         </span>
       ) : (
-        !foreground && (
+        (!foreground || tool.approved) && (
           <span className="cv-command__meta">
-            {!failed && <Check size={14} className="cv-command__ok" />}
+            {tool.approved && <ApprovedMark />}
+            {!foreground && !failed && <Check size={14} className="cv-command__ok" />}
             {duration && <span className="cv-command__time">{duration}</span>}
           </span>
         )

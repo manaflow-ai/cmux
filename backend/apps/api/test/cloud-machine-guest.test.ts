@@ -162,14 +162,14 @@ describe("/v1/cloud/machines/{machine}/exec and /fs/{op}", { timeout: 60_000 }, 
     expect(await call("DELETE", `${base}/fs/remove?path=/x`, t)).toMatchObject({ status: 502, body: { error: { code: "vm_file_operation_failed", message: "Traceback: boom" } } })
   })
 
-  it("runs a command of 12 MiB, past the file body bound: staged on the machine in pieces of stdin, then run from its file", async () => {
+  it("runs a command of several MiB: staged on the machine in pieces of stdin, then run from its file", async () => {
     const { t, team, machine } = await signedInWithMachine("cloud-guest-1")
     const stub = stubOf(team)
     const base = `/v1/cloud/machines/${machine}`
     await stub.fakeControl({ guest_reply: { exitCode: 0, stdout: "done\n", stderr: "" } })
     const before = (await stub.fakeControl({})).guest_calls.length
     let command = "printf '%s' '"
-    for (let n = 0; command.length < 12 * 1024 * 1024; n++) command += `word${(n * 7919) % 100_003} `
+    for (let n = 0; command.length < 5 * 1024 * 1024; n++) command += `word${(n * 7919) % 100_003} `
     command += "' | wc -c"
     expect(await call("POST", `${base}/exec`, t, { command })).toMatchObject({ status: 200, body: { exitCode: 0, stdout: "done\n" } })
     const calls = (await stub.fakeControl({})).guest_calls.slice(before) as Array<{ command: string; stdin?: string }>

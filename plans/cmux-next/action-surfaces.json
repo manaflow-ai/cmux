@@ -10649,6 +10649,34 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "home primary-chief",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.setPrimaryChief",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "noTargetSurface",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Make Primary Chief",
+      "title_key" : "action.home.setPrimaryChief",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "home delete-chief",
       "context_menu" : "noTargetSurface",
       "context_menus" : [
@@ -11393,6 +11421,34 @@
       "palette_suggested" : null,
       "title" : "Save Last 10 Seconds",
       "title_key" : "action.home.saveFlightRecording",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "devOnly",
+      "cli_name" : "action home-agent-message-playground",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.agentMessagePlayground",
+      "main_menu" : "debug",
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Agent Messages Playground",
+      "title_key" : "action.home.agentMessagePlayground",
       "title_table" : "HomeActions"
     },
     {
@@ -29220,6 +29276,34 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "offered",
+      "cli_name" : "settings install-earlier-nightly",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "updates.installEarlierBuild",
+      "main_menu" : "app",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Install an Earlier Nightly…",
+      "title_key" : "action.updates.installEarlierBuild",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "guiOnly",
       "cli_name" : "settings upgrade-to-pro",
       "context_menu" : "noObject",
@@ -30561,6 +30645,34 @@
       "palette_suggested" : null,
       "title" : "Hide Host Pressure Warning",
       "title_key" : "action.hostPressure.hideWarning",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "devOnly",
+      "cli_name" : "action debug-tab-bar-playground",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "debug.tabBarPlayground",
+      "main_menu" : "debug",
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Tab Bar Playground",
+      "title_key" : "action.debug.tabBarPlayground",
       "title_table" : "ActionCatalog"
     },
     {

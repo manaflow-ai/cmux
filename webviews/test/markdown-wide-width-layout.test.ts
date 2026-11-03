@@ -263,8 +263,9 @@ await requireBrowserLane("markdown-wide-width-layout.test.ts", async () => {
       });
 
       // User 2026-10-31: faint text from behind the window read through the markdown viewer. Over a
-      // see-through window the page background is transparent (`--cmux-surface-background`); the
-      // viewer paints the theme's opaque surface (`--cmux-surface-solid`) instead.
+      // see-through window with no picture the page background is transparent
+      // (`--cmux-surface-background`); the host sends the reading background opaque there
+      // (`--cmux-reading-background`, WebTheme), and the viewer paints it.
       test("over a see-through window the page paints the opaque surface", async () => {
         const page = await open(engine, 1200);
         const background = await page.evaluate(() => {
@@ -275,6 +276,7 @@ await requireBrowserLane("markdown-wide-width-layout.test.ts", async () => {
           document.head.append(bootstrap);
           root.style.setProperty("--cmux-surface-background", "rgba(30, 30, 46, 0)");
           root.style.setProperty("--cmux-surface-solid", "rgb(30, 30, 46)");
+          root.style.setProperty("--cmux-reading-background", "rgb(30, 30, 46)");
           return getComputedStyle(root).backgroundColor;
         });
         expect(background).toBe("rgb(30, 30, 46)");

@@ -40,11 +40,17 @@ export type MockSession = {
   working?: { title: string; kind: string; command?: string };
   /// A page the agent rendered before its reply (`cmux mcp`'s render tool), shown as a render card.
   render?: { title: string; html: string };
+  /// The chat's whole history, when it is a scene of its own instead of a prompt and its reply.
+  history?: (at: number) => SeedStep[];
 };
 
 type Update = Record<string, unknown>;
 /// One seeded event, `ago` milliseconds before the fixture loads.
-export type SeedStep = ({ update: Update } | { mux: string; msg?: Record<string, unknown> }) & { ago: number };
+/// An update step's `meta` is the `_meta` acpmux writes beside it (its `acpmux.subagents` model).
+export type SeedStep = (
+  | { update: Update; meta?: Record<string, unknown> }
+  | { mux: string; msg?: Record<string, unknown> }
+) & { ago: number };
 
 export const LOCAL_HOST = "This Mac";
 
@@ -130,6 +136,10 @@ const effort = (currentValue: string) => [
 export const WORKED_SESSION = "mock-session";
 const CMUX = "~/code/cmux";
 
+export const SUBAGENT_NAMES_SESSION = "mock-subagent-names";
+export const SUBAGENT_NAMES_AGENT_ID = "a6ab68f9e2c41d07b";
+export const SUBAGENT_NAMES_TASK = "Watch CI for #33005";
+
 export const mockSessions: MockSession[] = [
   {
     sessionId: WORKED_SESSION,
@@ -197,6 +207,21 @@ export const mockSessions: MockSession[] = [
     pullRequest: { number: 18166, title: "Localize the changes view", state: "draft" },
     reply:
       "Added the 14 new strings to Localizable.xcstrings in all nine app locales. The Arabic layout mirrors the toolbar correctly.",
+  },
+  {
+    // A coordinator's tagged ask at the end of its turn (conversation/nextStepAsk.ts): it draws as a
+    // card with its answers as buttons (NextStepCard.tsx); a click sends one as the next prompt.
+    sessionId: "mock-next-step-ask",
+    title: "Find why the lane stalled",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 40,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply:
+      "The lane wasn't foregrounded by acpmux or cmux NEXT. It ran about 40 slow Bash calls in the foreground itself, and they stalled the turn. Separately, the activity-row timer bug went to the timer helper.\n\n[outward] Add a hook that pushes known-slow commands to the background?\n- Yes, add the hook\n- Not now\n- Fix CI first",
   },
   {
     sessionId: "mock-typing-latency",
@@ -420,11 +445,185 @@ export const mockSessions: MockSession[] = [
     hostKind: "local",
     reply: "The config now lives in dotfiles and links into ~/.config/ghostty on each machine.",
   },
+  {
+    // A background shell from an earlier page ends while a reply streams (Leo, 2026-11-03: "this
+    // chat's text stream got cut in the middle by a tool call which is weird"): its note goes after
+    // the reply, never between "once per machine," and "not once per chat."
+    sessionId: "mock-notice-mid-reply",
+    title: "How often do Cloud machines ask for a login",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 9000,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply: "Once per machine, not once per chat.",
+    history: (at) => [
+      { ago: at + 90_000, mux: "user_message", msg: { text: "How often do Cloud machines ask for a login?" } },
+      { ago: at + 90_000, mux: "turn_started" },
+      {
+        ago: at + 40_000,
+        update: text(
+          "- Codex works the same way through its device sign-in.\n- The login stays on that machine's own disk, so it's once per machine,",
+        ),
+      },
+      {
+        ago: at + 30_000,
+        update: {
+          sessionUpdate: "background_task_update",
+          taskId: "task-ci-wait",
+          toolCallId: "mock-notice-mid-reply-earlier-call",
+          command: "Wait for remote CI run",
+          state: "completed",
+        },
+      },
+      { ago: at + 20_000, update: text(" not once per chat. With one machine per workspace, that's rare.") },
+      { ago: at, mux: "turn_result", msg: { status: "completed" } },
+    ],
+  },
+  {
+    // A background subagent whose Agent call is on a page not loaded (Leo, 2026-11-03: "why is the
+    // spacing like this it's weird", his capture reading "Subagent finished: Subagent" and "Sent to
+    // a6ab68f9"). acpmux repeats its name and task on its progress and end, and its progress says
+    // its agentId (cmux-tui/crates/acpmux), so its end line names its description and a SendMessage to its agentId reads
+    // "Sent to <description>".
+    sessionId: SUBAGENT_NAMES_SESSION,
+    title: "Watch CI for the subagent names fix",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 9200,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply: "CI is green.",
+    history: (at) => {
+      const id = `${SUBAGENT_NAMES_SESSION}/toolu_ci_watch`;
+      const named = { name: "ci-watcher", task: SUBAGENT_NAMES_TASK };
+      const send = "mock-subagent-names-send";
+      return [
+        { ago: at + 4_400_000, mux: "user_message", msg: { text: "Keep watching CI and tell me when it is green." } },
+        { ago: at + 4_400_000, mux: "turn_started" },
+        {
+          ago: at + 4_350_000,
+          update: { sessionUpdate: "subagent_progress", subagentSessionId: id },
+          meta: {
+            acpmux: {
+              subagents: [
+                {
+                  id,
+                  parent: null,
+                  state: "running",
+                  background: true,
+                  action: "Reading the run log",
+                  agentId: SUBAGENT_NAMES_AGENT_ID,
+                  ...named,
+                },
+              ],
+            },
+          },
+        },
+        {
+          ago: at + 4_300_000,
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: send,
+            title: "SendMessage",
+            kind: "other",
+            status: "pending",
+            rawInput: {
+              to: SUBAGENT_NAMES_AGENT_ID,
+              message: "Don't end turns to wait: keep watching until the run is green, then report.",
+            },
+          },
+        },
+        {
+          ago: at + 4_299_000,
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId: send,
+            status: "completed",
+            content: [{ type: "content", content: { type: "text", text: '{"success":true}' } }],
+          },
+        },
+        {
+          ago: at + 10_000,
+          update: { sessionUpdate: "subagent_state_update", subagentSessionId: id, state: "completed" },
+          meta: { acpmux: { subagents: [{ id, parent: null, state: "completed", ...named }] } },
+        },
+        { ago: at + 5_000, update: text("CI is green.") },
+        { ago: at, mux: "turn_result", msg: { status: "completed" } },
+      ];
+    },
+  },
+  {
+    sessionId: "mock-session-links",
+    title: "Which lanes own Session Info",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 9500,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply: "Three lanes work on Session Info.",
+    history: (at) => [
+      { ago: at + 60_000, mux: "user_message", msg: { text: "Which sessions own Session Info?" } },
+      { ago: at + 60_000, mux: "turn_started" },
+      {
+        ago: at + 10_000,
+        update: text(
+          [
+            "Three lanes work on Session Info:",
+            "",
+            `- \`${SESSION_LINK_REFS.swarm}\``,
+            `- \`${SESSION_LINK_REFS.lane}\``,
+            `- \`${SESSION_LINK_REFS.name}\``,
+            "",
+            `Earlier work was in \`${SESSION_LINK_REFS.notYours}\` and \`${SESSION_LINK_REFS.unknown}\`;` +
+              ` the panel lives under \`${SESSION_LINK_REFS.path}\`, about 3/4 done.`,
+          ].join("\n"),
+        ),
+      },
+      { ago: at, mux: "turn_result", msg: { status: "completed" } },
+    ],
+  },
 ];
+
+/// The mock chat whose reply lists other agents' sessions as an agent writes them, in inline code
+/// (Leo, 2026-11-03: "these links aren't clickable"): two agent links that name only host and
+/// session, a `HOST/NAME`, a link with a harness to a session that is not the reader's, a
+/// `HOST/NAME` no daemon knows, and code that only looks like one.
+export const SESSION_LINKS_SESSION = "mock-session-links";
+export const SESSION_LINK_REFS = {
+  swarm: "https://cmux.com/deeplink/agent?host=gcp-agent-lane-7&session=01a19ee7-0000-7de2-862f-0b255ab41dd0",
+  lane: "https://cmux.com/deeplink/agent?host=gcp-agent-lane-2&session=01a18a4b-0000-7950-b4c1-d1053077a7b7",
+  name: "gcp-agent-lane-1/opus-session-info",
+  notYours:
+    "https://cmux.com/deeplink/agent?harness=claude&session=0cfd5322-0000-4e01-b71c-aaf0edfb4de8&host=elsewhere",
+  unknown: "gcp-agent-lane-9/nobody-here",
+  path: "src/app",
+};
+/// What the mock `_acpmux/resolve` answers: each query that names a session this daemon lists,
+/// and that session (a fixture chat, so a click opens something). Any other query is not found.
+export const mockResolvable: Record<string, { sessionId: string; name: string; host: string }> = {
+  "01a19ee7-0000-7de2-862f-0b255ab41dd0": { sessionId: "mock-zsh", name: "codex-swarm-07", host: "gcp-agent-lane-7" },
+  "01a18a4b-0000-7950-b4c1-d1053077a7b7": {
+    sessionId: "mock-ghostty-config",
+    name: "lane-2",
+    host: "gcp-agent-lane-2",
+  },
+  "gcp-agent-lane-1/opus-session-info": {
+    sessionId: "mock-notice-mid-reply",
+    name: "opus-session-info",
+    host: "gcp-agent-lane-1",
+  },
+};
 
 /// A session as `_acpmux/watch` and `_acpmux/attach` report it.
 export function sessionSummary(session: MockSession, now: number, turnCount: number): Record<string, unknown> {
-  const { ago, reply, permission: _permission, ...fields } = session;
+  const { ago, reply, permission: _permission, history: _history, ...fields } = session;
   const preview = session.sessionId === WORKED_SESSION ? "Uploads now retry server errors with backoff." : reply;
   return {
     ...fields,
@@ -736,6 +935,7 @@ export function sampleDiagram(): string {
 /// running session's turn is still open; a session needing input waits on a permission card.
 export function sessionHistory(session: MockSession): SeedStep[] {
   const at = session.ago * MIN;
+  if (session.history) return session.history(at);
   const steps: SeedStep[] = [
     { ago: at + 90_000, mux: "user_message", msg: { text: session.title } },
     { ago: at + 90_000, mux: "turn_started" },

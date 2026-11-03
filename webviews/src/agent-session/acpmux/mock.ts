@@ -6,6 +6,7 @@ import { MockHandoffs } from "./handoff/mock";
 import {
   claudeModels,
   codexModels,
+  mockResolvable,
   mockSessions,
   newSessionSummary,
   sessionHistory,
@@ -112,7 +113,7 @@ export function mockReply(prompt: string): string {
 
 type Update = Record<string, unknown>;
 /// One scripted step: an ACP `session/update`, or a daemon (mux) event.
-type Step = { update: Update } | { mux: string; msg?: Record<string, unknown> };
+type Step = { update: Update; meta?: Record<string, unknown> } | { mux: string; msg?: Record<string, unknown> };
 /// A recorded turn to replay instead of the scripted one (the screenshot harness,
 /// `webviews/scripts/agent-pane`). `atMs` stamps a step that far after the turn
 /// started, so durations read as recorded; steps are delivered without pacing.
@@ -426,6 +427,16 @@ export class MockAcpmuxSocket {
         return this.fork(target, Number(params.throughSeq));
       case "_acpmux/watch":
         return { sessions: this.sessions };
+      // A session this daemon lists (mockFixture.ts `mockResolvable`), by link, id or HOST/NAME.
+      case "_acpmux/resolve": {
+        const query = String(params.query ?? "").trim();
+        const session = query.startsWith("https://")
+          ? undefined
+          : (mockResolvable[query] ?? mockResolvable[query.replace(/^cmux:\/\/agent\/[^/]+\//, "").split("?")[0]!]);
+        if (!session)
+          throw Object.assign(new Error(`no session named or with the id ${JSON.stringify(query)}`), { code: -32001 });
+        return { session: { ...session, qualifiedSessionId: null }, matches: [session], link: null };
+      }
       case "_acpmux/harnesses":
         return {
           // A gallery state can stand for a Mac with no agent CLI (`mockHarnesses`).
@@ -918,7 +929,10 @@ export class MockAcpmuxSocket {
             at,
             dir: "in",
             kind: String(step.update.sessionUpdate),
-            msg: { method: "session/update", params: { sessionId: target, update: step.update } },
+            msg: {
+              method: "session/update",
+              params: { sessionId: target, update: step.update, ...(step.meta && { _meta: step.meta }) },
+            },
           }
         : { sessionId: target, seq: this.seq, at, dir: "mux", kind: step.mux, msg: step.msg ?? {} };
     this.events.push(event);

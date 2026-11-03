@@ -8,8 +8,10 @@ import { sessionModels } from "./modelCatalog";
 import { modelChipFallback } from "./agents";
 import {
   isDefaultChoice,
+  loadResolvedAlias,
   loadResolvedDefaults,
   modelIdName,
+  rememberResolvedAlias,
   rememberResolvedDefault,
   resolvedModel,
 } from "./defaultChoice";
@@ -320,6 +322,10 @@ export function ComposerPickers({
       ...(pickerCatalog?.harnesses.filter((entry) => entry.id === summary?.family) ?? []),
       ...(pickerCatalog?.harnesses ?? []),
     ].map((entry) => catalogRow(entry.models, id));
+  // A release is named by its exact catalog row, else read off its id ("claude-opus-5-5[1m]" keeps
+  // its wide-context name).
+  const releaseName = (id: string) =>
+    kinRows(id).find((row) => row?.id === id || row?.release === id)?.name ?? modelIdName(id, t);
   const ownRow = catalogRow(
     pickerCatalog?.harnesses.find((entry) => entry.acpmuxHarness === summary?.harness || entry.id === summary?.harness)
       ?.models,
@@ -610,11 +616,13 @@ export function ComposerPickers({
     const asked = defaultModel(agent, snapshot.catalog, harnessProfiles, folder ?? summary?.cwd);
     const id = asked && !isDefaultChoice({ id: asked }) ? asked : entry?.defaultModel;
     if (!id || isDefaultChoice({ id })) return undefined;
-    return (
+    const name =
       entry?.models.find((choice) => choice.id === id)?.name ??
       models.find((choice) => choice.id === id)?.name ??
-      modelIdName(id, t)
-    );
+      modelIdName(id, t);
+    // An alias ("opus") is named as the release it last ran here ("Opus 5.5").
+    const release = isRelease(id) ? undefined : loadResolvedAlias(agent, id);
+    return release ? aliasNamedAsRelease(name, releaseName(release)) : name;
   };
   const defaulted = shown !== undefined && isDefaultChoice(model ?? { id: shown });
   // A harness still starting draws its last session's options, which name no model this chat runs.
@@ -690,12 +698,31 @@ export function ComposerPickers({
   // any harness, catalogModel), else the session's own name when that is more than its id, else a
   // name read off the id ("Opus 5.5").
   const ownName = model?.name && model.name !== model.id ? model.name : undefined;
-  const runningName = shown
+  const reportedName = shown
     ? // Only the exact row: "claude-opus-5-5[1m]" keeps its wide-context name (modelIdName).
       ((catalogModel?.id === shown || catalogModel?.release === shown ? catalogModel?.name : undefined) ??
       ownName ??
       modelIdName(shown, t))
     : undefined;
+  // An alias the harness names by its family alone ("opus" is "Opus" until Claude Code's own list
+  // answers) is named as the release it runs ("Opus 5.5"), never the bare family (Leo 2026-11-02:
+  // "WHY DOES IT ONLY SHOW OPUS"): the release the session's model option reports, else the one this
+  // harness's alias last ran here. A name that says more than the family ("Opus plan · Sonnet
+  // execute") stays.
+  const aliasRelease =
+    shown && !isRelease(shown) && !isDefaultChoice({ id: shown })
+      ? runningRelease && runningRelease !== shown
+        ? runningRelease
+        : harness
+          ? loadResolvedAlias(harness, shown)
+          : undefined
+      : undefined;
+  useEffect(() => {
+    if (harness && shown && aliasRelease && aliasRelease === runningRelease && !switching)
+      rememberResolvedAlias(harness, shown, aliasRelease);
+  }, [harness, shown, aliasRelease, runningRelease, switching]);
+  const runningName =
+    reportedName && aliasRelease ? aliasNamedAsRelease(reportedName, releaseName(aliasRelease)) : reportedName;
   // Named as a reported model is: only the exact catalog row, else a name read off the id.
   const listedName =
     listedModel &&
@@ -1370,6 +1397,8 @@ export function ContextRing({
   used,
   size,
   setup,
+  cacheExpiresAt,
+  now,
   breakdown: reported,
   onOpenDetails,
 }: {
@@ -1377,6 +1406,10 @@ export function ContextRing({
   size?: number;
   /// Tokens the agent took before the conversation; the card splits it out when known.
   setup?: number;
+  /// When the chat's prompt cache lapses (unix ms, from acpmux); the card counts down to it.
+  cacheExpiresAt?: number;
+  /// The clock the cache countdown reads (the gallery pins it).
+  now?: () => number;
   /// Claude Code's /context (`summary.contextBreakdown`): its categories replace the bar and parts.
   breakdown?: unknown;
   /// Opens Session Info at its Context section; the card shows Details › only with it.
@@ -1552,6 +1585,8 @@ export function ContextRing({
               used={used}
               size={size}
               setup={setup}
+              cacheExpiresAt={cacheExpiresAt}
+              now={now}
               breakdown={reported}
               onOpenDetails={
                 onOpenDetails &&
@@ -2126,6 +2161,23 @@ export function shortModelName(name: string, short?: string, harnessName?: strin
   if (!vendor || space <= 0) return undefined;
   const rest = name.slice(space + 1).trim();
   return rest && name.slice(0, space).toLowerCase() === vendor.toLowerCase() ? rest : undefined;
+}
+
+/// The name an alias draws once the release it runs is known: the release's (`release`, "Opus 5.5")
+/// when the alias's own name (`name`) is only that release's family ("Opus"), or the family and a
+/// variant ("Opus · 1M context" while it runs "Opus 5.5 · 1M context"). The alias's variant stays when
+/// the release's name has none ("Opus · 1M context" running "Opus 5.5" is "Opus 5.5 · 1M context").
+/// Any other name stays: it says more than the family ("Opus plan · Sonnet execute").
+export function aliasNamedAsRelease(name: string, release: string): string {
+  const family = modelFamily(release.replace(/^claude\s+/i, ""))?.toLowerCase();
+  const head = name
+    .split("·")[0]!
+    .trim()
+    .toLowerCase()
+    .replace(/^claude\s+/, "");
+  if (!family || head !== family) return name;
+  const variant = name.indexOf("·");
+  return variant > 0 && !release.includes("·") ? `${release} ${name.slice(variant).trim()}` : release;
 }
 
 /// A model's family for a narrow controls row: its name's first word ("Opus" of "Opus 5.5") when

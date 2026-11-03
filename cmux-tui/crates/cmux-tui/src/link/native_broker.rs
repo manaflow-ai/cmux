@@ -107,7 +107,11 @@ fn read_identity(stream: &mut UnixStream) -> io::Result<Identity> {
         bootstrap.ipv4_cidr,
         bootstrap.tunnel,
     )
-    .map_err(|error| refused(&error.to_string()))?;
+    .map_err(|error| {
+        let message = error.to_string();
+        let step = message.strip_prefix("cloud.native.route_refused: ").unwrap_or(&message);
+        refused(&format!("route {step}"))
+    })?;
     Ok(Identity {
         config: LinkConfig { install: bootstrap.install, port: 0, server_identity: None },
         key,
@@ -177,6 +181,19 @@ mod tests {
                 "{message}"
             );
         }
+    }
+
+    #[test]
+    fn native_cloud_broker_names_a_route_refusal_once() {
+        let (mut reader, mut parent) = UnixStream::pair().unwrap();
+        let mut value_to_send = bootstrap();
+        value_to_send["tunnel"]["meshAddress"] = serde_json::json!("10.129.0.5");
+        writeln!(parent, "{value_to_send}").unwrap();
+        let Err(error) = read_identity(&mut reader) else { panic!("must refuse") };
+        assert_eq!(
+            error.to_string(),
+            "cloud.native.bootstrap_refused: route meshAddress outside ipv4_cidr"
+        );
     }
 
     #[test]
