@@ -2018,8 +2018,12 @@ pre.cv-math-source {
    token text and maybe time tho be less prominent? darker?"): beside "Thinking" or a call, and
    inside "Working for 35s" and "Worked for 1m 16s" (TurnTokens.tsx `TimedLabel`). */
 .cv-worked__time,
-.cv-worked__own,
 .cv-worked__label-time {
+  color: var(--cv-text-dim);
+  font-variant-numeric: tabular-nums;
+}
+/* A finished step's own time beside the label once the turn's clock reads as the total. */
+.cv-worked__own {
   color: var(--cv-text-dim);
   font-variant-numeric: tabular-nums;
 }
