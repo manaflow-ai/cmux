@@ -52,6 +52,22 @@ import Testing
         #expect(try context.page(ActionInvocation(target: ActionTargetRef(kind: .tab, id: "toolbar-press-c"))) === second)
     }
 
+    /// One chrome per pane (#32909 step B): a tab the pane does not show now is still in the window (its page parked,
+    /// hidden, in the pane's chrome, as a tab's whole chrome was before). An action naming it acts on that tab, never
+    /// on the tab the pane shows instead, and never refuses it for want of a focused pane.
+    @Test func anActionNamingAHiddenTabOfASharedChromeActsOnThatTab() throws {
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let context = AppActionContext(services: services)
+        let (shown, window) = onScreen("toolbar-press-e", in: services)
+        let hidden = services.cache.browser(for: "toolbar-press-f", url: URL(string: "https://example.com/f"))
+        defer { window.close(); services.cache.release("toolbar-press-e"); services.cache.release("toolbar-press-f") }
+        let chrome = try #require(shown.chrome)
+        chrome.bind(hidden.tab, state: hidden.state)
+        chrome.bind(shown.tab, state: shown.state)
+        #expect(hidden.chrome == nil && hidden.tab.contentView.window === window, "the hidden tab's page is parked in the window")
+        #expect(try context.page(ActionInvocation(target: ActionTargetRef(kind: .tab, id: "toolbar-press-f"))) === hidden)
+    }
+
     @Test func aTabNotOnScreenStillNeedsAFocusedBrowserPane() {
         let services = AppServices(environment: AppEnvironment.current([:]))
         let context = AppActionContext(services: services)
