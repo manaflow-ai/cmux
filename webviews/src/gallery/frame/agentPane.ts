@@ -170,7 +170,22 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
   await import("../../pages/shared/desktop");
   await import("virtual:cmux-gallery/agent-pane.css");
   await import("katex/dist/katex.min.css");
-  await import("../../agent-session/acpmux/main");
+  const { mountAcpmux } = await import("../../agent-session/acpmux/mount");
+  // Static chat previews already have their final snapshot. Do not first mount an empty shell
+  // and simulate a network delivery of data we hold. Scenes specifying a handshake, New Tab
+  // context or a delayed host still exercise the normal asynchronous startup.
+  const initialChat =
+    !state.ready && !state.nativeDelayMs?.ready && !state.native?.["newTab.context"]
+      ? { snapshot, machineName: "This Mac", workflowLabs: state.workflowLabs }
+      : undefined;
+  if (initialChat) {
+    const { applyPaneTheme, applyPaneThemeCSS } = await import("../../agent-session/acpmux/App");
+    const { setSessionStatus } = await import("../../agent-session/acpmux/sessionStatus");
+    applyPaneTheme({ ...context.agentTheme, ...state.theme });
+    applyPaneThemeCSS(agentPaneFontCSS(context.env.fontFamily, context.env.fontSize));
+    setSessionStatus(state.sessionStatus === true);
+    setChatDisplay(state.display ?? {});
+  }
   // main.tsx imports some pane sheets itself (styles.css, diffTokens.css, composerFooterShared.css,
   // #26126). The app's bundle drops those imports and ships each sheet once in dev.tsx's order, but
   // here each lands as a second copy after the pane's sheet, so styles.css's base rules outranked the
@@ -178,4 +193,5 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
   // after every copy, so the shipped order wins.
   const paneSheet = document.querySelector('style[data-vite-dev-id$="/agent-pane.virtual.css"]');
   if (paneSheet) document.head.append(paneSheet);
+  mountAcpmux(initialChat);
 }
