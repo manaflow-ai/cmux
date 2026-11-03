@@ -275,8 +275,8 @@ async fn a_message_can_be_a_file_of_yours() {
 /// receives the complete file by reference, through the same durable outbox.
 #[tokio::test]
 async fn a_large_message_file_is_uploaded_and_reaches_the_agent_intact() {
-    use std::io::{Read, Write};
     use sha2::Digest;
+    use std::io::{Read, Write};
     let (hub, client, _socket) = daemon().await;
     let lane = session(&client, "large-file-lane").await;
     let dir = tempfile::tempdir().unwrap();
@@ -294,20 +294,33 @@ async fn a_large_message_file_is_uploaded_and_reaches_the_agent_intact() {
     let r = call(&client, &tool("send", json!({"to": "large-file-lane", "file": path}))).await;
     assert_eq!(r["isError"], false, "{r}");
     assert!(received(&hub, &lane, "instructions.md").await, "file was not recorded");
-    let finished = client.request(method::MUX_WAIT, json!({"sessions": [lane], "until": ["ready"], "timeoutMs": 20000})).await.unwrap();
+    let finished = client
+        .request(
+            method::MUX_WAIT,
+            json!({"sessions": [lane], "until": ["ready"], "timeoutMs": 20000}),
+        )
+        .await
+        .unwrap();
     assert_eq!(finished["timedOut"], false, "{finished}");
     let reply = last_replies(&client, &lane, 1).await.unwrap().pop().unwrap();
     // The fake agent prints resource_link:name:mime:file:///path.
-    let uri = reply.split_whitespace().find_map(|word| {
-        word.strip_prefix("resource_link:")?.split_once(":file://").map(|(_, path)| format!("file://{path}"))
-    }).unwrap_or_else(|| panic!("agent got no file reference: {reply}"));
+    let uri = reply
+        .split_whitespace()
+        .find_map(|word| {
+            word.strip_prefix("resource_link:")?
+                .split_once(":file://")
+                .map(|(_, path)| format!("file://{path}"))
+        })
+        .unwrap_or_else(|| panic!("agent got no file reference: {reply}"));
     let saved = reqwest::Url::parse(&uri).unwrap().to_file_path().unwrap();
     let mut file = std::fs::File::open(saved).unwrap();
     let mut actual = sha2::Sha256::new();
     let mut bytes = [0u8; 65536];
     loop {
         let n = file.read(&mut bytes).unwrap();
-        if n == 0 { break; }
+        if n == 0 {
+            break;
+        }
         actual.update(&bytes[..n]);
     }
     assert_eq!(actual.finalize(), expected.finalize());
@@ -364,6 +377,7 @@ fn target(index: usize, to: &str, key: &str) -> send::Target {
         key: key.to_owned(),
         tag: None,
         text: "x".to_owned(),
+        file: None,
         item: send::Item::default(),
     }
 }

@@ -144,6 +144,28 @@ pub async fn blocks_for(
     paths: &[PathBuf],
     say: Say<'_>,
 ) -> anyhow::Result<Vec<Value>> {
+    prepare_blocks(daemon, session, text, paths, say, false).await
+}
+
+/// Always stream the files to the receiving chat. Used for message files that
+/// should remain outside both the RPC envelope and the model's inline context.
+pub async fn references_for(
+    daemon: &Client,
+    session: &str,
+    paths: &[PathBuf],
+    say: Say<'_>,
+) -> anyhow::Result<Vec<Value>> {
+    prepare_blocks(daemon, session, "", paths, say, true).await
+}
+
+async fn prepare_blocks(
+    daemon: &Client,
+    session: &str,
+    text: &str,
+    paths: &[PathBuf],
+    say: Say<'_>,
+    by_reference: bool,
+) -> anyhow::Result<Vec<Value>> {
     let mut sizes = Vec::with_capacity(paths.len());
     for path in paths {
         let label = path.display();
@@ -152,7 +174,7 @@ pub async fn blocks_for(
         anyhow::ensure!(meta.is_file(), "cannot attach {label}: not a file");
         sizes.push(meta.len());
     }
-    if fits_inline(&sizes, text) {
+    if !by_reference && fits_inline(&sizes, text) {
         let paths = paths.to_vec();
         return tokio::task::spawn_blocking(move || inline_blocks(&paths)).await?;
     }

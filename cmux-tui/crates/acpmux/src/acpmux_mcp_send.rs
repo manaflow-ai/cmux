@@ -24,10 +24,8 @@ pub(super) const MAX_MESSAGES: usize = 32;
 pub(super) const MAX_TAG_SESSIONS: usize = 32;
 /// Most recipients of one call, tags expanded. Over it nothing is sent.
 pub(super) const MAX_RECIPIENTS: usize = 64;
-/// Largest message file, in bytes. A message lands whole in the receiver's context: 256 KiB is
-/// about 64k tokens, a third of a 200k-token context and more than any brief. A file past it is an
-/// attachment (`acpmux send --attach`), which the receiver opens when it needs it.
-pub(super) const MAX_FILE_BYTES: u64 = 256 << 10;
+/// Files past this inline threshold are streamed as attachments, never refused.
+const INLINE_FILE_BYTES: u64 = 256 << 10;
 /// How long a batch gives each session name to resolve to its id ([`aliases`]), before its
 /// own wait for the deliveries.
 const RESOLVE_WAIT: Duration = Duration::from_secs(2);
@@ -45,7 +43,7 @@ pub(super) fn tool() -> Value {
                 "class": {"type": "string", "enum": ["block", "question", "result", "fyi", "blocker", "action"], "description": "What the message asks of the receiver: block or blocker (you cannot go on until it acts; wakes an idle receiver), question (you wait for its answer; wakes it too), result or action (work you finished or work for it; the default; wakes an idle receiver only when you started it or gave it its first work) or fyi (wakes no one)."},
                 "pr": {"type": "integer", "description": "The pull request this message is about: the receiver's inbox threads it with the others about it."},
                 "thread": {"type": "string", "description": "The thread this message goes in, a topic or a threadId from inbox_read (default: your messages about the PR its first line names, else all your messages)."},
-                "file": {"type": "string", "description": "Instead of text: a file of yours whose contents are the message (UTF-8, at most 256 KiB). Best an absolute path; a relative one is read from the folder your agent runs in."},
+                "file": {"type": "string", "description": "Instead of text: a file of yours containing the message. Small UTF-8 text is sent inline; larger files are uploaded automatically as attachments for the receiver to open. Any size. Best an absolute path; a relative one is read from the folder your agent runs in."},
                 "tag": {"type": "string", "description": "Instead of to: every live session carrying this tag, key or key=value (as acpmux send --tag), at most 32, not yourself."},
                 "supersede": {"type": "string", "description": "A key: your message still queued at the receiver under the same key is replaced by this one, so a correction is never read after the order it corrects."},
                 "messages": {
@@ -95,6 +93,8 @@ pub(super) struct Target {
     pub key: String,
     pub tag: Option<String>,
     pub text: String,
+    /// A pinned snapshot, shared by every recipient until all uploads finish.
+    pub file: Option<Arc<tempfile::NamedTempFile>>,
     pub item: Item,
 }
 
@@ -191,10 +191,15 @@ fn pick<'v>(own: &'v Value, defaults: Option<&'v Value>, a: &str, b: &str) -> &'
 }
 
 /// The message: its text, or its file's contents.
-fn body(item: &Item) -> Result<String, String> {
+async fn body(item: &Item) -> Result<(String, Option<Arc<tempfile::NamedTempFile>>), String> {
     let text = match (&item.text, &item.file) {
         (Some(text), _) => text.clone(),
-        (None, Some(path)) => read_message_file(path)?,
+        (None, Some(path)) => {
+            let path = path.clone();
+            return tokio::task::spawn_blocking(move || read_message_file(&path))
+                .await
+                .map_err(|e| format!("cannot read message file: {e}"))?;
+        }
         (None, None) => return Err("text (or file) is required".to_owned()),
     };
     if text.trim().is_empty() {
@@ -202,15 +207,17 @@ fn body(item: &Item) -> Result<String, String> {
             if item.file.is_some() { "the file is empty" } else { "text is empty" }.to_owned()
         );
     }
-    Ok(text)
+    Ok((text, None))
 }
 
-/// A message file: a regular file of this user's, UTF-8, at most [`MAX_FILE_BYTES`]. A relative
+/// A message file: a regular file of this user's. A relative
 /// path is from this server's folder, which it inherits from the chat's agent. Another user's
 /// file is refused even when it is readable: a message goes to other sessions and peers, so it
 /// carries only the sender's own files.
-pub(super) fn read_message_file(path: &str) -> Result<String, String> {
-    use std::io::Read;
+pub(super) fn read_message_file(
+    path: &str,
+) -> Result<(String, Option<Arc<tempfile::NamedTempFile>>), String> {
+    use std::io::{Read, Write};
     let path = std::path::Path::new(path);
     let shown = path.display();
     let mut open = std::fs::OpenOptions::new();
@@ -218,7 +225,7 @@ pub(super) fn read_message_file(path: &str) -> Result<String, String> {
     // Non-blocking, so a FIFO at the path is refused below instead of waiting for a writer.
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::custom_flags(&mut open, libc::O_NONBLOCK);
-    let file = open.open(path).map_err(|e| format!("cannot read {shown}: {e}"))?;
+    let mut file = open.open(path).map_err(|e| format!("cannot read {shown}: {e}"))?;
     // The open file's own metadata, so what is checked is what is read.
     let meta = file.metadata().map_err(|e| format!("cannot read {shown}: {e}"))?;
     if !meta.is_file() {
@@ -233,24 +240,38 @@ pub(super) fn read_message_file(path: &str) -> Result<String, String> {
             return Err(format!("{shown} is not your file: send only files you own"));
         }
     }
-    if meta.len() > MAX_FILE_BYTES {
-        return Err(format!(
-            "{shown} is {} KiB, more than {} KiB: send it with acpmux send --attach",
-            meta.len() / 1024,
-            MAX_FILE_BYTES / 1024
-        ));
-    }
     let mut bytes = Vec::new();
-    // A file that grew after the check is still read only to the bound.
-    file.take(MAX_FILE_BYTES.saturating_add(1))
+    // Probe the open descriptor, so growth after metadata also takes the upload path.
+    (&mut file)
+        .take(INLINE_FILE_BYTES + 1)
         .read_to_end(&mut bytes)
         .map_err(|e| format!("cannot read {shown}: {e}"))?;
-    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > MAX_FILE_BYTES {
-        return Err(format!("{shown} grew past {} KiB while it was read", MAX_FILE_BYTES / 1024));
+    if bytes.len() as u64 > INLINE_FILE_BYTES {
+        // Snapshot the validated descriptor, not the path: a replacement or symlink
+        // swap must not send a different user's file. Only this bounded prefix and
+        // io::copy's buffer are resident; the snapshot is owner-only and RAII-cleaned.
+        let name =
+            crate::attach::safe_name(&path.file_name().unwrap_or_default().to_string_lossy());
+        let mut saved = tempfile::Builder::new()
+            .prefix(&format!("message-{name}-"))
+            .tempfile()
+            .map_err(|e| format!("cannot snapshot {shown}: {e}"))?;
+        saved
+            .write_all(&bytes)
+            .and_then(|()| std::io::copy(&mut file, &mut saved).map(|_| ()))
+            .map_err(|e| format!("cannot snapshot {shown}: {e}"))?;
+        return Ok((
+            "Read the complete message in the attached file before acting.".into(),
+            Some(Arc::new(saved)),
+        ));
     }
-    String::from_utf8(bytes).map_err(|_| {
+    let text = String::from_utf8(bytes).map_err(|_| {
         format!("{shown} is not UTF-8 text: send a binary file with acpmux send --attach")
-    })
+    })?;
+    if text.trim().is_empty() {
+        return Err("the file is empty".into());
+    }
+    Ok((text, None))
 }
 
 /// `send` with one session (the first shape): its result fields, text and errors are the ones
@@ -265,8 +286,8 @@ async fn send_one(daemon: &Arc<Client>, args: &Value) -> Value {
         Ok(item) => item,
         Err(e) => return error_result(e),
     };
-    let text = match body(&item) {
-        Ok(text) => text,
+    let (text, file) = match body(&item).await {
+        Ok(body) => body,
         Err(e) => return error_result(e),
     };
     let to = item.to.clone().unwrap_or_default();
@@ -274,7 +295,7 @@ async fn send_one(daemon: &Arc<Client>, args: &Value) -> Value {
         Ok(key) => key,
         Err(e) => return refusal(e),
     };
-    let target = Target { index: 0, to: to.clone(), key: key.clone(), tag: None, text, item };
+    let target = Target { index: 0, to: to.clone(), key: key.clone(), tag: None, text, file, item };
     let (prompt, queued) = match queue(daemon, &target).await {
         Ok(sent) => sent,
         Err(e) => return refusal(e),
@@ -320,8 +341,8 @@ async fn send_batch(daemon: &Arc<Client>, args: &Value) -> Value {
             }
         };
         let (to, tag) = (item.to.clone().unwrap_or_default(), item.tag.clone());
-        let text = match body(&item) {
-            Ok(text) => text,
+        let (text, file) = match body(&item).await {
+            Ok(body) => body,
             Err(e) => {
                 rows.insert((index, 0), failed(&to, tag.as_deref(), e));
                 continue;
@@ -340,6 +361,7 @@ async fn send_batch(daemon: &Arc<Client>, args: &Value) -> Value {
                 key,
                 tag: tag.clone(),
                 text: text.clone(),
+                file: file.clone(),
                 item: item.clone(),
             })),
             Err(e) => {
@@ -535,6 +557,15 @@ async fn queue(daemon: &Arc<Client>, target: &Target) -> Result<(PromptId, Value
     prompt.pr = target.item.pr;
     prompt.thread = target.item.thread.clone();
     prompt.supersede = target.item.supersede.clone();
+    if let Some(file) = &target.file {
+        prompt.attachments = crate::attach::references_for(
+            daemon,
+            &target.key,
+            &[file.path().to_owned()],
+            &|line| eprintln!("{line}"),
+        )
+        .await?;
+    }
     let request = prompt.params(&target.key, &target.text, target.item.steer, None);
     let queued = daemon.request(method::MUX_SEND_QUEUE, json!({"request": request})).await?;
     Ok((prompt, queued))
