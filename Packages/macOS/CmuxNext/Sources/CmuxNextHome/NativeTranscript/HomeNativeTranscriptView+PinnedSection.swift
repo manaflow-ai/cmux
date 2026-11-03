@@ -8,7 +8,7 @@ extension HomeNativeTranscriptView {
     /// The pinned section shown now (tests and `debug.home`).
     public var pinnedSection: NSView? { pinned?.view }
 
-    /// Shows `view` pinned under the header, measured once now (its fitting height); nil removes it.
+    /// Shows `view` pinned under the header, measured now (its fitting height); nil removes it.
     public func setPinnedSection(_ view: NSView?) {
         guard view !== pinned?.view else { return pinnedSectionDidResize() }
         pinned?.view.removeFromSuperview()
@@ -16,28 +16,33 @@ extension HomeNativeTranscriptView {
         if let view {
             // Over the transcript and the first-run panel, under the notice above the field.
             addSubview(view, positioned: .below, relativeTo: noticeLabel)
-            pinned = (view, 0)
-            pinnedSectionDidResize()
-        } else {
-            needsLayout = true
+            pinned = (view, nil)
+            layoutPinnedSection()
         }
+        needsLayout = true
     }
 
-    /// The pinned section's content changed height (a request came or went): measure it again.
+    /// The pinned section's content changed height (a request came or went): it is measured again
+    /// in the next layout pass, never inside the content's own update.
     public func pinnedSectionDidResize() {
         guard let view = pinned?.view else { return }
-        let height = ceil(view.fittingSize.height)
-        guard height != pinned?.height || view.frame.isEmpty else { return }
-        pinned = (view, height)
+        pinned = (view, nil)
         needsLayout = true
-        layoutPinnedSection()
+    }
+
+    /// The room the pinned section takes under the header (the first-run panel starts below it).
+    var pinnedSectionClearance: CGFloat {
+        guard let pinned, let height = pinned.height, height > 0 else { return 0 }
+        return pinned.view.frame.maxY - transcript.headerHeight + 8
     }
 
     /// Under the header, inset from the sides like the field, no wider than a reading column; never
     /// over the message box.
     func layoutPinnedSection() {
         guard let pinned else { return }
-        let (view, height) = pinned
+        let view = pinned.view
+        let height = pinned.height ?? ceil(view.fittingSize.height)
+        if pinned.height == nil { self.pinned = (view, height) }
         let inset: CGFloat = 12
         let width = min(max(0, bounds.width - 2 * inset), Self.pinnedSectionMaxWidth)
         let top = transcript.headerHeight + 4

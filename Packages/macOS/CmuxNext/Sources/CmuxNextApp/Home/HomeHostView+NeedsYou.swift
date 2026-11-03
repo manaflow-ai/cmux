@@ -17,8 +17,9 @@ enum HomeNeedsYou {
     static func makeSection(services: AppServices) -> FeedNeedsYouView {
         let model = services.feed.model
         // The Feed's own hooks: a request's Sign In / Open answers and its row's who and where.
-        FeedGitHubActions.install(on: model, services: services)
-        model.place = FeedPlace.lookup(services.daemon.store.place)
+        // Once: the Inbox page installs the same hooks when it is made.
+        if model.onOpenItem == nil { FeedGitHubActions.install(on: model, services: services) }
+        if model.place == nil { model.place = FeedPlace.lookup(services.daemon.store.place) }
         let section = FeedNeedsYouView(model: model)
         section.onOpen = { [weak services] item in
             if let services { open(item, services: services) }

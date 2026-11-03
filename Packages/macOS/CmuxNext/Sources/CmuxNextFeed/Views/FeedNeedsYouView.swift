@@ -136,9 +136,8 @@ struct FeedNeedsYouSection: View {
             if !requests.isEmpty {
                 switch style ?? FeedTunables.needsYouStyle.value {
                 case .rows: list(requests, colors: colors) { FeedNeedsYouRow(item: $0, model: model, open: open) }
-                case .cards: list(requests, colors: colors) { item in
-                    FeedRequestCard(item: item, model: model).contentShape(Rectangle()).onTapGesture { open(item) }
-                }
+                // The Feed's own card: its Open, Sign In and answer buttons act; no tap over them.
+                case .cards: list(requests, colors: colors) { FeedRequestCard(item: $0, model: model) }
                 case .bar: FeedNeedsYouBar(requests: requests, model: model, open: open, showAll: showAll)
                 }
             }
