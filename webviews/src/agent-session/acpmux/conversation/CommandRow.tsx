@@ -12,6 +12,7 @@ import { commandFolder } from "./commandFolder";
 import { menuPartRef } from "./menuParts";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
+import { ApprovedMark } from "./ApprovedMark";
 import { RowShimmer } from "./ShimmerText";
 import { Check, ChevronRight, TerminalSquare } from "./icons";
 import { isRunning, toolDuration } from "./toolGroups";
@@ -102,6 +103,7 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
           {!tool.background && <InlineFailureCause failure={failure} />}
         </span>
         <span className="cv-command__meta">
+          {tool.approved && <ApprovedMark />}
           {foreground ? null : tool.background ? (
             <BackgroundMark background={tool.background} />
           ) : failure ? (
