@@ -49,7 +49,7 @@
   },
   {
    "do": "type",
-   "text": "echo base-${nonce}-$((6*7))",
+   "text": "echo 1${nonce}-$((6*7))",
    "enter": true,
    "mark": "base-typed"
   },
@@ -60,10 +60,10 @@
    "timeout": 15,
    "all": [
     {
-     "daemon_line": "base-${nonce}-42"
+     "daemon_line": "1${nonce}-42"
     },
     {
-     "app_text_line": "base-${nonce}-42"
+     "app_text_line": "1${nonce}-42"
     },
     {
      "app_pane": {
@@ -71,7 +71,7 @@
      }
     },
     {
-     "frame_text": "base-${nonce}-42"
+     "frame_text": "1${nonce}-42"
     }
    ]
   },
@@ -129,7 +129,7 @@
   },
   {
    "do": "type",
-   "text": "echo rs-${nonce}-$((6*7))",
+   "text": "echo 0${nonce}-$((6*7))",
    "enter": true,
    "mark": "rs-typed"
   },
@@ -140,10 +140,10 @@
    "timeout": 15,
    "all": [
     {
-     "daemon_line": "rs-${nonce}-42"
+     "daemon_line": "0${nonce}-42"
     },
     {
-     "app_text_line": "rs-${nonce}-42"
+     "app_text_line": "0${nonce}-42"
     },
     {
      "app_pane": {
@@ -151,7 +151,7 @@
      }
     },
     {
-     "frame_text": "rs-${nonce}-42"
+     "frame_text": "0${nonce}-42"
     }
    ]
   }
