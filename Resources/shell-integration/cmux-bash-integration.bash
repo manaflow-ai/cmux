@@ -380,9 +380,13 @@ _cmux_private_path_chain_stat() {
         kind="${line#* }"
         [[ "$mode" =~ ^[0-7]+$ ]] || return 1
         [[ "$uid" == "$EUID" || "$uid" == 0 ]] || return 1
+        # find also fails on these: a folder it can't search, and a name whose
+        # trailing newline $(...) strips.
+        [[ "${nodes[index]}" != *$'\n' ]] || return 1
         bits=$((8#$mode))
         case "$kind" in
             Directory)
+                [[ -x "${nodes[index]}" ]] || return 1
                 # Only an ancestor may be shared through the sticky bit.
                 if (( index == 0 && bits & 8#022 )); then
                     return 1
