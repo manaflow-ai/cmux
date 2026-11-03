@@ -235,6 +235,8 @@ export type HostLists = {
   import_suggestions?: unknown;
   /** Updates > Web UI: the web UI served between app updates; null unless the bundle takes them (NIGHTLY). */
   web_updates?: WebUpdatesState | null;
+  /** Updates > App Update: the app update's status, a download's progress and the buttons; every text localized by the host. */
+  app_update?: AppUpdateState | null;
   /** Settings > Chief > Voice input: the Debug toggle home.voiceInput; null where it does not exist (Release). */
   voice_input?: { on: boolean } | null;
   /** Settings > Menus: every right-click menu's rows and the person's arrangement of it. */
@@ -349,6 +351,24 @@ export type ComputerUsePhase =
   | "failed"
   | "ready"
   | "version_mismatch";
+
+/**
+ * Updates > App Update (the app's UpdaterService): what the update does now, whether or not the
+ * person asked (a background download and its failure show here; the sidebar shows only the staged
+ * update's Restart to Update). `progress` is 0...1, null while unmeasured, absent with no bar.
+ * Every text is the host's.
+ */
+export type AppUpdateState = {
+  title: string;
+  phase: string;
+  status: string;
+  detail: string | null;
+  progress?: number | null;
+  actions: { id: AppUpdateAction; title: string; prominent: boolean }[];
+};
+
+/** A button of the App Update card (Swift `SettingsUpdateAction`). */
+export type AppUpdateAction = "check" | "update" | "cancel_download" | "retry" | "install";
 
 /** A web update the app keeps: its commit and when that commit landed (unix seconds). */
 export type WebUpdateVersion = { commit: string; committed_at: number };
@@ -491,6 +511,26 @@ export type AccountsTeamList = {
   empty: string | null;
   create: AccountsTeamForm | null;
   notice: { kind: "success" | "neutral" | "danger" | "attention"; text: string } | null;
+  /** Invitations to the person; null when there are none. */
+  received: AccountsReceivedInvitations | null;
+};
+
+/** One invitation addressed to the person: `accept` runs `team.accept`, `decline` runs
+ * `team.decline`, each with the invitation's id as `team`. */
+export type AccountsReceivedInvitation = {
+  id: string;
+  team: string;
+  detail: string;
+  expires: string | null;
+  accept: AccountsButton;
+  decline: AccountsButton;
+};
+
+/** Invitations to You: the teams that invited one of the person's verified emails. */
+export type AccountsReceivedInvitations = {
+  title: string;
+  rows: AccountsReceivedInvitation[];
+  error: string | null;
 };
 
 /** The Accounts part as the host draws it (texts already localized by the app). */
@@ -1016,6 +1056,8 @@ export type SettingsOps = {
   "cmux.settings.server.pair": [Record<string, never>, Record<string, never>];
   /** A phone's pairing request: Allow or Don't Allow (the person's own gesture only). */
   "cmux.settings.mobile.answer_pair": [{ id: string; allow: boolean }, Record<string, never>];
+  /** Native: Updates > App Update's buttons (Restart to Update only on the person's own click); the host lists follow. */
+  "cmux.settings.app_update.run": [{ action: AppUpdateAction }, Record<string, never>];
   /** Native: Updates > Web UI's Check Now (updates.web.check); the host lists follow the check. */
   "cmux.settings.web_updates.check": [Record<string, never>, Record<string, never>];
   /** Native: Updates > Web UI's Roll Back (updates.web.rollback), from the next safe point. */

@@ -456,6 +456,7 @@ impl Hub {
             created_at: m.created_at,
             updated_at: m.updated_at,
             last_seq: m.last_seq,
+            transcript_seq: m.transcript_seq,
             event_count: m.event_count,
             turn_count: m.turn_count,
             parent_id: m.parent_id.clone(),

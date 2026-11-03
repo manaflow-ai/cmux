@@ -59,7 +59,7 @@ import { useTabRow } from "../header/tabRow";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { transcriptColumn, transcriptColumnSpan, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
-import { compactingUsage } from "../usageStats";
+import { compactingUsage, type UsageCacheLayout } from "../usageStats";
 import { registerPicker } from "../pickerOpeners";
 import { opensProcessTerminal } from "../processTerminal";
 import { tooltipProps } from "../shortcuts";
@@ -111,6 +111,7 @@ import { SubagentCountsMeta, SubagentsSection } from "./SubagentsSection";
 import { TasksSection } from "./TasksSection";
 import { WorkflowTasks, type WorkflowAgentRowVariant } from "./WorkflowTasks";
 import { UsageSection, usageMeta, type UsageOwnRowLayout } from "./UsageSection";
+import { AppPanelSection, useAppPanelSections } from "../../../apps/scene/panels";
 import type { AcpmuxSessionEntry } from "../sessionList";
 import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";
 import type { Subagent } from "../subagents/subagentFold";
@@ -1547,6 +1548,7 @@ export function SessionInfo({
   onOpenChat,
   onShowUsage,
   usageOwnRowLayout,
+  usageCacheLayout,
   banner,
   agent,
   layout = RAIL_LAYOUT,
@@ -1632,6 +1634,8 @@ export function SessionInfo({
   onShowUsage?: () => void;
   /// Gallery-only alternatives for the Usage section's own-metrics leading column.
   usageOwnRowLayout?: UsageOwnRowLayout;
+  /// Gallery-only alternatives for Usage's prompt cache numbers (two rows, or one).
+  usageCacheLayout?: UsageCacheLayout;
   /// Opens the chat's project folder in the Files tree beside the chat.
   onOpenFolder?: (path: string) => void;
   /// Shows the Bash call that started a background command in the transcript: what its row opens
@@ -1742,6 +1746,23 @@ export function SessionInfo({
   const limitSet =
     limits !== undefined && limits.maxRunningSource !== undefined && limits.maxRunningSource !== "default";
   const chatId = summary?.sessionId;
+  const appPanels = useAppPanelSections(
+    chatId
+      ? { session_id: chatId, cwd: summary?.cwd ?? "", branch: summary?.branch, harness: summary?.harness }
+      : undefined,
+  );
+  const [appOpen, setAppOpen] = useState<Record<string, boolean>>({});
+  const appNodes = Object.fromEntries(
+    appPanels.map((section) => [
+      section.id,
+      <AppPanelSection
+        key={section.id}
+        section={section}
+        open={appOpen[section.id] ?? true}
+        onOpenChange={(open) => setAppOpen((current) => ({ ...current, [section.id]: open }))}
+      />,
+    ]),
+  );
   // A chat on another machine: its sub-sessions live on that machine's acpmux, which takes the
   // limit only from its own person, so the line only reads.
   const setRunningLimit =
@@ -1949,6 +1970,7 @@ export function SessionInfo({
         onShowSubagents={subagentsSection ? showSubagents : undefined}
         locale={language}
         ownRowLayout={usageOwnRowLayout}
+        cacheLayout={usageCacheLayout}
       />
     </SessionInfoSection>
   );
@@ -1976,6 +1998,7 @@ export function SessionInfo({
           outputs: outputsSection,
           subagents: subagentsSection,
           tasks,
+          ...appNodes,
         }}
       />
       {gallery && (

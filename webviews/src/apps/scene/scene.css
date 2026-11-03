@@ -134,7 +134,7 @@
   flex: none;
   min-height: var(--grid-icon-box);
   padding-inline: var(--grid-base);
-  border-radius: 999px;
+  border-radius: var(--acpmux-session-info-row-radius);
   color: var(--agent-muted);
   background: color-mix(in srgb, currentColor 14%, transparent);
   font-size: var(--text-detail);

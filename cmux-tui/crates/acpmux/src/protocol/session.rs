@@ -75,6 +75,14 @@ pub struct SessionSummary {
     pub created_at: u64,
     pub updated_at: u64,
     pub last_seq: u64,
+    /// The seq of its newest transcript record (`hub/paging.rs` `is_transcript`): unlike
+    /// `updatedAt` and `lastSeq`, bookkeeping (an agent start's `agent_start_waiting`, usage,
+    /// git, process counts) never moves it, so a client that keeps a chat's newest page reads it
+    /// again only when this passes the value it read at. An upper bound after a hard stop.
+    /// Absent from a peer on an older acpmux.
+    #[serde(default)]
+    #[schemars(default)]
+    pub transcript_seq: u64,
     pub event_count: u64,
     pub turn_count: u64,
     pub parent_id: Option<String>,
@@ -268,6 +276,16 @@ pub struct UsageStats {
     /// they ran on has a price, or when `tokens24h` is null.
     #[serde(rename = "costUsd24h")]
     pub cost_usd24h: Option<f64>,
+    /// Model calls of the last 24 hours, subagents' included.
+    #[serde(rename = "calls24h")]
+    pub calls24h: Option<u64>,
+    /// Of those calls' prompt tokens (input, cache read and cache write), the share the prompt
+    /// cache served (0 to 1); null with no calls or when the day is not read whole.
+    #[serde(rename = "cacheReadShare24h")]
+    pub cache_read_share24h: Option<f64>,
+    /// `costUsd24h` over the priced calls: what one call costs at list prices, USD.
+    #[serde(rename = "costPerCallUsd24h")]
+    pub cost_per_call_usd24h: Option<f64>,
     /// Unix ms of the read these come from.
     pub updated_at: u64,
 }

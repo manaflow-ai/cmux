@@ -224,7 +224,7 @@
     "name": "version"
   },
   {
-    "description": "Move yourself (your memory, conversations, settings, subagent transcripts and grants) to another machine, or back. action move (default): to = ssh:HOST[:DIR] (a Mac mini or a Linux VM you reach over SSH), local:DIR, or cloud / cloud:staging (the hosted Cloud Chief; needs the person's cloud session token file). Run dry_run true first and tell the person what it found; a real move starts when this turn ends, stops you here and keeps this copy for rollback, so say goodbye in this turn. status: the last move's report. reach: after a move, which SSH hosts, tailnet, fleet and model route answer from this machine. rollback: the old copy answers again. Keys and tokens are never copied: missing ones come back as blockers to give the person.",
+    "description": "Teleport: move yourself (memory, conversations, settings, subagent transcripts, grants) to another machine. When the person says teleport, move or come back, call this yourself; never ask them for a token or a step. action move (default): to = cloud (the hosted Cloud Chief; the app's sign-in is used), ssh:HOST[:DIR] (a Mac mini or Linux VM over SSH, the host name as the person says it), local:DIR, or home (the Mac you came from). Run dry_run true first; fix any blocker you can (a missing optchat-chief is installed by the move itself) and tell the person only a sign-in or a key you cannot reach. Then the real move: it starts when this turn ends and keeps this copy for rollback, so say goodbye in this turn; your next answer comes from the new place with nothing lost. status: the last move's report. reach: after a move, which SSH hosts, tailnet, fleet and model route answer from here. rollback: the old copy answers again.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -325,6 +325,10 @@
           },
           "type": "array"
         },
+        "long": {
+          "description": "true when the person asked for a long answer (a full list, a report): it posts on the first send instead of coming back to be cut.",
+          "type": "boolean"
+        },
         "reply_to": {
           "description": "A user message's line id: the message goes into its thread. Without it: the top level.",
           "minimum": 0,
@@ -401,7 +405,7 @@
     "name": "sleep"
   },
   {
-    "description": "Wait for something outside your turn: the host runs `command` (sh -c) on this machine in the background and wakes you once with a message \"[watch w<N>] <note>: <what happened>\" and its last output lines, when an output line matches the regex `until`, when the command exits (no `until`), or at `timeout_seconds` (default 1800). A short check that exits without a match runs again every 15 s, so `aws sts get-caller-identity && echo SIGNED_IN` with until SIGNED_IN waits for a sign-in, and `gh run watch ID --exit-status` with no until waits for a run. Your turn goes on: tell the user what you wait for, then end it. Use it whenever you would say you are watching or will continue when something finishes. cancel: a watch id or all. No arguments: lists the pending watches. At most 8 at once.",
+    "description": "Wait for something outside your turn: the host runs `command` (sh -c) on this machine in the background and wakes you once with a message \"[watch w<N>] <note>: <what happened>\" and its last output lines, when an output line matches the regex `until`, when the command exits (no `until`), or at `timeout_seconds` (default 1800). A short check that exits without a match runs again every 15 s, so `aws sts get-caller-identity && echo SIGNED_IN` with until SIGNED_IN waits for a sign-in, and `glaeda-gh wait run OWNER/REPO/ID` with no until waits for a run (never poll gh: a merge wait on `gh pr view N -R OWNER/REPO` with until MERGED runs as one `glaeda-gh wait pr` when glaeda is on the host). Your turn goes on: tell the user what you wait for, then end it. Use it whenever you would say you are watching or will continue when something finishes. cancel: a watch id or all. No arguments: lists the pending watches. At most 8 at once.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {

@@ -11,8 +11,9 @@
 //!   user's own servers stay).
 //! - Skills: Claude Code gets a session-only plugin named `cmux`
 //!   (`--plugin-dir`) whose skills are `cmux:cmux-browser`,
-//!   `cmux:cmux-cua` and `cmux:acpmux` (the acpmux CLI guide, for driving
-//!   sessions from a shell). The skill text is compiled in from `skills/` and
+//!   `cmux:cmux-cua`, `cmux:cmux-customization` (settings, and a view of the
+//!   person's own that an agent writes as the customize app) and
+//!   `cmux:acpmux` (the acpmux CLI guide, for driving sessions from a shell). The skill text is compiled in from `skills/` and
 //!   written once per content hash under `<ACPMUX_HOME>/agent-tools/`.
 //!   Only the skill descriptions reach the prompt (progressive disclosure).
 //!   `cmux-cua` is model-invocable: its description claims tasks in a
@@ -207,6 +208,22 @@ const SKILL_FILES: &[(&str, &str)] = &[
         include_str!("../../../../skills/cmux-browser/templates/form-automation.sh"),
     ),
     ("cmux-cua/SKILL.md", include_str!("../../../../skills/cmux-cua/SKILL.md")),
+    (
+        "cmux-customization/SKILL.md",
+        include_str!("../../../../skills/cmux-customization/SKILL.md"),
+    ),
+    (
+        "cmux-customization/references/examples.md",
+        include_str!("../../../../skills/cmux-customization/references/examples.md"),
+    ),
+    (
+        "cmux-customization/references/local-app-views.md",
+        include_str!("../../../../skills/cmux-customization/references/local-app-views.md"),
+    ),
+    (
+        "cmux-customization/references/viewer-types.md",
+        include_str!("../../../../skills/cmux-customization/references/viewer-types.md"),
+    ),
     ("acpmux/SKILL.md", include_str!("../skills/acpmux/SKILL.md")),
 ];
 
