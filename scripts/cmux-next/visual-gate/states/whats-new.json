@@ -1,0 +1,22 @@
+{
+  "title": "What's New",
+  "settings": null,
+  "launch_args": [],
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2
+    },
+    {
+      "title": "What's New page (changelog page tab)",
+      "cmux": [
+        "action",
+        "run",
+        "updates.whatsNew",
+        "--focus"
+      ],
+      "wait": 4,
+      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog/SettingsActionCatalog.swift:127 (WhatsNewPage.open needs a view change: --focus)"
+    }
+  ]
+}

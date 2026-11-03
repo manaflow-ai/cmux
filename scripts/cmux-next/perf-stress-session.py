@@ -286,7 +286,11 @@ class Stress:
             # launch denied, a build without agent chats) falls back to the New Tab page; a reply that does not
             # come in time is no refusal (the chat may still open), so nothing is added and the pane's mix
             # check names the missing tab.
-            reply = self.action("palette.newAgentChat", target=target)
+            # focus=False: a script's chat aimed at a pane opens as a tab in that pane (AgentHandlers
+            # openTargetedChat, #23016). With focus the run takes the person's New Agent Chat path, which
+            # puts the first chat in a new left chat dock and every later one in that dock
+            # (NewChatPlacement): one extra pane and column, and no chat in any measured pane.
+            reply = self.action("palette.newAgentChat", target=target, focus=False)
             if typed_refusal(reply):
                 self.chat_fallbacks += 1
                 fallback = True

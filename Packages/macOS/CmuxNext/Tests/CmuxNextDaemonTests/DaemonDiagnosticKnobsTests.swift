@@ -14,6 +14,21 @@ struct DaemonDiagnosticKnobsTests {
         #expect(knobs.daemonEnvironment == ["CMUX_TRACE_FLOWS": "/tmp/flows"])
     }
 
+    /// holder-dogfood's holder model: the daemon's own name is stripped from the app's launch, so the
+    /// model ran as `hosts` on every fleet run ("no holder process"); the app's knob passes it on.
+    @Test func theTerminalHostModelReachesTheDaemon() {
+        let knobs = DaemonDiagnosticKnobs(processEnvironment: ["CMUX_NEXT_TUI_TERMINAL_HOST_MODEL": "holder"])
+        #expect(knobs.daemonEnvironment == ["CMUX_TUI_TERMINAL_HOST_MODEL": "holder"])
+    }
+
+    /// R-DAEMON-STATE stage S1 (handoff/rewrites/R-DAEMON-STATE/DESIGN.md): the input lane's switch must reach the
+    /// daemon the app launches, or a typing A/B on the real app measures the old path in both arms (the app strips
+    /// the daemon's own `CMUX_TUI_RDS_INPUT` from its launch).
+    @Test func theInputLaneSwitchReachesTheDaemon() {
+        let knobs = DaemonDiagnosticKnobs(processEnvironment: ["CMUX_NEXT_TUI_RDS_INPUT": "1"])
+        #expect(knobs.daemonEnvironment == ["CMUX_TUI_RDS_INPUT": "1"])
+    }
+
     @Test func noKnobsPassNothing() {
         #expect(DaemonDiagnosticKnobs(processEnvironment: ["CMUX_TRACE_FLOWS": "/tmp/x"]).daemonEnvironment.isEmpty)
     }

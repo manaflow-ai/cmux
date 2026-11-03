@@ -6,7 +6,7 @@ import CmuxNextLayout
 import Observation
 
 /// The live agent cursor visibility: resolves a target tab against the
-/// current models (`AgentCursorSnapshotBuilder` + the pure resolver), hands
+/// current models (`AgentCursorSnapshotBuilder` + the Rust rules), hands
 /// each window's cursor host its `AgentCursorTargetResolving`,
 /// and tells `onChange` when a tracked target's visibility changes between
 /// input events (a column scrolls, a window minimizes, a workspace or tab
@@ -21,6 +21,8 @@ final class AgentCursorVisibilitySource {
     private weak var services: AppServices?
     /// Last result per tracked target.
     private var tracked: [String: AgentCursorVisibility] = [:]
+    /// Kept, so a per-frame resolve reuses its arrays.
+    private var rules = AgentCursorVisibilityResolver()
     private var observers: [any NSObjectProtocol] = []
     private var stateObservation: Task<Void, Never>?
     /// Overlay sync observations of the layout roots this source watches.
@@ -39,13 +41,11 @@ final class AgentCursorVisibilitySource {
     }
 
     /// Resolves `target` now. With an `onChange` consumer, also tracks it
-    /// until `untrack`; without one nothing is observed (0 idle work).
+    /// until `untrack` (the first one starts the observers); without one nothing is observed (0 idle work).
     func resolve(_ target: String) -> AgentCursorVisibility {
-        let result = AgentCursorVisibilityResolver.resolve(target: target, in: builder.snapshot(forTarget: target))
+        let result = rules.resolve(target: target, in: builder.snapshot(forTarget: target))
         guard onChange != nil else { return result }
-        let wasIdle = tracked.isEmpty
-        tracked[target] = result
-        if wasIdle { startObserving() }
+        if tracked.updateValue(result, forKey: target) == nil, tracked.count == 1 { startObserving() }
         return result
     }
 
@@ -65,7 +65,7 @@ final class AgentCursorVisibilitySource {
 
     private func reresolve() {
         for (target, last) in tracked {
-            let result = AgentCursorVisibilityResolver.resolve(target: target, in: builder.snapshot(forTarget: target))
+            let result = rules.resolve(target: target, in: builder.snapshot(forTarget: target))
             guard result != last else { continue }
             tracked[target] = result
             onChange?(target, result)

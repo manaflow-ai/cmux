@@ -1,4 +1,5 @@
 use super::*;
+use cmux_json::JsonSet as _;
 use std::collections::BTreeMap;
 use std::sync::Mutex as StdMutex;
 
@@ -10,6 +11,31 @@ pub(crate) struct Briefs {
 }
 
 impl Briefs {
+    /// A workflow's dispatch identity must be on stable storage before the
+    /// session or prompt can be admitted. Unlike the legacy advisory ledger,
+    /// a failed write refuses the effect and never publishes the new row.
+    pub(crate) fn put_durable(&self, row: Value) -> anyhow::Result<Value> {
+        let id = row
+            .get("briefId")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("durable brief needs an id"))?;
+        let mut rows = self.rows.lock().unwrap_or_else(|error| error.into_inner());
+        let mut next = rows.clone();
+        next.insert(id.to_owned(), row.clone());
+        if let Some(path) = &self.path {
+            if let Some(parent) = path.parent() {
+                crate::config::private_state_dir(parent)?;
+            }
+            crate::config::write_atomic(path, &serde_json::to_vec(&next)?)?;
+            #[cfg(unix)]
+            if let Some(parent) = path.parent() {
+                std::fs::File::open(parent)?.sync_all()?;
+            }
+        }
+        *rows = next;
+        Ok(row)
+    }
     /// The ledger saved at `path` (`Store::briefs_path`), or one in memory only.
     pub(crate) fn open(path: Option<std::path::PathBuf>) -> Self {
         let Some(path) = path else { return Self::default() };
@@ -36,24 +62,31 @@ impl Briefs {
 
     pub(crate) fn claim(&self, id: &str, key: Option<&str>) -> Option<Value> {
         let mut rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(row) = rows.get(id).cloned() {
-            return Some(row);
-        }
-        if let Some(key) = key
-            && let Some(row) = rows
-                .values()
-                .find(|row| row.get("idempotencyKey").and_then(Value::as_str) == Some(key))
-                .cloned()
-        {
+        if let Some(row) = Self::taken(&rows, id, key) {
             return Some(row);
         }
         let mut row = json!({"briefId": id, "status": "starting"});
         if let Some(key) = key {
-            row["idempotencyKey"] = json!(key);
+            row.set("idempotencyKey", json!(key));
         }
         rows.insert(id.to_owned(), row);
         self.save(&rows);
         None
+    }
+
+    /// The brief already taken under `id` or `key`, claiming nothing: what a retry of it
+    /// answers before any check on where a new lane may start.
+    pub(crate) fn existing(&self, id: &str, key: Option<&str>) -> Option<Value> {
+        Self::taken(&self.rows.lock().unwrap_or_else(|e| e.into_inner()), id, key)
+    }
+
+    fn taken(rows: &BTreeMap<String, Value>, id: &str, key: Option<&str>) -> Option<Value> {
+        rows.get(id).cloned().or_else(|| {
+            let key = key?;
+            rows.values()
+                .find(|row| row.get("idempotencyKey").and_then(Value::as_str) == Some(key))
+                .cloned()
+        })
     }
 
     fn save(&self, rows: &BTreeMap<String, Value>) {
@@ -77,8 +110,15 @@ impl Briefs {
             .filter(|id| !id.is_empty())
             .map(str::to_owned)
             .unwrap_or_else(|| format!("brief-{}", uuid::Uuid::now_v7()));
-        row["briefId"] = json!(id);
+        row.set("briefId", json!(id));
         let mut rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
+        // Advisory imports (including another peer's colliding brief ID) may
+        // never downgrade or replace a scoped durable dispatch reservation.
+        if let Some(previous) = rows.get(&id)
+            && previous.get("durable").and_then(Value::as_bool) == Some(true)
+        {
+            return previous.clone();
+        }
         rows.insert(id, row.clone());
         self.save(&rows);
         row
@@ -126,6 +166,19 @@ impl Briefs {
     }
 }
 
+impl Hub {
+    /// Whether a brief row is one this daemon ran: still being claimed (no session and no host
+    /// yet), or its session is one of this host's, open or closed. A row a peer ran (this host's
+    /// copy of a brief it dispatched there, `server/requests.rs`) names a session it never had.
+    pub(crate) fn brief_ran_here(&self, row: &Value) -> bool {
+        let Some(id) = row.get("sessionId").and_then(Value::as_str) else {
+            return row.get("host").is_none();
+        };
+        self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).contains_key(id)
+            || matches!(self.store.load(id), Ok(Some(_)))
+    }
+}
+
 pub(crate) fn event(kind: &str, row: &Value) -> Value {
     json!({
         "kind": kind,
@@ -143,6 +196,40 @@ pub(crate) fn event(kind: &str, row: &Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn durable_brief_cannot_be_downgraded_by_an_advisory_peer_import() {
+        let briefs = Briefs::default();
+        let reserved = briefs
+            .put_durable(json!({"briefId":"stable","durable":true,
+            "fromSession":"owner","dispatchFingerprint":"private-capability-hash"}))
+            .unwrap();
+        let imported = briefs.put(json!({"briefId":"stable","fromSession":"other",
+            "outcome":{"Ok":{"finalReply":"forged"}}}));
+        assert_eq!(imported, reserved);
+        assert_eq!(briefs.get("stable"), Some(reserved));
+    }
+
+    #[test]
+    fn durable_brief_reservation_survives_reopen_before_any_effect() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("briefs.json");
+        let row = json!({"briefId":"stable","sessionId":"wfd-stable","promptId":"wfp-stable",
+            "dispatchFingerprint":"source-and-options","status":"starting"});
+        Briefs::open(Some(path.clone())).put_durable(row.clone()).unwrap();
+        assert_eq!(Briefs::open(Some(path)).get("stable"), Some(row));
+    }
+
+    #[test]
+    fn durable_brief_failed_persistence_does_not_publish_the_effect_identity() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("not-a-directory");
+        std::fs::write(&path, b"blocking-file").unwrap();
+        let briefs = Briefs::open(Some(path.join("briefs.json")));
+        let row = json!({"briefId":"stable","status":"starting"});
+        assert!(briefs.put_durable(row).is_err());
+        assert!(briefs.get("stable").is_none());
+    }
 
     #[test]
     fn brief_identity_keeps_non_claude_harness_pair() {

@@ -1,4 +1,4 @@
-// Send, Stop, ↵ and the queue's Send are plain glyphs, as the mic is (Leo 2026-10-21: "WHY ARE THERE
+// Send, Stop and the queue's Send are plain glyphs, as the mic is (Leo 2026-10-21: "WHY ARE THERE
 // CIRCLES. Use plain glyphs like the mic ... A hover state is fine, but no solid discs."). No rule
 // of the pane's sheets fills them at rest, pressed, ready or off: only hover (and keyboard focus,
 // which shows the hover) takes the composer's soft pill. The off Send (an empty draft, or Send
@@ -41,8 +41,8 @@ const rules = (css: string) => {
   return found;
 };
 
-const SEND = /\.acpmux-(?:send|cancel|steer-now)\b/;
-/** A selector of the list that names Send, Stop or ↵ itself (not a descendant of it). */
+const SEND = /\.acpmux-(?:send|cancel)\b/;
+/** A selector of the list that names Send or Stop itself (not a descendant of it). */
 const namesSend = (selector: string) =>
   selector.split(",").filter((part) => {
     const last =
@@ -57,7 +57,7 @@ const CLEAR = /^(?:none|transparent|0 0)$/;
 /** The composer's soft hover pill: the row's hover wash (the mic's and +'s). */
 const PILL = /^var\(--acpmux-(?:row-hover|composer-hover)/;
 
-test("no rule fills Send, Stop or ↵ at rest, pressed, ready or off: no disc anywhere", () => {
+test("no rule fills Send or Stop at rest, pressed, ready or off: no disc anywhere", () => {
   const fills: string[] = [];
   for (const [name, css] of SHEETS)
     for (const { selector, body } of rules(css)) {
@@ -101,7 +101,7 @@ test("the disc's colors are gone, and the off Send is the dimmed text color", ()
 
 const color = (body: string) => /(?:^|;)\s*color\s*:\s*([^;]+)/.exec(body)?.[1]?.trim();
 
-test("Send, Stop and ↵ draw in the secondary text color, the off Send's dim, or the armed Stop's accent", () => {
+test("Send and Stop draw in the secondary text color, the off Send's dim, or the armed Stop's accent", () => {
   const inks: string[] = [];
   let base = false;
   for (const [name, css] of SHEETS)

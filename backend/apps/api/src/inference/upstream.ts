@@ -53,7 +53,14 @@ const retryable = (status: number) => status === 401 || status === 402 || status
 const clientError = (status: number) =>
   status === 413 ? "the request is too large for this model" : "the model rejected the request (check messages, tools, max_tokens and the context length)"
 
-const headersOut = (id: string, contentType: string) => ({ "content-type": contentType, "cache-control": "no-cache", "x-cmux-request-id": id })
+const headersOut = (id: string, contentType: string, provider: string) => ({ "content-type": contentType, "cache-control": "no-cache", "x-cmux-request-id": id, "x-cmux-provider": provider })
+
+/** OpenAI's GPT-5 models refuse `max_tokens`; they take the same bound as `max_completion_tokens`. */
+const forProvider = (provider: string, body: Record<string, unknown>): Record<string, unknown> => {
+  if (provider !== "openai" || body.max_tokens === undefined) return body
+  const { max_tokens, ...rest } = body
+  return { ...rest, max_completion_tokens: max_tokens }
+}
 
 export const callUpstream = async (env: Env, ctx: ExecutionContext, a: Attempt): Promise<Outcome> => {
   const target = providerTarget(env, a.route.provider)
@@ -61,11 +68,12 @@ export const callUpstream = async (env: Env, ctx: ExecutionContext, a: Attempt):
   const started = Date.now()
   if (target.kind === "workers-ai") {
     try {
-      const r = await runWorkersAi(target.ai, a.model, a.route.id, a.body, a.id)
+      const r = await runWorkersAi(target.ai, a.model, a.route.id, a.body, a.id, target.gateway)
       const ttfb = Date.now() - started
       ctx.waitUntil(a.onDone({ ...(r.usage ? { usage: r.usage } : {}), ttfbMs: ttfb, status: "ok", charged: "full" }))
       const h = new Headers(r.response.headers)
       h.set("x-cmux-request-id", a.id)
+      h.set("x-cmux-provider", a.route.provider)
       return { kind: "response", response: new Response(r.response.body, { status: 200, headers: h }) }
     } catch (e) {
       console.warn(JSON.stringify({ msg: "inference.workers_ai.error", id: a.id, error: String(e).slice(0, 300) }))
@@ -80,8 +88,8 @@ export const callUpstream = async (env: Env, ctx: ExecutionContext, a: Attempt):
   try {
     upstream = await fetch(target.url, {
       method: "POST",
-      headers: { authorization: `Bearer ${target.key}`, "content-type": "application/json", ...target.extraHeaders },
-      body: JSON.stringify({ ...a.body, ...target.extraBody, ...(a.route.provider === "openrouter" ? { provider: { data_collection: "deny", max_price: { prompt: a.model.card.input, completion: a.model.card.output } } } : {}), model: a.route.id }),
+      headers: { ...(target.auth === "api-key" ? { "api-key": target.key } : { authorization: `Bearer ${target.key}` }), "content-type": "application/json", ...target.extraHeaders },
+      body: JSON.stringify({ ...forProvider(a.route.provider, a.body), ...target.extraBody, ...(a.route.provider === "openrouter" ? { provider: { data_collection: "deny", max_price: { prompt: a.model.card.input, completion: a.model.card.output } } } : {}), model: a.route.id }),
       signal: abort.signal
     })
   } catch {
@@ -119,7 +127,7 @@ export const callUpstream = async (env: Env, ctx: ExecutionContext, a: Attempt):
       return { kind: "charged", status: "invalid_json" }
     }
     ctx.waitUntil(a.onDone({ ...(usage ? { usage } : {}), ttfbMs: ttfb, status: "ok", charged: "full" }))
-    return { kind: "response", response: new Response(text, { status: 200, headers: headersOut(a.id, "application/json") }) }
+    return { kind: "response", response: new Response(text, { status: 200, headers: headersOut(a.id, "application/json", a.route.provider) }) }
   }
 
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>()
@@ -170,5 +178,5 @@ export const callUpstream = async (env: Env, ctx: ExecutionContext, a: Attempt):
       }
     })()
   )
-  return { kind: "response", response: new Response(readable, { status: 200, headers: headersOut(a.id, "text/event-stream; charset=utf-8") }) }
+  return { kind: "response", response: new Response(readable, { status: 200, headers: headersOut(a.id, "text/event-stream; charset=utf-8", a.route.provider) }) }
 }

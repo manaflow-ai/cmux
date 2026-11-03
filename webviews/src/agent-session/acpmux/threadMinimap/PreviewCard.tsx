@@ -14,12 +14,14 @@ import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { forwardWheel } from "../wheelPassThrough";
 import { BookmarkIcon } from "./BookmarkIcon";
-import type { MinimapTurnMetadata, ReplyBlock } from "./model";
+import { cardOffset, type MinimapTurnMetadata, type ReplyBlock } from "./model";
+import { sliceWhole, sliceWholeEnd } from "../../../ui/wholeChars";
+import { type CoveredCandidates, useSeeThroughBlur } from "../../../ui/glass/seeThroughBlur";
 
 const middleEllipsis = (value: string, max = 36) => {
   if (value.length <= max) return value;
   const side = Math.max(4, Math.floor((max - 1) / 2));
-  return `${value.slice(0, side)}…${value.slice(-side)}`;
+  return `${sliceWhole(value, side)}…${sliceWholeEnd(value, side)}`;
 };
 
 const linkLabel = (href: string) => {
@@ -27,8 +29,11 @@ const linkLabel = (href: string) => {
   return match ? `${match[1]}/${match[2]}#${match[3]}` : href;
 };
 
+/// One formatter for every card: building an Intl.DateTimeFormat costs far more than formatting with
+/// one, and the card renders again for each row the pointer (or a wheel under it) passes.
+let timeFormat: Intl.DateTimeFormat | undefined;
 const timeLabel = (at: number) =>
-  new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(at));
+  (timeFormat ??= new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" })).format(new Date(at));
 
 // Only bounded preview spans pass here. Preserve both ends of hashes, paths and URLs; the full
 // token stays available to hover and assistive technology instead of taking over the whole card.
@@ -68,6 +73,15 @@ function forwardScrollKey(scroller: HTMLElement, event: React.KeyboardEvent): vo
   scroller.scrollTop += by;
 }
 
+/// What the card covers when it draws in the scroller's parent: the transcript scroller alone, never
+/// the rail or a Find bar beside it. In a see-through Chromium page the card's backdrop blur draws
+/// over the rows, not in their place, so they read sharp through its tint (Lawrence via Leo,
+/// 2026-10-28: "popovers in general need glassier bg blur"); the scroller blurs its own rows under
+/// the card instead (ui/glass/seeThroughBlur.ts). In place (no layer) the card is inside the
+/// scroller and covers nothing.
+const underCard: CoveredCandidates = (surface) =>
+  surface.parentElement?.querySelectorAll(":scope > .acpmux-scroll") ?? [];
+
 export type PreviewBookmark = { marked: boolean; toggle(): void };
 
 export const PreviewCard = React.forwardRef<
@@ -76,19 +90,32 @@ export const PreviewCard = React.forwardRef<
     id: string;
     /// From the rail's origin (`.acpmux-minimap`), wherever the card draws.
     x: number;
-    y: number;
+    /// Where the card centers itself (from the rail's origin), kept inside `viewportHeight` with its
+    /// own height (model.ts cardOffset). The card measures that height itself, so its owner holds no
+    /// height state and a card that opens or changes renders once.
+    center: number;
+    viewportHeight: number;
     /// The transcript scroller: the card draws in its parent, outside its mask. Without one the card
     /// draws in place.
     scroller?: HTMLElement | null;
     /// The prompt's line; a reply's card has none.
     prompt?: string;
+    /// The prompt is not loaded yet (a pending tick, model.ts `pendingTurns`): the card holds a blank
+    /// line where its words go, and they fade in there when they arrive.
+    pending?: boolean;
+    /// The prompt's sender, when another session sent it (model.ts `promptSender`): a line above it
+    /// names them, so it never reads as the person's own words.
+    from?: string;
     reply: readonly ReplyBlock[];
     metadata?: MinimapTurnMetadata;
     /// The rail's unshifted left edge, for the same pane-edge clamp in both CSS translations.
     railLeft?: number;
+    /// The rail's edge of the pane (railSide.ts). On the right, `x` counts in from the pane's right
+    /// edge and the card opens to its left, so card.right == rail.left.
+    side?: "left" | "right";
     bookmark?: PreviewBookmark;
+    onPointerEnter?(): void;
     onPointerLeave(event: React.PointerEvent<HTMLDivElement>): void;
-    onSizeChange?(): void;
     onFocus?(): void;
     onBlur?(event: React.FocusEvent<HTMLDivElement>): void;
   }
@@ -96,15 +123,19 @@ export const PreviewCard = React.forwardRef<
   {
     id,
     x,
-    y,
+    center,
+    viewportHeight,
     scroller,
     prompt,
+    pending = false,
+    from,
     reply,
     metadata,
     railLeft = 0,
+    side = "left",
     bookmark,
+    onPointerEnter,
     onPointerLeave,
-    onSizeChange,
     onFocus,
     onBlur,
   },
@@ -112,67 +143,136 @@ export const PreviewCard = React.forwardRef<
 ) {
   const t = useT();
   const layer = scroller?.parentElement;
+  /// The words of a prompt that was pending under the open card arrived: they fade in (opacity only,
+  /// threadMinimap.css `[data-arrived]`), in the place the blank line held. Set before paint.
+  const [arrived, setArrived] = useState(false);
+  const wasPending = useRef(pending);
+  useLayoutEffect(() => {
+    if (wasPending.current && !pending) setArrived(true);
+    else if (pending) setArrived(false);
+    wasPending.current = pending;
+  }, [pending]);
   const anchor = useRef<HTMLSpanElement>(null);
   const self = useRef<HTMLDivElement | null>(null);
-  const onSizeChangeRef = useRef(onSizeChange);
-  onSizeChangeRef.current = onSizeChange;
-  /// The rail's origin in the card's containing block, measured after each commit (before paint).
-  const [origin, setOrigin] = useState({ x: 0, y: 0 });
-  const [replyMetrics, setReplyMetrics] = useState({ lines: 1, lineHeight: 20 });
-  // oxlint-disable-next-line react-hooks/exhaustive-deps -- runs after every commit on purpose (the rail can move under the card with any render); its setState is guarded by the comparison.
-  useLayoutEffect(() => {
-    const from = anchor.current;
+  /// Where the card goes, as of the last render: read by `place`, which a commit or a resize runs.
+  const at = useRef({ x, center, viewportHeight, layer, side });
+  at.current = { x, center, viewportHeight, layer, side };
+  /// Puts the card beside its row: the rail's origin in the card's containing block (none without a
+  /// layer), plus `x`, and its own height centered on `center` inside the viewport. It writes the
+  /// transform itself, before paint, with no state: a card that opens, follows the pointer to another
+  /// row or grows renders once, and lays out once for the reads here (#28540: an origin and a height
+  /// held in state took three commits and six forced layouts to open a card).
+  const place = useCallback(() => {
     const node = self.current;
-    if (!layer || !from || !node) return;
-    const base = node.offsetParent instanceof HTMLElement ? node.offsetParent : layer;
-    const mark = from.getBoundingClientRect();
-    const frame = base.getBoundingClientRect();
-    const shiftX =
-      Number.parseFloat(from.ownerDocument.defaultView?.getComputedStyle(from.parentElement!).translate ?? "") || 0;
-    const next = {
-      x: mark.left - shiftX - frame.left - base.clientLeft + base.scrollLeft,
-      y: mark.top - frame.top - base.clientTop + base.scrollTop,
-    };
-    if (next.x !== origin.x || next.y !== origin.y) setOrigin(next);
-  });
+    if (!node) return;
+    const { x: inset, center: middle, viewportHeight: room, layer: into, side: edge } = at.current;
+    let origin = { x: 0, y: 0 };
+    const from = anchor.current;
+    if (into && from) {
+      const base = node.offsetParent instanceof HTMLElement ? node.offsetParent : into;
+      const mark = from.getBoundingClientRect();
+      const frame = base.getBoundingClientRect();
+      const shiftX =
+        Number.parseFloat(from.ownerDocument.defaultView?.getComputedStyle(from.parentElement!).translate ?? "") || 0;
+      origin = {
+        x: mark.left - shiftX - frame.left - base.clientLeft + base.scrollLeft,
+        y: mark.top - frame.top - base.clientTop + base.scrollTop,
+      };
+    }
+    const top = cardOffset(middle, node.offsetHeight, room);
+    // On the left the card starts `inset` past the rail's origin (card.left == rail.right). On the
+    // right the origin is the pane's right edge and the card ends `inset` in from it (card.right ==
+    // rail.left): placed in the layer by its own width, or pinned to the right edge without one.
+    const transform =
+      edge === "left"
+        ? `translate3d(${origin.x + inset}px, ${origin.y + top}px, 0)`
+        : into
+          ? `translate3d(${origin.x - inset}px, ${origin.y + top}px, 0) translateX(-100%)`
+          : `translate3d(${-inset}px, ${top}px, 0)`;
+    if (node.style.transform !== transform) node.style.transform = transform;
+  }, []);
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- runs after every commit on purpose: the rail can move under the card with any render.
+  useLayoutEffect(() => place());
+  // After the card is placed, so the blur's first measure finds it where it draws.
+  useSeeThroughBlur(self, !!layer, underCard);
   // The text budget is six lines: the old two-line prompt plus four-line reply. Measure the
   // prompt's actual wrapped lines when the card opens (and when its width changes), then give the
   // reply the remaining whole lines. Metadata and failure details keep their old natural rows.
+  /// Sets the reply's line budget for this card's kind, in place (no state: it changes no React
+  /// output), then places the card by its height after that change. Every card kind takes this one
+  /// path, at open and on every resize, so a card reused for another kind (a prompt's card, then a
+  /// reply's) is measured after its clamp changed, never before (#28540 review).
+  const fit = useCallback(
+    (node: HTMLElement, promptCard: boolean) => {
+      const replyNode = node.querySelector<HTMLElement>(".acpmux-minimap__reply");
+      const promptNode = node.querySelector<HTMLElement>(".acpmux-minimap__prompt");
+      const style = promptNode?.ownerDocument.defaultView?.getComputedStyle(promptNode);
+      if (!promptCard || !replyNode || !promptNode || !style) {
+        // A reply's card takes the reply's own clamp (data-only): no prompt card's budget.
+        replyNode?.style.removeProperty("--acpmux-minimap-reply-lines");
+        replyNode?.style.removeProperty("--acpmux-minimap-reply-line-height");
+      } else {
+        const lineHeight = Number.parseFloat(style.lineHeight) || 20;
+        const promptLines = Math.max(1, Math.min(3, Math.ceil(promptNode.getBoundingClientRect().height / lineHeight)));
+        // The reply's natural height, read from the reply itself with its clamp lifted for the read
+        // (an inline style, put back before anything paints). A measuring copy appended to the card
+        // and removed again was two DOM insertions under the page's `:has()` rules on every row the
+        // pointer crossed, and each restyled the whole page (about 1,100 elements) twice per move.
+        const clamp = replyNode.getAttribute("style");
+        replyNode.style.setProperty("display", "block");
+        replyNode.style.setProperty("height", "auto");
+        replyNode.style.setProperty("max-height", "none");
+        replyNode.style.setProperty("-webkit-line-clamp", "unset");
+        const naturalReplyLines = Math.max(
+          1,
+          Math.min(4, Math.ceil(replyNode.getBoundingClientRect().height / lineHeight)),
+        );
+        if (clamp === null) replyNode.removeAttribute("style");
+        else replyNode.setAttribute("style", clamp);
+        // Match the old two-line prompt + four-line reply text budget for this same content. A
+        // longer prompt spends only the reply lines it needs, so the card never grows because of it.
+        const oldTextLines = Math.min(2, promptLines) + naturalReplyLines;
+        const lines = Math.max(1, Math.min(4, oldTextLines - promptLines));
+        replyNode.style.setProperty("--acpmux-minimap-reply-lines", String(lines));
+        replyNode.style.setProperty("--acpmux-minimap-reply-line-height", `${lineHeight}px`);
+      }
+      // The budget sets the card's height, and with it where the card centers.
+      place();
+    },
+    [place],
+  );
+  /// The card's kind as of the last render, for the observer below, which outlives a content change.
+  const promptCard = useRef(prompt !== undefined);
+  promptCard.current = prompt !== undefined;
+  /// The card's size as of its last fit: a resize notification of that size (the observer's first,
+  /// or the one the fit's own budget change causes) fits nothing again.
+  const fitted = useRef({ width: -1, height: -1 });
+  const refit = useCallback(
+    (node: HTMLElement) => {
+      fit(node, promptCard.current);
+      // Laid out by the fit's own reads: these read no new layout.
+      fitted.current = { width: node.offsetWidth, height: node.offsetHeight };
+    },
+    [fit],
+  );
+  // A new prompt, reply or failure (the pointer reaching another row), or a change of kind: fit once.
+  useLayoutEffect(() => {
+    if (self.current) refit(self.current);
+  }, [metadata?.failure, metadata?.failed, prompt, from, reply, refit]);
+  // Content that grows or shrinks without a render (a font or an image loading, a wrap) fits again.
+  // One observer for the card's life, not one per row the pointer crosses (each new one notifies on
+  // observe, which fitted the card a second time per move). It stops with the card: disconnected in
+  // the cleanup when the card goes.
   useLayoutEffect(() => {
     const node = self.current;
-    if (!node || prompt === undefined) return;
-    const update = () => {
-      const promptNode = node.querySelector<HTMLElement>(".acpmux-minimap__prompt");
-      const replyNode = node.querySelector<HTMLElement>(".acpmux-minimap__reply");
-      if (!promptNode || !replyNode) return;
-      const style = promptNode.ownerDocument.defaultView?.getComputedStyle(promptNode);
-      if (!style) return;
-      const lineHeight = Number.parseFloat(style.lineHeight) || 20;
-      const promptLines = Math.max(1, Math.min(3, Math.ceil(promptNode.getBoundingClientRect().height / lineHeight)));
-      const naturalReply = replyNode.cloneNode(true) as HTMLElement;
-      naturalReply.style.cssText =
-        "position:absolute; visibility:hidden; display:block; height:auto; max-height:none; -webkit-line-clamp:unset;";
-      naturalReply.style.width = `${replyNode.getBoundingClientRect().width}px`;
-      node.append(naturalReply);
-      const naturalReplyLines = Math.max(
-        1,
-        Math.min(4, Math.ceil(naturalReply.getBoundingClientRect().height / lineHeight)),
-      );
-      naturalReply.remove();
-      // Match the old two-line prompt + four-line reply text budget for this same content. A
-      // longer prompt spends only the reply lines it needs, so the card never grows because of it.
-      const oldTextLines = Math.min(2, promptLines) + naturalReplyLines;
-      const lines = Math.max(1, Math.min(4, oldTextLines - promptLines));
-      setReplyMetrics((previous) =>
-        previous.lines === lines && Math.abs(previous.lineHeight - lineHeight) < 0.1 ? previous : { lines, lineHeight },
-      );
-      onSizeChangeRef.current?.();
-    };
-    update();
-    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(update);
-    observer?.observe(node);
-    return () => observer?.disconnect();
-  }, [metadata?.failure, metadata?.failed, prompt, reply]);
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (node.offsetWidth === fitted.current.width && node.offsetHeight === fitted.current.height) return;
+      refit(node);
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [refit]);
   const own = useCallback(
     (node: HTMLDivElement | null) => {
       self.current = node;
@@ -181,28 +281,40 @@ export const PreviewCard = React.forwardRef<
     },
     [ref],
   );
-  const at = layer ? origin : { x: 0, y: 0 };
   const scrollKey = layer ? (event: React.KeyboardEvent) => forwardScrollKey(scroller!, event) : undefined;
+  const cardStyle: React.CSSProperties & { "--acpmux-rail-left": string } = {
+    "--acpmux-rail-left": `${railLeft}px`,
+    ...(side === "right" && !layer ? { left: "auto", right: 0 } : {}),
+  };
   const card = (
     <div
       ref={own}
       id={id}
       className="acpmux-minimap__card"
       data-prompt={prompt !== undefined ? "" : undefined}
-      style={
-        {
-          "--acpmux-rail-left": `${railLeft}px`,
-          transform: `translate3d(${at.x + x}px, ${at.y + y}px, 0)`,
-        } as React.CSSProperties
-      }
+      data-incoming={from !== undefined || undefined}
+      data-pending={pending || undefined}
+      data-arrived={arrived || undefined}
+      aria-busy={pending || undefined}
+      // Its transform is `place`'s, written before paint; on the right with no layer it is pinned to
+      // the right edge (left: auto; right: 0) and `place` counts `x` in from there.
+      style={cardStyle}
+      onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
       onWheel={layer ? (event) => forwardWheel(scroller!, event.nativeEvent) : undefined}
       onFocus={onFocus}
       onBlur={onBlur}
     >
+      {prompt !== undefined && from !== undefined && (
+        <div className="acpmux-minimap__from">{t("minimap.from", { name: from })}</div>
+      )}
       {prompt !== undefined && (
         <div className="acpmux-minimap__title">
-          <span className="acpmux-minimap__prompt">{prompt}</span>
+          {pending ? (
+            <span className="acpmux-minimap__prompt" data-pending="" aria-hidden />
+          ) : (
+            <span className="acpmux-minimap__prompt">{prompt}</span>
+          )}
           {bookmark && (
             <button
               type="button"
@@ -263,18 +375,7 @@ export const PreviewCard = React.forwardRef<
         </div>
       )}
       {reply.length > 0 && (
-        <div
-          className="acpmux-minimap__reply"
-          data-only={prompt === undefined || undefined}
-          style={
-            prompt === undefined
-              ? undefined
-              : ({
-                  "--acpmux-minimap-reply-lines": replyMetrics.lines,
-                  "--acpmux-minimap-reply-line-height": `${replyMetrics.lineHeight}px`,
-                } as React.CSSProperties)
-          }
-        >
+        <div className="acpmux-minimap__reply" data-only={prompt === undefined || undefined}>
           {reply.map((block, blockIndex) => (
             <p key={blockIndex} className={block.kind === "item" ? "acpmux-minimap__item" : undefined}>
               {block.spans.map((span, spanIndex) =>
@@ -295,7 +396,12 @@ export const PreviewCard = React.forwardRef<
   if (!layer) return card;
   return (
     <>
-      <span ref={anchor} className="acpmux-minimap__anchor" aria-hidden />
+      <span
+        ref={anchor}
+        className="acpmux-minimap__anchor"
+        style={side === "right" ? { left: "auto", right: 0 } : undefined}
+        aria-hidden
+      />
       {createPortal(card, layer)}
     </>
   );

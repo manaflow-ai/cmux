@@ -1,5 +1,6 @@
 import { Schema } from "effect"
 import { def } from "./op-def.ts"
+import { isMinLength, isPattern } from "./json-checks.ts"
 import {
   ClientToken,
   ConversationCommit,
@@ -66,8 +67,8 @@ export const DmOpen = def({
   params: Schema.Struct({
     peer: Schema.Union([
       ParticipantId,
-      Schema.Struct({ email: Schema.String.check(Schema.isMinLength(3), Schema.isMaxLength(254)) }),
-      Schema.Struct({ phone: Schema.String.check(Schema.isMinLength(3), Schema.isMaxLength(32)) })
+      Schema.Struct({ email: Schema.String.check(isMinLength(3), Schema.isMaxLength(254)) }),
+      Schema.Struct({ phone: Schema.String.check(isMinLength(3), Schema.isMaxLength(32)) })
     ])
   }),
   result: Schema.Struct({ conversation: ConversationSummary }),
@@ -315,7 +316,7 @@ export const GrantRevoke = def({
   risk: "mutate-shared",
   target: "conversation",
   principals: ["session", "install"],
-  params: Schema.Struct({ ...conv, grant_id: Schema.String.check(Schema.isPattern(/^grt_[0-9A-Z]{26}$/)) }),
+  params: Schema.Struct({ ...conv, grant_id: Schema.String.check(isPattern(/^grt_[0-9A-Z]{26}$/)) }),
   result: commit,
   errors: [...conversationErrors, "unknown_invite"],
   docs: "Close a group link at once: its maker, or an admin or the owner above the maker. Open links are in the conversation head's grants.",
@@ -333,8 +334,8 @@ export const InviteCreate = def({
   params: Schema.Struct({
     ...conv,
     address: Schema.Union([
-      Schema.Struct({ email: Schema.String.check(Schema.isMinLength(3), Schema.isMaxLength(254)) }),
-      Schema.Struct({ phone: Schema.String.check(Schema.isMinLength(3), Schema.isMaxLength(32)) })
+      Schema.Struct({ email: Schema.String.check(isMinLength(3), Schema.isMaxLength(254)) }),
+      Schema.Struct({ phone: Schema.String.check(isMinLength(3), Schema.isMaxLength(32)) })
     ]),
     display_name: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(80)),
     locale: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(35))),
@@ -370,8 +371,8 @@ export const InviteAccept = def({
   target: "invite",
   principals: ["session"],
   params: Schema.Struct({
-    code: Schema.String.check(Schema.isPattern(/^[dg][0-9A-HJKMNP-TV-Z]{26}$/)),
-    secret: Schema.String.check(Schema.isPattern(/^[0-9A-HJKMNP-TV-Z]{26}$/))
+    code: Schema.String.check(isPattern(/^[dg][0-9A-HJKMNP-TV-Z]{26}$/)),
+    secret: Schema.String.check(isPattern(/^[0-9A-HJKMNP-TV-Z]{26}$/))
   }),
   result: commit,
   errors: [...conversationErrors, "unknown_invite", "invite_not_pending", "invite_expired", "banned", "duplicate_participant"],

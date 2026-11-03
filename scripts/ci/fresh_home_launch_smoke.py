@@ -55,6 +55,12 @@ import time
 from pathlib import Path
 
 PASS, FAIL, USAGE, CANNOT_RUN = 0, 1, 2, 3
+# A caller that drives the rendered app further (scripts/ci/stable_next_ui_journey.py) sets this to
+# journey(process, socket_path, env, app, out, report) -> list of failures. It runs once Home has
+# rendered and the app is still up, before the app is stopped; it may quit the app itself.
+AFTER_RENDER = None
+# A caller's preparation of the fresh home before the app starts: prepare(env) (None for the nightly smoke).
+PREPARE_HOME = None
 RENDER_MARK = "first_window_frame_committed"
 HOME_PAGE = "home-dock"
 
@@ -459,6 +465,8 @@ def run(args: argparse.Namespace, root: Path, report: dict) -> int:
     with DefaultsAside(bundle_id, root):
         marks_read, marks_write = os.pipe()
         env = fresh_env(root, socket_path, marks_write)
+        if PREPARE_HOME is not None:
+            PREPARE_HOME(env)
         log(f"==> fresh-home launch of {bundle_id} ({app}), HOME={env['HOME']}, {args.seconds:.0f}s")
         launched_wall = time.time() - 1
         with open(root / "app.log", "wb") as app_log:
@@ -477,6 +485,9 @@ def run(args: argparse.Namespace, root: Path, report: dict) -> int:
         report["home_tab"] = home_tab(seen["snapshot"])
         if out is not None and seen["exit"] is None:
             report["screenshot"] = screenshot(out)
+        journey_failures = []
+        if AFTER_RENDER is not None and seen["exit"] is None and seen["rendered_at"] is not None:
+            journey_failures = list(AFTER_RENDER(process, socket_path, env, app, out, report) or [])
         stop_child(process)
         stop(pids_under(root))
     # ReportCrash writes the .ips a few seconds after the process died.
@@ -492,7 +503,7 @@ def run(args: argparse.Namespace, root: Path, report: dict) -> int:
     if out is not None:
         for path in [*crashes, *exceptions]:
             shutil.copyfile(path, out / path.name)
-    failures = []
+    failures = list(journey_failures)
     status, elapsed = seen["exit"], seen["seconds_up"]
     if status is not None:
         how = f"signal {-status}" if status < 0 else f"status {status}"

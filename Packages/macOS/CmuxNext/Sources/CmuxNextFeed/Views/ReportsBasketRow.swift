@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextDesign
 
-/// One report in the Labs reports basket's list: the sender, when it arrived and the first lines of
+/// One report in the reports basket's list: the sender, when it arrived and the first lines of
 /// its text. Takes the report as a value (no store below the list); a click calls `select`.
 final class ReportsBasketRow: NSView {
     private(set) var item: FeedReport

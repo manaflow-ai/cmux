@@ -2,7 +2,7 @@ import { env, exports } from "cloudflare:workers"
 import { introspectWorkflowInstance, runInDurableObject } from "cloudflare:test"
 import { MemoryRows, type Principal } from "@cmux/ownership"
 import { importJWK, SignJWT, type JWK } from "jose"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { egressTest, hostAllowed } from "../src/automation-egress.ts"
 import { testBundles } from "../src/code-run.ts"
 import { EGRESS_PER_MINUTE } from "../src/usage-meter-do.ts"
@@ -103,18 +103,26 @@ describe("slice 4 capabilities (workerd)", { timeout: 60_000 }, () => {
 
   it("admits egress up to the per-minute limit, refuses at the cap, and counts only answered requests", async () => {
     const s = await setup("caps-rate")
-    await inDO(testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(s.team)), async (m) => {
-      for (let i = 0; i < EGRESS_PER_MINUTE; i++) expect((await m.egressAdmit(s.team)).limited).toBe(false)
-      expect(await m.egressAdmit(s.team)).toMatchObject({ limited: true })
-      // Admission counts nothing; no ledger row per request.
-      expect(Number(m.ctx.storage.sql.exec("SELECT COUNT(*) AS n FROM usage_ledger WHERE meter = 'egress.requests'").toArray()[0].n)).toBe(0)
-      await m.egressDone(s.team)
-    })
-    expect(await quantity(s.t, "egress.requests")).toBe(1)
-    expect((await op(s.t, "usage.cap.set", { cap_usd: 0 })).ok).toBe(true)
-    await inDO(testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(s.team)), async (m) => {
-      expect(await m.egressAdmit(s.team)).toMatchObject({ allowed: false })
-    })
+    // The limit is a fixed window per clock minute: freeze the clock so the admissions can't
+    // straddle a minute boundary and land in two windows. Every check runs at the frozen instant.
+    vi.useFakeTimers({ toFake: ["Date"] })
+    try {
+      vi.setSystemTime(Date.now())
+      await inDO(testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(s.team)), async (m) => {
+        for (let i = 0; i < EGRESS_PER_MINUTE; i++) expect((await m.egressAdmit(s.team)).limited).toBe(false)
+        expect(await m.egressAdmit(s.team)).toMatchObject({ limited: true })
+        // Admission counts nothing; no ledger row per request.
+        expect(Number(m.ctx.storage.sql.exec("SELECT COUNT(*) AS n FROM usage_ledger WHERE meter = 'egress.requests'").toArray()[0].n)).toBe(0)
+        await m.egressDone(s.team)
+      })
+      expect(await quantity(s.t, "egress.requests")).toBe(1)
+      expect((await op(s.t, "usage.cap.set", { cap_usd: 0 })).ok).toBe(true)
+      await inDO(testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(s.team)), async (m) => {
+        expect(await m.egressAdmit(s.team)).toMatchObject({ allowed: false })
+      })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("never reaches cmux's own domains, strips edge headers, and refuses raw sockets", async () => {

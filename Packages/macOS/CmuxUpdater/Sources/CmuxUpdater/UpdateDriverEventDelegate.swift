@@ -7,6 +7,9 @@ import Foundation
 /// advanced by authoritative callbacks instead of inferred from UI state or elapsed time.
 @MainActor
 protocol UpdateDriverEventDelegate: AnyObject {
+    /// A silent installer must resume through the app-owned, cancellable user-driver prompt.
+    func updateDriverNeedsSilentInstallResume()
+
     /// Sparkle ended an update session, so a queued replacement check may safely start.
     func updateDriverDidFinishCycle(_ updateCheck: SPUUpdateCheck, error: NSError?)
 

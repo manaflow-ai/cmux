@@ -35,6 +35,22 @@ await requireBrowserLane("new-tab-no-entry-classic.test.ts", async () => {
     await vite?.close();
   });
 
+  test("project results alone scroll; the popover never adds a second scrollbar", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+    try {
+      const port = (vite!.httpServer!.address() as { port: number }).port;
+      await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: "idle" })}`);
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 60_000 });
+      await page.click(".acpmux-project-button");
+      const popup = page.locator(".acpmux-project-menu");
+      await popup.waitFor();
+      expect(await popup.evaluate((node) => getComputedStyle(node).overflowY)).toBe("visible");
+      expect(await popup.locator(".ui-combobox-viewport").count()).toBe(1);
+    } finally {
+      await page.close();
+    }
+  });
+
   test("the classic footer refits after leaving and returning to Agent", async () => {
     const page = await browser!.newPage({ viewport: { width: 420, height: 700 } });
     try {

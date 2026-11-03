@@ -3,6 +3,7 @@ import AppKit
 import Foundation
 import Testing
 import WebKit
+import CmuxNextTestSupport
 
 /// Memory Saver keep rules the page's recorder answers (`BrowserPageBusy`), run in a real WebKit
 /// page. Chrome never discards a tab connected to a USB or Bluetooth device
@@ -10,7 +11,7 @@ import WebKit
 /// Chromium cross-origin child frame gets no recorder, so the person's typing there was invisible
 /// and the tab was discarded with it: a frame the person moved into that never reported counts
 /// as holding their input.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct BrowserPageBusyRecorderTests {
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(2))) struct BrowserPageBusyRecorderTests {
     /// Stand-ins for Chromium's device interfaces (WebKit has none), defined before the recorder
     /// installs, as Chromium defines them before any script runs.
     private static let fakeDevices = """

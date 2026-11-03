@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * Home messaging wire schemas (plans/cmux-next/home-messaging.md sections 2 and 4), matching
@@ -8,22 +9,22 @@ import { Schema } from "effect"
  */
 
 const CROCKFORD26 = "[0-9A-HJKMNP-TV-Z]{26}"
-export const ConversationId = Schema.String.check(Schema.isPattern(new RegExp(`^conv_(dm_)?${CROCKFORD26}$`))).annotate({
+export const ConversationId = Schema.String.check(isPattern(new RegExp(`^conv_(dm_)?${CROCKFORD26}$`))).annotate({
   identifier: "ConversationId",
   description: "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
 })
 /** Engine-minted (`msg_` + 20 hex) or ULID-style (`msg_<26>`, local conversations). */
-export const MessageId = Schema.String.check(Schema.isPattern(/^msg_[0-9A-Za-z]{1,64}$/)).annotate({ identifier: "MessageId" })
-export const InviteId = Schema.String.check(Schema.isPattern(new RegExp(`^inv_${CROCKFORD26}$`))).annotate({ identifier: "InviteId" })
-export const AddressId = Schema.String.check(Schema.isPattern(new RegExp(`^addr_${CROCKFORD26}$`))).annotate({
+export const MessageId = Schema.String.check(isPattern(/^msg_[0-9A-Za-z]{1,64}$/)).annotate({ identifier: "MessageId" })
+export const InviteId = Schema.String.check(isPattern(new RegExp(`^inv_${CROCKFORD26}$`))).annotate({ identifier: "InviteId" })
+export const AddressId = Schema.String.check(isPattern(new RegExp(`^addr_${CROCKFORD26}$`))).annotate({
   identifier: "AddressId",
   description: "HMAC id of a normalized email or phone; never the raw address."
 })
-export const ParticipantId = Schema.String.check(Schema.isPattern(new RegExp(`^((user|agent)_[A-Za-z0-9_.-]{1,64}|addr_${CROCKFORD26})$`))).annotate({
+export const ParticipantId = Schema.String.check(isPattern(new RegExp(`^((user|agent)_[A-Za-z0-9_.-]{1,64}|addr_${CROCKFORD26})$`))).annotate({
   identifier: "ParticipantId",
   description: "user_<id>, agent_<name> or addr_<26> (an invited address)."
 })
-export const ClientToken = Schema.String.check(Schema.isPattern(/^[\x21-\x7e]{1,128}$/)).annotate({
+export const ClientToken = Schema.String.check(isPattern(/^[\x21-\x7e]{1,128}$/)).annotate({
   identifier: "ClientToken",
   description: "1 to 128 printable ASCII characters (idempotency key, client_msg_id)."
 })
@@ -68,7 +69,7 @@ export const TextRun = Schema.Struct({
   link: Schema.optionalKey(Schema.String)
 }).annotate({ identifier: "HomeTextRun", description: "A styled range of a text part, in UTF-16 code units." })
 
-const Sha256 = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)).annotate({ identifier: "HomeSha256", description: "SHA-256 of the bytes, lowercase hex." })
+const Sha256 = Schema.String.check(isPattern(/^[0-9a-f]{64}$/)).annotate({ identifier: "HomeSha256", description: "SHA-256 of the bytes, lowercase hex." })
 
 /**
  * The owners count a link preview's title and site in code points and its URL in UTF-8 bytes

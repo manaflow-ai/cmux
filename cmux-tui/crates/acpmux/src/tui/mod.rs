@@ -11,6 +11,8 @@
 //!   y / n / 1-9  answer permission  Ctrl-q   quit (agents keep running)
 //!   (on a question, y opens the answer flow: digits pick, Enter confirms)
 
+use cmux_json::JsonSet as _;
+
 pub mod actions;
 mod answering;
 mod events;
@@ -100,7 +102,7 @@ impl Reread {
                 }
             }
             Reread::Sessions => {
-                if let Ok(v) = client.request(method::MUX_SESSIONS, json!({})).await {
+                if let Ok(v) = client.whole_list(method::MUX_SESSIONS, json!({})).await {
                     let _ = tx.send(AppMsg::Sessions(
                         v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default(),
                     ));
@@ -416,9 +418,7 @@ impl App {
         true
     }
     pub(super) fn selected_id(&self) -> Option<String> {
-        self.selected_session()
-            .and_then(|s| s.get("sessionId").and_then(Value::as_str))
-            .map(str::to_owned)
+        self.selected_session().and_then(session_route_id)
     }
     pub(super) fn selected_name(&self) -> String {
         if let Some(d) = self.draft() {
@@ -503,7 +503,7 @@ impl App {
         tokio::spawn(async move {
             let mut params = json!({"sessionId": id, "limit": 3000});
             if let Some(after) = after_seq {
-                params["afterSeq"] = json!(after);
+                params.set("afterSeq", json!(after));
             }
             match client.request(method::MUX_ATTACH, params).await {
                 Ok(v) => {
@@ -537,7 +537,7 @@ impl App {
         let client = self.client.clone();
         let tx = self.tx.clone();
         tokio::spawn(async move {
-            if let Ok(v) = client.request(method::MUX_SESSIONS, json!({})).await {
+            if let Ok(v) = client.whole_list(method::MUX_SESSIONS, json!({})).await {
                 let _ = tx.send(AppMsg::Sessions(
                     v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default(),
                 ));
@@ -583,7 +583,7 @@ impl App {
                     if (m == method::SESSION_NEW
                         || m == method::SESSION_FORK
                         || m == method::MUX_IMPORT)
-                        && let Some(id) = v.get("sessionId").and_then(Value::as_str)
+                        && let Some(id) = session_route_id(&v)
                     {
                         let _ = tx.send(AppMsg::Created(id.to_owned()));
                     }
@@ -708,6 +708,27 @@ impl App {
             json!({"sessionId": id, "permissionId": pid, "optionId": option_id}),
             None,
         );
+    }
+}
+
+fn session_route_id(session: &Value) -> Option<String> {
+    crate::cli::resolve::routed_id(session).ok()
+}
+
+#[cfg(test)]
+mod session_route_tests {
+    use super::session_route_id;
+    use serde_json::json;
+
+    #[test]
+    fn peer_rows_keep_the_qualified_route_for_tui_requests() {
+        assert_eq!(
+            session_route_id(
+                &json!({"sessionId": "raw", "peer": "box", "qualifiedSessionId": "box/raw"})
+            ),
+            Some("box/raw".into())
+        );
+        assert_eq!(session_route_id(&json!({"sessionId": "local"})), Some("local".into()));
     }
 }
 

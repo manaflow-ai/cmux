@@ -151,6 +151,8 @@ void Emit(int kind,
 // the pending choosers of a browser that closed or crashed (UI thread).
 CefRefPtr<CefDialogHandler> FileDialogHandlerInstance();
 void CancelFileDialogs(int browser_id);
+// A closed browser's per-browser chooser routing (shim_file_dialog.mm).
+void ForgetFileDialogRoute(int browser_id);
 
 // Live browsers by identifier (UI thread only).
 std::map<int, CefRefPtr<CefBrowser>>& browsers();
@@ -324,7 +326,7 @@ CefRefPtr<CefApp> MakeApp(std::vector<std::string> switches);
 // OnBeforeDevToolsPopup of a page client: asks the host where DevTools of
 // `inspected` goes and gives it a DevTools-only client (shim_devtools.mm).
 void PrepareDevToolsPopup(int inspected, CefWindowInfo& window_info, CefRefPtr<CefClient>& client,
-                          bool* use_default_window);
+                          CefBrowserSettings& settings, bool* use_default_window);
 // The page closed: drop its DevTools placement.
 void ForgetDevTools(int inspected);
 

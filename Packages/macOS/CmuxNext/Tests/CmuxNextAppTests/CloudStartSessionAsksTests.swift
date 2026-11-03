@@ -263,10 +263,27 @@ struct CloudStartSessionAsksTests {
 
     // MARK: A run that outlasts its caller's answer
 
-    /// What the runs' work counts and the clock they read, shared with their closures.
-    @MainActor final class Box<T> {
-        var value: T
-        init(_ value: T) { self.value = value }
+    // What the runs' work counts, the clock they read and the gates they wait on, shared with their
+    // closures. One non-generic class per stored type: the Xcode 26.6 optimizer crashes (signal 11,
+    // EarlyPerfInliner) on the deinit of a generic @MainActor box here in a release test build.
+    @MainActor final class CountBox {
+        var value: Int
+        init(_ value: Int) { self.value = value }
+    }
+
+    @MainActor final class ClockBox {
+        var value: ContinuousClock.Instant
+        init(_ value: ContinuousClock.Instant) { self.value = value }
+    }
+
+    @MainActor final class GatesBox {
+        var value: [AsyncStream<Void>.Continuation]
+        init(_ value: [AsyncStream<Void>.Continuation]) { self.value = value }
+    }
+
+    @MainActor final class ResumeBox {
+        var value: CheckedContinuation<Void, Never>?
+        init(_ value: CheckedContinuation<Void, Never>?) { self.value = value }
     }
 
     static let key = CloudStartSessionRuns.Key(machine: "name:dev", agent: "codex", cwd: nil, caller: "chat-9", account: Self.account)
@@ -366,7 +383,7 @@ struct CloudStartSessionAsksTests {
     @Test func aRunItsCallerSawEndIsNotKept() async throws {
         let runs = CloudStartSessionRuns()
         runs.sleep = Self.waits
-        let started = Box(0)
+        let started = CountBox(0)
         let work: @MainActor () async throws -> CloudStartSessionRuns.Fields = {
             started.value += 1
             return ["session_id": .string("s-\(started.value)")]
@@ -380,7 +397,7 @@ struct CloudStartSessionAsksTests {
         let runs = CloudStartSessionRuns()
         let (gate, open) = AsyncStream<Void>.makeStream()
         defer { open.finish() }
-        let started = Box(0)
+        let started = CountBox(0)
         let work: @MainActor () async throws -> CloudStartSessionRuns.Fields = {
             started.value += 1
             // A second start (the bug) answers at once: it never reads the first start's gate.
@@ -405,7 +422,7 @@ struct CloudStartSessionAsksTests {
         let runs = CloudStartSessionRuns()
         let (gate, open) = AsyncStream<Void>.makeStream()
         defer { open.finish() }
-        let started = Box(0)
+        let started = CountBox(0)
         let work: @MainActor () async throws -> CloudStartSessionRuns.Fields = {
             started.value += 1
             guard started.value == 1 else { return ["session_id": .string("s-\(started.value)")] }
@@ -425,7 +442,7 @@ struct CloudStartSessionAsksTests {
 
     @Test func aKeptRunExpiresForTheSameAsk() async throws {
         let runs = CloudStartSessionRuns()
-        let clock = Box(ContinuousClock.now)
+        let clock = ClockBox(ContinuousClock.now)
         runs.now = { clock.value }
         let (gate, open) = AsyncStream<Void>.makeStream()
         defer { open.finish() }
@@ -498,7 +515,7 @@ struct CloudStartSessionAsksTests {
         await runs.settled(mine)
         #expect(runs.keptCount == 1)
         runs.sleep = Self.waits
-        let started = Box(0)
+        let started = CountBox(0)
         let fields = try await Self.answer(runs, key: theirs) {
             started.value += 1
             return ["session_id": .string("theirs")]
@@ -522,9 +539,9 @@ struct CloudStartSessionAsksTests {
         let (events, event) = AsyncStream<CreationEvent>.makeStream()
         runs.joinedCreation = { event.yield(.joined($0)) }
         // One gate per creation, each finished at the end: a second creation (the bug) never shares one.
-        let gates = Box<[AsyncStream<Void>.Continuation]>([])
+        let gates = GatesBox([])
         defer { for gate in gates.value { gate.finish() }; event.finish() }
-        let creates = Box(0)
+        let creates = CountBox(0)
         func create() -> @MainActor () async throws -> CloudMachineSession {
             let (gate, open) = AsyncStream<Void>.makeStream()
             gates.value.append(open)
@@ -564,7 +581,7 @@ struct CloudStartSessionAsksTests {
         runs.joinedCreation = { event.yield(.joined($0)) }
         defer { event.finish() }
         // Resumed only by the test, never by cancellation.
-        let resume = Box<CheckedContinuation<Void, Never>?>(nil)
+        let resume = ResumeBox(nil)
         let create: @MainActor () async throws -> CloudMachineSession = {
             await withCheckedContinuation { continuation in
                 resume.value = continuation

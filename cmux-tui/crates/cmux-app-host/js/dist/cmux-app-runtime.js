@@ -41,6 +41,33 @@
   __export(exports_src, {
     RUNTIME_VERSION: () => RUNTIME_VERSION
   });
+  var exports_view = {};
+  __export(exports_view, {
+    Badge: () => Badge,
+    Button: () => Button,
+    Capsule: () => Capsule,
+    Circle: () => Circle,
+    Divider: () => Divider,
+    EmptyState: () => EmptyState,
+    ForEach: () => ForEach,
+    Group: () => Group,
+    HStack: () => HStack,
+    Icon: () => Icon,
+    Image: () => Image,
+    LazyVStack: () => LazyVStack,
+    Menu: () => Menu,
+    ProgressView: () => ProgressView,
+    Rectangle: () => Rectangle,
+    Reorderable: () => Reorderable,
+    RoundedRectangle: () => RoundedRectangle,
+    Row: () => Row,
+    Spacer: () => Spacer,
+    Text: () => Text,
+    TextField: () => TextField,
+    VStack: () => VStack,
+    ViewNode: () => ViewNode,
+    ZStack: () => ZStack
+  });
   var currentComputation = null;
   var currentOwner = null;
   var dirty = new Set;
@@ -208,6 +235,7 @@
     subscriptions: new Map,
     timers: new Map,
     app: { id: "", version: "" },
+    context: null,
     apiVersion: "0.0.0",
     allowedOps: null,
     knownOps: null,
@@ -421,7 +449,8 @@
         },
         settings: Object.assign(() => state.settings[0](), {
           set: (values) => c("app.settings.set", { values })
-        })
+        }),
+        context: () => state.context ?? {}
       },
       gesture: () => gesture() ?? state.gesture,
       t: (key, fallbackOrParams, params) => {
@@ -502,34 +531,6 @@
       get: (_t, key) => cmuxObject[key]
     });
   }
-  var exports_view = {};
-  __export(exports_view, {
-    Badge: () => Badge,
-    Button: () => Button,
-    Capsule: () => Capsule,
-    Circle: () => Circle,
-    Divider: () => Divider,
-    EmptyState: () => EmptyState,
-    ForEach: () => ForEach,
-    Group: () => Group,
-    HStack: () => HStack,
-    Icon: () => Icon,
-    Image: () => Image,
-    LazyVStack: () => LazyVStack,
-    Menu: () => Menu,
-    ProgressView: () => ProgressView,
-    Rectangle: () => Rectangle,
-    Reorderable: () => Reorderable,
-    RoundedRectangle: () => RoundedRectangle,
-    Row: () => Row,
-    Spacer: () => Spacer,
-    Text: () => Text,
-    TextField: () => TextField,
-    VStack: () => VStack,
-    ViewNode: () => ViewNode,
-    ZStack: () => ZStack
-  });
-
   class ViewNode {
     type;
     children;
@@ -762,11 +763,13 @@
 
   class Mount {
     id;
+    context;
     owner;
     pending = [];
     nodeCount = 0;
-    constructor(id) {
+    constructor(id, context) {
       this.id = id;
+      this.context = context;
       this.owner = createOwner(null);
     }
   }
@@ -797,9 +800,9 @@
       return JSON.parse(JSON.stringify(v));
     return String(v);
   };
-  function mount(mountId, render) {
+  function mount(mountId, render, context = {}) {
     unmount(mountId);
-    const m = new Mount(mountId);
+    const m = new Mount(mountId, context);
     mounts.set(mountId, m);
     runWithOwner(m.owner, () => {
       const view = untrack(render);
@@ -1459,10 +1462,13 @@
           if (typeof render !== "function")
             throw new Error(`the app does not export a function named ${exportName}`);
           const ctx = JSON.parse(ctxJSON || "{}");
-          mount(mountId, () => render(ctx));
+          state.context = ctx;
+          mount(mountId, () => render(ctx), ctx);
+          state.context = null;
         });
         return "";
       } catch (e) {
+        state.context = null;
         unmount(mountId);
         const message = describe2(e);
         log("error", `mount ${exportName}: ${message}`);
@@ -1480,10 +1486,12 @@
         return;
       const payload = payloadJSON ? JSON.parse(payloadJSON) : {};
       state.gesture = typeof payload.gesture === "string" ? payload.gesture : null;
+      state.context = record.mount.context;
       try {
         dispatchEvent(record, event, payload);
       } finally {
         state.gesture = null;
+        state.context = null;
       }
     }, undefined);
     function dispatchEvent(record, event, payload) {

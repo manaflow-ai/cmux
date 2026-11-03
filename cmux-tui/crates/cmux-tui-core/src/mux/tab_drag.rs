@@ -15,6 +15,7 @@ use super::dock_columns::reduce_column_dock;
 use super::*;
 use crate::layout::DEFAULT_VIEWPORT_PANE_WIDTH;
 use crate::model::{ColumnDock, DockEdge, LayoutColumn, LayoutUndoTabRestore};
+use cmux_json::JsonSet as _;
 use cmux_layout_reducer::{Edge, LayoutOpKind, NewTab, TabContent};
 
 /// The fresh tab a split of a pane's only tab leaves there (`respawn`,
@@ -196,10 +197,10 @@ impl TabDragDestination {
                 });
                 // Only when set, so keys recorded before the field stay equal.
                 if keep_focus {
-                    fingerprint["keep_focus"] = Value::Bool(true);
+                    fingerprint.set("keep_focus", Value::Bool(true));
                 }
                 if let Some(around) = around {
-                    fingerprint["around"] = serde_json::json!(around);
+                    fingerprint.set("around", serde_json::json!(around));
                 }
                 fingerprint
             }
@@ -212,7 +213,7 @@ impl TabDragDestination {
                     "dock": dock,
                 });
                 if keep_focus {
-                    fingerprint["keep_focus"] = Value::Bool(true);
+                    fingerprint.set("keep_focus", Value::Bool(true));
                 }
                 fingerprint
             }
@@ -240,9 +241,21 @@ pub(crate) struct TabDragIds {
 
 impl TabDragIds {
     pub(crate) fn reserve(mux: &Mux) -> anyhow::Result<Self> {
+        Self::reserve_keyed(mux, None)
+    }
+
+    /// [`Self::reserve`] with the new pane's caller-minted public id
+    /// (`tab-column-client-pane-v1`), checked unused when the drag commits.
+    pub(crate) fn reserve_keyed(
+        mux: &Mux,
+        pane_public: Option<PanePublicId>,
+    ) -> anyhow::Result<Self> {
         Ok(Self {
             pane: mux.next_id(),
-            pane_public: PanePublicId::random()?,
+            pane_public: match pane_public {
+                Some(id) => id,
+                None => PanePublicId::random()?,
+            },
             split: mux.next_id(),
             base_column: mux.next_id(),
         })
@@ -339,7 +352,15 @@ impl Mux {
         layout_invariants::model_result("tab.drag", &model, &kind)?;
         let destination =
             TabDragDestination::Split { pane, edge, ratio, keep_focus: false, around: None };
-        self.commit_tab_drag_respawning(actor, surface, pane, destination, respawn, transaction)
+        self.commit_tab_drag_respawning(
+            actor,
+            surface,
+            pane,
+            destination,
+            respawn,
+            None,
+            transaction,
+        )
     }
 
     /// `move-tab-to-column` with `respawn` (`tab-column-respawn-v1`): move a
@@ -352,6 +373,28 @@ impl Mux {
         surface: SurfaceId,
         destination: ColumnMove,
         respawn: SplitRespawn,
+        transaction: Option<String>,
+    ) -> anyhow::Result<TabDragOutcome> {
+        self.move_tab_to_column_respawning_keyed_as(
+            actor,
+            surface,
+            destination,
+            respawn,
+            None,
+            transaction,
+        )
+    }
+
+    /// [`Self::move_tab_to_column_respawning_as`] whose new column's pane takes the caller-minted
+    /// public id `pane_id` (`tab-column-client-pane-v1`), so a client showing the dock before the
+    /// reply sees the daemon's pane replace its provisional one by id.
+    pub fn move_tab_to_column_respawning_keyed_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        surface: SurfaceId,
+        destination: ColumnMove,
+        respawn: SplitRespawn,
+        pane_id: Option<PanePublicId>,
         transaction: Option<String>,
     ) -> anyhow::Result<TabDragOutcome> {
         let ColumnMove { pane, after_column, width, dock } = destination;
@@ -367,12 +410,21 @@ impl Mux {
         })?;
         let destination =
             TabDragDestination::Column { pane, after_column, width, dock, keep_focus: false };
-        self.commit_tab_drag_respawning(actor, surface, source, destination, respawn, transaction)
+        self.commit_tab_drag_respawning(
+            actor,
+            surface,
+            source,
+            destination,
+            respawn,
+            pane_id,
+            transaction,
+        )
     }
 
     /// Creates the fresh tab in `source` first (the pane never empties), then
     /// commits while `source` holds exactly the fresh and the dragged tab. A
     /// failed drag closes the fresh tab again.
+    #[allow(clippy::too_many_arguments)]
     fn commit_tab_drag_respawning(
         self: &Arc<Self>,
         actor: &Actor,
@@ -380,8 +432,16 @@ impl Mux {
         source: PaneId,
         destination: TabDragDestination,
         respawn: SplitRespawn,
+        pane_id: Option<PanePublicId>,
         transaction: Option<String>,
     ) -> anyhow::Result<TabDragOutcome> {
+        // A used pane id is refused before the fresh tab is made, so a refusal consumes no
+        // terminal id the caller would retry with; the commit checks it again for races.
+        if let Some(pane_id) = &pane_id {
+            let registry = self.workspace_registry.lock().unwrap();
+            let state = self.lock_state_pinned(&registry).unwrap();
+            resource_topology::ensure_client_pane_id_unused(&state, &registry, pane_id)?;
+        }
         let size = self.surface(surface).map(|runtime| runtime.size());
         let fresh = match respawn {
             SplitRespawn::Terminal(spawn) => {
@@ -392,7 +452,14 @@ impl Mux {
             }
         };
         let guard = SourceGuard { pane: source, tabs: [fresh.id, surface] };
-        match self.commit_tab_drag_guarded(actor, surface, destination, transaction, Some(guard)) {
+        match self.commit_tab_drag_keyed(
+            actor,
+            surface,
+            destination,
+            transaction,
+            Some(guard),
+            pane_id,
+        ) {
             Ok(outcome) => Ok(outcome),
             Err(error) => {
                 if let Err(close) = self.close_surface_as(actor, fresh.id) {
@@ -419,12 +486,36 @@ impl Mux {
         keep_focus: bool,
         transaction: Option<String>,
     ) -> anyhow::Result<TabDragOutcome> {
+        self.move_tab_to_column_keyed_as(
+            actor,
+            surface,
+            ColumnMove { pane, after_column, width, dock },
+            None,
+            keep_focus,
+            transaction,
+        )
+    }
+
+    /// [`Self::move_tab_to_column_as`] whose new column's pane takes the caller-minted public id
+    /// `pane_id` (`tab-column-client-pane-v1`).
+    pub fn move_tab_to_column_keyed_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        surface: SurfaceId,
+        destination: ColumnMove,
+        pane_id: Option<PanePublicId>,
+        keep_focus: bool,
+        transaction: Option<String>,
+    ) -> anyhow::Result<TabDragOutcome> {
+        let ColumnMove { pane, after_column, width, dock } = destination;
         let width = validated_column_width(width)?;
-        self.commit_tab_drag(
+        self.commit_tab_drag_keyed(
             actor,
             surface,
             TabDragDestination::Column { pane, after_column, width, dock, keep_focus },
             transaction,
+            None,
+            pane_id,
         )
     }
 
@@ -448,7 +539,22 @@ impl Mux {
         transaction: Option<String>,
         guard: Option<SourceGuard>,
     ) -> anyhow::Result<TabDragOutcome> {
-        let ids = TabDragIds::reserve(self)?;
+        self.commit_tab_drag_keyed(actor, surface, destination, transaction, guard, None)
+    }
+
+    /// [`Self::commit_tab_drag_guarded`] whose new pane takes the caller-minted public id
+    /// `pane_id`, refused with `pane_id_exists` when a live or deleted resource has it.
+    fn commit_tab_drag_keyed(
+        self: &Arc<Self>,
+        actor: &Actor,
+        surface: SurfaceId,
+        destination: TabDragDestination,
+        transaction: Option<String>,
+        guard: Option<SourceGuard>,
+        pane_id: Option<PanePublicId>,
+    ) -> anyhow::Result<TabDragOutcome> {
+        let keyed = pane_id.is_some();
+        let ids = TabDragIds::reserve_keyed(self, pane_id)?;
         let fingerprint = serde_json::json!({
             "operation": "tab.drag",
             "surface": surface,
@@ -466,6 +572,13 @@ impl Mux {
             |state, registry| {
                 if let Some(guard) = &guard {
                     guard.check(state)?;
+                }
+                if keyed {
+                    resource_topology::ensure_client_pane_id_unused(
+                        state,
+                        registry,
+                        &ids.pane_public,
+                    )?;
                 }
                 let mut projected = state.clone();
                 let outcome =

@@ -266,3 +266,84 @@ fn a_remote_with_no_token_stays_remote_after_a_bounded_number_of_reads() {
     assert_eq!(later["attempts"], first["attempts"], "the link did not reconnect: {later}");
     assert_eq!(pair.reads(), 8, "reads of a remote with no token");
 }
+
+/// Both the config read and a configured-token tunnel preserve the SSH failure class.
+#[test]
+fn ssh_failures_reach_host_ls_without_remote_output_or_credentials() {
+    for (index, (diagnostic, expected)) in [
+        ("ssh: Could not resolve hostname example.invalid: Name or service not known", "DNS"),
+        ("user@example.invalid: Permission denied (publickey).", "Permission denied"),
+        ("Host key verification failed.", "Host key verification failed"),
+        ("ssh: connect to host example.invalid port 22: Connection timed out", "timed out"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        for configured in [false, true] {
+            let tag = format!("ssh-reason-{index}-{configured}");
+            let dir = cmux_unix_socket::short_test_dir("acpmux-ssh-reason");
+            let script = dir.path().join("ssh");
+            std::fs::write(&script, format!(
+                "#!/usr/bin/env python3\nimport sys\nsys.stderr.write({diagnostic:?} + '\\nsecret-do-not-publish\\n')\nsys.exit(255)\n"
+            )).unwrap();
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let daemon = start(&tag, json!({}), false, Some(dir.path()));
+            let mut params = json!({"name":"box", "url":"ssh://box.invalid", "wait":true});
+            if configured {
+                params["token"] = json!("dummy");
+                params["peerToken"] = json!("a".repeat(64));
+            }
+            let added = unix(&daemon.home, "_acpmux/peer_add", params);
+            assert!(added.get("error").is_none(), "{added}");
+            let listing = daemon_env::acpmux(&daemon.home)
+                .env("ACPMUX_HOME", &daemon.home)
+                .env("ACPMUX_SOCKET", daemon.home.join("s.sock"))
+                .args(["host", "ls"])
+                .output()
+                .unwrap();
+            assert!(listing.status.success(), "host ls failed");
+            let text = String::from_utf8_lossy(&listing.stdout);
+            assert!(text.contains(expected), "missing {expected}: {text}");
+            assert!(!text.contains("secret-do-not-publish"), "untrusted stderr leaked");
+        }
+    }
+}
+
+/// Cached parking applies on boot, but an explicit reconnect of a never-reached host
+/// (lastSeen=null) still runs now. Both wait=true calls settle without waiting an hour.
+#[tokio::test(start_paused = true)]
+async fn cached_hourly_retry_survives_boot_and_manual_reconnect_is_immediate() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-park-boot");
+    let mut config = acpmux::config::Config::default();
+    config.store.mode = acpmux::config::StoreMode::Local;
+    let store = acpmux::store::open(&config.store, dir.path()).unwrap();
+    let hub = acpmux::hub::Hub::new(config, store);
+    let now = acpmux::store::now_ms();
+    std::fs::create_dir_all(dir.path().join("peers")).unwrap();
+    std::fs::write(
+        dir.path().join("peers/absent.json"),
+        json!({
+            "lastSeen": null, "downSince": now - 86_400_001,
+            "nextRetryAt": now + 3_600_000, "sessions": []
+        })
+        .to_string(),
+    )
+    .unwrap();
+    tokio::time::timeout(Duration::from_secs(1), hub.add_peer("absent", "ws://", None, None, true))
+        .await
+        .expect("parked boot settles now")
+        .unwrap();
+    let boot_attempts = hub.peers()[0]["attempts"].as_u64().unwrap();
+    tokio::time::timeout(Duration::from_secs(1), hub.reconnect_peer("absent", true))
+        .await
+        .expect("explicit reconnect settles now")
+        .unwrap();
+    let manual_attempts = hub.peers()[0]["attempts"].as_u64().unwrap();
+    hub.remove_peer("absent").await.unwrap();
+    assert_eq!(boot_attempts, 0, "automatic boot must honor the cached hourly retry");
+    assert_eq!(
+        manual_attempts, 1,
+        "manual reconnect bypasses the saved wait, even without lastSeen"
+    );
+}

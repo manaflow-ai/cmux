@@ -1,6 +1,7 @@
 import { Schema } from "effect"
 import { def, mutationErrors } from "./op-def.ts"
 import { UserId } from "./schemas.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * Cloud groups (plans/cmux-next/cloud-groups-DESIGN.md, slice 1): a sidebar group whose record lives
@@ -10,13 +11,13 @@ import { UserId } from "./schemas.ts"
  *
  * Slice 1: the creator is the group's only member (role owner). Members and roles come in slice 3.
  */
-export const GroupId = Schema.String.check(Schema.isPattern(/^grp_[a-z0-9]{20}$/)).annotate({
+export const GroupId = Schema.String.check(isPattern(/^grp_[a-z0-9]{20}$/)).annotate({
   identifier: "GroupId",
   description: "A cloud group, minted by TeamDO (grp_ + 20 lowercase hex)."
 })
 
 /** A cmux-next workspace id (`ws_` + hex or base32), the id the daemon gave it. */
-export const GroupWorkspaceId = Schema.String.check(Schema.isPattern(/^ws_[A-Za-z0-9]{8,64}$/)).annotate({ identifier: "GroupWorkspaceId" })
+export const GroupWorkspaceId = Schema.String.check(isPattern(/^ws_[A-Za-z0-9]{8,64}$/)).annotate({ identifier: "GroupWorkspaceId" })
 
 export const GroupName = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(80))
 

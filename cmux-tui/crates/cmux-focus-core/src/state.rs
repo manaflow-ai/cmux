@@ -46,6 +46,20 @@ impl Target {
         )
     }
 
+    /// The target as the app's diagnostics name it (`sidebar(keyboard: true)`).
+    pub fn describe(self) -> String {
+        match self {
+            Target::Content {} => "content".into(),
+            Target::AddressBar {} => "addressBar".into(),
+            Target::FindBar {} => "findBar".into(),
+            Target::DevTools {} => "devTools".into(),
+            Target::Sidebar { keyboard } => format!("sidebar(keyboard: {keyboard})"),
+            Target::SidebarField {} => "sidebarField".into(),
+            Target::TextField {} => "textField".into(),
+            Target::None {} => "none".into(),
+        }
+    }
+
     pub(crate) fn is_chrome(self) -> bool {
         matches!(self, Target::AddressBar {} | Target::FindBar {} | Target::DevTools {})
     }
@@ -61,6 +75,18 @@ pub enum Overlay {
     GroupEditor,
 }
 
+impl Overlay {
+    /// The cmux.json and diagnostics name.
+    pub fn name(self) -> &'static str {
+        match self {
+            Overlay::Palette => "palette",
+            Overlay::Sheet => "sheet",
+            Overlay::Rename => "rename",
+            Overlay::GroupEditor => "groupEditor",
+        }
+    }
+}
+
 /// What an expectation waits for.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -73,6 +99,16 @@ pub enum ExpectationKey {
         #[serde(rename = "_0")]
         id: String,
     },
+}
+
+impl ExpectationKey {
+    /// The key as the app's diagnostics name it (`tab("t1")`).
+    pub fn describe(&self) -> String {
+        match self {
+            ExpectationKey::Surface { id } => format!("surface({id:?})"),
+            ExpectationKey::Tab { id } => format!("tab({id:?})"),
+        }
+    }
 }
 
 /// A focus that lands once its tab exists (a split, new tab, drop).
@@ -153,6 +189,93 @@ pub enum Resolved {
         overlay: Overlay,
     },
     None {},
+}
+
+impl Resolved {
+    /// The pane of a pane-scoped target.
+    pub fn pane(&self) -> Option<&str> {
+        match self {
+            Resolved::Terminal { pane, .. }
+            | Resolved::BrowserPage { pane, .. }
+            | Resolved::AddressBar { pane, .. }
+            | Resolved::FindBar { pane, .. }
+            | Resolved::DevTools { pane, .. }
+            | Resolved::AgentPage { pane, .. }
+            | Resolved::Page { pane, .. }
+            | Resolved::Conversation { pane, .. }
+            | Resolved::EmptyPane { pane } => Some(pane),
+            _ => None,
+        }
+    }
+
+    /// The tab of a tab-scoped target.
+    pub fn tab(&self) -> Option<&str> {
+        match self {
+            Resolved::Terminal { tab, .. }
+            | Resolved::BrowserPage { tab, .. }
+            | Resolved::AddressBar { tab, .. }
+            | Resolved::FindBar { tab, .. }
+            | Resolved::DevTools { tab, .. }
+            | Resolved::AgentPage { tab, .. }
+            | Resolved::Page { tab, .. }
+            | Resolved::Conversation { tab, .. } => Some(tab),
+            _ => None,
+        }
+    }
+
+    /// A text field has the keyboard: editing chords belong to it.
+    pub fn is_text_input(&self) -> bool {
+        match self {
+            Resolved::AddressBar { .. }
+            | Resolved::FindBar { .. }
+            | Resolved::SidebarField {}
+            | Resolved::TextField {} => true,
+            Resolved::Overlay { overlay } => matches!(overlay, Overlay::Rename | Overlay::Sheet),
+            _ => false,
+        }
+    }
+
+    /// Stable name for `debug.focus` and the input invariants.
+    pub fn kind(&self) -> String {
+        let name = match self {
+            Resolved::Terminal { .. } => "terminal",
+            Resolved::BrowserPage { .. } => "browserPage",
+            Resolved::AddressBar { .. } => "addressBar",
+            Resolved::FindBar { .. } => "findBar",
+            Resolved::DevTools { .. } => "devTools",
+            Resolved::AgentPage { .. } => "agentPage",
+            Resolved::Page { .. } => "page",
+            Resolved::Conversation { .. } => "conversation",
+            Resolved::EmptyPane { .. } => "emptyPane",
+            Resolved::Sidebar {} => "sidebar",
+            Resolved::SidebarField {} => "sidebarField",
+            Resolved::TextField {} => "textField",
+            Resolved::Overlay { overlay } => return format!("overlay:{}", overlay.name()),
+            Resolved::None {} => "none",
+        };
+        name.to_owned()
+    }
+
+    /// `debug.focus`'s Ghostty check: Ghostty reports a focused terminal only
+    /// for the key window's resolved terminal. `ghostty` is the app-wide list
+    /// of focused terminal tabs, `own_tabs` this window's tabs. None when
+    /// Ghostty and this focus agree, else the problem.
+    pub fn ghostty_mismatch(
+        &self,
+        ghostty: &[String],
+        own_tabs: &std::collections::HashSet<String>,
+        is_key: bool,
+    ) -> Option<String> {
+        let here: Vec<&String> = ghostty.iter().filter(|tab| own_tabs.contains(*tab)).collect();
+        if let Resolved::Terminal { tab, .. } = self
+            && is_key
+        {
+            return (here != [tab]).then(|| format!("ghostty focused {here:?} != [{tab}]"));
+        }
+        let key = if is_key { "" } else { " (window not key)" };
+        (!here.is_empty())
+            .then(|| format!("ghostty focused {here:?} while model is {}{key}", self.kind()))
+    }
 }
 
 /// Registry context bits the focus implies.
@@ -352,6 +475,25 @@ impl FocusState {
             | Resolved::DevTools { .. } => Context { browser: true, ..Context::default() },
             Resolved::AgentPage { .. } => Context { agent: true, ..Context::default() },
             _ => Context::default(),
+        }
+    }
+
+    /// The tab a key typed now is for: the tab the focus is on its way to
+    /// (a creation's new tab, shown and focused in the key's frame), else
+    /// the focused terminal's tab. A creation hold binds each held key to
+    /// it (P0 1193).
+    pub fn typing_tab(&self) -> Option<&str> {
+        if let Some(Expectation { key: ExpectationKey::Tab { id }, .. }) = &self.expectation {
+            return Some(id);
+        }
+        self.terminal_tab()
+    }
+
+    /// The focused terminal's tab; none when the focus is not on a terminal.
+    pub fn terminal_tab(&self) -> Option<&str> {
+        match &self.derived.resolved {
+            Resolved::Terminal { tab, .. } => Some(tab),
+            _ => None,
         }
     }
 

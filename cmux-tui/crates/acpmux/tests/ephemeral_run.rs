@@ -30,6 +30,10 @@ struct Daemon {
 
 impl Daemon {
     fn start(tag: &str) -> Self {
+        Self::start_with_env(tag, &[])
+    }
+
+    fn start_with_env(tag: &str, env: &[(&str, &str)]) -> Self {
         // Short: the socket path must stay under the macOS limit.
         let root = std::env::temp_dir().join(format!("eph-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
@@ -37,15 +41,30 @@ impl Daemon {
             std::fs::create_dir_all(root.join(dir)).unwrap();
         }
         let root = std::fs::canonicalize(&root).unwrap();
+        // Snapshot the actual child environment independently of reply streaming:
+        // a turn can finish before the CLI receives its final notification.
+        let capture = root.join("capture.py");
+        std::fs::write(
+            &capture,
+            r#"import json, os, pathlib, runpy, sys
+sid = os.environ.get("ACPMUX_SESSION_ID", "probe")
+pathlib.Path(__file__).with_name("env-" + sid + ".json").write_text(json.dumps({
+    "ACPMUX_SESSION_EPHEMERAL": os.environ.get("ACPMUX_SESSION_EPHEMERAL", "")
+}))
+runpy.run_path(sys.argv[1], run_name="__main__")
+"#,
+        )
+        .unwrap();
         std::fs::write(
             root.join("amx").join("config.json"),
-            json!({"harnesses": {"fake": {"argv": ["python3", FAKE]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
+            json!({"harnesses": {"fake": {"argv": ["python3", capture, FAKE]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
         )
         .unwrap();
         let mut daemon = Self { root, child: None };
         // `--memory`: no store on disk, so no agent host outlives the test.
         let mut child = daemon
             .cmd()
+            .envs(env.iter().copied())
             .args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -171,28 +190,79 @@ fn ephemeral_run_with_a_bad_flag_value_leaves_no_session() {
     daemon.assert_no_session_within(Duration::from_secs(10), "after a usage error");
 }
 
-/// A session an agent's shell starts (`ACPMUX_SESSION_ID` set) folds under that agent's chat,
-/// unless it is a throwaway check: a probe runs ephemeral and leaves no chat at all.
+/// The variables an agent's shell has that prove its session to the daemon (`hub/person.rs`
+/// (a)): the daemon records lineage only from a proven caller (`hub/lineage.rs`), never from
+/// `ACPMUX_SESSION_ID` alone.
+const CALLER_ENV: [&str; 3] =
+    ["ACPMUX_SESSION_ID", "ACPMUX_SESSION_TOKEN", "ACPMUX_SESSION_TOKEN_SOCKET"];
+
+/// A session an agent's shell starts folds under that agent's chat, unless it is a throwaway
+/// check: a probe runs ephemeral and leaves no chat at all.
 #[test]
 fn a_probe_from_an_agents_shell_is_not_its_subagent() {
     let daemon = Daemon::start("parent");
-    let started = |prompt: &str, parent: Option<&str>| -> String {
+    let run = |prompt: &str, shell: &[(String, String)]| -> Value {
         let mut cmd = daemon.cmd();
-        if let Some(parent) = parent {
-            cmd.env("ACPMUX_SESSION_ID", parent);
-        }
+        cmd.envs(shell.iter().map(|(k, v)| (k, v)));
         let out = cmd.args(["--json", "run", "--timeout", "60", prompt]).output().expect("run");
         assert!(out.status.success(), "run {prompt:?} failed: {}", text(&out));
-        let v: Value = serde_json::from_slice(&out.stdout)
-            .unwrap_or_else(|e| panic!("run printed no JSON ({e}): {}", text(&out)));
-        v["sessionId"].as_str().expect("sessionId").to_owned()
+        serde_json::from_slice(&out.stdout)
+            .unwrap_or_else(|e| panic!("run printed no JSON ({e}): {}", text(&out)))
     };
-    let parent = started("Plan the release", None);
-    let probe = started("Reply with only: OK", Some(&parent));
-    let child = started("Review the release diff", Some(&parent));
+    let id = |v: &Value| v["sessionId"].as_str().expect("sessionId").to_owned();
+    // The parent's agent reports its own environment: the shell it runs commands in.
+    let reply = run(&format!("envs: {}", CALLER_ENV.join(",")), &[]);
+    let parent = id(&reply);
+    let env: Value = serde_json::from_str(reply["reply"].as_str().expect("reply"))
+        .unwrap_or_else(|e| panic!("the agent printed no environment ({e}): {reply}"));
+    let shell: Vec<(String, String)> = CALLER_ENV
+        .iter()
+        .map(|k| {
+            let v = env[k].as_str().filter(|v| !v.is_empty());
+            (
+                k.to_string(),
+                v.unwrap_or_else(|| panic!("the agent's shell lacks {k}: {env}")).into(),
+            )
+        })
+        .collect();
+    assert_eq!(shell[0].1, parent, "the agent's shell names its own session");
+    let probe = id(&run("Reply with only: OK", &shell));
+    let child = id(&run("Review the release diff", &shell));
     let listed = daemon.sessions();
     let find = |id: &str| listed.iter().find(|s| s["sessionId"] == id);
     let child = find(&child).unwrap_or_else(|| panic!("{child} is not listed: {listed:?}"));
     assert_eq!(child["spawnedBy"], json!(parent), "a real task from the agent is its subagent");
     assert!(find(&probe).is_none(), "the probe left its chat: {listed:?}");
+}
+
+/// Hooks in a one-shot agent must know that their session is disposable, while
+/// a daemon or caller started in that context must not mark ordinary sessions.
+#[test]
+fn ephemeral_run_exports_its_own_hook_marker_only() {
+    const MARKER: &str = "ACPMUX_SESSION_EPHEMERAL";
+    let daemon = Daemon::start_with_env("hook-marker", &[(MARKER, "1")]);
+    for (args, expected) in [
+        (vec!["exec", "--timeout", "60"], "1"),
+        (vec!["run", "--ephemeral", "--timeout", "60"], "1"),
+        (vec!["run", "--timeout", "60"], ""),
+    ] {
+        let out = daemon
+            .cmd()
+            .env(MARKER, "1")
+            .arg("--json")
+            .args(&args)
+            .arg(format!("envs: {MARKER}"))
+            .output()
+            .expect("run");
+        assert!(out.status.success(), "{args:?}: {}", text(&out));
+        let reply: Value = serde_json::from_slice(&out.stdout).expect("CLI reply");
+        let id = reply["sessionId"].as_str().expect("sessionId");
+        let snapshot = daemon.root.join(format!("env-{id}.json"));
+        let env: Value =
+            serde_json::from_slice(&std::fs::read(&snapshot).unwrap_or_else(|e| {
+                panic!("{args:?}: missing child environment {snapshot:?}: {e}")
+            }))
+            .expect("agent environment");
+        assert_eq!(env[MARKER], expected, "{args:?}: wrong hook context");
+    }
 }

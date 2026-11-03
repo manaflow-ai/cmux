@@ -89,6 +89,7 @@ enum SurfaceDiagnosticsReport {
             "parked_workspaces": JSONValue(services.windows.controllers.reduce(0) { $0 + $1.parked.count }),
             "hibernated_workspaces": JSONValue(services.workspaceHibernation.hibernated.count),
             "workspaces_hibernated_total": JSONValue(services.workspaceHibernation.hibernatedCount),
+            "workspace_pages": .object((services.cache.hibernation?.workspacePageOutcomes ?? [:]).mapValues { JSONValue($0) }),
             "hibernation": hibernation(services),
         ]
     }
@@ -129,6 +130,8 @@ enum SurfaceDiagnosticsReport {
             "hibernated_total": JSONValue(hibernation.hibernatedCount),
             "restored_total": JSONValue(hibernation.restoredCount),
             "frozen": .array(hibernation.frozen.sorted().map(JSONValue.string)),
+            // Each live page's lifecycle phase (workspace hibernation discards only `mountedHidden` ones).
+            "page_phases": .object(Dictionary(uniqueKeysWithValues: services.cache.browsers.keys.map { ($0, JSONValue.string(services.cache.phase(of: $0).rawValue)) })),
             "neighbor_radius": JSONValue(hibernation.neighborRadius),
             "awake_neighbors": .array(hibernation.awakeNeighbors.sorted().map(JSONValue.string)),
             "prewarmed_total": JSONValue(hibernation.prewarmedCount),

@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
+import { storeVmPlan } from "../src/cloud-vm-plan.ts"
 import { storePlan } from "../src/inference/plan.ts"
 import { inDO, post, testEnv, token } from "./setup/inference-person.ts"
 import { call, mirroredTeam, teamStub } from "./team-stack-support.ts"
@@ -19,7 +20,10 @@ const person = async (subject: string, plan: string | null, entitlements = true)
   const t = await token(subject)
   const ensured = await post("/v1/ops", t, { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID(), origin: "cli" })
   const team = ensured.value.personal_team as string
-  await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)), async (i) => storePlan(i.ctx.storage.sql, plan, Date.now()))
+  await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)), async (i) => {
+    storePlan(i.ctx.storage.sql, plan, Date.now())
+    storeVmPlan(i.ctx.storage.sql, null, Date.now())
+  })
   await cloudStub(team).fakeControl({ entitlements: entitlements ? "on" : "off" })
   return { t, team }
 }
@@ -56,17 +60,17 @@ describe("Cloud plan entitlements", { timeout: 60_000 }, () => {
     const big = { cpu: 16, memory_mb: 32768, disk_mb: 65536 }
     const ok = await create(max.t, big)
     expect(ok.ok, JSON.stringify(ok)).toBe(true)
-    expect((await planGet(max.t)).value).toMatchObject({ plan_id: "max", upgrade_plan: null, limits: { max_active: 20 } })
+    expect((await planGet(max.t)).value).toMatchObject({ plan_id: "max", upgrade_plan: null, limits: { max_active: 5 } })
     const pro = await person("cloud-ent-pro-big", "pro")
     const refused = await create(pro.t, big)
     expect(refused.ok).toBe(false)
     expect(refused.error?.code ?? refused.code).toBe("cloud.size.locked")
   })
 
-  it("Go allows one 2 vCPU / 4 GB machine with 40 VM-hours", async () => {
+  it("Plus (go) allows one machine at Pro sizes with no hour cap, as classic sells it", async () => {
     const x = await person("cloud-ent-go", "go")
-    expect((await planGet(x.t)).value).toMatchObject({ plan_id: "go", upgrade_plan: "pro", limits: { max_active: 1, memory_options_mb: [4096], vm_hours_included: 40 } })
-    expect((await create(x.t, { cpu: 2, memory_mb: 4096, disk_mb: 16384 })).ok).toBe(true)
+    expect((await planGet(x.t)).value).toMatchObject({ plan_id: "go", upgrade_plan: "pro", limits: { max_active: 1, memory_options_mb: [4096, 8192, 16384], vm_hours_included: null } })
+    expect((await create(x.t, { cpu: 8, memory_mb: 16384, disk_mb: 65536 })).ok).toBe(true)
     const second = await create(x.t, { cpu: 2, memory_mb: 4096, disk_mb: 16384 })
     expect(second.error?.code ?? second.code).toBe("cloud.quota.exceeded")
   })
@@ -127,6 +131,7 @@ describe("Cloud plan entitlements", { timeout: 60_000 }, () => {
     // The member's personal plan does not reach the shared team.
     const ensured = (await call(t.token, "/v1/ops", { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID(), origin: "cli" })).body
     await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(ensured.value.personal_team)), async (i) => storePlan(i.ctx.storage.sql, "max", Date.now()))
+    await inDO(teamStub(t.team), async (i) => storeVmPlan(i.ctx.storage.sql, null, Date.now()))
     expect((await teamPlanGet()).value).toMatchObject({ plan_id: "none" })
     await inDO(teamStub(t.team), async (i) => storePlan(i.ctx.storage.sql, "team", Date.now()))
     await cloudStub(t.team).fakeControl({ advance_ms: 61_000 })

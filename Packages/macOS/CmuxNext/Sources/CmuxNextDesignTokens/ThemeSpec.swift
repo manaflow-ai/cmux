@@ -45,6 +45,10 @@ public nonisolated struct ThemeSpec: Hashable, Sendable, CustomStringConvertible
         self.dark = resolvedDark
     }
 
+    /// Whether the spec is written as a light/dark pair (`light:` or `dark:`), even one whose two
+    /// sides name the same theme.
+    public var isPair: Bool { raw.lowercased().contains("light:") || raw.lowercased().contains("dark:") }
+
     /// The theme name for the current system appearance.
     public func name(isDark: Bool) -> String { isDark ? dark : light }
 

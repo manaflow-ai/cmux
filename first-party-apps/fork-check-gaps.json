@@ -1,0 +1,10 @@
+{
+  "$comment": "First-party apps that do not yet work as a fork with only the public SDK (fork-check.ts, docs/app-store-platonic-ideal.md 5). Each row names the private path; fix it by publishing what the app needs in the SDK (cmux-tui/crates/cmux-app-host/generated or app-test), then delete the row. Measured 2026-10-30.",
+  "gaps": {
+    "agents": "its tests import the host's private fake (cmux-app-host/js/test/fake-host.ts) and tools (tools/pack.ts, tools/validate-manifest.ts, tools/json-schema.ts)",
+    "caffeinate": "its tests import the host's private fake (cmux-app-host/js/test/fake-host.ts)",
+    "integrations": "imports the workspace package @cmux/integrations-core (libs/integrations-core), not pinned in its own package.json",
+    "memory": "its tests import the host's private validator (tools/validate-manifest.ts, tools/json-schema.ts)",
+    "skills": "its tests import the host's private validator (tools/validate-manifest.ts, tools/json-schema.ts)"
+  }
+}
