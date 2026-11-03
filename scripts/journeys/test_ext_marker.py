@@ -9,7 +9,7 @@ the text reader read "733287-42" as "733287-4źął", "jq-447486-400" as "j9-447
 correct frame with a long digit line. A marker is one row of truecolor cells the terminal draws; a pixel reader
 decodes it with no language model.
 
-The corpus tests render thousands of markers into synthetic frames as the terminal draws them (solid cell rectangles
+The corpus tests render 800 markers (and 3000 corrupted ones) into synthetic frames as the terminal draws them (solid cell rectangles
 on the cell grid, 1x and 2x cell sizes, dark and light themes, glyph noise around them), pass them through the color
 changes a capture can make (sRGB values shown as Display P3, P3 clipped to sRGB, a 30 % dimming overlay over a dark or
 a light fill), encode each frame as a PNG and decode it with the module's own PNG reader. Every marker must decode to
@@ -154,9 +154,9 @@ def tokens(rng, n):
 def run_in_terminal(args, columns, env=None, timeout=20):
     """(exit code, output) of the marker program run in a pseudo-terminal COLUMNS wide, as a shell in a pane runs it."""
     pid, fd = pty.fork()
-    if pid == 0:  # the child: the pty is its terminal
+    if pid == 0:  # the child: the pty is its terminal; its size is set before the program can read it
+        fcntl.ioctl(1, termios.TIOCSWINSZ, struct.pack("HHHH", 24, columns, 0, 0))
         os.execve(sys.executable, [sys.executable, "-I", str(HERE / "ext_marker.py"), *args], env or dict(os.environ))
-    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 24, columns, 0, 0))
     out, end = b"", time.monotonic() + timeout
     while time.monotonic() < end:
         ready, _, _ = select.select([fd], [], [], 0.2)
@@ -217,12 +217,18 @@ class EncodingTests(unittest.TestCase):
     def test_the_program_refuses_a_pane_too_narrow_for_the_marker(self):
         code, out = run_in_terminal(["733287-42"], M.MARKER_CELLS - 1)
         self.assertEqual(code, 3, out)
-        self.assertIn("columns", out)
+        self.assertIn(f"has {M.MARKER_CELLS - 1} columns", out)
+
+    def test_a_pane_of_exactly_thirty_columns_gets_the_marker(self):
+        code, out = run_in_terminal(["733287-42"], M.MARKER_CELLS)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(len(re.findall(r"\x1b\[48;2;(\d+);(\d+);(\d+)m ", out)), M.MARKER_CELLS)
 
     def test_the_width_is_the_terminals_not_an_exported_columns(self):
         # A shell can export COLUMNS that is not the pane's width: the terminal's own size decides.
         code, out = run_in_terminal(["733287-42"], M.MARKER_CELLS - 1, env=dict(os.environ, COLUMNS="200"))
         self.assertEqual(code, 3, out)
+        self.assertIn(f"has {M.MARKER_CELLS - 1} columns", out)
         code, out = run_in_terminal(["733287-42"], 80, env=dict(os.environ, COLUMNS="10"))
         self.assertEqual(code, 0, out)
 
@@ -304,6 +310,10 @@ class PngReaderTests(unittest.TestCase):
                 "damaged IDAT data": good[:idat + 8] + b"\xff" * size + good[idat + 8 + size:],
                 "no IDAT": good[:ihdr_end] + good[idat + 12 + size:],
                 "a chunk longer than the file": good[:idat] + struct.pack(">I", 10 ** 6) + good[idat + 4:],
+                "cut at the end of IHDR": good[:ihdr_end],
+                "cut inside the next length field": good[:ihdr_end + 2],
+                "an IHDR of 12 bytes": good[:8] + struct.pack(">I", 12) + good[12:],
+                "no IHDR (its type changed)": good[:12] + b"IHDx" + good[16:],
             }
             for name, data in cases.items():
                 with self.subTest(case=name):
@@ -483,6 +493,79 @@ class ReadRuleTests(unittest.TestCase):
             frame.rect(x, 10, w, 17, color)
             x += w
         self.assertEqual(self.scan(frame), [])
+
+
+class ConditionTests(unittest.TestCase):
+    """frame_marker and frame_marker_lacks decide on readable snapshots (review 2 of #34071, finding 1: no test failed
+    when either condition always held)."""
+
+    W, X = "with-234567-42", "gone-234567-42"
+
+    class Journey:
+        """The journey surface the conditions use: checks, out, app.snapshot (a frame DRAW paints)."""
+
+        def __init__(self, out, draw):
+            self.checks, self.out, self.draw, self.app = 0, Path(out), draw, self
+
+        def snapshot(self, path):
+            frame = Frame(400, 120, (30, 30, 30))
+            self.draw(frame)
+            return frame.png(path)
+
+    def holds(self, condition, want, *markers):
+        """Whether CONDITION holds for WANT on a frame with MARKERS: (token, y) or (token, y, cells)."""
+        def draw(frame):
+            for token, y, *cells in markers:
+                draw_marker(frame, token, 8, y, 8, 17, cells=cells[0] if cells else None)
+        with tempfile.TemporaryDirectory() as tmp:
+            return condition(self.Journey(tmp, draw), want, {})[0]
+
+    @staticmethod
+    def one_cell_wrong(token):
+        cells = list(M.marker_cells(token))
+        cells[10] = next(c for c in M.SAFE_COLORS.values() if c not in (cells[9], cells[10], cells[11]))
+        return cells
+
+    def test_frame_marker_holds_only_for_a_readable_marker_of_its_token(self):
+        W, X = self.W, self.X
+        self.assertTrue(self.holds(M.cond_frame_marker, W, (W, 10)))
+        self.assertFalse(self.holds(M.cond_frame_marker, W, (X, 10)), "another token's marker")
+        self.assertFalse(self.holds(M.cond_frame_marker, W), "no marker")
+        self.assertFalse(self.holds(M.cond_frame_marker, W, (W, 10, self.one_cell_wrong(W))), "one wrong cell")
+        # A token the program refuses to mark ("a b": a space) never holds, even on a frame that shows the very cells
+        # its digest would give: the check refuses the token before it reads the frame.
+        self.assertFalse(self.holds(M.cond_frame_marker, "a b", ("a b", 10)), "a token it cannot mark")
+
+    def test_frame_marker_lacks_needs_the_proof_the_absence_and_no_unreadable_marker(self):
+        W, X = self.W, self.X
+        want = {"token": X, "with": W}
+        self.assertTrue(self.holds(M.cond_frame_marker_lacks, want, (W, 10)))
+        self.assertFalse(self.holds(M.cond_frame_marker_lacks, want), "no proof marker")
+        self.assertFalse(self.holds(M.cond_frame_marker_lacks, want, (W, 10), (X, 50)), "the token shows")
+        self.assertFalse(self.holds(M.cond_frame_marker_lacks, want, (W, 10), (X, 50, self.one_cell_wrong(X))),
+                         "an unreadable marker")
+        self.assertFalse(self.holds(M.cond_frame_marker_lacks, want, (X, 50)), "the token without the proof")
+
+
+class LimitTests(unittest.TestCase):
+    """The cell and class limits (review 2 of #34071, note 3)."""
+
+    def test_cells_under_four_pixels_are_no_marker(self):
+        # A thumbnail of a pane (hover card, tab drag) draws the marker small: under MIN_CELL_PX it is not read.
+        with tempfile.TemporaryDirectory() as tmp:
+            frame = Frame(200, 40, (0, 0, 0))
+            draw_marker(frame, "ok-234567-42", 4, 10, 3, 17)
+            self.assertEqual(scan_png(frame, tmp, "small"), [])
+            frame = Frame(200, 40, (0, 0, 0))
+            draw_marker(frame, "ok-234567-42", 4, 10, 4, 17)
+            self.assertEqual([m["digest"] for m in scan_png(frame, tmp, "four") if m["ok"]],
+                             [M.token_digest("ok-234567-42")])
+
+    def test_a_channel_between_the_limits_has_no_class(self):
+        self.assertEqual(M.row_letters(bytes((128, 128, 128, 255))), b".")
+        self.assertEqual(M.row_letters(bytes((160, 96, 160, 255))), b"M")
+        self.assertEqual(M.row_letters(bytes((159, 96, 160, 255))), b".")
+        self.assertEqual(M.row_letters(bytes((160, 97, 160, 255))), b".")
 
 
 class RealFrameTests(unittest.TestCase):

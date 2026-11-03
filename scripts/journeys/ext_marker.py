@@ -35,9 +35,10 @@ The reader decodes a marker only when every row of its cell decodes the same, ev
 width, the END digits are right, V < 2^48 and the CRC-24 holds; a start that is followed by anything else is an
 unreadable marker. A corrupted marker reads as another token only when the corruption is a valid code word: 2^-24.
 
-  ext_marker.py TOKEN     (the program) prints TOKEN, then its marker; exit 2 for a token that is not 1-64 printable
-                          ASCII characters without spaces, 3 when the pane has fewer than MARKER_CELLS columns
-Tests: scripts/journeys/test_ext_marker.py (no app, no fleet; a corpus of thousands of markers).
+  ext_marker.py TOKEN     (the program) prints TOKEN, a blank line, its marker and a blank line; exit 2 for a token
+                          that is not 1-64 printable ASCII characters without spaces, 3 when the pane (the terminal's
+                          own size) has fewer than MARKER_CELLS columns, 4 when its output is no terminal
+Tests: scripts/journeys/test_ext_marker.py (no app, no fleet; 800 markers decoded, 3000 corrupted ones refused).
 """
 import hashlib
 import itertools

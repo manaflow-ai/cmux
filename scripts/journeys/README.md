@@ -41,7 +41,7 @@ Output, in `artifacts/journeys/<job12>-<run id>/` (or `--out`, which must be a n
   `host`, `path`, `nonce`, `run_at`, `run_id`, `run_started_at`, `harness`;
 - `run.json`: the run id (`<UTC time>-<8 hex>`), its start time and the harness checkout;
 - `<id>/result.json`: the full record (every step and its reply, every check's detail);
-- `<id>/check-NN.png`: each frame a `frame_text` check read (full size);
+- `<id>/check-NN.png`: each frame a `frame_text` or `frame_marker` check read (full size);
 - `<id>/clip.mp4` (with ffmpeg) or `<id>/clip.png` (an animated PNG, about a frame a second;
   any browser plays it) and `<id>/clip/`, the frames it is made of.
 
@@ -228,8 +228,8 @@ A frame check of a line the journey writes (`${nonce}-42`) is a marker, not `fra
 reader read "733287-42" as "733287-4źął", "jq-447486-400" as "j9-447486-400", and returned no line at all for a
 correct frame (STATUS 9303, 9402, 9444). `ext_marker.py` makes the terminal draw the token as one row of 30
 truecolor cells under its text line, and reads it back from the snapshot's pixels with a check (no language model;
-`test_ext_marker.py` decodes a corpus of thousands, through the color changes a capture can make, and refuses every
-corrupted one).
+`test_ext_marker.py` decodes 800 markers in 200 frames, through the color changes a capture can make, and refuses all
+3000 corrupted ones).
 
 ```json
 {"do": "marker_install"},
@@ -245,15 +245,21 @@ terminal's size, not an exported `COLUMNS`; it exits 3 when the pane is narrower
 terminal), and the typed command line itself is about 40 columns. `frame_marker_lacks {"token": T, "with": W}` is the
 negative for the journey's own lines (the frame negative for other text stays `frame_screen` `lacks`): it holds only
 on a frame that shows W's marker and has no unreadable marker; it proves the absence only where the frame shows the
-pane, so a marker scrolled away or covered is not seen either way. A check's detail lists each marker it found (its
-position, cell width, line height and 24-bit digest, the first six hex digits of sha256 of its token).
+pane, so a marker scrolled away or covered is not seen either way; nor is a marker drawn under 6 pixel rows, one whose
+START cells are covered, or one whose cell edges are blended (none of them is reported, so they do not make the
+negative fail; a covered data cell does, as an unreadable marker). A marker reads where the window shows it, not only
+in the journey's pane: a thumbnail of a pane with cells of 4 px or more would read too. A check's detail lists the first
+20 markers it found (position, cell width, line height and 24-bit digest, the first six hex digits of sha256 of the
+token).
 
 What a marker proves and what it does not: that this run's terminal output reached the window's pixels, at the cell
 grid, in colors a capture keeps. It draws cell backgrounds only, so it does not prove that glyphs render: a build that
-draws no text would still show markers. Journeys that check the app's own text keep `frame_text` (no fold, no second
-reading; a misread there is "not judged: reader misread"). Real-app rounds (2026-11-03): 1x on cmux21 (8 x 17 px
-cells) and 2x on cmux23 with `--vdisplay 120x2` (16 x 34 px cells), 0 unreadable markers in 938 reads. A frame
-check at 2x takes about 1.5-1.8 s on a mini (the standard-library reader of a 2200x1440 snapshot).
+draws no text would still show markers. Journeys that check the app's own text keep `frame_text` (with its fold of
+look-alike letters, `OCR_FOLD`; the P0 journey runner reports a `frame_text` miss whose daemon and app checks of the
+same text passed as "not judged: reader misread"). Real-app rounds (2026-11-03), 0 unreadable markers in 1154 reads:
+1x on cmux21 and 2x on cmux23 (16 x 34 px cells, the lease's own 120 Hz display) with the first layout (no blank
+lines), and 1x on cmux21 with this layout (8 x 17 px cells). A frame check at 2x took about 1.5-1.8 s on a mini (the
+standard-library reader of a 2200x1440 snapshot).
 
 ### Step groups (`ext_*.py`)
 
