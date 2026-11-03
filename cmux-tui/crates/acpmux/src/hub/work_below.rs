@@ -1,6 +1,5 @@
 //! Part of `Hub`; see `hub/mod.rs`. Work a session started that runs on past its own turn
-//! (manaflow-ai/cmux#25230): a background subagent of its harness (`crate::subagents`), a
-//! background command it left running (`processes.rs`, manaflow-ai/cmux#32727), or an
+//! (manaflow-ai/cmux#25230): a background subagent of its harness (`crate::subagents`), or an
 //! open sub-session (`subsessions.rs`) that runs a turn, waits on the person, or has such work
 //! of its own. A task is not done while its subagents run, so the session's status dot and lane
 //! stay `working` until all of it ends (`views.rs` `status_indicator`, the summary's
@@ -164,12 +163,6 @@ impl Hub {
     /// Whether a background subagent of `session` runs, or one of its open sub-sessions works.
     fn works_below(&self, session: &Session) -> bool {
         if session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running() > 0 {
-            return true;
-        }
-        // A background command its turn left running (a Claude background shell): the agent
-        // is still at work, as `sessions_at_work` counts it (cmux#33327), and the sidebar row
-        // that showed its running command with no spinner was wrong (cmux#32727).
-        if self.running_processes_read(session) > 0 {
             return true;
         }
         let children: Vec<Arc<Session>> = {

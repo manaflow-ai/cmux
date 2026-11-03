@@ -113,36 +113,34 @@ async fn running_subagents_reach_the_summary_and_each_change_is_recorded() {
 
 /// cmux#32727: a chat whose turn ended while a background command it started still ran (a Claude
 /// background shell fetching and test-merging a branch) showed its running command and no
-/// spinner in the sidebar: the summary read `done`. The command is work below its turn, as a
-/// background subagent is: the status dot stays `working` until it ends.
+/// spinner in the sidebar: the summary read `done`. The status dot stays `working` while the
+/// command runs. Only the dot: the command is not work below the turn, so the turn's unread mark
+/// and its end notice do not wait for a dev server to exit.
 #[tokio::test]
-async fn a_background_command_left_running_keeps_the_chat_working() {
+async fn a_background_command_left_running_keeps_the_dot_working() {
     let (hub, session) = chat().await;
     let shell = |state: &str| {
         json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "acp-root",
             "update": {"sessionUpdate": "background_task_update", "toolCallId": "bg", "taskId": "bg",
                 "state": state, "command": "git fetch origin && git merge --no-commit origin/main"}}})
     };
-    let indicator = |hub: &Hub| {
-        let mut summary = hub.session_summary(&session);
-        crate::hub::views::decide(&mut summary);
-        summary["indicator"].clone()
-    };
-    assert_eq!(indicator(&hub), Value::Null, "nothing runs yet");
+    assert!(hub.session_summary(&session)["indicator"].is_null(), "nothing runs yet");
 
     let rec = hub.append(&session, "in", "background_task_update", shell("running"));
     hub.note_process(&session, &rec, None);
-    assert!(hub.work_below_since(&session).is_some(), "the command runs past the turn");
-    assert_eq!(indicator(&hub), json!("working"), "the row spins while the command runs");
-    let records = hub.events(&session.id, 0, 10_000).unwrap();
+    let summary = hub.session_summary(&session);
+    assert_eq!(summary["commandsRunning"], json!(1), "{summary}");
+    assert_eq!(summary["indicator"], json!("working"), "the row spins while the command runs");
+    assert_eq!(hub.work_below_since(&session), None, "the unread mark does not wait on it");
     assert!(
-        records.iter().any(|e| e.kind == RECORD_KIND && e.msg["since"].is_u64()),
-        "watchers hear the change as session_changed"
+        hub.events(&session.id, 0, 10_000).unwrap().iter().any(|e| e.kind == "process_update"),
+        "watchers hear the change as session_changed (`process_update`)"
     );
 
     let rec = hub.append(&session, "in", "background_task_update", shell("completed"));
     hub.note_process(&session, &rec, None);
-    assert_eq!(hub.work_below_since(&session), None, "the command ended");
-    assert_ne!(indicator(&hub), json!("working"), "no spinner once the command ends");
+    let summary = hub.session_summary(&session);
+    assert_eq!(summary["commandsRunning"], json!(0), "{summary}");
+    assert_ne!(summary["indicator"], json!("working"), "no spinner once the command ends");
     hub.shutdown_all().await;
 }

@@ -1,9 +1,9 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
 // https://github.com/manaflow-ai/cmux/issues/32727: the composer showed Stop (and the transcript its
-// typing dots) while the chat ran no turn. acpmux ends some turns with no end record: a daemon that
-// hands its running turn to the next one on restart (hub/shutdown.rs), a wait the restart cut
-// (hub/log_load.rs), a host it could not adopt (hub/hosts.rs). Each writes only its `status`
-// record, so the pane must read the turn's end from acpmux's status, not wait for a `turn_end`.
+// typing dots) while the chat ran no turn. The pane held a turn open from its records until an end
+// record that never reached it. acpmux's summary says which turn it holds open (`turn`, null
+// between turns), and each `session_changed` is built when sent, after its record: the pane's turn
+// follows it, closed when acpmux runs none and open again when it runs one the pane saw no start of.
 import { expect, test } from "bun:test";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
@@ -35,6 +35,7 @@ const tool = {
 const prompt: Step = ["mux", "user_message", { text: "merge main", promptId: "p1", turnId: "t1" }];
 const started: Step = ["mux", "turn_started", { turnId: "t1", promptId: "p1" }];
 const status = (value: string): Step => ["mux", "status", { status: value }];
+const running = { turnId: "t1", promptId: "p1", startedAt: START, client: "cmux", prompt: "merge main", turnSeq: 2 };
 
 /// A daemon whose chat has `steps` logged and lists the chat as `listed`; `push` sends live records.
 function fakeDaemon(steps: Step[], listed: string, extra: Record<string, unknown> = {}) {
@@ -82,15 +83,26 @@ function fakeDaemon(steps: Step[], listed: string, extra: Record<string, unknown
     queueMicrotask(() => socket.onopen?.());
     return socket as WebSocket;
   };
+  const send = (method: string, params: unknown) =>
+    socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method, params }) });
   const push = (...live: Step[]) => {
     for (const step of live) {
       const event = record(step, (history.at(-1)?.seq ?? 0) + 1);
       history.push(event);
-      if (step[1] === "status") session.status = String(step[2].status);
-      socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }) });
+      send("_acpmux/event", event);
     }
   };
-  return { open, push };
+  /// A `session_changed` with the summary as acpmux builds it when it sends it.
+  const change = (fields: Record<string, unknown>) => {
+    Object.assign(session, fields);
+    send("_acpmux/session_changed", {
+      sessionId: CHAT,
+      session: { ...session },
+      kind: "status",
+      seq: history.at(-1)?.seq ?? 0,
+    });
+  };
+  return { open, push, change };
 }
 
 const settle = async () => {
@@ -113,63 +125,92 @@ async function connect(daemon: ReturnType<typeof fakeDaemon>) {
 }
 const typing = (snapshot: AcpmuxSnapshot) => snapshot.rows.some((row) => row.kind === "typing");
 
-test("a turn acpmux cut with only its status record ends Stop and the typing dots", async () => {
-  const daemon = fakeDaemon([status("running"), prompt, started, ["in", "tool_call", tool]], "running");
+test("a turn acpmux holds no longer ends Stop and the typing dots, with no end record", async () => {
+  const daemon = fakeDaemon([status("running"), prompt, started, ["in", "tool_call", tool]], "running", {
+    turn: running,
+  });
   const { client, last } = await connect(daemon);
   expect(last().isWorking).toBe(true);
   expect(typing(last())).toBe(true);
 
-  // A restart hands the turn on (hub/shutdown.rs): no turn_end, no turn_result, only `idle`.
+  // The turn's end never reaches the pane: only acpmux's summary says it holds none.
   daemon.push(status("idle"));
+  daemon.change({ status: "idle", turn: null });
   await settle();
   expect(last().isWorking).toBe(false);
   expect(typing(last())).toBe(false);
   client.close();
 });
 
-test("a chat opened after its turn was cut reads no turn, whatever its records opened", async () => {
-  // The page holds the turn's opening records but not its status record: the summary says idle.
-  const daemon = fakeDaemon([prompt, started, ["in", "tool_call", tool]], "idle");
+test("a chat opened after its turn ended reads no turn, whatever its records opened", async () => {
+  const daemon = fakeDaemon([prompt, started, ["in", "tool_call", tool]], "idle", { turn: null });
   const { client, last } = await connect(daemon);
   expect(last().isWorking).toBe(false);
   expect(typing(last())).toBe(false);
   client.close();
 });
 
-test("a watched chat's open turn stays open: its turns never set acpmux's status", async () => {
-  // hub/watch.rs logs the other app's turns as records and leaves the chat's status as it was.
-  const daemon = fakeDaemon([prompt, started], "idle", { watching: "claude" });
+test("a turn accepted while its agent starts stays open before its status reads running", async () => {
+  // acpmux logs turn_started before the prompt goes out and the status turns running.
+  const daemon = fakeDaemon([prompt, started], "ready", { turn: running });
   const { client, last } = await connect(daemon);
+  expect(last().isWorking).toBe(true);
+  expect(typing(last())).toBe(true);
+  daemon.change({ status: "running" });
+  await settle();
   expect(last().isWorking).toBe(true);
   client.close();
 });
 
-test("an agent that starts for a waiting prompt does not end its turn", async () => {
-  const daemon = fakeDaemon([status("idle")], "idle");
+test("a restart that adopts the running host opens the turn again, with no new start record", async () => {
+  const daemon = fakeDaemon([status("running"), prompt, started], "running", { turn: running });
   const { client, last } = await connect(daemon);
+  expect(last().isWorking).toBe(true);
+
+  // The old daemon hands the turn on (hub/shutdown.rs): idle, no turn.
+  daemon.push(status("idle"));
+  daemon.change({ status: "idle", turn: null });
+  await settle();
   expect(last().isWorking).toBe(false);
 
-  // The prompt opens the turn; the agent comes up (idle to ready), then the turn runs.
-  daemon.push(prompt, started, status("ready"));
-  await settle();
-  expect(last().isWorking).toBe(true);
+  // The next daemon adopts the host and goes on with the same turn (hub/hosts.rs).
   daemon.push(status("running"), ["in", "tool_call", tool]);
+  daemon.change({ status: "running", turn: running });
   await settle();
   expect(last().isWorking).toBe(true);
+  expect(typing(last())).toBe(true);
 
-  // A turn asking the person still runs; its answer goes back to running.
-  daemon.push(status("waiting"), status("running"));
-  await settle();
-  expect(last().isWorking).toBe(true);
-
-  // A normal end: its end records, then its status.
   daemon.push(
     ["mux", "turn_end", { turnId: "t1", stopReason: "end_turn" }],
     ["mux", "turn_result", { turnId: "t1", promptId: "p1", status: "completed", stopReason: "end_turn" }],
-    status("ready"),
   );
+  daemon.change({ status: "ready", turn: null });
   await settle();
   expect(last().isWorking).toBe(false);
   expect(last().rows.some((row) => row.kind === "turnSummary")).toBe(true);
+
+  // A summary that still names the ended turn never opens it again.
+  daemon.change({ status: "ready", turn: running });
+  await settle();
+  expect(last().isWorking).toBe(false);
+  client.close();
+});
+
+test("a watched chat's open turn stays open: acpmux holds none of the other app's turns", async () => {
+  // hub/watch.rs logs the other app's turns as records; acpmux's summary names no turn.
+  const daemon = fakeDaemon([prompt, started], "idle", { watching: "claude", turn: null });
+  const { client, last } = await connect(daemon);
+  expect(last().isWorking).toBe(true);
+  daemon.change({ status: "idle" });
+  await settle();
+  expect(last().isWorking).toBe(true);
+  client.close();
+});
+
+test("a summary that does not say which turn runs leaves the pane's fold as it was", async () => {
+  // An older acpmux or peer: no `turn` key.
+  const daemon = fakeDaemon([prompt, started], "idle");
+  const { client, last } = await connect(daemon);
+  expect(last().isWorking).toBe(true);
   client.close();
 });

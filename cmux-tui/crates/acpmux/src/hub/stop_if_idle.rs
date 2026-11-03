@@ -206,18 +206,17 @@ impl Hub {
         if session.agent_requests.load(Ordering::SeqCst) > 0 {
             return Some("tool_call");
         }
-        // A harness's own background process (a dev server, a watcher) ends with its harness;
-        // its end is also what a harness starts a turn of its own for (module docs). Named
-        // before the work below the turn, which counts such a process too (`work_below.rs`).
-        if self.any_process_running(session) {
-            return Some("process");
-        }
         // Work it started that runs past its own turn: a background subagent, a working
         // sub-session (`work_below.rs`).
         if session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running() > 0
             || session.work_below_since.lock().is_ok_and(|v| *v != 0)
         {
             return Some("subagent");
+        }
+        // A harness's own background process (a dev server, a watcher) ends with its harness;
+        // its end is also what a harness starts a turn of its own for (module docs).
+        if self.any_process_running(session) {
+            return Some("process");
         }
         // A Claude chat with turns but none stored: stopped, it would come back as a fresh
         // conversation (`idle.rs` keeps it awake for the same reason).

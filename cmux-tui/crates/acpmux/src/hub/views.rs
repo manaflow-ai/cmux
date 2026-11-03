@@ -112,8 +112,8 @@ fn sidebar_requires_open(summary: &Value) -> bool {
 ///   `unreachable`) and the chat's last turn did not answer. A chat with
 ///   no turn yet has nothing to lose.
 /// - `working` again: work the session started runs on past its last turn
-///   (`subagentsWorkingSince`: a background subagent, a background command
-///   or a working sub-session, `work_below.rs`), except on a peer gone unreachable. A
+///   (`subagentsWorkingSince`: a background subagent or a working
+///   sub-session, `work_below.rs`), except on a peer gone unreachable. A
 ///   task is not done until its subagents are (manaflow-ai/cmux#25230).
 /// - `done`: the last turn answered. Whether the person saw it is each
 ///   client's own record.
