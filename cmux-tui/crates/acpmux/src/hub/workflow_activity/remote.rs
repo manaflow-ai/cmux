@@ -17,7 +17,7 @@ fn remote_request(
         format!("wf-{}", crate::workflow_runs::digest(&format!("{}:{brief_id}", run.id)));
     let mut request = json!({"durable":true,"briefId":brief_id,"host":host,"brief":text,
         "title":options.get("name").and_then(Value::as_str).unwrap_or(&run.name),
-        "cwd":run.cwd,"policy":"ask","allowedTools":allowed,"wait":true});
+        "cwd":options.get("cwd").cloned().unwrap_or_else(||json!(run.cwd)),"policy":"ask","allowedTools":allowed,"wait":true});
     for field in ["harness", "preset", "model", "effort", "route", "policy"] {
         if let Some(value) = options.get(field) {
             request[field] = value.clone();
@@ -82,6 +82,9 @@ impl Hub {
         options: &Value,
         host: &str,
     ) -> Result<Value, RpcError> {
+        if options.get("cwd").is_some_and(|cwd| !cwd.is_string()) {
+            return Err(RpcError::invalid_params("remote agent cwd must be a path string"));
+        }
         let mut state: Policy = if activity.policy.is_null() {
             Policy::default()
         } else {
@@ -316,6 +319,29 @@ mod tests {
             .register_activity(&run.id, run.generation, &run.owner_session_id, activity.clone())
             .unwrap();
         let options = json!({"harness":"fake","schema":{"type":"object","required":["ok"],"properties":{"ok":{"const":true}}}});
+        let explicit_cwd = remote_request(
+            &run,
+            &activity,
+            1,
+            false,
+            "task",
+            &json!({"cwd":"/remote/project"}),
+            "paired-machine",
+            &None,
+        );
+        assert_eq!(explicit_cwd["cwd"], "/remote/project");
+        assert!(
+            hub.workflow_remote_agent(
+                &run,
+                run.generation,
+                &activity,
+                "task",
+                &json!({"cwd":7}),
+                "local"
+            )
+            .await
+            .is_err()
+        );
         // Exercise the complete owner-authenticated RPC path in process; the
         // peer transport itself is covered by dispatch_durable integration tests.
         let value = tokio::time::timeout(
