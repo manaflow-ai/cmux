@@ -200,5 +200,44 @@ class TruthPixelTests(unittest.TestCase):
                     w.close()
 
 
+
+class NewJudgeTests(unittest.TestCase):
+    """A manifest blessed before judge_pixel existed (its calls have no judge_pixel) runs: each judge_pixel result is
+    a difference to bless ("no blessed result"), not NO VERDICT. A changed call of a blessed judge stays NO VERDICT."""
+
+    def test_a_judge_added_after_the_bless_is_a_difference_to_bless(self):
+        w = fixture_workspace()
+        try:
+            self.assertEqual(w.snapshot()[0], 0)
+            self.assertEqual(w.bless()[0], 0)
+            path = w.manifest / "expected.json"
+            doc = json.loads(path.read_text())
+            del doc["calls"]["judge_pixel"]  # as the bless before judge_pixel wrote it
+            for film in doc["films"].values():
+                film.pop("judge_pixel", None)
+            path.write_text(json.dumps(doc))
+            code, out = w.run()
+            self.assertEqual(code, 1, out)
+            self.assertIn(f"DIFF judge_pixel {FIXTURE_FILM}: no blessed result", out)
+            self.assertIn("reproduced 16 of 17", out)
+        finally:
+            w.close()
+
+    def test_a_changed_call_of_a_blessed_judge_is_still_no_verdict(self):
+        w = fixture_workspace()
+        try:
+            self.assertEqual(w.snapshot()[0], 0)
+            self.assertEqual(w.bless()[0], 0)
+            path = w.manifest / "expected.json"
+            doc = json.loads(path.read_text())
+            doc["calls"]["judge_keys"] = "judge_keys.judge(base, strict=True)"
+            path.write_text(json.dumps(doc))
+            code, out = w.run()
+            self.assertEqual(code, 2, out)
+            self.assertIn("other calls", out)
+        finally:
+            w.close()
+
+
 if __name__ == "__main__":
     unittest.main()
