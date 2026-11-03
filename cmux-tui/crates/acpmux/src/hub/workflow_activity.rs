@@ -150,8 +150,15 @@ impl Hub {
                         },
                     )
                     .map_err(workflow_error)?;
-                self.bg_start_with_id(&session, prompt, Some(run.cwd.clone()), Some(&task_id))
-                    .await?;
+                self.bg_start_with_id(
+                    &session,
+                    prompt,
+                    Some(run.cwd.clone()),
+                    Some(&task_id),
+                    None,
+                    false,
+                )
+                .await?;
                 drop(gate);
                 let result = self.workflow_bg_wait(&session, &task_id).await;
                 self.workflow_complete_child(
@@ -1284,7 +1291,7 @@ mod tests {
             )
             .await
             .unwrap();
-        let retry_id = format!("{prompt_id}-g1-0-0~resume-1");
+        let retry_id = format!("{prompt_id}-g1-0-0-route-nudge~resume-1");
         let worker_hub = hub.clone();
         let worker_session = session.clone();
         let worker_id = retry_id.clone();
@@ -1312,7 +1319,7 @@ mod tests {
         .unwrap();
         let key = AttemptKey::new(&child.id);
         let mut recovery = RecoveryState::new(key.clone());
-        assert_eq!(recovery.observe(&key, 1, RecoveryEvent::Stalled), RecoveryAction::Nudge);
+        assert_eq!(recovery.observe(&key, 1, RecoveryEvent::RouteError), RecoveryAction::Nudge);
         assert!(matches!(
             recovery.observe(&key, 2, RecoveryEvent::Stalled),
             RecoveryAction::Restart { .. }

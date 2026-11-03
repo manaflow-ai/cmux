@@ -22,6 +22,7 @@ mod atomic_json;
 mod build;
 pub use build::{build, install_build, version_line};
 pub(crate) mod auto_resume;
+mod bg_notify;
 mod bg_tasks;
 mod bounded;
 mod btw;
@@ -145,6 +146,8 @@ mod github_owner;
 mod lane_report_reads;
 mod lane_report_text;
 mod lane_reports;
+mod mcp_connect;
+pub(crate) mod mcp_probe;
 mod meta_save;
 mod offer_results;
 mod offers;
@@ -750,12 +753,16 @@ pub struct Hub {
     /// `_acpmux/wait` requests subscribed and not yet answered (`server/wait.rs`), shown
     /// as `_acpmux/status` `openWaits`.
     pub(crate) open_waits: std::sync::atomic::AtomicUsize,
+    /// `_acpmux/wait` row evaluations since start (`server/wait.rs`): each builds the summaries of
+    /// the chats it waits on. A streamed token must cost none (HOT PATH AUDIT area F, row A1).
+    pub(crate) wait_evaluations: std::sync::atomic::AtomicU64,
     /// Failed subagents waiting to be resumed, by chat (`subagent_retry.rs`).
     pub(super) subagent_retries: subagent_retry::Retries,
     /// Fired by `set_transfer_lease`: each move's watch reads the new lease now.
     pub(super) transfer_lease_changed: Notify,
     /// Secrets agents asked the person for, and their one-use refs (`secrets.rs`).
     pub(super) secrets: secrets::Secrets,
+    pub(super) mcp_connects: mcp_connect::McpConnects,
     /// Sub-session starts waiting on a folder's trust card, and Not nows (`trust_wait.rs`).
     pub(super) trust_waits: trust_wait::Waits,
     /// Messages `send --no-wait` handed over, and forwarded prompts waiting for a peer's
@@ -966,9 +973,11 @@ impl Hub {
             admitting: Default::default(),
             subsession_runs: Default::default(),
             open_waits: Default::default(),
+            wait_evaluations: Default::default(),
             subagent_retries: Default::default(),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
+            mcp_connects: Default::default(),
             trust_waits: Default::default(),
             outbox: Default::default(),
             mesh: Default::default(),
@@ -999,6 +1008,7 @@ impl Hub {
             if !loading {
                 hub.watch_transfers();
                 hub.watch_orphans();
+                hub.bg_notify_resume();
             }
             hub.watch_titles();
             hub.watch_recaps();
