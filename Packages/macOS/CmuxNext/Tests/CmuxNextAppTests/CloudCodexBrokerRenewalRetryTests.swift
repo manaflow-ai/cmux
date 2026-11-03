@@ -177,6 +177,41 @@ done
         _ = await broker.shutdown()
     }
 
+    /// cmux#34010: the catch-up retry ends when the machine's access does, and a sign-out (the machine's
+    /// erase) or a delete cancels it at once.
+    @Test func theCatchUpRetryStopsAtTheExpiryAndOnEraseOrDelete() async throws {
+        let (root, broker, other, taken, _, _) = try await relaunchFixture(leftExpiresIn: 2, refusals: .max)
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try await broker.transfer(target: other, confirmed: true)
+        await broker.resume(target: taken, erase: false)
+        let retry = try #require(await broker.catchUpTask("vm-taken"))
+        await retry.value
+        #expect(await broker.catchUpMachineIDs().isEmpty)
+        // The machine stays registered: the scheduled renewal still reaches it.
+        #expect(await broker.registeredMachineIDs().contains("vm-taken"))
+
+        let (root2, broker2, other2, taken2, _, _) = try await relaunchFixture(leftExpiresIn: 600, refusals: .max)
+        defer { try? FileManager.default.removeItem(at: root2) }
+        _ = try await broker2.transfer(target: other2, confirmed: true)
+        await broker2.resume(target: taken2, erase: false)
+        let erased = try #require(await broker2.catchUpTask("vm-taken"))
+        try await broker2.revoke(target: taken2)
+        #expect(erased.isCancelled)
+        #expect(await broker2.catchUpMachineIDs().isEmpty)
+        _ = await broker2.shutdown()
+        _ = await broker.shutdown()
+
+        let (root3, broker3, other3, taken3, _, _) = try await relaunchFixture(leftExpiresIn: 600, refusals: .max)
+        defer { try? FileManager.default.removeItem(at: root3) }
+        _ = try await broker3.transfer(target: other3, confirmed: true)
+        await broker3.resume(target: taken3, erase: false)
+        let deleted = try #require(await broker3.catchUpTask("vm-taken"))
+        await broker3.discardDeletedTarget("vm-taken")
+        #expect(deleted.isCancelled)
+        #expect(await broker3.catchUpMachineIDs().isEmpty)
+        _ = await broker3.shutdown()
+    }
+
     /// The VM API refuses the next `failures` deliveries.
     actor Away {
         var left: Int
