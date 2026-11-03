@@ -126,6 +126,7 @@ fn the_shipped_skill_installs_once_and_a_user_copy_is_kept() {
     assert_eq!(
         written,
         vec![
+            "agent-session-teleport".to_owned(),
             "chief-auth-escalation".to_owned(),
             "chief-cloud-machines".to_owned(),
             "chief-teleport".to_owned(),
