@@ -8507,8 +8507,6 @@ export class AcpmuxDirectClient {
     // the session before, so it is not kept under the new one's row.
     const asked = this.sessions.find((session) => session.sessionId === sessionId);
     const askedSeq = transcriptSeq(asked);
-    if (askedSeq === undefined) this.readAheadSeq.delete(sessionId);
-    else this.readAheadSeq.set(sessionId, askedSeq);
     const result = await this.typed("_acpmux/events", {
       sessionId,
       beforeSeq: Number.MAX_SAFE_INTEGER,
@@ -8532,6 +8530,10 @@ export class AcpmuxDirectClient {
       configSeq: 0,
       usageFromSeq: result?.hasMore === true ? oldest : 0,
     });
+    // Only a kept read counts as read at `askedSeq`: a failed, empty or dropped one is asked again
+    // on the next change in the list, as before.
+    if (askedSeq === undefined) this.readAheadSeq.delete(sessionId);
+    else this.readAheadSeq.set(sessionId, askedSeq);
     // A rested hover asked for it: the tab its click opens is another page, which reads the host.
     if (this.shareOnRead.delete(sessionId)) shareReadAhead(sessionId);
   }

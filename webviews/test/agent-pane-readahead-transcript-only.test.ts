@@ -55,6 +55,8 @@ class Daemon {
   onclose: (() => void) | null = null;
   onmessage: ((message: { data: string }) => void) | null = null;
   reads: string[] = [];
+  /// Chats whose next read-ahead page fails (acpmux answers an error).
+  failing = new Set<string>();
   bytes = 0;
 
   constructor() {
@@ -97,7 +99,12 @@ class Daemon {
       result = { events, hasMore: false, lastSeq: row.lastSeq };
       this.reads.push(sessionId);
     } else if (message.method === "_acpmux/events") result = { events: [], hasMore: false, lastSeq: 0 };
-    const reply = JSON.stringify({ jsonrpc: "2.0", id: message.id, result });
+    const failed = message.method === "_acpmux/events" && row !== undefined && this.failing.delete(row.sessionId);
+    const reply = JSON.stringify(
+      failed
+        ? { jsonrpc: "2.0", id: message.id, error: { code: -32000, message: "busy" } }
+        : { jsonrpc: "2.0", id: message.id, result },
+    );
     if (message.method === "_acpmux/events" && params.beforeSeq === Number.MAX_SAFE_INTEGER) this.bytes += reply.length;
     queueMicrotask(() => this.onmessage?.({ data: reply }));
   }
@@ -174,6 +181,28 @@ test("rows that move only for bookkeeping are not read again; a transcript chang
     // fixed-wait: past the read-ahead's idle timer, so a read it would send has gone out.
     await settle();
     expect(daemon.reads.slice(first.reads + idle.reads)).toEqual([said.sessionId]);
+
+    // That chat changes again and its read fails: the next change in the list, bookkeeping only,
+    // asks again, since nothing was kept at the new transcriptSeq.
+    const before = daemon.reads.length;
+    now += TICK_MS;
+    setSystemTime(new Date(now));
+    said.updatedAt = now;
+    said.lastSeq += 1;
+    said.transcriptSeq = said.lastSeq;
+    daemon.failing.add(said.sessionId);
+    daemon.changed("turn_result", { ...said });
+    // fixed-wait: past the read-ahead's idle timer, so a read it would send has gone out.
+    await settle();
+    expect(daemon.reads.slice(before)).toEqual([said.sessionId]);
+    now += TICK_MS;
+    setSystemTime(new Date(now));
+    said.updatedAt = now;
+    said.lastSeq += 1;
+    daemon.changed("usage_stats", { ...said });
+    // fixed-wait: past the read-ahead's idle timer, so a read it would send has gone out.
+    await settle();
+    expect(daemon.reads.slice(before)).toEqual([said.sessionId, said.sessionId]);
   } finally {
     client.close();
   }
