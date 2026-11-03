@@ -11,12 +11,16 @@ extension CloudCredentialTransfer {
 
     /// The one switch for every Mac-to-machine login transfer: `cloud.startChat`'s pass, the turn
     /// card's recovery and the new-workspace setup, Claude's `setup-token` and the Codex broker alike.
-    /// DEV and dogfood only (Leo: "IN THE ACTUAL PRODUCTION APP IT MAY BE AGAINST TOS"): on in a
-    /// dogfood build (the app passes `DevTools.isEnabled`: a Debug compile or a NIGHTLY bundle, the
-    /// NEXT nightly included) unless `cmux.cloud.passHarnessLogin` is `NO`, and always off in
-    /// release, whatever the default says, where the machine signs in on its own instead. The precedence is Rust's (cmux-cloud-start-core
-    /// `passes_harness_login`); an FFI that does not answer passes no login.
-    public nonisolated static func passesHarnessLogin(isDogfoodBuild: Bool, defaults: UserDefaults) -> Bool {
-        CloudHarnessLoginDecision(dogfood: isDogfoodBuild, setting: passHarnessLoginSetting(defaults), harness: nil, signedIn: false).gate
+    /// On in a dogfood build (the app passes `DevTools.isEnabled`: a Debug compile or a NIGHTLY
+    /// bundle, the NEXT nightly included) unless `cmux.cloud.passHarnessLogin` is NO. In Release
+    /// (Leo, 2026-11-02, on three conditions: consent first, your own token to your own machine
+    /// only, and a remote off switch) only while `remoteSwitch` (the API Worker's
+    /// ``CloudHarnessLoginCopySwitch``) is on; the person's one-time consent is asked where a copy
+    /// would happen. The rules are Rust's (cmux-cloud-start-core `passes_harness_login` and
+    /// `release_passes_harness_login`); an FFI that does not answer passes no login.
+    public nonisolated static func passesHarnessLogin(isDogfoodBuild: Bool, defaults: UserDefaults, remoteSwitch: Bool? = nil) -> Bool {
+        var decision = CloudHarnessLoginDecision(dogfood: isDogfoodBuild, setting: passHarnessLoginSetting(defaults), harness: nil, signedIn: false)
+        decision.remoteSwitch = remoteSwitch
+        return decision.gate
     }
 }

@@ -42,6 +42,11 @@ export type MockSession = {
   render?: { title: string; html: string };
   /// The chat's whole history, when it is a scene of its own instead of a prompt and its reply.
   history?: (at: number) => SeedStep[];
+  /// Config options this chat offers beyond the harness's usual ones (the Options chip's).
+  extraOptions?: Record<string, unknown>[];
+  /// The agent's suggested next prompt after its last turn. acpmux sends it live only (a page
+  /// never holds it, hub/paging.rs NON_TRANSCRIPT_UPDATES), so the mock sends it when the chat opens.
+  suggestion?: string;
 };
 
 type Update = Record<string, unknown>;
@@ -136,6 +141,25 @@ const effort = (currentValue: string) => [
 export const WORKED_SESSION = "mock-session";
 const CMUX = "~/code/cmux";
 
+/// The mock chat whose last turn left a prompt suggestion (`?mock&session=` this id).
+export const PROMPT_SUGGESTION_SESSION = "mock-prompt-suggestion";
+export const PROMPT_SUGGESTION = "Add a test for the retry backoff";
+/// acpmux's per-chat switch for Claude Code's prompt suggestions, as it offers it.
+export const PROMPT_SUGGESTIONS_OPTION = {
+  id: "prompt-suggestions",
+  name: "Prompt suggestions",
+  type: "select",
+  category: "model_config",
+  currentValue: "on",
+  options: [
+    { value: "off", name: "Off" },
+    {
+      value: "on",
+      name: "On",
+      description: "Suggests your next prompt after a turn; one extra model call per turn, which counts toward usage",
+    },
+  ],
+};
 export const SUBAGENT_NAMES_SESSION = "mock-subagent-names";
 export const SUBAGENT_NAMES_AGENT_ID = "a6ab68f9e2c41d07b";
 export const SUBAGENT_NAMES_TASK = "Watch CI for #33005";
@@ -207,6 +231,21 @@ export const mockSessions: MockSession[] = [
     pullRequest: { number: 18166, title: "Localize the changes view", state: "draft" },
     reply:
       "Added the 14 new strings to Localizable.xcstrings in all nine app locales. The Arabic layout mirrors the toolbar correctly.",
+  },
+  {
+    // A coordinator's tagged ask at the end of its turn (conversation/nextStepAsk.ts): it draws as a
+    // card with its answers as buttons (NextStepCard.tsx); a click sends one as the next prompt.
+    sessionId: "mock-next-step-ask",
+    title: "Find why the lane stalled",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 40,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply:
+      "The lane wasn't foregrounded by acpmux or cmux NEXT. It ran about 40 slow Bash calls in the foreground itself, and they stalled the turn. Separately, the activity-row timer bug went to the timer helper.\n\n[outward] Add a hook that pushes known-slow commands to the background?\n- Yes, add the hook\n- Not now\n- Fix CI first",
   },
   {
     sessionId: "mock-typing-latency",
@@ -543,6 +582,62 @@ export const mockSessions: MockSession[] = [
     },
   },
   {
+    // A Stop the agent never answered, with another agent's message steered in a second after it
+    // (Leo, 2026-11-03: "this is an "interesting" recovery flow... idk if it should be showing things
+    // like that"): acpmux forced the turn's end 10 s later and ran the message as the next turn's
+    // prompt, same promptId. The stopped turn reads "Stopped", the message comes after it.
+    sessionId: "mock-forced-stop",
+    title: "Migrate the parser to the new token stream",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 9400,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply: "Still on the parser: the lexer is done, the lookahead is next.",
+    history: (at) => [
+      {
+        ago: at + 120_000,
+        mux: "user_message",
+        msg: { text: "Migrate the parser to the new token stream", promptId: "mock-fs-1", turnId: "mock-fs-turn-1" },
+      },
+      { ago: at + 120_000, mux: "turn_started", msg: { turnId: "mock-fs-turn-1", promptId: "mock-fs-1" } },
+      { ago: at + 80_000, update: text("The lexer already emits the new tokens. I'm moving the lookahead over next.") },
+      { ago: at + 60_000, mux: "stopping", msg: { turnId: "mock-fs-turn-1" } },
+      {
+        ago: at + 59_000,
+        mux: "user_message",
+        msg: {
+          text: "Status check: are you still on the parser migration?",
+          promptId: "mock-fs-late",
+          turnId: "mock-fs-turn-1",
+          steer: true,
+          _meta: { provenance: { kind: "session_message", from: "mock-session", fromShortName: "coordinator" } },
+        },
+      },
+      { ago: at + 50_000, mux: "turn_end", msg: { stopReason: "cancelled", turnId: "mock-fs-turn-1" } },
+      {
+        ago: at + 50_000,
+        mux: "turn_result",
+        msg: { status: "cancelled", stopReason: "cancelled", turnId: "mock-fs-turn-1", cancelForced: true },
+      },
+      {
+        ago: at + 40_000,
+        mux: "user_message",
+        msg: {
+          text: "Status check: are you still on the parser migration?",
+          promptId: "mock-fs-late",
+          turnId: "mock-fs-turn-2",
+          _meta: { provenance: { kind: "session_message", from: "mock-session", fromShortName: "coordinator" } },
+        },
+      },
+      { ago: at + 40_000, mux: "turn_started", msg: { turnId: "mock-fs-turn-2", promptId: "mock-fs-late" } },
+      { ago: at + 10_000, update: text("Still on the parser: the lexer is done, the lookahead is next.") },
+      { ago: at, mux: "turn_result", msg: { status: "completed", turnId: "mock-fs-turn-2" } },
+    ],
+  },
+  {
     sessionId: "mock-session-links",
     title: "Which lanes own Session Info",
     harness: "claude",
@@ -571,6 +666,35 @@ export const mockSessions: MockSession[] = [
           ].join("\n"),
         ),
       },
+      { ago: at, mux: "turn_result", msg: { status: "completed" } },
+    ],
+  },
+  {
+    // Claude Code's prompt suggestions (Leo, 2026-11-03: "i know there's suggested prompts that you
+    // can right arrow/tab to do stuff with... maybe we can expose it in cmux-next too"): after the
+    // second turn acpmux sends the agent's guess at the next prompt (live, `suggestion`), which the empty composer shows
+    // as ghost text (Tab or Right-arrow takes it). The chat's switch is the Options chip's
+    // "Prompt suggestions", as acpmux offers it (claude_stdio/prompt_suggestions.rs).
+    sessionId: PROMPT_SUGGESTION_SESSION,
+    title: "Retry flaky uploads",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 9600,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply: "Done: the uploader retries 5xx with backoff.",
+    extraOptions: [PROMPT_SUGGESTIONS_OPTION],
+    suggestion: PROMPT_SUGGESTION,
+    history: (at) => [
+      { ago: at + 120_000, mux: "user_message", msg: { text: "Why do uploads fail on the fleet?" } },
+      { ago: at + 120_000, mux: "turn_started" },
+      { ago: at + 100_000, update: text("The uploader gives up on the first 503 from the artifact store.") },
+      { ago: at + 90_000, mux: "turn_result", msg: { status: "completed" } },
+      { ago: at + 60_000, mux: "user_message", msg: { text: "Retry 5xx with backoff" } },
+      { ago: at + 60_000, mux: "turn_started" },
+      { ago: at + 10_000, update: text("Done: the uploader retries 5xx with backoff.") },
       { ago: at, mux: "turn_result", msg: { status: "completed" } },
     ],
   },
@@ -608,7 +732,15 @@ export const mockResolvable: Record<string, { sessionId: string; name: string; h
 
 /// A session as `_acpmux/watch` and `_acpmux/attach` report it.
 export function sessionSummary(session: MockSession, now: number, turnCount: number): Record<string, unknown> {
-  const { ago, reply, permission: _permission, history: _history, ...fields } = session;
+  const {
+    ago,
+    reply,
+    permission: _permission,
+    history: _history,
+    extraOptions,
+    suggestion: _suggestion,
+    ...fields
+  } = session;
   const preview = session.sessionId === WORKED_SESSION ? "Uploads now retry server errors with backoff." : reply;
   return {
     ...fields,
@@ -620,7 +752,7 @@ export function sessionSummary(session: MockSession, now: number, turnCount: num
     turnCount,
     indicator: fixtureIndicator(session),
     modes: session.harness === "codex" ? codexModes : claudeModes,
-    configOptions: sessionOptions(session.harness === "codex"),
+    configOptions: [...sessionOptions(session.harness === "codex"), ...(extraOptions ?? [])],
   };
 }
 

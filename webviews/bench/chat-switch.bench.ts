@@ -561,7 +561,7 @@ try {
     const quiet = rounds.at(-1)!.quiet!;
     console.log(
       `  at rest for 5 s: ${quiet.wakeups} wakeups, ${quiet.cpuMs?.toFixed(1) ?? "-"} ms of renderer tasks` +
-        (quiet.sources.length ? `; ${quiet.sources.slice(0, 4).join("; ")}` : ""),
+        (quiet.sources.length ? `; ${quiet.sources.slice(0, 12).join("; ")}` : ""),
     );
     perfRow({
       name: `chat_switch.${key}.idle_wakeups`,
