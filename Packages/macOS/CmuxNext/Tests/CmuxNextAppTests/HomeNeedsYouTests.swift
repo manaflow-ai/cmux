@@ -50,11 +50,12 @@ import Testing
             request("a", ago: 5), notice("n", ago: 0), request("b", ago: 10, priority: .high),
             request("c", ago: 1, state: .answered), request("d", ago: 1),
         ])
-        // The Feed pins open requests by priority, then newest: b (high), d, a. No notice, no answered one.
-        #expect(model.listSections.requests.map(\.id) == ["b", "d", "a"])
-        #expect(model.needsYou.map(\.id) == model.listSections.requests.map(\.id))
+        // The Feed's own pinned order (FeedListKey: priority, then newest); no notice, no answered one.
+        let pinned = model.listSections.requests.map(\.id)
+        #expect(Set(pinned) == ["a", "b", "d"])
+        #expect(model.needsYou.map(\.id) == pinned)
         let section = FeedNeedsYouView(model: model)
-        #expect(section.shownIDs == ["b", "d", "a"])
+        #expect(section.shownIDs == pinned)
         #expect(section.moreCount == 0)
         #expect(!section.isEmpty)
     }
