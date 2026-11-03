@@ -298,6 +298,23 @@ class DragFollowUpTests(unittest.TestCase):
         self.assertEqual(report["defects"], [])
         self.assertEqual(report["movie"], {"frames_in_motion": 13, "complete": 13})
 
+    def test_film_stall_across_the_cut_between_two_drags_is_kept(self):
+        """Drag 0 moves the divider right on samples 1..10, drag 1 moves it back on 11..20. The film has no complete
+        frame from sample 8 to 13: the stall straddles the cut, so its two frames are in different parts' windows (the
+        windows overlap at the cut). It is one movie drop (frames 7 -> 14), as for the whole film, not none (fourth
+        review of #32976)."""
+        xs = [100.0] + [100.0 + 4 * k for k in range(1, 11)] + [140.0 - 4 * k for k in range(1, 11)] + [100.0] * 3
+        trace = two_pane_trace(xs)
+        t0 = trace["t0_s"]
+        frames = [[t0 + (s["t"] + 1.0) / 1000, "idle" if 8 <= k <= 13 else "complete", True]
+                  for k, s in enumerate(trace["samples"])]
+        hid = [{"kind": "drag", "t_sent": t0, "host_offset_s": 0.0},
+               {"kind": "drag", "t_sent": t0 + trace["samples"][11]["t"] / 1000, "host_offset_s": 0.0}]
+        unsplit = self.drops(trace, frames, None)[1]
+        split = self.drops(trace, frames, {"hid": hid, "journal": []})[1]
+        self.assertEqual([f for f, _ in unsplit], [14], unsplit)
+        self.assertEqual([f for f, _ in split], [14], split)
+
     def test_drag_labels_name_the_drag_that_starts_the_part(self):
         """Two mouse-downs before the trace starts (-2000 and -1000 ms) both cut at sample 0, then drags at 34 ms and
         at 300 ms. Each part is labelled with the last drag that starts it: drags 1, 2, 3, at -1000, 34, 300 ms."""
