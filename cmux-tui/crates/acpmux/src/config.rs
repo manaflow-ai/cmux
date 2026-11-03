@@ -1958,22 +1958,18 @@ pub use preset_args::{
     parse_preset_args, remove_preset_dir, write_system_prompt,
 };
 
-#[cfg(test)]
-mod tests;
-
 /// The stored spelling of a permission mode a person typed: `fullAccess`
-/// (also `yolo`, `full-access`, `bypass`, `bypassPermissions`), `standard` or
-/// `ask`; `None` for any other word.
+/// (also `yolo`, `full-access`, `bypassPermissions`), `standard` or `ask`.
+/// Exact words only: any other spelling (`Ask`) is `None`, which a reader
+/// takes as `standard`, never full access.
 pub fn normalize_permission_mode(value: &str) -> Option<&'static str> {
-    let folded: String = value
-        .chars()
-        .filter(|c| !matches!(c, '-' | '_' | ' '))
-        .flat_map(char::to_lowercase)
-        .collect();
-    match folded.as_str() {
-        "fullaccess" | "yolo" | "bypass" | "bypasspermissions" => Some("fullAccess"),
+    match value {
+        "fullAccess" | "yolo" | "full-access" | "bypassPermissions" => Some("fullAccess"),
         "standard" => Some("standard"),
         "ask" => Some("ask"),
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests;
