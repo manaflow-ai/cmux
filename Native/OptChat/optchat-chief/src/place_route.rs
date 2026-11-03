@@ -64,29 +64,39 @@ pub fn machine(name: &str, kind: Kind, health: &Value, logins: Vec<Family>) -> M
 const MAC_WORDS: &[&str] = &[
     "ios",
     "iphone",
+    "iphones",
     "ipad",
+    "ipads",
     "swiftui",
     "uikit",
     "appkit",
     "xcode",
     "simulator",
+    "simulators",
     "testflight",
     "macos app",
+    "macos apps",
     "screenshot",
     "screenshots",
     "screen recording",
+    "screen recordings",
     "computer use",
     "computer-use",
     "cua",
     "reload.sh",
     "--launch",
     "tagged app",
+    "tagged apps",
     "tagged build",
+    "tagged builds",
     "sign in",
     "sign-in",
+    "sign-ins",
     "passkey",
+    "passkeys",
     "touch id",
     "keychain",
+    "keychains",
     "dogfood",
     "click",
     "drive the app",
@@ -363,6 +373,15 @@ mod tests {
             assert_eq!(Need::of(task), Need::MacOnly, "{task}");
         }
         assert_eq!(Need::of("fix the BIOS in a web service"), Need::Any);
+        for task in [
+            "use the person's passkeys",
+            "launch tagged builds",
+            "take screen recordings",
+            "run the iPhone simulators",
+            "debug macOS apps",
+        ] {
+            assert_eq!(Need::of(task), Need::MacOnly, "{task}");
+        }
     }
 
     #[test]
