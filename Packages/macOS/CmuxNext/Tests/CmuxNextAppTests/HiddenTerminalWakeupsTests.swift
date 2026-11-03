@@ -26,6 +26,7 @@ struct HiddenTerminalWakeupsTests {
         var reads: UInt64, passes: UInt64, blocks: UInt64
         var rendererWakeups: UInt64, drawNow: UInt64, cursorTimer: UInt64, animationTimer: UInt64, compressionTimer: UInt64
         var ioWakeups: UInt64, ioTimers: UInt64
+        var events: [String: UInt64] = [:]
         var timers: UInt64 { cursorTimer &+ animationTimer &+ compressionTimer }
         static func of(_ entry: TerminalEntry) -> Work? {
             guard let reads = entry.io.driver.machine.liveLink?.link.transportReads, let lane = entry.session.surfaceView.lane,
@@ -35,14 +36,16 @@ struct HiddenTerminalWakeupsTests {
                         rendererWakeups: c.renderer_wakeups, drawNow: c.renderer_draw_now,
                         cursorTimer: c.renderer_cursor_timer_fires, animationTimer: c.renderer_animation_timer_fires,
                         compressionTimer: c.renderer_compression_timer_fires,
-                        ioWakeups: c.io_wakeups, ioTimers: c.io_timer_fires)
+                        ioWakeups: c.io_wakeups, ioTimers: c.io_timer_fires,
+                        events: entry.io.driver.machine.liveLink?.link.transportEvents ?? [:])
         }
         static func - (a: Work, b: Work) -> Work {
             Work(reads: a.reads &- b.reads, passes: a.passes &- b.passes, blocks: a.blocks &- b.blocks,
                  rendererWakeups: a.rendererWakeups &- b.rendererWakeups, drawNow: a.drawNow &- b.drawNow,
                  cursorTimer: a.cursorTimer &- b.cursorTimer, animationTimer: a.animationTimer &- b.animationTimer,
                  compressionTimer: a.compressionTimer &- b.compressionTimer,
-                 ioWakeups: a.ioWakeups &- b.ioWakeups, ioTimers: a.ioTimers &- b.ioTimers)
+                 ioWakeups: a.ioWakeups &- b.ioWakeups, ioTimers: a.ioTimers &- b.ioTimers,
+                 events: a.events.reduce(into: [:]) { out, e in let d = e.value &- (b.events[e.key] ?? 0); if d > 0 { out[e.key] = d } })
         }
         /// Wake chains started: each read of a batch starts one; the lane, renderer and termio hand-offs of that batch go on
         /// the same chain, and any wake past one per lane block (or a timer fire) starts another.
@@ -53,7 +56,7 @@ struct HiddenTerminalWakeupsTests {
         var description: String {
             "\(reads) reads, \(passes) consumer passes, \(blocks) lane blocks, renderer \(rendererWakeups) wakeups + \(drawNow) draw-now"
                 + " + timers (cursor \(cursorTimer), animation \(animationTimer), compression \(compressionTimer)),"
-                + " termio \(ioWakeups) wakeups + \(ioTimers) timer fires"
+                + " termio \(ioWakeups) wakeups + \(ioTimers) timer fires; daemon events \(events.sorted { $0.key < $1.key })"
         }
     }
 

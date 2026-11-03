@@ -139,6 +139,8 @@ public actor TerminalAttachment: TerminalByteChannel {
     public nonisolated var bufferedOutputBytes: Int { queue.bufferedOutputBytes }
     /// The attach connection's reader-thread reads so far (``LineTransport/reads``).
     public nonisolated var transportReads: UInt64 { transport.reads }
+    /// The attach connection's event lines by name so far (``LineTransport/eventCounts``).
+    public nonisolated var transportEvents: [String: UInt64] { transport.eventCounts }
 
     private func open(target: Target, size: CellSize, claimGeometry: Bool, snapshotVersion: UInt16?,
                       localHistory: Bool, images: Bool, clientName: String,

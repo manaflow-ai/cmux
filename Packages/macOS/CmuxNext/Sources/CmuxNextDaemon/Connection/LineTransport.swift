@@ -432,6 +432,9 @@ final class LineTransport: Sendable {
     /// (SWITCH FRAMES warm set: a hidden view's output path wakes once per daemon batch, not once per chunk).
     private let readCount = Atomic<UInt64>(0)
     public var reads: UInt64 { readCount.load(ordering: .relaxed) }
+    /// Event lines by name so far (tests: what each daemon batch to a hidden view holds).
+    private let eventNames = Mutex([String: UInt64]())
+    public var eventCounts: [String: UInt64] { eventNames.withLock { $0 } }
 
     private func readLoop(fd: Int32, onEvent: EventHandler, onClose: CloseHandler) {
         let decoder = JSONDecoder()
@@ -492,6 +495,7 @@ final class LineTransport: Sendable {
             return handler(streamID, line)
         }
         if let name = streamed ? Self.streamEvent : envelope.event {
+            eventNames.withLock { $0[name, default: 0] += 1 }
             let index = state.withLock { state -> UInt64 in
                 if name == "daemon-shutdown" { state.sawShutdown = true }
                 return state.noteEvent(line: lineNumber)
