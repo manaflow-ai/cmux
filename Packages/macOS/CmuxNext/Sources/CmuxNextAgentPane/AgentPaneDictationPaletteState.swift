@@ -39,5 +39,10 @@ extension ActionRegistry {
                                   terminalListening: @escaping @MainActor () -> Bool,
                                   chatListening: @escaping @MainActor () -> Bool?,
                                   microphone: DictationMicrophone) {
+        ActionTargetTitles.setPaletteState("palette.toggleDictation", in: self) {
+            if focusedTerminal() { return terminalListening() }
+            if terminalListening() { return true }
+            return chatListening() ?? microphone.isListening
+        }
     }
 }

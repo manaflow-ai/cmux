@@ -80,9 +80,17 @@ extension ActionRegistry {
             ActionTargetTitles.setPaletteReason(id, in: self) {
                 reason(ActionInvocation()) == nil ? nil : AgentPaneView.pageCommandUnavailableHere
             }
+            // A header toggle's row says whether it is on in the focused chat; off with no chat.
+            if let state, command.isOn(in: Self.blankHeaderState) != nil {
+                ActionTargetTitles.setPaletteState(id, in: self) { state().flatMap(command.isOn(in:)) ?? false }
+            }
             return bound
         }.allSatisfy(\.self)
     }
+
+    /// A header state with every value given (no Debug Settings read), only to ask which commands
+    /// are toggles the App can read (``AgentPageCommand/isOn(in:)`` not nil).
+    private static let blankHeaderState = AgentPaneHeaderState(sideSessions: false, sessionInfo: false, browserOpensPreview: false)
 
     /// Binds Session Info for the invocation's pane, focused when there is no target. With
     /// `agent.sessionInfo` off the page has no Session Info, so the action refuses instead of
