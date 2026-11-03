@@ -42,9 +42,12 @@ const allProps = allEntry.variants.leads!.props as ComponentProps<typeof AllChat
 const note = {
   shipped:
     "Shipped: Home rows 32 tall at body type, radius 12 in a list with a 4 inset and radius 16 (concentric); the list header on the rows' text line; All chats rows with an 8 gap (text 32 from the highlight) at radius 6.",
-  before: "Before the grid migration: Home rows 40 tall at 14 px, radius 10 in a 6 inset list at 18; All chats rows with a 10 gap at radius 8.",
-  "home-40": "Option weighed: Home rows stay 40 tall at field type (14) with the on-grid inset and radius. Rejected: grid.md section 3 puts Home's lists on 28/32 rows, and the inbox rows above already draw at body type.",
-  "radius-4": "Option weighed: All chats rows at radius 4, like popup rows. Rejected: these rows sit on the page, not in a 4-inset popup, so the concentric rule does not apply; 6 is the control radius.",
+  before:
+    "Before the grid migration: Home rows 40 tall at 14 px, radius 10 in a 6 inset list at 18; All chats rows with a 10 gap at radius 8.",
+  "home-40":
+    "Option weighed: Home rows stay 40 tall at field type (14) with the on-grid inset and radius. Rejected: grid.md section 3 puts Home's lists on 28/32 rows, and the inbox rows above already draw at body type.",
+  "radius-4":
+    "Option weighed: All chats rows at radius 4, like popup rows. Rejected: these rows sit on the page, not in a 4-inset popup, so the concentric rule does not apply; 6 is the control radius.",
   "radius-8": "Option weighed: All chats rows keep radius 8 with the on-grid gap.",
 } satisfies Record<Grid, string>;
 
