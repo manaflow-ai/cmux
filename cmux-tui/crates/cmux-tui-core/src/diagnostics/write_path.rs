@@ -59,6 +59,7 @@ impl WritePathStats {
             writer_registry_locks: WRITER_REGISTRY_LOCKS.load(Ordering::Relaxed),
             wal_commits: 0,
             wal_synced_commits: 0,
+            registry_wal_frame_bytes: 0,
         }
     }
 }
@@ -87,4 +88,7 @@ pub struct WritePathSnapshot {
     /// Of those, the commits the WAL syncer has flushed to disk
     /// (`workspace_registry::wal_durability`); it trails by at most one flush.
     pub wal_synced_commits: u64,
+    /// Bytes of the WAL frames those commits appended (a 24-byte header and one page each): what the
+    /// registry's writes put on the disk, so a test can tell a change's bytes from the session's size (#32408).
+    pub registry_wal_frame_bytes: u64,
 }
