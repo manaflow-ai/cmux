@@ -91,7 +91,8 @@ export type AcpmuxBackgroundTask = {
   reason?: string;
   /// Claude Code's own words on how it ended (its task notification's summary).
   summary?: string;
-  /// The exit code, when the harness reports one (Codex does; Claude Code does not).
+  /// The exit code, when the harness reports one (Codex does; acpmux reads Claude Code's from its
+  /// summary).
   exitCode?: number;
 };
 
@@ -102,6 +103,8 @@ export type AcpmuxBackgroundTask = {
 export type AcpmuxBackgroundState = {
   state: "running" | AcpmuxBackgroundTask["state"];
   reason?: string;
+  /// The exit code its end reported (Codex's, and Claude Code's from its summary).
+  exitCode?: number;
   endedAt?: number;
 };
 
@@ -120,6 +123,11 @@ export type AcpmuxCompaction = {
 
 /// acpmux moved the chat onto its fallback harness after a usage limit (a `failover` record).
 export type AcpmuxFailover = { from: string; to: string };
+
+/// A session recap (acpmux `recap` record, `hub/away_recap.rs`): where the chat stands, shown when
+/// the person comes back after 5+ minutes away. Never a prompt; the daemon decides when.
+/// `key`: the chat and the record's seq, which the dismissal remembers (conversation/recapDismissed.ts).
+export type AcpmuxRecap = { key: string; text: string; awayMs?: number };
 
 /// A turn the agent ran on its own, which nobody prompted (acpmux `background_turn` records): a
 /// background task or subagent finished (`task_notification`), a scheduled wakeup or /loop tick
@@ -370,6 +378,8 @@ export type AcpmuxRow = {
   compaction?: AcpmuxCompaction;
   /// A failover row's harnesses.
   failover?: AcpmuxFailover;
+  /// A recap row's recap.
+  recap?: AcpmuxRecap;
   /// A background turn's line (conversation/backgroundTurns.ts): the turn it stands for.
   background?: AcpmuxBackgroundTurn;
   /// A row a background turn made: that turn's id, so its line can fold it (backgroundTurns.ts).
@@ -1826,6 +1836,13 @@ function fallbackRowHeight(
   if (row.kind === TASK_LINE && row.tasks) return finish(row.tasks.length * toolRowHeight());
   // A paused agent pair: its sentence over the held count and Resume; resumed, one line.
   if (row.kind === "agentPair") return finish(row.agentPair?.resumed ? 37 : 37 + 24);
+  // A session recap (conversation/RecapNote.tsx): its card, a line per 70 characters of recap.
+  if (row.kind === "recap")
+    return finish(
+      24 +
+        Math.max(1, Math.ceil((row.recap?.text.length ?? 0) / Math.max(24, Math.floor(width / 8) - 6))) *
+          metrics().lineHeight,
+    );
   // A session start: its facts line (conversation/SessionStartNote.tsx); the full facts open
   // below when asked.
   if (row.kind === "sessionStart") return finish(toolRowHeight());

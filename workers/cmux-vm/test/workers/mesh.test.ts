@@ -339,6 +339,17 @@ describe("ACL", () => {
     expect(none["peers"]).toEqual([]);
   });
 
+  it("deleting a VM takes it out of the mesh, so a later attach still applies the ACL", async () => {
+    const { key, meshId, vm } = await meshWithPeers();
+    await putAcl(key, meshId, 0, [{ src: ["device:*"], dst: ["vm:*"], allow: ["icmp"] }]);
+    expect((await call(`/v1/vms/${vm.vmId}`, key, "DELETE")).status).toBe(204);
+    const next = h.addVm(A);
+    await attach(key, meshId, next.vmId);
+    const destinations = [...h.mesh.rules.values()].map((rule) => rule.destination["vmId"]);
+    expect(destinations).toContain(next.upstreamId);
+    expect(destinations).not.toContain(vm.upstreamId);
+  });
+
   it("detaching a VM deletes its rules first", async () => {
     const { key, meshId, vm } = await meshWithPeers();
     await putAcl(key, meshId, 0, [{ src: ["device:*"], dst: ["vm:*"], allow: ["icmp"] }]);

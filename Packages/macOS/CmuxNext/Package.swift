@@ -210,8 +210,6 @@ let packageProducts: [Product] = [
     .library(name: "CmuxNextApp", targets: ["CmuxNextApp"]),
     .library(name: "CmuxNextFavicons", targets: ["CmuxNextFavicons"]),
     .library(name: "CmuxNextAppCore", targets: ["CmuxNextAppCore"]),
-    // The Cloud Tunnel system extension (CloudTunnelExtension/) links this leaf alone.
-    .library(name: "CmuxNextCloudTunnel", targets: ["CmuxNextCloudTunnel"]),
 ] + uiLayerPreviewProducts
 
 let packageTargets: [Target] = uiLayerPreviewTargets + [
@@ -230,7 +228,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextApp",
             dependencies: [
                 "CmuxNextAppCore",
-                "CmuxNextCloudTunnel",
                 "CmuxNextCloudCredentials",
                 "CmuxNextChiefMemory",
                 "CmuxNextCompat",
@@ -1251,20 +1248,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: daemonSwiftSettings
         ),
-        // The opt-in Cloud Tunnel (plans/cmux-next/cloud-tunnel-DESIGN.md): a leaf shared by the
-        // app and its system extension, so it depends on nothing in this package.
-        .target(
-            name: "CmuxNextCloudTunnel",
-            // FileManager.checked for the bundle probe.
-            dependencies: ["CmuxNextCompat"],
-            resources: [.process("Resources")],
-            swiftSettings: daemonSwiftSettings
-        ),
-        .testTarget(
-            name: "CmuxNextCloudTunnelTests",
-            dependencies: ["CmuxNextCloudTunnel"],
-            swiftSettings: daemonSwiftSettings
-        ),
         .testTarget(
             name: "CmuxNextCloudTests",
             dependencies: ["CmuxNextCloud", "CmuxNextDaemon"],
@@ -1425,6 +1408,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
                 // cmux-motion's curves and color mix for ColorTransition (cx-3rf4z).
                 "CCmuxAppFFI",
+                // The native popup rail's harness marks (NativePopupRailTab).
+                .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             ],
             resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
