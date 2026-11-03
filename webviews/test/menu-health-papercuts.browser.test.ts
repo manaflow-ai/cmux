@@ -27,10 +27,49 @@ await requireBrowserLane("menu-health-papercuts.browser.test.ts", async () => {
     await vite.listen();
     browser = await chromium.launch({ headless: true });
     for (const [entry, variant] of scenes) await warmGalleryFrame(vite, entry, { browser, params: { variant } });
+    await warmGalleryFrame(vite, "agent-pane.composer-context", { browser, params: { variant: "repo-worktrees" } });
   }, 240_000);
   afterAll(async () => {
     await browser?.close();
     await vite?.close();
+  });
+
+  test("filtering worktrees keeps the search field and list top still in a short popup", async () => {
+    const page = await browser.newPage({ viewport: { width: 620, height: 180 }, deviceScaleFactor: 2 });
+    try {
+      const { port } = vite.httpServer!.address() as { port: number };
+      await page.goto(
+        `http://127.0.0.1:${port}${galleryFrame("agent-pane.composer-context", {
+          variant: "repo-worktrees",
+          width: 620,
+          height: 180,
+        })}`,
+      );
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+      const field = page.locator(".acpmux-folder-popover .acpmux-location-search");
+      const list = page.locator(".acpmux-folder-popover .ui-combobox-list");
+      const beforeField = await field.boundingBox();
+      const beforeList = await list.boundingBox();
+      expect(beforeField).not.toBeNull();
+      expect(beforeList).not.toBeNull();
+      await field.pressSequentially("unread");
+      await page.waitForFunction(() => !!document.querySelector(".acpmux-location-row[data-worktree]"));
+      // ResizeObserver and the popup positioner must both have seen the filtered list.
+      await page.evaluate(
+        () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+      );
+      const afterField = await field.boundingBox();
+      const afterList = await list.boundingBox();
+      expect(afterField).not.toBeNull();
+      expect(afterList).not.toBeNull();
+      expect(Math.abs(afterField!.height - beforeField!.height)).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(afterField!.y - beforeField!.y)).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(afterList!.y - beforeList!.y)).toBeLessThanOrEqual(0.5);
+      expect(await field.inputValue()).toBe("unread");
+      expect(await page.locator(".acpmux-location-row[data-worktree]").count()).toBeGreaterThan(0);
+    } finally {
+      await page.close();
+    }
   });
 
   for (const [entry, variant, width, height] of scenes) {
