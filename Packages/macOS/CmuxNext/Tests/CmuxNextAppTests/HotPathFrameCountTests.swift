@@ -96,8 +96,10 @@ struct HotPathFrameCountTests {
             let allocations = HotPathMallocProbe.allocations { moving = probe.root.advanceFrame(1.0 / 120) } ?? -1
             let micros = Int((CACurrentMediaTime() - started) * 1_000_000)
             let hosts = screen.subviews.compactMap { $0 as? PaneHostView }
-            let resized = hosts.filter { sizes[ObjectIdentifier($0)].map { old in old.size != $0.frame.size } ?? true }.count
-            let moved = hosts.filter { sizes[ObjectIdentifier($0)].map { old in old.size == $0.frame.size && old.origin != $0.frame.origin } ?? false }.count
+            let resized = hosts.filter { host in sizes[ObjectIdentifier(host)].map { old in old.size != host.frame.size } ?? true }.count
+            let moved = hosts.filter { host in
+                sizes[ObjectIdentifier(host)].map { old in old.size == host.frame.size && old.origin != host.frame.origin } ?? false
+            }.count
             let frame = (allocations, screen.presentationPasses - passes, probe.root.overlaySyncs - syncs,
                          probe.root.overlayHostsPlaced - placed, resized, moved)
             totals.frames += 1
