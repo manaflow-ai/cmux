@@ -5,16 +5,18 @@
 // and codex-mobile/live/grouped-activity-rows (cmux-design-references), and Leo's ChatGPT task thread
 // (2026-11-02): the parent on the left with the task's chip, the task's own thread on the right.
 import { createElement } from "react";
+import { readEnv, frameQuery } from "../../../gallery/env";
 import { componentEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { SPLIT_ENTRY } from "./subagentSplit.gallery";
 
 type Props = { gap: number };
 
+/// A pane's stage: this gallery's frame with the outer stage's settings (theme, locale, font).
 const stage = (variant: string) => {
   const here = new URL(typeof location !== "undefined" ? location.href : "http://localhost:5173/gallery/frame.html");
   const base = here.pathname.replace(/[^/]*$/, "");
-  return `${base}frame.html?entry=${SPLIT_ENTRY}&variant=${variant}`;
+  return `${base}frame.html?${frameQuery({ entry: SPLIT_ENTRY, variant }, readEnv(here.searchParams))}`;
 };
 
 function SplitPair({ gap }: Props) {
@@ -38,7 +40,10 @@ function SplitPair({ gap }: Props) {
 async function pane(ctx: PlayContext, variant: string): Promise<Document> {
   const inner = () =>
     ctx.document.querySelector<HTMLIFrameElement>(`iframe[data-pane="${variant}"]`)?.contentDocument ?? undefined;
-  await ctx.waitFor(() => inner()?.documentElement.dataset.galleryReady === "1", { capMs: 20_000 });
+  // Ends on "error" too, so a pane that failed to load fails here at once, not at the cap.
+  const state = () => inner()?.documentElement.dataset.galleryReady;
+  await ctx.waitFor(() => state() === "1" || state() === "error", { capMs: 20_000 });
+  if (state() === "error") throw new Error(`the ${variant} pane failed to load`);
   const doc = inner()!;
   if (doc.documentElement.dataset.galleryPlay === "fail") throw new Error(`the ${variant} pane's play failed`);
   return doc;
@@ -61,7 +66,8 @@ export default componentEntry<Props>({
         const right = await pane(ctx, "child");
         if (!left.querySelector(".acpmux-session-info[data-presence='shown']"))
           throw new Error("the parent's Session Info is not open");
-        if (!left.querySelector(".cv-subagents")) throw new Error("the parent shows no subagent states");
+        if (!left.querySelector(".acpmux-running-tray") || !left.querySelector(".cv-subagent-done"))
+          throw new Error("the parent shows no subagent states");
         if (!right.querySelector(".cv-subagent-of__task")) throw new Error("the child pane has no title");
         if (right.querySelector(".acpmux-session-info[data-presence='shown']"))
           throw new Error("the child pane inherited Session Info open");

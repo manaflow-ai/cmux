@@ -6,7 +6,7 @@
 // subagent's task (never a raw id), its own transcript, and Session Info closed: a pane opened in a
 // split does not inherit it (Leo, 2026-11-03: "like if they want it open they can just do it on the
 // right split one but otherwise it really doesn't have that much space pretty often"; #32763).
-// subagentSplitPair.gallery.ts draws the two side by side.
+// subagentSplitPair.gallery.tsx draws the two side by side.
 import { agentPaneEntry } from "../../../gallery/format";
 import { minutesAgo } from "../../../gallery/clock";
 import { activity, assistant, chat, row, thought, tool, user } from "../../../gallery/fixtures/acpmux";
@@ -62,12 +62,15 @@ const snapshot = {
 const native = { "pane.tabState": { inspector: true } };
 const shownPanel = ".acpmux-session-info[data-presence='shown']";
 
-/// The left pane: the chat with Session Info open and its subagents' states in the transcript.
+/// The left pane: the chat with Session Info open, its running subagent in the tray and its done one in
+/// the transcript.
 async function parent(ctx: PlayContext) {
   const { setSessionInfoOpen } = await import("../session-info/sessionInfoState");
   setSessionInfoOpen(true);
   await ctx.waitFor(() => ctx.document.querySelector(shownPanel));
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-subagents"));
+  // The running tray (the default) lists the running subagent; the done one is a line in the transcript.
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray"));
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-done"));
 }
 
 /// The right pane: the app opened it on the subagent. Its task names it, its own rows show, and
