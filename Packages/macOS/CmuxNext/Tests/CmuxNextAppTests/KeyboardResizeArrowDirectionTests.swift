@@ -450,6 +450,26 @@ struct KeyboardResizeTradeAtomicTests {
         #expect(rig.model.screens[0].layout.columns.map(\.width) == trade, "the snapshot undid half the trade before its second reply")
     }
 
+    /// Codex review 3 of #34123: a handler that answers the last width at once and applies the daemon's snapshot in that
+    /// turn (a synchronous source, such as the layout demo's) removes the trade's overrides because it succeeded; the press
+    /// read that as a refusal and said nothing moved.
+    @Test func aTradeAnsweredAndAppliedInItsLastWidthsTurnIsAPress() throws {
+        let rig = KeyboardResizeArrowDirectionTests.Rig(KeyboardResizeArrowDirectionTests.columns([0.5, 0.5]), focus: "p1")
+        defer { rig.window.closeAfterTest() }
+        var widths: [LayoutColumnID: Double] = [:]
+        rig.model.intentHandler = { [model = rig.model] intent in
+            guard case let .setColumnWidth(column, _, width, transaction, .ended) = intent else { return }
+            widths[column] = width
+            model.settleTransaction(transaction)
+            guard widths.count == 2 else { return }
+            let columns = KeyboardResizeArrowDirectionTests.columns([widths["c0"] ?? 0.5, widths["c1"] ?? 0.5])
+            model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(columns))])
+        }
+        #expect(rig.press("p1", .right), "a trade the daemon applied in its turn read as refused")
+        let shown = rig.model.screens[0].layout.columns.map(\.width)
+        #expect(shown[0] > 0.5 && shown[1] < 0.5, "the applied trade does not show: \(shown)")
+    }
+
     @Test func aTradeBesideAColumnTheDaemonHasNotMadeIsRefusedAndSendsNothing() throws {
         // c11's pane is a stand-in: its handle is in the range no daemon pane has (`ProvisionalPane`, from 1 << 62).
         let standIn: UInt64 = (1 << 62) + 7
