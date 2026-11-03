@@ -298,10 +298,14 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var paintBeforeCommit = false
     /// This load committed a document already (a later commit in the same load is a replacement, painted afresh).
     @ObservationIgnored var committedThisLoad = false
+    /// Chromium is loading (its last `.loadingState`).
+    @ObservationIgnored var chromiumLoading = false
 
     /// The main frame's document painted content (`CEFFirstPaintBridge`).
     func documentDidFirstPaint() {
-        if state.isLoading, !committedThisLoad { paintBeforeCommit = true } else { documentPainted = true }
+        // Chromium's own load (its `.loadingState(true)`), not the app's: a load the app asked for before Chromium began
+        // it is no load yet, and a paint then is the document before it.
+        if !committedThisLoad { paintBeforeCommit = chromiumLoading } else { documentPainted = true }
         documentMayTakeKeys()
     }
     /// The document the tab was asked to show is blank (a New Tab page): its blank document counts as loaded.
@@ -313,7 +317,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // page with nothing to load takes keys now (lead on STATUS 7916: a reopen by address is no saved navigation).
         let navigates = pendingURL != nil || pendingRestore != nil || loadAfterAttach != nil
         (hasDocument, documentLoaded, documentPainted, loadingStopped) = (false, false, false, false)
-        (paintBeforeCommit, committedThisLoad) = (false, false)
+        (paintBeforeCommit, committedThisLoad, chromiumLoading) = (false, false, false)
         blankIsDocument = pendingURL.map { !PageBackground.isRealPage($0) } ?? false
         isCreationPending = false
         CEFAgentURLGuard.applyShimGuard(self)

@@ -20,8 +20,8 @@ extension CEFTab {
             nativeHistory = (back, forward)
             restored.applyAvailability()
             restored.dropForwardIfLeftFirstEntry()
-            if loading, !state.isLoading { // a new load: no commit and no early paint of it yet
-                (paintBeforeCommit, committedThisLoad) = (false, false)
+            if loading, !chromiumLoading { (paintBeforeCommit, committedThisLoad) = (false, false) } // Chromium's new load: no commit or early paint of it yet
+            if loading, !state.isLoading {
                 let id = makeNavigationID()
                 navigation = id
                 capturesTitleBeforeCommit = true
@@ -29,7 +29,7 @@ extension CEFTab {
             } else if !loading, state.isLoading, let navigation {
                 machine.apply(.finished(navigation))
             }
-            loadingStopped = !loading
+            (loadingStopped, chromiumLoading) = (!loading, loading)
             if !loading {
                 documentMayTakeKeys() // CEF reports this after every load end and error of the load
                 clearTitleBeforeCommit()
