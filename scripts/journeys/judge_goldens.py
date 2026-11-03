@@ -71,15 +71,17 @@ DEFAULT_MANIFEST = HERE / "judge-goldens"
 # stills, logs) are not judged and not copied.
 KEEP_SUFFIXES = (".json", ".scan", ".mov")
 FILM_SUFFIXES = (".mov.frames.json", ".trace.json")
-JUDGES = ("video_judge", "judge_trace", "judge_keys", "judge_scan")
-JUDGE_FILES = ("video_judge.py", "video-cases/judge_trace.py", "video-cases/judge_keys.py", "video-cases/judge_scan.py")
+JUDGES = ("video_judge", "judge_trace", "judge_keys", "judge_scan", "judge_pixel")
+JUDGE_FILES = ("video_judge.py", "video-cases/judge_trace.py", "video-cases/judge_keys.py", "video-cases/judge_scan.py",
+               "video-cases/judge_pixel.py")
 # Modules the workers import (judge_scan has a command line only: it runs as its own process).
-MODULES = ("video_judge", "judge_trace", "judge_keys")
+MODULES = ("video_judge", "judge_trace", "judge_keys", "judge_pixel")
 CALLS = {
     "video_judge": "video_judge.judge(base, movie=True)",
     "judge_trace": "judge_trace.judge(judge_trace.load_trace(base.trace.json), frames, scale, events)",
     "judge_keys": "judge_keys.judge(base)",
     "judge_scan": "judge_scan.py base.mov.scan --trace base.trace.json --scale scale --json OUT (exit code and OUT)",
+    "judge_pixel": "judge_pixel.judge(base)",
 }
 JUDGE_SCAN_TIMEOUT_S = 300  # as FILM_SECONDS (below): in a run the film's budget ends first; this ends a direct call
 FLOAT_DECIMALS = 6
@@ -166,6 +168,12 @@ def _summary(judge, result):
         report = result.get("report") or {}
         return {"exit": result.get("exit"), "counts": report.get("counts"), "frames": report.get("frames"),
                 **({"said": result["said"]} if result.get("said") else {})}
+    if judge == "judge_pixel":
+        found = collections.Counter(f.get("check") for f in result.get("findings") or [])
+        info = collections.Counter(f.get("check") for f in result.get("info") or [])
+        return {"frames": result.get("frames"), "rows": len(result.get("summary") or {}),
+                "findings": dict(sorted(found.items())), "info": dict(sorted(info.items())),
+                "notes": len(result.get("notes") or [])}
     return {}
 
 
@@ -292,8 +300,10 @@ def toolchain():
     return out
 
 
-def film_judges(names):
-    """The judges that apply to a film whose folder holds the file NAMES."""
+def film_judges(names, meta=None):
+    """The judges that apply to a film whose folder holds the files of kinds NAMES ("mov.scan", "trace.json", ...) and
+    whose meta.json reads META: judge_pixel judges the fixture films, the layout journeys' loud-color panes (their
+    meta notes carry `pixel`), from their scan lines and trace."""
     out = []
     if "mov.frames.json" in names:
         out.append("video_judge")
@@ -301,7 +311,31 @@ def film_judges(names):
         out += ["judge_trace", "judge_keys"]
     if "trace.json" in names and "mov.scan" in names:
         out.append("judge_scan")
+    notes = meta.get("notes") if isinstance(meta, dict) else None
+    if {"trace.json", "mov.scan", "meta.json"} <= set(names) and isinstance(notes, dict) and "pixel" in notes:
+        out.append("judge_pixel")
     return out
+
+
+def _film_kinds(table, film):
+    folder, name = film.rsplit("/", 1)
+    return {f[len(name) + 1:] for f in table.get(folder) or {} if f.startswith(name + ".")}
+
+
+def derive_judges(store, films_doc, table):
+    """Sets the judge list of every recorded film to film_judges of its pinned files (its meta.json read from the
+    store's copy, which its table entry pins): a new judge reaches the films it applies to. [(film, old, new)] of the
+    films whose list changed. (Every film with an input a judge reads is recorded: each has video_judge or
+    judge_trace.)"""
+    changed = []
+    for film, entry in sorted((films_doc.get("films") or {}).items()):
+        kinds = _film_kinds(table, film)
+        meta = read_json(Path(store) / "films" / f"{film}.meta.json") if "meta.json" in kinds else None
+        judges = film_judges(kinds, meta)
+        if judges != entry.get("judges"):
+            changed.append((film, entry.get("judges"), judges))
+            entry["judges"] = judges
+    return changed
 
 
 def find_films(source):
@@ -405,6 +439,12 @@ def cmd_snapshot(opts):
     films_doc = read_json(manifest / "films.json", {"v": 1, "films": {}})
     table = files_table(store, films_doc)
     films_doc["store"] = str(store)
+    if opts.source is None:
+        # No source: copy nothing; only re-derive the recorded films' judge lists (a new judge reaches its films).
+        if not films_doc.get("films"):
+            print(f"REFUSED: no recorded films in {manifest / 'films.json'} (snapshot --source first)", file=sys.stderr)
+            return 2
+        return _write_judge_lists(store, manifest, films_doc, table)
     films_doc.setdefault("sources", [])
     if str(opts.source) not in films_doc["sources"]:
         films_doc["sources"].append(str(opts.source))
@@ -435,16 +475,29 @@ def cmd_snapshot(opts):
         table[folder] = dict(sorted(merged.items()))
         for name in names:
             kinds = {fname[len(name) + 1:] for fname in merged if fname.startswith(name + ".")}
-            judges = film_judges(kinds)
+            meta = read_json(store / "films" / folder / f"{name}.meta.json") if "meta.json" in kinds else None
+            judges = film_judges(kinds, meta)
             if judges:
                 films_doc["films"].setdefault(f"{folder}/{name}", {"tier": "baseline"})["judges"] = judges
     films_doc["files_table"] = put_content(store / "tables", {"folders": dict(sorted(table.items()))})
-    write_json(manifest / "films.json", films_doc)
+    _write_judge_lists(store, manifest, films_doc, table)
     for p in problems:
         print(f"REFUSED {p}", file=sys.stderr)
     print(f"snapshot: {len(films_doc['films'])} films in {len(table)} folders in {store} "
           f"(files table {films_doc['files_table'][:12]}); {len(problems)} refused")
     return 2 if problems else 0
+
+
+def _write_judge_lists(store, manifest, films_doc, table):
+    """derive_judges, then films.json; prints each film whose judge list changed (a run names each new result until a
+    bless records it)."""
+    changed = derive_judges(store, films_doc, table)
+    write_json(manifest / "films.json", films_doc)
+    for film, old, new in changed:
+        added, dropped = sorted(set(new) - set(old or [])), sorted(set(old or []) - set(new))
+        print(f"judges of {film}: " + ", ".join([f"+{j}" for j in added] + [f"-{j}" for j in dropped]))
+    print(f"judge lists: {len(changed)} of {len(films_doc.get('films') or {})} films changed")
+    return 0
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -475,15 +528,16 @@ _MODULES = {}
 _JUDGES_DIR = []
 
 
-def _load_judges(judges_dir):
-    """Imports the judges of JUDGES_DIR in this process (a fresh one: nothing of the parent's imports)."""
+def _load_judges(judges_dir, judges=JUDGES):
+    """Imports the judges of JUDGES_DIR that a film runs (JUDGES; judge_scan runs as its own process) in this process
+    (a fresh one: nothing of the parent's imports). A module a film does not run is not loaded."""
     for k in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
         os.environ[k] = "1"
     judges_dir = str(Path(judges_dir).resolve())
     _JUDGES_DIR[:] = [judges_dir]
     sys.path[:0] = [judges_dir, os.path.join(judges_dir, "video-cases")]
     for name, rel in zip(JUDGES, JUDGE_FILES):
-        if name not in MODULES:
+        if name not in MODULES or name not in judges:
             continue
         module = importlib.import_module(name)
         where = str(Path(module.__file__).resolve())
@@ -568,7 +622,11 @@ def _call(judge, base):
         return jt.judge(jt.load_trace(f"{base}.trace.json"), frames, _scale_of(base), events)
     if judge == "judge_scan":
         return _judge_scan(base)
-    return _MODULES["judge_keys"].judge(base)
+    if judge == "judge_keys":
+        return _MODULES["judge_keys"].judge(base)
+    if judge == "judge_pixel":
+        return _MODULES["judge_pixel"].judge(base)
+    raise Fault(f"no call for judge {judge!r}")
 
 
 def seal_view(store, table, film, root):
@@ -626,7 +684,7 @@ def _film_main(argv):
         sys.stdout.write(canonical({"start": judge}) + "\n")
         sys.stdout.flush()
     try:
-        _load_judges(judges_dir)
+        _load_judges(judges_dir, judges)
         table = get_content(Path(store) / "tables", table_sha)["folders"]
         payload = {"results": judge_film(store, table, film, judges, root, started)}
     except Fault as fault:
@@ -853,7 +911,10 @@ def git_state(judges_dir):
     paths = [str(Path(judges_dir).resolve() / rel) for rel in JUDGE_FILES]
     runner = Path(__file__).resolve()
     state = {"commit": _git(judges_dir, "rev-parse", "HEAD"), "dirty": _git(judges_dir, "status", "--porcelain", "--", *paths),
-             "blobs": {rel: _git(judges_dir, "hash-object", path) for rel, path in zip(JUDGE_FILES, paths)}}
+             # A judge file the checkout does not have is null (no film of it can run that judge: its process
+             # faults); a tracked file that was deleted is dirty above, so a bless refuses it.
+             "blobs": {rel: _git(judges_dir, "hash-object", path) if os.path.exists(path) else None
+                       for rel, path in zip(JUDGE_FILES, paths)}}
     try:
         state["runner"] = {"commit": _git(runner.parent, "rev-parse", "HEAD"), "blob": _git(runner.parent, "hash-object", str(runner)),
                            "dirty": _git(runner.parent, "status", "--porcelain", "--", str(runner))}
@@ -973,6 +1034,9 @@ def _expectation(result, expect):
     listed = KIND_LIST.get(expect.get("judge"))
     if listed and not isinstance(result.get(listed), list):
         raise Unchecked(f"{expect.get('judge')}'s result has no {listed} list")
+    keyed = KIND_DICT.get(expect.get("judge"))
+    if keyed and not isinstance(result.get(keyed), dict):
+        raise Unchecked(f"{expect.get('judge')}'s result has no {keyed}")
     # An absence holds only where its judge looked (R4: an absence of defects needs the coverage that could show one).
     if "absent_kind" in expect and result.get("motion") is None:
         raise Unchecked("judge_trace judged no motion of this film: an absence needs a judged motion")
@@ -982,6 +1046,23 @@ def _expectation(result, expect):
         if expect["absent_check"] not in TRACE_ONLY_CHECKS and not result.get("motion"):
             raise Unchecked("video_judge judged no motion window of this film: its checks look only inside motion "
                             "windows, so an absence needs one")
+    if "off_frames" in expect:  # judge_pixel: one summary row's off frames, exactly
+        want_row = expect["pixel_row"]
+        rows = [r for r in (result.get("summary") or {}).values()
+                if isinstance(r, dict) and all(r.get(k) == v for k, v in want_row.items())]
+        if len(rows) != 1:
+            return (f"{len(rows)} summary rows are {json.dumps(want_row)} (one expected)" if rows else
+                    f"the judge reports no summary row {json.dumps(want_row)}")
+        try:
+            got = frame_set(rows[0].get("off_ranges"))
+        except ValueError as error:
+            return f"the row's off_ranges {rows[0].get('off_ranges')!r} cannot be read: {error}"
+        want = {k for lo, hi in expect["off_frames"] for k in range(lo, hi + 1)}
+        if got != want:
+            return (f"off frames {ranges_text(got) or 'none'} of {json.dumps(want_row)}, expected exactly "
+                    f"{ranges_text(want) or 'none'} (more: {ranges_text(got - want) or 'none'}; missing: "
+                    f"{ranges_text(want - got) or 'none'})")
+        return None
     if "defect_frames" in expect:  # every frame of these spans is inside some defect finding of the judge
         spans = [f.get("frames") for f in result.get("findings") or [] if f.get("severity") == "defect"
                  and isinstance(f.get("frames"), list) and len(f["frames"]) == 2]
@@ -1022,14 +1103,17 @@ def load_truth(manifest):
     return doc
 
 
-EXPECT_KINDS = ("check", "defect_frames", "absent_check", "kind", "absent_kind")
-EXPECT_KEYS = {"judge", "check", "frames", "defect_frames", "absent_check", "kind", "count", "absent_kind"}
+EXPECT_KINDS = ("check", "defect_frames", "absent_check", "kind", "absent_kind", "off_frames")
+EXPECT_KEYS = {"judge", "check", "frames", "defect_frames", "absent_check", "kind", "count", "absent_kind",
+               "pixel_row", "off_frames"}
+# judge_pixel's summary rows are named by these four fields; a judge_pixel fact names one row with all four.
+PIXEL_ROW_KEYS = ("label", "side", "line", "what")
 RULER_KEYS = {"line", "at", "class", "x", "frames", "min_run_px"}
 FACT_KEYS = {"id", "film", "why", "ruler", "expect"}
 # The judge whose result each expectation kind reads (video_judge's findings; judge_trace's defects). An expectation
 # on any other judge would read a list that result does not have: it checks nothing (review 3 of #33930, finding A).
 KIND_JUDGE = {"check": "video_judge", "defect_frames": "video_judge", "absent_check": "video_judge",
-              "kind": "judge_trace", "absent_kind": "judge_trace"}
+              "kind": "judge_trace", "absent_kind": "judge_trace", "off_frames": "judge_pixel"}
 KIND_LIST = {"video_judge": "findings", "judge_trace": "defects"}
 # The names each judge reports (video_judge's finding checks; judge_trace's defect kinds), as their source writes them
 # (a test pins these sets to the source). A fact that names anything else checks nothing: NO VERDICT. A judge PR that
@@ -1047,6 +1131,7 @@ JUDGE_NAMES = {
 }
 # video_judge checks the trace alone, outside any motion window: an absence of these needs no motion window.
 TRACE_ONLY_CHECKS = frozenset({"model edge off the device-pixel grid"})
+KIND_DICT = {"judge_pixel": "summary"}  # judge_pixel's rows are a dict keyed by track
 
 
 def _span_problem(span):
@@ -1122,7 +1207,47 @@ def truth_problems(manifest, films_doc):
                     problems.append(f"{fid}: defect_frames is empty: it checks nothing")
                 else:
                     problems += [f"{fid}: defect_frames {why}" for why in map(_span_problem, spans) if why]
+            pixel = (expect.get("judge") == "judge_pixel", kinds == ["off_frames"], "pixel_row" in expect)
+            if any(pixel) and not all(pixel):
+                problems.append(f"{fid}: a judge_pixel fact is judge judge_pixel, pixel_row and off_frames together, "
+                                f"and only those: {json.dumps(expect)[:160]}")
+            elif all(pixel):
+                row = expect["pixel_row"]
+                if not (isinstance(row, dict) and set(row) == set(PIXEL_ROW_KEYS)
+                        and all(isinstance(v, str) and v for v in row.values())):
+                    problems.append(f"{fid}: pixel_row names one summary row by {', '.join(PIXEL_ROW_KEYS)} (each a "
+                                    f"text): {json.dumps(row)[:160]}")
+                spans = expect["off_frames"]
+                if not isinstance(spans, list):
+                    problems.append(f"{fid}: off_frames is a list of spans (empty: no off frame)")
+                else:
+                    problems += [f"{fid}: off_frames {why}" for why in map(_span_problem, spans) if why]
     return problems
+
+
+def frame_set(text):
+    """judge_pixel's frame ranges ("3-5,9"; "" for none) as a set of frames; ValueError for any other text."""
+    out = set()
+    for part in str(text or "").split(","):
+        if not part:
+            continue
+        lo, _, hi = part.partition("-")
+        lo, hi = int(lo), int(hi or lo)
+        if hi < lo:
+            raise ValueError(f"a range {part!r} that ends before it starts")
+        out.update(range(lo, hi + 1))
+    return out
+
+
+def ranges_text(frames):
+    """A set of frames as judge_pixel writes it: [3, 4, 5, 9] -> "3-5,9"."""
+    out = []
+    for f in sorted(frames):
+        if out and f == out[-1][1] + 1:
+            out[-1][1] = f
+        else:
+            out.append([f, f])
+    return ",".join(str(a) if a == b else f"{a}-{b}" for a, b in out)
 
 
 def check_truth(store, manifest, results, films=None):
@@ -1412,8 +1537,6 @@ def main(argv=None):
                     help="snapshot: take a folder only when no file in it changed for this long (default 10)")
     opts = ap.parse_args(argv)
     if opts.command == "snapshot":
-        if not opts.source:
-            ap.error("snapshot needs --source")
         return cmd_snapshot(opts)
     if opts.command == "bless":
         if not opts.reason:

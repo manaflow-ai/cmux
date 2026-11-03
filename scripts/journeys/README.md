@@ -287,7 +287,9 @@ Check the clip anyway: a pass says the checked text showed; the clip shows what 
 The film judges read the in-app recorder's films (`debug.motion` `record_*` and `trace_*`): `video_judge.py`
 (pacing, exact-scanline geometry, model against shown, content, recorder faults), `video-cases/judge_trace.py`
 (per-frame geometry of a layout motion, one motion per drag), `video-cases/judge_keys.py` (each keyboard resize
-press) and `video-cases/judge_scan.py` (repeated pictures in motion). They run on the VM with the venv
+press), `video-cases/judge_scan.py` (repeated pictures in motion) and `video-cases/judge_pixel.py` (the FRAME
+OWNER's pixel judge of the fixture films: every pane, divider, tab strip and page window edge against the model, from
+the scan lines; its fixture program and page are `pixel/`). They run on the VM with the venv
 (`/work/tmp/bv-venv/bin/python -I`, numpy and imageio_ffmpeg), never on a mini. This folder holds the one copy;
 the kit branches' copies are older (REWRITE R-HARNESS, handoff/rewrites/R-HARNESS/DESIGN.md).
 
@@ -299,7 +301,9 @@ Every change to a judge reproduces the judge goldens. They have two tiers:
 - TRUTH: answers known without the judges (`judge-goldens/truth.json`). A ruler fact is read by a judge-free pixel
   ruler from the stored film's exact scan lines (a run of one fixture color on one scan line in exactly these
   frames, and not in the 6 frames either side); an expectation says what a judge must or must not report on that
-  film. The judges' own unit tests (`test_video_judge*.py`, `video-cases/test_judge_*.py`) are TRUTH too. A TRUTH
+  film. A judge_pixel fact names one of its summary rows (`pixel_row`: `label`, `side`, `line`, `what`) and the
+  exact frames it is off (`off_frames`: spans; an empty list for none). The judges' own unit tests
+  (`test_video_judge*.py`, `video-cases/test_judge_*.py`) are TRUTH too. A TRUTH
   failure fails `run` and refuses `bless`: it cannot be blessed away. Add a fact only with its evidence (who proved
   it, how) in its `why`. A fact that cannot be checked is NO VERDICT in both: its film is not in `films.json`, it has
   no `why`, an unknown key, no ruler and no expectation, an expectation of an unknown form or of a kind its judge
@@ -316,6 +320,7 @@ agent-sandbox $PY -I scripts/journeys/judge_goldens.py run                    # 
 agent-sandbox $PY -I scripts/journeys/judge_goldens.py run --only 'feat-5851715-120x2/*'
 agent-sandbox $PY -I scripts/journeys/judge_goldens.py bless --reason "TEXT"  # after a reviewed judge change
 agent-sandbox $PY -I scripts/journeys/judge_goldens.py snapshot --source /Users/lawrence/fun/wt/handoff/resize-videos
+agent-sandbox $PY -I scripts/journeys/judge_goldens.py snapshot   # no source: only re-derive each film's judges
 $PY -I scripts/journeys/test_judge_goldens.py          # the runner's own tests (also _truth.py and _review.py)
 ```
 
