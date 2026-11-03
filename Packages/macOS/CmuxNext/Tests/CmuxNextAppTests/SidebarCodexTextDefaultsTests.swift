@@ -164,7 +164,7 @@ import Testing
     @Test func comfortableIsRoomierThanNormalAndExpandedTakesNormalsLines() {
         Self.at(sidebar: .comfortable) {
             #expect(SidebarLayoutMetrics.standard.rowHeight == 32, "comfortable row")
-            #expect(SidebarStyle.horizontalInset == 10, "comfortable inset")
+            #expect(SidebarStyle.horizontalInset == 8, "the grid's comfortable inset")
             #expect(SidebarStyle.titleFont.pointSize == 13, "Normal's text, on more room")
         }
         Self.at(sidebar: .expanded) {

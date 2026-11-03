@@ -392,8 +392,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.apps.start()
         Task {
             await settings.waitForLoad(atLeast: 1); await launchSettle.settled(within: .seconds(4)) // control socket: after the first frames (cx-z9kz0)
-            // `app.quitBehavior: "end"` (first release) is now "end-keep-layout".
-            _ = try? await settings.migrateLegacyQuitBehavior()
+            // Old values still read: `app.quitBehavior: "end"`, `sidebar.textSize: "default"` / `"larger"`.
+            _ = try? await settings.migrateLegacySettingValues()
             _ = try? await settings.migrateLegacyWorkspaceRowKeys() // `sidebar.showWorkspaceDirectory` / `showCounts` move to `sidebar.workspaceRow.*`
             _ = try? await settings.migrateLegacyPaneToolbarButtons() // `tabs.hiddenButtons` becomes `tabs.toolbarButtons`
             // Classic cmux keys next reads under another name (`ClassicSettingRename`).

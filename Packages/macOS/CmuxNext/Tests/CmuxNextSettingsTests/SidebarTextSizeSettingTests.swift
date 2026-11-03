@@ -1,5 +1,7 @@
+import CmuxNextActions
 import CmuxNextDesign
-import CmuxNextSettings
+@testable import CmuxNextSettings
+import Foundation
 import Testing
 
 /// `sidebar.textSize` (Lawrence msg 17752: "we also need option for sidebar text to be very
@@ -95,5 +97,39 @@ struct SidebarTextSizeSettingTests {
         }
         #expect(choices.map(\.value) == ["compact", "normal", "comfortable", "expanded"])
         #expect(snapshot(nil).sidebarSections.density == .normal)
+    }
+}
+
+/// The first setting's values ("default", "larger") are rewritten once at launch as the size they read as,
+/// so Settings and the palette show the chosen size checked (review of issue 28793's port).
+@MainActor @Suite(.serialized) struct SidebarTextSizeMigrationTests {
+    private static func controller(_ json: String) throws -> (SettingsController, URL) {
+        let home = FileManager.default.temporaryDirectory.appending(path: "cn-sidebar-text-size-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let url = home.appending(path: "cmux-next.json")
+        try Data(json.utf8).write(to: url)
+        let settings = SettingsController(registry: .standard(), design: DesignSettings(), fileURL: url,
+                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        return (settings, home)
+    }
+
+    @Test(arguments: [("default", "small"), ("larger", "medium")])
+    func theFirstSettingsValuesBecomeTheirSize(old: String, new: String) async throws {
+        let (settings, home) = try Self.controller(#"{ "sidebar": { "textSize": "\#(old)" } }"#)
+        defer { try? FileManager.default.removeItem(at: home) }
+        await settings.reload()
+        #expect(try await settings.migrateLegacySidebarTextSize())
+        #expect(settings.snapshot.root.value(at: SidebarSectionsSetting.textSizePath) == .string(new))
+        #expect(settings.snapshot.sidebarSections.textSize.rawValue == new)
+        #expect(try await settings.migrateLegacySidebarTextSize() == false, "once")
+    }
+
+    @Test(arguments: ["small", "large", "nonsense"])
+    func otherValuesAreLeft(value: String) async throws {
+        let (settings, home) = try Self.controller(#"{ "sidebar": { "textSize": "\#(value)" } }"#)
+        defer { try? FileManager.default.removeItem(at: home) }
+        await settings.reload()
+        #expect(try await settings.migrateLegacySidebarTextSize() == false)
+        #expect(settings.snapshot.root.value(at: SidebarSectionsSetting.textSizePath) == .string(value))
     }
 }

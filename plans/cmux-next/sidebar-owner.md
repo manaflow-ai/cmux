@@ -5,7 +5,8 @@
   "make sure that this does not affect users who are on comfort level or compact level right now"; "make comfortable
   even more comfortable than this"). Compact is the sidebar from before Normal, number for number (24 pt rows on 26,
   `Typography.body` and caption, 6 pt inset; Minimal 20 pt), so whoever set Compact sees no change. Comfortable is
-  Normal with more room (32 pt rows, 10 pt inset, Normal's 13 pt text): it changes from 28 pt rows and 12 pt text.
+  Normal with more room (32 pt rows, the 20 pt icon box, Normal's 13 pt text, the grid's 8 pt inset): it changes from
+  28 pt rows and 12 pt text.
   Expanded takes Normal's one-line tokens. `sidebar.textSize` Small (Codex) is the default again; Medium is ChatGPT.
   New custom sizes, absent by default: `sidebar.titleSize`, `sidebar.detailSize`, `sidebar.rowHeight`,
   `sidebar.rowPadding` (points at Interface Size 100%, win over density and text size), in the new Sidebar Sizes card

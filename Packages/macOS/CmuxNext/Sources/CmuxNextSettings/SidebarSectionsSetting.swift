@@ -466,3 +466,19 @@ public nonisolated enum SidebarSectionsSetting {
         return number
     }
 }
+
+extension SettingsController {
+    /// Rewrites the first `sidebar.textSize` setting's values (2026-10-30) as the size they read as:
+    /// "default" as "small" and "larger" (the ChatGPT size) as "medium", once at launch, so Settings and
+    /// the palette show the size chosen. A managed value gets no edit. Returns whether it wrote.
+    @discardableResult
+    public func migrateLegacySidebarTextSize() async throws -> Bool {
+        let path = SidebarSectionsSetting.textSizePath
+        guard managedKeys[path.joined(separator: ".")] == nil,
+              let raw = try await file.value(at: path)?.stringValue, SidebarTextSize(rawValue: raw) == nil,
+              let size = SidebarTextSize(setting: raw) else { return false }
+        try await file.set(.string(size.rawValue), at: path)
+        await reloadAfterWrite()
+        return true
+    }
+}

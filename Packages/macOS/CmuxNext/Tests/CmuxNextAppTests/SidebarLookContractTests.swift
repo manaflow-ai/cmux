@@ -17,8 +17,8 @@ import Testing
         var density: SidebarDensity
         var minimal: SidebarMinimalMode
         var width: CGFloat
-        /// `sidebar.textSize` (Lawrence msg 17752): the contract holds at Small and Large too.
-        var textSize: SidebarTextSize = .medium
+        /// `sidebar.textSize` (Lawrence msg 17752): the contract holds at Medium and Large too.
+        var textSize: SidebarTextSize = .small
         var testDescription: String { "\(density.rawValue)/minimal-\(minimal.rawValue)/\(Int(width))pt/text-\(textSize.rawValue)" }
     }
 

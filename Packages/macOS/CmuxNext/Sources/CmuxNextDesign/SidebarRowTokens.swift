@@ -9,7 +9,8 @@ public import CoreGraphics
 /// Normal, the default, is the Codex desktop sidebar (https://github.com/manaflow-ai/cmux/issues/28793):
 /// 13 pt titles at weight 430, 12 pt details, a 28 pt row on a 30 pt pitch, an 8 pt inset. Compact is the
 /// sidebar from before it, kept exactly: the app's row, `Typography.body` and caption, a 6 pt inset.
-/// Comfortable is Normal with more room (`space2` taller, a 10 pt inset). Expanded keeps Normal's
+/// Comfortable is Normal with more room (`space2` taller rows, the wider icon box, bigger section gaps) on
+/// the grid's same 8 pt inset (leo-workspace design/grid.md). Expanded keeps Normal's
 /// one-line tokens. A custom size (`sidebar.titleSize`, `detailSize`, `rowHeight`, `rowPadding`) wins.
 public nonisolated struct SidebarRowTokens: Equatable, Sendable {
     /// The app density's tokens the sidebar builds on.
@@ -82,14 +83,10 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
         return (isCompact ? base.rowHeight : base.listRowHeight) + extraHeight
     }
     /// Rows inset from the sidebar edge, and their content from the row edge: `sidebar.rowPadding` when set;
-    /// else Codex's 8 pt `--padding-row-x`, 6 pt at Compact, 10 pt at Comfortable.
+    /// else Codex's 8 pt `--padding-row-x` (the grid's comfortable inset too), 6 pt at Compact.
     public var horizontalInset: CGFloat {
         if let custom = base.customRowPadding { return custom }
-        switch density {
-        case .compact: return base.space3
-        case .comfortable: return base.space4 + base.space1
-        case .normal, .expanded: return base.space4
-        }
+        return isCompact ? base.space3 : base.space4
     }
     /// A row title's and a detail line's text size: `sidebar.titleSize` / `sidebar.detailSize` when set.
     public var titleSize: CGFloat { base.customTitle ?? ((isCompact ? base.body : base.rowTitle) + textSteps.text) }

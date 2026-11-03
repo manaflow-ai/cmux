@@ -34,9 +34,9 @@ import Testing
     @Test func comfortableTakesTheComfortableRowsRoom() {
         let rows = SidebarRowTokens(density: .comfortable, textSize: .small, base: Self.base)
         #expect(rows.rowHeight == 32)
-        #expect(rows.horizontalInset == 10)
-        #expect(Self.card(.comfortable) == SidebarCardMetrics(paddingX: 10, paddingY: 6, gap: 4, cornerRadius: 12, titleSize: 13,
-                                                              noteSize: 12, buttonHeight: 28, buttonPaddingX: 10, buttonRadius: 6,
+        #expect(rows.horizontalInset == 8)
+        #expect(Self.card(.comfortable) == SidebarCardMetrics(paddingX: 8, paddingY: 6, gap: 4, cornerRadius: 12, titleSize: 13,
+                                                              noteSize: 12, buttonHeight: 28, buttonPaddingX: 8, buttonRadius: 6,
                                                               closeSide: 24))
     }
 

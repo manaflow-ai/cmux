@@ -15,7 +15,7 @@ import Testing
         var minimal: SidebarMinimalMode
         var width: CGFloat
         /// `sidebar.textSize` (Lawrence msg 17752): Home and pinned rows stay on one column at every text size.
-        var textSize: SidebarTextSize = .medium
+        var textSize: SidebarTextSize = .small
         var testDescription: String { "\(density.rawValue)/minimal-\(minimal.rawValue)/\(Int(width))pt/text-\(textSize.rawValue)" }
     }
 

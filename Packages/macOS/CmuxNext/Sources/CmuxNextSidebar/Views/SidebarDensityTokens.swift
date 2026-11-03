@@ -11,7 +11,7 @@ import CoreGraphics
 /// 13 pt titles at weight 430, 12 pt detail lines, one-line rows on a 30 pt pitch (a 28 pt row and the
 /// `space1` gap) and 8 pt horizontal padding. Compact is the sidebar from before it, unchanged for
 /// whoever picked it: the app's 24 pt row, `Typography.body` titles and caption details, a 6 pt inset.
-/// Comfortable is Normal with more room: taller rows, wider padding, bigger section gaps. Expanded
+/// Comfortable is Normal with more room: taller rows, the wider icon box, bigger section gaps. Expanded
 /// takes Normal's one-line tokens and adds its second line. At the app's compact density:
 ///
 /// | token                  | compact | normal | comfortable | rule                         |
@@ -20,7 +20,7 @@ import CoreGraphics
 /// | row pitch (+ `space1`) | 26      | 30     | 34          |                              |
 /// | title / detail         | 12 / 10.5 | 13 / 12 | 13 / 12  | `body`/`caption`, `sidebarRow`/`sidebarDetail` |
 /// | machine/section header | 22      | 22     | 26          | + `space2`                   |
-/// | horizontal inset       | 6       | 8      | 10          | `space3`, `space4`, `space4`+`space1` |
+/// | horizontal inset       | 6       | 8      | 8           | `space3`, `space4`           |
 /// | section gap            | 8       | 8      | 12          | `space4`→`space5`            |
 /// | list top padding       | 4       | 4      | 6           | `space2`→`space3`            |
 ///
@@ -51,16 +51,17 @@ enum SidebarDensityTokens {
     static var rowHeight: CGFloat { SidebarRowTokens.current.rowHeight }
     /// A workspace row with one detail line: the one-line row plus that line's height, so a row's
     /// text keeps the same room above and below with one line or more (Leo 2026-10-20). With
-    /// `SidebarTunables.evenRowText` off, the app's fixed step over a one-line row instead.
+    /// `SidebarTunables.evenRowText` off, the app's fixed step over a one-line row instead (Compact: the app's
+    /// detail row, as before Normal, even under a Debug override of the one-line row).
     static var rowHeightWithSubtitle: CGFloat {
         SidebarTunables.evenRowText.value
             ? rowHeight + SidebarStyle.detailLineHeight
-            : rowHeight + Metrics.sidebarSubtitleStep
+            : isCompact ? Metrics.sidebarRowHeightWithSubtitle + extra : rowHeight + Metrics.sidebarSubtitleStep
     }
     /// A machine or section header in the list, and a band's header.
     static var headerHeight: CGFloat { Metrics.sidebarHeaderHeight + extra }
     /// Rows inset from the sidebar edge, and their content from the row edge: `sidebar.rowPadding` when set;
-    /// else Codex's 8 pt `--padding-row-x` (issue 28793), 6 pt at Compact, 10 pt at Comfortable.
+    /// else Codex's 8 pt `--padding-row-x` (issue 28793; the grid's comfortable inset too), 6 pt at Compact.
     static var horizontalInset: CGFloat { SidebarRowTokens.current.horizontalInset }
     static var iconBox: CGFloat { isComfortable ? LayoutGrid.iconBoxComfortable : LayoutGrid.iconBox }
     /// Compatibility name used by the existing session-tree layout. The tree's base indent is
