@@ -343,6 +343,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
     private(set) var demo: MessagesWindowView?
     /// cmux: where the user's changes go (the HomeStore adapter).
     weak var intents: ChatIntents?
+    var approvalDecision: ((PartRef, Bool) -> Void)?
     /// cmux: a click on an app link (`URL.isCmuxAppLink`): the host runs it; nil opens nothing.
     var onAppLink: ((URL) -> Void)?
     /// cmux: the pointer moved over the transcript (or left it: nil), in screen coordinates; the
@@ -734,7 +735,11 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     // MARK: Clicks
 
+    var approvalPress: ApprovalTarget?
+
     func mouseDown(at p: CGPoint, _ e: NSEvent) {
+        approvalPress = picker == nil ? approvalTarget(at: p) : nil
+        if approvalPress != nil { return }
         if let tv = demo?.compose.textView.view, demo?.compose.fieldRect.contains(p) == true { window?.makeFirstResponder(tv); return }
         linkPress = nil
         linkDragTaken = false
@@ -756,6 +761,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         }
     }
     func mouseDragged(at p: CGPoint, _ e: NSEvent) {
+        if approvalPress != nil { return }
         // cmux: a link pressed and moved past the selection's slop goes to the host as a link drag
         // (a split or pane drop zone); it then owns the gesture, so no selection, click or hold here.
         if linkDragTaken { return }
@@ -790,6 +796,11 @@ final class ChatController: NSObject, NSTextViewDelegate {
         }
     }
     func mouseUp(at p: CGPoint, _ e: NSEvent) {
+        if let pressed = approvalPress {
+            approvalPress = nil
+            if approvalTarget(at: p) == pressed { _ = approvalClicked(at: p) }
+            return
+        }
         if linkDragTaken {
             linkDragTaken = false
             _ = selection.mouseUp()
@@ -820,6 +831,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         // cmux: a long message's "Show all N lines" band expands it, "Show less" folds it again
         // (the vendored handler had no caller here: the band took no click, Lawrence 2026-10-21).
         if demo.longTextBandHit(p) { return }
+        if approvalClicked(at: p) { return }
         if let hit = demo.hit(p) {
             // cmux: a link (re-checked at click time, MarkdownLinkPolicy) opens in PaneLinks.
             if openLink(hit, at: p) { return }
