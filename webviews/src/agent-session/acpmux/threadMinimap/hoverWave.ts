@@ -11,7 +11,9 @@
 // cancels a pending frame and clears every property it wrote.
 import { ROW_PITCH, waveAmplitude, waveFollow, WAVE_IN_MS, waveProgress, type WaveShape } from "./model";
 
-/// The custom property each tick in the bump's reach carries: its magnification, 0 to 1.
+/// The custom property the bar (and bookmark dot) of each tick in the bump's reach carries: its
+/// magnification, 0 to 1. Set on the bar and dot themselves, not the tick, so a write restyles only
+/// them and nothing inherits it.
 export const WAVE_PROPERTY = "--acpmux-minimap-wave";
 /// The rail's attribute while the wave draws its ticks (threadMinimap.css).
 export const WAVE_ATTRIBUTE = "data-wave";
@@ -19,6 +21,9 @@ export const WAVE_ATTRIBUTE = "data-wave";
 /// selector reads it, so the loop starting and stopping restyles nothing; toggling `data-wave` itself
 /// would restyle every tick in the rail.
 export const WAVE_STATE_ATTRIBUTE = "data-wave-state";
+
+/// The tick's parts the wave draws (threadMinimap.css).
+const PARTS = ["acpmux-minimap__bar", "acpmux-minimap__dot"];
 
 export class HoverWave {
   private frame: number | undefined;
@@ -28,7 +33,7 @@ export class HoverWave {
   private active = false;
   private startedAt = 0;
   private lastAt = 0;
-  /// The ticks carrying the property, with the value each was last given.
+  /// The bars and dots carrying the property, with the value each was last given.
   private readonly written = new Map<HTMLElement, number>();
 
   constructor(
@@ -100,12 +105,16 @@ export class HoverWave {
     for (let index = first; index <= last; index += 1) {
       const tick = list.querySelector<HTMLElement>(`[data-tick="${index}"]`);
       if (!tick) continue;
-      const value = Math.round(waveProgress(this.shape, index, this.focus, amplitude) * 10_000) / 10_000;
+      // To a thousandth (0.02 px of a tick), so the follow's last frames write nothing they cannot show.
+      const value = Math.round(waveProgress(this.shape, index, this.focus, amplitude) * 1000) / 1000;
       if (value === 0) continue;
-      seen.add(tick);
-      if (this.written.get(tick) === value) continue;
-      tick.style.setProperty(WAVE_PROPERTY, String(value));
-      this.written.set(tick, value);
+      for (const part of tick.children) {
+        if (!(part instanceof HTMLElement) || !PARTS.some((name) => part.classList.contains(name))) continue;
+        seen.add(part);
+        if (this.written.get(part) === value) continue;
+        part.style.setProperty(WAVE_PROPERTY, String(value));
+        this.written.set(part, value);
+      }
     }
     for (const tick of this.written.keys()) {
       if (seen.has(tick)) continue;

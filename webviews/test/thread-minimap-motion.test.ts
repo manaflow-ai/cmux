@@ -261,7 +261,7 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     await page.mouse.move(point.x + 300, point.y);
     const left = await page.evaluate(() => ({
       wave: document.querySelector(".acpmux-minimap__rail")!.hasAttribute("data-wave"),
-      written: [...document.querySelectorAll<HTMLElement>(".acpmux-minimap__tick")].filter(
+      written: [...document.querySelectorAll<HTMLElement>(".acpmux-minimap__tick, .acpmux-minimap__tick *")].filter(
         (tick) => tick.style.getPropertyValue("--acpmux-minimap-wave") !== "",
       ).length,
     }));
