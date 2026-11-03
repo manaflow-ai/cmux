@@ -30,7 +30,11 @@ function stage(paneWidth: number, paneHeight = TALL) {
   if (at === "push") return { stage: "push", width: pushedWidth(paneWidth, WIDTH), opensUnasked: true };
   if (at === "float") return { stage: "gutter", width: WIDTH, opensUnasked: true };
   const popover = sessionInfoPopover(paneHeight, sessionInfoOverChat(paneWidth, WIDTH, COLUMN));
-  return { stage: popover ? "popover" : "over-chat", width: WIDTH, opensUnasked: !popover && sessionInfoFits(paneWidth) };
+  return {
+    stage: popover ? "popover" : "over-chat",
+    width: WIDTH,
+    opensUnasked: !popover && sessionInfoFits(paneWidth),
+  };
 }
 
 test("a wide pane: it floats in the free right gutter and pushes nothing", () => {
