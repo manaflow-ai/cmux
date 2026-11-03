@@ -123,6 +123,7 @@ struct McpConnectControls: View {
         case .enterKey:
             VStack(alignment: .leading, spacing: 6) {
                 SecureField(keyName, text: $key).textFieldStyle(.roundedBorder).font(colors.mono)
+                    .focusEffectDisabled()
                     .onSubmit(send)
                 Text(McpConnectStrings.keyPrivate).font(colors.caption).foregroundStyle(colors.tertiary)
                 HStack(spacing: 8) {
