@@ -3,7 +3,7 @@
 //! or `![clip](/path.mp4)`, is uploaded as an attachment record of the conversation and goes
 //! out as an `attachment` part after the text (the image syntax leaves the text), so Home shows
 //! it inline on every device. A link to a local media file stays a link and is attached too. A
-//! file that is missing, not a picture or video, or too big stays text and is not read.
+//! file that is missing or not a picture or video stays text and is not read.
 
 mod common;
 
@@ -178,4 +178,19 @@ fn a_missing_or_non_media_file_stays_text_and_is_never_read() {
     let (parts, h) = turn(reply.clone());
     assert_eq!(parts, vec![text(&reply)]);
     assert!(h.owner.lock().unwrap().uploads.is_empty());
+}
+
+#[test]
+fn a_video_past_the_old_fifty_mb_cap_is_delivered_whole() {
+    let dir = tempfile::tempdir().unwrap();
+    let clip = dir.path().join("large.mp4");
+    let file = std::fs::File::create(&clip).unwrap();
+    let bytes = 64 * 1024 * 1024 + 17;
+    file.set_len(bytes).unwrap();
+    let (parts, h) = turn(format!("![clip](<{}>)", clip.display()));
+    assert_eq!(
+        parts.iter().filter_map(attachment).collect::<Vec<_>>(),
+        vec![("large.mp4".into(), "video/mp4".into(), bytes, None, None)]
+    );
+    assert_eq!(h.owner.lock().unwrap().uploads[0].1.byte_count, bytes);
 }
