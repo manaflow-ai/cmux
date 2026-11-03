@@ -1,0 +1,115 @@
+# Long jobs: every slow job that blocks something is visible
+
+Status: in progress (2026-11-02).
+
+## Incident
+
+On 2026-11-02 cmux NIGHTLY started the one-time output cleanup
+(`workspace_registry/output_cleanup`, phase B `swap_at_open`) on a 41.6 GB
+registry. The swap ran 303 s inside `registry.lock_and_connect`, while the owner
+socket parked every connection unread. `server ensure` gave up after its fixed
+`RESTORE_DEADLINE` (120 s) with `server.restore_timeout`. The next connect used
+the remembered socket, the parked `identify` timed out after 2 s, and the app
+classified that as a plain failure: `DaemonStartupState.unavailable`. The menu
+then said "cmux could not start its background service. Quit and reopen cmux to
+try again." The person quit 5 s before the cleanup ended. Nothing on screen said
+that a cleanup ran, how far it was, or that waiting was the fix.
+
+## Root causes
+
+1. The owner had no way to say what it was doing while it restored: parked
+   connections get no answer, and `--restore-progress` lines carried only
+   `waited_ms`.
+2. Every wait was a fixed timer (120 s ensure, 150 s app cap), not "is it still
+   making progress".
+3. An `identify` timeout against a live, restoring local owner read as
+   "unavailable", and the copy for "unavailable" told the person to quit.
+4. No general surface existed for slow work. Each subsystem (restore, journal
+   maintenance, compaction, cleanup, backup removal, updates, uploads, remote
+   connects) was silent or had its own one-off text.
+
+## Rule (applies to the whole app)
+
+Any job that can take longer than about 1 s and that blocks, delays or slows
+something the person can do is a **long job**. A long job:
+
+- registers in the one long-jobs registry of its process (daemon: cmux-tui-core
+  `long_jobs`; app: CmuxNext `LongJobs`), never a private flag;
+- reports progress (`done`/`total` when known, else a heartbeat), so waits are
+  bounded by **stalls**, not by fixed timers;
+- says what it blocks (`blocks`), so a refused action names the job instead of
+  a generic failure;
+- shows in the app's Activity surface while it runs, and in the refusal text of
+  every action it blocks.
+
+## Contract
+
+### Job object (daemon wire, status file, app model)
+
+```json
+{
+  "id": "output_cleanup:1793684016",
+  "kind": "registry.output_cleanup",
+  "title": "Cleaning up stored terminal output",
+  "detail": "segment 120 of 900",
+  "done": 120,
+  "total": 900,
+  "unit": "segments",
+  "started_ms": 1793683713000,
+  "updated_ms": 1793683850000,
+  "blocks": ["startup"],
+  "cancellable": false
+}
+```
+
+- `kind` is a stable dotted id; the app localizes by `kind` and falls back to
+  `title` (English from the daemon catalog). `detail`, `done`, `total`, `unit`
+  are optional. `updated_ms` changes on every progress step or heartbeat
+  (at least every 5 s while the job is alive).
+- `blocks` values: `startup` (the owner does not accept clients yet),
+  `terminals`, `workspaces`, `history`, `quit` (quitting now loses or repeats
+  work), `none` (background only, still shown).
+
+### Daemon (cmux-tui)
+
+- `cmux-tui-core::long_jobs`: process-wide registry. `LongJobs::start(kind,
+  title, blocks) -> LongJobGuard`; the guard sets progress and ends the job on
+  drop. Updates are cheap (atomic store + coalesced publish, at most 4 per
+  second).
+- Status file `long-jobs.json` in the session state directory, written
+  atomically (temp + rename) on change, coalesced to at most once per second,
+  removed when no job runs. Shape: `{"version":1,"pid":N,"updated_ms":T,"jobs":[...]}`.
+  It is readable while the socket parks connections.
+- After attach: socket op `jobs.list` -> `{"jobs":[...]}` and the pushed event
+  `jobs.changed` with the same payload, through the existing event
+  subscription path. Capability name `long_jobs`.
+- `server ensure --restore-progress` lines add `"jobs":[...]` read from the
+  status file of the owner it waits on.
+- `server ensure` waits while the owner is alive and its jobs (or the restore
+  itself, without jobs) make progress. It fails with `server.restore_timeout`
+  only after `RESTORE_STALL` (120 s) without any `updated_ms` change. A pure
+  restore without jobs keeps the old 120 s bound.
+- Instrumented first: output cleanup phase A (stage) and phase B (swap), removal
+  of `.pre-output-cleanup`, registry open steps that can be slow (integrity
+  check, migrations, resource invariants), terminal host adoption, journal
+  maintenance and compaction, ledger retention, history check. Any other site
+  that loops over the whole registry or the disk gets a guard too.
+
+### App (CmuxNext)
+
+- `ensure` with progress has no total cap: only `progressIdle` bounds it.
+- Progress lines with jobs move `DaemonStartupState` to
+  `.restoring([LongJob])` (new case). An `identify` timeout on the local owner
+  while `server status`/the socket says an owner is alive is `.restoring`, not
+  `.unavailable`.
+- Refusal text while restoring names the job and progress, for example
+  "cmux is cleaning up stored terminal output (43%). Wait for it to finish;
+  quitting now restarts it." `daemonUnavailable` never tells the person to quit
+  while an owner is alive.
+- `LongJobs` (one owner, observable) merges daemon jobs (`jobs.changed`, each
+  machine) and the app's own long jobs. One Activity surface shows them: the
+  window connecting state during startup, and an indicator with a popover list
+  after startup. Every app subsystem with slow blocking work registers there.
+- Palette, CLI (`cmux jobs` lists them) and MCP read the same list.
+- iOS: a row in `cmux-next-ios/verify/parity-mac.md` (the phone shows the same
+  daemon jobs).
