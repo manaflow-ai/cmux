@@ -36,7 +36,10 @@ class CmuxNextBaseWebVerdict(unittest.TestCase):
 
     def test_it_calls_ci_web_as_the_web_job_with_every_web_lane(self):
         self.assertIn(
-            "  web:\n    needs: coalesce\n    uses: ./.github/workflows/ci-web.yml\n    with:\n"
+            "  web:\n    needs: coalesce\n"
+            "    # A yielded coalesce job (a newer push's run checks these commits) runs no checks.\n"
+            "    if: ${{ needs.coalesce.outputs.run != 'false' }}\n"
+            "    uses: ./.github/workflows/ci-web.yml\n    with:\n"
             "      web: ${{ 'true' }}\n      macos: ${{ 'false' }}\n      agent_session_web: ${{ 'true' }}\n",
             self.text,
         )

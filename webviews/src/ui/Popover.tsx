@@ -68,6 +68,8 @@ export interface PopoverProps {
   /** False keeps `side` while open (`useOpenSide` chose it); "shift" keeps it and slides the popup
    *  along it to stay in the window (openSide.ts `UiPopupFlip`); default flips when there is no room. */
   flip?: UiPopupFlip;
+  /** Which edge of the anchor the popover lines up with (default: its start). */
+  align?: "start" | "end";
   /** Focus a field inside on open (default: the first focusable). */
   initialFocus?: React.RefObject<HTMLElement | null> | boolean;
   /** Where focus goes on close (default: back to where it was). */
@@ -91,6 +93,7 @@ export function Popover({
   fade = false,
   side = "bottom",
   flip = true,
+  align = "start",
   initialFocus,
   finalFocus,
   native,
@@ -133,7 +136,7 @@ export function Popover({
           side={side}
           collisionAvoidance={popupCollision(flip)}
           collisionPadding={padding}
-          align="start"
+          align={align}
           sideOffset={UI_ANCHOR_GAP}
         >
           <BasePopover.Popup
