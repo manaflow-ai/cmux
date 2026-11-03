@@ -44,13 +44,19 @@ fn flush(paragraph: &mut String, links: &mut Vec<String>, output: &mut Vec<Strin
     if !text.is_empty() {
         let chars: Vec<_> = text.chars().collect();
         let mut remaining = chars.as_slice();
-        while remaining.len() > PARAGRAPH_CHARS {
-            let end = remaining[..PARAGRAPH_CHARS]
+        while let Some((window, _)) = remaining
+            .split_at_checked(PARAGRAPH_CHARS)
+            .filter(|(_, rest)| !rest.is_empty())
+        {
+            let end = window
                 .iter()
                 .rposition(|ch| ch.is_whitespace())
                 .map_or(PARAGRAPH_CHARS, |index| index.saturating_add(1));
-            output.push(remaining[..end].iter().collect());
-            remaining = &remaining[end..];
+            let Some((chunk, rest)) = remaining.split_at_checked(end) else {
+                break;
+            };
+            output.push(chunk.iter().collect());
+            remaining = rest;
         }
         output.push(remaining.iter().collect());
     }
