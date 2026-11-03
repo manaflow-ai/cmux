@@ -9390,6 +9390,14 @@ function AcpmuxPane() {
   useEffect(() => {
     if (!wakingHeld) setCloudWaking(false);
   }, [wakingHeld]);
+  // The wake belongs to the chat its prompts were sent in: another chat shown ends it (its recovery
+  // stops), and the prompts go back to their chat's draft (trustHeld.ts `whereHeldGoes`).
+  const wakeShownChat = snapshot.sessionId ?? snapshot.missingSession;
+  useEffect(() => {
+    const hold = trustHeldNow.current;
+    if (!wakeShownChat || !hold.wakingAny() || hold.rowsIn(wakeShownChat).some((row) => row.waking)) return;
+    void giveBackTrustHeld.current(hold.takeWaking());
+  }, [wakeShownChat]);
   const cloudWakeFailed = cloudRecovery.error !== undefined || cloudRecovery.state === "deleted";
   useEffect(() => {
     if (!cloudWakeFailed || !trustHeldNow.current.wakingAny()) return;

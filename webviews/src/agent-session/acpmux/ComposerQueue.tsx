@@ -1099,17 +1099,16 @@ export function ComposerQueue({
         {visible.flatMap((entry, index) => [
           // The prompts the folder's trust holds follow one note that says so (trustHeld.ts); those
           // a waking Cloud machine holds, one that says it wakes (cloudWake.ts).
-          entry.held &&
-            (!visible[index - 1]?.held || !visible[index - 1]?.waking !== !entry.waking) && (
-              <li
-                key={entry.waking ? "held-for-wake" : "held-for-trust"}
-                className="acpmux-queue-paused acpmux-queue-held"
-                data-held-for={entry.waking ? "wake" : "trust"}
-                aria-hidden="true"
-              >
-                <span>{t(entry.waking ? "composer.heldForWake" : "composer.heldForTrust")}</span>
-              </li>
-            ),
+          entry.held && (!visible[index - 1]?.held || !visible[index - 1]?.waking !== !entry.waking) && (
+            <li
+              key={entry.waking ? "held-for-wake" : "held-for-trust"}
+              className="acpmux-queue-paused acpmux-queue-held"
+              data-held-for={entry.waking ? "wake" : "trust"}
+              aria-hidden="true"
+            >
+              <span>{t(entry.waking ? "composer.heldForWake" : "composer.heldForTrust")}</span>
+            </li>
+          ),
           // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- A row takes focus from ↑ on the prompt and has its keys (edit, move, send now, remove); its buttons do the same by pointer.
           <li
             className="acpmux-queued"
