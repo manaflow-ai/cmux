@@ -276,11 +276,7 @@ pub struct Decision {
 /// Whether a guest of this kind takes the caller's login. A Release copy goes only to an `owner`
 /// guest: "never on team machines, never shared" (Leo, 2026-11-02).
 fn guest_takes_login(kind: Option<&str>, release: bool) -> bool {
-    if release {
-        kind == Some("owner")
-    } else {
-        matches!(kind, Some("owner" | "team"))
-    }
+    if release { kind == Some("owner") } else { matches!(kind, Some("owner" | "team")) }
 }
 
 fn step_and_reason(d: &Inputs) -> (Step, Reason) {
@@ -331,7 +327,10 @@ fn step_and_reason(d: &Inputs) -> (Step, Reason) {
             None => return (Step::AskConsent, Reason::ConsentFirst),
         }
         // The consent is the person's confirm: no second prompt before the copy.
-        return (Step::Install, if d.cached { Reason::InstallCached } else { Reason::InstallChosen });
+        return (
+            Step::Install,
+            if d.cached { Reason::InstallCached } else { Reason::InstallChosen },
+        );
     }
     if d.cached {
         (Step::Install, Reason::InstallCached)

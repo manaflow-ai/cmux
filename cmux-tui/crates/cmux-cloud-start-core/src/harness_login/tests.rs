@@ -242,12 +242,7 @@ fn the_setting_wins_else_only_dogfood_builds_pass_a_login() {
 
 /// A Release start on the person's own machine with the switch on and consent given.
 fn release() -> Inputs {
-    Inputs {
-        dogfood: Some(false),
-        remote_switch: Some(true),
-        consent: Some(true),
-        ..owner()
-    }
+    Inputs { dogfood: Some(false), remote_switch: Some(true), consent: Some(true), ..owner() }
 }
 
 /// Leo, 2026-11-02, approving the copy in Release: "Consent first. It's on only after a clear
@@ -269,23 +264,34 @@ fn release_copies_only_with_the_switch_on_and_the_persons_consent() {
     assert!(decide(&release()).gate);
     // Never asked: the one-time prompt, before any copy; a run that may show no prompt refuses.
     let unasked = Inputs { consent: None, ..cached(release()) };
-    assert_eq!((decide(&unasked).step, decide(&unasked).reason), (Step::AskConsent, Reason::ConsentFirst));
+    assert_eq!(
+        (decide(&unasked).step, decide(&unasked).reason),
+        (Step::AskConsent, Reason::ConsentFirst)
+    );
     let headless = Inputs { headless: true, ..unasked.clone() };
     assert_eq!(decide(&headless).step, Step::Refuse);
     // Neither a `--login pass` nor a kept pass stands in for the consent.
-    let pass = Inputs { requested: Some(Choice::Pass), requested_by_person: true, ..unasked.clone() };
+    let pass =
+        Inputs { requested: Some(Choice::Pass), requested_by_person: true, ..unasked.clone() };
     assert_eq!(decide(&pass).step, Step::AskConsent);
     let kept = Inputs { stored: Some(Choice::Pass), ..unasked };
     assert_eq!(decide(&kept).step, Step::AskConsent);
     // Declined or taken back in Settings: nothing is copied and nothing is asked again.
     let declined = Inputs { consent: Some(false), ..cached(release()) };
-    assert_eq!((decide(&declined).step, decide(&declined).reason), (Step::Skip, Reason::ConsentDeclined));
+    assert_eq!(
+        (decide(&declined).step, decide(&declined).reason),
+        (Step::Skip, Reason::ConsentDeclined)
+    );
     // The switch off (or never read): no copy and no prompt, whatever the consent.
     for remote_switch in [Some(false), None] {
         for consent in [Some(true), None] {
             let off = Inputs { remote_switch, consent, ..cached(release()) };
             let decision = decide(&off);
-            assert_eq!((decision.step, decision.reason), (Step::Skip, Reason::RemoteSwitchOff), "{off:?}");
+            assert_eq!(
+                (decision.step, decision.reason),
+                (Step::Skip, Reason::RemoteSwitchOff),
+                "{off:?}"
+            );
             assert!(!decision.reads_machine && !decision.gate);
         }
     }

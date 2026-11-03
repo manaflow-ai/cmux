@@ -117,14 +117,20 @@ fn a_release_start_reads_the_switch_and_the_consent() {
                        "machineProbe": {"exitCode": 0, "stdout": "none\n"}, "cached": true});
     let (code, body) = call(c"cloud_harness_login", &start);
     assert_eq!(code, OK);
-    assert_eq!((body["step"].as_str(), body["reason"].as_str()), (Some("ask-consent"), Some("consent-first")));
+    assert_eq!(
+        (body["step"].as_str(), body["reason"].as_str()),
+        (Some("ask-consent"), Some("consent-first"))
+    );
     let mut given = start.clone();
     given["consent"] = json!(true);
     assert_eq!(call(c"cloud_harness_login", &given).1["step"], "install");
     let mut off = given.clone();
     off["remoteSwitch"] = json!(false);
     let (_, body) = call(c"cloud_harness_login", &off);
-    assert_eq!((body["step"].as_str(), body["reason"].as_str()), (Some("skip"), Some("remote-switch-off")));
+    assert_eq!(
+        (body["step"].as_str(), body["reason"].as_str()),
+        (Some("skip"), Some("remote-switch-off"))
+    );
     let mut team = given;
     team["guestStdout"] = json!("vm-kind:team\n");
     assert_eq!(call(c"cloud_harness_login", &team).1["reason"], "guest-not-owner");
