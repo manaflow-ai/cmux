@@ -5,6 +5,23 @@ for menu, focus, positioning, and dialog semantics. Base UI is already in the bu
 the direction-aware keyboard and VoiceOver behavior used by the existing pages; React Aria can be
 adopted behind these APIs later without changing callers.
 
+## Button
+
+```tsx
+<Button variant="primary" onClick={create}>Create</Button>
+<Button variant="ghost" size="icon" aria-label="Close"><XIcon /></Button>
+<a className={buttonClass({ variant: "outline" })} href={url}>Open docs</a>
+```
+
+One button for every page, after shadcn's API: `variant` is `primary` (one per view), `secondary`
+(the default), `outline`, `ghost` or `destructive`; `size` is `sm` (24 px), `md` (28 px), `lg` (32 px),
+`icon-sm` or `icon` (square, needs `aria-label`). Heights, padding and radius come from the
+`--ds-*` scale and colors from the theme (`--cmux-accent` fills primary, never the system blue).
+`buttonClass()` gives the same look to an element that must not be a `Button` (a link, a Base UI
+trigger). Load `ui/button.css` with it. A new page uses this instead of its own `button-primary`;
+dialogs keep `DialogButton`, toolbars `ToolbarButton` and menus `MenuButton`, which own their keys
+and focus.
+
 ## Menu
 
 ```tsx

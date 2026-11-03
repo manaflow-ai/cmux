@@ -1,0 +1,94 @@
+/* BUTTON (ui/Button.tsx): one look for every web button, by variant and size, on the shared tokens.
+   Its own file, as the agent pane does not load ui.css; the fallbacks keep it right without it.
+   - Heights come from the control scale (--ds-control-*), the radius from --ds-radius-control.
+   - Colors are the theme's: the accent (the text color by default, never the system blue) fills
+     `primary`, the text at a low mix fills `secondary`, and `destructive` takes the app's danger.
+   - No transition: a press answers on the click. Hover and press change only the fill. */
+.ui-btn {
+  --ui-btn-fg: var(--cmux-text, CanvasText);
+  --ui-btn-fill: transparent;
+  --ui-btn-hover: color-mix(in srgb, var(--ui-btn-fg) 8%, transparent);
+  --ui-btn-press: color-mix(in srgb, var(--ui-btn-fg) 14%, transparent);
+  --ui-btn-ring: transparent;
+  appearance: none;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ds-space-1, 4px);
+  height: var(--ds-control-row, 28px);
+  padding: 0 var(--ds-space-3, 12px);
+  border: 0;
+  border-radius: var(--ds-radius-control, 6px);
+  background: var(--ui-btn-fill);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 1px) var(--ui-btn-ring);
+  color: var(--ui-btn-fg);
+  font: inherit;
+  font-size: var(--text-detail);
+  font-weight: 500;
+  line-height: var(--text-detail--line-height);
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+}
+.ui-btn > svg {
+  flex: none;
+  width: var(--ui-ghost-icon-size, 14px);
+  aspect-ratio: 1;
+}
+.ui-btn:hover:not(:disabled, [data-disabled]) {
+  background: var(--ui-btn-hover);
+}
+.ui-btn:active:not(:disabled, [data-disabled]),
+.ui-btn[data-pressed] {
+  background: var(--ui-btn-press);
+}
+.ui-btn:focus-visible {
+  outline: 2px solid var(--cmux-focus-ring-color, var(--ui-btn-fg));
+  outline-offset: 1px;
+}
+.ui-btn:disabled,
+.ui-btn[data-disabled] {
+  opacity: 0.45;
+}
+
+/* Variants. Each names its own rest, hover and press fills; ghost is the base. */
+.ui-btn-primary {
+  --ui-btn-fill: var(--cmux-accent, var(--cmux-text, CanvasText));
+  --ui-btn-fg: var(--cmux-on-accent, Canvas);
+  --ui-btn-hover: color-mix(in srgb, var(--ui-btn-fill) 88%, Canvas);
+  --ui-btn-press: color-mix(in srgb, var(--ui-btn-fill) 78%, Canvas);
+}
+.ui-btn-secondary {
+  --ui-btn-fill: color-mix(in srgb, var(--ui-btn-fg) 8%, transparent);
+  --ui-btn-hover: color-mix(in srgb, var(--ui-btn-fg) 12%, transparent);
+  --ui-btn-press: color-mix(in srgb, var(--ui-btn-fg) 17%, transparent);
+}
+.ui-btn-outline {
+  --ui-btn-ring: var(--cmux-separator, color-mix(in srgb, var(--ui-btn-fg) 18%, transparent));
+}
+.ui-btn-destructive {
+  --ui-btn-fg: var(--cmux-app-danger, var(--agent-danger, var(--cmux-text, CanvasText)));
+  --ui-btn-fill: color-mix(in srgb, var(--ui-btn-fg) 12%, transparent);
+  --ui-btn-hover: color-mix(in srgb, var(--ui-btn-fg) 18%, transparent);
+  --ui-btn-press: color-mix(in srgb, var(--ui-btn-fg) 24%, transparent);
+}
+
+/* Sizes. */
+.ui-btn-sm {
+  height: var(--ds-control-compact, 24px);
+  padding: 0 var(--ds-space-2, 8px);
+}
+.ui-btn-lg {
+  height: var(--ds-control-primary, 32px);
+  padding: 0 var(--ds-space-4, 16px);
+  font-size: var(--text-body);
+}
+.ui-btn-icon,
+.ui-btn-icon-sm {
+  padding: 0;
+  aspect-ratio: 1;
+}
+.ui-btn-icon-sm {
+  height: var(--ds-control-compact, 24px);
+}

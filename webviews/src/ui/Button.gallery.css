@@ -1,0 +1,16 @@
+.button-gallery-stage {
+  display: grid;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-4);
+  color: var(--ui-fg);
+}
+.button-gallery-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+.button-gallery-receipt {
+  color: var(--ui-fg-2);
+  font-size: var(--text-detail);
+}
