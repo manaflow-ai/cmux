@@ -243,6 +243,15 @@
   padding: var(--grid-gap) var(--grid-sidebar-highlight-inset);
   overflow-x: hidden;
   overflow-y: auto;
+  /* No scrollbar at all, as Claude Code's panel: it scrolls by wheel, trackpad and keyboard, and the
+     edge fades below say there is more (Leo, 2026-11-03: "i mean there's literally no scrollbar in
+     claude code it's just scrollable"). No thumb draws and none takes width, so nothing sits beside a
+     section's grip or the trailing column. Hidden in both engines, as the session rail's list
+     (threadMinimap.css); check-scrollbars.sh lists the exception. */
+  scrollbar-width: none;
+}
+.acpmux-session-info__body::-webkit-scrollbar {
+  display: none;
 }
 /* Rows scrolled past the body's top or bottom fade into the glass at that edge (scrollEdges.ts marks
    which edges have more), as the Summary card and the menus do, a little shorter so it stays quiet:
