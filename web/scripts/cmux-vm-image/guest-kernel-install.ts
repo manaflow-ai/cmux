@@ -21,7 +21,6 @@ import path from "node:path";
 import { argValue, freestyleClient, hasFlag, run, StepLog, type Vm } from "./guest";
 import {
   GUEST_KERNEL_CLI,
-  GUEST_KERNEL_DIR,
   GUEST_KERNEL_DIRS_COMMAND,
   GUEST_KERNEL_IMAGE,
   guestKernelConfigCheckCommand,
@@ -32,6 +31,11 @@ import {
   switchToGuestKernel,
 } from "./guest-kernel";
 import { readInputsLock, sq } from "./lock";
+
+/** A kernel the bake built: guest-kernel.ts builds with KBUILD_BUILD_HOST=cmux-vm-image, which /proc/version names. */
+export function isCmuxKernelVersion(procVersion: string): boolean {
+  return /^Linux version \S+ \(cmux@cmux-vm-image\)/.test(procVersion);
+}
 
 export type InstallOptions = { vmId: string; bakeJson: string; switchNow: boolean; outDir: string };
 
@@ -58,10 +62,12 @@ export async function install(options: InstallOptions): Promise<string> {
   mkdirSync(options.outDir, { recursive: true });
   const L = new StepLog(path.join(options.outDir, `guest-kernel-install-${options.vmId}.log`));
   const vm = freestyleClient().vms.ref(options.vmId) as unknown as Vm;
-  // The provider kernel, or a cmux kernel this script installed before (an upgrade in place).
-  const [running, installed = ""] = (await L.step(vm, "running-kernel", `uname -r && cat ${GUEST_KERNEL_DIR}/release 2>/dev/null || true`)).trim().split("\n");
+  // The provider kernel, or a cmux kernel (an upgrade in place). A cmux kernel is known by the
+  // build host in its version string, not by the release file, which a failed upgrade has already
+  // replaced.
+  const [running, version = ""] = (await L.step(vm, "running-kernel", "uname -r && cat /proc/version")).trim().split("\n");
   const provider = lock.base.fingerprint.kernelRelease;
-  if (running !== provider && running !== installed.trim()) {
+  if (running !== provider && !isCmuxKernelVersion(version)) {
     throw new Error(`${options.vmId} runs kernel ${running}, neither the provider's ${provider} nor an installed cmux kernel`);
   }
   await L.step(vm, "kernel-config-check", guestKernelConfigCheckCommand(lock.kernel, provider));

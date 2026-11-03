@@ -15,7 +15,7 @@ import {
   parseGuestKernelStatus,
   sha256Hex,
 } from "../scripts/cmux-vm-image/guest-kernel";
-import { bakedKernel } from "../scripts/cmux-vm-image/guest-kernel-install";
+import { bakedKernel, isCmuxKernelVersion } from "../scripts/cmux-vm-image/guest-kernel-install";
 import { runChild } from "./helpers/run-child";
 
 const lockText = readFileSync(DEFAULT_LOCK_PATH, "utf8");
@@ -286,5 +286,13 @@ describe("guest-kernel-install: the kernel a bake built", () => {
     expect(() => bakedKernel(bakeDir({ release: kernel.version, sha256: "0".repeat(64) }), kernel.version)).toThrow(/is not the bake's/);
     expect(() => bakedKernel(bakeDir({ release: "6.1.102", sha256: sha256Hex(bytes) }), kernel.version)).toThrow(/records kernel 6.1.102/);
     expect(() => bakedKernel(bakeDir(undefined), kernel.version)).toThrow(/records kernel none/);
+  });
+});
+
+describe("guest-kernel-install: which running kernels it accepts", () => {
+  test("a cmux kernel by its build host, whatever its release; not the provider's or another build", () => {
+    expect(isCmuxKernelVersion("Linux version 6.1.180 (cmux@cmux-vm-image) (gcc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0) #1 SMP")).toBe(true);
+    expect(isCmuxKernelVersion("Linux version 6.1.102 (root@builder) (gcc 12.2.0) #1 SMP")).toBe(false);
+    expect(isCmuxKernelVersion("Linux version 6.1.191 (someone@cmux-vm-image-other) (gcc) #1")).toBe(false);
   });
 });
