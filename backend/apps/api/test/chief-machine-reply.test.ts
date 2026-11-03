@@ -1,137 +1,257 @@
-import { env } from "cloudflare:workers"
 import { runInDurableObject } from "cloudflare:test"
+import type { Principal } from "@cmux/ownership"
 import { describe, expect, it, vi } from "vitest"
-import { validateParts } from "../../../packages/home-core/src/conversation/validate.ts"
-import { MAX_TEXT_BYTES, type Part } from "../../../packages/home-core/src/conversation/types.ts"
+import { chiefPrincipal } from "../src/chief-brain/brain-io.ts"
 import type { ChiefBrainDO } from "../src/chief-brain/brain-do.ts"
 import { writeConfig } from "../src/chief-brain/brain-store.ts"
 import type { Env } from "../src/env.ts"
+import { convId, objectIdOf, result, sha, signIn, stub, testEnv, urlFor, worker } from "./home-attachments-support.ts"
 
-type Sent = { key: string; text: string; parts: ReadonlyArray<Part> }
-type Frame = { t: "op"; op: string; idempotency_key: string; params: { parts: unknown; client_msg_id: string } }
-type Fixture = { attempts: Array<Sent>; messages: Array<Sent>; finish: ReturnType<typeof vi.fn>; loseAt: number; refuseAt: number }
-const textOf = (parts: ReadonlyArray<Part>) => parts.flatMap((p) => p.type === "text" ? [p.text] : []).join("")
+type MessagePart = { type: string; text?: string; hash?: string; byte_count?: number; [key: string]: unknown }
+type Fixture = {
+  readonly messageSubmits: Array<{ key: string; parts: Array<MessagePart> }>
+  quotaCalls: number
+  putCalls: number
+  failStorage: boolean
+  lostResponse: boolean
+  finish: ReturnType<typeof vi.fn>
+}
 
-/** Actual brain-turn.post + postReply, real DO SQL, and the product's message-parts validator. */
-const withReply = async (suffix: string, reply: string, check: (b: ChiefBrainDO, run: string, f: Fixture) => Promise<void>) => {
-  const testEnv = env as unknown as Env
-  const agent = `agent_reply_${suffix}`, owner = `user_reply_${suffix}`, run = "run_reply"
-  const stub = testEnv.CHIEF_BRAIN_DO.get(testEnv.CHIEF_BRAIN_DO.idFromName(`${agent}/reply`))
-  const f: Fixture = { attempts: [], messages: [], finish: vi.fn(), loseAt: 0, refuseAt: 0 }
-  const ledger = new Map<string, { frames: Array<unknown> }>()
-  const fake = {
-    ...testEnv,
-    CONVERSATION_DO: { idFromName: (x: string) => x, get: () => ({ submit: async (_entity: string, _principal: unknown, frame: Frame) => {
-      expect(frame.op).toBe("message.send")
-      expect(frame.params.client_msg_id).toBe(frame.idempotency_key)
-      // A too-large real message is rejected here rather than accepted by an oversized mock.
-      const parts = validateParts(frame.params.parts, true)
-      const sent = { key: frame.idempotency_key, parts, text: textOf(parts) }
-      expect(new TextEncoder().encode(sent.text).length).toBeLessThanOrEqual(MAX_TEXT_BYTES)
-      expect(sent.text).not.toContain("\ufffd")
-      expect(new TextDecoder().decode(new TextEncoder().encode(sent.text))).toBe(sent.text)
-      f.attempts.push(sent)
-      const prior = ledger.get(sent.key)
-      if (prior) return prior
-      if (f.refuseAt === f.messages.length + 1) {
-        f.refuseAt = 0
-        const rejected = { frames: [{ t: "reject", code: "agent_rate", message: "retry after the conversation gap" }] }
-        ledger.set(sent.key, rejected)
-        return rejected
+const textPart = (parts: ReadonlyArray<MessagePart>) => parts.find((part) => part.type === "text")?.text ?? ""
+const attachmentPart = (parts: ReadonlyArray<MessagePart>) => parts.find((part) => part.type === "attachment")
+
+/**
+ * A real ConversationDO and UserDO sit behind the brain. Only the message-send response is wrapped so
+ * this test can model an acknowledged write whose response disappears; all membership, quota, slots,
+ * upload verification and R2 reads use the production handlers and reducers.
+ */
+const withReply = async (suffix: string, reply: string, check: (b: ChiefBrainDO, run: string, conversation: string, owner: Awaited<ReturnType<typeof signIn>>, f: Fixture) => Promise<void>) => {
+  const owner = await signIn(`chief-reply-${suffix}`)
+  const conversation = convId()
+  const agent = `agent_reply_${suffix}`
+  const chiefOwner = { ...owner.principal, owned_agents: [{ id: agent, display_name: "Chief" }] } as Principal
+  const conversationStub = stub(testEnv.CONVERSATION_DO, conversation)
+  expect(result(await conversationStub.submit(conversation, chiefOwner, {
+    t: "op",
+    op: "conversation.create",
+    params: {
+      id: conversation,
+      kind: "group",
+      title: "Chief reply",
+      participants: [
+        { id: owner.user, kind: "human", display_name: "Owner" },
+        { id: agent, kind: "agent", display_name: "Chief", agent_class: "mux" }
+      ]
+    },
+    idempotency_key: "create"
+  }))).toMatchObject({ t: "result" })
+
+  const f: Fixture = { messageSubmits: [], quotaCalls: 0, putCalls: 0, failStorage: false, lostResponse: false, finish: vi.fn() }
+  const realConversation = testEnv.CONVERSATION_DO
+  const realUsers = testEnv.USER_DO
+  const realBucket = testEnv.HOME_ATTACHMENTS
+  const conversationNs = {
+    idFromName: realConversation.idFromName.bind(realConversation),
+    get: (name: Parameters<typeof realConversation.get>[0]) => {
+      const raw = realConversation.get(name)
+      return new Proxy(raw, {
+        get(target, property, receiver) {
+          if (property === "submit") return async (entity: string, principal: Principal, frame: { op?: string; idempotency_key?: string; params?: { parts?: Array<MessagePart>; client_msg_id?: string } }) => {
+            const response = await (target as unknown as { submit: (entity: string, principal: Principal, frame: unknown) => Promise<{ frames: Array<{ t: string; code?: string }> }> }).submit(entity, principal, frame)
+            if (frame.op === "message.send") {
+              const parts = (frame.params?.parts ?? []) as Array<MessagePart>
+              f.messageSubmits.push({ key: frame.idempotency_key ?? frame.params?.client_msg_id ?? "", parts })
+              if (f.lostResponse && result(response)?.t === "result") {
+                f.lostResponse = false
+                throw new Error("response lost after message.send committed")
+              }
+            }
+            return response
+          }
+          const value = Reflect.get(target, property, receiver)
+          return typeof value === "function" ? value.bind(target) : value
+        }
+      })
+    }
+  } as unknown as Env["CONVERSATION_DO"]
+  const userNs = {
+    idFromName: realUsers.idFromName.bind(realUsers),
+    get: (name: Parameters<typeof realUsers.get>[0]) => {
+      const raw = realUsers.get(name)
+      return new Proxy(raw, {
+        get(target, property, receiver) {
+          if (property === "takeAttachmentQuota") return async (...args: unknown[]) => {
+            f.quotaCalls++
+            return (target as unknown as { takeAttachmentQuota: (...a: unknown[]) => Promise<unknown> }).takeAttachmentQuota(...args)
+          }
+          const value = Reflect.get(target, property, receiver)
+          return typeof value === "function" ? value.bind(target) : value
+        }
+      })
+    }
+  } as unknown as Env["USER_DO"]
+  const bucket = new Proxy(realBucket, {
+    get(target, property, receiver) {
+      if (property === "put") return async (...args: unknown[]) => {
+        f.putCalls++
+        if (f.failStorage) {
+          f.failStorage = false
+          throw new Error("temporary R2 failure")
+        }
+        return (target as unknown as { put: (...a: unknown[]) => Promise<unknown> }).put(...args)
       }
-      f.messages.push(sent)
-      const accepted = { frames: [{ t: "result", value: { message_id: `message_${f.messages.length}`, seq: f.messages.length } }] }
-      ledger.set(sent.key, accepted)
-      if (f.loseAt === f.messages.length) {
-        f.loseAt = 0
-        throw new Error("response lost after message.send committed")
-      }
-      return accepted
-    } }) },
-  } as unknown as Env
+      const value = Reflect.get(target, property, receiver)
+      return typeof value === "function" ? value.bind(target) : value
+    }
+  })
+  const fake = { ...testEnv, CONVERSATION_DO: conversationNs, USER_DO: userNs, HOME_ATTACHMENTS: bucket } as unknown as Env
+
+  const brain = testEnv.CHIEF_BRAIN_DO.get(testEnv.CHIEF_BRAIN_DO.idFromName(`${agent}/${conversation}`))
   const inDO = runInDurableObject as unknown as <T>(stub: unknown, fn: (b: ChiefBrainDO) => Promise<T>) => Promise<T>
-  await inDO(stub, async (b) => {
-    const object = b as unknown as { doEnv: Env }, previous = object.doEnv
+  await inDO(brain, async (b) => {
+    const object = b as unknown as { doEnv: Env }
+    const previous = object.doEnv
     object.doEnv = fake
-    const binding = { workspace: `chief-default-${owner}`, team: "team_reply", machine: "machine_reply", provider: "freestyle", connection_machine: "vm_abcdefghijklmnopqrst", install: "inst_reply" }
+    const binding = { workspace: `chief-default-${owner.user}`, team: owner.principal.team!, machine: "machine_reply", provider: "freestyle", connection_machine: "vm_abcdefghijklmnopqrst", install: "inst_reply" }
     const route = { binding, harness: "claude" as const }
-    writeConfig(b.sql, { owner, agent, enabled: "1", machine_route: JSON.stringify(route) })
-    b.sql.exec(`INSERT INTO cb_turn (id, conversation, trigger_message, trigger_kind, last_seq, effect_authorized, status, model, started, ended, reply, post) VALUES (?, 'reply', 'original', 'chief', 1, 1, 'done', 'machine:claude', ?, ?, ?, 'pending')`, run, Date.now() - 1, Date.now(), reply)
+    const run = `run_reply_${suffix}`
+    writeConfig(b.sql, { owner: owner.user, agent, enabled: "1", machine_route: JSON.stringify(route) })
+    b.sql.exec(`INSERT INTO cb_turn (id, conversation, trigger_message, trigger_kind, last_seq, effect_authorized, status, model, started, ended, reply, post) VALUES (?, ?, 'original', 'chief', 1, 1, 'done', 'machine:claude', ?, ?, ?, 'pending')`, run, conversation, Date.now() - 1, Date.now(), reply)
     const admission = vi.spyOn(b, "admitted").mockImplementation(async () => ({ ok: true, config: b.config(), machine: route }))
     const finish = vi.spyOn(b, "finish").mockImplementation(async () => { f.finish() })
     const announce = vi.spyOn(b, "announce").mockImplementation(() => undefined)
-    try { await check(b, run, f) } finally { object.doEnv = previous; admission.mockRestore(); finish.mockRestore(); announce.mockRestore() }
+    try { await check(b, run, conversation, owner, f) } finally {
+      object.doEnv = previous
+      admission.mockRestore()
+      finish.mockRestore()
+      announce.mockRestore()
+    }
   })
 }
 
-const drainReply = async (b: ChiefBrainDO, run: string) => {
-  // Explicitly deliver a bounded sequence of post jobs; no clock wait or background drain.
-  for (let jobs = 0; jobs < 20; jobs++) {
-    const next = await b.post(run)
-    if (next === null) return
-    expect(next).toBeGreaterThan(0)
-  }
-  throw new Error("reply did not finish within the bounded chunk/retry jobs")
-}
+const longReply = "🧪漢字e\u0301\n".repeat(30_000) + "\n[Open the built page](https://hello.example.test/final-tail-url)"
+const bytes = new TextEncoder().encode(longReply)
+const posted = (b: ChiefBrainDO, run: string) => b.sql.exec<{ post: string; reply: string | null }>(`SELECT post, reply FROM cb_turn WHERE id = ?`, run).one()
 
-const longReply = "🧪漢字e\u0301\n".repeat(18_000) + "\n[Open the built page](https://hello.example.test/final-tail-url)"
-const assertComplete = (b: ChiefBrainDO, run: string, f: Fixture) => {
-  expect(f.messages.length).toBeGreaterThan(1)
-  expect(f.messages.map((m) => m.text).join("")).toBe(longReply)
-  expect(f.messages.at(-1)?.text).toContain("https://hello.example.test/final-tail-url")
-  const work = f.messages.flatMap((m) => m.parts.filter((p) => p.type === "work"))
-  expect(work).toHaveLength(1)
-  expect(f.messages.slice(0, -1).every((m) => m.parts.every((p) => p.type === "text"))).toBe(true)
-  expect(f.messages.at(-1)?.parts.some((p) => p.type === "work")).toBe(true)
-  expect(b.sql.exec<{ post: string }>(`SELECT post FROM cb_turn WHERE id = ?`, run).one().post).toBe("posted")
-  expect(f.finish).toHaveBeenCalledOnce()
-}
+describe("complete machine replies through durable attachments", { timeout: 120_000 }, () => {
+  it("stores a >6-turn Unicode reply as one verified attachment and keeps the tail URL in the compact message", async () => {
+    expect(bytes.byteLength).toBeGreaterThan(6 * 60 * 1024)
+    await withReply("success", longReply, async (b, run, conversation, owner, f) => {
+      expect(await b.post(run)).toBeNull()
+      expect(f.messageSubmits).toHaveLength(1)
+      const sent = f.messageSubmits[0]!
+      expect(sent.parts).toHaveLength(3)
+      expect(textPart(sent.parts)).toContain("https://hello.example.test/final-tail-url")
+      expect(new TextEncoder().encode(textPart(sent.parts)).byteLength).toBeLessThanOrEqual(60 * 1024)
+      expect(attachmentPart(sent.parts)).toMatchObject({ type: "attachment", mime_type: "text/plain", byte_count: bytes.byteLength, hash: sha(bytes) })
+      expect(posted(b, run).post).toBe("posted")
+      expect(f.quotaCalls).toBe(1)
+      expect(f.putCalls).toBe(1)
 
-describe("complete machine replies through message.send", () => {
-  it("posts every Unicode byte and the final URL within the actual message size limit", async () => {
-    expect(new TextEncoder().encode(longReply).length).toBeGreaterThan(MAX_TEXT_BYTES)
-    await withReply("unicode", longReply, async (b, run, f) => {
-      await drainReply(b, run)
-      assertComplete(b, run, f)
+      const minted = await urlFor(owner, conversation, sha(bytes))
+      expect(minted.status).toBe(200)
+      const downloaded = await worker.fetch(minted.json.value.url)
+      expect(downloaded.status).toBe(200)
+      const readback = new Uint8Array(await downloaded.arrayBuffer())
+      expect(sha(readback)).toBe(sha(bytes))
+      expect(new TextDecoder().decode(readback)).toBe(longReply)
+      expect(objectIdOf(minted.json.value.url)).toBeTruthy()
     })
   })
 
-  it("replays an ambiguously committed chunk with its original key and no duplicated text", async () => {
-    await withReply("ambiguous", longReply, async (b, run, f) => {
-      f.loseAt = 2
+  it("retries a lost message-send response with the original key and does not re-upload or duplicate the message", async () => {
+    await withReply("lost", longReply, async (b, run, conversation, owner, f) => {
+      f.lostResponse = true
       expect(await b.post(run)).not.toBeNull()
-      const offset = () => b.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, `machine-reply-offset:${run}`).toArray()[0]?.value
-      const firstOffset = offset()
-      expect(Number(firstOffset)).toBeGreaterThan(0)
-      expect(await b.post(run)).not.toBeNull()
-      expect(offset()).toBe(firstOffset)
-      expect(f.messages).toHaveLength(2)
-      const unknown = f.attempts.at(-1)!
-      await b.post(run)
-      expect(f.attempts.at(-1)?.key).toBe(unknown.key)
-      expect(f.attempts.at(-1)?.text).toBe(unknown.text)
-      expect(f.messages).toHaveLength(2)
-      expect(Number(offset())).toBeGreaterThan(Number(firstOffset))
-      await drainReply(b, run)
-      assertComplete(b, run, f)
+      expect(posted(b, run).post).toBe("pending")
+      expect(f.messageSubmits).toHaveLength(1)
+      const key = f.messageSubmits[0]!.key
+      expect(await b.post(run)).toBeNull()
+      expect(f.messageSubmits).toHaveLength(2)
+      expect(f.messageSubmits[1]!.key).toBe(key)
+      expect(f.quotaCalls).toBe(1)
+      expect(f.putCalls).toBe(1)
+      const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(conversation)) as unknown as { readOp(e: string, p: Principal, op: string, params: unknown): Promise<{ ok: boolean; value?: { rows?: { rows: Array<{ row: { author: string } }> } } }> }
+      const snapshot = await conv.readOp(conversation, owner.principal, "conversation.snapshot", { tail: 20 })
+      expect(snapshot.ok).toBe(true)
+      expect(snapshot.value?.rows?.rows.filter((row) => row.row.author === "agent_reply_lost")).toHaveLength(1)
     })
   })
 
-  it("uses a fresh key only for a rate-refused chunk, retaining all prior chunks", async () => {
-    await withReply("rate", longReply, async (b, run, f) => {
-      f.refuseAt = 2
+  it("leaves the full reply pending on quota refusal, then recovers without truncating it", async () => {
+    await withReply("quota", longReply, async (b, run, conversation, owner, f) => {
+      const user = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(owner.user)) as unknown as {
+        recordAttachmentStorage(e: string, key: string, size: number): Promise<void>
+        releaseAttachmentStorage(e: string, key: string): Promise<void>
+      }
+      const prior = `home/v1/${conversation}/prior`
+      await user.recordAttachmentStorage(owner.user, prior, 10_000_000_000)
       expect(await b.post(run)).not.toBeNull()
-      const first = f.messages[0]!
+      expect(posted(b, run)).toMatchObject({ post: "pending", reply: longReply })
+      expect(f.messageSubmits).toHaveLength(0)
+      expect(f.finish).not.toHaveBeenCalled()
+      await user.releaseAttachmentStorage(owner.user, prior)
+      expect(await b.post(run)).toBeNull()
+      expect(posted(b, run).post).toBe("posted")
+      expect(f.messageSubmits).toHaveLength(1)
+      expect(f.quotaCalls).toBe(2)
+      expect(f.putCalls).toBe(1)
+    })
+  })
+
+  it("leaves the full reply pending on storage refusal, retains the result across a failed slot, then recovers", async () => {
+    await withReply("storage", longReply, async (b, run, _conversation, _owner, f) => {
+      f.failStorage = true
       expect(await b.post(run)).not.toBeNull()
-      expect(f.messages).toHaveLength(1)
-      const refused = f.attempts.at(-1)!
-      await b.post(run)
-      expect(f.attempts.at(-1)?.key).not.toBe(refused.key)
-      expect(f.attempts.at(-1)?.text).toBe(refused.text)
-      expect(f.messages[0]).toEqual(first)
-      expect(f.messages).toHaveLength(2)
-      await drainReply(b, run)
-      assertComplete(b, run, f)
+      expect(posted(b, run)).toMatchObject({ post: "pending", reply: longReply })
+      expect(f.messageSubmits).toHaveLength(0)
+      expect(f.finish).not.toHaveBeenCalled()
+      expect(await b.post(run)).toBeNull()
+      expect(posted(b, run).post).toBe("posted")
+      expect(f.messageSubmits).toHaveLength(1)
+      expect(f.quotaCalls).toBe(2)
+      expect(f.putCalls).toBe(2)
+    })
+  })
+
+
+  it("does not upload or post when turn admission has been revoked", async () => {
+    await withReply("revoked", longReply, async (b, run, _conversation, _owner, f) => {
+      await b.post(run, Promise.resolve({ ok: false, reason: "chief.archived" }))
+      expect(f.quotaCalls).toBe(0)
+      expect(f.putCalls).toBe(0)
+      expect(f.messageSubmits).toHaveLength(0)
+    })
+  })
+
+  it("does not upload through a removed Chief's former conversation membership", async () => {
+    await withReply("removed", longReply, async (b, run, conversation, owner, f) => {
+      const conv = stub(testEnv.CONVERSATION_DO, conversation)
+      expect(result(await conv.submit(conversation, owner.principal, {
+        t: "op", op: "participants.remove", params: { participant: "agent_reply_removed" }, idempotency_key: "remove"
+      }))).toMatchObject({ t: "result" })
+      expect(await b.post(run)).toBeGreaterThan(Date.now())
+      expect(posted(b, run)).toMatchObject({ post: "pending", reply: longReply })
+      expect(f.quotaCalls).toBe(0)
+      expect(f.putCalls).toBe(0)
+      expect(f.messageSubmits).toHaveLength(0)
+    })
+  })
+
+  it("keeps the actual conversation's agent-turn budget on the compact message", async () => {
+    await withReply("budget", longReply, async (b, run, conversation, owner, f) => {
+      const conv = stub(testEnv.CONVERSATION_DO, conversation)
+      expect(result(await conv.submit(conversation, owner.principal, {
+        t: "op", op: "conversation.settings.set", params: { agent_budget: { turns: 1, gap_ms: 0 } }, idempotency_key: "budget"
+      }))).toMatchObject({ t: "result" })
+      expect(result(await conv.submit(conversation, chiefPrincipal("agent_reply_budget", owner.user), {
+        t: "op", op: "message.send", params: { client_msg_id: "prior", parts: [{ type: "text", text: "prior answer" }] }, idempotency_key: "prior"
+      }))).toMatchObject({ t: "result" })
+      expect(await b.post(run)).toBeNull()
+      expect(b.sql.exec<{ post: string; reason: string }>(`SELECT post, reason FROM cb_turn WHERE id = ?`, run).one()).toMatchObject({ post: "refused", reason: "agent_budget" })
+      expect(f.messageSubmits).toHaveLength(1)
+      const snapshot = await (testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(conversation)) as unknown as { readOp(e: string, p: Principal, op: string, params: unknown): Promise<{ value?: { rows?: { rows: Array<unknown> } } }> }).readOp(conversation, owner.principal, "conversation.snapshot", { tail: 20 })
+      expect(snapshot.value?.rows?.rows).toHaveLength(1)
     })
   })
 })
