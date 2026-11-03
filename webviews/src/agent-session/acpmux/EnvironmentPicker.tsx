@@ -594,7 +594,8 @@ export function EnvironmentPicker({
     // A machine, Another machine, or Cloud's New Cloud Machine flow: Persistent again.
     if (!action || value === ACTION + "cloud" || value === ANOTHER) persistent();
     if (action) action.run();
-    else if (value === currentRow) focusPrompt();
+    // The chat's own machine, paused (cloudMachines.ts withCloudSleep), is still a pick: it resumes.
+    else if (value === currentRow && !(machine && isCloudMachineRow(machine))) focusPrompt();
     else if (value.startsWith(SAVED)) saved?.onPick(value.slice(SAVED.length));
     else if (machine) onPick(value);
   };
