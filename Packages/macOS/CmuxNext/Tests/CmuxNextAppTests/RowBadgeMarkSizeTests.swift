@@ -20,7 +20,7 @@ import Testing
         return (frame, CGPoint(x: view.cellSide / 2, y: cellY + view.cellSide / 2))
     }
 
-    @Test(arguments: [StatusIndicatorState.working, .busy, .error, .waiting(kind: .permission), .waiting(kind: .auth)])
+    @Test(arguments: [StatusIndicatorState.error, .waiting(kind: .permission), .waiting(kind: .auth)])
     func everyMarkDrawsAtTheWarningsSize(state: StatusIndicatorState) throws {
         let (frame, cell) = try Self.glyph(state)
         #expect(frame.width == RowBadgeView.markSide && frame.height == RowBadgeView.markSide, "\(state): \(frame)")
@@ -28,9 +28,14 @@ import Testing
         #expect(frame.minX == frame.minX.rounded() && frame.minY == frame.minY.rounded(), "off the pixel grid: \(frame)")
     }
 
-    @Test func theSpinnerMatchesTheWarning() throws {
-        let spinner = try Self.glyph(.working).frame, warning = try Self.glyph(.error).frame
-        #expect(spinner == warning)
+    /// Leo 2026-11-03: "i think the spinners are maybe a bit too big". The spinner takes the row's status glyph
+    /// size, centered on the same column as the warning.
+    @Test(arguments: [StatusIndicatorState.working, .busy])
+    func theSpinnerIsSmallerThanTheWarning(state: StatusIndicatorState) throws {
+        let (spinner, cell) = try Self.glyph(state), warning = try Self.glyph(.error).frame
+        #expect(spinner.width == RowBadgeView.spinnerSide && spinner.height == RowBadgeView.spinnerSide, "\(state): \(spinner)")
+        #expect(spinner.width < warning.width)
+        #expect(abs(spinner.midX - cell.x) < 0.01 && abs(spinner.midY - cell.y) < 0.01, "\(state) is off the column")
     }
 
     @Test func theUnreadDotKeepsItsToken() throws {

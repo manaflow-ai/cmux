@@ -1,5 +1,12 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-03: a row's working spinner draws at the row's status glyph size, not the warning's. Leo, verbatim: "i think
+  the spinners are maybe a bit too big in this situation" (the compact sidebar). Since #30236's follow-up (Leo
+  2026-11-01, "every icon is still f***ing small") every non-dot row badge drew in a 14 pt box, so at compact the
+  spinner outweighed the 8 pt unread dot and the 10 pt status marks of badge-less rows. A working or loading badge now
+  takes `RowBadgeView.spinnerSide` (`SidebarStyle.statusGlyphSize`: 10 pt compact, 12 comfortable) on the same cell
+  center; the red warning and needs-you marks keep 14 pt. Regression: `RowBadgeSpinnerDensityTests` (every density and
+  minimal mode), `RowBadgeMarkSizeTests.theSpinnerIsSmallerThanTheWarning`.
 - 2026-11-03: folding a group never changes the rows' width. Leo: "why when i collapse/expand the cosmic-gray group
   do the workspace horizontal widths differ?". The list took the clip's width, which a legacy scroller narrows by 11 pt
   only while the rows overflow (an open long group); `SidebarListView.rowsWidth(in:)` now counts the scroller for its
