@@ -189,6 +189,87 @@ export function waveFollow(focus: number, target: number, elapsed: number): numb
   return Math.abs(target - next) < 0.01 ? target : next;
 }
 
+/// The zipper (wave.experiment.ts `zipper`, the default; Leo, 2026-11-03: "the in-between feels a
+/// bit strange and gooey i'd rather keep it per zipper rail thing"). Each tick has its own discrete
+/// length by whole rows from the hovered row, the stepped fisheye's 26, 20, 14, 10, then 6 px, which
+/// are ChatGPT's rail's own (52, 40, 28, 20 and 12 px in its 2x capture), and each tick runs its own
+/// ease to its new length when the hovered row changes, so a sweep zips down the rail tick by tick.
+/// A tick heading somewhere new starts from where it is, never from rest.
+export type ZipMotion = { from: number; to: number; start: number; ms: number };
+/// A tick that is not the hovered one easing to its new length.
+export const ZIP_MS = MOTION_MS.standard;
+/// The hovered tick growing as the pointer arrives from off the rail. On a move between rows the
+/// hovered tick is already longer than its old neighbours would allow it to wait, so it takes its
+/// full length at once (`zipStep`).
+export const ZIP_HOVER_MS = MOTION_MS.quick;
+/// The pointer leaving: every tick shrinks back to rest over the scale's ceiling (Leo, 2026-11-03:
+/// "chatgpt has an animation for when it shrinks").
+export const ZIP_RELEASE_MS = MOTION_MS.large;
+/// The zipper's ease: an ease-out cubic, fast off the mark and gentle into place, so it is never
+/// past its target and never turns back.
+export const zipEase = (at: number) => 1 - (1 - Math.max(0, Math.min(1, at))) ** 3;
+/// A tick's magnification (0 to 1) `now` along its motion.
+export function zipValue(motion: ZipMotion, now: number): number {
+  if (motion.ms <= 0 || now - motion.start >= motion.ms) return motion.to;
+  return motion.from + (motion.to - motion.from) * zipEase((now - motion.start) / motion.ms);
+}
+/// Each tick's target with `hovered` the hovered row (undefined: the pointer left, all at rest).
+export function zipTargets(hovered: number | undefined, rows: number): Map<number, number> {
+  const targets = new Map<number, number>();
+  if (hovered === undefined) return targets;
+  for (let distance = -(PROGRESS.length - 1); distance < PROGRESS.length; distance += 1) {
+    const index = hovered + distance;
+    if (index >= 0 && index < rows) targets.set(index, tickProgress(distance));
+  }
+  return targets;
+}
+/// Re-aims `motions` (by row) at the targets for `hovered`, `now`: a tick whose target changed starts
+/// a new motion from its current value; one already heading to its target keeps its own; one at rest
+/// and staying there is dropped.
+export function zipRetarget(
+  motions: Map<number, ZipMotion>,
+  hovered: number | undefined,
+  rows: number,
+  now: number,
+): void {
+  const targets = zipTargets(hovered, rows);
+  for (const index of new Set([...motions.keys(), ...targets.keys()])) {
+    const to = targets.get(index) ?? 0;
+    const motion = motions.get(index);
+    if (motion?.to === to) continue;
+    const value = motion ? zipValue(motion, now) : 0;
+    if (value === 0 && to === 0) {
+      motions.delete(index);
+      continue;
+    }
+    const ms = hovered === undefined ? ZIP_RELEASE_MS : index === hovered ? ZIP_HOVER_MS : ZIP_MS;
+    motions.set(index, { from: value, to, start: now, ms });
+  }
+}
+/// The ticks' values `now` by row. The hovered tick is always the single longest: if any other tick
+/// would draw as long as it this frame (the old hovered tick shrinking as the pointer moves on), it
+/// takes its full length at once, and its motion ends there.
+export function zipStep(
+  motions: Map<number, ZipMotion>,
+  hovered: number | undefined,
+  now: number,
+): Map<number, number> {
+  const values = new Map<number, number>();
+  for (const [index, motion] of motions) values.set(index, zipValue(motion, now));
+  if (hovered !== undefined && motions.has(hovered)) {
+    let others = 0;
+    for (const [index, value] of values) if (index !== hovered) others = Math.max(others, value);
+    if (values.get(hovered)! <= others) {
+      values.set(hovered, 1);
+      motions.set(hovered, { from: 1, to: 1, start: now, ms: 0 });
+    }
+  }
+  return values;
+}
+/// Whether every motion has reached its target by `now`.
+export const zipSettled = (motions: Map<number, ZipMotion>, now: number) =>
+  [...motions.values()].every((motion) => now - motion.start >= motion.ms);
+
 /// The transcript's soft edges (conversation.css `.acpmux-scroll[data-fade-*]`): its mask fades
 /// rows out over this many px under the top once scrolled from the start, and above the view's foot
 /// (the bottom stack's top) while more lies below. The composer edge is always 18 px, including
