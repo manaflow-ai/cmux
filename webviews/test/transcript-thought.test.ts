@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // A finished thought is one quiet row, "Thought for 12s" with none of its text inline and no tooltip,
 // that opens to its text; thoughts side by side are one row; a quiet one draws none (Leo 2026-10-20).
 // The transcript gallery's plays check it in Chromium; this checks they passed.
@@ -9,7 +10,7 @@ import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("transcript-thought.test.ts", async () => {
-  setDefaultTimeout(120_000);
+  setDefaultTimeout(240_000);
   try {
     await (await chromium.launch({ headless: true })).close();
   } catch {
@@ -36,10 +37,12 @@ await requireBrowserLane("transcript-thought.test.ts", async () => {
     await vite.listen();
     browser = await chromium.launch({ headless: true });
     // Warm the transcript entry's own frame once, through the optimizer's reloads, before the
-    // measured plays. The whole-gallery frame this used to crawl is every entry, 2,245 modules on
-    // base and 2,334 on a gallery change (2026-11-03), and on a busy CI runner that crawl alone
-    // passed its 100 s budget (warmDevServer: /gallery/frame.html still cold after 100000 ms).
-    await warmGalleryFrame(vite, ENTRY, { browser, params: { variant: "thought-row" } });
+    // plays. Each dev-server file starts on a cold server and a Vite cache of its own, so this pays
+    // for the whole transcript graph every run. The module crawl this used before followed every
+    // lazy import too (3,734 modules, 135-140 s on an idle 8 vCPU fleet runner, 2026-11-03) and ran
+    // past its 100 s budget on CI; this load is about 4,100 requests in 76-86 s on the same runner.
+    // Its budget is about twice that, and the file's limit (header) leaves a minute for the plays.
+    await warmGalleryFrame(vite, ENTRY, { browser, params: { variant: "thought-row" }, timeoutMs: 180_000 });
   });
   afterAll(async () => {
     await browser?.close();
