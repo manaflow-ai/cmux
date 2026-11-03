@@ -250,6 +250,43 @@ export const mockSessions: MockSession[] = [
       "The lane wasn't foregrounded by acpmux or cmux NEXT. It ran about 40 slow Bash calls in the foreground itself, and they stalled the turn. Separately, the activity-row timer bug went to the timer helper.\n\n[outward] Add a hook that pushes known-slow commands to the background?\n- Yes, add the hook\n- Not now\n- Fix CI first",
   },
   {
+    // The agent's own wrap-up call at the end of its turn (acpmux's `wrap_up` tool,
+    // conversation/wrapUp.ts): the next-step box under the answer, the recap muted on top, then the
+    // question and its two answers; a click sends one as the next prompt.
+    sessionId: "mock-wrap-up",
+    title: "Fix product grid layout shift",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 30,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply: "Done. The grid reserves its space now.",
+    history: (at) => [
+      { ago: at + 90_000, mux: "user_message", msg: { text: "Fix the layout shift on the product grid" } },
+      { ago: at + 90_000, mux: "turn_started" },
+      { ago: at + 30_000, update: text("Done. The grid reserves its space now.") },
+      {
+        ago: at + 20_000,
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: "mock-wrap-up-call",
+          kind: "other",
+          title: "mcp__acpmux__wrap_up",
+          status: "completed",
+          rawInput: {
+            recap:
+              "Product images now have a width and height, and the grid reserves a 4:5 box while they load, so the product grid no longer shifts. All 14 tests pass.",
+            ask: "Should I open a PR for this?",
+            actions: ["Yes, open PR", "Not now"],
+          },
+        },
+      },
+      { ago: at, mux: "turn_result", msg: { status: "completed" } },
+    ],
+  },
+  {
     // The person came back to a Claude chat after 5+ minutes away (Leo, 2026-11-03: "lkewise with
     // teh cli summarization thing? how do those get turned on? maybe we can expose it in cmux-next
     // too"): acpmux's `recap` record, drawn as the recap row under the last turn.
