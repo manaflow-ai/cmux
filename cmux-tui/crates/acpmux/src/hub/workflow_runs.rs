@@ -373,7 +373,7 @@ mod tests {
         );
         assert_eq!(
             env.get(crate::agent_displays::WORKSPACE_KEY).map(String::as_str),
-            Some("workflow-workspace")
+            crate::agent_displays::per_workspace().then_some("workflow-workspace")
         );
     }
 
