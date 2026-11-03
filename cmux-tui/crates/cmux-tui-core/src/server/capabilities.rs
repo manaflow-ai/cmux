@@ -108,6 +108,10 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     if crate::chief_brains::taken().is_some() {
         capabilities.push(chief_control::CAPABILITY);
     }
+    #[cfg(unix)]
+    if crate::chief_brains::configured_home().is_some() || chief_inspect::tools_socket().is_some() {
+        capabilities.push(chief_work::CAPABILITY);
+    }
     #[cfg(debug_assertions)]
     capabilities
         .retain(|capability| !test_hidden_capabilities().iter().any(|hidden| hidden == capability));

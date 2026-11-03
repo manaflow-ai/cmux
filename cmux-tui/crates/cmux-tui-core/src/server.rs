@@ -305,6 +305,8 @@ mod browser_input;
 mod chief_control;
 mod chief_engine_mirror;
 mod chief_inspect;
+#[cfg(unix)]
+mod chief_work;
 mod chief_manage;
 mod chief_registry_resource;
 mod participant_avatars;
