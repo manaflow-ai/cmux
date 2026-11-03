@@ -207,9 +207,11 @@ await requireBrowserLane("received-message-fold-browser.test.ts", async () => {
 
   test("the message and its Details open and close in place, away from the end", async () => {
     const page = await open("no-preference");
-    await show(page, [...done, received, after]);
+    // Two more turns under the reply, so the line 40px down the view is well away from the end.
+    await show(page, [...done, received, after, ...turn(8), ...turn(9)]);
     await settle(page);
     await lineAt(page, 40);
+    expect(await atLatest(page)).toBe(false);
     await settle(page);
     await probe(page, LINE);
 
