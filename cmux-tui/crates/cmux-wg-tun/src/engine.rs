@@ -82,8 +82,39 @@ impl TunEngine {
     /// Starts the engine on `tun_fd` (borrowed: the caller keeps owning it)
     /// with a completed wg-quick config, and sends the first handshake.
     pub fn start(config: &str, tun_fd: RawFd) -> Result<Self, StartError> {
-        let _ = (config, tun_fd, Driver::run, resolve, bind, pipe);
-        Err(StartError::Io(io::ErrorKind::Unsupported.into()))
+        let config = WgConfig::parse_wg_quick(config)
+            .map_err(|error| StartError::Config(error.to_string()))?;
+        let endpoint = resolve(&config)?;
+        let socket = bind(endpoint)?;
+        utun::set_nonblocking(tun_fd)?;
+        let (wake_read, wake_write) = pipe()?;
+        let shared = Arc::new(Shared::default());
+        let tunn = Tunn::new(
+            StaticSecret::from(*config.private_key),
+            PublicKey::from(config.peer_public_key),
+            config.preshared_key.as_deref().copied(),
+            config.persistent_keepalive,
+            0,
+            None,
+        );
+        let keepalive = config.persistent_keepalive.is_some_and(|seconds| seconds > 0);
+        let mut driver = Driver {
+            schedule: TimerSchedule::new(Instant::now(), keepalive),
+            tunn,
+            config,
+            endpoint,
+            socket,
+            tun_fd,
+            wake: wake_read,
+            shared: Arc::clone(&shared),
+            frame: vec![0; BUFFER],
+            datagram: vec![0; BUFFER],
+            scratch: vec![0; BUFFER],
+        };
+        driver.initiate_handshake();
+        let thread =
+            std::thread::Builder::new().name("cmux-wg-tun".into()).spawn(move || driver.run())?;
+        Ok(Self { shared, wake: wake_write, thread: Some(thread) })
     }
 
     /// The default route changed: rebind the UDP socket and re-handshake.
