@@ -9,7 +9,7 @@
 // the numbers are in model.ts.
 import React, { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { type AcpmuxRow, type ConversationLayout } from "../model";
+import { layoutGeometry, type AcpmuxRow, type TranscriptLayout } from "../model";
 import { useT } from "../i18n";
 import { layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
 import { MinimapTick } from "../../../ui/MinimapTick";
@@ -52,6 +52,7 @@ import {
   railScrollTop,
   railTop as railTopAt,
   ROW_PITCH,
+  rowTopsOf,
   SETTLE_FRAMES,
   SHIFT_MS,
   STEP_CURVE,
@@ -148,7 +149,7 @@ export function ThreadMinimap({
   promptCount?: number;
   loadThrough?: (seq: number) => Promise<boolean>;
   sessionId?: string;
-  layout: ConversationLayout;
+  layout: TranscriptLayout;
   scroller: React.RefObject<HTMLElement | null>;
   scrollTop: number;
   viewportHeight: number;
@@ -309,14 +310,16 @@ export function ThreadMinimap({
   /// did, and the transcript restores the reader's place only after that commit, with a scroll. Until
   /// that scroll arrives, the band reads the offset as it will be.
   const restoring = useRef<{ from: number; by: number } | undefined>(undefined);
+  /// Turn tops read from the transcript's geometry, a few turns at a time (nothing copies every row).
+  const tops = useMemo(() => rowTopsOf(layoutGeometry(layout)), [layout]);
   const added = prependedBy(anchor.current, ticks);
   const anchored = added === undefined ? undefined : turns[anchor.current!.index + added];
   const seen = domTop.current && domTop.current.sessionId === sessionId ? domTop.current.top : undefined;
   if (anchored && seen !== undefined)
-    restoring.current = { from: seen, by: (layout.tops[anchored.index] ?? 0) - anchor.current!.layoutTop };
+    restoring.current = { from: seen, by: (tops(anchored.index) ?? 0) - anchor.current!.layoutTop };
   const shift = restoring.current && restoring.current.from === seen ? restoring.current.by : 0;
   const top = (seen ?? scrollTop) + shift;
-  const onScreen = visibleTurns(turns, layout.tops, layout.totalHeight, top, viewportHeight, loadedStart);
+  const onScreen = visibleTurns(turns, tops, layout.totalHeight, top, viewportHeight, loadedStart);
   const boxHeight = railBox?.height ?? viewportHeight;
   const boxFoot = railBox?.foot ?? foot;
   /// The window the rail's 92% cap reads. Without one (no layout), the rail's own box stands in, not
@@ -373,7 +376,7 @@ export function ThreadMinimap({
   const live = useRef({
     turns,
     ticks,
-    tops: layout.tops,
+    tops,
     total: layout.totalHeight,
     marks,
     viewportHeight,
@@ -387,7 +390,7 @@ export function ThreadMinimap({
     live.current = {
       turns,
       ticks,
-      tops: layout.tops,
+      tops,
       total: layout.totalHeight,
       marks,
       viewportHeight,
@@ -702,7 +705,7 @@ export function ThreadMinimap({
         tick: { key: ticks[onScreen.first]!.key, id: ticks[onScreen.first]!.id },
         first: { key: ticks[0]!.key, id: ticks[0]!.id },
         index: onScreen.first,
-        layoutTop: layout.tops[first.index] ?? 0,
+        layoutTop: tops(first.index) ?? 0,
         y: railTop + onScreen.first * ROW_PITCH - scrolled,
       };
   });

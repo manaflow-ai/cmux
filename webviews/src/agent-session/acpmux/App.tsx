@@ -36,10 +36,13 @@ import {
   layoutConversation,
   onlyQuietThoughts,
   type ConversationLayout,
+  type PlacedLayout,
   type RowHeights,
   paneHeader,
-  placeRows,
-  withOrigin,
+  layoutGeometry,
+  placedFromEstimate,
+  placedWithOrigin,
+  placeRowsIndexed,
   transcriptRowWidth,
   mergeRowRanges,
   scrollLeadRanges,
@@ -2618,7 +2621,7 @@ function restingAnchor(
 ): ScrollAnchor | null {
   const index = visibleLayoutRange(placed, top, 0, 0).first;
   const row = shown[index];
-  return atLatest || !row ? null : { rowId: row.id, offset: top - placed.tops[index] };
+  return atLatest || !row ? null : { rowId: row.id, offset: top - layoutGeometry(placed).topAt(index) };
 }
 
 /// Jump to latest's diameter, CSS px (conversation.css .acpmux-jump-latest): its fisheye filter is
@@ -3311,7 +3314,7 @@ export function VirtualTranscript({
     | {
         rows: readonly AcpmuxRow[];
         drawn: Map<string, DrawnHeight>;
-        layout: ConversationLayout;
+        layout: PlacedLayout;
         width: number;
         sessionId?: string;
         /// A new registry estimates every row again, so nothing is kept.
@@ -3567,7 +3570,7 @@ export function VirtualTranscript({
     measure(false);
     return () => observer.disconnect();
   }, [noteQueue]);
-  const previousLayout = useRef<ReturnType<typeof layoutConversation> | null>(null);
+  const previousLayout = useRef<PlacedLayout | null>(null);
   const previousRows = useRef<readonly AcpmuxRow[]>(rows);
   const previousViewport = useRef({ height, width, dockSpace });
   /// The room kept under the last row (`room` below) as of the last placement pass.
@@ -3744,6 +3747,8 @@ export function VirtualTranscript({
     // Rows before the first that changed (by object, or by drawn height) keep their places. A
     // drawn height comes from a mounted row, so its index is looked for around the mounted range.
     let kept = 0;
+    let rowsKept = 0;
+    const changedAt: number[] = [];
     if (
       last &&
       last.width === rowWidth &&
@@ -3765,6 +3770,9 @@ export function VirtualTranscript({
           keepsReplyRoom(last.rows[reply]!, nextDrawnRow(last.rows, reply))
       )
         kept = reply;
+      // The rows from here on are new or follow a new row: all placed again. Before it, only the
+      // rows whose drawn height changed are (placeRowsIndexed's `from` and `changed`).
+      rowsKept = kept;
       if (changed.size > 0) {
         let found = 0;
         const from = Math.max(0, last.first - DRAWN_SEARCH_ROWS);
@@ -3772,12 +3780,14 @@ export function VirtualTranscript({
         for (let index = from; index < to && found < changed.size; index += 1)
           if (changed.has(rows[index]!.id)) {
             kept = Math.min(kept, index);
+            if (index < rowsKept) changedAt.push(index);
             found += 1;
           }
         // A held row (a margin drag's selection end) is mounted far from that range: looked up itself.
         for (const index of last.held)
           if ((index < from || index >= to) && rows[index] && changed.has(rows[index]!.id)) {
             kept = Math.min(kept, index);
+            if (index < rowsKept) changedAt.push(index);
             found += 1;
           }
         if (found < changed.size) kept = 0;
@@ -3787,10 +3797,12 @@ export function VirtualTranscript({
     // places; the room is moved below only when a page lands or a row above the pin draws.
     const placedOrigin =
       last && last.sessionId === sessionId && last.width === rowWidth ? (last.layout.origin ?? 0) : 0;
+    // Placed through the gap-aware index (placedHeightIndex.ts): a streamed token or a drawn
+    // height reads only the rows it changed, in O(log rows) each, and copies no row's place.
     const placed =
       drawn.size === 0
-        ? withOrigin(estimated.layout, placedOrigin)
-        : placeRows(
+        ? placedFromEstimate(estimated.layout, placedOrigin)
+        : placeRowsIndexed(
             estimated.layout,
             // A row keeps its last drawn height until its new version is drawn: a streaming reply's
             // text appears after the version that holds it, so an estimate of the version ran ahead
@@ -3810,20 +3822,20 @@ export function VirtualTranscript({
                 return undefined;
               return known.height;
             },
-            last && kept > 0 ? { layout: last.layout, kept } : undefined,
+            last && kept > 0 ? { layout: last.layout, kept, from: rowsKept, changed: changedAt } : undefined,
             placedOrigin,
           );
     const reserved = olderReserve(olderRoom.current, {
       sessionId,
       rows,
-      rowTop: (index) => placed.tops[index]! - placedOrigin,
+      rowTop: (index) => placed.geometry.topAt(index) - placedOrigin,
       rowsHeight: placed.totalHeight - placedOrigin,
       canLoadOlder,
       earlier: earlier?.length,
       promptCount,
     });
     olderRoom.current = reserved.state;
-    const layout = withOrigin(placed, reserved.reserve);
+    const layout = placedWithOrigin(placed, reserved.reserve);
     lastPlaced.current = {
       rows,
       drawn,
@@ -4082,7 +4094,7 @@ export function VirtualTranscript({
         return;
       }
       unlift();
-      const top = layout.tops[nextIndex] ?? 0;
+      const top = layout.geometry.topAt(nextIndex);
       const maximum = Math.max(0, layout.totalHeight - node.clientHeight);
       const nextTop = Math.max(0, Math.min(maximum, top));
       const physicalTop = physicalScrollTop(node, nextTop);
@@ -4172,8 +4184,8 @@ export function VirtualTranscript({
   const tabStopId = activeVisible ? effectiveActiveRowId : rows[range.first]?.id;
   useLayoutEffect(() => {
     const spans = mountedRanges.map(({ first, last }): MountedSpan => [
-      layout.tops[first],
-      layout.tops[last - 1] + layout.heights[last - 1],
+      layout.geometry.topAt(first),
+      layout.geometry.topAt(last - 1) + layout.geometry.heightAt(last - 1),
     ]);
     acpmuxPerf.mounted = spans;
     // A memo hit spent no time in geometry this render.
@@ -4434,7 +4446,7 @@ export function VirtualTranscript({
         endSeek();
         setSeeking(false);
       } else {
-        const top = at < 0 ? latest : Math.min(latest, layout.tops[at] + openAt!.offset);
+        const top = at < 0 ? latest : Math.min(latest, layout.geometry.topAt(at) + openAt!.offset);
         clearScrollOrigin(node);
         if (at < 0) node.scrollTop = top;
         else writeAnchorScrollTop(node, top);
@@ -4561,7 +4573,7 @@ export function VirtualTranscript({
               {
                 count: shown.length,
                 idAt: (index) => shown[index]?.id,
-                tops: foldInputs.current.layout.tops,
+                geometry: foldInputs.current.layout.geometry,
               },
               foldInputs.current.sessionId,
             )
@@ -4575,7 +4587,7 @@ export function VirtualTranscript({
           placed: {
             count: placed.length,
             idAt: (index: number) => placed[index]?.id,
-            tops: layout.tops,
+            geometry: layout.geometry,
           },
           sessionId,
         };
@@ -4682,8 +4694,8 @@ export function VirtualTranscript({
     revealWindow.current = 0;
     const node = ref.current;
     if (!node || !findTarget || !targetKey || !findRequest.current?.()) return;
-    const top = layout.tops[findIndex];
-    const bottom = top + layout.heights[findIndex];
+    const top = layout.geometry.topAt(findIndex);
+    const bottom = top + layout.geometry.heightAt(findIndex);
     // In view where it draws (`lift` from its place while the rows follow a grown composer).
     const drawn = layoutScrollTop(node) - liftRef.current;
     if (top >= drawn && bottom <= drawn + node.clientHeight - dockSpaceRef.current) {
@@ -4719,8 +4731,8 @@ export function VirtualTranscript({
   useLayoutEffect(() => {
     const node = ref.current;
     if (!node || revealIndex < 0 || !rowRequest.current?.()) return;
-    const top = layout.tops[revealIndex];
-    const bottom = top + layout.heights[revealIndex];
+    const top = layout.geometry.topAt(revealIndex);
+    const bottom = top + layout.geometry.heightAt(revealIndex);
     // In view where it draws (`lift` from its place while the rows follow a grown composer).
     const drawn = layoutScrollTop(node) - liftRef.current;
     if (top >= drawn && bottom <= drawn + node.clientHeight - dockSpaceRef.current) return;
@@ -4845,7 +4857,7 @@ export function VirtualTranscript({
       ? (seenAnchor.current ?? null)
       : scrolledTo.current.atLatest || !row
         ? null
-        : { rowId: row.id, offset: logicalTop - placed.tops[index] };
+        : { rowId: row.id, offset: logicalTop - placed.geometry.topAt(index) };
     const key = JSON.stringify(anchor);
     if (key === reportedAnchor.current) return;
     reportedAnchor.current = key;
@@ -5584,17 +5596,8 @@ export function VirtualTranscript({
                       lastTurn={row.lastTurn === true}
                       index={absoluteIndex}
                       setSize={canLoadOlder ? -1 : rows.length}
-                      top={layout.tops[absoluteIndex]}
-                      gapBelow={
-                        absoluteIndex + 1 < rows.length
-                          ? Math.max(
-                              0,
-                              layout.tops[absoluteIndex + 1]! -
-                                layout.tops[absoluteIndex]! -
-                                layout.heights[absoluteIndex]!,
-                            )
-                          : 0
-                      }
+                      top={layout.geometry.topAt(absoluteIndex)}
+                      gapBelow={absoluteIndex + 1 < rows.length ? layout.geometry.gapAt(absoluteIndex + 1) : 0}
                       rowWidth={scaledRowWidth}
                       expanded={isExpanded}
                       observer={observer}
