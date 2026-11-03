@@ -32,7 +32,7 @@ on a thread (start_ratchet() starts it early so it runs beside prepush-gate's sc
 plans/cmux-next/arch-ratchet.json (arch_counts.py defines them): stateful singletons and file-scope globals,
 global mutable statics, MainActor.assumeIsolated outside seam adapters, app Notification.Name broadcasts,
 observer sites, layer edges. Those concerns have no line rule here, so there is one definition and one escape
-per concern: the dated exception in arch-ratchet.json (CMUX_GUARDRAILS_SKIP_REASON does not skip them, and no
+per concern: the dated exception file in plans/cmux-next/arch-exceptions/ (CMUX_GUARDRAILS_SKIP_REASON does not skip them, and no
 inline marker hides them).
 Warnings (never refuse):
   perf-hot  the push changes a function marked `// perf-hot: <budget> <path-id>` (in the comment block above
@@ -2904,8 +2904,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.list:
         for rule in RULES:
             print(f"{rule.id}: {rule.title}\n  why: {rule.why}\n  do:  {rule.fix}\n  escape: {rule.escape or '-'}")
-        print("arch ratchet rows (arch-ratchet.py --list-rules; escape: a dated exception in "
-              "plans/cmux-next/arch-ratchet.json)")
+        print("arch ratchet rows (arch-ratchet.py --list-rules; escape: a dated exception file "
+              "plans/cmux-next/arch-exceptions/<id>.json)")
         return 0
     repo = Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").strip())
     started = time.monotonic()

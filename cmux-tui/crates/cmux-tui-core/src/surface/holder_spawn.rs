@@ -260,15 +260,8 @@ struct HolderCommand {
 /// the daemon's environment spelled out because the holder passes exactly
 /// these.
 fn holder_command(opts: &SurfaceOptions) -> HolderCommand {
-    let launch = match opts.command.clone().filter(|argv| !argv.is_empty()) {
-        Some(argv) => {
-            crate::shell_integration::ShellLaunch { command: argv, env: opts.extra_env.clone() }
-        }
-        None => crate::shell_integration::integrate_default_shell(
-            vec![platform::default_shell()],
-            opts.extra_env.clone(),
-        ),
-    };
+    let launch =
+        crate::shell_integration::shell_launch(opts.command.clone(), opts.extra_env.clone());
     let env = holder_environment(&launch, opts, std::env::vars_os().collect());
     let env = env
         .into_iter()
@@ -308,7 +301,7 @@ fn holder_environment(
             env.insert(key.into(), value.into());
         }
     }
-    for key in cmux_pty::UNSET_IN_TERMINAL_CHILDREN {
+    for key in crate::shell_integration::keys_to_unset_in_child(&launch.env) {
         env.remove(OsStr::new(key));
     }
     env

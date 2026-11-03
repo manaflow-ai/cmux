@@ -34,6 +34,17 @@ public struct ProvisionalPane: Sendable, Hashable {
     public private(set) var column: ProvisionalColumn?
     /// Set when the pane opens as a new row below the target's row (New Row, `new-row`).
     public private(set) var row: ProvisionalRow?
+    /// The folder its terminal opens in, when the create names one (the folder it sends): its stand-in tab shows it
+    /// as its title from the key's frame, as the daemon's tab will, so nothing renames the tab when that one arrives
+    /// (RESIZE VIDEOS T1). Nil: the daemon picks the folder; the stand-in shows the placeholder.
+    public private(set) var cwd: String?
+
+    /// This pane, its terminal opening in `cwd` (the create's own folder, ``cwd``).
+    public func opening(in cwd: String?) -> ProvisionalPane {
+        var pane = self
+        pane.cwd = cwd
+        return pane
+    }
 
     /// A fresh provisional pane with new client-minted ids.
     @MainActor public init() {

@@ -49,6 +49,8 @@ import WebKit
 /// omitted toggles it and returns `inspector_open`). Every action first stops WebKit from
 /// pausing the page while another window covers it, so a tagged build can
 /// be measured behind the user's windows.
+/// `session_info_action` (`id`) sends a page-owned native Session Info action through the same
+/// bridge as a native row click (DEBUG capture tours only).
 @MainActor
 enum DebugAgentPane {
     /// Long enough for a 5000-turn load seed and a waited fling of up to ~25 s.
@@ -62,7 +64,7 @@ enum DebugAgentPane {
         "select_session": "selectSession", "answer_permission": "answerPermission", "open_changes": "openChanges",
         "set_model": "setModel", "models": "models", "stream": "stream", "pick_folder": "pickFolder",
         "compose_send": "composeSend", "run_mode": "runMode",
-        "load_seed": "loadSeed", "load_run": "loadRun", "layout_watch": "layoutWatch",
+        "load_seed": "loadSeed", "load_run": "loadRun", "layout_watch": "layoutWatch", "idle_probe": "idleProbe",
     ]
 
     /// The chat verbs drive the chat as a person does, so each records a user gesture first (as
@@ -180,7 +182,7 @@ enum DebugAgentPane {
             return .object(["pane": .string(pane), "path": .string(path), "width": .number(Double(rep.pixelsWide)), "height": .number(Double(rep.pixelsHigh))])
         }
         if action == "readiness" {
-            return await readiness(pane: pane, view: view, waitForAnimations: params["wait_animations"]?.boolValue == true)
+            return await view.debugReadiness(pane: pane, waitForAnimations: params["wait_animations"]?.boolValue == true)
         }
         if action == "cloud_auth" {
             let reply = await view.model.respond(to: .cloudMachine(.list))
@@ -216,16 +218,15 @@ enum DebugAgentPane {
             return .object(["pane": .string(pane), "error": await view.debugSetFiles(selector: params["selector"]?.stringValue ?? ".acpmux-attach-input", paths: params["paths"]?.arrayValue?.compactMap(\.stringValue) ?? []).map(JSONValue.string) ?? .null]) }
         if action == "hover" { return await DebugAgentPaneClick.hover(params, pane: pane, view: view) }
         if action == "pacer" { return .object(["pane": .string(pane), "pacer": JSONValue(foundation: view.debugPacerState) ?? .null]) }
-        if action == "inspector" {
-            return await toggleInspector(view, open: params["open"]?.boolValue, pane: pane)
-        }
+        if action == "inspector" { return await view.debugToggleInspector(open: params["open"]?.boolValue, pane: pane) }
+        if action == "session_info_action" { return view.debugSessionInfoAction(params, pane: pane) }
         if action == "open_subagent" {
             return await DebugAgentPaneSubagent.open(params, pane: pane, model: view.model) {
                 (try? await view.callPageScript(DebugAgentPaneSubagent.pageSessionScript)) as? String
             }
         }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, compose_send, run_mode, answer_permission, open_changes, set_model, models, stream, layout_watch, readiness, cloud_auth, engine, focus_composer, composer_focused, click, open_subagent, pid, full_rate, gesture_state or inspector")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, compose_send, run_mode, answer_permission, open_changes, set_model, models, stream, layout_watch, idle_probe, readiness, cloud_auth, engine, focus_composer, composer_focused, click, open_subagent, pid, full_rate, gesture_state, session_info_action or inspector")])
         }
         do {
             let result = try await view.callPageScript(script, arguments: ["fn": function, "args": arguments(action, params)])
@@ -237,66 +238,6 @@ enum DebugAgentPane {
             guard case .object(var members) = value else { return .object(["pane": .string(pane), "result": value]) }
             members["pane"] = .string(pane)
             return .object(members)
-        } catch {
-            return .object(["pane": .string(pane), "error": .string(String(describing: error))])
-        }
-    }
-
-    private static func readiness(pane: String, view: AgentPaneView, waitForAnimations: Bool = false) async -> JSONValue {
-        let script = """
-        const bodyText = (document.body?.innerText || '').trim();
-        const composer = document.querySelector('.acpmux-composer');
-        const composerRect = composer?.getBoundingClientRect();
-        const debug = window.cmuxAcpmuxDebug;
-        const state = debug && typeof debug.chatState === 'function' ? debug.chatState() : {};
-        const transcriptRows = Number(state.rows || 0) || document.querySelectorAll('.cv-worked, .cv-message, .cv-tool, .cv-turn-actions').length;
-        const menus = [...document.querySelectorAll('.acpmux-menu, .acpmux-slash-menu')];
-        const menuAnimations = menus.flatMap((node) => typeof node.getAnimations === 'function' ? node.getAnimations() : []);
-        if (waitForAnimations && menuAnimations.length) {
-          await Promise.race([
-            Promise.all(menuAnimations.map((animation) => animation.finished.catch(() => undefined))),
-            new Promise((resolve) => setTimeout(resolve, 1000))
-          ]);
-        }
-        const animationsPending = menuAnimations.some((animation) => animation.playState === 'running');
-        return JSON.stringify({
-          body_text_length: bodyText.length,
-          transcript_rows: transcriptRows,
-          composer_visible: !!composer && !!composerRect && composerRect.width > 0 && composerRect.height > 0,
-          composer_text_length: (composer?.innerText || '').trim().length,
-          document_ready: document.readyState === 'complete',
-          animations_pending: animationsPending
-        });
-        """
-        do {
-            // The script reads `waitForAnimations` as an argument; without it every readiness call threw.
-            let result = try await view.callPageScript(script, arguments: ["waitForAnimations": waitForAnimations])
-            guard let text = result as? String,
-                  let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
-                  let value = JSONValue(foundation: object),
-                  case .object(var members) = value else {
-                return .object(["pane": .string(pane), "error": .string("the page returned no readiness JSON")])
-            }
-            members["pane"] = .string(pane)
-            return .object(members)
-        } catch {
-            return .object(["pane": .string(pane), "error": .string(String(describing: error))])
-        }
-    }
-
-    /// Calls the page bridge that Show ACP Inspector calls
-    /// (`AgentPaneView.toggleInspector`) and reads back whether it is open.
-    private static func toggleInspector(_ view: AgentPaneView, open: Bool?, pane: String) async -> JSONValue {
-        let script = """
-            const bridge = window.cmuxAcpmuxBridge;
-            return typeof bridge?.toggleInspector === "function" ? bridge.toggleInspector(open ?? undefined) : null;
-            """
-        do {
-            let result = try await view.callPageScript(script, arguments: ["open": open.map { $0 as Any } ?? NSNull()])
-            guard let isOpen = result as? Bool else {
-                return .object(["pane": .string(pane), "error": .string("the page has no cmuxAcpmuxBridge.toggleInspector")])
-            }
-            return .object(["pane": .string(pane), "inspector_open": .bool(isOpen)])
         } catch {
             return .object(["pane": .string(pane), "error": .string(String(describing: error))])
         }
@@ -339,6 +280,9 @@ enum DebugAgentPane {
                 if let value = params[key]?.doubleValue { options[key] = value }
             }
             return [options]
+        case "idle_probe":
+            // What the page asks for while nobody touches it (idleProbe.ts), over `ms`.
+            return [params["ms"]?.doubleValue.map { ["ms": $0] as [String: Any] } ?? [:]]
         case "open_menu":
             return [params["label"]?.stringValue ?? ""]
         case "acp_log":

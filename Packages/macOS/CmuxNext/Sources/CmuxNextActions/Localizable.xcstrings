@@ -17556,6 +17556,137 @@
         }
       }
     },
+    "argument.agent.workspaceDefaultName": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اسم مساحة العمل الافتراضي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zadani naziv radnog prostora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Standardnavn på arbejdsområde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Standard-Workspace-Name"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default Workspace Name"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nombre predeterminado del espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nom par défaut de l’espace de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nome predefinito dello spazio di lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "既定のワークスペース名"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឈ្មោះកន្លែងធ្វើការលំនាំដើម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "기본 워크스페이스 이름"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Standardnavn på arbeidsområde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Domyślna nazwa obszaru roboczego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nome padrão do espaço de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Имя рабочего пространства по умолчанию"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ชื่อพื้นที่ทำงานเริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Varsayılan çalışma alanı adı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Типова назва робочого простору"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tên không gian làm việc mặc định"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "默认工作区名称"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "預設工作區名稱"
+          }
+        }
+      }
+    },
     "argument.agent.workspaceName": {
       "extractionState": "manual",
       "localizations": {
@@ -29695,127 +29826,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Import Memories…"
+            "value" : "Bring Your History"
           }
         },
         "ar" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "استيراد الذكريات…"
+            "state" : "translated",
+            "value" : "أحضر سجلك"
           }
         },
         "bs" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Uvezi sjećanja…"
+            "state" : "translated",
+            "value" : "Prenesite svoju historiju"
           }
         },
         "da" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Importér minder…"
+            "state" : "translated",
+            "value" : "Tag din historik med"
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Erinnerungen importieren …"
+            "state" : "translated",
+            "value" : "Bringe deinen Verlauf mit"
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Importar recuerdos…"
+            "state" : "translated",
+            "value" : "Trae tu historial"
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Importer des souvenirs…"
+            "state" : "translated",
+            "value" : "Importez votre historique"
           }
         },
         "it" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Importa ricordi…"
+            "state" : "translated",
+            "value" : "Porta la tua cronologia"
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "メモリを読み込む…"
+            "state" : "translated",
+            "value" : "履歴を引き継ぐ"
           }
         },
         "km" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "នាំចូលការចងចាំ…"
+            "state" : "translated",
+            "value" : "នាំយកប្រវត្តិរបស់អ្នក"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "기억 가져오기…"
+            "state" : "translated",
+            "value" : "기록 가져오기"
           }
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Importer minner …"
+            "state" : "translated",
+            "value" : "Ta med historikken din"
           }
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Importuj wspomnienia…"
+            "state" : "translated",
+            "value" : "Przenieś swoją historię"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Importar memórias…"
+            "state" : "translated",
+            "value" : "Traga seu histórico"
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Импорт памяти…"
+            "state" : "translated",
+            "value" : "Перенесите свою историю"
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "นำเข้าความจำ…"
+            "state" : "translated",
+            "value" : "นำประวัติของคุณมา"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Anıları İçe Aktar…"
+            "state" : "translated",
+            "value" : "Geçmişinizi getirin"
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Імпорт пам’яті…"
+            "state" : "translated",
+            "value" : "Перенесіть свою історію"
           }
         },
         "vi" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Nhập ký ức…"
+            "state" : "translated",
+            "value" : "Mang theo lịch sử của bạn"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "导入记忆…"
+            "state" : "translated",
+            "value" : "带入你的历史记录"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "匯入記憶…"
+            "state" : "translated",
+            "value" : "帶入你的歷史記錄"
           }
         }
       }

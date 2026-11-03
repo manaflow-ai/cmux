@@ -162,6 +162,7 @@ public final class SidebarRowFeed {
     private func arm(_ id: WorkspaceID, _ entry: Entry) -> SidebarWorkspace {
         disarm(entry)
         entry.armed = true
+        SidebarPerfCounters.add(.rowMaps)
         let generation = entry.generation
         let cancel = entry.cancel
         return withObservationTracking {
@@ -188,6 +189,7 @@ public final class SidebarRowFeed {
     private func markDirty(_ id: WorkspaceID, generation: UInt64) {
         guard let entry = entries[id], entry.generation == generation else { return }
         entry.armed = false
+        SidebarPerfCounters.add(.rowInvalidations)
         dirty.insert(id)
         guard !flushScheduled else { return }
         flushScheduled = true

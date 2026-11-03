@@ -1,9 +1,12 @@
-// Both composer looks lay the buttons out as Claude's (Leo 2026-11-01: "the placement of the buttons
-// are just really bad compared to our claude code version", then "we already have a good version";
-// leo-workspace design/composer.md, Codex's look): + left of the prompt and the mic (and the send
-// slot) right of it inside the box, the mode, model and context ring in the quiet row under it.
-// Codex's look draws every control where Claude's does, in the chat and on New Tab. Replaced: Codex's
-// own row in the box under the prompt (cmux #28901). Captures are gallery fixtures, never private
+// Both composer looks lay +, the prompt, the mic and Send out as Claude's (Leo 2026-11-01: "the
+// placement of the buttons are just really bad compared to our claude code version", then "we
+// already have a good version"; leo-workspace design/composer.md, Codex's look): + left of the prompt
+// and the mic (and the send slot) right of it inside the box. Claude's look draws the mode, model and
+// context ring in the quiet row under the box; in a chat, Codex's draws that row inside the box under
+// the prompt (Leo 2026-10-30: "the bypass/context/model picker stuff should literally be inside the
+// composer box"; 2026-11-02: "switching to the codex view in the middle of an agent chat doesn't do
+// anything right now"). New Tab's Codex look keeps Claude's split. Replaced: Codex's own row in the
+// box under the prompt with + in it (cmux #28901). Captures are gallery fixtures, never private
 // reference images.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -97,7 +100,7 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
 
   for (const theme of ["light", "dark"])
     for (const width of [720, 420, 280])
-      test(`${theme} ${width}: Codex's look draws every control where Claude's does`, async () => {
+      test(`${theme} ${width}: Codex's look keeps Claude's +, mic and Send and puts the quiet row in the box`, async () => {
         const page = await browser.newPage({ viewport: { width, height: 560 }, deviceScaleFactor: 2 });
         try {
           const port = (vite.httpServer!.address() as { port: number }).port;
@@ -123,14 +126,18 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
           };
           const claude = await shot("claude");
           const codex = await shot("codex");
-          for (const geometry of [claude, codex]) {
+          for (const [look, geometry] of [
+            ["claude", claude],
+            ["codex", codex],
+          ] as const) {
             expect(geometry.grid).toBe(true);
             expect(geometry.foot).toBe(true);
             expect(geometry.unreachable).toEqual([]);
             const { controls } = geometry;
             expect(Object.keys(controls)).toContain(".acpmux-model .acpmux-picker-button");
             expect(Object.keys(controls)).toContain(".acpmux-access-trigger");
-            // + and the mic in the box, on its 8 px inset; the mode, model and ring under it.
+            // + and the mic in the box, on its 8 px inset; the mode, model and ring under it (Claude's)
+            // or inside it on a row under the prompt's (Codex's).
             const plus = controls[".acpmux-composer-plus .acpmux-picker-button"]!;
             expect(plus.inside).toBe(true);
             expect(plus.width).toBe(28);
@@ -148,15 +155,27 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
               ".acpmux-context-ring",
             ])
               if (controls[selector]) {
-                expect(controls[selector]!.inside).toBe(false);
-                expect(controls[selector]!.top).toBeGreaterThanOrEqual(geometry.box.height);
+                const control = controls[selector]!;
+                if (look === "claude") {
+                  expect(control.inside).toBe(false);
+                  expect(control.top).toBeGreaterThanOrEqual(geometry.box.height);
+                } else {
+                  expect(control.inside).toBe(true);
+                  expect(control.top).toBeGreaterThanOrEqual(plus.bottom);
+                  expect(control.bottom).toBeLessThanOrEqual(geometry.box.height);
+                  expect(control.left).toBeGreaterThanOrEqual(0);
+                  expect(control.right).toBeLessThanOrEqual(geometry.box.width);
+                }
               }
           }
-          // The same box and the same place for every control in both looks.
-          expect(Math.abs(codex.box.height - claude.box.height)).toBeLessThanOrEqual(0.5);
+          // The switch shows: Codex's box is taller by the row it holds. +, the mic and Send stand
+          // in the same place in both looks.
+          expect(codex.box.height).toBeGreaterThan(claude.box.height + 20);
           expect(Object.keys(codex.controls).sort()).toEqual(Object.keys(claude.controls).sort());
-          for (const [selector, c] of Object.entries(claude.controls)) {
-            const x = codex.controls[selector]!;
+          for (const selector of [".acpmux-composer-plus .acpmux-picker-button", ".acpmux-mic", ".acpmux-send"]) {
+            const c = claude.controls[selector];
+            const x = codex.controls[selector];
+            if (!c || !x) continue;
             for (const edge of ["left", "right", "top", "bottom"] as const)
               expect(Math.abs(x[edge] - c[edge]), `${selector} ${edge}`).toBeLessThanOrEqual(0.5);
           }

@@ -20,17 +20,18 @@ import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { AgentTag } from "../conversation/AgentTag";
 import { TranscriptActivityRowShell } from "../conversation/TranscriptActivityRow";
 import { formatDuration } from "../conversation/turns";
-import { ChevronRight, Retry, Spinner } from "../conversation/icons";
+import { ChevronRight, Retry } from "../conversation/icons";
 import { TurnActionsContext } from "../conversation/turnActions";
+import { ReactionMark, ReactionReply } from "../conversation/ReactionMark";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
-import { AgentIdentity } from "./AgentIdentity";
+import { AgentIdentity, SUBAGENT_FALLBACK } from "./AgentIdentity";
 import { agentTone } from "./agentTones";
 import type { AcpmuxRow } from "../model";
 import { canRestart, STOP_REASON_LABEL } from "./restart";
 import { retryLabel, subagentRetry, type RetryAction, type RetryNote, type SessionRetryFields } from "./retryState";
-import { elapsed, SubagentNavContext, SubagentPaneContext } from "./SubagentGroup";
-import { useSubsessionInfo } from "./subsessions";
+import { elapsed, SubagentHarnessContext, SubagentNavContext, SubagentPaneContext } from "./SubagentGroup";
+import { subagentDisplayName, subagentTaskLabel, useSubsessionInfo } from "./subsessions";
 
 const DONE_LABEL: Record<string, StringKey> = {
   completed: "subagents.ended.completed",
@@ -43,6 +44,10 @@ const DONE_LABEL: Record<string, StringKey> = {
 /// time, or only in the ⋯ menu. The gallery compares them (SubagentRetry.gallery.tsx).
 export type RetryAffordance = "button" | "link" | "menu";
 export const RetryAffordanceContext = createContext<RetryAffordance>("button");
+
+/// What acpmux names an Agent or Workflow call that gave no description (claude_stdio
+/// `spawn_subagent`): never a better name than the one a run reports.
+const PLACEHOLDER_TASKS = new Set(["Workflow", "Agent"]);
 
 const ACTION_LABEL: Record<RetryAction, StringKey> = { daemon: "retry.action", ask: "retry.askParent" };
 
@@ -63,6 +68,9 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
   const nav = useContext(SubagentNavContext);
   const pane = useContext(SubagentPaneContext);
   const affordance = useContext(RetryAffordanceContext);
+  // The chat's harness when the subagent names none, as its open group's avatar and the tray draw
+  // it (Leo, 2026-10-29: "one of these is Codex, one of these is Claude").
+  const chatHarness = useContext(SubagentHarnessContext);
   const { restartSubagent, retryAgent, retryCapabilities } = useContext(TurnActionsContext);
   const agent = row.subagents?.[0];
   // A refusal's note lasts until the row changes. A Retry that went keeps the row's Retry disabled
@@ -75,7 +83,13 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
   const phase = subagentRetry(agent, retryCapabilities, child);
   const waiting = phase.kind === "retrying" ? phase.retry : undefined;
   const action = retryAgent && phase.kind === "failed" ? phase.action : undefined;
-  const label = t(DONE_LABEL[agent.state] ?? DONE_LABEL.completed!, { name: agent.name });
+  // What it was asked to do (Claude's Agent `description`) first, as the running tray names it;
+  // then its name, its prompt's first line, its kind; "Subagent" only when nothing names it. A
+  // task that is only acpmux's placeholder ("Workflow", "Agent") keeps the name a run gave it. A
+  // retrying line keeps its short name, so its "Retrying (2/4) …" is never cut behind a long task.
+  const name =
+    waiting || PLACEHOLDER_TASKS.has(agent.task ?? "") ? subagentDisplayName(t, agent) : subagentTaskLabel(t, agent);
+  const label = t(DONE_LABEL[agent.state] ?? DONE_LABEL.completed!, { name });
   const reasonKey = agent.state === "cancelled" && agent.stopReason ? STOP_REASON_LABEL[agent.stopReason] : undefined;
   const time = formatDuration(elapsed(agent, agent.endedAt ?? row.at));
   // A sub-session's failure is on its own session row.
@@ -86,7 +100,7 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
       ? restartSubagent
       : undefined;
   const head = waiting
-    ? [agent.name, retryLabel(t, waiting)]
+    ? [name, retryLabel(t, waiting)]
     : [
         label,
         ...(reasonKey ? [t(reasonKey)] : []),
@@ -134,18 +148,20 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
           onClick={() => open?.(agent.id)}
         >
           <span className="cv-tool__icon">
-            {waiting ? (
-              <Spinner size={16} loading />
-            ) : (
-              <AgentIdentity harness={agent.harness} tone={agentTone(agent.id)} size={16} />
-            )}
+            <AgentIdentity
+              harness={agent.harness ?? chatHarness}
+              tone={agentTone(agent.id)}
+              size={16}
+              fallback={SUBAGENT_FALLBACK}
+            />
           </span>
           {/* tooltip-allow: the line is cut at the pane's width; its whole text, the failure included */}
           <span className="cv-tool__text cv-agent-activity__sentence" title={whole}>
             {!waiting && before}
-            <AgentTag name={agent.name} />
+            <AgentTag name={name} />
             {!waiting && after}
-            {parts.length > 1 && ` · ${parts.slice(1).join(" · ")}`}
+            {/* Its own box, cut before the chip (subagents.css): the reason and failure go first. */}
+            {parts.length > 1 && <span className="cv-subagent-done__suffix">{` · ${parts.slice(1).join(" · ")}`}</span>}
           </span>
         </button>
         {inline}
@@ -186,6 +202,7 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
           </span>
         )}
         <span className="cv-tool__trail cv-subagent-done__trail cv-agent-activity__trail">
+          <ReactionMark reaction={agent.reaction} />
           {!waiting && <span className="cv-command__meta cv-subagent-done__time">{time}</span>}
         </span>
         {/* The chevron only marks that the line opens; the line's button is the one control. Its
@@ -197,6 +214,9 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
           <ChevronRight size={14} strokeWidth={1.2} />
         </span>
       </TranscriptActivityRowShell>
+      {/* The chat's quiet reply to its end (ReactionMark.tsx), under the line as text Find reads,
+          never only in a tooltip (cmux#33538). */}
+      <ReactionReply reaction={agent.reaction} />
     </div>
   );
 }

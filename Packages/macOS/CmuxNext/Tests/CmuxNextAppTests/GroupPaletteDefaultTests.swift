@@ -20,7 +20,7 @@ import Testing
         .grey: (0, 0), .blue: (214, 1), .red: (4, 1), .yellow: (46, 1), .green: (136, 0.9),
         .pink: (330, 0.95), .purple: (272, 0.9), .cyan: (186, 0.9), .orange: (24, 1),
     ]
-    /// The colors new groups take, groups 1...7: the palette's order without grey and blue.
+    /// The palette's colors without grey and blue, in order.
     static let order: [GroupColor] = [.red, .yellow, .green, .pink, .purple, .cyan, .orange]
 
     /// A palette color as Lawrence drew it: the color itself (`fill` false) or the
@@ -61,22 +61,6 @@ import Testing
             ("light", try room("Group Light", background: 0xFFFFFF, foreground: 0x1F2328, palette: light)),
             ("wallpaper", try room("Group Wallpaper", background: 0x2B1650, foreground: 0xF4E3FF, palette: dark.reversed(), art: true)),
         ]
-    }
-
-    @Test func newGroupsTakeLawrencesPaletteOrder() {
-        var sections: [CmuxNextSidebar.SidebarSection] = []
-        var tabs: [GroupColor] = []
-        for expected in Self.order {
-            let sidebar = SidebarGroupBand.newGroupColor(in: sections)
-            #expect(sidebar == expected, "sidebar group \(sections.count + 1)")
-            sections.append(CmuxNextSidebar.SidebarSection(kind: .pinned, nodes: [
-                .group(SidebarGroup(id: GroupID("g\(sections.count)"), name: "", color: sidebar, workspaces: [])),
-            ]))
-            let tab = TabGroupOrdering.nextColor(used: tabs)
-            #expect(tab == expected, "tab group \(tabs.count + 1)")
-            tabs.append(tab)
-        }
-        #expect(ScreenGroupCommands.nextColor(in: nil) == Self.order[0])
     }
 
     @Test func tabGroupChipsAndUnderlinesDrawLawrencesPaletteInEveryTheme() throws {

@@ -52,6 +52,14 @@ test("the author chip shows the face and the name", () => {
   expect(host.querySelector(".cv-author__name")?.textContent).toBe("Ana Ruiz");
 });
 
+test("a link guest's author chip says they are a guest, as their held card does", () => {
+  // Their name is the one they typed, a label rather than proof (participants.ts `isGuest`): after
+  // Approve their prompt keeps "<name> (guest)" over its bubble.
+  const guest = { id: "guest:sh-1.g-1", name: "Sam" };
+  const host = render(<AuthorChip author={guest} />);
+  expect(host.querySelector(".cv-author__name")?.textContent).toBe("Sam (guest)");
+});
+
 test("the header stacks three faces, then +N, and names everyone for screen readers", () => {
   const host = render(<PresenceStack viewing={[ANA, SAM, MEI, JORDAN]} />);
   expect(host.querySelectorAll(".cv-presence__person")).toHaveLength(3);

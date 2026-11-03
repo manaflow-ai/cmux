@@ -9,7 +9,8 @@ import CmuxNextLayout
 /// the pane back.
 extension PaneController {
     /// Shows this pane's close now; nil when the layout leaves it to the daemon's tree (the
-    /// screen's last pane, a pane in a column with rows). A column's only pane takes its column.
+    /// screen's last pane, a zoomed screen). A column's only pane takes its column, a row's only
+    /// pane its row.
     ///
     /// The focus coordinator gets the topology without this pane now, focused or not, so it never
     /// holds a pane the window no longer shows. When this pane had the focus, the focus reducer
@@ -47,4 +48,5 @@ extension PaneController {
             workspace.layoutModel.settlePaneClose(close)
         }
     }
+    func holdsRelease(of key: String, _ release: @escaping @MainActor () -> Void) -> Bool { workspace?.layoutView.afterClosing(layoutPaneID, id: key, release) == true } // a closing pane's release waits for its landing
 }

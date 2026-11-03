@@ -21,6 +21,94 @@ const TEAMMATE: &str = "user-austin";
 /// The account a send began in, as the App spells it: the user and the team.
 const ACCOUNT: &str = "user-leo/team-a";
 
+#[test]
+fn a_lost_create_answer_keeps_its_name_team_and_pending_create_before_a_workspace_pick() {
+    let scratch = scratch();
+    let path = ledger_in(scratch.path());
+    let key = key();
+    assert_eq!(
+        super::create_begin(&path, &key, ACCOUNT, "cloud-chats", &Keys::of(&key).create),
+        json!({"ok": true})
+    );
+    assert_eq!(
+        super::create_sent(&path, &key, ACCOUNT, "billed-team", &Keys::of(&key).create),
+        json!({"ok": true})
+    );
+    assert_eq!(
+        super::create_begin(&path, &key, ACCOUNT, "cloud-chats-2", &Keys::of(&key).create),
+        json!({"ok": true})
+    );
+    Ledger::update(&path, |pins| pins.bind("ws-1", ACCOUNT, "other-vm")).expect("bind");
+    let retry = json!({"key": key, "account": ACCOUNT, "workspace": "ws-1", "loaded": true,
+        "user": ME, "machines": [{"id": "other-vm", "title": "cloud-chats", "created_by": ME, "status": "running"}]}).to_string();
+    let answer = plan(&path, &retry);
+    assert_eq!(answer["machine"], Value::Null);
+    assert_eq!(answer["new_name"], "cloud-chats");
+    assert_eq!(answer["create_team"], "billed-team");
+    assert_eq!(answer["create_sent"], true);
+    assert_eq!(answer["create_key"], Keys::of(&key).create);
+    assert_eq!(pin(&path, &key, ACCOUNT, "created-vm", None)["ok"], true);
+    assert_eq!(
+        plan(&path, &json!({"key": key, "account": ACCOUNT, "loaded": false}).to_string())["machine"],
+        "created-vm"
+    );
+}
+
+#[test]
+fn a_definitive_create_refusal_rotates_only_that_attempt_and_allows_a_fresh_pick() {
+    let scratch = scratch();
+    let path = ledger_in(scratch.path());
+    let key = key();
+    let original = Keys::of(&key);
+    assert_eq!(
+        super::create_begin(&path, &key, ACCOUNT, "cloud-chats", &Keys::of(&key).create)["ok"],
+        true
+    );
+    assert_eq!(super::create_sent(&path, &key, ACCOUNT, "team-a", &original.create)["ok"], true);
+    assert_eq!(super::create_refused(&path, &key, ACCOUNT, &original.create)["ok"], true);
+    let request = json!({"key": key, "account": ACCOUNT, "loaded": true, "user": ME,
+        "machines": [{"id": "other", "title": "cloud-chats", "created_by": TEAMMATE, "status": "running"}]}).to_string();
+    let fresh = plan(&path, &request);
+    assert_eq!(fresh["machine"], Value::Null);
+    assert_eq!(fresh["new_name"], "cloud-chats-2");
+    assert_ne!(fresh["create_key"], original.create);
+    assert_eq!(fresh["tab_key"], original.tab);
+    let new_key = fresh["create_key"].as_str().expect("rotated key");
+    assert_eq!(super::create_begin(&path, &key, ACCOUNT, "cloud-chats-2", new_key)["ok"], true);
+    assert_eq!(
+        super::create_begin(&path, &key, ACCOUNT, "stale-name", &original.create)["ok"],
+        false
+    );
+    assert_eq!(super::create_sent(&path, &key, ACCOUNT, "team-a", &original.create)["ok"], false);
+    assert_eq!(super::create_sent(&path, &key, ACCOUNT, "team-a", new_key)["ok"], true);
+    assert_eq!(super::create_sent(&path, &key, ACCOUNT, "team-b", new_key)["ok"], false);
+    assert_eq!(super::create_refused(&path, &key, ACCOUNT, &original.create)["ok"], false);
+    assert_eq!(plan(&path, &request)["create_key"], new_key);
+    assert_eq!(plan(&path, &request)["create_sent"], true);
+    assert_eq!(super::create_refused(&path, &key, ACCOUNT, new_key)["ok"], true);
+    Ledger::update(&path, |pins| pins.bind("ws-1", ACCOUNT, "other")).expect("bind");
+    let request = json!({"key": key, "account": ACCOUNT, "workspace": "ws-1", "loaded": true,
+        "user": ME, "machines": [{"id": "other", "title": "cloud-chats", "created_by": ME, "status": "running"}]}).to_string();
+    assert_eq!(plan(&path, &request)["machine"], "other");
+}
+
+#[test]
+fn a_tab_retry_keeps_its_target_pane_on_the_pinned_machine() {
+    let scratch = scratch();
+    let path = ledger_in(scratch.path());
+    let key = key();
+    assert_eq!(pin(&path, &key, ACCOUNT, "vm-a", None)["ok"], true);
+    assert_eq!(super::target_pane(&path, &key, ACCOUNT, "vm-a", "pane_durable")["ok"], true);
+    assert_eq!(super::target_pane(&path, &key, ACCOUNT, "vm-a", "pane_reordered")["ok"], false);
+    assert_eq!(super::target_pane(&path, &key, ACCOUNT, "vm-b", "pane_durable")["ok"], false);
+    let retry = json!({"key": key, "account": ACCOUNT, "loaded": false}).to_string();
+    let answer = plan(&path, &retry);
+    assert_eq!(answer["machine"], "vm-a");
+    assert_eq!(answer["target_pane"], "pane_durable");
+    assert_eq!(pin(&path, &key, ACCOUNT, "vm-b", None)["ok"], true);
+    assert_eq!(plan(&path, &retry)["target_pane"], Value::Null);
+}
+
 fn send(key: &str) -> Send {
     Send::new(key, ACCOUNT)
 }
@@ -230,7 +318,13 @@ fn a_finished_copy_is_kept_per_send_and_machine_across_a_relaunch() {
     Ledger::update(&path, |pins| {
         pins.record("vm-a", &send(&key));
         assert_eq!(pins.copied_chat(&send(&key), "vm-a"), None);
-        pins.record_copy("/home/cmux/work/chats/k/paint", &send(&key), "vm-a", "chats/k");
+        pins.record_copy(
+            "/home/cmux/work/chats/k/paint",
+            "/home/cmux/work/chats/k/paint",
+            &send(&key),
+            "vm-a",
+            "chats/k",
+        );
         // Pinning the same machine again (the retry) keeps the finished copy.
         pins.record("vm-a", &send(&key));
     })
@@ -392,10 +486,65 @@ fn a_retry_after_a_finished_copy_never_copies_again() {
     assert_eq!(*count.borrow(), 1);
     assert_eq!(retry["copied"], json!(false));
     assert_eq!(retry["chat"], first["chat"]);
+    assert_eq!(retry["folder"], first["folder"]);
+    assert_eq!(first["chat"], format!("{}/sub", first["folder"].as_str().unwrap()));
     // On another machine (the first is gone) it copies again.
     let elsewhere = StartCopy { machine: "vm-b".into(), ..copy }.run(&path, &push);
     assert_eq!(elsewhere["copied"], json!(true));
     assert_eq!(*count.borrow(), 2);
+}
+
+#[test]
+fn a_finished_copy_keeps_its_original_folder_when_retry_arguments_change() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let copy = copy_of("/Users/me/src/paint", "web/sub");
+    let first = copy.run(&path, &|_: &Path, _: &Path, _: &str| Ok(json!({})));
+    assert_eq!(first["ok"], true, "{first}");
+    // Pinning again must keep the copy's root, just as it keeps its chat and place.
+    assert_eq!(pin(&path, &copy.key, ACCOUNT, &copy.machine, None)["ok"], true);
+    let retry = StartCopy {
+        local: "/Users/me/renamed-project".into(),
+        subpath: "other".into(),
+        work_roots: vec!["/new/work-root".into()],
+        ..copy
+    }
+    .run(&path, &|_: &Path, _: &Path, _: &str| panic!("a finished copy must not push again"));
+    assert_eq!(retry["ok"], true, "{retry}");
+    assert_eq!(retry["copied"], false);
+    assert_eq!(retry["chat"], first["chat"]);
+    assert_eq!(retry["folder"], first["folder"]);
+}
+
+#[test]
+fn a_finished_copy_from_an_older_ledger_recovers_its_original_folder() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let copy = copy_of("/Users/me/src/paint", "web/sub");
+    let place = format!("{}/01234567", Keys::of(&copy.key).place);
+    let (folder, chat) = copy.remote("/old/work-root", &place);
+    // Older ledgers kept only the place and the chat, with no copied-folder field.
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(
+        &path,
+        json!({"sends": [{"key": copy.key.to_lowercase(), "account": ACCOUNT, "machine_id": copy.machine,
+            "place": place, "copied_chat": chat}]})
+        .to_string(),
+    )
+    .unwrap();
+    let retry = StartCopy {
+        local: "/Users/me/renamed-project".into(),
+        subpath: "other".into(),
+        work_roots: vec!["/new/work-root".into()],
+        ..copy
+    }
+    .run(&path, &|_: &Path, _: &Path, _: &str| {
+        panic!("a legacy finished copy must not push again")
+    });
+    assert_eq!(retry["ok"], true, "{retry}");
+    assert_eq!(retry["copied"], false);
+    assert_eq!(retry["chat"], chat);
+    assert_eq!(retry["folder"], folder);
 }
 
 /// A copy cannot report machine boot or harness startup: both are outside its lifetime.
@@ -1169,6 +1318,49 @@ fn the_ledger_keeps_the_newest_workspaces_apart_from_the_sends() {
     assert_eq!(kept.workspace_machine("ws-0", ACCOUNT).as_deref(), Some("vm-ws-0"));
 }
 
+/// Leo, 2026-10-31: he "picked zesty-indigo-lemur in the machine picker, but the chat stayed on
+/// sr2-tunnel-probe". Another machine picked for a send whose first try did not run there re-pins
+/// the send (`pin`): its retry plans the picked machine, copies afresh there, and the workspace takes
+/// the picked machine too.
+#[test]
+fn a_repick_moves_a_sends_retry_to_the_picked_machine() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let send_key = key();
+    let machines = json!([
+        {"id": "vm-sr2", "title": "sr2-tunnel-probe", "created_by": ME, "status": "running", "connected": true, "chats": 0},
+        {"id": "vm-zesty", "title": "zesty-indigo-lemur", "created_by": ME, "status": "running", "connected": true, "chats": 0},
+    ]);
+    let request = json!({"key": send_key, "account": ACCOUNT, "workspace": "ws-a", "user": ME, "loaded": true, "machines": machines})
+        .to_string();
+    // A workspace's first send makes a machine of its own (pick.rs), which the App pins.
+    assert_eq!(plan(&path, &request)["machine"], Value::Null);
+    let (from, to) = ("vm-sr2", "vm-zesty");
+    assert_eq!(pin(&path, &send_key, ACCOUNT, from, Some("ws-a"))["ok"], json!(true));
+    // The first try's copy finished there.
+    let copy = StartCopy {
+        key: send_key.clone(),
+        machine: from.into(),
+        ..copy_of("/Users/me/src/paint", "")
+    };
+    let pushes = RefCell::new(0);
+    let push = |_: &Path, _: &Path, _: &str| {
+        *pushes.borrow_mut() += 1;
+        Ok(json!({}))
+    };
+    assert_eq!(copy.run(&path, &push)["copied"], json!(true));
+    // Without the repick, the retry stays where it was.
+    assert_eq!(plan(&path, &request)["machine"], json!(from));
+    // The person picks the other machine.
+    assert_eq!(pin(&path, &send_key, ACCOUNT, to, Some("ws-a"))["ok"], json!(true));
+    assert_eq!(plan(&path, &request)["machine"], json!(to));
+    let moved = StartCopy { machine: to.into(), ..copy }.run(&path, &push);
+    assert_eq!(moved["copied"], json!(true), "{moved}");
+    assert_eq!(*pushes.borrow(), 2);
+    let pins = Ledger::update(&path, |pins| pins.clone()).unwrap();
+    assert_eq!(pins.workspace_machine("ws-a", ACCOUNT).as_deref(), Some(to));
+}
+
 const ENV: &str = "env_0123456789abcdef01234567";
 
 #[test]
@@ -1280,7 +1472,7 @@ fn ensure_asks_for_the_workspaces_machine_under_the_plans_create_key() {
     .expect("ensure");
     assert_eq!(
         ensure.body(),
-        json!({"clientKey": Keys::of(&key).create, "repo": "manaflow-ai/cmux", "environment": ENV})
+        json!({"clientKey": Keys::of(&key).create, "repo": "manaflow-ai/cmux", "environment": ENV, "projectKey": "git:github.com/manaflow-ai/cmux"})
     );
     let with_ref = Ensure::of(&flags(&[
         "--workspace",
@@ -1295,7 +1487,7 @@ fn ensure_asks_for_the_workspaces_machine_under_the_plans_create_key() {
     .unwrap();
     assert_eq!(
         with_ref.body(),
-        json!({"clientKey": Keys::of(&key).create, "repo": "a/b", "ref": "main"})
+        json!({"clientKey": Keys::of(&key).create, "repo": "a/b", "ref": "main", "projectKey": "git:github.com/a/b"})
     );
     for bad in [
         vec!["--key", key.as_str(), "--repo", "a/b"],
@@ -1357,7 +1549,7 @@ fn ensures_line_names_the_machine_or_the_platforms_code() {
 }
 
 /// Zero-setup hot start: a new machine for a send from a repository's folder, on the personal account, is the
-/// platform's workspace machine, pinned like one the App made; a team's send, a folder with no repository, or a
+/// platform's workspace machine, pinned like one the App made; a team's send or a
 /// platform that made none keeps the App's own create; one that may have made it refuses the send.
 #[test]
 fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
@@ -1396,7 +1588,7 @@ fn plan_makes_a_personal_repository_sends_machine_through_the_platform() {
     assert_eq!(
         asked.borrow().as_slice(),
         [(
-            json!({"clientKey": Keys::of(&key).create, "repo": "me/paint", "environment": ENV}),
+            json!({"clientKey": Keys::of(&key).create, "repo": "me/paint", "environment": ENV, "projectKey": "git:github.com/me/paint"}),
             "token-1".to_string()
         )]
     );
@@ -1508,4 +1700,135 @@ fn a_copy_answers_how_the_push_went() {
     assert_eq!(answer["install_url"], json!("https://github.com/apps/cmux/installations/new"));
     assert_eq!(answer["skipped_files"][0]["path"], json!(".env"));
     assert!(answer.get("head").is_none() && answer.get("bundle_bytes").is_none(), "{answer}");
+}
+
+#[test]
+fn project_identity_unifies_git_transports_without_leaking_credentials() {
+    for remote in [
+        "https://GitHub.com/Owner/Repo.git/",
+        "git@github.com:owner/repo",
+        "ssh://git@GITHUB.COM:22/OWNER/REPO.GIT",
+        "https://user:secret@github.com:443/owner/repo",
+        "http://github.com:80/owner/repo",
+    ] {
+        assert_eq!(
+            super::project::remote_key(remote).as_deref(),
+            Some("git:github.com/owner/repo"),
+            "{remote}"
+        );
+    }
+    assert_eq!(
+        super::project::remote_key("git@gitlab.com:Group/Nested/Repo.git").as_deref(),
+        Some("git:gitlab.com/group/nested/repo")
+    );
+    for remote in [
+        "",
+        "/tmp/repo",
+        "file:///tmp/repo",
+        "ssh://host:2222/a/b",
+        "https://host/a/../b",
+        "https://host/a/b?token=secret",
+        "https://host/a/b#main",
+        "host:a",
+        "https://host//a/b",
+    ] {
+        assert_eq!(super::project::remote_key(remote), None, "{remote}");
+    }
+}
+
+#[test]
+fn project_folder_identity_survives_relaunch_and_distinguishes_installations() {
+    let dir = scratch();
+    let folder = dir.path().join("project");
+    std::fs::create_dir(&folder).unwrap();
+    let local = folder.to_str().unwrap();
+    let ledger = ledger_in(dir.path());
+    let first = super::project::folder_key(&ledger, local).unwrap().unwrap();
+    assert!(first.starts_with("folder:"));
+    assert_eq!(
+        super::project::folder_key(&ledger, local).unwrap().as_deref(),
+        Some(first.as_str())
+    );
+    let another_install = dir.path().join("another-install/destinations.json");
+    assert_ne!(
+        super::project::folder_key(&another_install, local).unwrap().as_deref(),
+        Some(first.as_str())
+    );
+    let alias = dir.path().join("alias");
+    std::os::unix::fs::symlink(&folder, &alias).unwrap();
+    assert_eq!(
+        super::project::folder_key(&ledger, alias.to_str().unwrap()).unwrap().as_deref(),
+        Some(first.as_str())
+    );
+}
+
+#[test]
+fn project_ensure_shares_a_machine_between_workspaces_and_keeps_both_pins() {
+    let dir = scratch();
+    let ledger = ledger_in(dir.path());
+    let folder = dir.path().join("project");
+    std::fs::create_dir_all(folder.join(".git")).unwrap();
+    std::fs::write(
+        folder.join(".git/config"),
+        "[remote \"origin\"]\n url = git@gitlab.com:Me/Project.git\n",
+    )
+    .unwrap();
+    let asked = RefCell::new(Vec::new());
+    let ensure = |ensure: &Ensure, _: &str| {
+        asked.borrow_mut().push(ensure.body());
+        Ok(json!({"machine": {"id": "project-machine"}, "created": false}))
+    };
+    for workspace in ["ws-a", "ws-b"] {
+        let request = json!({"key": key(), "account": "user-leo/", "workspace": workspace,
+            "local": folder, "credential_on_stdin": true});
+        let answer = plan_with(&ledger, &request.to_string(), &mut "token\n".as_bytes(), &ensure);
+        assert_eq!(answer["machine"], json!("project-machine"), "{answer}");
+    }
+    assert_eq!(asked.borrow().len(), 2);
+    for body in asked.borrow().iter() {
+        assert_eq!(body["projectKey"], json!("git:gitlab.com/me/project"));
+        assert!(body.get("repo").is_none());
+    }
+    Ledger::update(&ledger, |pins| {
+        assert_eq!(pins.workspace_machine("ws-a", "user-leo/").as_deref(), Some("project-machine"));
+        assert_eq!(pins.workspace_machine("ws-b", "user-leo/").as_deref(), Some("project-machine"));
+        assert!(!pick::claim_project(pins, "ws-b", "user-leo/", "racing-machine"));
+    })
+    .unwrap();
+}
+
+#[test]
+fn project_ensure_accepts_a_folder_without_a_remote() {
+    let dir = scratch();
+    let ledger = ledger_in(dir.path());
+    let request = json!({"key": key(), "account": "user-leo/", "workspace": "ws-folder",
+        "local": dir.path(), "credential_on_stdin": true});
+    let answer =
+        plan_with(&ledger, &request.to_string(), &mut "token\n".as_bytes(), &|ensure, _| {
+            assert!(ensure.body()["projectKey"].as_str().unwrap().starts_with("folder:"));
+            assert!(ensure.body().get("repo").is_none());
+            Ok(json!({"machine": {"id": "folder-machine"}, "created": true}))
+        });
+    assert_eq!(answer["machine"], json!("folder-machine"), "{answer}");
+}
+
+#[test]
+fn project_key_cli_keeps_folder_ids_and_normalizes_git_keys() {
+    for (input, expected) in [
+        ("folder:local-ID", "folder:local-ID"),
+        ("git:GitLab.com/Group/Repo.GIT", "git:gitlab.com/group/repo"),
+    ] {
+        let ensure =
+            Ensure::of(&flags(&["--workspace", "ws", "--key", &key(), "--project-key", input]))
+                .unwrap();
+        assert_eq!(ensure.body()["projectKey"], json!(expected));
+        assert!(ensure.body().get("repo").is_none());
+    }
+    for bad in ["folder:", "git:host/../repo", "folder:path/to/folder", "git:host/a/b?token=secret"]
+    {
+        assert!(
+            Ensure::of(&flags(&["--workspace", "ws", "--key", &key(), "--project-key", bad]))
+                .is_none()
+        );
+    }
 }

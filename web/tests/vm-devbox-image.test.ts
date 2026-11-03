@@ -167,6 +167,15 @@ const sourceAgentConfig = (home: string, coderouterOrigin: string, fetchOpenCode
   });
 
 describe("devbox image template", () => {
+  test("the bake keeps the current store ahead of user-local acpmux", () => {
+    const bake = readFileSync(path.join(scriptsDir, "cmux-vm-image/bake.ts"), "utf8");
+    expect(bake).toContain('await L.step(vm, "acpmux-current-link", cmuxTuiImageAcpmuxLinkCommand());');
+    expect(bake).toContain('await L.step(vm, "store-user-profile", storeUserProfilePathCommand());');
+    expect(bake).toContain("return `${cmuxTuiLayoutSelector()} && ${cmuxTuiAcpmuxLinkCommand(`${CURRENT_BIN}/acpmux`, true)}`;");
+    expect(bake).toContain('GITHUB_SHIM_DIR + ":" + CURRENT_BIN + \'${PATH:+:$PATH}"\'');
+    expect(bake).not.toContain('PATH="${CURRENT_BIN}${"${PATH:+:$PATH}"}"');
+  });
+
   test("template directory contains exactly the expected files", () => {
     expect(readdirSync(templateDir).sort()).toEqual([
       "Dockerfile",
@@ -745,6 +754,32 @@ test "$daemon_pid" = fixture
     expect(devboxDaemonUnit()).toContain("ExecStart=/usr/local/bin/cmux-devbox-boot");
     expect(freestyleScript).toContain("cmux-tui-daemon.service");
     expect(devboxDaemonUnit()).toContain("Restart=always");
+  });
+
+  test("the image bakes acpmux's durable user service before the daemon", () => {
+    const freestyleScript = readScript("build-devbox-freestyle.ts");
+    const vmBake = readScript("cmux-vm-image/bake.ts");
+    for (const bake of [freestyleScript, vmBake]) {
+      expect(bake).toContain("cmuxTuiServiceInstallCommand");
+    }
+    const service = readFileSync(path.join(import.meta.dirname, "../services/vms/drivers/cmuxTuiDaemon.ts"), "utf8");
+    expect(service).toContain('loginctl enable-linger');
+    expect(service).toContain('systemctl --user enable --now acpmux.service');
+    expect(service).toContain('systemctl --user is-active --quiet acpmux.service');
+    // The image contract stays explicit: the work user has the tools needed
+    // by agent turns and the locale/shims are preserved by the base recipe.
+    const dockerfile = readScript("../services/vms/images/devbox/Dockerfile");
+    expect(dockerfile).toContain("build-essential");
+    expect(dockerfile).toContain("pkg-config");
+    expect(dockerfile).toContain("locales");
+    expect(dockerfile).toContain("LANG=C.UTF-8");
+    expect(dockerfile).toContain("cmux ALL=(ALL) NOPASSWD:ALL");
+    expect(freestyleScript).toContain("pkg-config locales");
+    expect(freestyleScript).toContain("locale-gen C.UTF-8");
+    const workUser = readFileSync(path.join(import.meta.dirname, "../services/vms/images/workUser.ts"), "utf8");
+    expect(workUser).toContain("91-cmux-work-user");
+    expect(workUser).toContain("NOPASSWD:ALL");
+    expect(readScript("upgrade-fleet-cmux-tui.ts")).toContain("cmuxTuiServiceInstallCommand");
   });
 
   test("the cmux-tui units never give up after repeated failed starts", () => {

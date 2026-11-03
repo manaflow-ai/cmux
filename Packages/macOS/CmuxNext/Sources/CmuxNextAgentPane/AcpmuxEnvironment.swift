@@ -4,7 +4,9 @@ public import Foundation
 /// Where this app's acpmux daemon lives and how to start it.
 ///
 /// Same rule as `cmux acp` (cmux-tui `acp::build_home`), so the pane and
-/// the CLI in its terminals reach one daemon: `ACPMUX_HOME` wins, else the
+/// the CLI in its terminals reach one daemon: `ACPMUX_HOME` wins (except one naming
+/// `~/.acpmux` or another build's home for a build with a home of its own, as every
+/// agent shell exports it: ``inheritsAnotherBuildsHome(_:ownHome:root:)``, cmux#29050), else the
 /// build's own home (``BuildIdentity/acpmuxHome(userHome:)``, per-build
 /// isolation cx-is1kf): NIGHTLY keeps `~/.acpmux`, shared with a standalone
 /// `acpmux`; every other build has `~/.acpmux/builds/<key>`, so no build
@@ -71,14 +73,35 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     /// Whether `environment` turns agent launches off (`ACPMUX_AGENT_LAUNCH=deny`
     /// or `CMUX_AGENTS_DISABLED=1`, the same test as acpmux's launch_policy.rs).
     public static func agentLaunchDisabled(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
-        let launch = environment["ACPMUX_AGENT_LAUNCH"]?.trimmingCharacters(in: .whitespaces).lowercased()
-        let disabled = environment["CMUX_AGENTS_DISABLED"]?.trimmingCharacters(in: .whitespaces)
+        let launch = environment["ACPMUX_AGENT_LAUNCH"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let disabled = environment["CMUX_AGENTS_DISABLED"]?.trimmingCharacters(in: .whitespacesAndNewlines)
         return launch == "deny" || disabled == "1"
     }
 
     /// Where this app writes why it could not reach the daemon: its own home's `daemon.log`, so an
     /// attached daemon's log (another app's home) gets no line from this app.
     public var logPath: String { (ownHome ?? home).appendingPathComponent("daemon.log").path }
+
+    /// Whether `ACPMUX_HOME` (`custom`) names another build's home while this build has a home of
+    /// its own (`ownHome` is not `root`): the shared root (NIGHTLY's `~/.acpmux`), another
+    /// `<root>/builds/<key>`, or a Chief home's acpmux (`~/.cmux/chief/<home>/acpmux`, NIGHTLY's
+    /// included; a Chief host passes its own home with no build, so it never comes here). Every
+    /// agent shell under acpmux exports its daemon's home, so a tagged
+    /// DEV app launched from one inherits it; honoring it made that app hand NIGHTLY's daemon off
+    /// to its own and every new NIGHTLY chat waited on the re-adoption (cmux#29050). Reading
+    /// another build's chats is ``attachKey``'s job, which never hands off. Any other home (a
+    /// test's, one a person names) still wins.
+    static func inheritsAnotherBuildsHome(_ custom: String, ownHome: URL, root: URL) -> Bool {
+        let rootPath = root.standardizedFileURL.path
+        let ownPath = ownHome.standardizedFileURL.path
+        guard ownPath != rootPath else { return false }
+        let path = URL(fileURLWithPath: custom, isDirectory: true).standardizedFileURL.path
+        if path == ownPath { return false }
+        let builds = rootPath + "/builds"
+        let chiefHomes = BuildIdentity.chiefHomesRoot(userHome: root.deletingLastPathComponent()).standardizedFileURL.path
+        return path == rootPath || path == builds || path.hasPrefix(builds + "/")
+            || path == chiefHomes || path.hasPrefix(chiefHomes + "/")
+    }
 
     /// `~/.acpmux` of `userHome`: NIGHTLY's home, and the root of every build home.
     static func sharedRoot(userHome: URL) -> URL {

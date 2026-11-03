@@ -352,7 +352,7 @@ class WorkflowTests(unittest.TestCase):
         condition = workflow()["jobs"]["publish-nightly"]["if"]
         self.assertTrue(condition.startswith("always() && !cancelled() && needs.decide.result == 'success' && "), condition)
         self.assertIn(
-            "(((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && (needs.signer-dmg.result == 'success' || needs.verify-signed-nightly.result == 'success') && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))",
+            "(((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && (needs.signer-dmg.result == 'success' || needs.verify-signed-nightly.result == 'success') && needs.verify-final-dmg-nightly.result == 'success' && (needs.verify-final-dmg-nightly.outputs.smoked_in_job == 'true' || !(needs.signer-dmg.result == 'success' && vars.NIGHTLY_NEXT_PARALLEL_SMOKE != 'off' && needs.decide.outputs.track == 'nightly-next') && needs.verify-final-dmg-nightly.outputs.image == '' || needs.launch-smoke-nightly.result == 'success' && needs.verify-final-dmg-nightly.outputs.image != '' && needs.launch-smoke-nightly.outputs.image == needs.verify-final-dmg-nightly.outputs.image)) || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))",
             condition,
         )
         needs = workflow()["jobs"]["publish-nightly"]["needs"]
@@ -660,6 +660,8 @@ class RecheckTests(unittest.TestCase):
         recheck = names.index("Recheck the recovered build against both feeds")
         self.assertEqual(steps[recheck].get("id"), "recheck")
         for later in steps[recheck + 1:]:
+            if later.get("name") == "Release the nightly-next publish lease":
+                continue  # releases the lease taken before the recheck, whatever the recheck found
             self.assertIn("steps.recheck.outputs.already_published != 'true'", later.get("if", ""), later.get("name"))
 
     def test_an_already_published_build_republishes_no_deltas(self):
@@ -680,9 +682,16 @@ class RecheckTests(unittest.TestCase):
                 self.assertTrue(job_runs(name, outcome, outputs))
 
     def test_the_recheck_holds_the_release_tag_publication_lock(self):
-        lock = workflow()["jobs"]["publish-nightly"]["concurrency"]
-        self.assertEqual(lock["group"], "release-publish-${{ needs.decide.outputs.release_tag }}")
+        # Classic and RC: the release tag's shared group. nightly-next: a group of its own run, and
+        # the R2 lease taken before the recheck (a shared group cancelled a waiting publish).
+        job = workflow()["jobs"]["publish-nightly"]
+        lock = job["concurrency"]
+        self.assertEqual(lock["group"], "release-publish-${{ needs.decide.outputs.release_tag }}"
+                         "${{ needs.decide.outputs.track == 'nightly-next' && format('-run-{0}', github.run_id) || '' }}")
         self.assertFalse(lock["cancel-in-progress"])
+        names = [s.get("name") for s in job["steps"]]
+        self.assertLess(names.index("Take the nightly-next publish lease"),
+                        names.index("Recheck the recovered build against both feeds"))
 
 
 def run_continue_step(notary: str) -> subprocess.CompletedProcess[str]:
@@ -808,7 +817,13 @@ def run_gate(variables: dict, *, token: str = "app-token", track: str = "nightly
             GITHUB_STEP_SUMMARY=str(work / "summary"),
             RUNNER_TEMP=str(work),
             PUBLISH_TOOLING=str(ROOT / "scripts"),
+            # This run's webview checks passed on the build commit, and the known-bad list is empty
+            # (tests/test_nightly_publish_guard.py drives both checks).
+            WEBVIEW_CHECK="success",
+            WEBVIEW_CHECK_SHA="a" * 40,
+            NIGHTLY_KNOWN_BAD_LIST_FILE=str(work / "known-bad.json"),
         )
+        (work / "known-bad.json").write_text('{"pairs": []}')
         result = subprocess.run(["bash", "-c", gate["run"]], cwd=ROOT, env=env, capture_output=True, text=True)
         result.output = dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)  # type: ignore[attr-defined]
         return result

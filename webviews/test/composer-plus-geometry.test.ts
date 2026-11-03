@@ -225,6 +225,8 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
     plus: Control | null;
     mic: Control | null;
     send: Control | null;
+    /** The trailing mic/Send cluster's computed gap. */
+    actionsGap: number | null;
     /** Codex's controls row inside the box under the prompt, when + sits in one. */
     bar: Box | null;
     /** The prompt's first line, from the viewport: the center of its text's box (a range's box, the
@@ -291,7 +293,20 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
         };
       };
       const card = document.querySelector(".nt-box") ?? document.querySelector(".acpmux-composer-box");
-      const box = shown(card);
+      // Codex's look draws the quiet row inside the chat's box, under the prompt (composerLook.css):
+      // +, the prompt, the mic and Send keep Claude's grid over it, so they are measured against the
+      // box down to that row's top.
+      const innerFoot = shown(card?.querySelector(":scope > .acpmux-chrome-area > .acpmux-composer-foot"));
+      const cardRect = shown(card);
+      const box =
+        cardRect && innerFoot
+          ? DOMRect.fromRect({
+              x: cardRect.left,
+              y: cardRect.top,
+              width: cardRect.width,
+              height: innerFoot.top - cardRect.top,
+            })
+          : cardRect;
       const control = (selector: string): Control | null => {
         const buttons = [...(card?.querySelectorAll(selector) ?? [])].filter((element) => shown(element));
         const button = buttons[0];
@@ -312,6 +327,8 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       const plus = control(".acpmux-composer-plus .acpmux-picker-button");
       const mic = control(".acpmux-mic");
       const send = control(".acpmux-send");
+      const actions = card?.querySelector<HTMLElement>(".acpmux-composer-actions");
+      const actionsGap = actions ? parseFloat(getComputedStyle(actions).columnGap) : null;
       let text: number | null = null;
       let textSource = "none";
       let line: Measured["line"] = null;
@@ -472,6 +489,7 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
         plus,
         mic,
         send,
+        actionsGap,
         line,
         caret,
         text,
@@ -557,6 +575,11 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
         if (Math.abs(dx) > TOLERANCE || Math.abs(dy) > TOLERANCE)
           out.push(`${name}'s glyph sits ${f(dx)}, ${f(dy)} px off its button's center`);
       }
+    }
+    if (layout.trailing?.includes("mic") && layout.trailing.includes("send")) {
+      if (m.actionsGap === null) out.push("the trailing controls' gap is not measurable");
+      else if (Math.abs(m.actionsGap - 4) > TOLERANCE)
+        out.push(`the trailing controls' gap is ${f(m.actionsGap)} px, not 4`);
     }
     // One center line: the prompt's first line in Claude's look, the controls' row in Codex's.
     const target =

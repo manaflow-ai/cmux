@@ -15,6 +15,9 @@ struct AgentPaneDisplaySettingTests {
     }
 
     static let rows: [Row] = [
+        Row(key: "agentPane.display.harnessPlacement", fallback: .string("symbols"),
+            accepted: [.string("symbols"), .string("left"), .string("top"), .string("compact")],
+            refused: [.string("right"), .bool(true)]),
         Row(key: "agentPane.display.width", fallback: .number(800), accepted: [.number(480), .number(1200), .number(4000)],
             refused: [.number(100), .number(5000), .string("wide")]),
         Row(key: "agentPane.display.fullWidth", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("yes")]),
@@ -29,7 +32,7 @@ struct AgentPaneDisplaySettingTests {
         Row(key: "agentPane.display.code.family", fallback: nil, accepted: [.string("JetBrains Mono")], refused: [.number(3)]),
         Row(key: "agentPane.display.code.scale", fallback: nil, accepted: [.number(0.6), .number(1.25)],
             refused: [.number(0.2), .number(3)]),
-        Row(key: "agentPane.display.inspector.placement", fallback: .string("overlay"), accepted: [.string("push")],
+        Row(key: "agentPane.display.sessionInfo.placement", fallback: .string("overlay"), accepted: [.string("push")],
             refused: [.string("left"), .bool(true)]),
         Row(key: "agentPane.display.environment.placement", fallback: .string("left"),
             accepted: [.string("right"), .string("off")], refused: [.string("overlay"), .bool(true)]),
@@ -38,6 +41,8 @@ struct AgentPaneDisplaySettingTests {
         // The transcript's view (Normal, Thinking, Verbose) of a chat without its own.
         Row(key: "agentPane.display.transcriptView", fallback: .string("normal"),
             accepted: [.string("thinking"), .string("verbose")], refused: [.string("loud"), .bool(true)]),
+        Row(key: "agentPane.display.presentation", fallback: .string("transcript"),
+            accepted: [.string("messages")], refused: [.string("bubbles"), .bool(true)]),
         Row(key: "agentPane.display.rail.side", fallback: .string("left"), accepted: [.string("right")],
             refused: [.string("top"), .bool(true)]),
         Row(key: "markdown.code.family", fallback: nil, accepted: [.string("Menlo")], refused: [.bool(true)]),
@@ -51,6 +56,15 @@ struct AgentPaneDisplaySettingTests {
         for value in row.accepted { #expect(descriptor.accepts(value), "\(row.key) accepts \(value)") }
         for value in row.refused { #expect(!descriptor.accepts(value), "\(row.key) refuses \(value)") }
         #expect(SettingsSchema.agentSettableKeys.contains(row.key))
+    }
+
+    @Test func harnessPlacementPreservesAbsenceAndForwardsManagedValueSeparately() {
+        let key = "agentPane.display.harnessPlacement"
+        #expect(AgentPaneDisplaySetting(fileRoot: .object([:])).values[key] == nil)
+        let root: JSONValue = ["agentPane": ["display": ["harnessPlacement": "symbols"]]]
+        let value = AgentPaneDisplaySetting(fileRoot: root, managedHarnessPlacement: .string("left"))
+        #expect(value.values[key] == .string("symbols"))
+        #expect(value.values[key + ".managed"] == .string("left"))
     }
 
     @Test func thePageGetsTheChatKeysAndTheFollowedMarkdownKeysOnly() {
@@ -95,6 +109,19 @@ struct AgentPaneDisplaySettingTests {
         #expect(page(.string("yes")) == nil)
     }
 
+    /// The Session Info row was `agentPane.display.inspector.placement`: a file that still holds the
+    /// old key keeps its Push or Overlay on the page, and the new key wins when both are set.
+    @Test func theOldSessionInfoKeyStillApplies() {
+        let key = "agentPane.display.sessionInfo.placement"
+        func page(_ display: [String: JSONValue]) -> JSONValue? {
+            AgentPaneDisplaySetting(fileRoot: .object(["agentPane": .object(["display": .object(display)])])).values[key]
+        }
+        let old: JSONValue = .object(["placement": .string("push")])
+        #expect(page(["inspector": old]) == .string("push"))
+        #expect(page(["inspector": old, "sessionInfo": .object(["placement": .string("overlay")])]) == .string("overlay"))
+        #expect(page(["inspector": .object(["placement": .string("left")])]) == nil)
+    }
+
     @Test(arguments: [true, false])
     func theOldMinimapToggleAgreesAcrossSettingsAndTheChat(_ on: Bool) throws {
         let path = ["agentPane", "display", "minimap"]
@@ -116,8 +143,8 @@ struct AgentPaneDisplaySettingTests {
 
     @Test(arguments: [
         "agentPane.display.width", "agentPane.display.code.family", "agentPane.display.font.size",
-        "agentPane.display.inspector.placement", "agentPane.display.environment.placement",
-        "agentPane.display.minimap", "agentPane.display.transcriptView", "agentPane.display.rail.side",
+        "agentPane.display.sessionInfo.placement", "agentPane.display.environment.placement",
+        "agentPane.display.minimap", "agentPane.display.transcriptView", "agentPane.display.presentation", "agentPane.display.rail.side",
     ])
     func thePageMayWriteTheChatKeys(_ key: String) {
         #expect(AgentPaneDisplaySetting.writablePath(key) == key.split(separator: ".").map(String.init))

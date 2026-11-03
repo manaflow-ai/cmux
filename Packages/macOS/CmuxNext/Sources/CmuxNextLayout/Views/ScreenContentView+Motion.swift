@@ -16,6 +16,8 @@ extension ScreenContentView {
         defer { if resizeGesture == .landing { finishResizeGestureIfLanded() } }
         guard hasMotion || reportScrollOnSettle else {
             scrollRidesFrames = false
+            // At rest (a user pan holds the camera, so hasMotion leaves it out): what a close retired goes now.
+            releaseClosing()
             return false
         }
         var moving = false
@@ -58,6 +60,11 @@ extension ScreenContentView {
         }
         if !moving { scrollRidesFrames = false }
         applyPresentation()
+        // The key resize's spring landed (the hosts laid their content out at rest in this pass): the next motion
+        // resizes content live again unless another key press holds it.
+        if !moving { holdsContentForKeyResize = false }
+        // The motion landed: the hosts a close retired are torn down in this frame, not in its first.
+        if !moving { releaseClosing() }
         return moving
     }
     /// A close's first frame of the pane, divider and (riding them) camera springs, the strip's and
@@ -92,11 +99,11 @@ extension ScreenContentView {
     /// pass and commit of the moved panes) per frame. The frame's first event still shows in its
     /// own turn, so a pan of about one event per frame shows each event as soon as before.
     func presentPan() {
-        panTicksLeft = Self.panTickTail
-        if panPresentedInFrame {
-            panPresentationPending = true
+        frameInput.panTicksLeft = Self.panTickTail
+        if frameInput.panPresentedInFrame {
+            frameInput.panPresentationPending = true
         } else {
-            panPresentedInFrame = true
+            frameInput.panPresentedInFrame = true
             applyPresentation()
         }
         // The tick that opens the next frame (and shows a waiting event).
@@ -107,13 +114,13 @@ extension ScreenContentView {
     /// that waited in the last frame show now. Returns true while a pan in progress keeps the frame
     /// ticks (``panTickTail`` frames after its last event).
     func displayFrameBegan() -> Bool {
-        panPresentedInFrame = false
-        if panPresentationPending { applyPresentation() }
-        guard panTicksLeft > 0, isUserScrolling else {
-            panTicksLeft = 0
+        frameInput.panPresentedInFrame = false
+        if frameInput.panPresentationPending { applyPresentation() }
+        guard frameInput.panTicksLeft > 0, isUserScrolling else {
+            frameInput.panTicksLeft = 0
             return false
         }
-        panTicksLeft -= 1
+        frameInput.panTicksLeft -= 1
         return true
     }
 
@@ -137,8 +144,13 @@ extension ScreenContentView {
     /// nothing asks for no overlay sync and no hover refresh (`PaneMotionBench`, perf-lead issue 3).
     /// `force` (or a structural change's `forcesPresentation`): everything is re-placed and the overlay syncs.
     func applyPresentation(force: Bool = false) { // perf-hot: 4ms motion-frame
-        // Every presentation shows the latest pan: no pan event waits after it.
-        panPresentationPending = false
+        // The frame tick's input: the pass waits for the frame's one presentation (`LayoutFrameInput`).
+        if context.holdsPresentations {
+            (frameInput.presentationWaiting, forcesPresentation) = (true, forcesPresentation || force)
+            return
+        }
+        // Every presentation shows the latest pan and the frame's input: nothing waits after it.
+        (frameInput.panPresentationPending, frameInput.presentationWaiting) = (false, false)
         presentationPasses += 1
         let force = force || forcesPresentation
         forcesPresentation = false
@@ -153,11 +165,15 @@ extension ScreenContentView {
             guard let host = context.hosts[pane], host.superview === self else { continue }
             let scrolls = geometry.scrolls(pane: pane)
             if arriving.contains(pane), frame.rect == frame.targetRect { arriving.remove(pane) }
-            // On the pixel grid, each edge rounded on its own: two edges a whole number of pixels
-            // apart (a pane and the divider beside it, both on the one spring) stay that far apart.
-            let placed = frame.rect.pixelEdges(scale).offsetBy(dx: (scrolls ? strip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane))
-            // Before the frame moves: chrome that re-checks itself on the move reads the rest.
+            // On the pixel grid where it shows, each edge rounded on its own after the camera offsets (the
+            // strip's, a row column's and a scroll area's are springs too: rounded before them, every edge sat
+            // off the grid for the whole camera motion and its content was resampled). Two edges a whole number
+            // of pixels apart (a pane and the divider beside it, both on the one spring) stay that far apart.
+            let placed = frame.rect.offsetBy(dx: (scrolls ? strip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane)).pixelEdges(scale)
+            // Before the frame moves: chrome that re-checks itself on the move reads the rest. On the pixel grid as the
+            // placed frame is, so a pane at rest under a camera resting between pixels has a zero rest offset.
             let rest = frame.targetRect.offsetBy(dx: (scrolls ? restStrip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane))
+                .pixelEdges(scale)
             let restOffset = CGVector(dx: rest.minX - placed.minX, dy: rest.minY - placed.minY)
             if host.restOffset != restOffset { host.restOffset = restOffset }
             // A new rest size (a split's new pane has none before its first one) on a running spring.
@@ -195,6 +211,10 @@ extension ScreenContentView {
             zoomMotion.track(pane, frame)
             clips.append((host, scrolls && pane != zoomMotion.pane))
         }
+        // The panes a close took out, each with its own ground on what its neighbours have not covered (FRAME OWNER S3c).
+        let closing = presentClosingPanes(strip: strip, scale: scale)
+        clips += closing.hosts
+        if closing.changed { changed = true }
         // A zoom that landed gives its pane back its place in the stacking order (`rank`).
         if zoomMotion.pane != zooming {
             ensureStacking()
@@ -214,7 +234,7 @@ extension ScreenContentView {
         for (kind, frame) in dividerFrames {
             guard let view = dividerViews[kind] else { continue }
             let scrolls = self.scrolls(kind)
-            let placed = frame.rect.pixelEdges(scale).offsetBy(dx: (scrolls ? strip : 0) - areaOffset(of: kind), dy: -rowOffset(of: kind))
+            let placed = frame.rect.offsetBy(dx: (scrolls ? strip : 0) - areaOffset(of: kind), dy: -rowOffset(of: kind)).pixelEdges(scale)
             let shownArea = areaWindow(of: kind), clips: [CGRect?] = [uncovered, shownArea]
             guard force || view.frame != placed || view.alphaValue != frame.alpha.value || view.placedClips != clips else { continue }
             dividersChanged = true
@@ -265,11 +285,14 @@ extension ScreenContentView {
 }
 
 extension CGRect {
-    /// This rect with each edge on the nearest device pixel (`scale` pixels per point).
+    /// This rect with each edge on the nearest device pixel (`scale` pixels per point). A tie goes up on both edges
+    /// (`floor(v + 0.5)`, not away from zero), so a rect whose edges are whole pixels apart keeps its size under any
+    /// shift, a camera offset of exactly half a pixel across the screen's edge included: a move never resizes.
     func pixelEdges(_ scale: CGFloat) -> CGRect {
         guard scale > 0 else { return self }
-        let minX = (self.minX * scale).rounded() / scale, maxX = (self.maxX * scale).rounded() / scale
-        let minY = (self.minY * scale).rounded() / scale, maxY = (self.maxY * scale).rounded() / scale
+        func edge(_ value: CGFloat) -> CGFloat { (value * scale + 0.5).rounded(.down) / scale }
+        let minX = edge(self.minX), maxX = edge(self.maxX)
+        let minY = edge(self.minY), maxY = edge(self.maxY)
         return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 }

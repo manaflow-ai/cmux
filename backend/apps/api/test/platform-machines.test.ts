@@ -93,6 +93,36 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     expect(await rpc.exec({ user: other.user, team: c.team }, machine, "true", null, 10_000)).toMatchObject({ ok: false, code: "auth.forbidden" })
   })
 
+  it("lets an agent acting for the person read and exec, never create, delete, pause, start, resize or snapshot", async () => {
+    const c = caller()
+    const { machine, name, stub } = await bootAndBind(c)
+    const agent = { ...c, agent: "agent_chief" }
+    const forbidden = { ok: false, code: "auth.forbidden", retryable: false }
+    expect(await rpc.boot(agent, nameOf())).toMatchObject(forbidden)
+    // The same name as the person's boot: an agent never recovers or reuses a create either.
+    expect(await rpc.boot(agent, name)).toMatchObject(forbidden)
+    expect(await rpc.create(agent, nameOf(), { vcpu: 2, memGiB: 4, diskGiB: 16 })).toMatchObject(forbidden)
+    expect(await rpc.fork(agent, machine, nameOf())).toMatchObject(forbidden)
+    expect(await rpc.pause(agent, machine)).toMatchObject(forbidden)
+    expect(await rpc.resume(agent, machine)).toMatchObject(forbidden)
+    expect(await rpc.resize(agent, machine, { vcpu: 4, memGiB: 8, diskGiB: 32 })).toMatchObject(forbidden)
+    expect(await rpc.snapshot(agent, machine, nameOf())).toMatchObject(forbidden)
+    expect(await rpc.deleteSnapshot(agent, `snap_${"a".repeat(20)}`)).toMatchObject(forbidden)
+    expect(await rpc.destroy(agent, machine)).toMatchObject(forbidden)
+    expect(await rpc.find(agent, name)).toEqual({ ok: true, value: { id: machine } })
+    expect(await rpc.get(agent, machine)).toMatchObject({ ok: true, value: { id: machine } })
+    expect(await rpc.exec(agent, machine, "true", null, 10_000)).toEqual({ ok: true, value: { exitCode: 0, stdout: "", stderr: "" } })
+    const ctl = (await stub.fakeControl({})) as any
+    expect(ctl.audit.at(-1)).toMatchObject({ action: "platform.exec", machine, who: `platform:${c.user}`, agent: "agent_chief" })
+    expect(ctl.creates).toBe(1)
+    // The machine is untouched: still running, still there for the person.
+    expect(await rpc.get(c, machine)).toMatchObject({ ok: true, value: { id: machine, state: "running" } })
+    // A null agent is the person; a malformed one is refused before any team.
+    expect(await rpc.get({ ...c, agent: null }, machine)).toMatchObject({ ok: true })
+    expect(await rpc.get({ ...c, agent: { id: "x" } }, machine)).toMatchObject({ ok: false, code: "validation.invalid" })
+    expect(await rpc.get({ ...c, agent: "" }, machine)).toMatchObject({ ok: false, code: "validation.invalid" })
+  })
+
   it("snapshots under a name once, and deletes its machine (gone is success)", async () => {
     const c = caller()
     const { machine, stub } = await bootAndBind(c)

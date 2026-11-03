@@ -252,7 +252,12 @@ impl Hub {
                 reply.set("sent", json!(sent));
                 json!(sent.is_some())
             }
-            "resume" => json!(self.resume_queue(session)),
+            "resume" => {
+                let resumed = self.resume_queue(session);
+                // The Stop's hold is over: what the inbox held back goes in (`inbox_review`).
+                self.inbox_review(session);
+                json!(resumed)
+            }
             "withdraw" => json!(self.withdraw_steer(session, prompt_id, control, editor).await?),
             _ => {
                 let e = "op must be update, move, send_now, interrupt, resume or withdraw";
@@ -318,6 +323,7 @@ impl Hub {
                 blocks,
                 display_parts,
                 control: stricter(q.run.control, control),
+                cloud_mobile: q.run.cloud_mobile,
                 trust_gate: q.run.trust_gate || trust_gate,
                 // The person rewrote it: it is no longer the sender's message, unless the sender
                 // is that person.
@@ -433,6 +439,7 @@ impl Hub {
                     blocks: q.run.blocks.clone(),
                     display_parts: q.run.display_parts.clone(),
                     control,
+                    cloud_mobile: q.run.cloud_mobile,
                     trust_gate: q.run.trust_gate,
                     provenance: q.run.provenance.clone(),
                     agent: q.run.agent.clone(),

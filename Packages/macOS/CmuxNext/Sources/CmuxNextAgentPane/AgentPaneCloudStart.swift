@@ -1,6 +1,6 @@
 public import CmuxNextCloud
 import CmuxNextCompat
-import CmuxNextSettings
+public import CmuxNextSettings
 public import Foundation
 
 /// `cloud.startChat {task, cwd?, harness?, model?, key}`: a new chat's first send with Cloud picked
@@ -10,6 +10,8 @@ public import Foundation
 public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     /// The person's first prompt (never logged).
     public var task: String
+    /// The composer's chips, in draft order. Mac paths are never used as file-read authority.
+    public var attachments: [JSONValue] = []
     /// The chat's folder on this Mac, absolute; nil: the tab's own folder, or none with ``home``.
     public var cwd: String?
     /// The page said the chat has no project (cloudRun.ts `cloudStartFolder`): nothing is copied,
@@ -38,7 +40,14 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
             guard let text = value as? String, !text.isEmpty, text.count <= 128 else { return nil }
             return .some(text)
         }
-        guard let task = params?["task"] as? String, !task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+        let attachments: [JSONValue]
+        if let value = params?["attachments"] {
+            guard let json = JSONValue(foundation: value), let list = json.arrayValue,
+                  list.allSatisfy({ $0.objectValue != nil }) else { return nil }
+            attachments = list
+        } else { attachments = [] }
+        guard let task = params?["task"] as? String,
+              !task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty,
               task.count <= AgentPaneRequest.maximumSandboxTask,
               let key = params?["key"] as? String, UUID(uuidString: key) != nil,
               let harness = name("harness"), let model = name("model"), let environment = name("environment") else { return nil }
@@ -48,6 +57,7 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         if let home, !(home is Bool) || cwd != nil { return nil }
         self.init(task: task, cwd: cwd as? String, harness: harness, model: model, key: key, environment: environment)
         self.home = home as? Bool ?? false
+        self.attachments = attachments
     }
 
     // The send's machine, its create, tab and copy keys and its pin are cmux-tui's
@@ -109,7 +119,38 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     /// The seed of the chat on the Cloud machine, in `cwd` (the folder's copy there): the person's
     /// prompt, sent once with the Send's gesture, on the agent and model the page picked.
     public func seed(cwd: String?) -> AgentPaneSeed {
-        AgentPaneSeed(cwd: cwd, prompt: task, promptBy: .person, harness: harness, model: model)
+        AgentPaneSeed(cwd: cwd, prompt: task, promptAttachments: attachments.isEmpty ? nil : attachments,
+                      promptBy: .person, harness: harness, model: model)
+    }
+}
+
+/// `cloud.repickChat {machine?, name?}`: the person picked another machine in the environment picker
+/// for a Cloud chat whose first send has not run (it failed, say "Claude is not signed in here"). The
+/// App moves the chat there and sends its first prompt again (``AgentPaneModel/onCloudRepickChat``,
+/// CmuxNextApp `CloudStartChat+Repick`), rather than leaving it on the machine it was on. `machine`: an
+/// account Cloud machine's id (a row acpmux does not list); `name`: the machine's name as acpmux lists
+/// it as a peer. At least one. Leo, 2026-10-31: he "picked zesty-indigo-lemur in the machine picker,
+/// but the chat stayed on sr2-tunnel-probe".
+public nonisolated struct AgentPaneCloudRepick: Sendable, Equatable {
+    public var machine: String?
+    public var name: String?
+
+    public init(machine: String?, name: String?) {
+        (self.machine, self.name) = (machine, name)
+    }
+
+    /// The page's params, checked; nil for anything else.
+    public init?(params: [String: Any]?) {
+        let params = params ?? [:]
+        guard Set(params.keys).isSubset(of: ["machine", "name"]) else { return nil }
+        func text(_ key: String) -> String?? {
+            guard let value = params[key] else { return .some(nil) }
+            guard let text = value as? String, !text.isEmpty, text.utf8.count <= 128,
+                  text.unicodeScalars.allSatisfy({ $0.isASCII && !CharacterSet.controlCharacters.contains($0) }) else { return nil }
+            return .some(text)
+        }
+        guard let machine = text("machine"), let name = text("name"), machine != nil || name != nil else { return nil }
+        self.init(machine: machine, name: name)
     }
 }
 
@@ -136,6 +177,9 @@ struct AgentPaneHandOff {
     func cloud(_ start: AgentPaneCloudStart) async -> [String: Any] {
         // The folder is a path on this Mac: a chat on another machine never names one to copy.
         guard let run = model.onCloudStartChat, !model.chatIsElsewhere else { return AgentPaneModel.unsupported("cloud.startChat") }
+        guard AgentPaneCloudAttachments(start.attachments) != nil else {
+            return AgentPaneReply.failure(code: "cloud_attachments", message: "This attachment needs a local file. Run this chat on This Mac, or paste an image or text to send it to Cloud.")
+        }
         // The page names the folder, and its whole tree is copied off this Mac: it must be one of
         // the pane's own folders (AcpmuxPathPolicy's roots, by canonical path and by components),
         // never home or above it, as for a chat that starts here. Nil: the App uses the tab's folder.

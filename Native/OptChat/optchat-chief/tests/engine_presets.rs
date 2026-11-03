@@ -72,6 +72,7 @@ fn codex_preset_is_codex_everywhere() {
     assert_eq!(c.speed.as_deref(), Some("fast"));
     assert_eq!(c.compactor_harness.as_deref(), Some("codex"));
     assert_eq!(c.compactor_model, None, "never a Claude model on codex");
+    assert_eq!(c.compactor_speed.as_deref(), Some("fast"));
     assert_eq!(c.subagent_harness.as_deref(), Some("codex"));
     assert_eq!(c.subagent_routing.as_deref(), Some("off"));
 }

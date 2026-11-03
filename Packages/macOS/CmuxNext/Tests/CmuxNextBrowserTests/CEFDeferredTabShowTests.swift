@@ -3,6 +3,8 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextTestSupport
 import Foundation
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Testing
 
 /// NIGHTLY 1.0.0-nightly.4010547037301 (2026-10-24): a link clicked in an agent chat opened the
@@ -240,6 +242,60 @@ import Testing
         #expect(first.container.syncedDragHostings.isEmpty)
         #expect(TabSpyShim.resizeSyncs.map(\.browser) == [10, 10])
         #expect(TabSpyShim.resizeSyncs.last?.timeoutMs == 0, "a page in its own window stops waiting when the drag lands")
+    }
+
+    /// #32253 review nit (lead 12:5xZ: a per-frame layout during a drag is a bottleneck): DevTools began (WILL_OPEN)
+    /// and never reported opened, so its room went back but its views stay, hidden (Chromium holds the host). Such
+    /// views take no room, so the page holds during a hold-mode divider drag as with no DevTools: no layout per frame.
+    @Test func aFailedDevToolsOpenStillLetsThePageHoldDuringADrag() async throws {
+        Self.setDragResize(.hold)
+        defer { Self.setDragResize(nil) }
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (_, first, container) = try Self.liveHost(runtime)
+        let window = NSWindow(contentRect: container.frame, styleMask: .borderless, backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.closeAfterTest() }
+        first.container.frame = container.frame  // a real page size: a zero-size page never holds
+        window.contentView?.addSubview(first.container)
+        let clock = ManualClock()
+        first.devToolsController.openTimer = DemandTimer(owner: "test", clock: clock)
+        first.devToolsController.layout.dock = .right
+        first.devToolsController.willOpen()
+        try await clock.waitForSleeper()
+        clock.advance(by: CEFDevToolsController.openedLimit)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while first.devToolsController.reservesRoom, ContinuousClock.now < deadline { await Task.yield() }
+        try #require(!first.devToolsController.reservesRoom, "the unreported open gave its room back")
+        try #require(first.host.hostView.frame.width > 0, "the page has a size")
+        try #require(first.devToolsController.views != nil, "its views stay, hidden")
+
+        first.container.paneResizeGestureDidChange(active: true)
+        #expect(first.container.heldPageSize != nil, "the page holds its size during the drag")
+        first.container.paneResizeGestureDidChange(active: false)
+        #expect(first.container.heldPageSize == nil)
+    }
+
+    /// A docked DevTools that takes room still keeps the page laid out live (it places the page itself).
+    @Test func anOpenDockedDevToolsStillLaysThePageOutLive() throws {
+        Self.setDragResize(.hold)
+        defer { Self.setDragResize(nil) }
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (_, first, container) = try Self.liveHost(runtime)
+        let window = NSWindow(contentRect: container.frame, styleMask: .borderless, backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.closeAfterTest() }
+        first.container.frame = container.frame
+        window.contentView?.addSubview(first.container)
+        first.devToolsController.layout.dock = .bottom
+        first.devToolsController.willOpen()
+        first.devToolsController.opened(browser: 20, docked: true)
+        try #require(first.devToolsController.reservesRoom)
+        try #require(first.host.hostView.frame.width > 0, "the page has a size, so only DevTools' room stops the hold")
+        first.container.paneResizeGestureDidChange(active: true)
+        #expect(first.container.heldPageSize == nil)
+        first.container.paneResizeGestureDidChange(active: false)
     }
 
     /// Review 1 of cmux#26037: a container that leaves its window mid-drag (its tab closed or moved) may never hear

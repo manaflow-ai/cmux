@@ -231,6 +231,7 @@
   grid-column: 2;
   grid-row: 1;
   align-self: center;
+  /* menu-gutter-allow: the model picker's trailing check, in the number key's column (design/model-picker.md) */
   width: 16px;
   margin: 0;
   padding: 0;
@@ -543,7 +544,6 @@
   overflow-y: auto;
   scroll-padding-block: 0;
 }
-.acpmux-quick-body[data-scrolled] { mask-image: linear-gradient(to bottom, transparent, #000 6px); }
 .acpmux-quick-list { display: flex; flex-direction: column; min-height: 0; }
 .acpmux-quick-list > * { flex: none; }
 .acpmux-quick-list > .acpmux-quick-more-list { contain: inline-size; }

@@ -115,11 +115,22 @@ pub struct BodySteps {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct BodyChiefDestination {
+    pub r#type: LitSlack,
+    #[serde(rename = "slackTeamId")]
+    pub slack_team_id: String,
+    #[serde(rename = "channelId")]
+    pub channel_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct BodyChief {
     pub r#type: LitChief,
     pub chief: String,
     pub conversation: ConversationId,
     pub prompt: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub destination: Option<BodyChiefDestination>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -159,6 +170,8 @@ pub struct CloudConnectInfo {
     pub host: HostId,
     pub epoch: i64,
     pub state: CloudMachineStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network: Option<CloudVmNetwork>,
     pub peer: CloudConnectInfoPeer,
     pub gateway: Option<CloudConnectInfoGateway>,
     pub services: Vec<CloudConnectInfoServicesItem>,
@@ -450,6 +463,14 @@ wire_enum! {
         Deleting = "deleting",
         Failed = "failed",
     }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmNetwork {
+    pub tenant: NativeTenantId,
+    pub mesh: NativeMeshId,
+    pub ipv4_cidr: String,
+    pub ipv4: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -879,28 +900,4 @@ wire_enum! {
         PerCall = "per_call",
         PerSession = "per_session",
     }
-}
-
-wire_enum! {
-    GrantCreatedFrom {
-        Install = "install",
-        Ui = "ui",
-        Automation = "automation",
-        StandingRule = "standing_rule",
-    }
-}
-
-/// A server-side grant; tokens carry only its id.
-pub type GrantId = String;
-
-/// A cloud group, minted by TeamDO (grp_ + 20 lowercase hex).
-pub type GroupId = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct GroupPlacement {
-    pub kind: GroupPlacementKind,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub host: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub machine: Option<String>,
 }

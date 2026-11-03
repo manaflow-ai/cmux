@@ -2,6 +2,30 @@
   "about": "Which source paths make up each UI surface, and the design spec that surface follows (one spec per surface, in leo-workspace design/<surface>.md). scripts/ci/pr_design_spec_check.py warns, never fails, when a pull request changes a surface's paths and its description does not cite the spec. leo-workspace tools/prior_art.py reads this map to list a surface's open and recently merged PRs before work starts. A path is a file or a directory (everything under it). Tests and gallery files are left out: changing them changes no design. Keep paths current when files move; the check warns about a mapped path that no longer exists.",
   "version": 1,
   "surfaces": {
+    "onboarding": {
+      "spec": "leo-workspace design/onboarding.md",
+      "aliases": ["onboarding", "bring your history", "memory import"],
+      "paths": [
+        "webviews/src/pages/import-history/ImportHistory.tsx",
+        "webviews/src/pages/import-history/styles.css",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Model/OnboardingModel.swift"
+      ]
+    },
+    "chief-work": {
+      "spec": "leo-workspace design/chief-work.md",
+      "aliases": ["Chief background tasks", "Chief subagents", "Chief work"],
+      "paths": [
+        "webviews/src/pages/home-channels/ChiefWorkPanel.tsx",
+        "webviews/src/pages/home-channels/chiefWork.css",
+        "webviews/src/pages/home-channels/ChiefWorkPane.tsx",
+        "webviews/src/pages/home-channels/ChiefWorkStore.ts"
+      ]
+    },
+    "chief-web": {
+      "spec": "leo-workspace design/chief-web.md",
+      "aliases": ["Chief mobile web", "Chief web address"],
+      "paths": ["webviews/src/chief-web/"]
+    },
     "cloud-environment": {
       "spec": "leo-workspace design/cloud.md",
       "aliases": ["cloud environment", "setup script", "network secrets"],
@@ -69,7 +93,9 @@
     "session-rail": {
       "spec": "leo-workspace design/session-rail.md",
       "aliases": ["session rail", "prompt rail", "thread minimap", "rail ticks"],
-      "paths": ["webviews/src/agent-session/acpmux/threadMinimap/"]
+      "paths": [
+        "webviews/src/agent-session/acpmux/threadMinimap/"
+      ]
     },
     "feature-tips": {
       "spec": "leo-workspace design/feature-tips.md",
@@ -110,7 +136,7 @@
         "webviews/src/agent-session/acpmux/conversation/valueTree.ts",
         "webviews/src/agent-session/acpmux/conversation/ToolRow.tsx",
         "webviews/src/agent-session/acpmux/conversation/ToolVerb.tsx",
-        "webviews/src/agent-session/acpmux/conversation/MessageGroupRow.tsx",
+        "webviews/src/agent-session/acpmux/conversation/TurnRows.tsx",
         "webviews/src/agent-session/acpmux/conversation/AgentTag.tsx",
         "webviews/src/agent-session/acpmux/conversation/AgentTag.css",
         "webviews/src/agent-session/acpmux/conversation/IncomingMessageCard.tsx",
@@ -132,6 +158,20 @@
         "webviews/src/pages/settings/refined.css",
         "webviews/src/pages/settings/styles.css",
         "webviews/src/ui/Select.tsx"
+      ]
+    },
+    "menus": {
+      "spec": "leo-workspace design/menus.md",
+      "aliases": ["menu", "menus", "context menu", "right-click menu", "dropdown", "checkmark", "menu glass"],
+      "paths": [
+        "webviews/src/ui/Menu.tsx",
+        "webviews/src/ui/ContextMenu.tsx",
+        "webviews/src/ui/popupSurface.css",
+        "webviews/src/ui/ui.css",
+        "webviews/src/pages/shared/PageMenu.tsx",
+        "webviews/src/pages/shared/pageBase.css",
+        "webviews/scripts/check-menu-gutters.ts",
+        "schemas/menu-metrics/menu-metrics.json"
       ]
     },
     "chat-header": {

@@ -141,6 +141,22 @@ extension NotificationCenterService {
         Double(duration.components.seconds) + Double(duration.components.attoseconds) / 1e18
     }
 
+    /// Whether `workspace` is muted, and the key its sound rule is read under, on the machine that
+    /// holds it (`machine`, else found by identity): a remote workspace's keys are qualified by
+    /// machine, and a bare id an earlier build saved still counts (NotificationWorkspaceKey).
+    func notificationKeys(of workspace: WorkspaceModel, machine: String? = nil) -> (muted: Bool, soundRule: String) {
+        guard let services, let machine = machine
+                ?? services.machines.daemons.first(where: { $0.store.workspace(id: workspace.id) === workspace })?.machineID else {
+            return (preferences.mutedWorkspaces.contains(workspace.id), workspace.id)
+        }
+        let local = services.machines.local
+        let localHolds = { (id: String) in local.store.workspace(id: id) != nil }
+        let rules = preferences.sounds.workspaces
+        return (preferences.workspaceMuted(machine: machine, workspace: workspace.id, localMachine: local.machineID, localHolds: localHolds),
+                NotificationWorkspaceKey.ruleKey(machine: machine, workspace: workspace.id, localMachine: local.machineID,
+                                                 hasRule: { rules[$0] != nil }, localHolds: localHolds))
+    }
+
     /// Attention marks for `workspace`'s panes: every pane whose shown tab
     /// reads unread (``TabModel/showsUnread``: an unread notification or Mark
     /// as Unread, the value every unread dot reads; ``unreadRing(of:dismissed:)``),
@@ -154,7 +170,8 @@ extension NotificationCenterService {
     func attentionMarks(for workspace: WorkspaceModel,
                         shownTab: @MainActor (PaneModel) -> String? = { _ in nil }) -> [LayoutPaneID: AttentionMark] {
         let attention = DesignSettings.shared.attention
-        guard attention.style != .none, !preferences.mutedWorkspaces.contains(workspace.id) else { return [:] }
+        let muted = notificationKeys(of: workspace).muted
+        guard attention.style != .none, !muted else { return [:] }
         let key = highlightKey(for: workspace)
         let dismissed = dismissedHighlights[key] ?? 0
         var marks: [LayoutPaneID: AttentionMark] = [:]

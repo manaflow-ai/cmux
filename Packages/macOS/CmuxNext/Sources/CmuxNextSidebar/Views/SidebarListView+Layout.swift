@@ -74,6 +74,7 @@ extension SidebarListViewComponents {
         o.pullRequests = SidebarSessionTree.shared.pullRequests
         if let tree = SidebarSessionTree.shared.drawn {
             (o.sessionTree, o.keycaps) = (tree, model.workspaceKeycaps(DesignSettings.shared.sidebarSections.navigation))
+            o.parentTitles = SidebarLayout.parentTitles(tree.parents, workspaces: model.allWorkspaces)
             o.chatHistory = SidebarChatHistory.shared.state
         }
         o.excludedWorkspaces.formUnion(leaving)
@@ -155,6 +156,9 @@ extension SidebarListViewComponents {
     func realizationRect() -> NSRect {
         // A space page never scrolls: the rows in its frame, no overscan.
         if enclosingScrollView == nil, let pageViewport { return pageViewport }
+        // A clip with no height shows nothing yet (a sidebar made before its window's frame): no row is realized until it
+        // has one, and the first one goes to the selection (`revealFirstViewport`, REOPEN-F7).
+        if let clip = enclosingScrollView?.contentView, clip.bounds.height <= 0 { return .null }
         let visible = enclosingScrollView?.contentView.bounds ?? bounds
         return visible.insetBy(dx: 0, dy: -SidebarStyle.overscan)
     }
@@ -410,7 +414,7 @@ extension SidebarListViewComponents {
             view.standingGroup = row.standsForGroup ? row.group.map(standingGroupAccess) : nil
         case let (.item(id), view as SidebarItemListRowView):
             guard let item = listItems[id] else { return }
-            view.configure(item, favicon: item.iconAddress.flatMap { SidebarModel.itemFavicon?($0) }, row: row)
+            view.configure(item, favicon: item.iconAddress.flatMap { model.itemFavicon?($0) }, row: row)
         case let (.block(id), view as SidebarBlockRowView):
             guard let content = blockContent(id, includeGap: true) else { return }
             view.region.activeItem = activeTopItem
@@ -447,7 +451,7 @@ extension SidebarListViewComponents {
         case let (.section(id), view as SectionHeaderRowView):
             guard let section = sections[id] else { return }
             view.configure(section, row: row)
-        case let (.emptySection(id), view as EmptySectionRowView): view.configure(pinned: id == .pinned || id == .custom(SidebarDocStore.pinnedSection), shortcut: model.newWorkspaceShortcut)
+        case let (.emptySection(id), view as EmptySectionRowView): view.configure(pinned: id == .pinned || id == .custom(SidebarDocStore.pinnedSection))
         case let (.emptyGroup(id), view as EmptyGroupRowView): view.configure(groupID: id, groupName: groups[id]?.name ?? model.group(id)?.name ?? "")
         case let (.folder(_, folder), view as FolderHeaderRowView): view.configure(folder: folder)
         case let (.status, view as StatusHeaderRowView): view.configure(row)
@@ -466,12 +470,43 @@ extension SidebarListViewComponents {
     /// Exactly as wide as the visible clip and as tall as the rows or the clip, on every clip resize too (nxdog56),
     /// with views for the rows now in it: the rows load at init, before the clip has a size, and a resize scrolls nothing.
     func fitToClip() {
-        guard let clip = enclosingScrollView?.contentView else { return }
-        if frame.width != clip.bounds.width { setFrameSize(NSSize(width: clip.bounds.width, height: frame.height)) }
+        guard let scroll = enclosingScrollView else { return }
+        let width = Self.rowsWidth(in: scroll)
+        if frame.width != width { setFrameSize(NSSize(width: width, height: frame.height)) }
         // The pool parks two realization rects of rows: a space switch's leaving and returning pages.
         rowPool.limit = SidebarRowViewPool.limit(forHeight: realizationRect().height, rowHeight: metrics.rowHeight)
         updateDocumentHeight()
+        revealFirstViewport()
         realizeVisibleRows()
+    }
+    /// The first time the clip has a height (a window's first layout), it goes to the selection before any row view is
+    /// realized, so the rows are built once, around the active row: realized at offset 0 and then revealed, a reopened
+    /// window far down its list built about twice the rows it shows before its first frame (REOPEN-F7, profile 10:
+    /// 57 row views for about 22 shown at 100 workspaces). The first render then finds the selection revealed.
+    func revealFirstViewport() {
+        guard !hasViewport, let clip = enclosingScrollView?.contentView, case let height = clip.bounds.height, height > 0 else { return }
+        hasViewport = true
+        guard drag == nil, external == nil, !displayed.rows.isEmpty, let extent = selectionReveal(in: displayed, height: height) else { return }
+        revealedActive = selectionRevealKey
+        let viewport = displayed.viewport(height: height)
+        // A row already wholly in view does not move (close-focus.md rule 7, as `revealSelectionNow`).
+        guard !viewport.isFullyVisible(extent, at: clip.bounds.minY, padding: 0) else { return }
+        let target = viewport.reveal(extent, from: clip.bounds.minY, padding: SidebarLayout.revealPadding)
+        guard target != clip.bounds.minY else { return }
+        clip.setBoundsOrigin(NSPoint(x: clip.bounds.minX, y: target))
+        enclosingScrollView?.reflectScrolledClipView(clip)
+    }
+    /// The rows' width in `scroll`: its clip's width with the vertical scroller always counted for its style, never
+    /// whether the scroller shows now. A legacy scroller (macOS "Show scroll bars: Always", or a mouse attached, before
+    /// the overlay style is put back) appears only while the rows overflow, so opening a long group narrowed every row
+    /// and folding it widened them again (Leo 2026-11-03: "why when i collapse/expand the cosmic-gray group do the
+    /// workspace horizontal widths differ?"). An overlay scroller takes no width either way.
+    static func rowsWidth(in scroll: NSScrollView) -> CGFloat {
+        let scroller = scroll.hasVerticalScroller ? scroll.verticalScroller.map { type(of: $0) } ?? NSScroller.self : nil
+        let content = NSScrollView.contentSize(forFrameSize: scroll.frame.size, horizontalScrollerClass: nil,
+                                               verticalScrollerClass: scroller, borderType: scroll.borderType,
+                                               controlSize: .regular, scrollerStyle: scroll.scrollerStyle)
+        return max(0, content.width - scroll.contentInsets.left - scroll.contentInsets.right)
     }
     override func setFrameSize(_ newSize: NSSize) {
         let widthChanged = newSize.width != frame.width

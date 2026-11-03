@@ -69,14 +69,16 @@
       "title" : "Chat Full Width",
       "type" : "boolean"
     },
-    "agentPane.display.inspector.placement" : {
-      "default" : "overlay",
-      "description" : "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
+    "agentPane.display.harnessPlacement" : {
+      "default" : "symbols",
+      "description" : "agentPane.display.harnessPlacement",
       "enum" : [
-        "push",
-        "overlay"
+        "symbols",
+        "left",
+        "top",
+        "compact"
       ],
-      "title" : "Session Info",
+      "title" : "Model Picker Harness Placement",
       "type" : "string"
     },
     "agentPane.display.minimap" : {
@@ -90,6 +92,16 @@
       "title" : "Chat Minimap",
       "type" : "string"
     },
+    "agentPane.display.presentation" : {
+      "default" : "transcript",
+      "description" : "agentPane.display.presentation",
+      "enum" : [
+        "transcript",
+        "messages"
+      ],
+      "title" : "Chat Presentation",
+      "type" : "string"
+    },
     "agentPane.display.rail.side" : {
       "default" : "left",
       "description" : "The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it.",
@@ -98,6 +110,16 @@
         "right"
       ],
       "title" : "Prompt Rail Side",
+      "type" : "string"
+    },
+    "agentPane.display.sessionInfo.placement" : {
+      "default" : "overlay",
+      "description" : "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
+      "enum" : [
+        "push",
+        "overlay"
+      ],
+      "title" : "Session Info",
       "type" : "string"
     },
     "agentPane.display.transcriptView" : {
@@ -230,6 +252,28 @@
       "title" : "Agent Chat Zoom",
       "type" : "number"
     },
+    "agents.autoRetry.attempts" : {
+      "default" : 4,
+      "description" : "How many times the chat tries again before it stops and waits for you.",
+      "maximum" : 12,
+      "minimum" : 1,
+      "title" : "Retries per Error",
+      "type" : "number"
+    },
+    "agents.autoRetry.enabled" : {
+      "default" : true,
+      "description" : "When a model is rate limited or out of capacity, or the connection drops, the chat tries again by itself. Retry on the error card always works.",
+      "title" : "Retry Automatically",
+      "type" : "boolean"
+    },
+    "agents.autoRetry.intervalSeconds" : {
+      "default" : 0,
+      "description" : "How long the chat waits before each try. 0 waits longer after each failed try: 10 seconds, 1 minute, 5 minutes, then 20 minutes.",
+      "maximum" : 3600,
+      "minimum" : 0,
+      "title" : "Seconds Between Retries",
+      "type" : "number"
+    },
     "agents.chats.discovery" : {
       "default" : true,
       "description" : "Find harness chat folders automatically. When off, only the listed folders are used.",
@@ -253,6 +297,12 @@
       "title" : "Chat Folders",
       "type" : "array"
     },
+    "agents.chats.sessionRecap" : {
+      "default" : true,
+      "description" : "When you come back to a Claude chat after 5 minutes or more, show a line on where it stands. Each recap is one small extra model call that counts toward your usage.",
+      "title" : "Session Recap",
+      "type" : "boolean"
+    },
     "agents.defaultPermissionMode" : {
       "default" : "fullAccess",
       "description" : "What a new chat may do without asking. A mode you pick in a chat applies to that chat only.",
@@ -274,6 +324,16 @@
         "deepseek/deepseek-v4-pro"
       ],
       "title" : "cmux Model Router Model",
+      "type" : "string"
+    },
+    "agents.promptCache" : {
+      "default" : "1h",
+      "description" : "How long Claude Code keeps a chat's prompt cached. One hour keeps replies after a pause cheap; its cache writes cost a little more.",
+      "enum" : [
+        "1h",
+        "5m"
+      ],
+      "title" : "Prompt Cache",
       "type" : "string"
     },
     "agents.subsessions.answerQuestions" : {
@@ -934,11 +994,38 @@
       "title" : "Density",
       "type" : "string"
     },
+    "appearance.displayBackgroundRotations" : {
+      "description" : "Map stable display identifiers to 15m, hourly, or daily. Unset displays use the global rotation.",
+      "properties" : {
+
+      },
+      "title" : "Per-display Background Rotation",
+      "type" : "object"
+    },
+    "appearance.displayBackgrounds" : {
+      "description" : "Map stable display identifiers to daily, folder:<absolute path>, desktop, a fixed background, or none.",
+      "properties" : {
+
+      },
+      "title" : "Per-display Backgrounds",
+      "type" : "object"
+    },
     "appearance.experimentalControls" : {
       "default" : false,
       "description" : "Applies Hue and Saturation to the window's tint. Off, they have no effect.",
       "title" : "Experimental Appearance Controls",
       "type" : "boolean"
+    },
+    "appearance.favoriteThemes" : {
+      "default" : [
+
+      ],
+      "description" : "Themes starred in a theme picker. The picker lists them first.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Starred Themes",
+      "type" : "array"
     },
     "appearance.focusIndicator" : {
       "default" : "tabs",
@@ -1091,6 +1178,17 @@
         "perPane"
       ],
       "title" : "Pane Backgrounds",
+      "type" : "string"
+    },
+    "appearance.rotateFavoriteThemes" : {
+      "default" : "off",
+      "description" : "When cmux opens, the terminal theme changes to the next starred theme. Needs two starred themes, and has no effect while Match System Appearance is on.",
+      "enum" : [
+        "off",
+        "launch",
+        "daily"
+      ],
+      "title" : "Rotate Starred Themes",
       "type" : "string"
     },
     "appearance.saturation" : {
@@ -1830,6 +1928,12 @@
       "title" : "Reactions Can Wake the Chief",
       "type" : "boolean"
     },
+    "cloud.agentsStartWithoutAsking" : {
+      "default" : false,
+      "description" : "An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on.",
+      "title" : "Let Agents Start Cloud Sessions Without Asking",
+      "type" : "boolean"
+    },
     "cloud.newWorkspaceFolder" : {
       "default" : "inherit",
       "description" : "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder.",
@@ -1844,6 +1948,18 @@
       "default" : false,
       "description" : "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine.",
       "title" : "Run New Workspaces in Cloud",
+      "type" : "boolean"
+    },
+    "cloud.tunnel.enabled" : {
+      "default" : false,
+      "description" : "Lets every app on this Mac reach your Cloud machines' private addresses, like a VPN for your Cloud network only. macOS asks you to allow the cmux network extension once. cmux itself does not need it.",
+      "title" : "Cloud Tunnel",
+      "type" : "boolean"
+    },
+    "cloud.useMyClaudeLoginOnMyCloudMachines" : {
+      "default" : false,
+      "description" : "Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead.",
+      "title" : "Use My Claude Login on My Own Cloud Machines",
       "type" : "boolean"
     },
     "computerUse.driver" : {
@@ -1866,6 +1982,11 @@
       "default" : true,
       "description" : "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity.",
       "title" : "Live Preview in Chat",
+      "type" : "boolean"
+    },
+    "ComputerUseActsAsPerson" : {
+      "description" : "Computer use can act as me: clicks and key presses computer use makes in a chat count as the person's for Send, Retry and Approve, and nothing else. Off by default. Honored only as a forced value from an installed profile; the person can still turn it off until cmux restarts, and every action it lets through is logged.",
+      "title" : "ComputerUseActsAsPerson",
       "type" : "boolean"
     },
     "contextMenus.showCustomizeItem" : {
@@ -2377,8 +2498,8 @@
     },
     "feed.github.enabled" : {
       "default" : false,
-      "description" : "Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first.",
-      "title" : "Connect GitHub",
+      "description" : "Inbox shows your GitHub notifications",
+      "title" : "GitHub Inbox",
       "type" : "boolean"
     },
     "feed.github.pollIntervalSeconds" : {
@@ -2405,6 +2526,12 @@
       ],
       "title" : "Copy Terminal Notifications to the Feed",
       "type" : "string"
+    },
+    "feed.needsYouInChief" : {
+      "default" : false,
+      "description" : "Open requests, such as permission prompts and questions, are pinned at the top of your Chief's conversation. The Feed always lists them.",
+      "title" : "Pin Needs You in Chief",
+      "type" : "boolean"
     },
     "files.textEditor" : {
       "default" : "",
@@ -2576,6 +2703,9 @@
         "moon",
         "moon-blue",
         "mochi",
+        "captain",
+        "sprout",
+        "bolt",
         "fox-arctic",
         "machine-violet",
         "machine-gold",
@@ -2601,6 +2731,18 @@
       ],
       "title" : "Server",
       "type" : "string"
+    },
+    "imessage.automationSkipped" : {
+      "default" : false,
+      "description" : "Remember skipping the Messages Automation step. This does not grant access or authorize sending.",
+      "title" : "Skip Messages Automation",
+      "type" : "boolean"
+    },
+    "imessage.enabled" : {
+      "default" : false,
+      "description" : "Allow reading Messages conversations on this Mac after connecting in Session Info. Sending still needs your click.",
+      "title" : "Connect iMessage",
+      "type" : "boolean"
     },
     "labs.classicHome" : {
       "default" : false,
@@ -3099,6 +3241,12 @@
       "title" : "Move the Workspace to the Top",
       "type" : "boolean"
     },
+    "notifications.attention.moveToTopOnAgentFinish" : {
+      "default" : false,
+      "description" : "An agent that finishes its turn moves its workspace to the top of the unpinned rows, unless you are looking at its pane.",
+      "title" : "Move the Workspace to the Top When Its Agent Finishes",
+      "type" : "boolean"
+    },
     "notifications.attention.persist" : {
       "default" : true,
       "description" : "notifications.attention.persist",
@@ -3535,6 +3683,12 @@
       "default" : false,
       "description" : "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active.",
       "title" : "Let Your Phone Use This Mac",
+      "type" : "boolean"
+    },
+    "phone.cloudDesktop" : {
+      "default" : false,
+      "description" : "Your phone's Chief page shows your running Cloud machine's screen, view only. This Mac streams it while the page is open.",
+      "title" : "Show Your Cloud Machine's Screen on Your Phone",
       "type" : "boolean"
     },
     "phone.cloudReplica" : {
@@ -4759,6 +4913,18 @@
       },
       "title" : "Tab Bar Buttons",
       "type" : "array"
+    },
+    "tabs.verticalTabs" : {
+      "default" : false,
+      "description" : "Show every workspace's tabs as a list beside its panes instead of a strip above them. Turn vertical tabs on or off for one workspace from its tab bar's menu.",
+      "title" : "Use Vertical Tabs for All Workspaces",
+      "type" : "boolean"
+    },
+    "tabs.verticalTabsExpandOnHover" : {
+      "default" : true,
+      "description" : "When the vertical tab list is collapsed to icons, show the titles while the pointer is over it.",
+      "title" : "Expand Collapsed Vertical Tabs on Hover",
+      "type" : "boolean"
     },
     "tasks.layout" : {
       "default" : "inbox",

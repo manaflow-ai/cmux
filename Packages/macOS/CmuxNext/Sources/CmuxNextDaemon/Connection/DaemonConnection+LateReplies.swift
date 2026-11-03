@@ -25,12 +25,18 @@ extension DaemonConnection {
     public static func retryingLateReplies<T>(_ what: String, until giveUp: ContinuousClock.Instant? = nil,
                                               _ send: () async throws -> T) async throws -> T {
         let giveUp = giveUp ?? lateReplyDeadline()
-        // wakeup-allow: each pass waits for one reply or its deadline; the retry ends at the budget, on a reply, or on another error
+        // A dropped connection (connectionClosed, connectFailed) fails at once; space those re-sends so the
+        // reconnect loop gets time instead of a spin until the budget.
+        var reconnect = Backoff.fullJitter(initial: .milliseconds(200), maximum: .seconds(2))
+        // wakeup-allow: each pass waits for one reply or its deadline (a connection loss: a jittered backoff); the retry ends at the budget, on a reply, or on another error
         while true {
             do {
                 return try await send()
-            } catch DaemonError.timedOut(let request) where ContinuousClock.now < giveUp && !Task.isCancelled {
-                lateReplyLogger.info("\(what, privacy: .public): \(request, privacy: .public) timed out; asking again")
+            } catch let error as DaemonError where error.isLateReplyRecoverable && ContinuousClock.now < giveUp && !Task.isCancelled {
+                lateReplyLogger.info("\(what, privacy: .public): \(String(describing: error), privacy: .public); asking again")
+                if case .timedOut = error { continue }
+                // concurrency-allow: Backoff.wait is an async sleep while the connection reconnects, not a blocking wait.
+                try await reconnect.wait(owner: "DaemonConnection.lateReplyReconnect")
             }
         }
     }
@@ -134,6 +140,16 @@ extension DaemonConnection {
 }
 
 private extension DaemonError {
+    /// A pending request can be retried after a transport drop (after a backoff), but a request made
+    /// while the actor is disconnected fails synchronously: `.notConnected` is thrown at once, so a
+    /// daemon that is offline fails the change now instead of holding it for the whole budget.
+    var isLateReplyRecoverable: Bool {
+        switch self {
+        case .connectionClosed, .daemonShutdown, .connectFailed, .timedOut: true
+        default: false
+        }
+    }
+
     /// A reply that missed its deadline: the daemon may still be doing the work.
     var isLateStart: Bool {
         switch self {

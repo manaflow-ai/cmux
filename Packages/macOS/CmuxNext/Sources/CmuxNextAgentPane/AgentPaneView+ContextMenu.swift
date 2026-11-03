@@ -7,7 +7,7 @@ public import Foundation
 import WebKit
 
 public extension Notification.Name {
-    /// Posted by an app-owned webview context menu while the Labs pointer inspector is enabled.
+    /// Posted by an app-owned web page's context menu for Inspect Element (the page is the object).
     static let cmuxNextInspectUIElement = Notification.Name("cmux.next.inspect-ui-element")
 }
 
@@ -120,12 +120,20 @@ extension AgentPaneView {
     /// in the file input says about where they came from, for `chat.attach.source`.
     func installContextMenu() {
         let dropped: @MainActor ([URL]) -> Void = { [weak self] urls in
-            guard let self, AgentPanePersonInput.currentIsPerson(sources: eventSources) else { return }
-            AgentPanePersonInput.record(model.transport.gestures, sources: eventSources)
+            guard let self else { return }
+            // WebKit: the drop's event is in dispatch. Chromium: the page host reports only the
+            // page's drop right after the pane's native drop (`PageWebView.onFilesDropped`), and
+            // keeps the event that was in dispatch then (`droppedEvent`): the same check of it, against the
+            // pane's table of posting processes (no system call).
+            let event = page?.chromiumPage != nil ? page?.droppedEvent : NSApp.currentEvent
+            guard let event, AgentPanePersonInput.isPerson(event, sources: eventSources) else { return }
+            model.transport.gestures.record(click: false)
             model.droppedPaths.stash(urls, kind: .drop)
             let drag = NSPasteboard(name: .drag)
+            // A Chromium drop is dated by its drag's entry, before the page took it (the ask's rule).
             model.droppedPaths.stashSource(
-                urls, items: drag.pasteboardItems?.count ?? 0, claimed: AttachmentSource.claimed(on: drag), kind: .drop)
+                urls, items: drag.pasteboardItems?.count ?? 0, claimed: AttachmentSource.claimed(on: drag), kind: .drop,
+                madeAt: page?.droppedEnteredAt?.timeIntervalSince1970)
         }
         // Read as the paste goes to WebKit: the pasteboard WebKit hands the page. As for a drop, only
         // the person's paste (a posted Cmd-V records nothing).
@@ -276,10 +284,16 @@ extension AgentPaneView {
 
     /// The pane's menu for `target` and `selection` in `menu`, which holds WebKit's items (none for More).
     private func fillContextMenu(_ menu: NSMenu, target: AgentPaneMessageTarget?, selection: String?) {
+        lastContextMenu = (NSEvent.mouseLocation, ProcessInfo.processInfo.systemUptime)
         let chatMenu = target == nil && selection == nil ? model.chatMenuItems?() ?? [] : []
         AgentPaneContextMenu.rebuild(menu, target: target, selection: selection, devTools: DevTools.isEnabled, chatMenu: chatMenu,
                                      scope: themeScope.fullStrength, actions: .init(
-            copy: { [weak self] text in self?.copyText(text) },
+            copy: { [weak self] text in
+                guard let self else { return }
+                AgentPanePersonInput.record(self.model.transport.gestures, sources: self.eventSources)
+                guard self.model.transport.gestures.consume() else { return }
+                self.copyText(text)
+            },
             fork: { [weak self] seq in self?.fork(through: seq) },
             retry: { [weak self] row in self?.runMessageAction("chat.retryPrompt", ["rowId": row]) },
             edit: { [weak self] text in self?.runMessageAction("chat.editPrompt", ["text": text]) },

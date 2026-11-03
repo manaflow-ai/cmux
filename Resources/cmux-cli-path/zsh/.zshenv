@@ -79,6 +79,25 @@ fi
         'builtin' 'typeset' -ag precmd_functions
         precmd_functions+=(_cmux_tui_agent_shims_install)
     fi
+    # A terminal of an incognito workspace (CMUX_TUI_INCOGNITO, set by the
+    # daemon) keeps no history: startup files set HISTFILE again (macOS
+    # /etc/zshrc does), so each prompt unsets it and SAVEHIST, and each line
+    # stays in memory only. The daemon's own integration (cmux-tui
+    # shell_integration/incognito-history.zsh) carries the same functions;
+    # registering twice leaves one hook.
+    if [[ -o 'interactive' && -n "${CMUX_TUI_INCOGNITO-}" ]]; then
+        _cmux_tui_incognito_history() {
+            'builtin' 'unset' 'HISTFILE'
+            'builtin' 'typeset' -g SAVEHIST=0
+        }
+        _cmux_tui_incognito_addhistory() {
+            _cmux_tui_incognito_history
+            'builtin' 'return' 2
+        }
+        'builtin' 'typeset' -ag precmd_functions zshaddhistory_functions
+        precmd_functions=("${(@)precmd_functions:#_cmux_tui_incognito_history}" _cmux_tui_incognito_history)
+        zshaddhistory_functions=("${(@)zshaddhistory_functions:#_cmux_tui_incognito_addhistory}" _cmux_tui_incognito_addhistory)
+    fi
     if [[ -o 'interactive' && -n "${_cmux_replay_file-}" ]]; then
         _cmux_replay_first() {
             'builtin' 'local' file="${_cmux_replay_file-}"

@@ -66,7 +66,7 @@ if [ "$NIGHTLY_TRACK" = nightly-next ] && [ -n "$PUBLISHED_SHA" ] && [ "$PUBLISH
   gate_dir="$(mktemp -d)"
   python3 scripts/cmux-next/release-notes.py build --build "$NIGHTLY_BUILD" \
     --short "1.0.0-nightly.$NIGHTLY_BUILD" --date "$(date -u +%Y-%m-%d)" \
-    --head "$NOTES_HEAD" --since "$PUBLISHED_SHA" --out "$gate_dir" >/dev/null
+    --head "$NOTES_HEAD" --since "$PUBLISHED_SHA" --out "$gate_dir" --pr-descriptions >/dev/null
   python3 scripts/cmux-next/release-notes.py check --notes "$gate_dir/$NIGHTLY_BUILD.json"
   rm -rf "$gate_dir"
   python3 scripts/cmux-next/release-notes.py appcast --head "$NOTES_HEAD" --since "$PUBLISHED_SHA" \

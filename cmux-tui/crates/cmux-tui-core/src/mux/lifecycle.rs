@@ -73,9 +73,9 @@ impl Mux {
         // neither writes an older snapshot over the other's. The write takes
         // the registry connection alone, never the workspace registry lock,
         // so state commits do not wait behind it (issue 23038).
-        let fold = self.agent_roster_fold.lock().unwrap();
+        let fold = self.agent_roster_fold.lock().unwrap_or_else(PoisonError::into_inner);
         let retired = {
-            let mut host = self.agent_roster.lock().unwrap();
+            let mut host = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
             let retired = host.roster.retire_terminal(terminal_id.as_str());
             retired.then(|| (host.cursor, host.roster.snapshot().to_string()))
         };
@@ -120,11 +120,13 @@ impl Mux {
         self.shutting_down.store(true, Ordering::Release);
         // An in-flight maintenance tick must not delay the rest of shutdown.
         self.stop_journal_maintenance();
+        self.stop_output_cleanup();
         #[cfg(unix)]
         self.stop_agent_chat_notices();
         self.begin_session_shutdown();
         self.terminal_respawns.wake_all();
         self.startup_adoption_gate.wake_all();
+        self.respawn_gate.wake_all();
         // Hosts of closed terminals were already asked to exit; give them
         // their close deadline so this owner acknowledges their exits.
         if !self.wait_for_terminal_host_closes(
@@ -242,6 +244,27 @@ impl Mux {
         crate::holder_runtime::prepare_in_background();
     }
 
+    /// Debug seam (`CMUX_TUI_DEBUG_WEDGE_REGISTRY=1`, off by default): a
+    /// thread takes the workspace registry lock and never releases it, as the
+    /// lock-order deadlock of #32405 left an owner (#32621): `identify` still
+    /// answers, every workspace change waits forever. The replace tests use it
+    /// to prove that `server ensure` replaces such an owner.
+    pub fn wedge_registry_if_asked(self: &Arc<Self>) {
+        if std::env::var_os("CMUX_TUI_DEBUG_WEDGE_REGISTRY").is_none_or(|value| value != "1") {
+            return;
+        }
+        let mux = Arc::clone(self);
+        let (taken, wait) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _registry = mux.workspace_registry.lock();
+            let _ = taken.send(());
+            loop {
+                std::thread::park();
+            }
+        });
+        let _ = wait.recv();
+    }
+
     pub fn server_lifecycle_ready(&self) -> bool {
         self.server_lifecycle_ready.load(Ordering::Acquire)
     }
@@ -301,6 +324,7 @@ impl Mux {
         self.begin_session_shutdown();
         self.terminal_respawns.wake_all();
         self.startup_adoption_gate.wake_all();
+        self.respawn_gate.wake_all();
         // The journal hook dispatcher waits on the shared journal.
         self.journal_kernel.wake_waiters();
         if let Some(waker) = self.daemon_shutdown_waker.lock().unwrap().as_ref() {

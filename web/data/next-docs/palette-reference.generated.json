@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1266,
+    "entries": 1281,
     "shortcuts": 189
   },
   "sections": [
@@ -20,6 +20,12 @@
           "title": "Add People to Group…",
           "shortcut": null,
           "command": "cmux home add-members"
+        },
+        {
+          "id": "home.agentMessagePlayground",
+          "title": "Agent Messages Playground",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "home.attachFiles",
@@ -216,6 +222,12 @@
         {
           "id": "recentlyFocused",
           "title": "Location History…",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "home.mcpConnectPlayground",
+          "title": "MCP Connect Card Playground",
           "shortcut": null,
           "command": null
         },
@@ -1986,7 +1998,7 @@
         {
           "id": "newColumn",
           "title": "New Column Right",
-          "shortcut": "⌃⌘D",
+          "shortcut": "⌃⌘X",
           "command": "cmux pane new-column"
         },
         {
@@ -1998,7 +2010,7 @@
         {
           "id": "newRow",
           "title": "New Row",
-          "shortcut": "⌃⇧⌘D",
+          "shortcut": "⌃⇧⌘X",
           "command": "cmux pane new-row"
         },
         {
@@ -2114,6 +2126,12 @@
           "title": "Set Pane Tint…",
           "shortcut": null,
           "command": "cmux pane set-tint"
+        },
+        {
+          "id": "artifacts.show",
+          "title": "Show Artifacts",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "pane.focus",
@@ -2692,6 +2710,12 @@
           "command": "cmux tab-group collapse"
         },
         {
+          "id": "tabs.verticalTabs.collapse",
+          "title": "Collapse Tabs",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "tabGroup.toggleCollapsed",
           "title": "Collapse/Expand Tab Group",
           "shortcut": null,
@@ -3242,6 +3266,12 @@
           "title": "Toggle Full Width Tab",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "tabs.verticalTabs.toggle",
+          "title": "Turn On Vertical Tabs",
+          "shortcut": null,
+          "command": "cmux pane toggle-vertical-tabs"
         },
         {
           "id": "tabGroup.ungroup",
@@ -4788,13 +4818,13 @@
         {
           "id": "splitBrowserDown",
           "title": "Split Browser Down",
-          "shortcut": "⌥⇧⌘D",
+          "shortcut": "⌥⇧⌘X",
           "command": "cmux browser split-down"
         },
         {
           "id": "splitBrowserRight",
           "title": "Split Browser Right",
-          "shortcut": "⌥⌘D",
+          "shortcut": "⌥⌘X",
           "command": "cmux browser split-right"
         },
         {
@@ -5512,6 +5542,12 @@
           "command": null
         },
         {
+          "id": "attention.goTo",
+          "title": "Go to What Needs Me",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "notifications.importSound",
           "title": "Import Notification Sound…",
           "shortcut": null,
@@ -5986,6 +6022,12 @@
           "command": null
         },
         {
+          "id": "agent.share.invite",
+          "title": "Invite People to Chat…",
+          "shortcut": null,
+          "command": "cmux share invite"
+        },
+        {
           "id": "palette.launchClaudeTeams",
           "title": "Launch Claude Teams",
           "shortcut": null,
@@ -6416,6 +6458,12 @@
           "title": "Connect Account to CodeRouter…",
           "shortcut": null,
           "command": "cmux accounts connect"
+        },
+        {
+          "id": "accounts.githubConnect",
+          "title": "Connect GitHub",
+          "shortcut": null,
+          "command": "cmux accounts github-connect"
         },
         {
           "id": "cloudCopyMachineID",
@@ -6898,6 +6946,12 @@
           "command": "cmux servers add"
         },
         {
+          "id": "debug.allThemesPlayground",
+          "title": "All Themes Playground",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "layout.centerFocusedColumn.always",
           "title": "Always Center Focused Column",
           "shortcut": null,
@@ -6912,6 +6966,12 @@
         {
           "id": "palette.attemptUpdate",
           "title": "Attempt Update",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "tabs.verticalTabs.expandOnHover",
+          "title": "Auto-Expand Tabs on Hover",
           "shortcut": null,
           "command": null
         },
@@ -7060,6 +7120,12 @@
           "command": "cmux apps hide"
         },
         {
+          "id": "hostPressure.hideWarning",
+          "title": "Hide Host Pressure Warning",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "import.open",
           "title": "Import from Other Apps…",
           "shortcut": null,
@@ -7076,6 +7142,12 @@
           "title": "Increase Interface Size",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "updates.installEarlierBuild",
+          "title": "Install an Earlier Nightly…",
+          "shortcut": null,
+          "command": "cmux settings install-earlier-nightly"
         },
         {
           "id": "app.install",
@@ -7336,6 +7408,12 @@
           "command": "cmux apps unhide"
         },
         {
+          "id": "hostPressure.showWarning",
+          "title": "Show Host Pressure Warning",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "nowPlaying.showCard",
           "title": "Show Media Card",
           "shortcut": null,
@@ -7364,6 +7442,12 @@
           "title": "Switch Update Channel…",
           "shortcut": null,
           "command": "cmux settings switch-update-channel"
+        },
+        {
+          "id": "debug.tabBarPlayground",
+          "title": "Tab Bar Playground",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "tabs.overflow.scroll",
@@ -7604,6 +7688,12 @@
           "title": "Use Theme Color for Pane Borders",
           "shortcut": null,
           "command": "cmux settings use-theme-pane-border-color"
+        },
+        {
+          "id": "tabs.verticalTabs.allWorkspaces",
+          "title": "Use Vertical Tabs for All Workspaces",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "browser.defaultEngine.webkit",

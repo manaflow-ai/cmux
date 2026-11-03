@@ -45,6 +45,13 @@ pub use agent_session_trust::{
 };
 
 pub const AGENT_SESSION_ATTACH_CAPABILITY: &str = "agent-session-attach-v1";
+/// Ordered ACP content on `agent-session-prompt`; older clients keep sending `text`.
+pub const AGENT_SESSION_CONTENT_CAPABILITY: &str = "agent-session-content-v1";
+/// A Cloud mobile carrier connection may use the native agent-session JSON
+/// verbs over an authenticated remote link. The carrier is still constrained
+/// to tab-scoped attach/events/prompt/cancel/detach; it never receives a raw
+/// acpmux socket.
+pub const CLOUD_MOBILE_CHAT_CAPABILITY: &str = "cloud-mobile-chat-v1";
 /// `agent-session-typing` and `agent-session-view`, and the `agent-session-presence` event: who
 /// is in the attached chat (chat multiplayer, hq#4389), through acpmux's `_acpmux/typing`,
 /// `_acpmux/view` and `_acpmux/presence`. The event goes only to a connection that echoed the
@@ -218,6 +225,10 @@ struct Attachment {
     /// ends when the record changes or the tab closes.
     record_session: String,
     read_only: AtomicBool,
+    /// This attachment was opened by the authenticated Cloud mobile carrier.
+    /// Prompt dispatch carries the Web asking policy under the same native
+    /// attachment/session lock; ordinary local clients never inherit it.
+    cloud_mobile: bool,
     mux: Weak<Mux>,
     link: Arc<AcpmuxLink>,
     writer: MessageWriter,
@@ -527,7 +538,8 @@ struct MediaParams {
 struct PromptParams {
     surface: SurfaceId,
     prompt_id: String,
-    text: String,
+    text: Option<String>,
+    content: Option<Vec<Value>>,
 }
 
 #[derive(Deserialize)]
@@ -750,7 +762,9 @@ pub(super) fn try_handle(
     let Some(command) = AgentSessionCommand::parse(&cmd, Value::Object(object)) else {
         return Some(refuse(writer, id, Refusal::BadRequest));
     };
-    if !mux.agent_carrier_allowed(client) {
+    // Remote trust comes from the verified Cloud mobile peer
+    // (`cloud_mobile_client`), never from the declared capability alone.
+    if !mux.agent_carrier_allowed(client) && !mux.cloud_mobile_client(client) {
         return Some(refuse(writer, id, Refusal::NotTrusted));
     }
     let sessions = &mux.control_clients.agent_sessions;
@@ -931,6 +945,10 @@ fn page_params(session: &str, params: &PageParams, attach: bool) -> Result<Value
     }
     if attach {
         out.insert("eventStream", json!(true));
+        // The page opening the chat asks for its newest records at once, as the app's local
+        // attach does (`direct.ts` `sendAttach`): waiting for a restarted daemon's log restore
+        // of a long chat outlasted `CALL_TIMEOUT`, and the remote chat opened empty.
+        out.insert("waitLogs", json!(false));
     }
     Ok(out)
 }
@@ -947,6 +965,8 @@ fn attach(
     pinned: Option<String>,
     writer: &MessageWriter,
 ) -> bool {
+    let cloud_mobile =
+        mux.control_clients.supports_capability(client, CLOUD_MOBILE_CHAT_CAPABILITY);
     let sessions = &mux.control_clients.agent_sessions;
     if let Some(attachment) = sessions.attachment(client, params.surface) {
         if author.is_some() && pinned.as_deref() != Some(attachment.record_session.as_str()) {
@@ -1006,6 +1026,7 @@ fn attach(
                 record_session,
                 acpmux_params,
                 read_only,
+                cloud_mobile,
                 author,
                 worker_writer,
             );
@@ -1209,8 +1230,8 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             page.map_err(Refusal::of)
                 .and_then(|page| attachment.private(bound_page(page, newest_first)))
         }
-        AgentSessionCommand::Prompt(PromptParams { prompt_id, text, .. }) => {
-            prompt(attachment, prompt_id, text)
+        AgentSessionCommand::Prompt(PromptParams { prompt_id, text, content, .. }) => {
+            prompt(attachment, prompt_id, text, content)
         }
         AgentSessionCommand::Permission(PermissionParams {
             permission_id,
@@ -1341,14 +1362,59 @@ fn setting(
     attachment.link.call(method, attachment.stamp(params), CALL_TIMEOUT).map_err(Refusal::of)
 }
 
-/// Sends one text prompt and answers once acpmux recorded it. The turn's
+/// Only content fields, never ACP routing or provenance. Preserve the ordered blocks verbatim.
+fn valid_prompt_block(block: &Value) -> bool {
+    let Some(object) = block.as_object() else { return false };
+    let nonempty =
+        |key| block.get(key).and_then(Value::as_str).is_some_and(|s| !s.trim().is_empty());
+    let allowed: &[&str] = match block.get("type").and_then(Value::as_str) {
+        Some("text") if block.get("text").is_some_and(Value::is_string) => {
+            if block.get("_meta").is_some_and(|meta| meta != &json!({"cmux": {"pasted": true}})) {
+                return false;
+            }
+            &["type", "text", "_meta"]
+        }
+        Some("image" | "audio" | "document") if nonempty("mimeType") && nonempty("data") => {
+            &["type", "mimeType", "data", "name"]
+        }
+        Some("resource_link") if nonempty("uri") => &["type", "uri", "name"],
+        _ => return false,
+    };
+    object.keys().all(|key| allowed.contains(&key.as_str()))
+        && block.get("name").is_none_or(Value::is_string)
+}
+
+/// Sends one prompt and answers once acpmux recorded it. The turn's
 /// reply streams as records; the `session/prompt` result (at the end of the
 /// turn) is not waited for.
-fn prompt(attachment: &Attachment, prompt_id: String, text: String) -> Result<Value, Refusal> {
+fn prompt(
+    attachment: &Attachment,
+    prompt_id: String,
+    text: Option<String>,
+    content: Option<Vec<Value>>,
+) -> Result<Value, Refusal> {
     let valid_id = (1..=128).contains(&prompt_id.len())
         && prompt_id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
-    if !valid_id || text.trim().is_empty() || text.len() > MAX_PROMPT_BYTES {
+    if !valid_id {
         return Err(Refusal::BadRequest);
+    }
+    let blocks = match (text, content) {
+        (Some(text), None) if !text.trim().is_empty() && text.len() <= MAX_PROMPT_BYTES => {
+            vec![json!({"type": "text", "text": text})]
+        }
+        (None, Some(blocks)) if !blocks.is_empty() && blocks.iter().all(valid_prompt_block) => {
+            blocks
+        }
+        _ => return Err(Refusal::BadRequest),
+    };
+    if blocks.iter().all(|block| {
+        block["type"] == "text" && block["text"].as_str().is_some_and(|text| text.trim().is_empty())
+    }) {
+        return Err(Refusal::BadRequest);
+    }
+    // Guests previously supplied text only. Do not grant access to files on the owner's host.
+    if attachment.author.is_some() && blocks.iter().any(|block| block["type"] != "text") {
+        return Err(Refusal::NotTrusted);
     }
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     {
@@ -1358,13 +1424,18 @@ fn prompt(attachment: &Attachment, prompt_id: String, text: String) -> Result<Va
         }
         prompts.insert(prompt_id.clone(), sender);
     }
-    // Only a text content block: the client sends content, never a command,
-    // a path or an MCP server.
-    let params = json!({
+    let mut params = json!({
         "sessionId": attachment.session,
-        "prompt": [{"type": "text", "text": text}],
+        "prompt": blocks,
         "_meta": {"acpmux": {"promptId": prompt_id}},
     });
+    // The native daemon connection is Local, but the authenticated Cloud
+    // mobile carrier must retain the Web asking policy for this prompt. This
+    // marker is inserted by the typed agent-session path, never accepted from
+    // the phone or forwarded as arbitrary ACP metadata.
+    if attachment.cloud_mobile {
+        params["_meta"]["acpmux"]["via"] = json!("cloud-mobile");
+    }
     // The request's own reply comes at the end of the turn and is not
     // waited for, so a queued prompt holds no call slot (permission answers
     // stay possible while turns queue).

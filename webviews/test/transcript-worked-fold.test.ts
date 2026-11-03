@@ -6,7 +6,7 @@
 // notes (or that stopped mid-tool) has no answer.
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { turnView, turnViewFrom } from "../src/agent-session/acpmux/conversation/turns";
 import { isVisiblyEmptyMessage } from "../src/agent-session/acpmux/conversation/visibleMessage";
 import { layoutConversation } from "../src/agent-session/acpmux/model";
 
@@ -194,4 +194,49 @@ test("the last reply stays open when short notes and tools come after it", () =>
   ]);
   expect(open.slice(-2)).toEqual(["assistant:answer", "turnSummary:end"]);
   expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "assistant:answer", "turnSummary:end"]);
+});
+
+const dateTurn = (id: string, at: number, visible = true): AcpmuxRow[] => [
+  { id, kind: "user", at, version: 1, text: visible ? "Prompt" : "" },
+  { id: `${id}-answer`, kind: "assistant", at: at + 1_000, version: 1, text: visible ? "Answer" : "\u200B" },
+  { id: `${id}-end`, kind: "turnSummary", at: at + 2_000, version: 1, status: "completed" },
+];
+
+test("an invisible turn across days leaves the separator for the next visible turn", () => {
+  const start = Date.UTC(2026, 9, 30, 12);
+  const nextDay = start + 24 * 3_600_000;
+  const rows = [
+    ...dateTurn("old", start),
+    ...dateTurn("hidden", nextDay, false),
+    ...dateTurn("next", nextDay + 60_000),
+  ];
+  const dates = turnView(rows, new Set(), { now: nextDay + 120_000 }).filter((row) => row.kind === "date");
+  expect(dates.map((row) => row.id)).toEqual(["date-old", "date-next"]);
+  expect(dates[1]!.at).toBe(nextDay + 60_000);
+});
+
+test("a reused invisible turn does not consume the next visible turn's separator", () => {
+  const start = Date.UTC(2026, 9, 30, 12);
+  const nextDay = start + 24 * 3_600_000;
+  const folds = new Set<string>();
+  const rows = [
+    ...dateTurn("old", start),
+    ...dateTurn("hidden", nextDay, false),
+    ...dateTurn("hidden2", nextDay + 60_000, false),
+  ];
+  const previous = turnViewFrom(rows, folds, { now: nextDay + 120_000 });
+  const appended = [...rows, ...dateTurn("next", nextDay + 120_000)];
+  const updated = turnViewFrom(appended, folds, { now: nextDay + 180_000 }, previous);
+  expect(updated.rows).toEqual(turnView(appended, folds, { now: nextDay + 180_000 }));
+  expect(updated.rows.filter((row) => row.kind === "date").map((row) => row.id)).toEqual(["date-old", "date-next"]);
+});
+
+test("the first visible turn's separator ages even after an invisible first turn", () => {
+  const start = Date.UTC(2026, 9, 30, 12);
+  const folds = new Set<string>();
+  const rows = [...dateTurn("hidden", start, false), ...dateTurn("next", start + 60_000)];
+  const previous = turnViewFrom(rows, folds, { now: start + 120_000 });
+  expect(previous.rows.some((row) => row.kind === "date")).toBe(false);
+  const updated = turnViewFrom(rows, folds, { now: start + 2 * 3_600_000 }, previous);
+  expect(updated.rows.filter((row) => row.kind === "date").map((row) => row.id)).toEqual(["date-next"]);
 });

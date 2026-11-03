@@ -3,14 +3,23 @@
 
 from __future__ import annotations
 
+import base64
+import contextlib
+import datetime as dt
+import email.message
+import gzip
 import importlib.util
 import http.server
+import io
+import json
+import os
 import pathlib
 import socketserver
 import sys
 import threading
 import time
 import unittest
+import urllib.error
 from unittest import mock
 
 
@@ -40,7 +49,11 @@ class _DripHandler(http.server.BaseHTTPRequestHandler):
         try:
             self.wfile.write(b"{")
             self.wfile.flush()
-            while not self.stop.wait(0.01):
+            # Bounded: a client that ignores its deadline sees the body end early (an
+            # IncompleteRead, not the TimeoutError the tests demand) instead of hanging.
+            for _ in range(300):
+                if self.stop.wait(0.01):
+                    break
                 self.wfile.write(b" ")
                 self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError):
@@ -57,6 +70,31 @@ class _DripServer(socketserver.ThreadingTCPServer):
 
 
 class FastChecksRunnerTests(unittest.TestCase):
+    def test_busy_document_is_rechecked_live_after_waiting(self) -> None:
+        idle = dict(id=1, name="synthetic-fast-check", os="Linux", status="online", busy=False,
+                    labels=[{"name": picker.FLEET}])
+        doc = dict(schema="runner-state/v1", repository="manaflow-ai/cmux", complete=True,
+                   generated_at=dt.datetime.now(dt.timezone.utc).isoformat(), repository_runners=[],
+                   runner_groups={"glaeda-minis": [], "cmux-fleet-linux": [dict(idle, busy=True)]}, scale_sets={})
+        env = dict(ROUTE_TOKEN="synthetic-token", GITHUB_REPOSITORY="manaflow-ai/cmux",
+                   CI_RUNNER_STATE=base64.b64encode(gzip.compress(json.dumps(doc).encode())).decode())
+        paths, clock = [], [0.0]
+
+        def api(path):
+            paths.append(path)
+            if "visible_to_repository" in path:
+                return {"runner_groups": [{"name": "glaeda-minis", "id": 9},
+                                          {"name": "cmux-fleet-linux", "id": 10}]}
+            return {"runners": [idle]} if "/10/runners" in path else {}
+
+        with mock.patch.dict(os.environ, env, clear=True), \
+             mock.patch.object(picker.pr_runner_pool.GitHub, "get_api", side_effect=api), \
+             contextlib.redirect_stderr(io.StringIO()):
+            selected = picker.choose(env, sleep=lambda s: clock.__setitem__(0, clock[0] + s), clock=lambda: clock[0])
+        self.assertEqual(selected, picker.FLEET)
+        self.assertEqual(clock[0], picker.POLL_SECONDS)
+        self.assertEqual(len(paths), 4)
+
     def test_live_idle_linux_fleet_runner_is_selected(self) -> None:
         rows = [{"status": "online", "busy": False, "os": "Linux",
                  "labels": [{"name": "cmux-fleet-linux-x64"}]}]
@@ -130,7 +168,7 @@ class FastChecksRunnerTests(unittest.TestCase):
             def __init__(self, token, repo, *, deadline=None):
                 calls.append((token, repo, deadline))
 
-            def runners(self):
+            def runners(self, *, use_state=True):
                 return []
 
             def snapshot(self, *, now):
@@ -181,7 +219,6 @@ class FastChecksRunnerTests(unittest.TestCase):
             )
             with self.assertRaises(TimeoutError):
                 client.get_api("/drip")
-            self.assertLess(time.monotonic() - started, 0.8)
         finally:
             picker.pr_runner_pool.API = api
             _DripHandler.stop.set()
@@ -204,7 +241,6 @@ class FastChecksRunnerTests(unittest.TestCase):
             )
             with self.assertRaises(TimeoutError):
                 client.download({"archive_download_url": f"{picker.pr_runner_pool.API}/artifact"})
-            self.assertLess(time.monotonic() - started, 0.8)
         finally:
             picker.pr_runner_pool.API = api
             _DripHandler.stop.set()
@@ -213,6 +249,98 @@ class FastChecksRunnerTests(unittest.TestCase):
             thread.join(1.0)
             self.assertFalse(thread.is_alive())
 
+
+    @staticmethod
+    def _refusal(path: str, code: int, headers: dict[str, str]) -> "urllib.error.HTTPError":
+        message = email.message.Message()
+        for name, value in headers.items():
+            message[name] = value
+        return urllib.error.HTTPError(f"https://api.github.com{path}", code, "Forbidden", message,
+                                      io.BytesIO(b'{"message": "API rate limit exceeded"}'))
+
+    def _choose_with_api(self, api) -> tuple[str, list[float], list[str]]:
+        env = dict(ROUTE_TOKEN="synthetic-token", GITHUB_REPOSITORY="manaflow-ai/cmux")
+        sleeps, paths, clock = [], [], [0.0]
+
+        def record(path):
+            paths.append(path)
+            return api(path)
+
+        def sleep(seconds):
+            sleeps.append(seconds)
+            clock[0] += seconds
+
+        with mock.patch.dict(os.environ, env, clear=True), \
+             mock.patch.object(picker.pr_runner_pool.GitHub, "get_api", side_effect=record), \
+             contextlib.redirect_stderr(io.StringIO()):
+            selected = picker.choose(env, sleep=sleep, clock=lambda: clock[0])
+        return selected, sleeps, paths
+
+    def test_spent_quota_on_repository_runners_overflows_without_polling(self) -> None:
+        # cmux runs 41614121649, 41614232965 and 41614590891: every census read was
+        # a 403 with X-RateLimit-Remaining=0, and the picker asked again every 15 s
+        # for the whole 180 s before taking the overflow it could have taken at once.
+        def api(path):
+            raise self._refusal(path, 403, {"X-RateLimit-Remaining": "0", "X-RateLimit-Resource": "core"})
+
+        selected, sleeps, paths = self._choose_with_api(api)
+        self.assertEqual(selected, "blacksmith-8vcpu-ubuntu-2404")
+        self.assertEqual(sleeps, [])
+        self.assertEqual(len(paths), 1)
+
+    def test_spent_quota_on_org_runner_groups_overflows_without_polling(self) -> None:
+        def api(path):
+            if "/orgs/" in path:
+                raise self._refusal(path, 403, {"X-RateLimit-Remaining": "0"})
+            return {"runners": []}
+
+        selected, sleeps, paths = self._choose_with_api(api)
+        self.assertEqual(selected, "blacksmith-8vcpu-ubuntu-2404")
+        self.assertEqual(sleeps, [])
+        self.assertEqual(len(paths), 2)
+
+    def test_secondary_limit_and_429_count_as_spent_quota(self) -> None:
+        for code, headers in ((429, {}), (403, {"Retry-After": "60"})):
+            with self.subTest(code=code):
+                selected, sleeps, _ = self._choose_with_api(
+                    lambda path, code=code, headers=headers: (_ for _ in ()).throw(self._refusal(path, code, headers)))
+                self.assertEqual(selected, "blacksmith-8vcpu-ubuntu-2404")
+                self.assertEqual(sleeps, [])
+
+    def test_permission_403_still_polls_until_the_deadline(self) -> None:
+        def api(path):
+            raise self._refusal(path, 403, {"X-RateLimit-Remaining": "4321"})
+
+        selected, sleeps, _ = self._choose_with_api(api)
+        self.assertEqual(selected, "blacksmith-8vcpu-ubuntu-2404")
+        self.assertEqual(sum(sleeps), picker.WAIT_SECONDS)
+
+    def test_slow_runner_pages_cannot_push_admission_past_its_deadline(self) -> None:
+        # Every census page drips: without one deadline across read_live's
+        # page reads, each request would take its own 15 s timeout.
+        _DripHandler.stop.clear()
+        server = _DripServer(("127.0.0.1", 0), _DripHandler)
+        thread = threading.Thread(target=server.serve_forever, name="fast-check-admission-drip-server")
+        thread.start()
+        api = picker.pr_runner_pool.API
+        picker.pr_runner_pool.API = f"http://127.0.0.1:{server.server_address[1]}"
+        env = dict(ROUTE_TOKEN="synthetic-token", GITHUB_REPOSITORY="manaflow-ai/cmux")
+        started = time.monotonic()
+        try:
+            with mock.patch.dict(os.environ, env, clear=True), \
+                 mock.patch.object(picker, "WAIT_SECONDS", 0.3), \
+                 mock.patch.object(picker, "POLL_SECONDS", 0.05), \
+                 contextlib.redirect_stderr(io.StringIO()):
+                selected = picker.choose(env)
+            elapsed = time.monotonic() - started
+        finally:
+            picker.pr_runner_pool.API = api
+            _DripHandler.stop.set()
+            server.shutdown()
+            server.server_close()
+            thread.join(1.0)
+        self.assertEqual(selected, "blacksmith-8vcpu-ubuntu-2404")
+        self.assertLess(elapsed, 0.3 + 0.5)
 
 if __name__ == "__main__":
     unittest.main()

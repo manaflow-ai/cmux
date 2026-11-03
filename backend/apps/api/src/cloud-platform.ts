@@ -19,7 +19,8 @@ import type { PlatformOperations } from "./cloud-platform-operations.ts"
  * use the team's machines (personal team, or a member with team.resources now); find and delete do
  * not, so cleanup outlives a departure. Exec, snapshot, resize and delete reach only machines a platform boot
  * of the same user made (the row's `platform` flag), never a person's own machine. Exec runs as the
- * image's work user, never root.
+ * image's work user, never root. An agent acting for the person (PlatformCaller.agent) keeps the person's
+ * identity and may only read and exec (AGENT_REFUSED); its execs are audited with the agent.
  */
 
 /** Shown in the team's machine and snapshot lists. */
@@ -74,7 +75,28 @@ export interface PlatformHost {
   audit(entry: Record<string, unknown>): void
 }
 
-export const platformPrincipal = (team: string, user: string): Principal => ({ identity: `${PLATFORM_IDENTITY_PREFIX}${user}`, kind: "session", user, team })
+export const platformPrincipal = (team: string, user: string, agent: string | null = null): Principal => ({
+  identity: `${PLATFORM_IDENTITY_PREFIX}${user}`,
+  user,
+  team,
+  ...(agent !== null ? { kind: "agent" as const, agent } : { kind: "session" as const }),
+})
+/**
+ * What an agent acting for the person may not do, as CloudDO's own rules (domains/cloud.ts authorize): create,
+ * delete, pause or start machines; resizes and snapshots need a person. Refused before anything runs, since create,
+ * fork and the delete's cancel never reach that authorize.
+ */
+const AGENT_REFUSED: Partial<Record<PlatformCall["op"], string>> = {
+  boot: "an agent cannot create machines",
+  create: "an agent cannot create machines",
+  fork: "an agent cannot create machines",
+  destroy: "an agent cannot delete machines",
+  pause: "an agent cannot pause or start machines",
+  resume: "an agent cannot pause or start machines",
+  resize: "an agent cannot resize machines",
+  snapshot: "an agent cannot take snapshots",
+  deleteSnapshot: "an agent cannot delete snapshots",
+}
 const key = (kind: "boot" | "snapshot" | "destroy" | "deleteSnapshot", name: string) => `platform-env:${kind}:${name}`
 const machineKey = (kind: "pause" | "resume", machine: string, revision: string) => `platform-env:${kind}:${machine}:${revision}`
 const sameShape = (a: PlatformShape, b: PlatformShape) => a.vcpu === b.vcpu && a.memGiB === b.memGiB && a.diskGiB === b.diskGiB
@@ -112,7 +134,9 @@ export const platformMetadata = (m: MachineRow): PlatformReply<PlatformMachine> 
   return ok({ id: m.id, region: "global", state, shape })
 }
 
-export const platformCall = async (host: PlatformHost, user: string, call: PlatformCall, recoveryOnly = false): Promise<PlatformReply> => {
+export const platformCall = async (host: PlatformHost, user: string, call: PlatformCall, recoveryOnly = false, agent: string | null = null): Promise<PlatformReply> => {
+  const agentRefusal = agent !== null ? AGENT_REFUSED[call.op] : undefined
+  if (agentRefusal) return refused("auth.forbidden", agentRefusal, false)
   // Find and delete reach only this user's own platform boots, and a delete only stops cost: both work
   // after the user lost access to the team, so a setup's cleanup always deletes its builder.
   const cleanup = call.op === "find" || call.op === "destroy" || call.op === "providerInfo" || call.op === "deleteSnapshot"
@@ -121,7 +145,7 @@ export const platformCall = async (host: PlatformHost, user: string, call: Platf
     if (call.op === "create" || call.op === "fork") return host.operations.recover(host, user, call)
     return refused("auth.forbidden", "this user may not use the team's machines", false)
   }
-  const p = platformPrincipal(host.team, user)
+  const p = platformPrincipal(host.team, user, agent)
   const submit = (op: string, params: unknown, k: string) => host.submit(p, { t: "op", op, params, idempotency_key: k, origin: "script" }).then(replyOf)
   /** A machine this user's platform boots made, or a refusal (another person's machine is not found). */
   const own = (id: string): MachineRow | PlatformReply<never> => {
@@ -219,11 +243,11 @@ export const platformCall = async (host: PlatformHost, user: string, call: Platf
         r = await host.exec(m, asWorkUser(call.command), stdin, Math.min(Math.max(1, call.timeoutMs), PLATFORM_EXEC_MAX_MS))
       } catch (error) {
         if (!(error instanceof DriverError) || error.code !== "cloud.exec.output_limit") throw error
-        host.audit({ action: "platform.exec", machine: m.id, who: p.identity, at: Date.now(), outcome: "output_limit" })
+        host.audit({ action: "platform.exec", machine: m.id, who: p.identity, ...(agent !== null ? { agent } : {}), at: Date.now(), outcome: "output_limit" })
         return refused("cloud.exec.output_limit", "the command's output exceeded the response limit; its output was discarded", false)
       }
       // Never the command or its stdin (a repository token may be on it).
-      host.audit({ action: "platform.exec", machine: m.id, who: p.identity, at: Date.now(), outcome: r ? `exit ${r.exitCode}` : "provider_failed" })
+      host.audit({ action: "platform.exec", machine: m.id, who: p.identity, ...(agent !== null ? { agent } : {}), at: Date.now(), outcome: r ? `exit ${r.exitCode}` : "provider_failed" })
       return r ? ok({ exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr }) : refused("cloud.provider.unavailable", "the machine did not answer", true)
     }
     case "snapshot": {

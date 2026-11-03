@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextDaemon
 import Foundation
 
@@ -55,7 +56,7 @@ struct CloudBringBack {
         }
         // The move back committed before (this run or one before a relaunch): only open the tab.
         if let back = entry.broughtBack {
-            return perform(tab: tab) { try await reshow(Self.shown(entry, back), tab: tab) }
+            return perform(tab: tab) { try await reshow(entry.shown(back), tab: tab) }
         }
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
@@ -63,7 +64,7 @@ struct CloudBringBack {
         let askFirst = invocation[Self.askFirstArgument] == .bool(true)
         // Only the person's "Update Machine" updates the machine first (``CloudMachineUpdate``).
         let update = CloudMachineUpdate.requested(invocation)
-        perform(tab: tab) { try await run(tab: tab, entry: entry, cli: cli, askFirst: askFirst, update: update) }
+        perform(tab: tab) { try await run(tab: tab, entry: entry, cli: cli, askFirst: askFirst, update: update, invocation: invocation) }
     }
 
     /// Runs `body` (which returns the machine's name) behind the toasts. A stop records its retry
@@ -72,7 +73,7 @@ struct CloudBringBack {
         let toastID = "cloud-bring-back-" + tab.id
         let tabID = tab.id
         let retries = services.cloud.bringBackRetries
-        CloudMove.toast(services, toastID, CloudBringBackStrings.bringing, duration: .seconds(600))
+        CloudMove.toast(services, toastID, CloudBringBackStrings.bringing, duration: CloudMove.working)
         let work: ActionWork = Task { @MainActor in
             do {
                 _ = try await body()
@@ -119,13 +120,14 @@ struct CloudBringBack {
 
     /// The bring back, after the synchronous checks. Returns the machine's name. `askFirst` narrows
     /// the machine's chat to an asking policy and mode before it moves.
-    private func run(tab: TabModel, entry: CloudMovedChats.Entry, cli: CloudMoveCLI, askFirst: Bool, update: Bool) async throws -> String {
+    private func run(tab: TabModel, entry: CloudMovedChats.Entry, cli: CloudMoveCLI, askFirst: Bool, update: Bool, invocation: ActionInvocation) async throws -> String {
         let again = CloudMoveRetries.Retry.move(machineID: entry.machineID)
         guard let machine = services.machines.session(entry.machineID) else {
             throw Failure(message: CloudMoveStrings.noSuchMachine(entry.machineID), retry: again)
         }
         let name = machine.machine.title
         guard FileManager.default.fileExists(atPath: entry.localRoot) else { throw Failure(message: CloudBringBackStrings.noFolder(entry.localRoot)) }
+        _ = try await CloudMove.connected(machine, invocation)
         guard let machineSocket = await machine.daemon.connection?.endpoint?.socketPath,
               let localSocket = await services.daemon.connection?.endpoint?.socketPath else {
             throw Failure(message: CloudMoveStrings.notConnected(name), retry: again)
@@ -133,7 +135,7 @@ struct CloudBringBack {
         if update {
             let toastID = "cloud-bring-back-" + tab.id
             try await CloudMachineUpdate.run(services, name: name, socket: machineSocket, cli: cli, toast: toastID, retry: again.updating)
-            CloudMove.toast(services, toastID, CloudBringBackStrings.bringing, duration: .seconds(600))
+            CloudMove.toast(services, toastID, CloudBringBackStrings.bringing, duration: CloudMove.working)
         }
         let pulled: CloudMoveCLI.Answer
         do {
@@ -169,14 +171,8 @@ struct CloudBringBack {
         services.cloud.movedChats.record(committed)
         // The chat is back: its grants on the machine end (never failing the bring back).
         services.cloud.accessAsks.chatBroughtBack(machineID: entry.machineID, session: entry.session, services: services)
-        try await finish(Self.shown(committed, back), tab: tab)
+        try await finish(committed.shown(back), tab: tab)
         return name
-    }
-
-    /// What opens a chat moved back by `back`, from its ledger entry.
-    private static func shown(_ entry: CloudMovedChats.Entry, _ back: CloudMovedChats.BroughtBack) -> CloudMoveRetries.Shown {
-        CloudMoveRetries.Shown(session: back.session, harness: entry.harness, machineID: entry.machineID, folder: entry.localChat,
-                               name: entry.name, key: back.key, host: entry.host, movedSession: entry.session)
     }
 
     /// A Retry of a bring back that committed: opens the chat's tab here, nothing else.

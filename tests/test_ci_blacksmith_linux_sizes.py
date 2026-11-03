@@ -34,9 +34,11 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 RUNNERS = ROOT / ".github" / "runners.json"
 BIG = "blacksmith-32vcpu-ubuntu-2404"
 LABEL = re.compile(r"blacksmith-(\d+)vcpu-ubuntu-2404(?![-\w])")
+POOL = re.compile(r"fromJSON\(vars\.RUNNER_POOLS\)\.linux_(\d+)\b")
 CAPABILITY_32 = re.compile(r"outputs\.map\)\.linux_32\b")
 # Jobs still on 32 vCPU while an open pull request changes the same runs-on. Lower it as they move; never raise it.
-PENDING = 50
+# 43: the SSH daemon build and attestation keep Linux overflow after the all-nightly reservation (no pins).
+PENDING = 43
 
 
 def table() -> dict:
@@ -54,7 +56,8 @@ def jobs() -> dict[str, str]:
 
 
 def sizes(text: str) -> set[int]:
-    return {int(size) for size in LABEL.findall(text)}
+    """Return measured Linux sizes named by literal labels or declared pools."""
+    return {int(size) for size in LABEL.findall(text)} | {int(size) for size in POOL.findall(text)}
 
 
 def reaches_32(text: str) -> bool:

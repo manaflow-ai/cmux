@@ -10,10 +10,10 @@ import { acpmuxSendCalls, recordedMessageBodyChangesForTool, type AcpmuxSendCall
 import { agentMessage, type AgentMessage } from "./agentMessages";
 import { dispatchCall, type DispatchCall } from "./dispatchCalls";
 import { isCmuxExec } from "./cmuxExec";
-import { mcpCall, mcpIsObservational, mcpKey } from "./mcpCalls";
+import { mcpCall, mcpDescription, mcpIsObservational, mcpKey } from "./mcpCalls";
 import { subsessionCall, type SubsessionCall } from "./subsessionCalls";
 import { isThought, mergeThoughts } from "./thoughts";
-import { isFoldedRun } from "./toolRunSummary";
+import { finishedBackgroundPhrase, isFoldedRun } from "./toolRunSummary";
 
 /// The kinds of call that group with their neighbors.
 export type ToolGroupKind = "commands" | "reads" | "edits" | "searches";
@@ -153,7 +153,8 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
     const subsession = named && subsessionCall(tool!, named);
     const call = subsession ? undefined : named;
     // A cmux script is its own row even beside another: each says what it did (cmuxExec.ts).
-    const key = call && (isCmuxExec(call) ? `${mcpKey(call)}\u0000${tool!.id}` : mcpKey(call));
+    // So is a described call, as Claude Code desktop draws each with its own words (mcpDescription).
+    const key = call && (isCmuxExec(call) || mcpDescription(call) ? `${mcpKey(call)}\u0000${tool!.id}` : mcpKey(call));
     const rememberMessageFiles = () => {
       if (!tool) return;
       // A parsed MCP action must itself be observational: a generic ACP read/search/fetch kind
@@ -181,6 +182,28 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
           mutationUnsettled = true;
         else mutationEndedAt = Math.max(mutationEndedAt, endedAt);
       };
+      const orderedWriter = () =>
+        !mutationUnsettled &&
+        tool.startedAt !== undefined &&
+        Number.isFinite(tool.startedAt) &&
+        tool.startedAt >= mutationEndedAt &&
+        endedAt !== undefined &&
+        tool.startedAt <= endedAt;
+      // A file tool (Claude Code's Write) that wrote a whole message file: a later
+      // `acpmux send ... < path` renders its words (Leo 2026-10-26: "EITHER SHOW IT DIRECT
+      // WITHOUT OR YOU JUST FUCKING RENDER IT").
+      const written = writtenFile(tool);
+      if (written && endedAt !== undefined && Number.isFinite(endedAt)) {
+        const ordered = orderedWriter();
+        rememberMutation();
+        messageFiles.clear();
+        messageFileEndedAt.clear();
+        if (ordered) {
+          messageFiles.set(written.path, written.text);
+          messageFileEndedAt.set(written.path, endedAt);
+        }
+        return;
+      }
       // A failed or still-running writer did not produce a durable body. Clear the bounded
       // producer set so a later send cannot display stale content from an earlier call.
       if (
@@ -204,13 +227,7 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
         return;
       }
       const changes = recordedMessageBodyChangesForTool(tool);
-      const startedAt = tool.startedAt;
-      const orderedWriter =
-        !mutationUnsettled &&
-        startedAt !== undefined &&
-        Number.isFinite(startedAt) &&
-        startedAt >= mutationEndedAt &&
-        startedAt <= endedAt;
+      const ordered = orderedWriter();
       if (changes.length) rememberMutation();
       for (const change of changes) {
         if ("reset" in change) {
@@ -226,7 +243,7 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
           // aliases without filesystem access, so clear all candidates before recording it.
           messageFiles.clear();
           messageFileEndedAt.clear();
-          if (!orderedWriter) continue;
+          if (!ordered) continue;
           messageFiles.set(change.path, change.text);
           messageFileEndedAt.set(change.path, endedAt);
           while (messageFiles.size > 64) messageFiles.delete(messageFiles.keys().next().value!);
@@ -279,6 +296,22 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
   return groups;
 }
 
+/// The one whole file a completed file tool wrote, by its absolute path: a single diff with no old
+/// text (Claude Code's Write, a new file) whose new text is the file, not a hunk of it (an input
+/// diff is marked a fragment only because the page never saw the file around it). Nil for edits,
+/// several files, MCP tools (their names, not their kinds, say what they do) and paths whose
+/// spelling depends on the cwd.
+export function writtenFile(tool: Tool): { path: string; text: string } | undefined {
+  if (tool.kind !== "edit" || tool.command || mcpCall(tool) || tool.status !== "completed" || tool.background)
+    return undefined;
+  if (tool.diffs?.length !== 1) return undefined;
+  const diff = tool.diffs[0]!;
+  if (diff.oldText !== undefined || (diff.fragment && !diff.fromInput)) return undefined;
+  const path = diff.path;
+  if (!path.startsWith("/") || path.includes("//") || path.includes("/./") || path.includes("/../")) return undefined;
+  return { path, text: diff.newText };
+}
+
 /// The id a group is known by: its first call's, since thoughts that led into the run may come
 /// before it (the same id the group had before a thought joined it).
 export function groupId(items: readonly AcpmuxActivity[]): string | undefined {
@@ -329,6 +362,11 @@ export function isFailed(tool: Tool): boolean {
   return tool.status === "failed" || (tool.exitCode !== undefined && tool.exitCode !== 0);
 }
 
+/// Whether a call counts as failed on a run's header ("(2 failed)"): it failed, or the shell it
+/// left in the background failed there (direct.ts `markBackgroundCall` keeps the launch's
+/// "completed" status and sets `background.state`).
+export const countsFailed = (tool: Tool): boolean => isFailed(tool) || tool.background?.state === "failed";
+
 /// The distinct files a run of reads opened, by their locations (model.ts `pathKey`), or one per
 /// call without any.
 function readCount(items: readonly AcpmuxActivity[]): number {
@@ -353,8 +391,15 @@ export function toolGroupLabel(
   const calls = groupCalls(items);
   const running = calls.some((item) => isRunning(item.tool!));
   switch (kind) {
-    case "commands":
-      return t(running ? "tools.running" : "tools.ran", { n: calls.length });
+    case "commands": {
+      // A finished run whose background tasks ended leads with them, as Claude Code desktop's
+      // header does: "Finished 2 background tasks, ran 3 commands" (toolRunSummary.ts).
+      const finished = running ? undefined : finishedBackgroundPhrase(t, calls);
+      if (!finished) return t(running ? "tools.running" : "tools.ran", { n: calls.length });
+      const ran = calls.length === 1 ? t("toolRun.ran.one") : t("toolRun.ran.other", { n: calls.length });
+      const text = [finished, ran].join(t("toolRun.separator"));
+      return text.charAt(0).toUpperCase() + text.slice(1);
+    }
     case "reads": {
       const n = readCount(calls);
       return t(n === 1 ? "tools.read.one" : "tools.read.other", { n });

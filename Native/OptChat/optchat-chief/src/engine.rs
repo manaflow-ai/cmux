@@ -55,6 +55,9 @@ pub struct EngineChoice {
     /// yet").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subagent_routing: Option<String>,
+    /// Per-turn model routing; absent means off. Never changes the harness.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_routing: Option<String>,
     /// The harness a spawn that names none runs its subagents on, routing
     /// on or off; None: the turn's (or OPTCHAT_SUBAGENT_HARNESS, which wins).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -114,10 +117,11 @@ pub fn apply_preset(mut choice: EngineChoice, preset: &str) -> Result<EngineChoi
     choice.harness = harness;
     choice.model = model;
     choice.effort = effort;
+    // The compactor runs at the turns' speed (fast only on codex).
+    choice.compactor_speed = speed.clone();
     choice.speed = speed;
     choice.compactor_harness = compactor;
     choice.compactor_model = None;
-    choice.compactor_speed = None;
     choice.subagent_harness = subagents;
     choice.subagent_routing = some("off");
     Ok(choice)
@@ -384,15 +388,30 @@ pub fn apply_flags(
             }
         };
     }
+    if let Some(value) = flags.value("turn-routing") {
+        changed = true;
+        choice.turn_routing = parse_turn_routing(value)?;
+    }
     if !changed {
         return Err(USAGE.into());
     }
     Ok(choice)
 }
 
+/// Shared validation for the CLI and the brain control path.
+pub fn parse_turn_routing(value: &str) -> Result<Option<String>, String> {
+    match value.trim() {
+        "" | "default" => Ok(None),
+        "auto" | "off" => Ok(Some(value.trim().to_owned())),
+        other => Err(format!(
+            "turn-routing is auto, off or default, not {other:?}"
+        )),
+    }
+}
+
 pub const USAGE: &str = "chief engine show
 chief engine set --preset opus|hybrid|codex   (opus: Opus 5.5 medium everywhere; hybrid: Opus 5.5 medium turns, every subagent on codex; codex: codex everywhere, fast; other flags adjust it)
-chief engine set [--harness H] [--model M] [--effort E] [--compactor-harness H] [--compactor-model M] [--speed default|fast] [--compactor-speed default|fast] [--reactions-can-wake true|false] [--classifier-harness H] [--classifier-model M] [--classifier-prompt TEXT] [--subagent-routing auto|off] [--subagent-harness H]   (value `default` clears; turns apply it from the next turn, the compactor at the next host start, the reaction classifier at the next reaction, the subagent fields at the next spawn; routing is off unless set to auto)";
+chief engine set [--harness H] [--model M] [--effort E] [--compactor-harness H] [--compactor-model M] [--speed default|fast] [--compactor-speed default|fast] [--reactions-can-wake true|false] [--classifier-harness H] [--classifier-model M] [--classifier-prompt TEXT] [--turn-routing auto|off|default] [--subagent-routing auto|off] [--subagent-harness H]   (value `default` clears; turns apply it from the next turn, the compactor at the next host start, the reaction classifier at the next reaction, the subagent fields at the next spawn; routing is off unless set to auto)";
 
 /// `engine show|set`; Ok carries what to print.
 pub fn run(flags: &crate::cli::Flags) -> Result<String, String> {
@@ -417,6 +436,10 @@ pub fn run(flags: &crate::cli::Flags) -> Result<String, String> {
                 file.display(),
                 serde_json::to_string(&choice).expect("json")
             );
+            out.push_str(&format!(
+                "turn routing: {}\n",
+                choice.turn_routing.as_deref().unwrap_or("off")
+            ));
             // The CLI each role runs, as the host resolved it at its start.
             match load_resolved(&home) {
                 Some(r) => {

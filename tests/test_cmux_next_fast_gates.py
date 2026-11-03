@@ -3,7 +3,7 @@
 
 Four base reds landed on 2026-10-21 through checks that only warn on a pull request or run only
 on push: webviews lint/format and switch-fetches (ci-web's react-apps-check is warn-only on a PR;
-cmux-next-web.yml's `web lint (fast)` fails only on push), a self-merge past its own red
+cmux-next-web-lint.yml's `web lint (fast)` fails only on push), a self-merge past its own red
 `defaults-snapshot`, and direct pushes that tripped the crash ratchet. feat-cmux-next has no
 required checks. cmux-next-fast-gates.yml runs those gates on BASE..merge for every pull request
 into feat-cmux-next (and on dispatch, against the current tip) and posts `cmux-next/fast-gates`
@@ -79,21 +79,38 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(doc["name"], "cmux-next fast gates")
         self.assertEqual(list(doc["jobs"]), ["resolve", "fast-gates", "panic-ratchet", "post"])
         self.assertEqual(job(doc)["name"], "fast gates")
-        # Fleet Linux is first for every trusted job; fork pull requests retain
-        # their ephemeral Blacksmith branch, and reruns accept bounded overflow.
+        # The reconciled Linux pool is the default for every trusted job; fork
+        # pull requests retain their ephemeral Blacksmith branch, and reruns
+        # accept bounded overflow explicitly.
         guards_runner = yaml.safe_load(GUARDS.read_text(encoding="utf-8"))["jobs"]["crash-ratchet"]["runs-on"]
         self.assertNotEqual(doc["jobs"]["resolve"]["runs-on"], guards_runner)
         self.assertNotEqual(doc["jobs"]["post"]["runs-on"], guards_runner)
         fast_runner = doc["jobs"]["fast-gates"]["runs-on"]
-        self.assertIn("cmux-fleet-linux-x64", fast_runner)
+        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", fast_runner)
         self.assertIn("inputs.runner", fast_runner)
         self.assertNotIn("macos", fast_runner.lower())
+        # resolve and post are declared light jobs (.github/runners.json hosted_light_jobs): hosted
+        # Ubuntu on attempt 1, then the reconciled pool. On 2026-11-02 post sat on the pool's saturated
+        # 4 vCPU size behind hundreds of jobs for one status write.
+        light = {"resolve", "post"}
+        declared = json.loads((ROOT / ".github/runners.json").read_text())["hosted_light_jobs"]
+        for key in light:
+            with self.subTest(light=key):
+                runner = str(doc["jobs"][key]["runs-on"])
+                self.assertIn(f"cmux-next-fast-gates.yml#{key}", declared)
+                self.assertTrue(runner.endswith(
+                    "|| github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}"), runner)
+                self.assertNotIn("vars.LINUX_RUNNER", runner)
         for key, each in doc["jobs"].items():
+            if key in light:
+                continue
             with self.subTest(runner=key):
-                self.assertIn("cmux-fleet-linux-x64", str(each["runs-on"]))
-                if key != "panic-ratchet":  # its optional fork route is unchanged in this resolver fix
-                    self.assertTrue(str(each["runs-on"]).endswith("|| fromJSON(vars.RUNNER_POOLS).linux }}"),
-                                    "a stalled literal fleet label must not bypass the reconciled live pool")
+                runner = str(each["runs-on"])
+                self.assertIn("cmux-fleet-linux-x64", runner)
+                self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", runner)
+                self.assertTrue(runner.endswith("|| fromJSON(vars.RUNNER_POOLS).linux }}"),
+                                "a stalled literal fleet label must not bypass the reconciled live pool")
+                self.assertNotRegex(runner, r"\|\|\s*'cmux-fleet-linux-x64'")
                 self.assertNotIn("vars.LINUX_RUNNER", str(each["runs-on"]))
         for key, each in doc["jobs"].items():
             with self.subTest(job=key):

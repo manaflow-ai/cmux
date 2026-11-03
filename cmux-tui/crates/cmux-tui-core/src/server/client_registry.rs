@@ -101,6 +101,22 @@ pub(super) struct AttachedSurface {
     pub(super) geometry_lease: Option<String>,
     /// Leases of `terminal.attach read_only` views: they watch and never size.
     pub(super) read_only_leases: HashSet<String>,
+    /// The terminal this client's keys go to, kept from its first key (`cmd_terminal_io::input_surface`): no session
+    /// lock on the typing path. Kept with the route generation of its id at the lookup (`route_table`): a respawn,
+    /// close, move or other change of that id's route makes the next key look it up again. Goes with this record at
+    /// the last detach and at disconnect.
+    pub(super) input: (Weak<crate::Surface>, u64),
+}
+
+impl AttachedSurface {
+    /// Whether this client can type into the surface: an attach that may own the keyboard (the app's terminal view,
+    /// a legacy attach with no lease, or any view that is not read-only). A client attached only through read-only
+    /// views (`terminal.attach read_only`) watches; its keys are automation's, never the person's
+    /// (server/input_qos.rs).
+    pub(super) fn can_type(&self) -> bool {
+        self.view_sizes.is_empty()
+            || self.view_sizes.keys().any(|lease| !self.read_only_leases.contains(lease))
+    }
 }
 
 pub(super) struct DetachedSurface {
@@ -310,13 +326,69 @@ pub(super) struct ClientRegistryState {
     pub(super) daemon_handoff: Option<DaemonHandoffReservation>,
 }
 
+/// What a connection's own line and key paths read about the session's connections, published after every change
+/// of the client registry and read with one atomic load, never through its lock (R-DAEMON-STATE stage S1,
+/// handoff/rewrites/R-DAEMON-STATE/DESIGN.md section 2.6). Every connect, disconnect, attach and detach of every
+/// client holds the registry lock; a person's key must not wait for any of them.
+pub(super) struct ClientFacts {
+    /// The daemon handoff, when one is reserved: `true` once it was acknowledged (committed).
+    pub(super) handoff: Option<bool>,
+    pub(super) clients: HashMap<u64, ConnectionFacts>,
+}
+
+/// One connection's facts in [`ClientFacts`].
+pub(super) struct ConnectionFacts {
+    pub(super) transport: ClientTransport,
+    /// `ClientRecord::remote_device`.
+    pub(super) remote_device: bool,
+    /// The connection's base actor (`ConnectionOrigin::actor`).
+    pub(super) actor: crate::workspace_registry::Actor,
+    /// The surfaces the connection is attached to, each with whether it can type into it
+    /// (`AttachedSurface::can_type`): its keys there are the person's (server/input_qos.rs).
+    pub(super) attached: Vec<(SurfaceId, bool)>,
+}
+
+impl ClientFacts {
+    /// The projection of `state` (runs under the registry lock after each change).
+    fn of(state: &ClientRegistryState) -> Self {
+        let handoff = state
+            .daemon_handoff
+            .map(|reservation| matches!(reservation, DaemonHandoffReservation::Committed(_)));
+        let clients = state
+            .clients
+            .iter()
+            .map(|(client, record)| {
+                let attached = record
+                    .attached
+                    .iter()
+                    .map(|(surface, attached)| (*surface, attached.can_type()))
+                    .collect();
+                let facts = ConnectionFacts {
+                    transport: record.transport,
+                    remote_device: record.remote_device,
+                    actor: record.origin.actor(),
+                    attached,
+                };
+                (*client, facts)
+            })
+            .collect();
+        Self { handoff, clients }
+    }
+}
+
 pub(crate) struct ClientRegistry {
     /// Called when a surface loses its last attached client (the idle-close
     /// reaper starts that terminal's unattached period).
     pub(super) detach_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     /// Called after any client connects or leaves (orphan_shutdown.rs): the
-    /// DEV orphan exit and the lost-paths exit each add one.
+    /// DEV orphan exit, the lost-paths exit and the keepers watch each add
+    /// one. Also called once a connection's role-main hello makes it the
+    /// app's frontend.
     pub(super) client_presence_observers: Mutex<Vec<Box<dyn Fn() + Send + Sync>>>,
+    /// A role-main `client-hello` (the app's frontend) came since this owner
+    /// started: from then on nothing but its keepers holds an app session's
+    /// owner (owner_keepers.rs).
+    pub(super) frontend_seen: AtomicBool,
     pub(super) url_opens: url_open::URLRequests,
     pub(crate) clipboard_reads: clipboard_read::ClipboardReads,
     /// Connection-scoped loopback streams (`loopback-forward-v1`).
@@ -341,7 +413,12 @@ pub(crate) struct ClientRegistry {
     pub(super) next_id: AtomicU64,
     pub(super) resource_stream_admission: Arc<ResourceWorkerAdmission>,
     pub(super) resource_wait_admission: Arc<ResourceWorkerAdmission>,
-    pub(super) state: Mutex<ClientRegistryState>,
+    /// Every connection's record. A change publishes the [`ClientFacts`] projection, which a connection's
+    /// own line and key paths read without this lock (R-DAEMON-STATE stage S1).
+    pub(super) state: crate::published::Published<ClientRegistryState, ClientFacts>,
+    /// R-DAEMON-STATE stage S1 (`CMUX_TUI_RDS_INPUT`): the line and key paths read [`ClientFacts`] and the
+    /// session's published routes instead of taking the registry and session locks.
+    pub(crate) input_lane: crate::rds_switch::InputLaneSwitch,
     /// Who created each live incognito workspace (incognito_orphans.rs).
     pub(super) incognito_creators: super::incognito_orphans::IncognitoCreators,
 }
@@ -382,10 +459,13 @@ fn validate_resource_client_label(
 }
 
 impl ClientRegistry {
-    pub(crate) fn new() -> Self {
+    /// `input_lane` is the mux's stage S1 switch (R-DAEMON-STATE): on, the registry publishes [`ClientFacts`].
+    pub(crate) fn new(input_lane: crate::rds_switch::InputLaneSwitch) -> Self {
+        let publishing = input_lane.on();
         Self {
             detach_waker: Mutex::new(None),
             client_presence_observers: Mutex::new(Vec::new()),
+            frontend_seen: AtomicBool::new(false),
             next_id: AtomicU64::new(1),
             url_opens: url_open::URLRequests::default(),
             clipboard_reads: Default::default(),
@@ -410,7 +490,12 @@ impl ClientRegistry {
                 RESOURCE_WAITS_PER_CLIENT_CAPACITY,
                 RESOURCE_WAITS_SERVER_CAPACITY,
             ),
-            state: Mutex::new(ClientRegistryState::default()),
+            state: crate::published::Published::new(
+                ClientRegistryState::default(),
+                ClientFacts::of,
+                publishing,
+            ),
+            input_lane,
             incognito_creators: Default::default(),
         }
     }
@@ -483,11 +568,33 @@ impl ClientRegistry {
         self.state.lock().recover_poison().daemon_handoff.is_some()
     }
 
+    /// Turns stage S1 on or off for this registry (tests): the switch, and the publication it reads.
+    #[cfg(test)]
+    pub(crate) fn set_input_lane_for_test(&self, on: bool) {
+        self.state.set_publishing_for_test(on);
+        self.input_lane.set_for_test(on);
+    }
+
+    /// Whether `client` is attached to `surface` and can type into it (`AttachedSurface::can_type`): its keys there
+    /// are the person's. Reads the published facts, never the registry lock (R-DAEMON-STATE stage S1).
+    pub(super) fn types_into(&self, client: u64, surface: SurfaceId) -> bool {
+        let facts = self.state.load().recover_poison();
+        facts.clients.get(&client).is_some_and(|connection| {
+            connection.attached.iter().any(|(attached, can_type)| *attached == surface && *can_type)
+        })
+    }
+
     pub(crate) fn daemon_handoff_in_progress(&self) -> bool {
+        if self.input_lane.on() {
+            return self.state.load().recover_poison().handoff.is_some();
+        }
         self.state.lock().recover_poison().daemon_handoff.is_some()
     }
 
     pub(crate) fn daemon_handoff_committed(&self) -> bool {
+        if self.input_lane.on() {
+            return self.state.load().recover_poison().handoff == Some(true);
+        }
         matches!(
             self.state.lock().recover_poison().daemon_handoff,
             Some(DaemonHandoffReservation::Committed(_))
@@ -682,6 +789,8 @@ impl ClientRegistry {
                     || capability == TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY
                     || conversation_tabs_wire::negotiable(capability)
                     || capability == super::conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY
+                    || capability == super::SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY
+                    || capability == super::TREE_SELECTION_DELTAS_CAPABILITY
                     || capability == super::FRONTEND_BROWSER_TABS_CAPABILITY
                     || (capability == super::conversation_runs::CONVERSATION_RUNS_CAPABILITY || capability == super::conversation_runs::CONVERSATION_RUN_ANSWERS_CAPABILITY)
                     || capability == super::conversation_live::CHIEF_LIVE_CAPABILITY
@@ -694,6 +803,7 @@ impl ClientRegistry {
                     || capability == crate::state::sidebar_doc_store::CAPABILITY
                     || capability == super::participant_avatars::PARTICIPANT_AVATARS_CAPABILITY
                     || capability == super::chief_registry_resource::CHIEF_EVENTS_CAPABILITY
+                    || capability == "cloud-mobile-chat-v1"
             }));
             record.writer.negotiate_conversation_tabs(record.capabilities.iter());
         }

@@ -308,8 +308,9 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 if gapHere {
                     openGapIfNeeded(section: section.id, group: nil, index: 0)
                 } else if blockHeight == 0 || (emptyDropZone && docID.map(o.emptyDocSections.contains) == true) {
-                    let isPinned = section.id == .pinned || section.id == .custom(SidebarDocStore.pinnedSection)
-                    let emptyHeight = isPinned ? m.emptySectionHeight : m.rowHeightWithSubtitle
+                    // One plain row: Pinned's "Drop here to pin", or an empty list's blank drop target
+                    // (classic shows nothing under an empty list, https://github.com/manaflow-ai/cmux/issues/32728).
+                    let emptyHeight = m.emptySectionHeight
                     rows.append(SidebarRow(
                         key: .emptySection(section.id), y: y, height: emptyHeight, section: section.id,
                         group: nil, siblingIndex: 0, parentIndex: nil, isLastInGroup: false,

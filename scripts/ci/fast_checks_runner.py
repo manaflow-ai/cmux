@@ -4,9 +4,10 @@
 The admission job is a small hosted Ubuntu picker: it reads the routing App's
 runner census, accepts the fleet label only when an exact Linux runner is
 registered, online, and idle, and falls back after 180 seconds to the
-measured Blacksmith Linux set. Only the read-only routing token reaches this
-picker; no source snapshot or test credential does, and the selected label is
-the only output consumed by the checks job.
+measured Blacksmith Linux set, or at once when the routing token's quota is
+spent, since another look would only be refused again. Only the read-only
+routing token reaches this picker; no source snapshot or test credential does,
+and the selected label is the only output consumed by the checks job.
 """
 from __future__ import annotations
 
@@ -27,6 +28,10 @@ BLACKSMITH = (
 WAIT_SECONDS = 180
 POLL_SECONDS = 15
 ALLOWED = frozenset((FLEET, *BLACKSMITH))
+# read_live's answer when GitHub refused the census for a spent quota. Asking
+# again every POLL_SECONDS only spends more of the shared routing quota and
+# holds the checks for the whole wait, so admission overflows at once.
+RATE_LIMITED = object()
 
 
 def fallback(env: Mapping[str, str]) -> str:
@@ -65,7 +70,8 @@ def idle_runner(runners: Sequence[Mapping[str, Any]]) -> str:
     return ""
 
 
-def read_live(env: Mapping[str, str], *, deadline: float | None = None) -> Sequence[Mapping[str, Any]] | None:
+def read_live(env: Mapping[str, str], *, deadline: float | None = None,
+              use_state: bool = True) -> Sequence[Mapping[str, Any]] | object | None:
     # GITHUB_TOKEN is the test job's repository credential, not authority to
     # read the organization runner census. Missing routing authority must go
     # straight to overflow instead of silently widening permissions.
@@ -75,7 +81,7 @@ def read_live(env: Mapping[str, str], *, deadline: float | None = None) -> Seque
         return None
     try:
         client = pr_runner_pool.GitHub(token, repo, deadline=deadline)
-        runners = client.runners()
+        runners = client.runners(use_state=use_state)
         # When the workflow provides the janitor token, require its queue
         # snapshot to be fresh as well. A stale or missing snapshot is not
         # evidence that an idle runner can accept this control job.
@@ -87,11 +93,15 @@ def read_live(env: Mapping[str, str], *, deadline: float | None = None) -> Seque
                 return None
         return runners
     except Exception as error:  # noqa: BLE001 - safe bounded fallback
+        if pr_runner_pool.rate_limited(error):
+            print("::warning title=nightly control admission::the routing token's GitHub quota is spent "
+                  f"({error}); taking the measured overflow now instead of polling", file=sys.stderr)
+            return RATE_LIMITED
         print(f"::warning title=nightly control admission::live runner read failed ({error})", file=sys.stderr)
         return None
 
 
-def choose(env: Mapping[str, str], read=read_live, sleep=time.sleep, clock=time.monotonic) -> str:
+def choose(env: Mapping[str, str], read=None, sleep=time.sleep, clock=time.monotonic) -> str:
     requested = (env.get("REQUESTED_RUNNER") or "").strip()
     if requested in ALLOWED and requested != FLEET:
         return requested
@@ -100,8 +110,13 @@ def choose(env: Mapping[str, str], read=read_live, sleep=time.sleep, clock=time.
     if not (env.get("ROUTE_TOKEN") or "").strip() or not (env.get("GITHUB_REPOSITORY") or "").strip():
         return fallback(env)
     deadline = clock() + WAIT_SECONDS
+    first_look = True
     while True:
-        runners = read(env, deadline=deadline)
+        runners = (read(env, deadline=deadline) if read is not None else
+                   read_live(env, deadline=deadline, use_state=first_look))
+        first_look = False
+        if runners is RATE_LIMITED:
+            return fallback(env)
         if runners is not None:
             selected = idle_runner(runners)
             if selected:

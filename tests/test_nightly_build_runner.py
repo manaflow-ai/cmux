@@ -14,7 +14,13 @@ as attempt 1 of a push (until 2026-10-27 they never got the routing token).
 
 from __future__ import annotations
 
+import base64
+import contextlib
 import datetime as dt
+import gzip
+import io
+import json
+import os
 import itertools
 import sys
 import tempfile
@@ -40,6 +46,25 @@ TRUSTED_POOL = "glaeda-trusted-std-xcode-26.6"
 TRUSTED_RUNNER = "glaeda-runner-cmux15-glaeda"
 # Each guarded job and the picker job whose outputs route it.
 GUARDED = {"build-nightly-app": "pick-nightly-build-runner"}
+
+
+_RUNNER_POOL_LABELS = {
+    "linux_2": "blacksmith-2vcpu-ubuntu-2404",
+    "linux_4": "blacksmith-4vcpu-ubuntu-2404",
+    "linux_8": "blacksmith-8vcpu-ubuntu-2404",
+    "linux_16": "blacksmith-16vcpu-ubuntu-2404",
+    "linux_32": "blacksmith-32vcpu-ubuntu-2404",
+    "macos_15": "blacksmith-6vcpu-macos-15",
+    "macos_26": "blacksmith-6vcpu-macos-26",
+    "macos_26_large": "blacksmith-12vcpu-macos-26",
+}
+
+
+def parse_nightly_expression(source: str):
+    """Parse pool reads as their declared labels for this legacy expression evaluator."""
+    for pool, label in _RUNNER_POOL_LABELS.items():
+        source = source.replace(f"fromJSON(vars.RUNNER_POOLS).{pool}", repr(label))
+    return parse_expression(source)
 
 
 def runner(*labels: str, busy: bool = False, status: str = "online") -> dict:
@@ -339,6 +364,27 @@ class NightlyOnlyBuilderRoute(unittest.TestCase):
                 self.assertEqual(picker.nightly_only_builder_route(label, plain, runners)[0], plain)
 
 
+    def test_the_idle_xl_builder_comes_first_and_never_waits(self) -> None:
+        builder, plain, xl = (picker.NIGHTLY_ONLY_BUILDER_LABEL, picker.NIGHTLY_ONLY_LABEL,
+                              picker.NIGHTLY_ONLY_XL_BUILDER_LABEL)
+
+        def runner(label: str, status: str = "online", busy: bool = False) -> dict:
+            return {"status": status, "busy": busy, "labels": [{"name": label}]}
+        self.assertEqual(picker.nightly_only_builder_route(builder, plain, [runner(builder), runner(xl)])[0], xl)
+        self.assertEqual(picker.nightly_only_builder_route(builder, plain, [runner(xl, busy=True), runner(xl)])[0], xl)
+        # Busy or offline xl builders fall to the M4 Pro builders, then the plain label, with no wait.
+        for xl_runner in (runner(xl, busy=True), runner(xl, "offline")):
+            with self.subTest(xl=xl_runner):
+                self.assertEqual(picker.nightly_only_builder_route(builder, plain, [xl_runner, runner(builder)])[0],
+                                 builder)
+                self.assertEqual(picker.nightly_only_builder_route(
+                    builder, plain, [xl_runner, runner(builder, busy=True)])[0], plain)
+        # The xl builder is offered only while the M4 Pro builder variable is the enrolled label (the switch).
+        for label in ("", "glaeda-unregistered"):
+            self.assertEqual(picker.nightly_only_builder_route(label, plain, [runner(xl)])[0], plain)
+        self.assertEqual(picker.nightly_only_builder_route(builder, plain, None)[0], plain)
+
+
 class BlacksmithRoute(unittest.TestCase):
     def test_the_moving_label_is_picked(self) -> None:
         self.assertEqual(picker.blacksmith_route(LARGE, snapshot({LARGE: 90}), NOW)[0], SMALL)
@@ -541,6 +587,39 @@ class Main(unittest.TestCase):
                             read_snapshot=lambda t, r: snapshot({LARGE: 90, SMALL: 90}))
         self.assertEqual(out, {"owned": SIDE})
 
+    def test_the_verify_mode_takes_the_all_nightly_reservation_without_a_runner_read(self) -> None:
+        # Run 41365440328: signer-dmg-image sat 809 s in glaeda's admission on a shared nightly slot mini
+        # ("1 of 14 units free"); the reservation's runners hold no shared capacity. Run 41400519218: the
+        # verify pick's live read got a 403 (routing-App budget spent) and both jobs waited 6-15 min on the
+        # shared pool. The reservation is taken with no read, even when every read would fail or show it busy.
+        plain = picker.NIGHTLY_ONLY_LABEL
+        reserved = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "NIGHTLY_ONLY_LABEL": plain}
+        calls: list[str] = []
+
+        def counted(token: str, repo: str):
+            calls.append("read")
+            raise OSError("HTTP 403: API rate limit exceeded for installation")
+        for env in (reserved, {**reserved, "UNREAD_OWNED_FALLBACK": "1"}, {**reserved, "ROUTE_TOKEN": ""}):
+            with self.subTest(env=env):
+                out = self.run_main(env, argv=("verify",), read_runners=counted, read_snapshot=counted)
+                self.assertEqual(out, {"owned": plain})
+        self.assertEqual(calls, [])
+        # A re-run, another ref, an unset or foreign label, or another repository keeps the old owned pick.
+        idle = [runner(plain), runner(plain), runner(SIDE)]
+        for env in ({**reserved, "GITHUB_RUN_ATTEMPT": "2"}, {**reserved, "GITHUB_REF": "refs/heads/main"},
+                    {**reserved, "GITHUB_EVENT_NAME": "schedule"}, {**reserved, "NIGHTLY_ONLY_LABEL": ""},
+                    {**reserved, "NIGHTLY_ONLY_LABEL": "glaeda-other"}, {"NIGHTLY_ONLY_LABEL": plain}):
+            with self.subTest(env=env):
+                out = self.run_main(env, argv=("verify",), read_runners=lambda t, r: idle,
+                                    read_snapshot=lambda t, r: snapshot({}))
+                self.assertEqual(out, {"owned": SIDE})
+
+    def test_the_verify_pick_reads_the_reservation_variable(self) -> None:
+        text = (Path(__file__).resolve().parents[1] / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
+        step = text[text.index("- name: Pick an owned Mac for the verify jobs"):]
+        step = step[:step.index("nightly_build_runner.py verify")]
+        self.assertIn("NIGHTLY_ONLY_LABEL: ${{ vars.CI_NIGHTLY_ONLY_RUNNER }}", step)
+
     def test_the_verify_mode_queues_unread_runners_on_the_owned_pool(self) -> None:
         # Run 41335987427: every routing-App read got a 403 rate limit, and the verify jobs went blind to
         # blacksmith-6vcpu-macos-26. A refused read is not "no owned runners": with the opt-in they queue on
@@ -592,6 +671,57 @@ class Main(unittest.TestCase):
         self.assertEqual(out["owned"], SIDE)  # unread: the watched owned pool, never a read
 
 
+class SharedWait(unittest.TestCase):
+    def test_owned_route_before_any_wait_keeps_using_the_document(self):
+        idle = dict(runner(SIDE), id=1, name="synthetic-owned", os="macOS")
+        doc = dict(schema="runner-state/v1", repository="manaflow-ai/cmux", complete=True,
+                   generated_at=dt.datetime.now(dt.timezone.utc).isoformat(), repository_runners=[],
+                   runner_groups={"glaeda-minis": [idle]}, scale_sets={})
+        env = dict(GITHUB_REPOSITORY="manaflow-ai/cmux", ROUTE_TOKEN="synthetic-token",
+                   DEDICATED_LABEL=DEDICATED, OWNED_LABELS=SIDE, GITHUB_EVENT_NAME="push",
+                   GITHUB_REF="refs/heads/nightly-next", CANDIDATE=LARGE,
+                   CI_RUNNER_STATE=base64.b64encode(gzip.compress(json.dumps(doc).encode())).decode())
+        paths, clock = [], Clock()
+
+        def api(path):
+            paths.append(path)
+            if "visible_to_repository" in path:
+                return {"runner_groups": [{"name": "glaeda-minis", "id": 10}]}
+            return {"runners": [idle]} if "/10/runners" in path else {}
+
+        with mock.patch.dict(os.environ, env, clear=True), \
+             mock.patch.object(picker.pool.GitHub, "get_api", side_effect=api), \
+             mock.patch.object(picker, "write_output") as write, contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(picker.main(env, sleep=clock.sleep, clock=clock), 0)
+        self.assertEqual(write.call_args.args[1]["owned"], SIDE)
+        self.assertEqual(clock.sleeps, [])
+        self.assertEqual(paths, [])
+
+    def test_busy_document_is_rechecked_live_before_giving_up_the_builder(self):
+        idle = dict(runner(DEDICATED), id=1, name="synthetic-builder", os="macOS")
+        doc = dict(schema="runner-state/v1", repository="manaflow-ai/cmux", complete=True,
+                   generated_at=dt.datetime.now(dt.timezone.utc).isoformat(), repository_runners=[],
+                   runner_groups={"glaeda-minis": [dict(idle, busy=True)]}, scale_sets={})
+        env = dict(GITHUB_REPOSITORY="manaflow-ai/cmux", ROUTE_TOKEN="synthetic-token",
+                   DEDICATED_LABEL=DEDICATED, GITHUB_EVENT_NAME="push", GITHUB_REF="refs/heads/nightly-next",
+                   CANDIDATE=LARGE, CI_RUNNER_STATE=base64.b64encode(gzip.compress(json.dumps(doc).encode())).decode())
+        paths, clock = [], [0.0]
+        def api(path):
+            self.assertGreater(clock[0], 0, "the first look must make no org runner-list calls")
+            paths.append(path)
+            if "visible_to_repository" in path:
+                return {"runner_groups": [{"name": "glaeda-minis", "id": 10}]}
+            return {"runners": [idle]} if "/10/runners" in path else {}
+        with mock.patch.dict(os.environ, env, clear=True), \
+             mock.patch.object(picker.pool.GitHub, "get_api", side_effect=api), \
+             mock.patch.object(picker, "write_output") as write, contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(picker.main(env, sleep=lambda s: clock.__setitem__(0, clock[0] + s),
+                                         clock=lambda: clock[0]), 0)
+        self.assertEqual(write.call_args.args[1]["dedicated"], DEDICATED)
+        self.assertEqual(clock[0], picker.DEDICATED_LOOK_SECONDS)
+        self.assertGreaterEqual(sum("/10/runners" in path for path in paths), 1)
+
+
 class Workflow(unittest.TestCase):
     def test_only_the_nightly_build_and_verify_picks_opt_into_the_unread_owned_fallback(self) -> None:
         # nightly.yml's build pick and the sign picker's verify pick (run 41335987427): on only while the
@@ -607,7 +737,7 @@ class Workflow(unittest.TestCase):
                                               ("", "", ""), ("0", "1", "")):
                 with self.subTest(job=job, owned_on=owned_on, rescue_on=rescue_on):
                     context = {"vars.CI_PR_POOL_OWNED": owned_on, "vars.CI_OWNED_POOL_RESCUE": rescue_on}
-                    self.assertEqual(evaluate(parse_expression(flag), context) or "", want)
+                    self.assertEqual(evaluate(parse_nightly_expression(flag), context) or "", want)
         # The signing pick (signing_runner.py owned) never takes it: its exclusive claim needs a pinned runner.
         sign = next(step for step in DOC["jobs"]["pick-nightly-sign-runner"]["steps"] if step.get("id") == "sign-owned")
         self.assertNotIn("UNREAD_OWNED_FALLBACK", sign.get("env") or {})
@@ -642,7 +772,7 @@ class Workflow(unittest.TestCase):
                            f"needs.{pick}.outputs.owned": owned, f"needs.{pick}.outputs.blacksmith": blacksmith}
                 with self.subTest(job=job, event=event, attempt=attempt, picked_for=picked_for, owned=owned,
                                   blacksmith=blacksmith, owned_on=owned_on, variable=variable):
-                    label = evaluate(parse_expression(source), context)
+                    label = evaluate(parse_nightly_expression(source), context)
                     if picked_for == str(attempt) and owned:
                         self.assertEqual(label, owned)
                     else:
@@ -671,7 +801,7 @@ class Workflow(unittest.TestCase):
                        f"needs.{pick}.outputs.blacksmith": blacksmith}
             with self.subTest(event=event, attempt=attempt, picked_for=picked_for, helper=helper, dedicated=dedicated,
                               blacksmith=blacksmith):
-                label = evaluate(parse_expression(source), context)
+                label = evaluate(parse_nightly_expression(source), context)
                 # The same rule as build-nightly-app: only a pick made for this attempt; the helper
                 # pick, which stands while the app build holds the dedicated builder, never that builder.
                 if picked_for == str(attempt) and helper == SIDE:
@@ -709,7 +839,7 @@ class Workflow(unittest.TestCase):
         context = {"github.repository": "manaflow-ai/cmux", "github.run_attempt": 1, "vars.CI_PR_POOL_OWNED": "1",
                    "vars.GLAEDA_ROUTE_APP_ID": "123", "github.event_name": "push",
                    "github.ref": "refs/heads/nightly-next", **changes}
-        return bool(evaluate(parse_expression(step["if"]), context))
+        return bool(evaluate(parse_nightly_expression(step["if"]), context))
 
     def test_owned_is_offered_only_where_the_rescue_watches(self) -> None:
         # owned_pool_rescue.nightly_target (on main) watches nightly-next push and dispatch runs at
@@ -751,11 +881,11 @@ class Workflow(unittest.TestCase):
                                "github.run_attempt": attempt, "vars.CI_PR_POOL_OWNED": "1",
                                **{f"needs.{pick}.outputs.{key}": value for key, value in out.items()}}
                     source = DOC["jobs"][job]["runs-on"].removeprefix("${{").removesuffix("}}")
-                    self.assertEqual(evaluate(parse_expression(source), context), SIDE)
+                    self.assertEqual(evaluate(parse_nightly_expression(source), context), SIDE)
                     # A re-run of failed jobs that kept the previous attempt's pick takes the moving
                     # Blacksmith label, so a refused owned label is never taken again.
                     stale = {**context, "github.run_attempt": attempt + 1}
-                    self.assertEqual(evaluate(parse_expression(source), stale), LARGE)
+                    self.assertEqual(evaluate(parse_nightly_expression(source), stale), LARGE)
 
     def test_an_owned_pick_outside_the_workflow_run_watch_leaves_a_marker(self) -> None:
         for pick in GUARDED.values():
@@ -778,14 +908,14 @@ class Workflow(unittest.TestCase):
                 with self.subTest(output=True, event=event, attempt=attempt, upload=upload_outcome):
                     context = {"github.event_name": event, "github.run_attempt": attempt,
                                "steps.upload-marker.outcome": upload_outcome, "steps.pick.outputs.owned": SIDE}
-                    self.assertEqual(evaluate(parse_expression(owned_output), context), wanted)
+                    self.assertEqual(evaluate(parse_nightly_expression(owned_output), context), wanted)
             for event, attempt, owned, wanted in (("push", 1, SIDE, False), ("push", 2, SIDE, True),
                                                   ("workflow_dispatch", 1, SIDE, True),
                                                   ("workflow_dispatch", 1, "", False)):
                 with self.subTest(event=event, attempt=attempt, owned=owned):
                     context = {"github.event_name": event, "github.run_attempt": attempt,
                                "steps.pick.outputs.owned": owned}
-                    self.assertEqual(bool(evaluate(parse_expression(marker["if"]), context)), wanted)
+                    self.assertEqual(bool(evaluate(parse_nightly_expression(marker["if"]), context)), wanted)
 
 
 class BuilderReadDeadline(unittest.TestCase):
@@ -802,9 +932,8 @@ class BuilderReadDeadline(unittest.TestCase):
                    "NIGHTLY_ONLY_BUILDER_LABEL": picker.NIGHTLY_ONLY_BUILDER_LABEL,
                    "ROUTE_TOKEN": "token", "GITHUB_OUTPUT": str(out)}
             with mock.patch.object(picker, "BUILDER_READ_SECONDS", 0.2):
-                started = _time.monotonic()
+                # `slow` would return the idle builder after 5 s; the plain label proves the deadline cut it off.
                 self.assertEqual(picker.main(env, read_runners=slow), 0)
-                self.assertLess(_time.monotonic() - started, 2)
             self.assertIn(f"owned={picker.NIGHTLY_ONLY_LABEL}\n", out.read_text())
 
 

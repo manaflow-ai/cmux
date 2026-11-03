@@ -1,0 +1,7 @@
+{
+  "$comment": "What the SDK schema cannot say about the Swift side of each generated CmuxNextDaemon request type (swift_app/emit.py explains the rules). A family is one Requests/<Family> folder; it moves here from hand-written Swift in one change.",
+  "output_root": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests",
+  "ids": {},
+  "types": {},
+  "families": {}
+}

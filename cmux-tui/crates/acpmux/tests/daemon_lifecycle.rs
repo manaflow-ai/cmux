@@ -943,24 +943,58 @@ async fn a_daemon_whose_socket_ancestor_is_retargeted_stops() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A socket removed on its own (a cleanup of the folder that holds it) leaves nothing that can
-/// reach the daemon: it stops. On a Mac the socket itself cannot be watched (kqueue opens no
-/// socket), and the daemon kept running there (cx-n1nrjk).
+/// A socket removed on its own (a cleanup of the folder that holds it) under a daemon that still
+/// holds its home and lock: the daemon binds it again and serves on, so commands reach it within
+/// seconds. Before, a Mac daemon whose watch missed the removal ran on with the lock and no socket,
+/// and every command waited out "holds daemon.lock but does not answer" (cosmic-gray, 2026-11-02);
+/// one whose watch saw it stopped. Both layouts: the socket in the home (the default), and in a
+/// folder of its own (on a Mac the socket is seen through its folder, cx-n1nrjk). A second removal
+/// is bound again too.
 #[tokio::test]
-async fn a_daemon_whose_socket_is_removed_stops() {
-    let dir = scratch("sockgone");
-    let home = dir.join("h");
-    let run = dir.join("run");
-    for path in [&home, &run] {
-        std::fs::create_dir(path).unwrap();
+async fn a_daemon_whose_socket_is_removed_binds_it_again() {
+    for (tag, own_folder) in [("sockgone", false), ("sockrun", true)] {
+        let dir = scratch(tag);
+        let home = dir.join("h");
+        let run = dir.join("run");
+        for path in [&home, &run] {
+            std::fs::create_dir(path).unwrap();
+        }
+        let socket = if own_folder { run.join("s.sock") } else { home.join("s.sock") };
+        let mut child = ready_daemon(&dir, &home, &socket).await;
+        let pid =
+            Rpc::connect(&socket).await.call("_acpmux/status", json!({})).await["pid"].clone();
+        for round in 1..=2 {
+            std::fs::remove_file(&socket).unwrap();
+            let started = Instant::now();
+            let status = loop {
+                if let Ok(Ok(stream)) = tokio::time::timeout(
+                    Duration::from_millis(500),
+                    tokio::net::UnixStream::connect(&socket),
+                )
+                .await
+                {
+                    drop(stream);
+                    break Rpc::connect(&socket).await.call("_acpmux/status", json!({})).await;
+                }
+                if let Some(exit) = child.try_wait().unwrap() {
+                    panic!(
+                        "{tag}: the daemon exited ({exit:?}) after its socket was removed (round {round})\nstderr:\n{}",
+                        std::fs::read_to_string(dir.join("daemon.stderr.log")).unwrap_or_default()
+                    );
+                }
+                assert!(
+                    started.elapsed() < Duration::from_secs(5),
+                    "{tag}: no daemon answered at the socket 5 s after it was removed (round {round})"
+                );
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            };
+            assert_eq!(status["pid"], pid, "{tag}: another daemon answered (round {round})");
+        }
+        assert!(child.try_wait().unwrap().is_none(), "{tag}: the daemon stopped");
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = std::fs::remove_dir_all(&dir);
     }
-    let socket = run.join("s.sock");
-    let mut child = ready_daemon(&dir, &home, &socket).await;
-    std::fs::remove_file(&socket).unwrap();
-    let status = exit_within(&mut child, acpmux::daemon::EXIT_BUDGET).await;
-    assert!(status.expect("removing its socket left the daemon running").success());
-    assert!(home.exists(), "a lost socket removed the home");
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// The acquired identity is a startup boundary: replacement must not receive config/store writes.

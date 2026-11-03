@@ -8,7 +8,9 @@ extension SidebarListViewComponents {
     func dequeue(_ key: SidebarRowKey, rebinding: Bool = false) -> SidebarRowView {
         let view = rowPool.take(for: key, rebinding: rebinding)
         view.isHidden = false
+        view.clearFoldClip() // a fold's mask belongs to the row it clipped
         wire(view, key: key)
+        scheduleSpareRow() // the next one, once this turn's frame committed
         return view
     }
     /// A row view that leaves the list parks hidden in place: taking it out of the window and adding
@@ -20,6 +22,7 @@ extension SidebarListViewComponents {
         view.reuseGeneration &+= 1
         view.closingEnd = nil
         fadingRows[ObjectIdentifier(view)] = nil
+        view.clearFoldClip()
         // A parked view must not retain a render-server move from the list it just left. In
         // particular, a non-animated reload removes a row by recycling it directly, without
         // passing it through RowMotion.run's stop set; leaving its additive spring active would

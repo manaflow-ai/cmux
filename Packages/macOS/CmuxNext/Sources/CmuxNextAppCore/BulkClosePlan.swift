@@ -74,3 +74,29 @@ extension WorkspaceClose {
         }
     }
 }
+
+/// The closed items of one close, for its Undo: the new workspace items
+/// (newest first) whose members carry the closing workspaces' names, each
+/// name taken once (one bulk close is one item of several members,
+/// `BulkClosePlan`; an older daemon stores one item per workspace), the
+/// names no item took yet, and the group's own record.
+public struct ClosedItemMatch: Sendable {
+    public var workspaces: [String] = []
+    public var missing: [String]
+    public var group: String?
+
+    public init(names: [String], group id: String?, fresh: [ClosedItem]) {
+        missing = names
+        for item in fresh where item.kind == .workspace && item.group == nil {
+            let carried = item.memberNames.isEmpty ? [item.name] : item.memberNames
+            var took = false
+            for name in carried {
+                guard let index = missing.firstIndex(of: name ?? "") else { continue }
+                missing.remove(at: index)
+                took = true
+            }
+            if took { workspaces.append(item.id) }
+        }
+        group = id.flatMap { id in fresh.first { $0.group?.id == id }?.id }
+    }
+}

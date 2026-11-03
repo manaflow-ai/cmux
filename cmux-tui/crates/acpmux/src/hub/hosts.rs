@@ -27,6 +27,8 @@ pub(super) struct OpenWork {
     /// `turn_started` without `turn_result`: (seq, turnId, promptId, prompt,
     /// client, control; a Web steer's `turn_control` raises it).
     turn: Option<(u64, String, String, String, String, Control)>,
+    /// Whether the open turn was started by the Cloud mobile relay.
+    cloud_mobile_turn: bool,
     /// That turn's line on the summary (`turn_started` `promptLine`, `prompt_line.rs`); `None`
     /// for an older record.
     turn_line: Option<String>,
@@ -209,7 +211,16 @@ impl Hub {
         let dir = agent_host::hosts_dir();
         let (good, _) = agent_host::load_records(&dir).ok()?;
         let (_, record) = good.into_iter().find(|(_, r)| r.session_id == session.id)?;
-        if let Err(e) = self.adopt_one(session, record, &off).await {
+        // A host that runs and was adopted before is slow on a loaded Mac, not wedged: a missed
+        // 5 s hello here ended a live agent and started a second one (cmuxterm-hq#5545). The
+        // cost: a truly wedged host holds this chat's spawn lock (its prompt, a mode change) and
+        // an MDM off's family gate for up to 30 s before it is ended.
+        let adopted = agent_host::link::with_hello_budget(
+            agent_host::link::ADOPT_HELLO_BUDGET,
+            self.adopt_one(session, record, &off),
+        )
+        .await;
+        if let Err(e) = adopted {
             tracing::warn!(session = %session.id, "agent host re-adoption failed: {e:#}");
         }
         session.child.lock().await.clone().filter(|c| c.host_record().is_some())
@@ -310,9 +321,29 @@ impl Hub {
         // Each host has its own spawn lock, replay and recovery. A slow host must not hold
         // every following chat behind its replay deadline. Keep at most eight in flight;
         // this pass ends once the records are drained and owns no detached adoption tasks.
+        // A host that missed its hello is retried once below, after this pass.
+        let missed = std::sync::Mutex::new(Vec::new());
         futures_util::stream::iter(good)
-            .for_each_concurrent(8, |(_, record)| self.adopt_record(&dir, record, &off))
+            .for_each_concurrent(8, |(_, record)| {
+                let (dir, off, missed) = (&dir, &off, &missed);
+                async move {
+                    let session = record.session_id.clone();
+                    if super::adopt_retry::adoption_hello_scope(self.adopt_record(dir, record, off))
+                        .await
+                    {
+                        missed.lock().unwrap_or_else(|e| e.into_inner()).push(session);
+                    }
+                }
+            })
             .await;
+        let missed = missed.into_inner().unwrap_or_else(|e| e.into_inner());
+        if !missed.is_empty() {
+            let hub = self.clone();
+            // task-owner: one retry pass per daemon start, bounded by its hosts and
+            // `ADOPT_HELLO_BUDGET` each; a prompt that reaches a host first adopts it (`readopt`),
+            // and this pass then finds its child alive under the spawn lock and leaves it.
+            tokio::spawn(async move { hub.retry_missed_adoptions(missed).await });
+        }
         for unreadable in bad {
             // Nothing proves what it may still write: held until its host is proven gone.
             if !Self::host_record_gone(&unreadable.session_id) {
@@ -336,15 +367,15 @@ impl Hub {
         }
     }
 
-    async fn adopt_record(
+    pub(super) async fn adopt_record(
         self: &Arc<Self>,
         dir: &std::path::Path,
         record: agent_host::HostRecord,
         off: &OffLatch,
-    ) {
+    ) -> bool {
         if agent_host::liveness(dir, &record.session_id, &record.start_nonce) == Liveness::Dead {
             agent_host::remove_artifacts(dir, &record);
-            return;
+            return false;
         }
         let Some(session) = self.session_by_id(&record.session_id) else {
             // A host for a session this daemon does not know (purged):
@@ -361,7 +392,7 @@ impl Hub {
             } else {
                 self.hold_unresolved(Some(&record.session_id)).await;
             }
-            return;
+            return false;
         };
         // This runs after the ready line, so a prompt can reach the host
         // first (`ensure_child` -> `readopt`, under the spawn lock). One
@@ -371,7 +402,7 @@ impl Hub {
         if let Some(child) = session.child.lock().await.as_ref()
             && child.is_alive().await
         {
-            return;
+            return false;
         }
         // MDM forces full access off (start-mode.json, loaded with the hub), or the chat's grant
         // was cleared (`policy_source.rs`): its host is ended, never adopted (#23322). One whose
@@ -381,11 +412,13 @@ impl Hub {
             if !Self::host_record_gone(&session.id) {
                 self.hold_unresolved(Some(&session.id)).await;
             }
-            return;
+            return false;
         }
         if let Err(e) = self.adopt_one(&session, record, off).await {
             tracing::warn!(session = %session.id, "agent host adoption failed: {e:#}");
+            return agent_host::link::missed_hello(&e);
         }
+        false
     }
 
     /// End the host of a session that has no adopted child, when one runs
@@ -537,7 +570,7 @@ impl Hub {
         };
         child.all_tools.store(all, std::sync::atomic::Ordering::Relaxed);
         // What the daemon that started it kept of its MCP servers (`hub/idle_census.rs`).
-        self.restore_launch(session, &child, &incarnation);
+        self.restore_launch(session, &child, &incarnation, kind).await;
         *session.child.lock().await = Some(child.clone());
         self.wake_idle_reaper();
         if let Some(rx) = session.inbound_rx.lock().await.take() {
@@ -889,6 +922,7 @@ impl Hub {
                     // A new harness runs no carried turn of the old one's.
                     work.carry_next = None;
                     work.turn_carried = false;
+                    work.cloud_mobile_turn = false;
                     work.next_raised = false;
                     work.last_host_seq = 0;
                     host_seq_at = None;
@@ -903,6 +937,8 @@ impl Hub {
                         next.get("turnId") == e.msg.get("turnId")
                             && next.get("control").and_then(Value::as_str) == Some("web")
                     });
+                    work.cloud_mobile_turn =
+                        e.msg.get("cloudMobile").and_then(Value::as_bool).unwrap_or(false);
                     work.turn = Some((
                         e.seq,
                         field("turnId"),
@@ -1135,6 +1171,7 @@ impl Hub {
             .floor
             .last_turn_web
             .store(work.last_control == Some(Control::Web), Ordering::SeqCst);
+        session.floor.cloud_mobile_turn.store(work.cloud_mobile_turn, Ordering::SeqCst);
         if let Some((_, turn_id, ..)) = &work.turn
             && work.floor_cancelled.as_ref() == Some(turn_id)
         {

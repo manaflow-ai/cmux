@@ -26,6 +26,8 @@ export type GridPoint = {
 export type GridLine = {
   name: string;
   all?: boolean;
+  /** Measure inward from a trailing/bottom origin instead of outward from the lead. */
+  inward?: boolean;
   actual: GridPoint;
   origin?: GridPoint;
   expected: string | GridPoint;
@@ -186,7 +188,8 @@ export function measureGridLines(scene: GridScene): GridResult[] {
         let expected: number | null = null;
         try {
           expected = typeof line.expected === "string" ? length(line.expected) : metric(line.expected);
-          const actual = metric(line.actual, selected) - (line.origin ? metric(line.origin) : 0);
+          const actual =
+            (metric(line.actual, selected) - (line.origin ? metric(line.origin) : 0)) * (line.inward ? -1 : 1);
           if (!Number.isFinite(expected) || !Number.isFinite(actual)) throw new Error("non-finite measurement");
           return {
             line: `${index + 1}/${line.name}${line.all ? `/${matchIndex + 1}` : ""}`,

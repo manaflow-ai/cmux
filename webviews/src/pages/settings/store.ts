@@ -34,6 +34,7 @@ import {
   type Write,
 } from "./queries";
 import { rowsByKey } from "./schema";
+import { HARNESS_PLACEMENT_KEY, harnessPlacement, resolveHarnessPlacement } from "../../ui/harnessPlacement";
 import { t } from "./strings";
 import { pageTransport, TransportError, type SettingsTransport } from "./transport";
 import {
@@ -43,6 +44,7 @@ import {
   type AccountsState,
   type AgentsRun,
   type AgentsState,
+  type AppUpdateAction,
   type ChannelsState,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
@@ -125,12 +127,24 @@ const emptyDomains: Domains = { themes: [], font_families: [], sounds: [], recen
 /** The page's state from the cache and the UI state (one function for hooks and getSnapshot). */
 export function composeState(ui: UiState, cache: CacheView): SettingsState {
   const scope = cache.scope;
+  let rows = scope?.rows ?? new Map<string, ListRow>();
+  const placement = rows.get(HARNESS_PLACEMENT_KEY);
+  if (placement) {
+    const legacy = cache.host?.harness_placement;
+    const managed = placement.managed ?? scope?.managed.get(HARNESS_PLACEMENT_KEY);
+    const value = resolveHarnessPlacement(placement.stored, legacy, managed ? placement.value : undefined);
+    // A saved override is resettable even when it currently matches the inherited choice.
+    const customized = harnessPlacement(placement.stored) !== null;
+    if (value !== placement.value || customized !== placement.customized) {
+      rows = new Map(rows).set(HARNESS_PLACEMENT_KEY, { ...placement, value, customized });
+    }
+  }
   return {
     loaded: cache.scopeSettled,
     readable: (scope?.rows.size ?? 0) > 0,
     connected: ui.connected,
     revision: scope?.revision ?? 0,
-    rows: scope?.rows ?? new Map(),
+    rows,
     diagnostics: scope?.diagnostics ?? new Map(),
     problems: scope?.problems ?? [],
     managed: scope?.managed ?? new Map(),
@@ -425,6 +439,13 @@ export class SettingsStore {
     return reply.ok ? { bytes: reply.value.bytes, folder: reply.value.folder ?? null } : null;
   }
 
+  /** Use My Screen Saver: the background id of the macOS screen saver's aerial, or null when it is
+   * not one (a classic screen saver) or the host cannot say. */
+  async screenSaverBackdrop(): Promise<{ id: string; pending: boolean } | null> {
+    const reply = await this.request("cmux.settings.backdrop.image.screen_saver", {});
+    return reply.ok && reply.value.id ? { id: reply.value.id, pending: reply.value.pending } : null;
+  }
+
   /** Opens the Wallpaper pane of System Settings, where macOS downloads a wallpaper the picker
    * lists as not downloaded. macOS says nothing when it finishes, so the lists are read again
    * once the person is back in this window. */
@@ -545,6 +566,13 @@ export class SettingsStore {
   async allowPhonesAgain(): Promise<void> {
     await this.request("cmux.settings.mobile.allow_again", {});
     await this.refreshHost();
+  }
+
+  /** Updates > App Update: one of its buttons, then re-read the host lists; false when the host refused. */
+  async runAppUpdate(action: AppUpdateAction): Promise<boolean> {
+    const reply = await this.request("cmux.settings.app_update.run", { action });
+    await this.refreshHost();
+    return reply.ok;
   }
 
   /** Updates > Web UI: Check Now or Roll Back, then re-read the host lists; false when the host refused. */

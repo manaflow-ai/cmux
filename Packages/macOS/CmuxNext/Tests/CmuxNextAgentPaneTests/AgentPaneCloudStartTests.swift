@@ -242,4 +242,52 @@ struct AgentPaneCloudStartTests {
         // No folder from the page: the tab's own folder, on the App side.
         #expect(AgentPaneCloudStart(params: ["task": "t", "key": UUID().uuidString])?.cwd == nil)
     }
+
+    /// Leo, 2026-10-31: he "picked zesty-indigo-lemur in the machine picker, but the chat stayed on
+    /// sr2-tunnel-probe". `cloud.repickChat` names the picked machine; only a chat on another machine,
+    /// with the pick's gesture, reaches the App.
+    @Test func aRepickNamesTheMachineAndReachesTheAppOnlyForAChatElsewhereWithAGesture() async {
+        #expect(AgentPaneRequest(body: ["method": "cloud.repickChat", "params": ["machine": "m_zesty"]])
+            == .cloudRepickChat(AgentPaneCloudRepick(machine: "m_zesty", name: nil)))
+        #expect(AgentPaneRequest(body: ["method": "cloud.repickChat", "params": ["name": "zesty-indigo-lemur"]])
+            == .cloudRepickChat(AgentPaneCloudRepick(machine: nil, name: "zesty-indigo-lemur")))
+        for bad: [String: Any] in [[:], ["machine": ""], ["name": 3], ["machine": "a", "other": "b"], ["name": "a\nb"]] {
+            #expect(AgentPaneCloudRepick(params: bad) == nil, "\(bad)")
+        }
+        var seen: [AgentPaneCloudRepick] = []
+        let model = AgentPaneModel(host: NoHost(), sessionId: "s1")
+        model.onCloudRepickChat = { repick in
+            seen.append(repick)
+            return AgentPaneReply.success(["machine": "zesty-indigo-lemur"])
+        }
+        let request = AgentPaneRequest.cloudRepickChat(AgentPaneCloudRepick(machine: "m_zesty", name: nil))
+        // A chat on this Mac: refused.
+        model.transport.gestures.record()
+        #expect(await model.respond(to: request)["ok"] as? Bool != true)
+        model.remoteChat = true
+        // No gesture: refused.
+        model.transport.gestures.clearTickets()
+        _ = model.transport.gestures.consume()
+        #expect(await model.respond(to: request)["ok"] as? Bool != true)
+        #expect(seen.isEmpty)
+        model.transport.gestures.record()
+        #expect(await model.respond(to: request)["ok"] as? Bool == true)
+        #expect(seen == [AgentPaneCloudRepick(machine: "m_zesty", name: nil)])
+    }
+
+    /// A repick finds the picked machine by its id, else by the name acpmux lists it under (title or
+    /// slug, any case), and never guesses between two of the same name.
+    @Test func aRepickFindsThePickedMachineByIdOrByName() {
+        let machines: [(id: String, title: String, slug: String?)] = [
+            (id: "m_sr2", title: "sr2-tunnel-probe", slug: nil),
+            (id: "m_zesty", title: "Zesty Indigo Lemur", slug: "zesty-indigo-lemur"),
+            (id: "m_a", title: "twin", slug: nil), (id: "m_b", title: "twin", slug: nil),
+        ]
+        #expect(AgentPaneCloudRepick(machine: "m_zesty", name: nil).machineID(in: machines) == "m_zesty")
+        #expect(AgentPaneCloudRepick(machine: "m_gone", name: nil).machineID(in: machines) == nil)
+        #expect(AgentPaneCloudRepick(machine: nil, name: "zesty-indigo-lemur").machineID(in: machines) == "m_zesty")
+        #expect(AgentPaneCloudRepick(machine: nil, name: "SR2-tunnel-probe").machineID(in: machines) == "m_sr2")
+        #expect(AgentPaneCloudRepick(machine: nil, name: "twin").machineID(in: machines) == nil)
+        #expect(AgentPaneCloudRepick(machine: nil, name: "nobody").machineID(in: machines) == nil)
+    }
 }
