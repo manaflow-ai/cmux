@@ -473,12 +473,9 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         ).toBe(true);
         expect(afterTick.rows.map((row) => row.time.right)).toEqual(initial.rows.map((row) => row.time.right));
         expect(afterTick.rows.map((row) => row.time.textRight)).toEqual(initial.rows.map((row) => row.time.textRight));
-        expect(afterTick.rows.map((row) => row.time.scrollWidth)).toEqual(
-          initial.rows.map((row) => row.time.scrollWidth),
-        );
-        expect(afterTick.rows.map((row) => row.time.clientWidth)).toEqual(
-          initial.rows.map((row) => row.time.clientWidth),
-        );
+        // The time ends the cluster ("Done · 36s") and sizes to its tabular digits: a tick keeps its
+        // right edge and never clips it; only a new digit widens it, toward the state word.
+        expect(afterTick.rows.every((row) => row.time.scrollWidth <= row.time.clientWidth + 1)).toBe(true);
         expect(afterTick.rows.map((row) => row.status.left)).toEqual(initial.rows.map((row) => row.status.left));
         expect(afterTick.rows.map((row) => row.stop.left)).toEqual(initial.rows.map((row) => row.stop.left));
         expect(afterTick.rows.map((row) => row.time.height)).toEqual(initial.rows.map((row) => row.time.height));
