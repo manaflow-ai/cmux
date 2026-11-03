@@ -61,9 +61,10 @@ public import Foundation
     /// `stillAllowed`: asked last, right before the login is written (a Release build re-reads its
     /// remote switch and the person's consent there, since a confirm or a sign-in may have outlasted
     /// the switch's answer). False stops the copy with ``Failure/copyTurnedOff``.
+    /// No default: every caller says what it re-reads, and a default async closure is a crash class.
     public func run(api: CloudAPIClient, currentTeamID: @MainActor () -> String?, currentUserID: @MainActor () -> String?, confirmed: Bool,
              refresh: Bool = false, callerOwnsVM: @escaping @Sendable () async throws -> Bool,
-             stillAllowed: @escaping @Sendable () async -> Bool = { true }) async throws {
+             stillAllowed: @escaping @Sendable () async -> Bool) async throws {
         let pinned = api.pinningTeam(teamID)
         try await run(currentTeamID: currentTeamID, currentUserID: currentUserID, confirmed: confirmed, refresh: refresh,
             effects: Effects(
