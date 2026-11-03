@@ -427,7 +427,10 @@ class StuckRun(unittest.TestCase):
         self.assertIn("no unfinished", out)
 
     def test_the_tick_cancels_before_it_re_runs_a_cancelled_tip_in_its_serialized_group(self):
-        job_spec = yaml.safe_load(TICK.read_text())["jobs"]["request"]
+        # Its own job with one fixed group (cmuxterm-hq#6671): in the request job the 3-minute rule fired
+        # 10 minutes in (run 41706574247), behind that job's hosted runner and its 150-commit checkout.
+        tick = yaml.safe_load(TICK.read_text())
+        job_spec = tick["jobs"]["unstick"]
         steps = job_spec["steps"]
         tooling = next(step for step in steps if step.get("with", {}).get("path") == ".tick-tooling")
         self.assertIn("scripts/ci/nightly_next_stuck_run.py", tooling["with"]["sparse-checkout"].split())
@@ -437,16 +440,20 @@ class StuckRun(unittest.TestCase):
         self.assertGreater(step["timeout-minutes"], 5)
         self.assertEqual(step["env"]["NIGHTLY_NEXT_TRAIN"], "${{ vars.NIGHTLY_NEXT_TRAIN }}")
         self.assertEqual(step["run"], 'python3 -u .tick-tooling/scripts/ci/nightly_next_stuck_run.py "$GITHUB_REPOSITORY"')
-        # Only in the shared tick group (no sha input), which runs one tick at a time.
-        self.assertEqual(step.get("if"), "inputs.sha == ''")
-        self.assertIn("|| 'nightly-next-tick' }}", job_spec["concurrency"]["group"])
-        self.assertFalse(job_spec["concurrency"]["cancel-in-progress"])
+        # Never for a dispatch with a sha; one fixed group, which runs one rescue at a time.
+        self.assertIn("inputs.sha == ''", job_spec["if"])
+        self.assertEqual(job_spec["concurrency"], {"group": "nightly-next-tick-unstick", "cancel-in-progress": False})
+        # Not behind the request job, and not on the hosted pool the jobs it rescues wait on.
+        self.assertNotIn("needs", job_spec)
+        self.assertNotIn("CI_CONTROL_RUNNER", job_spec["runs-on"])
+        self.assertIn("fromJSON(vars.RUNNER_POOLS || '{}').linux_2", job_spec["runs-on"])
+        self.assertNotIn("Cancel a nightly-next run stuck without a runner",
+                         [s.get("name") for s in tick["jobs"]["request"]["steps"]])
         self.assertLess(names.index("Wait through GitHub API rate limits in this job's gh calls"),
                         names.index("Cancel a nightly-next run stuck without a runner"))
         self.assertLess(names.index("Cancel a nightly-next run stuck without a runner"),
                         names.index("Re-run a cancelled nightly-next tip"))
         self.assertIn("python3 tests/test_nightly_next_stuck_run.py", CI_GUARDS.read_text())
-
 
 if __name__ == "__main__":
     unittest.main()
