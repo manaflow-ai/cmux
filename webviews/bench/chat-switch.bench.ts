@@ -14,6 +14,7 @@
 // switch, so a slow arm shows what it asked for.
 // LATENCY=ms delays every answer, as a remote or busy daemon does (a local one answers in about 1 ms):
 // a switch that waits on several answers in turn shows it, one that draws from memory does not.
+// Each arm's last round also measures 5 s of idle wakeups and renderer task time (bench/stability.ts).
 //   bun bench/chat-switch.bench.ts [rounds=7] [turns=300]
 // REMOTE_TAIL=both (or present/absent) switches to remote B before read-ahead, with A fast and
 // PEER_ATTACH_MS=2000 delaying only B's live attach. This is a synthetic click-origin comparison,
@@ -25,6 +26,7 @@ import path from "node:path";
 import { chromium } from "playwright";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 import { perfRow, TARGET_MS } from "./perfRow";
+import { addStabilityProbe, cpuSession, measureIdle, settledAt, type Idle } from "./stability";
 
 const ROUNDS = Number(process.argv[2] ?? 7);
 const TURNS = Number(process.argv[3] ?? 300);
@@ -226,6 +228,7 @@ try {
     longMs: number;
     shift: number;
     sent: string[];
+    quiet?: Idle;
     attach: number;
     reconciled: number;
     nativeReads: number;
@@ -237,9 +240,12 @@ try {
     maxTopDrift: number;
     maxHeightDrift: number;
   };
-  const open = async (idle: number, mode?: RemoteTail): Promise<Round> => {
+  const open = async (idle: number, mode?: RemoteTail, still = false): Promise<Round> => {
     remoteTail = mode;
-    const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+    const context = await browser.newContext({ viewport: { width: 1200, height: 800 } });
+    await addStabilityProbe(context, { boxes: false });
+    const page = await context.newPage();
+    const cdp = await cpuSession(page, true);
     if (mode)
       await page.addInitScript((sessionId) => {
         const timing = { attached: 0 };
@@ -453,12 +459,15 @@ try {
           }),
         { id: B, text: SECOND_TEXT, mode, snapshot: peerSnapshot() },
       );
-      return {
-        ...got,
-        sent: calls.map((call) => `${call.method}${call.sessionId === B ? " (B)" : ""}`),
-      };
+      const sent = calls.map((call) => `${call.method}${call.sessionId === B ? " (B)" : ""}`);
+      let quiet: Idle | undefined;
+      if (still) {
+        await settledAt(page);
+        [quiet] = await measureIdle([{ page, cdp }]);
+      }
+      return { ...got, sent, ...(quiet ? { quiet } : {}) };
     } finally {
-      await page.close();
+      await context.close();
     }
   };
 
@@ -482,7 +491,7 @@ try {
   for (const { name: arm, idle, mode } of arms) {
     await open(idle, mode); // warm the server and the browser process
     const rounds: Round[] = [];
-    for (let round = 0; round < ROUNDS; round++) rounds.push(await open(idle, mode));
+    for (let round = 0; round < ROUNDS; round++) rounds.push(await open(idle, mode, round === ROUNDS - 1));
     const of = (pick: (r: Round) => number) => median(rounds.map(pick));
     console.log(
       [
@@ -546,6 +555,24 @@ try {
       p50: of((r) => r.longMs),
       p95: of((r) => r.longMs),
     });
+    // Stability (bench/stability.ts): no shift, and a chat at rest wakes nothing.
+    const cls = Math.round(of((r) => r.shift) * 1e4) / 1e4;
+    perfRow({ name: `chat_switch.${key}.cls`, p50: cls, p95: cls, unit: "score", target: 0, floor: 0.001 });
+    const quiet = rounds.at(-1)!.quiet!;
+    console.log(
+      `  at rest for 5 s: ${quiet.wakeups} wakeups, ${quiet.cpuMs?.toFixed(1) ?? "-"} ms of renderer tasks` +
+        (quiet.sources.length ? `; ${quiet.sources.slice(0, 4).join("; ")}` : ""),
+    );
+    perfRow({
+      name: `chat_switch.${key}.idle_wakeups`,
+      p50: quiet.wakeups,
+      p95: quiet.wakeups,
+      unit: "count",
+      target: 0,
+      floor: 0.5,
+    });
+    if (quiet.cpuMs !== null)
+      perfRow({ name: `chat_switch.${key}.idle_cpu_ms`, p50: quiet.cpuMs, p95: quiet.cpuMs, target: 5, floor: 2 });
   }
 } finally {
   await release();
