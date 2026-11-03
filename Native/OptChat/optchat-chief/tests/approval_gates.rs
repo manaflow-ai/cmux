@@ -699,6 +699,33 @@ fn pending_prompt(h: &Harness) -> bool {
         .is_some_and(|(_, s)| s.permission.is_some())
 }
 
+#[test]
+fn a_delivered_home_card_expires_when_home_is_never_opened() {
+    // A conversation receipt proves delivery, not that Home is visible.
+    // Keep #22941's deadline even when the card arrives and events replay.
+    let mut h = harness(None, false, default_script());
+    const T0: u64 = 1_800_000_000_000;
+    h.brain.set_clock(Arc::new(|| T0));
+    let session = subagent_asking(&mut h, false);
+    h.settle_posts();
+    assert_eq!(questions(&h), 1);
+    assert_eq!(h.brain.unanswered_permissions(), vec![(session.clone(), "p1".into())]);
+
+    let wait = optchat_chief::approval::PERMISSION_WAIT.as_millis() as u64;
+    h.brain.set_clock(Arc::new(move || T0 + wait - 1));
+    h.brain.step(permission_in(&session, "p1", "Bash", json!({"command": "make deploy"})));
+    h.brain.deny_overdue_permissions_at(T0 + wait - 1);
+    assert_eq!(answered(&h, "p1"), None);
+    h.brain.deny_overdue_permissions_at(T0 + wait);
+    h.settle_posts();
+
+    assert_eq!(answered(&h, "p1"), Some(Some("reject".into())));
+    assert!(!pending_prompt(&h));
+    assert!(h.brain.unanswered_permissions().is_empty());
+    assert!(h.owner.lock().unwrap().ops.iter().any(|(_, op)| matches!(op, Op::MessageEdit { parts, .. }
+        if matches!(&parts[0], Part::Question(q) if q.state == cmux_conversation::QuestionState::Cancelled))));
+}
+
 /// A hidden local owner subagent has no agent tab. Its request must still
 /// reach the person in Home, once, and stay pending while that card is shown.
 #[test]
