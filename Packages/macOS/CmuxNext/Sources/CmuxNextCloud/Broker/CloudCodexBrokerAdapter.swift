@@ -167,6 +167,22 @@ import Observation
         for scope in retiring { await teardownTasks[scope]?.value }
     }
 
+    /// Quit and update: stops renewal and the local broker processes, but each Cloud machine
+    /// keeps the Codex access already delivered to it until the provider expires it, so an
+    /// unattended Cloud Codex run outlives the quit (#33482). Sign-out, an account or team
+    /// switch, the Cloud off switch and a machine delete still erase it.
+    public func detachForQuit() async {
+        stopped = true
+        for run in runs.values { run.2.cancel() }
+        // A sign-out or switch already under way erases, as it was asked to.
+        for task in Array(teardownTasks.values) { await task.value }
+        for scope in scopes {
+            guard let broker = await registry.existing(for: scope) else { continue }
+            let failed = await broker.detach()
+            if !failed.isEmpty { cleanupByScope[scope, default: []].formUnion(failed) }
+        }
+    }
+
     /// Ends account access before Cloud signs out, without permanently stopping
     /// this app's coordinator. Future confirmed runs can sign in again.
     public func signOut() async {

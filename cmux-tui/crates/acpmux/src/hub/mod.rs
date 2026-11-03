@@ -26,6 +26,7 @@ mod bg_notify;
 mod bg_tasks;
 mod bounded;
 mod btw;
+mod workflow_activity;
 mod workflow_runs;
 // A turn ends when its agent ends it; the steers it runs on with are the next turn's.
 mod carried_turn;
@@ -144,6 +145,8 @@ mod github_owner;
 mod lane_report_reads;
 mod lane_report_text;
 mod lane_reports;
+mod mcp_connect;
+pub(crate) mod mcp_probe;
 mod meta_save;
 mod offer_results;
 mod offers;
@@ -431,6 +434,8 @@ pub struct PromptOptions {
     /// ended before the agent took it still goes next, but a turn that began meanwhile (another
     /// agent's message) runs on (Leo, 2026-10-21: "that might have accidentally swallowed up a
     /// queued message").
+    /// With `steer_only`, also fences a steer to this exact turn; a completed target
+    /// never redirects a workflow nudge into a person's next prompt.
     pub interrupt_turn: Option<String>,
     /// Who sent the prompt, when not the person (`prompt_provenance.rs`).
     pub provenance: Option<Value>,
@@ -753,6 +758,7 @@ pub struct Hub {
     pub(super) transfer_lease_changed: Notify,
     /// Secrets agents asked the person for, and their one-use refs (`secrets.rs`).
     pub(super) secrets: secrets::Secrets,
+    pub(super) mcp_connects: mcp_connect::McpConnects,
     /// Sub-session starts waiting on a folder's trust card, and Not nows (`trust_wait.rs`).
     pub(super) trust_waits: trust_wait::Waits,
     /// Messages `send --no-wait` handed over, and forwarded prompts waiting for a peer's
@@ -966,6 +972,7 @@ impl Hub {
             subagent_retries: Default::default(),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
+            mcp_connects: Default::default(),
             trust_waits: Default::default(),
             outbox: Default::default(),
             mesh: Default::default(),

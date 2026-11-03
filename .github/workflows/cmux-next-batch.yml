@@ -230,7 +230,13 @@ jobs:
           ref: ${{ github.sha }}
           path: .next-batch-tools
           persist-credentials: false
-          sparse-checkout: scripts/cmux-next/regenerate-swift-exports.sh
+          # The script and what it sources (lib/warm-swiftpm.sh and its scripts/ci helpers), so a
+          # stack from before the library still regenerates.
+          sparse-checkout: |
+            scripts/cmux-next/regenerate-swift-exports.sh
+            scripts/cmux-next/lib/warm-swiftpm.sh
+            scripts/ci/swift-test-debug-info.sh
+            scripts/ci/swiftpm-binary-module-guard.sh
           sparse-checkout-cone-mode: false
 
       - name: Regenerate the Swift exports
