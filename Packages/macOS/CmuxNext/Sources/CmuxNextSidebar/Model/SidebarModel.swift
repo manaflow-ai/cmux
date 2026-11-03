@@ -391,7 +391,7 @@ public final class SidebarModel {
         case let .select(id):
             activeWorkspaceID = id
             selection = [id]
-        case .selectTab:
+        case .selectTab, .closeTab:
             break
         case let .closeGroup(id):
             let ids = group(id)?.workspaces.map(\.id) ?? []

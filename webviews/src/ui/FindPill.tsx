@@ -61,7 +61,6 @@ export type FindPillProps = {
 
 function markPress(event: ReactPointerEvent<HTMLButtonElement>) {
   event.currentTarget.dataset.pressActive = "true";
-  event.currentTarget.setPointerCapture(event.pointerId);
 }
 
 function clearPress(event: ReactPointerEvent<HTMLButtonElement>) {
@@ -72,6 +71,7 @@ const pressFeedback = {
   onPointerDown: markPress,
   onPointerUp: clearPress,
   onPointerCancel: clearPress,
+  onPointerLeave: clearPress,
 };
 
 export function FindPill(props: FindPillProps) {

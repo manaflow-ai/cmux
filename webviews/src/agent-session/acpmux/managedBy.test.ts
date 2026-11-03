@@ -3,6 +3,7 @@
 // and Take over is remembered per chat.
 import { expect, test } from "bun:test";
 import {
+  chiefOf,
   DRIVING_WINDOW_MS,
   isTakenOver,
   managedBy,
@@ -144,4 +145,21 @@ test("a sender named only by its chat's name still counts as the manager", () =>
     incoming: { kind: "message", message: { name: "claude-sr2-coord", text: "", raw: "" } },
   };
   expect(shown(coord, [coordSays(ago(30)), named])).toBe(true);
+});
+
+test("a Chief's chat names the Chief from its turn session's tags, else the default Chief", () => {
+  const turn = { sessionId: "turn", chiefTurn: { home: "optchat-chief:home", participant: "agent_scout" } };
+  const chat = { sessionId: "chat", chiefChild: true as const, chiefHome: "optchat-chief:home" };
+  expect(chiefOf("chat", [turn, chat])).toBe("agent_scout");
+  expect(chiefOf("chat", [chat])).toBe("agent_mux");
+  expect(chiefOf("chat", [{ sessionId: "chat" }])).toBeUndefined();
+  expect(
+    sessionEntry({
+      sessionId: "turn",
+      tags: { "mux.children": "optchat-chief:home", "cmux.chief.participant": "agent_scout" },
+    }).chiefTurn,
+  ).toEqual({ home: "optchat-chief:home", participant: "agent_scout" });
+  expect(sessionEntry({ sessionId: "chat", tags: { "mux.parent": "optchat-chief:home" } }).chiefHome).toBe(
+    "optchat-chief:home",
+  );
 });

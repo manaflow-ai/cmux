@@ -118,3 +118,9 @@ export function oneCloudStart(
 export function cloudStartToasted(answer: CloudStartAnswer): boolean {
   return !answer.ok && answer.code === "cloud_start_failed";
 }
+
+/// The host's card at the plan's machine cap answered Run on This Mac (CloudMachineCap.runHereCode): no machine was
+/// made, and the page sends the kept prompt to a chat on this Mac instead.
+export function cloudRunsHere(answer: CloudStartAnswer): boolean {
+  return !answer.ok && answer.code === "run_on_this_mac";
+}

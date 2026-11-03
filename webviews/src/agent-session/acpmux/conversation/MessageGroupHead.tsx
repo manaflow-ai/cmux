@@ -38,6 +38,7 @@ export function MessageGroupHead({
   sender,
   count,
   senders,
+  hint,
   open,
   bodyId,
   onToggle,
@@ -50,6 +51,8 @@ export function MessageGroupHead({
   count: string;
   /// The senders' names, joined; muted after the count.
   senders?: string;
+  /// The head's hover, when it is not `senders` (a "Received N messages" row's short names).
+  hint?: string;
   open: boolean;
   bodyId: string;
   onToggle(): void;
@@ -67,7 +70,7 @@ export function MessageGroupHead({
       aria-expanded={open}
       aria-controls={open ? bodyId : undefined}
       aria-label={ariaLabel}
-      title={senders || undefined}
+      title={hint || senders || undefined}
       onClick={onToggle}
     >
       <span className={`cv-tool__icon${iconClassName ? ` ${iconClassName}` : ""}`} aria-hidden="true">
