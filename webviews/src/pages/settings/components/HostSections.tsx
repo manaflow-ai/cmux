@@ -1,8 +1,8 @@
-import { Input } from "../../../ui/Input";
-import { Button } from "../../../ui/Button";
 // The parts of Spaces & Profiles and Machines that are not schema rows (R82 commit 2): the app's
 // live lists (`cmux.settings.host.lists`, updated by `cmux.settings.host.changed`) and the browser
 // profile editor, whose every edit runs a `browserProfile.*` catalog action (the palette's path).
+import { Input } from "../../../ui/Input";
+import { Button } from "../../../ui/Button";
 import { useState, type ReactNode } from "react";
 import { useRowState, useSettingsState, useStore } from "../context";
 import { Switch } from "../editors/ToggleEditor";

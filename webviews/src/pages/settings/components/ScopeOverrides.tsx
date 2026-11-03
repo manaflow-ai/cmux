@@ -1,9 +1,9 @@
-import { Button } from "../../../ui/Button";
 // P4: a narrower scope's theme shows inline on the theme setting ("Overridden in this workspace by
 // Dracula · Reset") instead of space/workspace/terminal tabs. The scopes are the host's theme
 // levels of the active window; Reset runs the level's clear action (the palette's path). A space or
 // workspace theme colors its window's chrome too, so with an App Theme set its note says it replaces
 // that as well (a terminal's own theme colors only the terminal).
+import { Button } from "../../../ui/Button";
 import { useSettingsState, useStore } from "../context";
 import { Icon } from "../icons";
 import { valueOf } from "../store";

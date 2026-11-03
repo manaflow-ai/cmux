@@ -1,4 +1,3 @@
-import { Button } from "../../../ui/Button";
 // Settings > Updates' Channels card: every release channel's recent builds from the host's
 // `cmux.settings.channels.state` (the feed's notes index, canary verdicts and pulls), read once
 // when the card shows. Following tracks the Channel row above it at once. Each build says how it fared, whether this Mac runs or kept it, and links
@@ -8,6 +7,7 @@ import { Button } from "../../../ui/Button";
 // running build stays until that channel passes it. Every other build (older or newer, kept or
 // not, never the pulled ones) has a Switch, shown while the pointer is on its row: one restart into
 // it, downloaded first unless kept (Leo: "be able to hot swap your dev build for any other dev build").
+import { Button } from "../../../ui/Button";
 import { useEffect, useRef, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useSettingsState, useStore } from "../context";

@@ -12,7 +12,7 @@
   --muted-text: var(--ds-color-muted);
   --soft-text: var(--ds-color-faint);
   --border: var(--ds-color-separator);
-  --border-strong: var(--ds-color-separator);
+  --border-strong: var(--app-border-strong, var(--ds-color-focus));
   --input-bg: var(--ds-color-hover);
   --accent-soft: var(--ds-color-selection);
   --danger: var(--ds-color-danger);

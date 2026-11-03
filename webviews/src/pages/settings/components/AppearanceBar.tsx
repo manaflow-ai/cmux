@@ -1,10 +1,10 @@
-import { Button } from "../../../ui/Button";
 // Settings > Appearance's floating Presets, Undo, Redo and Reset (Leo, 10-19 and 10-20): pinned to the
 // bottom right of the content while Appearance shows, so a whole look is one click and a wrong pick
 // is always one click from undone. Presets set the window's Opacity and Material and every surface's
 // opacity at once (appearancePresets.ts), as one undoable step. Reset is a
 // menu: Restore How It Was (when Appearance first showed in this visit) or Reset to Defaults, each
 // confirmed inline and itself undoable.
+import { Button } from "../../../ui/Button";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../../ui/Menu";
 import { Tooltip } from "../../../ui/Tooltip";

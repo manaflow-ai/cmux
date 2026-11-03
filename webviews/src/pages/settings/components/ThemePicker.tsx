@@ -85,7 +85,7 @@ export function ThemePicker({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   // The right-clicked theme: previewed whenever no row is highlighted.
   const [pinned, setPinned] = useState<string | null>(null);
   // A live preview is showing in the app; it must end even if the picker goes away while open.

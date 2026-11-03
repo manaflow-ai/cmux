@@ -47,8 +47,8 @@
 }
 
 .content {
-  --content-pad-end: var(--ds-space-56);
-  padding: var(--ds-space-5) var(--page-edge) var(--content-pad-end);
+  --content-pad-end: calc(var(--grid-row) * 2);
+  padding: var(--grid-gap-block) var(--page-edge) var(--content-pad-end);
 }
 
 .column {
@@ -810,8 +810,11 @@
   height: var(--ds-control-compact);
 }
 
-.reset-button {
+.reset-slot:not([data-shown]) .reset-button {
   opacity: 0;
+}
+
+.reset-slot .reset-button {
   transition:
     opacity var(--motion-out) var(--motion-ease),
     background var(--motion-hover);

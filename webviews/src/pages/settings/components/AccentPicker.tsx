@@ -48,7 +48,7 @@ export function AccentPicker({
   onPick(value: string): void | Promise<unknown>;
 }) {
   const [open, setOpen] = useState(false);
-  const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const chosen = choices.find((choice) => choice.value === value) ?? choices[0];
   // Disabled while open (the key became managed, the host disconnected) closes it too.
   useEffect(() => {

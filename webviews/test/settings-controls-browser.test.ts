@@ -137,11 +137,39 @@ await requireBrowserLane("settings-controls-browser.test.ts", async () => {
       const toggle = page.locator(`${selector} [role=switch]`);
       await toggle.waitFor();
       expect(await toggle.isDisabled()).toBe(true);
+      expect(
+        await page.locator(`${selector} .reset-button`).evaluate((element) => getComputedStyle(element).opacity),
+      ).toBe("0");
       expect(await toggle.getAttribute("aria-checked")).toBe("false");
       await toggle.evaluate((element) => (element as HTMLButtonElement).click());
       expect(await toggle.getAttribute("aria-checked")).toBe("false");
       expect(await page.locator(`${selector} [data-reset]`).count()).toBe(0);
       await capture(page, "settings-managed");
+    } finally {
+      await page.close();
+    }
+  });
+  test("host theme colors reach labels and shared inputs", async () => {
+    const page = await open("text", 480);
+    try {
+      const selector = row("browser.newTabPage");
+      await page.locator(`${selector} input.text`).waitFor();
+      await page.evaluate(() => document.documentElement.style.setProperty("--cmux-text", "rgb(12, 34, 56)"));
+      const colors = await page
+        .locator(selector)
+        .evaluate((element) =>
+          [element.querySelector(".row-title")!, element.querySelector("input.text")!].map(
+            (node) => getComputedStyle(node).color,
+          ),
+        );
+      expect(colors).toEqual(["rgb(12, 34, 56)", "rgb(12, 34, 56)"]);
+      if (!baseline) {
+        const sidebar = await page.locator(".settings > .sidebar").evaluate((element) => {
+          const style = getComputedStyle(element);
+          return [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft].map(parseFloat);
+        });
+        expect(sidebar).toEqual([12, 12, 8, 12]);
+      }
     } finally {
       await page.close();
     }
