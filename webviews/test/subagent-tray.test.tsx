@@ -1511,3 +1511,94 @@ describe("workflow progress in the default tray and Session Info", () => {
     ).toEqual([]);
   });
 });
+
+// The running tray's folded header names what runs (Leo, 2026-11-03: "the "running" bar above the
+// composer is currently no longer usable bc it doesn't display much", on a bar that read only
+// "1 subagent running · 1 command 4s"). Folded, it reads as Claude Code's running-tasks list does:
+// the subagent's task and the command's description (its short command when it has none), the
+// newest first; with more running it names the newest two and counts the rest. Open, the lines name
+// them and the header keeps its counts.
+const namesNow = Date.now();
+const namedAgent = (id: string, task: string, startedAgo: number): Subagent => ({
+  id,
+  parent: null,
+  name: id,
+  task,
+  state: "running",
+  startedAt: namesNow - startedAgo,
+});
+const namedCommand = (id: string, line: string, startedAgo: number, description?: string): BackgroundCommand => ({
+  id,
+  command: line,
+  state: "running",
+  startedAt: namesNow - startedAgo,
+  ...(description ? { description } : {}),
+});
+
+async function foldedHead(agents: Subagent[], commands: BackgroundCommand[]) {
+  resetTrayOpenMemory();
+  const host = dom.window.document.getElementById("root")!;
+  const root = createRoot(host);
+  const items = trayItems(agents, commands, NONE, true);
+  await act(async () =>
+    root.render(createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {} })),
+  );
+  const button = host.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
+  return {
+    button,
+    title: () => button.querySelector(".acpmux-running-tray__title")?.textContent,
+    more: () => button.querySelector(".acpmux-running-tray__more")?.textContent ?? "",
+    done: async () => act(async () => root.unmount()),
+  };
+}
+
+describe("the folded running bar names what runs", () => {
+  test("one subagent and one command: the subagent's task and the command's description, newest first", async () => {
+    const bar = await foldedHead(
+      [namedAgent("a1", "Explore how the daemon updates itself", 4_000)],
+      [namedCommand("c1", "cd ~/app && bun test --watch", 2_000, "Watch the tests")],
+    );
+    try {
+      expect(bar.button.getAttribute("aria-expanded")).toBe("false");
+      expect(bar.title()).toBe("Watch the tests · Explore how the daemon updates itself");
+      expect(bar.more()).toBe("");
+      // Open, the lines name them and the header goes back to its counts.
+      await act(async () => bar.button.click());
+      expect(bar.title()).toBe("1 subagent running · 1 command");
+    } finally {
+      await bar.done();
+    }
+  });
+
+  test("a command with no description is named by its short command", async () => {
+    const bar = await foldedHead(
+      [namedAgent("a1", "Review the tray", 9_000)],
+      [namedCommand("c1", "cd ~/Projects/app && bun run dev", 1_000)],
+    );
+    try {
+      expect(bar.title()).toBe("bun run dev · Review the tray");
+    } finally {
+      await bar.done();
+    }
+  });
+
+  test("five running: the newest two by name, then a count of the rest", async () => {
+    const bar = await foldedHead(
+      [
+        namedAgent("a1", "Review the tray", 50_000),
+        namedAgent("a2", "Review the fold", 40_000),
+        namedAgent("a3", "Audit the stack", 3_000),
+      ],
+      [
+        namedCommand("c1", "bun run dev", 30_000, "Run the dev server"),
+        namedCommand("c2", "bun run lint", 1_000, "Lint the web"),
+      ],
+    );
+    try {
+      expect(bar.title()).toBe("Lint the web · Audit the stack");
+      expect(bar.more()).toBe("+3 more");
+    } finally {
+      await bar.done();
+    }
+  });
+});

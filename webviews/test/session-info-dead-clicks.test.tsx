@@ -315,6 +315,10 @@ test("every line of the tray, and its header, does something", async () => {
   const { dead } = await deadClicks(container, calls);
   expect(dead).toEqual([]);
   for (const handler of ["onOpen", "onOpenCommand", "onOpenSession"]) expect(calls).toContain(handler);
+  // The sweep's last round clicks what closes, the header too (its text changes as it opens, from
+  // the names to the counts): open it again for the lines' menus.
+  const folded = container.querySelector<HTMLButtonElement>('.acpmux-running-tray__head[aria-expanded="false"]');
+  if (folded) await act(async () => folded.click());
   // A line's Stop is in its context menu (#28533), and each one there does something too.
   for (const name of ["Land piece 0", "bun run dev"]) {
     const line = [...container.querySelectorAll<HTMLElement>(".acpmux-agent-line")].find((each) =>
