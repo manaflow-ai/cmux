@@ -620,6 +620,12 @@ CMUX_SHIM_EXPORT void cmux_shim_close_all(void);
 CMUX_SHIM_EXPORT int cmux_shim_live_browser_count(void);
 CMUX_SHIM_EXPORT int cmux_shim_window_count(void);  // -1 when the fork API is missing
 CMUX_SHIM_EXPORT void cmux_shim_shutdown(void);
+// Quit, before cmux_shim_shutdown: commits every request context's cookie
+// store to disk (CefCookieManager::FlushStore), so CefShutdown has no cookie
+// write left and a quit its deadline ends inside CefShutdown keeps them. REPLY
+// with `reply` and browser 0 follows once every store answered (at once when
+// there is none): a = stores flushed. Returns 1 when started.
+CMUX_SHIM_EXPORT int cmux_shim_flush_cookie_stores(int reply);
 
 // Site state for Page Info (ABI 3). Content types are named as
 // SitePermissionKind raw values ("location", "popups", "thirdPartySignIn",

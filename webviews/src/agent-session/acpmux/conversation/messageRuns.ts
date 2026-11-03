@@ -47,6 +47,9 @@ type Member = {
 function member(row: AcpmuxRow): Member | undefined {
   if (row.kind === "compaction")
     return { lines: 1, sent: 0, received: 0, work: [], failed: 0, running: row.compaction?.state === "running" };
+  // A tool's fire stays in sight: it ends a run, never folds into its line.
+  if (isReceivedLine(row) && row.incoming?.kind === "message" && row.incoming.message.notice?.severity === "fire")
+    return undefined;
   if (isReceivedLine(row)) {
     // An inbox notice counts the messages it brought, not its threads (inboxNotice.ts `inboxCounts`).
     const n = row.incoming?.kind === "inbox" ? Math.max(1, inboxCounts(row.incoming.notice).messages) : 1;
