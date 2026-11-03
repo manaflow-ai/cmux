@@ -34,9 +34,7 @@ for (const [name, loaded, total] of [
     JSON.stringify({
       scenario: name,
       lateCountHeightGrowthPx: lateHeight - firstHeight,
-      lateCountMinimapScaleChange: Math.abs(
-        minimapScale(lateHeight, 500) - minimapScale(firstHeight, 500),
-      ),
+      lateCountMinimapScaleChange: Math.abs(minimapScale(lateHeight, 500) - minimapScale(firstHeight, 500)),
       lateCountKindReads: kindReads - beforeReads,
     }),
   );

@@ -58,8 +58,7 @@ function findPin(state: OlderReserve, rows: readonly AcpmuxRow[]): number {
 
 /// The first prompt among the rows (bounded: a page starts with whole turns), else the first row.
 function firstPrompt(rows: readonly AcpmuxRow[]): number {
-  for (let index = 0; index < Math.min(rows.length, 64); index += 1)
-    if (rows[index]!.kind === "user") return index;
+  for (let index = 0; index < Math.min(rows.length, 64); index += 1) if (rows[index]!.kind === "user") return index;
   return 0;
 }
 
@@ -90,8 +89,7 @@ export function olderReserve(
   if (previous?.room === 0) return { reserve: 0, state: previous };
   // An initial empty snapshot has nothing to estimate. Once a layout has held room, keep its
   // exhausted state through an empty snapshot so the same session cannot seed it again.
-  if (rows.length === 0)
-    return { reserve: 0, state: previous ? { ...previous, room: 0, end: 0 } : undefined };
+  if (rows.length === 0) return { reserve: 0, state: previous ? { ...previous, room: 0, end: 0 } : undefined };
   const found = previous ? findPin(previous, rows) : -1;
   const pin = found >= 0 ? found : firstPrompt(rows);
   const top = input.rowTop(pin);

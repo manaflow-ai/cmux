@@ -9,8 +9,7 @@ const turn = (n: number): AcpmuxRow[] =>
     { id: `u${n}`, kind: "user", text: `prompt ${n}` },
     { id: `a${n}`, kind: "assistant", text: `reply ${n}` },
   ] as unknown as AcpmuxRow[];
-const turns = (from: number, to: number) =>
-  Array.from({ length: to - from }, (_, i) => turn(from + i)).flat();
+const turns = (from: number, to: number) => Array.from({ length: to - from }, (_, i) => turn(from + i)).flat();
 
 const pass = (
   state: OlderReserve | undefined,
