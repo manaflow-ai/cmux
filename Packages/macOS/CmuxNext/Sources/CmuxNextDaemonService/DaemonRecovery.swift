@@ -151,6 +151,10 @@ public final class DaemonRecovery {
             failure.isDiskFull || (failedInARow >= noticePolicy.failedStarts
                 && failingSince.map { now() - $0 >= noticePolicy.sustained } == true)
         } ?? false
+        if let failure {
+            // Notice level, so it outlives the in-memory `.info` lines of the connection's reconnect (`log show` finds it).
+            logger.notice("cmux-tui start failed (\(failedInARow, privacy: .public) in a row, \(persists ? "down" : "retrying quietly", privacy: .public)): \(failure.detail, privacy: .public)")
+        }
         if startFailurePersists != persists { startFailurePersists = persists }
         // An ensure that worked (the owner recovered by itself) ends an earlier Restart's failure.
         if failure == nil { restartFailure = nil }
