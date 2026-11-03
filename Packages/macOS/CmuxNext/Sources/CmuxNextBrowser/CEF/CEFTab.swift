@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxNextDesign
 public import Foundation
 public import Observation
+import CmuxNextCompat
 import CmuxNextWakeups
 
 /// A Chromium tab (CEF fork, Chrome style). Its page is a child window that
@@ -77,9 +78,16 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var colorScheme: BrowserColorScheme = .system
 
     var machine = BrowserTabStateMachine()
+    /// The one automatic reload a memory end of the renderer owes (``BrowserExitRecovery``).
+    @ObservationIgnored var exitRecovery = BrowserExitRecovery()
+    /// The system's memory pressure, read when the renderer ends; a test gives a fixed level.
+    @ObservationIgnored var memoryPressure: () -> MemoryPressureLevel = { KernelMemoryPressureLevel().read() }
     /// Title changes reach `machine` at most 4 a second (`TitleCoalescer`, idle power).
     @ObservationIgnored var titleCoalescer = TitleCoalescer()
     @ObservationIgnored let titleTimer = DemandTimer(owner: "CEFTab.title")
+    /// The bounded wait of a document's background read before it settles (`documentDidPaint`). A test gives it a
+    /// manual clock.
+    @ObservationIgnored var settleTimer = DemandTimer(owner: "CEFTab.settle")
     @ObservationIgnored var isCreationPending = false
     @ObservationIgnored var navigation: BrowserNavigationID?
     @ObservationIgnored var nextNavigation: UInt64 = 0
@@ -92,6 +100,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var pendingFocus = false
     /// True while cmux's own `SetFocus(true)` runs (`chromiumRequestsFocus`).
     @ObservationIgnored var isGrantingFocus = false
+    /// The app's key window (``CEFKeyWindows``): a grant reads it and may move it.
+    @ObservationIgnored var keyWindows = CEFKeyWindows.appKit
     /// Navigation state to restore once the browser exists (created with
     /// an empty URL so its history starts empty).
     @ObservationIgnored var pendingRestore: String?
@@ -103,6 +113,11 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The document's own background, 0xAARRGGBB, once read (nil: Chromium's
     /// white); counts for resize gaps (`CEFTab+ResizeBackdrop`).
     @ObservationIgnored var pageBackdropARGB: UInt32?
+    /// The document (`pageBackdropDocument`) whose background read is in flight from its paint or load end
+    /// (`documentDidPaint`), so the second of the two events starts no second read.
+    @ObservationIgnored var pageBackdropReading: Int?
+    /// A load end or stop came while that read was in flight: one more read follows its answer.
+    @ObservationIgnored var pageBackdropReReadOwed = false
     /// Bumped on each committed document, so a read of the previous one is dropped.
     @ObservationIgnored var pageBackdropDocument = 0
     /// The committed document's load settled, so the page area is its own.
@@ -139,9 +154,42 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// A drag of these files from outside the app entered the page (a cmux page hands such a drop
     /// to its host); nil ignores it.
     @ObservationIgnored public var pageFilesDragged: (@MainActor ([URL]) -> Void)?
+    /// The drag of files the pane relays to the page (``pageFilesDragged``) ended: true in a drop
+    /// on the page (AppKit's `performDragOperation`, its event in dispatch), false when it left the
+    /// page or was cancelled. Page script cannot make either; nil ignores it.
+    @ObservationIgnored public var pageDragEnded: (@MainActor (Bool) -> Void)?
     /// A real mouse down or key down reached the page, at this `systemUptime` (a cmux page backs its
     /// calls with it as the person's gesture); nil ignores it.
     @ObservationIgnored public var pageUserInput: (@MainActor (TimeInterval) -> Void)?
+    /// The person pressed Cmd-V in the page, before Chromium pastes (``CEFRuntime/routeKey(_:browser:)``,
+    /// the key event in dispatch); nil ignores it.
+    @ObservationIgnored public var pagePasted: (@MainActor () -> Void)?
+    /// The person picked these files in the app's panel for the page's file chooser. Set, this
+    /// page's choosers come to the app (`cmux_shim_browser_set_file_dialogs`); nil leaves them to
+    /// Chromium's own panel and its accept filters, as on every other tab.
+    @ObservationIgnored public var pageFilesChosen: (@MainActor ([URL]) -> Void)? {
+        didSet {
+            if (pageFilesChosen == nil) != (oldValue == nil) { runtime.applyFileDialogRoute(self) }
+        }
+    }
+
+    /// Stops telling the page host about the page's messages, drags, input and pastes (it stopped
+    /// listening).
+    public func clearPageEventHooks() {
+        agentRelay.set(onMessage: nil, onEnd: nil)
+        pageFilesDragged = nil
+        pageDragEnded = nil
+        pageUserInput = nil
+        pagePasted = nil
+    }
+
+    /// Clears every page-host hook (the page host closed the page): its events, its dynamic paths,
+    /// and its file chooser goes back to Chromium.
+    public func clearPageHooks() {
+        clearPageEventHooks()
+        pageResources = nil
+        pageFilesChosen = nil
+    }
 
     /// The file URLs of a PAGE_DRAG_ENTER event's JSON array of absolute paths.
     nonisolated static func dragPaths(_ json: String) -> [URL] {
@@ -182,7 +230,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var deviceEmulationNeedsReset = false
     @ObservationIgnored var faviconTask: Task<Void, Never>?
     @ObservationIgnored private(set) var isClosed = false
-    @ObservationIgnored private var isOccluded = false
+    @ObservationIgnored private var isOccluded = false { didSet { if !isOccluded { runtime.extensionActionReads.tabShown(self) } } }
     /// The pane window this tab belongs to. A popup starts in its opener's
     /// Chromium window but belongs to its own popup host from adoption on;
     /// `awaitsWindowMove` is true until Chromium moved it there.
@@ -248,6 +296,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         reapplyColorScheme()
         applyPasswordFill()
         leaveAutomaticDownloadsToCmux(browser)
+        if pageFilesChosen != nil { runtime.applyFileDialogRoute(self) }
         applyDeviceEmulation()
         agentRelay.browserAttached()
         if host.freezesPlaceholder, host.placeholder === self { freezeNeverShownPage(browser) }
@@ -275,7 +324,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
             host.lifecycleTrace.record(id, "restore-navigation \(code == 1 ? "ok" : "failed(\(code))")")
             if code != 1, let url = pendingURL { runtime.shim?.loadURL(browser, url.absoluteString) }
         }
-        refreshExtensionActions()
+        runtime.extensionActionReads.refresh(self)
     }
 
     // What the page area shows, and when the document takes it over, are in
@@ -310,13 +359,22 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         host.present(self, in: view)
         view.layoutContent()
         // A tab whose renderer ended while hidden shows the crash notice with its Reload button
-        // when shown; it never reloads by itself (it used to: a page could come back signed out
-        // or lose what the person typed, with no sign why).
+        // when shown; only a renderer the system ended for memory reloads, once (`exitRecovery`).
+        reloadOwedAfterExit()
+    }
+
+    /// Takes the one automatic reload a memory end owes, if the sad tab still shows.
+    func reloadOwedAfterExit() {
+        guard state.processExit != nil, exitRecovery.takeReload(now: .now) else { return }
+        runtime.logger.error("renderer ended tab=\(self.id.rawValue, privacy: .public): reloading once after a memory end")
+        reload()
     }
 
     /// The renderer ended (crash, kill, out of memory, launch failure). The
-    /// pane shows the sad tab, now or when the tab is next shown; only its
-    /// Reload button (or the person's own reload) loads the page again.
+    /// pane shows the sad tab, now or when the tab is next shown; its Reload
+    /// button (or the person's own reload) loads the page again, except that
+    /// a renderer the system ended for memory reloads once by itself
+    /// (``BrowserExitRecovery``).
     func rendererTerminated(_ exit: BrowserProcessExit) {
         guard !isClosed else { return }
         // A new renderer need not keep the old one's media emulation, so forget
@@ -334,7 +392,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // in a dark theme.
         documentDidSettle()
         findRequests.cancel()
-        runtime.recordRendererExit(exit, tab: self)
+        let pressure = memoryPressure()
+        let owed = exitRecovery.processEnded(exit, pressure: pressure, now: .now)
+        runtime.recordRendererExit(exit, tab: self, pressure: pressure, reloads: owed)
+        if owed, host.visibleTab === self, !isOccluded { reloadOwedAfterExit() }
     }
 
     func contentDidDisappear() {
@@ -483,16 +544,15 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         isOccluded = !visible
         // Show at once; a hide waits for the end of the turn (CEFPaneHost.setNeedsHostVisibility).
         if host.visibleTab === self { if visible { host.hostView.isHidden = false } else { host.setNeedsHostVisibility() } }
-        devToolsController.views?.host.isHidden = !visible
+        // A DevTools that cmux closed stays hidden until Chromium reports it closed (`closeInThisTurn`).
+        devToolsController.views?.host.isHidden = !visible || devToolsController.closing
         if visible { grantPendingFocusIfShown() }
+        if visible, host.visibleTab === self { reloadOwedAfterExit() }
     }
 
     /// Whether the content lifecycle hid this page (read by the pane host
     /// when the tab's content view enters a window).
     var isContentHidden: Bool { isOccluded }
-
-    public func snapshot() async throws -> CGImage { try await CEFThumbnail.capture(self, CEFThumbnail.png) }
-    public func thumbnail() async throws -> CGImage { try await CEFThumbnail.capture(self, CEFThumbnail.params) }
 
     public func setZoom(_ zoom: Double) {
         machine.apply(.zoomChanged(zoom))
@@ -512,6 +572,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         agentRelay.resumeWaiters(false)
         agentFiles.withdraw()
         titleTimer.cancel()
+        settleTimer.cancel()
+        devToolsController.openTimer.cancel()
         faviconTask?.cancel()
         dismissPrompts()
         if let browserID {

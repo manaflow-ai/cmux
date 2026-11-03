@@ -137,6 +137,22 @@ fn effort_value(effort: &str) -> &str {
     }
 }
 
+/// The model id Claude Code accepts for `value`. A versioned family name
+/// without the `claude-` prefix (`opus-5-5`, `sonnet-5-5[1m]`) is not a
+/// Claude Code alias: Claude Code sends it to the API as typed and every turn
+/// fails with "There's an issue with the selected model (opus-5-5)". It takes
+/// the prefix, as the live list's `launch_id` does. Bare aliases (`opus`,
+/// `opusplan`), full ids and other providers' names pass unchanged.
+pub fn model_id(value: &str) -> String {
+    let value = value.trim();
+    let versioned = ["opus-", "sonnet-", "haiku-"].iter().any(|family| {
+        value
+            .strip_prefix(family)
+            .is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_digit()))
+    });
+    if versioned { format!("claude-{value}") } else { value.to_owned() }
+}
+
 /// The Reasoning select's value for a session effort: Ultracode runs at xhigh.
 fn shown_level(effort: &str) -> &str {
     match effort_value(effort) {
@@ -191,25 +207,40 @@ const LOGGED_SNAPSHOT_ITEMS: usize = 16;
 /// (`_acpmux.workflowProgressItems`); the translated `subagent_progress`
 /// keeps what changed (`workflows.rs`).
 pub fn logged_line(raw: &Value) -> Message {
-    let kind = format!(
+    let line = trimmed_snapshot(raw).unwrap_or_else(|| raw.clone());
+    Message::notification(&logged_kind(raw), line)
+}
+
+/// [`logged_line`] that moves the line into its record instead of copying it
+/// (the agent host logs every streamed line this way).
+pub fn logged_line_owned(raw: Value) -> Message {
+    let kind = logged_kind(&raw);
+    let line = trimmed_snapshot(&raw).unwrap_or(raw);
+    Message::notification(&kind, line)
+}
+
+fn logged_kind(raw: &Value) -> String {
+    format!(
         "claude.{}{}",
         raw.get("type").and_then(Value::as_str).unwrap_or("?"),
         raw.get("subtype").and_then(Value::as_str).map(|s| format!(".{s}")).unwrap_or_default()
-    );
-    let snapshot = raw.get("workflow_progress").and_then(Value::as_array);
-    let line = match (raw.as_object(), snapshot) {
-        (Some(fields), Some(items)) if items.len() > LOGGED_SNAPSHOT_ITEMS => {
-            let mut kept: serde_json::Map<String, Value> = fields
-                .iter()
-                .filter(|(key, _)| *key != "workflow_progress")
-                .map(|(key, value)| (key.clone(), value.clone()))
-                .collect();
-            kept.insert("_acpmux".into(), json!({"workflowProgressItems": items.len()}));
-            Value::Object(kept)
-        }
-        _ => raw.clone(),
-    };
-    Message::notification(&kind, line)
+    )
+}
+
+/// The line without its workflow snapshot, when the snapshot is too long to log whole.
+fn trimmed_snapshot(raw: &Value) -> Option<Value> {
+    let fields = raw.as_object()?;
+    let items = raw.get("workflow_progress").and_then(Value::as_array)?;
+    if items.len() <= LOGGED_SNAPSHOT_ITEMS {
+        return None;
+    }
+    let mut kept: serde_json::Map<String, Value> = fields
+        .iter()
+        .filter(|(key, _)| *key != "workflow_progress")
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+    kept.insert("_acpmux".into(), json!({"workflowProgressItems": items.len()}));
+    Some(Value::Object(kept))
 }
 
 /// The model choices offered in pickers before Claude Code's own list answers.
@@ -241,7 +272,19 @@ mod hook_callback;
 #[cfg(test)]
 mod hook_callback_tests;
 mod inbound;
+// What the log keeps of Claude's raw assistant and user lines (`logged_bodies.rs`).
+mod logged_bodies;
+pub use logged_bodies::leave_out_bodies;
 mod outbound;
+pub mod prompt_cache;
+pub mod prompt_suggestions;
+#[cfg(test)]
+mod prompt_suggestions_tests;
+// A tool result's images as ACP image blocks (`result_images.rs`).
+mod result_images;
+pub(crate) use result_images::result_images;
+#[cfg(test)]
+mod result_images_tests;
 #[cfg(test)]
 mod steer_now_tests;
 // Other sessions' messages steered into one step go in as one line (`steer_batch.rs`).
@@ -251,6 +294,8 @@ mod steer_batch_tests;
 mod steer_withdraw;
 #[cfg(test)]
 mod steer_withdraw_tests;
+#[cfg(test)]
+mod stop_spares_background_tests;
 mod subagent_route;
 #[cfg(test)]
 mod subagent_tests;
@@ -301,6 +346,23 @@ const BREAKDOWN_ROWS: usize = 50;
 /// control request. The translator turns this into a `side_question`
 /// `control_request` on Claude's running stream-json process.
 pub const SIDE_QUESTION: &str = "_acpmux/claude/side_question";
+
+/// The internal ACP request for a session recap (`hub/away_recap.rs`): Claude Code's own recap
+/// prompt asked as a `side_question` on the idle process, so it reads the conversation from its
+/// warm prompt cache, adds nothing to the transcript and may use no tool. Claude Code 2.1.310
+/// makes its own recap (`away_summary`) only in its terminal UI, from the terminal's focus;
+/// under `-p` it never does.
+pub const RECAP: &str = "_acpmux/claude/recap";
+
+/// The chat's own session recap switch (`hub/away_recap.rs`): `default` follows the app's
+/// `agents.chats.sessionRecap`, `on` and `off` override it for this chat. acpmux keeps it; Claude
+/// Code is never asked.
+pub const RECAP_OPTION: &str = "session-recap";
+/// What a recap costs, as its choices say (measured on Opus 5.5 with a 57k-token chat).
+const RECAP_COST: &str = "One extra model call per recap, about $0.016 with a warm cache";
+
+/// Claude Code's own recap prompt (2.1.310, its `/recap` and `away_summary`), word for word.
+pub(crate) const RECAP_PROMPT: &str = "The user stepped away and is coming back. Recap in under 40 words, 1-2 plain sentences, no markdown. Lead with the overall goal and current task, then the one next action. Skip root-cause narrative, fix internals, secondary to-dos, and em-dash tangents.";
 
 /// The refusal of a steered prompt when no turn is running (the turn ended
 /// between the hub's check and the adapter).
@@ -375,7 +437,7 @@ pub fn spawn_plan(
     // A later --model wins over one the profile pins in its argv.
     if let Some(m) = model.filter(|m| !m.is_empty() && *m != "default") {
         args.push("--model".into());
-        args.push(m.into());
+        args.push(model_id(m));
     }
     // Lets the chat switch to bypassPermissions ("Bypass permissions") later; a
     // process that cannot take it is never given bypassPermissions at spawn.
@@ -422,6 +484,12 @@ pub struct Translator {
     effort: Mutex<String>,
     /// Claude Code's fast mode (`fastMode`), on or off.
     pub fast: Mutex<bool>,
+    /// The chat's `prompt-suggestions` option (`prompt_suggestions.rs`), on unless set off.
+    pub prompt_suggestions: AtomicBool,
+    /// Whether this process asked Claude Code for prompt suggestions at `initialize`.
+    suggestions_offered: AtomicBool,
+    /// This chat's `RECAP_OPTION`: `default`, `on` or `off`.
+    recap: Mutex<&'static str>,
     in_turn: AtomicBool,
     /// Claude Code wrote something for the prompt (an assistant line, a
     /// conversation reset): its result ends the turn, never startup noise.
@@ -452,6 +520,9 @@ pub struct Translator {
     carry_owed: tokio::sync::watch::Sender<(usize, u64)>,
     /// Text streamed so far in the current turn, to build the prompt result.
     pub cancelled: AtomicBool,
+    /// A Send now stopped the current step (`step_interrupt`): its result ends the turn and
+    /// carries the steer Claude Code has not read (`carry.rs`). Cleared at each result.
+    step_stopped: AtomicBool,
     pub slash_commands: Mutex<Vec<Value>>,
     /// The skills Claude Code names in its system/init (`skills`, names
     /// without "/"): their slash commands are tagged as skills.
@@ -486,6 +557,8 @@ pub struct Translator {
     /// The cached context count came from an untagged compaction boundary rather
     /// than a model message. The controller can fence its later result resend.
     context_from_compaction: AtomicBool,
+    /// When the chat's prompt cache expires (`prompt_cache.rs`).
+    cache: prompt_cache::CacheClock,
     /// A compaction just ended: the synthetic user line Claude writes next
     /// is its summary (`compaction_summary`).
     awaiting_summary: AtomicBool,
@@ -571,6 +644,8 @@ enum Pending {
     Background(Vec<String>, Option<std::time::Instant>),
     /// A steer's take-back (`MUX_STEER_WITHDRAW`), answered when claude takes it.
     Withdraw,
+    /// A chat's prompt-suggestions pick (`prompt_suggestions.rs`), answered when claude answers.
+    Suggestions,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -582,6 +657,18 @@ enum Setting {
 }
 
 impl Translator {
+    /// Starts this chat on its saved `RECAP_OPTION` choice (`default` for any other value).
+    pub fn set_recap(&self, choice: Option<&str>) {
+        let choice = match choice {
+            Some("on") => "on",
+            Some("off") => "off",
+            _ => "default",
+        };
+        if let Ok(mut recap) = self.recap.try_lock() {
+            *recap = choice;
+        }
+    }
+
     pub fn new(acp_session_id: String, mode: &str, model: &str, effort: &str) -> Arc<Self> {
         Arc::new(Self {
             pending: Mutex::new(HashMap::new()),
@@ -593,9 +680,12 @@ impl Translator {
             session_id: Mutex::new(None),
             acp_session_id,
             mode: Mutex::new(mode.to_owned()),
-            model: Mutex::new(model.to_owned()),
+            model: Mutex::new(model_id(model)),
             effort: Mutex::new(effort_value(effort).to_owned()),
             fast: Mutex::new(false),
+            prompt_suggestions: AtomicBool::new(true),
+            suggestions_offered: AtomicBool::new(false),
+            recap: Mutex::new("default"),
             in_turn: AtomicBool::new(false),
             turn_output: AtomicBool::new(false),
             prompt_echo: Mutex::new(None),
@@ -606,6 +696,7 @@ impl Translator {
             carry: Mutex::new(carry::Carry::new()),
             carry_owed: tokio::sync::watch::channel((0, 0)).0,
             cancelled: AtomicBool::new(false),
+            step_stopped: AtomicBool::new(false),
             slash_commands: Mutex::new(Vec::new()),
             skills: Mutex::new(Vec::new()),
             sent_commands: Mutex::new(None),
@@ -619,6 +710,7 @@ impl Translator {
             context_window: AtomicU64::new(0),
             context_used: AtomicU64::new(0),
             context_from_compaction: AtomicBool::new(false),
+            cache: Default::default(),
             awaiting_summary: AtomicBool::new(false),
             compacting: AtomicBool::new(false),
             cancelled_compaction: AtomicBool::new(false),
@@ -789,7 +881,7 @@ impl Translator {
 
     pub async fn config_options_value(&self) -> Value {
         let effort = self.effort.lock().await.clone();
-        json!([
+        let mut options = json!([
             {"id": "model", "name": "Model", "type": "select", "category": "model", "currentValue": *self.model.lock().await,
              "options": models().iter().map(|(v, n)| json!({"value": v, "name": n})).collect::<Vec<_>>()},
             {"id": "mode", "name": "Permission mode", "type": "select", "category": "mode", "currentValue": *self.mode.lock().await,
@@ -808,7 +900,18 @@ impl Translator {
                  {"value": "off", "name": "Off", "description": "Default speed, normal usage"},
                  {"value": "on", "name": "On", "description": "Faster output, increased usage"},
              ]},
-        ])
+            {"id": RECAP_OPTION, "name": "Session recap", "type": "select", "category": "model_config",
+             "currentValue": *self.recap.lock().await,
+             "options": [
+                 {"value": "default", "name": "Default", "description": format!("As in Settings > Chats. {RECAP_COST}")},
+                 {"value": "on", "name": "On", "description": RECAP_COST},
+                 {"value": "off", "name": "Off", "description": "No recap when you come back"},
+             ]},
+        ]);
+        if let (Some(list), Some(option)) = (options.as_array_mut(), self.suggestion_option()) {
+            list.push(option);
+        }
+        options
     }
 }
 

@@ -24,12 +24,17 @@ if (!built) console.warn("agent-pane-no-capsules: skipping (run scripts/cmux-nex
  * Cards New Tab template (u2851, from the user's scrawl of Aside's New Tab page) is a pill design
  * on purpose: its field and its selected Chats tab are round (newtab/screen.css). The other templates keep small-radius rects. */
 const SHAPES = new Set([
+  // App scene ABI drawing primitives, not agent-pane controls. Badge labels still use small-radius rects.
+  ".cmux-app-scene-circle",
+  ".cmux-app-scene-capsule",
   ".acpmux-switch",
   ".acpmux-quick-fast-toggle",
+  // Session Info's Remote Control switch track (#28981), styled like Settings' ds-switch.
+  ".acpmux-session-info-switch__input",
   ".acpmux-effort-track",
   ".acpmux-effort-fill",
   ".acpmux-context-card-bar",
-  ".acpmux-chat-inspector-context__bar",
+  ".acpmux-session-info-context__bar",
   // The workflow card's progress bar and its phase segments (4ad2cc9c8eff, #27019): 4 px bars.
   ".acpmux-workflow-card__progress",
   ".acpmux-workflow-card__phases > span",
@@ -109,6 +114,9 @@ describe("capsule detection", () => {
     ["a half-height radius", ".control { width: 60px; height: 24px; border-radius: 12px; }", true],
     ["an auto-height pill", ".control { border-radius: 999px; }", true],
     ["a toggle track", ".acpmux-quick-fast-toggle { width: 30px; height: 20px; border-radius: 999px; }", false],
+    ["an app circle primitive", ".cmux-app-scene-circle { border-radius: 999px; }", false],
+    ["an app capsule primitive", ".cmux-app-scene-capsule { border-radius: 999px; }", false],
+    ["an app badge control", ".cmux-app-scene-badge-label { border-radius: 999px; }", true],
   ])("classifies %s", (_name, css, expected) => {
     expect(capsules(css).length > 0).toBe(expected);
   });

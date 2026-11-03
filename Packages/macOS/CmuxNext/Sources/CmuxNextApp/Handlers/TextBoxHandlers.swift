@@ -43,7 +43,7 @@ enum TextBoxHandlers {
         let services = ctx.services
         let box = TextBoxController(session: entry.session, perform: { [weak entry] command in
             guard let entry, let pane = pane(showing: entry, services) else { return }
-            var invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.paneKey))
+            var invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.paneKey)).onMachine(pane.daemon.machineID)
             invocation.keyContext = services.registry.context.subtracting(ActionContext.focusBits)
                 .union([.terminalFocused, .textBoxFocused])
             _ = services.registry.perform(ActionID(rawValue: command.rawValue), invocation: invocation)

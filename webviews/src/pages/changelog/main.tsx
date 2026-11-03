@@ -10,7 +10,7 @@ import table from "./generated/strings.json";
 import { ChangelogPage } from "./ChangelogPage";
 import { routeChipHost } from "./ChangePullRequest";
 import { MockChangelogProvider } from "./mockProvider";
-import { ChangelogStore, parseDesign, parseNewsLayout, parseSpan } from "./store";
+import { ChangelogStore, parseDesign, parseNewsLayout, parseSheetLayout, parseSpan } from "./store";
 import { mountUpdateSurface, parseSurface } from "./surface";
 import "../shared/pageBase.css";
 // The enlarged picture is a ui/Dialog, and a pull request's hover card a ui/Tooltip card with an
@@ -34,6 +34,7 @@ export function mountChangelogPage(root: HTMLElement, client: PageClient | null 
           strings={strings}
           design={parseDesign(location.hash)}
           news={parseNewsLayout(location.hash)}
+          sheet={parseSheetLayout(location.hash)}
         />
       </UiProvider>,
     );

@@ -13,7 +13,7 @@ public struct StreamedSimulatorPage: View {
     let model: StreamedBrowserModel
     var insets: EdgeInsets
 
-    public static let unavailableText = String(localized: "Simulators aren't available from this Mac yet.")
+    public static let unavailableText = String(localized: "Simulators aren't available from this Mac.")
 
     public init(model: StreamedBrowserModel, insets: EdgeInsets) {
         self.model = model

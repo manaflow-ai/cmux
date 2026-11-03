@@ -175,6 +175,13 @@ class WorkflowRoutingTests(unittest.TestCase):
                   "github.repository_owner": "manaflow-ai", "runner.environment": "github-hosted"}
         condition = expression.removeprefix("${{").removesuffix("}}").strip()
         condition = re.sub(r"\b(?:inputs|needs|steps|github|env|runner)\.[\w.-]+", lambda m: repr(values.get(m[0], "")), condition)
+        pools = {
+            "linux_16": "blacksmith-16vcpu-ubuntu-2404",
+            "linux_32": "blacksmith-32vcpu-ubuntu-2404",
+            "macos_26": "blacksmith-6vcpu-macos-26",
+        }
+        condition = re.sub(r"fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)",
+                           lambda m: repr(pools[m.group(1)]), condition)
         condition = re.sub(r"\bvars\.[\w.-]+", "''", condition)
         condition = condition.replace("&&", " and ").replace("||", " or ")
         return eval(condition, {"__builtins__": {}}, {"always": lambda: True, "success": lambda: True,

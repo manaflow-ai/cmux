@@ -205,6 +205,12 @@ async fn an_unhandled_session_method_reaches_the_harness_only_from_the_unix_sock
     assert!(err(&r).contains("transcriptRead.remote"), "{r}");
     let r = Client::new(&hub, Origin::LocalApp).call("_acpmux/subagent_transcript", read).await;
     assert!(!err(&r).contains("transcriptRead.remote"), "{r}");
+    // So is a chat's older native history, read from its Claude Code transcript.
+    let older = json!({"sessionId": id, "before": 4096});
+    let r = Client::new(&hub, Origin::Web).call("_acpmux/native_history", older.clone()).await;
+    assert!(err(&r).contains("transcriptRead.remote"), "{r}");
+    let r = Client::new(&hub, Origin::LocalApp).call("_acpmux/native_history", older).await;
+    assert!(!err(&r).contains("transcriptRead.remote"), "{r}");
     // The daemon's workflows (they name its chats and their workflows' args): never for the Web.
     let r = Client::new(&hub, Origin::Web).call("_acpmux/workflows", json!({})).await;
     assert!(err(&r).contains("workflows.remote"), "{r}");
@@ -280,10 +286,15 @@ async fn folder_fields_from_a_websocket_connection_are_existing_directories_made
         let info = c.call("_acpmux/info", json!({"sessionId": id})).await;
         assert_eq!(info["result"]["cwd"], json!(real), "{origin:?}: {info}");
     }
-    // The unix socket: unchanged (additionalDirectories is not checked there).
+    // The unix socket: no web roots, but the chat now gives its harness these folders
+    // (`hub/additional_dirs.rs`), so they are absolute, existing folders there too.
     let mut local = Client::new(&hub, Origin::Local);
     let r = local
         .call("session/new", new_session(&real, json!({"additionalDirectories": ["relative"]})))
+        .await;
+    assert_eq!(r["error"]["code"], json!(-32602), "{r}");
+    let r = local
+        .call("session/new", new_session(&real, json!({"additionalDirectories": [d.link]})))
         .await;
     assert!(r.get("error").is_none(), "{r}");
     let _ = std::fs::remove_dir_all(&d.base);

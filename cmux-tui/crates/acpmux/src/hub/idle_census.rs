@@ -14,8 +14,11 @@
 //! this folder's project entry) and the folder's `.mcp.json`; for Codex its `config.toml`. The
 //! `mcpServers` acpmux gave an ACP harness are added. A config edited later never changes them. A
 //! file that is missing or does not parse adds nothing, so a server only it names keeps the
-//! harness up. For a harness another daemon started none are known: it ends only when nothing
-//! runs under it.
+//! harness up. A hosted harness's servers are kept in its session's meta with its host's
+//! incarnation (`StoredLaunch`, `SessionMeta::idle_launch`), so a next daemon that adopts the host
+//! after a restart, an update or a crash judges it by the same servers. For a harness another
+//! daemon started with none kept (a build before this one), none are known: it ends only when
+//! nothing runs under it.
 //!
 //! Only a child of the harness can be a server, and only when its argv is exactly the server's:
 //! its program (as configured, or what `PATH` runs for a name), or an interpreter running that
@@ -29,7 +32,10 @@
 //! script by path: npm's `node .../bin/codex ARGS`) whose child runs a program of the script's
 //! name with exactly the same args relays to that child, which is then the harness too: its
 //! children may be servers, and a program beside it named after it (`codex-code-mode-host`) is its
-//! own helper, though what runs under a helper is judged on its own (`relays`, `part_of`). The
+//! own helper, though what runs under a helper is judged on its own (`relays`, `part_of`). A
+//! native wrapper (`sr2 claude ARGS`: a program, not an interpreter, naming the agent and its
+//! args) whose own child runs that agent by absolute path with those args unchanged among its own
+//! relays the same way (`wrapper`, `relays_for`). The
 //! configs, and `ps` with the argv reads, each get [`CENSUS_BUDGET`]; past it the harness stays
 //! up, so the leases the pass holds are never held longer.
 
@@ -197,7 +203,14 @@ impl LaunchServers {
     /// its configs name, bounded by [`CENSUS_BUDGET`]; each start site awaits it before its
     /// spawn, so the census judges by what the harness could read at its start, never by a
     /// config edited after it.
-    pub(crate) async fn read(launch: &crate::agent::Launch, family: String) -> Self {
+    /// `kind` decides which configs: Claude Code reads its own whatever family the profile
+    /// names (`claude-sr2`).
+    pub(crate) async fn read(
+        launch: &crate::agent::Launch,
+        family: String,
+        kind: crate::config::HarnessKind,
+    ) -> Self {
+        let family = config_family(family, kind);
         let path = launch.env.get("PATH").cloned().unwrap_or_default();
         let (at, cwd, launch) = (path.clone(), launch.cwd.clone(), launch.clone());
         let read = tokio::task::spawn_blocking(move || {
@@ -215,6 +228,78 @@ impl ChildAgent {
     pub(crate) fn record_launch(&self, servers: LaunchServers) {
         *self.launch.lock().unwrap_or_else(|e| e.into_inner()) = Some(servers);
     }
+}
+
+/// The family whose configs a harness reads: Claude Code's stream-json kind is Claude Code under
+/// any family name a profile gives it (`claude-sr2`, a wrapper that runs `claude`).
+fn config_family(family: String, kind: crate::config::HarnessKind) -> String {
+    if kind == crate::config::HarnessKind::ClaudeStdio { "claude".to_owned() } else { family }
+}
+
+/// A hosted harness's servers as the census knew them, kept in its session's meta
+/// (`SessionMeta::idle_launch`) for the next daemon that adopts its host: the host outlives the
+/// daemon, but what `LaunchServers::read` found and the ACP `mcpServers` acpmux gave it do not.
+/// Only the host of `incarnation` is judged by them.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoredLaunch {
+    pub incarnation: String,
+    pub servers: Vec<Sidecar>,
+    pub path: String,
+    pub cwd: PathBuf,
+    /// Only each given server's `command` and `args` (`launch_only`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub given: Option<Value>,
+}
+
+impl Hub {
+    /// Keeps what the census knows of `child`'s servers in `session`'s meta (saved by the
+    /// caller), or clears it: a direct child or one whose configs were not read leaves nothing
+    /// for a next daemon.
+    pub(super) fn note_launch(&self, session: &Session, child: &ChildAgent) {
+        let launch = child.launch.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let stored = match (child.host_record(), launch) {
+            (Some(record), Some(LaunchServers::Known { servers, path, cwd })) => {
+                Some(StoredLaunch {
+                    incarnation: record.incarnation,
+                    servers,
+                    path,
+                    cwd,
+                    given: launch_only(
+                        child.given_servers.lock().unwrap_or_else(|e| e.into_inner()).as_ref(),
+                    ),
+                })
+            }
+            _ => None,
+        };
+        session.meta.lock().unwrap_or_else(|e| e.into_inner()).idle_launch = stored;
+    }
+
+    /// An adopted host's servers, from its session's meta when they were kept for this
+    /// `incarnation`: the idle census then judges it as the daemon that started it did.
+    pub(super) fn restore_launch(&self, session: &Session, child: &ChildAgent, incarnation: &str) {
+        let Some(stored) = session.meta().idle_launch.filter(|l| l.incarnation == incarnation)
+        else {
+            return;
+        };
+        child.record_launch(LaunchServers::Known {
+            servers: stored.servers,
+            path: stored.path,
+            cwd: stored.cwd,
+        });
+        *child.given_servers.lock().unwrap_or_else(|e| e.into_inner()) = stored.given;
+    }
+}
+
+/// The `command` and `args` of each stdio server in `given`, all the census reads of it: a server's
+/// `env` carries its session's caller token (`agent_tools::for_session`), which a session's meta
+/// (saved, and sent whole in a chat move) must not.
+fn launch_only(given: Option<&Value>) -> Option<Value> {
+    let list: Vec<Value> = from_json(given)
+        .into_iter()
+        .map(|s| serde_json::json!({"command": s.command, "args": s.args}))
+        .collect();
+    (!list.is_empty()).then_some(Value::Array(list))
 }
 
 /// `servers` with each one given by name resolved on `path`, each relative path in `cwd` (the
@@ -424,13 +509,16 @@ fn runs(who: &crate::agent_host::tree::Identity, s: &Sidecar) -> bool {
                 .is_some_and(|(cwd, server)| same_file(&cwd.join(second), Path::new(server)))
     };
     // A script: the executable must be the interpreter its `#!` line runs, not any file named
-    // like one.
+    // like one, or the app a framework Python runs scripts through (`framework_app`).
+    let app = s.interpreter.as_deref().and_then(framework_app);
+    let by_app = |first: &str| {
+        app.as_deref().is_some_and(|app| same_file(Path::new(first), app) && runs_file(who, first))
+    };
     let runs_script = |first: &str, second: &str| {
-        interpreter(first)
+        ((interpreter(first) && s.interpreter.as_deref().is_some_and(is_exe)) || by_app(first))
             && second.contains('/')
             && program(second)
             && script_is(second)
-            && s.interpreter.as_deref().is_some_and(is_exe)
     };
     let at = match who.argv.as_slice() {
         [first, ..] if runs_program(first) => 1,
@@ -454,6 +542,20 @@ fn runs_file(who: &crate::agent_host::tree::Identity, w: &str) -> bool {
 fn same_file(a: &Path, b: &Path) -> bool {
     let canonical = |p: &Path| std::fs::canonicalize(p).ok();
     canonical(a).is_some_and(|a| canonical(b) == Some(a))
+}
+
+/// The app a framework build of Python (Homebrew's, python.org's) runs a script through: its
+/// `Versions/X/bin/python3.X` execs `Versions/X/Resources/Python.app/Contents/MacOS/Python`, so a
+/// `#!/usr/bin/env python3` server runs as that app, never as the `python3` its line names. None
+/// for any other interpreter.
+fn framework_app(interpreter: &str) -> Option<PathBuf> {
+    let real = std::fs::canonicalize(interpreter).ok()?;
+    let name = real.file_name()?.to_str()?;
+    let bin = real.parent()?;
+    let framework = bin.parent()?.parent()?.file_name()? == "Versions"
+        && bin.parent()?.parent()?.parent()?.extension()? == "framework";
+    (name.starts_with("python") && is_interpreter(name) && bin.file_name()? == "bin" && framework)
+        .then(|| bin.with_file_name("Resources/Python.app/Contents/MacOS/Python"))
 }
 
 /// Whether `w` names one of [`INTERPRETERS`] (`python3.12` included).
@@ -531,6 +633,69 @@ fn relays(who: &crate::agent_host::tree::Identity, launcher: &Launcher) -> bool 
         && std::fs::canonicalize(&who.exe).is_ok_and(|exe| exe.starts_with(&launcher.install))
 }
 
+/// A native wrapper (`wrapper`): the agent it names and the args it passes on.
+struct Wrapper<'a> {
+    name: &'a str,
+    /// `name` with the account number sr2 puts after it dropped (`claude2`: `claude`).
+    agent: &'a str,
+    args: &'a [String],
+}
+
+/// A native wrapper harness: a program, not an interpreter, run as `WRAPPER NAME ARGS` with at
+/// least one arg (`sr2 claude -p ...`, `sr codex -c ... app-server`; `sr2 claude2 ...` names
+/// `claude` for an account, or `claude2` itself). It runs the agent `NAME`
+/// as its child with those args plus its own (`relays_for`), and that child starts the MCP
+/// servers. Argv is the leader's own to rewrite too, so the executable the kernel says it runs
+/// must be the wrapper: the file argv names, or for a bare name, the one the harness's `path`
+/// runs. An agent run directly (`claude -p ...`, `codex app-server`) is no wrapper: its first arg
+/// is a flag, or it has no args after it.
+#[cfg(unix)]
+fn wrapper<'a>(
+    who: &'a crate::agent_host::tree::Identity,
+    path: Option<&str>,
+) -> Option<Wrapper<'a>> {
+    let [program, name, args @ ..] = who.argv.as_slice() else { return None };
+    let bare = !name.is_empty()
+        && !name.starts_with('-')
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
+    if args.is_empty() || !bare || is_interpreter(program) {
+        return None;
+    }
+    // sr2 names an account's agent with a number after it (`sr2 claude2`) and runs `claude`.
+    let agent = name.trim_end_matches(|c: char| c.is_ascii_digit());
+    let agent = if agent.is_empty() { name.as_str() } else { agent };
+    let runs_wrapper = if program.contains('/') {
+        program.starts_with('/') && runs_file(who, program)
+    } else {
+        path.and_then(|path| first_on_path(program, path)).is_some_and(|w| runs_file(who, &w))
+    };
+    runs_wrapper.then_some(Wrapper { name, agent, args })
+}
+
+/// Whether `who`, a child of a native wrapper (`wrapper`), is the agent it relays to: a program
+/// by absolute path, not an interpreter, named the wrapper's `NAME` or `<prefix>-NAME`
+/// (`cmux-codex` for `sr codex`), whose args hold the wrapper's args unchanged in one run (the
+/// wrapper adds its own before them or after them), and the file the kernel says it runs.
+#[cfg(unix)]
+fn relays_for(who: &crate::agent_host::tree::Identity, wrapper: &Wrapper) -> bool {
+    let [program, args @ ..] = who.argv.as_slice() else { return false };
+    let Some(file) = Path::new(program).file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+    let named = [wrapper.name, wrapper.agent].into_iter().any(|name| {
+        file == name
+            || file
+                .strip_suffix(name)
+                .and_then(|prefix| prefix.strip_suffix('-'))
+                .is_some_and(|prefix| !prefix.is_empty())
+    });
+    program.starts_with('/')
+        && !is_interpreter(program)
+        && named
+        && args.windows(wrapper.args.len()).any(|run| run == wrapper.args)
+        && runs_file(who, program)
+}
+
 /// Whether `who` runs one of the harness's own helper programs: an absolute path in the same
 /// folder as a relayed harness program (`relays`), named after it (`.../bin/codex-code-mode-host`
 /// beside `.../bin/codex`), and the file the kernel says it runs. Only the helper itself: what
@@ -550,9 +715,10 @@ fn part_of(who: &crate::agent_host::tree::Identity, harness_programs: &[String])
 }
 
 /// `Busy` with the first process that is neither a server (a child of the harness), under one, the
-/// harness's relayed program (`relays`) nor one of its helpers (`part_of`). Each is told by its
-/// identity (`identity_of`: exact argv, executable and folder), the leader's own included
-/// (`launcher`, its interpreter looked up on `path`, the harness's `PATH`), never by the line `ps`
+/// harness's relayed program (`relays`, or a native wrapper's agent: `relays_for`) nor one of its
+/// helpers (`part_of`). Each is told by its identity (`identity_of`: exact argv, executable and
+/// folder), the leader's own included (`launcher` or `wrapper`, a bare name looked up on `path`,
+/// the harness's `PATH`), never by the line `ps`
 /// prints; one whose identity cannot be read is none of them.
 #[cfg(unix)]
 fn classify(
@@ -565,6 +731,10 @@ fn classify(
     use crate::agent_host::tree::Identity;
     let leader_identity = identity_of(leader);
     let launched = leader_identity.as_ref().and_then(|who| launcher(who, path));
+    let wrapped = match &launched {
+        None => leader_identity.as_ref().and_then(|who| wrapper(who, path)),
+        Some(_) => None,
+    };
     let mut harness: Vec<u32> = vec![leader];
     let mut harness_programs: Vec<String> = Vec::new();
     let mut parts: Vec<u32> = Vec::new();
@@ -597,6 +767,22 @@ fn classify(
             } else if launched.as_ref().is_some_and(|l| relays(who, l)) {
                 harness.push(p.pid);
                 harness_programs.extend(who.argv.first().cloned());
+            } else if let Some(w) =
+                wrapped.as_ref().filter(|w| p.ppid == leader && relays_for(who, w))
+            {
+                // Only the wrapper's own child is its agent. A renamed agent (`cmux-codex` for
+                // `sr codex`) has helpers beside it named after the agent the wrapper named
+                // (`codex-code-mode-host`). An agent under its own name (`sr2 claude` runs
+                // `/opt/homebrew/bin/claude`) gets none: its folder is often a shared `bin`,
+                // where `claude-*` is any program.
+                harness.push(p.pid);
+                let program = who.argv.first().map(Path::new);
+                if program.and_then(Path::file_name).is_some_and(|f| f != w.name && f != w.agent)
+                    && let Some(program) = program
+                {
+                    let named = program.with_file_name(w.agent);
+                    harness_programs.push(named.to_string_lossy().into_owned());
+                }
             } else if part_of(who, &harness_programs) {
                 parts.push(p.pid);
             } else {

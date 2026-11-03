@@ -83,10 +83,10 @@ export function PeerCopyBanner({
     >
       {t(
         reconnect.state === "reconnecting"
-          ? "chatInspector.connectors.reconnecting"
+          ? "sessionInfo.connectors.reconnecting"
           : reconnect.state === "failed"
-            ? "chatInspector.connectors.retry"
-            : "chatInspector.connectors.reconnectAction",
+            ? "sessionInfo.connectors.retry"
+            : "sessionInfo.connectors.reconnectAction",
       )}
     </button>
   ) : null;

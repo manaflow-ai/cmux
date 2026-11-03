@@ -35,6 +35,8 @@ public final class FakeChromiumPage: PageChromiumPage {
     public private(set) var closed = false
     /// Every visibility value requested by the host.
     public private(set) var visibility: [Bool] = []
+    /// The last ``setAnswersFileChooser(_:)``; nil before any.
+    public private(set) var answersFileChooser: Bool?
     /// The last ``setSeeThrough(_:)``; nil before any.
     public private(set) var seeThrough: Bool?
     /// ``seeThrough`` when the first document loaded.
@@ -58,6 +60,7 @@ public final class FakeChromiumPage: PageChromiumPage {
         calls.append((method, params))
         defer { onCall?() }
         if let answered = answer?(method, params) { return answered }
+        if method == "Page.addScriptToEvaluateOnNewDocument" { return #"{"identifier":"test-script"}"# }
         if method == "Runtime.evaluate", params["expression"] as? String == "[location.href, window === window.top]" {
             return #"{"result":{"type":"object","value":["\#(senderURL)",\#(senderIsTop)]}}"#
         }
@@ -72,14 +75,18 @@ public final class FakeChromiumPage: PageChromiumPage {
 
     /// Records the value in ``seeThrough``.
     public func setSeeThrough(_ seeThrough: Bool) { self.seeThrough = seeThrough }
+    /// Records the value in ``answersFileChooser``.
+    public func setAnswersFileChooser(_ on: Bool) { answersFileChooser = on }
     /// How often the page was reloaded.
     public private(set) var reloads = 0
     /// Counts the reload in ``reloads``.
     public func reload() { reloads += 1 }
     /// Records the value in ``zoom``.
     public func setZoom(_ zoom: Double) { self.zoom = zoom }
-    /// Does nothing.
-    public func setFocused(_ focused: Bool) {}
+    /// Every focus ask, in order.
+    public private(set) var focusAsks: [Bool] = []
+    /// Records the ask in ``focusAsks``.
+    public func setFocused(_ focused: Bool) { focusAsks.append(focused) }
     /// Does nothing.
     public func setVisible(_ visible: Bool) { visibility.append(visible) }
 

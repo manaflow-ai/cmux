@@ -249,6 +249,22 @@ extension PageWebView {
         return true
     }
 
+    /// The next file input this page opens in WebKit takes `files` instead of showing the panel.
+    public func debugQueueFiles(_ files: [URL]) { fileChooser?.debugAnswer = files }
+
+    /// Gives the file input `selector` matches on a Chromium page the files at `paths`, as a person's pick in
+    /// Chromium's own open panel does (DevTools `DOM.setFileInputFiles`: the page gets `input` and `change`).
+    /// Nil when it took them, else why not; a WebKit page answers its file input with ``PageOpenPanel``.
+    public func debugSetFiles(selector: String, paths: [String]) async -> String? {
+        guard let page = chromiumSession?.page else { return "the page does not show in Chromium" }
+        guard let selectorJSON = String(data: (try? JSONSerialization.data(withJSONObject: selector, options: [.fragmentsAllowed])) ?? Data(), encoding: .utf8),
+              let json = try? await page.devTools("Runtime.evaluate", params: ["expression": "document.querySelector(\(selectorJSON))"]),
+              let object = ChromiumPageHostWire.object(json), let id = (object["result"] as? [String: Any])?["objectId"] as? String else {
+            return "no element matches \(selector)"
+        }
+        return (try? await page.devTools("DOM.setFileInputFiles", params: ["files": paths, "objectId": id])) == nil ? "DevTools refused the files" : nil
+    }
+
     /// A trusted DevTools left-button drag on a Chromium page, in CSS pixels: press at `from`,
     /// `steps` moves to `to`, release, each sent once Chromium answered the one before. The
     /// page's pointer handlers (capture, a reorder's drop) see a person's drag, and the release

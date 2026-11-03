@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import Foundation
 public import Observation
 
@@ -77,11 +78,11 @@ public final class DeviceHub {
     /// (loaded off the main thread, renewed when the hub refuses it), relay secrets
     /// in the same Keychain service, and `tokens` for the account (CloudAuth's access token).
     public static func forApp(baseURL: URL, bundleIdentifier: String, deviceName: String,
-                              tokens: any DeviceHubAccountTokenProvider) async throws -> DeviceHub {
-        let identity = try await loadIdentity { try DeviceIdentity.forApp(bundleIdentifier: bundleIdentifier) }
+                              tokens: any DeviceHubAccountTokenProvider, loginKeychain: LoginKeychain) async throws -> DeviceHub {
+        let identity = try await loadIdentity { try DeviceIdentity.forApp(bundleIdentifier: bundleIdentifier, loginKeychain: loginKeychain) }
         return DeviceHub(client: DeviceHubClient(baseURL: baseURL, identity: identity, tokens: tokens),
-                         secrets: KeychainRelaySecretStore(bundleIdentifier: bundleIdentifier), deviceName: deviceName,
-                         renewIdentity: { try DeviceIdentity.renew(bundleIdentifier: bundleIdentifier) })
+                         secrets: KeychainRelaySecretStore(bundleIdentifier: bundleIdentifier, loginKeychain: loginKeychain), deviceName: deviceName,
+                         renewIdentity: { try DeviceIdentity.renew(bundleIdentifier: bundleIdentifier, loginKeychain: loginKeychain) })
     }
 
     /// Runs `load` off the main thread: the file Keychain and Secure Enclave

@@ -5,6 +5,7 @@ import CmuxNextBridge
 import CmuxNextDesign
 @testable import CmuxNextSidebar
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import CmuxTheme
 import Testing
 
@@ -13,13 +14,13 @@ import Testing
 /// and a group header's more button opens his group editor (cx-rcby), not the
 /// right-click menu. #18991 and #19179 had moved the colors onto the theme's ANSI
 /// palette, and #19019 had pointed the more button at the full menu.
-@MainActor @Suite(.serialized) struct GroupPaletteDefaultTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct GroupPaletteDefaultTests {
     /// Lawrence's palette: hue in degrees and relative chroma.
     static let hues: [GroupColor: (hue: CGFloat, chroma: CGFloat)] = [
         .grey: (0, 0), .blue: (214, 1), .red: (4, 1), .yellow: (46, 1), .green: (136, 0.9),
         .pink: (330, 0.95), .purple: (272, 0.9), .cyan: (186, 0.9), .orange: (24, 1),
     ]
-    /// The colors new groups take, groups 1...7: the palette's order without grey and blue.
+    /// The palette's colors without grey and blue, in order.
     static let order: [GroupColor] = [.red, .yellow, .green, .pink, .purple, .cyan, .orange]
 
     /// A palette color as Lawrence drew it: the color itself (`fill` false) or the
@@ -60,22 +61,6 @@ import Testing
             ("light", try room("Group Light", background: 0xFFFFFF, foreground: 0x1F2328, palette: light)),
             ("wallpaper", try room("Group Wallpaper", background: 0x2B1650, foreground: 0xF4E3FF, palette: dark.reversed(), art: true)),
         ]
-    }
-
-    @Test func newGroupsTakeLawrencesPaletteOrder() {
-        var sections: [CmuxNextSidebar.SidebarSection] = []
-        var tabs: [GroupColor] = []
-        for expected in Self.order {
-            let sidebar = SidebarGroupBand.newGroupColor(in: sections)
-            #expect(sidebar == expected, "sidebar group \(sections.count + 1)")
-            sections.append(CmuxNextSidebar.SidebarSection(kind: .pinned, nodes: [
-                .group(SidebarGroup(id: GroupID("g\(sections.count)"), name: "", color: sidebar, workspaces: [])),
-            ]))
-            let tab = TabGroupOrdering.nextColor(used: tabs)
-            #expect(tab == expected, "tab group \(tabs.count + 1)")
-            tabs.append(tab)
-        }
-        #expect(ScreenGroupCommands.nextColor(in: nil) == Self.order[0])
     }
 
     @Test func tabGroupChipsAndUnderlinesDrawLawrencesPaletteInEveryTheme() throws {
@@ -136,8 +121,9 @@ import Testing
         sidebar.contextMenuProvider = { _ in menuAsked = true; return nil }
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 240, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
         window.isReleasedWhenClosed = false
-        defer { sidebar.list.groupEditor.hide(); window.orderOut(nil) }
+        defer { SidebarMenuAnchorTests.close(sidebar, window) }
         window.contentView?.addSubview(sidebar)
         window.orderFrontRegardless()
         try #require(window.screen != nil)
@@ -174,8 +160,9 @@ import Testing
         var asked: [SidebarContextTarget] = []
         sidebar.contextMenuProvider = { target in asked.append(target); return menu }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 600), styleMask: [.borderless], backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         window.isReleasedWhenClosed = false
-        defer { sidebar.list.groupEditor.hide(); window.orderOut(nil) }
+        defer { SidebarMenuAnchorTests.close(sidebar, window) }
         window.contentView?.addSubview(sidebar)
         sidebar.list.reload(animated: false)
         sidebar.layoutSubtreeIfNeeded()

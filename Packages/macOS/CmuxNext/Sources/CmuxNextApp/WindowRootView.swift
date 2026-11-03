@@ -23,8 +23,8 @@ import Observation
 /// (`backdropView`, the bottom subview) and everything above it is clear.
 final class WindowRootView: NSView, WindowSurfacePainting {
     let titlebar = TitlebarView()
-    /// The window's one material and tint (`WindowBackdrop`).
-    let backdropView = WindowMaterialView(frame: .zero)
+    /// The window's one material and tint (`WindowBackdrop`); its glass keeps the key look through `activeLook`.
+    let backdropView: WindowMaterialView
     /// Whether Reduce Transparency is on (tests pin it; the host setting
     /// differs between machines). Internal, not private: the painting itself
     /// is in `WindowRootView+Surface`.
@@ -125,11 +125,11 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// - Parameter applyWindowBlur: Sets the window's behind-window blur
     ///   radius (the backdrop's ``WindowBackdrop/windowBlurRadius``).
     /// - Parameter revealClock: Times the collapsed band's close delay.
-    init(sidebar: SidebarContainerView,
-         reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency },
+    init(sidebar: SidebarContainerView, activeLook: ActiveLookScope? = nil,
+         reduceTransparency: @escaping @MainActor () -> Bool = { ReduceTransparency.shared.isEnabled },
          applyWindowBlur: @escaping @MainActor (NSWindow, Int) -> Void = { $0.setBackgroundBlurRadius($1) },
          revealClock: any Clock<Duration> = ContinuousClock()) {
-        self.sidebar = sidebar
+        (self.sidebar, backdropView) = (sidebar, WindowMaterialView(frame: .zero, images: .shared, activeLook: activeLook))
         collapsedBand = CollapsedBandReveal(clock: revealClock)
         self.reduceTransparency = reduceTransparency
         self.applyWindowBlur = applyWindowBlur
@@ -262,8 +262,11 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         (window as? ShellWindow)?.overlayLayer.setSidebarResizeBand(sidebar.resizeBandInWindow)
         guard let window, let host = WindowOverlayHost.existingHost(for: window) else { return }
         host.repairAgentCursorOrder()
-        let shows = sidebar.frame.width > 0.5 && !sidebar.isHidden
-        host.setOccluder(id: "sidebar", rect: shows ? sidebar.convert(sidebar.bounds, to: nil) : nil)
+        host.setOccluder(id: "sidebar", rect: sidebar.occluderRectInWindow)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        sidebar.routePaneReach(super.hitTest(point), at: convert(point, from: superview), in: self)
     }
 
     override func layout() {
@@ -281,6 +284,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         // Every frame is final here: the shade follows the card even when the
         // shade's own autoresizing landed after the card's frame change.
         updateMainPaneShade()
+        sidebar.updateResizeLine(cardMaxY: contentHost.frame.maxY)
         // The band starts after the traffic lights (which never move) and is
         // as wide as the sidebar's on-screen share: 0 wide, with no gap
         // after the lights, while the sidebar is hidden (cx-uxdr).

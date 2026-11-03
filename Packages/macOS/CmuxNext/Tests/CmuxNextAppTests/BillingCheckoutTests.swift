@@ -88,7 +88,15 @@ import CmuxNextAccounts
         let team = try BillingCheckoutRequest(plan: "team", team: " t_1 ").body
         #expect(team["plan"] as? String == "team")
         #expect(team["teamId"] as? String == "t_1")
-        #expect(throws: BillingCheckoutRequest.Invalid.self) { try BillingCheckoutRequest(plan: "go", team: nil) }
+        #expect(throws: BillingCheckoutRequest.Invalid.self) { try BillingCheckoutRequest(plan: "enterprise", team: nil) }
         #expect(throws: BillingCheckoutRequest.Invalid.self) { try BillingCheckoutRequest(plan: "team", team: nil) }
+    }
+
+    /// cmux Plus ($15/mo) is a classic plan cmux NEXT sells too; web billing keeps its plan id `go`.
+    @Test func plusChecksOutAsTheGoPlanId() throws {
+        let plus = try BillingCheckoutRequest(plan: "go", team: "t_ignored").body
+        #expect(Set(plus.keys) == ["plan"])
+        #expect(plus["plan"] as? String == "go")
+        #expect(BillingStrings.planName("go") == "cmux Plus")
     }
 }

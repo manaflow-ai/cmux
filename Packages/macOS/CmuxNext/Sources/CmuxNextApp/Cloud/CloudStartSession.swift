@@ -184,8 +184,8 @@ struct CloudStartSession {
         try still(name)
         try await connected(session, request, account: account, byPerson: byPerson)
         try still(name)
-        let daemon = session.daemon
-        guard let host = AgentTabStore.registryHost(of: daemon) else {
+        try await passHarnessLogin(session, agent: agent) { try still(name) }
+        guard let host = AgentTabStore.registryHost(of: session.daemon) else {
             throw ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent))
         }
         let anchor: (id: String, key: WorkspaceKey, pane: PaneModel)
@@ -201,14 +201,13 @@ struct CloudStartSession {
             try Self.failed(account, now: services.cloud.account, request.asked(machine: name), CloudStartSessionStrings.notConnected(name, id: id, agent: agent))
         }
         try still(name)
-        let started: AgentTabRemoteStart.Started
-        let tabKey: String
+        let started: AgentTabRemoteStart.Started, tabKey: String
         do {
             let tabs = services.agentTabs
-            let pending = try tabs.open(in: anchor.pane.handle, of: daemon, seed: request.cwd.map { AgentPaneSeedSource(AgentPaneSeed(cwd: $0)) })
+            let pending = try tabs.open(in: anchor.pane.handle, of: session.daemon, seed: request.cwd.map { AgentPaneSeedSource(AgentPaneSeed(cwd: $0)) })
             tabKey = try await Self.created(pending, name: name, id: id, agent: agent).key
             // The start reads the tab as the machine's tree lists it (`tabKey` is the store's id).
-            let listed = await CloudMove.holds(within: .seconds(10)) { [services] in services.locateTab(tabKey, onMachine: id) != nil }
+            let listed = await CloudWait.holds(within: .seconds(10)) { [services] in services.locateTab(tabKey, onMachine: id) != nil }
             try Self.check(account, now: services.cloud.account, request.asked(machine: name))
             guard listed else { throw AccountChanged(failure: ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent))) }
             switch tabs.remoteHost(tabKey) {
@@ -230,9 +229,7 @@ struct CloudStartSession {
         } catch {
             try Self.failed(account, now: services.cloud.account, request.asked(machine: name), Self.startFailure(error, name: name, id: id, agent: agent))
         }
-        // Where a hook that saves the session's trajectory off the machine (hq#4381) would go, once
-        // acpmux has one: the session started, so its id is known here. None exists on base yet.
-        // The session runs now; the result reports it. A switch during the start shows nothing.
+        // The session runs now; the result reports it. A switch during the start shows nothing. (A trajectory hook, hq#4381, goes here.)
         if revealing, invocation.allowsViewChange, account == services.cloud.account { CloudHandlers.show(anchor.id, context) }
         return [
             "machine_id": .string(id), "machine_name": .string(name), "target": .string("machine:\(id)"),
@@ -264,8 +261,7 @@ struct CloudStartSession {
         }
     }
 
-    /// A refusal that passes through a step's error mapping as it is: the account changed since
-    /// the run was asked, or a step's own precondition failed.
+    /// A refusal that passes a step's error mapping as it is: the account changed since the ask, or a step's precondition failed.
     struct AccountChanged: Error { var failure: ActionFailure }
 
     /// Inside a step whose other errors are mapped (``AccountChanged`` passes through the mapping).
@@ -322,8 +318,7 @@ struct CloudStartSession {
         let machines = services.machines
         let cloud = services.cloud
         if let id = request.machineID {
-            // Only a machine of the list read for the account signed in now: after a team switch,
-            // the previous team's machines stay in the store until that list lands.
+            // Only a machine of the list read for this account now: after a team switch the previous team's stay until it lands.
             if !cloud.hasLoadedCurrentMachines { await cloud.refresh() }
             try Self.checked(account, now: cloud.account, request.asked(machine: id))
             guard cloud.hasLoadedCurrentMachines else { throw ActionFailure(message: CloudStartSessionStrings.targetUnread(request.asked(machine: id))) }
@@ -361,23 +356,32 @@ struct CloudStartSession {
     /// here waits on a client snapshot (hq#4381): the machine's own acpmux keeps its sessions.
     private func connected(_ session: CloudMachineSession, _ request: Request, account: [String?], byPerson: Bool) async throws {
         let failure = { ActionFailure(message: CloudStartSessionStrings.notConnected(session.machine.title, id: session.machineID, agent: request.agent)) }
+        try CloudHandlers.requireAttachableState(session)
         if session.daemon.connection == nil {
             await session.refreshIfMaybePaused()
+            try CloudHandlers.requireAttachableState(session)
             // The resume or connect below changes the machine: only for the account that asked.
             try Self.checked(account, now: services.cloud.account, request.asked(machine: session.machine.title))
             let origin: CloudLinkOrigin = byPerson ? .user : .script
             if session.machine.status == .paused { session.attach(origin: origin) } else { session.connect(origin: origin) }
         }
+        session.beginLegacyAttempt()
         let daemon = session.daemon
-        let up = await CloudMove.holds(within: Self.connectWait, until: {
-            session.resumeFailure != nil || (daemon.connection != nil && AgentTabStore.registryHost(of: daemon) != nil)
+        let up = await CloudWait.holds(within: Self.connectWait, until: {
+            session.resumeFailure != nil || session.legacyLinkFailure?.definitive == true
+                || (daemon.connection != nil && AgentTabStore.registryHost(of: daemon) != nil)
         })
-        // A sign-out, team switch or cancellation during the wait is that, not a machine that
-        // didn't connect.
+        // A sign-out, team switch or cancellation during the wait is that, not a machine that didn't connect.
         try Self.checked(account, now: services.cloud.account, request.asked(machine: session.machine.title))
-        guard up, session.resumeFailure == nil else { throw failure() }
+        guard up, session.resumeFailure == nil, daemon.connection != nil else { throw failure() }
     }
 
+    /// The machine takes the person's harness login before the session starts, as a composer start's does (+Login).
+    /// The login may wait on a confirm: `still` checks the asking account after it, as after every wait.
+    func passHarnessLogin(_ session: CloudMachineSession, agent: String, still: () throws -> Void) async throws {
+        _ = await CloudStartChat(services: services).passHarnessLogin(harness: agent, machine: session, codexPrompt: false) // a scripted run never waits on a device code
+        try still()
+    }
     /// How long a machine has to come up (Move to Cloud's own wait).
     static let connectWait: Duration = .seconds(180)
 }

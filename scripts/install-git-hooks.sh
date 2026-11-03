@@ -191,6 +191,10 @@ while IFS= read -r -d '' checker; do
     [[ "$folder" == . ]] || (cd "$TRUSTED_CHECKS_STAGE" && mkdir -p "$folder")
     cp -p "$checker" "$TRUSTED_CHECKS_STAGE/$relative"
 done < <(git ls-files -z scripts/cmux-next)
+# check-package-dependency-lists.py imports the Swift source masker from scripts/; the installed copy reads it here.
+if [[ -f scripts/swift_source_mask.py ]]; then
+    cp -p scripts/swift_source_mask.py "$TRUSTED_CHECKS_STAGE/swift_source_mask.py"
+fi
 # The commit and tree the copy is made from, for refresh_checks.py; "worktree" when scripts/cmux-next differs from HEAD.
 if git diff --quiet HEAD -- scripts/cmux-next && git rev-parse -q --verify HEAD >/dev/null; then
     printf '%s %s\n' "$(git rev-parse HEAD)" "$(git rev-parse HEAD:scripts/cmux-next)" > "$TRUSTED_CHECKS_STAGE/.source"

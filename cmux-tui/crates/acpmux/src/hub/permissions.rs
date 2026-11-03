@@ -45,6 +45,8 @@ pub(super) mod settled;
 mod display;
 pub(crate) use display::{ChildTags, drop_display_lines};
 
+mod pending;
+
 impl Hub {
     // ------------------------------------------------------------- inbound
 
@@ -121,6 +123,7 @@ impl Hub {
                             .lock()
                             .unwrap_or_else(|e| e.into_inner())
                             .contains(&agent);
+                        self.arm_auto_background(&session, params.as_ref(), replayed);
                         self.on_update(&session, params.as_ref(), replayed);
                     } else if m == method::CANCEL_REQUEST
                         && let Some(id) = params.as_ref().and_then(|p| p.get("requestId"))
@@ -309,6 +312,7 @@ impl Hub {
         let mut goal_write = false;
         let mut mark_cleared = false;
         let mut breakdown_changed = false;
+        let background = kind == "agent_message_chunk" && self.background_message(session, update);
         let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         match kind {
             "agent_message_chunk" => {
@@ -320,18 +324,20 @@ impl Hub {
                     .and_then(|c| c.get("text"))
                     .and_then(Value::as_str)
                     .filter(|_| !replayed)
+                    // A turn the person did not start leaves the preview as it was
+                    // (`background_turn.rs`).
+                    .filter(|_| !background)
                 {
-                    let mut preview = m.preview.clone().unwrap_or_default();
+                    // In place: the preview was copied whole on every streamed chunk.
+                    let preview = m.preview.get_or_insert_with(String::new);
                     preview.push_str(text);
                     if preview.len() > 2000 {
-                        let cut = preview.len() - 2000;
-                        let mut idx = cut;
+                        let mut idx = preview.len() - 2000;
                         while !preview.is_char_boundary(idx) {
                             idx += 1;
                         }
-                        preview = preview[idx..].to_owned();
+                        preview.drain(..idx);
                     }
-                    m.preview = Some(preview);
                 }
             }
             "tool_call" | "tool_call_update" => {
@@ -793,7 +799,9 @@ impl Hub {
                 Some(own) => {
                     let meta = session.meta();
                     let family = self.config.read().await.family(&meta.harness);
-                    let mut env = crate::login_env::effective_for(family.as_deref(), &own);
+                    let mut env = probe_env(&own, remote_base, |own| {
+                        crate::login_env::effective_for(family.as_deref(), own)
+                    });
                     // The agent's PATH, unless its own env names one (`apply_tokio_for`).
                     if let Some(path) = crate::login_env::agent_path()
                         && !own.contains_key("PATH")
@@ -812,8 +820,10 @@ impl Hub {
                 }
             };
         // Read before the locks (it reads the settings file); the mode is read again under them.
-        let full_access_on =
-            full_access_mode(&session.meta()).is_some() && off.allows_full_access();
+        // Do not cache whether the mode is bypass here: a successful mode switch can drain
+        // pending asks before this request takes the lock and inserts itself. Judge its mode
+        // only under the permission lock below, so that request cannot miss the switch.
+        let full_access_on = off.allows_full_access();
         let (rx, prev, grouping, permission_id) = {
             let cfg = self.config.read().await;
             let mut state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
@@ -981,6 +991,7 @@ impl Hub {
                 },
             );
             self.append(session,"mux","permission_request",json!({"permissionId":permission_id,"decisionNonce":decision_nonce,"personInstance":self.person.instance(),"request":request,"groupId":grouping.as_ref().map(|(id,_)|id),"turnId":turn_id,"agentRequestId":agent_request_id,"remoteFloor":floored}));
+            self.background_attention(session);
             self.set_status(session, SessionStatus::Waiting);
             (rx, prev, grouping, permission_id)
         };
@@ -1695,5 +1706,78 @@ mod stderr_tests {
         let mut lines = vec!["\x1b[31mERROR failed to refresh models\x1b[0m".to_owned()];
         lines.extend(std::iter::repeat_n("\x1b[0m".to_owned(), 8));
         assert_eq!(feed(&lines), vec!["failed to refresh models"]);
+    }
+}
+
+/// The fixed base a remote-origin harness starts from
+/// (`agent::host_environment`: HOME, SHELL, locale, ...).
+fn remote_base() -> std::collections::BTreeMap<String, String> {
+    crate::agent::host_environment()
+        .into_iter()
+        .filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?)))
+        .collect()
+}
+
+/// The environment a read-only shell probe runs in: what the harness got.
+/// A remote-origin launch gets the fixed remote base and its own env, and no
+/// local overlay (the vault, `machine.env`, login values); a local one gets
+/// `local(own)`.
+fn probe_env(
+    own: &std::collections::BTreeMap<String, String>,
+    base: impl FnOnce() -> std::collections::BTreeMap<String, String>,
+    local: impl FnOnce(
+        &std::collections::BTreeMap<String, String>,
+    ) -> std::collections::BTreeMap<String, String>,
+) -> std::collections::BTreeMap<String, String> {
+    if own.get(crate::agent::REMOTE_ENV_POLICY_KEY).map(String::as_str) == Some("1") {
+        let mut env = base();
+        env.extend(own.iter().map(|(k, v)| (k.clone(), v.clone())));
+        env.remove(crate::agent::REMOTE_ENV_POLICY_KEY);
+        return env;
+    }
+    local(own)
+}
+
+#[cfg(test)]
+mod probe_env_tests {
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn a_remote_launch_probe_gets_no_local_overlay() {
+        let overlay = |own: &BTreeMap<String, String>| {
+            let mut env = own.clone();
+            env.insert("VAULT_SECRET".into(), "local".into());
+            env
+        };
+        let remote = BTreeMap::from([
+            (crate::agent::REMOTE_ENV_POLICY_KEY.to_owned(), "1".to_owned()),
+            ("OWN".to_owned(), "x".to_owned()),
+        ]);
+        let base = || {
+            BTreeMap::from([
+                ("HOME".to_owned(), "/home/u".to_owned()),
+                ("SHELL".to_owned(), "/bin/zsh".to_owned()),
+                ("OWN".to_owned(), "base".to_owned()),
+            ])
+        };
+        let env = super::probe_env(&remote, base, overlay);
+        assert_eq!(
+            env,
+            BTreeMap::from([
+                ("HOME".to_owned(), "/home/u".to_owned()),
+                ("OWN".to_owned(), "x".to_owned()),
+                ("SHELL".to_owned(), "/bin/zsh".to_owned()),
+            ]),
+            "the fixed remote base (so ~/.gitconfig is seen), the launch's own env over it"
+        );
+        let local = BTreeMap::from([("OWN".to_owned(), "x".to_owned())]);
+        let env = super::probe_env(&local, base, overlay);
+        assert!(env.contains_key("VAULT_SECRET"));
+        assert!(!env.contains_key("SHELL"), "a local launch takes its env from `local`");
+
+        // The real remote base carries HOME when the daemon has one.
+        if std::env::var_os("HOME").is_some() {
+            assert!(super::remote_base().contains_key("HOME"));
+        }
     }
 }

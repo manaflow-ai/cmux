@@ -1,5 +1,6 @@
 @preconcurrency import AppKit
 import CmuxNextDesign
+import CmuxNextFocusUI
 import CmuxNextUpdater
 import CmuxNextWakeups
 import os

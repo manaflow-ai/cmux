@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextActions
+public import CmuxNextActions
 import CmuxNextDesign
 import Foundation
 
@@ -14,6 +14,19 @@ public struct AgentPaneMoveTarget: Equatable, Sendable {
         self.id = id
         self.label = label
         self.status = status
+    }
+
+    /// Whether a title-menu move for `requested` may run on a tab now showing `shown`: only the
+    /// chat whose menu was opened moves; a tab with no chat or another chat moves nothing.
+    public nonisolated static func tabStillShows(_ shown: String?, requested: String) -> Bool {
+        guard let shown, !requested.isEmpty else { return false }
+        return shown == requested
+    }
+
+    /// Whether the title menu may list Cloud move targets: signed in, with the machine list loaded
+    /// for the account signed in now (the App's `CloudService.hasLoadedCurrentMachines`).
+    public nonisolated static func offered(signedIn: Bool, loadedCurrent: Bool) -> Bool {
+        signedIn && loadedCurrent
     }
 
     var reply: [String: Any] {
@@ -46,6 +59,9 @@ public struct AgentPaneHeaderHooks {
     /// Shows subagent `agent` of session `session` in an agent pane right of the chat
     /// (``AgentSubagentPanes``), focused with `focus`; false when no pane opened.
     public var openSubagent: @MainActor (_ session: String, _ agent: String, _ focus: Bool) -> Bool
+    /// This chat's tab, a pane opened on a subagent, now shows a subagent named `title`, or (nil) its
+    /// chat again: the tab's name follows (``SubagentTabTitles/show(_:inTab:)``).
+    public var showsSubagent: @MainActor (_ title: String?) -> Void
     /// Opens `viewer` (a background process's read-only terminal) in a tab beside the chat; false
     /// when no tab opened.
     public var openProcess: @MainActor (_ viewer: AgentPaneProcessViewer) -> Bool
@@ -68,13 +84,18 @@ public struct AgentPaneHeaderHooks {
     /// Shows and focuses the tab that shows acpmux session `id` already, so a chat never streams in
     /// two tabs (``AgentPaneOfferOpen``); false when no tab shows it.
     public var showSession: @MainActor (String) -> Bool
+    /// Shows and focuses a tab that shows acpmux session `id` in any workspace or window, switching
+    /// to it (Needs you's Jump to workspace, ``AgentPaneAskOpen``); false when no tab shows it.
+    public var jumpToSession: @MainActor (String) -> Bool
     /// Whether acpmux session `session` is of chat `chat`'s family: a sub-session it started at any
     /// depth, or the session that started it (acpmux `startedBy`, mirrored by the app's turn-state
     /// watch). ``AgentPaneOfferOpen`` opens only those, or the pane's own sessions; none by default.
     public var isFamily: @MainActor (_ session: String, _ chat: String) -> Bool
-    /// Changes with a chat turn (``AgentPaneDiffTurn``): the diff beside the chat with that turn
-    /// as its Last turn, toggled (`true`) or opened. Nil: the header runs Changes without it.
-    public var diffTurn: (@MainActor (_ cwd: String?, _ turn: AgentPaneDiffTurn, _ toggle: Bool) -> Void)?
+    /// Changes with more `openDiffViewer` arguments, toggled (`true`) or opened: a chat turn
+    /// (``AgentPaneDiffTurn``), the diff beside the chat with that turn as its Last turn, or the
+    /// turn's own patch (``AgentPaneDiffPatch``), a diff tab that shows only that patch. Nil: the
+    /// header runs Changes without a turn, and the page shows a patch's changes itself.
+    public var diffOpen: (@MainActor (_ cwd: String?, _ arguments: [String: ActionValue], _ toggle: Bool) -> Void)?
     /// Eligible Cloud machines for the title menu's Move to machine submenu.
     public var moveTargets: @MainActor () -> [AgentPaneMoveTarget]
     /// Dispatches an existing CloudMove operation to one validated target machine, for the chat
@@ -90,6 +111,7 @@ public struct AgentPaneHeaderHooks {
                 openRight: @escaping @MainActor (String) -> Bool = { _ in false },
                 openTab: @escaping @MainActor (String, AgentForkDestination) -> Bool = { _, _ in false },
                 openSubagent: @escaping @MainActor (String, String, Bool) -> Bool = { _, _, _ in false },
+                showsSubagent: @escaping @MainActor (String?) -> Void = { _ in },
                 openProcess: @escaping @MainActor (AgentPaneProcessViewer) -> Bool = { _ in false },
                 newChat: @escaping @MainActor (String) -> Bool = { _ in false },
                 sideTabs: @escaping @MainActor () -> Bool? = { nil },
@@ -98,6 +120,7 @@ public struct AgentPaneHeaderHooks {
                 moveToFloatingChat: (@MainActor (String) -> Bool)? = nil,
                 refreshPullRequest: (@MainActor () -> Void)? = nil,
                 showSession: @escaping @MainActor (String) -> Bool = { _ in false },
+                jumpToSession: @escaping @MainActor (String) -> Bool = { _ in false },
                 isFamily: @escaping @MainActor (_ session: String, _ chat: String) -> Bool = { _, _ in false },
                 moveTargets: @escaping @MainActor () -> [AgentPaneMoveTarget] = { [] },
                 moveToMachine: @escaping @MainActor (_ machine: String, _ session: String) -> Bool = { _, _ in false },
@@ -109,6 +132,7 @@ public struct AgentPaneHeaderHooks {
         self.openRight = openRight
         self.openTab = openTab
         self.openSubagent = openSubagent
+        self.showsSubagent = showsSubagent
         self.openProcess = openProcess
         self.newChat = newChat
         self.sideTabs = sideTabs
@@ -117,6 +141,7 @@ public struct AgentPaneHeaderHooks {
         self.moveToFloatingChat = moveToFloatingChat
         self.refreshPullRequest = refreshPullRequest
         self.showSession = showSession
+        self.jumpToSession = jumpToSession
         self.isFamily = isFamily
         self.moveTargets = moveTargets
         self.moveToMachine = moveToMachine
@@ -202,15 +227,41 @@ extension AgentPaneModel {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.action")
             }
             let folder = folderForOtherTabs(cwd)
-            if let diffTurn = header.diffTurn { diffTurn(folder, turn, toggle) }
+            if let diffOpen = header.diffOpen { diffOpen(folder, turn.actionArguments, toggle) }
             else if toggle { header.toggle(Self.diffAction, folder) } else { header.run(Self.diffAction, folder) }
             return AgentPaneReply.success(["ran": true])
+        case .diffPatch(let patch, let cwd, let toggle):
+            // No hook (a host without diff tabs): the page shows the turn's changes itself.
+            guard newTab == nil, let diffOpen = header?.diffOpen else {
+                return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.action")
+            }
+            diffOpen(folderForOtherTabs(cwd), patch.actionArguments, toggle)
+            return AgentPaneReply.success(["ran": true])
+        case .sessionInfo(let info):
+            sessionInfo.update(info)
+            return AgentPaneReply.success()
+        case .sessionInfoOverlays(let rects):
+            sessionInfo.updateOverlays(rects)
+            return AgentPaneReply.success()
+        case .copyText(let text):
+            guard transport.gestures.consume() else {
+                return Self.transportFailure(.gestureRequired)
+            }
+            NSPasteboard.general.clearContents()
+            guard NSPasteboard.general.setString(text, forType: .string) else {
+                return AgentPaneReply.failure(code: "unavailable", message: "Could not copy text")
+            }
+            return AgentPaneReply.success()
         case .tabRowTools(let width):
             tabRow.report(width: CGFloat(width)) // used only while chrome.tabs.rowTools is on and the pane offered the row
             return AgentPaneReply.success()
         case .tabRowToolsSet(let tools):
             guard tabRow.nativeToolsEnabled else { return AgentPaneReply.success() }
             setTabRowTools(tools)
+            return AgentPaneReply.success()
+        case .tabRowToolsOpenMenu(let id, let menuItemID):
+            guard tabRow.nativeToolsEnabled else { return AgentPaneReply.success() }
+            onTabRowToolMenuRequested?(id, menuItemID)
             return AgentPaneReply.success()
         case .tabState(let refresh):
             guard let header else {
@@ -222,13 +273,22 @@ extension AgentPaneModel {
             return AgentPaneReply.success(state)
         case .sideChat(let fork):
             return await AgentPaneSideChat.open(fork, in: self)
-        case .subagentPane(let agent, let focus):
+        case .subagentPane(let agent, let focus, let title):
             // The chat's own subagent, in a pane of its own; not from a New Tab page. A refusal
             // answers `opened: false`, and the page shows the subagent in this pane instead.
             guard let sessionId, newTab == nil, let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.subagentPane")
             }
+            // Its tab is named after the subagent, not the chat (SubagentTabTitles).
+            SubagentTabTitles.shared.name(agent, of: sessionId, title: title)
             return AgentPaneReply.success(["opened": header.openSubagent(sessionId, agent, focus)])
+        case .subagentShown(let agent, let title):
+            // A subagent pane's own page: its tab's name follows what it shows. Not from a New Tab page.
+            guard newTab == nil, let header else {
+                return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.subagentShown")
+            }
+            header.showsSubagent(agent == nil ? nil : title)
+            return AgentPaneReply.success()
         case .processTerminal(let call):
             return AgentPaneProcessViewer.open(call, in: self)
         case .chatTab(let chat, let destination):
@@ -242,8 +302,8 @@ extension AgentPaneModel {
             return AgentPaneReply.success()
         case .offerOpen(let session, let sender):
             return AgentPaneOfferOpen.respond(session, sender: sender, in: self)
-        case .asksOpen(let session):
-            return AgentPaneAskOpen.respond(session, in: self)
+        case .asksOpen(let session, let place):
+            return AgentPaneAskOpen.respond(session, at: place, in: self)
         case .asksAnswer(let ask):
             return await ask.respond(in: self)
         case .newChatHere(let cwd):

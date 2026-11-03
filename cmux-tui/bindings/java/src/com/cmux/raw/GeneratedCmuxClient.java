@@ -248,6 +248,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object cloudEnvironment(CloudEnvironmentRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_ENVIRONMENT, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final Object cloudHostReplicaClear(CloudHostReplicaClearRequest request) throws CmuxException {
         Object result = execute(Commands.CLOUD_HOST_REPLICA_CLEAR, request.toWire());
         return Wire.immutableJson(result);
@@ -1125,6 +1130,11 @@ public abstract class GeneratedCmuxClient {
     public final ServerStatsResult serverStats(ServerStatsRequest request) throws CmuxException {
         Object result = execute(Commands.SERVER_STATS, request.toWire());
         return ServerStatsResult.fromWire(result);
+    }
+
+    public final SetAttachVisibilityResult setAttachVisibility(SetAttachVisibilityRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_ATTACH_VISIBILITY, request.toWire());
+        return SetAttachVisibilityResult.fromWire(result);
     }
 
     public final SetCellPixelsResult setCellPixels(SetCellPixelsRequest request) throws CmuxException {

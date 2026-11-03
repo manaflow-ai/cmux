@@ -23,11 +23,13 @@ mod agent_tools;
 mod agent_wait_tool;
 mod browser_tools;
 mod caller_scope;
+mod cloud_repo_tools;
 mod code_mode;
 mod computer_use_gate;
 mod config;
 mod keybinding_tools;
 mod messages;
+mod open_tool;
 mod placement;
 mod render_tool;
 mod schema;
@@ -39,6 +41,7 @@ mod transport;
 mod upstream;
 mod upstream_listing;
 mod v2_tools;
+mod video_tools;
 mod watch;
 
 use std::collections::BTreeSet;
@@ -48,6 +51,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
 
+use super::cloud_workspaces;
 use super::command::RequestPlan;
 use super::{GlobalArgs, OutputMode};
 use action_tools::ActionTool;
@@ -98,8 +102,6 @@ pub(super) fn agent_failure_value(failure: CallFailure) -> Value {
     error
 }
 
-/// MCP revisions this server speaks, newest first.
-const PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
 /// The largest JSON-RPC line read from the client.
 const MAX_MESSAGE_BYTES: usize = 8 << 20;
 /// The largest tool result; a larger page is cut and says where to go on.
@@ -175,6 +177,15 @@ pub(super) trait Backend {
             "this server cannot reach acpmux agent dispatch",
         ))
     }
+    /// Cloud chat repo actions run on the selected machine daemon.
+    fn cloud_repo(&self, _action: &str, _args: Value) -> Result<Value, CallFailure> {
+        Err(CallFailure::local(
+            FailureKind::NotRun,
+            "repo.unavailable",
+            "Connect to the Cloud machine and retry.",
+        ))
+    }
+
     /// App calls that may run on another thread: a computer use call's
     /// setup card waits with the call, not on this server's thread
     /// (`computer_use_gate`). `None`: the call runs without the card.
@@ -208,6 +219,13 @@ pub(super) trait Backend {
         on_wake: &mut dyn FnMut(Option<&Value>) -> bool,
     ) -> Result<(), CallFailure>;
 
+    /// Whether this server's default route is the session the cmux app owns
+    /// (no `--session`, `--socket` or `--machine`), so `workspace_list` adds
+    /// the app's Cloud workspaces.
+    fn app_session(&self) -> bool {
+        true
+    }
+
     /// A `cmux agents chat` verb: the daemon (agent messages, workspaces)
     /// and acpmux (chats) together. A backend without both runs none.
     fn chat(
@@ -222,6 +240,25 @@ pub(super) trait Backend {
                           "details": {}, "retryable": false}),
             idempotency_key: None,
         })
+    }
+
+    /// A scoped chat read for agent waits. The session is routed by the same
+    /// owner policy as a daemon read; the default does not guess another session.
+    fn chat_in_session(
+        &self,
+        session: Option<&str>,
+        command: &super::agents::chat::ChatCommand,
+        idempotency_key: Option<&str>,
+        origin: &str,
+    ) -> Result<Value, CallFailure> {
+        if session.is_some() {
+            return Err(CallFailure::local(
+                FailureKind::NotRun,
+                "chat.unavailable",
+                "this backend cannot route chats to another cmux session",
+            ));
+        }
+        self.chat(command, idempotency_key, origin)
     }
 }
 
@@ -251,6 +288,16 @@ impl LiveBackend {
 }
 
 impl Backend for LiveBackend {
+    fn app_session(&self) -> bool {
+        self.global.session.is_none()
+            && self.global.socket.is_none()
+            && self.global.machine.is_none()
+    }
+
+    fn cloud_repo(&self, action: &str, args: Value) -> Result<Value, CallFailure> {
+        super::cloud_repo::call(&self.global, action, args)
+    }
+
     fn resource(
         &self,
         session: Option<&str>,
@@ -323,6 +370,16 @@ impl Backend for LiveBackend {
         origin: &str,
     ) -> Result<Value, CallFailure> {
         super::agents::chat::run(&self.global, command, idempotency_key, origin)
+    }
+
+    fn chat_in_session(
+        &self,
+        session: Option<&str>,
+        command: &super::agents::chat::ChatCommand,
+        idempotency_key: Option<&str>,
+        origin: &str,
+    ) -> Result<Value, CallFailure> {
+        super::agents::chat::run(&self.routed(session)?, command, idempotency_key, origin)
     }
 }
 
@@ -483,6 +540,29 @@ fn typed_key(call: &v2_tools::CallPlan) -> Option<(Option<String>, String)> {
     Some((call.session.clone(), terminal.to_owned()))
 }
 
+/// A history answer's rows as one `text` of lines (`{start, next, text}`): each unstyled
+/// row is one run, so the row's text is its runs joined.
+fn history_text(mut value: Value) -> Value {
+    let Some(rows) = value.get("rows").and_then(Value::as_array) else { return value };
+    let text = rows
+        .iter()
+        .map(|row| {
+            row.get("runs")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|run| run.get("text").and_then(Value::as_str))
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    if let Some(object) = value.as_object_mut() {
+        object.remove("rows");
+        object.insert("text".into(), json!(text));
+    }
+    value
+}
+
 /// The stdio JSON-RPC server: one request per line, answered in order.
 pub(super) struct Server<B> {
     backend: B,
@@ -633,6 +713,15 @@ impl<B: Backend> Server<B> {
     /// when the app answers.
     pub(super) fn list(&mut self) -> Vec<Value> {
         self.refresh_actions();
+        for proxied in &mut self.upstreams {
+            proxied.refresh();
+        }
+        self.listed()
+    }
+
+    /// [`Self::list`] from the actions and proxied tools as last read,
+    /// asking nothing again.
+    fn listed(&self) -> Vec<Value> {
         let mut tools =
             v2_tools::tools().iter().map(v2_tools::V2Tool::descriptor_json).collect::<Vec<_>>();
         tools
@@ -641,19 +730,21 @@ impl<B: Backend> Server<B> {
         tools.push(super::agents::snapshot_tool());
         tools.extend(agent_tools::TOOLS.iter().map(agent_tools::AgentTool::descriptor_json));
         tools.extend(agent_dispatch_tools::descriptors());
+        tools.extend(cloud_repo_tools::descriptors());
         tools.push(super::agents_doctor::mcp_tool());
         tools.push(agent_wait_tool::descriptor());
         tools.push(agent_events_tool::descriptor());
         tools.extend(terminal_talk_tools::descriptors());
         tools.push(render_tool::descriptor());
+        tools.push(open_tool::descriptor());
+        tools.extend(video_tools::descriptors());
         tools
             .extend(settings_tools::TOOLS.iter().map(settings_tools::SettingTool::descriptor_json));
         tools.extend(
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
         );
         tools.extend(self.actions.iter().map(ActionTool::descriptor_json));
-        for proxied in &mut self.upstreams {
-            proxied.refresh();
+        for proxied in &self.upstreams {
             let taken = tools
                 .iter()
                 .filter_map(|tool| tool["name"].as_str().map(str::to_owned))
@@ -747,6 +838,9 @@ impl<B: Backend> Server<B> {
         }
         if let Some(job) = self.proxied_tool(name, &arguments) {
             return Ok(job.run(self.call_cap));
+        }
+        if let Some(result) = cloud_repo_tools::call(&self.backend, name, &arguments) {
+            return Ok(result);
         }
         if let Some(tool) = v2_tools::find(name) {
             return Ok(self.call_v2(tool, &arguments));
@@ -857,6 +951,15 @@ impl<B: Backend> Server<B> {
             let progress = agent_wait_tool::Progress::requested(params, self.notes.as_ref());
             return Ok(terminal_talk_tools::call_send(&self.backend, &arguments, progress));
         }
+        if let Some(result) = self.call_video(name, &arguments) {
+            return Ok(result);
+        }
+        if name == open_tool::NAME {
+            if !self.actions_loaded {
+                self.refresh_actions();
+            }
+            return Ok(self.call_open(&arguments));
+        }
         if name == render_tool::NAME {
             return Ok(match render_tool::receipt(&arguments, &mut self.renders) {
                 Ok(receipt) => success(receipt, false),
@@ -887,9 +990,19 @@ impl<B: Backend> Server<B> {
             self.refresh_actions();
         }
         let Some(tool) = self.actions.iter().find(|tool| tool.name == name) else {
-            return Err((-32602, format!("unknown tool: {name}")));
+            return Err((-32602, self.unknown_tool(name)));
         };
         Ok(self.call_action(tool, &arguments))
+    }
+
+    /// `unknown tool: NAME`, naming the nearest tool `tools/list` offers when
+    /// one is close (`acpmux::mcp_hint`): in code mode only `cmux_exec`.
+    fn unknown_tool(&self, name: &str) -> String {
+        if self.code_mode && self.allowed.is_none() {
+            return acpmux::mcp_hint::unknown_tool(name, [code_mode::EXEC]);
+        }
+        let listed = self.listed();
+        acpmux::mcp_hint::unknown_tool(name, listed.iter().filter_map(|tool| tool["name"].as_str()))
     }
 
     /// A terminal tool called with a `tab` and no `terminal`, or a tab or pane given as
@@ -1038,6 +1151,9 @@ impl<B: Backend> Server<B> {
         images: &mut Vec<Value>,
     ) -> Value {
         match request {
+            code_mode::Request::ActivityStart { .. } | code_mode::Request::ActivityWait { .. } => {
+                json!({"ok": false, "message": "workflow activities require a daemon-owned run"})
+            }
             code_mode::Request::Call { name, .. } if name == code_mode::EXEC => {
                 code_mode::script_answer(
                     Err((-32602, "a script cannot start another script".into())),
@@ -1051,6 +1167,7 @@ impl<B: Backend> Server<B> {
                 // (tests/tool-evals, 2026-10-27).
                 if let Err((_, message)) = &mut result
                     && message.starts_with("unknown tool")
+                    && !message.contains("; did you mean")
                 {
                     let tools = tools.get_or_insert_with(|| self.list());
                     let near = code_mode::nearest_names(tools, &name);
@@ -1076,11 +1193,32 @@ impl<B: Backend> Server<B> {
     }
 
     fn call_v2(&self, tool: &v2_tools::V2Tool, arguments: &Map<String, Value>) -> Value {
+        // `workspace_list {machine}`: one Cloud machine's workspaces, from the app.
+        let mut arguments = std::borrow::Cow::Borrowed(arguments);
+        let mut cloud = tool.wire == "workspace.list";
+        if cloud && let Some(machine) = arguments.to_mut().remove("machine") {
+            match machine.as_str().filter(|machine| !machine.is_empty()) {
+                Some("current" | "local") => cloud = false,
+                Some(machine) => return self.cloud_workspaces(machine, &arguments),
+                None => {
+                    return tool_error(envelope(
+                        v2_tools::invalid("machine must be a non-empty string"),
+                        "not_run",
+                        None,
+                    ));
+                }
+            }
+        }
+        let arguments = &*arguments;
         let arguments = match self.place_beside(tool, arguments) {
             Ok(arguments) => arguments,
             Err(answer) => return answer,
         };
         let arguments = match self.terminal_of_tab(tool, &arguments) {
+            Ok(arguments) => arguments,
+            Err(answer) => return answer,
+        };
+        let arguments = match self.tab_move_destination(tool, &arguments) {
             Ok(arguments) => arguments,
             Err(answer) => return answer,
         };
@@ -1092,6 +1230,14 @@ impl<B: Backend> Server<B> {
             return tool_error(envelope(error, "not_run", None));
         }
         let page = call.page;
+        // History an agent reads is plain lines: `styled` (colors and attributes per run)
+        // defaults to true in the daemon, and a 300-line read was 88k characters
+        // (tests/tool-evals r13a). Asked for `styled`, the rows come as the daemon sends them.
+        let plain_history =
+            tool.wire == "terminal.history.read" && !arguments.contains_key("styled");
+        if plain_history && let Some(params) = call.plan.params.as_object_mut() {
+            params.insert("styled".into(), json!(false));
+        }
         let typed = self.wait_past_typed(tool, &mut call);
         let wrote = (tool.wire == "terminal.input.write")
             .then(|| {
@@ -1099,6 +1245,7 @@ impl<B: Backend> Server<B> {
                     .zip(call.plan.params.get("text").and_then(Value::as_str).map(str::to_owned))
             })
             .flatten();
+        let call_session = call.session.clone();
         match self.backend.resource(call.session.as_deref(), call.plan, &call.prefixes) {
             Ok(value) if typed.is_some() => success(
                 {
@@ -1116,6 +1263,20 @@ impl<B: Backend> Server<B> {
                 }
                 success(value, tool.mutation)
             }
+            Ok(value) if plain_history => success(history_text(value), tool.mutation),
+            // The session the app owns lists the app's Cloud workspaces too.
+            Ok(value) if cloud && call_session.is_none() && self.backend.app_session() => success(
+                {
+                    let rows =
+                        self.cloud_machines().map(|machines| cloud_workspaces::rows(&machines));
+                    let value = cloud_workspaces::append(value, rows.unwrap_or_default());
+                    match page {
+                        Some(page) => v2_tools::paginate(value, page),
+                        None => value,
+                    }
+                },
+                tool.mutation,
+            ),
             Ok(value) => success(
                 match page {
                     Some(page) => v2_tools::paginate(value, page),
@@ -1124,6 +1285,47 @@ impl<B: Backend> Server<B> {
                 tool.mutation,
             ),
             Err(failure) => failure_result(failure),
+        }
+    }
+
+    /// The app's Cloud machines (`cloud.machines`), or `None` when the app has
+    /// none to give (no app, Cloud off, an older app): the list stands alone.
+    fn cloud_machines(&self) -> Option<Vec<Value>> {
+        let reply = self
+            .backend
+            .app("cloud.machines", json!({}), CLOUD_MACHINES_TIMEOUT, None, false)
+            .ok()?;
+        cloud_workspaces::machines_of(&reply)
+    }
+
+    /// `workspace_list {machine}` for a Cloud machine: its workspaces as the
+    /// app's store has them, one page as the daemon's list pages.
+    fn cloud_workspaces(&self, selector: &str, arguments: &Map<String, Value>) -> Value {
+        let page = match cloud_page(arguments) {
+            Ok(page) => page,
+            Err(error) => return tool_error(envelope(error, "not_run", None)),
+        };
+        let machines = self.cloud_machines().unwrap_or_default();
+        match cloud_workspaces::find(&machines, selector) {
+            Ok(Some(machine)) => success(
+                v2_tools::paginate(Value::Array(cloud_workspaces::machine_rows(machine)), page),
+                false,
+            ),
+            Ok(None) => tool_error(envelope(
+                json!({
+                    "code": "selector.not_found",
+                    "message": format!(
+                        "no Cloud machine matches {selector:?}; `app_cloud_list_machines` (cmux cloud \
+                         list-machines) lists their ids, and workspace_list without machine lists \
+                         every machine's workspaces"
+                    ),
+                    "details": {"scope": "machine", "selector": selector},
+                    "retryable": false,
+                }),
+                "rejected",
+                None,
+            )),
+            Err(ambiguous) => tool_error(envelope(ambiguous, "rejected", None)),
         }
     }
 
@@ -1187,13 +1389,8 @@ impl<B: Backend> Server<B> {
 }
 
 fn initialize(params: &Value, list_changed: bool, code_mode: bool) -> Value {
-    let requested = params["protocolVersion"].as_str();
-    let version = PROTOCOL_VERSIONS
-        .iter()
-        .find(|version| Some(**version) == requested)
-        .unwrap_or(&PROTOCOL_VERSIONS[0]);
     json!({
-        "protocolVersion": version,
+        "protocolVersion": acpmux::secret_mcp::protocol_version(params),
         "capabilities": {"tools": {"listChanged": list_changed}},
         "serverInfo": {"name": "cmux", "title": "cmux", "version": env!("CARGO_PKG_VERSION")},
         "instructions": format!(
@@ -1312,6 +1509,34 @@ pub(super) fn failure_result(failure: CallFailure) -> Value {
         .unwrap_or(failure.kind.state())
         .to_owned();
     tool_error(envelope(failure.error, &state, failure.idempotency_key.as_deref()))
+}
+
+/// How long `workspace_list` waits for the app's `cloud.machines`, a short
+/// main-actor read (the CLI's `machine list` bound).
+const CLOUD_MACHINES_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// The page `workspace_list {machine, offset, limit}` answers.
+fn cloud_page(arguments: &Map<String, Value>) -> Result<v2_tools::Page, Value> {
+    let count = |name: &str, maximum: usize| match arguments.get(name) {
+        None => Ok(None),
+        Some(value) => value
+            .as_u64()
+            .and_then(|value| usize::try_from(value).ok())
+            .filter(|value| *value <= maximum)
+            .map(Some)
+            .ok_or_else(|| {
+                v2_tools::invalid(format!("{name} must be an integer from 0 to {maximum}"))
+            }),
+    };
+    if let Some(name) = arguments.keys().find(|name| !matches!(name.as_str(), "offset" | "limit")) {
+        return Err(v2_tools::invalid(format!(
+            "workspace_list with a Cloud machine has no argument {name:?}"
+        )));
+    }
+    Ok(v2_tools::Page {
+        offset: count("offset", usize::MAX)?.unwrap_or(0),
+        limit: count("limit", v2_tools::MAX_PAGE)?.unwrap_or(v2_tools::DEFAULT_PAGE).max(1),
+    })
 }
 
 fn tool_error(envelope: Value) -> Value {

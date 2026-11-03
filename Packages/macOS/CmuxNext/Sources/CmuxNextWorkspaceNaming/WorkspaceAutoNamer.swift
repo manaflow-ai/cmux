@@ -120,7 +120,7 @@ public final class WorkspaceAutoNamer {
         for target in targets {
             let workspace = target.workspace
             guard target.supportsNameSource, !workspace.isAnyHome, workspace.app == nil,
-                  target.nameSource != .user,
+                  !Self.isUserNamed(target),
                   rule.confirmsRename(currentName: workspace.name, currentTitle: workspace.title,
                                       nameSource: target.nameSource, nameRevision: target.nameRevision),
                   let front = focusedFront(workspace), let agentSession = front.agentSession,
@@ -141,6 +141,13 @@ public final class WorkspaceAutoNamer {
             renames.append(candidate)
         }
         return renames
+    }
+
+    /// Whether a person named `target`'s workspace, on a daemon that records who did: a
+    /// never-renamed `workspace-N` is still the namer's (`WorkspaceAutoName.isUserNamed`).
+    private static func isUserNamed(_ target: Target) -> Bool {
+        WorkspaceAutoName.isUserNamed(name: target.workspace.name, title: target.workspace.title, nameSource: target.nameSource,
+                                      nameRevision: target.nameRevision, allowsLegacyDefaults: false)
     }
 
     /// Returns the focused tab used by both planning and application so a
@@ -168,7 +175,7 @@ public final class WorkspaceAutoNamer {
         guard let target = workspaces().first(where: { $0.machineID == candidate.machineID && $0.workspace.id == candidate.workspaceID }),
               target.workspace.key != nil, target.daemonGeneration == candidate.daemonGeneration,
               target.nameRevision == candidate.nameRevision,
-              target.nameSource != .user, target.supportsNameSource,
+              !Self.isUserNamed(target), target.supportsNameSource,
               !target.workspace.isAnyHome, target.workspace.app == nil,
               rule.confirmsRename(currentName: target.workspace.name, currentTitle: target.workspace.title,
                                   nameSource: target.nameSource, nameRevision: target.nameRevision),

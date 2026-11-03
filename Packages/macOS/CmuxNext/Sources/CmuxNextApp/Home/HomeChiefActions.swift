@@ -53,7 +53,16 @@ enum HomeChiefActions {
         switch plan(context, front: front).stop {
         case .front:
             guard let front else { return }
-            control = front.chiefControl
+            if front.chiefControl.isHosted {
+                control = front.chiefControl
+                break
+            }
+            let interactive = !context.registry.isCapturingRefusal
+            let services = context.services
+            front.turnActions.stop { error in
+                if interactive { services.refusalHUD.show(error.text, in: services.windows.active?.window ?? services.keyWindowSource()) }
+            }
+            return
         case .chief(let conversation):
             let row = context.services.home.homeStore.rows.first { $0.summary.id == conversation }
             control = HomeChiefControl(services: context.services, conversation: conversation,
@@ -68,7 +77,7 @@ enum HomeChiefActions {
         let services = context.services
         let work: ActionWork = Task {
             guard let error = await control.stop() else { return nil }
-            if interactive { services.refusalHUD.show(error.text, in: services.windows.active?.window ?? NSApp.keyWindow) }
+            if interactive { services.refusalHUD.show(error.text, in: services.windows.active?.window ?? services.keyWindowSource()) }
             return ActionWorkFailure(refusal: .unavailable, reason: error.text)
         }
         registry.track(work)

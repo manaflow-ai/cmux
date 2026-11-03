@@ -19,8 +19,9 @@ red was other tests. A job-level comparison hid a real crash. So:
    or a summary counts fewer tests than ran) is the head's own red: an unreadable red fails closed.
 4. No base log, or one that names no failing test while the head's does, excuses nothing.
 
-It reads Swift Testing, XCTest, cargo test, unittest, pytest and `bun test` output (a bun failure is `FILE > TEST`;
-a bun run that printed no closing ` N pass` / ` N fail` counts after its last result was cut short).
+It reads Swift Testing, XCTest, xcodebuild and xcresult, cargo test, unittest, pytest and `bun test` output (a bun
+failure is `FILE > TEST`; a bun run that printed no closing ` N pass` / ` N fail` counts after its last result was cut
+short). It reads only what the steps printed, never the runner's echo of a step's script (echoed).
 
     test_reds.py classify --head HEAD.log [--base BASE.log] [--job NAME] [--base-name feat-cmux-next] [--json]
 
@@ -31,12 +32,13 @@ Gallery health (scripts/gallery-matrix/health.ts) is judged the same way, per st
 writes: a broken state (it errors, never readies, or its play cannot reach it) or one over its ready-time budget
 is the base's only when the same state is red the same way on the base (any budget miss is one kind; a broken
 state's reason is its kind, numbers aside). A render that crashed, or a shard with no whole health.json, is the
-head's own. gallery-health.yml replays a pull request's red entries on the base it merged with and asks:
+head's own. gallery-health.yml replays a pull request's red states on the base it merged with and asks:
 
-    test_reds.py gallery --head HEAD/health.json --entries               the entries to replay on the base
-    test_reds.py gallery --head HEAD/health.json --base BASE/health.json [--annotate] [--json]
+    test_reds.py gallery --head HEAD/health.json --entries               the entries of those states
+    test_reds.py gallery --head HEAD/health.json --states                the red states (entry#variant) it replays
+    test_reds.py gallery --head HEAD/health.json --base BASE/health.json [--base ...] [--annotate] [--json]
 
-with the same exit codes (`--entries` exits 1 when the head's red is its own whatever the base shows).
+with the same exit codes (`--entries` and `--states` exit 1 when the head's red is its own whatever the base shows).
 """
 from __future__ import annotations
 
@@ -57,6 +59,25 @@ FAILED = (
     re.compile(r"^(?:FAIL|ERROR): (\S+ \([^)]+\))"),  # unittest
     re.compile(r"^FAILED (\S+::\S+)"),  # pytest
 )
+# Swift Testing emits type suites without quotes and custom suite names in quotes.
+SUITE_FAILED = re.compile(r'✘ Suite ("[^"]+"|\S+) (?:recorded an issue|failed)\b')
+# A failed test case read from an xcresult bundle (`xcresulttool get test-results tests`, as the iOS kit job prints
+# it): `FAILED: <scheme> / <target> / <suite> / <test>()`, named `<suite>.<test>()` like xcodebuild's own
+# `Failing tests:` list (`\t<suite>.<test>()` lines under it, up to a blank line).
+XCRESULT_FAILED = re.compile(r"^FAILED: (?:.+ / )?([^/]+?) / ([^/]+?\(.*\))$")
+XCODEBUILD_FAILING = "Failing tests:"
+XCODEBUILD_FAILED = re.compile(r"^\s+(\S+\.\S+\(.*\))$")
+# The runner echoes each step before running it: `##[group]Run <first line>`, the step's script (or nothing for an
+# action), then its `shell:` line and its `with:` / `env:` blocks, then `##[endgroup]`. That is the step's source,
+# not its output: a script that prints, greps or filters test names, or has an `echo "::error::..."` branch, puts
+# them in every run's log, green or red (2026-10-30: cmux#28145 excused because base run 41138142557 echoed the
+# kit step's script). A group is an echo only when it closes before any other group opens and ends in the runner's
+# settings block: from its first `shell:`, `with:` or `env:` line to its `##[endgroup]`, every line is one of those or
+# an indented value under them. A step's own `::group::Run ...` output does not end that way, so it is read.
+ECHO_START = re.compile(r"^(?:﻿)?##\[group\]Run ")
+ECHO_SETTINGS = re.compile(r"^(?:shell: \S.*|with:|env:)$")
+ECHO_VALUE = re.compile(r"^  \S")
+GROUP_EDGE = re.compile(r"^##\[(?:group|endgroup)\]")
 # A line that says the job ran tests at all.
 RAN = re.compile(r"[◇✔✘] (?:Test|Suite) |Test Case '-\[|Test Suite '|^test \S+ \.\.\. |^running \d+ tests?$|"
                  r"^Ran \d+ tests? in |^=+ (?:test session starts|FAILURES)|Executed \d+ tests?")
@@ -81,6 +102,13 @@ CRASH_AT_START = re.compile(r"^(?:##\[error\]|::error[^:]*::)?(?:error: )?(?:\S+
 SHELL_SIGNAL = re.compile(r"^(?:\S+: line \d+: +)?\d+ +(Killed|Terminated|Hangup|Interrupt|Quit|User defined signal \d)"
                           r"(?::? \d+)? +\S")
 SHELL_SIGNAL_NUMBERS = {"Killed": "9", "Terminated": "15", "Hangup": "1", "Interrupt": "2", "Quit": "3"}
+# Such a report is a signal someone sent (a test that kills its own children, `timeout`), not a fault. It is a crash
+# only in a step that failed or never finished: a step that printed no error and was followed by the next step passed,
+# so a kill inside it is that test's own doing, not the job's red (2026-10-31: cmuxterm-hq's
+# scripts/test-reload-cloud-terminate-app.sh kills the children it starts and passes, and every red in its Fleet
+# tests job read as "the test process crashed (signal 9)"). A fault (`Segmentation fault`, a signal code from SwiftPM,
+# an exit status of 128 + N) is a crash wherever it is.
+STEP_ERROR = re.compile(r"^(?:##\[error\]|::error)")
 # Actions may preserve only the shell status when a process dies after printing its test summary.
 # A 128 + signal status is still an abnormal end; a complete summary cannot excuse it as a base red.
 # Match the runner annotation, never a test name or an assertion quoting the diagnostic.
@@ -181,8 +209,71 @@ class Verdict:
         self.own, self.reasons, self.shared = own, reasons, list(shared)
 
 
-def lines_of(log: str) -> list[str]:
+def echoed(lines: list[str]) -> set[int]:
+    """The indexes of LINES (one per line of the log, timestamps and colours removed) that are the runner's echo of a
+    step (ECHO_START): its source, never its output."""
+    found: set[int] = set()
+    at = 0
+    while at < len(lines):
+        if ECHO_START.match(lines[at]):
+            end = next((n for n in range(at + 1, len(lines)) if GROUP_EDGE.match(lines[n])), None)
+            first = None if end is None else next(
+                (n for n in range(at + 1, end) if ECHO_SETTINGS.match(lines[n])), None)
+            if (first is not None and lines[end].startswith("##[endgroup]")
+                    and all(ECHO_SETTINGS.match(lines[n]) or ECHO_VALUE.match(lines[n]) for n in range(first, end))):
+                found.update(range(at, end + 1))
+                at = end + 1
+                continue
+        at += 1
+    return found
+
+
+def passed_steps(lines: list[str], skip: set[int] | None = None) -> set[int]:
+    """The indexes of LINES (log_lines) inside a step that passed: from a step's echo (echoed) to the next step's, with
+    no error line between. The last step (no step after it) never passed: it may be the one that died."""
+    skip = echoed(lines) if skip is None else skip
+    starts = [n for n in sorted(skip) if ECHO_START.match(lines[n])]
+    found: set[int] = set()
+    for start, end in zip(starts, starts[1:]):
+        if not any(STEP_ERROR.match(lines[n]) for n in range(start, end) if n not in skip):
+            found.update(range(start, end))
+    return found
+
+
+def log_lines(log: str) -> list[str]:
+    """Every line of a job log with its timestamp and colours removed, the runner's step echoes included."""
     return [STAMP.sub("", ANSI.sub("", line)).rstrip() for line in log.splitlines()]
+
+
+def lines_of(log: str) -> list[str]:
+    """What the job's steps printed: log_lines without the runner's echo of each step's script (echoed)."""
+    lines = log_lines(log)
+    skip = echoed(lines)
+    return [text for n, text in enumerate(lines) if n not in skip]
+
+
+def failed_names(lines: list[str]) -> set[str]:
+    """The failing tests LINES name: each FAILED pattern's, an xcresult `FAILED:` line's and the names under
+    xcodebuild's `Failing tests:` (XCRESULT_FAILED). LINES are a step's output (lines_of), never its echoed script."""
+    found: set[str] = set()
+    listing = False
+    for text in lines:
+        if listing:
+            if match := XCODEBUILD_FAILED.match(text):
+                found.add(match.group(1))
+                continue
+            listing = False
+        if text.strip() == XCODEBUILD_FAILING:
+            listing = True
+            continue
+        for pattern in FAILED:
+            if match := pattern.search(text):
+                found.add(match.group(1))
+        if match := SUITE_FAILED.search(text):
+            found.add(match.group(1).strip('"'))
+        if match := XCRESULT_FAILED.match(text):
+            found.add(f"{match.group(1)}.{match.group(2)}")
+    return found
 
 
 def _words(text: str, words: list[str]) -> None:
@@ -416,13 +507,17 @@ def read(log: str | None, bun: bool = True) -> Result:
     if log is None or not log.strip():
         result.truncated.append("its log could not be read" if log is None else "its log is empty")
         return result
-    lines = lines_of(log)
+    every = log_lines(log)
+    skip = echoed(every)
+    passed = passed_steps(every, skip)
+    kept = [n for n in range(len(every)) if n not in skip]
+    lines = [every[n] for n in kept]
     started = {m.group(1) for text in lines for m in [STARTED.search(text)] if m}
     stack: list[str] = []
     signals: list[str] = []
     named: list[str] = []
     crashed = False
-    for text in lines:
+    for at, text in enumerate(lines):
         if SWIFT_TEST_SUMMARY_FIXTURE.search(text):
             continue
         if RAN.search(text) or UNITTEST_LINE.match(text) or BUN_STARTED.match(text) or BUN_RESULT.match(text):
@@ -431,10 +526,6 @@ def read(log: str | None, bun: bool = True) -> Result:
             result.truncated.append(f"{match.group(2)} timed out (killed at the wrapper's hard limit)")
         if BUN_PANIC.match(text):
             crashed = True
-        for pattern in FAILED:
-            if match := pattern.search(text):
-                result.failed.add(match.group(1))
-                result.ran = True
         if match := XCTEST_RESTART.search(text):
             groups = [g for g in match.groups() if g]
             named.append(".".join(groups[:2]))
@@ -444,7 +535,8 @@ def read(log: str | None, bun: bool = True) -> Result:
         if 1 <= signal_exit <= 64:
             crashed = True
             signals.append(str(signal_exit))
-        runtime = HELPER_KILLED.search(text) or SHELL_SIGNAL.search(text) or (
+        killed = SHELL_SIGNAL.search(text) and kept[at] not in passed
+        runtime = HELPER_KILLED.search(text) or killed or (
             (CRASH.search(text) or CRASH_AT_START.search(text) or SIGNALED.search(text)) and not TEST_LINE.search(text))
         if runtime:
             crashed = True
@@ -455,6 +547,9 @@ def read(log: str | None, bun: bool = True) -> Result:
         if TRUNCATED.search(text) or NO_RESULT.search(text):
             why = re.sub(r"^##\[error\]|^::error[^:]*::", "", text).strip()
             result.truncated.append(why[:200])
+    if names := failed_names([text for text in lines if not SWIFT_TEST_SUMMARY_FIXTURE.search(text)]):
+        result.failed |= names
+        result.ran = True
     unfinished = started - {m.group(1) for text in lines for m in [FINISHED.search(text)] if m}
     unfinished |= ({m.group(1) for text in lines for m in [XC_STARTED.search(text)] if m}
                    - {m.group(1) for text in lines for m in [XC_FINISHED.search(text)] if m})
@@ -536,6 +631,27 @@ def classify(head_log: str | None, base_log: str | None, job: str = "", base: st
         reasons.append(f"{len(differ)} test(s) fail differently on {base}: {'; '.join(said)[:600]}")
     return Verdict(bool(reasons), reasons, sorted(head.failed & seen - set(differ)))
 
+
+
+def classify_any(head_log: str | None, bases: list, job: str = "") -> Verdict | None:
+    """classify against several base logs (BASES: [(label, log)], newest first): a head failing test is the base's
+    when it fails the same way on any one of them (base_red_excuse.py's window). A crash or a cut-short head run is
+    the head's whatever the bases show, judged as classify judges it against the newest. shared names, for each test,
+    the first base it failed on: `name (label)`."""
+    verdicts = [(label, classify(head_log, log, job, label)) for label, log in bases] or [("", classify(head_log, None, job))]
+    first = verdicts[0][1]
+    head = read(head_log)
+    if first is None or len(verdicts) == 1 or head_log is None or head.crashes or head.truncated:
+        return first
+    on: dict = {}
+    for label, verdict in verdicts:
+        for name in verdict.shared:
+            on.setdefault(name, label)
+    new = sorted(head.failed - on.keys())
+    labels = ", ".join(label for label, _ in verdicts)
+    reasons = [f"{len(new)} failing test(s) pass, do not run or fail differently on each of {labels}: "
+               f"{'; '.join(new)[:600]}"] if new else []
+    return Verdict(bool(new), reasons, [f"{name} ({on[name]})" for name in sorted(on)])
 
 # The webview tests (scripts/ci/run-webviews-tests.sh, bun), judged per test across jobs. One test file runs in
 # a head shard (`react-apps-check (N)`) and, when red, is replayed on the merge parent by `react-apps-base-check (N)`,
@@ -739,12 +855,52 @@ def classify_web(head_logs: list, base_logs: list, job: str = "", base: str = "t
     return Verdict(bool(reasons), reasons, shared)
 
 
+# A coalesced feat-cmux-next web run (cmux-next-web.yml runs its web checks at most once every 15 minutes, on the
+# newest push, routed from the last run's commit) covers several commits. When its webview tests go red, its
+# `web bisect` job (scripts/ci/web_coalesce.py bisect) re-runs only the new red files, only on those commits, and
+# prints one line a file. bisect_report reads them, so a reader of push verdicts (HQ's base-red-watch) still names the
+# first red commit and its pull request rather than the run's whole range:
+#   web bisect: first red at SHA (#N|a direct push) after GREEN_SHA: FILE[ (TESTS)]
+#   web bisect: red before the range at BASE_SHA: FILE       (red at the run before: not this range's)
+#   web bisect: flaky on the base: FILE                      (flips by itself on the base, or no input changed)
+#   web bisect: unresolved between LO_SHA and HI_SHA: FILE   (first red somewhere in (LO, HI])
+BISECT_LINE = re.compile(
+    r"web bisect: (?:first red at (?P<first>[0-9a-f]{40}) \((?:#(?P<pr>\d+)|a direct push)\) after (?P<green>[0-9a-f]{40})"
+    r"|red before the range at (?P<base>[0-9a-f]{40})|(?P<flaky>flaky on the base)"
+    r"|unresolved between (?P<lo>[0-9a-f]{40}) and (?P<hi>[0-9a-f]{40})): (?P<file>\S+?)(?: \(.*\))?$")
+
+
+def bisect_report(log: str | None) -> dict[str, dict]:
+    """{webview test file: {"kind": first|base|flaky|unresolved, "first_red", "green", "pr"}} from a `web bisect` job's
+    log (its echoed script is never read). first: FIRST_RED is the file's first red commit, GREEN the commit before
+    it, PR its pull request number or None for a direct push. unresolved: the first red is after GREEN, at or before
+    FIRST_RED. base and flaky name no commit of the range."""
+    found: dict[str, dict] = {}
+    for text in lines_of(log or ""):
+        match = BISECT_LINE.search(text)
+        if not match:
+            continue
+        if match["first"]:
+            got = {"kind": "first", "first_red": match["first"], "green": match["green"],
+                   "pr": int(match["pr"]) if match["pr"] else None}
+        elif match["base"]:
+            got = {"kind": "base", "first_red": None, "green": None, "pr": None}
+        elif match["flaky"]:
+            got = {"kind": "flaky", "first_red": None, "green": None, "pr": None}
+        else:
+            got = {"kind": "unresolved", "first_red": match["hi"], "green": match["lo"], "pr": None}
+        found.setdefault(match["file"], got)
+    return found
+
+
 # Gallery health's health.json: a shard's broken states and its states over their ready-time budget.
 GALLERY_KEYS = ("fresh", "known", "slow")
 # A render the browser lost: a crash, never a state the base can share.
 GALLERY_CRASH = re.compile(r"\bcrash|Target (?:page, context or browser )?(?:has been )?closed|"
                            r"browser has (?:been )?(?:disconnected|closed)|\bsignal\b|\bSIG[A-Z]+\b", re.I)
 GALLERY_SLOW = "over its ready-time budget"
+# A state past its layout-shift baseline (shift-baseline.ts); older checkers wrote no `shifted` list.
+GALLERY_SHIFT = "past its layout-shift baseline"
 
 
 def gallery_read(text: str | None, keep_known: bool = False) -> Result:
@@ -778,24 +934,41 @@ def gallery_read(text: str | None, keep_known: bool = False) -> Result:
         result.failed.add(f"{state}: {re.sub(r'[0-9]+', '#', reason)}")
     for item in found["slow"]:
         result.failed.add(f"{item.get('state', '')}: {GALLERY_SLOW}")
+    for item in found.get("shifted") or []:
+        result.failed.add(f"{item.get('state', '')}: {GALLERY_SHIFT}")
+    for item in found.get("geometry") or []:
+        for violation in item.get("violations") or []:
+            result.failed.add(f"{item.get('state', '')}: breaks {violation.get('key', '')}")
     return result
 
 
+def gallery_states(text: str | None) -> list[str]:
+    """The head's red states (`entry#variant`): the only states the base replays, every case of each."""
+    return sorted({name.split(": ", 1)[0] for name in gallery_read(text).failed})
+
+
 def gallery_entries(text: str | None) -> list[str]:
-    """The gallery entries (`entry` of `entry#variant`) of the head's red states: what the base replays."""
-    return sorted({name.split(": ", 1)[0].rsplit("#", 1)[0] for name in gallery_read(text).failed})
+    """The gallery entries (`entry` of `entry#variant`) of the head's red states: what the base's manifest names."""
+    return sorted({state.rsplit("#", 1)[0] for state in gallery_states(text)})
 
 
-def gallery_classify(head_text: str | None, base_text: str | None, base: str = "the base") -> Verdict | None:
+def gallery_classify(head_text: str | None, base_text, base: str = "the base") -> Verdict | None:
     """A gallery health shard's red judged per state against the same states rendered on the base; None when the
-    head's shard is whole and has nothing red."""
+    head's shard is whole and has nothing red. `base_text` may be several base renders: a state red the same way
+    in any of them is the base's. The head keeps a state red only when every retry shows it, so a base render that
+    had to show it every time too would call a state that flakes on the base the head's own."""
     head = gallery_read(head_text)
     if not head.failed and not head.crashes and not head.truncated:
         return None
     reasons = list(head.crashes)
     if head.truncated:
         reasons.append(f"gallery health: per-state results are not whole ({head.truncated[0]})")
-    seen = gallery_read(base_text, keep_known=True)
+    renders = base_text if isinstance(base_text, (list, tuple)) else [base_text]
+    seen = Result()
+    for text in renders or [None]:
+        found = gallery_read(text, keep_known=True)
+        seen.truncated.extend(found.truncated)
+        seen.failed |= found.failed
     if seen.truncated:
         reasons.append(f"no whole base result on {base} to compare {len(head.failed)} red state(s) with "
                        f"({seen.truncated[0]})")
@@ -807,14 +980,14 @@ def gallery_classify(head_text: str | None, base_text: str | None, base: str = "
 def gallery_main(args) -> int:
     read_text = lambda path: path.read_text(errors="replace") if path and path.is_file() else None
     head = read_text(args.head)
-    if args.entries:
+    if args.entries or args.states:
         found = gallery_read(head)
         if found.crashes or found.truncated:
             print("own red: " + "; ".join(found.crashes + found.truncated[:1]), file=sys.stderr)
             return 1
-        print(",".join(gallery_entries(head)))
+        print(",".join(gallery_states(head) if args.states else gallery_entries(head)))
         return 0 if found.failed else 2
-    verdict = gallery_classify(head, read_text(args.base) if args.base else None, args.base_name)
+    verdict = gallery_classify(head, [read_text(path) for path in args.base or []] or None, args.base_name)
     if args.json:
         print(json.dumps(None if verdict is None else
                          {"own": verdict.own, "reasons": verdict.reasons, "shared": verdict.shared}))
@@ -845,9 +1018,10 @@ def main(argv: list[str] | None = None) -> int:
     one.add_argument("--json", action="store_true")
     gallery = sub.add_parser("gallery", help="a gallery health shard's health.json against the base's")
     gallery.add_argument("--head", required=True, type=Path)
-    gallery.add_argument("--base", type=Path)
+    gallery.add_argument("--base", type=Path, action="append", help="a base render's health.json; repeat for several")
     gallery.add_argument("--base-name", default="the base")
     gallery.add_argument("--entries", action="store_true", help="print the entries to replay on the base")
+    gallery.add_argument("--states", action="store_true", help="print the red states (entry#variant) to replay on the base")
     gallery.add_argument("--annotate", action="store_true", help="GitHub annotations: base reds warn, own reds fail")
     gallery.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)

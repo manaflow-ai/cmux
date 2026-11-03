@@ -39,7 +39,7 @@ jobs:
     # A Blacksmith Testbox exists only in the manaflow-ai organization. Skip
     # elsewhere rather than queue forever for a runner a fork cannot have.
     if: github.repository_owner == 'manaflow-ai'
-    runs-on: blacksmith-32vcpu-ubuntu-2404
+    runs-on: ${{ fromJSON(vars.RUNNER_POOLS).linux_32 }}
     environment:
       # The environments API shows (2026-10-06): one custom deployment
       # protection rule, the cmux-ci-testbox-approver App; no required
@@ -299,7 +299,7 @@ jobs:
           SOURCE_SHA: ${{ github.sha }}
           SOURCE_REF: ${{ github.ref }}
           TESTBOX_ID: ${{ inputs.testbox_id }}
-          RUNNER_LABEL: blacksmith-32vcpu-ubuntu-2404
+          RUNNER_LABEL: ${{ fromJSON(vars.RUNNER_POOLS).linux_32 }}
         shell: bash
         run: |
           set -euo pipefail

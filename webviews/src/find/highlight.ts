@@ -1,3 +1,4 @@
+import { foldFind } from "./fold";
 import type { FindMatch } from "./model";
 
 export const FIND_HIGHLIGHT_NAME = "cmux-find-match";
@@ -228,7 +229,7 @@ export function collectFindPaintRanges(
   const activeRow = findActiveRow(container, rows, snapshot);
   for (const row of rows) {
     const rowText = collectRowText(row);
-    const haystack = rowText.text.toLowerCase();
+    const haystack = foldFind(rowText.text);
     let from = 0;
     let occurrence = 0;
     for (;;) {
@@ -265,7 +266,7 @@ export function collectQueryRanges(
   if (query === "") return ranges;
   for (const row of collectRows(container, shadowRoots)) {
     const rowText = collectRowText(row);
-    const haystack = rowText.text.toLocaleLowerCase();
+    const haystack = foldFind(rowText.text);
     for (let start = haystack.indexOf(query); start !== -1; start = haystack.indexOf(query, start + query.length)) {
       const range = rangeFor(rowText, start, start + query.length);
       if (range != null) ranges.push(range);

@@ -24,11 +24,22 @@ extension Motion {
     /// their parent is already on screen. A view outside a window, or no view,
     /// animates as before. A change already running when the display goes
     /// to sleep ends at once only if it opted in (`settleAtSleep`).
+    ///
+    /// A window out of the person's sight (``FrameScheduler/windowIsOutOfSight(_:)``:
+    /// shown once, now ordered out, minimized or fully covered), or a child of
+    /// one, never animates either: its change applies at once and its
+    /// completion runs now, as Chrome gives a hidden tab no animation frames.
     public static func canAnimate(in view: NSView?) -> Bool {
         guard let firstWindow = view?.window else { return true }
-        var window = firstWindow
-        // AppKit windows have a short, finite child-parent chain. Keep this traversal bounded so
+        // AppKit windows have a short, finite child-parent chain. Keep these traversals bounded so
         // malformed test doubles cannot turn a hot-path motion decision into an unbounded loop.
+        var shown: NSWindow? = firstWindow
+        for _ in 0..<8 {
+            guard let current = shown else { break }
+            if FrameScheduler.windowIsOutOfSight(current) { return false }
+            shown = current.parent
+        }
+        var window = firstWindow
         for _ in 0..<8 {
             if let screen = window.screen {
                 return !DisplaySleep.shared.isAsleep(screen)

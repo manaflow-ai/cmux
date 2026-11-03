@@ -69,6 +69,19 @@ bash "$FIX" --no-fmt --docs-shortcuts --app-host --unverified-exports "$repo" > 
 [[ "$(cat "$repo/web/data/cmux-shortcuts.generated.json")" == current ]] || fail "the docs shortcuts must wait for verified action exports"
 [[ "$(cat "$repo/cmux-tui/crates/cmux-app-host/generated/scopes.json")" == current ]] || fail "the app-host files must wait for verified action exports"
 grep -q '^left: web/data/cmux-shortcuts.generated.json' "$tmp/out" || fail "the waiting docs shortcuts must be reported"
+# The base autofix rewrites the app-host files from the committed export
+# anyway (app platform checks them against it): #32097 changed the operation
+# catalog while the Mac exports were deferred, and app platform stayed red.
+# The test runner has no bun: a stand-in runs the generator's one write.
+mkdir -p "$tmp/fakebin"
+printf '#!/bin/sh\necho from-stale-export > cmux-tui/crates/cmux-app-host/generated/scopes.json\n' > "$tmp/fakebin/bun"
+chmod +x "$tmp/fakebin/bun"
+PATH="$tmp/fakebin:$PATH" bash "$FIX" --no-fmt --docs-shortcuts --app-host --app-host-committed-exports --unverified-exports "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed with committed app-host exports"
+[[ "$(cat "$repo/web/data/cmux-shortcuts.generated.json")" == current ]] || fail "the docs shortcuts must still wait for verified action exports"
+[[ "$(cat "$repo/cmux-tui/crates/cmux-app-host/generated/scopes.json")" == from-stale-export ]] || fail "the base app-host files must not wait for the Mac exports"
+grep -q '^fixed: regenerated cmux-tui/crates/cmux-app-host/generated/scopes.json' "$tmp/out" || fail "the regenerated app-host file must be reported"
+! grep -q '^left: cmux-tui/crates/cmux-app-host/generated' "$tmp/out" || fail "the base app-host files must not be reported as waiting"
+git -C "$repo" checkout -q -- .
 # The read-only webviews job's patch may carry the rebuilt Chief memory
 # inspector page (a stale one fails every webviews bundle build), but no other
 # path outside webviews/.
@@ -88,4 +101,29 @@ git -C "$repo" diff --binary > "$tmp/fmt.patch"; git -C "$repo" checkout -q -- .
 bash "$FIX" --no-fmt --webviews-fmt-patch "$tmp/fmt.patch" "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed on a patch it refuses"
 [[ "$(cat "$repo/Native/OptChat/other/x.txt")" == keep && "$(cat "$repo/$page")" == stale ]] || fail "a patch reaching another path outside webviews/ must apply nothing"
 grep -q '^left: the webviews formatting patch reaches Native/OptChat/other/x.txt' "$tmp/out" || fail "the refused path must be reported"
+# The namespace lint's safe rewrites land on base (a pull request only warns on
+# them), except in a frozen file. A stand-in lint rewrites one file of each.
+git -C "$repo" checkout -q -- .
+settings=Packages/macOS/CmuxNext/Sources/CmuxNextSettings/S.swift
+mkdir -p "$repo/Packages/a" "$repo/$(dirname "$settings")"
+echo 'public enum A {}' > "$repo/Packages/a/A.swift"; echo 'public enum S {}' > "$repo/$settings"
+cat > "$repo/scripts/lint-ios-package-conventions.sh" <<'SH'
+[ "${1:-}" = --namespace-fix ] || exit 0
+for f in Packages/a/A.swift Packages/macOS/CmuxNext/Sources/CmuxNextSettings/S.swift; do
+  sed -i.bak 's/public enum \(.\) {}/public struct \1 { public init() {} }/' "$f" && rm -f "$f.bak"
+done
+exit 1
+SH
+git -C "$repo" add -A && git -C "$repo" -c user.name=t -c user.email=t@t commit -qm namespaces
+bash "$FIX" --no-fmt --ratchets "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed on namespace findings"
+[[ "$(cat "$repo/Packages/a/A.swift")" == 'public struct A { public init() {} }' ]] || fail "a namespace finding must get the lint's safe rewrite"
+[[ "$(cat "$repo/$settings")" == 'public enum S {}' ]] || fail "a frozen file must never get the namespace rewrite"
+grep -q '^fixed: namespace rewrite in Packages/a/A.swift' "$tmp/out" || fail "the namespace rewrite must be reported"
+grep -q "^skipped (frozen): $settings" "$tmp/out" || fail "a frozen namespace rewrite must be reported"
+# A frozen file an earlier step already changed keeps that change and gets no rewrite.
+git -C "$repo" checkout -q -- .
+printf '// edited\npublic enum S {}\n' > "$repo/$settings"
+bash "$FIX" --no-fmt --ratchets "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed beside an edited frozen file"
+[[ "$(cat "$repo/$settings")" == $'// edited\npublic enum S {}' ]] || fail "an edited frozen file must keep its edit and get no rewrite"
+grep -q "^skipped (frozen): $settings" "$tmp/out" || fail "a frozen namespace rewrite beside an edit must be reported"
 echo "base autofix: ok"

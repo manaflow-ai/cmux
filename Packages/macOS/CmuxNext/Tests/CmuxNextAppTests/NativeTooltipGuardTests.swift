@@ -27,8 +27,10 @@ import Testing
         var offenders: [String] = []
         while let relative = enumerator.nextObject() as? String {
             guard relative.hasSuffix(".swift"), !relative.hasPrefix(Self.exemptDirectory) else { continue }
-            let text = try String(contentsOfFile: root + "/" + relative, encoding: .utf8)
+            let data = try Data(contentsOf: URL(fileURLWithPath: root + "/" + relative))
             scanned += 1
+            guard Self.mayHoldRawTooltip(data) else { continue }
+            let text = try #require(String(data: data, encoding: .utf8), "\(relative) is not UTF-8")
             offenders += Self.violations(in: text).map { "\(relative):\($0.line): \($0.what)" }
         }
         #expect(scanned > 100, "found only \(scanned) Swift files under \(root)")
@@ -64,9 +66,45 @@ import Testing
         """
         let found = Self.violations(in: source).map(\.line)
         #expect(found == [2, 3, 5, 6, 7, 19])
+        // The byte prefilter keeps every file the scan could flag, and skips one that only mentions help.
+        #expect(Self.mayHoldRawTooltip(Data(source.utf8)))
+        for flagged in [".help(\"a\")", "x.help\n  (\"a\")", "x.help /* c */ (\"a\")", "x.help // c\n(\"a\")", "v.toolTip = t",
+                        "s.setToolTip(t, forSegment: 0)", "v.addToolTip(r, owner: o, userData: nil)"] {
+            #expect(!Self.violations(in: flagged).isEmpty, "the scan missed \(flagged)")
+            #expect(Self.mayHoldRawTooltip(Data(flagged.utf8)), "the prefilter skipped \(flagged)")
+        }
+        #expect(!Self.mayHoldRawTooltip(Data("let helper = 1 // the help text\nhelpers.append(1)\n".utf8)))
     }
 
     // MARK: - Scanner
+
+    /// Whether `data` can hold anything `violations` flags; the scan reads only the files that can.
+    /// Most of the package's 38 MB of sources never mention a tooltip, and `codeOnly` over all of
+    /// them took 91 s of the CmuxNextAppTests run. `codeOnly` blanks characters in place and adds
+    /// none, so every pattern's match is in the raw bytes as written: `toolTip` or `ToolTip` (the
+    /// assignment and both AppKit calls), or `help`, then only white space (any byte that can be
+    /// part of a `\s` character), then `(` or the `/` that starts a comment the scan blanks. A
+    /// string literal cannot stand in that gap: its quote stays in the code the patterns read.
+    static func mayHoldRawTooltip(_ data: Data) -> Bool {
+        data.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) -> Bool in
+            guard let base = bytes.baseAddress else { return false }
+            func find(_ needle: StaticString, from start: Int) -> Int? {
+                guard start < bytes.count,
+                      let hit = memmem(base + start, bytes.count - start, needle.utf8Start, needle.utf8CodeUnitCount) else { return nil }
+                return base.distance(to: UnsafeRawPointer(hit))
+            }
+            if find("oolTip", from: 0) != nil { return true }
+            var start = 0
+            while let at = find("help", from: start) {
+                var next = at + 4
+                // ASCII white space (tab to carriage return, space) and every byte of a non-ASCII character.
+                while next < bytes.count, (0x09...0x0D).contains(bytes[next]) || bytes[next] == 0x20 || bytes[next] >= 0x80 { next += 1 }
+                if next < bytes.count, bytes[next] == UInt8(ascii: "(") || bytes[next] == UInt8(ascii: "/") { return true }
+                start = at + 4
+            }
+            return false
+        }
+    }
 
     struct Violation: Equatable {
         let line: Int

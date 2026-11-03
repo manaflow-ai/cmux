@@ -81,6 +81,12 @@ impl Brain {
         // The turn that starts now takes the cut turn's resume note: its
         // hold (a backoff, or a network cut's wait) is over.
         self.resume_at = None;
+        // What the shared screen showed since the last turn joins the log
+        // first, so this turn's delta carries it (screen_share.rs).
+        self.ingest_screen_share();
+        if self.state.stopped_reply.take().is_some() {
+            self.save();
+        }
         self.phase = Phase::Settling;
         // The bound counts from the first wait for this turn: a wait that
         // starts over (the log changed under it) does not reset it.
@@ -369,7 +375,7 @@ impl Brain {
         let opening: Vec<Item> = items.iter().map(item).collect();
         // The engine of this turn, read now (engine.rs): a change applies
         // from this turn on and is logged as a note after its messages.
-        let engine = self.turn_engine_choice();
+        let engine = self.turn_engine_choice(&items);
         let family = self.family_of(&engine.harness);
         // The cached layout on a Claude harness whose acpmux takes a preset
         // system prompt; else the view and the messages as blocks.
@@ -446,6 +452,18 @@ impl Brain {
         // (`turn_permission`), with no question to anyone.
         self.turn_ask = items.iter().any(Queued::requires_approval);
         self.last_turn_ask = self.turn_ask;
+        self.turn_relay = if self.turn_ask {
+            super::steer::trusted_relays(&items)
+        } else {
+            None
+        };
+        if let Some(from) = &self.turn_relay {
+            (self.log)(&format!(
+                "turn {key}: a trusted agent's message ({from}): it may tell and spawn this Chief's subagents"
+            ));
+        }
+        // Who this turn speaks for (rights_gate.rs): the hook and the audit.
+        self.begin_turn_people(&items, &key);
         self.turn_denied.clear();
         self.repeat_denials = 0;
         self.interrupt.set_gate(self.turn_ask);
@@ -663,6 +681,16 @@ impl Brain {
                 "retire": retire,
                 "from": kept.as_ref().map(|k| k.seen_end),
             });
+        }
+        if let Some(route) = &self.turn_route {
+            self.trace.emit(
+                "turn.route",
+                serde_json::json!({
+                    "turn": key, "tier": route.tier, "model": route.model,
+                    "effort": route.effort, "reasons": route.reasons,
+                    "family": self.route_family(),
+                }),
+            );
         }
         self.trace_start(
             &key,
@@ -960,9 +988,12 @@ impl Brain {
                 "turn": key,
                 "first": first,
                 "engine": match self.settings.engine { Engine::Acpmux => "acpmux", Engine::Native(_) => "native" },
-                "harness": self.turn_engine.as_ref().map_or(self.settings.harness.as_str(), |e| e.harness.as_str()),
+                "harness": match self.settings.engine { Engine::Native(_) => "native", Engine::Acpmux => self.turn_engine.as_ref().map_or(self.settings.harness.as_str(), |e| e.harness.as_str()) },
+                "message_keys": self.state.turn.as_ref().map(|p| p.items.iter().filter_map(|i| i.id.clone()).collect::<Vec<_>>()),
                 "model": self.turn_engine.as_ref().and_then(|e| e.model.clone()),
                 "effort": self.turn_engine.as_ref().and_then(|e| e.effort.clone()),
+                "tier": self.turn_route.as_ref().map(|r| r.tier),
+                "route": self.turn_route.as_ref().map(|r| r.reasons.join(",")),
                 "settle_ms": settle_ms,
                 "messages": texts.iter().map(|t| self.trace.text(t)).collect::<Vec<_>>(),
                 // The log ids of the messages (the prompt's last block).
@@ -1021,22 +1052,82 @@ impl Brain {
         }
     }
 
-    fn turn_engine_choice(&mut self) -> crate::engine::TurnEngine {
-        let (engine, unknown) = self.next_engine();
+    fn route_family(&self) -> Option<crate::turn_route::Family> {
+        use crate::turn_route::Family;
+        if matches!(self.settings.engine, super::Engine::Native(_)) {
+            return Some(Family::Native);
+        }
+        match self.family_of(&self.turn_engine.as_ref()?.harness) {
+            crate::acpmux::Family::Claude => Some(Family::Claude),
+            crate::acpmux::Family::Codex => Some(Family::Codex),
+            crate::acpmux::Family::Other => None,
+        }
+    }
+
+    fn route_turn(&mut self, items: &[Queued], engine: &mut crate::engine::TurnEngine, on: bool) {
+        self.turn_route = None;
+        if !on {
+            return;
+        }
+        let Some(family) = self.route_family() else {
+            return;
+        };
+        let table = match crate::turn_route::table() {
+            Ok(table) => table,
+            Err(error) => {
+                (self.log)(&format!("turn routing disabled: {error}"));
+                return;
+            }
+        };
+        let signals = crate::turn_route::TurnSignals {
+            human_text: items
+                .iter()
+                .flat_map(|q| match &q.source {
+                    Source::Message { .. } => vec![q.text.as_str()],
+                    Source::Resume { cut, .. } => cut.iter().map(String::as_str).collect(),
+                    _ => Vec::new(),
+                })
+                .collect(),
+        };
+        let (tier, reasons) = crate::turn_route::classify(&signals);
+        let mut route = crate::turn_route::pick(tier, family, table);
+        route.reasons = reasons;
+        engine.model = Some(route.model.clone());
+        engine.effort = Some(route.effort.clone());
+        self.turn_engine = Some(engine.clone());
+        self.turn_route = Some(route);
+    }
+
+    fn turn_engine_choice(&mut self, items: &[Queued]) -> crate::engine::TurnEngine {
+        let (mut engine, unknown, choice) = self.next_engine();
         if let Some(named) = unknown {
             (self.log)(&format!(
                 "engine.json names harness {named}, which acpmux does not have; this turn runs on {}",
                 engine.harness
             ));
         }
+        self.turn_spawn_engine = Some(engine.clone());
+        // Native turns historically ignore engine.json's model/effort. Keep
+        // their configured defaults unless the opt-in router makes a pick;
+        // receipts must name the same model the API actually receives.
+        if let super::Engine::Native(native) = &self.settings.engine {
+            let (model, effort) = native.defaults();
+            engine.model = Some(model.to_owned());
+            engine.effort = effort.map(str::to_owned);
+        }
         self.turn_engine = Some(engine.clone());
+        self.route_turn(
+            items,
+            &mut engine,
+            choice.turn_routing.as_deref() == Some("auto"),
+        );
         engine
     }
 
-    /// The engine a spawn's subagents take: the running (or last) turn's,
+    /// The engine a spawn's subagents take: the running (or last) turn's configured engine,
     /// with its family when that is not the default harness's.
     pub(super) fn spawn_engine(&self) -> Option<crate::subagents::SpawnEngine> {
-        let engine = self.turn_engine.as_ref()?;
+        let engine = self.turn_spawn_engine.as_ref()?;
         let family = self.family_of(&engine.harness);
         Some(crate::subagents::SpawnEngine {
             harness: engine.harness.clone(),
@@ -1087,6 +1178,8 @@ impl Brain {
             .turn_clock
             .take()
             .map(|t| t.elapsed().as_millis() as u64);
+        // The turn's cost against its people (rights_gate.rs), trace or not.
+        self.end_turn_spend(outcome.stats.cost);
         if !self.trace.is_on() {
             return;
         }
@@ -1118,6 +1211,8 @@ impl Brain {
                 "harness": self.turn_engine.as_ref().map(|e| e.harness.clone()),
                 "model": self.turn_engine.as_ref().and_then(|e| e.model.clone()),
                 "effort": self.turn_engine.as_ref().and_then(|e| e.effort.clone()),
+                "tier": self.turn_route.as_ref().map(|r| r.tier),
+                "route": self.turn_route.as_ref().map(|r| r.reasons.join(",")),
                 // A turn the Chief or the owner stopped ended as asked: no error.
                 "error": outcome
                     .error
@@ -1396,6 +1491,15 @@ impl Brain {
         };
         let main = self.turn_side().is_none();
         // Any other end leaves what no post answered to a retry check.
+        let awaiting = &self.state.awaiting;
+        if owner_stopped && let Some(stopped) = self.state.stopped_reply.as_mut() {
+            // A tool's already-submitted post may have landed while the
+            // cancellation was in flight. Continue reopens only obligations
+            // this Stop actually closes.
+            stopped.messages.retain(|a| {
+                not_needed.contains(&a.id) && awaiting.iter().any(|waiting| waiting.id == a.id)
+            });
+        }
         self.reply_not_needed(&not_needed);
         self.state.turn = None;
         self.stop_wanted = false;
@@ -1485,6 +1589,16 @@ pub(super) fn cut_kind(outcome: &TurnOutcome) -> Option<Cut> {
         .any(|t| error.contains(t))
     {
         return Some(Cut::Link);
+    }
+    // acpmux gave the turn's `session/new` no answer at all within
+    // `acpmux::SESSION_NEW_DEADLINE` (a harness start that hung, as on
+    // claude-sr2-pipe 2026-11-03): nothing ran, so the turn runs again after
+    // an upstream wait instead of posting a dead turn.
+    if outcome.reply.is_none()
+        && error.starts_with("session/new: ")
+        && error.contains("no answer within")
+    {
+        return Some(Cut::Upstream);
     }
     if UPSTREAM_TRANSIENT.iter().any(|t| error.contains(t)) {
         return Some(Cut::Upstream);
@@ -1746,6 +1860,8 @@ fn source_name(source: &Source) -> &'static str {
         Source::Child { .. } => "child",
         Source::Spawn(_) => "subagents",
         Source::Note => "note",
+        Source::Peer { .. } => "peer_chief",
+        Source::OwnerAction { .. } => "owner_action",
         Source::Resume { .. } => "resume",
     }
 }
@@ -1761,6 +1877,7 @@ fn item(queued: &Queued) -> Item {
             id,
             remote,
             requires_approval,
+            ..
         } => Item {
             seq: Some(*seq),
             images,
@@ -1796,8 +1913,24 @@ fn item(queued: &Queued) -> Item {
             images,
             ..Item::default()
         },
+        Source::OwnerAction { requires_approval } => Item {
+            images,
+            requires_approval: *requires_approval,
+            resume: true,
+            cut: vec![queued.text.clone()],
+            ..Item::default()
+        },
         Source::Note => Item {
             images,
+            note: true,
+            ..Item::default()
+        },
+        // A cut peer turn resumes under the floor (no person to name: the
+        // rights hook then grants nothing).
+        Source::Peer { .. } => Item {
+            images,
+            note: true,
+            requires_approval: true,
             ..Item::default()
         },
     }
@@ -1866,6 +1999,35 @@ fn ended_turn_text(
         (Some(reply), None) => reply,
         (None, Some(error)) => format!("({failed}: {error})"),
         (None, None) => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod cut_kind_tests {
+    use super::{Cut, cut_kind};
+    use crate::turn::TurnOutcome;
+
+    fn failed(error: &str) -> TurnOutcome {
+        TurnOutcome {
+            error: Some(error.to_owned()),
+            ..TurnOutcome::default()
+        }
+    }
+
+    /// Leo, 2026-11-03: "(turn failed on claude-sr2-pipe: session/new: no
+    /// answer within 200 s)" posted as the Chief's reply.
+    #[test]
+    fn session_new_timeout_runs_again() {
+        let outcome = failed("session/new: no answer within 200 s");
+        assert_eq!(cut_kind(&outcome), Some(Cut::Upstream));
+    }
+
+    #[test]
+    fn a_timeout_after_a_reply_or_elsewhere_still_fails() {
+        let mut replied = failed("session/new: no answer within 200 s");
+        replied.reply = Some("Let me check.".to_owned());
+        assert_eq!(cut_kind(&replied), None);
+        assert_eq!(cut_kind(&failed("session/new: env key refused")), None);
     }
 }
 

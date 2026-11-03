@@ -16,7 +16,11 @@ import Foundation
 /// `cmux link access upload` for Cloud), one chunk in memory at a time, and the page gets where it
 /// went on that machine. No gesture is asked: the bytes are the host's own recording, which the
 /// person started in this pane, never something the page chose. The chip's ×
-/// (`dictation.recording.cancel {path}`) stops it before its next chunk and cancels the stage.
+/// (`dictation.recording.cancel {path}`) stops it before its next chunk and cancels the stage. A
+/// cancel while the stager's finish runs (the remote transfer, after the last chunk) cancels that
+/// finish's task, so the transfer stops before it commits (Cloud's `cmux link access upload` child
+/// is killed; a peer's call is torn down, ``withAgentPaneDeadline``); no stager can delete a file it
+/// already committed, so one that commits anyway stays, and the upload still answers `cancelled`.
 @MainActor
 struct AgentPaneDictationUpload {
     /// The most one chunk carries; the App's stagers take this much (their `chunkSize`). The file is
@@ -34,17 +38,25 @@ struct AgentPaneDictationUpload {
         defer {
             model.dictationUploads.running.remove(path)
             model.dictationUploads.cancelled.remove(path)
+            model.dictationUploads.finishing[path] = nil
         }
-        let reply = await send(recording, through: stager, session: session) { model.dictationUploads.cancelled.contains(path) }
-        // A failed upload gives the recording back, so the chip's Retry can send it again.
-        if reply["ok"] as? Bool != true { model.onDictationRecordingUnsent?(recording, session) }
+        let reply = await send(recording, through: stager, session: session,
+                               cancelled: { model.dictationUploads.cancelled.contains(path) },
+                               finishing: { model.dictationUploads.finishing[path] = $0 })
+        // A failed upload gives the recording back, so the chip's Retry can send it again; a
+        // cancelled one does not (the person removed it).
+        if reply["ok"] as? Bool != true, !model.dictationUploads.cancelled.contains(path) {
+            model.onDictationRecordingUnsent?(recording, session)
+        }
         return reply
     }
 
-    /// The chip's ×: the upload of `path` running now stops before its next chunk. Nothing else
-    /// changes (a path not uploading is left alone).
+    /// The chip's ×: the upload of `path` running now stops before its next chunk, and a finish in
+    /// flight is cancelled. Nothing else changes (a path not uploading is left alone).
     static func cancel(_ path: String, in model: AgentPaneModel) -> [String: Any] {
-        if model.dictationUploads.running.contains(path) { model.dictationUploads.cancelled.insert(path) }
+        guard model.dictationUploads.running.contains(path) else { return AgentPaneReply.success() }
+        model.dictationUploads.cancelled.insert(path)
+        model.dictationUploads.finishing[path]?.cancel()
         return AgentPaneReply.success()
     }
 
@@ -52,14 +64,18 @@ struct AgentPaneDictationUpload {
     /// the stager's failure (a stage it began is cancelled, so it drops what it staged). The file
     /// is opened once, and only when it is still the file the recording wrote (its identity; not a
     /// link, nor a file put at that path since); every chunk is read from that descriptor.
-    /// `cancelled` (the chip's ×) is checked before each chunk and before the finish.
+    /// `cancelled` (the chip's ×) is checked before each chunk and before the finish. The finish
+    /// runs in its own task, handed to `finishing` while it runs (nil once it ends), so a cancel can
+    /// stop its transfer; a finish that a cancel stopped answers `cancelled`.
     static func send(
         _ recording: AgentPaneIssuedRecording,
-        through stager: AgentPaneUploadStager,
+        through stager: @escaping AgentPaneUploadStager,
         session: String,
-        cancelled: () -> Bool = { false }
+        cancelled: () -> Bool = { false },
+        finishing: (Task<ResultBox, Never>?) -> Void = { _ in }
     ) async -> [String: Any] {
         let failed = AgentPaneReply.failure(code: "upload_failed", message: "The recording could not be sent.")
+        let stopped = AgentPaneReply.failure(code: "cancelled", message: "The recording was not sent.")
         guard let opened = await Task.detached(priority: .userInitiated, operation: { Recording.open(recording) }).value else { return failed }
         defer { opened.close() }
         let size = opened.size
@@ -76,7 +92,7 @@ struct AgentPaneDictationUpload {
         while offset < size {
             if cancelled() {
                 _ = await stager(.cancel(token: token), session)
-                return AgentPaneReply.failure(code: "cancelled", message: "The recording was not sent.")
+                return stopped
             }
             let at = offset, count = min(chunk, size - offset)
             let answer: [String: Any]
@@ -93,14 +109,27 @@ struct AgentPaneDictationUpload {
         }
         if cancelled() {
             _ = await stager(.cancel(token: token), session)
-            return AgentPaneReply.failure(code: "cancelled", message: "The recording was not sent.")
+            return stopped
         }
-        let finished = await stager(.finish(token: token), session)
+        // task-owner: this upload's finish, the one step the chip's × must interrupt mid-await (its
+        // remote transfer); awaited right below, handed to `finishing` only while it runs, and
+        // cancelled by ``cancel(_:in:)``. No await separates the check above from here, so a cancel
+        // either came before (answered above) or finds this task.
+        let task = Task { @MainActor in ResultBox(await stager(.finish(token: token), session)) }
+        finishing(task)
+        // The request's own task cancelled cancels the finish too, as when it ran inline.
+        let finished = await withTaskCancellationHandler { await task.value.value } onCancel: { task.cancel() }
+        finishing(nil)
         // A finish that failed, or answered no one path, may leave the stage behind: it is dropped.
         guard let path = value(finished).flatMap(remotePath) else {
             _ = await stager(.cancel(token: token), session)
+            if cancelled() { return stopped }
             return value(finished) == nil ? finished : failed
         }
+        // A finish that committed though the × came while it ran (a transfer that did not stop on
+        // cancellation): no stager can delete a committed file, so it stays, but the upload still
+        // answers `cancelled`, as the page asked, and is not given back for Retry.
+        if cancelled() { return stopped }
         return AgentPaneReply.success(["path": path])
     }
 
@@ -164,4 +193,6 @@ nonisolated struct AgentPaneIssuedRecording: Equatable, Sendable {
 struct AgentPaneDictationUploads {
     var running: Set<String> = []
     var cancelled: Set<String> = []
+    /// Each running upload's stager finish while it runs, which its cancel cancels.
+    var finishing: [String: Task<ResultBox, Never>] = [:]
 }

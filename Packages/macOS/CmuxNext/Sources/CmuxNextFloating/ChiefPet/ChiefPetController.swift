@@ -60,7 +60,7 @@ public final class ChiefPetController {
     /// Ends `done` after one pass of its row (one-shot; cancelled by the next state and when the pet turns off).
     private let doneTimer: DemandTimer
     /// Reduce Motion (the system's, calm mode or the test override) or the motion switches changing.
-    private var motionObservers: [MainActorObservation] = []
+    private var motionSubscription: MotionSubscription?
     /// Whether the pet's frames must stand: the same loop policy as an upload's (Reduce Motion, calm
     /// mode, the Home motion switch: `Motion.home.animatesLoops`); tests pin one.
     var reduceMotion: @MainActor () -> Bool = { !Motion.home.animatesLoops }
@@ -83,14 +83,7 @@ public final class ChiefPetController {
         self.appIsActive = appIsActive
         toast = DemandTimer(owner: "chiefPet.toast", clock: clock)
         doneTimer = DemandTimer(owner: "chiefPet.done", clock: clock)
-        motionObservers = [Motion.reduceMotionDidChange, Motion.speedDidChange].map {
-            MainActorObservation($0, center: notifications) { [weak self] in self?.drawCharacter() }
-        }
-        // The system's Reduce Motion posts on the workspace's center, not the app's.
-        motionObservers.append(MainActorObservation(NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
-                                                    center: NSWorkspace.shared.notificationCenter) { [weak self] in
-            self?.drawCharacter()
-        })
+        motionSubscription = Motion.changes.subscribe { [weak self] _ in self?.drawCharacter() }
         // Switching to another app takes the card down at once; coming back shows it if its time is not up.
         activationObservers = [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification].map {
             MainActorObservation($0, center: notifications) { [weak self] in

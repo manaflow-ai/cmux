@@ -1,15 +1,17 @@
 //! The machine kind `agent-session-start` needs (cx-d0tq, hq-84 rule), and
 //! with it a chat move in (`agent-transfer-receive`, `-finish`) and folder
-//! trust (`agent-session-trust`): refused on a team VM, and on any Cloud VM
-//! unless the caller says the Cloud API answered `vmKind: "owner"` for it on
-//! its link (the call's `vm_kind`, cmux-tui-core `agent_session_start.rs`). The kind
+//! trust (`agent-session-trust`): refused on any Cloud VM, a team VM
+//! included, unless the caller says the Cloud API answered `vmKind: "owner"`
+//! for it on its link (the call's `vm_kind`, cmux-tui-core
+//! `agent_session_start.rs`). On a team VM the Cloud API gives that answer to
+//! the machine's creator alone (web vmKindForCaller, #28788). The kind
 //! comes from this machine's own identity, read again at every start (a few
 //! file checks).
 //!
 //! Agents keep sudo on a Cloud VM, so anything on it (the records below)
 //! says whatever an agent writes there: a record may only make the answer
 //! stricter. An `owner` record never allows a call by itself; team evidence
-//! refuses even with the caller's word.
+//! refuses every caller without the owner word (`team_vm_blocked`).
 //!
 //! The daemon runs as the work user and cannot read cmux-host's state
 //! (/var/lib/cmux is 0700 root), so cmux-host records the kind where any

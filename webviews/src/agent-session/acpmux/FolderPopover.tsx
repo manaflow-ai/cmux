@@ -2,7 +2,7 @@ import React, { useMemo, useRef, useState } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Popover } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
-import { AddProjectDialog } from "./AddProjectPanel";
+import { AddProjectDialog, type BrowseRequest, type BrowseResult } from "./AddProjectPanel";
 import { translate as t } from "./i18n";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { ProjectBadge } from "./ProjectBadge";
@@ -48,7 +48,7 @@ export function FolderPopover({
   current?: string;
   onPick(cwd: string): void;
   /// The host's folder panel: Add project's Browse and Choose folder….
-  onBrowse?(): void;
+  onBrowse?(request?: BrowseRequest): Promise<BrowseResult> | BrowseResult | void;
   /// New Worktree of the current folder.
   onNewWorktree?(): void;
   /// Do not work in a project (Leo 2026-10-18, as ChatGPT and Claude Code offer): the chat starts
@@ -65,10 +65,15 @@ export function FolderPopover({
   // The repositories whose worktrees are open under their row, by group key.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const highlighted = useRef<string | undefined>(undefined);
+  const [highlightAuto, setHighlightAuto] = useState(true);
   const trigger = useRef<HTMLButtonElement>(null);
   // Escape (not a blur) closes back to the strip's control.
   const escaped = useRef(false);
-  const { control, anchor, open, setOpen, side, flip } = useLocationPopover();
+  const { control, anchor, open, setOpen: setPopoverOpen, side, flip } = useLocationPopover();
+  const setOpen = (next: boolean) => {
+    if (next) setHighlightAuto(true);
+    setPopoverOpen(next);
+  };
   const press = usePopoverTrigger(open, (next) => {
     setOpen(next);
     if (!next) {
@@ -104,7 +109,11 @@ export function FolderPopover({
   const typed = query.trim();
   const typedPath = /^(?:\/|~\/)/.test(typed) && !shown.has(typed) ? typed : undefined;
   // Actions stay directly under search; Tab reaches them and arrows navigate the matching folders.
-  const actions: { value: string; text: string; run(): void }[] = [
+  const actions: {
+    value: string;
+    text: string;
+    run(): Promise<BrowseResult> | BrowseResult | void;
+  }[] = [
     ...(onNoProject ? [{ value: ACTION + "none", text: t("project.noProject"), run: onNoProject }] : []),
     ...(onNewWorktree ? [{ value: ACTION + "worktree", text: t("worktree.new"), run: onNewWorktree }] : []),
     ...(onBrowse
@@ -126,7 +135,10 @@ export function FolderPopover({
   const submit = (value: string) => {
     const action = actions.find((candidate) => candidate.value === value);
     close();
-    if (action) action.run();
+    if (action)
+      void Promise.resolve()
+        .then(() => action.run())
+        .catch(() => undefined);
     else if (value && value !== current && (shown.has(value) || value === typedPath)) onPick(value);
   };
   const row = (value: string) => {
@@ -274,7 +286,10 @@ export function FolderPopover({
         }}
         anchor={open ? anchor : null}
         label={label}
-        className="acpmux-menu acpmux-location-menu acpmux-folder-popover"
+        className={
+          "acpmux-menu acpmux-location-menu acpmux-folder-popover" +
+          (highlightAuto && query.trim() === "" ? " acpmux-folder-highlight-auto" : "")
+        }
         side={side}
         flip={flip}
         finalFocus={false}
@@ -286,8 +301,9 @@ export function FolderPopover({
           onQuery={setQuery}
           onSubmit={submit}
           onCancel={close}
-          onHighlight={(value) => {
+          onHighlight={(value, by) => {
             highlighted.current = value;
+            setHighlightAuto(by === "none");
           }}
           // Tab completes a folder's path into the field, never an action's.
           onCommand={(event) => {

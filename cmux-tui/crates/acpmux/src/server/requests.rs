@@ -1,8 +1,8 @@
 //! Request and notification handlers for one client connection.
 
 use super::*;
-use crate::no_panic::JsonExt;
-use crate::no_panic::LockExt;
+use crate::heap_future::heap;
+use crate::no_panic::{JsonExt, LockExt};
 
 mod briefs;
 pub(super) mod cancel_refused;
@@ -13,6 +13,7 @@ mod info;
 mod mailbox;
 pub(super) mod person_stop;
 mod presets;
+mod queued;
 mod session_open;
 pub use session_open::FEATURE as SESSION_RESUME_FEATURE;
 mod successor;
@@ -49,7 +50,7 @@ fn disallowed_tools(meta: Option<&Value>) -> Result<Vec<String>, RpcError> {
 pub(super) fn ask<'a>(conn: &Conn, params: &Value, who: &'a str) -> crate::hub::admission::Ask<'a> {
     let can_force = can_force(conn.origin);
     let force = can_force && force_asked(params);
-    let person = conn.is_person() || conn.origin == Origin::LocalApp;
+    let person = person_asks(conn);
     // A Web client, here or through a peer, learns no host name or path.
     let web =
         super::remote_guard::control_of(conn.origin, conn.auth, params) == crate::hub::Control::Web;
@@ -57,6 +58,22 @@ pub(super) fn ask<'a>(conn: &Conn, params: &Value, who: &'a str) -> crate::hub::
     // A peer daemon's connection never learns this host's peers (`redact::hide_peers_from_peer`).
     let peers = conn.origin != Origin::Peer;
     crate::hub::admission::Ask { force, can_force, person, who, local: !web, peers, name }
+}
+
+/// A peer request's `reply` with what its `wait` saw (`Hub::wait_for_peer`) as `wait`; none
+/// without one.
+fn with_wait(mut reply: Value, waited: Value) -> Value {
+    if !waited.is_null() {
+        reply.set("wait", waited);
+    }
+    reply
+}
+
+/// Whether the person asks on `conn`: it proved it is the person, or it is this host's app pane (a
+/// peer's `via: app` is its client's word, not proof). The admission's `person` and a chat's
+/// `Session::person` (its start waits as long as its harness works, `hub/lifecycle.rs`).
+pub(super) fn person_asks(conn: &Conn) -> bool {
+    conn.is_person() || conn.origin == Origin::LocalApp
 }
 
 /// The create's name, as `session/new` and `session/fork` read it.
@@ -159,6 +176,8 @@ pub(super) async fn handle_notification(
             }
             if let Ok(key) = session_key(&params) {
                 if let Ok(s) = hub.resolve(key) {
+                    conn.cancel_preparation(&s.id);
+                    s.abandon_prepared_connection(&conn.id);
                     // The person's Stop holds the agents' messages behind it (`hub/cancel.rs`),
                     // a peer's person's too (`person_stop.rs`).
                     if let Err(e) = person_stop::stop(hub, conn, &params, &s).await {
@@ -301,14 +320,33 @@ async fn dispatch_brief(
         ))
         .with_data(json!({"reason": "dispatch.peer_host"})));
     }
+    // A retry of a brief already taken answers as before, whatever the placement rules now say
+    // of a new lane on the host it names (`auto` finding no host, or `role_refusal`).
+    let replay = || -> Option<Result<Value, RpcError>> {
+        let existing = hub.briefs.existing(&id, idempotency)?;
+        Some(brief_for(hub, conn, existing).map(|existing| {
+            json!({"brief":existing,"event":crate::hub::dispatch::event("dispatch", &existing),"replayed":true})
+        }))
+    };
     let host = if forwarded || from_peer || selected == "local" {
         None
     } else if selected == "auto" {
-        auto_host(hub, &brief).await.map_err(|why| {
-            RpcError::not_found(format!("{why}; use --host HOST or connect a peer"))
-        })?
+        match auto_host(hub, &brief).await {
+            Ok(host) => host,
+            Err(why) => {
+                if let Some(replayed) = replay() {
+                    return replayed;
+                }
+                return Err(RpcError::not_found(format!(
+                    "{why}; use --host HOST or connect a peer"
+                )));
+            }
+        }
     } else {
         if let Some(why) = super::place::role_refusal(&selected, super::place::brief_work(&brief)) {
+            if let Some(replayed) = replay() {
+                return replayed;
+            }
             return Err(RpcError::invalid_params(format!(
                 "host {selected:?} is not allowed for this dispatch ({why}); `acpmux host place` lists the hosts that are"
             )));
@@ -466,6 +504,15 @@ async fn dispatch_brief(
         return Ok(
             json!({"brief":existing,"event":crate::hub::dispatch::event("dispatch", &existing),"replayed":true}),
         );
+    }
+    // A new lane that starts here is checked here too, whoever sent it (`place::here_refusal`);
+    // a replay of a brief already taken (above) starts nothing and answers as before.
+    if let Some(why) = super::place::here_refusal(super::place::brief_work(&brief)) {
+        hub.briefs.release(&id);
+        return Err(RpcError::invalid_params(format!(
+            "this host is not allowed for this dispatch ({why}); `acpmux host place` lists the hosts that are"
+        ))
+        .with_data(json!({"reason": "dispatch.host_refused"})));
     }
     let created =
         match Box::pin(dispatch_request(hub, conn, method::SESSION_NEW, new_params, None)).await {
@@ -634,6 +681,18 @@ pub(super) async fn handle_request(
     m: &str,
     mut params: Value,
 ) -> Result<Value, RpcError> {
+    if conn.is_trigger() && !m.starts_with("trigger/chat.") {
+        return Err(RpcError::new(
+            -32001,
+            "trigger connection accepts trigger/chat operations only",
+        ));
+    }
+    if matches!(
+        m,
+        method::TRIGGER_CHAT_ENSURE | method::TRIGGER_CHAT_SEND | method::TRIGGER_CHAT_STATUS
+    ) {
+        return heap(|| super::trigger_chat::handle(hub, conn, m, params)).await;
+    }
     // Before forwarding: only the local connection's authenticated caller may attest itself.
     if m == method::MUX_TURN_ATTESTATION {
         let ask =
@@ -651,7 +710,6 @@ pub(super) async fn handle_request(
     // peer; every check below reads the route it found (`hub/key_route.rs`).
     if conn.origin == Origin::Local {
         route_bare_key(hub, m, &mut params)?;
-
     }
     // The pane's fork through a turn is a session/fork, checked as one from
     // here on (`fork_through.rs`).
@@ -718,10 +776,12 @@ pub(super) async fn handle_request(
     match m {
         method::SESSION_PROMPT => {
             crate::prompt_class::declared(&params)?;
+            crate::prompt_provenance::notice_checked(&params)?;
         }
         method::MUX_SEND_QUEUE => {
             if let Some(request) = params.get("request") {
                 crate::prompt_class::declared(request)?;
+                crate::prompt_provenance::notice_checked(request)?;
             }
         }
         _ => {}
@@ -738,7 +798,7 @@ pub(super) async fn handle_request(
             )),
         }
     } else {
-        dispatch_request(hub, conn, m, params, resolved).await
+        heap(|| dispatch_request(hub, conn, m, params, resolved)).await
     };
     super::remote_guard::after(hub, conn.origin, m, key.as_deref(), &mut reply);
     reply
@@ -763,6 +823,55 @@ async fn dispatch_request(
     params: Value,
     resolved: Option<Arc<crate::hub::Session>>,
 ) -> Result<Value, RpcError> {
+    // The Chief reads a paired machine's harnesses before placing a task there.
+    // Only this machine's own clients may select a peer; send no caller params
+    // onward, so neither another hop nor a health refresh/update can be requested.
+    if matches!(m, method::MUX_HARNESSES | method::MUX_HARNESS_HEALTH) {
+        if let Some(selected) = params.pointer("/_meta/acpmux/peer") {
+            if !matches!(conn.origin, Origin::Local | Origin::LocalApp) {
+                return Err(RpcError::invalid_params(
+                    "only the local app or unix socket may read a peer's harnesses",
+                ));
+            }
+            let name = selected
+                .as_str()
+                .filter(|name| !name.is_empty())
+                .ok_or_else(|| RpcError::invalid_params("peer must name a paired machine"))?;
+            let peer = hub
+                .peer_by_name(name)
+                .ok_or_else(|| RpcError::not_found(format!("no peer {name:?}")))?;
+            if !peer.ready() {
+                return Err(peer.unreachable_error());
+            }
+            let mut answer =
+                tokio::time::timeout(std::time::Duration::from_secs(5), peer.request(m, json!({})))
+                    .await
+                    .map_err(|_| {
+                        RpcError::internal(format!("peer {name:?} did not report harnesses in 5 s"))
+                    })??;
+            answer
+                .as_object_mut()
+                .ok_or_else(|| RpcError::internal("peer did not report a harness object"))?
+                .insert("peer".into(), json!(name));
+            return Ok(answer);
+        }
+        if m == method::MUX_HARNESS_HEALTH && conn.origin == Origin::Peer {
+            if !params.as_object().is_some_and(|p| p.is_empty()) {
+                return Err(RpcError::invalid_params(
+                    "a peer reads only cached harness sign-in status with no parameters",
+                ));
+            }
+            // A peer needs auth enums, never diagnostic paths or a probe that
+            // runs programs. Missing cached rows remain unknown to its picker.
+            let rows: Vec<Value> = hub
+                .health
+                .rows_for_subjects(&hub.health_subjects().await)
+                .into_iter()
+                .map(|row| json!({"id": row.id, "auth": row.auth}))
+                .collect();
+            return Ok(json!({"harnesses": rows}));
+        }
+    }
     // A session that lives on a peer (`peer_forward.rs`).
     if let Some(reply) = super::peer_forward::forward(hub, conn, m, &params).await {
         return reply;
@@ -781,7 +890,9 @@ async fn dispatch_request(
     }
     match m {
         method::MUX_MESH_CONTROL => super::mesh_control_send::handle(hub, conn, &params).await,
-        method::MUX_DISPATCH => dispatch_brief(hub, conn, params).await,
+        // Boxed: dispatch_brief's future is large, and inline it widens every request's future
+        // (a debug test thread's stack overflowed on an unrelated request).
+        method::MUX_DISPATCH => Box::pin(dispatch_brief(hub, conn, params)).await,
         method::MUX_STEER => briefs::steer(hub, conn, params).await,
         method::MUX_BRIEFS => briefs::list(hub, conn, params).await,
         method::MUX_REPORT => briefs::report(hub, conn, params).await,
@@ -824,10 +935,10 @@ async fn dispatch_request(
             #[rustfmt::skip]
             let extensions: &[&str] = &[
                 method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
-                method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_KEEP, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT, method::MUX_QUEUE_TEXT,
+                method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_DETACH_PARENT, method::MUX_KEEP, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT, method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE, method::MUX_QUEUE_TEXT,
                 method::MUX_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_GITHUB_ACTION, method::MUX_GITHUB_APP_LEASE, method::MUX_ATTACHMENT, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_TEAM_SEND, method::MUX_TEAM_INBOX, method::MUX_TEAM_READ, method::MUX_TEAM_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION,
                 method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_COMPOSER_SET, method::MUX_COMPOSERS, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_TYPING, method::MUX_MARK_UNREAD, method::MUX_ARCHIVE, method::MUX_SIDE,
-                method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_FILE_PUT_STATUS, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_SHUTDOWN, method::MUX_SESSION_AUTH, method::MUX_MESH_CONTROL,
+                method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_FILE_PUT_STATUS, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_NATIVE_HISTORY, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_SHUTDOWN, method::MUX_SESSION_AUTH, method::MUX_MESH_CONTROL,
             ];
             #[allow(unused_mut)]
             let mut reply = json!({
@@ -839,7 +950,7 @@ async fn dispatch_request(
                     "sessionCapabilities": {"list": {}, "fork": {}, "resume": {}, "close": {}, "delete": {}},
                 },
                 "authMethods": [],
-                "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::BUILD, "capabilities": crate::capabilities::ids(),
+                "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::build(), "capabilities": crate::capabilities::ids(),
                 // `local`: the unix socket or the proven local app
                 // (`local_app.rs`), which the session pool serves.
                 "origin": match conn.origin { Origin::Web => "remote", Origin::Peer => "peer", _ => "local" },
@@ -851,6 +962,8 @@ async fn dispatch_request(
                 // This connection is the person (`hub/person.rs`): never yet,
                 // as the proof comes after this reply.
                 "person": conn.is_person(),
+                // Only a verified first-initialize caller token supplies this ID.
+                "callerSessionId": conn.caller(),
                 // The challenge a local connection proves the person key against.
                 "personChallenge": if conn.challengeable() {
                     json!({"nonce": conn.nonce, "connection": conn.id})
@@ -860,8 +973,15 @@ async fn dispatch_request(
                 // The daemon run decision proofs bind (`hub/person.rs`).
                 "personInstance": hub.person.instance(),
                 "extensions": extensions, "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, SESSION_RESUME_FEATURE], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, SESSION_RESUME_FEATURE, crate::watch_delta::FEATURE], "trustGate": true}}
             });
+            // Large messages go compressed from here on (`frame_compress.rs`).
+            if conn.wire.as_ref().is_some_and(|wire| wire.enabled()) {
+                reply.set_path(
+                    &["_meta", "acpmux", "compression"],
+                    json!(crate::frame_compress::ZLIB),
+                );
+            }
             // Only a local client can use the app launcher's bundled CLI.
             if conn.origin == Origin::Local
                 && let Ok(path) = std::env::var(crate::login_env::BUNDLED_CLI_ENV)
@@ -885,7 +1005,7 @@ async fn dispatch_request(
                     .map(Value::from),
                 );
             }
-            Ok(reply)
+            Ok(queued::advertised(reply))
         }
         method::AUTHENTICATE => Ok(json!({})),
         method::MUX_GITHUB_APP_LEASE => {
@@ -1107,7 +1227,14 @@ async fn dispatch_request(
                 .map(|p| p.parse::<PermissionPolicy>().map_err(RpcError::invalid_params))
                 .transpose()?;
             refuse_full_access_policy(hub, policy)?;
-            let env = crate::session_env::parse(meta)?;
+            let mut env = crate::session_env::parse(meta)?;
+            // One-shot hooks must not detach background work that outlives the run.
+            // This session-only value reaches the harness before its first spawn;
+            // forks/handoffs do not copy session_env, and the launcher scrubs the
+            // daemon's inherited ACPMUX_* values before applying it.
+            if !adopting && super::ephemeral::requested(&params) {
+                env.insert("ACPMUX_SESSION_EPHEMERAL".into(), "1".into());
+            }
             let route = pick("route");
             if let Some(r) = &route
                 && !crate::routes::is_route_id(r)
@@ -1115,6 +1242,7 @@ async fn dispatch_request(
                 return Err(RpcError::invalid_params(format!("route {r:?} is not a route id")));
             }
             let disallowed_tools = disallowed_tools(meta)?;
+            let additional_directories = crate::hub::additional_dirs::requested(&params).await?;
             // Its parent is the session this connection proved it runs in (`hub/lineage.rs`):
             // an agent's `acpmux new`. An adopted chat or an ephemeral run is nobody's child.
             let parent_ask = crate::hub::lineage::parent_ask(meta)?;
@@ -1169,10 +1297,12 @@ async fn dispatch_request(
                 lineage,
                 disallowed_tools,
                 checked_cwd: None,
+                additional_directories,
+                person: person_asks(conn),
             };
             let s = match &admitted {
-                Some(admitted) => admitted.run(hub.new_session(req)).await?,
-                None => hub.new_session(req).await?,
+                Some(admitted) => heap(|| admitted.run(hub.new_session(req))).await?,
+                None => heap(|| hub.new_session(req)).await?,
             };
             if let Some(tags) = meta.and_then(|m| m.get("tags")).and_then(Value::as_object)
                 && !tags.is_empty()
@@ -1181,7 +1311,9 @@ async fn dispatch_request(
             }
             if conn.origin.web_class() {
                 let peer = super::remote_guard::settles_as_peer(conn.origin, conn.auth, &params);
-                super::remote_guard::settle_web_session_mode(hub, &s, peer).await?;
+                let cloud_mobile = super::remote_guard::cloud_mobile(&params);
+                heap(|| super::remote_guard::settle_web_session_mode(hub, &s, peer, cloud_mobile))
+                    .await?;
                 // The VM boundary its caller asked for (`hub/vm_boundary.rs`): a
                 // session the owner's peer daemon starts with no policy runs
                 // approve-all, as vmHost's did. Web clients still ask.
@@ -1195,20 +1327,19 @@ async fn dispatch_request(
                         hub.approve_all_allowed(),
                     )
                 {
-                    hub.grant_vm_host_approve_all(&s).await;
+                    heap(|| hub.grant_vm_host_approve_all(&s)).await;
                 }
             } else {
-                hub.start_in_mode(conn.is_person(), conn.caller(), &params, &s, adopting).await?;
+                heap(|| hub.start_in_mode(conn.is_person(), conn.caller(), &params, &s, adopting))
+                    .await?;
             }
             attach(hub, conn, &s.id);
-            if let Some(parent) = &lane_parent
-                && !adopting
-            {
-                hub.lane_link(parent, &s.id);
+            if !adopting && let Some(parent) = &lane_parent {
+                hub.lane_link(parent, &s.id, super::lane_parent::asked_to_report(&params));
             }
             // An adopted id may name a chat that already exists: never tied to this connection.
             if !adopting && super::ephemeral::requested(&params) {
-                super::ephemeral::own(hub, conn, &s).await;
+                heap(|| super::ephemeral::own(hub, conn, &s)).await;
             }
             let meta = s.meta();
             let mut summary = hub.session_summary(&s);
@@ -1233,6 +1364,9 @@ async fn dispatch_request(
         method::SESSION_PROMPT => {
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
             attach(hub, conn, &s.id);
+            if person_asks(conn) {
+                super::lane_parent::person_wrote(hub, &s);
+            }
             let mut blocks = params
                 .get("prompt")
                 .and_then(Value::as_array)
@@ -1257,10 +1391,27 @@ async fn dispatch_request(
                 crate::prompt_uploads::owned(&s.id, &blocks).await
             });
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
-            let provenance = crate::hub::Hub::prompt_provenance(&params, conn.origin)?;
+            let provenance =
+                crate::hub::Hub::prompt_provenance(&params, conn.origin, conn.is_trigger())?;
+            // The caller's own provenance: a `cmux agent message`, never an inbox item.
+            let given_provenance = provenance.is_some();
             // A person's prompt (`author.rs`): the hub stamps who sent it, also for a peer's.
             let author = crate::author::of_prompt(&params)?;
-            let provenance = provenance.or_else(|| author.as_ref().map(|a| a.provenance()));
+            // A tool's notice (`prompt_provenance::notice_of`): never a Web client's, and a named
+            // sender's message, never the person's, whatever else the prompt says.
+            let notice = crate::prompt_provenance::notice_checked(&params)?;
+            if notice.is_some() && web {
+                return Err(crate::prompt_provenance::notice_origin_refused());
+            }
+            let notice_sender = notice
+                .as_ref()
+                .and_then(|n| n.get("sender"))
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            let provenance = match &notice {
+                Some(n) => Some(crate::prompt_provenance::notice(n, &s.id)),
+                None => provenance.or_else(|| author.as_ref().map(|a| a.provenance())),
+            };
             let person_message = crate::author::of_provenance(provenance.as_ref()).is_some();
             // Sent from inside another session (its proven caller token) with none of its own:
             // that session's message, so the receiver's transcript does not show it as the person's.
@@ -1299,7 +1450,8 @@ async fn dispatch_request(
             });
             // Another agent's message with no provenance (`hub/digest.rs`): one that names its
             // sender, or one from a connection that proved it runs in an acpmux session.
-            let agent = declared
+            let agent = notice_sender
+                .or(declared)
                 .or_else(|| conn.caller().map(|id| hub.session_name(id)))
                 .filter(|_| !person_message);
             let flag = |k| mux_meta(&params).and_then(|m| m.get(k)).and_then(Value::as_bool);
@@ -1369,7 +1521,35 @@ async fn dispatch_request(
             }
             // From here the prompt's own uploads go only if the session refuses it.
             let saved = crate::attach::Saved::with_owned(saved, &s.id, owned.take());
+            let cloud_turn: Option<crate::cloud_rewind::CloudTurnEnvelope> =
+                match params.get("cloud_turn") {
+                    Some(value) => Some(
+                        serde_json::from_value(value.clone())
+                            .map_err(|_| RpcError::invalid_params("cloud_turn is malformed"))?,
+                    ),
+                    None => None,
+                };
+            if let Some(envelope) = cloud_turn.as_ref() {
+                if *conn.ended.borrow()
+                    || envelope.purpose != "execute"
+                    || envelope.session != s.id
+                    || prompt_id.as_deref() != Some(envelope.turn.as_str())
+                {
+                    return Err(RpcError::invalid_params(
+                        "cloud execution does not match this prompt",
+                    ));
+                }
+                s.validate_prepared(
+                    envelope.turn.as_str(),
+                    envelope.turn.as_str(),
+                    envelope.generation,
+                    &envelope.attempt_id,
+                    Some(&conn.id),
+                )
+                .map_err(|e| RpcError::invalid_params(e.to_string()))?;
+            }
             let opts = crate::hub::PromptOptions {
+                cloud_turn,
                 prompt_id,
                 message_id,
                 message_sender,
@@ -1379,6 +1559,8 @@ async fn dispatch_request(
                 },
                 resend: flag("resend") == Some(true),
                 control: super::remote_guard::control_of(conn.origin, conn.auth, &params),
+                cloud_mobile: params.pointer("/_meta/acpmux/via").and_then(Value::as_str)
+                    == Some("cloud-mobile"),
                 trust_gate: super::trust_gate::gated(conn.origin, &params),
                 steer_only: flag("steerOnly") == Some(true),
                 interrupt: steer && flag("interrupt") == Some(true),
@@ -1410,6 +1592,7 @@ async fn dispatch_request(
                 },
                 full_access_device: super::remote_guard::full_access_device(hub, conn, &params),
                 no_queue: false,
+                admitted: false,
                 send_now: false,
                 thread,
                 inbox: inbox_on
@@ -1418,6 +1601,7 @@ async fn dispatch_request(
                         flag("teamMessage") == Some(true),
                         supersede_set,
                         flag("steerOnly") == Some(true),
+                        given_provenance,
                     ),
             };
             let agent_message = opts.provenance.is_some() && !person_message;
@@ -1431,7 +1615,7 @@ async fn dispatch_request(
                 Some(host) => format!("{}@{host}", conn.label()),
                 None => conn.label(),
             };
-            let answer = hub.prompt_with(&s, blocks, &client, steer, opts).await;
+            let answer = heap(|| hub.prompt_with(&s, blocks, &client, steer, opts)).await;
             if let Some(saved) = saved {
                 saved.settle(hub, &answer).await;
             }
@@ -1442,6 +1626,8 @@ async fn dispatch_request(
         // the agent that never answers.
         method::SESSION_CANCEL => {
             let s = hub.resolve(session_key(&params)?)?;
+            conn.cancel_preparation(&s.id);
+            s.abandon_prepared_connection(&conn.id);
             if let Err(e) = person_stop::stop(hub, conn, &params, &s).await {
                 tracing::debug!(conn = %conn.id, "cancel: {e}");
             }
@@ -1460,14 +1646,25 @@ async fn dispatch_request(
             let through = super::fork_through::through(&params);
             let start_later = super::fork_through::starts_later(&params);
             let who = who(conn);
-            let admitted = hub.admit_new(ask(conn, &params, &who)).await?;
-            let new = admitted
-                .run(hub.fork(&s, name, cwd, env, workspace_id, through, start_later))
-                .await?;
+            let (new, warning) = if let Some(prompt) =
+                params.pointer("/_meta/acpmux/beforePromptId").and_then(Value::as_str)
+            {
+                let request = params
+                    .pointer("/_meta/acpmux/requestId")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                Box::pin(hub.fork_before(&s, prompt, request, ask(conn, &params, &who))).await?
+            } else {
+                let admitted = hub.admit_new(ask(conn, &params, &who)).await?;
+                let new = admitted
+                    .run(hub.fork(&s, name, cwd, env, workspace_id, through, start_later))
+                    .await?;
+                (new, admitted.warning.clone())
+            };
             attach(hub, conn, &new.id);
             let meta = new.meta();
             let mut summary = hub.session_summary(&new);
-            if let Some(w) = admitted.warning.clone() {
+            if let Some(w) = warning {
                 summary.set("admission", w);
             }
             Ok(
@@ -1481,10 +1678,10 @@ async fn dispatch_request(
             // A paired machine with Full access on (`remote_guard.rs` `full_access_device`).
             if let Some(device) = super::remote_guard::full_access_device(hub, conn, &params) {
                 let set = crate::hub::SetRequest::Mode(mode.to_owned());
-                return hub.set_for_full_access_device(&s, &device, set).await;
+                return heap(|| hub.set_for_full_access_device(&s, &device, set)).await;
             }
             // A mode pick holds for this chat only; new chats start in the default (start_mode.rs).
-            hub.set_mode(&s, mode).await
+            heap(|| hub.set_mode(&s, mode)).await
         }
         method::SESSION_SET_CONFIG_OPTION => {
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
@@ -1496,17 +1693,17 @@ async fn dispatch_request(
                 .ok_or_else(|| RpcError::invalid_params("value is required"))?;
             if let Some(device) = super::remote_guard::full_access_device(hub, conn, &params) {
                 let set = crate::hub::SetRequest::Config(id.to_owned(), value);
-                return hub.set_for_full_access_device(&s, &device, set).await;
+                return heap(|| hub.set_for_full_access_device(&s, &device, set)).await;
             }
             // The app pane's effort pick is saved for the next new chat (start_defaults.rs).
-            hub.client_set_config(&s, id, value, conn.origin == Origin::LocalApp).await
+            heap(|| hub.client_set_config(&s, id, value, conn.origin == Origin::LocalApp)).await
         }
         method::SESSION_SET_MODEL => {
             let s = hub.resolve(session_key(&params)?)?;
             let model = str_param(&params, "modelId")
                 .ok_or_else(|| RpcError::invalid_params("modelId is required"))?;
             // The app pane's model pick is saved for the next new chat (start_defaults.rs).
-            hub.client_set_model(&s, model, conn.origin == Origin::LocalApp).await
+            heap(|| hub.client_set_model(&s, model, conn.origin == Origin::LocalApp)).await
         }
         method::MUX_SET_TOOLS => hub.set_tools(&hub.resolve(session_key(&params)?)?, &params).await,
         method::MUX_MCP_RECONNECT => {
@@ -1514,12 +1711,12 @@ async fn dispatch_request(
         }
         method::SESSION_CLOSE => {
             let s = hub.resolve(session_key(&params)?)?;
-            hub.kill(&s, false).await?;
+            heap(|| hub.kill(&s, false)).await?;
             Ok(json!({}))
         }
         method::SESSION_DELETE => {
             let s = hub.resolve(session_key(&params)?)?;
-            hub.kill(&s, true).await?;
+            heap(|| hub.kill(&s, true)).await?;
             Ok(json!({}))
         }
         // ------------------------------------------------ acpmux extensions
@@ -1581,12 +1778,12 @@ async fn dispatch_request(
                 super::remote_guard::control_of(conn.origin, conn.auth, &params),
                 &params,
             );
-            let warmed = hub.warm_sessions(&requested, limit, web, owner).await;
+            let warmed = heap(|| hub.warm_sessions(&requested, limit, web, owner)).await;
             Ok(json!({"warmed": warmed}))
         }
         method::MUX_PREWARM => {
             let s = |k: &str| params.get(k).and_then(Value::as_str).map(str::to_owned);
-            hub.prewarm(crate::hub::PrewarmRequest {
+            let request = crate::hub::PrewarmRequest {
                 harness: s("harness"),
                 preset: s("preset"),
                 cwd: s("cwd").map(PathBuf::from),
@@ -1596,8 +1793,8 @@ async fn dispatch_request(
                 remote: conn.origin.web_class(),
                 trust_gate: super::trust_gate::gated(conn.origin, &params),
                 trust_web: super::trust_gate::for_web(conn.origin, &params),
-            })
-            .await
+            };
+            heap(|| hub.prewarm(request)).await
         }
         // Read only. A connection asks for its own context: a remote-origin
         // one (Web, Peer) gets the answer its own session/new would get,
@@ -1628,6 +1825,8 @@ async fn dispatch_request(
             // deny-all is a lockdown: every chat without a policy of its own follows it.
             if policy == PermissionPolicy::DenyAll {
                 hub.follow_default_policy().await;
+            } else if policy == PermissionPolicy::ApproveAll {
+                hub.approve_pending_default_tools().await;
             }
             Ok(json!({"policy":policy.to_string()}))
         }
@@ -1635,6 +1834,7 @@ async fn dispatch_request(
         "_acpmux/host_health" => Ok(super::peer_status::host_health(hub, conn.origin).await),
         "_acpmux/peer_status" => super::peer_status::peer_status(hub, conn.origin, &params).await,
         super::vm_host::METHOD => super::vm_host::handle(hub, conn, &params).await,
+        super::host_notice::METHOD => super::host_notice::handle(hub, conn, &params).await,
         // This daemon's copy of a peer session's events (`hub/peer_snapshot.rs`): transcripts
         // this machine's clients read, so for the app and the unix socket only.
         "_acpmux/peer_snapshot" if conn.origin.web_class() => Err(RpcError::invalid_params(
@@ -1643,6 +1843,15 @@ async fn dispatch_request(
         "_acpmux/peer_snapshot" => {
             let (hub, params) = (hub.clone(), params.clone());
             tokio::task::spawn_blocking(move || hub.peer_snapshot(&params))
+                .await
+                .map_err(|e| RpcError::internal(e.to_string()))?
+        }
+        "_acpmux/peer_snapshots_clear" if conn.origin != Origin::Local => Err(
+            RpcError::invalid_params("peer snapshots clear requires this machine's unix socket"),
+        ),
+        "_acpmux/peer_snapshots_clear" => {
+            let hub = hub.clone();
+            tokio::task::spawn_blocking(move || hub.clear_peer_snapshots())
                 .await
                 .map_err(|e| RpcError::internal(e.to_string()))?
         }
@@ -1685,8 +1894,8 @@ async fn dispatch_request(
         crate::catalog::RPC_GET => Ok(hub.catalog.get()),
         crate::catalog::RPC_REFRESH => Ok(hub.catalog.refresh(false).await),
         "_acpmux/peer_add" => {
-            hub.add_peer_from(&params).await?;
-            Ok(json!({"peers": hub.peers()}))
+            let waited = hub.add_peer_from(&params).await?;
+            Ok(with_wait(json!({"peers": hub.peers()}), waited))
         }
         // A peer that lasts as long as this connection (`hub/peer_lease.rs`):
         // the unix socket only (`remote_guard.rs`).
@@ -1705,11 +1914,12 @@ async fn dispatch_request(
                 hub.lease_peer(&name, &url, token, text("peerToken"), vm_boundary, &cfg)?
             };
             conn.hold_peer_lease(hub, lease);
-            if wait {
-                let _ =
-                    tokio::time::timeout(crate::hub::PEER_SETTLE_BUDGET, settled.changed()).await;
-            }
-            Ok(json!({"lease": name, "peers": hub.peers()}))
+            let waited = if wait {
+                hub.wait_for_peer(&name, &mut settled, crate::hub::PEER_SETTLE_BUDGET).await
+            } else {
+                Value::Null
+            };
+            Ok(with_wait(json!({"lease": name, "peers": hub.peers()}), waited))
         }
         "_acpmux/peer_reconnect" => {
             let name = str_param(&params, "name")
@@ -1717,8 +1927,8 @@ async fn dispatch_request(
             let wait = params.get("wait").and_then(Value::as_bool).unwrap_or(false);
             // A link that is open stays up unless the caller forces it (`host reconnect`).
             let force = params.get("force").and_then(Value::as_bool).unwrap_or(false);
-            hub.reconnect_peer_with(name, wait, force).await?;
-            Ok(json!({"peers": hub.peers()}))
+            let waited = hub.reconnect_peer_with(name, wait, force).await?;
+            Ok(with_wait(json!({"peers": hub.peers()}), waited))
         }
         "_acpmux/peer_remove" => {
             let name = str_param(&params, "name")
@@ -1823,7 +2033,17 @@ async fn dispatch_request(
             let s = hub.resolve(session_key(&params)?)?;
             Ok(super::session_files::describe(hub, &s))
         }
-        method::MUX_WAIT => wait::wait(hub, &params).await,
+        method::MUX_WAIT if params.get("until") == Some(&json!(["promptOutcome"])) => {
+            let s = resolved_session(hub, resolved.as_ref(), &params)?;
+            let prompt_id = str_param(&params, "promptId")
+                .filter(|id| !id.is_empty())
+                .ok_or_else(|| RpcError::invalid_params("promptId is required"))?;
+            tokio::select! {
+                result = hub.prompt_outcome(&s, prompt_id) => result,
+                () = conn.closed() => Err(RpcError::internal("the client closed the connection")),
+            }
+        }
+        method::MUX_WAIT => wait::wait(hub, &params, conn.caller()).await,
         method::MUX_WATCH_ADD | method::MUX_WATCH_LS | method::MUX_WATCH_RM => {
             watches::handle(hub, conn, m, &params).await
         }
@@ -1835,9 +2055,11 @@ async fn dispatch_request(
         method::MUX_HISTORY => {
             let s = hub.resolve(session_key(&params)?)?;
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
-            Ok(json!({"sessionId": s.id, "turns": hub.history(&s, limit)}))
+            let turns = hub.history(&s, limit);
+            hub.lane_report_history_read(conn.caller(), &s.id, &turns);
+            Ok(json!({"sessionId": s.id, "turns": turns}))
         }
-        m if composer::handles(m) => composer::handle(hub, conn, m, &params).await,
+        m if composer::handles(m) => heap(|| composer::handle(hub, conn, m, &params)).await,
         method::MUX_TAG => {
             let s = hub.resolve(session_key(&params)?)?;
             let remove: Vec<String> = params
@@ -1845,14 +2067,15 @@ async fn dispatch_request(
                 .and_then(Value::as_array)
                 .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
                 .unwrap_or_default();
-            hub.set_tags(
+            hub.set_tags_answered(
                 &s,
                 params.get("set").and_then(Value::as_object),
                 &remove,
                 params.get("ttlSeconds").and_then(Value::as_u64),
-            );
+            )?;
             Ok(hub.session_summary(&s))
         }
+        method::MUX_DETACH_PARENT => super::lane_parent::detach(hub, &params),
         // One tag with one value, so a page relay can allow it without
         // reading tag names (`_acpmux/tag` may set any tag).
         method::MUX_ARCHIVE => {
@@ -1864,9 +2087,9 @@ async fn dispatch_request(
             if archived {
                 let mut set = serde_json::Map::new();
                 set.insert(ARCHIVED_TAG.into(), Value::String(crate::store::now_ms().to_string()));
-                hub.set_tags(&s, Some(&set), &[], None);
+                hub.set_tags_answered(&s, Some(&set), &[], None)?;
             } else {
-                hub.set_tags(&s, None, &[ARCHIVED_TAG.to_owned()], None);
+                hub.set_tags_answered(&s, None, &[ARCHIVED_TAG.to_owned()], None)?;
             }
             Ok(hub.session_summary(&s))
         }
@@ -1891,8 +2114,11 @@ async fn dispatch_request(
         method::MUX_HARNESS_ENABLE => {
             super::harness_enable::handle(hub, conn.origin, &params).await
         }
+        name if super::agent_login::METHODS.contains(&name) => {
+            super::agent_login::handle(hub, conn, name, &params).await
+        }
         name if super::harness_admin::METHODS.contains(&name) => {
-            super::harness_admin::handle(hub, conn.origin, name, &params).await
+            heap(|| super::harness_admin::handle(hub, conn.origin, name, &params)).await
         }
         method::MUX_ROUTE_LIST
         | method::MUX_ROUTE_SHOW
@@ -1902,7 +2128,9 @@ async fn dispatch_request(
         | method::MUX_ROUTE_RESTORE
         | method::MUX_ROUTE_TEST
         | method::MUX_ROUTE_DEFAULT_SET
-        | method::MUX_CHAT_ROUTE_SET => super::routes::handle(hub, conn.origin, m, &params).await,
+        | method::MUX_CHAT_ROUTE_SET => {
+            heap(|| super::routes::handle(hub, conn.origin, m, &params)).await
+        }
         method::ACP_TRUST_GET | method::ACP_TRUST_SET => {
             // Recorded here, not on a peer: only a folder that exists here (`remote_guard.rs`).
             if m == method::ACP_TRUST_SET && conn.origin != Origin::Local {
@@ -1916,8 +2144,119 @@ async fn dispatch_request(
             if let Some(r) = &rules {
                 crate::hub::rules::validate(r).map_err(RpcError::invalid_params)?;
             }
-            hub.set_rules(&s, rules);
+            hub.set_rules_answered(&s, rules)?;
             Ok(hub.session_summary(&s))
+        }
+        method::AGENT_SESSION_TURN_PREPARE => {
+            let s = hub.resolve(session_key(&params)?)?;
+            let prompt_id = params
+                .get("prompt_id")
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())
+                .ok_or_else(|| RpcError::invalid_params("prompt_id is required"))?;
+            let expected_workspace = std::env::var("CMUX_PLATFORM_WORKSPACE_ID")
+                .map_err(|_| RpcError::invalid_params("Cloud workspace is not configured"))?;
+            let expected_machine = std::env::var("CMUX_PLATFORM_MACHINE_ID")
+                .map_err(|_| RpcError::invalid_params("Cloud machine is not configured"))?;
+            if let Some(workspace) = params.get("workspace").and_then(Value::as_str)
+                && expected_workspace != workspace
+            {
+                return Err(RpcError::invalid_params("workspace does not match session"));
+            }
+            if let Some(machine) = params.get("machine").and_then(Value::as_str)
+                && expected_machine != machine
+            {
+                return Err(RpcError::invalid_params("machine does not match daemon"));
+            }
+            if params.get("generation").is_some_and(|v| v.as_u64().is_none()) {
+                return Err(RpcError::invalid_params("generation must be a number"));
+            }
+            let generation = params.get("generation").and_then(Value::as_u64);
+            let attempt_id = params.get("attempt_id").and_then(Value::as_str).unwrap_or(prompt_id);
+            let budget = preparation_budget(params.get("deadline_ms"), crate::store::now_ms())?;
+            let expires = tokio::time::Instant::now() + budget;
+            let cancellation = conn.preparation_cancel(&s.id);
+            let ended = conn.ended.subscribe();
+            let workspace = params
+                .get("workspace")
+                .and_then(Value::as_str)
+                .ok_or_else(|| RpcError::invalid_params("workspace is required"))?;
+            let machine = params
+                .get("machine")
+                .and_then(Value::as_str)
+                .ok_or_else(|| RpcError::invalid_params("machine is required"))?;
+            let generation =
+                generation.ok_or_else(|| RpcError::invalid_params("generation is required"))?;
+            let authorization: crate::cloud_rewind::CloudTurnEnvelope = serde_json::from_value(
+                params
+                    .get("authorization")
+                    .cloned()
+                    .ok_or_else(|| RpcError::invalid_params("authorization is required"))?,
+            )
+            .map_err(|_| RpcError::invalid_params("authorization is malformed"))?;
+            let origin = std::env::var("CMUX_PLATFORM_ORIGIN")
+                .map_err(|_| RpcError::invalid_params("Cloud platform is not configured"))?;
+            let preparation = async {
+                crate::cloud_rewind::verify_preparation(
+                    &origin,
+                    workspace,
+                    machine,
+                    &s.id,
+                    prompt_id,
+                    generation,
+                    attempt_id,
+                    &authorization,
+                )
+                .await
+                .map_err(|e| {
+                    RpcError::new(-32000, format!("Cloud turn authorization refused: {e}"))
+                })?;
+                if *cancellation.borrow() || *conn.ended.borrow() {
+                    return Err(RpcError::invalid_params("preparation was canceled"));
+                }
+                s.prepare_turn(prompt_id, generation, attempt_id, &conn.id)
+                    .await
+                    .map_err(|e| RpcError::invalid_params(e.to_string()))
+            };
+            let result =
+                bounded_preparation(preparation, expires, ended, cancellation.clone()).await;
+            let (turn_id, queued, accepted, generation, attempt_id) = match result {
+                Ok(ready) => ready,
+                Err(error) => {
+                    // Also closes disconnect/cancel arriving after the waiter returned ready
+                    // but before its result could be handed to this connection.
+                    s.abandon_prepared(prompt_id, generation, attempt_id, &conn.id);
+                    return Err(error);
+                }
+            };
+            if accepted {
+                Ok(
+                    json!({"session": s.id, "turn": turn_id, "generation": generation, "attempt_id": attempt_id, "accepted": {"prompt_id": prompt_id, "turn_id": turn_id, "queued": queued}}),
+                )
+            } else {
+                Ok(
+                    json!({"session": s.id, "turn": turn_id, "generation": generation, "attempt_id": attempt_id, "queued": queued}),
+                )
+            }
+        }
+        method::AGENT_SESSION_TURN_ABANDON => {
+            let s = hub.resolve(session_key(&params)?)?;
+            let prompt_id = params
+                .get("prompt_id")
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())
+                .ok_or_else(|| RpcError::invalid_params("prompt_id is required"))?;
+            let generation = params
+                .get("generation")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| RpcError::invalid_params("generation is required"))?;
+            let attempt_id = params
+                .get("attempt_id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| RpcError::invalid_params("attempt_id is required"))?;
+            Ok(
+                json!({"abandoned": s.abandon_prepared(prompt_id, generation, attempt_id, &conn.id)}),
+            )
         }
         method::MUX_INBOX_THREADS | method::MUX_INBOX_THREAD | method::MUX_INBOX_REPLY => {
             let s = hub.resolve(session_key(&params)?)?;
@@ -1967,7 +2306,7 @@ async fn dispatch_request(
                         RpcError::invalid_params("turnCapMs must be a whole number of ms or null")
                     })?),
                 };
-                hub.set_turn_cap(&s, cap);
+                hub.set_turn_cap_answered(&s, cap)?;
             }
             let meta = s.meta();
             Ok(json!({
@@ -1978,12 +2317,22 @@ async fn dispatch_request(
         }
         method::MUX_ATTACH => {
             let s = hub.resolve(session_key(&params)?)?;
+            let hidden = params.get("visible") == Some(&Value::Bool(false));
             // A restart reads the chat logs after its ready line: the queue, turn and status
-            // shown here come from this chat's (`hub/log_load.rs`).
-            hub.session_log(&s).await;
+            // shown here come from this chat's (`hub/log_load.rs`). A chat opened on screen
+            // reads it, and its first page below, ahead of agent work (`qos.rs`).
+            // A visible page asks for the newest records immediately (`waitLogs:false`); waiting
+            // for the full restore here made a restarted long chat blank for tens of seconds.
+            // Callers that need authoritative queue/status details keep the old default.
+            if params.get("waitLogs").and_then(Value::as_bool) != Some(false) {
+                if hidden {
+                    hub.session_log(&s).await;
+                } else {
+                    hub.session_log_on_screen(&s).await;
+                }
+            }
             let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
             let event_stream = params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);
-            let hidden = params.get("visible") == Some(&Value::Bool(false));
             // Opening a hibernated chat on screen wakes its agent (`hub/idle.rs`).
             if !hidden {
                 hub.wake_for(&s, super::trust_gate::for_web(conn.origin, &params), "click");
@@ -2010,8 +2359,8 @@ async fn dispatch_request(
             // (`store/superseded.rs`); the live stream is unchanged.
             let page_filter =
                 filter.omitting_superseded(params.get("maxBytes").is_some_and(|b| !b.is_null()));
-            let page = hub
-                .events_page(
+            let read = || {
+                hub.events_page(
                     &s.id,
                     after.unwrap_or(0),
                     before,
@@ -2020,6 +2369,8 @@ async fn dispatch_request(
                     newest,
                     &page_filter,
                 )
+            };
+            let page = if hidden { read() } else { crate::qos::on_screen(read) }
                 .map_err(|e| RpcError::internal(e.to_string()))?;
             // The newest page holds to the log's end; a page of older records, or a forward one
             // with more to read, only to its own last record.
@@ -2030,12 +2381,15 @@ async fn dispatch_request(
             };
             // The prompt of the turn the page starts inside, read with it (`turn_opener.rs`).
             let opener = turn_opener::turn_opener(hub, &s.id, &page);
+            hub.lane_report_events_read(conn.caller(), &s.id, &page.events);
             let events: Vec<Value> = events::values(&s.id, page.events);
             // Who has the chat open now (`hub/presence.rs`), this attachment included.
             let presence = hub.presence.snapshot(&s.id);
-            Ok(
-                json!({"session": detail, "events": events, "hasMore": page.has_more, "lastSeq": last, "pageThrough": through, "presence": presence, "turnOpener": opener}),
-            )
+            let mut reply = json!({"session": detail, "events": events, "hasMore": page.has_more, "lastSeq": last, "pageThrough": through, "presence": presence, "turnOpener": opener});
+            // The page and its opener each keep a record of up to 14 MiB: together they could
+            // pass one message, and the chat then never opened (`hub::fit_reply`).
+            crate::hub::fit_reply(&mut reply);
+            Ok(reply)
         }
         method::MUX_DETACH => {
             view::detach(hub, conn, &*hub.resolve(session_key(&params)?)?);
@@ -2068,7 +2422,9 @@ async fn dispatch_request(
         method::MUX_HARNESS_INVENTORY_WATCH => super::inventory_watch::handle(hub, conn, &params),
         // A lending Mac counts once this answer is queued (`server/mod.rs`, `github_owner.rs`).
         method::MUX_WATCH => super::list_reply::watch(hub, conn, &params).await,
-        method::MUX_EVENTS | method::MUX_ATTACHMENT => events::handle(hub, m, &params),
+        method::MUX_EVENTS | method::MUX_ATTACHMENT => {
+            events::handle(hub, m, &params, conn.caller())
+        }
         // A read, for whoever may read the log, as `_acpmux/events` (`hub/queue_text.rs`).
         method::MUX_QUEUE_TEXT => Box::pin(queue_text(hub, &params)).await,
         method::MUX_MAIL_SEND
@@ -2099,7 +2455,7 @@ async fn dispatch_request(
             let purge = params.get("purge").and_then(Value::as_bool).unwrap_or(false);
             // `ifIdle`: refused unless idle, checked under the turn lock (`stop_if_idle.rs`).
             let condition = crate::hub::stop_if_idle::StopCondition::from_params(&params)?;
-            hub.stop(&s, purge, condition).await?;
+            heap(|| hub.stop(&s, purge, condition)).await?;
             Ok(json!({"sessionId": s.id, "purged": purge}))
         }
         method::MUX_WATCH_TAKE_OVER => super::chats::watch_take_over(hub, &params).await,
@@ -2122,36 +2478,14 @@ async fn dispatch_request(
             let gated = super::trust_gate::gated(conn.origin, &params);
             hub.queue_edit(&s, &params, control, gated, device.as_deref()).await
         }
-        method::MUX_QUEUE_REMOVE => {
-            let s = hub.resolve(session_key(&params)?)?;
-            hub.session_log(&s).await;
-            let prompt_id = str_param(&params, "promptId")
-                .ok_or_else(|| RpcError::invalid_params("promptId is required"))?;
-            // Again after the wait, right before the change (`full_access_hold`).
-            let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
-            let device = super::remote_guard::full_access_device(hub, conn, &params);
-            hub.full_access_hold(&s.meta(), control, device.as_deref())?;
-            // Only its sender takes a prompt back (`author.rs`), checked as it leaves.
-            let author = crate::author::author(&params)?;
-            let editor = crate::author::editor(author.as_ref());
-            // `acpmux session queue clear --from-agents`: only while it is another agent's
-            // message, checked as it leaves, so an edit meanwhile keeps the person's prompt.
-            let agents_only = params.get("fromAgentsOnly").and_then(Value::as_bool) == Some(true);
-            let w = hub.withdraw_queued(&s, prompt_id, editor, agents_only)?;
-            let mut reply = json!({"sessionId": s.id, "promptId": prompt_id,
-                "removed": w == crate::hub::Withdrawn::Removed});
-            if agents_only {
-                reply.set("fromAgentsOnly", json!(true));
-                reply.set("notFromAgent", json!(w == crate::hub::Withdrawn::NotFromAgent));
-            }
-            Ok(reply)
-        }
+        m if queued::handles(m) => queued::handle(hub, conn, m, &params).await,
         method::MUX_SEND_QUEUE | method::MUX_SEND_STATUS => {
-            super::outbox::handle(hub, conn, m, &params).await
+            heap(|| super::outbox::handle(hub, conn, m, &params)).await
         }
-        method::MUX_SESSION_AUTH => super::session_auth::handle(hub, conn, params).await,
+        method::MUX_SESSION_AUTH => heap(|| super::session_auth::handle(hub, conn, params)).await,
         method::MUX_PROMPT_WITHDRAW
         | method::MUX_AGENT_PAIR_RESUME
+        | method::MUX_AGENT_HOLD
         | method::MUX_RETRY
         | method::MUX_INBOX_DIGEST => super::agent_messages::handle(hub, conn, m, &params).await,
         method::MUX_PERMISSION_GROUPS => {
@@ -2213,7 +2547,7 @@ async fn dispatch_request(
                 .parse()
                 .map_err(RpcError::invalid_params)?;
             refuse_full_access_policy(hub, Some(policy))?;
-            hub.set_policy_unless_moving(&s, policy).await?;
+            heap(|| hub.set_policy_unless_moving(&s, policy)).await?;
             Ok(hub.session_summary(&s))
         }
         method::MUX_EXPORT => {
@@ -2229,7 +2563,7 @@ async fn dispatch_request(
                 .map(PathBuf::from)
                 .ok_or_else(|| RpcError::invalid_params("path is required"))?;
             let name = str_param(&params, "name").map(str::to_owned);
-            let s = hub.import(&path, name).await?;
+            let s = heap(|| hub.import(&path, name)).await?;
             attach(hub, conn, &s.id);
             Ok(hub.session_summary(&s))
         }
@@ -2248,8 +2582,10 @@ async fn dispatch_request(
         }
         // A subagent's transcript, read from the files Claude Code writes for the chat.
         method::MUX_SUBAGENT_TRANSCRIPT => {
-            crate::hub::subagent_transcript::handle(hub, &params).await
+            heap(|| crate::hub::subagent_transcript::handle(hub, &params)).await
         }
+        // A chat's older turns, read from its Claude Code transcript (`hub/native_history.rs`).
+        method::MUX_NATIVE_HISTORY => crate::hub::native_history::handle(hub, &params).await,
         method::MUX_SHUTDOWN => {
             // Stopping the daemon ends what runs at the VM boundary too: the owner's call only
             // (`hub/vm_boundary.rs`).
@@ -2304,14 +2640,16 @@ async fn dispatch_request(
             };
             Ok(json!({"endAgents": end_agents, "keptSessions": kept}))
         }
-        method::MUX_HANDOFF_PREPARE => hub.handoff_prepare(&params, conn.origin.web_class()).await,
+        method::MUX_HANDOFF_PREPARE => {
+            heap(|| hub.handoff_prepare(&params, conn.origin.web_class())).await
+        }
         method::MUX_HANDOFF_GET => hub.handoff_get(&params),
         method::MUX_HANDOFF_DRAFT => hub.handoff_draft(&params).await,
         method::MUX_HANDOFF_START => {
             let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
             hub.handoff_start(&params, control).await
         }
-        method::MUX_HANDOFF_DISCARD => hub.handoff_discard(&params).await,
+        method::MUX_HANDOFF_DISCARD => heap(|| hub.handoff_discard(&params)).await,
         // Anything else that names a session goes to the agent untouched, from the unix
         // socket (the app: only a subagent stop); it may spawn or read (`remote_guard.rs`).
         other => {
@@ -2323,7 +2661,7 @@ async fn dispatch_request(
             if let Ok(key) = session_key(&params) {
                 let s = hub.resolve(key)?;
                 crate::hub::person::harness_forward_check(conn.is_person(), other)?;
-                return hub.forward(&s, other, params).await;
+                return heap(|| hub.forward(&s, other, params)).await;
             }
             Err(RpcError::method_not_found(other))
         }
@@ -2344,26 +2682,7 @@ fn refuse_full_access_policy(hub: &Hub, policy: Option<PermissionPolicy>) -> Res
 }
 
 #[cfg(test)]
-mod dispatch_policy_tests {
-    use super::peer_approve_all_allowed;
-    use crate::config::PermissionPolicy;
-
-    #[test]
-    fn peer_approve_all_requires_approved_preset() {
-        assert!(!peer_approve_all_allowed(Some("approve-all"), None, false));
-        assert!(!peer_approve_all_allowed(
-            Some("approve-all"),
-            Some(PermissionPolicy::ApproveAll),
-            false
-        ));
-        assert!(peer_approve_all_allowed(
-            Some("approve-all"),
-            Some(PermissionPolicy::ApproveAll),
-            true
-        ));
-        assert!(peer_approve_all_allowed(Some("ask"), None, false));
-    }
-}
+mod dispatch_policy_tests;
 
 #[cfg(test)]
 mod admission_force_tests {
@@ -2429,4 +2748,161 @@ fn stamp_bound_sender(
         _ => None,
     };
     Some(crate::prompt_provenance::stamp_sender(provenance, bound.as_ref()))
+}
+
+fn preparation_budget(deadline: Option<&Value>, now: u64) -> Result<std::time::Duration, RpcError> {
+    let deadline = match deadline {
+        None => now.saturating_add(120_000),
+        Some(value) => value
+            .as_u64()
+            .ok_or_else(|| RpcError::invalid_params("deadline_ms must be an unsigned integer"))?,
+    };
+    let remaining =
+        deadline.checked_sub(now).filter(|ms| *ms > 0 && *ms <= 600_000).ok_or_else(|| {
+            RpcError::invalid_params("prepare deadline must be within the next 600 seconds")
+        })?;
+    Ok(std::time::Duration::from_millis(remaining))
+}
+
+/// No task or timer survives a ready response: the deadline bounds waiting, not snapshot time.
+async fn bounded_preparation<T>(
+    preparation: impl std::future::Future<Output = Result<T, RpcError>>,
+    expires: tokio::time::Instant,
+    mut ended: tokio::sync::watch::Receiver<bool>,
+    mut cancellation: tokio::sync::watch::Receiver<bool>,
+) -> Result<T, RpcError> {
+    let stopped = || RpcError::invalid_params("preparation was canceled or disconnected");
+    if *ended.borrow() || *cancellation.borrow() {
+        return Err(stopped());
+    }
+    let result = tokio::select! {
+        biased;
+        _ = ended.changed() => Err(stopped()),
+        _ = cancellation.changed() => Err(stopped()),
+        _ = tokio::time::sleep_until(expires) => Err(RpcError::invalid_params("prepare deadline has expired")),
+        result = preparation => result,
+    };
+    if *ended.borrow() || *cancellation.borrow() {
+        return Err(stopped());
+    }
+    result
+}
+
+#[cfg(test)]
+mod cloud_preparation_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+
+    #[test]
+    fn cloud_prepare_deadline_is_defaulted_bounded_and_strictly_typed() {
+        assert_eq!(preparation_budget(None, 1000).unwrap(), Duration::from_secs(120));
+        assert_eq!(
+            preparation_budget(Some(&json!(601000)), 1000).unwrap(),
+            Duration::from_secs(600)
+        );
+        for invalid in
+            [json!(1000), json!(999), json!(601001), json!(null), json!("2000"), json!(-1)]
+        {
+            assert!(preparation_budget(Some(&invalid), 1000).is_err(), "{invalid}");
+        }
+    }
+
+    struct Dropped(Arc<AtomicBool>);
+    impl Drop for Dropped {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn cloud_prepare_timeout_drops_waiter_without_a_background_task() {
+        let (ended, receiver) = tokio::sync::watch::channel(false);
+        let (cancel_sender, cancel) = tokio::sync::watch::channel(false);
+        let dropped = Arc::new(AtomicBool::new(false));
+        let guard = Dropped(dropped.clone());
+        let wait = async move {
+            let _guard = guard;
+            std::future::pending::<Result<(), RpcError>>().await
+        };
+        assert!(
+            bounded_preparation(
+                wait,
+                tokio::time::Instant::now() + Duration::from_secs(1),
+                receiver,
+                cancel.clone()
+            )
+            .await
+            .is_err()
+        );
+        assert!(dropped.load(Ordering::SeqCst));
+        drop((ended, cancel_sender));
+    }
+
+    #[tokio::test]
+    async fn cloud_prepare_disconnect_and_cancel_drop_inflight_verification_or_wait() {
+        for disconnect in [false, true] {
+            let (ended, receiver) = tokio::sync::watch::channel(false);
+            let (cancel_sender, cancel) = tokio::sync::watch::channel(false);
+            let dropped = Arc::new(AtomicBool::new(false));
+            let guard = Dropped(dropped.clone());
+            let wait = async move {
+                let _guard = guard;
+                std::future::pending::<Result<(), RpcError>>().await
+            };
+            let mut ready = Box::pin(bounded_preparation(
+                wait,
+                tokio::time::Instant::now() + Duration::from_secs(120),
+                receiver,
+                cancel.clone(),
+            ));
+            assert!(futures::poll!(&mut ready).is_pending());
+            if disconnect {
+                ended.send_replace(true);
+            } else {
+                cancel_sender.send_replace(true);
+            }
+            assert!(ready.await.is_err());
+            assert!(dropped.load(Ordering::SeqCst));
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn cloud_prepare_ready_response_has_no_remaining_deadline_timer() {
+        let (ended, receiver) = tokio::sync::watch::channel(false);
+        let (cancel_sender, cancel) = tokio::sync::watch::channel(false);
+        let ready = bounded_preparation(
+            async { Ok("reserved") },
+            tokio::time::Instant::now() + Duration::from_secs(1),
+            receiver,
+            cancel.clone(),
+        )
+        .await
+        .unwrap();
+        tokio::time::advance(Duration::from_secs(600)).await;
+        assert_eq!(ready, "reserved");
+        assert!(!*cancel.borrow());
+        drop((ended, cancel_sender));
+    }
+
+    #[tokio::test]
+    async fn cloud_prepare_rechecks_disconnect_after_ready_result() {
+        let (ended, receiver) = tokio::sync::watch::channel(false);
+        let (cancel_sender, cancel) = tokio::sync::watch::channel(false);
+        let wait = async {
+            ended.send_replace(true);
+            Ok("ready but disconnected")
+        };
+        assert!(
+            bounded_preparation(
+                wait,
+                tokio::time::Instant::now() + Duration::from_secs(1),
+                receiver,
+                cancel.clone()
+            )
+            .await
+            .is_err()
+        );
+        drop(cancel_sender);
+    }
 }
