@@ -73,7 +73,7 @@ export function CloudSignIn({
   // A step that lands after the person moved on (Cancel, another try) is dropped.
   const generation = useRef(0);
   // The generation whose pasted code signed in: the approve's wait, ending after it, changes nothing.
-  const pasted = useRef(-1);
+  const pastedIn = useRef(-1);
   // The chat's actions are rebuilt as it changes; the card cancels through the newest, and only when
   // it goes away (a rebuilt `signIn` is the same login).
   const latest = useRef(signIn);
@@ -120,12 +120,12 @@ export function CloudSignIn({
     void signIn.finish(login.loginId).then(
       (done) => {
         // A pasted code that already signed in (and maybe sent again) is the end: never back to Send again.
-        if (mine !== generation.current || pasted.current === mine) return;
+        if (mine !== generation.current || pastedIn.current === mine) return;
         if (done) signedIn();
         else setStage({ at: "failed", failure: "failed" });
       },
       (error) => {
-        if (mine !== generation.current || pasted.current === mine) return;
+        if (mine !== generation.current || pastedIn.current === mine) return;
         open.current = undefined;
         setStage({ at: "failed", failure: failureOf(error) });
       },
@@ -198,7 +198,7 @@ export function CloudSignIn({
           setStage({ at: "failed", failure: "failed", login });
           return;
         }
-        pasted.current = mine;
+        pastedIn.current = mine;
         signedIn();
         if (ticket) sendAgain(ticket);
       },

@@ -750,9 +750,7 @@ test("Claude, no paste: the approve's wait ending after a pasted code sent again
   const { client, sent } = mockClient({
     start: autoStart,
     finish: (...args: unknown[]) =>
-      args[2] === undefined
-        ? new Promise((resolve) => (approve = resolve))
-        : { signedIn: true, restarted: false },
+      args[2] === undefined ? new Promise((resolve) => (approve = resolve)) : { signedIn: true, restarted: false },
   });
   const { signIn } = signInFor(client, { opened: [], machine: true });
   await render({ route: cloudRoute, cloudSignIn: signIn });
