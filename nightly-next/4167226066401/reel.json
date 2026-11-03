@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "4167226066401",
+  "notes": "notes/4167226066401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 34020,
+      "title": "Cloud VM image: Claude Code 2.1.299 (the devbox pin) and cmux-tui af078d6c (#33795); a test keeps the lock on the Dockerfile's pin",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34019,
+      "title": "fix(bench): focus the new stable New Tab before readiness",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33113,
+      "title": "REOPEN-F7: a hidden sidebar icon button registers its tooltip when it first shows (stacked on #33112)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32633,
+      "title": "fix(focus): keys typed right after a reopen wait until the restored page has loaded, then reach it in order (reopen-browser-plain-keys cycle B)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
