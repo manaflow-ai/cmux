@@ -190,6 +190,10 @@ impl Client {
             }
         };
         let (id, digest) = binding(&job, intent, None)?;
+        if matches!(job.get("state").and_then(Value::as_str), Some("done" | "failed" | "cancelled"))
+        {
+            return Ok(());
+        }
         let result = self
             .call(&[
                 "cancel".into(),
@@ -344,7 +348,27 @@ impl Hub {
             if result.status.code() == Some(2) {
                 continue;
             }
-            return finish_wait(result.status.code(), &receipt, &log, intent, &job).await;
+            let outcome = finish_wait(result.status.code(), &receipt, &log, intent, &job).await;
+            // Parent cleanup reads the current activity. Persist a verified terminal receipt
+            // so it does not issue a redundant cancellation after a finished command.
+            let view = match &outcome {
+                Ok(view) => Some(view),
+                Err(error) => error.data.as_ref(),
+            };
+            if let Some(terminal) = view.and_then(|view| view.get("ciReceipt")) {
+                let _gate = self.workflow_runs.gate(&run.id).lock_owned().await;
+                self.workflow_runs
+                    .store()
+                    .update_activity_policy(
+                        &run.id,
+                        generation,
+                        &run.owner_session_id,
+                        &activity.id,
+                        json!({"ciReceipt":terminal}),
+                    )
+                    .map_err(error)?;
+            }
+            return outcome;
         }
     }
 
@@ -492,6 +516,11 @@ else: sys.exit(9)
         let attached = client.submit(&intent, &dir.path().join("again.json")).await.unwrap();
         assert_eq!(job["id"], attached["id"]);
         client.cancel(&intent, Some(&attached)).await.unwrap();
+        let terminal: Value =
+            serde_json::from_slice(&std::fs::read(dir.path().join("job.json")).unwrap()).unwrap();
+        let before = std::fs::read(dir.path().join("calls.jsonl")).unwrap();
+        client.cancel(&intent, Some(&terminal)).await.unwrap();
+        assert_eq!(std::fs::read(dir.path().join("calls.jsonl")).unwrap(), before);
         let calls: Vec<Value> = std::fs::read_to_string(dir.path().join("calls.jsonl"))
             .unwrap()
             .lines()
