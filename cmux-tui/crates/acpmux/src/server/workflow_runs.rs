@@ -117,6 +117,10 @@ async fn handle(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, Rp
             .store()
             .settle(id, generation, &run.owner_session_id, outcome)
             .map_err(internal)?;
+        if run.state == crate::workflow_runs::State::Failed {
+            // The durable terminal fence prevents any more dispatch before cancellation.
+            hub.workflow_cancel_children(&run).await.map_err(internal)?;
+        }
         return Ok(public(&run));
     }
     let run = hub.workflow_runs.store().get(id).map_err(internal)?;

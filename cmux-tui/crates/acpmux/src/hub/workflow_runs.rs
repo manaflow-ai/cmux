@@ -62,6 +62,29 @@ impl Hub {
         })
     }
 
+    /// Fold only the same trusted tool-server specs this owner's next agent launch gets.
+    /// These launch credentials never enter the durable run record or status response.
+    async fn workflow_upstreams(&self, run: &RunRecord) -> Result<String> {
+        let owner = self.resolve(&run.owner_session_id).map_err(|e| anyhow::anyhow!(e.message))?;
+        let meta = owner.meta();
+        let env = self.bg_env(&owner, &meta).await.map_err(|e| anyhow::anyhow!(e.message))?;
+        if crate::agent_tools::left_out(meta.remote_origin, &env, &[]) {
+            return Ok("[]".into());
+        }
+        let config = crate::agent_tools::current()
+            .scoped(&env)
+            .without_off(&env)
+            .for_session(&run.owner_session_id)
+            .folded()
+            .mcp_config();
+        Ok(config
+            .as_ref()
+            .and_then(|config| config.pointer("/mcpServers/cmux/env/CMUX_MCP_UPSTREAMS"))
+            .and_then(Value::as_str)
+            .unwrap_or("[]")
+            .to_owned())
+    }
+
     pub async fn workflow_resume(self: &Arc<Self>, id: &str, owner: &str) -> Result<RunRecord> {
         let _gate = self.workflow_runs.gate(id).lock_owned().await;
         let run = self.workflow_runs.store().resume(id, owner, false)?;
@@ -80,6 +103,11 @@ impl Hub {
             return Ok(run);
         }
         self.workflow_runs.stop_runner(&run.id).await;
+        self.workflow_cancel_children(&run).await?;
+        self.workflow_runs.store().paused(&run.id, run.generation)
+    }
+
+    pub async fn workflow_cancel_children(self: &Arc<Self>, run: &RunRecord) -> Result<()> {
         for activity in run.activities.values().filter(|a| a.outcome.is_none()) {
             match &activity.child {
                 Child::Agent { session_id, prompt_id, host } => {
@@ -113,7 +141,7 @@ impl Hub {
                 }
             }
         }
-        self.workflow_runs.store().paused(&run.id, run.generation)
+        Ok(())
     }
 
     /// One pass after adoption; no polling task and no credentials survive a daemon restart.
@@ -182,6 +210,7 @@ impl Hub {
         command.env("ACPMUX_SESSION_ID", &run.owner_session_id);
         command.env(crate::agent_tools::AGENT_SESSION_ENV, &run.owner_session_id);
         command.env(crate::workflow_runs::RUNNER_TOKEN_ENV, token);
+        command.env(crate::agent_tools::UPSTREAMS_ENV, self.workflow_upstreams(run).await?);
         if let Some(tools) = self.workflow_allowed_tools(run).await? {
             command.env(crate::agent_tools::MCP_TOOLS_ENV, tools.join(","));
         }
@@ -217,12 +246,16 @@ impl Hub {
                         Ok(status) => format!("workflow runner exited before settling ({status})"),
                         Err(error) => format!("workflow runner wait failed: {error}"),
                     };
-                    let _ = hub.workflow_runs.store().settle(
+                    if let Ok(failed) = hub.workflow_runs.store().settle(
                         &run.id,
                         run.generation,
                         &run.owner_session_id,
                         Err(json!({"message": message})),
-                    );
+                    ) {
+                        if let Err(error) = hub.workflow_cancel_children(&failed).await {
+                            tracing::warn!(run_id = %run.id, %error, "cancel failed workflow children");
+                        }
+                    }
                 }
             }
             hub.workflow_runs.retire_runner(&run.id, run.generation);
