@@ -759,9 +759,21 @@ impl Hub {
         let mut pending = session.auto_resume.lock();
         {
             let mut stopped = self.prompt_stop_set(session)?;
-            if !stopped.as_ref().unwrap().contains(root) {
-                self.append(session, "mux", "prompt_stop_requested", json!({"promptId":root}));
-                stopped.as_mut().unwrap().insert(root.to_owned());
+            if !stopped.as_ref().is_some_and(|roots| roots.contains(root)) {
+                if !self.append_stored(
+                    session,
+                    "mux",
+                    "prompt_stop_requested",
+                    json!({"promptId":root}),
+                ) {
+                    return Err(RpcError::internal("cannot persist prompt stop boundary"));
+                }
+                self.store.flush_session(&session.id).map_err(|error| {
+                    RpcError::internal(format!("cannot flush prompt stop boundary: {error}"))
+                })?;
+                // Never cache or acknowledge a boundary until it is on stable storage:
+                // a failed write must be retried, including by this same daemon.
+                stopped.get_or_insert_with(HashSet::new).insert(root.to_owned());
             }
         }
         let mut turns = std::collections::BTreeSet::new();
@@ -1002,8 +1014,7 @@ impl Hub {
         if self
             .prompt_stop_set(session)?
             .as_ref()
-            .unwrap()
-            .contains(split_attempt(&turn.prompt_id).0)
+            .is_some_and(|roots| roots.contains(split_attempt(&turn.prompt_id).0))
         {
             return Err(super::turns::stopped_before_prompt());
         }
