@@ -84,8 +84,10 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
   const action = retryAgent && phase.kind === "failed" ? phase.action : undefined;
   // What it was asked to do (Claude's Agent `description`) first, as the running tray names it;
   // then its name, its prompt's first line, its kind; "Subagent" only when nothing names it. A
-  // task that is only acpmux's placeholder ("Workflow", "Agent") keeps the name a run gave it.
-  const name = PLACEHOLDER_TASKS.has(agent.task ?? "") ? subagentDisplayName(t, agent) : subagentTaskLabel(t, agent);
+  // task that is only acpmux's placeholder ("Workflow", "Agent") keeps the name a run gave it. A
+  // retrying line keeps its short name, so its "Retrying (2/4) …" is never cut behind a long task.
+  const name =
+    waiting || PLACEHOLDER_TASKS.has(agent.task ?? "") ? subagentDisplayName(t, agent) : subagentTaskLabel(t, agent);
   const label = t(DONE_LABEL[agent.state] ?? DONE_LABEL.completed!, { name });
   const reasonKey = agent.state === "cancelled" && agent.stopReason ? STOP_REASON_LABEL[agent.stopReason] : undefined;
   const time = formatDuration(elapsed(agent, agent.endedAt ?? row.at));
