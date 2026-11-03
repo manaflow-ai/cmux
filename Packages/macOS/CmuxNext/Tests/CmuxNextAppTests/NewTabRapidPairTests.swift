@@ -12,6 +12,12 @@ import Testing
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"),
                   .closesItsWindows)
 struct NewTabRapidPairTests {
+    /// Waits up to `limit` for `condition`, recording nothing when it does not come (the pool may keep fewer spares).
+    static func waitFor(_ condition: () -> Bool, within limit: Duration) async throws {
+        let deadline = ContinuousClock.now + limit
+        while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
+    }
+
     @Test func aRapidSecondCmdTAdoptsASpareToo() async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-rapid-pair")
@@ -44,7 +50,7 @@ struct NewTabRapidPairTests {
             pool.start()
             try await PasswordManagerRouteTests.until({ pool.spare != nil }, report: { "no spare was parked" })
             // The pool fills as far as it keeps spares (one at a time, each after the one before drew).
-            try? await PasswordManagerRouteTests.until({ made.count >= 2 }, within: .seconds(3))
+            try await Self.waitFor({ made.count >= 2 }, within: .seconds(3))
             let before = made.count, openings = pool.openings.count
 
             NewTabPage.open(in: pane, seed: nil)
@@ -53,11 +59,11 @@ struct NewTabRapidPairTests {
             try await Task.sleep(for: .milliseconds(60))
 
             let pair = pool.openings.dropFirst(openings).map(\.spare)
-            try #require(pair.count == 2, "the two Cmd-T recorded \(pair.count) openings")
-            #expect(pair == [true, true], "a Cmd-T 150 ms after the one before loaded cold (spare per opening: \(pair))")
+            // A cold open records a second opening (the store's tab takes no spare either): every one must be a spare.
+            #expect(pair.count >= 2 && !pair.contains(false), "a Cmd-T 150 ms after the one before loaded cold (spare per opening: \(pair))")
             #expect(made.count == before, "a spare was made within the pair's frames (\(made.count - before) made)")
             // Memory pressure drops every spare (`dropAll`), the second one too.
-            try? await PasswordManagerRouteTests.until({ made.count >= before + 2 }, within: .seconds(3))
+            try await Self.waitFor({ made.count >= before + 2 }, within: .seconds(3))
             pool.dropAll()
             #expect(pool.spare == nil, "a spare stayed parked after dropAll")
         }
