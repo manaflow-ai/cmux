@@ -978,9 +978,14 @@ class Journey:
                 topo = self.topology()
                 for ws, pane, tab, term in self.places(topo):
                     if pane.get("id") == view.get("pane") and tab.get("id") == pane.get("selected_tab") and term:
+                        # A creation's stand-in (the frame of the key) names the client's terminal host id, which no
+                        # daemon selector matches; adopt the daemon's tab when it takes the stand-in's place.
+                        if str(tab.get("id", "")).startswith("pending_tab_") or not term.startswith("term_"):
+                            last = f"pane {view.get('pane')} still shows the stand-in tab {tab.get('id')} (terminal {term})"
+                            continue
                         place = (ws, pane, term)
                 if not place:
-                    last = f"pane {view.get('pane')} has no selected terminal tab in the topology yet"
+                    last = last if last and "stand-in" in last else f"pane {view.get('pane')} has no selected terminal tab in the topology yet"
                     continue
                 self.known_views.add(view["terminal_id"])
                 adopted = self.adopt(place[2], view.get("pane"), int(view["host_pid"]) if view.get("host_pid") else None)
