@@ -420,6 +420,8 @@ extension AgentPaneRequest {
                 let toggle = params?["mode"] as? String == "toggle"
                 if id == AgentPaneModel.diffAction, let turn = AgentPaneDiffTurn(params: params?["turn"]) {
                     self = .diffTurn(turn, cwd: cwd, toggle: toggle)
+                } else if id == AgentPaneModel.diffAction, let patch = AgentPaneDiffPatch(params: params?["patch"]) {
+                    self = .diffPatch(patch, cwd: cwd, toggle: toggle)
                 } else {
                     self = .paneAction(id, cwd: cwd, toggle: toggle)
                 }

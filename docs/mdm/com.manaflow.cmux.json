@@ -297,6 +297,12 @@
       "title" : "Chat Folders",
       "type" : "array"
     },
+    "agents.chats.sessionRecap" : {
+      "default" : true,
+      "description" : "When you come back to a Claude chat after 5 minutes or more, show a line on where it stands. Each recap is one small extra model call that counts toward your usage.",
+      "title" : "Session Recap",
+      "type" : "boolean"
+    },
     "agents.defaultPermissionMode" : {
       "default" : "fullAccess",
       "description" : "What a new chat may do without asking. A mode you pick in a chat applies to that chat only.",
