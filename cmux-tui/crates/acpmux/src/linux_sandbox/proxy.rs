@@ -155,8 +155,11 @@ where
     .await
 }
 
-/// Stop condition: cancellation or accept failure. Shutdown aborts and joins all
-/// handlers; dropping this future also aborts them through the owned JoinSet.
+/// Stop condition: cancellation, or an accept failure that means the listener is
+/// gone. Any other accept failure (EMFILE, a connection reset in the queue) pauses
+/// and accepts again: the keeper ends the sandboxed session when this returns.
+/// Shutdown aborts and joins all handlers; dropping this future also aborts them
+/// through the owned JoinSet.
 async fn serve<F, Fut>(
     listener: std::net::TcpListener,
     handler: F,
@@ -177,7 +180,11 @@ where
             accepted = listener.accept(), if tasks.len() < MAX_TUNNELS => {
                 let (client, _) = match accepted {
                     Ok(pair) => pair,
-                    Err(e) => break Err(e),
+                    Err(e) if crate::server::accept_ends_listener(&e) => break Err(e),
+                    Err(e) => {
+                        tokio::time::sleep(crate::server::accept_retry_delay(&e)).await;
+                        continue;
+                    }
                 };
                 let connection = handler(client);
                 let stop = stop.clone();
@@ -215,13 +222,18 @@ async fn read_header(client: &mut TcpStream) -> Result<(Vec<u8>, usize), &'stati
         if limit == 0 {
             return Err("431 Request Header Fields Too Large");
         }
-        let n = client.read(&mut chunk[..limit]).await.map_err(|_| "400 Bad Request")?;
+        let n = client
+            .read(chunk.get_mut(..limit).unwrap_or_default())
+            .await
+            .map_err(|_| "400 Bad Request")?;
         if n == 0 {
             return Err("400 Bad Request");
         }
         let scan_from = bytes.len().saturating_sub(3);
-        bytes.extend_from_slice(&chunk[..n]);
-        if let Some(at) = bytes[scan_from..].windows(4).position(|w| w == b"\r\n\r\n") {
+        bytes.extend_from_slice(chunk.get(..n).unwrap_or_default());
+        if let Some(at) =
+            bytes.get(scan_from..).unwrap_or_default().windows(4).position(|w| w == b"\r\n\r\n")
+        {
             return Ok((bytes, scan_from + at + 4));
         }
     }
@@ -282,8 +294,8 @@ fn request(line: &str) -> Option<(String, u16, Option<String>)> {
     }
     let rest = target.strip_prefix("http://")?;
     let at = rest.find(['/', '?']).unwrap_or(rest.len());
-    let (host, port) = authority(&rest[..at], Some(80))?;
-    let path = &rest[at..];
+    let (authority_text, path) = rest.split_at_checked(at)?;
+    let (host, port) = authority(authority_text, Some(80))?;
     let path = if path.starts_with('/') { path.to_owned() } else { format!("/{path}") };
     Some((host, port, Some(format!("{method} {path} HTTP/1.1\r\n"))))
 }
@@ -301,10 +313,12 @@ where
             return reply(&mut client, "408 Request Timeout", "header deadline exceeded").await;
         }
     };
-    let Some(line_end) = bytes[..end].windows(2).position(|w| w == b"\r\n") else {
+    let Some(line_end) = bytes.get(..end).unwrap_or_default().windows(2).position(|w| w == b"\r\n")
+    else {
         return reply(&mut client, "400 Bad Request", "missing request line terminator").await;
     };
-    let parsed = std::str::from_utf8(&bytes[..line_end]).ok().and_then(request);
+    let parsed =
+        std::str::from_utf8(bytes.get(..line_end).unwrap_or_default()).ok().and_then(request);
     let Some((host, port, rewritten)) = parsed else {
         return reply(&mut client, "400 Bad Request", "invalid proxy request target").await;
     };
@@ -329,10 +343,10 @@ where
         };
         if let Some(line) = rewritten {
             upstream.write_all(line.as_bytes()).await?;
-            upstream.write_all(&bytes[line_end + 2..]).await?;
+            upstream.write_all(bytes.get(line_end + 2..).unwrap_or_default()).await?;
         } else {
             client.write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n").await?;
-            upstream.write_all(&bytes[end..]).await?;
+            upstream.write_all(bytes.get(end..).unwrap_or_default()).await?;
         }
         return tunnel(client, upstream).await;
     }
@@ -539,8 +553,12 @@ mod tests {
 
     #[tokio::test]
     async fn allowed_but_unreachable_returns_502() {
-        let (unused, addr) = listener();
-        drop(unused);
+        // A bound socket that never listens refuses connections and keeps the port from any
+        // other test. A dropped listener would keep listening while a process another test
+        // spawns holds a copy of it.
+        let unreachable = tokio::net::TcpSocket::new_v4().unwrap();
+        unreachable.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+        let addr = unreachable.local_addr().unwrap();
         let (mut client, stop, task) = stand_in(addr).await;
         client.write_all(format!("CONNECT {addr} HTTP/1.1\r\n\r\n").as_bytes()).await.unwrap();
         assert!(headers(&mut client).await.starts_with("HTTP/1.1 502 "));
@@ -707,6 +725,62 @@ mod tests {
         tokio::time::advance(Duration::from_secs(1)).await;
         bounded(task).await.unwrap().unwrap();
         assert!(headers(&mut client).await.starts_with("HTTP/1.1 408 Request Timeout\r\n"));
+    }
+
+    #[tokio::test]
+    async fn running_out_of_descriptors_pauses_the_proxy_instead_of_ending_it() {
+        const CHILD: &str = "ACPMUX_PROXY_TEST_EMFILE";
+        const NAME: &str = "linux_sandbox::proxy::tests::running_out_of_descriptors_pauses_the_proxy_instead_of_ending_it";
+        if std::env::var_os(CHILD).is_none() {
+            let result = tokio::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", NAME, "--nocapture", "--test-threads=1"])
+                .env(CHILD, "1")
+                .output()
+                .await
+                .unwrap();
+            let stdout = String::from_utf8_lossy(&result.stdout);
+            assert!(
+                result.status.success() && stdout.contains("1 passed"),
+                "isolated descriptor test failed: {stdout}\n{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            return;
+        }
+        // Only in the re-executed child: a full descriptor table would fail parallel tests.
+        let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+        // SAFETY: plain getrlimit/setrlimit on a local struct, in this child process only.
+        unsafe {
+            assert_eq!(libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit), 0);
+            limit.rlim_cur = limit.rlim_cur.min(1024);
+            assert_eq!(libc::setrlimit(libc::RLIMIT_NOFILE, &limit), 0);
+        }
+        let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let (l, proxy) = listener();
+        let stop = CancellationToken::new();
+        let task = tokio::spawn(serve_forward(l, target.local_addr().unwrap(), stop.clone()));
+        let mut spare = Vec::new();
+        loop {
+            match std::fs::File::open("/dev/null") {
+                Ok(file) => spare.push(file),
+                Err(e) => {
+                    assert_eq!(e.raw_os_error(), Some(libc::EMFILE));
+                    break;
+                }
+            }
+        }
+        // One free slot holds the client's socket, so the proxy's accept fails with EMFILE.
+        spare.pop();
+        let mut client = TcpStream::connect(proxy).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(!task.is_finished(), "the proxy ended on EMFILE: {:?}", task.await);
+        spare.clear();
+        client.write_all(b"raw").await.unwrap();
+        let (mut server, _) = bounded(target.accept()).await.unwrap();
+        let mut bytes = [0; 3];
+        bounded(server.read_exact(&mut bytes)).await.unwrap();
+        assert_eq!(&bytes, b"raw");
+        stop.cancel();
+        bounded(task).await.unwrap().unwrap();
     }
 
     #[tokio::test]

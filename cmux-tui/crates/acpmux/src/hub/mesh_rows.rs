@@ -15,7 +15,9 @@ impl Hub {
     /// The sessions here a heartbeat lists: every one but a closed one, at most
     /// [`MAX_HEARTBEAT_SESSIONS`], working ones first, then the most recently changed. Read under
     /// each one's meta lock (no clone of a meta).
-    pub fn mesh_rows(&self) -> Vec<SessionRow> {
+    pub async fn mesh_rows(&self) -> Vec<SessionRow> {
+        let team_enabled =
+            self.config.read().await.mesh_relay.as_ref().is_some_and(|relay| relay.team_messaging);
         let sessions: Vec<Arc<Session>> = self
             .sessions
             .lock()
@@ -39,6 +41,20 @@ impl Hub {
                         harness: m.harness.clone(),
                         state: m.status.to_string(),
                         stuck_reason: None,
+                        team_address: team_enabled
+                            .then(|| {
+                                m.tags
+                                    .get("teamAddress")
+                                    .filter(|tag| {
+                                        crate::mesh::valid_team_suffix(&tag.value)
+                                            && tag
+                                                .expires_at
+                                                .map(|at| at > crate::store::now_ms())
+                                                .unwrap_or(true)
+                                    })
+                                    .map(|tag| tag.value.clone())
+                            })
+                            .flatten(),
                     };
                     (rank(m.status), m.updated_at, row)
                 })
@@ -98,8 +114,34 @@ impl Hub {
         if let Some(id) = to.session_id.as_deref().filter(|id| !id.is_empty()) {
             return sessions.get(id).cloned().ok_or_else(|| format!("no session {id:?} here"));
         }
-        let key =
-            to.name.as_deref().filter(|n| !n.is_empty()).ok_or("the message names no session")?;
+        let key = to
+            .name
+            .as_deref()
+            .filter(|n| !n.is_empty())
+            .or_else(|| to.team_address.as_deref().filter(|a| !a.is_empty()))
+            .ok_or("the message names no session")?;
+        if to.name.is_none() {
+            let mut addressed: Vec<_> = sessions
+                .values()
+                .filter(|s| {
+                    s.meta
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .tags
+                        .get("teamAddress")
+                        .is_some_and(|tag| {
+                            tag.expires_at.map(|at| at > crate::store::now_ms()).unwrap_or(true)
+                                && tag.value.trim_start_matches('@') == key.trim_start_matches('@')
+                        })
+                })
+                .cloned()
+                .collect();
+            return match addressed.len() {
+                1 => Ok(addressed.remove(0)),
+                0 => Err(format!("no session {key:?} here")),
+                n => Err(format!("{key:?} names {n} sessions here; send to its session id")),
+            };
+        }
         let name = match key.split_once('/') {
             Some((host, rest)) if !rest.is_empty() && is_own_host(host) => rest,
             _ => key,

@@ -568,6 +568,10 @@ public struct NotificationPost: Equatable, Sendable {
 
 /// What a daemon event line means for the phone's copy of the tree.
 public enum DaemonEvent: Equatable, Sendable {
+    /// A typed tree delta. The payload keeps the daemon's entity as JSON so
+    /// the mobile projection can patch its off-main-thread snapshot without
+    /// introducing a second copy of the daemon's Codable tree types.
+    case delta(DaemonTreeDelta)
     /// Re-list the tree (any topology/metadata delta, `tree-changed`, focus,
     /// the person's sidebar order `personal-changed`).
     case treeChanged
@@ -596,11 +600,93 @@ public enum DaemonEvent: Equatable, Sendable {
             return .titleChanged(surface: surface, title: object["title"] as? String ?? "")
         case "notification":
             return .notification(NotificationPost(json: object))
+        case "workspace-added", "workspace-closed", "workspace-renamed", "workspace-moved", "workspace-changed",
+             "screen-added", "screen-closed", "screen-renamed", "screen-changed",
+             "pane-added", "pane-closed", "tab-added", "tab-closed", "tab-renamed", "tab-changed":
+            // Older daemon builds announce the delta kind but do not carry an
+            // entity. A typed patch would be unsafe, so retain the reconnect
+            // recovery path for those producers.
+            let delta = DaemonTreeDelta(event: event, object: object)
+            return delta.entity != nil || delta.kind.isClose ? .delta(delta) : .treeChanged
         case "tree-changed", "layout-changed", "surface-exited", "personal-changed":
             return .treeChanged
         default:
             let prefixes = ["workspace-", "screen-", "pane-", "tab-"]
             return prefixes.contains(where: event.hasPrefix) ? .treeChanged : .other
+        }
+    }
+}
+
+/// The wire shape of one `tree_events: "deltas"` event. `entity` is retained
+/// as JSON because the iOS tree model intentionally differs from the daemon's
+/// full snapshot model. Data is Sendable and lets the projection decode only
+/// the affected workspace off the main actor.
+public struct DaemonTreeDelta: Equatable, Sendable {
+    public enum Kind: String, Equatable, Sendable {
+        case workspaceAdded = "workspace-added"
+        case workspaceClosed = "workspace-closed"
+        case workspaceRenamed = "workspace-renamed"
+        case workspaceMoved = "workspace-moved"
+        case workspaceChanged = "workspace-changed"
+        case screenAdded = "screen-added"
+        case screenClosed = "screen-closed"
+        case screenRenamed = "screen-renamed"
+        case screenChanged = "screen-changed"
+        case paneAdded = "pane-added"
+        case paneClosed = "pane-closed"
+        case tabAdded = "tab-added"
+        case tabClosed = "tab-closed"
+        case tabRenamed = "tab-renamed"
+        case tabChanged = "tab-changed"
+
+        var isWorkspace: Bool { rawValue.hasPrefix("workspace-") }
+        var isAdd: Bool { rawValue.hasSuffix("-added") }
+        var isClose: Bool { rawValue.hasSuffix("-closed") }
+    }
+
+    public var kind: Kind
+    /// Numeric daemon handles. Older daemons may send a resource/key string;
+    /// `workspaceKey` preserves that form for matching the raw snapshot.
+    public var workspace: Int?
+    public var workspaceKey: String?
+    public var screen: Int?
+    public var pane: Int?
+    public var surface: Int?
+    public var index: Int?
+    public var entity: Data?
+    public var workspaceRevision: Int?
+    public var registryID: String?
+
+    public init(kind: Kind, workspace: Int? = nil, workspaceKey: String? = nil, screen: Int? = nil,
+                pane: Int? = nil, surface: Int? = nil, index: Int? = nil, entity: Data? = nil,
+                workspaceRevision: Int? = nil, registryID: String? = nil) {
+        self.kind = kind
+        self.workspace = workspace
+        self.workspaceKey = workspaceKey
+        self.screen = screen
+        self.pane = pane
+        self.surface = surface
+        self.index = index
+        self.entity = entity
+        self.workspaceRevision = workspaceRevision
+        self.registryID = registryID
+    }
+
+    init(event: String, object: [String: Any]) {
+        self.kind = Kind(rawValue: event) ?? .workspaceChanged
+        self.workspace = object["workspace"] as? Int
+        self.workspaceKey = object["workspace"] as? String
+        self.screen = object["screen"] as? Int
+        self.pane = object["pane"] as? Int
+        self.surface = object["surface"] as? Int
+        self.index = object["index"] as? Int
+        self.workspaceRevision = object["workspace_revision"] as? Int
+        self.registryID = object["registry_id"] as? String
+        if let entity = object["entity"], JSONSerialization.isValidJSONObject(entity),
+           let data = try? JSONSerialization.data(withJSONObject: entity) {
+            self.entity = data
+        } else {
+            self.entity = nil
         }
     }
 }

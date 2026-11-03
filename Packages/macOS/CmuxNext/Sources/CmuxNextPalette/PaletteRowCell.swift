@@ -164,11 +164,15 @@ final class PaletteRowCell: NSTableCellView {
         titleFace = item.fontFamily.flatMap { PaletteFontFaces.shared.font(family: $0, size: Typography.body.pointSize) }
         highlights = row.highlights
         applyColors()
+        // A reused cell can come from before a text size change.
+        subtitle.refreshFont()
+        accessory.refreshFont()
         subtitle.stringValue = item.subtitle ?? ""
         subtitle.isHidden = item.subtitle == nil
         accessory.stringValue = item.accessory ?? ""
         accessory.isHidden = item.accessory == nil
         keycaps.keycaps = item.keycaps ?? []
+        keycaps.needsDisplay = true
         keycaps.isHidden = item.keycaps == nil
         alphaValue = item.isEnabled ? 1 : 0.45
         setAccessibilityLabel(item.title)

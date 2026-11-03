@@ -23,6 +23,11 @@ import os
 /// the field.
 @MainActor
 final class HomeProjection: @preconcurrency ChatIntents {
+    var approvals: (any HomeApprovalDeciding)?
+    var approvalWrites: [HomeApprovalWriteGate] = []
+    var approvalCards: [String: HomeApprovalDisplay] = [:]
+    var approvalLatestEvent: TimeInterval = -1
+    var isPersonApprovalEvent: (NSEvent) -> Bool = { _ in false }
     let homeStore: HomeStore
     let conversation: ConversationID
     let me: ParticipantID
@@ -74,6 +79,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
     var onDraftTextChange: () -> Void = {}
     /// Forward… on a bubble (u5402): the host asks where its text goes; nil offers no Forward….
     var onForward: ((String) -> Void)?
+    /// Retry a committed person message in a Chief conversation. The app
+    /// forwards this canonical owner message id to `chief.retry`.
+    var onChiefRetry: ((MessageID) -> Void)?
     /// Cancel Upload (`HomeStoreBinding.cancelSend`).
     var onCancelSend: (IdempotencyKey) -> Bool = { _ in false }
     /// Bubble pictures and originals.
@@ -109,7 +117,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private var deferredThread: (root: MessageID?, parent: MessageID?) = (nil, nil)
     /// A permalink's message waiting for the window that holds it (`reveal`, HomeProjection+Tree.swift).
     var pendingReveal: MessageID?
-    /// Tree threads: permalink paging, the thread header, Copy Link (HomeProjection+ThreadHeader.swift).
+    /// Tree threads: permalink paging and Copy Link (HomeProjection+ThreadHeader.swift).
     let tree = HomeTreeState()
     /// One streamed-text commit per display frame (HomeStreamPacer).
     let streamPacer = HomeStreamPacer()
@@ -118,6 +126,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private(set) var appliedUpdates = 0
     /// Store reads of this conversation (`refresh`), changed or not (tests: traffic for other conversations costs none).
     private(set) var refreshPasses = 0
+    /// Store observation wakes (HomeProjection+Observe.swift), for tests: a talk token wakes no whole-message view.
+    var observedWakes = 0
+    /// Bench: main-thread ms of each step of the projection passes since it was set to `[:]`,
+    /// summed per step name (`passStep`, HomeStateChangePerfTests); nil, the default, records nothing.
+    var passLog: [String: Double]?
     /// This conversation's store inputs at the last observed pass (HomeProjection+Observe.swift): a
     /// change to another conversation wakes the observation, not the transcript.
     var observedInputs: HomeProjectionInputs?
@@ -150,22 +163,27 @@ final class HomeProjection: @preconcurrency ChatIntents {
     }
 
     func start() {
+        controller.approvalDecision = { [weak self] ref, allow in _ = self?.decideApproval(ref, allow: allow) }
         refresh()
         noteObservedInputs()
         observe()
     }
 
     func stop() {
+        approvalWrites.forEach { $0.cancel() }
+        approvalWrites.removeAll()
         stopped = true
         homeStore.stopTyping(in: conversation)
         liveLine.stop()
         turnPopover?.close()
         controller.intents = nil
+        controller.approvalDecision = nil
     }
 
     // MARK: HomeStore -> projection
 
     func refresh() {
+        defer { refreshApprovalStates() }
         refreshPasses += 1
         if sendWhenConfirmed, homeStore.isConfirmed(conversation) {
             sendWhenConfirmed = false
@@ -173,16 +191,20 @@ final class HomeProjection: @preconcurrency ChatIntents {
             _ = send(thread: deferredThread)
             deferredThread = (nil, nil)
         }
+        var mark = CACurrentMediaTime()
         // One value: the transcript and its running replies, in display order (HomeTimeline).
         let live = homeStore.liveRun(in: conversation)
         let timeline = homeStore.timeline(for: conversation)
+        passStep("timeline", &mark)
         apply(items: timeline.items, summary: homeStore.summary(conversation),
               typing: homeStore.typists(in: conversation),
               hasOlder: homeStore.hasOlderMessages(in: conversation), streams: timeline.streams)
+        mark = CACurrentMediaTime()
         // The line closes on the frame after the one that shows the reply in the bubble's place (cx-zz30r, cx-06vn1).
         if let activity = live?.activity { liveLine.show(activity, thought: live?.thought) } else { liveLine.hide(after: controller) }
+        passStep("liveLine", &mark)
         revealIfLoaded()
-        refreshThreadHeader()
+        passStep("reveal", &mark)
     }
 
     /// The whole current value; unchanged values return before any work.
@@ -190,6 +212,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
                hasOlder newHasOlder: Bool, streams: [HomeStreamRow] = []) {
         // MessagesLab hides a sender's typing dots while its stream has text (ask 11). Whole
         // messages: each running reply is its author's typing dots until its messages post.
+        var mark = CACurrentMediaTime()
         let typing = wantedTyping.union(core.replyTypists(streams))
         guard let store = controller.store else {
             install(items: items, summary: summary, typing: typing, hasOlder: newHasOlder)
@@ -206,6 +229,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         // never ahead of a keystroke (HomeStreamPacer; home-streaming-perf-DESIGN.md). Any other
         // change commits now, with the newest stream text.
         let streamOnly = items == shown && summary == shownSummary && !typingChanged && newHasOlder == hasOlder
+        passStep("compare", &mark)
         guard !streamOnly || core.streamsDiffer(streams) else { return }
         if streamOnly, !streamPacer.admit(inputFrame: controller.inKeystrokeFrame, nextFrame: controller.nextFrame,
                                           refresh: { [weak self] in if let self, !self.stopped { self.refresh() } }) { return }
@@ -217,8 +241,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
         hasOlder = newHasOlder
         let titleChanged = HomeMapping.title(summary, me: me) != HomeMapping.title(shownSummary, me: me)
         let summaryChanged = summary != shownSummary
+        passStep("title", &mark)
         let diff = core.step(items: items, summary: summary)
+        passStep("diff", &mark)
         let streamed = core.streams(streams, state: store.state)
+        passStep("streams", &mark)
         // MessagesLab bd65bbf: a keystroke goes first. Statuses and typing that arrive in a
         // keystroke frame are committed at the start of the next display frame; anything
         // else (a message, a tapback, a page) is committed now, in order.
@@ -248,19 +275,27 @@ final class HomeProjection: @preconcurrency ChatIntents {
             if cut >= diff.actions.count { dispatchStreamed(streamed) }
             // The store's order is the only order (plans/cmux-next/home-chat-pipeline-DESIGN.md 2.3): a
             // projection that came out of these actions in another order is rebuilt in the store's.
+            passStep("dispatch", &mark)
             if diff.rebuild || !orderMatchesStore() { rebuild() }
+            passStep("order+rebuild", &mark)
             for a in core.typing(store.state, wanted: typing) { controller.dispatch(a) }
+            passStep("typing", &mark)
         }
         // A token moves rows (the inline videos follow) and changes nothing else this side tracks:
         // no attachment, title, summary, read cursor or older page work per token.
         video.place()
+        passStep("video", &mark)
         if streamOnly { return }
         if titleChanged { applyHeader() }
         refreshAttachments()
+        passStep("attachments", &mark)
         if summaryChanged { onSummaryChange(summary) }
+        passStep("summaryChange", &mark)
         onRowsChange()
+        passStep("rowsChange", &mark)
         askForOlderIfNeeded()
         reportReadIfNeeded()
+        passStep("older+read", &mark)
     }
 
     private func install(items: [TranscriptItem], summary: ConversationSummary?, typing: Set<ParticipantID>, hasOlder: Bool) {
@@ -268,7 +303,6 @@ final class HomeProjection: @preconcurrency ChatIntents {
         self.hasOlder = hasOlder
         let store = controller.install(conv, windowStart: w.start, total: w.total)
         store.linkPreviews = linkPreviews
-        installThreadHeader()
         if let previews = linkPreviews?.previews {
             // A historical outgoing card on screen may receive a late answer from the guarded
             // parser; no system preview provider or unguarded subresource loader runs.
@@ -302,6 +336,12 @@ final class HomeProjection: @preconcurrency ChatIntents {
         return have.drop(while: { wanted.contains($0) }).allSatisfy { !wanted.contains($0) }
     }
 
+    #if DEBUG
+    /// DEBUG: maps and lays out every shown row again, without animation (the Agent Messages
+    /// Playground registered another fold row style).
+    func debugRebuild() { rebuild() }
+    #endif
+
     /// The whole window again, without animation (MessagesLab has no action
     /// for it): `.replaceWindow`, then the pin or the first visible row's
     /// window position is restored.
@@ -325,7 +365,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         }
     }
 
-    /// A chosen avatar text (the Home Chief's avatar), over the initials.
+    /// A chosen avatar text (the Home Chief's avatar), over the monogram of the header's name.
     var initialsOverride: String? { didSet { applyHeader() } }
     /// A chosen header name (a Chief's own name, its record's), over the conversation's title.
     var titleOverride: String? { didSet { if titleOverride != oldValue { applyHeader() } } }
@@ -343,13 +383,16 @@ final class HomeProjection: @preconcurrency ChatIntents {
     }
 
     private func applyHeader() {
-        controller.host.paneHeader.title = titleOverride ?? HomeMapping.title(shownSummary, me: me)
-        controller.host.paneHeader.initials = initialsOverride ?? HomeMapping.initials(shownSummary, me: me)
+        let title = titleOverride ?? HomeMapping.title(shownSummary, me: me)
+        controller.host.paneHeader.title = title
+        // No chosen text: the monogram of the name the header shows ("Chief" is CH), so the letters always match the pill.
+        controller.host.paneHeader.initials = initialsOverride ?? MonogramAvatar(name: title).initials
     }
 
     // MARK: Projection -> HomeStore (intents)
 
     var canReact: Bool { isSendEnabled }
+    func canInteract(with message: ID) -> Bool { item(message)?.isReadOnly != true }
     /// A reply goes out as `HomeOp.sendMessage(threadRoot:)` (swipe-to-reply,
     /// Reply… in the menu, "N Replies" opens the thread view). Offline it
     /// waits in HomeStore's queue like any send.
@@ -454,7 +497,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
             let parts = TextParts.parts(for: t)
             return HomeLinkSend.hasLinks(parts) ? parts : nil
         }
-        let links = shown.contains { $0 != nil }
+        // A send past one message's parts goes as several messages (HomeStore.send), plain: its link
+        // cards are left out rather than refusing the send.
+        let links = shown.contains { $0 != nil } && plain.count <= HomeAttachmentPolicy.maxParts
             ? HomeLinkSend(previews: linkPreviews, store: homeStore, conversation: conversation) : nil
         // task-owner: one send; ends with the owner's answer
         Task { [weak self] in
@@ -592,10 +637,14 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// Each shown attachment part gets its picture and upload state:
     /// HomeStore's progress and HomeMedia's pictures change no transcript
     /// content, so they reach MessagesLab's message without a transition
-    /// (`.cmuxSetAttachment`, the row redraws in place).
+    /// (`.cmuxSetAttachments`, the rows redraw in place). Every change of one refresh goes in one
+    /// action, so the rows are re-derived once (one commit per attachment re-derived every row below
+    /// each: multi-second hangs when a chat with many pictures opened, NIGHTLY hang log 2026-10-31).
     /// `only`: just the items that show this hash (its picture became ready).
     func refreshAttachments(only hash: String? = nil) {
         guard !stopped, let store = controller.store else { return }
+        var updates: [(id: ID, attachment: Attachment)] = []
+        defer { if !updates.isEmpty { controller.dispatch(.cmuxSetAttachments(updates)) } }
         for item in shown where !item.isRetracted && !item.attachmentHashes.isEmpty && (hash.map(item.attachmentHashes.contains) ?? true) {
             for (hash, files) in item.localAttachments { media.useLocal(files, for: hash) }
             let id = HomeMapping.id(item, aliases: aliases)
@@ -612,7 +661,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
                     if case let .attachment(a) = p, a.id == ref.hash { return a }
                     return nil
                 }.first
-                if let have, have != want { controller.dispatch(.cmuxSetAttachment(id, want)) }
+                if let have, have != want { updates.append((id: id, attachment: want)) }
             }
         }
     }
@@ -755,6 +804,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
     }
 
     func videoState(_ ref: PartRef) -> HomeVideoState { video.state(ref) }
+
+    func openVideo(_ ref: PartRef, _ attachment: ID) {
+        guard let attachmentRef = attachmentRef(ref.messageId, attachment) else { return }
+        video.openLarge(ref, attachment: attachmentRef, source: media, in: controller.host)
+    }
 
     private func attachmentRef(_ message: ID, _ attachment: ID) -> AttachmentRef? {
         item(message)?.parts.lazy.compactMap { p -> AttachmentRef? in
@@ -899,9 +953,9 @@ struct ProjectionCore {
         installed = true
         let roots = HomeMapping.roots(in: items, aliases: aliases, summary: summary, media: media, links: links)
         let conv = Conversation(id: id.rawValue, title: HomeMapping.title(summary, me: me),
-                                participants: HomeMapping.participants(summary, me: me, avatars: avatars),
+                                participants: HomeMapping.participants(summary, me: me, avatars: avatars, items: items),
                                 messages: items.map { HomeMapping.message($0, aliases: aliases, me: me, summary: summary, media: media, links: links, roots: roots) },
-                                cmuxGroup: summary?.showsSenderNames(me: me) == true)
+                                cmuxGroup: HomeMapping.showsSenders(summary, me: me, items: items))
         return (conv, HomeMapping.window(items))
     }
 
@@ -911,7 +965,7 @@ struct ProjectionCore {
     mutating func setAvatars(_ new: [String: Participant.Avatar]) -> Action? {
         guard new != avatars else { return nil }
         avatars = new
-        return installed ? .cmuxSetParticipants(HomeMapping.participants(summary, me: me, avatars: new)) : nil
+        return installed ? .cmuxSetParticipants(HomeMapping.participants(summary, me: me, avatars: new, items: shown)) : nil
     }
 
     /// The actions from the shown snapshot to this one.
@@ -920,8 +974,15 @@ struct ProjectionCore {
         // Mapping every row again cost 3.5 ms per token at 60 rows on the main thread, which a
         // drag over the field waits for (DragWhileStreamingTests).
         if items == shown, new == summary { return HomeDiff() }
-        let d = HomeDiff.plan(old: shown, new: items, oldSummary: summary, newSummary: new, aliases: aliases, me: me, media: media, links: links,
+        var d = HomeDiff.plan(old: shown, new: items, oldSummary: summary, newSummary: new, aliases: aliases, me: me, media: media, links: links,
                               handOff: streamingTurns)
+        // An agent that sent through my CLI appeared (or its last message left the window): its name and avatar
+        // are in the participants before its message arrives (HomeAgentSender).
+        if HomeAgentSender.all(in: items, me: me) != HomeAgentSender.all(in: shown, me: me) {
+            d.actions.insert(.cmuxSetSenders(HomeMapping.participants(new, me: me, avatars: avatars, items: items),
+                                             group: HomeMapping.showsSenders(new, me: me, items: items)), at: 0)
+            if let at = d.handOffAt { d.handOffAt = at + 1 }
+        }
         shown = items
         summary = new
         return d

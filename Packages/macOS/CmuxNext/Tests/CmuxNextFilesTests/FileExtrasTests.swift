@@ -83,8 +83,22 @@ struct FileExtrasTests {
         #expect(GoPlace.place(forShiftCommandKey: "z") == nil)
     }
 
+    /// Debug hang 2026-10-30T23:06 (8.1 s): a mount notification ran `SidebarVolume.mounted()` on the main
+    /// thread, and `mountedVolumeURLs` waited on a slow volume's localized name. The volumes are read off the
+    /// main thread; the reader names each volume by the thread it ran on.
     @MainActor
-    @Test func sidebarKeepsUserFavoritesInOrder() throws {
+    @Test func sidebarReadsVolumesOffTheMainThread() async throws {
+        let defaults = try #require(UserDefaults(suiteName: "cmux-files-tests-\(UUID().uuidString)"))
+        let sidebar = SidebarModel(home: URL(fileURLWithPath: "/Users/me"), defaults: defaults, volumes: {
+            [SidebarVolume(url: URL(fileURLWithPath: "/"), name: pthread_main_np() != 0 ? "main" : "background",
+                           isEjectable: false)]
+        })
+        await sidebar.refreshLocations()
+        #expect(sidebar.locations.map(\.name) == ["background"])
+    }
+
+    @MainActor
+    @Test func sidebarKeepsUserFavoritesInOrder() async throws {
         let defaults = try #require(UserDefaults(suiteName: "cmux-files-tests-\(UUID().uuidString)"))
         let home = URL(fileURLWithPath: "/Users/me")
         let volumes = [SidebarVolume(url: URL(fileURLWithPath: "/"), name: "Macintosh HD", isEjectable: false),
@@ -101,6 +115,7 @@ struct FileExtrasTests {
         #expect(again.favorites == sidebar.favorites)
         sidebar.removeFavorite(project)
         #expect(!SidebarModel(home: home, defaults: defaults, volumes: { volumes }).favorites.contains(project))
+        await sidebar.refreshLocations()
         #expect(sidebar.locations.map(\.name) == ["Macintosh HD", "USB"])
         #expect(sidebar.locations.filter(\.isEjectable).map(\.name) == ["USB"])
     }

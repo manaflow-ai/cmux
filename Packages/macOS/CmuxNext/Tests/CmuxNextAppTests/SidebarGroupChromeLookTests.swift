@@ -53,9 +53,10 @@ import Testing
         #expect(flipped ? lineStart > barEdge : lineStart < barEdge,
                 "the line starts at \(lineStart), inside the header bar that ends at \(barEdge)")
         line.layoutSubtreeIfNeeded()
-        // Chrome's square left edge and body keep their flat geometry; the top-right edge is the cut/taper.
-        #expect(line.layer?.cornerRadius == 0 && line.layer?.masksToBounds == true && line.railShape.path != nil,
-                "the line has the clipped Chrome corner cut")
+        // One capsule (Lawrence msg 19775): the layer's corner clip rounds both ends the same.
+        #expect(line.layer?.cornerRadius == 1 && line.layer?.maskedCorners == SidebarGroupLineShape.corners
+                && line.layer?.masksToBounds == true && line.railShape.path != nil,
+                "the line is one clipped capsule")
         #expect(line.railShape.frame.width == 2 && line.railShape.frame.height >= 4096,
                 "the cut shape preserves coverage while the parent rail shrinks")
     }

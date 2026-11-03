@@ -31,6 +31,8 @@ export interface StackEvent {
   readonly type: string
   readonly stack_team: string
   readonly stack_user?: string
+  /** A person waits on this sync (user.teams.list found the team in Stack): it never takes the low lane. */
+  readonly urgent?: true
 }
 
 export type StackSyncReply = { readonly ok: true; readonly outcome: string; readonly duplicate?: true } | { readonly ok: false; readonly reason: string }
@@ -47,6 +49,11 @@ export interface StackSyncDeps {
   readonly revokeStuck: (user: string) => void
   /** The shared pace of sign-in reads (STACK_READ_LIMIT): one token before each sync's reads; false = not now (cx-f5tk4). */
   readonly pace?: () => Promise<boolean>
+  /**
+   * The low lane (stackLowReadPace): a sync of a team not mirrored here whose deliveries carry no membership and
+   * no urgent flag takes a token here first, then one of `pace`. Absent: no low cap.
+   */
+  readonly lowPace?: () => Promise<boolean>
 }
 
 const SEEN_RETENTION_MS = 30 * 24 * 60 * 60_000
@@ -75,7 +82,7 @@ const PACED_FIRST_MS = 5_000
 export const pacedBackoffMs = (fails: number, random: () => number = Math.random) =>
   fails <= PACED_QUICK_TRIES ? Math.round(PACED_FIRST_MS * 2 ** Math.max(0, fails - 1) * (0.8 + 0.4 * random())) : syncBackoffMs(fails - PACED_QUICK_TRIES, random)
 
-type QueueRow = { k: string; type: string; stack_team: string; stack_user: string | null; due_at: number; attempts: number; fails: number; gen: number; merged: number }
+type QueueRow = { k: string; type: string; stack_team: string; stack_user: string | null; due_at: number; attempts: number; fails: number; gen: number; merged: number; urgent: number }
 /** While a row's Stack read runs, the row waits this long (a lease): a restart mid-read leaves it for the alarm. */
 export const SYNC_LEASE_MS = 5 * 60_000
 
@@ -139,7 +146,13 @@ export class StackTeamSync {
   private async runRow(deps: StackSyncDeps, k: string, ev: StackEvent | undefined, clock?: number): Promise<string | undefined> {
     // The alarm's time (tests inject it) or now, whichever is later: a long alarm batch never backs off into the past.
     const at = () => Math.max(clock ?? 0, Date.now())
-    const paced = deps.pace ? await deps.pace().catch(() => false) : true
+    const before = readRow(deps.sql, k)
+    if (!before) return undefined
+    // A team never mirrored here whose deliveries name no member and no waiting person (cmux.com visitors'
+    // sign-up teams, in production) takes the low lane first, so it never uses the whole pace.
+    const low = deps.state().team == null && before.urgent === 0 && deps.lowPace !== undefined
+    const take = () => (deps.pace ? deps.pace().catch(() => false) : Promise.resolve(true))
+    const paced = low ? (await deps.lowPace!().catch(() => false)) && (await take()) : await take()
     // Read again after the await: a delivery may have merged in, or another run synced it.
     const row = readRow(deps.sql, k)
     if (!row) return undefined
@@ -353,7 +366,7 @@ const ensureTables = (sql: SqlStorage) => {
   // second delivery merged in. `attempts` stays the team-missing re-check count. Checked once per instance.
   if (!migrated.has(sql)) {
     const have = new Set(sql.exec<{ name: string }>(`PRAGMA table_info(stack_team_recheck)`).toArray().map((c) => c.name))
-    for (const c of ["fails", "gen", "merged"]) if (!have.has(c)) sql.exec(`ALTER TABLE stack_team_recheck ADD COLUMN ${c} INTEGER NOT NULL DEFAULT 0`)
+    for (const c of ["fails", "gen", "merged", "urgent"]) if (!have.has(c)) sql.exec(`ALTER TABLE stack_team_recheck ADD COLUMN ${c} INTEGER NOT NULL DEFAULT 0`)
     migrated.add(sql)
   }
 }
@@ -362,7 +375,7 @@ const migrated = new WeakSet<SqlStorage>()
 const syncKey = (stackTeam: string) => `sync|${stackTeam}|`
 
 const readRow = (sql: SqlStorage, k: string): QueueRow | undefined =>
-  sql.exec<QueueRow>(`SELECT k, type, stack_team, stack_user, due_at, attempts, fails, gen, merged FROM stack_team_recheck WHERE k = ?`, k).toArray()[0]
+  sql.exec<QueueRow>(`SELECT k, type, stack_team, stack_user, due_at, attempts, fails, gen, merged, urgent FROM stack_team_recheck WHERE k = ?`, k).toArray()[0]
 
 /**
  * Records a delivery's pending sync, durably, before any Stack read (cx-f5tk4). A team.deleted keeps its own
@@ -372,7 +385,9 @@ const readRow = (sql: SqlStorage, k: string): QueueRow | undefined =>
  */
 const enqueue = (sql: SqlStorage, ev: StackEvent, now: number): string => {
   const [k, type] = ev.type === "team.deleted" ? [`team.deleted|${ev.stack_team}|`, "team.deleted"] : [syncKey(ev.stack_team), "sync"]
-  sql.exec(`INSERT INTO stack_team_recheck (k, type, stack_team, stack_user, due_at, attempts, fails, gen, merged) VALUES (?, ?, ?, NULL, ?, -1, 0, 0, 0) ON CONFLICT(k) DO UPDATE SET gen = gen + 1, merged = 1`, k, type, ev.stack_team, now)
+  // A membership event or a waiting person marks the row urgent for good: it never takes the low lane.
+  const urgent = ev.urgent === true || ev.type.startsWith("team_membership") ? 1 : 0
+  sql.exec(`INSERT INTO stack_team_recheck (k, type, stack_team, stack_user, due_at, attempts, fails, gen, merged, urgent) VALUES (?, ?, ?, NULL, ?, -1, 0, 0, 0, ?) ON CONFLICT(k) DO UPDATE SET gen = gen + 1, merged = 1, urgent = MAX(urgent, excluded.urgent)`, k, type, ev.stack_team, now, urgent)
   return k
 }
 

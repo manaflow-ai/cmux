@@ -20,7 +20,7 @@ on waitpid for the app, and on kqueue NOTE_EXIT for the tag's daemon.
         state root, then one connection's identify and snapshot round trips
 
   scripts/cmux-next/bench-startup.py --tag nxboot [--tag other] [--runs 5]
-      [--mode cold --mode warm] [--profile empty|realistic] [--json out.json]
+      [--mode cold --mode warm] [--profile empty|realistic|stress] [--json out.json]
   scripts/cmux-next/bench-startup.py --app "/path/cmux DEV launch-1.app" ...
 
 --app runs a fleet artifact staged anywhere (its tag comes from the
@@ -31,7 +31,14 @@ seeds one priming launch with REALISTIC_WORKSPACES workspaces of three
 terminal tabs and a split, then splits the selected pane and opens an agent
 chat in it, so the measured launch restores a full sidebar, a terminal and
 an agent pane. Its runs wait for the agent pane's handshake as well as the
-first terminal frame.
+first terminal frame. --profile stress seeds one priming launch with the standard
+STRESS session (scripts/cmux-next/perf-stress-session.py: 60 workspaces, the shown
+one 14 panes of 6 tabs with a terminal selected in each, 10 of them printing), so
+the measured launch restores 14 visible terminals; its runs wait for the first
+terminal frame. Its pages' local server is closed once the session is built, so
+every run restores the same pages with no server (like for like across runs). Per-pane launch marks (launch.visible_terminals_drawn, the LAST
+visible terminal's saved frame) are reported when the build has them: a run that
+showed a saved frame waits up to VISIBLE_GRACE_S more for it.
 
 Several tags run interleaved (A run 1, B run 1, A run 2, ...), so machine
 load affects them alike. Prints the load average and, per tag and mode, one
@@ -56,11 +63,17 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # The shared launch helper's socket paths and session check (bench_launch.py). Not its bench env: this bench times
 # the launch itself, with the agent pane's real handshake and the account's Chief, as a person's launch runs.
-from bench_launch import finder_limits, limits_line, require_gui_session, socket_candidates  # noqa: E402
+from bench_launch import account_home, finder_limits, limits_line, require_gui_session, socket_candidates  # noqa: E402
 
 DERIVED = os.path.expanduser("~/Library/Developer/Xcode/DerivedData")
 FINAL_MARK = "first_terminal_frame"
+# The reopen number (#31621): every visible terminal's saved frame shown, the last pane's time.
+VISIBLE_MARK = "launch.visible_terminals_drawn"
+VISIBLE_GRACE_S = 1.5
 AGENT_MARK = "agent_pane.handshake_end"
+# A seeding launch may build its state once the daemon's first tree is in: a fresh profile (after reset_state) shows
+# the first-run page, which draws no terminal and no agent page, so neither content mark ever comes there.
+SEED_READY = [FINAL_MARK, AGENT_MARK, "daemon.first_tree_applied"]
 
 # Rows in launch order; a mark a build does not emit is left out.
 MARKS = [
@@ -90,6 +103,7 @@ MARKS = [
     ("did_finish_launching_end", "applicationDidFinishLaunching end"),
     ("first_window_frame_committed", "first window frame committed"),
     ("launch.non_paint_services", "non-paint services started (updater, ssh, reach)"),
+    ("launch.post_frame_feeds", "acpmux-backed feeds started"),
     ("launch.post_window_warmups", "warm-ups started (Chromium, spares, page hosts)"),
     ("launch.agent_page_warmup", "agent page WebKit warm-up started"),
     ("daemon.connect_start", "first connect attempt"),
@@ -130,13 +144,16 @@ MARKS = [
     ("agent_pane.launch_image_shown", "an agent pane's saved page shown"),
     ("terminal.launch_frames_read", "saved terminal frames read and decoded"),
     ("terminal.launch_frame_missed", "a terminal asked before its read ended"),
-    ("terminal.launch_frame_shown", "a terminal's saved frame shown"),
+    ("terminal.launch_frame_shown", "the FIRST terminal's saved frame shown (not the launch number)"),
+    # The launch number: the LAST terminal of the first window frame to show its saved frame (max over panes).
+    ("launch.visible_terminals_drawn", "every visible terminal's saved frame shown (the last pane)"),
 ]
 REALISTIC_WORKSPACES = 24
 # Launch work that must start only after the first window frame (perf-launch-memory): checked
 # with --order, and always in budget mode (any --budget, as the CI launch gate runs).
 LAUNCH_ORDER = [
     "first_window_frame_committed<launch.non_paint_services",
+    "first_window_frame_committed<launch.post_frame_feeds",
     "first_window_frame_committed<launch.post_window_warmups",
     "first_window_frame_committed<launch.agent_page_warmup",
 ]
@@ -174,8 +191,40 @@ def app_binary(tag):
     return matches[0]
 
 
+def bundle_path(tag):
+    """The tag's .app bundle (the folder three levels above its binary)."""
+    return os.path.dirname(os.path.dirname(os.path.dirname(app_binary(tag))))
+
+
+def front_app(launch):
+    """Whether the launched app is the frontmost app now: LaunchServices' front app (`lsappinfo front`, its pid) and
+    the app's own `NSApp.isActive` (`debug.focus` app_active). The raw lsappinfo output is kept for a failed parse."""
+    row = {"app_pid": launch.pid}
+    try:
+        asn = subprocess.run(["/usr/bin/lsappinfo", "front"], capture_output=True, text=True, timeout=5)
+        info = subprocess.run(["/usr/bin/lsappinfo", "info", "-only", "pid", asn.stdout.strip()],
+                              capture_output=True, text=True, timeout=5)
+        match = re.search(r'"?pid"?\s*=\s*(\d+)', info.stdout)
+        row["front_pid"] = int(match.group(1)) if match else None
+        if row["front_pid"] is None:
+            row["lsappinfo"] = {"front": (asn.stdout + asn.stderr)[:200], "info": (info.stdout + info.stderr)[:200]}
+    except (OSError, subprocess.SubprocessError) as error:
+        row["front_pid"] = None
+        row["lsappinfo"] = {"error": str(error)[:200]}
+    try:
+        focus = app_client(launch.tag, timeout=5).call("debug.focus").get("result") or {}
+        row["app_active"] = focus.get("app_active")
+    except (OSError, ValueError, SystemExit) as error:
+        row["app_active"] = None
+        row["focus_error"] = str(error)[:200]
+    row["front"] = row["front_pid"] is not None and row["front_pid"] == launch.pid
+    return row
+
+
 def pgrep(pattern):
-    out = subprocess.run(["pgrep", "-f", pattern], capture_output=True, text=True).stdout
+    """Pids of THIS user's processes whose command matches (pgrep -U: another account's process of the same tag on a
+    shared mini is never selected, signalled or counted)."""
+    out = subprocess.run(["pgrep", "-U", str(os.getuid()), "-f", pattern], capture_output=True, text=True).stdout
     return [int(p) for p in out.split() if int(p) != os.getpid()]
 
 
@@ -184,8 +233,165 @@ def tag_pids(tag):
     return pgrep(bundle_root(tag))
 
 
+def tag_daemon_pids(tag):
+    """The tag's daemons and helpers from ANY copy of its app (lead 2026-11-01): a fleet step runs a fresh copy at a
+    new path, and the cmux-tui and acpmux daemons of an earlier copy, step or commit of the same tag outlive their app.
+    Matches `cmux DEV <tag>.app/Contents/Resources/bin/` in any folder ("cmux DEV " and ".app/" anchor the tag, so
+    "split" never selects "split-spring"), this user's processes only. An app (Contents/MacOS) of another copy is never
+    selected: other_copy_apps() reports it and the run refuses."""
+    name = re.escape(f"cmux DEV {tag}.app/Contents/Resources/bin/")
+    return sorted(set(pgrep(name)) | {p for p in tag_pids(tag) if p not in app_pids(tag)})
+
+
+def other_copy_apps(tag):
+    """Pids of a running app of ANOTHER copy of the tag (another step's or owner's): stopping it would end someone's
+    measurement, so the run refuses and names it instead."""
+    mine = set(app_pids(tag))
+    return sorted(set(pgrep(re.escape(f"cmux DEV {tag}.app/Contents/MacOS/"))) - mine)
+
+
+def stop_for_arm(tag):
+    """Rule (c): before an arm, no owner, daemon or host of the tag from any copy is left (any mode). Refuses when
+    another copy's app runs."""
+    others = other_copy_apps(tag)
+    if others:
+        raise SystemExit(f"tag {tag}: another copy's app runs (pids {others}); refusing to measure beside it")
+    stop(tag_daemon_pids(tag))
+    end_tag_hosts(tag)
+
+
+def end_tag_hosts(tag):
+    """Ends the tag's terminal hosts and holders, which run from host-exe copies outside the bundle so no bundle path
+    matches them: tag_teardown's own matching (--owner bundle id, the tag's host roots), with the tag's daemon state root
+    added so hosts whose daemon is already gone are still found. A cold arm then starts with no host of another build."""
+    try:
+        from tag_teardown import TagTeardown  # noqa: E402
+        td = TagTeardown(os.path.dirname(os.path.dirname(os.path.dirname(app_binary(tag)))), log=lambda line: None)
+        td.state_roots.add(os.path.join(app_support_tag(tag), "tui"))
+        hosts = [pid for pid, command in td.processes() if is_host_command(command)]
+        stop(hosts)
+    except (ImportError, OSError, AttributeError, TypeError, ValueError, SystemExit) as error:
+        print(f"  {tag}: could not end the terminal hosts ({error})", file=sys.stderr)
+
+
+def is_host_command(command):
+    """A terminal host, holder or agent host command line."""
+    padded = f" {command} "
+    first = os.path.basename(command.split()[0]) if command.split() else ""
+    return any(word in padded for word in (" __terminal-host", " __holder ", " __agent-host")) or first == "cmux-holder"
+
+
 def app_pids(tag):
     return pgrep(f"{bundle_root(tag)}.*/Contents/MacOS/")
+
+
+# A process of the tag that is still alive LINGER_LIMIT_S after the app's own quit is a finding, not harness noise
+# (coordinator 2026-10-31: the same class as the orphan-daemon P0). The bench reports every such process, then waits
+# for it, and never ends it itself: a run that has to wait says so in the report (`linger`), so it cannot be hidden.
+LINGER_LIMIT_S = 10.0
+LINGER_WAIT_S = 60.0
+
+
+def process_rows(pids):
+    """[{pid, ppid, cpu, etime, command}] of the live pids (ps); a pid that exited is left out."""
+    if not pids:
+        return []
+    out = subprocess.run(["ps", "-o", "pid=,ppid=,%cpu=,etime=,command=", "-p", ",".join(map(str, pids))],
+                         capture_output=True, text=True).stdout
+    rows = []
+    for line in out.splitlines():
+        parts = line.split(None, 4)
+        if len(parts) == 5 and parts[0].isdigit():
+            rows.append({"pid": int(parts[0]), "ppid": int(parts[1]), "cpu": float(parts[2]), "etime": parts[3],
+                         "command": parts[4][:240]})
+    return rows
+
+
+def helper_pids(tag):
+    """This copy's helpers under Contents/Resources/bin/ (acpmux, cmux-browser-host, the cmux-tui daemon, the Chief)."""
+    return pgrep(f"{bundle_root(tag)}.*/Contents/Resources/bin/")
+
+
+def helper_name(command):
+    """The executable under Contents/Resources/bin/ that `command` runs ("acpmux", "cmux-tui"), or ""."""
+    match = re.search(r"/Contents/Resources/bin/([^/\s]+)", command)
+    return match.group(1) if match else ""
+
+
+def helper_args(command):
+    """The words after the helper's executable in `command` (["--headless", ...]), or []."""
+    match = re.search(r"/Contents/Resources/bin/[^/\s]+(.*)$", command)
+    return match.group(1).split() if match else []
+
+
+def kept_role(row, parent, grandparent):
+    """Why a helper may outlive the app's quit (plans/cmux-next/quit-persistence.md, a quit that keeps sessions), or
+    None when it must end soon after the app: the cmux-tui daemon keeps the terminals, its screen-detection plugin ends
+    with it, and the Chief's brain host with its own acpmux outlives the app by design (HomeBrainHost.swift). The app's
+    own acpmux and browser host are not here: idle, they end after the quit (#30090); a turn the bench never starts
+    would keep acpmux."""
+    name, args = helper_name(row["command"]), helper_args(row["command"])
+    up = helper_name(parent["command"]) if parent else ""
+    upper = helper_name(grandparent["command"]) if grandparent else ""
+    # The session owner starts `cmux-tui --headless ...` (cmux-tui local_owner.rs). An SSH or Cloud link
+    # (`cmux-tui remote connect ... --headless --exit-with-parent`) must end with the app: it is not kept.
+    if name == "cmux-tui" and args[:1] == ["--headless"] and "--exit-with-parent" not in args:
+        return "cmux-tui daemon (kept terminals)"
+    if name == "cmux-agent-screen-detection" and up == "cmux-tui":
+        return "screen-detection plugin of the kept cmux-tui daemon"
+    # The brain host is `optchat-chief host ...` (HomeBrainHost.swift); a one-shot command ends by itself.
+    if name == "optchat-chief" and args[:1] == ["host"]:
+        return "Chief brain host"
+    if name == "acpmux" and (up == "optchat-chief" or (up == "acpmux" and upper == "optchat-chief")):
+        return "the Chief's acpmux"
+    return None
+
+
+def watched_pids(tag):
+    """What the linger probe follows: the app and its CEF helpers (Contents/MacOS/) and the bundle's helpers."""
+    return sorted(set(app_pids(tag)) | set(helper_pids(tag)))
+
+
+def watch_linger(tag, quit_at):
+    """After the app's quit: every process of the bundle with /Contents/MacOS/ (the app, its CEF helpers) or under
+    Contents/Resources/bin/ (acpmux, cmux-browser-host and the other helpers), each one's exit time after the quit, and
+    the ones alive past LINGER_LIMIT_S. A documented survivor (``kept_role``) is listed under `kept` and not waited
+    for. Waits up to LINGER_WAIT_S; ends nothing. Returns the report (also printed as one BENCH-LINGER line)."""
+    rows = process_rows(watched_pids(tag))
+    by_pid = {r["pid"]: r for r in rows}
+    missing = sorted({r["ppid"] for r in rows if r["ppid"] not in by_pid})
+    by_pid.update({r["pid"]: r for r in process_rows(missing)})
+    missing = sorted({by_pid[r["ppid"]]["ppid"] for r in rows if r["ppid"] in by_pid} - set(by_pid))
+    by_pid.update({r["pid"]: r for r in process_rows(missing)})
+    first, kept = [], []
+    for row in rows:
+        parent = by_pid.get(row["ppid"])
+        role = kept_role(row, parent, by_pid.get(parent["ppid"]) if parent else None)
+        if role:
+            kept.append({**row, "role": role})
+        else:
+            first.append(row)
+    exits, start = {}, {r["pid"]: r for r in first}
+    deadline = quit_at + LINGER_WAIT_S
+    while True:
+        live = set(watched_pids(tag))
+        now = time.monotonic()
+        for pid in start:
+            if pid not in live and pid not in exits:
+                exits[pid] = round(now - quit_at, 2)
+        if not (live & set(start)) or now >= deadline:
+            break
+        time.sleep(0.25)  # bench: a process list read, bounded by the deadline
+    still = process_rows(sorted(set(watched_pids(tag)) & set(start)))
+    report = {"at_quit": first, "exit_s": exits, "past_limit": [p for p, s in exits.items() if s > LINGER_LIMIT_S],
+              "still_running_after_s": LINGER_WAIT_S if still else None, "still": still, "kept": kept}
+    print("BENCH-LINGER " + json.dumps(report), flush=True)
+    for row in still:
+        print(f"  LINGER: {row['pid']} ppid {row['ppid']} cpu {row['cpu']} % up {row['etime']}: {row['command']}",
+              flush=True)
+    for row in kept:
+        print(f"  KEPT: {row['pid']} ({row['role']}): {row['command']}", flush=True)
+    return report
 
 
 def wait_exit(pids, timeout):
@@ -211,16 +417,17 @@ def wait_exit(pids, timeout):
 
 
 def stop(pids, timeout=10):
+    """TERM, then KILL, each pid; a pid that exited or belongs to another user is skipped, never fatal."""
     for pid in pids:
         try:
             os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
             pass
     if not wait_exit(pids, timeout):
         for pid in pids:
             try:
                 os.kill(pid, signal.SIGKILL)
-            except ProcessLookupError:
+            except (ProcessLookupError, PermissionError):
                 pass
         wait_exit(pids, 5)
 
@@ -228,26 +435,98 @@ def stop(pids, timeout=10):
 class Launch:
     """One app process whose launch marks arrive on a pipe."""
 
-    def __init__(self, tag, scratch, extra_env=None):
-        read_fd, write_fd = os.pipe()
+    def __init__(self, tag, scratch, extra_env=None, active=False):
+        """`active`: launch through LaunchServices (`open`), as a Dock click does, so the app is the active app with
+        its window in front (#32552 follow-up); the marks come on a FIFO (`CMUX_NEXT_LAUNCH_MARKS_PATH`). Otherwise the
+        bench spawns the binary with no activation (`CMUX_NEXT_NO_ACTIVATE`) and passes a pipe."""
+        self.tag = tag
+        self.active = active
+        self.hold_fd = None
         env = {
             "HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-            "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",
+            **({} if active else {"CMUX_NEXT_NO_ACTIVATE": "1"}), "CMUX_NEXT_SOCKET_MODE": "automation",
+            # "test" placement puts every window at the agent test size on the last screen, in front, and ignores the
+            # saved frame; "restore" lets the app reopen each window at its saved frame (#32493). With no activation
+            # the restored window is ordered behind, never key (WindowActivation); it still draws (automation launch).
+            **({"CMUX_NEXT_TEST_WINDOW_SCREEN": "last"} if WINDOW_PLACEMENT == "test" and not active else {}),
             "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json"),
-            "CMUX_NEXT_LAUNCH_MARKS_FD": str(write_fd),
             **({"CMUX_NEXT_HANG_THRESHOLD_MS": str(HANG_THRESHOLD_MS)} if HANG_THRESHOLD_MS else {}),
             **(extra_env or {}),
         }
-        with finder_limits() as changed:  # the limits a Finder launch gets (bench_launch.py, Resource limits)
-            self.process = subprocess.Popen([app_binary(tag)], env=env, stdout=subprocess.DEVNULL,
-                                            stderr=subprocess.DEVNULL, start_new_session=True, pass_fds=(write_fd,))
-        print(f"bench-startup: app limits {limits_line(changed)}", file=sys.stderr, flush=True)
-        os.close(write_fd)
+        if active:
+            fifo = os.path.join(scratch, f"launch-marks-{time.monotonic_ns()}.fifo")
+            os.mkfifo(fifo, 0o600)
+            read_fd = os.open(fifo, os.O_RDONLY | os.O_NONBLOCK)
+            # The bench holds a writer too, so the reader sees no end of file before the app opens its end, nor
+            # between the app's exit and the drain in quit().
+            self.hold_fd = os.open(fifo, os.O_WRONLY | os.O_NONBLOCK)
+            env["CMUX_NEXT_LAUNCH_MARKS_PATH"] = fifo
+            # -n: always a new instance, so the environment applies (an `open` of a running one only activates it).
+            command = ["/usr/bin/open", "-n", "-a", bundle_path(tag)] + [arg for key, value in env.items()
+                                                                        for arg in ("--env", f"{key}={value}")]
+            self.known_pids = set(app_pids(tag))
+            try:
+                # LaunchServices gives the app launchd's limits, as a Finder or Dock launch. Popen, not run: the
+                # marks get their arrival times while `open` is still returning.
+                self.spawned_at = time.monotonic()
+                self.opener = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self.popen_returned_at = time.monotonic()
+            except OSError:
+                os.close(read_fd)
+                os.close(self.hold_fd)
+                raise
+            self.process = None
+            print("bench-startup: app launched through LaunchServices (active)", file=sys.stderr, flush=True)
+        else:
+            read_fd, write_fd = os.pipe()
+            env["CMUX_NEXT_LAUNCH_MARKS_FD"] = str(write_fd)
+            with finder_limits() as changed:  # the limits a Finder launch gets (bench_launch.py, Resource limits)
+                # The bench's own clock (pre-main gap owner, STATUS 1800): the app's marks count from the kernel's
+                # p_starttime, so the time before Popen and the arrival of each mark are kept too. main_start's
+                # arrival minus spawned_at is the spawn-to-main time this process saw, independent of p_starttime.
+                self.spawned_at = time.monotonic()
+                self.process = subprocess.Popen([app_binary(tag)], env=env, stdout=subprocess.DEVNULL,
+                                                stderr=subprocess.DEVNULL, start_new_session=True, pass_fds=(write_fd,))
+                self.popen_returned_at = time.monotonic()
+            print(f"bench-startup: app limits {limits_line(changed)}", file=sys.stderr, flush=True)
+            os.close(write_fd)
         self.read_fd = read_fd
         self.buffer = b""
         self.marks = {}
+        self.arrived = {}  # mark -> ms after spawned_at when its line arrived on the pipe (the bench's clock)
+        self._pid = self.process.pid if self.process else None
+        if self.process is not None:
+            self.known_pids = set()
+            self.opener = None
+
+    @property
+    def pid(self):
+        """The app's pid: the spawned child, or (active) the new process of the app's own executable that
+        LaunchServices started (never a CEF helper, nor one that ran before this launch)."""
+        if self._pid is None:
+            binary = app_binary(self.tag)
+            # /tmp is /private/tmp: the process may show either spelling (as bundle_root).
+            path = re.escape(binary.removeprefix("/private"))
+            pattern = f"^(/private)?{path}$" if binary.removeprefix("/private").startswith("/tmp/") else f"^{path}$"
+            fresh = [pid for pid in pgrep(pattern) if pid not in self.known_pids]
+            self._pid = max(fresh) if fresh else None
+        return self._pid
+
+    def alive(self):
+        """Whether the launched app still runs (an active launch has no child to wait on)."""
+        if self.process is not None:
+            return self.process.poll() is None
+        pid = self.pid
+        if pid is None:
+            return not (self.opener.poll() not in (None, 0))
+        try:
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
 
     def wait_for(self, mark, timeout, any_of=False):
         """Reads marks until `mark` (or every mark of a list; with `any_of`,
@@ -259,8 +538,12 @@ class Launch:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return False
-            ready, _, _ = select.select([self.read_fd], [], [], remaining)
+            # An active launch's FIFO has the bench's own writer: no end of file at a crash, so its pid is checked.
+            watching = getattr(self, "hold_fd", None) is not None  # a Launch built without __init__ (tests) has none
+            ready, _, _ = select.select([self.read_fd], [], [], min(remaining, 0.5) if watching else remaining)
             if not ready:
+                if watching and time.monotonic() < deadline and self.alive():
+                    continue
                 return False
             chunk = os.read(self.read_fd, 65536)
             if not chunk:
@@ -270,38 +553,324 @@ class Launch:
             for line in lines:
                 name, _, ms = line.decode().partition(" ")
                 if name and ms:
+                    if name not in self.marks:
+                        self.arrived.setdefault(name, round((time.monotonic() - self.spawned_at) * 1000, 1))
                     self.marks.setdefault(name, float(ms))
         return True
 
     def quit(self):
-        """Quits the app only; the daemon keeps running (keep sessions)."""
+        """Quits the app only; the daemon keeps running (keep sessions). The marks the quit writes (`quit.*`, each
+        terminal's frame save) are read until the app closes the pipe, into `quit_marks`, never into `marks`."""
+        launched = set(self.marks)
+        deadline = time.monotonic() + 20  # one limit for the quit, as stop(timeout=20) had
+        pid = self.pid
+        if pid:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except (ProcessLookupError, PermissionError):
+                pass
+        if self.hold_fd is not None:
+            # Active launch: the bench's own writer keeps the FIFO open, so the app's exit is the process's.
+            if pid:
+                wait_exit([pid], 20)
+            os.close(self.hold_fd)
+            self.hold_fd = None
+            self.wait_for("bench.never", 2)  # bench: drains the quit's marks to end of file
+        else:
+            self.wait_for("bench.never", 20)  # bench: reads the quit's marks until the app exits (EOF) or 20 s
         os.close(self.read_fd)
-        stop([self.process.pid], timeout=20)
-        self.process.wait()
+        if pid and not wait_exit([pid], max(0.0, deadline - time.monotonic())):
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+            wait_exit([pid], 5)
+        if self.process:
+            self.process.wait()
+        if self.opener is not None:
+            try:
+                self.opener.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                self.opener.kill()
+        self.quit_marks = {name: self.marks.pop(name) for name in set(self.marks) - launched}
+        for name in self.quit_marks:
+            self.arrived.pop(name, None)
 
 
 RUN_TAGS = []
+NOT_RUN_EXIT = 3  # every run of some tag and mode was served by processes of another build
+# tag -> wall time of the step's first measured launch of the tag (the warm and restart modes' daemon floor).
+STEP_STARTED_WALL = {}
 # --focus: the realistic profile's focused pane at quit ("agent" or "terminal").
 SEED_FOCUS = "agent"
 # --chat-pane: with --focus terminal, the chat's pane (first or last).
 SEED_CHAT_PANE = "last"
 # --hangs: main-thread stalls over this many ms are recorded with stacks (debug.hangs).
 HANG_THRESHOLD_MS = None
+# --window-placement: "test" (the agent test window, the saved frame ignored) or "restore" (the app's own restore).
+WINDOW_PLACEMENT = "test"
+# --new-session-each-run: STRESS builds a new session before every measured launch (the first relaunch after it).
+NEW_SESSION_EACH_RUN = False
+# --activation: "active" launches the measured app through LaunchServices, frontmost and active as a person's launch;
+# "inactive" spawns it with no activation (behind, not key).
+ACTIVATION = "inactive"
+
+
+def app_support_tag(tag):
+    """The tag's folder under Application Support, where the app keeps its saved session and its daemon's state
+    (BuildIdentity: CMUX_TUI_STATE_DIR = <this>/tui). The app resolves it from the password database's home
+    (FileManager.homeDirectoryForCurrentUser), not from $HOME, which a fleet step points at its own folder; the same
+    root as bench_launch.BenchApp.state_root (BENCH_LAUNCH_STATE_BASE overrides both)."""
+    base = os.environ.get("BENCH_LAUNCH_STATE_BASE") or os.path.join(account_home(), "Library/Application Support/cmux")
+    return os.path.join(base, "tags", tag)
 
 
 def state_directories(tag):
     """Where a tagged build keeps its sessions: daemon state and the sidebar
     snapshot, agent sessions (acpmux), Home's memory."""
-    home = os.path.expanduser("~")
-    return [os.path.join(home, "Library/Application Support/cmux/tags", tag),
+    # The app resolves every one of these from the password database's home (FileManager.homeDirectoryForCurrentUser:
+    # AcpmuxEnvironment+Resolve.swift for ~/.acpmux, HomeService+ChiefMigration.swift for ~/.cmux/mux), not from $HOME,
+    # which a fleet step points at its own folder.
+    home = account_home()
+    return [app_support_tag(tag),
             os.path.join(home, ".acpmux/builds", "com.cmuxterm.app.debug." + re.sub(r"[^a-z0-9]+", ".", tag.lower()).strip(".")),
             # a copy of an untagged build named "cmux DEV <tag>.app" (its tag comes from the name)
             os.path.join(home, ".acpmux/builds", "com.cmuxterm.app.debug--" + re.sub(r"[^a-z0-9]+", "-", tag.lower()).strip("-")), os.path.join(home, ".cmux/mux/tags", tag)]
 
 
+def daemon_verdict(app_bundle, daemons, spawned_wall, bundle_builds=None):
+    """Whether the daemons that served one measured launch are the build under test (measurement validity, lead
+    2026-11-01: the cmux-tui and acpmux daemons outlive the app, so a launch can attach to the daemon of an earlier
+    step, another copy or another commit). `daemons`: [{"name", "pid", "exe", "build_id", "started_wall"}] as read by
+    read_daemons(). A round is "run" only when each daemon it found runs a binary inside `app_bundle` and started at or
+    after this launch's spawn, and (bundle_builds: {"cmux-tui": id, "acpmux": id} of the bundle's own binaries) reports
+    that build; else "not_run" with the reasons. A launch that found no daemon is "not_run" too: the
+    build of the daemon that served it is unknown. Returns {"verdict", "reasons", "daemons"}."""
+    bundle = os.path.realpath(app_bundle).rstrip("/") + "/"
+    hashes = bundle_binary_hashes(app_bundle)
+    reasons = []
+    for d in daemons:
+        exe = os.path.realpath(d["exe"]) if d.get("exe") else ""
+        if not exe:
+            reasons.append(f"{d['name']} pid {d.get('pid')}: binary unknown")
+        elif not (exe.startswith(bundle) or host_exe_hash(exe) in hashes):
+            reasons.append(f"{d['name']} pid {d.get('pid')} runs {exe}, not a binary of the app under test {bundle}")
+        # Hosts are judged by binary only: restart adopts hosts on purpose and warm keeps the prime's (review of
+        # #29878); a host of another build still fails on its binary above.
+        if d["name"] in ("cmux-tui", "acpmux") and d.get("started_wall") is not None and spawned_wall is not None \
+                and d["started_wall"] < spawned_wall - 1.0:
+            reasons.append(f"{d['name']} pid {d.get('pid')} started {spawned_wall - d['started_wall']:.1f} s before "
+                           "this launch: a daemon left from an earlier launch")
+    builds = bundle_builds or {}
+    for d in daemons:
+        want = builds.get(d["name"])
+        if want and d.get("build_id") and d["build_id"] != want:
+            reasons.append(f"{d['name']} pid {d.get('pid')} reports build {d['build_id']}, the app under test has {want}")
+    if not any(d["name"] == "cmux-tui" for d in daemons):
+        reasons.append("no cmux-tui owner answered identify: the daemon's build is unknown")
+    return {"verdict": "not_run" if reasons else "run", "reasons": reasons, "daemons": daemons}
+
+
+# The bundle's binaries a terminal host, holder or agent host may run (host_exe.rs: a host runs from
+# <host-exe root>/<sha256 of the bundle's file>/<name>, outside the bundle; acpmux agent hosts run the bundle's acpmux).
+HOST_BINARIES = ("cmux-tui", "cmux-tui-host", "cmux-holder", "acpmux")
+HOST_EXE_RE = re.compile(r"/host-exe/([0-9a-f]{64})/[^/]+$")
+
+
+def host_exe_hash(exe):
+    """The <sha256> of a content-addressed host copy's path, or None for any other path."""
+    found = HOST_EXE_RE.search(exe or "")
+    return found.group(1) if found else None
+
+
+def bundle_binary_hashes(app_bundle):
+    """SHA-256 of each host binary of the app under test (the names host_exe.rs copies), as hex."""
+    import hashlib
+    out = set()
+    for name in HOST_BINARIES:
+        path = os.path.join(app_bundle, "Contents/Resources/bin", name)
+        try:
+            digest = hashlib.sha256()
+            with open(path, "rb") as f:
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    digest.update(chunk)
+            out.add(digest.hexdigest())
+        except OSError:
+            continue
+    return out
+
+
+def process_start_wall(pid):
+    """A process's start time (seconds since the epoch): now minus its elapsed time (`ps -o etime`: [[dd-]hh:]mm:ss,
+    no time zone, so a daylight-saving change cannot shift it), or None."""
+    out = subprocess.run(["ps", "-o", "etime=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+    return wall_from_etime(out, time.time())
+
+
+def wall_from_etime(etime, now):
+    """Wall time a process started from its `ps -o etime` text; None when it is not that form."""
+    days, _, rest = etime.strip().rpartition("-")
+    parts = rest.split(":")
+    try:
+        if not 2 <= len(parts) <= 3:
+            return None
+        nums = [int(x) for x in parts]
+        seconds = nums[-1] + 60 * nums[-2] + (3600 * nums[0] if len(nums) == 3 else 0) + 86400 * (int(days) if days else 0)
+    except ValueError:
+        return None
+    return now - seconds
+
+
+def process_exe(pid):
+    """A process's real exec path (sysctl KERN_PROCARGS2's first word; argv[0], which `ps -o comm` shows, can be
+    anything), or "" when it cannot be read."""
+    try:
+        import ctypes
+        libc = ctypes.CDLL(None, use_errno=True)
+        size = ctypes.c_int(0)
+        length = ctypes.c_size_t(ctypes.sizeof(size))
+        if libc.sysctl((ctypes.c_int * 2)(1, 8), 2, ctypes.byref(size), ctypes.byref(length), None, 0) != 0:
+            return ""
+        buffer = ctypes.create_string_buffer(size.value)
+        length = ctypes.c_size_t(size.value)
+        if libc.sysctl((ctypes.c_int * 3)(1, 49, int(pid)), 3, buffer, ctypes.byref(length), None, 0) != 0:
+            return ""
+        return os.fsdecode(buffer.raw[4:length.value].split(b"\0", 1)[0])
+    except (OSError, AttributeError, ValueError):
+        return ""
+
+
+def bundle_daemon_builds(app_bundle):
+    """The build ids the bundle's own binaries report, with no daemon: cmux-tui `--version --json` "build_identity" (its
+    daemon's identify "build_id") and acpmux `--version` "acpmux <ver> (<build>)" (its daemon's status "build",
+    hub::BUILD). {} entries are missing when a binary cannot be asked."""
+    out = {}
+    bin_dir = os.path.join(app_bundle, "Contents/Resources/bin")
+    try:
+        text = subprocess.run([os.path.join(bin_dir, "cmux-tui"), "--version", "--json"], capture_output=True,
+                              text=True, timeout=10).stdout
+        found = (json.loads(text) or {}).get("build_identity")
+        if found:
+            out["cmux-tui"] = found
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        pass
+    try:
+        text = subprocess.run([os.path.join(bin_dir, "acpmux"), "--version"], capture_output=True, text=True,
+                              timeout=10).stdout
+        found = re.search(r"\(([^()]+)\)\s*$", text.strip())
+        if found:
+            out["acpmux"] = found.group(1)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return out
+
+
+def app_build(app_bundle):
+    """The app's build: Info.plist CMUXCommit (or CMUXGitSHA), else None."""
+    try:
+        with open(os.path.join(app_bundle, "Contents/Info.plist"), "rb") as f:
+            info = plistlib.load(f)
+        return info.get("CMUXCommit") or info.get("CMUXGitSHA")
+    except (OSError, ValueError):
+        return None
+
+
+def read_daemons(tag):
+    """The daemons that serve the tag now: the cmux-tui owner (identify on its socket: build_id, pid, cli_path) and
+    every acpmux daemon of the tag's acpmux homes. Never raises: a daemon it cannot read is listed with what it knows."""
+    found = []
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from bench_cli_storm import Client  # noqa: E402
+        client = Client(daemon_socket(tag, timeout=5), timeout=5)
+        reply = client.call("identify", {}, cmd_key="cmd")
+        client.close()
+        info = reply.get("data") or reply.get("result") or reply
+        pid = info.get("pid")
+        found.append({"name": "cmux-tui", "pid": pid, "build_id": info.get("build_id"),
+                      "exe": info.get("cli_path") or (process_exe(pid) if pid else ""),
+                      "started_wall": process_start_wall(pid) if pid else None})
+    except (OSError, SystemExit, ValueError, AttributeError, ImportError, KeyError, TypeError) as error:
+        print(f"  {tag}: could not read the cmux-tui owner ({error})", file=sys.stderr)
+    found += read_hosts(tag)
+    homes = {os.path.realpath(d) for d in state_directories(tag)[1:3]}
+    bundle_name = f"cmux DEV {tag}.app/"
+    for line in subprocess.run(["ps", "-U", str(os.getuid()), "-o", "pid=,command="], capture_output=True,
+                               text=True).stdout.splitlines():
+        parts = line.strip().split(None, 1)
+        if len(parts) != 2 or "acpmux daemon run" not in parts[1]:
+            continue
+        pid = int(parts[0])
+        home = procargs_env(pid).get("ACPMUX_HOME")
+        # Fail closed: an acpmux of any copy of this tag's app counts (it is judged by its binary), and so does one with
+        # this tag's home, so a daemon in a home the bench does not know about is still found.
+        if bundle_name in parts[1] or (home and os.path.realpath(home) in homes):
+            found.append({"name": "acpmux", "pid": pid, "build_id": acpmux_build(pid), "exe": process_exe(pid),
+                          "started_wall": process_start_wall(pid)})
+    return found
+
+
+def acpmux_build(pid):
+    """The acpmux daemon's own build (its `_acpmux/status` "build"), read with the daemon's own binary
+    (`acpmux daemon status --json`, ACPMUX_HOME/ACPMUX_SOCKET from its environment); None when it cannot be read."""
+    env = procargs_env(pid)
+    exe = process_exe(pid)
+    if not exe or not env.get("ACPMUX_HOME"):
+        return None
+    run_env = {"HOME": os.environ.get("HOME", ""), "PATH": "/usr/bin:/bin", "ACPMUX_HOME": env["ACPMUX_HOME"]}
+    if env.get("ACPMUX_SOCKET"):
+        run_env["ACPMUX_SOCKET"] = env["ACPMUX_SOCKET"]
+    try:
+        out = subprocess.run([exe, "daemon", "status", "--json"], capture_output=True, text=True, timeout=10,
+                             env=run_env).stdout
+        return (json.loads(out) or {}).get("build")
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+
+
+def read_hosts(tag):
+    """The tag's terminal hosts and holders (tag_teardown's own matching: --owner <bundle id>:<tag>@<daemon pid>, the
+    tag's host roots) and its acpmux agent hosts (`acpmux __agent-host` run from any copy of this tag's app: acpmux gives
+    them an allowlisted environment with no ACPMUX_HOME). Hosts keep their binary until their terminal or agent ends
+    (DAEMON SKEW 2703), so each is judged by its binary."""
+    out = []
+    try:
+        from tag_teardown import TagTeardown  # noqa: E402
+        td = TagTeardown(os.path.dirname(os.path.dirname(os.path.dirname(app_binary(tag)))), log=lambda line: None)
+        td.state_roots.add(os.path.join(app_support_tag(tag), "tui"))
+        for pid, command in td.processes():  # one process list; each command from that same list
+            if is_host_command(command) and " __agent-host" not in f" {command}":
+                out.append({"name": "terminal-host", "pid": pid, "build_id": None, "exe": process_exe(pid),
+                            "started_wall": process_start_wall(pid)})
+    except (ImportError, OSError, AttributeError, TypeError, ValueError, SystemExit) as error:
+        print(f"  {tag}: could not read the terminal hosts ({error})", file=sys.stderr)
+    bundle_name = f"cmux DEV {tag}.app/"
+    for line in subprocess.run(["ps", "-U", str(os.getuid()), "-o", "pid=,command="], capture_output=True,
+                               text=True).stdout.splitlines():
+        parts = line.strip().split(None, 1)
+        if len(parts) == 2 and " __agent-host" in f" {parts[1]}":
+            pid = int(parts[0])
+            exe = process_exe(pid)
+            if bundle_name in exe or bundle_name in parts[1]:
+                out.append({"name": "agent-host", "pid": pid, "build_id": None, "exe": exe,
+                            "started_wall": process_start_wall(pid)})
+    return out
+
+
+def procargs_env(pid):
+    """A process's environment (same user), through tag_teardown's procargs; {} when it cannot be read."""
+    try:
+        from tag_teardown import procargs  # noqa: E402
+        found = procargs(pid)
+        return found[1] if found else {}
+    except (ImportError, OSError):
+        return {}
+
+
 def reset_state(tag):
-    """A first launch: no daemon, no saved workspaces, sidebar or agent sessions."""
-    stop(tag_pids(tag))
+    """A first launch: no daemon, no host, no saved workspaces, sidebar or agent sessions."""
+    stop(tag_daemon_pids(tag))
+    end_tag_hosts(tag)  # before the state roots go: the hosts are found through them
     for directory in state_directories(tag):
         shutil.rmtree(directory, ignore_errors=True)
 
@@ -361,8 +930,9 @@ def seed_realistic(tag, scratch, timeout):
     reset_state(tag)
     prime = Launch(tag, scratch)
     try:
-        if not prime.wait_for([FINAL_MARK, AGENT_MARK], timeout, any_of=True):
-            raise SystemExit(f"tag {tag}: the seeding launch never drew a terminal")
+        if not prime.wait_for(SEED_READY, timeout, any_of=True):
+            raise SystemExit(f"tag {tag}: the seeding launch never connected to its daemon "
+                             f"(marks: {', '.join(sorted(prime.marks)) or 'none'})")
         daemon = Client(daemon_socket(tag), timeout=10)
 
         def workspaces():
@@ -429,6 +999,46 @@ def seed_realistic(tag, scratch, timeout):
         out.write(f"agent focus={seed_layout()}\n" if agent else f"terminals focus={seed_layout()}\n")
 
 
+def seed_stress(tag, scratch, timeout):
+    """Fills the tag's state with the standard STRESS session (see --profile stress) and leaves the daemon running."""
+    import importlib.util  # noqa: E402
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "perf-stress-session.py")
+    spec = importlib.util.spec_from_file_location("perf_stress_session", path)
+    stress = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(stress)
+    reset_state(tag)
+    prime = Launch(tag, scratch)
+    try:
+        if not prime.wait_for(SEED_READY, timeout, any_of=True):
+            raise SystemExit(f"tag {tag}: the seeding launch never connected to its daemon "
+                             f"(marks: {', '.join(sorted(prime.marks)) or 'none'})")
+        app_client(tag).close()  # the control socket answers
+        socket_path = next(path for path in socket_candidates(tag) if os.path.exists(path))
+        session = stress.Stress(stress.socket_rpc(socket_path))
+        try:
+            summary = session.build()
+        finally:
+            # The page server lives only in this process: close it now, so every measured run (this invocation's
+            # and a later one's, which finds the marker) restores the same pages with no server behind them.
+            session.close()
+        print("BENCH-STRESS " + json.dumps(summary), flush=True)
+    finally:
+        prime.quit()
+    with open(seeded_marker(tag), "w") as out:
+        out.write(f"stress placement={WINDOW_PLACEMENT}\n")
+
+
+def seeded_stress(tag):
+    """A STRESS session seeded under this run's window placement: one saved under the other placement restores
+    another window size, so it is seeded again."""
+    try:
+        with open(seeded_marker(tag)) as marker:
+            text = marker.read()
+    except OSError:
+        return False
+    return text.startswith("stress") and f"placement={WINDOW_PLACEMENT}" in text
+
+
 def seeded_agent(tag):
     try:
         with open(seeded_marker(tag)) as marker:
@@ -459,12 +1069,22 @@ def one_run(tag, mode, timeout, profile=None):
         out.write("{}\n")
     if app_pids(tag):
         raise SystemExit(f"tag {tag} has an app running; quit it first (this bench only stops what it starts)")
+    # Rule (c) and the daemon floor, before anything starts a daemon (reset, seed, stop, prime): the step's first run of
+    # the tag ends every owner, daemon and host of the tag from any copy, in every mode, and takes the floor. Warm and
+    # restart then keep THIS step's daemons on purpose: they started after the floor.
+    if tag not in STEP_STARTED_WALL:
+        stop_for_arm(tag)
+        STEP_STARTED_WALL[tag] = time.time()
     # A first launch shows the agent New Tab page, not a terminal: other
     # profiles end at whichever content draws first.
     final = [FINAL_MARK, AGENT_MARK]
-    any_of = profile != "realistic"
+    any_of = profile not in ("realistic", "stress")
     if profile == "empty":
         reset_state(tag)
+    elif profile == "stress":
+        if NEW_SESSION_EACH_RUN or not seeded_stress(tag):
+            seed_stress(tag, scratch, timeout)
+        final = [FINAL_MARK]
     elif profile == "realistic" and seeded_focus(tag) != seed_layout():
         seed_realistic(tag, scratch, timeout)
     if profile == "realistic" and not seeded_agent(tag):
@@ -472,8 +1092,8 @@ def one_run(tag, mode, timeout, profile=None):
     if mode == "cold":
         # Builds of one tag (a before and an after copy) share its daemon.
         for other in RUN_TAGS or [tag]:
-            stop(tag_pids(other))
-        if tag_pids(tag):
+            stop_for_arm(other)
+        if tag_daemon_pids(tag):
             raise SystemExit(f"tag {tag}: daemon processes did not exit")
     elif mode == "restart":
         if not owner_pids(f"cmux-app-{tag}"):
@@ -485,19 +1105,88 @@ def one_run(tag, mode, timeout, profile=None):
         prime = Launch(tag, scratch)
         prime.wait_for([FINAL_MARK, AGENT_MARK], timeout, any_of=True)
         prime.quit()
-    launch = Launch(tag, scratch)
+    # Cold allows no daemon older than this launch; warm and restart allow this step's (the floor taken above).
+    floor = time.time() if mode == "cold" else STEP_STARTED_WALL[tag]
+    launch = Launch(tag, scratch, active=ACTIVATION == "active")
+    daemons = None
     try:
         reached = launch.wait_for(final, timeout, any_of=any_of)
+        if reached and "terminal.launch_frame_shown" in launch.marks:
+            # The last visible terminal's saved frame can land after the first live frame: wait briefly for it, so a
+            # run never drops the reopen number (a build without the per-pane mark waits this long and has none).
+            # Only that mark is kept from the grace: other marks landing in it would count for a build without the
+            # mark (it waits the whole grace) and not for one with it (it ends at once), so the rows would differ.
+            before = set(launch.marks)
+            launch.wait_for(VISIBLE_MARK, VISIBLE_GRACE_S)
+            for late in set(launch.marks) - before - {VISIBLE_MARK}:
+                launch.marks.pop(late, None)
+                launch.arrived.pop(late, None)
+        daemons = read_daemons(tag)  # while the app runs: the daemons that served this launch
+        if profile == "stress":  # the per-pane reopen rows (#32274); other profiles keep their run time
+            launch.terminals = launch_terminals(tag)
+            launch.frames_before_quit = frame_files(tag)  # the keeper's files while the app runs (#31967)
         if HANG_THRESHOLD_MS:
             launch.stalls = launch_stalls(tag)
+        # The measured point: is the app the active, frontmost app? After the stalls are read: its debug.focus runs
+        # on the app's main thread and would show as a stall itself.
+        launch.front = front_app(launch)
     finally:
         launch.quit()
+        launch.linger = watch_linger(tag, time.monotonic())
     if not reached:
         missing = [mark for mark in final if mark not in launch.marks]
         print(f"  {tag} {mode}: {', '.join(missing)} not reached within {timeout} s", file=sys.stderr)
+    marks = dict(launch.marks)
+    marks["launch_terminals"] = getattr(launch, "terminals", None)
+    marks["front_at_measure"] = getattr(launch, "front", None)
+    marks["activation"] = "active" if launch.active else "inactive"
+    marks["quit_marks"] = getattr(launch, "quit_marks", {})
+    marks["frames_before_quit"] = getattr(launch, "frames_before_quit", None)
+    marks["frames_after_quit"] = frame_files(tag)
     if getattr(launch, "stalls", None) is not None:
-        return {**launch.marks, "stalls": launch.stalls}
-    return launch.marks
+        marks["stalls"] = launch.stalls
+    marks["linger"] = launch.linger
+    app_bundle = os.path.dirname(os.path.dirname(os.path.dirname(app_binary(tag))))
+    marks["daemons"] = daemon_verdict(app_bundle, daemons or [], floor, bundle_daemon_builds(app_bundle))
+    marks["app_bundle"] = app_bundle
+    marks["app_build"] = app_build(app_bundle)
+    print("BENCH-DAEMONS " + json.dumps({"mode": mode, **marks["daemons"]}), flush=True)
+    if marks["daemons"]["verdict"] != "run":
+        print(f"  {tag} {mode}: NOT RUN: " + "; ".join(marks["daemons"]["reasons"]), file=sys.stderr, flush=True)
+    marks["bench_clock"] = {"popen_ms": round((launch.popen_returned_at - launch.spawned_at) * 1000, 1),
+                            "arrived_ms": {k: launch.arrived[k] for k in ("main_start", "first_window_frame_committed",
+                                                                          FINAL_MARK, AGENT_MARK) if k in launch.arrived}}
+    # An active launch's popen_ms is the time to start `open`, not the app: its spawn-to-main is LaunchServices'.
+    marks["bench_clock"]["activation"] = marks["activation"]
+    print("BENCH-CLOCK " + json.dumps({"mode": mode, **marks["bench_clock"],
+                                       "app_main_start_ms": launch.marks.get("main_start")}), flush=True)
+    return marks
+
+
+def launch_terminals(tag):
+    """The launch's visible terminals (debug.timings `launch_terminals`): by tab key, when each asked for its saved
+    frame, when it showed (`frame_shown_ms`) or why it did not (`missed`: no_frame, size, scale, live), and the max."""
+    errors = []
+    for _ in range(3):
+        try:
+            reply = app_client(tag, timeout=2).call("debug.timings")
+            result = reply.get("result")
+            if isinstance(result, dict) and "launch_terminals" in result:
+                return {"panes": result["launch_terminals"], "max_ms": result.get("launch_terminals_frame_shown_max_ms")}
+            errors.append(json.dumps(reply.get("error") or reply)[:300])
+        except (OSError, ValueError, SystemExit) as error:
+            errors.append(str(error)[:300])
+        time.sleep(0.2)  # bench: the control socket answers again
+    return {"panes": None, "errors": errors}
+
+
+def frame_files(tag):
+    """The saved terminal frames on disk after the quit: {file: bytes} (TerminalLaunchFrames' folder)."""
+    directory = os.path.join(app_support_tag(tag), "terminal-launch-frames")
+    try:
+        return {name: os.path.getsize(os.path.join(directory, name)) for name in sorted(os.listdir(directory))}
+    except OSError:
+        return None
 
 
 def launch_stalls(tag):
@@ -527,7 +1216,7 @@ def daemon_side(tag, runs):
     if app_pids(tag):
         raise SystemExit(f"tag {tag} has an app running; quit it first")
     tmp = subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True).stdout.strip()
-    state = os.path.expanduser(f"~/Library/Application Support/cmux/tags/{tag}/tui")
+    state = os.path.join(app_support_tag(tag), "tui")
 
     def env(state_dir):
         return {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
@@ -608,9 +1297,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--tag", action="append", default=[])
     parser.add_argument("--app", action="append", default=[], help="a staged `cmux DEV <tag>.app` (fleet artifact)")
-    parser.add_argument("--profile", choices=["empty", "realistic"],
-                        help="empty: no saved state before each run; realistic: a seeded day's work "
-                             "(default: whatever state the tag has)")
+    parser.add_argument("--profile", choices=["empty", "realistic", "stress"],
+                        help="empty: no saved state before each run; realistic: a seeded day's work; stress: the "
+                             "standard STRESS session (default: whatever state the tag has)")
     parser.add_argument("--focus", choices=["agent", "terminal"], default="agent",
                         help="realistic: the focused pane at quit, the agent chat or a terminal beside it")
     parser.add_argument("--chat-pane", choices=["first", "last"], default="last",
@@ -624,11 +1313,36 @@ def main():
     parser.add_argument("--order", action="append", default=[], metavar="FIRST<SECOND",
                         help="exit 1 when, in any run, mark SECOND is missing or comes before mark FIRST "
                              "(for example first_window_frame_committed<launch.non_paint_services)")
+    parser.add_argument("--window-placement", choices=["test", "restore"],
+                        help="test: every window at the agent test size (1100 x 720) on the last screen, in front, the "
+                             "saved frame ignored; restore: the app reopens each window at its saved frame, ordered "
+                             "behind and not key (default: restore for --profile stress, else test). STRESS numbers "
+                             "from before restore was its default had a smaller window and are not comparable")
+    parser.add_argument("--new-session-each-run", action="store_true",
+                        help="--profile stress: build a new STRESS session before every measured launch, so each run "
+                             "is the first relaunch after a new session")
+    parser.add_argument("--activation", choices=["active", "inactive"],
+                        help="active: the measured launch goes through LaunchServices (open), so the app is the "
+                             "frontmost, active app as after a Dock click, checked with lsappinfo front at the measured "
+                             "point (front_at_measure); inactive: spawned with no activation, behind and not key "
+                             "(default: active for --profile stress with restore placement, else inactive)")
     parser.add_argument("--hangs", type=int, metavar="MS",
                         help="record main-thread stalls over MS during each launch (debug.hangs) and print the worst")
     args = parser.parse_args()
-    global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE
+    global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE, WINDOW_PLACEMENT, NEW_SESSION_EACH_RUN, ACTIVATION
     HANG_THRESHOLD_MS = args.hangs
+    # STRESS measures the reopen a person gets: its windows restore where they were (#32493). The STRESS seed sizes
+    # its window to 1600 x 1000; under the test placement every relaunch opened at 1100 x 720 instead, so the first
+    # relaunch after a seed refused every saved frame for its size.
+    WINDOW_PLACEMENT = args.window_placement or ("restore" if args.profile == "stress" else "test")
+    NEW_SESSION_EACH_RUN = args.new_session_each_run
+    if NEW_SESSION_EACH_RUN and args.profile != "stress":
+        parser.error("--new-session-each-run needs --profile stress")
+    # STRESS with the app's own restore is the reopen a person gets: the app frontmost and active (Lead 2026-11-02:
+    # an inactive app's main thread runs on E cores, so its launch numbers come out too high).
+    ACTIVATION = args.activation or ("active" if args.profile == "stress" and WINDOW_PLACEMENT == "restore" else "inactive")
+    if ACTIVATION == "active" and WINDOW_PLACEMENT == "test":
+        parser.error("--activation active needs --window-placement restore (the test placement is an agent launch)")
     SEED_FOCUS = args.focus
     SEED_CHAT_PANE = args.chat_pane
     for path in args.app:
@@ -664,24 +1378,47 @@ def main():
         for tag in args.tag:
             stop(tag_pids(tag))
     print(f"load average: {' '.join(f'{x:.0f}' for x in os.getloadavg())}")
+    counted = {tag: {mode: [r for r in runs if counts(r)] for mode, runs in modes_.items()}
+               for tag, modes_ in results.items()}
     for tag in args.tag:
         for mode in modes:
-            runs = results[tag][mode]
+            not_run = len(results[tag][mode]) - len(counted[tag][mode])
+            if not_run:
+                print(f"\n{tag} {mode}: {not_run} of {len(results[tag][mode])} runs NOT RUN (their daemons or hosts are "
+                      "not the build under test); they are left out below", flush=True)
+            runs = counted[tag][mode]
+            if not runs:
+                # Every run of this tag and mode was served by processes of another build: no number, no pass, no fail.
+                print(f"\n{tag} {mode}: NOT RUN (no run counts)", flush=True)
+                continue
             print(f"\n{tag} {mode} {args.profile or 'kept'} profile ({len(runs)} runs), ms since process start")
             print(f"  {'phase':<46} {'median':>8} {'max':>8} {'gap':>8}  n")
             for label, mark, median, worst, gap, count in table(runs):
                 print(f"  {label:<46} {median:>8.0f} {worst:>8.0f} {gap:>+8.0f}  {count}")
             if args.hangs:
                 print_stalls(runs)
+    not_run_sets = [f"{tag} {mode}" for tag, modes_ in counted.items() for mode, runs in modes_.items()
+                    if results[tag][mode] and not runs]
     if args.json:
         with open(args.json, "w") as out:
-            json.dump(results, out, indent=1)
+            json.dump({**results, "not_run": not_run_sets} if not_run_sets else results, out, indent=1)
     orders = args.order + (LAUNCH_ORDER if args.budget else [])
-    over = check_budgets(results, args.budget) + check_orders(results, orders)
+    over = check_budgets(counted, args.budget) + check_orders(counted, orders)
     for line in over:
         print(f"over budget: {line}", file=sys.stderr)
     if over:
         sys.exit(1)
+    if not_run_sets:
+        # A not-run set is never a pass (exit 0) or a fail (exit 1): its own status.
+        print(f"NOT RUN: {', '.join(not_run_sets)}", file=sys.stderr)
+        sys.exit(NOT_RUN_EXIT)
+
+
+def counts(run):
+    """A run counts toward a table, budget or order only when its daemons and hosts were the build under test (a run
+    with no verdict, from an older bench, counts as before)."""
+    verdict = (run.get("daemons") or {}).get("verdict") if isinstance(run, dict) else None
+    return verdict in (None, "run")
 
 
 def check_budgets(results, budgets):

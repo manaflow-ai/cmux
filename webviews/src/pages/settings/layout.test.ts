@@ -109,9 +109,10 @@ test("the refined look stacks a narrow pane too: no side border, strip-sized tab
   expect(refined(".settings > .sidebar", "padding", 480)).toBe("10px 12px 8px");
   expect(refined(".settings .section-link", "padding", 480)).toBe("4px 8px");
   expect(refined(".settings .section-link", "min-height", 480)).toBe("0");
-  expect(refined(".settings > .content", "margin", 480)).toBe("0 6px 6px");
-  // A wide pane keeps the sidebar's column edge.
-  expect(refined(".settings > .sidebar", "border-right", 1000)).toBe("1px solid var(--polish-edge)");
+  // The content pane paints no fill of its own (user, 2026-10-30: one background), so it needs no
+  // inset gap at any width; a wide pane has no divider beside the sidebar either.
+  expect(refined(".settings > .content", "margin", 480)).toBe("0");
+  expect(refined(".settings > .sidebar", "border-right", 1000)).toBe("0");
 });
 
 test("the masked content pane draws no outline at any width", () => {

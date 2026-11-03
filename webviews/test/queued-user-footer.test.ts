@@ -3,6 +3,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { agentPaneTheme } from "../src/gallery/theme/web";
 import { deriveTokens, GHOSTTY_DEFAULT, rgbHex } from "../src/gallery/theme/tokens";
+import { gridLength } from "../src/agent-session/acpmux/transcriptGrid";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -208,7 +209,22 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
                 const bubble = element.querySelector(".cv-user__bubble")!.getBoundingClientRect();
                 const footer = element.querySelector(".cv-user__actions")!.getBoundingClientRect();
                 const row = element.getBoundingClientRect();
+                // The controls themselves, not only their row: the last glyph's ink on the bubble's
+                // edge, the glyphs' gap under the bubble, and every icon button's square.
+                const glyphs = [...element.querySelectorAll(".cv-user__actions .cv-iconbtn > svg")].map((svg) =>
+                  svg.getBoundingClientRect(),
+                );
+                const buttons = [...element.querySelectorAll(".cv-user__actions .cv-iconbtn")].map((button) =>
+                  button.getBoundingClientRect(),
+                );
                 return {
+                  lastGlyphRight: glyphs.at(-1)!.right,
+                  glyphGap: glyphs[0]!.top - bubble.bottom,
+                  glyphSize: glyphs.at(-1)!.width,
+                  buttonSizes: buttons.map((box) => [box.width, box.height]),
+                  copySize: ((box) => [box.width, box.height])(
+                    element.querySelector('.cv-user__actions [aria-label="Copy"]')!.getBoundingClientRect(),
+                  ),
                   bubbleLeft: bubble.left,
                   bubbleRight: bubble.right,
                   bubbleWidth: bubble.width,
@@ -232,7 +248,25 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
             console.log("QUEUE_FOOTER_GEOMETRY", JSON.stringify({ width, length, themeName, before, after }));
             expect(before.footerGap).toBeGreaterThanOrEqual(0);
             expect(Math.abs(before.bubbleRight - before.rowRight)).toBeLessThanOrEqual(1);
-            expect(Math.abs(before.footerRight - before.bubbleRight)).toBeLessThanOrEqual(1);
+            // The row's 28 controls overhang the bubble's edge by their glyph inset, so their glyphs
+            // end on it (design/grid.md 5.5).
+            const overhang = (gridLength("transcript-action-control") - gridLength("transcript-icon-box")) / 2;
+            expect(Math.abs(before.footerRight - overhang - before.bubbleRight)).toBeLessThanOrEqual(1);
+            // Send now, × and Copy sit as the sent prompt's row does (Leo, relayed 2026-11-03: "Send now ×
+            // and the copy icon float loosely under the bubble. Align them to the bubble's edge"): Copy's
+            // glyph ends on the bubble's right edge, the glyphs keep the sent row's gap under the bubble,
+            // and every icon button is the sent row's square.
+            const control = gridLength("transcript-action-control");
+            expect(Math.abs(before.lastGlyphRight - before.bubbleRight)).toBeLessThanOrEqual(1);
+            expect(Math.abs(after.lastGlyphRight - after.bubbleRight)).toBeLessThanOrEqual(1);
+            expect(Math.abs(before.glyphGap - after.glyphGap)).toBeLessThanOrEqual(1);
+            expect(before.glyphGap).toBeGreaterThan(0);
+            expect(before.glyphSize).toBe(after.glyphSize);
+            expect(after.copySize).toEqual([control, control]);
+            for (const [buttonWidth, buttonHeight] of before.buttonSizes) {
+              expect(buttonWidth).toBe(control);
+              expect(buttonHeight).toBe(control);
+            }
             for (const key of [
               "bubbleLeft",
               "bubbleRight",
@@ -250,6 +284,25 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
       }
     }
   }
+  test("a waiting steer's Copy writes its text without sending or withdrawing the steer", async () => {
+    const page = await open();
+    try {
+      await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+      const row = footer(page);
+      expect(await row.getByRole("button", { name: "Copy", exact: true }).count()).toBe(1);
+      await row.getByRole("button", { name: "Copy", exact: true }).click();
+      await row.getByRole("button", { name: "Copied", exact: true }).waitFor();
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(TEXT);
+      expect(
+        calls.filter((call) => call.method === "_acpmux/queue_edit" || call.method === "_acpmux/steer_withdraw"),
+      ).toHaveLength(0);
+      expect(await row.locator(".cv-user__send-now").count()).toBe(1);
+      expect(await row.locator(".cv-user__take-back").count()).toBe(1);
+      expect(await row.locator(".cv-user__time, .cv-user__read, .cv-user__dot, .cv-message-retry").count()).toBe(0);
+    } finally {
+      await page.context().close();
+    }
+  });
   test("an unread steer keeps queue controls and Copy; Send now reaches its prompt and accepted delivery shows hover actions", async () => {
     const page = await open();
     try {

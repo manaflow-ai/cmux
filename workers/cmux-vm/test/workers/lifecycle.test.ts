@@ -53,6 +53,7 @@ describe("createVm", () => {
       idleTimeoutSeconds: 300,
       metadata: { cmux_tenant: TENANT_A, cmux_id: id, cmux_env: "local", cmux_actor: expect.stringMatching(/^key:/), cmux_create: expect.stringMatching(/^[A-Za-z0-9_-]+$/) },
       firewall: { rules: [] },
+      customer: { customerId: TENANT_A },
     });
     const upstreamId = [...t.upstream.vms.keys()][0] ?? "missing";
     expect(text).not.toContain(upstreamId);
@@ -100,8 +101,8 @@ describe("createVm", () => {
     expect((await createVm(t, devTest, { idleTimeoutSeconds: 3600 })).status).toBe(400);
 
     expect(t.upstream.callsTo("POST", /^\/v5\/vms$/).map((call) => call.json)).toEqual([
-      expect.objectContaining({ idleTimeoutSeconds: -1, metadata: expect.objectContaining({ cmux_tenant: TENANT_A, cmux_env: "production" }) }),
-      expect.objectContaining({ idleTimeoutSeconds: 300, metadata: expect.objectContaining({ cmux_tenant: TENANT_B }) }),
+      expect.objectContaining({ idleTimeoutSeconds: -1, metadata: expect.objectContaining({ cmux_tenant: TENANT_A, cmux_env: "production" }), customer: { customerId: TENANT_A } }),
+      expect.objectContaining({ idleTimeoutSeconds: 300, metadata: expect.objectContaining({ cmux_tenant: TENANT_B }), customer: { customerId: TENANT_B } }),
     ]);
   });
 

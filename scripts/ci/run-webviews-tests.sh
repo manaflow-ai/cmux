@@ -25,10 +25,16 @@
 # outside the CMUX_WEB_TEST_RETRIES count: one slow file must not eat the failed files' retries, nor
 # they its (#27130's shard 4: two files timed out at 120 s beside 15 others, never retried, and
 # both passed alone in 61 s and 22 s on the base replay). Timeout retries have their own budget,
-# CMUX_WEB_TEST_TIMEOUT_RETRY_BUDGET seconds (default 240); one starts only when its whole limit
-# fits in what is left, so the shard's worst case stays bounded. A retry that times out again
+# CMUX_WEB_TEST_TIMEOUT_RETRY_BUDGET seconds when set; one starts only when its whole limit fits in
+# what is left. Unset (the default), every timed-out file gets its retry: a fixed 240 s fit two
+# retries of 21 s and 42 s and a third of 63 s, then kept 7 of 12 timed-out files red on a
+# 32-wide shard (job 123436110075), and each of those passed alone on the base replay. A retry that times out again
 # stays a TIMEOUT (never a pass, and never a named failure a base could share); one that passes
 # is listed as passing alone. CMUX_WEB_TEST_RETRIES=0 turns these retries off too.
+# CMUX_WEB_TEST_RETRY_DEADLINE: optional seconds after the runner starts by which every retry must
+# be done. A timeout retry starts only when its whole limit fits before it, and a failed file's
+# retry is cut at it, so the step stays inside its job's timeout-minutes however many files
+# timed out.
 # CMUX_WEB_TEST_JOBS: files run at once (default: CMUX_CI_CPU_BUDGET, the cores a fleet
 # worker granted the step, else the CPU count).
 # CMUX_WEB_TEST_BROWSER_JOBS: plain files that drive a real browser at once (default a quarter of the
@@ -227,14 +233,34 @@ case "$(git rev-parse --show-prefix)" in
     bun install --frozen-lockfile
     ;;
 esac
-# A fleet cmux-ci step that runs the browser lane (CMUX_BROWSER_TESTS=1, requireBrowserLane.ts) needs
-# the engines PR CI installs; without them the lane only ever ran in PR CI. They live in the step
+# No Playwright on Macs (Lawrence, 2026-11-02): no Playwright, Puppeteer or downloaded Chromium on his
+# Mac or on a fleet Mac. The engines Playwright downloads are an old Chromium (the headless shell) and
+# Playwright turns the Chromium sandbox off, and this install had left about 4.6 GB of them on 10 fleet
+# Macs. So a Mac outside GitHub Actions never installs an engine: it runs the lane without the browser
+# files, which then skip as they do without CMUX_BROWSER_TESTS (requireBrowserLane.ts). Playwright
+# looks for engines in a folder that cannot hold one, so an engine an earlier run left on the Mac never
+# launches either (a file that probes its engine skips when the launch fails). The browser lane runs
+# in CI or on a Linux cloud VM.
+# Elsewhere (Linux), a cmux-ci step that runs the browser lane (CMUX_BROWSER_TESTS=1) needs the
+# engines PR CI installs; without them the lane only ever ran in PR CI. They live in the step
 # cache, one directory per Playwright version, so a host downloads each once. GitHub Actions
 # installs its own (cmux-next-web-bundles.yml).
-if [ "${CMUX_BROWSER_TESTS:-}" = 1 ] && [ "${GITHUB_ACTIONS:-}" != true ]; then
+if [ "${GITHUB_ACTIONS:-}" != true ] && [ "$(uname -s)" = Darwin ]; then
+  if [ "${CMUX_BROWSER_TESTS:-}" = 1 ]; then
+    echo "browser lane: not on a Mac (Lawrence's rule: no Playwright on Macs); run it in CI or on a cloud VM"
+  fi
+  unset CMUX_BROWSER_TESTS
+  export PLAYWRIGHT_BROWSERS_PATH=/var/empty/cmux-no-playwright-on-macs
+elif [ "${CMUX_BROWSER_TESTS:-}" = 1 ] && [ "${GITHUB_ACTIONS:-}" != true ]; then
   playwright_version="$(python3 -c 'import json; print(json.load(open("package.json"))["devDependencies"]["playwright"])' 2> /dev/null || echo unknown)"
   export PLAYWRIGHT_BROWSERS_PATH="${CMUX_CI_CACHE_DIR:-$HOME/Library/Caches/cmux-ci}/playwright-$playwright_version"
-  ./node_modules/.bin/playwright install --only-shell chromium webkit
+  ./node_modules/.bin/playwright install webkit
+  # Chromium is the system Google Chrome (test/preload.ts), never Playwright's bundled build, which
+  # lacks recent security fixes and runs unsandboxed. A host without a current Chrome skips Chromium.
+  chrome_out="$("$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ensure-system-chrome.sh" --optional)"
+  printf '%s\n' "$chrome_out"
+  shell_line="$(printf '%s\n' "$chrome_out" | grep '^CMUX_CHROME_HEADLESS_SHELL=' | tail -1 || true)"
+  [ -n "$shell_line" ] && export CMUX_CHROME_HEADLESS_SHELL="${shell_line#CMUX_CHROME_HEADLESS_SHELL=}"
 fi
 
 timeout_seconds="${CMUX_WEB_TEST_FILE_TIMEOUT:-120}"
@@ -289,40 +315,6 @@ keep = [name for name in listed if name in selected]
 path.write_bytes(b"".join(name.encode() + b"\0" for name in keep))
 PY
 fi
-shard="${CMUX_WEB_TEST_SHARD:-}"
-shard_count="${CMUX_WEB_TEST_SHARD_COUNT:-}"
-durations="${CMUX_WEB_TEST_DURATIONS:-/dev/null}"
-# Two dev servers at once (composer-mention, composer-send-stop) optimize dependencies into the
-# same node_modules/.vite, and each loses files the other wrote. `"dev",` is the argument a file
-# passes when it spawns `vp dev` itself, `configFile: …` one that calls createServer. `--null`, not `-Z`: BSD grep reads -Z as decompress.
-dev_servers='vite\.config\.(acpmux-pane\.mjs|gallery-dev\.ts)|"dev",|configFile: path\.join\(webviews, "vite\.config'
-if [ -n "$shard" ] || [ -n "$shard_count" ]; then
-  if [[ ! "$shard" =~ ^[1-9][0-9]*$ || ! "$shard_count" =~ ^[1-9][0-9]*$ || "$shard" -gt "$shard_count" ]]; then
-    echo "error: CMUX_WEB_TEST_SHARD and CMUX_WEB_TEST_SHARD_COUNT must be a valid one-based shard" >&2
-    exit 2
-  fi
-  # The split weighs dev-server files by how few run at once, so it needs them before it splits.
-  xargs -0 grep -lE --null -- "$dev_servers" < "$results/files" > "$results/all-serial" || true
-  python3 "$shards_py" assign "$results/files" "$results/all-serial" "$durations" "$shard" "$shard_count" \
-    > "$results/shard-files"
-  mv "$results/shard-files" "$results/files"
-fi
-count="$(tr -cd '\0' < "$results/files" | wc -c | tr -d ' ')"
-if [ "$count" -eq 0 ]; then
-  echo "error: no webviews test files found under $PWD${shard:+ for shard $shard/$shard_count}" >&2
-  exit 1
-fi
-xargs -0 grep -lE --null -- "$dev_servers" < "$results/files" > "$results/serial" || true
-serial="$(tr -cd '\0' < "$results/serial" | wc -c | tr -d ' ')"
-xargs -0 grep -LE --null -- "$dev_servers" < "$results/files" > "$results/parallel" || true
-# With recorded durations: plain files start longest first, and each Vite config warms on its
-# shortest file (accent-glass-invariants warmed alone for 549 s of an 18.6 min shard, run 40815704587).
-if [ "$durations" != /dev/null ]; then
-  for list in parallel:desc serial:asc; do
-    python3 "$shards_py" order "$results/${list%%:*}" "$durations" "${list#*:}" > "$results/ordered"
-    mv "$results/ordered" "$results/${list%%:*}"
-  done
-fi
 # A quarter of the jobs: each dev server file runs a Vite server and a browser, and at jobs / 2 the
 # 8-core runner was CPU bound (no faster per file) and frame-budget plays (instructions-notice)
 # and attach timing (agent-pane-seen) failed.
@@ -342,6 +334,47 @@ browser_jobs="${CMUX_WEB_TEST_BROWSER_JOBS:-$((jobs > 3 ? jobs / 4 : 1))}"
 [[ "$browser_jobs" =~ ^[1-9][0-9]*$ ]] || browser_jobs=1
 if [ "$browser_jobs" -gt "$jobs" ]; then browser_jobs="$jobs"; fi
 plain_jobs=$((jobs - browser_jobs))
+# The split weighs each file by the pool it runs in, so it gets these widths, but only widths the
+# workflow set (CMUX_WEB_TEST_JOBS): widths from this runner's cores could differ between shards,
+# and shards that split differently skip or repeat files. Unset, the split keeps its own widths.
+# At one job there is no plain lane beside the browser one (the pools run in turn); the split then
+# counts one plain lane, which only an unsharded run (the base replay) ever has.
+split_widths=""
+if [[ "${CMUX_WEB_TEST_JOBS:-}" =~ ^[1-9][0-9]*$ && "$browser_jobs$dev_jobs" =~ ^[0-9]+$ ]]; then split_widths="$((plain_jobs > 0 ? plain_jobs : 1)),$browser_jobs,$dev_jobs"; fi
+shard="${CMUX_WEB_TEST_SHARD:-}"
+shard_count="${CMUX_WEB_TEST_SHARD_COUNT:-}"
+durations="${CMUX_WEB_TEST_DURATIONS:-/dev/null}"
+# Two dev servers at once (composer-mention, composer-send-stop) optimize dependencies into the
+# same node_modules/.vite, and each loses files the other wrote. `"dev",` is the argument a file
+# passes when it spawns `vp dev` itself, `configFile: …` one that calls createServer. `--null`, not `-Z`: BSD grep reads -Z as decompress.
+dev_servers='vite\.config\.(acpmux-pane\.mjs|gallery-dev\.ts)|"dev",|configFile: path\.join\(webviews, "vite\.config'
+if [ -n "$shard" ] || [ -n "$shard_count" ]; then
+  if [[ ! "$shard" =~ ^[1-9][0-9]*$ || ! "$shard_count" =~ ^[1-9][0-9]*$ || "$shard" -gt "$shard_count" ]]; then
+    echo "error: CMUX_WEB_TEST_SHARD and CMUX_WEB_TEST_SHARD_COUNT must be a valid one-based shard" >&2
+    exit 2
+  fi
+  # The split weighs dev-server files by how few run at once, so it needs them before it splits.
+  xargs -0 grep -lE --null -- "$dev_servers" < "$results/files" > "$results/all-serial" || true
+  python3 "$shards_py" assign "$results/files" "$results/all-serial" "$durations" "$shard" "$shard_count" \
+    ${split_widths:+"$split_widths"} > "$results/shard-files"
+  mv "$results/shard-files" "$results/files"
+fi
+count="$(tr -cd '\0' < "$results/files" | wc -c | tr -d ' ')"
+if [ "$count" -eq 0 ]; then
+  echo "error: no webviews test files found under $PWD${shard:+ for shard $shard/$shard_count}" >&2
+  exit 1
+fi
+xargs -0 grep -lE --null -- "$dev_servers" < "$results/files" > "$results/serial" || true
+serial="$(tr -cd '\0' < "$results/serial" | wc -c | tr -d ' ')"
+xargs -0 grep -LE --null -- "$dev_servers" < "$results/files" > "$results/parallel" || true
+# With recorded durations: plain files start longest first, and each Vite config warms on its
+# shortest file (accent-glass-invariants warmed alone for 549 s of an 18.6 min shard, run 40815704587).
+if [ "$durations" != /dev/null ]; then
+  for list in parallel:desc serial:asc; do
+    python3 "$shards_py" order "$results/${list%%:*}" "$durations" "${list#*:}" > "$results/ordered"
+    mv "$results/ordered" "$results/${list%%:*}"
+  done
+fi
 # Both lists keep the parallel list's order (longest first with durations): grep prints in input order.
 : > "$results/browser"
 : > "$results/plain"
@@ -453,8 +486,18 @@ retried=0
 retry_budget="${CMUX_WEB_TEST_RETRY_BUDGET:-120}"
 [[ "$retry_budget" =~ ^[0-9]+$ ]] || retry_budget=120
 retry_started=$SECONDS
-timeout_retry_budget="${CMUX_WEB_TEST_TIMEOUT_RETRY_BUDGET:-240}"
-[[ "$timeout_retry_budget" =~ ^[0-9]+$ ]] || timeout_retry_budget=240
+# Unset (the default), every timed-out file gets its retry: there are finitely many, each retry is
+# bounded by its own limit, and CMUX_WEB_TEST_RETRY_DEADLINE bounds them all. A budget summed from
+# their limits would not do: a retry's kill grace and cache upkeep run past its limit and would
+# cost the last file its retry.
+timeout_retry_budget="${CMUX_WEB_TEST_TIMEOUT_RETRY_BUDGET:-}"
+[[ "$timeout_retry_budget" =~ ^[0-9]+$ ]] || timeout_retry_budget=""
+retry_deadline="${CMUX_WEB_TEST_RETRY_DEADLINE:-}"
+[[ "$retry_deadline" =~ ^[0-9]+$ ]] || retry_deadline=""
+# deadline_left: seconds until CMUX_WEB_TEST_RETRY_DEADLINE (a large number when none is set).
+deadline_left() {
+  if [ -n "$retry_deadline" ]; then echo $((retry_deadline - SECONDS)); else echo 999999; fi
+}
 timeout_retried=0
 timeout_retry_spent=0
 : > "$results/retry-passed"
@@ -467,8 +510,15 @@ while read -r result file log; do
   normal_limit="$(file_limit "$file" "$timeout_seconds")"
   if [ "$result" = TIMEOUT ]; then
     # The timed-out file's own retry: its own budget, its full limit, never cut short.
-    timeout_remaining=$((timeout_retry_budget - timeout_retry_spent - (SECONDS - iteration_started)))
-    if [ "$timeout_remaining" -lt "$normal_limit" ]; then
+    timeout_remaining=999999
+    if [ -n "$timeout_retry_budget" ]; then
+      timeout_remaining=$((timeout_retry_budget - timeout_retry_spent - (SECONDS - iteration_started)))
+    fi
+    left="$(deadline_left)"
+    if [ "$left" -lt "$normal_limit" ]; then
+      echo "retry deadline (${left}s left) cannot fit $file's ${normal_limit}s limit: keeping TIMEOUT"
+      printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
+    elif [ "$timeout_remaining" -lt "$normal_limit" ]; then
       echo "timeout retry budget (${timeout_remaining}s left) cannot fit $file's ${normal_limit}s limit: keeping TIMEOUT"
       printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
     else
@@ -492,6 +542,8 @@ while read -r result file log; do
   fi
   # The failed files' shared budget is wall time since the retries began, less the timeout retries'.
   remaining=$((retry_budget - (SECONDS - retry_started - timeout_retry_spent)))
+  left="$(deadline_left)"
+  if [ "$left" -lt "$remaining" ]; then remaining="$left"; fi
   if [ "$remaining" -le 0 ]; then
     echo "retry budget exhausted: keeping $result $file"
     printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"

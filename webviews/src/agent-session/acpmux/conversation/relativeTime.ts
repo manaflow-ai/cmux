@@ -50,3 +50,38 @@ export function exactTime(at: number, locale?: string): string {
     return new Date(at).toLocaleString(undefined, EXACT);
   }
 }
+
+/// A reply's time in its action row, as ChatGPT writes it there on hover: "Oct 18, 5:41 AM", the
+/// year added only when it is not `now`'s ("Oct 18, 2025, 5:41 AM"), in `locale`'s order and words.
+export function replyTime(at: number, now: number, locale?: string): string {
+  const sameYear = new Date(at).getFullYear() === new Date(now).getFullYear();
+  const fields: Intl.DateTimeFormatOptions = sameYear ? { ...EXACT, year: undefined } : EXACT;
+  try {
+    return new Date(at).toLocaleString(locale, fields);
+  } catch {
+    return new Date(at).toLocaleString(undefined, fields);
+  }
+}
+
+/** First shared wall-clock minute where relativeTime's unit or rounded count changes. */
+export function nextRelativeTime(at: number, now: number): number {
+  if (!Number.isFinite(at)) return Infinity;
+  const age = -Math.round(Math.min(0, at - now) / 1000);
+  const unitIndex = UNITS.findIndex(([, size]) => age >= size);
+  const size = unitIndex < 0 ? 60 : UNITS[unitIndex][1];
+  const count = -Math.round(-age / size);
+  const nextCount = unitIndex < 0 ? 60 : Math.floor((count + 0.5) * size) + 1;
+  const nextUnit = unitIndex > 0 ? UNITS[unitIndex - 1][1] : Infinity;
+  // relativeTime first rounds negative seconds, then the negative unit count. Ties round toward
+  // zero, so the new second starts one millisecond after its half-second boundary.
+  const change = at + (Math.min(nextCount, nextUnit) - 0.5) * 1000 + 1;
+  return Math.max(now + 60_000, Math.ceil(change / 60_000) * 60_000);
+}
+
+/** replyTime's exact timestamp changes only when its year suffix appears or disappears. */
+export function nextReplyTime(at: number, now: number): number {
+  if (!Number.isFinite(at)) return Infinity;
+  const year = new Date(now).getFullYear();
+  const target = new Date(at).getFullYear();
+  return target < year ? Infinity : new Date(target === year ? year + 1 : target, 0, 1).getTime();
+}

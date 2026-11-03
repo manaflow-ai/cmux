@@ -8,7 +8,7 @@ import QuartzCore
 /// text; a toggle that is on draws its filled glyph in the theme's accent, never the system blue.
 /// A `glass` button sits on a glass circle its host lays under it (Messages' filter): its glyph
 /// is the theme's primary text, as Messages' white glyph on its glass.
-final class HomeHeaderButton: NSButton {
+final class HomeHeaderButton: ClickableButton {
     /// The pressed scale (the composer chip presses to 0.975; a 28 pt button needs a little more to show).
     static let pressScale: CGFloat = 0.94
 

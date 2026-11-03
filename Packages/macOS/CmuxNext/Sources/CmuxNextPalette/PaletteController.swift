@@ -30,9 +30,12 @@ public final class PaletteController {
     /// Called synchronously when the panel opens (true) or closes (false),
     /// before any key-window change it causes, so the owner's focus overlay
     /// stack never lags the panel (plans/cmux-next/input-spec.md bug B7).
-    public var onVisibilityChange: ((Bool) -> Void)?
-    /// Main-thread phases of each open, request to committed first frame
-    /// (the stall bench, `debug.timings`).
+    /// The window is the one the panel is a child of, so the owner puts the
+    /// overlay on the window the palette is actually over (W5, W6) instead
+    /// of guessing it from the active window, which the palette's own
+    /// `relativeTo:` and the key window can both disagree with.
+    public var onVisibilityChange: ((Bool, NSWindow?) -> Void)?
+    /// Main-thread phases of each open, request to committed first frame (the stall bench, `debug.timings`).
     public var onPresented: ((PaletteOpenTiming) -> Void)?
     /// The `systemUptime` timestamp of the input event that opens the palette
     /// (a key-down), or nil when no event caused the open (CLI, socket). Read
@@ -42,6 +45,7 @@ public final class PaletteController {
     private var openStarted: ContinuousClock.Instant?
     private var openInput: Duration = .zero
     private var modelReady: ContinuousClock.Instant?
+    let registryRows = RegistryPaletteRows() // the command rows kept across opens: an open builds only the changed ones
 
     /// What the user acted on when the palette opened (`PaletteSources.context`).
     public private(set) var capturedTargets: [ActionTargetRef] = []
@@ -112,8 +116,8 @@ public final class PaletteController {
             registry.bind("goToWorkspace", invoke: { [weak self] invocation in
                 if let workspace = invocation["workspace"]?.targetValue?.id ?? invocation["workspace"]?.stringValue {
                     guard let self, let source = self.sources.workspaces else { return }
-                    // An id that names no workspace is refused, never a silent success.
-                    guard source.workspaces.contains(where: { $0.id == workspace }) else {
+                    // An id that names no workspace is refused, never a silent success. One lookup, no list.
+                    guard source.hasWorkspace(id: workspace) else {
                         return self.registry.refuseNotFound(PaletteStrings.workspaceNotFound(workspace))
                     }
                     source.selectWorkspace(id: workspace)
@@ -272,8 +276,8 @@ public final class PaletteController {
             return
         }
         isVisible = true
-        onVisibilityChange?(true)
         parentWindow = parent
+        onVisibilityChange?(true, parent)
         // The room (theme) of the window it opens over.
         (parent?.themeScope ?? .app).adopt(panel)
         let size = PaletteLayout.windowSize
@@ -317,6 +321,10 @@ public final class PaletteController {
     /// The panel while the palette is open (`debug.key` target `palette`).
     public var visiblePanel: NSWindow? { isVisible ? panel : nil }
 
+    /// The search field's text as drawn while the palette is open (`debug.focus`), which a
+    /// capture checks next to the model's `query`: the two can disagree.
+    public var visibleFieldText: String? { isVisible ? contentView?.searchBar.field.stringValue : nil }
+
     /// Key-downs in the panel that reached `noResponder(for:)` (the system
     /// beep) since launch.
     public var unhandledKeyDowns: Int { panel?.unhandledKeyDowns ?? 0 }
@@ -331,7 +339,7 @@ public final class PaletteController {
         guard isVisible, let panel else { return }
         isVisible = false
         registry.context.remove(.paletteOpen)
-        onVisibilityChange?(false)
+        onVisibilityChange?(false, parentWindow)
         model.closeActionsMenu()
         shortcutRecorder.abandon()
         model.shortcutRecorder = nil
@@ -406,8 +414,8 @@ public final class PaletteController {
 
     // MARK: Keys
 
-    /// Maps a key-down in the panel to a palette command. Returns true when
-    /// the event was consumed (so the text field never sees it).
+    /// Maps a key-down in the panel to a palette command, else runs the navigation action it is bound to
+    /// (``runsNavigationChord(_:)``). Returns true when the event was consumed (so the text field never sees it).
     /// `window`: the panel the key went to (the event's own window when nil).
     func handleKeyDown(_ event: NSEvent, in window: NSWindow? = nil) -> Bool {
         let window = window ?? event.window
@@ -425,7 +433,7 @@ public final class PaletteController {
             caretAtEnd: caret.atEnd,
             caretAtStart: caret.atStart,
             selectedTogglesInPlace: model.selectedItem?.primary.togglesInPlace == true
-        ) else { return false }
+        ) else { return runsNavigationChord(event) }
         return model.handle(command)
     }
 }

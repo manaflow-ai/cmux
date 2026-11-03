@@ -12,6 +12,11 @@ final class PaneThread {
     private var monitors: [Any] = []
     /// The press the outside-click monitor took (a mouse down and its up share the number).
     private var swallowedPress: Int?
+    /// The transcript row whose "N Replies" or thread preview opened the view (its row key), while the
+    /// view is open. A click on that row again is a click on the thread, not on the backdrop: the
+    /// view moves its rows, so the opener's spot is blurred backdrop, and closing there flipped the
+    /// view shut on the person's second click (Lawrence's scrawl capture, 2026-10-29).
+    private var openerKey: String?
 
     init(controller: ChatController) { self.controller = controller }
 
@@ -24,6 +29,7 @@ final class PaneThread {
     func note(_ a: Action) {
         switch a {
         case .reply, .closeThread, .openThreadPath:
+            openerKey = nil
             // The user moved: a permalink still waiting for its message no longer opens it later.
             controller?.intents?.threadMovedByUser()
         default: break
@@ -56,12 +62,16 @@ final class PaneThread {
         guard controller.intents?.canReply == true else { return false }
         if openThread != nil {
             guard !demo.threadContentContains(p), !demo.compose.fieldRect.insetBy(dx: -60, dy: -8).contains(p) else { return false }
+            // The opener again: Messages keeps the thread open (and still).
+            if let key = openerKey, demo.rowFrame(key: key)?.contains(p) == true { return true }
             controller.dispatch(.closeThread)
             return true
         }
         guard let root = demo.repliesHit(p) else { return false }
+        let opener = demo.rowKey(at: p)
         focusTranscript()
         controller.dispatch(.reply(root))
+        if controller.store?.state.ui.openThread != nil { openerKey = opener }
         return true
     }
 

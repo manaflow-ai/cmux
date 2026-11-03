@@ -150,6 +150,9 @@ impl Translator {
                                 .await
                                 .insert(parent.unwrap_or("").to_owned(), id.to_owned());
                         }
+                        if parent.is_none() {
+                            self.call_started(ev.pointer("/message/usage"));
+                        }
                         if parent.is_none()
                             && let Some(m) = ev.pointer("/message/model").and_then(Value::as_str)
                         {
@@ -191,43 +194,7 @@ impl Translator {
                     }
                     Some("message_delta") => {
                         if let Some(u) = ev.get("usage") {
-                            // `used` is the context held by the last request. It is the prompt
-                            // side of the usage, including cache reads/writes, and deliberately
-                            // excludes output: the context ring must not grow from generated text.
-                            let input = u.get("input_tokens").and_then(Value::as_u64).unwrap_or(0);
-                            let cache_read = u
-                                .get("cache_read_input_tokens")
-                                .and_then(Value::as_u64)
-                                .unwrap_or(0);
-                            let cache_write = u
-                                .get("cache_creation_input_tokens")
-                                .and_then(Value::as_u64)
-                                .unwrap_or(0);
-                            let output =
-                                u.get("output_tokens").and_then(Value::as_u64).unwrap_or(0);
-                            let used = input + cache_read + cache_write;
-                            // A subagent's usage is its own context, not the chat's.
-                            if parent.is_none() {
-                                self.context_used.store(used, Ordering::SeqCst);
-                                self.context_from_compaction.store(false, Ordering::SeqCst);
-                            }
-                            let size = self.context_window.load(Ordering::SeqCst);
-                            // One model call's own usage, marked so a client can add a turn's
-                            // calls up (the pane's running line). The result's resend below is
-                            // the context ring's and is not marked. A subagent's calls are
-                            // marked too: they are the turn's spend. The four counts split the
-                            // call so the line can say its output apart from what it read (fresh
-                            // input, cache reads and cache writes).
-                            out.push(upd(json!({
-                                "sessionUpdate": "usage_update",
-                                "used": used,
-                                "size": size,
-                                "inputTokens": input,
-                                "cachedReadTokens": cache_read,
-                                "cachedWriteTokens": cache_write,
-                                "outputTokens": output,
-                                "_meta": {"acpmux": {"call": true}},
-                            })));
+                            out.push(upd(self.call_usage(u, parent.is_some())));
                         }
                     }
                     _ => {}
@@ -353,8 +320,13 @@ impl Translator {
                     drop(steers);
                     self.forget_batch(uuid).await;
                     for k in read {
+                        let mut steered = json!({"stopReason": "steered"});
+                        // Read after the turn it was steered into ended: the next one's (`carry.rs`).
+                        if let Some(seq) = self.carried_steer(&k).await {
+                            steered.set("_meta", json!({"claude": {"carried": seq}}));
+                        }
                         let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k));
-                        out.push(Message::ok(id, json!({"stopReason": "steered"})));
+                        out.push(Message::ok(id, steered));
                     }
                     // A turn the client stopped: Claude Code runs a line it
                     // read after the stop as one more turn, so that turn is
@@ -428,8 +400,14 @@ impl Translator {
                             Some(diffs) if !is_err => {
                                 settle_write(diffs, &text, line.get("tool_use_result"))
                             }
+                            // The text, then any images it returned (a Read of a PNG, an MCP
+                            // screenshot), so a chat on another machine shows them inline.
                             _ => {
-                                json!([{"type": "content", "content": {"type": "text", "text": text}}])
+                                let mut blocks = vec![
+                                    json!({"type": "content", "content": {"type": "text", "text": text}}),
+                                ];
+                                blocks.extend(result_images(c.get("content")));
+                                Value::Array(blocks)
                             }
                         };
                         out.push(upd(json!({
@@ -464,6 +442,8 @@ impl Translator {
                             });
                             if is_err {
                                 self.failed_with(&mut update, tool, &child, agent, &text).await;
+                            } else if let Some(agent) = agent {
+                                update.set("agentId", json!(agent));
                             }
                             out.push(upd(update));
                         }
@@ -518,8 +498,10 @@ impl Translator {
                     }
                     // An MCP server's form, asked as a question (elicitation.rs).
                     Some("elicitation") => out.extend(self.elicit(&sid, &rid, &req).await),
-                    // Anything else (hook_callback, mcp_message) is declined
-                    // with an error response, so claude does not wait on it.
+                    // A registered hook fired: answered with no decision (hook_callback.rs).
+                    Some("hook_callback") => self.answer_hook_callback(&rid, &req).await,
+                    // Anything else (mcp_message) is declined with an error
+                    // response, so claude does not wait on it.
                     other => self.decline_control(&rid, other.unwrap_or("?")).await,
                 }
             }
@@ -595,6 +577,8 @@ impl Translator {
                             ),
                         ));
                     }
+                } else if let Some(acp) = rid.strip_prefix("psp-") {
+                    out.extend(self.suggestions_set(acp, &sid).await);
                 } else if let Some(acp) = rid.strip_prefix("stop-") {
                     // A stop_task's answer (`subagent_stop`, `STOP_TASK`); the
                     // task's end is its own event.
@@ -622,6 +606,22 @@ impl Translator {
                 } else if let Some(uuid) = rid.strip_prefix("rebatch-") {
                     // A line dropped to be written again with more messages (`steer_batch.rs`).
                     out.extend(self.rebatched(uuid, ok, &inner).await);
+                } else if let Some(acp) = rid.strip_prefix("side-") {
+                    // Claude Code's native `/btw` callback answers once with its result payload.
+                    let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
+                    self.pending.lock().await.remove(&id.to_string());
+                    out.push(if ok {
+                        Message::ok(id, inner)
+                    } else {
+                        Message::err(
+                            id,
+                            RpcError::internal(
+                                resp.get("error")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("Claude Code side question failed"),
+                            ),
+                        )
+                    });
                 } else if let Some(rest) = rid.strip_prefix("unsteer-") {
                     // A steer taken back, or read first (`steer_withdraw.rs`).
                     out.extend(self.steer_withdrawn(rest, ok, &inner).await);
@@ -668,8 +668,15 @@ impl Translator {
                 // turn. That is startup noise, not the end of our prompt; a
                 // failed result is never noise. A local slash command's result
                 // looks the same but follows its output, and ends the prompt.
+                // 2.1.305 can replay /compact after that output, clearing
+                // turn_output. Its explicit local_command still proves it ended.
+                let local_command = line
+                    .get("local_command")
+                    .and_then(Value::as_str)
+                    .is_some_and(|command| !command.is_empty());
                 let startup_noise = sub == "success"
                     && !is_error
+                    && !local_command
                     && !self.turn_output.load(Ordering::SeqCst)
                     && line.get("num_turns").and_then(Value::as_u64) == Some(0)
                     && line.get("duration_api_ms").and_then(Value::as_u64) == Some(0)
@@ -691,7 +698,7 @@ impl Translator {
                         if self.context_from_compaction.load(Ordering::SeqCst) {
                             usage.set("_meta", json!({"acpmux": {"compactionDerived": true}}));
                         }
-                        out.push(upd(usage));
+                        out.push(upd(prompt_cache::with_expiry(usage, self.cache.expires_at())));
                     }
                 }
                 // The result of a turn acpmux already ended (a Stop Claude Code
@@ -724,20 +731,36 @@ impl Translator {
                         out.push(Message::ok(id, json!({"stopReason": "cancelled"})));
                     }
                 }
-                // A steered line Claude Code has not read yet: it runs it as
-                // one more turn of this prompt, whose result ends it (when
-                // echoes come at all; without them the steer fails below).
-                // A stop stays in force for that turn (`cancelled` is kept).
+                // A steered line Claude Code has not read yet: it runs it next, as a turn of its
+                // own (when echoes come at all; without them the steer fails below). A clean end,
+                // or the step a Send now stopped, ends this prompt's turn here, and the next turn
+                // is that one (`carry.rs`; Leo, 2026-11-03: "idk why we're getting into these
+                // weird thinking states"). A stopped or failed turn runs it as one more turn of
+                // this prompt, whose result ends it; a stop stays in force for that turn
+                // (`cancelled` is kept).
+                let step_stopped = self.step_stopped.swap(false, Ordering::SeqCst);
                 let unread = !self.steers.lock().await.is_empty();
+                let mut carried = None;
+                // The turn a Send now ended: it ends `cancelled`, whatever the stopped step said.
+                let mut sent_now = false;
                 if unread && self.prompt_echo.lock().await.is_none() {
-                    return out;
+                    let stopped = self.cancelled.load(Ordering::SeqCst);
+                    let clean = !stopped && !is_error && !sub.starts_with("error");
+                    if !clean && (stopped || !step_stopped) {
+                        return out;
+                    }
+                    sent_now = !clean;
+                    carried = Some(self.carry_unread().await);
                 }
-                // Out of the turn first: a steer that takes the steer locks after `fail_steers`
-                // finds it ended and is not left waiting (`steer_batch.rs` `write_steer`).
-                self.in_turn.store(false, Ordering::SeqCst);
+                if carried.is_none() {
+                    // Out of the turn first: a steer that takes the steer locks after
+                    // `fail_steers` finds it ended and is not left waiting (`steer_batch.rs`
+                    // `write_steer`).
+                    self.in_turn.store(false, Ordering::SeqCst);
+                    out.extend(self.fail_steers().await);
+                }
                 self.cancelled_compaction.store(false, Ordering::SeqCst);
                 self.cancelled_compaction_boundary.store(false, Ordering::SeqCst);
-                out.extend(self.fail_steers().await);
                 *self.prompt_echo.lock().await = None;
                 // A Ctrl-B still unanswered leaves no mark past its turn.
                 self.end_background_asks(false, |_, _| true).await;
@@ -746,6 +769,9 @@ impl Translator {
                 // from the last response's usage, with no token-count API call.
                 let n = self.next_control.fetch_add(1, Ordering::SeqCst);
                 self.stdin_replies.lock().await.push(json!({"type": "control_request", "request_id": format!("ctx-{n}"), "request": {"subtype": "get_context_usage", "detail": "summary"}}));
+                // Before `pending` is read: a carried turn's prompt that comes meanwhile either
+                // waits there or finds this answer kept (`carry.rs`).
+                let mut carry = self.carry.lock().await;
                 let waiting: Vec<String> = self
                     .pending
                     .lock()
@@ -758,6 +784,7 @@ impl Translator {
                     .collect();
                 let cancelled = self.cancelled.swap(false, Ordering::SeqCst);
                 let stop = if cancelled
+                    || sent_now
                     || (sub == "error_during_execution"
                         && line.get("result").map(Value::is_null).unwrap_or(true))
                 {
@@ -790,25 +817,36 @@ impl Translator {
                         })));
                     }
                 }
+                // Hitting the turn limit is a normal stop, not a failure.
+                let answer = if (sub.starts_with("error") || is_error)
+                    && !cancelled
+                    && stop != "cancelled"
+                    && stop != "max_turn_requests"
+                {
+                    Err(RpcError::internal(
+                        line.get("result").and_then(Value::as_str).unwrap_or(sub),
+                    ))
+                } else {
+                    let mut claude = json!({"subtype": sub, "cost_usd": line.get("total_cost_usd"), "usage": line.get("usage"), "num_turns": line.get("num_turns")});
+                    if let Some(next) = &carried {
+                        claude.set("carried", next.clone());
+                    }
+                    Ok(json!({"stopReason": stop, "_meta": {"claude": claude}}))
+                };
+                // No prompt waits: the carried turn's prompt still to come takes it.
+                if waiting.is_empty() {
+                    carry.keep(answer.clone());
+                }
+                self.carry_settled(&mut carry, carried.is_some());
                 for k in waiting {
                     self.pending.lock().await.remove(&k);
                     let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k.clone()));
-                    // Hitting the turn limit is a normal stop, not a failure.
-                    if (sub.starts_with("error") || is_error)
-                        && !cancelled
-                        && stop != "cancelled"
-                        && stop != "max_turn_requests"
-                    {
-                        out.push(Message::err(
-                            id,
-                            RpcError::internal(
-                                line.get("result").and_then(Value::as_str).unwrap_or(sub),
-                            ),
-                        ));
-                    } else {
-                        out.push(Message::ok(id, json!({"stopReason": stop, "_meta": {"claude": {"subtype": sub, "cost_usd": line.get("total_cost_usd"), "usage": line.get("usage"), "num_turns": line.get("num_turns")}}})));
-                    }
+                    out.push(match answer.clone() {
+                        Ok(v) => Message::ok(id, v),
+                        Err(e) => Message::err(id, e),
+                    });
                 }
+                drop(carry);
             }
             // A compaction left the context smaller than the last message held:
             // the ring waits for the next message rather than refill (cx-ncc.79).
@@ -823,6 +861,7 @@ impl Translator {
                 let after = line.pointer("/compact_metadata/post_tokens").and_then(Value::as_u64);
                 self.context_used.store(after.unwrap_or(0), Ordering::SeqCst);
                 self.context_from_compaction.store(true, Ordering::SeqCst);
+                self.cache.compacted();
                 self.awaiting_summary.store(true, Ordering::SeqCst);
                 // Keep the cancelled boundary marker until its result; consuming it
                 // here would let that zero-turn result answer the next echoed prompt.
@@ -844,6 +883,9 @@ impl Translator {
             }
             // The account's plan usage limits, newest per window (`usage_limits.rs`).
             "rate_limit_event" => out.extend(self.usage_limits_update(line).await),
+            "prompt_suggestion" if parent.is_none() => {
+                out.extend(self.suggestion_update(line).map(upd))
+            }
             "system" if sub.starts_with("task_") => {
                 if let Some(update) = self.background_shell_task(sub, line, &sid).await {
                     out.push(update);
@@ -951,6 +993,12 @@ impl Translator {
                 update.set(key, json!(value));
             }
         }
+        // Claude Code says a shell's exit code only in its summary
+        // ("Background command \"x\" completed (exit code 0)"); Codex's
+        // updates carry it as `exitCode`, and clients read it there.
+        if let Some(code) = text("summary").and_then(summary_exit_code) {
+            update.set("exitCode", json!(code));
+        }
         Some(shell_update(&shell, update))
     }
 
@@ -1056,11 +1104,15 @@ impl Translator {
         if status == "paused" {
             update.set("reason", json!("paused"));
         }
+        // A workflow resumes by its run id, never by SendMessage: it names no agent.
+        let agent = (!workflow && !task.is_empty()).then(|| task.to_owned());
         if state == "failed" {
-            // A workflow resumes by its run id, never by SendMessage: it names no agent.
-            let agent = (!workflow && !task.is_empty()).then(|| task.to_owned());
             let error = line.get("summary").and_then(Value::as_str).unwrap_or_default();
             self.failed_with(&mut update, &tool, &child, agent, error).await;
+        } else if let Some(agent) = agent {
+            // Any end says which agent it was, so a page holding only the end names it
+            // (cmux#33292); only a failed one is kept to resume.
+            update.set("agentId", json!(agent));
         }
         Some((update, Some(tool)))
     }
@@ -1237,6 +1289,18 @@ fn launch_output_file(text: &str) -> Option<String> {
     let (_, rest) = text.split_once(MARK)?;
     let path = rest.lines().next()?.trim();
     (path.starts_with('/') && path.ends_with(".output")).then(|| path.to_owned())
+}
+
+/// The exit code a Claude Code task summary ends with: the number after its
+/// last "exit code " ("… completed (exit code 0)", "… failed with exit code 1").
+/// The last, so a command's description that says those words is not read.
+pub(super) fn summary_exit_code(summary: &str) -> Option<i64> {
+    let (_, rest) = summary.rsplit_once("exit code ")?;
+    let end = rest
+        .char_indices()
+        .find(|&(i, c)| !(c.is_ascii_digit() || (i == 0 && c == '-')))
+        .map_or(rest.len(), |(i, _)| i);
+    rest.get(..end)?.parse().ok()
 }
 
 /// A `background_task_update` for one shell.

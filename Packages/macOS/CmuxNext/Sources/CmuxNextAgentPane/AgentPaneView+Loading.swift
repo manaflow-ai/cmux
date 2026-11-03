@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextPages
 import CmuxNextWakeups
 import os
 
@@ -171,15 +172,18 @@ public final class AgentPaneLoadingView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if !fades || !overImage { page.alphaValue = 1 }
+        PageWebView.syncChromiumVisibility(in: page)
         CATransaction.commit()
         guard fades else { return left(page) }
         Motion.home.animate(.fadeIn, in: self, {
             if overImage { page.animator().alphaValue = 1 } else { animator().alphaValue = 0 }
+            PageWebView.syncChromiumVisibility(in: page)
         }, completion: { [weak self, weak page] in self?.left(page) })
     }
 
     private func left(_ page: NSView?) {
         page?.alphaValue = 1
+        if let page { PageWebView.syncChromiumVisibility(in: page) }
         leaving = false
         #if DEBUG || CMUX_BENCH_HOOKS
         // Still in its pane: the pane's trace takes it.
@@ -233,9 +237,18 @@ extension AgentPaneView {
         ChatOpenTrace.shared.mark(.panePainted, view: self)
         ChatOpenTrace.shared.mark(.loadingLeave, view: self)
         #endif
+        // A saved transcript lies under this hidden cover: the chat is already on screen where
+        // it belongs, so the page replaces it in one step, in either engine. A fade draws the
+        // chat a second time over itself: old and new text cross through the page's clear areas
+        // (Chromium's child window ignores pageContent's alpha, so there the old one shows
+        // through for the whole fade), which reads as a re-render (Leo 2026-10-31: "how is it
+        // re-rendering when it already knows where it should be"). The page reports after its
+        // render (rAF, then a task), so its frame is in by that turn. Keep the ordinary fade for
+        // the watchdog, which has no drawn-frame report.
+        let replacesSavedFrame = loadingView.isHidden && model.pageReportedPaint
         loadingView.leave(over: pageContent,
-                          fades: Self.pageFades(hasNewTab: model.newTab != nil, isVisible: alphaValue > 0,
-                                                fromKeptTail: model.paintedFromKeptTail))
+                          fades: !replacesSavedFrame && Self.pageFades(hasNewTab: model.newTab != nil, isVisible: alphaValue > 0,
+                                                                       fromKeptTail: model.paintedFromKeptTail))
     }
 
     /// Whether the page fades in over the loading state or simply shows.
@@ -252,7 +265,8 @@ extension AgentPaneView {
 
     func themeLoadingState(_ tokens: ThemeTokens) {
         guard loadingView.superview != nil else { return }
-        loadingView.paint(AgentPaneTheme.underPageColor(tokens, surface: surfaceKind).nsColor)
+        // In this view's scope: over its workspace's picture the loading state stays clear (#28867).
+        loadingView.paint(performWithTheme { AgentPaneTheme.underPageColor(tokens, surface: surfaceKind) }.nsColor)
     }
 }
 

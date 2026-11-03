@@ -1,4 +1,4 @@
-// The Inspector's running limit (inspector/SubagentLimitStepper.tsx) reads the chat's
+// Session Info's running limit (session-info/SubagentLimitStepper.tsx) reads the chat's
 // `subsessionLimits` from the attach reply's session detail, and acpmux logs a `subsession` record
 // with `event: "limits"` whenever the limit changes (the person, an ancestor, another client). The
 // attach asks for that kind, and the snapshot takes a record newer than the attach; one the page
@@ -124,14 +124,18 @@ test("the attach asks for the limit's records, and only one newer than the attac
   // The page replays two older changes (to 3, then 5); the detail's 8 is what acpmux holds now.
   const daemon = fakeDaemon(record([["mux", "user_message", { text: "start the agents" }], changed(3), changed(5)]));
   let snapshot: any;
+  let attached = false;
   const client = await AcpmuxDirectClient.connect(
     { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
-    (next: any) => (snapshot = next),
+    (next: any) => {
+      snapshot = next;
+      attached ||= next.connection === "connected";
+    },
     undefined,
     daemon.open,
   );
   try {
-    await until(() => snapshot?.connection === "connected", "the attach");
+    await until(() => attached, "the attach");
     const kinds: string[] = daemon.asked.get("_acpmux/attach")?.kinds ?? [];
     expect(kinds).toContain("subsession");
     // A remote cmux-tui refuses more than 8 kinds; the queue's go only to a local acpmux.
@@ -158,14 +162,18 @@ test("a step on an inherited limit steps from the limit acpmux holds now, and qu
   // The chat inherits 8; then its parent's limit moves to 20, which reaches this chat as no record.
   const daemon = fakeDaemon(record([["mux", "user_message", { text: "start the agents" }]]), true);
   let snapshot: any;
+  let attached = false;
   const client = await AcpmuxDirectClient.connect(
     { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
-    (next: any) => (snapshot = next),
+    (next: any) => {
+      snapshot = next;
+      attached ||= next.connection === "connected";
+    },
     undefined,
     daemon.open,
   );
   try {
-    await until(() => snapshot?.connection === "connected", "the attach");
+    await until(() => attached, "the attach");
     expect(snapshot.summary.subsessionLimits).toEqual({ maxRunning: 8, maxRunningSource: "inherited" });
     daemon.state.held = 20;
     // Two quick + clicks on the stale 8: 8 → 9, then 9 → 10.
@@ -188,14 +196,18 @@ test("a step on an inherited limit steps from the limit acpmux holds now, and qu
 test("a limit change a lag dropped reaches the summary when the pane catches up", async () => {
   const daemon = fakeDaemon(record([["mux", "user_message", { text: "start the agents" }]]));
   let snapshot: any;
+  let attached = false;
   const client = await AcpmuxDirectClient.connect(
     { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
-    (next: any) => (snapshot = next),
+    (next: any) => {
+      snapshot = next;
+      attached ||= next.connection === "connected";
+    },
     undefined,
     daemon.open,
   );
   try {
-    await until(() => snapshot?.connection === "connected", "the attach");
+    await until(() => attached, "the attach");
     expect(snapshot.summary.subsessionLimits.maxRunning).toBe(8);
     // 8 → 12 while the client lagged: it reads the missed record, and keeps it.
     daemon.drop(record([changed(12)], 2));
@@ -211,14 +223,18 @@ test("a limit change a lag dropped reaches the summary when the pane catches up"
 test("a reply older than a limit streamed while it was in flight never takes the limit back", async () => {
   const daemon = fakeDaemon(record([["mux", "user_message", { text: "start the agents" }]]));
   let snapshot: any;
+  let attached = false;
   const client = await AcpmuxDirectClient.connect(
     { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
-    (next: any) => (snapshot = next),
+    (next: any) => {
+      snapshot = next;
+      attached ||= next.connection === "connected";
+    },
     undefined,
     daemon.open,
   );
   try {
-    await until(() => snapshot?.connection === "connected", "the attach");
+    await until(() => attached, "the attach");
     expect(snapshot.summary.subsessionLimits.maxRunning).toBe(8);
     // The pane sets 9; acpmux answers 9, then another client sets 20, whose record reaches the pane
     // before the reply does.
@@ -244,14 +260,18 @@ test("a reply older than a limit streamed while it was in flight never takes the
 async function stepOverReattach(chat: string, history: Recorded[]) {
   const daemon = fakeDaemon(history, true, chat);
   let snapshot: any;
+  let attached = false;
   const client = await AcpmuxDirectClient.connect(
     { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: chat },
-    (next: any) => (snapshot = next),
+    (next: any) => {
+      snapshot = next;
+      attached ||= next.connection === "connected";
+    },
     undefined,
     daemon.open,
   );
   try {
-    await until(() => snapshot?.connection === "connected", "the attach");
+    await until(() => attached, "the attach");
     expect(snapshot.summary.subsessionLimits).toEqual({ maxRunning: 8, maxRunningSource: "inherited" });
     daemon.state.beforeReply = () => {
       daemon.state.beforeReply = undefined;
@@ -290,14 +310,18 @@ test("a + while a reopened chat's kept tail shows its own old limit steps from a
   // draws the kept tail (own 8) before the attach answers, and a + then must not trust it.
   const daemon = fakeDaemon(record([["mux", "user_message", { text: "start the agents" }]]));
   let snapshot: any;
+  let attached = false;
   const client = await AcpmuxDirectClient.connect(
     { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
-    (next: any) => (snapshot = next),
+    (next: any) => {
+      snapshot = next;
+      attached ||= next.connection === "connected";
+    },
     undefined,
     daemon.open,
   );
   try {
-    await until(() => snapshot?.connection === "connected", "the attach");
+    await until(() => attached, "the attach");
     expect(snapshot.summary.subsessionLimits).toEqual({ maxRunning: 8, maxRunningSource: "session" });
     daemon.state.held = 20;
     const opened = client.select(CHAT);
@@ -313,14 +337,18 @@ test("a + while a reopened chat's kept tail shows its own old limit steps from a
 test("a step whose every read is overtaken is refused, and writes nothing", async () => {
   const daemon = fakeDaemon(record([["mux", "user_message", { text: "start the agents" }]]), true);
   let snapshot: any;
+  let attached = false;
   const client = await AcpmuxDirectClient.connect(
     { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
-    (next: any) => (snapshot = next),
+    (next: any) => {
+      snapshot = next;
+      attached ||= next.connection === "connected";
+    },
     undefined,
     daemon.open,
   );
   try {
-    await until(() => snapshot?.connection === "connected", "the attach");
+    await until(() => attached, "the attach");
     // Each read's reply is overtaken by a newer change: 20, 30, then 40.
     daemon.state.beforeReply = () => {
       daemon.state.held += daemon.state.held < 20 ? 12 : 10;

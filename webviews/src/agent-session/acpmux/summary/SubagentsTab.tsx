@@ -3,11 +3,11 @@
 // "Done · N", newest first. Each is the transcript's own subagent row (SubagentListRow), so it has
 // the same avatar and state as in the chat; a row shows that subagent (`onOpen`): in a pane of its
 // own beside the chat, or in this pane when none opens. The chats the agent started (`sessions`,
-// inspector/ChildSessionRows.tsx) follow the subagents in each list, a waiting or running one under
+// session-info/ChildSessionRows.tsx) follow the subagents in each list, a waiting or running one under
 // Active and the rest under Done; a row opens that chat (`onOpenSession`).
 import React from "react";
 import { useT } from "../i18n";
-import { ChildSessionRows, sessionStatus } from "../inspector/ChildSessionRows";
+import { ChildSessionRows, sessionStatus } from "../session-info/ChildSessionRows";
 import type { AcpmuxRow } from "../model";
 import type { StartedSession } from "../started/startedSessions";
 import { SubagentListRow, SubagentPaneContext } from "../subagents/SubagentGroup";

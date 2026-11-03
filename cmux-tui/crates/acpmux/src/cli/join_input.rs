@@ -59,7 +59,7 @@ pub(crate) fn read_stdin_line(allow_empty: bool) -> Result<Option<Zeroizing<Stri
             if count == 0 {
                 break;
             }
-            bytes.extend_from_slice(&chunk[..count as usize]);
+            bytes.extend_from_slice(chunk.get(..count as usize).unwrap_or_default());
             if bytes.len() as u64 > MAX_BYTES {
                 return Err(malformed());
             }

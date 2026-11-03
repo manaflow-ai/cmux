@@ -54,6 +54,7 @@ TEST_ROOTS = (
     "ios/cmuxUITests/",  # the cmuxUITests target of ios/cmux-ios.xcodeproj
     "cmux-next-ios/CmuxMobileKit/Tests/",
     "cmux-next-ios/UITests/",  # CmuxMobileAppUITests in cmux-next-ios/project.yml
+    "cmux-next-ios/verify/",  # verification rigs' UI tests (imsg-replies' GestureServerUITests)
     "cmux-tui/**/Tests/",  # TerminalBytesDemo and the cmux-mobile-ffi Swift tests
     "vendor/**/Tests/",  # vendored SDKs' tests, which carry cmux changes
     "Packages/Shared/CmuxMessagesLab/Harness/",  # copied into a gitignored test target at harness time

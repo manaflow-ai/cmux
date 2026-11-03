@@ -30,6 +30,8 @@ import {
   sideQuestionPrompt,
   type NeedsYouActions,
 } from "../src/agent-session/acpmux/needsYou/NeedsYou";
+import { askContext, CONTEXT_TURNS, turnsBefore } from "../src/agent-session/acpmux/needsYou/context";
+import { NativeError } from "../src/agent-session/acpmux/nativeError";
 
 const options: AcpmuxPermission["options"] = [
   { id: "allow", name: "Allow", kind: "allow_once", allow: true },
@@ -178,8 +180,13 @@ test("a waiting chat shows the question or permission it waits on, never its las
   );
   expect(html).toContain("Which branch should the release start from?");
   // A question reads as a question, a permission as a permission.
-  expect(html.split(translate("needsYou.waiting")).length - 1).toBe(2);
-  expect(html.split(translate("needsYou.waitingPermission")).length - 1).toBe(1);
+  const labelsDom = new JSDOM(html);
+  const askLabels = [...labelsDom.window.document.querySelectorAll(".acpmux-needs-you-ask")].map(
+    (node) => node.textContent,
+  );
+  labelsDom.window.close();
+  expect(askLabels.filter((label) => label === translate("needsYou.waiting"))).toHaveLength(2);
+  expect(askLabels.filter((label) => label === translate("needsYou.waitingPermission"))).toHaveLength(1);
   expect(html).toContain(translate("needsYou.kind.decision"));
   expect(html).toContain(translate("needsYou.kind.approval"));
   for (const said of ["I compared both branches.", "Here is the plan.", "Running the suite now.", "Drafted the notes."])
@@ -636,8 +643,10 @@ test("another chat's ask opens that chat on the right; the chat on screen is nev
   // answered here.
   const host = installDom();
   const calls: string[] = [];
+  let unsupportedAnswer = false;
   const callNative = (async (method: string, params?: Record<string, unknown>) => {
     calls.push(`${method}:${String(params?.sessionId ?? "")}`);
+    if (method === "chat.asks.answer" && unsupportedAnswer) throw new NativeError({ code: "unsupported" });
     return undefined;
   }) as <T>(method: string, params?: Record<string, unknown>) => Promise<T>;
   let actions: NeedsYouActions | undefined;
@@ -650,7 +659,7 @@ test("another chat's ask opens that chat on the right; the chat on screen is nev
         sessions: [session("here"), session("other")],
         asks: [
           ask("here", permission({ permissionId: "p-here" }), 2),
-          ask("other", permission({ permissionId: "p-other" }), 1),
+          ask("other", permission({ permissionId: "p-other", turnId: "target-turn" }), 1),
         ],
       },
       callNative,
@@ -667,10 +676,16 @@ test("another chat's ask opens that chat on the right; the chat on screen is nev
   await actions!.answer(here, here.answers[0]!);
   expect(calls).toEqual(["chat.permission:here"]);
   calls.length = 0;
-  // The relay answers only the chat this pane shows: the answer is not sent from here, and the
-  // row stays (a rejection) while the ask's chat comes up on the right for the person to answer there.
+  // The relay answers only the chat this pane shows, so another chat's tool permission is answered
+  // by the host in place, on this click, as the home's inbox answers it (`chat.asks.answer`).
+  await actions!.answer(other, other.answers[0]!);
+  expect(calls).toEqual(["chat.asks.answer:other"]);
+  calls.length = 0;
+  // A host that can't answer it here opens the ask's chat on the right, and the row stays (a
+  // rejection) for the person to answer there.
+  unsupportedAnswer = true;
   await expect(actions!.answer(other, other.answers[0]!)).rejects.toThrow();
-  expect(calls).toEqual(["chat.asks.open:other"]);
+  expect(calls).toEqual(["chat.asks.answer:other", "chat.asks.open:other"]);
   calls.length = 0;
   actions!.goTo(other);
   await Promise.resolve();
@@ -698,9 +713,272 @@ test("another chat's ask opens that chat on the right; the chat on screen is nev
     return null;
   }
   await act(async () => root!.render(<Refused />));
+  const sourceRow = document.createElement("div");
+  sourceRow.dataset.turnId = "target-turn";
+  let sourceReveals = 0;
+  sourceRow.scrollIntoView = () => {
+    sourceReveals += 1;
+  };
+  host.append(sourceRow);
   calls.length = 0;
   refused!.goTo(other);
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(calls).toEqual(["chat.asks.open:other"]);
   expect(calls.some((call) => call.startsWith("chat.select"))).toBe(false);
+  expect(sourceReveals).toBe(0);
+});
+
+test("the opt-in pill excludes peer and unknown target sessions", async () => {
+  const host = installDom();
+  let pillCount: number | undefined;
+  function Probe() {
+    const needsYou = useNeedsYou({
+      snapshot: {
+        sessionId: "here",
+        rows: [],
+        sessions: [session("here"), session("peer", { peer: "build-box" })],
+        asks: [
+          ask("here", permission({ permissionId: "p-here" }), 2),
+          ask("peer", permission({ permissionId: "p-peer" }), 1),
+          ask("unknown", permission({ permissionId: "p-unknown" }), 0),
+        ],
+      },
+      callNative: (async () => undefined) as <T>(method: string, params?: Record<string, unknown>) => Promise<T>,
+      sideSession: async () => undefined,
+    });
+    pillCount = needsYou.pill?.count;
+    return null;
+  }
+  root = createRoot(host);
+  await act(async () => root!.render(<Probe />));
+  expect(pillCount).toBe(1);
+});
+
+// Leo 2026-10-21: "NOT JUST NEW TAB... OR NEW PANE... THERE'S MULTIPLE STATES WHERE YOU CAN MAYBE
+// EXPAND, ANSWER INLINE AND MAYBE EXPAND FURTHER FOR THE CONTEXT AND MAYBE JUMP TO THAT
+// WORKSPACE... OR OPEN NEW WORKSPACE... OR OPEN ON RIGHT".
+
+const turn = (id: string, kind: string, text: string, turnId?: string): AcpmuxRow => ({
+  id,
+  version: 1,
+  at: 0,
+  kind,
+  text,
+  ...(turnId ? { turnId } : {}),
+});
+
+test("the context is this chat's last turns up to the ask's turn; another chat's is its latest message only", () => {
+  const rows = [
+    turn("u1", "user", "Old ask", "t1"),
+    turn("a1", "assistant", "Old reply", "t1"),
+    turn("u2", "user", "Make retries back off", "t2"),
+    turn("tool", "activity", "Edit src/fetch.ts", "t2"),
+    turn("a2", "assistant", "Done. Run the checks?", "t2"),
+    turn("u3", "user", "Later prompt", "t3"),
+    turn("a3", "assistant", "Later reply", "t3"),
+  ];
+  // The ask's turn ends the context: what came after it is not why it asks.
+  expect(turnsBefore(rows, "t2").map((each) => each.text)).toEqual([
+    "Old ask",
+    "Old reply",
+    "Make retries back off",
+    "Done. Run the checks?",
+  ]);
+  expect(turnsBefore(rows).map((each) => each.id)).toEqual(["u2", "a2", "u3", "a3"]);
+  expect(turnsBefore(rows)).toHaveLength(CONTEXT_TURNS);
+  expect(turnsBefore(rows, "t2").map((each) => each.who)).toEqual(["person", "agent", "person", "agent"]);
+  const [item] = needsYouItems({
+    sessions: [session("other", { lastMessage: "I drafted the notes." })],
+    asks: [ask("other", permission({ title: "Publish?" }), 1)],
+  });
+  expect(
+    askContext(item!, { sessionId: "here", rows }, [session("other", { lastMessage: "I drafted the notes." })]),
+  ).toEqual({
+    turns: [{ id: "latest:other", who: "agent", text: "I drafted the notes." }],
+    partial: true,
+  });
+  expect(askContext(item!, { sessionId: "here", rows }, [session("other")])).toEqual({ turns: [], partial: true });
+});
+
+test("a row expands to the whole ask, shows its context, and opens another chat where the person picks", async () => {
+  const host = installDom();
+  const long = "Run the full release checks, then publish the notes and tag the build for the nightly feed";
+  const items = needsYouItems({
+    sessions: [session("other", { displayTitle: "Release notes" })],
+    asks: [ask("other", permission({ title: long, command: "bun run release --tag nightly" }), 1)],
+  });
+  const opened: string[] = [];
+  const actions: NeedsYouActions = {
+    answer: async () => undefined,
+    goTo: () => undefined,
+    ask: async () => "",
+    context: () => ({ turns: [{ id: "a", who: "agent", text: "Notes drafted from the merged PRs." }], partial: true }),
+    open: (item, place) => void opened.push(`${item.sessionId}:${place}`),
+    opensElsewhere: () => true,
+  };
+  root = createRoot(host);
+  await act(async () => root!.render(<NeedsYouPanel items={items} actions={actions} />));
+  const row = host.querySelector(".acpmux-needs-you-item")!;
+  expect(row.getAttribute("data-stage")).toBeNull();
+  expect(host.querySelector(".acpmux-needs-you-more")).toBeNull();
+  // The ask's own text expands the row, as the chevron does.
+  await act(async () => click(host.querySelector(".acpmux-needs-you-ask-toggle")!));
+  expect(row.getAttribute("data-stage")).toBe("expanded");
+  expect(host.querySelector(".acpmux-needs-you-expand")!.getAttribute("aria-expanded")).toBe("true");
+  expect(host.textContent).toContain(long);
+  // Open on right (the default), Jump to workspace, Open in new workspace.
+  for (const label of ["needsYou.openRight", "needsYou.jumpToWorkspace", "needsYou.openNewWorkspace"] as const)
+    await act(async () => click(buttonNamed(host, translate(label))!));
+  expect(opened).toEqual(["other:right", "other:workspace", "other:newWorkspace"]);
+  await act(async () => click(buttonNamed(host, translate("needsYou.context"))!));
+  expect(row.getAttribute("data-stage")).toBe("context");
+  expect(host.querySelector(".acpmux-needs-you-context")!.textContent).toContain("Notes drafted from the merged PRs.");
+  expect(host.textContent).toContain(translate("needsYou.contextPartial"));
+  await act(async () => click(host.querySelector(".acpmux-needs-you-expand")!));
+  expect(row.getAttribute("data-stage")).toBeNull();
+  expect(host.querySelector(".acpmux-needs-you-context")).toBeNull();
+});
+
+test("this chat's expanded ask offers no other place to open it", async () => {
+  const host = installDom();
+  const items = needsYouItems({ sessions: [session("here")], asks: [ask("here", permission({ title: "Run it" }), 1)] });
+  const actions: NeedsYouActions = {
+    answer: async () => undefined,
+    goTo: () => undefined,
+    ask: async () => "",
+    context: () => ({ turns: [], partial: false }),
+    open: () => undefined,
+    opensElsewhere: () => false,
+  };
+  root = createRoot(host);
+  await act(async () => root!.render(<NeedsYouPanel items={items} actions={actions} />));
+  await act(async () => click(host.querySelector(".acpmux-needs-you-expand")!));
+  expect(buttonNamed(host, translate("needsYou.openRight"))).toBeUndefined();
+  await act(async () => click(buttonNamed(host, translate("needsYou.context"))!));
+  expect(host.textContent).toContain(translate("needsYou.contextEmpty"));
+});
+
+test("an expanded question shows every option and takes a typed answer, sent in its harness's shape", async () => {
+  const host = installDom();
+  const many: AgentQuestion = question({
+    items: [
+      {
+        id: "q0",
+        prompt: "Which login should the app use?",
+        options: ["OAuth", "Passkeys", "SAML", "Magic link", "Password"].map((label) => ({ id: label, label })),
+        multiSelect: false,
+        allowsOther: true,
+      },
+    ],
+  });
+  const items = needsYouItems({
+    sessions: [session("s-q")],
+    asks: [ask("s-q", permission({ permissionId: "q-perm", question: many }), 1)],
+  });
+  // Five choices: no one-click answers on the card, so the expanded form is how it is answered here.
+  expect(items[0]!.answers).toEqual([]);
+  const sent: unknown[] = [];
+  let refuse = true;
+  const actions: NeedsYouActions = {
+    answer: async () => undefined,
+    goTo: () => undefined,
+    ask: async () => "",
+    reply: async (_item, reply) => {
+      sent.push(reply.answers);
+      if (refuse) throw new Error("refused");
+    },
+  };
+  root = createRoot(host);
+  await act(async () => root!.render(<NeedsYouPanel items={items} actions={actions} />));
+  await act(async () => click(host.querySelector(".acpmux-needs-you-expand")!));
+  expect(host.querySelectorAll(".acpmux-needs-you-form-option")).toHaveLength(5);
+  const submit = host.querySelector<HTMLButtonElement>(".acpmux-needs-you-form button[type=submit]")!;
+  expect(submit.disabled).toBe(true);
+  // Typing the answer (Other) readies Submit; the reply carries the typed text, keyed as Claude keys it.
+  const field = host.querySelector<HTMLInputElement>(".acpmux-needs-you-form-other")!;
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLInputElement.prototype, "value")!.set!;
+    setter.call(field, "GitHub sign-in");
+    field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+  expect(submit.disabled).toBe(false);
+  const send = () =>
+    host
+      .querySelector(".acpmux-needs-you-form")!
+      .dispatchEvent(new dom!.window.Event("submit", { bubbles: true, cancelable: true }));
+  await act(async () => send());
+  expect(sent).toEqual([{ "Which login should the app use?": "GitHub sign-in" }]);
+  // A refusal keeps the row and says so; the next Submit goes out and the row hides.
+  expect(host.textContent).toContain(translate("needsYou.answerFailed"));
+  refuse = false;
+  await act(async () => click(host.querySelectorAll<HTMLInputElement>(".acpmux-needs-you-form-option input")[1]!));
+  await act(async () => send());
+  expect(sent[1]).toEqual({ "Which login should the app use?": "Passkeys" });
+  expect(host.querySelectorAll(".acpmux-needs-you-item")).toHaveLength(0);
+});
+
+test("an expanded answer for another chat's question opens that chat; this chat's goes out as its card's", async () => {
+  const host = installDom();
+  const calls: string[] = [];
+  const callNative = (async (method: string, params?: Record<string, unknown>) => {
+    calls.push(`${method}:${String(params?.sessionId ?? "")}:${String(params?.where ?? "")}`);
+    return undefined;
+  }) as <T>(method: string, params?: Record<string, unknown>) => Promise<T>;
+  let actions: NeedsYouActions | undefined;
+  function Probe() {
+    actions = useNeedsYou({
+      snapshot: {
+        sessionId: "here",
+        rows: [turn("u", "user", "Pick a login", "t"), turn("a", "assistant", "Which one?", "t")],
+        sessions: [
+          session("here"),
+          session("other", { preview: "Settings page ported." }),
+          session("peer", { peer: "box" }),
+        ],
+        asks: [],
+      },
+      callNative,
+      sideSession: async () => undefined,
+    }).actions;
+    return null;
+  }
+  root = createRoot(host);
+  await act(async () => root!.render(<Probe />));
+  const hereQ = question({
+    source: { harness: "claude", session: "here", permission: "q-here", answerOption: "allow_once" },
+  });
+  const [here] = needsYouItems({
+    sessions: [session("here")],
+    asks: [ask("here", permission({ permissionId: "q-here", question: hereQ }), 1)],
+  });
+  const [other] = needsYouItems({
+    sessions: [session("other")],
+    asks: [ask("other", permission({ permissionId: "q-other", question: question() }), 1)],
+  });
+  const reply = { session: "here", permissionId: "q-here", optionId: "allow_once", answers: { x: "OAuth" } };
+  await actions!.reply!(here!, reply);
+  expect(calls).toEqual(["chat.permission:here:"]);
+  calls.length = 0;
+  await expect(actions!.reply!(other!, { ...reply, session: "other" })).rejects.toThrow();
+  expect(calls).toEqual(["chat.asks.open:other:"]);
+  // The places: the right is sent with no `where`, so an older host reads it the same.
+  calls.length = 0;
+  actions!.open!(other!, "right");
+  actions!.open!(other!, "workspace");
+  actions!.open!(other!, "newWorkspace");
+  await Promise.resolve();
+  expect(calls).toEqual([
+    "chat.asks.open:other:",
+    "chat.asks.open:other:workspace",
+    "chat.asks.open:other:newWorkspace",
+  ]);
+  expect(actions!.opensElsewhere!(other!)).toBe(true);
+  expect(actions!.opensElsewhere!(here!)).toBe(false);
+  expect(actions!.opensElsewhere!({ ...other!, sessionId: "peer" })).toBe(false);
+  // Context: this chat's turns; another chat's latest message.
+  expect(actions!.context!(here!).turns.map((each) => each.text)).toEqual(["Pick a login", "Which one?"]);
+  expect(actions!.context!(other!)).toEqual({
+    turns: [{ id: "latest:other", who: "agent", text: "Settings page ported." }],
+    partial: true,
+  });
 });

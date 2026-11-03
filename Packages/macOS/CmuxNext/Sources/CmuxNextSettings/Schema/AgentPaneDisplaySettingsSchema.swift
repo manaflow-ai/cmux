@@ -3,8 +3,8 @@ import CoreGraphics
 /// The agent chat's look (Settings > Appearance > Agent Chat; plans/cmux-next/chat-display-settings-DESIGN.md):
 /// the same kind of rows the Markdown viewer has, under `agentPane.display`. The chat page reads the
 /// same names and ranges (webviews/src/agent-session/acpmux/chatDisplay.ts `CHAT_DISPLAY`), and its
-/// ··· menu's Text & Width popover writes them. `inspector.placement` is where the chat's Inspector
-/// opens (webviews/src/agent-session/acpmux/inspector/ChatInspector.tsx), and `environment.placement`
+/// ··· menu's Text & Width popover writes them. `inspector.placement` is where the chat's Session Info
+/// opens (webviews/src/agent-session/acpmux/session-info/SessionInfo.tsx), and `environment.placement`
 /// controls the machine · folder chip below the tab row (webviews/.../header/EnvironmentLine.tsx).
 ///
 /// The font, code font and code size have no value of their own by default: the chat then follows
@@ -23,6 +23,11 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
 
     /// Every row's key (agents may set them: looks only).
     static var keys: Set<String> { Set(descriptors.map(\.id)) }
+
+    /// `agentPane.display.sessionInfo.placement`, the Session Info row (Push or Overlay).
+    static let sessionInfoPlacementPath = section + ["sessionInfo", "placement"]
+    /// The key the Session Info row had before (``RenamedSettingKeys``); a file that still holds it applies.
+    static let legacySessionInfoPlacementPath = section + ["inspector", "placement"]
 
     /// `agentPane.display.minimap`, the Chat Minimap row.
     static let minimapKey = (section + ["minimap"]).joined(separator: ".")
@@ -86,7 +91,7 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                                          "Code as a share of the chat's text size. Empty uses the Markdown viewer's."),
                 .number(SettingNumber(0.6...1.25, step: 0.025, unit: .fraction, placeholder: codeScaleFallback)), nil,
                 ["code", "font", "size", "monospace", "scale"]),
-            row(["inspector", "placement"], SettingsText.keyed("settings.agentPane.display.inspector", "Session Info"),
+            row(["sessionInfo", "placement"], SettingsText.keyed("settings.agentPane.display.inspector", "Session Info"),
                 help: SettingsText.keyed("settings.agentPane.display.inspector.help",
                                          "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat."),
                 .choice([
@@ -120,6 +125,41 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 ]),
                 .string("compact"), ["minimap", "thread minimap", "map", "overview", "scroll", "vscode", "rail", "tick", "ticks",
                                  "wave", "prompt rail", "scroll rail", "prompts"]),
+            // How much of each turn a chat shows (webviews conversation/transcriptView.ts), Claude Code
+            // desktop's Transcript view: a chat's ··· menu changes its own, and its "Make … the default"
+            // writes this row.
+            row(["transcriptView"], SettingsText.keyed("settings.agentPane.display.transcriptView", "Transcript View"),
+                help: SettingsText.keyed("settings.agentPane.display.transcriptView.help",
+                                         "How much of each turn a chat shows. Normal folds thinking and tool output; Thinking opens thinking; Verbose also opens tool output. A chat's ··· menu changes its own view."),
+                .choice([
+                    SettingChoice("normal", SettingsText.keyed("settings.choice.transcriptViewNormal", "Normal")),
+                    SettingChoice("thinking", SettingsText.keyed("settings.choice.transcriptViewThinking", "Thinking")),
+                    SettingChoice("verbose", SettingsText.keyed("settings.choice.transcriptViewVerbose", "Verbose")),
+                ]),
+                .string("normal"), ["transcript", "view", "verbose", "thinking", "thoughts", "reasoning", "tool output",
+                                    "expand", "collapse", "fold", "details"]),
+            row(["presentation"], SettingsText.keyed("settings.agentPane.display.presentation", "Chat Presentation"),
+                .choice([
+                    SettingChoice("transcript", SettingsText.keyed("settings.choice.agentChatPresentationTranscript", "Transcript")),
+                    SettingChoice("messages", SettingsText.keyed("settings.choice.agentChatPresentationMessages", "Messages")),
+                ]),
+                .string("transcript"), ["presentation", "messages", "bubbles", "chat", "tools"]),
+            row(["harnessPlacement"], SettingsText.keyed("settings.agentPane.display.harnessPlacement", "Model Picker Harness Placement"),
+                .choice([
+                    SettingChoice("symbols", SettingsText.keyed("settings.choice.harnessSymbols", "Top Row of Symbols")),
+                    SettingChoice("left", SettingsText.keyed("settings.choice.harnessLeft", "Left Rail with Names")),
+                    SettingChoice("top", SettingsText.keyed("settings.choice.harnessTop", "Top Strip with Names")),
+                    SettingChoice("compact", SettingsText.keyed("settings.choice.harnessCompact", "Compact Left Rail")),
+                ]),
+                .string("symbols"), ["model", "picker", "harness", "placement", "left", "top", "symbols"]),
+            row(["rail", "side"], SettingsText.keyed("settings.agentPane.display.rail.side", "Prompt Rail Side"),
+                help: SettingsText.keyed("settings.agentPane.display.rail.side.help",
+                                         "The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it."),
+                .choice([
+                    SettingChoice("left", SettingsText.keyed("settings.choice.left", "Left")),
+                    SettingChoice("right", SettingsText.keyed("settings.choice.right", "Right")),
+                ]),
+                .string("left"), ["rail", "minimap", "prompts", "ticks", "scroll", "side", "left", "right"]),
         ]
     }
 }

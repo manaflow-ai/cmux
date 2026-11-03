@@ -705,9 +705,18 @@ def named(step_list, name):
 
 # cmux-next lanes whose bot re-runs stay on the minis through attempt 3; attempt 4 leaves them.
 MINIS_FIRST_THROUGH_ATTEMPT_3 = frozenset({"cmux-next.yml", "cmux-next-batch.yml", "cmux-tui-artifacts.yml"})
+# nightly.yml jobs that run on owned Macs only by design (Lawrence, 2026-10-30, a7b6a61175c: "Nightlies never use
+# Blacksmith"; tests/test_nightly_sign_runner.py OWNED_ONLY_JOBS pins their route). They have no non-owned label to
+# leave for. A re-run reads the picker's mini only on the attempt that picked it, so a later attempt falls through to
+# the owned slot, side lane or std pool (this route), never back to the mini that stalled; owned_pool_rescue.py does
+# not re-run them (it judges only build-nightly-app). The exemption holds only while a job keeps exactly this route.
+OWNED_ONLY_NIGHTLY_JOBS = frozenset({"sign-nightly-identity-legacy", "verify-nightly-identity-legacy",
+                                     "legacy-signer-dmg-image", "verify-nightly-identity-legacy-pool",
+                                     "generate-nightly-deltas"})
+OWNED_ONLY_NIGHTLY_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}"
 
 
-TOKEN = re.compile(r"\s*(\|\||&&|==|!=|>=|<=|>|<|!|\(|\)|\[|\]|,|'(?:[^']|'')*'|[0-9]+(?:\.[0-9]+)?|[A-Za-z_][A-Za-z0-9_.*-]*)")
+TOKEN = re.compile(r"\s*(\|\||&&|==|!=|>=|<=|>|<|!|\(|\)|\[|\]|\.|,|'(?:[^']|'')*'|[0-9]+(?:\.[0-9]+)?|[A-Za-z_][A-Za-z0-9_.*-]*)")
 
 
 def evaluate(expression, context):
@@ -747,7 +756,12 @@ def evaluate(expression, context):
 
     def primary():
         value = atom()
-        while peek() == "[":
+        while peek() in ("[", "."):
+            if peek() == ".":
+                take()
+                property_name = take()
+                value = value.get(property_name) if isinstance(value, dict) else None
+                continue
             take()
             index = either()
             if take() != "]":
@@ -879,6 +893,9 @@ def evaluate(expression, context):
 
 
 def github_context(event_name, ref="refs/heads/main", **variables):
+    runner_pools = json.loads((ROOT / ".github/runners.json").read_text())["pools"]
+    runner_pools = json.dumps({name: pool["members"][0] for name, pool in runner_pools.items()
+                               if isinstance(pool, dict) and pool.get("members")})
     return {
         "github": {"event_name": event_name, "ref": ref, "repository_owner": "manaflow-ai", "run_attempt": "1"},
         "env": {"CI_OWNED_HEAD_REPOS": '["manaflow-ai/cmux", "teamleaderleo/cmux"]'},
@@ -887,6 +904,7 @@ def github_context(event_name, ref="refs/heads/main", **variables):
             "MACOS_RUNNER_15": "pool-15-paid",
             "CMUX_CI_XCODE_APP_PR": "/Applications/Xcode-pr.app",
             "CMUX_CI_XCODE_APP_MACOS_15": "/Applications/Xcode-15.app",
+            "RUNNER_POOLS": runner_pools,
             **variables,
         },
         "inputs": {"cache_backend": "default", "owned_head_repos": '["manaflow-ai/cmux", "teamleaderleo/cmux"]'},
@@ -1040,7 +1058,10 @@ class Wiring(unittest.TestCase):
         fallback = "vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'"
         self.assertTrue(runs_on.rstrip("} ").endswith(f"{larger} || {fallback}"), runs_on)
         self.assertTrue(own.rstrip("} ").endswith(f"'macos-26' || {fallback}"), own)
-        self.assertIn(fallback, admission)
+        # Admission's fallback now reads the declared macOS 15 pool; the seed
+        # matrix retains its explicit labels because those values are the
+        # per-width seed inputs, not a job-level runs-on route.
+        self.assertIn("fromJSON(vars.RUNNER_POOLS).macos_15", admission)
 
     def test_the_trusted_pool_seeds_j14_only_on_a_main_push_with_the_lane_xcode(self):
         """Owned std minis compile at -j14 (cmuxterm-hq#590). Their seed comes
@@ -1490,17 +1511,23 @@ class Wiring(unittest.TestCase):
                     with self.subTest(workflow=path.name, job=name, attempt=attempt):
                         if attempt != last:
                             checked.add((path.name, name, any(str(item).startswith("glaeda-") for item in labels)))
+                        elif path.name == "nightly.yml" and name in OWNED_ONLY_NIGHTLY_JOBS:
+                            # Owned-only by design: the late attempt takes the owned pool route, not a picked mini.
+                            self.assertTrue(runs_on.endswith(OWNED_ONLY_NIGHTLY_FALLBACK), runs_on)
+                            self.assertEqual(labels, [side])
                         else:
                             self.assertFalse(any(str(item).startswith("glaeda-") for item in labels), labels)
         # Matrix-picked runners (cmux-tui) and input-gated lanes (reload-build)
-        # are not evaluated above: no workflow may name an attempt after 2.
+        # are not evaluated above: no workflow may name an attempt after 2. Naming attempt 2 itself
+        # (`run_attempt == 2`, the bot's attempt 2 placed like attempt 1) is allowed: attempts 1 and 2 may
+        # take a glaeda-* label, and the evaluation above still checks every evaluated job's last attempt.
         for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
             text = path.read_text(encoding="utf-8")
             with self.subTest(workflow=path.name):
                 # cmux-next.yml's `run_attempt == 2 && bot` gates send the bot's
                 # attempt 2 to Blacksmith or hosted runners, never a fleet label.
                 pattern = (r"run_attempt <= ?[4-9]" if path.name in MINIS_FIRST_THROUGH_ATTEMPT_3
-                           else r"run_attempt (?:<= ?[3-9]|== ?[2-9])")
+                           else r"run_attempt (?:<= ?[3-9]|== ?[3-9])")
                 self.assertIsNone(re.search(pattern, text))
         self.assertIn("(github.run_attempt <= 2 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor))",
                       load("ci-macos.yml")["jobs"]["late-placement"]["if"])

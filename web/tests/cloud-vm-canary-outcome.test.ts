@@ -14,6 +14,13 @@ describe("classifyCodexCanaryOutcome", () => {
     )).toBe("no_account");
   });
 
+  test("accepts the terminal no-usable-account response", () => {
+    expect(classifyCodexCanaryOutcome(
+      '{"error":{"message":"No healthy Codex subscription is currently available.","type":"usage_limit_reached","code":"no_usable_account"},"retryable":false}',
+      { zeroToken: true },
+    )).toBe("no_account");
+  });
+
   test("requires an exact pong line for a token-backed turn", () => {
     expect(classifyCodexCanaryOutcome("prompt\npong\ncodex-exit 0", { zeroToken: false })).toBe("answered");
     expect(classifyCodexCanaryOutcome("the answer is pong", { zeroToken: false })).toBe("failed");

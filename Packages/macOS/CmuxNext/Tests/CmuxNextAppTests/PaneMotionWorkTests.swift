@@ -90,6 +90,8 @@ struct PaneMotionWorkTests {
             let before = Dictionary(uniqueKeysWithValues: hosts.map { (ObjectIdentifier($0), $0.frame) })
             let clips = screen.stripClipsComputed, overlay = harness.root.overlayHostsPlaced
             harness.model.setSplitRatio(SplitID("s0-0"), ratio: 0.2 + 0.005 * Double(step), transaction: transaction, phase: .changed)
+            // A live value is stored without a sync (the drag shows it itself): lay the stored layout out, as a sync does.
+            harness.root.syncWithModel()
             _ = await harness.frame()
             let moved = hosts.filter { before[ObjectIdentifier($0)] != $0.frame }.count
             worstClips = max(worstClips, screen.stripClipsComputed - clips - moved)

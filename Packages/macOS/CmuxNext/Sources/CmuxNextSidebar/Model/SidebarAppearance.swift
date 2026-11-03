@@ -11,7 +11,7 @@ public nonisolated enum WorkspaceIcon: Hashable, Sendable {
     case swatch(GroupColor)
     /// One emoji, drawn as text, on a chip of `chip` when set.
     case emoji(String, chip: GroupColor? = nil)
-    /// The front tab's favicon, drawn as is.
+    /// The front tab's favicon, drawn as `SidebarFaviconStyle` says (a low-contrast mono icon in the label colour).
     case favicon(SidebarFavicon)
 
     /// This icon without the workspace's color (`sidebar.showColors` off): a swatch is no icon, a
@@ -22,6 +22,17 @@ public nonisolated enum WorkspaceIcon: Hashable, Sendable {
         case let .symbol(name, _): .symbol(name, tint: nil)
         case let .emoji(text, _): .emoji(text, chip: nil)
         case .favicon: self
+        }
+    }
+
+    /// The workspace color a swatch or a symbol's tint draws, for a row restored from the snapshot
+    /// (no `SidebarWorkspace.color` yet). Nil for an emoji: Reset Workspace Color keeps its chip
+    /// (`SidebarEdits`), so the chip cannot say the workspace still has a color.
+    public var color: GroupColor? {
+        switch self {
+        case let .swatch(color): color
+        case let .symbol(_, tint): tint
+        case .emoji, .favicon: nil
         }
     }
 

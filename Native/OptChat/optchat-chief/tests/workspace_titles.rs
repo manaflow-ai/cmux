@@ -1,8 +1,9 @@
 //! Subagent workspace names and sidebar groups (Lawrence 2026-10-19: "when
 //! you make a new workspace you do name it better. And you need to group it
 //! better as well", then "I don't like the checkmark"). A workspace is named
-//! by its task's short title, sits in a topic group, and its name never changes
-//! when the subagent finishes.
+//! by its task's short title and its name never changes when the subagent
+//! finishes. It joins no topic group (#27712): only a `Group: Chief agents`
+//! line asks for the user's own group of that name.
 
 mod common;
 
@@ -71,86 +72,34 @@ fn no_title_starts_with_user_has_a_check_mark_or_runs_long() {
     }
 }
 
+/// #27712: a spawn asks for no group unless its `Group:` line names "Chief agents"; a topic in
+/// its title or any other `Group:` value picks nothing.
 #[test]
-fn tasks_go_into_topic_groups() {
+fn a_spawn_asks_only_for_chief_agents() {
     let cases = [
+        ("Title: Sidebar group drag\nfix the color bar", ""),
+        ("Title: Omnibar Chrome parity\n...", ""),
+        ("Title: Centered pane divider\n...", ""),
+        ("Full screen lag and layout\n\nUser (Oct 19): ...", ""),
+        ("Title: Domains\nGroup: Accounts & billing\n...", ""),
+        ("Title: Fleet\nGroup: Cloud & fleet\n...", ""),
+        ("Title: Chief\nGroup: Chief agent\n...", ""),
         (
-            "Title: Sidebar group drag\nfix the color bar",
-            "Sidebar & tabs",
+            "Title: Domains\nGroup: Chief agents\n...",
+            AGENTS_GROUP_NAME,
         ),
-        ("Title: Omnibar Chrome parity\n...", "Browser & parity"),
-        ("Title: Home New Message page\n...", "Home & chat"),
-        ("Title: Landing audit\n...", "Nightly & CI"),
-        ("Title: macOS matrix fuzz\n...", "Crashes & QA"),
-        ("Title: Mermaid parser\n...", "Markdown & editor"),
-        ("Title: Centered pane divider\n...", "Panes & layout"),
-        ("Title: Chief default Claude\n...", "Agents & routing"),
-        ("Title: Idle power + wakeups\n...", "Performance"),
         (
-            "Title: Domains\nGroup: Accounts & billing\n...",
-            "Accounts & billing",
+            "Group: chief AGENTS\nTitle: Domains\n...",
+            AGENTS_GROUP_NAME,
         ),
-        ("Title: Something odd\nnothing to match", AGENTS_GROUP_NAME),
+        (
+            "Title: Domains\nGroup: Chief agents. Repo ~/fun/cmux\n...",
+            AGENTS_GROUP_NAME,
+        ),
+        ("Title: Domains\nGroup: Chief agents & more\n...", ""),
     ];
     for (task, want) in cases {
-        assert_eq!(workspaces::topic_group(task), want, "task: {task}");
-    }
-}
-
-/// Real spawn tasks of 2026-10-20 (first line only, no `Group:` line) and the
-/// group a137 had to move each one into by hand (acp-chief-issues.md #9).
-/// The host must pick the same group itself, so no rename agent is needed.
-#[test]
-fn spawns_land_in_the_group_a137_picked_by_hand() {
-    let cases = [
-        (
-            "Full screen lag and layout\n\nUser (Oct 19): ...",
-            "Performance",
-        ),
-        ("Home streaming lag\n\nUser (Oct 20): ...", "Performance"),
-        (
-            "Tab switch rewrite 100x\n\nUser (u2873): ...",
-            "Performance",
-        ),
-        (
-            "Pre-push quality gate\n\nUser (Oct 20): ...",
-            "Nightly & CI",
-        ),
-        (
-            "Add Server UI redesign\n\nUser (Oct 20): ...",
-            "cmux-next app",
-        ),
-        (
-            "iOS Action Button Chief call\n\nUser (Oct 19): ...",
-            "cmux-next app",
-        ),
-        (
-            "Classic to Next migration\n\nUser (u3337): ...",
-            "cmux-next app",
-        ),
-        (
-            "Approve pairing from CLI\n\nUser (Oct 20): ...",
-            "Agents & routing",
-        ),
-        (
-            "Sidebar: no timestamps by default\n\nUser: ...",
-            "Sidebar & tabs",
-        ),
-        (
-            "Chiefs drive right browser\n\nUser: ...",
-            "Browser & parity",
-        ),
-        (
-            "Pane tab mute button clickable\n\nUser: ...",
-            "Sidebar & tabs",
-        ),
-        (
-            "ACP spawn and messaging fixes\n\nUser (Oct 20): ...",
-            "Agents & routing",
-        ),
-    ];
-    for (task, want) in cases {
-        assert_eq!(workspaces::topic_group(task), want, "task: {task}");
+        assert_eq!(workspaces::spawn_group(task), want, "task: {task}");
     }
 }
 
@@ -199,6 +148,10 @@ fn a_finished_subagents_workspace_keeps_its_name_without_a_check_mark() {
     let recorder = Arc::new(Recorder::default());
     let ws: Arc<dyn Workspaces> = recorder.clone();
     h.brain.set_workspaces(Some(ws.clone()));
+    // Shown at start (#26386: hidden unless this setting is on).
+    h.brain
+        .set_setting("subagents.showWorkspaces", "true")
+        .unwrap();
     let sp = Arc::new(
         Spawner::new(
             h.chat.clone(),
@@ -259,8 +212,8 @@ fn a_finished_subagents_workspace_keeps_its_name_without_a_check_mark() {
     }
     std::thread::sleep(Duration::from_millis(200));
     assert!(
-        answer.contains("group \"Sidebar & tabs\""),
-        "the spawn answer names the group: {answer}"
+        !answer.contains(" in group ") && !answer.contains("group \""),
+        "the spawn answer names no group: {answer}"
     );
     // a313: the reply gives the real ws_ id and how to move or pin it.
     assert!(
@@ -279,7 +232,8 @@ fn a_finished_subagents_workspace_keeps_its_name_without_a_check_mark() {
     );
     assert_eq!(
         *recorder.opened.lock().unwrap(),
-        vec![("Sidebar group drag".to_owned(), "Sidebar & tabs".to_owned())]
+        vec![("Sidebar group drag".to_owned(), String::new())],
+        "a task with no `Group: Chief agents` line asks for no group"
     );
     let renamed = recorder.renamed.lock().unwrap().clone();
     assert!(

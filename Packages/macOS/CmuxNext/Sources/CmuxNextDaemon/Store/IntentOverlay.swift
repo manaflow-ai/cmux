@@ -88,15 +88,20 @@ import Foundation
         case .setRowHeights(let column, let heights):
             return setRowHeights(heights, of: column, in: store)
         case .createTab(let paneHandle, let provisional):
-            guard let pane = store.panesByHandle[paneHandle], store.tabsBySurface[provisional.surface] == nil else { return nil }
+            // A New Terminal Tab on a pending split's stand-in shows in the daemon's pane once that took it over.
+            ProvisionalSplit.rememberStandInTarget(paneHandle, in: store)
+            guard let shown = ProvisionalSplit.shownPane(paneHandle, in: store), let pane = store.panesByHandle[shown],
+                  store.tabsBySurface[provisional.surface] == nil else { return nil }
             let tab = TabModel(provisional)
             pane.insertTab(tab, at: pane.tabs.count)
             store.index.insert(tab, in: pane)
-            return .createdTab(surface: provisional.surface, pane: paneHandle)
+            return .createdTab(surface: provisional.surface, pane: shown)
         case .createWorkspace(let provisional, let index):
             return ProvisionalWorkspaceOverlay.apply(provisional, index: index, to: store)
         case .closeTabs(let surfaces):
             return TabCloseOverlay(store: store).apply(surfaces)
+        case .dockTab(let surface, let pane, let provisional, let dock, let standIn):
+            return ProvisionalDock.apply(surface: surface, from: pane, provisional: provisional, dock: dock, standIn: standIn, to: store)
         case .splitPane(let target, let direction, let ratio, let provisional):
             return ProvisionalSplit.apply(target: target, direction: direction, ratio: ratio,
                                           provisional: provisional, to: store)
@@ -215,6 +220,8 @@ import Foundation
             CancelledCreation.unhide(.hiddenTab(hidden), in: store)
         case .splitPane(let screen, let layout, let columns, let pane):
             ProvisionalSplit.undo(screen: screen, layout: layout, columns: columns, pane: pane, in: store)
+        case .dockTab(let dock):
+            ProvisionalDock.undo(dock, in: store)
         case .createdWorkspace(let key, let inserted):
             ProvisionalWorkspaceOverlay.undo(key: key, inserted: inserted, in: store)
         case .createdTab(let surface, let pane):

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 525,
+  "count": 563,
   "sections": [
     {
       "id": "general",
@@ -15,7 +15,8 @@
           "group": "Agent Chat",
           "values": [
             "inline",
-            "strip"
+            "strip",
+            "both"
           ]
         },
         {
@@ -91,6 +92,18 @@
           "group": "Agent Chat"
         },
         {
+          "key": "agentPane.newChatsIn",
+          "title": "Start New Chats In",
+          "help": "Where a new chat runs. Cloud starts it on your own Cloud machine, with your project copied there. The new chat's composer can change it for that chat.",
+          "kind": "choice",
+          "default": "local",
+          "group": "Agent Chat",
+          "values": [
+            "local",
+            "cloud"
+          ]
+        },
+        {
           "key": "agentPane.scrollToBottomOnSend",
           "title": "Scroll to Bottom When I Send",
           "help": "When off, sending while you are reading up keeps your place and shows new messages below.",
@@ -110,6 +123,14 @@
           "key": "agentPane.showDictation",
           "title": "Show Dictation Button",
           "help": "The microphone beside Send in every composer, including the New Tab page.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.showMachineLoadWarnings",
+          "title": "Show Machine Load Warnings",
+          "help": "Shows a warning when a remote machine is at its CPU or memory budget in the Computer menu.",
           "kind": "toggle",
           "default": true,
           "group": "Agent Chat"
@@ -136,6 +157,40 @@
           }
         },
         {
+          "key": "agents.autoRetry.attempts",
+          "title": "Retries per Error",
+          "help": "How many times the chat tries again before it stops and waits for you.",
+          "kind": "number",
+          "default": 4,
+          "group": "Retry After Errors",
+          "range": {
+            "min": 1,
+            "max": 12,
+            "unit": "count"
+          }
+        },
+        {
+          "key": "agents.autoRetry.enabled",
+          "title": "Retry Automatically",
+          "help": "When a model is rate limited or out of capacity, or the connection drops, the chat tries again by itself. Retry on the error card always works.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Retry After Errors"
+        },
+        {
+          "key": "agents.autoRetry.intervalSeconds",
+          "title": "Seconds Between Retries",
+          "help": "How long the chat waits before each try. 0 waits longer after each failed try: 10 seconds, 1 minute, 5 minutes, then 20 minutes.",
+          "kind": "number",
+          "default": 0,
+          "group": "Retry After Errors",
+          "range": {
+            "min": 0,
+            "max": 3600,
+            "unit": "seconds"
+          }
+        },
+        {
           "key": "agents.chats.discovery",
           "title": "Discover Chat Folders",
           "help": "Find harness chat folders automatically. When off, only the listed folders are used.",
@@ -157,6 +212,14 @@
           "help": "Add absolute paths to harness data folders. Protected folders are refused. Your organization can add locked folders.",
           "kind": "folder_list",
           "default": [],
+          "group": "Chats"
+        },
+        {
+          "key": "agents.chats.sessionRecap",
+          "title": "Session Recap",
+          "help": "When you come back to a Claude chat after 5 minutes or more, show a line on where it stands. Each recap is one small extra model call that counts toward your usage.",
+          "kind": "toggle",
+          "default": true,
           "group": "Chats"
         },
         {
@@ -187,6 +250,18 @@
           ]
         },
         {
+          "key": "agents.promptCache",
+          "title": "Prompt Cache",
+          "help": "How long Claude Code keeps a chat's prompt cached. One hour keeps replies after a pause cheap; its cache writes cost a little more.",
+          "kind": "choice",
+          "default": "1h",
+          "group": "Agent Chat",
+          "values": [
+            "1h",
+            "5m"
+          ]
+        },
+        {
           "key": "agents.subsessions.answerQuestions",
           "title": "Let Sessions Answer Their Sub-sessions' Questions",
           "help": "When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer.",
@@ -205,9 +280,9 @@
         {
           "key": "agents.subsessions.maxChildren",
           "title": "Open Sub-sessions per Session",
-          "help": "The most sub-sessions one session can have open at the same time. Closing a sub-session frees its place.",
+          "help": "The most live sub-sessions one session can have at the same time. Running, waiting and harness-alive children count; finished, dead and closed children do not use a slot.",
           "kind": "number",
-          "default": 50,
+          "default": 1000,
           "group": "Sub-sessions",
           "range": {
             "min": 1,
@@ -233,7 +308,7 @@
           "title": "Running Sub-sessions per Session",
           "help": "The most sub-sessions one session runs at the same time. More wait their turn and start as running ones finish. Running ones are never stopped when you lower it.",
           "kind": "number",
-          "default": 16,
+          "default": 1000,
           "group": "Sub-sessions",
           "range": {
             "min": 1,
@@ -344,6 +419,19 @@
           "group": "Tabs"
         },
         {
+          "key": "appearance.metrics.tabFontSize",
+          "title": "Tab Text Size",
+          "help": "Text size of tab titles. Unset, tabs follow the interface size.",
+          "kind": "number",
+          "default": null,
+          "group": "Tabs",
+          "range": {
+            "min": 10,
+            "max": 18,
+            "unit": "points"
+          }
+        },
+        {
           "key": "appearance.metrics.tabMaxWidth",
           "title": "Maximum Tab Width",
           "help": "Widest a tab gets when the strip has room.",
@@ -392,6 +480,19 @@
           "range": {
             "min": 24,
             "max": 120,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "appearance.metrics.tabStripHeight",
+          "title": "Tab Bar Height",
+          "help": "Height of a pane's tab bar. Its tabs grow and shrink with it.",
+          "kind": "number",
+          "default": null,
+          "group": "Tabs",
+          "range": {
+            "min": 22,
+            "max": 44,
             "unit": "points"
           }
         },
@@ -1043,6 +1144,14 @@
           "group": "Tabs"
         },
         {
+          "key": "tabs.nativeNewTabPage",
+          "title": "Native New Tab Page",
+          "help": "Cmd-T and the + button open the native New Tab page instead of the web one. It opens faster and lists every command palette action as you type. Recent chats and widgets are only on the web page for now.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
           "key": "tabs.newTabNowPlaying",
           "title": "Show Now Playing on New Tab",
           "help": "A player for what is playing, on the New Tab page.",
@@ -1074,7 +1183,6 @@
             "minimal",
             "cards",
             "default",
-            "composer",
             "threads",
             "console",
             "classic",
@@ -1222,11 +1330,19 @@
           "group": "Tabs"
         },
         {
-          "key": "tabs.terminalFirst",
-          "title": "cmux Classic Mode",
-          "help": "New tabs (Cmd-T, the tab bar's +), splits (Cmd-D, Cmd-Shift-D), new workspaces (Cmd-N, the sidebar's +) and new windows open a terminal, as in cmux classic, instead of the New Tab page. To open the New Tab page while this is on, right-click or press and hold the tab bar's +, or run New Tab Page from the command palette (Cmd-Shift-P). Cmd-I still opens an agent chat and Cmd-Shift-L a browser tab.",
+          "key": "tabs.verticalTabs",
+          "title": "Use Vertical Tabs for All Workspaces",
+          "help": "Show every workspace's tabs as a list beside its panes instead of a strip above them. Turn vertical tabs on or off for one workspace from its tab bar's menu.",
           "kind": "toggle",
           "default": false,
+          "group": "Tabs"
+        },
+        {
+          "key": "tabs.verticalTabsExpandOnHover",
+          "title": "Expand Collapsed Vertical Tabs on Hover",
+          "help": "When the vertical tab list is collapsed to icons, show the titles while the pointer is over it.",
+          "kind": "toggle",
+          "default": true,
           "group": "Tabs"
         },
         {
@@ -1358,6 +1474,14 @@
           ]
         },
         {
+          "key": "updates.showFeatureTips",
+          "title": "Show Feature Tips",
+          "help": "Now and then, a small tip points at a feature an update added. Close it or use the feature and it never comes back.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Updates"
+        },
+        {
           "key": "updates.showWhatsNew",
           "title": "Show What's New After Updates",
           "help": "After an update, a card at the bottom of the sidebar links to What's New until you open or dismiss it.",
@@ -1420,7 +1544,7 @@
           "title": "Idle Workspaces",
           "help": "What cmux does with workspaces you have not used for a while. Archived workspaces stay in their group, dimmed and last, and come back when you open them.",
           "kind": "choice",
-          "default": "suggest",
+          "default": "manual",
           "group": "Auto-Archive",
           "values": [
             "suggest",
@@ -1445,6 +1569,19 @@
           "kind": "toggle",
           "default": true,
           "group": "Hibernation"
+        },
+        {
+          "key": "workspaces.hibernation.hiddenSpaceMinutes",
+          "title": "Hibernate Hidden Spaces After",
+          "help": "When no window shows a space, its workspaces hibernate after this many idle minutes instead. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate.",
+          "kind": "number",
+          "default": 15,
+          "group": "Hibernation",
+          "range": {
+            "min": 5,
+            "max": 1440,
+            "unit": "minutes"
+          }
         },
         {
           "key": "workspaces.hibernation.idleMinutes",
@@ -1561,15 +1698,17 @@
           "group": "Agent Chat"
         },
         {
-          "key": "agentPane.display.inspector.placement",
-          "title": "Session Info",
-          "help": "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
+          "key": "agentPane.display.harnessPlacement",
+          "title": "Model Picker Harness Placement",
+          "help": "",
           "kind": "choice",
-          "default": "overlay",
+          "default": "symbols",
           "group": "Agent Chat",
           "values": [
-            "push",
-            "overlay"
+            "symbols",
+            "left",
+            "top",
+            "compact"
           ]
         },
         {
@@ -1583,6 +1722,55 @@
             "compact",
             "full",
             "off"
+          ]
+        },
+        {
+          "key": "agentPane.display.presentation",
+          "title": "Chat Presentation",
+          "help": "",
+          "kind": "choice",
+          "default": "transcript",
+          "group": "Agent Chat",
+          "values": [
+            "transcript",
+            "messages"
+          ]
+        },
+        {
+          "key": "agentPane.display.rail.side",
+          "title": "Prompt Rail Side",
+          "help": "The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it.",
+          "kind": "choice",
+          "default": "left",
+          "group": "Agent Chat",
+          "values": [
+            "left",
+            "right"
+          ]
+        },
+        {
+          "key": "agentPane.display.sessionInfo.placement",
+          "title": "Session Info",
+          "help": "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
+          "kind": "choice",
+          "default": "overlay",
+          "group": "Agent Chat",
+          "values": [
+            "push",
+            "overlay"
+          ]
+        },
+        {
+          "key": "agentPane.display.transcriptView",
+          "title": "Transcript View",
+          "help": "How much of each turn a chat shows. Normal folds thinking and tool output; Thinking opens thinking; Verbose also opens tool output. A chat's ··· menu changes its own view.",
+          "kind": "choice",
+          "default": "normal",
+          "group": "Agent Chat",
+          "values": [
+            "normal",
+            "thinking",
+            "verbose"
           ]
         },
         {
@@ -1641,7 +1829,7 @@
         {
           "key": "appearance.appTheme",
           "title": "App Theme",
-          "help": "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast.",
+          "help": "Colors for the window, sidebar, tabs and cmux's pages. Terminals keep the Terminal Theme. Every color meets WCAG AA contrast.",
           "kind": "theme",
           "default": "followTerminal",
           "group": "App Theme"
@@ -2050,12 +2238,36 @@
           ]
         },
         {
+          "key": "appearance.displayBackgroundRotations",
+          "title": "Per-display Background Rotation",
+          "help": "Map stable display identifiers to 15m, hourly, or daily. Unset displays use the global rotation.",
+          "kind": "string_map",
+          "default": null,
+          "group": "Window Background"
+        },
+        {
+          "key": "appearance.displayBackgrounds",
+          "title": "Per-display Backgrounds",
+          "help": "Map stable display identifiers to daily, folder:<absolute path>, desktop, a fixed background, or none.",
+          "kind": "string_map",
+          "default": null,
+          "group": "Window Background"
+        },
+        {
           "key": "appearance.experimentalControls",
           "title": "Experimental Appearance Controls",
           "help": "Applies Hue and Saturation to the window's tint. Off, they have no effect.",
           "kind": "toggle",
           "default": false,
           "group": "Window Background"
+        },
+        {
+          "key": "appearance.favoriteThemes",
+          "title": "Starred Themes",
+          "help": "Themes starred in a theme picker. The picker lists them first.",
+          "kind": "string_list",
+          "default": [],
+          "group": "App Theme"
         },
         {
           "key": "appearance.focusIndicator",
@@ -2193,6 +2405,19 @@
           "values": [
             "shared",
             "perPane"
+          ]
+        },
+        {
+          "key": "appearance.rotateFavoriteThemes",
+          "title": "Rotate Starred Themes",
+          "help": "When cmux opens, the terminal theme changes to the next starred theme. Needs two starred themes, and has no effect while Match System Appearance is on.",
+          "kind": "choice",
+          "default": "off",
+          "group": "App Theme",
+          "values": [
+            "off",
+            "launch",
+            "daily"
           ]
         },
         {
@@ -2602,7 +2827,7 @@
         {
           "key": "appearance.theme",
           "title": "Theme",
-          "help": "Colors for cmux and its terminals. A space, workspace or terminal theme overrides it.",
+          "help": "Colors for terminals. cmux uses them too while App Theme is Match Terminal Theme. A space, workspace or terminal theme overrides it.",
           "kind": "theme",
           "default": null,
           "group": "App Theme"
@@ -3045,6 +3270,14 @@
           "group": "Sidebar"
         },
         {
+          "key": "sidebar.chromeGroups",
+          "title": "Chrome-Style Groups",
+          "help": "A group's colored name chip joins a thicker rail with a clipped corner, and the rail ends in a rounded cap, like Chrome's tab groups.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
           "key": "sidebar.cmd9",
           "title": "Command-9",
           "help": "Goes to the last item, as in browsers, or to the ninth.",
@@ -3118,7 +3351,7 @@
           "title": "Hover Card Delay",
           "help": "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",
           "kind": "number",
-          "default": 1300,
+          "default": 400,
           "group": "Sidebar",
           "range": {
             "min": 0,
@@ -3427,6 +3660,14 @@
           "group": "Sidebar"
         },
         {
+          "key": "sidebar.showNewWorkspaceChooser",
+          "title": "Show New Workspace Menu Button",
+          "help": "A chevron beside the + in the sidebar's titlebar opens the New Workspace menu. Off, right-click the + for the same menu.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
           "key": "sidebar.showProfileControl",
           "title": "Show Profile Button",
           "help": "",
@@ -3467,14 +3708,6 @@
           "group": "Sidebar"
         },
         {
-          "key": "sidebar.showWorkspaceTabs",
-          "title": "Show Workspace Tabs",
-          "help": "Lists tabs beneath each workspace in the sidebar.",
-          "kind": "toggle",
-          "default": true,
-          "group": "Sidebar"
-        },
-        {
           "key": "sidebar.side",
           "title": "Sidebar Side",
           "help": "The window edge the sidebar sits on. On the right, the window buttons sit over the tab bar.",
@@ -3485,6 +3718,14 @@
             "left",
             "right"
           ]
+        },
+        {
+          "key": "sidebar.sideBySide",
+          "title": "Workspaces Side by Side",
+          "help": "A press on a workspace row switches only when you release it, so you can hold and drag the row onto a pane's edge to show that workspace beside the current one. Workspaces on screen are highlighted.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
         },
         {
           "key": "sidebar.spacesPosition",
@@ -3540,6 +3781,19 @@
           "values": [
             "standard",
             "rail"
+          ]
+        },
+        {
+          "key": "sidebar.textSize",
+          "title": "Sidebar Text Size",
+          "help": "Makes the sidebar's names, headers, icons and rows larger together. Larger matches the ChatGPT app's sidebar.",
+          "kind": "choice",
+          "default": "default",
+          "group": "Sidebar",
+          "values": [
+            "default",
+            "large",
+            "larger"
           ]
         },
         {
@@ -3674,6 +3928,14 @@
           "kind": "toggle",
           "default": true,
           "group": "Workspace Rows"
+        },
+        {
+          "key": "sidebar.workspacesAsTabs",
+          "title": "Workspaces as Tabs",
+          "help": "Each workspace is one line, like Claude's sidebar, and Command-Shift-[ and ] go to the previous or next workspace instead of the previous or next tab.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
         },
         {
           "key": "status.inferCommandBusy",
@@ -3878,6 +4140,19 @@
             "max": 160,
             "unit": "points"
           }
+        },
+        {
+          "key": "workspaceColors.indicatorStyle",
+          "title": "Workspace Color Style",
+          "help": "How a workspace's color shows in the sidebar: a dot before its name, a bar down the row's edge, or the whole row filled with the color.",
+          "kind": "choice",
+          "default": "dot",
+          "group": "Sidebar",
+          "values": [
+            "dot",
+            "leftRail",
+            "fill"
+          ]
         }
       ]
     },
@@ -4523,6 +4798,14 @@
           "group": "Opening Links"
         },
         {
+          "key": "browser.import.cookieBanner",
+          "title": "Offer to Import Cookies",
+          "help": "Browser tabs offer to import cookies from your other browsers, so you stay signed in. Nothing imports until you click Import. Don't Show Again on the banner turns this off.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Import"
+        },
+        {
           "key": "browser.import.enabled",
           "title": "Import from Other Browsers",
           "help": "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays.",
@@ -4661,6 +4944,14 @@
           "group": "Address Bar"
         },
         {
+          "key": "browser.omnibar.fontSize",
+          "title": "Address Bar Text Size",
+          "help": "The size of the address and the suggestions. Match Density follows the density.",
+          "kind": "choice_or_number",
+          "default": "density",
+          "group": "Address Bar"
+        },
+        {
           "key": "browser.omnibar.glass",
           "title": "Address Bar Glass",
           "help": "The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color.",
@@ -4699,6 +4990,14 @@
             "max": 1,
             "unit": "fraction"
           }
+        },
+        {
+          "key": "browser.omnibar.height",
+          "title": "Address Bar Height",
+          "help": "Match Density follows the density. The bar always grows to fit its text.",
+          "kind": "choice_or_number",
+          "default": "density",
+          "group": "Address Bar"
         },
         {
           "key": "browser.omnibar.inlineAutocomplete",
@@ -4982,6 +5281,14 @@
       "title": "Home",
       "rows": [
         {
+          "key": "chief.autoRouteSubagents",
+          "title": "Route Subagents to the Best Agent",
+          "help": "The Chief picks the agent each subagent runs on, such as Codex for long coding work and Claude for writing and UI, even when the Chief itself runs on another. Off, subagents run on the Chief's own agent.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Subagents"
+        },
+        {
           "key": "chief.reactionClassifier.harness",
           "title": "Reaction Classifier Harness",
           "help": "The agent harness the reaction classifier runs on, for example claude or codex. Empty uses the Chief's Claude route.",
@@ -5110,17 +5417,32 @@
           "default": "orb",
           "group": "Chief Pet",
           "values": [
-            "orb",
-            "orb-spark",
-            "orb-hood",
+            "fox",
             "machine",
             "machine-cyan",
             "machine-blue",
             "moon",
             "moon-blue",
-            "fox",
-            "mochi"
+            "mochi",
+            "captain",
+            "sprout",
+            "bolt",
+            "fox-arctic",
+            "machine-violet",
+            "machine-gold",
+            "moon-rose",
+            "orb",
+            "orb-spark",
+            "orb-hood"
           ]
+        },
+        {
+          "key": "home.feedInChief",
+          "title": "Show the Feed in Chief",
+          "help": "Feed notices, such as updates and pull requests, appear among your main Chief's messages. Only you see them; the Chief does not read them.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Chief Chat"
         },
         {
           "key": "home.server",
@@ -5168,8 +5490,8 @@
         },
         {
           "key": "feed.github.enabled",
-          "title": "Connect GitHub",
-          "help": "Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first.",
+          "title": "GitHub Inbox",
+          "help": "Inbox shows your GitHub notifications",
           "kind": "toggle",
           "default": false,
           "group": "GitHub Inbox"
@@ -5288,6 +5610,14 @@
           "key": "notifications.attention.moveToTop",
           "title": "Move the Workspace to the Top",
           "help": "A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Attention Ring"
+        },
+        {
+          "key": "notifications.attention.moveToTopOnAgentFinish",
+          "title": "Move the Workspace to the Top When Its Agent Finishes",
+          "help": "An agent that finishes its turn moves its workspace to the top of the unpinned rows, unless you are looking at its pane.",
           "kind": "toggle",
           "default": false,
           "group": "Attention Ring"
@@ -5653,9 +5983,53 @@
           "group": "Machine Colors"
         },
         {
+          "key": "cloud.agentsStartWithoutAsking",
+          "title": "Let Agents Start Cloud Sessions Without Asking",
+          "help": "An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Cloud Workspaces"
+        },
+        {
+          "key": "cloud.newWorkspaceFolder",
+          "title": "New Cloud Workspaces Start In",
+          "help": "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder.",
+          "kind": "choice",
+          "default": "inherit",
+          "group": "Cloud Workspaces",
+          "values": [
+            "inherit",
+            "empty"
+          ]
+        },
+        {
+          "key": "cloud.newWorkspacesInCloud",
+          "title": "Run New Workspaces in Cloud",
+          "help": "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Cloud Workspaces"
+        },
+        {
+          "key": "cloud.useMyClaudeLoginOnMyCloudMachines",
+          "title": "Use My Claude Login on My Own Cloud Machines",
+          "help": "Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Cloud Workspaces"
+        },
+        {
           "key": "phone.allowConnections",
           "title": "Let Your Phone Use This Mac",
           "help": "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Phone Access"
+        },
+        {
+          "key": "phone.cloudDesktop",
+          "title": "Show Your Cloud Machine's Screen on Your Phone",
+          "help": "Your phone's Chief page shows your running Cloud machine's screen, view only. This Mac streams it while the page is open.",
           "kind": "toggle",
           "default": false,
           "group": "Phone Access"
@@ -5707,6 +6081,14 @@
           "key": "labs.classicHome",
           "title": "Classic Home",
           "help": "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
+        },
+        {
+          "key": "labs.machineJoin",
+          "title": "Join Any Machine with One Line",
+          "help": "Add Device shows a line to paste on any Mac or Linux computer; it joins your team's machines. Screen sharing and control stay off until that machine allows them.",
           "kind": "toggle",
           "default": false,
           "group": "Labs"

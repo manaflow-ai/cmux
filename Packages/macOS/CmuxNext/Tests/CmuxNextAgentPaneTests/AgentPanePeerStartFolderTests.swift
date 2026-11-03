@@ -15,10 +15,11 @@ struct AgentPanePeerStartFolderTests {
     /// A folder no Mac has (a Linux machine's project).
     static let peerOnly = "/home/devbox/projects/api-\(UUID().uuidString)"
 
-    static func start(id: Int = 7, cwd: Any, peer: String? = "devbox", extra: [String: Any] = [:]) throws -> String {
+    static func start(id: Int = 7, cwd: Any? = nil, peer: String? = "devbox", extra: [String: Any] = [:]) throws -> String {
         var acpmux: [String: Any] = ["harness": "claude"]
         if let peer { acpmux["peer"] = peer }
-        var params: [String: Any] = ["cwd": cwd, "mcpServers": [], "_meta": ["acpmux": acpmux]]
+        var params: [String: Any] = ["mcpServers": [], "_meta": ["acpmux": acpmux]]
+        if let cwd { params["cwd"] = cwd }
         params.merge(extra) { $1 }
         let frame: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": "session/new", "params": params]
         return String(decoding: try JSONSerialization.data(withJSONObject: frame, options: [.withoutEscapingSlashes]), as: UTF8.self)
@@ -151,5 +152,36 @@ struct AgentPanePeerStartFolderTests {
         transport.gestures.record()
         #expect(await transport.send(connection: id, frames: [try Self.start(id: 4, cwd: outside, peer: nil)]) == nil)
         #expect(transport.addedRoots == [outside])
+    }
+
+    @Test(.timeLimit(.minutes(1)), arguments: ["workspace", "agent-home", "none"])
+    func aPeerWithoutAFolderReachesAcpmuxWithoutALocalDefault(_ fallback: String) async throws {
+        let server = AcpmuxStandInServer()
+        try await server.start()
+        defer { server.stop() }
+        let root = try Self.macFolder("peer-default-pane")
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let home = AgentHome(base: root + "/agent-home")
+        let inbox = AgentPaneRelayedAllowTests.PageInbox()
+        let transport = AgentPaneTransport()
+        transport.deliver = { event, done in inbox.deliver(event.frames); done() }
+        transport.roots = { fallback == "workspace" ? [root] : [] }
+        transport.primaryRoot = { fallback == "workspace" ? root : nil }
+        transport.agentHome = { fallback == "agent-home" ? AgentHomeFill(home: home, workspace: "peer-default") : nil }
+        let id = try await transport.open(AcpmuxConnection(url: server.url, dashboardToken: "t", localAppToken: nil))
+        defer { transport.close(connection: id) }
+        #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
+
+        let sent = await transport.send(connection: id, frames: [try Self.start(id: 1)])
+        #expect(sent == nil, "a peer chooses its default folder without needing a local folder")
+        guard sent == nil else { return }
+        _ = await inbox.frame(containing: #""id":1"#)
+        let forwarded = try #require(server.peers.first?.frames.first { $0.contains("session/new") })
+        let params = try #require(Self.params(forwarded))
+        #expect(params["cwd"] == nil, "the native transport must not send this Mac's folder to the peer")
+        let acpmux = (params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
+        #expect(acpmux?["peer"] as? String == "devbox")
+        #expect(transport.addedRoots.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: home.path(for: "peer-default") ?? ""))
     }
 }

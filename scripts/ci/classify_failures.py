@@ -37,7 +37,8 @@ labels like attempt 1, and a mini that is online but broken may fail it
 again; attempt 3 goes to Blacksmith, which ends it), or a later attempt a
 person started (this re-run then goes to Blacksmith), only while it is still
 the run's latest attempt, the pull request is open and its head has not
-moved. owned_pool_rescue.py may re-run a refused
+moved. A runner lost again on this bot's own re-run is reported, not re-run
+again. owned_pool_rescue.py may re-run a refused
 job first; the attempt check then skips, and GitHub refuses a second re-run of
 a run in progress. A cancelled run is reported, never re-run: the rescue
 cancels a stuck run before its own full re-run, and a re-run of failed jobs
@@ -100,9 +101,12 @@ BOT = "github-actions[bot]"
 RED = {"failure", "timed_out"}
 # Jobs that only read other jobs' results. Their names as the jobs API reports
 # them; tests/test_ci_classify_failures.py derives each from its workflow.
+# `web / react-apps-check` fails when a shard or replay under it did: judged as a gate, a replay that lost its runner
+# (cmux#33162's react-apps-base-check (3), job 126154996598, 2026-11-03) is the run's only failure, so it is re-run;
+# read as a job of its own, its unknown verdict kept the machine failure from being re-run at all.
 GATE_JOBS = frozenset({
     "ci-status", "CI timing", "linux-preflight", "macOS admission gate",
-    "macos / macOS status", "guards / Guard status", "web / Web status",
+    "macos / macOS status", "guards / Guard status", "web / Web status", "web / react-apps-check",
 })
 MAX_EVIDENCE_CHARS = 300
 MAX_RENDERED_JOBS = 20
@@ -256,6 +260,8 @@ def classify_jobs(jobs: Iterable[Mapping], texts: Mapping[int, tuple[str, list[s
         # A machine job's test failures are not evidence about the code (SIGNATURES).
         result["failures"] = extract_failures(*text, web_root=web_root(job.get("name"))) \
             if result["verdict"] != MACHINE else []
+        if result["verdict"] != MACHINE and is_base_check(job.get("name")):
+            base_check_verdict(result, text[0])
         step = next((s.get("name") for s in job.get("steps") or [] if s.get("conclusion") in RED), None)
         if result["verdict"] == UNKNOWN:
             result["why"] = ("timed out" if job.get("conclusion") == "timed_out" else "no known signature") + (
@@ -396,6 +402,43 @@ def extract_failures(text: str, annotations: Iterable[str] = (), web_root: str =
         found.append(failure("test", web_root + test["file"] if test["file"] else "", test=test["test"],
                              message=test["message"] or "failed"))
     return dedupe(found)[:MAX_FAILURES_PER_JOB]
+
+
+# The webview verdict (ci-web.yml's react-apps-base-check) replays the head's red files on the base
+# and then prints guards_new_reds.py's verdict. bun's `(fail)` lines in its log are the base
+# replay's: tests that fail on the base too, which the verdict already excuses as warnings. The
+# change's own reds are the verdict's `::error title=Webview test red on this change::NAME` lines,
+# which reach the log as `##[error]NAME`. #28611's report listed the two composer tests the base
+# also failed and named neither of the two tests that were its own.
+BASE_CHECK_JOB = re.compile(r"(?:^|/ )react-apps-base-check \(\d+\)$")
+BASE_CHECK_RED = re.compile(r"^##\[error\](?P<file>\S+\.(?:test|spec)\.[cm]?[jt]sx?)(?: > (?P<test>.+))?$")
+BASE_CHECK_ROOT = "webviews/"
+
+
+def is_base_check(job_name: object) -> bool:
+    return bool(BASE_CHECK_JOB.search(str(job_name or "")))
+
+
+def base_check_reds(text: str) -> list[dict]:
+    """The webview tests the verdict charged to the change (its `##[error]` file > test lines)."""
+    found = []
+    for raw in text.splitlines():
+        line = ANSI.sub("", TIMESTAMP.sub("", raw.lstrip("\ufeff"))).rstrip()
+        if match := BASE_CHECK_RED.match(line):
+            found.append(failure("test", BASE_CHECK_ROOT + match["file"], test=match["test"] or "",
+                                 message="red on this change, passed on the base"))
+    return dedupe(found)[:MAX_FAILURES_PER_JOB]
+
+
+def base_check_verdict(result: dict, text: str) -> None:
+    """A base-check job's failures and evidence from its verdict, never from the base replay's `(fail)` lines."""
+    reds = base_check_reds(text)
+    if reds:
+        first = reds[0]
+        result.update(verdict=CODE, signature="webview-verdict-new-red",
+                      why="a webview test red on this change, not on the base",
+                      evidence=f"{first['file']} > {first['test']}".removesuffix(" > ")[:MAX_EVIDENCE_CHARS])
+    result["failures"] = reds or [f for f in result.get("failures") or [] if f["kind"] != "test"]
 
 
 def dedupe(found: Iterable[dict]) -> list[dict]:
@@ -1074,7 +1117,14 @@ def rerun_decision(report: Mapping, latest: Mapping | Callable[[], Mapping]) -> 
     # (a full disk, a failed product restore) may have failed again, whose re-run (attempt 3) takes Blacksmith;
     # or a later attempt a person started, whose re-run by this bot takes Blacksmith
     # (pr_runner_pool.host_fault_retry()). Blacksmith ends the chain.
-    if report["attempt"] > LAST_OWNED_ATTEMPT and str((latest.get("triggering_actor") or {}).get("login") or "") in RESCUE_ACTORS:
+    automatic = str((latest.get("triggering_actor") or {}).get("login") or "") in RESCUE_ACTORS
+    # A lost runner is re-run once: lost again on this bot's own re-run, it is reported, not re-run in a loop.
+    lost = [j["name"] for j in jobs if j.get("signature") == "runner-lost"]
+    if lost and report["attempt"] > 1 and automatic:
+        return False, (f"{', '.join(f'`{n}`' for n in lost[:3])} lost its runner again on the automatic re-run "
+                       f"(attempt {report['attempt']}); reported, not re-run again. Re-run it by hand if it should go "
+                       "again.")
+    if report["attempt"] > LAST_OWNED_ATTEMPT and automatic:
         return False, (f"Every failure is a machine failure, but attempt {report['attempt']} was already an "
                        "automatic re-run. Re-run it by hand if it should go again.")
     return True, (f"Every failure is a machine failure: re-ran the failed jobs as attempt {report['attempt'] + 1} "
