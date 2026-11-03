@@ -40,6 +40,8 @@ export type Settled = {
   frames: number;
   /** The gallery play steps' starts (performance.now()), in order. */
   actionStarts: number[];
+  /** Optional, bounded frame diagnostics. Does not change which frames count as changed. */
+  boxChanges?: { at: number; fonts: string; changes: string[]; animations: string[] }[];
 };
 
 type Probe = {
@@ -56,7 +58,12 @@ declare global {
 }
 
 /** The init script. Self-contained: Playwright serializes it into the page. */
-export function installStabilityProbe(options: { sampleCap: number; boxes: boolean; content?: string }): void {
+export function installStabilityProbe(options: {
+  sampleCap: number;
+  boxes: boolean;
+  content?: string;
+  traceBoxes?: boolean;
+}): void {
   const w = window;
   if (w.__cmuxStability) return;
   const raf = w.requestAnimationFrame.bind(w);
@@ -134,6 +141,15 @@ export function installStabilityProbe(options: { sampleCap: number; boxes: boole
   let firstContent = 0;
   let frames = 0;
   let previous = new Map<Element, [number, number, number, number]>();
+  const boxChanges: NonNullable<Settled["boxChanges"]> = [];
+  const label = (element: Element) => {
+    const row = element.closest("[data-row-id]")?.getAttribute("data-row-id");
+    return (
+      `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ""}` +
+      `${typeof element.className === "string" && element.className ? `.${element.className.trim().split(/\s+/).join(".")}` : ""}` +
+      (row ? ` [row=${row}]` : "")
+    );
+  };
   const sample = () => {
     if (!sampling) return;
     frames += 1;
@@ -144,6 +160,7 @@ export function installStabilityProbe(options: { sampleCap: number; boxes: boole
       .filter((target): target is Element => target instanceof Element);
     const next = new Map<Element, [number, number, number, number]>();
     let changed = false;
+    const changes: string[] = [];
     const all = document.body?.getElementsByTagName("*") ?? [];
     for (let index = 0; index < all.length && index < options.sampleCap; index++) {
       const element = all[index]!;
@@ -151,11 +168,34 @@ export function installStabilityProbe(options: { sampleCap: number; boxes: boole
       const rect = element.getBoundingClientRect();
       const box: [number, number, number, number] = [rect.x, rect.y, rect.width, rect.height];
       next.set(element, box);
-      if (changed) continue;
+      if (changed && !options.traceBoxes) continue;
       const was = previous.get(element);
-      if (!was || was.some((value, at) => Math.abs(value - box[at]!) > 0.5)) changed = true;
+      if (!was || was.some((value, at) => Math.abs(value - box[at]!) > 0.5)) {
+        changed = true;
+        if (options.traceBoxes && changes.length < 12)
+          changes.push(`${label(element)} ${was ? JSON.stringify(was) : "added"} -> ${JSON.stringify(box)}`);
+      }
     }
-    if (changed || next.size !== previous.size) lastChange = performance.now();
+    if (changed || next.size !== previous.size) {
+      lastChange = performance.now();
+      if (options.traceBoxes) {
+        for (const element of previous.keys())
+          if (!next.has(element) && changes.length < 12) changes.push(`${label(element)} removed`);
+        boxChanges.push({
+          at: lastChange,
+          fonts: document.fonts?.status ?? "unknown",
+          changes,
+          animations: (document.getAnimations?.() ?? [])
+            .filter((animation) => animation.playState === "running")
+            .slice(0, 12)
+            .map((animation) => {
+              const target = (animation.effect as KeyframeEffect | null)?.target;
+              return `${(animation as CSSAnimation).animationName ?? animation.id} ${target instanceof Element ? label(target) : "?"}`;
+            }),
+        });
+        if (boxChanges.length > 120) boxChanges.shift();
+      }
+    }
     previous = next;
     raf(sample);
   };
@@ -176,7 +216,13 @@ export function installStabilityProbe(options: { sampleCap: number; boxes: boole
     settled() {
       sampling = false;
       previous = new Map();
-      return { lastChange, firstContent, frames, actionStarts: [...actionStarts] };
+      return {
+        lastChange,
+        firstContent,
+        frames,
+        actionStarts: [...actionStarts],
+        ...(options.traceBoxes ? { boxChanges } : {}),
+      };
     },
     startIdle() {
       for (const key of Object.keys(counts) as (keyof typeof counts)[]) counts[key] = 0;
@@ -221,9 +267,9 @@ export function installStabilityProbe(options: { sampleCap: number; boxes: boole
  *  `content` is the selector whose first match marks the surface's first paint. */
 export async function addStabilityProbe(
   context: BrowserContext,
-  { boxes = true, content }: { boxes?: boolean; content?: string } = {},
+  { boxes = true, content, traceBoxes = false }: { boxes?: boolean; content?: string; traceBoxes?: boolean } = {},
 ): Promise<void> {
-  await context.addInitScript(installStabilityProbe, { sampleCap: SAMPLE_CAP, boxes, content });
+  await context.addInitScript(installStabilityProbe, { sampleCap: SAMPLE_CAP, boxes, content, traceBoxes });
 }
 
 /** Where the page settled (the probe's box sampler); stops the sampler. */
