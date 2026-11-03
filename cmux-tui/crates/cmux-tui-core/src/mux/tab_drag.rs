@@ -246,7 +246,10 @@ impl TabDragIds {
 
     /// [`Self::reserve`] with the new pane's caller-minted public id
     /// (`tab-column-client-pane-v1`), checked unused when the drag commits.
-    pub(crate) fn reserve_keyed(mux: &Mux, pane_public: Option<PanePublicId>) -> anyhow::Result<Self> {
+    pub(crate) fn reserve_keyed(
+        mux: &Mux,
+        pane_public: Option<PanePublicId>,
+    ) -> anyhow::Result<Self> {
         Ok(Self {
             pane: mux.next_id(),
             pane_public: match pane_public {
@@ -349,7 +352,15 @@ impl Mux {
         layout_invariants::model_result("tab.drag", &model, &kind)?;
         let destination =
             TabDragDestination::Split { pane, edge, ratio, keep_focus: false, around: None };
-        self.commit_tab_drag_respawning(actor, surface, pane, destination, respawn, None, transaction)
+        self.commit_tab_drag_respawning(
+            actor,
+            surface,
+            pane,
+            destination,
+            respawn,
+            None,
+            transaction,
+        )
     }
 
     /// `move-tab-to-column` with `respawn` (`tab-column-respawn-v1`): move a
@@ -364,7 +375,14 @@ impl Mux {
         respawn: SplitRespawn,
         transaction: Option<String>,
     ) -> anyhow::Result<TabDragOutcome> {
-        self.move_tab_to_column_respawning_keyed_as(actor, surface, destination, respawn, None, transaction)
+        self.move_tab_to_column_respawning_keyed_as(
+            actor,
+            surface,
+            destination,
+            respawn,
+            None,
+            transaction,
+        )
     }
 
     /// [`Self::move_tab_to_column_respawning_as`] whose new column's pane takes the caller-minted
@@ -392,12 +410,21 @@ impl Mux {
         })?;
         let destination =
             TabDragDestination::Column { pane, after_column, width, dock, keep_focus: false };
-        self.commit_tab_drag_respawning(actor, surface, source, destination, respawn, pane_id, transaction)
+        self.commit_tab_drag_respawning(
+            actor,
+            surface,
+            source,
+            destination,
+            respawn,
+            pane_id,
+            transaction,
+        )
     }
 
     /// Creates the fresh tab in `source` first (the pane never empties), then
     /// commits while `source` holds exactly the fresh and the dragged tab. A
     /// failed drag closes the fresh tab again.
+    #[allow(clippy::too_many_arguments)]
     fn commit_tab_drag_respawning(
         self: &Arc<Self>,
         actor: &Actor,
@@ -418,7 +445,14 @@ impl Mux {
             }
         };
         let guard = SourceGuard { pane: source, tabs: [fresh.id, surface] };
-        match self.commit_tab_drag_keyed(actor, surface, destination, transaction, Some(guard), pane_id) {
+        match self.commit_tab_drag_keyed(
+            actor,
+            surface,
+            destination,
+            transaction,
+            Some(guard),
+            pane_id,
+        ) {
             Ok(outcome) => Ok(outcome),
             Err(error) => {
                 if let Err(close) = self.close_surface_as(actor, fresh.id) {
@@ -445,7 +479,14 @@ impl Mux {
         keep_focus: bool,
         transaction: Option<String>,
     ) -> anyhow::Result<TabDragOutcome> {
-        self.move_tab_to_column_keyed_as(actor, surface, ColumnMove { pane, after_column, width, dock }, None, keep_focus, transaction)
+        self.move_tab_to_column_keyed_as(
+            actor,
+            surface,
+            ColumnMove { pane, after_column, width, dock },
+            None,
+            keep_focus,
+            transaction,
+        )
     }
 
     /// [`Self::move_tab_to_column_as`] whose new column's pane takes the caller-minted public id
@@ -526,7 +567,11 @@ impl Mux {
                     guard.check(state)?;
                 }
                 if keyed {
-                    super::resource_topology::ensure_client_pane_id_unused(state, registry, &ids.pane_public)?;
+                    super::resource_topology::ensure_client_pane_id_unused(
+                        state,
+                        registry,
+                        &ids.pane_public,
+                    )?;
                 }
                 let mut projected = state.clone();
                 let outcome =

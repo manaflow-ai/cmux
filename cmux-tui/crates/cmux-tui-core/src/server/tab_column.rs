@@ -87,9 +87,14 @@ pub(super) fn move_tab_to_column(
     let actor = origin_gate::connection_actor(mux, client);
     let destination = crate::mux::ColumnMove { pane: anchor, after_column, width, dock };
     let outcome = match respawn {
-        None => {
-            mux.move_tab_to_column_keyed_as(&actor, surface, destination, pane_id, keep_focus, transaction)?
-        }
+        None => mux.move_tab_to_column_keyed_as(
+            &actor,
+            surface,
+            destination,
+            pane_id,
+            keep_focus,
+            transaction,
+        )?,
         Some(respawn) => {
             let respawn = respawn.into_respawn(frontend_shell(mux, client))?;
             mux.move_tab_to_column_respawning_keyed_as(

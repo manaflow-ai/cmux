@@ -204,7 +204,12 @@ fn a_column_move_takes_the_callers_pane_id() {
     let new_pane: PaneId = serde_json::from_value(response["data"]["pane"].clone()).unwrap();
     assert_eq!(wire.tabs(new_pane), vec![lone]);
     let public = wire.mux.with_state(|state| {
-        state.resource_indexes.panes.iter().find(|(_, id)| **id == new_pane).map(|(public, _)| public.as_str().to_string())
+        state
+            .resource_indexes
+            .panes
+            .iter()
+            .find(|(_, id)| **id == new_pane)
+            .map(|(public, _)| public.as_str().to_string())
     });
     assert_eq!(public.as_deref(), Some(minted));
 
