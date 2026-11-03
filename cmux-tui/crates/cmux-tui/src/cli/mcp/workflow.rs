@@ -259,3 +259,6 @@ fn transport_id(id: &str) -> String {
 fn refused(code: &str, message: &str) -> Value {
     json!({"ok":false,"message":message,"error":{"code":code,"message":message}})
 }
+
+#[cfg(test)]
+mod tests;

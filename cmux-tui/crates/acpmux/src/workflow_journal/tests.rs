@@ -178,3 +178,29 @@ fn native_workflow_journal_binds_completion_and_never_replaces_an_outcome() {
     journal.complete(&id, Ok(json!(1))).unwrap();
     assert!(journal.complete(&id, Ok(json!(2))).is_err());
 }
+#[test]
+fn native_workflow_journal_restores_parallel_delivery_order() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut journal = super::Journal::open(directory.path(), "parallel", 2).unwrap();
+    let id = |activity| match activity {
+        super::Activity::Work { id, .. } => id,
+        _ => panic!(),
+    };
+    let first = id(journal.begin("agent", "first", &serde_json::json!({})).unwrap());
+    let second = id(journal.begin("agent", "second", &serde_json::json!({})).unwrap());
+    journal.complete(&second, Ok(serde_json::json!(2))).unwrap();
+    journal.complete(&first, Ok(serde_json::json!(1))).unwrap();
+    drop(journal);
+    let mut journal = super::Journal::open(directory.path(), "parallel", 0).unwrap();
+    assert!(matches!(
+        journal.begin("agent", "first", &serde_json::json!({})).unwrap(),
+        super::Activity::Replay(_)
+    ));
+    assert_eq!(journal.last_id(), Some(first.as_str()));
+    assert!(matches!(
+        journal.begin("agent", "second", &serde_json::json!({})).unwrap(),
+        super::Activity::Replay(_)
+    ));
+    assert_eq!(journal.next_replay(&[first.clone(), second.clone()]), Some(second));
+    assert_eq!(journal.next_replay(&[first.clone()]), Some(first));
+}
