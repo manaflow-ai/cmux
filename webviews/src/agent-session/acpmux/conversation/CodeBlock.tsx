@@ -60,6 +60,7 @@ export function CodeBlock(props: CodeBlockProps) {
     <PlainCode
       code={props.code}
       lang={lang}
+      label={props.label}
       actions={props.actions}
       artifactIdentity={props.artifactIdentity}
       artifactRevision={props.artifactRevision}
