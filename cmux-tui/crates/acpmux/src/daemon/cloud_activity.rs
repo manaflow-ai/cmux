@@ -34,6 +34,7 @@
 //! A machine without the agent's socket (every machine that is not a Cloud machine) sends nothing.
 
 use crate::hub::Hub;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::path::Path;
 use std::sync::Arc;
@@ -101,7 +102,7 @@ impl Tracker {
         self.sent = Some((turns, self.last_action));
         let mut activity = json!({"turns": turns});
         if let Some(at) = self.last_action {
-            activity["last_agent_action_at"] = json!(at);
+            activity.set("last_agent_action_at", json!(at));
         }
         if !self.daemon.is_empty() {
             activity["daemon"] = json!(self.daemon);
