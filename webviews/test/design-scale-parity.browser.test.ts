@@ -25,7 +25,7 @@ await requireBrowserLane("design-scale-parity.browser.test.ts", async () => {
     await browser?.close();
   });
 
-  test("real generated CSS: shared tokens, Tailwind and grid agree at 100–125% chrome size", async () => {
+  test("real generated CSS: shared tokens and grid agree across effective typography scale", async () => {
     const input = `@import "tailwindcss/theme.css" layer(theme);\n@import "tailwindcss/utilities.css" layer(utilities);\n${theme}`;
     const compiler = await compile(input, { base: src, onDependency: () => {} });
     const utilities = compiler.build(["p-3", "p-6"]);
@@ -47,7 +47,9 @@ await requireBrowserLane("design-scale-parity.browser.test.ts", async () => {
       await page.addStyleTag({ content: utilities });
 
       for (const themeName of ["light", "dark"] as const) {
-        for (const scale of [1, 1.125, 1.25]) {
+        // 1.5 is an *effective* Typography.userScale from font override × Debug
+        // interface size, not a selectable 150% chrome interface-size preset.
+        for (const scale of [1, 1.125, 1.25, 1.5]) {
           // DesignSettings.interfaceScaleScript injects this as Typography.userScale.
           // It independently injects --cmux-ui-scale for page zoom; that is NOT this scale.
           const measured = await page.evaluate(({ themeName, scale }) => {
