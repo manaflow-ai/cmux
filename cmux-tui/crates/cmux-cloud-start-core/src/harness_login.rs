@@ -336,9 +336,9 @@ fn step_and_reason(d: &Inputs) -> (Step, Reason) {
         // The machine keeps its own Codex sign-in when asked to; otherwise the broker runs. Its
         // device-code prompt is its own confirm (with Cancel), so no second one comes first, and a
         // run that may show no prompt passes nothing rather than refusing the start.
-        let chose_pass = choice(d) == Some(Choice::Pass)
+        let chose_pass = choice == Some(Choice::Pass)
             && (d.requested_by_person || d.stored == Some(Choice::Pass));
-        return match choice(d) {
+        return match choice {
             Some(Choice::Machine) => (Step::Skip, Reason::MachineLoginKept),
             _ if d.headless && !chose_pass => (Step::Skip, Reason::NeedsLoginChoice),
             _ => (Step::Install, Reason::CodexBroker),
