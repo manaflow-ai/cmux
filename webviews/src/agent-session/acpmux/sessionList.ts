@@ -398,6 +398,17 @@ export function isRawId(text: string): boolean {
   );
 }
 
+/// A session name that reads as an id or a counter, not a task (acpmux `session_name::opaque_reason`,
+/// AgentTurnStates.swift `isOpaqueName`): a Chief's machine name (`optchat-sub-6b68ac4a-a26`), a
+/// trailing counter (`cloud-item-14`) or a hex run of 6 or more with a digit (`dispatch-019a3f2e`).
+/// The chat's title reads instead (Leo 2026-11-02: "that's the agents naming them like that").
+export function isOpaqueName(bare: string): boolean {
+  if (bare.startsWith("optchat-")) return true;
+  const parts = bare.split(/[-_.]/u).filter(Boolean);
+  if (parts.length > 1 && /^\d+$/u.test(parts[parts.length - 1]!)) return true;
+  return parts.some((part) => part.length >= 6 && /^[0-9a-f]+$/iu.test(part) && /\d/u.test(part));
+}
+
 /**
  * The title (the agent's title, else the first prompt) when the name was generated (`codex`,
  * `codex-3`, `codex-fork`, after the harness profile or its family), else the name the user gave. A generated
@@ -413,7 +424,12 @@ export function sessionTitle(
   const generatedFrom = (agent: string | undefined) =>
     !!agent && bare.startsWith(agent) && /^(?:-(?:fork|\d+))*$/.test(bare.slice(agent.length));
   // A name that is only a raw id (the session's own UUID) is no name: the title reads instead.
-  if (name && !generatedFrom(session.harness) && !generatedFrom(session.family) && !isRawId(bare)) return name;
+  if (name && !generatedFrom(session.harness) && !generatedFrom(session.family) && !isRawId(bare)) {
+    // A name that reads as an id or a counter (`cloud-item-14`) yields to the chat's title, and
+    // still beats "New chat" while it has none.
+    if (!isOpaqueName(bare)) return name;
+    return session.title?.trim() || session.lastPrompt?.trim() || name;
+  }
   return session.title?.trim() || session.lastPrompt?.trim() || t("sidebar.newChat");
 }
 

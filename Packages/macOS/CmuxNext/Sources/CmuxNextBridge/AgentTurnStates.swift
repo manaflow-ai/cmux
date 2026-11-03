@@ -175,8 +175,29 @@ public nonisolated struct AgentTurnStates: Hashable, Sendable {
     /// session name (`optchat-sub-2e448bc2-a345`). A title or prompt reads as its gist
     /// (``promptGist(_:)``): a Chief subagent's `<chat>` view never names its tab. The latest
     /// prompt only stands in while acpmux reports no title at all. Nil when the chat has none yet.
+    /// A name that reads as an id or a counter (`cloud-item-14`, ``isOpaqueName(_:)``) yields to
+    /// the title or prompt, and stands in only while the chat has neither.
     public static func title(_ summary: [String: Any], includingPrompt: Bool = true) -> String? {
-        if includingPrompt, let name = sessionName(summary) { return name }
+        guard includingPrompt, let name = sessionName(summary) else { return chatTitle(summary, includingPrompt: includingPrompt) }
+        return isOpaqueName(name) ? chatTitle(summary, includingPrompt: true) ?? name : name
+    }
+
+    /// Whether a session name reads as an id or a counter rather than its task (acpmux
+    /// `session_name::opaque_reason`, sessionList.ts `isOpaqueName`): its last `/` segment ends in
+    /// a counter (`cloud-item-14`) or has a hex run of 6 or more with a digit
+    /// (`dispatch-019a3f2e`). Leo 2026-11-02: "that's the agents naming them like that".
+    public static func isOpaqueName(_ name: String) -> Bool {
+        let bare = name.split(separator: "/", omittingEmptySubsequences: false).last.map(String.init) ?? name
+        let parts = bare.split(whereSeparator: { "-_.".contains($0) })
+        let digits = { (part: Substring) in part.allSatisfy { ("0"..."9").contains($0) } }
+        if parts.count > 1, let last = parts.last, digits(last) { return true }
+        return parts.contains { part in
+            part.count >= 6 && part.allSatisfy(\.isHexDigit) && part.contains { ("0"..."9").contains($0) }
+        }
+    }
+
+    /// The agent's title, else (with `includingPrompt`) the latest prompt, as ``title(_:includingPrompt:)`` reads them.
+    private static func chatTitle(_ summary: [String: Any], includingPrompt: Bool) -> String? {
         if !includingPrompt {
             // acpmux publishes the first prompt as `title` before its title
             // request completes. Only a source that names a real chat title
