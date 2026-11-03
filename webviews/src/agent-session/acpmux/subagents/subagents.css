@@ -6,10 +6,10 @@
   box-sizing: border-box;
   width: 100%;
   height: 48px;
-  margin-top: 8px;
+  margin-top: var(--ds-space-2);
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--ds-space-2);
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   letter-spacing: var(--cv-tracking, 0.045px);
@@ -21,7 +21,7 @@
 .cv-subagents:focus-visible {
   outline: 2px solid var(--agent-accent);
   outline-offset: 2px;
-  border-radius: 8px;
+  border-radius: var(--ds-radius-popup);
 }
 .cv-subagents__stack {
   display: flex;
@@ -32,7 +32,7 @@
   margin-left: -8px;
 }
 .cv-subagents__more {
-  margin-left: 4px;
+  margin-left: var(--ds-space-1);
   font-size: 11px;
   color: var(--cv-text-muted);
 }
@@ -49,7 +49,7 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
 }
 .cv-subagent__state {
   overflow: hidden;
@@ -81,10 +81,10 @@
 .cv-subagent {
   box-sizing: border-box;
   height: 48px;
-  padding: 0 14px;
+  padding: 0 var(--ds-space-3);
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--ds-space-2);
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   color: var(--cv-text);
@@ -95,15 +95,15 @@
 .cv-subagent[data-edge="first"],
 .cv-subagent[data-edge="only"] {
   border-top: 1px solid var(--cv-card-ring);
-  border-top-left-radius: 12px;
-  border-top-right-radius: 12px;
+  border-top-left-radius: var(--grid-cards-radius);
+  border-top-right-radius: var(--grid-cards-radius);
 }
 .cv-subagent[data-edge="last"],
 .cv-subagent[data-edge="only"] {
   border-bottom: 1px solid var(--cv-card-ring);
-  border-bottom-left-radius: 12px;
-  border-bottom-right-radius: 12px;
-  margin-bottom: 8px;
+  border-bottom-left-radius: var(--grid-cards-radius);
+  border-bottom-right-radius: var(--grid-cards-radius);
+  margin-bottom: var(--ds-space-2);
 }
 /* A listed subagent that opens its own view: the line is a button with a chevron. */
 button.cv-subagent {
@@ -132,8 +132,8 @@ button.cv-subagent > :last-child {
    goes between the time and the chevron, as in the running tray (Leo, 2026-10-31: "and of course
    align this right side's chevrons"). The time makes room for Stop (24px) and one gap. */
 .cv-subagent-stoppable {
-  --cv-subagent-inset: 14px;
-  --cv-subagent-gap: 10px;
+  --cv-subagent-inset: var(--ds-space-3);
+  --cv-subagent-gap: var(--ds-space-2);
   position: relative;
 }
 .cv-subagent-stoppable > .cv-subagent > .cv-subagent__time {
@@ -144,8 +144,8 @@ button.cv-subagent > :last-child {
 }
 /* The summary card's rows (summary.css): an 8px inset and gap, 40px tall. */
 .acpmux-summary-subagent-rows .cv-subagent-stoppable {
-  --cv-subagent-inset: 8px;
-  --cv-subagent-gap: 8px;
+  --cv-subagent-inset: var(--ds-space-2);
+  --cv-subagent-gap: var(--ds-space-2);
 }
 .acpmux-summary-subagent-rows .cv-subagent-stoppable > .cv-subagent__stop {
   top: 8px;
@@ -154,7 +154,7 @@ button.cv-subagent > :last-child {
   appearance: none;
   position: absolute;
   top: 12px;
-  right: 14px;
+  right: var(--ds-space-3);
   width: 24px;
   height: 24px;
   padding: 0;
@@ -162,7 +162,7 @@ button.cv-subagent > :last-child {
   align-items: center;
   justify-content: center;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   background: none;
   color: var(--cv-text-muted);
   cursor: default;
@@ -206,10 +206,10 @@ button.cv-subagent > :last-child {
 .cv-subagent-of {
   box-sizing: border-box;
   height: 44px;
-  padding: 8px 0;
+  padding: var(--ds-space-2) 0;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--ds-space-2);
 }
 .cv-subagent-of::before,
 .cv-subagent-of::after {
@@ -223,11 +223,11 @@ button.cv-subagent > :last-child {
   box-sizing: border-box;
   height: 28px;
   max-width: 70%;
-  padding: 0 10px;
+  padding: 0 var(--ds-space-2);
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  border-radius: 6px;
+  gap: var(--ds-space-2);
+  border-radius: var(--ds-radius-control);
   box-shadow: 0 0 0 1px var(--cv-card-ring);
   font-family: var(--cv-font);
   font-size: var(--text-detail);
@@ -245,7 +245,7 @@ button.cv-subagent > :last-child {
 }
 .cv-subagent-of__label {
   flex: none;
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
   color: var(--cv-text);
 }
 .cv-subagent-of__parent,
@@ -303,11 +303,11 @@ button.cv-subagent > :last-child {
   cursor: default;
   box-sizing: border-box;
   height: 30px;
-  padding: 0 12px 0 10px;
+  padding: 0 var(--ds-space-3) 0 var(--ds-space-2);
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  border-radius: 8px;
+  gap: var(--ds-space-2);
+  border-radius: var(--ds-radius-popup);
   background: color-mix(in srgb, var(--agent-page-bg) 82%, var(--agent-text) 6%);
   box-shadow:
     inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--agent-text) 18%, transparent),
@@ -337,8 +337,8 @@ button.cv-subagent > :last-child {
   box-sizing: border-box;
   width: min(320px, calc(100% - 2 * var(--cv-inset)));
   max-height: min(360px, 60vh);
-  margin: 0 0 8px;
-  padding: 6px;
+  margin: 0 0 var(--ds-space-2);
+  padding: var(--ds-space-2);
   overflow-y: auto;
   border: 0;
   border-radius: var(--ui-popup-radius);
@@ -354,14 +354,14 @@ button.cv-subagent > :last-child {
   list-style: none;
 }
 .acpmux-agents-list__section + .acpmux-agents-list__section {
-  margin-top: 6px;
+  margin-top: var(--ds-space-2);
 }
 .acpmux-agents-list__heading {
   margin: 0;
-  padding: 6px 8px 4px;
+  padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-1);
   color: var(--agent-muted);
   font-size: var(--text-detail);
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-agents-list__row {
@@ -370,16 +370,16 @@ button.cv-subagent > :last-child {
   box-sizing: border-box;
   width: 100%;
   height: 44px;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-2);
   display: flex;
   align-items: center;
-  gap: 10px;
-  border-radius: 8px;
+  gap: var(--ds-space-2);
+  border-radius: var(--ds-radius-control);
   color: var(--agent-muted);
 }
 /* An agent another one spawned sits under it, moved in a step per level (AgentsPill.tsx). */
 .acpmux-agents-list__row[data-depth="1"] {
-  padding-inline-start: 24px;
+  padding-inline-start: var(--ds-space-5);
 }
 .acpmux-agents-list__row[data-depth="2"] {
   padding-inline-start: 40px;
@@ -423,7 +423,7 @@ button.cv-subagent > :last-child {
 }
 .acpmux-agents-list__name {
   color: var(--agent-text);
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
 }
 .acpmux-agents-list__state {
   font-size: var(--text-detail);
@@ -870,7 +870,7 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray[data-stop="boxed"] :is(.cv-subagent__stop, .acpmux-session-info-stop) > svg {
   box-sizing: content-box;
   padding: var(--ds-space-1);
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   background: color-mix(in srgb, var(--agent-text) 10%, transparent);
 }
 /* A line whose context menu is open (its Stop) stays lit while the pointer is in the menu. */
@@ -886,11 +886,11 @@ button.cv-subagent > :last-child {
    touching (cmux#28875); the narrow layout's title margin reads it. */
 .acpmux-running-tray,
 .acpmux-agent-line {
-  --acpmux-line-icon-gap: 8px;
+  --acpmux-line-icon-gap: var(--ds-space-2);
 }
 /* What the line is ("Command", "Subagent"), dim before its name. */
 .acpmux-agent-line__kind {
-  margin-right: 6px;
+  margin-right: var(--ds-space-2);
   color: var(--agent-muted);
 }
 /* A line that opens something ends in a chevron. */
@@ -916,8 +916,8 @@ button.cv-subagent > :last-child {
    now, then its task, dim; a failed one's state in the danger color. */
 .ui-card.acpmux-agent-card__popup {
   max-width: min(320px, calc(100vw - 24px));
-  padding: 8px 10px;
-  border-radius: 8px;
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border-radius: var(--ds-radius-popup);
 }
 .acpmux-agent-card {
   display: flex;
@@ -939,8 +939,8 @@ button.cv-subagent > :last-child {
   display: flex;
   align-items: flex-start;
   flex-wrap: wrap;
-  gap: 4px 8px;
-  margin: 0 8px 8px 24px;
+  gap: var(--ds-space-1) var(--ds-space-2);
+  margin: 0 var(--ds-space-2) var(--ds-space-2) var(--ds-space-5);
   min-width: 0;
 }
 .acpmux-running-tray__tail pre {
@@ -959,10 +959,10 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__tail button {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-1);
   flex: none;
   border: 0;
-  padding: 4px 8px;
+  padding: var(--ds-space-1) var(--ds-space-2);
   color: var(--agent-muted);
   background: transparent;
   cursor: default;
@@ -1088,18 +1088,18 @@ button.cv-subagent > :last-child {
   box-sizing: border-box;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-1);
   flex: none;
-  margin-inline-start: 6px;
+  margin-inline-start: var(--ds-space-2);
   color: var(--agent-accent);
   cursor: default;
   font-size: var(--text-detail);
   line-height: 18px;
 }
 .cv-subagent-retry {
-  padding: 0 8px;
+  padding: 0 var(--ds-space-2);
   border: 1px solid color-mix(in srgb, var(--agent-accent) 34%, transparent);
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
 }
 .cv-subagent-retry:hover {
   background: color-mix(in srgb, var(--agent-accent) 10%, transparent);
@@ -1119,7 +1119,7 @@ button.cv-subagent > :last-child {
 }
 .cv-subagent-done__note {
   flex: none;
-  margin-inline-start: 6px;
+  margin-inline-start: var(--ds-space-2);
   color: var(--cv-text-dim);
   font-size: var(--text-detail);
 }
