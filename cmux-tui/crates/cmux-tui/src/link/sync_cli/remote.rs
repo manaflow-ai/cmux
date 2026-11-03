@@ -160,10 +160,10 @@ impl Remote {
             Err(error) if refusal_code(&error) == Some("fs.not_found") => return Ok(None),
             Err(error) => return Err(error),
         };
-        let listing = page["listing"].clone();
+        let listing = page.get("listing").cloned();
         let mut cursors = BTreeSet::new();
         loop {
-            if page["listing"] != listing {
+            if page.get("listing") != listing.as_ref() {
                 bail!("the machine changed the listing of {path}");
             }
             let batch = page["entries"].as_array().context("fs.list answered no entries")?;

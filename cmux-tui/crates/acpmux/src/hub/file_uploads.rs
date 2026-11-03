@@ -831,12 +831,12 @@ pub fn put(id: &str, params: &Value) -> Result<Value, RpcError> {
         let mut buffer = vec![0; CHUNK_BYTES];
         let mut offset = 0;
         loop {
-            let n = legacy_chunk(&mut reader, size - offset, &mut buffer)?;
-            if n == 0 {
+            let bytes = legacy_chunk(&mut reader, size - offset, &mut buffer)?;
+            if bytes.is_empty() {
                 break;
             }
-            append(id, upload, offset, &buffer[..n])?;
-            offset += n as u64;
+            append(id, upload, offset, bytes)?;
+            offset += bytes.len() as u64;
         }
         finish(id, &metadata)
     })();
@@ -847,12 +847,14 @@ pub fn put(id: &str, params: &Value) -> Result<Value, RpcError> {
 }
 
 /// Decode only one bounded chunk, checking the tail too (including malformed empty inputs).
-fn legacy_chunk(
+fn legacy_chunk<'a>(
     reader: &mut impl Read,
     remaining: u64,
-    buffer: &mut [u8],
-) -> Result<usize, RpcError> {
+    buffer: &'a mut [u8],
+) -> Result<&'a [u8], RpcError> {
     let n = remaining.min(buffer.len() as u64) as usize;
+    let bytes =
+        buffer.get_mut(..n).ok_or_else(|| RpcError::internal("invalid upload chunk length"))?;
     let invalid = |e: std::io::Error| RpcError::invalid_params(format!("data is not base64: {e}"));
     if n == 0 {
         let mut tail = [0];
@@ -860,9 +862,9 @@ fn legacy_chunk(
             return Err(RpcError::invalid_params("data is not padded base64"));
         }
     } else {
-        reader.read_exact(&mut buffer[..n]).map_err(invalid)?;
+        reader.read_exact(bytes).map_err(invalid)?;
     }
-    Ok(n)
+    Ok(bytes)
 }
 
 /// Adapt a legacy request to the peer's resumable upload API. Only one decoded chunk and
@@ -897,16 +899,15 @@ pub(crate) async fn forward_put(
         let mut buffer = vec![0; CHUNK_BYTES];
         let mut offset = 0;
         loop {
-            let n = legacy_chunk(&mut reader, size - offset, &mut buffer)?;
-            if n == 0 {
+            let bytes = legacy_chunk(&mut reader, size - offset, &mut buffer)?;
+            if bytes.is_empty() {
                 break;
             }
             let mut chunk = request.clone();
             chunk.set("offset", json!(offset));
-            chunk
-                .set("data", json!(base64::engine::general_purpose::STANDARD.encode(&buffer[..n])));
+            chunk.set("data", json!(base64::engine::general_purpose::STANDARD.encode(bytes)));
             peer.request(method::MUX_FILE_PUT_CHUNK, chunk).await?;
-            offset += n as u64;
+            offset += bytes.len() as u64;
         }
         peer.request(method::MUX_FILE_PUT_FINISH, request.clone()).await
     }
