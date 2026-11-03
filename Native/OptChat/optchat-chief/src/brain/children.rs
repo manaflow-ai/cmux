@@ -29,6 +29,29 @@ impl Brain {
                 self.agents_up = true;
                 self.reap_closed_compactor_sessions(&sessions);
                 self.reconcile_spawns(&sessions);
+                // Every saved pending request, even on a previously completed
+                // run, must still have its acpmux session after a reconnect.
+                let missing: Vec<String> = self
+                    .state
+                    .spawns
+                    .values()
+                    .flat_map(|r| &r.subs)
+                    .filter(|s| {
+                        s.peer.is_none()
+                            && s.permission.is_some()
+                            && !sessions
+                                .iter()
+                                .any(|session| Some(&session.session_id) == s.session_id.as_ref())
+                    })
+                    .map(|s| s.id.clone())
+                    .collect();
+                for id in missing {
+                    self.cancel_home_approval(&id);
+                    if let Some(sub) = self.state.sub_mut(&id) {
+                        sub.permission = None;
+                    }
+                }
+                self.reconcile_home_approvals();
                 // Restore the watchdog for pending requests whose Home card
                 // had no durable acknowledgement before the host restarted.
                 let pending: Vec<String> = self

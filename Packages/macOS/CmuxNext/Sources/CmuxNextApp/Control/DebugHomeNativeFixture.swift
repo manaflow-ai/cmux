@@ -100,6 +100,23 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             // A click on the first shown link with this prefix (a Chief subagent's `cmux://chief/`).
             let url = view.debugClickLink(prefix: params["prefix"]?.stringValue ?? "https://")
             return .object(["ok": .bool(url != nil), "url": url.map { .string($0) } ?? .null])
+        case "fixture_approval":
+            guard let fixture = shownFixture else { return .object(["error": .string("no mock Home fixture is shown")]) }
+            return .object(["ok": .bool(fixture.debugApproval(result: params["result"]?.stringValue ?? "answered")),
+                            "mock": .bool(true)])
+        case "approval_state":
+            guard let fixture = shownFixture, let window = view.window else { return .object(["error": .string("no mock Home fixture is shown")]) }
+            func box(_ rect: CGRect) -> JSONValue {
+                .object(["x": .number(Double(rect.minX)), "y": .number(Double(rect.minY)),
+                         "width": .number(Double(rect.width)), "height": .number(Double(rect.height))])
+            }
+            let cards: [JSONValue] = view.debugApprovalCards().map { card in
+                .object(["id": .string(card.id), "text": .string(card.text), "pending": .bool(card.pending),
+                         "busy": .bool(card.busy), "ended": .bool(card.ended), "allow": box(card.allow), "deny": box(card.deny)])
+            }
+            return .object(["ok": .bool(!cards.isEmpty), "mock": .bool(true), "cards": .array(cards),
+                            "attempts": .array(fixture.debugApprovalAttempts.map { .string($0 ? "allow" : "deny") }),
+                            "windowHeight": .number(Double(window.frame.height)), "scale": .number(Double(window.backingScaleFactor))])
         case "fixture_typing":
             guard let fixture = shownFixture else { return .object(["error": .string("no mock Home fixture is shown")]) }
             return .object(["ok": .bool(fixture.debugTyping(params["on"]?.boolValue ?? true))])

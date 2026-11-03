@@ -439,7 +439,7 @@ impl Brain {
                 && self
                     .state
                     .sub(&id)
-                    .is_some_and(|(_, s)| Self::approval_shown(s))
+                    .is_some_and(|(_, s)| self.approval_shown(s))
             {
                 continue;
             }

@@ -23,6 +23,8 @@ import os
 /// the field.
 @MainActor
 final class HomeProjection: @preconcurrency ChatIntents {
+    var approvals: (any HomeApprovalDeciding)?
+    var approvalWrites: [HomeApprovalWriteGate] = []
     let homeStore: HomeStore
     let conversation: ConversationID
     let me: ParticipantID
@@ -162,6 +164,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
     }
 
     func stop() {
+        approvalWrites.forEach { $0.cancel() }
+        approvalWrites.removeAll()
         stopped = true
         homeStore.stopTyping(in: conversation)
         liveLine.stop()

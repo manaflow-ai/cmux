@@ -12,6 +12,15 @@ fn digest(request: &serde_json::Value) -> String {
     format!("{:x}", Sha256::digest(request.to_string().as_bytes()))
 }
 
+/// Conversation idempotency keys are bounded to 128 bytes, while acpmux
+/// session and permission ids can both be UUIDs. Hash the whole binding.
+fn home_key(session: &str, pending: &PendingPermission) -> String {
+    format!(
+        "home-approval:{}",
+        digest(&serde_json::json!([session, pending.id, pending.request]))
+    )
+}
+
 fn card(session: &str, id: &str, pending: &PendingPermission) -> Question {
     let snapshot = pending.request.to_string();
     Question {
@@ -50,7 +59,104 @@ fn card(session: &str, id: &str, pending: &PendingPermission) -> Question {
 }
 
 impl Brain {
+    /// The existing Preview Features rollout is default-off, never an approval grant.
+    pub(super) fn home_approvals_enabled(&self) -> bool {
+        let doc = match &self.home_approval_settings {
+            Some(doc) => doc.clone(),
+            None => std::env::var_os("HOME").and_then(|home| {
+                crate::agent_memory::settings::document(std::path::Path::new(&home))
+            }),
+        };
+        doc.as_ref()
+            .and_then(|doc| crate::agent_memory::settings::value(doc, "labs.previewFeatures"))
+            == Some(serde_json::Value::Bool(true))
+    }
+
+    pub(super) fn home_approvals_available(&self) -> bool {
+        self.home_approvals_enabled()
+            && self.summary.as_ref().is_some_and(|summary| {
+                summary.owner == cmux_conversation::OWNER_LOCAL
+                    && self.state.conversation.as_deref() == Some(summary.id.as_str())
+            })
+    }
+
+    /// Inject the same settings document in deterministic host tests.
+    pub fn set_home_approval_settings(&mut self, doc: Option<serde_json::Value>) {
+        self.home_approval_settings = Some(doc);
+        self.reconcile_home_approvals();
+    }
+
+    pub(super) fn reconcile_home_approvals(&mut self) {
+        self.home_approval_check = None;
+        // On startup acpmux can connect before the conversation owner. Wait
+        // for that owner's summary before retiring an existing local card.
+        if self.summary.is_none() {
+            return;
+        }
+        let on = self.home_approvals_available();
+        let pending: Vec<String> = self
+            .state
+            .spawns
+            .values()
+            .flat_map(|r| &r.subs)
+            .filter(|s| {
+                s.permission
+                    .as_ref()
+                    .is_some_and(|p| !p.home_closed && p.home_message.is_some())
+            })
+            .map(|s| s.id.clone())
+            .collect();
+        if on {
+            // acpmux may have connected first. Once the local conversation
+            // owner is known, deliver any eligible request seen before it.
+            let waiting: Vec<String> = self
+                .state
+                .spawns
+                .values()
+                .flat_map(|r| &r.subs)
+                .filter(|s| {
+                    s.permission
+                        .as_ref()
+                        .is_some_and(|p| !p.home_closed && p.home_message.is_none())
+                })
+                .map(|s| s.id.clone())
+                .collect();
+            for id in waiting {
+                self.rewatch_permission(&id);
+            }
+            if !pending.is_empty() {
+                self.home_approval_check =
+                    Some(std::time::Instant::now() + std::time::Duration::from_secs(30));
+            }
+            return;
+        }
+        for id in pending {
+            self.cancel_home_approval(&id);
+            if let Some(p) = self.state.sub_mut(&id).and_then(|s| s.permission.as_mut()) {
+                p.home_closed = true;
+                p.home_message = None;
+            }
+            self.rewatch_permission(&id);
+        }
+        let waiting: Vec<String> = self
+            .state
+            .spawns
+            .values()
+            .flat_map(|r| &r.subs)
+            .filter(|s| s.permission.is_some())
+            .map(|s| s.id.clone())
+            .collect();
+        for id in waiting {
+            self.rewatch_permission(&id);
+        }
+        self.save();
+        self.flush_outbox();
+    }
+
     pub(super) fn present_home_approval(&mut self, id: &str) {
+        if !self.home_approvals_available() {
+            return;
+        }
         let Some(conversation) = self.state.conversation.clone() else {
             return;
         };
@@ -68,7 +174,7 @@ impl Brain {
         else {
             return;
         };
-        if pending.home_message.is_some() {
+        if pending.home_message.is_some() || pending.home_closed {
             return;
         }
         // Never hide part of the effect being authorized or present an agent
@@ -94,11 +200,7 @@ impl Brain {
         if !once("allow_once") || !once("reject_once") {
             return;
         }
-        let key = format!(
-            "home-approval:{session}:{}:{}",
-            pending.id,
-            digest(&pending.request)
-        );
+        let key = home_key(session, pending);
         if self
             .state
             .outbox
@@ -152,7 +254,18 @@ impl Brain {
                 && *question == card(&question.session, &id, pending))
             .then_some(id)
         });
-        if let Some(id) = live {
+        let can_show = self.home_approvals_available()
+            && live.as_ref().is_some_and(|id| {
+                self.state
+                    .sub(id)
+                    .unwrap()
+                    .1
+                    .permission
+                    .as_ref()
+                    .is_some_and(|p| !p.home_closed)
+            });
+        if can_show {
+            let id = live.expect("a matching live request");
             let pending = self
                 .state
                 .sub_mut(&id)
@@ -163,7 +276,21 @@ impl Brain {
             pending.home_message = Some(message.id.clone());
             let permission = pending.id.clone();
             self.forget_unanswered(&question.session, &permission);
+            self.home_approval_check =
+                Some(std::time::Instant::now() + std::time::Duration::from_secs(30));
         } else {
+            if let Some(id) = live {
+                // A disabled late ACK must never become readiness on a ledger
+                // replay after re-enabling. Retire this exact snapshot forever.
+                if let Some(pending) = self
+                    .state
+                    .sub_mut(&id)
+                    .and_then(|sub| sub.permission.as_mut())
+                {
+                    pending.home_closed = true;
+                    pending.home_message = None;
+                }
+            }
             // A transport retry can deliver after the request ended or changed.
             // The durable send itself is the tombstone: a stale ACK retires it.
             self.end_home_card(message.id.clone(), question.clone(), false);
@@ -185,11 +312,7 @@ impl Brain {
         };
         let question = card(session, id, pending);
         let message = pending.home_message.clone();
-        let key = format!(
-            "home-approval:{session}:{}:{}",
-            pending.id,
-            digest(&pending.request)
-        );
+        let key = home_key(session, pending);
         // Untried sends cannot have been delivered. Attempted sends keep the
         // identical retry body; their ACK above closes any late card.
         self.state

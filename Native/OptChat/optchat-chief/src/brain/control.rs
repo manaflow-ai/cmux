@@ -545,7 +545,7 @@ impl Brain {
             out.push_str(&permission_note(
                 &sub.id,
                 &p.request,
-                Self::approval_shown(sub),
+                self.approval_shown(sub),
             ));
         }
         out
@@ -683,7 +683,7 @@ impl Brain {
                 // allow it, or, with no working button for it, it is denied
                 // so the subagent goes on.
                 (self.log)(&format!("allowing {id}'s prompt {}: {e}", p.id));
-                let shown = Self::approval_shown(sub);
+                let shown = self.approval_shown(sub);
                 let what = crate::approval::describe(
                     &crate::approval::tool_name(&p.request),
                     p.request.pointer("/toolCall/rawInput"),

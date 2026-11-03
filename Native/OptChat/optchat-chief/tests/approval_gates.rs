@@ -83,6 +83,8 @@ fn harness_with(settings: Option<Value>, home: bool, script: Script, members: Su
     };
     let mut h = Harness::configured(dir, script, owner, configured, Arc::new(|_: &str| {}));
     h.connect();
+    h.brain
+        .set_home_approval_settings(Some(json!({"labs.previewFeatures": true})));
     h
 }
 
@@ -1229,11 +1231,19 @@ fn an_attempted_card_delivered_after_expiry_is_immediately_retired() {
     let mut h = harness(None, false, default_script());
     const T0: u64 = 1_800_000_000_000;
     h.brain.set_clock(Arc::new(|| T0));
-    subagent_asking_with_delivery(&mut h, false, true, Some("agent_rate"));
-    assert_eq!(questions(&h), 0);
+    subagent_asking_with_delivery(&mut h, false, true, Some("actor_mismatch"));
+    assert!(
+        !h.owner
+            .lock()
+            .unwrap()
+            .messages
+            .iter()
+            .any(|m| m.parts.iter().any(|p| matches!(p, Part::Question(_))))
+    );
     assert!(!h.brain.unanswered_permissions().is_empty());
     h.brain.deny_overdue_permissions_at(T0 + 3_600_000);
     assert_eq!(answered(&h, "p1"), Some(Some("reject".into())));
+    h.connect();
     h.settle_posts();
     let owner = h.owner.lock().unwrap();
     assert!(owner.ops.iter().any(|(_, op)| matches!(op, Op::MessageEdit { parts, .. }
@@ -1263,4 +1273,177 @@ fn replacing_a_watched_request_forgets_its_old_expiry() {
     h.settle_posts();
     assert_eq!(questions(&h), 1);
     assert_eq!(answered(&h, "p2"), None);
+}
+
+#[test]
+fn preview_off_keeps_watchdog_and_disabling_retires_an_acknowledged_card() {
+    let mut h = harness(None, false, default_script());
+    h.brain.set_home_approval_settings(None);
+    subagent_asking(&mut h, false);
+    assert_eq!(questions(&h), 0);
+    assert_eq!(h.brain.unanswered_permissions().len(), 1);
+    let mut shown = harness(None, false, default_script());
+    subagent_asking(&mut shown, false);
+    assert_eq!(questions(&shown), 1);
+    shown
+        .brain
+        .set_home_approval_settings(Some(json!({"labs": {"previewFeatures": false}})));
+    assert_eq!(shown.brain.unanswered_permissions().len(), 1);
+    assert!(
+        shown
+            .brain
+            .state()
+            .sub("a1")
+            .unwrap()
+            .1
+            .permission
+            .as_ref()
+            .unwrap()
+            .home_closed
+    );
+}
+
+#[test]
+fn a_missing_session_after_reconnect_retires_its_persisted_card() {
+    let mut h = harness(None, false, default_script());
+    subagent_asking(&mut h, false);
+    assert_eq!(questions(&h), 1);
+    h.brain.step(Input::from(AgentEvent::Up(vec![])));
+    assert!(!pending_prompt(&h));
+    assert!(h.owner.lock().unwrap().ops.iter().any(|(_, op)| matches!(op, Op::MessageEdit { parts, .. }
+        if matches!(&parts[0], Part::Question(q) if q.state == cmux_conversation::QuestionState::Cancelled))));
+}
+
+#[test]
+fn home_card_idempotency_keys_fit_even_with_long_permission_ids() {
+    let mut h = harness(None, false, default_script());
+    let session = subagent_asking(&mut h, false);
+    h.brain.step(permission_in(
+        &session,
+        &"permission-".repeat(32),
+        "Bash",
+        json!({"command": "make test"}),
+    ));
+    h.settle_posts();
+    let owner = h.owner.lock().unwrap();
+    let keys: Vec<_> = owner
+        .ops
+        .iter()
+        .filter(|(key, _)| key.starts_with("home-approval:"))
+        .map(|(key, _)| key)
+        .collect();
+    assert_eq!(keys.len(), 2);
+    assert!(keys.iter().all(|key| key.len() <= 128));
+}
+
+#[test]
+fn disabling_before_a_late_ack_tombstones_that_request_across_reenable() {
+    let mut h = harness(None, false, default_script());
+    let session = subagent_asking_with_delivery(&mut h, false, true, Some("actor_mismatch"));
+    h.brain.set_home_approval_settings(None);
+    let owner = h.owner.clone();
+    let summary = owner.lock().unwrap().summary.clone().unwrap();
+    h.brain.step(Input::from(DaemonEvent::Up {
+        port: Box::new(FakeDaemon(owner)),
+        conversation: summary,
+        reconnect: Box::new(|| {}),
+    }));
+    h.settle_posts();
+    let p = h
+        .brain
+        .state()
+        .sub("a1")
+        .unwrap()
+        .1
+        .permission
+        .as_ref()
+        .unwrap();
+    assert!(p.home_closed && p.home_message.is_none());
+    assert_eq!(h.brain.unanswered_permissions().len(), 1);
+    let attempts = questions(&h);
+    h.brain
+        .set_home_approval_settings(Some(json!({"labs.previewFeatures": true})));
+    h.brain.step(permission_in(
+        &session,
+        "p1",
+        "Bash",
+        json!({"command": "make deploy"}),
+    ));
+    assert_eq!(
+        questions(&h),
+        attempts,
+        "a cancelled ledger receipt must not become readiness"
+    );
+    assert_eq!(h.brain.unanswered_permissions().len(), 1);
+}
+
+#[test]
+fn a_cloud_owned_conversation_keeps_local_subagents_out_of_home_approvals() {
+    let mut cloud = members(false);
+    cloud.owner = "cloud".into();
+    let mut h = harness_with(None, false, default_script(), cloud);
+    subagent_asking(&mut h, false);
+    assert_eq!(questions(&h), 0);
+    assert_eq!(h.brain.unanswered_permissions().len(), 1);
+    assert!(pending_prompt(&h));
+}
+
+#[test]
+fn discovering_the_local_owner_presents_an_already_pending_hidden_request() {
+    let mut cloud = members(false);
+    cloud.owner = "cloud".into();
+    let mut h = harness_with(None, false, default_script(), cloud);
+    subagent_asking(&mut h, false);
+    assert_eq!(questions(&h), 0);
+    let local = members(false);
+    h.owner.lock().unwrap().summary = Some(local.clone());
+    h.brain.step(Input::from(DaemonEvent::Changed {
+        conversation: CONV.into(),
+        change: Change::Conversation {
+            conversation: Box::new(local),
+        },
+    }));
+    h.settle_posts();
+    assert_eq!(questions(&h), 1);
+    assert!(h.brain.unanswered_permissions().is_empty());
+}
+
+#[test]
+fn replacing_the_conversation_needs_a_new_home_card_receipt() {
+    let mut h = harness(None, false, default_script());
+    subagent_asking(&mut h, false);
+    let old_receipt = h
+        .brain
+        .state()
+        .sub("a1")
+        .unwrap()
+        .1
+        .permission
+        .as_ref()
+        .unwrap()
+        .home_message
+        .clone();
+    let mut summary = members(false);
+    summary.id = "conv_recreated".into();
+    h.owner.lock().unwrap().summary = Some(summary.clone());
+    h.brain.step(Input::from(DaemonEvent::Up {
+        port: Box::new(FakeDaemon(h.owner.clone())),
+        conversation: summary,
+        reconnect: Box::new(|| {}),
+    }));
+    h.settle_posts();
+    assert_eq!(questions(&h), 2);
+    assert_ne!(
+        h.brain
+            .state()
+            .sub("a1")
+            .unwrap()
+            .1
+            .permission
+            .as_ref()
+            .unwrap()
+            .home_message,
+        old_receipt
+    );
+    assert!(h.brain.unanswered_permissions().is_empty());
 }

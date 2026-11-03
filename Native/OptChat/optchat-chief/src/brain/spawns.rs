@@ -918,7 +918,7 @@ impl Brain {
         let Some((_, sub)) = self.state.sub(id) else {
             return;
         };
-        if Self::approval_shown(sub) || sub.policy.as_deref() == Some(crate::approval::ASK) {
+        if self.approval_shown(sub) || sub.policy.as_deref() == Some(crate::approval::ASK) {
             return;
         }
         let (Some(session_id), Some(p)) = (sub.session_id.clone(), sub.permission.clone()) else {
@@ -3224,6 +3224,7 @@ impl Brain {
                     id: permission_id.to_owned(),
                     request: request.clone(),
                     home_message: None,
+                    home_closed: false,
                 });
             }
         }
@@ -3236,7 +3237,7 @@ impl Brain {
         let shown = self
             .state
             .sub(&id)
-            .is_some_and(|(_, s)| Self::approval_shown(s));
+            .is_some_and(|(_, s)| self.approval_shown(s));
         let text = super::control::permission_note(&id, request, shown);
         self.queue(text, Source::Note);
         if !shown {
@@ -3260,13 +3261,12 @@ impl Brain {
     /// that works: a local subagent with a workspace (its agent tab draws
     /// the prompt). A cloud subagent's peer refuses an allow from this
     /// Mac's app, and one with no workspace has no tab.
-    pub(super) fn approval_shown(sub: &crate::state::SubRecord) -> bool {
+    pub(super) fn approval_shown(&self, sub: &crate::state::SubRecord) -> bool {
         sub.peer.is_none()
             && (sub.workspace.is_some()
-                || sub
-                    .permission
-                    .as_ref()
-                    .is_some_and(|p| p.home_message.is_some()))
+                || sub.permission.as_ref().is_some_and(|p| {
+                    p.home_message.is_some() && !p.home_closed && self.home_approvals_available()
+                }))
     }
 }
 

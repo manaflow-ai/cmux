@@ -11,6 +11,10 @@ import CmuxHomeRender
 public final class MessagesLabHomeView: NSView {
     let controller: ChatController
     let projection: HomeProjection
+    public var approvals: (any HomeApprovalDeciding)? {
+        get { projection.approvals }
+        set { projection.approvals = newValue }
+    }
     private var warmed = false
     private var appliedComposerSpellChecking: Bool?
     /// The palette generation this view's rows were last refreshed for (applyTheme).
@@ -40,6 +44,7 @@ public final class MessagesLabHomeView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         addSubview(controller.host)
+        HomeApprovalRowProvider.install(for: projection)
         projection.start()
         // Reduce Motion changes (the system setting or the host's pin) still or restart the loops
         // already running (MessagesLabHomeView+Motion.swift).
