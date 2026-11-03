@@ -47,13 +47,13 @@ mod cloud_machine_io;
 #[cfg(unix)]
 mod cloud_machines;
 #[cfg(unix)]
-mod cloud_workspaces;
-#[cfg(unix)]
 mod cloud_repo;
 #[cfg(unix)]
 mod cloud_secret;
 #[cfg(unix)]
 mod cloud_start_chat;
+#[cfg(unix)]
+mod cloud_workspaces;
 mod code_mode;
 #[cfg(unix)]
 mod coderouter;
