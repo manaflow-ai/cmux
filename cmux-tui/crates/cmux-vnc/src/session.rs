@@ -265,29 +265,38 @@ pub struct Input {
 
 struct InputInner {
     /// `None` asks the writer to send what is queued, then close.
-    queue: SyncSender<Option<Vec<u8>>>,
+    queue: SyncSender<Option<PendingInput>>,
     closer: Closer,
     /// Signalled when the writer thread ends.
     done: Mutex<Receiver<()>>,
+}
+
+enum PendingInput {
+    Bytes(Vec<u8>),
+    Paste(String),
 }
 
 impl Input {
     /// Starts the writer thread. It ends when every `Input` is dropped or a
     /// write fails; a failed write closes the transport, so the reader sees it.
     fn spawn(mut writer: Box<dyn Write + Send>, closer: Closer) -> Result<Self> {
-        let (queue, pending) = mpsc::sync_channel::<Option<Vec<u8>>>(WRITE_QUEUE);
+        let (queue, pending) = mpsc::sync_channel::<Option<PendingInput>>(WRITE_QUEUE);
         let (done_tx, done) = mpsc::channel();
         let writer_closer = closer.clone();
         let spawned = thread::Builder::new().name("vnc-writer".into()).spawn(move || {
             for message in pending {
-                let Some(bytes) = message else {
+                let Some(message) = message else {
                     // Everything queued is written: end the writing half
                     // (a proxy's stdin) so the far end can take it, then close.
                     drop(writer);
                     writer_closer.finish(DRAIN_LIMIT);
                     break;
                 };
-                if writer.write_all(&bytes).and_then(|()| writer.flush()).is_err() {
+                let written = match message {
+                    PendingInput::Bytes(bytes) => writer.write_all(&bytes),
+                    PendingInput::Paste(text) => crate::paste::write(&mut writer, &text),
+                };
+                if written.and_then(|()| writer.flush()).is_err() {
                     writer_closer.close();
                     break;
                 }
@@ -303,7 +312,11 @@ impl Input {
 
     /// Queues one message without waiting for the network.
     fn send(&self, bytes: &[u8]) -> Result<()> {
-        match self.inner.queue.try_send(Some(bytes.to_vec())) {
+        self.enqueue(PendingInput::Bytes(bytes.to_vec()))
+    }
+
+    fn enqueue(&self, message: PendingInput) -> Result<()> {
+        match self.inner.queue.try_send(Some(message)) {
             Ok(()) => Ok(()),
             Err(TrySendError::Full(_)) => {
                 self.inner.closer.close();
@@ -331,6 +344,18 @@ impl Input {
         let bytes: Vec<u8> =
             keys.iter().flat_map(|&(keysym, down)| message::key_event(keysym, down)).collect();
         self.send(&bytes)
+    }
+
+    /// Types an entire paste, then mirrors it to the classic RFB clipboard.
+    ///
+    /// Takes ownership of the clipboard text without an additional full-size
+    /// copy. One ordered operation streams fixed-size key batches on the writer
+    /// thread, with socket backpressure; later input cannot split the paste.
+    /// Carriage returns are ignored, as in the terminal viewer's paste path.
+    /// RFB's clipboard length is u32; text beyond that wire field is still
+    /// typed in full, without replacing the clipboard with a truncated prefix.
+    pub fn paste(&self, text: String) -> Result<()> {
+        self.enqueue(PendingInput::Paste(text))
     }
 
     /// Pointer position and the buttons held ([`message::button`] bits).

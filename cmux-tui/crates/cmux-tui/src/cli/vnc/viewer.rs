@@ -36,8 +36,6 @@ const CURSOR_ID: u32 = 0x5643_0003;
 const RESIZE_SETTLE: Duration = Duration::from_millis(300);
 /// Longest wait on quit or reconnect for queued key and button releases to reach the server.
 const RELEASE_FLUSH: Duration = Duration::from_millis(500);
-/// Most characters a paste types into the remote screen.
-const MAX_PASTE_CHARS: usize = 64 * 1024;
 
 enum Msg {
     Term(term::Event),
@@ -405,7 +403,7 @@ impl Viewer {
                 return self.key(&enhanced.key_event, enhanced.shifted_key);
             }
             term::Event::Mouse(mouse) => self.mouse(mouse)?,
-            term::Event::Paste(text) => self.paste(&text),
+            term::Event::Paste(text) => self.paste(text),
             term::Event::Resize(..) => self.pane_resized()?,
             term::Event::FocusLost => self.release_input(),
             term::Event::FocusGained => {}
@@ -501,21 +499,13 @@ impl Viewer {
     }
 
     /// A paste types its text into the remote screen and sets the remote clipboard.
-    fn paste(&mut self, text: &str) {
+    fn paste(&mut self, text: String) {
         if self.config.view_only {
             return;
         }
         let Some(input) = self.input() else { return };
-        let _ = input.clipboard(text);
-        let keys: Vec<(u32, bool)> = text
-            .chars()
-            .filter(|&c| c != '\r')
-            .take(MAX_PASTE_CHARS)
-            .map(cmux_vnc::keysym::char_keysym)
-            .flat_map(|sym| [(sym, true), (sym, false)])
-            .collect();
-        // One write: a slow server holds the writer thread, not this one.
-        let _ = input.keys(&keys);
+        // One ordered operation; encoding and network backpressure stay off this loop.
+        let _ = input.paste(text);
     }
 
     fn pane(&self) -> Pane {
