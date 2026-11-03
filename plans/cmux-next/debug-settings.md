@@ -45,16 +45,18 @@ never calls it keeps the inert store (every read one atomic load). What a
   because each row layout reads it. An `ObservationStream` loop that started
   before (an open agent page's `icons.family`) stays where it is.
 - A reader at one moment: `browserResize.dragResize`'s `synced` choice is read
-  once, when Chromium starts (`dragResizeAtLaunch`). Every cmux page shows in
-  Chromium by default (`browser.defaultEngine`, `agent.chromium`), and the
-  launch's New Tab spare page starts it about 250 ms after the first frame
-  (a restored page sooner), normally before a socket client has sent
-  `activate`: a bench build cannot count on reaching `synced` this way.
-  `debug.cef` (`state`, `trigger`) shows when and why Chromium started. `browserResize.layerHosting`
+  once, when Chromium starts (`dragResizeAtLaunch`). cmux pages, New Tab and
+  agent chats included, show in Chromium by default (`browser.defaultEngine`,
+  `agent.chromium`), and the launch's New Tab spare page starts it about
+  250 ms after the first frame (a restored page sooner), normally before a
+  socket client has sent `activate`: a bench build cannot count on reaching
+  `synced` this way. `debug.cef` shows whether, why and when Chromium started
+  (`state`, `trigger`, `ready_after_launch_s`). `browserResize.layerHosting`
   applies at a page's next show; each tunable's help says when it applies.
   `icons.family`: native icons read it at launch; agent pages made after the
-  `set` use it, but the first New Tab after it takes the spare page made at
-  launch, which keeps the old family.
+  `set` use it, but the first page that takes the spare made at launch (a New
+  Tab, a new workspace's first page, an existing chat of this Mac) keeps the
+  old family.
 - Readers gated on `DevTools.isEnabled`, or wired only by
   `DebugSettingsService.start()`, keep their Release behavior in a bench build
   whatever the store holds: `auth.signInWindow`, `home.chiefViewGallery`,
