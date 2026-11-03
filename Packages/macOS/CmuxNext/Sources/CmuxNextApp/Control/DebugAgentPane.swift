@@ -49,7 +49,7 @@ import WebKit
 /// omitted toggles it and returns `inspector_open`). Every action first stops WebKit from
 /// pausing the page while another window covers it, so a tagged build can
 /// be measured behind the user's windows.
-/// `mcp_connect_ask` (`server`, `reason`, `scope`) opens a real MCP connect card in the chat (DebugAgentPaneMcpConnect).
+/// `mcp_connect_ask` (`server`, `reason`, `scope`) opens a real MCP connect card in the chat (`read: true` returns what the asks got back; AgentPaneView+DebugMcpConnect).
 /// `session_info_action` (`id`) sends a page-owned native Session Info action through the same
 /// bridge as a native row click (DEBUG capture tours only).
 @MainActor
@@ -216,7 +216,11 @@ enum DebugAgentPane {
             return await DebugAgentPaneClick.click(params, pane: pane, view: view, services: services)
         }
         if action == "mcp_connect_ask" {
-            return await DebugAgentPaneMcpConnect.ask(params, pane: pane, view: view, services: services)
+            if params["read"]?.boolValue == true { return .object(["pane": .string(pane), "replies": JSONValue(foundation: view.debugMcpConnectAnswers) ?? .null]) }
+            let environment = await AcpmuxEnvironment.resolvedApp(build: services.environment.build, mock: services.environment.showcase)
+            let asked = await view.debugMcpConnectAsk(server: params["server"]?.stringValue ?? "", reason: params["reason"]?.stringValue ?? "",
+                                                      scope: params["scope"]?.stringValue ?? "chat", environment: environment)
+            return .object(["pane": .string(pane), "result": JSONValue(foundation: asked) ?? .null])
         }
         if action == "set_files" {
             return .object(["pane": .string(pane), "error": await view.debugSetFiles(selector: params["selector"]?.stringValue ?? ".acpmux-attach-input", paths: params["paths"]?.arrayValue?.compactMap(\.stringValue) ?? []).map(JSONValue.string) ?? .null]) }
