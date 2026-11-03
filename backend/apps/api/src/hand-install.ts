@@ -47,7 +47,7 @@ export const handInstallScript = async (env: Env, origin: string): Promise<Respo
 set -eu
 API="${origin}"
 RELEASE="${release?.base ?? ""}"
-PAIR="" PROFILE="sandbox" NAME="" POLICY="" LOCAL_BIN="" SERVICE=1 ROOTS="" CONFIGURED=0
+PAIR="" PROFILE="sandbox" NAME="" POLICY="" LOCAL_BIN="" SERVICE=1 ROOTS="" CONFIGURED=0 MULTICALL=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --pair) PAIR="$2"; shift 2 ;;
@@ -56,6 +56,7 @@ while [ $# -gt 0 ]; do
     --agent-policy) POLICY="$2"; shift 2 ;;
     --name) NAME="$2"; shift 2 ;;
     --binary) LOCAL_BIN="$2"; shift 2 ;;
+    --multicall) MULTICALL=1; shift ;;
     --configured) CONFIGURED=1; shift ;;
     --no-service) SERVICE=0; shift ;;
     *) echo "cmux-hand install: unknown option $1" >&2; exit 2 ;;
@@ -63,6 +64,10 @@ while [ $# -gt 0 ]; do
 done
 if [ "$CONFIGURED" != 1 ]; then
   [ -n "$PAIR" ] || { echo "cmux-hand install: --pair <code> is required" >&2; exit 2; }
+fi
+if [ "$MULTICALL" = 1 ]; then
+  [ "$CONFIGURED" = 1 ] && [ -n "$LOCAL_BIN" ] || { echo "cmux-hand install: --multicall needs --configured and --binary" >&2; exit 2; }
+  "$LOCAL_BIN" acp hand --help >/dev/null
 fi
 case "$(uname -s)/$(uname -m)" in
   Darwin/arm64) TARGET=aarch64-apple-darwin ;;
@@ -77,6 +82,8 @@ esac
 HOME_DIR="\${CMUX_HAND_HOME:-$HOME/.cmux-hand}"
 BIN_DIR="$HOME_DIR/bin"
 BIN="$BIN_DIR/cmux-hand"
+# The image's already-installed multicall file dispatches acpmux by this argv0.
+[ "$MULTICALL" != 1 ] || BIN="$BIN_DIR/acpmux"
 mkdir -p "$BIN_DIR"
 TMP="$BIN_DIR/.cmux-hand.download.$$"
 trap 'rm -f "$TMP"' EXIT

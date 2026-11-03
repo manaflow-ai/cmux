@@ -137,7 +137,7 @@ export const ensureDefaultHand = async (env: Env, owner: string, chief: string, 
   if (!registered.ok) throw new Error(registered.code)
   if (await handStub(env, hand).waitOnline(1)) return { hand, cwd: guest.cwd! }
   // Installing as the daemon's user is what makes the hand see the user's provider login.
-  const install = `${layoutSelector()} && ${asDaemonUser(`sh -c ${shellQuote(`export CMUX_HAND_HOME="$HOME/.cmux-chief-hand"; curl -fsSL ${shellQuote(`${api}/hand/install.sh`)} | sh -s -- --configured`)}`)}`
+  const install = `${layoutSelector()} && ${asDaemonUser(`sh -c ${shellQuote(`export CMUX_HAND_HOME="$HOME/.cmux-chief-hand"; curl -fsSL ${shellQuote(`${api}/hand/install.sh`)} | sh -s -- --configured --binary "$HOME/.cmux/bin/cmux-tui" --multicall`)}`)}`
   const installed = await cloud.automationExec(binding.team, owner, binding.connection_machine, install, null, 75_000)
   if (!installed.ok || installed.exitCode !== 0) throw failed("install", installed)
   if (!(await handStub(env, hand).waitOnline(30_000))) throw new Error("chief.hand.offline")
