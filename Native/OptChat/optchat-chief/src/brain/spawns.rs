@@ -637,10 +637,23 @@ impl Brain {
         let mut free = self
             .live_cap()
             .map_or(usize::MAX, |n| n.saturating_sub(self.live_subs()));
+        use crate::place_route::{Kind, Machine, Placement, Target};
+        // A saved peer explicitly reported disconnected cannot take work.
+        // The per-agent pool can provision its next VM regardless of the snapshot.
+        let peers: Vec<String> = peers
+            .iter()
+            .filter(|peer| {
+                per_agent
+                    || machines
+                        .iter()
+                        .find(|m| m.kind == Kind::Paired && m.name == **peer)
+                        .is_none_or(|m| m.connected)
+            })
+            .cloned()
+            .collect();
         // B4: each cloud subagent goes to the peer with the fewest live
         // ones (counting this spawn's), ties to the first listed.
         let mut load: Vec<usize> = peers.iter().map(|p| self.live_on(p)).collect();
-        use crate::place_route::{Kind, Machine, Placement, Target};
         let mut machines = machines.to_vec();
         if !peers.is_empty() {
             machines.push(Machine {

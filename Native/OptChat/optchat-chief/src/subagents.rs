@@ -740,8 +740,8 @@ impl Spawner {
     ) -> Result<(SubagentSettings, String), String> {
         let catalog = self.agents.harness_catalog_on(peer).ok();
         let health = self.agents.harness_health_on(peer).unwrap_or_default();
-        // Old daemons and VMs still starting may not report scoped metadata.
-        // Only a confirmed sign-out/expiry authorizes changing the harness.
+        // Peer auth is cached and may be stale. It can suggest another harness,
+        // but only session creation can establish a current login failure.
         let unavailable = |harness: &str| {
             let profile = catalog
                 .as_ref()
@@ -755,36 +755,33 @@ impl Spawner {
                 .map(|_| "its login is unavailable on this machine")
         };
         let mut note = String::new();
-        if let Some(why) = unavailable(&launch.harness) {
-            if launch.harness != default {
-                note = format!(
-                    " ({} unavailable: {why}; using default {default})",
-                    launch.harness
-                );
-                launch.harness = default.into();
-                launch.model = None;
-                if peer.is_none() {
-                    let family = self
-                        .families
-                        .get(default)
-                        .copied()
-                        .unwrap_or(crate::acpmux::Family::Claude);
-                    let base = self
-                        .families
-                        .get(&self.settings.harness)
-                        .copied()
-                        .unwrap_or(crate::acpmux::Family::Claude);
-                    launch.preset = self.settings.preset.as_ref().and_then(|p| {
-                        if family == base {
-                            Some(p.clone())
-                        } else {
-                            family_preset(p, family)
-                        }
-                    });
-                }
-            }
-            if let Some(why) = unavailable(&launch.harness) {
-                return Err(format!("{} unavailable: {why}", launch.harness));
+        if launch.harness != default
+            && let Some(why) = unavailable(&launch.harness)
+        {
+            note = format!(
+                " ({} unavailable: {why}; using default {default})",
+                launch.harness
+            );
+            launch.harness = default.into();
+            launch.model = None;
+            if peer.is_none() {
+                let family = self
+                    .families
+                    .get(default)
+                    .copied()
+                    .unwrap_or(crate::acpmux::Family::Claude);
+                let base = self
+                    .families
+                    .get(&self.settings.harness)
+                    .copied()
+                    .unwrap_or(crate::acpmux::Family::Claude);
+                launch.preset = self.settings.preset.as_ref().and_then(|p| {
+                    if family == base {
+                        Some(p.clone())
+                    } else {
+                        family_preset(p, family)
+                    }
+                });
             }
         }
         if self
