@@ -132,6 +132,137 @@
         }
       }
     },
+    "quit.choicesExplained": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Sessions Running leaves your terminals and agents running. End Sessions stops them and keeps your tabs and splits; End Everything also closes the workspaces."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُبقي «إبقاء الجلسات قيد التشغيل» الطرفيات والوكلاء قيد التشغيل. يوقفها «إنهاء الجلسات» ويُبقي علامات التبويب والتقسيمات؛ ويغلق «إنهاء كل شيء» مساحات العمل أيضًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ostavi sesije pokrenute ostavlja vaše terminale i agente da rade. Završi sesije ih zaustavlja i zadržava kartice i podjele; Završi sve zatvara i radne prostore."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lad sessionerne køre holder dine terminaler og agenter kørende. Afslut sessioner stopper dem og beholder faner og opdelinger; Afslut alt lukker også arbejdsområderne."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzungen weiterlaufen lassen lässt deine Terminals und Agenten laufen. Sitzungen beenden stoppt sie und behält Tabs und Teilungen; Alles beenden schließt auch die Workspaces."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantener sesiones activas deja tus terminales y agentes en marcha. Finalizar sesiones los detiene y conserva tus pestañas y divisiones; Finalizar todo también cierra los espacios de trabajo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Garder les sessions actives laisse vos terminaux et agents en marche. Terminer les sessions les arrête et garde vos onglets et divisions ; Tout terminer ferme aussi les espaces de travail."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantieni sessioni attive lascia in esecuzione terminali e agenti. Termina le sessioni li ferma e mantiene schede e divisioni; Termina tutto chiude anche gli spazi di lavoro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「セッションを実行したままにする」はターミナルとエージェントを実行したままにします。「セッションを終了」はそれらを止め、タブと分割は残します。「すべて終了」はワークスペースも閉じます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទុកវគ្គឱ្យដំណើរការ ទុកស្ថានីយ និងភ្នាក់ងាររបស់អ្នកឱ្យដំណើរការ។ បញ្ចប់វគ្គ បញ្ឈប់ពួកវា ហើយរក្សាផ្ទាំង និងការបំបែក។ បញ្ចប់ទាំងអស់ បិទកន្លែងធ្វើការផងដែរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션 계속 실행은 터미널과 에이전트를 계속 실행합니다. 세션 끝내기는 이를 멈추고 탭과 분할은 유지하며, 모두 끝내기는 작업 공간도 닫습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La øktene kjøre lar terminalene og agentene dine fortsette. Avslutt økter stopper dem og beholder faner og delinger; Avslutt alt lukker også arbeidsområdene."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozostaw sesje uruchomione zostawia terminale i agentów działające. Zamknij sesje zatrzymuje je i zachowuje karty i podziały; Zamknij wszystko zamyka też przestrzenie robocze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manter sessões em execução deixa seus terminais e agentes rodando. Encerrar sessões os interrompe e mantém suas abas e divisões; Encerrar tudo também fecha os espaços de trabalho."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Оставить сеансы работать» оставляет терминалы и агентов запущенными. «Завершить сеансы» останавливает их, сохраняя вкладки и разделения; «Завершить всё» также закрывает рабочие пространства."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ให้เซสชันทำงานต่อ จะปล่อยให้เทอร์มินัลและเอเจนต์ทำงานต่อ จบเซสชัน จะหยุดการทำงานแต่คงแท็บและการแบ่งไว้ ส่วนจบทั้งหมด จะปิดพื้นที่ทำงานด้วย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturumları Çalışır Bırak, terminallerinizi ve ajanlarınızı çalışır durumda bırakır. Oturumları sonlandır onları durdurur, sekmeleri ve bölmeleri korur; Her şeyi sonlandır çalışma alanlarını da kapatır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Залишити сеанси працювати» залишає термінали й агентів запущеними. «Завершити сеанси» зупиняє їх і зберігає вкладки та поділи; «Завершити все» також закриває робочі простори."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giữ phiên chạy để terminal và agent tiếp tục chạy. Kết thúc phiên sẽ dừng chúng nhưng giữ các tab và phần chia; Kết thúc tất cả cũng đóng các không gian làm việc."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“保持会话运行”会让终端和代理继续运行。“结束会话”会停止它们，但保留标签页和分屏；“全部结束”还会关闭工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「保持工作階段執行」會讓終端機和代理繼續執行。「終止工作階段」會停止它們，但保留分頁和分割；「全部終止」也會關閉工作區。"
+          }
+        }
+      }
+    },
     "quit.dontAskAgain": {
       "extractionState": "manual",
       "localizations": {

@@ -23,14 +23,6 @@ TRANSPORT_BOUNDS = {"MAX_CHUNK_BYTES", "MAX_RANGE_BYTES", "MAX_FRAME_BYTES", "MA
 # An exemption names only a cap its file still declares (tests/test_attachment_caps_guard.py),
 # so a removed cap cannot come back unreviewed.
 RETAINED_BOUNDS = {
-    "Packages/iOS/CmuxMobileShellModel/Sources/CmuxMobileShellModel/MobileImageAttachmentPreparer.swift": {
-        "maximumRawInputBytes": "Unused legacy declaration; outside native staged admission.",
-        "maximumEncodedBytes": "Downsampled PNG/JPEG representation budget, not the input file.",
-    },
-    "Packages/iOS/CmuxMobileShellModel/Sources/CmuxMobileShellModel/TaskComposerAttachment.swift": {
-        "maximumFileBytes": "Legacy mobile task admission; removal belongs to the streaming follow-up.",
-        "maximumTotalBytes": "Legacy mobile task batch quota; deferred with its upload transport.",
-    },
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRequest+Decoding.swift": {
         "maximumWarmBytes": "New Tab warm-cache budget, unrelated to chat.upload decoding.",
     },

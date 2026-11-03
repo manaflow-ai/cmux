@@ -4,10 +4,12 @@
     scripts/journeys/run.py --build JOB [--priority P0 | --journey ID ... | --all] [--out DIR]
     scripts/journeys/run.py --commit SHA [...]      # builds SHA on the fleet first (or reuses its receipt)
     scripts/journeys/run.py --list | --check
+    scripts/journeys/run.py --prestage --build JOB --hosts "cmux17 cmux18 ..."   # fill each free mini's build cache now
 
 The route is the one cmux-ci capture and restore-journey-slot.sh use (no new harness, no CI job):
 capture-host leases one slot on a GUI capture mini (released in every case; a lease lasts at most
-10 minutes), the slot downloads the build's artifact (`cmux-ci artifact JOB`), capture-host launches
+10 minutes), the build comes from the mini's build cache (build_cache.py fills it once per mini and job, under
+a lock: the store's signed URL, else `cmux-ci artifact JOB`), capture-host launches
 it in the slot (own HOME, bundle id, socket, settings), and driver.py plays the journeys there over
 the control socket, the bundled CLI on the app's daemon, the process table and the app's own
 window snapshots. Journeys that do not fit one lease run in further leases.
@@ -38,6 +40,7 @@ CAPTURE_HOST_SLOT_HOSTS (--hosts sets it). JOURNEYS_EXCLUDE_HOSTS (default cmux1
 from __future__ import annotations
 
 import argparse
+import base64
 import calendar
 import hashlib
 import io
@@ -439,6 +442,79 @@ def acquire_lease(ch, exclusive, log_path=None, whole_host=False):
 HOG_WARMUP_SECONDS = 45  # at least this long from the hog's start (before the download) to the first journey
 # Builds kept in each mini's journeys build cache (about 1 GB each).
 BUILD_CACHE_KEEP = 3
+BUILD_CACHE = HERE / "build_cache.py"
+CONTROLLER = "http://100.89.225.106:18765"
+CLIENT_CONFIG = Path.home() / ".local/share/cmux-fleet-client/client.json"
+
+
+def signed_url(digest, timeout=20):
+    """The store's short-lived signed URL of DIGEST, from the controller (as `cmux-ci artifact` asks it), or "" when
+    the controller does not answer: then the mini's cmux-ci reads the artifact. Never logged."""
+    base = os.environ.get("CMUX_CI_CONTROLLER", "")
+    if not base:
+        try:
+            base = json.loads(CLIENT_CONFIG.read_text()).get("controller") or ""
+        except (OSError, ValueError, AttributeError):
+            base = ""
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", str(digest or "")):
+        return ""
+    import http.client
+    import urllib.request
+    try:
+        with urllib.request.urlopen(f"{(base or CONTROLLER).rstrip('/')}/v1/artifacts/{digest}/url", timeout=timeout) as res:
+            url = json.load(res).get("url") or ""
+    except (OSError, ValueError, AttributeError, http.client.HTTPException):
+        return ""
+    return url if re.fullmatch(r"https://[^\s\"']+", url) else ""
+
+
+def fill_command(build):
+    """The mini's command that puts BUILD in its cache (build_cache.py, sent inline: no kit needed, so --prestage
+    sends the same) and prints the .app path. Its first input line is fill_input(build)."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", str(build["id"])):
+        raise RuntimeError(f"build id {build['id']!r} is not a plain job id")
+    digest = str(build.get("artifact") or "")
+    commit = str(build.get("commit") or "")
+    program = base64.b64encode(BUILD_CACHE.read_bytes()).decode()
+    return (f"JOURNEYS_CACHE_ROOT=\"$HOME/.cache/cmux-journeys\" /usr/bin/python3 -I -c "
+            f"'import base64,sys;exec(compile(base64.b64decode(sys.argv.pop(1)),\"build_cache.py\",\"exec\"))' "
+            f"{program} {q(build['id'])} "
+            f"{q(digest.removeprefix('sha256:') if re.fullmatch(r'sha256:[0-9a-f]{64}', digest) else '-')} {BUILD_CACHE_KEEP} "
+            f"{q(commit if re.fullmatch(r'[0-9a-f]{40}', commit) else '-')}")
+
+
+def fill_input(build):
+    return (signed_url(build.get("artifact")) + "\n").encode()
+
+
+def prestage(build, hosts):
+    """`run.py --prestage`: put BUILD in each capture mini's cache before any round, outside any lease, one mini at a
+    time. A mini that a lease or a fleet step holds (capture-host status is not "free") is skipped: a download there
+    would load a round or a bench; the caller runs --prestage again later. {host: "staged"|"skipped: why"|"failed: why"}"""
+    ch, done = capture_host(), {}
+    for host in hosts:
+        env = dict(os.environ, CAPTURE_HOST_HOSTS=host, CAPTURE_HOST_SLOT_HOSTS=host)
+        try:
+            status = subprocess.run([ch, "status"], capture_output=True, env=env, timeout=120).stdout.decode()
+        except subprocess.TimeoutExpired:
+            status = ""
+        line = next((l for l in status.splitlines() if l.startswith(host + " ")), "")
+        if not line.startswith(host + " free"):
+            done[host] = f"skipped: {line[len(host) + 1:][:160] or 'no capture-host status'}"
+            log(f"prestage {build['id']} on {host}: {done[host]}")
+            continue
+        try:
+            fill = remote(host, f"mkdir -p $HOME/.cache/cmux-journeys; {fill_command(build)}", input=fill_input(build),
+                          timeout=1800, check=False)
+        except subprocess.TimeoutExpired:
+            done[host] = "failed: the fill took more than 1800 s"
+            log(f"prestage {build['id']} on {host}: {done[host]}")
+            continue
+        app = fill.stdout.decode(errors="replace").strip()
+        why = fill.stderr.decode(errors="replace").strip().splitlines()
+        done[host] = "staged" if fill.returncode == 0 and app.endswith(".app") else f"failed: {(why or ['?'])[-1][:200]}"
+        log(f"prestage {build['id']} on {host}: {done[host]}" + (f" ({why[-1]})" if why and done[host] == "staged" else ""))
+    return done
 # The signals that stop a round (fuzz.py's TERM, the gate's, ^C). They are blocked from the acquire until the lease is
 # inside run_lease's try, and again for the whole release, so neither a second signal nor one at the wrong moment can
 # leave a lease held until it expires (review of 22115f33db6).
@@ -506,23 +582,12 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
         # the slot, so the slot never changes it.
         if not re.fullmatch(r"[A-Za-z0-9_-]+", str(build["id"])):
             raise RuntimeError(f"build id {build['id']!r} is not a plain job id")
-        cache = f"$HOME/.cache/cmux-journeys/builds/{build['id']}"
-        log(f"build {build['id']} on {host}: cached there, else downloaded once (and the text reader, once per mini)")
-        app = remote(host, f"set -e; cd {q(work)}; mkdir -p $HOME/.cache/cmux-journeys/builds; "
+        log(f"build {build['id']} on {host}: cached there, else downloaded once under the mini's lock (and the text reader, once per mini)")
+        app = remote(host, f"set -e; cd {q(work)}; mkdir -p $HOME/.cache/cmux-journeys; "
                            f"( [ -x {ocr} ] || {{ swiftc -O kit/ocr.swift -o {ocr}.$$ && mv -f {ocr}.$$ {ocr}; }} ) >ocr.log 2>&1 & "
-                           f"c={cache}; find $HOME/.cache/cmux-journeys/builds -maxdepth 1 -name '*.tmp.*' -mmin +60 -exec rm -rf {{}} + 2>/dev/null || true; "
-                           f"if [ -f \"$c/ok\" ]; then echo 'journeys: build cache hit' >&2; touch \"$c\"; else "
-                           f"t=\"$c.tmp.$$\"; rm -rf \"$t\"; mkdir -p \"$t\"; cmux-ci artifact {q(build['id'])} \"$t/app.zip\" >&2; "
-                           f"ditto -x -k \"$t/app.zip\" \"$t/build\"; rm -f \"$t/app.zip\"; rm -rf \"$c\"; mv \"$t\" \"$c\"; touch \"$c/ok\" \"$c\"; "
-                           f"ls -1t $HOME/.cache/cmux-journeys/builds | grep -v '\\.tmp\\.' | tail -n +{BUILD_CACHE_KEEP + 1} | "
-                           f"while read -r old; do rm -rf \"$HOME/.cache/cmux-journeys/builds/$old\"; done; fi; wait || true; "
-                           f"[ -x {ocr} ] || {{ cat ocr.log >&2; exit 3; }}; "
-                           f"a=$(find \"$c/build\" -maxdepth 2 -name '*.app' -type d | head -1); "
-                           # The commit the build job names, beside the bundle unpacked from that job's artifact:
-                           # capture-host launch --commit checks it (and the bundle's own CMUXCommit, if any, must agree).
-                           f"[ -z \"$a\" ] || {{ [ {len(str(build.get('commit') or ''))} -ne 40 ] || "
-                           f"printf '%s\\n' {q(build.get('commit') or '')} > \"$(dirname \"$a\")/capture-commit\"; }}; echo \"$a\"",
-                     timeout=left(420)).stdout.decode().strip()
+                           f"a=$({fill_command(build)}); wait || true; "
+                           f"[ -x {ocr} ] || {{ cat ocr.log >&2; exit 3; }}; echo \"$a\"",
+                     input=fill_input(build), timeout=left(420)).stdout.decode().strip()
         if not app.endswith(".app"):
             raise RuntimeError(f"build {build['id']} has no app bundle")
         # capture-host (hq main since 2026-10-30) launches only the build of --commit, checked against the bundle.
@@ -775,6 +840,9 @@ def main(argv=None):
                          "smoke_mode=diagnostic); repeatable")
     ap.add_argument("--frame-interval", type=float, default=1.0, help="seconds between clip frames (>= 0.25)")
     ap.add_argument("--build-wait-minutes", type=float, default=90, help="how long to wait for a running build")
+    ap.add_argument("--prestage", action="store_true",
+                    help="with --build and --hosts: put the build in each named mini's build cache now, outside any lease "
+                         "(skips a mini a lease or a fleet step holds), and exit: 0 all staged, 75 one skipped, 1 one failed")
     ap.add_argument("--list", action="store_true", help="print the journeys and exit")
     ap.add_argument("--check", action="store_true", help="validate the journey files and exit")
     opts = ap.parse_args(argv)
@@ -792,6 +860,23 @@ def main(argv=None):
         return 0
     if not (opts.build or opts.commit):
         ap.error("name the build under test: --build JOB or --commit SHA")
+    if opts.prestage:
+        if not (opts.build and opts.hosts):
+            ap.error("--prestage takes --build JOB and --hosts")
+        status = wait_build(opts.build, opts.build_wait_minutes * 60)
+        if status.get("state") != "done":
+            log(f"prestage: build {opts.build} is {status.get('state')}")
+            return 1 if status.get("state") in ("failed", "cancelled") else 75
+        build = {"id": status.get("id", opts.build), "commit": status.get("ref") or status.get("commit"),
+                 "artifact": status.get("artifact")}
+        excluded = set(os.environ.get("JOURNEYS_EXCLUDE_HOSTS", "cmux16").split())
+        hosts = [h for h in opts.hosts.split() if h not in excluded]
+        if not hosts:
+            ap.error(f"--prestage: every host in --hosts is excluded ({' '.join(sorted(excluded))})")
+        done = prestage(build, hosts)
+        print(json.dumps(done))
+        states = {v.split(":")[0] for v in done.values()}
+        return 1 if "failed" in states else 75 if "skipped" in states else 0
     chosen = select(specs, opts)
     if not chosen:
         ap.error("no journey selected")
@@ -817,7 +902,7 @@ def main(argv=None):
     job = opts.build or build_for_commit(opts.commit, out_root)
     status = wait_build(job, opts.build_wait_minutes * 60)
     build = {"id": status.get("id", job), "commit": status.get("ref") or status.get("commit"), "tag": status.get("tag"),
-             "state": status.get("state")}
+             "state": status.get("state"), "artifact": status.get("artifact")}
     out = Path(opts.out) if opts.out else out_root / f"{build['id'][:12]}-{this_run['run_id']}"
     earlier = earlier_run(out)
     out.mkdir(parents=True, exist_ok=True)

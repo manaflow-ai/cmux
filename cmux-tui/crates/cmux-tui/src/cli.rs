@@ -1005,6 +1005,7 @@ fn scan_globals(
             _ => {
                 command.push(value.clone());
                 if option_takes_value(value)
+                    && !own_switch(&command, value)
                     && let Some(next) = args.get(index + 1)
                 {
                     command.push(next.clone());
@@ -1015,6 +1016,20 @@ fn scan_globals(
         }
     }
     Ok((global, command))
+}
+
+/// `machine add|vault`'s value-less switches (`machine_join::own_switch`); none on Windows,
+/// where those verbs do not exist.
+fn own_switch(command: &[String], flag: &str) -> bool {
+    #[cfg(unix)]
+    {
+        machine_join::own_switch(command, flag)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (command, flag);
+        false
+    }
 }
 
 /// Option arity is shared with resource tokenization. Values such as --help or

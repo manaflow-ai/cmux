@@ -9,13 +9,12 @@
 nonisolated enum CloudActionDescriptions {
     static let text: [ActionID: String] = [
         "newCloudWorkspace": """
-            Opens a Cloud workspace on a new small machine of its own; it never reuses a listed machine \
-            (another workspace's, a teammate's or a fleet one). Returns machine_id, title, status and target \
-            once the server has the machine (workspace_id when it is already open); after 30 s it answers \
-            pending: true and the create goes on. A refused create (a plan it needs) fails with its reason. \
-            With --target machine:<id> it opens on that machine instead: a connected one returns workspace_id, \
-            one not connected is connected (a paused one resumes) and answers pending. From the app, the \
-            person's own gesture opens on the machine their window shows.
+            Opens a Cloud workspace on a new small machine of its own, never a listed one (another \
+            workspace's, a teammate's or a fleet one). Returns machine_id, title, status and target once the \
+            server has it (workspace_id once open); after 30 s, pending: true while the create goes on. A \
+            refused create fails with its reason. --target machine:<id> opens on that machine: a connected one \
+            returns workspace_id, another connects (a paused one resumes) and answers pending. In the app, \
+            the person's own gesture opens on the machine their window shows.
             """,
         "newCloudMachine": """
             Creates a Cloud machine; returns machine_id, title, status and target once the server has it. \
