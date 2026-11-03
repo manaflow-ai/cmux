@@ -31,8 +31,12 @@ const INSTALL_TIMEOUT: Duration = Duration::from_secs(605);
 pub(crate) enum Command {
     /// `--help`, `-h` or `help`: the usage text, with no app needed.
     Help,
-    List { limit: u32 },
-    Install { target: Target },
+    List {
+        limit: u32,
+    },
+    Install {
+        target: Target,
+    },
 }
 
 /// The build `install` goes to.
@@ -47,7 +51,9 @@ pub(crate) enum Target {
 pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
     let messages = &crate::localization::catalog().app_control;
     let usage = || UsageError::new(messages.nightly.usage);
-    if rest.first().map(String::as_str) == Some("help") || rest.iter().any(|word| word == "--help" || word == "-h") {
+    if rest.first().map(String::as_str) == Some("help")
+        || rest.iter().any(|word| word == "--help" || word == "-h")
+    {
         return Ok(Command::Help);
     }
     match rest.first().map(String::as_str) {
