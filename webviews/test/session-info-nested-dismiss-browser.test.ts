@@ -53,11 +53,15 @@ await requireBrowserLane("session-info-nested-dismiss-browser.test.ts", async ()
             // Exercise the real portal, rather than a menu rendered inside the parent's DOM.
             expect(await panel.locator(popup).count()).toBe(0);
             const press = page.locator(outside ? "[data-outside-panel]" : "[data-inside-panel]");
-            // The repository picker intentionally covers the panel's button. Dispatching the
-            // pointer event on that real inside target exercises the document capture handlers
-            // without asking Playwright to click through the child popup.
+            // The repository picker intentionally covers the panel's button. Press a visible
+            // point at the panel's upper edge for the inside case so the event is a real browser
+            // pointer event while remaining outside the child portal.
             if (outside) await press.click();
-            else await press.dispatchEvent("pointerdown");
+            else {
+              const box = await panel.boundingBox();
+              expect(box).not.toBeNull();
+              await page.mouse.click(box!.x + 6, box!.y + 6);
+            }
             await page.locator(popup).waitFor({ state: "detached" });
             expect(await panel.count()).toBe(1);
             // Once its child is gone, the next outside press dismisses the parent normally.
