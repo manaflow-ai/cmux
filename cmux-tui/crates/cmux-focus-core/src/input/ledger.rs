@@ -7,20 +7,28 @@
 //!   reason); [`Ledger::waiting`] lists the keys still waiting.
 //! - I2 no double key: no key ends twice.
 //! - I3 order kept: a sink takes its keys in typing order.
-//! - I4 a key a session takes reaches no sink: it ends there (I2 then refuses
-//!   any later delivery of it).
+//! - I4 a key a session takes reaches no sink: its disposition is the
+//!   session's, so a later delivery of it breaks I2.
 //! - I5 at most one key session runs.
 //! - I6 fixed target: a waiting key ends at the sink it waited for.
-//! - I7 no delivery to an ended sink.
-//! - I8 bounded: no lane holds more than [`LANE_LIMIT`] keys.
+//! - I7 no delivery to an ended sink: a tab's sink that ended (a `Gone`
+//!   event, a `SinkEnded` effect) takes no key until a `SinkNew` effect says
+//!   its id names a new sink.
+//! - I8 bounded: no lane holds more entries than the router's lane limit.
 //!
 //! A key offered to its page first is delivered there; its action may run
 //! once later, when the page reports it unhandled.
+//!
+//! The ledger keeps only what can still change: the waiting keys, the offered
+//! keys whose report may come, the newest key each sink took, and the ended
+//! sinks. A key that ended is forgotten: a later effect for it is a double end
+//! because its id is not newer than the last key's.
 
-use super::router::LANE_LIMIT;
+use super::lane::LaneLimit;
+use super::offer::OFFER_LIMIT;
 use super::sink::Sink;
-use super::{DropReason, InputEffect, InputEvent, InputId};
-use std::collections::{HashMap, HashSet};
+use super::{InputEffect, InputEvent, InputId};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 /// The invariants this ledger checks, by DESIGN.md id.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -39,33 +47,37 @@ pub enum Invariant {
     NoDeliveryToEnded,
     /// I8.
     Bounded,
+    /// I1, its first half: a key's first disposition comes in the key's own
+    /// call, never in another call.
+    OwnCall,
+    /// The router gives key ids in typing order.
+    IdOrder,
 }
 
 /// One broken invariant.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Violation {
+    /// The invariant broken.
     pub invariant: Invariant,
+    /// The key it is about, if one.
     pub id: Option<InputId>,
+    /// What happened.
     pub detail: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum Life {
-    Waiting(Sink),
-    /// Delivered to its page first; its action may still run once.
-    Offered,
-    Done,
-}
-
-/// What the router did with every key so far.
-#[derive(Default)]
+/// What the router did with the keys that can still change.
 pub struct Ledger {
-    keys: HashMap<InputId, Life>,
-    /// The newest key each sink took.
+    limit: usize,
+    /// Waiting keys and the sink each waits for.
+    waiting: HashMap<InputId, Sink>,
+    /// The entries waiting for each sink (no entry: none).
+    lanes: HashMap<Sink, usize>,
+    /// Keys offered to a page whose action may still run, oldest first (the
+    /// router keeps at most [`OFFER_LIMIT`]).
+    offered: VecDeque<InputId>,
+    /// The newest key each sink took (until the sink ends).
     newest: HashMap<Sink, InputId>,
-    waiting: HashMap<Sink, usize>,
-    /// Sinks that ended: a Gone event, or a waiting key dropped because its
-    /// sink ended (a failed creation's).
+    /// Tab sinks that ended and are not new yet.
     ended: HashSet<Sink>,
     last_key: Option<InputId>,
     /// Key sessions that run: started by an event, ended by an effect.
@@ -74,43 +86,66 @@ pub struct Ledger {
 }
 
 impl Ledger {
-    pub fn new() -> Ledger {
-        Ledger::default()
+    /// A ledger for a router whose lanes hold at most `limit` entries.
+    pub fn new(limit: LaneLimit) -> Ledger {
+        Ledger {
+            limit: limit.keys(),
+            waiting: HashMap::new(),
+            lanes: HashMap::new(),
+            offered: VecDeque::new(),
+            newest: HashMap::new(),
+            ended: HashSet::new(),
+            last_key: None,
+            sessions: 0,
+            violations: Vec::new(),
+        }
     }
 
     /// Checks one router call: `event` and the effects it returned.
     pub fn call(&mut self, event: &InputEvent, effects: &[InputEffect]) {
-        let mut new_keys: Vec<InputId> = Vec::new();
+        let is_key = matches!(event, InputEvent::Key(_));
+        if let InputEvent::Gone { sink, .. } = event
+            && sink.of_tab()
+        {
+            self.end(sink);
+        }
+        let mut new_key: Option<InputId> = None;
         for effect in effects {
-            self.effect(effect, &mut new_keys);
-        }
-        if let InputEvent::Key(_) = event {
-            match new_keys.as_slice() {
-                [id] => {
-                    if self.last_key.is_some_and(|last| *id <= last) {
-                        self.fail(
-                            Invariant::OrderKept,
-                            Some(*id),
-                            "a key id not after the last key's".into(),
-                        );
-                    }
-                    self.last_key = Some(*id);
+            match effect {
+                InputEffect::SinkEnded { sink, .. } => self.end(sink),
+                InputEffect::SinkNew { sink } => {
+                    self.ended.remove(sink);
                 }
-                _ => self.fail(
-                    Invariant::NoLostKey,
-                    None,
-                    format!("a key call gave {} new keys a disposition, not 1", new_keys.len()),
-                ),
+                _ => {}
             }
-        } else if !new_keys.is_empty() {
-            self.fail(
-                Invariant::NoDoubleKey,
-                new_keys.first().copied(),
-                "a key disposition outside its key's call".into(),
-            );
+            let Some(id) = effect.id() else { continue };
+            if let Some(waited) = self.waiting.remove(&id) {
+                self.end_waiting(id, waited, effect);
+            } else if let Some(index) = self.offered.iter().position(|offered| *offered == id) {
+                self.end_offered(id, index, effect);
+            } else if is_key && new_key.is_none() {
+                new_key = Some(id);
+                if self.last_key.is_some_and(|last| id <= last) {
+                    let detail = format!("key id {id:?} is not after the last key's");
+                    self.fail(Invariant::IdOrder, Some(id), detail);
+                }
+                self.first(id, effect);
+            } else if new_key == Some(id) || self.last_key.is_some_and(|last| id <= last) {
+                let detail = format!("a key that has its disposition ends again: {effect:?}");
+                self.fail(Invariant::NoDoubleKey, Some(id), detail);
+            } else {
+                let detail = format!("a key's first disposition outside its call: {effect:?}");
+                self.fail(Invariant::OwnCall, Some(id), detail);
+            }
         }
-        if let InputEvent::Gone { sink, .. } = event {
-            self.ended.insert(sink.clone());
+        if is_key {
+            match new_key {
+                Some(id) => self.last_key = Some(id),
+                None => {
+                    let detail = "a key call gave its key no disposition".to_owned();
+                    self.fail(Invariant::NoLostKey, None, detail);
+                }
+            }
         }
         let ended =
             effects.iter().filter(|e| matches!(e, InputEffect::SessionEnded { .. })).count();
@@ -123,82 +158,72 @@ impl Ledger {
         }
     }
 
-    fn effect(&mut self, effect: &InputEffect, new_keys: &mut Vec<InputId>) {
-        let Some(id) = effect.id() else { return };
-        let life = self.keys.get(&id).cloned();
-        match (effect, life) {
-            (InputEffect::Queued { sink, .. }, None) => {
-                new_keys.push(id);
-                self.keys.insert(id, Life::Waiting(sink.clone()));
-                let count = self.waiting.entry(sink.clone()).or_default();
+    /// A key's first disposition, in its own call.
+    fn first(&mut self, id: InputId, effect: &InputEffect) {
+        match effect {
+            InputEffect::Queued { sink, .. } => {
+                let count = self.lanes.entry(sink.clone()).or_default();
                 *count = count.saturating_add(1);
                 let waiting = *count;
-                if waiting > LANE_LIMIT {
-                    self.fail(
-                        Invariant::Bounded,
-                        Some(id),
-                        format!("{waiting} keys wait for one sink"),
-                    );
+                if waiting > self.limit {
+                    let detail = format!("{waiting} entries wait for {sink:?}");
+                    self.fail(Invariant::Bounded, Some(id), detail);
                 }
+                self.waiting.insert(id, sink.clone());
             }
-            (InputEffect::Queued { .. }, Some(_)) => {
-                self.fail(Invariant::NoDoubleKey, Some(id), "a key queued twice".into());
-            }
-            (InputEffect::Offer { sink, .. }, None) => {
-                new_keys.push(id);
-                self.keys.insert(id, Life::Offered);
+            InputEffect::Offer { sink, .. } => {
                 self.took(sink, id);
-            }
-            (InputEffect::Run { .. }, Some(Life::Offered)) => {
-                self.keys.insert(id, Life::Done);
-            }
-            (_, Some(Life::Offered)) => {
-                let detail = format!("an offered key ends again: {effect:?}");
-                self.fail(Invariant::NoDoubleKey, Some(id), detail);
-            }
-            (_, None) => {
-                new_keys.push(id);
-                self.keys.insert(id, Life::Done);
-                if let InputEffect::Deliver { sink, .. } = effect {
-                    self.took(sink, id);
+                self.offered.push_back(id);
+                while self.offered.len() > OFFER_LIMIT {
+                    self.offered.pop_front();
                 }
             }
-            (_, Some(Life::Done)) => {
-                self.fail(
-                    Invariant::NoDoubleKey,
-                    Some(id),
-                    format!("a key that ended ends again: {effect:?}"),
-                );
-            }
-            (_, Some(Life::Waiting(waited))) => {
-                self.keys.insert(id, Life::Done);
-                if let Some(count) = self.waiting.get_mut(&waited) {
-                    *count = count.saturating_sub(1);
-                }
-                match effect {
-                    InputEffect::Deliver { sink, .. } => {
-                        if *sink != waited {
-                            self.fail(
-                                Invariant::FixedTarget,
-                                Some(id),
-                                format!("waited for {waited:?}, delivered to {sink:?}"),
-                            );
-                        }
-                        self.took(sink, id);
-                    }
-                    InputEffect::Run { .. } => self.took(&waited, id),
-                    InputEffect::Dropped { reason: DropReason::SinkGone(_), .. } => {
-                        self.ended.insert(waited);
-                    }
-                    InputEffect::Dropped { .. } => {}
-                    _ => self.fail(
-                        Invariant::NoLostKey,
-                        Some(id),
-                        format!("a waiting key ended as {effect:?}"),
-                    ),
-                }
+            InputEffect::Deliver { sink, .. } => self.took(sink, id),
+            _ => {}
+        }
+    }
+
+    /// The end of key `id`, which waited for `waited`.
+    fn end_waiting(&mut self, id: InputId, waited: Sink, effect: &InputEffect) {
+        if let Some(count) = self.lanes.get_mut(&waited) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                self.lanes.remove(&waited);
             }
         }
+        match effect {
+            InputEffect::Deliver { sink, .. } => {
+                if *sink != waited {
+                    let detail = format!("waited for {waited:?}, delivered to {sink:?}");
+                    self.fail(Invariant::FixedTarget, Some(id), detail);
+                }
+                self.took(sink, id);
+            }
+            InputEffect::Run { .. } => self.took(&waited, id),
+            InputEffect::Dropped { .. } => {}
+            InputEffect::Queued { .. } => {
+                self.fail(Invariant::NoDoubleKey, Some(id), "a key queued twice".into());
+            }
+            _ => {
+                let detail = format!("a waiting key ended as {effect:?}");
+                self.fail(Invariant::NoLostKey, Some(id), detail);
+            }
+        }
+    }
+
+    /// An effect for key `id`, offered to its page (`index` in `offered`).
+    fn end_offered(&mut self, id: InputId, index: usize, effect: &InputEffect) {
+        self.offered.remove(index);
+        if !matches!(effect, InputEffect::Run { .. }) {
+            let detail = format!("an offered key ends again: {effect:?}");
+            self.fail(Invariant::NoDoubleKey, Some(id), detail);
+        }
+    }
+
+    /// `sink` ended: no key reaches it until it is new.
+    fn end(&mut self, sink: &Sink) {
+        self.ended.insert(sink.clone());
+        self.newest.remove(sink);
     }
 
     /// `sink` took key `id`.
@@ -221,16 +246,12 @@ impl Ledger {
 
     /// The keys still waiting, oldest first.
     pub fn waiting(&self) -> Vec<InputId> {
-        let mut ids: Vec<InputId> = self
-            .keys
-            .iter()
-            .filter(|(_, life)| matches!(life, Life::Waiting(_)))
-            .map(|(id, _)| *id)
-            .collect();
+        let mut ids: Vec<InputId> = self.waiting.keys().copied().collect();
         ids.sort_unstable();
         ids
     }
 
+    /// Every invariant broken so far, in order.
     pub fn violations(&self) -> &[Violation] {
         &self.violations
     }

@@ -61,6 +61,14 @@ impl Sink {
         matches!(self, Sink::Terminal(_) | Sink::Content(_) | Sink::DevTools(_) | Sink::Dialog(_))
     }
 
+    /// A tab's sink (its terminal, its content, its developer tools): it can
+    /// end, and only a new sink of its id takes keys after that. A window's
+    /// field, overlay or dialog never ends that way: the next one of its kind
+    /// is the same sink.
+    pub fn of_tab(&self) -> bool {
+        matches!(self, Sink::Terminal(_) | Sink::Content(_) | Sink::DevTools(_))
+    }
+
     /// The sink takes keys only once it reported ready.
     pub fn needs_ready(&self) -> bool {
         matches!(self, Sink::Content(_) | Sink::DevTools(_))

@@ -15,13 +15,20 @@
 //! outputs of the focus, never inputs of a route except to choose how a key
 //! reaches its fixed sink ([`Via`]).
 //!
+//! A tab's sink that ended takes no key until it is a new sink (a window shows
+//! it again after none did, or a creation names it again): the router says so
+//! with [`InputEffect::SinkEnded`] and [`InputEffect::SinkNew`].
+//!
 //! [`ledger::Ledger`] checks the invariants of an effect stream (no lost key,
 //! no double key, order kept per sink, the sink fixed at key time, no
 //! delivery to an ended sink, bounded lanes). Pure: no I/O, no clock.
 
+mod binding;
 mod dialog;
 pub mod key;
+mod lane;
 pub mod ledger;
+mod lifetime;
 mod offer;
 mod router;
 mod session;
@@ -29,12 +36,14 @@ pub mod sink;
 
 pub use dialog::DialogScope;
 pub use key::{Binding, KeyPhase, KeyRecord, Modifiers, Tier, WindowRole};
-pub use router::{InputRouter, LANE_LIMIT};
+pub use lane::LaneLimit;
+pub use router::InputRouter;
 pub use session::{SessionEnd, SessionKey, SessionKind};
 pub use sink::{FieldKind, Sink, TerminalKey};
 
 use crate::event::FocusEffect;
 use crate::state::ExpectationKey;
+use crate::topology::Kind;
 use std::sync::Arc;
 
 /// A key's id: given by the router to every key event, in typing order.
@@ -79,7 +88,8 @@ pub enum DropReason {
     /// The focus left its field before the field could take it: the person
     /// moved on.
     TargetLeft,
-    /// Its sink's lane was full when the key came (refused at key time).
+    /// Its sink's lane was full when the key came (refused at key time, a
+    /// loss the platform shows).
     LaneFull,
 }
 
@@ -139,6 +149,14 @@ pub enum InputEffect {
     SessionKey { id: InputId, key: SessionKey },
     /// The key session ended (the platform removes its labels or recorder).
     SessionEnded { kind: SessionKind, reason: SessionEnd },
+    /// A tab's sink ended: no key reaches it until a [`InputEffect::SinkNew`]
+    /// for it. Its waiting keys are dropped in the same call.
+    SinkEnded { sink: Sink, reason: GoneReason },
+    /// From now `sink` names a new sink, not the one that ended: a window shows
+    /// it again after none did (Reopen Closed reuses the tab id), a creation
+    /// names it again, or nothing names the ended one any more. Keys held for
+    /// the ended one (a press not yet released) reach nothing.
+    SinkNew { sink: Sink },
     /// A focus effect of `window` (the focus reducer's).
     Focus { window: Arc<str>, effect: FocusEffect },
 }
@@ -155,7 +173,10 @@ impl InputEffect {
             | InputEffect::Platform { id }
             | InputEffect::Offer { id, .. }
             | InputEffect::SessionKey { id, .. } => Some(*id),
-            InputEffect::Focus { .. } | InputEffect::SessionEnded { .. } => None,
+            InputEffect::Focus { .. }
+            | InputEffect::SessionEnded { .. }
+            | InputEffect::SinkEnded { .. }
+            | InputEffect::SinkNew { .. } => None,
         }
     }
 }
@@ -176,17 +197,27 @@ pub enum InputEvent {
     /// after it changed.
     Dispatch { reaches: Option<Sink> },
     /// `sink` can take input now (a page painted after its commit, a primary
-    /// input reported ready).
+    /// input reported ready). A report for a sink that ended counts for none:
+    /// a new sink of its id reports again after its own first paint.
     Ready { sink: Sink },
     /// `sink` cannot take input until it reports ready again (a new document
     /// started).
     Pending { sink: Sink },
-    /// `sink` ended: its waiting keys are dropped.
+    /// `sink` ended: its waiting keys are dropped. A tab's sink takes no key
+    /// until it is a new sink ([`InputEffect::SinkNew`]); a field, overlay or
+    /// dialog only loses its waiting keys.
     Gone { sink: Sink, reason: GoneReason },
-    /// A creation shows `sink` under `key` (its stand-in tab or surface)
-    /// before any window's topology has it: keys for it go to `sink`.
-    Creation { key: ExpectationKey, sink: Sink },
-    /// The creation under `key` failed: its sink ends.
+    /// A creation makes `sink`, a tab of `kind`, under `key` (its stand-in tab
+    /// or surface): keys for it go to `sink` before any window's topology has
+    /// it. Each creation gets one reply: [`InputEvent::Created`] or
+    /// [`InputEvent::CreationFailed`], usually after its stand-in showed. A
+    /// creation that names a sink that ended makes a new sink of that id.
+    Creation { key: ExpectationKey, sink: Sink, kind: Kind },
+    /// The creation under `key` is done.
+    Created { key: ExpectationKey },
+    /// The creation under `key` failed, before or after its stand-in showed: its
+    /// sink ends, and its waiting and later keys are dropped with the reason
+    /// (the daemon gives back the bytes it already took for the terminal).
     CreationFailed { key: ExpectationKey },
     /// The input source composes text (an input method): a text key for a
     /// sink whose view is not the first responder waits for it.

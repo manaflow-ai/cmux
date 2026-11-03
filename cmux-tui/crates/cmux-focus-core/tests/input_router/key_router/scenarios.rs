@@ -3,13 +3,13 @@
 //! section 1).
 
 use super::support::{
-    Session, arc, browser_tab, chord, content, conversation_tab, key, pane, terminal, terminal_tab,
-    topology,
+    SCENARIO_LANE_LIMIT, Session, arc, browser_tab, chord, content, conversation_tab, key, pane,
+    terminal, terminal_tab, topology,
 };
 use cmux_focus_core::event::{FocusEvent, Source};
 use cmux_focus_core::input::{
     Binding, ConsumeReason, DropReason, FieldKind, GoneReason, InputEffect, InputEvent, KeyPhase,
-    LANE_LIMIT, Modifiers, Sink, Tier, Via, WaitReason,
+    Modifiers, Sink, Tier, Via, WaitReason,
 };
 use cmux_focus_core::state::{ExpectationKey, Target};
 use cmux_focus_core::topology::Pane;
@@ -382,7 +382,7 @@ fn a_repeat_goes_where_its_press_went() {
 fn a_full_lane_refuses_the_next_key_at_key_time() {
     let mut s = Session::new();
     s.open("w1", topology("ws", vec![pane("p1", vec![browser_tab("b1")])]), "p1");
-    for _ in 0..LANE_LIMIT {
+    for _ in 0..SCENARIO_LANE_LIMIT {
         s.press(key("w1", A, None));
     }
     let over = s.press(key("w1", A, None));
@@ -391,7 +391,7 @@ fn a_full_lane_refuses_the_next_key_at_key_time() {
         Some(&InputEffect::Dropped { id: over, reason: DropReason::LaneFull })
     );
     let effects = s.send(InputEvent::Ready { sink: content("b1") });
-    assert_eq!(effects.len(), LANE_LIMIT);
+    assert_eq!(effects.len(), SCENARIO_LANE_LIMIT);
 }
 
 /// A field's keys wait for the field to take the keyboard; its window

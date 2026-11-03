@@ -8,6 +8,7 @@ use std::sync::Arc;
 /// A key event's phase.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum KeyPhase {
+    /// The press.
     Down,
     /// An auto-repeat of a held key: it goes where its press went.
     Repeat,
@@ -18,9 +19,13 @@ pub enum KeyPhase {
 /// The modifier keys held with a key.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Modifiers {
+    /// Shift is held.
     pub shift: bool,
+    /// Control is held.
     pub control: bool,
+    /// Option is held.
     pub option: bool,
+    /// Command is held.
     pub command: bool,
 }
 
@@ -61,11 +66,13 @@ pub enum Tier {
 pub struct Binding {
     /// The action id.
     pub action: Arc<str>,
+    /// The action's tier: which targets let it take a key.
     pub tier: Tier,
     /// A Ghostty keybind: a focused terminal runs its own.
     pub ghostty: bool,
     /// The action edits the input that has the keyboard (Paste, Select All,
-    /// Undo): it keeps its place behind keys typed before it for that input.
+    /// Undo): like a key, it waits in that input's lane while the input cannot
+    /// take input or keys typed before it wait there.
     pub edits_input: bool,
 }
 
@@ -75,10 +82,13 @@ pub struct KeyRecord {
     /// The cmux window the key was typed into (its owner when a page window
     /// or a panel of it had the key).
     pub window: Arc<str>,
+    /// Where the key was typed, relative to `window`.
     pub role: WindowRole,
+    /// Press, auto-repeat or release.
     pub phase: KeyPhase,
     /// The virtual key code.
     pub code: u16,
+    /// The modifier keys held with the key.
     pub modifiers: Modifiers,
     /// The event's own time (`CLOCK_UPTIME_RAW` nanoseconds), for the input
     /// journal; no rule reads it.

@@ -3,12 +3,15 @@
 use cmux_focus_core::event::{FocusEvent, Source};
 use cmux_focus_core::input::ledger::Ledger;
 use cmux_focus_core::input::{
-    Binding, InputEffect, InputEvent, InputId, InputRouter, KeyPhase, KeyRecord, Modifiers, Sink,
-    TerminalKey, Tier, WindowRole,
+    Binding, InputEffect, InputEvent, InputId, InputRouter, KeyPhase, KeyRecord, LaneLimit,
+    Modifiers, Sink, TerminalKey, Tier, WindowRole,
 };
 use cmux_focus_core::state::{ExpectationKey, Target};
 use cmux_focus_core::topology::{Kind, Pane, Tab, Topology};
 use std::sync::Arc;
+
+/// The lane limit of the scenarios: small, so a full lane is quick to reach.
+pub const SCENARIO_LANE_LIMIT: usize = 64;
 
 pub fn arc(text: &str) -> Arc<str> {
     Arc::from(text)
@@ -97,7 +100,8 @@ impl Default for Session {
 
 impl Session {
     pub fn new() -> Session {
-        Session { router: InputRouter::new(), ledger: Ledger::new(), effects: Vec::new() }
+        let limit = LaneLimit::of(SCENARIO_LANE_LIMIT);
+        Session { router: InputRouter::new(limit), ledger: Ledger::new(limit), effects: Vec::new() }
     }
 
     pub fn send(&mut self, event: InputEvent) -> Vec<InputEffect> {
@@ -140,11 +144,12 @@ impl Session {
         self.send(InputEvent::Dispatch { reaches: sink });
     }
 
-    /// A creation of `sink` under tab `tab` that the person asked for: the
-    /// focus waits for its tab.
+    /// A creation of `sink` under tab `tab` that the person asked for (a
+    /// terminal tab, else a browser tab): the focus waits for its tab.
     pub fn create(&mut self, window: &str, tab: &str, sink: Sink) {
         let key = ExpectationKey::Tab { id: tab.into() };
-        self.send(InputEvent::Creation { key: key.clone(), sink });
+        let kind = if matches!(sink, Sink::Terminal(_)) { Kind::Terminal } else { Kind::Browser };
+        self.send(InputEvent::Creation { key: key.clone(), sink, kind });
         self.focus(window, FocusEvent::BeginIntent {});
         let generation = self.router.focus(window).map_or(0, |focus| focus.generation);
         self.focus(

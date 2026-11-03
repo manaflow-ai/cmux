@@ -1,8 +1,13 @@
-//! The router: every window's focus, the sinks' facts, the lanes, and the one
-//! decision per key, made in the key's own call (DESIGN.md section 4.4).
+//! The router: every window's focus, the sinks' facts, the presses, and the
+//! one decision per key, made in the key's own call (DESIGN.md section 4.4).
+//! Lanes are in `lane`, sink lifetimes in `lifetime`, the binding rules in
+//! `binding`; sessions, dialogs and page-first offers have their own modules.
 
+use super::binding::{Class, allows, goes_to_view};
 use super::dialog::DialogScope;
-use super::key::{Binding, KeyPhase, KeyRecord, Tier, WindowRole};
+use super::key::{Binding, KeyPhase, KeyRecord, WindowRole};
+use super::lane::{LaneEntry, LaneLimit};
+use super::lifetime::{Creation, Gone};
 use super::offer::Offer;
 use super::session::{ESCAPE, Session, SessionEnd};
 use super::sink::{FieldKind, Sink, TerminalKey};
@@ -15,31 +20,6 @@ use crate::state::{Expectation, ExpectationKey, FocusState, Resolved, Target};
 use crate::topology::Kind;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
-
-/// The most keys one sink's lane holds; a key past it is refused at key time.
-pub const LANE_LIMIT: usize = 4096;
-
-/// The actions DevTools runs itself before its frontend sees the key; they run
-/// from a page, its address bar, its find bar and DevTools (the app's
-/// `KeyRouter.devToolsActions`).
-pub(super) const DEV_TOOLS_ACTIONS: [&str; 3] =
-    ["toggleBrowserDeveloperTools", "showBrowserJavaScriptConsole", "inspectBrowserElement"];
-
-/// Page actions a browser's own chrome runs from its address bar and find bar
-/// (R88; the app's `KeyRouter.browserChromeActions`).
-const BROWSER_CHROME_ACTIONS: [&str; 7] = [
-    "browserBack",
-    "browserForward",
-    "browserReload",
-    "browserHardReload",
-    "browserShowHistory",
-    "browser.copyURL",
-    "browser.findPrevious",
-];
-
-/// The system actions browser focus mode keeps from the page (the app's
-/// `KeyRouter.focusModeKeptActions`).
-const FOCUS_MODE_KEPT_ACTIONS: [&str; 2] = ["toggleBrowserFocusMode", "quit"];
 
 /// A tab of a window's topology, as the router needs it.
 pub(super) struct TabInfo {
@@ -105,48 +85,40 @@ pub(super) fn content_sink(tab: &Arc<str>, info: &TabInfo) -> Option<Sink> {
 
 /// Where a press went, so its repeats and release follow it.
 #[derive(Clone)]
-enum Press {
-    Sink(Sink),
+pub(super) enum Press {
+    /// It went to `sink` (taken, or waiting in its lane); `down` is the
+    /// key-down's id.
+    Sink { sink: Sink, down: InputId },
+    /// AppKit's own dispatch took it.
     Platform,
-    /// It ran an action, was consumed or dropped.
+    /// It ran its binding, or a key session took it: a repeat is decided
+    /// again.
     Consumed,
+    /// It reached nothing (no target, dropped, or its sink ended and its id
+    /// names a new sink): its repeats and release reach nothing either.
+    Nothing,
     /// It went to a page first (an offer): its release follows it there, and
     /// a repeat is decided again.
     Offered(Sink),
 }
 
-/// One waiting entry of a lane, in typing order.
-pub(super) enum LaneEntry {
-    /// A key; `text`: typed text (an input method may compose it).
-    Key { id: InputId, text: bool },
-    /// An action that edits this sink's input, typed after the keys before
-    /// it (a Paste behind typing).
-    Run { id: InputId, action: Arc<str>, tab: Option<Arc<str>> },
-}
-
-impl LaneEntry {
-    fn id(&self) -> InputId {
-        match self {
-            LaneEntry::Key { id, .. } | LaneEntry::Run { id, .. } => *id,
-        }
-    }
-}
-
-/// The sink a key typed now is aimed at, and the tab it is for.
-struct Aim {
-    sink: Option<Sink>,
+/// The sink a key typed now is aimed at, the tab it is for, and the target
+/// the binding rules read (none: the window's focused target).
+pub(super) struct Aim {
+    pub(super) sink: Option<Sink>,
     tab: Option<Arc<str>>,
+    class: Option<Class>,
 }
 
 /// What the platform reported about the sinks.
 #[derive(Default)]
-struct Facts {
+pub(super) struct Facts {
     /// What AppKit's dispatch of a key typed now reaches.
-    reaches: Option<Sink>,
+    pub(super) reaches: Option<Sink>,
     /// Sinks that need readiness and reported it.
-    ready: HashSet<Sink>,
-    /// Sinks that ended, with why. One entry per ended sink of the session.
-    gone: HashMap<Sink, GoneReason>,
+    pub(super) ready: HashSet<Sink>,
+    /// Tab sinks that ended, until they are new or forgotten.
+    pub(super) gone: HashMap<Sink, Gone>,
     /// The input source composes text.
     composes: bool,
 }
@@ -176,12 +148,13 @@ impl Facts {
 /// The one input router (module docs).
 pub struct InputRouter {
     pub(super) windows: HashMap<Arc<str>, WindowInput>,
-    /// Creations' sinks by the key their focus expectation waits for, until a
-    /// window's topology shows them or they fail.
-    creations: HashMap<ExpectationKey, Sink>,
-    facts: Facts,
+    /// Creations by the key their focus expectation waits for, until their
+    /// reply.
+    pub(super) creations: HashMap<ExpectationKey, Creation>,
+    pub(super) facts: Facts,
     pub(super) lanes: HashMap<Sink, VecDeque<LaneEntry>>,
-    presses: HashMap<(Arc<str>, u16), Press>,
+    pub(super) presses: HashMap<(Arc<str>, u16), Press>,
+    pub(super) lane_limit: LaneLimit,
     /// The key session that runs (at most one, I5).
     pub(super) session: Option<Session>,
     /// The blocking dialogs, oldest first.
@@ -193,20 +166,16 @@ pub struct InputRouter {
     focus_effects: Vec<FocusEffect>,
 }
 
-impl Default for InputRouter {
-    fn default() -> InputRouter {
-        InputRouter::new()
-    }
-}
-
 impl InputRouter {
-    pub fn new() -> InputRouter {
+    /// A router with no window yet; a lane holds at most `lane_limit` entries.
+    pub fn new(lane_limit: LaneLimit) -> InputRouter {
         InputRouter {
             windows: HashMap::new(),
             creations: HashMap::new(),
             facts: Facts::default(),
             lanes: HashMap::new(),
             presses: HashMap::new(),
+            lane_limit,
             session: None,
             dialogs: Vec::new(),
             offers: VecDeque::new(),
@@ -266,16 +235,11 @@ impl InputRouter {
                 self.facts.ready.remove(sink);
             }
             InputEvent::Gone { sink, reason } => self.end(sink, *reason),
-            InputEvent::Creation { key, sink } => {
-                if !self.facts.gone.contains_key(sink) {
-                    self.creations.insert(key.clone(), sink.clone());
-                }
+            InputEvent::Creation { key, sink, kind } => self.creation(key, sink, *kind),
+            InputEvent::Created { key } => {
+                self.creations.remove(key);
             }
-            InputEvent::CreationFailed { key } => {
-                if let Some(sink) = self.creations.remove(key) {
-                    self.end(&sink, GoneReason::CreationFailed);
-                }
-            }
+            InputEvent::CreationFailed { key } => self.creation_failed(key),
             InputEvent::InputSource { composes } => self.facts.composes = *composes,
             InputEvent::SessionStarted { kind, window } => self.start_session(kind, window),
             InputEvent::SessionEnded => self.end_session(SessionEnd::Finished),
@@ -308,8 +272,7 @@ impl InputRouter {
         }
         if matches!(event, FocusEvent::Topology { .. }) {
             input.reindex();
-            self.forget_shown_creations();
-            self.prune_gone();
+            self.track_gone();
         }
         self.session_after_focus(window, event);
     }
@@ -325,64 +288,7 @@ impl InputRouter {
         let closed: Vec<Sink> =
             self.lanes.keys().filter(|sink| sink.window() == Some(window)).cloned().collect();
         self.drop_lanes(closed, DropReason::WindowClosed);
-        self.prune_gone();
-    }
-
-    /// `sink` ended: its waiting keys are dropped, and so is every key aimed
-    /// at it later (a sink never comes back: terminal and tab ids are not
-    /// reused).
-    fn end(&mut self, sink: &Sink, reason: GoneReason) {
-        self.facts.ready.remove(sink);
-        self.creations.retain(|_, created| *created != *sink);
-        self.facts.gone.insert(sink.clone(), reason);
-        self.drop_lanes(vec![sink.clone()], DropReason::SinkGone(reason));
-    }
-
-    /// Forgets the ended sinks nothing can aim a key at any more: no window's
-    /// topology shows them, no creation, held key or lane names them. A sink
-    /// never comes back (terminal and tab ids are not reused), so the set of
-    /// ended sinks stays as small as what still refers to them.
-    fn prune_gone(&mut self) {
-        if self.facts.gone.is_empty() {
-            return;
-        }
-        let mut named: HashSet<Sink> = self.creations.values().cloned().collect();
-        named.extend(self.lanes.keys().cloned());
-        for press in self.presses.values() {
-            if let Press::Sink(sink) | Press::Offered(sink) = press {
-                named.insert(sink.clone());
-            }
-        }
-        for window in self.windows.values() {
-            for (tab, info) in &window.tabs {
-                if let Some(sink) = content_sink(tab, info) {
-                    named.insert(sink);
-                }
-                named.insert(Sink::DevTools(tab.clone()));
-            }
-        }
-        self.facts.gone.retain(|sink, _| named.contains(sink));
-    }
-
-    /// Why a key for `sink` reaches nothing now: the sink ended, or it is a
-    /// dialog that is no longer shown.
-    fn ended(&self, sink: &Sink) -> Option<GoneReason> {
-        if let Sink::Dialog(dialog) = sink {
-            return (!self.dialogs.iter().any(|(id, _)| id == dialog))
-                .then_some(GoneReason::Closed);
-        }
-        self.facts.gone.get(sink).copied()
-    }
-
-    /// A creation a window's topology shows now is known from that topology.
-    fn forget_shown_creations(&mut self) {
-        let windows = &self.windows;
-        self.creations.retain(|key, _| {
-            !windows.values().any(|window| match key {
-                ExpectationKey::Tab { id } => window.tabs.contains_key(id.as_str()),
-                ExpectationKey::Surface { id } => window.tab_of_surface(id).is_some(),
-            })
-        });
+        self.track_gone();
     }
 
     // MARK: Keys
@@ -400,18 +306,23 @@ impl InputRouter {
         self.facts.reaches.clone_from(&key.reaches);
         self.drain();
         let slot = (key.window.clone(), key.code);
+        let follows = ConsumeReason::FollowsConsumedPress;
         match key.phase {
             KeyPhase::Up => match self.presses.remove(&slot) {
-                Some(Press::Sink(sink) | Press::Offered(sink)) => self.release_to(id, key, sink),
-                Some(Press::Consumed) => self.push(InputEffect::Consumed {
-                    id,
-                    reason: ConsumeReason::FollowsConsumedPress,
-                }),
+                Some(Press::Sink { sink, .. } | Press::Offered(sink)) => {
+                    self.release_to(id, key, sink);
+                }
+                Some(Press::Consumed | Press::Nothing) => {
+                    self.push(InputEffect::Consumed { id, reason: follows });
+                }
                 Some(Press::Platform) | None => self.push(InputEffect::Platform { id }),
             },
             KeyPhase::Repeat => match self.presses.get(&slot).cloned() {
-                Some(Press::Sink(sink)) => self.route_to(id, key, sink),
+                Some(Press::Sink { sink, .. }) => {
+                    self.route_to(id, key, sink);
+                }
                 Some(Press::Platform) => self.push(InputEffect::Platform { id }),
+                Some(Press::Nothing) => self.push(InputEffect::Consumed { id, reason: follows }),
                 // A repeat of a press that ran its binding runs it again.
                 Some(Press::Consumed | Press::Offered(_)) | None => {
                     let press = self.decide(id, key);
@@ -442,10 +353,7 @@ impl InputRouter {
         // (behind keys that wait for that view).
         if key.composing && !key.modifiers.command {
             return match key.reaches.clone() {
-                Some(sink) => {
-                    self.route_to(id, key, sink.clone());
-                    Press::Sink(sink)
-                }
+                Some(sink) => self.press_to(id, key, sink),
                 None => {
                     self.push(InputEffect::Platform { id });
                     Press::Platform
@@ -456,29 +364,29 @@ impl InputRouter {
         let dialog = self.dialog_for(window_id, aim.sink.as_ref());
         if let Some(binding) = &key.binding {
             let focus = &window.focus;
-            // A focused terminal runs its own Ghostty keybinds (in copy mode the
-            // routed action runs), and a Ghostty keybind never runs a content
-            // action from elsewhere.
-            let to_view = binding.ghostty
-                && ((matches!(focus.derived.resolved, Resolved::Terminal { .. })
-                    && !key.terminal_copy_mode)
-                    || binding.tier == Tier::Content);
-            if !to_view && allows(binding, focus) {
+            // The rules read the key's own target: the tab the focus is on its
+            // way to, else the focused target.
+            let class = aim.class.unwrap_or_else(|| Class::of(&focus.derived.resolved));
+            let focus_mode = focus.derived.browser_focus_mode_active;
+            if !goes_to_view(binding, class, key.terminal_copy_mode)
+                && allows(binding, class, focus_mode)
+            {
                 if dialog.is_none()
-                    && let Some(page) = self.offer_target(binding, key, focus)
+                    && let Some(page) = self.offer_target(binding, key, focus, aim.sink.as_ref())
                 {
                     self.offer(id, binding, page.clone(), aim.tab);
                     return Press::Offered(page);
                 }
-                self.run(id, binding, aim);
+                // An action that edits an input edits the dialog's when a
+                // dialog blocks the key's target.
+                let input = dialog.map(Sink::Dialog).or(aim.sink);
+                self.run(id, binding, input, aim.tab, key.reaches.as_ref());
                 return Press::Consumed;
             }
         }
         // A key typed while a dialog blocks its target is the dialog's.
         if let Some(dialog) = dialog {
-            let sink = Sink::Dialog(dialog);
-            self.route_to(id, key, sink.clone());
-            return Press::Sink(sink);
+            return self.press_to(id, key, Sink::Dialog(dialog));
         }
         if let Some(pane) = self.returns_focus(window_id, key, aim.sink.as_ref()) {
             let window = window_id.clone();
@@ -487,48 +395,73 @@ impl InputRouter {
             // The field's waiting keys can no longer reach it.
             self.drop_left_lanes();
             self.push(InputEffect::Consumed { id, reason: ConsumeReason::ReturnedFocus });
-            return Press::Consumed;
+            return Press::Nothing;
         }
         match aim.sink {
-            Some(sink) => {
-                self.route_to(id, key, sink.clone());
-                Press::Sink(sink)
-            }
+            Some(sink) => self.press_to(id, key, sink),
             None => {
                 self.push(InputEffect::Consumed { id, reason: ConsumeReason::NoTarget });
-                Press::Consumed
+                Press::Nothing
             }
         }
     }
 
-    /// Runs `binding` for key `id` now, or, when it edits an input whose lane
-    /// holds keys typed before it, after them.
-    fn run(&mut self, id: InputId, binding: &Binding, aim: Aim) {
+    /// Runs `binding` for key `id` now. An action that edits the input
+    /// `input` waits in its lane instead when `input` cannot take input now or
+    /// keys typed before it wait there (a Paste before a page's first paint,
+    /// a Paste behind typing), and keeps its place there.
+    fn run(
+        &mut self,
+        id: InputId,
+        binding: &Binding,
+        input: Option<Sink>,
+        tab: Option<Arc<str>>,
+        reaches: Option<&Sink>,
+    ) {
         let action = binding.action.clone();
         if binding.edits_input
-            && let Some(sink) = aim.sink
-            && self.lanes.get(&sink).is_some_and(|lane| !lane.is_empty())
+            && let Some(sink) = input
+            && self.ended(&sink).is_none()
         {
-            let entry = LaneEntry::Run { id, action, tab: aim.tab };
-            self.enqueue(sink, entry, WaitReason::BehindQueued);
-            return;
+            let wait = if self.lanes.get(&sink).is_some_and(|lane| !lane.is_empty()) {
+                Some(WaitReason::BehindQueued)
+            } else {
+                self.deliverable(&sink, reaches, false).err()
+            };
+            if let Some(reason) = wait {
+                self.enqueue(sink, LaneEntry::Run { id, action, tab }, reason);
+                return;
+            }
         }
-        self.push(InputEffect::Run { id, action, tab: aim.tab });
+        self.push(InputEffect::Run { id, action, tab });
+    }
+
+    /// A press goes to `sink`; its repeats and release follow it, unless it
+    /// was dropped.
+    fn press_to(&mut self, id: InputId, key: &KeyRecord, sink: Sink) -> Press {
+        if self.route_to(id, key, sink.clone()) {
+            Press::Sink { sink, down: id }
+        } else {
+            Press::Nothing
+        }
     }
 
     /// Key `id` (a press or a repeat) goes to `sink`, or waits in its lane.
-    fn route_to(&mut self, id: InputId, key: &KeyRecord, sink: Sink) {
+    /// False: it was dropped.
+    fn route_to(&mut self, id: InputId, key: &KeyRecord, sink: Sink) -> bool {
         if let Some(reason) = self.ended(&sink) {
             self.push(InputEffect::Dropped { id, reason: DropReason::SinkGone(reason) });
-            return;
+            return false;
         }
         let text = key.is_text();
         if self.lanes.get(&sink).is_some_and(|lane| !lane.is_empty()) {
-            self.enqueue(sink, LaneEntry::Key { id, text }, WaitReason::BehindQueued);
-            return;
+            return self.enqueue(sink, LaneEntry::Key { id, text }, WaitReason::BehindQueued);
         }
         match self.deliverable(&sink, key.reaches.as_ref(), text) {
-            Ok(via) => self.push(InputEffect::Deliver { id, sink, via }),
+            Ok(via) => {
+                self.push(InputEffect::Deliver { id, sink, via });
+                true
+            }
             Err(reason) => self.enqueue(sink, LaneEntry::Key { id, text }, reason),
         }
     }
@@ -595,17 +528,6 @@ impl InputRouter {
         input.focus.topology.contains_pane(pane).then(|| pane.clone())
     }
 
-    fn enqueue(&mut self, sink: Sink, entry: LaneEntry, reason: WaitReason) {
-        let id = entry.id();
-        let lane = self.lanes.entry(sink.clone()).or_default();
-        if lane.len() >= LANE_LIMIT {
-            self.push(InputEffect::Dropped { id, reason: DropReason::LaneFull });
-            return;
-        }
-        lane.push_back(entry);
-        self.push(InputEffect::Queued { id, sink, reason });
-    }
-
     pub(super) fn push(&mut self, effect: InputEffect) {
         self.effects.push(effect);
     }
@@ -615,12 +537,13 @@ impl InputRouter {
     /// The sink a key typed now in `window` is aimed at: an open overlay, else
     /// the tab the focus is on its way to (a creation's, a drop's), else the
     /// focused target.
-    fn aim_in(&self, window_id: &Arc<str>, window: &WindowInput) -> Aim {
+    pub(super) fn aim_in(&self, window_id: &Arc<str>, window: &WindowInput) -> Aim {
         let focus = &window.focus;
         if let Some(top) = focus.overlays.last() {
             return Aim {
                 sink: Some(Sink::Overlay { window: window_id.clone(), overlay: *top }),
                 tab: None,
+                class: None,
             };
         }
         if let Some(expectation) = &focus.expectation
@@ -632,8 +555,9 @@ impl InputRouter {
         self.resolved_aim(window_id, window, &focus.derived.resolved)
     }
 
-    /// The sink of the tab an expectation waits for: in any window's
-    /// topology (a tab moving between windows), else its creation's.
+    /// The target an expectation waits for, on the tab it names: in any
+    /// window's topology (a tab moving between windows), else its creation's.
+    /// A chrome target only on a browser tab, as the focus reducer keeps it.
     fn expected(&self, window_id: &Arc<str>, expectation: &Expectation) -> Option<Aim> {
         let shown = self.windows.get(window_id).into_iter().chain(self.windows.values()).find_map(
             |window| match &expectation.key {
@@ -641,20 +565,15 @@ impl InputRouter {
                 ExpectationKey::Surface { id } => window.tab_of_surface(id),
             },
         );
-        let (tab, content) = match shown {
-            Some((tab, info)) => (Some(tab.clone()), content_sink(tab, info)?),
+        let (tab, content, kind) = match shown {
+            Some((tab, info)) => (Some(tab.clone()), content_sink(tab, info)?, info.kind),
             None => {
-                let sink = self.creations.get(&expectation.key)?.clone();
-                let tab = match &expectation.key {
-                    ExpectationKey::Tab { id } => Some(Arc::<str>::from(id.as_str())),
-                    ExpectationKey::Surface { .. } => None,
-                };
-                (tab, sink)
+                let creation = self.creations.get(&expectation.key)?;
+                (creation.tab.clone(), creation.sink.clone(), creation.kind)
             }
         };
-        let field = |kind| Sink::Field { window: window_id.clone(), field: kind };
-        // A chrome target only on a tab with content of its own (a browser tab).
-        let chrome = matches!(content, Sink::Content(_));
+        let field = |which| Sink::Field { window: window_id.clone(), field: which };
+        let chrome = kind == Kind::Browser;
         let sink = match (expectation.target, tab.as_ref()) {
             (Target::AddressBar {}, Some(tab)) if chrome => {
                 field(FieldKind::AddressBar { tab: tab.clone() })
@@ -668,7 +587,8 @@ impl InputRouter {
             (Target::TextField {}, _) => field(FieldKind::TextField),
             _ => content,
         };
-        Some(Aim { sink: Some(sink), tab })
+        let class = Class::expected(&sink, kind);
+        Some(Aim { sink: Some(sink), tab, class: Some(class) })
     }
 
     fn resolved_aim(&self, window_id: &Arc<str>, window: &WindowInput, resolved: &Resolved) -> Aim {
@@ -676,7 +596,7 @@ impl InputRouter {
             Some((shared, _)) => shared.clone(),
             None => Arc::<str>::from(tab),
         });
-        let field = |kind| Some(Sink::Field { window: window_id.clone(), field: kind });
+        let field = |which| Some(Sink::Field { window: window_id.clone(), field: which });
         let sink = match (resolved, &tab) {
             (Resolved::Terminal { .. }, Some(tab)) => match window.tabs.get(tab) {
                 Some(info) => content_sink(tab, info),
@@ -702,112 +622,7 @@ impl InputRouter {
             }
             _ => None,
         };
-        Aim { sink, tab }
-    }
-
-    // MARK: Lanes
-
-    /// A field's or an overlay's lane whose window's focus left it: its keys
-    /// can never reach it (the person moved on), so they are dropped.
-    fn drop_left_lanes(&mut self) {
-        let left: Vec<Sink> = self
-            .lanes
-            .keys()
-            .filter(|sink| match sink.window() {
-                Some(window) => match self.windows.get_key_value(window) {
-                    Some((id, input)) => self.aim_in(id, input).sink.as_ref() != Some(*sink),
-                    None => true,
-                },
-                None => false,
-            })
-            .cloned()
-            .collect();
-        self.drop_lanes(left, DropReason::TargetLeft);
-    }
-
-    /// Drops every entry of the lanes of `sinks`, in typing order.
-    fn drop_lanes(&mut self, sinks: Vec<Sink>, reason: DropReason) {
-        let mut dropped: Vec<InputId> = Vec::new();
-        for sink in sinks {
-            if let Some(lane) = self.lanes.remove(&sink) {
-                dropped.extend(lane.iter().map(LaneEntry::id));
-            }
-        }
-        dropped.sort_unstable();
-        for id in dropped {
-            self.push(InputEffect::Dropped { id, reason });
-        }
-    }
-
-    /// Delivers every waiting entry whose sink can take it now, oldest first:
-    /// a lane's entries in order, each lane up to its first entry that must
-    /// still wait.
-    fn drain(&mut self) {
-        loop {
-            // The oldest lane front that can go now, and how (none for an action).
-            let mut next: Option<(InputId, &Sink, Option<Via>)> = None;
-            for (sink, lane) in &self.lanes {
-                let Some(front) = lane.front() else { continue };
-                let takes = match front {
-                    LaneEntry::Key { text, .. } => {
-                        self.deliverable(sink, self.facts.reaches.as_ref(), *text).ok().map(Some)
-                    }
-                    LaneEntry::Run { .. } => Some(None),
-                };
-                if let Some(via) = takes
-                    && next.as_ref().is_none_or(|(oldest, _, _)| front.id() < *oldest)
-                {
-                    next = Some((front.id(), sink, via));
-                }
-            }
-            let Some((_, sink, via)) = next else { return };
-            let sink = sink.clone();
-            let Some(lane) = self.lanes.get_mut(&sink) else { return };
-            // The effect is made from the front before it leaves the lane, so no
-            // entry is ever taken without its effect.
-            let effect = match (lane.front(), via) {
-                (Some(LaneEntry::Key { id, .. }), Some(via)) => {
-                    InputEffect::Deliver { id: *id, sink: sink.clone(), via }
-                }
-                (Some(LaneEntry::Run { id, action, tab }), _) => {
-                    InputEffect::Run { id: *id, action: action.clone(), tab: tab.clone() }
-                }
-                (Some(LaneEntry::Key { .. }), None) | (None, _) => return,
-            };
-            lane.pop_front();
-            if lane.is_empty() {
-                self.lanes.remove(&sink);
-            }
-            self.push(effect);
-        }
-    }
-}
-
-/// Whether binding `binding`'s action may take a key from `focus` (its tier
-/// rule; plans/cmux-next/focus.md section 5).
-fn allows(binding: &Binding, focus: &FocusState) -> bool {
-    let mode = focus.derived.browser_focus_mode_active;
-    let resolved = &focus.derived.resolved;
-    let action: &str = &binding.action;
-    if mode && binding.tier == Tier::System {
-        return FOCUS_MODE_KEPT_ACTIONS.contains(&action);
-    }
-    if binding.tier == Tier::Content {
-        if DEV_TOOLS_ACTIONS.contains(&action) && is_browser_context(resolved) && !mode {
-            return true;
-        }
-        if BROWSER_CHROME_ACTIONS.contains(&action)
-            && matches!(resolved, Resolved::AddressBar { .. } | Resolved::FindBar { .. })
-        {
-            return true;
-        }
-    }
-    match binding.tier {
-        Tier::System => true,
-        Tier::Navigation => !mode,
-        Tier::Content => {
-            !mode && !resolved.is_text_input() && !matches!(resolved, Resolved::DevTools { .. })
-        }
+        Aim { sink, tab, class: None }
     }
 }
 
@@ -838,15 +653,4 @@ pub(super) fn is_user_move(event: &FocusEvent) -> bool {
         | FocusEvent::Responder { source, .. } => source.is_user_intent(),
         _ => false,
     }
-}
-
-/// A page, its address bar, its find bar or its DevTools has the keyboard.
-fn is_browser_context(resolved: &Resolved) -> bool {
-    matches!(
-        resolved,
-        Resolved::BrowserPage { .. }
-            | Resolved::AddressBar { .. }
-            | Resolved::FindBar { .. }
-            | Resolved::DevTools { .. }
-    )
 }

@@ -1,12 +1,18 @@
 //! The mutants the model-based fuzz must catch: each is the real router with
-//! one rule broken the way a bug of the old key paths broke it.
+//! one rule broken the way a bug of the old key paths broke it, one or more
+//! for each invariant I1-I8.
 
-use super::fuzz::{Make, Under, check, env, generate, real};
+use super::fuzz::{FUZZ_LANE_LIMIT, Make, Real, Under, check, env, generate, real};
 use cmux_focus_core::input::{
-    InputEffect, InputEvent, InputId, InputRouter, KeyRecord, SessionEnd, Sink, Via, WaitReason,
+    DropReason, InputEffect, InputEvent, InputId, InputRouter, KeyRecord, LaneLimit, SessionEnd,
+    Sink, Via, WaitReason,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+
+fn router() -> InputRouter {
+    InputRouter::new(LaneLimit::of(FUZZ_LANE_LIMIT))
+}
 
 /// Today's replay: a key that waited goes where the focus is when it leaves
 /// the lane (P0 1193, #33198).
@@ -86,10 +92,6 @@ impl Under for RerouteAtDrain {
         }
         effects
     }
-
-    fn waiting(&self) -> Vec<Sink> {
-        self.router.waiting().map(|(sink, _)| sink.clone()).collect()
-    }
 }
 
 impl Under for Twice {
@@ -105,10 +107,6 @@ impl Under for Twice {
             }
         }
         out
-    }
-
-    fn waiting(&self) -> Vec<Sink> {
-        self.router.waiting().map(|(sink, _)| sink.clone()).collect()
     }
 }
 
@@ -137,10 +135,6 @@ impl Under for Swap {
             }
         }
         effects
-    }
-
-    fn waiting(&self) -> Vec<Sink> {
-        self.router.waiting().map(|(sink, _)| sink.clone()).collect()
     }
 }
 
@@ -175,10 +169,6 @@ impl Under for Timer {
         }
         effects
     }
-
-    fn waiting(&self) -> Vec<Sink> {
-        self.router.waiting().map(|(sink, _)| sink.clone()).collect()
-    }
 }
 
 impl Under for NoReadiness {
@@ -195,10 +185,6 @@ impl Under for NoReadiness {
                 other => Some(other),
             })
             .collect()
-    }
-
-    fn waiting(&self) -> Vec<Sink> {
-        self.router.waiting().map(|(sink, _)| sink.clone()).collect()
     }
 }
 
@@ -221,10 +207,6 @@ impl Under for ResponderDecides {
         }
         effects
     }
-
-    fn waiting(&self) -> Vec<Sink> {
-        self.router.waiting().map(|(sink, _)| sink.clone()).collect()
-    }
 }
 
 impl Under for LoseOne {
@@ -243,42 +225,34 @@ impl Under for LoseOne {
             .filter(|e| !matches!(e, InputEffect::Deliver { id, .. } if Some(*id) == lost))
             .collect()
     }
-
-    fn waiting(&self) -> Vec<Sink> {
-        self.router.waiting().map(|(sink, _)| sink.clone()).collect()
-    }
 }
 
 fn reroute_at_drain() -> Box<dyn Under> {
-    Box::new(RerouteAtDrain {
-        router: InputRouter::new(),
-        windows: HashMap::new(),
-        queued: HashSet::new(),
-    })
+    Box::new(RerouteAtDrain { router: router(), windows: HashMap::new(), queued: HashSet::new() })
 }
 
 fn twice() -> Box<dyn Under> {
-    Box::new(Twice { router: InputRouter::new(), count: 0 })
+    Box::new(Twice { router: router(), count: 0 })
 }
 
 fn swap() -> Box<dyn Under> {
-    Box::new(Swap { router: InputRouter::new() })
+    Box::new(Swap { router: router() })
 }
 
 fn timer() -> Box<dyn Under> {
-    Box::new(Timer { router: InputRouter::new(), waiting: Vec::new(), released: HashSet::new() })
+    Box::new(Timer { router: router(), waiting: Vec::new(), released: HashSet::new() })
 }
 
 fn no_readiness() -> Box<dyn Under> {
-    Box::new(NoReadiness { router: InputRouter::new(), sent: HashSet::new() })
+    Box::new(NoReadiness { router: router(), sent: HashSet::new() })
 }
 
 fn responder_decides() -> Box<dyn Under> {
-    Box::new(ResponderDecides { router: InputRouter::new() })
+    Box::new(ResponderDecides { router: router() })
 }
 
 fn lose_one() -> Box<dyn Under> {
-    Box::new(LoseOne { router: InputRouter::new(), lost: None })
+    Box::new(LoseOne { router: router(), lost: None })
 }
 
 /// A hint session's letter goes to the page the window's keys go to (#32537
@@ -319,10 +293,6 @@ impl Under for HintToPage {
             })
             .collect()
     }
-
-    fn waiting(&self) -> Vec<Sink> {
-        self.router.waiting().map(|(sink, _)| sink.clone()).collect()
-    }
 }
 
 impl Under for TwoSessions {
@@ -332,10 +302,6 @@ impl Under for TwoSessions {
             matches!(e, InputEffect::SessionEnded { reason: SessionEnd::Replaced, .. })
         };
         effects.into_iter().filter(|e| !replaced(e)).collect()
-    }
-
-    fn waiting(&self) -> Vec<Sink> {
-        self.router.waiting().map(|(sink, _)| sink.clone()).collect()
     }
 }
 
@@ -349,10 +315,6 @@ impl Under for OfferTwice {
             effects.push(run);
         }
         effects
-    }
-
-    fn waiting(&self) -> Vec<Sink> {
-        self.router.waiting().map(|(sink, _)| sink.clone()).collect()
     }
 }
 
@@ -373,33 +335,65 @@ impl Under for DialogLeak {
             })
             .collect()
     }
-
-    fn waiting(&self) -> Vec<Sink> {
-        self.router.waiting().map(|(sink, _)| sink.clone()).collect()
-    }
 }
 
 fn hint_to_page() -> Box<dyn Under> {
-    Box::new(HintToPage { router: InputRouter::new() })
+    Box::new(HintToPage { router: router() })
 }
 
 fn two_sessions() -> Box<dyn Under> {
-    Box::new(TwoSessions { router: InputRouter::new() })
+    Box::new(TwoSessions { router: router() })
 }
 
 fn offer_twice() -> Box<dyn Under> {
-    Box::new(OfferTwice { router: InputRouter::new() })
+    Box::new(OfferTwice { router: router() })
 }
 
 fn dialog_leak() -> Box<dyn Under> {
-    Box::new(DialogLeak { router: InputRouter::new() })
+    Box::new(DialogLeak { router: router() })
+}
+
+/// A key for a sink that ended goes to it anyway (held keys replayed into a
+/// closed terminal, #32291): I7.
+struct DeliverToEnded {
+    router: InputRouter,
+    ended: Option<Sink>,
+}
+
+impl Under for DeliverToEnded {
+    fn handle(&mut self, event: &InputEvent) -> Vec<InputEffect> {
+        let effects = self.router.handle(event).to_vec();
+        let mut out = Vec::with_capacity(effects.len());
+        for effect in effects {
+            if let InputEffect::SinkEnded { sink, .. } = &effect {
+                self.ended = Some(sink.clone());
+            }
+            let changed = match (&effect, &self.ended) {
+                (InputEffect::Dropped { id, reason: DropReason::SinkGone(_) }, Some(sink)) => {
+                    Some(InputEffect::Deliver { id: *id, sink: sink.clone(), via: Via::Direct })
+                }
+                _ => None,
+            };
+            out.push(changed.unwrap_or(effect));
+        }
+        out
+    }
+}
+
+fn deliver_to_ended() -> Box<dyn Under> {
+    Box::new(DeliverToEnded { router: router(), ended: None })
+}
+
+/// A lane holds more than its limit (an unbounded hold queue): I8.
+fn unbounded() -> Box<dyn Under> {
+    Box::new(Real(InputRouter::new(LaneLimit::of(FUZZ_LANE_LIMIT.saturating_mul(8)))))
 }
 
 #[test]
 fn every_mutant_is_caught() {
-    let len = env("CMUX_INPUT_FUZZ_LEN", 160) as usize;
+    let len = env("CMUX_INPUT_FUZZ_LEN", 200) as usize;
     let cases = env("CMUX_INPUT_FUZZ_MUTANT_CASES", 200);
-    let mutants: [(&str, Make); 11] = [
+    let mutants: [(&str, Make); 13] = [
         ("reroute at drain", reroute_at_drain),
         ("twice", twice),
         ("swap", swap),
@@ -411,17 +405,22 @@ fn every_mutant_is_caught() {
         ("two sessions", two_sessions),
         ("offer twice", offer_twice),
         ("dialog leak", dialog_leak),
+        ("deliver to ended", deliver_to_ended),
+        ("unbounded", unbounded),
     ];
-    // The events come from the real router's world; each mutant runs them.
-    let missed: Vec<&str> = mutants
-        .iter()
-        .filter(|(_, make)| {
-            (1..=cases).all(|seed| {
-                let events = generate(seed, len, &real);
-                check(&events, &mut *make()).is_ok()
-            })
-        })
-        .map(|(name, _)| *name)
-        .collect();
-    assert!(missed.is_empty(), "mutants not caught: {missed:?}");
+    // Each case must pass on the real router first: a case the real router
+    // fails would catch every mutant for nothing.
+    let mut missed: Vec<(&str, Make)> = mutants.to_vec();
+    for seed in 1..=cases {
+        if missed.is_empty() {
+            break;
+        }
+        let events = generate(seed, len);
+        if let Err(failure) = check(&events, &mut *real()) {
+            panic!("the real router fails seed {seed}: {failure:?}");
+        }
+        missed.retain(|(_, make)| check(&events, &mut *make()).is_ok());
+    }
+    let names: Vec<&str> = missed.iter().map(|(name, _)| *name).collect();
+    assert!(names.is_empty(), "mutants not caught in {cases} cases: {names:?}");
 }

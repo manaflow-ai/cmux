@@ -118,6 +118,7 @@ fn a_creation_that_names_an_ended_tab_again_makes_it_a_new_sink() {
     s.send(InputEvent::Creation {
         key: ExpectationKey::Tab { id: "b1".into() },
         sink: content("b1"),
+        kind: Kind::Browser,
     });
     let early = s.press(key("w1", B, Some(content("b1"))));
     s.send(InputEvent::Ready { sink: content("b1") });
@@ -281,7 +282,7 @@ fn an_address_bar_expected_by_surface_takes_the_keys_typed_for_it() {
     s.open("w1", topology("ws", vec![pane("p1", vec![terminal_tab("t1", "T1")])]), "p1");
     s.reaches(Some(terminal("T1")));
     let surface = ExpectationKey::Surface { id: "sf5".into() };
-    s.send(InputEvent::Creation { key: surface.clone(), sink: content("b5") });
+    s.send(InputEvent::Creation { key: surface.clone(), sink: content("b5"), kind: Kind::Browser });
     s.focus("w1", FocusEvent::BeginIntent {});
     let generation = s.router.focus("w1").map_or(0, |focus| focus.generation);
     s.focus(

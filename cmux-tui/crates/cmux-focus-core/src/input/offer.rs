@@ -8,8 +8,9 @@
 //!
 //! [`InputEvent::PageUnhandled`]: super::InputEvent::PageUnhandled
 
+use super::binding::DEV_TOOLS_ACTIONS;
 use super::key::{Binding, KeyRecord, Tier};
-use super::router::{DEV_TOOLS_ACTIONS, InputRouter};
+use super::router::InputRouter;
 use super::sink::Sink;
 use super::{InputEffect, InputId, Via};
 use crate::state::{FocusState, Resolved};
@@ -35,17 +36,24 @@ pub(super) struct Offer {
 
 impl InputRouter {
     /// The page key `key` goes to first, with its binding `binding` held for
-    /// the page's report: the focused page's when that page takes keys now by
-    /// AppKit's dispatch (its window has the keys), and the action is one a
-    /// page may own. None: the action runs now.
+    /// the page's report: the page the key is aimed at (`aim`), when it is
+    /// the window's focused browser page, takes keys now by AppKit's dispatch
+    /// (its window has the keys), and the action is one a page may own. None:
+    /// the action runs now.
     pub(super) fn offer_target(
         &self,
         binding: &Binding,
         key: &KeyRecord,
         focus: &FocusState,
+        aim: Option<&Sink>,
     ) -> Option<Sink> {
+        let page = aim?;
+        let Sink::Content(aimed) = page else { return None };
         let Resolved::BrowserPage { tab, .. } = &focus.derived.resolved else { return None };
-        if focus.derived.browser_focus_mode_active || binding.ghostty {
+        if aimed.as_ref() != tab.as_str()
+            || focus.derived.browser_focus_mode_active
+            || binding.ghostty
+        {
             return None;
         }
         let action: &str = &binding.action;
@@ -61,11 +69,10 @@ impl InputRouter {
             }
             Tier::System => false,
         };
-        let page = Sink::Content(Arc::from(tab.as_str()));
-        let takes_now = key.reaches.as_ref() == Some(&page)
-            && !self.lanes.contains_key(&page)
-            && self.deliverable(&page, key.reaches.as_ref(), false) == Ok(Via::Responder);
-        (owns && takes_now).then_some(page)
+        let takes_now = key.reaches.as_ref() == Some(page)
+            && !self.lanes.contains_key(page)
+            && self.deliverable(page, key.reaches.as_ref(), false) == Ok(Via::Responder);
+        if owns && takes_now { Some(page.clone()) } else { None }
     }
 
     /// Offers key `id` to `page`, holding `binding` for its report.
