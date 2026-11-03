@@ -166,6 +166,11 @@
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+/* The plain menu was always a scroll container, including while its filtered rows fit.
+   Keep that behavior on the inner viewport as well: toggling it to overflow:visible
+   changes scroll anchoring and layout-shift accounting as matches replace the rows.
+   The glass and pinned update footer remain outside this scrolling/masked box. */
+.acpmux-quick-menu > .ui-popup-scroll { overflow-y: auto; }
 .acpmux-quick-menu.acpmux-quick-submenu { --ui-row-height: calc(24px * var(--cmux-interface-scale, 1)); }
 .acpmux-quick-menu .ui-menu-group-label {
   display: block;
