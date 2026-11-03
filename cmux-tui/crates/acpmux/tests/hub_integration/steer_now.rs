@@ -1,6 +1,7 @@
 //! Send now into a Claude chat's running turn (Leo, 2026-10-20): Claude Code reads a steer when
-//! its current step ends, and Send now stops that step so it reads the message at once. The turn
-//! runs on and ends as the agent ends it, not as stopped. fake_claude.py's "long-step" is one
+//! its current step ends, and Send now stops that step so it reads the message at once. The
+//! stopped step ends the turn, `cancelled`, and the message runs as a turn of its own (Leo,
+//! 2026-11-03: "idk why we're getting into these weird thinking states"). fake_claude.py's "long-step" is one
 //! step that runs until the interrupt, with Claude Code's order of lines. Tests by steer-default
 //! (cmux/steer-now, ad34433a).
 
@@ -49,6 +50,19 @@ fn said(seen: &[(String, Value)], text: &str) -> bool {
     seen.iter().any(|(m, p)| m == method::SESSION_UPDATE && p["update"]["content"]["text"] == text)
 }
 
+/// The turn Send now stopped ended `cancelled`, carrying `prompt_id`, and the agent reads that
+/// message in the turn after it.
+async fn ended_and_carried(c: &mut TestClient, turn: i64, prompt_id: &str, text: &str) {
+    let (answer, seen) = c.response(turn).await;
+    let answer = answer.unwrap();
+    assert_eq!(answer["stopReason"], "cancelled", "the stopped turn ran on: {answer}");
+    assert_eq!(answer["_meta"]["claude"]["carried"]["promptIds"], json!([prompt_id]), "{answer}");
+    let read = format!("read: {text}");
+    if !said(&seen, &read) {
+        c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == read).await;
+    }
+}
+
 /// Starts the long step from the session's own connection; returns the turn prompt's request id.
 async fn long_step(c: &mut TestClient, id: &str) -> i64 {
     let turn = c.send(method::SESSION_PROMPT, prompt(id, "p-turn", "long-step", false)).await;
@@ -68,7 +82,7 @@ async fn send_now(hub: &Arc<Hub>, id: &str, prompt_id: &str) -> Value {
 }
 
 #[tokio::test]
-async fn send_now_for_a_waiting_steer_stops_the_step_and_the_turn_runs_on() {
+async fn send_now_for_a_waiting_steer_ends_the_turn_and_the_steer_runs_next() {
     let (hub, mut c, id) = claude_hub().await;
     let turn = long_step(&mut c, &id).await;
     let mut a = connect(&hub).await;
@@ -78,9 +92,7 @@ async fn send_now_for_a_waiting_steer_stops_the_step_and_the_turn_runs_on() {
 
     let sent = send_now(&hub, &id, "p-steer").await;
     assert_eq!((sent["ok"].clone(), sent["sent"].clone()), (json!(true), json!("now")), "{sent}");
-    let (answer, seen) = c.response(turn).await;
-    assert!(said(&seen, "read: PINEAPPLE"), "the agent never read the steer: {seen:?}");
-    assert_eq!(answer.unwrap()["stopReason"], "end_turn", "the turn read as stopped");
+    ended_and_carried(&mut c, turn, "p-steer", "PINEAPPLE").await;
 }
 
 #[tokio::test]
@@ -94,9 +106,7 @@ async fn send_now_for_a_queued_prompt_steers_it_in_at_once() {
 
     let sent = send_now(&hub, &id, "p-queued").await;
     assert_eq!(sent["sent"], "steer", "{sent}");
-    let (answer, seen) = c.response(turn).await;
-    assert!(said(&seen, "read: MANGO"), "the agent never read it: {seen:?}");
-    assert_eq!(answer.unwrap()["stopReason"], "end_turn", "the turn read as stopped");
+    ended_and_carried(&mut c, turn, "p-queued", "MANGO").await;
 }
 
 /// Stop stays a Stop: the steer it finds unread is read, and its turn ends stopped.
