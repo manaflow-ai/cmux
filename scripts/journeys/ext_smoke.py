@@ -297,6 +297,7 @@ def step_smoke_key(j, step):
     key, mods, source = _bound_key(j, step)
     step = dict(step, key=key, modifiers=mods)
     if _key_path(j) == "debug.key":
+        j.smoke_last_key_landed = None  # a later page-key failure must not name an older real key's landing
         return dict(j.step_key(step), key_path="debug.key", key_source=source)
     held = j.before_keys()
     _realkey().require_front(j)
@@ -309,7 +310,8 @@ def step_smoke_key(j, step):
     # A real key returns when CuaDriver posted it, not when the app handled it: wait until the app's input journal
     # has the key-down, so the next step's check never runs before the app saw the key (INVERSE-KEY owner,
     # 2026-11-03: a key-window check 7 ms after a posted Ctrl-` saw the page window still key).
-    landed = _await_key_down(j, seq0, step["key"], step.get("modifiers", []), float(step.get("land_timeout", 2.0)), t)
+    landed = _await_key_down(j, seq0, step["key"], step.get("modifiers", []), float(step.get("land_timeout", 2.0)), t,
+                             required=not _landing_optional(j, step))
     j.smoke_last_key_landed = landed
     return {"key": step["key"], "modifiers": step.get("modifiers", []), "key_path": "real_hid", "cua_effect": effect,
             "send_ms": sent_ms, "landed": landed, "waited_out_hold_s": held, "key_source": source}
@@ -321,6 +323,21 @@ _NAMED_KEYCODES = {"return": 36, "tab": 48, "space": 49, "delete": 51, "escape":
 _MOD_BITS = {"cmd": 1, "command": 1, "shift": 2, "option": 4, "alt": 4, "control": 8, "ctrl": 8}
 
 
+def _landing_optional(j, step):
+    """A real key whose arrival is not required: `land: "optional"`, an `optional` step (a known gap's fallback Escape),
+    or the key of a KNOWN GAP the next step names on the real_hid path (macOS Look Up takes a real Ctrl-Cmd-D before
+    the app sees it, so the journal never has it: the gap, not this wait, judges that key: review FIX at 5f5aa74cc7c)."""
+    if step.get("land") == "optional" or step.get("optional"):
+        return True
+    steps = j.spec.get("steps", []) if isinstance(getattr(j, "spec", None), dict) else []
+    for i, s_ in enumerate(steps):
+        if s_ is step or (s_.get("do") == step.get("do") and s_.get("mark") and s_.get("mark") == step.get("mark")):
+            gap = steps[i + 1].get("known_gap") if i + 1 < len(steps) else None
+            return bool(gap) and gap.get("key_path", "real_hid") == "real_hid" and gap.get("key") == step.get("key") \
+                and list(gap.get("modifiers") or []) == list(step.get("modifiers") or [])
+    return False
+
+
 def _journal_seq(j):
     """The input journal's last seq now, or None when the build has no journal (then a key's landing is not waited for)."""
     rpc = getattr(j.app, "rpc", None)
@@ -330,7 +347,14 @@ def _journal_seq(j):
         reply = rpc("debug.journal", {"last": 5}) or {}
     except (D.StepError, OSError, ValueError):
         return None
-    entries = reply.get("entries") if isinstance(reply, dict) else None
+    if not isinstance(reply, dict):
+        return None
+    stats = reply.get("stats") if isinstance(reply.get("stats"), dict) else {}
+    if stats.get("enabled") is False:  # an untagged build or CMUX_NEXT_INPUT_JOURNAL=0: no journal to wait on
+        return None
+    if isinstance(stats.get("lastSeq"), int):
+        return stats["lastSeq"]
+    entries = reply.get("entries")
     if not isinstance(entries, list):
         return None
     return max([int(e.get("seq") or 0) for e in entries if isinstance(e, dict)] or [0])
@@ -350,7 +374,22 @@ def _key_entry(entry):
     return {"phase": key.get("phase"), "keyCode": key.get("keyCode"), "modifiers": int(mods or 0)}
 
 
-def _await_key_down(j, seq0, key, modifiers, timeout, t_sent):
+def _journal_after(j, seq0):
+    """The journal entries after SEQ0: one read of the last 80, and a longer one when those do not reach back to
+    SEQ0 + 1 (a Cmd-N window can add many focus and frame entries after the key: review FIX at 5f5aa74cc7c)."""
+    try:
+        reply = j.app.rpc("debug.journal", {"last": 80}) or {}
+        entries = [e for e in (reply.get("entries") or []) if isinstance(e, dict)]
+        if entries and min(int(e.get("seq") or 0) for e in entries) > seq0 + 1:
+            last = (reply.get("stats") or {}).get("lastSeq") or max(int(e.get("seq") or 0) for e in entries)
+            reply = j.app.rpc("debug.journal", {"last": min(4096, int(last) - seq0)}) or {}
+            entries = [e for e in (reply.get("entries") or []) if isinstance(e, dict)]
+        return entries
+    except (D.StepError, OSError, ValueError, TypeError):
+        return []
+
+
+def _await_key_down(j, seq0, key, modifiers, timeout, t_sent, required=True):
     """{seq, uptime_ns, wait_ms} of the first key-down in the app's input journal after SEQ0 that is KEY with at
     least MODIFIERS (key code when the journal keeps it: always for shortcuts and named keys). Raises StepError
     when it never comes within TIMEOUT s (the app never saw the key). {"journal": "none"} on a build without one."""
@@ -360,11 +399,7 @@ def _await_key_down(j, seq0, key, modifiers, timeout, t_sent):
     want = sum(_MOD_BITS.get(m, 0) for m in modifiers)
     end = D.now() + timeout
     while True:
-        try:
-            entries = (j.app.rpc("debug.journal", {"last": 80}) or {}).get("entries") or []
-        except (D.StepError, OSError, ValueError):
-            entries = []
-        for e in entries:
+        for e in _journal_after(j, seq0):
             if not isinstance(e, dict) or int(e.get("seq") or 0) <= seq0:
                 continue
             k = _key_entry(e)
@@ -375,6 +410,8 @@ def _await_key_down(j, seq0, key, modifiers, timeout, t_sent):
             return {"seq": e.get("seq"), "uptime_ns": e.get("uptimeNanos"), "window": e.get("window"),
                     "wait_ms": round((D.now() - t_sent) * 1000, 1)}
         if D.now() >= end:
+            if not required:
+                return {"seen": False, "wait_ms": round((D.now() - t_sent) * 1000, 1)}
             error = D.StepError(f"the real key {'+'.join(list(modifiers) + [key])} never reached the app's input "
                                 f"journal within {timeout:g} s (posted by CuaDriver; journal after seq {seq0})")
             error.detail = _input_tail(j)

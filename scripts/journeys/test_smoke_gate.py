@@ -529,6 +529,41 @@ class RealKeySteps(unittest.TestCase):
         self.assertIn("never reached the app's input journal", str(caught.exception))
         self.assertEqual(len(caught.exception.detail["journal"]), 2)
 
+    def test_a_known_gap_key_or_an_optional_key_is_not_required_to_land(self):
+        j = self.journey("real")
+        gap = {"name": "New Column real key", "key_path": "real_hid", "key": "d", "modifiers": ["control", "cmd"]}
+        key = {"do": "smoke_key", "key": "d", "modifiers": ["control", "cmd"], "mark": "r3b-split", "land_timeout": 0.05}
+        j.spec = {"options": {"key_path": "real"}, "steps": [key, {"do": "expect", "known_gap": gap}]}
+        j.app = self.journal_app([])
+        done = self.ext.step_smoke_key(j, key)
+        self.assertEqual(done["landed"]["seen"], False)  # the gap judges this key, not the wait
+        esc = {"do": "smoke_key", "key": "escape", "optional": True, "land_timeout": 0.05}
+        self.assertEqual(self.ext.step_smoke_key(j, esc)["landed"]["seen"], False)
+        other = {"do": "smoke_key", "key": "n", "modifiers": ["cmd"], "land_timeout": 0.05}
+        j.spec["steps"].insert(0, other)
+        with self.assertRaises(self.ext.D.StepError):
+            self.ext.step_smoke_key(j, other)
+
+    def test_a_disabled_journal_is_no_wait_and_lastseq_is_the_start(self):
+        j = self.journey("real")
+        j.app = type("A", (), {"pid": 7, "rpc": lambda self_, m, p=None: {"stats": {"enabled": False}, "entries": []}})()
+        self.assertEqual(self.ext.step_smoke_key(j, {"key": "n", "modifiers": ["cmd"]})["landed"], {"journal": "none"})
+        j.app = type("A", (), {"rpc": lambda self_, m, p=None: {"stats": {"enabled": True, "lastSeq": 41}, "entries": []}})()
+        self.assertEqual(self.ext._journal_seq(j), 41)
+
+    def test_a_long_burst_after_the_key_is_read_back_to_the_key(self):
+        calls = []
+
+        class App:
+            def rpc(self_, method, params=None):
+                calls.append(params["last"])
+                if params["last"] == 80:
+                    return {"stats": {"lastSeq": 300}, "entries": [{"seq": n} for n in range(221, 301)]}
+                return {"stats": {"lastSeq": 300}, "entries": [{"seq": n} for n in range(11, 301)]}
+        j = type("J", (), {"app": App()})()
+        self.assertEqual(len(self.ext._journal_after(j, 10)), 290)
+        self.assertEqual(calls, [80, 290])
+
     def test_a_build_without_the_journal_does_not_wait(self):
         done = self.ext.step_smoke_key(self.journey("real"), {"key": "n", "modifiers": ["cmd"]})
         self.assertEqual(done["landed"], {"journal": "none"})
