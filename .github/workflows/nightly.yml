@@ -4326,7 +4326,13 @@ jobs:
         if: env.TRACK == 'nightly-next'
         run: ./scripts/cmux-next/check-version-surfaces.sh "$CHANNEL_APP_PATH"
 
-      - *older-tree-step-scripts
+      # The same restore for a job with no prepare reuse step: only the tree's age decides.
+      - &older-tree-step-scripts-plain
+        name: Add the workflow commit's new step scripts to an older build tree
+        if: hashFiles('scripts/ci/nightly-steps/prepare-thin-bundle.sh') == ''
+        run: |
+          git fetch -q --no-tags --depth=1 origin "$GITHUB_SHA"
+          git diff --name-only --diff-filter=A HEAD FETCH_HEAD -- scripts/ci/nightly-steps | while read -r f; do git checkout FETCH_HEAD -- "$f"; done
       - name: Verify bundled CLI commands run from the bundle alone
         if: env.TRACK == 'nightly-next' && hashFiles('scripts/cmux-next/check-bundled-cli-commands.sh') != ''
         run: bash scripts/ci/nightly-steps/verify-signed-bundled-cli-commands.sh
@@ -4743,8 +4749,7 @@ jobs:
             if (run.status !== 0) core.setFailed(`fetch_run_artifact.py exited ${run.status ?? run.signal}`)
             else core.exportVariable('SIGNER_APP_FETCHED', 'true')
       # An env flag, not a step outcome, so the ranged step's result decides.
-      - &signer-download-app
-        name: Download the signed app
+      - name: Download the signed app
         id: signer-download-app
         if: env.SIGNER_APP_FETCHED != 'true'
         continue-on-error: true
@@ -4753,16 +4758,14 @@ jobs:
         with:
           name: cmux-nightly-next-signer-app-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           path: signer-app
-      - &signer-download-app-retry
-        name: Download the signed app (retry)
+      - name: Download the signed app (retry)
         if: steps.signer-download-app.outcome == 'failure'
         timeout-minutes: 5
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-nightly-next-signer-app-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           path: signer-app
-      - &signer-unpack-app
-        name: Unpack the signed app
+      - name: Unpack the signed app
         env:
           APP_SHA256: ${{ needs.signer-app.outputs.sha256 }}
         run: bash .publish-tooling/scripts/ci/nightly-steps/signer-unpack-app.sh
@@ -7537,7 +7540,7 @@ jobs:
 
       - name: Fetch the published span
         run: ./scripts/cmux-next/fetch-release-notes-span.sh origin "$HEAD_SHA" nightly-next "$PUBLISHED_SHA"
-      - *older-tree-step-scripts
+      - *older-tree-step-scripts-plain
       - name: Comment the build on its PRs
         env:
           GH_TOKEN: ${{ github.token }}
@@ -7585,7 +7588,7 @@ jobs:
       # the next one (2026-10-12: 3821558930001 had no notes and its highlights were never shown).
       - *wait-through-github-api-rate-l
 
-      - *older-tree-step-scripts
+      - *older-tree-step-scripts-plain
       - name: Start the span at the newest published notes
         id: span
         run: bash scripts/ci/nightly-steps/release-notes-start-span.sh
@@ -7693,7 +7696,7 @@ jobs:
       - *wait-through-github-api-rate-l
 
       - *download-artifact-step
-      - *older-tree-step-scripts
+      - *older-tree-step-scripts-plain
       - name: Install ffmpeg
         timeout-minutes: 6
         env:
