@@ -72,6 +72,18 @@ describe("signup Chief activation and client adoption", () => {
     expect(await brain.admit(o.agent, o.user, true)).toEqual({ ok: false, reason: "disabled" })
   })
 
+  it("activates signup's selected hosted Chief when the account default has moved", async () => {
+    const o = await owner(196), brain = settings(o.agent)
+    resultOf(await create(o, "new-account-default"))
+    await inDO(o.stub, async (i, state) => {
+      await quiesce(i, state)
+      expect((i.boundEngine.currentState as UserState).chiefs?.[o.agent]?.is_default).toBe(false)
+    })
+    expect(await brain.activateDefault(o.agent, o.user)).toMatchObject({ ok: true })
+    expect((await brain.status()).config.enabled).toBe(true)
+    expect(await brain.admit(o.agent, o.user, true)).toEqual({ ok: false, reason: "provisioning_pending" })
+  })
+
   it("keeps a disable committed while signup activation awaits the owner's Chief record", async () => {
     const o = await owner(195), brain = settings(o.agent)
     await inDO(brain, async (i) => {
