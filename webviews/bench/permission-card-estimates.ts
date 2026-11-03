@@ -4,6 +4,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
 import { createServer } from "vite";
+import { refusePlaywrightOnMacs, useSystemChrome } from "../test/support/systemChrome";
 import { galleryFrame, warmGalleryFrame } from "../test/support/galleryFrame";
 
 const root = path.resolve(import.meta.dir, "..");
@@ -12,13 +13,15 @@ const server = await createServer({
   server: { port: 0, host: "127.0.0.1", strictPort: false },
   logLevel: "error",
 });
+refusePlaywrightOnMacs([chromium]);
+useSystemChrome(chromium);
 const browser = await chromium.launch({ headless: true });
 const results: { entry: string; scheme: string; width: number; drawn: number; before: number; after: number }[] = [];
 try {
   await server.listen();
   const { port } = server.httpServer!.address() as { port: number };
   for (const [entry, variant, file, selector] of [
-    ["agent-pane.permission-card", "grid-pending", "PermissionCard.gallery.tsx", ".acpmux-permission-ask"],
+    ["agent-pane.permission-card", "grid-transcript", "PermissionCard.gallery.tsx", ".acpmux-permission-ask"],
     ["agent-pane.question-card", "pending-single", "question/QuestionCard.gallery.tsx", ".acpmux-question-ask"],
   ]) {
     await warmGalleryFrame(server, entry!, { browser, params: { variant } });
@@ -29,8 +32,6 @@ try {
           await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry!, { variant, colorScheme: scheme })}`);
           await page.locator(selector!).waitFor();
           await page.evaluate(() => document.fonts.ready);
-          // Transcript PermissionRow sets shortcuts=false; the shared gallery normally shows them.
-          await page.addStyleTag({ content: ".acpmux-permission-action-shortcut { display: none !important; }" });
           const result = await page.evaluate(
             async ({ file, variant, selector }) => {
               const base = "/src/agent-session/acpmux/";

@@ -15,7 +15,7 @@ import { SHORTCUT_ACTIONS, ShortcutsContext } from "./shortcuts";
 
 type ScopeStyle = "under" | "labelled" | "front";
 type RowStyle = "light" | "keycap" | "hover" | "trailing";
-type Props = Pick<ComponentProps<typeof PermissionCard>, "permission" | "harness"> & {
+type Props = Pick<ComponentProps<typeof PermissionCard>, "permission" | "harness" | "shortcuts"> & {
   scopeStyle?: ScopeStyle;
   rowStyle?: RowStyle;
 };
@@ -106,7 +106,7 @@ const fourOptions: AcpmuxPermission = {
   ],
 };
 
-function GalleryPermissionCard({ permission, harness, scopeStyle, rowStyle }: Props) {
+function GalleryPermissionCard({ permission, harness, shortcuts, scopeStyle, rowStyle }: Props) {
   return (
     <div className="acpmux-shell" data-scope-style={scopeStyle} data-row-style={rowStyle} style={{ paddingTop: 12 }}>
       {scopeStyle && scopeStyle !== "under" && <style>{scopeStyles[scopeStyle]}</style>}
@@ -114,7 +114,12 @@ function GalleryPermissionCard({ permission, harness, scopeStyle, rowStyle }: Pr
       <div className="acpmux-main">
         <div className="acpmux-permission acpmux-asks-stack">
           <ShortcutsContext value={labels}>
-            <PermissionCard permission={permission} harness={harness} onAnswer={() => undefined} />
+            <PermissionCard
+              permission={permission}
+              harness={harness}
+              shortcuts={shortcuts}
+              onAnswer={() => undefined}
+            />
           </ShortcutsContext>
         </div>
       </div>
@@ -150,6 +155,10 @@ export default componentEntry<Props>({
   widths: { narrow: 360, normal: 540, wide: 760 },
   height: 260,
   variants: {
+    "grid-transcript": {
+      note: "The transcript card has no shortcut hints; used to check its initial row height.",
+      props: { permission: shortRule, harness: "claude", shortcuts: false },
+    },
     "grid-pending": {
       note: "Grid measurement: pending permission without a play that answers it.",
       props: { permission: shortRule, harness: "claude" },
