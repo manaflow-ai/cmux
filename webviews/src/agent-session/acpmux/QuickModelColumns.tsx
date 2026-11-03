@@ -182,12 +182,19 @@ export function QuickModelColumns(props: QuickSurfaceProps) {
 }
 
 /// Whether `chip` sits in a row packed to its end (justify-content flex-end), where its start
-/// moves with its width. Rows drawn as display: contents pass to their parent.
+/// moves with its width. Rows drawn as display: contents, and wrappers that hug the chip, pass to
+/// their parent.
 function rowPackedToEnd(chip: HTMLElement): boolean {
   const view = chip.ownerDocument.defaultView;
+  let child: HTMLElement = chip;
   for (let row = chip.parentElement; row && view; row = row.parentElement) {
     const style = view.getComputedStyle(row);
     if (style.display === "contents") continue;
+    // A wrapper as wide as what it holds (the picker's own box) is no row: its parent may be.
+    if (row.getBoundingClientRect().width - child.getBoundingClientRect().width <= 1) {
+      child = row;
+      continue;
+    }
     if (!style.display.includes("flex")) return false;
     return ["flex-end", "end", "right"].includes(style.justifyContent);
   }
@@ -530,9 +537,15 @@ function Columns({
   const toggleFast = () => {
     if (!focus || focusOff) return;
     const on = !fastOn;
-    if (focusRuns && fast && !picked) {
+    // A pick lands Fast only on (a combo never turns it off): off on a model that runs goes through
+    // the session, also right after it was picked here.
+    if (focusRuns && fast && (!picked || !on)) {
       setHeld({ ...mine, key: focusKey, fast: on });
       fast.onChange(on);
+      if (picked && pending) {
+        const { fast: _fast, ...rest } = picked;
+        setPending({ ...pending, model: rest });
+      }
     } else hold(picked ?? focus, { ...(picked?.effort ? { effort: picked.effort } : {}), fast: on });
   };
   /// A provider of the shown model: it keeps the level and Fast already picked here.

@@ -509,7 +509,12 @@ export function ComposerPickers({
     fork?.to(picked);
   };
   const land = (pickedModel: string, pickedEffort?: string) => {
-    // Any new pick replaces a combo still waiting on its effort.
+    // Any new pick replaces a combo still waiting on its effort, but a second pick of the model that
+    // combo waits for (its Fast, its level, from a menu that stays open) keeps waiting with it.
+    const waiting =
+      pending.current?.model === pickedModel && pending.current.sessionId === summary?.sessionId
+        ? pending.current
+        : undefined;
     pending.current = undefined;
     const pickEffort = (value: string) => {
       if (presession && harness) setHeldPick({ harness, value });
@@ -523,6 +528,8 @@ export function ComposerPickers({
           : undefined;
       onModel(pickedModel);
       if (pickedEffort && presession) pickEffort(pickedEffort);
+    } else if (waiting && current !== pickedModel) {
+      pending.current = pickedEffort ? { ...waiting, effort: pickedEffort } : waiting;
     } else if (
       pickedEffort &&
       pickedEffort !== currentEffort &&
