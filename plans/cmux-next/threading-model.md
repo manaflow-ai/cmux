@@ -168,7 +168,10 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   `debug.window_record`, `debug.motion.trace` (a `debug.motion` `trace_stop`/`trace_read` with `path`: the report's JSON serialization and file
   write, utility, serial, one item per call, so no back-pressure), `debug.motion.record` (a `debug.motion` `record_*` movie in DEBUG and bench builds: its
   ScreenCaptureKit frames, the encoder appends and the scanline and frame-list file writes; user-initiated, serial;
-  a frame the encoder is not ready for is counted and dropped, never queued, so no back-pressure), `com.cmuxterm.next.busy-watchdog` (the busy watchdog's kernel reads: each
+  a frame the encoder is not ready for is counted and dropped, never queued, so no back-pressure), `debug.frame_strip.screen`
+  (a `debug.new_tab` `frame_strip` with `above` in DEBUG and bench builds, when the process lacks the Screen Recording grant:
+  its ScreenCaptureKit frames, each copied and downscaled into the strip; user-initiated, serial; ScreenCaptureKit's own
+  queue depth of 8 drops frames the queue has not taken, so no back-pressure; ends with the strip), `com.cmuxterm.next.busy-watchdog` (the busy watchdog's kernel reads: each
   process's `proc_pid_rusage` and `proc_pidinfo`, the Chromium helper list, the main thread's `thread_info` and
   stack sample; utility, serial; at most one window open or close is pending, so no back-pressure; a read the
   kernel holds delays only the next window). A diagnostic never makes a system call on the main thread: the
