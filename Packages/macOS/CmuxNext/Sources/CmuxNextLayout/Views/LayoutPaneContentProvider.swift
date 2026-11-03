@@ -53,6 +53,9 @@ final class LayoutViewContext {
     /// Panes present in any screen of the current snapshot.
     var livePanes: Set<PaneID> = []
     var requestFrames: () -> Void = {}
+    /// The window's frame tick applies its input now (`LayoutFrameInput`): a screen's presentation and the overlay
+    /// sync wait for the frame's one pass, after its springs step.
+    var holdsPresentations = false
     /// Pane hosts or dividers moved: the overlay plane follows them.
     var overlayNeedsSync: () -> Void = {}
     /// A user gesture moves the layout (a strip, row or scroll-area pan with the finger down): the root reads

@@ -1652,11 +1652,22 @@
             "rows" : [
               "cloud.newWorkspacesInCloud",
               "cloud.newWorkspaceFolder",
-              "cloud.useMyClaudeLoginOnMyCloudMachines"
+              "cloud.useMyClaudeLoginOnMyCloudMachines",
+              "cloud.agentsStartWithoutAsking"
             ],
             "title" : {
               "key" : "settings.group.cloudWorkspaces",
               "text" : "Cloud Workspaces"
+            }
+          },
+          {
+            "key" : "settings.group.cloudTunnel",
+            "rows" : [
+              "cloud.tunnel.enabled"
+            ],
+            "title" : {
+              "key" : "settings.group.cloudTunnel",
+              "text" : "Cloud Tunnel"
             }
           }
         ],
@@ -12548,6 +12559,279 @@
       "title" : {
         "key" : "settings.cloud.useMyClaudeLogin",
         "text" : "Use My Claude Login on My Own Cloud Machines"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.cloudTunnel",
+        "text" : "Cloud Tunnel"
+      },
+      "help" : {
+        "key" : "settings.cloud.tunnel.enabled.help",
+        "text" : "Lets every app on this Mac reach your Cloud machines' private addresses, like a VPN for your Cloud network only. macOS asks you to allow the cmux network extension once. cmux itself does not need it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "cloud.tunnel.enabled",
+      "keywords" : [
+        "cloud",
+        "tunnel",
+        "vpn",
+        "wireguard",
+        "network extension",
+        "private network",
+        "ssh",
+        "machine",
+        "toggle"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "cloud",
+        "tunnel",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "machines",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:cloud.tunnel.enabled"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.cloud.tunnel.enabled",
+        "text" : "Cloud Tunnel"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.cloudWorkspaces",
+        "text" : "Cloud Workspaces"
+      },
+      "help" : {
+        "key" : "settings.cloud.agentsStartWithoutAsking.help",
+        "text" : "An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "cloud.agentsStartWithoutAsking",
+      "keywords" : [
+        "cloud",
+        "vm",
+        "machine",
+        "agent",
+        "start",
+        "session",
+        "ask",
+        "approve",
+        "permission",
+        "without asking",
+        "delegate"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "cloud",
+        "agentsStartWithoutAsking"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "machines",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:cloud.agentsStartWithoutAsking"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.cloud.agentsStartWithoutAsking",
+        "text" : "Let Agents Start Cloud Sessions Without Asking"
       },
       "validation" : "portable"
     },
@@ -92101,8 +92385,8 @@
         "local",
         "cloud"
       ],
-      "agent_refusal" : "privacy",
-      "agent_settable" : false,
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "choices" : [
         {
           "title" : {
@@ -92182,7 +92466,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -92194,9 +92478,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -93547,6 +93833,266 @@
       "title" : {
         "key" : "settings.contextMenus.showCustomizeItem",
         "text" : "Show Customize Menu…"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.section.accounts",
+        "text" : "Accounts"
+      },
+      "help" : {
+        "key" : "settings.imessage.enabled.help",
+        "text" : "Allow reading Messages conversations on this Mac after connecting in Session Info. Sending still needs your click."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "imessage.enabled",
+      "keywords" : [
+        "imessage",
+        "messages",
+        "connector",
+        "privacy"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : true,
+      "path" : [
+        "imessage",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "accounts",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : false,
+          "operations" : [
+
+          ],
+          "reason" : "connect and disconnect from Session Info's iMessage connector",
+          "row" : null
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.imessage.enabled",
+        "text" : "Connect iMessage"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.section.accounts",
+        "text" : "Accounts"
+      },
+      "help" : {
+        "key" : "settings.imessage.automationSkipped.help",
+        "text" : "Remember skipping the Messages Automation step. This does not grant access or authorize sending."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "imessage.automationSkipped",
+      "keywords" : [
+        "imessage",
+        "messages",
+        "automation",
+        "connector"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : true,
+      "path" : [
+        "imessage",
+        "automationSkipped"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "accounts",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : false,
+          "operations" : [
+
+          ],
+          "reason" : "permission walkthrough state, set only by the iMessage connector",
+          "row" : null
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.imessage.automationSkipped",
+        "text" : "Skip Messages Automation"
       },
       "validation" : "portable"
     },

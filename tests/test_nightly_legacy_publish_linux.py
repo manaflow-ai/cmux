@@ -26,7 +26,7 @@ sys.path.insert(0, str(ROOT / "scripts/ci"))
 import appcast_minimum_system_version as floor  # noqa: E402
 
 
-STEP_SCRIPT = re.compile(r"^(\s+run: )bash (?:\.publish-tooling/)?(scripts/ci/nightly-steps/[A-Za-z0-9_.-]+\.sh)\s*$",
+STEP_SCRIPT = re.compile(r"^(\s+run: )bash (?:-e )?(?:\.publish-tooling/)?(scripts/ci/nightly-steps/[A-Za-z0-9_.-]+\.sh)\s*$",
                          re.MULTILINE)
 
 

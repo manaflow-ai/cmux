@@ -46,6 +46,14 @@ impl Brain {
                         self.state.logged_seq = cursor;
                         // Side conversations' replies stay.
                         self.state.outbox.retain(|e| e.conversation != old);
+                        // A receipt in the old conversation grants no readiness
+                        // in its replacement. Re-present only under the new owner.
+                        for sub in self.state.spawns.values_mut().flat_map(|r| &mut r.subs) {
+                            if let Some(pending) = sub.permission.as_mut() {
+                                pending.home_message = None;
+                                pending.home_closed = false;
+                            }
+                        }
                         self.state.awaiting.clear();
                         self.state.stopped_reply = None;
                     }
@@ -53,6 +61,7 @@ impl Brain {
                     self.save();
                 }
                 self.summary = Some(conversation);
+                self.reconcile_home_approvals();
                 self.prune_floors();
                 self.post_notices();
                 self.flush_outbox();
@@ -79,7 +88,10 @@ impl Brain {
                     return;
                 }
                 match change {
-                    Change::Conversation { conversation } => self.summary = Some(*conversation),
+                    Change::Conversation { conversation } => {
+                        self.summary = Some(*conversation);
+                        self.reconcile_home_approvals();
+                    }
                     Change::ReadCursor { participant, seq } => {
                         if let Some(summary) = self.summary.as_mut() {
                             let cursor = summary.read_cursors.entry(participant).or_insert(0);
@@ -392,6 +404,8 @@ impl Brain {
             let framed = agent_framed(sender.as_ref(), relay.is_some(), &text);
             let logged =
                 super::files::logged_text(&super::images::logged_text(&framed, &images), &files);
+            self.posted
+                .insert(message.id.clone(), message.created_at.clone());
             self.queue_with_images(
                 logged,
                 images,
