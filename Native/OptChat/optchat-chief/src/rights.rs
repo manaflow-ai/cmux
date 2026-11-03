@@ -494,10 +494,10 @@ impl Pattern {
                 ));
             }
         }
-        if let (Some(Arg::Prefix(p) | Arg::Exact(p)), Some(ArgKind::Path)) = (&arg, arg_kind(tool)) {
-            if !p.starts_with('/') {
-                return Err(format!("{text:?}: a path pattern must be absolute"));
-            }
+        if let (Some(Arg::Prefix(p) | Arg::Exact(p)), Some(ArgKind::Path)) = (&arg, arg_kind(tool))
+            && !p.starts_with('/')
+        {
+            return Err(format!("{text:?}: a path pattern must be absolute"));
         }
         Ok(Pattern {
             tool: tool.to_owned(),

@@ -185,19 +185,22 @@ impl Brain {
         let person = if owner_msg { owner.clone() } else { Self::person_of(summary, message) };
         let rights = self.rights_table();
         let trimmed = text.trim();
-        if trimmed.starts_with('/') {
-            if let Some(answer) = self.command(&rights, summary, &person, owner_msg, trimmed, &message.id) {
-                self.answer_message(target, message, "rights", &answer);
-                return Admit::Answered;
-            }
+        if trimmed.starts_with('/')
+            && let Some(answer) = self.command(&rights, summary, &person, owner_msg, trimmed, &message.id)
+        {
+            self.answer_message(target, message, "rights", &answer);
+            return Admit::Answered;
         }
         let detected = self.rights.as_ref().and_then(|c| c.detected);
         // The owner's own CLI carrying another agent's words (`[from NAME]`,
         // README "Remote-origin messages"): not another person, but still
         // under the floor with no grants, as before.
         let agent_sent = !owner_msg && person == owner;
-        if !owner_msg && !agent_sent {
-            if let Err(why) = rights.may_prompt(&owner, &person, detected) {
+        if !owner_msg
+            && !agent_sent
+            && let Err(why) = rights.may_prompt(&owner, &person, detected)
+        {
+            {
                 let name = display_name(summary, &message.author);
                 self.audit(Entry {
                     who: vec![person.clone()],
