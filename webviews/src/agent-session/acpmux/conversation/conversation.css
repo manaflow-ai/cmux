@@ -4215,6 +4215,17 @@ a.cv-sha:focus-visible {
   margin-inline-start: -2px;
   white-space: nowrap;
 }
+/* A stopped turn's one muted word (TurnRows.tsx `stoppedWord`), in the time's caption size and the
+   footer's resting ink: what ended the turn is its tooltip, never the transcript's text. */
+.cv-turn-actions .cv-turn-stopped {
+  display: inline-flex;
+  align-items: center;
+  height: var(--cv-footer-row);
+  color: var(--cv-footer-ink);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  white-space: nowrap;
+}
 .cv-iconbtn.cv-turn-continue:disabled {
   opacity: 0.5;
   pointer-events: none;
@@ -5986,6 +5997,40 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
    line's width instead of sharing it with the first line, which is under it. */
 .cv-received > .cv-disclosure__line:not(:has(.cv-received__preview)) > .cv-received__sender {
   max-width: calc(100% - var(--cv-chevron-glyph, 12px) - var(--ds-space-4, 16px));
+}
+/* The selection's Reply chip (SelectionReply.tsx): a small pill over the selection's end, as
+   Claude's and ChatGPT's. It shows on the selection's end with no fade-in and goes when the
+   selection does. `icon` draws the glyph alone. */
+.cv-selection-reply {
+  position: fixed;
+  z-index: var(--layer-dropdown);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding-inline: 8px 12px;
+  border: var(--cmux-hairline, 0.5px) solid var(--cv-card-ring);
+  border-radius: 8px;
+  /* Opaque over the text it floats above: the page's colour under the cards' fill. */
+  background: linear-gradient(var(--cv-card-fill), var(--cv-card-fill)), var(--agent-page-bg, Canvas);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.14);
+  color: var(--cv-tool-strong);
+  font-family: var(--cv-font);
+  font-size: var(--text-control);
+  line-height: 20px;
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+}
+.cv-selection-reply[data-look="icon"] {
+  width: 28px;
+  padding: 0;
+  justify-content: center;
+}
+.cv-selection-reply:hover {
+  color: var(--cv-text, currentColor);
+  background: linear-gradient(var(--cv-bubble), var(--cv-bubble)), linear-gradient(var(--cv-card-fill), var(--cv-card-fill)),
+    var(--agent-page-bg, Canvas);
 }
 /* A background task's result the person has not seen (ReactionMark.tsx): a 6px accent dot at the
    row's edge, before its check and time, until the next prompt. It never pulses. */

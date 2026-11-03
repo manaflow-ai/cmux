@@ -136,8 +136,11 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
     expect(await intact(".cv-message__text")).toEqual({ mask: "none", split: 0, visible: true });
     await page.locator(".cv-message__more").click();
     expect(await page.locator(".cv-message__text").evaluate((box) => box.clientHeight >= box.scrollHeight)).toBe(true);
-    await page.locator(".cv-message .cv-agentmsg__line").first().click();
-    await page.locator(".cv-message .cv-agentmsg__line").first().click();
+    // Open, the toggle button holds no preview and has no width since #32867 put the chevron right
+    // after the words, and stacked it holds none shut either; the whole line still toggles, so close
+    // and open it from its chevron.
+    await page.locator(".cv-message .cv-agentmsg__chevron").click();
+    await page.locator(".cv-message .cv-agentmsg__chevron").click();
     expect(await page.locator(".cv-message__more").getAttribute("aria-expanded")).toBe("true");
     await page.locator(".cv-message__more").press("Enter");
     expect(await intact(".cv-message__text")).toEqual({ mask: "none", split: 0, visible: true });

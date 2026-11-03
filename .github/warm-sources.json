@@ -156,6 +156,7 @@
     "iroh-v2.yml:backend": {"class": "linux-js", "warm": [], "exempt": "cold: bun or npm install and TypeScript checks or tests with no dependency cache; no warm source wired yet"},
     "iroh-v2.yml:client": {"class": "mac-test", "warm": [], "exempt": "cold: swift build or test into a fresh .build; no warm source wired yet"},
     "machine-join-e2e.yml:e2e": {"class": "linux-rust", "warm": [], "exempt": "cold: cargo from an empty target directory; bun or npm install and TypeScript checks or tests with no dependency cache; no warm source wired yet"},
+    "machine-vault-e2e.yml:e2e": {"class": "mac-run-product", "warm": [], "exempt": "runs the cmux CLI published for the run's commit and the channel's acpmux as a disposable user; compiles nothing"},
     "macos-cross-parity.yml:linux-build": {"class": "linux-swift", "warm": ["actions-cache"]},
     "macos-cross-parity.yml:runtime-x86_64": {"class": "mac-run-product", "warm": [], "exempt": "runs Linux-built binaries beside downloaded Mac-built references; compiles nothing"},
     "main-compile-probe.yml:compile": {"class": "mac-build", "warm": ["deriveddata-reuse", "ssd-cas", "actions-cache"]},
