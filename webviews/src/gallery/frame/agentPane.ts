@@ -170,6 +170,9 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
   await import("../../pages/shared/desktop");
   await import("virtual:cmux-gallery/agent-pane.css");
   await import("katex/dist/katex.min.css");
+  // Mock pages need their daemon before mounting: the ready reply schedules the fixture
+  // snapshot, which must not paint while the mock transport's chunk is still loading.
+  if (state.ready?.transport === "mock") await import("../../agent-session/acpmux/mock");
   await import("../../agent-session/acpmux/main");
   // main.tsx imports some pane sheets itself (styles.css, diffTokens.css, composerFooterShared.css,
   // #26126). The app's bundle drops those imports and ships each sheet once in dev.tsx's order, but
