@@ -183,9 +183,13 @@ const failedStep = chat(
   { harness: "claude", model: "claude-opus-5-5" },
 );
 
-/// Opens the run, to show its steps.
+/// Opens the run, to show its steps. A turn with no summary row draws as it came (turns.ts
+/// `shapeTurn`), so this group already starts open: a click then closed it, and the wait raced its
+/// close (it held only while the closing steps were still drawn; the reply under it rose as it shut).
+/// The play clicks only a closed group.
 const openRun = async (ctx: PlayContext) => {
-  await ctx.click({ role: "button", name: /Ran 4 commands/ });
+  const run = ctx.find({ role: "button", name: /Ran 4 commands/ });
+  if (run.getAttribute("aria-expanded") !== "true") await ctx.click({ role: "button", name: /Ran 4 commands/ });
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-steps .cv-command__failed")));
 };
 

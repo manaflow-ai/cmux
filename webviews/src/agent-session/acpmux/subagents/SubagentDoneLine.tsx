@@ -22,7 +22,7 @@ import { TranscriptActivityRowShell } from "../conversation/TranscriptActivityRo
 import { formatDuration } from "../conversation/turns";
 import { ChevronRight, Retry } from "../conversation/icons";
 import { TurnActionsContext } from "../conversation/turnActions";
-import { ReactionMark } from "../conversation/ReactionMark";
+import { ReactionMark, ReactionReply } from "../conversation/ReactionMark";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { AgentIdentity, SUBAGENT_FALLBACK } from "./AgentIdentity";
@@ -155,12 +155,8 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
               fallback={SUBAGENT_FALLBACK}
             />
           </span>
-          {/* tooltip-allow: the line is cut at the pane's width; its whole text, the failure included,
-              and the chat's quiet reply to its end (ReactionMark.tsx), which its view opens to */}
-          <span
-            className="cv-tool__text cv-agent-activity__sentence"
-            title={agent.reaction?.text ? `${whole}\n\n${agent.reaction.text}` : whole}
-          >
+          {/* tooltip-allow: the line is cut at the pane's width; its whole text, the failure included */}
+          <span className="cv-tool__text cv-agent-activity__sentence" title={whole}>
             {!waiting && before}
             <AgentTag name={name} />
             {!waiting && after}
@@ -218,6 +214,9 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
           <ChevronRight size={14} strokeWidth={1.2} />
         </span>
       </TranscriptActivityRowShell>
+      {/* The chat's quiet reply to its end (ReactionMark.tsx), under the line as text Find reads,
+          never only in a tooltip (cmux#33538). */}
+      <ReactionReply reaction={agent.reaction} />
     </div>
   );
 }

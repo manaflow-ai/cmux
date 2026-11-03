@@ -229,6 +229,19 @@ function CommitForm({
             </label>
           ))}
         </ChoiceGroup>
+        <button type="button" className="acpmux-git-secondary" disabled={busy} onClick={onCloseForm}>
+          {t("git.cancel")}
+        </button>
+        <button type="submit" className="acpmux-git-primary" disabled={!ready}>
+          {t("git.commit.submit")}
+        </button>
+      </div>
+      {/* What the scope commits, then All's Include new files, on their own line: picking a scope changes
+          only this line, so Cancel and Commit never move or wrap (agent-pane.changes-git-actions). */}
+      <div className="acpmux-git-form-row acpmux-git-scope-line">
+        <span className="acpmux-git-scope-hint">
+          {t(scope === "staged" ? "git.commit.stagedHint" : "git.commit.allHint")}
+        </span>
         {scope === "all" && (
           <label className="acpmux-git-include-new">
             <input
@@ -241,15 +254,6 @@ function CommitForm({
             <span id={`${scopeName}-new`}>{t("git.commit.includeNew")}</span>
           </label>
         )}
-        <span className="acpmux-git-scope-hint">
-          {t(scope === "staged" ? "git.commit.stagedHint" : "git.commit.allHint")}
-        </span>
-        <button type="button" className="acpmux-git-secondary" disabled={busy} onClick={onCloseForm}>
-          {t("git.cancel")}
-        </button>
-        <button type="submit" className="acpmux-git-primary" disabled={!ready}>
-          {t("git.commit.submit")}
-        </button>
       </div>
       {withNew && listChanged && (
         <span className="acpmux-git-form-note" role="alert">
