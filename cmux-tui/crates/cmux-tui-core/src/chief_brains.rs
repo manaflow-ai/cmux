@@ -720,7 +720,12 @@ impl Supervisor {
         self.brains
             .values()
             .flat_map(|b| {
-                let idle = (b.process.is_some() && !b.stopping).then_some(b.last_activity + IDLE);
+                // The same test as `on_time`'s idle stop: a typing brain is
+                // not stopped, so its idle deadline would stay in the past
+                // and the thread would wait zero, again and again. The end of
+                // its typing sets `last_activity`, from which the stop counts.
+                let idle = (b.process.is_some() && !b.stopping && b.typing.is_empty())
+                    .then_some(b.last_activity + IDLE);
                 [b.retry_at, idle]
             })
             .flatten()
