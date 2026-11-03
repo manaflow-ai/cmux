@@ -13,6 +13,8 @@ public struct WorkspaceClaims: Sendable {
     /// CLI's create): they never open a Cloud machine nobody opened here (#28609);
     /// reconcile drops them for its workspaces.
     public var background: Set<String> = []
+    /// CLI creates announced by idempotency key (`workspace.expect_window`, #32989).
+    public var expected = ExpectedWorkspaceWindows()
 
     public init() {}
 

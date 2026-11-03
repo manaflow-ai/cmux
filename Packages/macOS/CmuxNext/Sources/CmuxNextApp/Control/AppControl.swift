@@ -99,7 +99,7 @@ final class AppControl {
         service.router.register(SettingsControl.methods(services: services))
         service.router.register(TerminalLinkOpenControl.methods(services: services))
         // `workspace.expect_window`: the window a CLI or MCP create opens in (#32989).
-        service.router.register(WorkspaceWindowControl.methods(services: services))
+        service.router.register(services.windows.expectWindowControlMethods())
         service.router.register(PermissionsControl.methods(services: services))
         service.router.register(NotificationsControl.methods(services: services))
         service.router.register(SessionTransferControl.methods(services: services))

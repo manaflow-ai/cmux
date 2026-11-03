@@ -10,6 +10,7 @@ import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
+import CmuxNextLayout
 import CmuxNextPages
 import CmuxNextSidebar
 import CmuxNextWakeups
@@ -83,7 +84,7 @@ final class HomeHostView: NSView {
         // A message to the Chief from this window: the workspaces its turn makes open here (#32989).
         transcript.binding.onSend = { [weak self, weak services] _ in
             guard let self, isChief, let services else { return }
-            services.windows.chiefPrompt.note(window, in: services.windows)
+            if let id = window.flatMap(services.windows.owner(of:))?.state.id { services.windows.chiefPrompt.note(id) }
         }
         transcript.setNamePillHelp(HomeEngineStrings.pillHelp)
         // The header's name: the Chief's settings over a Chief; a DM's or group's info otherwise.

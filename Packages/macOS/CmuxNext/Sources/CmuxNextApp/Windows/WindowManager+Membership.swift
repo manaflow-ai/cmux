@@ -536,30 +536,11 @@ extension WindowManager {
     private func installWorkspaceListHook(on daemon: DaemonService) {
         guard daemon.store.onWorkspaceListChanged == nil else { return }
         daemon.store.onWorkspaceListChanged = { [weak self] in self?.reconcileMembership() }
-        daemon.store.onResourceWorkspaceAdded = { [weak self] id, key in self?.claimExpectedCreate(id, key: key) }
-    }
-
-    /// A CLI create announced by `workspace.expect_window` arrived: it opens in the window it named
-    /// (the prompting window of a Chief turn, the caller's own window, or `--window`), never in the
-    /// most recent one (#32989). Filed without showing it unless the create asked (`--focus`):
-    /// an agent's create never takes the person's view, and nothing here brings a window forward.
-    func claimExpectedCreate(_ id: String, key: String) {
-        guard let expected = expectedCreates.take(key) else { return }
-        claimForCaller(id, window: expected.window, shows: expected.shows)
-    }
-
-    /// Files new workspace `id`, which a caller's create is about to make or just made, into `window`
-    /// (a control caller's own window, `ActionInvocation.callerWindow`) once the daemon reports it:
-    /// quietly unless `shows`, and never for a window that is not open or a workspace already placed.
-    /// Returns whether it claimed it; false leaves the create to reconcile (the most recent window).
-    @discardableResult
-    func claimForCaller(_ id: String, window: String?, shows: Bool = false) -> Bool {
-        guard let window, registry.value.window(window)?.isOpen == true,
-              registry.value.owner(of: id) == nil, claims.pending[id] == nil else { return false }
-        claims.pending[id] = window
-        claims.background.insert(id)
-        if !shows { claims.quiet.insert(id) }
-        return true
+        // A CLI create announced by `workspace.expect_window` opens in its window, not the most recent (#32989).
+        daemon.store.onResourceWorkspaceAdded = { [weak self] id, key in
+            guard let self else { return }
+            claims.claimExpected(id, key: key, in: registry.value)
+        }
     }
 
     /// True when `id` is known gone: its machine is loaded and lacks it, or

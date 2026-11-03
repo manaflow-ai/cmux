@@ -63,8 +63,6 @@ final class WindowManager {
     var claims = WorkspaceClaims()
     /// The window the person last prompted the Chief from (#32989).
     let chiefPrompt = ChiefPromptWindow()
-    /// CLI creates announced by idempotency key (`workspace.expect_window`, #32989).
-    var expectedCreates = ExpectedWorkspaceWindows()
     /// Windows to open behind (automation, Option).
     var behindWindows: Set<String> = []
     /// While ``fileOpenedMachine(of:into:)`` re-runs reconcile: a window that pass opens files nothing again.

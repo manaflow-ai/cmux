@@ -53,8 +53,7 @@ struct CreateInCallerWindowTests {
         let (prompted, other) = try await Self.twoWindows(services)
         defer { for controller in [prompted, other] { controller.teardown(); controller.window?.close() } }
 
-        let reply = try WorkspaceWindowControl.expect(["idempotency_key": "cli-key-1", "window": .string(prompted.state.id)],
-                                                      topology: ControlSnapshotPublisher.topology(services), windows: services.windows)
+        let reply = try services.windows.expectCreate(["idempotency_key": "cli-key-1", "window": .string(prompted.state.id)], topology: ControlSnapshotPublisher.topology(services))
         #expect(reply["window"] == .string(ControlWindowInfo.publicID(forKey: prompted.state.id)))
         services.machines.local.store.apply(Self.added("ws-new", surface: 3, mutation: "cli-key-1"))
 
@@ -72,11 +71,10 @@ struct CreateInCallerWindowTests {
         defer { for controller in [prompted, other] { controller.teardown(); controller.window?.close() } }
 
         // The person sent the Chief a message from the window the most recent rule would not pick.
-        services.windows.chiefPrompt.note(prompted.window, in: services.windows)
+        services.windows.chiefPrompt.note(prompted.state.id)
         let topology = ControlSnapshotPublisher.topology(services)
         #expect(topology.chiefPromptWindowID == prompted.state.id)
-        _ = try WorkspaceWindowControl.expect(["idempotency_key": "turn-key", "caller": ["home_chat": true]],
-                                              topology: topology, windows: services.windows)
+        _ = try services.windows.expectCreate(["idempotency_key": "turn-key", "caller": ["home_chat": true]], topology: topology)
         services.machines.local.store.apply(Self.added("ws-turn", surface: 3, mutation: "turn-key"))
 
         #expect(services.windows.registry.value.owner(of: "ws-turn") == prompted.state.id)
@@ -103,8 +101,7 @@ struct CreateInCallerWindowTests {
         defer { for controller in [prompted, other] { controller.teardown(); controller.window?.close() } }
 
         #expect(throws: ControlError.self) {
-            try WorkspaceWindowControl.expect(["idempotency_key": "k", "window": "win_00000000000000000000000000000000"],
-                                              topology: ControlSnapshotPublisher.topology(services), windows: services.windows)
+            try services.windows.expectCreate(["idempotency_key": "k", "window": "win_00000000000000000000000000000000"], topology: ControlSnapshotPublisher.topology(services))
         }
     }
 }
