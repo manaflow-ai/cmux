@@ -33,6 +33,13 @@ test("go/gday opens http://go/gday first, with the web search and Ask still offe
   expect(list.some((row) => row.type === "ask")).toBe(true);
 });
 
+test("a pasted URL with an encoded query space opens by default", () => {
+  const text = "https://example.com/search?q=a b";
+  const rows = screenRows(text, { omnibar: EMPTY_OMNIBAR, ask });
+  expect(rows[0]).toEqual({ type: "open", url: "https://example.com/search?q=a%20b", text });
+  expect(defaultSelection(rows)).toBe(0);
+});
+
 test("a bare single word stays a prompt", () => {
   const list = screenRows("go", { omnibar: EMPTY_OMNIBAR, ask });
   expect(list.some((row) => row.type === "open")).toBe(false);
