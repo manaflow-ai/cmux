@@ -19,8 +19,8 @@ type Props = { grid: Grid };
 const BEFORE = `
 .acpmux-home-list{padding:6px;border-radius:18px}
 .acpmux-home-label{padding:4px 10px 2px;font-weight:500}
-.acpmux-home-row{height:40px;border-radius:10px;font-size:14px}
-.acpmux-home-meta{font-size:13px}
+.acpmux-home-row{height:40px;border-radius:10px;font-size:var(--text-field)}
+.acpmux-home-meta{font-size:var(--text-body)}
 .acpmux-home-inbox-row,.acpmux-home-inbox-open{border-radius:10px}
 .nt-all-row,.nt-all-group{gap:10px;border-radius:8px}
 `;
