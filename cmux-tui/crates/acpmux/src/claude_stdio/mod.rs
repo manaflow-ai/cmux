@@ -493,6 +493,9 @@ pub struct Translator {
     carry_owed: tokio::sync::watch::Sender<(usize, u64)>,
     /// Text streamed so far in the current turn, to build the prompt result.
     pub cancelled: AtomicBool,
+    /// A Send now stopped the current step (`step_interrupt`): its result ends the turn and
+    /// carries the steer Claude Code has not read (`carry.rs`). Cleared at each result.
+    step_stopped: AtomicBool,
     pub slash_commands: Mutex<Vec<Value>>,
     /// The skills Claude Code names in its system/init (`skills`, names
     /// without "/"): their slash commands are tagged as skills.
@@ -647,6 +650,7 @@ impl Translator {
             carry: Mutex::new(carry::Carry::new()),
             carry_owed: tokio::sync::watch::channel((0, 0)).0,
             cancelled: AtomicBool::new(false),
+            step_stopped: AtomicBool::new(false),
             slash_commands: Mutex::new(Vec::new()),
             skills: Mutex::new(Vec::new()),
             sent_commands: Mutex::new(None),

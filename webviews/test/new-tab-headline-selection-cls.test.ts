@@ -94,10 +94,29 @@ await requireBrowserLane("new-tab-headline-selection-cls.test.ts", async () => {
                   // shift still fails.
                   const projectContent =
                     ".nt-above .acpmux-location-leading :is(.acpmux-location-label, .ui-ghost-icon, .acpmux-location-picker[data-kind='computer'], .acpmux-location-picker[data-kind='computer'] *)";
+                  // Chromium 156 reports some sources with no node (the layout-shift spec allows a
+                  // null node); its rects there are the machine pill's own box moving along the strip.
+                  // Such a source counts as expected only when it moved sideways alone and its box
+                  // lines up with an allowed element's (same x, width and vertical center).
+                  const allowedBoxes = [...document.querySelectorAll(projectContent)].map((element) =>
+                    element.getBoundingClientRect(),
+                  );
+                  const near = (a: number, b: number) => Math.abs(a - b) < 0.5;
+                  const sidewaysOnlyAllowedBox = (previous: DOMRectReadOnly, current: DOMRectReadOnly) =>
+                    near(previous.y, current.y) &&
+                    near(previous.height, current.height) &&
+                    near(previous.width, current.width) &&
+                    allowedBoxes.some(
+                      (box) =>
+                        near(box.x, current.x) &&
+                        near(box.width, current.width) &&
+                        near(box.y + box.height / 2, current.y + current.height / 2),
+                    );
                   const expected =
                     shift.sources?.length &&
                     shift.sources.every((source) => {
-                      const element = source.node instanceof Element ? source.node : source.node?.parentElement;
+                      if (!source.node) return sidewaysOnlyAllowedBox(source.previousRect, source.currentRect);
+                      const element = source.node instanceof Element ? source.node : source.node.parentElement;
                       return Boolean(element?.closest(projectContent));
                     });
                   if (!expected) state.total += shift.value;
