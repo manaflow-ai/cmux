@@ -73,13 +73,17 @@ impl MachineFs for DirMachineFs {
             let _ = std::fs::set_permissions(tmp.path(), m.permissions());
         }
         tmp.persist(&full).map_err(|e| e.error)?;
-        Ok(())
+        // The entry is cleared from the journal after this returns, so the rename must survive
+        // a power loss first.
+        super::store::sync_dir(&dir)
     }
 
     fn remove(&self, path: &str) -> io::Result<()> {
-        match std::fs::remove_file(self.resolve(path)?) {
-            Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
-            _ => Ok(()),
+        let full = self.resolve(path)?;
+        match std::fs::remove_file(&full) {
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e),
+            Ok(()) => super::store::sync_dir(full.parent().unwrap_or(self.root.as_path())),
         }
     }
 }

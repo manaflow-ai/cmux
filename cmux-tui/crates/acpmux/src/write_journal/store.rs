@@ -18,6 +18,9 @@ pub struct JournalState {
 
 /// Durable storage of unflushed journals. Every method is durable before it returns `Ok`: a
 /// write whose tool result was returned must survive a restart of the process that wrote it.
+/// An `append` that returns `Err` should leave no record behind (the file store cuts it back);
+/// when it cannot be sure, the journal stops taking writes until reopened, and the reopen keeps
+/// whatever the store really holds, never under a reused sequence number.
 pub trait JournalStore: Send + Sync {
     fn load(&self, machine: &str) -> io::Result<JournalState>;
     fn append(&self, machine: &str, entry: &Entry) -> io::Result<()>;
@@ -63,14 +66,17 @@ fn invalid(e: impl std::fmt::Display) -> io::Error {
 }
 
 fn read_lines(path: &Path) -> io::Result<JournalState> {
-    let text = match std::fs::read_to_string(path) {
-        Ok(t) => t,
+    let bytes = match std::fs::read(path) {
+        Ok(b) => b,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(JournalState::default()),
         Err(e) => return Err(e),
     };
     let mut state = JournalState::default();
-    // Every complete line ends with a newline; text after the last one is a torn append.
-    let complete = text.rfind('\n').map_or("", |i| text.get(..i).unwrap_or(""));
+    // Every complete line ends with a newline; bytes after the last one are a torn append (which
+    // may end inside a UTF-8 character), so only the prefix is decoded.
+    let end = bytes.iter().rposition(|&c| c == b'\n').unwrap_or(0);
+    let complete = std::str::from_utf8(bytes.get(..end).unwrap_or_default())
+        .map_err(|e| invalid(format!("{}: {e}", path.display())))?;
     for line in complete.split('\n') {
         if line.trim().is_empty() {
             continue;
@@ -104,9 +110,21 @@ impl JournalStore for FileJournalStore {
         std::fs::create_dir_all(&self.dir)?;
         let path = self.path_for(machine);
         drop_torn_tail(&path)?;
+        let created = !path.exists();
         let mut file = OpenOptions::new().create(true).append(true).open(&path)?;
-        file.write_all(line_of(&Line::Entry(entry.clone()))?.as_bytes())?;
-        file.sync_data()
+        let before = file.metadata()?.len();
+        let written = file
+            .write_all(line_of(&Line::Entry(entry.clone()))?.as_bytes())
+            .and_then(|()| file.sync_data())
+            .and_then(|()| if created { sync_dir(&self.dir) } else { Ok(()) });
+        if let Err(e) = written {
+            // The caller reports this write as failed, so it must not come back on the next load:
+            // cut the file back to where it was. If even that fails, the journal refuses further
+            // writes until it is reopened (`WriteJournal::record`).
+            let _ = file.set_len(before).and_then(|()| file.sync_data());
+            return Err(e);
+        }
+        Ok(())
     }
 
     fn clear_through(&self, machine: &str, seq: u64) -> io::Result<()> {
@@ -124,9 +142,20 @@ impl JournalStore for FileJournalStore {
         tmp.as_file().sync_data()?;
         tmp.persist(&path).map_err(|e| e.error)?;
         // The rename itself is durable once the folder is.
-        if let Ok(d) = File::open(&self.dir) {
-            let _ = d.sync_all();
-        }
+        sync_dir(&self.dir)
+    }
+}
+
+/// Makes a rename, create or remove in `dir` durable. Windows has no folder fsync; NTFS journals
+/// its metadata.
+pub(super) fn sync_dir(dir: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        File::open(dir)?.sync_all()
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = dir;
         Ok(())
     }
 }

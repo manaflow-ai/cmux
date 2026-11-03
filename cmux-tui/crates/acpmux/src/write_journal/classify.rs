@@ -140,7 +140,10 @@ fn stage_reads(words: &[String]) -> bool {
         // `-f`/`-F` never end; `sort -o` writes a file; `rg --pre` runs a program per file.
         "tail" => !any_option(args, &["-f", "-F", "--follow", "--retry"]),
         "sort" => !any_option(args, &["-o", "--output", "--compress-program"]),
-        "rg" => !any_option(args, &["--pre", "--pre-glob", "--search-zip", "-z"]),
+        "rg" => !any_option(
+            args,
+            &["--pre", "--pre-glob", "--search-zip", "-z", "--hostname-bin", "--hyperlink-format"],
+        ),
         // find takes no abbreviations and no clusters: its actions are whole words.
         "find" => !args.iter().any(|a| {
             [
@@ -160,15 +163,20 @@ fn git_reads(args: &[String]) -> bool {
     if !GIT_READERS.contains(&sub.as_str()) {
         return false;
     }
-    let bad =
-        ["--output", "--ext-diff", "--textconv", "-O", "--open-files-in-pager", "--paginate", "-p"];
+    const BAD: &[&str] = &[
+        "--output",
+        "--ext-diff",
+        "--textconv",
+        "--filters",
+        "-O",
+        "--open-files-in-pager",
+        "--paginate",
+        "-p",
+    ];
     // `-p` is a patch flag for log/show/diff, a pager flag only before the subcommand.
-    let bad: &[&str] = if matches!(sub.as_str(), "log" | "show" | "diff") {
-        bad.get(..6).unwrap_or(&bad)
-    } else {
-        &bad
-    };
-    if any_option(rest, bad) {
+    let patch = matches!(sub.as_str(), "log" | "show" | "diff");
+    let bad: Vec<&str> = BAD.iter().copied().filter(|b| !(patch && *b == "-p")).collect();
+    if any_option(rest, &bad) {
         return false;
     }
     // `git branch NAME` creates, `-d` deletes, `-m` moves: only the listing forms read.

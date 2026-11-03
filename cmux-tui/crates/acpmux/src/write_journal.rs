@@ -104,6 +104,10 @@ pub fn rel_path(raw: &str) -> Result<String, PathError> {
         match part {
             "" | "." => {}
             ".." => return Err(PathError::Escapes(raw.to_owned())),
+            // A drive prefix (`C:/x`, `C:x`) replaces the root on Windows when joined; a `:`
+            // also names an NTFS alternate stream. Refused everywhere, so a journal reads the
+            // same on every platform.
+            p if p.contains(':') => return Err(PathError::Absolute(raw.to_owned())),
             p => parts.push(p),
         }
     }
@@ -119,6 +123,9 @@ pub struct WriteJournal {
     store: Arc<dyn JournalStore>,
     entries: Vec<Entry>,
     next_seq: u64,
+    /// A store append failed and may have left a partial record: refuse writes until reopened,
+    /// so a later write can never share its sequence number.
+    poisoned: bool,
 }
 
 impl std::fmt::Debug for WriteJournal {
@@ -139,6 +146,16 @@ impl WriteJournal {
         let mut entries: Vec<Entry> =
             state.entries.into_iter().filter(|e| e.seq > state.cleared_through).collect();
         entries.sort_by_key(|e| e.seq);
+        // The same entry twice is harmless; two different entries under one number are not.
+        if let Some(w) =
+            entries.windows(2).find(|w| matches!(w, [a, b] if a.seq == b.seq && a != b))
+            && let Some(e) = w.first()
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("journal sequence number {} names two different entries", e.seq),
+            ));
+        }
         entries.dedup_by_key(|e| e.seq);
         // A stored path is checked again: a flush must never write outside the folder, whatever
         // the store hands back.
@@ -151,7 +168,13 @@ impl WriteJournal {
         }
         let last =
             entries.last().map_or(state.cleared_through, |e| e.seq.max(state.cleared_through));
-        Ok(Self { machine: machine.to_owned(), store, entries, next_seq: last.saturating_add(1) })
+        Ok(Self {
+            machine: machine.to_owned(),
+            store,
+            entries,
+            next_seq: last.saturating_add(1),
+            poisoned: false,
+        })
     }
 
     pub fn machine(&self) -> &str {
@@ -182,11 +205,22 @@ impl WriteJournal {
     }
 
     /// Appends one entry and returns its sequence number. It is durable in the store before
-    /// this returns; on a store error nothing is recorded and the sequence number is not used.
+    /// this returns. On a store error the write is reported failed, its sequence number is never
+    /// used again, and the journal refuses writes until it is reopened (the store may hold part
+    /// of the failed record; a reopen reads what is really there).
     pub fn record(&mut self, path: &str, op: Op, base: Version, at_ms: u64) -> io::Result<u64> {
+        if self.poisoned {
+            return Err(io::Error::other(
+                "an earlier journal write failed; reopen the journal before writing again",
+            ));
+        }
         let path = rel_path(path).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
         let entry = Entry { seq: self.next_seq, path, op, base, at_ms };
-        self.store.append(&self.machine, &entry)?;
+        if let Err(e) = self.store.append(&self.machine, &entry) {
+            self.next_seq = entry.seq.saturating_add(1);
+            self.poisoned = true;
+            return Err(e);
+        }
         self.next_seq = entry.seq.saturating_add(1);
         let seq = entry.seq;
         self.entries.push(entry);

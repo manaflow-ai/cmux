@@ -59,6 +59,9 @@ fn rel_path_normalizes_and_refuses_escapes() {
     assert!(matches!(rel_path("/etc/passwd"), Err(PathError::Absolute(_))));
     assert!(matches!(rel_path("src/../../x"), Err(PathError::Escapes(_))));
     assert!(matches!(rel_path("./"), Err(PathError::Empty)));
+    for drive in ["C:/outside/file", "C:outside/file", "a/b:stream"] {
+        assert!(matches!(rel_path(drive), Err(PathError::Absolute(_))), "{drive}");
+    }
 }
 
 #[test]
@@ -185,6 +188,95 @@ fn a_torn_last_line_is_dropped_and_the_next_append_still_reads_back() {
     drop(j);
     let j = open(&f);
     assert_eq!(j.entries().iter().map(|e| e.path.as_str()).collect::<Vec<_>>(), vec!["a", "b"]);
+}
+
+#[test]
+fn a_torn_tail_inside_a_utf8_character_still_loads() {
+    let f = fixture(&[]);
+    let mut j = open(&f);
+    journaled(write_text(&mut j, &f.replica, "a", Some("1"), 1).unwrap());
+    drop(j);
+    let path = f.store.path_for("m1");
+    let mut bytes = std::fs::read(&path).unwrap();
+    bytes.extend_from_slice(b"{\"entry\":{\"seq\":2,\"path\":\"\xc3");
+    std::fs::write(&path, bytes).unwrap();
+    let j = open(&f);
+    assert_eq!(j.entries().len(), 1);
+}
+
+#[test]
+fn two_different_entries_under_one_number_are_an_error() {
+    let f = fixture(&[]);
+    let path = f.store.path_for("m1");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let entry = |p: &str| serde_json::json!({"entry": {"seq": 1, "path": p, "op": {"kind": "delete"}, "base": {"kind": "absent"}, "atMs": 0}});
+    std::fs::write(&path, format!("{}\n{}\n", entry("a"), entry("a"))).unwrap();
+    assert_eq!(WriteJournal::open(f.store.clone(), "m1").unwrap().entries().len(), 1);
+    std::fs::write(&path, format!("{}\n{}\n", entry("a"), entry("b"))).unwrap();
+    assert!(WriteJournal::open(f.store.clone(), "m1").is_err());
+}
+
+/// A store whose appends write the record and then fail, as an fsync error would.
+struct FlakyStore {
+    inner: FileJournalStore,
+    fail: std::sync::atomic::AtomicBool,
+}
+
+impl JournalStore for FlakyStore {
+    fn load(&self, machine: &str) -> std::io::Result<JournalState> {
+        self.inner.load(machine)
+    }
+    fn append(&self, machine: &str, entry: &Entry) -> std::io::Result<()> {
+        if self.fail.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            self.inner.append(machine, entry)?;
+            return Err(std::io::Error::other("fsync failed"));
+        }
+        self.inner.append(machine, entry)
+    }
+    fn clear_through(&self, machine: &str, seq: u64) -> std::io::Result<()> {
+        self.inner.clear_through(machine, seq)
+    }
+}
+
+#[test]
+fn a_failed_append_never_lets_a_later_write_reuse_its_number() {
+    let f = fixture(&[]);
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(FlakyStore {
+        inner: FileJournalStore::new(dir.path()),
+        fail: std::sync::atomic::AtomicBool::new(true),
+    });
+    let mut j = WriteJournal::open(store.clone(), "m").unwrap();
+    assert!(write_text(&mut j, &f.replica, "a", Some("lost?"), 1).is_err());
+    // Refused until reopened, so nothing can take seq 1.
+    assert!(write_text(&mut j, &f.replica, "b", Some("b"), 2).is_err());
+    let mut j = WriteJournal::open(store, "m").unwrap();
+    let seq = journaled(write_text(&mut j, &f.replica, "b", Some("b"), 3).unwrap());
+    assert!(j.entries().iter().filter(|e| e.seq == seq).count() == 1);
+    assert_eq!(j.entries().last().map(|e| e.path.as_str()), Some("b"));
+}
+
+#[test]
+fn the_file_store_cuts_back_a_record_whose_append_failed() {
+    // FileJournalStore's own rollback: a failed append leaves the file as it was.
+    let f = fixture(&[]);
+    let mut j = open(&f);
+    journaled(write_text(&mut j, &f.replica, "a", Some("1"), 1).unwrap());
+    let before = std::fs::read(f.store.path_for("m1")).unwrap();
+    drop(j);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let path = f.store.path_for("m1");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o444)).unwrap();
+        let mut j = open(&f);
+        let failed = write_text(&mut j, &f.replica, "b", Some("2"), 2);
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        // Root may write anyway; only judge the rollback when the append really failed.
+        if failed.is_err() {
+            assert_eq!(std::fs::read(&path).unwrap(), before);
+        }
+    }
 }
 
 #[test]
@@ -368,6 +460,8 @@ fn anything_that_could_run_or_write_is_an_exec() {
         "git diff --ext-diff",
         "git grep -O x",
         "git log --textconv",
+        "git cat-file --filters HEAD:a",
+        "rg --hostname-bin ./helper --hyperlink-format default x a",
         "find . -delete",
         "find . -exec rm {} ;",
         "rg --pre ./run.sh x",
