@@ -1,0 +1,324 @@
+import type { Env } from "../env.ts"
+import type { OwnerFrame, Principal } from "@cmux/ownership"
+import { authorizeDefaultMachine, defaultHandId, ensureDefaultHand, type DefaultChiefMachine, type DefaultHandScope } from "../chief-default-hand.ts"
+import { asDaemonUser, layoutSelector } from "../cloud-acpmux-guest.ts"
+import { handStub } from "../hand-api.ts"
+import type { HandReply, HandSummary, StoredEvent } from "../hand-wire.ts"
+import type { ChiefBrainDO } from "./brain-do.ts"
+import { chiefRecord, chiefPrincipal, postText, typing } from "./brain-io.ts"
+import { writeConfig } from "./brain-store.ts"
+import { clip, upsertStep } from "./brain-runs.ts"
+import { OWNER_APPROVAL_REQUIRED } from "./effect-policy.ts"
+import { startMachineAgent, machineAgentEvents, stopMachineAgent } from "./brain-machine-acp.ts"
+
+export type MachineHarness = "claude" | "codex"
+export interface MachineRoute { binding: DefaultChiefMachine; harness: MachineHarness }
+export type MachineState = {
+  phase: "dispatching" | "running" | "waiting_auth" | "done" | "failed"
+  operation: string
+  hand: string
+  cwd: string
+  session?: string
+  after: number
+  text: string
+  reason?: string
+}
+export type MachineOutcome = { ok: true; text: string } | { ok: false; reason: string } | { pending: "auth" | "provisioning" }
+export type LoginStart = { loginId: string; url: string; userCode?: string; needsCode: boolean; expiresAtMs?: number }
+const SIGN_IN_HOSTS = new Set(["claude.com", "claude.ai", "platform.claude.com", "console.anthropic.com", "auth.anthropic.com", "auth.openai.com"])
+const MACHINE_STATE = (id: string) => `machine:${id}`
+const transportRetry = (error: unknown): boolean => !(error instanceof Error) || error.message === "chief.machine.transport_unavailable" || !/^(chief\.machine\.|hand\.|disabled$|other_chief$|chief_archived$|chief_placed$)/.test(error.message)
+const authorizeMachineHand = async (env: Env, scope: DefaultHandScope, cwd?: string): Promise<void> => {
+  const hand = handStub(env, defaultHandId(scope)) as unknown as { info(c: { kind: "chief"; user: string; agent: string }): Promise<HandReply<HandSummary & { hello: { profile?: string; roots?: Array<string> } | null }>> }
+  const info = await hand.info({ kind: "chief", user: scope.owner, agent: scope.chief })
+  if (!info.ok) throw new Error(info.error.code)
+  if (info.value.level !== "full") throw new Error("chief.machine.permission_required")
+  if (!info.value.online || info.value.profile !== "sandbox" || info.value.hello?.profile !== "sandbox") throw new Error("chief.machine.hand_offline")
+  if (cwd && !info.value.hello.roots?.includes(cwd)) throw new Error("chief.machine.cwd_changed")
+}
+export const machineSignInURL = (raw: unknown, harness: MachineHarness): string | null => {
+  if (typeof raw !== "string" || raw.length > 4096 || /[^\x21-\x7e]/.test(raw)) return null
+  try {
+    const url = new URL(raw)
+    if (url.protocol !== "https:" || url.username || url.password || url.port || !SIGN_IN_HOSTS.has(url.hostname.toLowerCase())) return null
+    const path = url.pathname.replace(/\/$/, "")
+    if (harness === "codex" ? url.hostname !== "auth.openai.com" || !["/codex/device", "/deviceauth", "/device"].includes(path) : url.hostname === "auth.openai.com" || path !== "/oauth/authorize") return null
+    return url.toString()
+  } catch { return null }
+}
+
+export const machineHarness = (harness: string | null): MachineHarness | null => harness === null || harness === "claude" ? "claude" : harness === "codex" ? "codex" : null
+export const readMachineRoute = (sql: SqlStorage): MachineRoute | null => {
+  const value = sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = 'machine_route'`).toArray()[0]?.value
+  if (!value) return null
+  try { return JSON.parse(value) as MachineRoute } catch { return null }
+}
+export const readMachineState = (sql: SqlStorage, id: string): MachineState | null => {
+  const value = sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, MACHINE_STATE(id)).toArray()[0]?.value
+  return value ? JSON.parse(value) as MachineState : null
+}
+const save = (b: ChiefBrainDO, id: string, state: MachineState) => writeConfig(b.sql, { [MACHINE_STATE(id)]: JSON.stringify(state) })
+
+/** Wake only the server-proven default carrier, through the normal cap/budget-checked owner op. */
+export const wakeDefaultMachine = async (b: ChiefBrainDO, scope: DefaultHandScope): Promise<boolean> => {
+  const cloud = await authorizeDefaultMachine(b.doEnv, scope, { running: false })
+  const principal: Principal = { identity: `session:${scope.owner}`, kind: "session", user: scope.owner, team: scope.team }
+  const read = await cloud.readOp(scope.team, principal, "cloud.machine.get", { machine: scope.connection_machine })
+  if (!read.ok) throw new Error("chief.machine.carrier_unavailable")
+  const machine = (read.value as { machine: { status: string } }).machine
+  if (machine.status === "running") return true
+  if (machine.status === "starting" || machine.status === "pausing" || machine.status === "provisioning") return false
+  if (machine.status !== "paused") throw new Error("chief.machine.carrier_unavailable")
+  if (typeof read.revision !== "string" || !read.revision) throw new Error("chief.machine.carrier_unavailable")
+  const starter = cloud as typeof cloud & { submit(entity: string, principal: Principal, frame: { t: "op"; op: string; params: unknown; idempotency_key: string; origin: "script" }): Promise<{ frames: ReadonlyArray<OwnerFrame> }> }
+  const reply = await starter.submit(scope.team, principal, { t: "op", op: "cloud.machine.start", params: { machine: scope.connection_machine }, idempotency_key: `chief-machine-wake:${scope.chief}:${scope.install}:${read.revision}`, origin: "script" })
+  const result = reply.frames.find((f) => f.t === "result" || f.t === "reject")
+  if (!result || result.t === "reject") throw new Error(result?.code ?? "chief.machine.start_unavailable")
+  return false
+}
+
+/** One fixed local acpmux request. Caller data is stdin; no shell text or credential is recorded. */
+const rpc = async (env: Env, scope: DefaultHandScope, method: string, params: unknown, timeout: number, feature?: string): Promise<unknown> => {
+  const cloud = await authorizeDefaultMachine(env, scope)
+  await authorizeMachineHand(env, scope)
+  const frames = [
+    { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: 1 } },
+    { jsonrpc: "2.0", id: 2, method, params },
+  ].map((f) => JSON.stringify(f)).join("\n") + "\n"
+  // Use the hand's isolated daemon, so the auth probe and login use the same harness/account
+  // configuration as agent.start. The fixed default-machine scope was validated above.
+  const command = `${layoutSelector()} && ${asDaemonUser(`env -u ACPMUX_SOCKET ACPMUX_HOME="$CMUX_TUI_HOME/.cmux-chief-hand/acpmux" CMUX_CLAUDE_AUTH=own CMUX_CODEX_AUTH=own "$CMUX_TUI_BIN" acp stdio`, { exec: true })}`
+  const reply = await cloud.automationExec(scope.team, scope.owner, scope.connection_machine, command, new TextEncoder().encode(frames), timeout)
+  if (!reply.ok || reply.exitCode !== 0) throw new Error("chief.machine.transport_unavailable")
+  // This is a protocol safety bound for tiny login/auth envelopes, never agent build output.
+  if ((method.startsWith("_acpmux/agent_login/") || method === "_acpmux/session/auth") && reply.stdout.length > 256_000) throw new Error("chief.machine.transport_invalid")
+  const rows = reply.stdout.split("\n").flatMap((line) => { try { return [JSON.parse(line) as { id?: number; result?: unknown; error?: { code?: number; data?: { reason?: unknown } } }] } catch { return [] } })
+  const initialized = rows.find((f) => f.id === 1)?.result as { _meta?: { acpmux?: { features?: Array<string> } } } | undefined
+  if (feature && !initialized?._meta?.acpmux?.features?.includes(feature)) throw new Error(`chief.machine.${feature}_unsupported`)
+  const result = rows.find((f) => f.id === 2)
+  if (result?.error) {
+    const reason = result.error.data?.reason
+    throw Object.assign(new Error("chief.machine.request_refused"), { code: result.error.code, data: { reason: typeof reason === "string" && /^[a-z0-9_.-]+$/.test(reason) ? reason : undefined } })
+  }
+  if (!result || result.result === undefined) throw new Error("chief.machine.request_refused")
+  return result.result
+}
+
+/** Only affirmative machine evidence starts OAuth. Unknown never becomes a sign-in requirement. */
+export const machineAuthState = (value: { state?: string; source?: string } | null): "ready" | "signed_out" | "unknown" => {
+  if (!value) return "unknown"
+  if ((value.state === "signedOut" || value.state === "expired") && value.source && value.source !== "none") return "signed_out"
+  return value.state === "ready" ? "ready" : "unknown"
+}
+export const machineAuth = async (env: Env, scope: DefaultHandScope, harness: MachineHarness, cwd: string): Promise<"ready" | "signed_out" | "unknown"> => {
+  // An older daemon may not answer the probe. Its lack of evidence is never a login refusal.
+  const value = await rpc(env, scope, "_acpmux/session/auth", { target: { harness, cwd }, refresh: true }, 30_000, "sessionAuth").catch(() => null) as { state?: string; source?: string } | null
+  return machineAuthState(value)
+}
+
+export const machineLoginStart = async (env: Env, scope: DefaultHandScope, harness: MachineHarness): Promise<LoginStart> => {
+  const value = await rpc(env, scope, "_acpmux/agent_login/start", { agent: harness }, 30_000, "agent_login") as LoginStart
+  const url = machineSignInURL(value.url, harness)
+  if (typeof value.loginId !== "string" || !value.loginId || !url) throw new Error("chief.machine.invalid_login")
+  if (value.expiresAtMs !== undefined && (!Number.isFinite(value.expiresAtMs) || value.expiresAtMs <= Date.now())) throw new Error("chief.machine.login_expired")
+  return { loginId: value.loginId, url, needsCode: value.needsCode === true, ...(typeof value.userCode === "string" ? { userCode: value.userCode } : {}), ...(typeof value.expiresAtMs === "number" ? { expiresAtMs: value.expiresAtMs } : {}) }
+}
+export const machineLoginFinish = async (env: Env, scope: DefaultHandScope, loginId: string, code?: string): Promise<boolean> => {
+  // Codex's device flow waits until its 15-minute expiry; keep this request live until it ends.
+  const value = await rpc(env, scope, "_acpmux/agent_login/finish", { loginId, ...(code ? { code } : {}) }, 16 * 60_000, "agent_login") as { signedIn?: boolean }
+  return value.signedIn === true
+}
+export const machineLoginCancel = async (env: Env, scope: DefaultHandScope, loginId: string): Promise<void> => {
+  await rpc(env, scope, "_acpmux/agent_login/cancel", { loginId }, 15_000, "agent_login")
+}
+
+/** Owner-session routes call this on the conversation brain; codes are used once and never stored. */
+export const machineLogin = async (b: ChiefBrainDO, owner: string, run: string, action: "status" | "start" | "finish" | "cancel", value: { loginId?: string; code?: string } = {}): Promise<unknown> => {
+  const cfg = b.config(), route = b.machineRoute(), state = readMachineState(b.sql, run)
+  if (cfg.owner !== owner || !cfg.agent || !route) throw new Error("chief.machine.login_not_pending")
+  if (action === "status" && b.sql.exec(`SELECT 1 FROM cb_config WHERE name = ?`, `machine-login-resumed:${run}`).toArray().length) return { signedIn: true, resumed: true }
+  if (state?.phase !== "waiting_auth") throw new Error("chief.machine.login_not_pending")
+  const turn = b.sql.exec<{ status: string; effect_authorized: number }>(`SELECT status, effect_authorized FROM cb_turn WHERE id = ?`, run).toArray()[0]
+  if (turn?.status !== "running" || turn.effect_authorized !== 1) throw new Error("chief.machine.login_not_pending")
+  const admission = await b.admitted(cfg.agent, owner, false)
+  if (!admission.ok || !admission.machine) throw new Error("chief.machine.login_refused")
+  const scope = { ...admission.machine.binding, owner, chief: cfg.agent }
+  const loginKey = `machine-login:${run}`
+  const stored = b.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, loginKey).toArray()[0]?.value
+  const current = stored ? JSON.parse(stored) as LoginStart : null
+  if (action === "status") return { waiting: true, harness: admission.machine.harness, login: current }
+  if (action === "start") {
+    if (current && (current.expiresAtMs === undefined || current.expiresAtMs > Date.now())) return current
+    const key = `machine-login-starting:${run}`
+    const starting = Number(b.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, key).toArray()[0]?.value ?? "0")
+    if (starting + 35_000 > Date.now()) throw new Error("chief.machine.login_busy")
+    const stamp = String(Date.now())
+    writeConfig(b.sql, { [key]: stamp })
+    try {
+      const started = await machineLoginStart(b.doEnv, scope, admission.machine.harness)
+      writeConfig(b.sql, { [loginKey]: JSON.stringify(started) })
+      return started
+    } finally { b.sql.exec(`DELETE FROM cb_config WHERE name = ? AND value = ?`, key, stamp) }
+  }
+  if (!current || value.loginId !== current.loginId) throw new Error("chief.machine.login_changed")
+  if (action === "cancel") {
+    await machineLoginCancel(b.doEnv, scope, current.loginId)
+    b.sql.exec(`DELETE FROM cb_config WHERE name = ?`, loginKey)
+    return { cancelled: true }
+  }
+  if (current.expiresAtMs !== undefined && current.expiresAtMs <= Date.now()) throw new Error("chief.machine.login_expired")
+  if (value.code !== undefined && (value.code.length > 8192 || /[\r\n\0]/.test(value.code))) throw new Error("chief.machine.invalid_login_code")
+  const signedIn = await machineLoginFinish(b.doEnv, scope, current.loginId, value.code)
+  if (!signedIn) return { signedIn: false }
+  // The owner's sign-in click resumes the exact original request, only while its record is still live.
+  await authorizeDefaultMachine(b.doEnv, scope)
+  await authorizeMachineHand(b.doEnv, scope)
+  const latest = await b.admitted(cfg.agent, owner, false)
+  if (!latest.ok || !latest.machine) throw new Error("chief.machine.login_refused")
+  const still = readMachineState(b.sql, run)
+  const active = b.sql.exec<{ status: string; effect_authorized: number }>(`SELECT status, effect_authorized FROM cb_turn WHERE id = ?`, run).toArray()[0]
+  if (still?.phase !== "waiting_auth" || active?.status !== "running" || active.effect_authorized !== 1) throw new Error("chief.machine.login_changed")
+  writeConfig(b.sql, { [`machine-login-resumed:${run}`]: "1" })
+  b.sql.exec(`DELETE FROM cb_config WHERE name IN (?, ?)`, MACHINE_STATE(run), loginKey)
+  b.sql.exec(`UPDATE cb_turn SET started = ? WHERE id = ?`, Date.now(), run)
+  b.kick()
+  return { signedIn: true, resumed: true }
+}
+
+export interface MachineAgentPorts {
+  load(): MachineState | null
+  save(state: MachineState): void
+  authorize(): Promise<void>
+  auth(): Promise<"ready" | "signed_out" | "unknown">
+  /** This port must durably deduplicate the operation, including an uncertain first response. */
+  start(params: { operation: string; harness: MachineHarness; cwd: string; prompt: string }): Promise<HandReply>
+  events(session: string, after: number, wait: number): Promise<HandReply<{ events: Array<StoredEvent>; last_seq: number; head_seq: number }>>
+  stop(session: string): Promise<unknown>
+  event(event: StoredEvent): void
+  now(): number
+}
+
+/** Persist the operation before dispatch; retries reconcile the same named session and prompt. */
+export const runMachineAgent = async (ports: MachineAgentPorts, hand: string, cwd: string, harness: MachineHarness, prompt: string, operation: string, deadline: number): Promise<MachineOutcome> => {
+  let state = ports.load()
+  if (state?.phase === "done") return { ok: true, text: state.text }
+  if (state?.phase === "failed") return { ok: false, reason: state.reason ?? "chief.machine.failed" }
+  if (state && state.operation !== operation) return { ok: false, reason: "chief.machine.operation_changed" }
+  if (state?.phase === "waiting_auth") return { pending: "auth" }
+  await ports.authorize()
+  if (ports.now() >= deadline) {
+    if (state?.session) await ports.stop(state.session).catch(() => undefined)
+    if (state) { state.phase = "failed"; state.reason = "chief.machine.timeout"; ports.save(state) }
+    return { ok: false, reason: "chief.machine.timeout" }
+  }
+  if (!state) {
+    state = { phase: "waiting_auth", operation, hand, cwd, after: 0, text: "" }
+    if (await ports.auth() === "signed_out") { ports.save(state); return { pending: "auth" } }
+    // A revocation may have committed while the provider auth probe was in flight.
+    await ports.authorize()
+    state.phase = "dispatching"
+    ports.save(state)
+  }
+  if (state.phase === "dispatching") {
+    const started = await ports.start({ operation: state.operation, harness, cwd, prompt }).catch((error: unknown) => { if (!transportRetry(error)) throw error; return null })
+    // The guest's durable send queue owns the outcome. A lost reply retries the same operation.
+    if (!started) return { pending: "provisioning" }
+    if (!started.ok) {
+      // An explicit refusal proves no session started. Fresh affirmative evidence can now
+      // request sign-in without discarding the original prompt or retrying an uncertain start.
+      if (started.error.code === "agent.start_failed" && await ports.auth() === "signed_out") { state.phase = "waiting_auth"; ports.save(state); return { pending: "auth" } }
+      state.phase = "failed"; state.reason = started.error.code; ports.save(state)
+      return { ok: false, reason: state.reason }
+    }
+    const session = (started.value as { session?: unknown } | null)?.session
+    if (typeof session !== "string" || !session) return { ok: false, reason: "chief.machine.invalid_session" }
+    state = { ...state, phase: "running", session }
+    ports.save(state)
+  }
+  if (!state.session) return { ok: false, reason: "chief.machine.missing_session" }
+  while (ports.now() < deadline) {
+    await ports.authorize()
+    const page = await ports.events(state.session, state.after, Math.min(30_000, deadline - ports.now())).catch((error: unknown) => { if (!transportRetry(error)) throw error; return null })
+    if (!page) return { pending: "provisioning" }
+    if (!page.ok) return { ok: false, reason: page.error.code }
+    for (const stored of page.value.events) {
+      if (stored.seq <= state.after) continue
+      const event = stored.event
+      state.after = stored.seq
+      if (event.kind === "text") state.text += event.text
+      if (event.kind === "error") { state.phase = "failed"; state.reason = "chief.machine.agent_error" }
+      if (event.kind === "session_end") { state.phase = "failed"; state.reason = "chief.machine.session_ended" }
+      if (event.kind === "permission") { state.phase = "failed"; state.reason = "chief.machine.permission_required" }
+      if (event.kind === "turn_end" && state.phase !== "failed") state.phase = "done"
+      ports.save(state)
+      ports.event(stored)
+      if (state.phase === "done") { await ports.stop(state.session).catch(() => undefined); return { ok: true, text: state.text } }
+      if (state.phase === "failed") { await ports.stop(state.session).catch(() => undefined); return { ok: false, reason: state.reason! } }
+    }
+    if (page.value.last_seq > state.after) { state.after = page.value.last_seq; ports.save(state) }
+  }
+  await ports.stop(state.session).catch(() => undefined)
+  state.phase = "failed"; state.reason = "chief.machine.timeout"; ports.save(state)
+  return { ok: false, reason: state.reason }
+}
+
+/** Runs on the user's persistent machine and provider login, never on the hosted model gateway. */
+export const machineTurn = async (b: ChiefBrainDO, id: string, route: MachineRoute, blocks: Array<string>): Promise<MachineOutcome> => {
+  if (!b.effectsAuthorized()) {
+    b.logOnce(`talk:${id}`, "talk", OWNER_APPROVAL_REQUIRED, { id: `talk:${id}`, kind: "talk", text: OWNER_APPROVAL_REQUIRED, ended_at: Date.now() })
+    return { ok: true, text: OWNER_APPROVAL_REQUIRED }
+  }
+  const cfg = b.config()
+  if (!cfg.owner || !cfg.agent) return { ok: false, reason: "chief.machine.unbound" }
+  const { owner, agent } = cfg
+  const startedAt = Number(b.sql.exec<{ started: number }>(`SELECT started FROM cb_turn WHERE id = ?`, id).one().started)
+  if (Date.now() >= startedAt + 10 * 60_000 && !readMachineState(b.sql, id)) return { ok: false, reason: "chief.machine.timeout" }
+  const record = await chiefRecord(b.doEnv, owner, agent)
+  if (!record?.cloud_machine || record.brain_place) return { ok: false, reason: "chief.machine.binding_changed" }
+  if (machineHarness(record.harness) !== route.harness) return { ok: false, reason: "chief.machine.harness_changed" }
+  const scope = { ...record.cloud_machine, owner, chief: agent }
+  if (!await wakeDefaultMachine(b, scope)) return { pending: "provisioning" }
+  const carried = readMachineState(b.sql, id)
+  const ready = carried ? { hand: carried.hand, cwd: carried.cwd } : await ensureDefaultHand(b.doEnv, owner, agent, record.cloud_machine)
+  const hand = handStub(b.doEnv, ready.hand)
+  const caller = { kind: "chief" as const, user: owner, agent, conversation: b.turnConversation }
+  if (!carried && !(await hand.waitOnline(30_000))) throw new Error("chief.machine.hand_offline")
+  // A stricter owner policy must fail explicitly, rather than leave an unattended approval
+  // prompt waiting forever. Never raise the owner's selected level while provisioning.
+  const authorizeHand = () => authorizeMachineHand(b.doEnv, scope, ready.cwd)
+  const direct = async (method: string, params: unknown, timeout: number, feature?: string): Promise<unknown> => {
+    const admission = await b.admitted(agent, owner, false)
+    if (!admission.ok || !admission.machine) throw new Error(admission.ok ? "chief.machine.binding_changed" : admission.reason)
+    await authorizeHand()
+    return rpc(b.doEnv, scope, method, params, timeout, feature)
+  }
+  const result = await runMachineAgent({
+    load: () => readMachineState(b.sql, id), save: (s) => save(b, id, s),
+    authorize: async () => {
+      const admission = await b.admitted(agent, owner, false)
+      if (!admission.ok || !admission.machine) throw new Error(admission.ok ? "chief.machine.binding_changed" : admission.reason)
+      await authorizeDefaultMachine(b.doEnv, scope)
+      await authorizeHand()
+    },
+    auth: () => machineAuth(b.doEnv, scope, route.harness, ready.cwd),
+    start: async (params) => {
+      b.sql.exec(`UPDATE cb_turn SET submitted = 1, model = ? WHERE id = ?`, `machine:${route.harness}`, id)
+      return { ok: true as const, value: await startMachineAgent(direct, params) }
+    },
+    events: async (session, after, wait) => ({ ok: true as const, value: await machineAgentEvents(direct, session, after, wait) }),
+    stop: (session) => stopMachineAgent(direct, session),
+    event: (stored) => {
+      if (stored.event.kind !== "tool") return
+      const event = stored.event
+      b.announce(id, [upsertStep(b.sql, id, { id: `machine:${event.id ?? stored.seq}`, kind: "tool", status: event.status === "completed" ? "done" : "running", text: event.title ?? "Working on your machine" }, stored.at)])
+    },
+    now: Date.now,
+  }, ready.hand, ready.cwd, route.harness, blocks.join("\n\n"), `${owner}/${agent}/${b.turnConversation}/${id}`, startedAt + 10 * 60_000)
+  if ("pending" in result && result.pending === "auth") {
+    // A notice is not a completed turn: retain the original input/inbox/run until sign-in finishes.
+    await postText(b.doEnv, chiefPrincipal(agent, owner), b.turnConversation!, `Sign in to ${route.harness === "claude" ? "Claude" : "Codex"} to continue.`, `chief-machine-auth:${agent}:${id}`)
+    await typing(b.doEnv, b.turnConversation!, agent, false)
+    b.announce(id, [upsertStep(b.sql, id, { id: "machine:sign-in", kind: "note", text: `Waiting for ${route.harness} sign-in` }, Date.now())])
+  } else if (!("pending" in result) && result.ok) b.logOnce(`talk:${id}`, "talk", result.text, { id: `talk:${id}`, kind: "talk", ...clip(result.text), ended_at: Date.now() })
+  return result
+}

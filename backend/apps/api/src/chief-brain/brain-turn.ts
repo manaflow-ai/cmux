@@ -14,6 +14,7 @@ import { ccTurn } from "../chief-brain-cc/turn.ts"
 import { OPUS } from "../model-gateway/routes.ts"
 import { messageEffectAuthorized } from "./effect-policy.ts"
 import { type ChiefBrainDO, POST_RETRY_MS, retryPost, HOST, msOr, SETTLE_MS, TURN_MS, handsContinueText, type Admission } from "./brain-do.ts"
+import { machineTurn, readMachineState } from "./brain-machine.ts"
 
 /**
  * The turn loop of a ChiefBrainDO (brain-do.ts): a wake queues messages, the drain admits and opens one
@@ -39,7 +40,7 @@ export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; c
   if (!a.ok) return skip(b, w, a.reason, unread)
   // While the wake reads the conversation and the turn is admitted: the owner's turns object, the route's auth and the team's meter warm up.
   // (Not on the Claude Code route, chief-brain-cc/: its turns use none of them.)
-  if (!ccRoute(b.doEnv, w.owner)) {
+  if (!a.machine && !ccRoute(b.doEnv, w.owner)) {
     if (isMetered(a.config.model)) b.doCtx.waitUntil(b.turns(w.owner).warm().catch(() => undefined))
     if (isClaude(a.config.model)) b.doCtx.waitUntil(claudeAuthFor(b.doEnv, b.holder).catch(() => undefined))
     b.doCtx.waitUntil(b.harness.pi().catch(() => undefined))
@@ -118,8 +119,8 @@ const OTHER_BRAIN = new Set(["disabled", "other_chief", "chief_placed"])
  * background delivery). A memory copy under way only keeps the floor: an abandoned import must not hold
  * the conversation's wakes for hours.
  */
-const FLOOR_SKIPS: ReadonlySet<string> = new Set(["owner.unreachable", "memory_importing"])
-const retries = (reason: string, unread: boolean) => reason === "owner.unreachable" || (reason === "unknown_conversation" && unread)
+const FLOOR_SKIPS: ReadonlySet<string> = new Set(["owner.unreachable", "memory_importing", "provisioning_pending"])
+const retries = (reason: string, unread: boolean) => reason === "owner.unreachable" || reason === "provisioning_pending" || (reason === "unknown_conversation" && unread)
 const skip = (b: ChiefBrainDO, w: { agent: string; conversation: string; seq: number }, reason: string, unread = false): { skipped: string; retry?: true } => {
   if (FLOOR_SKIPS.has(reason)) b.sql.exec(`INSERT INTO cb_cursor (conversation, seq) VALUES (?, ?) ON CONFLICT (conversation) DO NOTHING`, w.conversation, w.seq - 1)
   // A turn that runs, messages that wait for one, or a reply that waits to post in this conversation keep their indicator.
@@ -183,6 +184,9 @@ export function kick(b: ChiefBrainDO): void {
     .catch((e: unknown) => void (failed = true, console.error(JSON.stringify({ msg: "chief_brain.drain_failed", error: String(e).slice(0, 300) }))))
     .finally(() => {
       b.draining = undefined
+      const running = b.sql.exec<{ turn: string }>(`SELECT turn FROM cb_inbox WHERE state = 'running' ORDER BY n LIMIT 1`).toArray()[0]
+      if (running && readMachineState(b.sql, running.turn)?.phase === "waiting_auth") return
+      if (running && b.sql.exec(`SELECT 1 FROM cb_config WHERE name = ?`, `machine-retry:${running.turn}`).toArray().length) return
       // A wake that queued rows while the drain was ending saw it still running: look again (after a failure, later).
       if (b.sql.exec(`SELECT 1 FROM cb_inbox WHERE state = 'queued' AND woke = 1 LIMIT 1`).toArray().length === 0) return
       if (failed) void b.schedule("drain", "drain", Date.now() + RETRY_MS)
@@ -203,12 +207,13 @@ export async function drain(b: ChiefBrainDO): Promise<void> {
       if (refused) return b.childEnd(r.id, false, refused)
       writeConfig(b.sql, { "spawn.admitted": "1" })
     }
-    return b.runTurn(r.id)
+    await b.runTurn(r.id)
+    return
   }
   for (;;) {
     const running = b.sql.exec<{ turn: string }>(`SELECT turn FROM cb_inbox WHERE state = 'running' ORDER BY n LIMIT 1`).toArray()[0]
     if (running) {
-      await b.runTurn(running.turn)
+      if (await b.runTurn(running.turn) === "pending") return
       continue
     }
     // Only a woken message starts a turn; the messages before it ride along as context.
@@ -219,7 +224,7 @@ export async function drain(b: ChiefBrainDO): Promise<void> {
     const rows = b.sql
       .exec<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; own_root: number; text: string; woke: number; effect_authorized: number }>(`SELECT n, message, seq, kind, thread_root, own_root, text, woke, effect_authorized FROM cb_inbox WHERE state = 'queued' AND conversation = ? ORDER BY n`, woken.conversation)
       .toArray()
-    if (!a.ok && a.reason === "owner.unreachable") return void (await b.schedule("drain", "drain", Date.now() + RETRY_MS))
+    if (!a.ok && (a.reason === "owner.unreachable" || a.reason === "provisioning_pending")) return void (await b.schedule("drain", "drain", Date.now() + RETRY_MS))
     if (!a.ok) {
       // Not answered (off, archived, placed, over the limit): the wakes are acked so the queue stays bounded.
       b.sql.exec(`UPDATE cb_inbox SET state = 'skipped' WHERE state = 'queued' AND conversation = ?`, woken.conversation)
@@ -235,15 +240,15 @@ export async function drain(b: ChiefBrainDO): Promise<void> {
     // which the turn runs on the last rendered view plus the unsummarized messages whole.
     // A failing or rate-limited compactor costs no wait (the turn goes at once on the last view plus the whole messages).
     markPending(b.sql, "admitted")
-    const healthy = !b.compactor.off() && b.compactor.failures().length === 0 && b.compactor.cooling() === 0
+    const healthy = !a.machine && !b.compactor.off() && b.compactor.failures().length === 0 && b.compactor.cooling() === 0
     const settleMs = msOr(b.doEnv.CHIEF_BRAIN_SETTLE_MS, SETTLE_MS)
-    const fresh = healthy && settleMs > 0 ? await b.compactor.settleTo(b.memory.len(), AbortSignal.timeout(settleMs)) : b.memory.first() >= b.memory.len()
+    const fresh = healthy && settleMs > 0 ? await b.compactor.settleTo(b.memory.len(), AbortSignal.timeout(settleMs)) : !a.machine && b.memory.first() >= b.memory.len()
     markPending(b.sql, "settled")
     // Messages that came during the wait ride along (the same conversation's queue, read again).
     const all = b.sql
       .exec<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; own_root: number; text: string; woke: number; effect_authorized: number }>(`SELECT n, message, seq, kind, thread_root, own_root, text, woke, effect_authorized FROM cb_inbox WHERE state = 'queued' AND conversation = ? ORDER BY n`, woken.conversation)
       .toArray()
-    if (!fresh) console.warn(JSON.stringify({ msg: "chief_brain.settle_timeout", first: b.memory.first(), len: b.memory.len(), failures: b.compactor.failures().length }))
+    if (!fresh && !a.machine) console.warn(JSON.stringify({ msg: "chief_brain.settle_timeout", first: b.memory.first(), len: b.memory.len(), failures: b.compactor.failures().length }))
     if (all.length > 0) b.openTurn(woken.conversation, all, fresh)
   }
 }
@@ -277,7 +282,7 @@ export function openTurn(b: ChiefBrainDO, conversation: string, rows: ReadonlyAr
   b.announce(id, (flushMarks(b.sql, id), []))
 }
 
-export async function runTurn(b: ChiefBrainDO, id: string): Promise<void> {
+export async function runTurn(b: ChiefBrainDO, id: string): Promise<"pending" | void> {
   const row = b.sql.exec<{ submitted: number; input: string | null; model: string; conversation: string }>(`SELECT submitted, input, model, conversation FROM cb_turn WHERE id = ?`, id).toArray()[0]
   if (!row) throw new Error(`run ${id} has no row`)
   const agent = b.config().agent
@@ -288,12 +293,19 @@ export async function runTurn(b: ChiefBrainDO, id: string): Promise<void> {
   let ok = false
   let reason: string | null = null
   let timer: ReturnType<typeof setTimeout> | undefined
+  let pending: "auth" | "provisioning" | undefined
   // The Claude Code route (chief-brain-cc/): the turn runs as Claude Code in its own VM; everything else here is the same.
   // Claude Code creates a VM and runs with bypass permissions. A participant-authored turn must
   // stay on the Pi path, where effectful tools return an owner-approval request.
   const cc = !child && b.effectsAuthorized() && ccRoute(b.doEnv, b.config().owner)
+  const machine = !child ? b.machineRoute() : null
   try {
-    if (cc) {
+    if (machine) {
+      b.sql.exec(`DELETE FROM cb_config WHERE name = ?`, `machine-retry:${id}`)
+      const result = await machineTurn(b, id, machine, JSON.parse(row.input ?? "[]") as Array<string>)
+      if ("pending" in result) pending = result.pending
+      else { ok = result.ok; reason = result.ok ? null : result.reason }
+    } else if (cc) {
       const model = isClaude(row.model) ? row.model : OPUS
       if (model !== row.model) b.sql.exec(`UPDATE cb_turn SET model = ? WHERE id = ?`, model, id)
       // The owner's daily paid-turn cap counts these turns too (once, at the first start).
@@ -392,6 +404,13 @@ export async function runTurn(b: ChiefBrainDO, id: string): Promise<void> {
     b.turnId = undefined
     b.turnConversation = undefined
   }
+  if (pending) {
+    if (pending === "provisioning") {
+      writeConfig(b.sql, { [`machine-retry:${id}`]: "1" })
+      await b.schedule("drain", "drain", Date.now() + RETRY_MS)
+    }
+    return "pending"
+  }
   if (child) return b.childEnd(id, ok, reason)
   const reply = ok ? lastTalk(b.sql, id) : ""
   const post = !ok ? "none" : reply === "" || isNoReply(reply) ? "no_reply" : "pending"
@@ -401,7 +420,7 @@ export async function runTurn(b: ChiefBrainDO, id: string): Promise<void> {
   b.announce(id, [])
   if (post === "pending") await b.postAndSchedule(id)
   else await b.finish(id)
-  if (!b.memory.settled()) await b.schedule("compact", "compact", Date.now() + RETRY_MS)
+  if (!b.machineRoute() && !b.memory.settled()) await b.schedule("compact", "compact", Date.now() + RETRY_MS)
 }
 
 export async function postAndSchedule(b: ChiefBrainDO, id: string): Promise<void> {
