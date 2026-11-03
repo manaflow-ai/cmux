@@ -275,7 +275,10 @@ export const pushKeepsColumn = (paneWidth: number, room: number, column?: ChatCo
   paneWidth <= 0 ||
   room <= 0 ||
   (room < paneWidth &&
-    transcriptColumn(paneWidth - room, column).width === transcriptColumn(paneWidth, column).width &&
+    // A fractional room can move the 4px-grid inset by one step in the helpful direction: the
+    // rendered column is a few pixels wider, never narrower. The shell pins its width to the
+    // unpushed reading while the panel settles, so only a narrower reading would wrap text.
+    transcriptColumn(paneWidth - room, column).width >= transcriptColumn(paneWidth, column).width &&
     // The column itself too, not only its drawn width: the 4 grid's 0-7 px leftover can make up a
     // column the narrower chat shrank, and that push is one a narrower column would need (Leo,
     // 2026-11-03: "if it would need to be then session info should be an overlay").

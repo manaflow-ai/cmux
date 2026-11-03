@@ -94,6 +94,17 @@ test("Settings Push always pushes wherever its whole room keeps the column, else
   expect(stage(1300, TALL, "push").stage).toBe("overlay");
 });
 
+test("an off-grid pushed width keeps the chat in push when the grid leaves it wider", () => {
+  const pane = { width: 1800, height: TALL };
+  const panel = 300;
+  expect(sessionInfoStage("push", pane, panel, STANDARD)).toBe("push");
+  const room = pushedRoom(pane.width, panel, STANDARD, 0, true);
+  expect(room).toBe(panel + 8);
+  expect(transcriptColumn(pane.width - room, STANDARD).width).toBeGreaterThanOrEqual(
+    transcriptColumn(pane.width, STANDARD).width,
+  );
+});
+
 test("a short pane where it would lie over the chat makes it a popover; a wide short pane keeps the gutter", () => {
   expect(stage(900, POPOVER_BELOW_HEIGHT - 1).stage).toBe("popover");
   expect(stage(1800, POPOVER_BELOW_HEIGHT - 1).stage).toBe("float");
