@@ -774,6 +774,7 @@ fn credit_meter_resumed_subagent_keeps_the_original_person_and_route() {
             "subagent.answer",
             json!({"id":"a1","cost_usd":1.0,"usage":{"input":1}}),
         );
+        trace.emit("subagent.answer", json!({"id":"a1","usage":{"input":1}}));
     }
     let trace = Trace::open(&path, false).unwrap();
     trace.emit("usage.identity", json!({"person":"user_owner"}));
@@ -782,7 +783,7 @@ fn credit_meter_resumed_subagent_keeps_the_original_person_and_route() {
         json!({"id":"a1","cost_usd":2.0,"usage":{"input":1}}),
     );
     let rows = usage::read(&usage::dir(tmp.path()), 0, u64::MAX).unwrap();
-    let row = serde_json::to_value(&rows[1]).unwrap();
+    let row = serde_json::to_value(rows.last().unwrap()).unwrap();
     assert_eq!(row["person"], "user_guest");
     assert_eq!(row["harness"], "cmux");
     assert_eq!(row["payer"], "platform");

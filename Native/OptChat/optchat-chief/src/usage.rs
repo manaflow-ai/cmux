@@ -420,23 +420,33 @@ fn month_files(dir: &Path) -> Vec<(String, PathBuf)> {
 
 /// The last running cost the ledger holds for subagent `id`.
 fn last_subagent_line(dir: &Path, id: &str) -> Option<Line> {
+    let mut latest: Option<Line> = None;
     let needle = format!("\"agent\":{}", Value::String(id.to_owned()));
     for (_, file) in month_files(dir).into_iter().rev().take(2) {
         let Ok(f) = std::fs::File::open(&file) else {
             continue;
         };
-        let best = std::io::BufReader::new(f)
+        let mut lines: Vec<Line> = std::io::BufReader::new(f)
             .lines()
             .map_while(Result::ok)
             .filter(|l| l.contains(&needle))
             .filter_map(|l| serde_json::from_str::<Line>(&l).ok())
             .filter(|l| l.kind == "subagent")
-            .max_by_key(|l| l.ts);
-        if let Some(line) = best {
-            return Some(line);
+            .collect();
+        lines.sort_by_key(|l| std::cmp::Reverse(l.ts));
+        for line in lines {
+            if latest.is_none() {
+                latest = Some(line.clone());
+            }
+            if line.usd_cum.is_some() {
+                if let Some(latest) = &mut latest {
+                    latest.usd_cum = line.usd_cum;
+                }
+                return latest;
+            }
         }
     }
-    None
+    latest
 }
 
 /// Every line with `since_ms <= ts < until_ms`, oldest first.
