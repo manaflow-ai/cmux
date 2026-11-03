@@ -76,7 +76,7 @@ extension CloudHandlers {
             if !DevTools.isEnabled { await cloud.readHarnessLoginCopySwitch() }
             let availability = CloudWorkspaceSetupWizard.CredentialAvailability.resolve(
                 teamID: cloud.auth.teamID, supportsFileRoute: AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: cloud.configuration.linkSource, isSignedIn: true, passesLogin: true),
-                passesLogin: CloudStartChat.passesHarnessLoginHere(switch: cloud.harnessLoginCopySwitch))
+                passesLogin: CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: DevTools.isEnabled, defaults: .standard, remoteSwitch: cloud.harnessLoginCopySwitch.current))
             let present: (CmuxDialogSpec) async -> CmuxDialogAnswer = { spec in
                 let scope: CmuxDialogScope = services.windows.active?.window.map(CmuxDialogScope.window) ?? .app
                 return await CmuxDialogCenter.shared.present(spec, in: scope)
@@ -176,9 +176,7 @@ extension CloudHandlers {
                         })
                     return
                 }
-                // Release (CloudService+LoginCopy.swift): the switch read fresh and the person's
-                // one-time consent, asked here when never answered; the transfer checks both again last.
-                guard await CloudStartChat.releaseCopyAllowed(services) else { return }
+                guard await CloudStartChat.loginCopyGate(services).copyAllowed() else { return } // the transfer checks it again last
                 let transfer = CloudCredentialTransfer(provider: .claude,
                     machineID: session.machineID, teamID: teamID, userID: userID, openTerminal: { [weak services] line in
                         await services?.openLocalProviderLogin(line) ?? false
@@ -186,7 +184,7 @@ extension CloudHandlers {
                 try await transfer.run(api: cloud.machineAPI, currentTeamID: { cloud.auth.teamID },
                                        currentUserID: { cloud.auth.user?.id }, confirmed: true,
                                        callerOwnsVM: { [machineID = session.machineID] in try await cloud.callerOwnsVM(machineID) },
-                                       stillAllowed: CloudStartChat.releaseStillAllowed(services))
+                                       stillAllowed: CloudStartChat.loginCopyGate(services).stillAllowed)
             }
         }
     }

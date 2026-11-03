@@ -14,7 +14,7 @@ import { findRowIndex } from "./chatFind";
 import { turnPreviewCardsOn, turnPreviewUrl } from "./previewUrl";
 import { renderCall } from "./renderCall";
 import { showsTimestamp, type TurnTimes } from "./timestamps";
-import { isSubagentGroup, WORKFLOW_CARD } from "../subagents/subagentRows";
+import { isRunGroup, isSubagentGroup, WORKFLOW_CARD } from "../subagents/subagentRows";
 import { STARTED_SESSIONS } from "../started/startedSessions";
 import { QUESTION_RECORD } from "../question/record";
 import { chosenAnswer, nextStepAsk } from "./nextStepAsk";
@@ -35,6 +35,7 @@ import { turnCopyParts } from "./turnCopy";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
 import { isThought, thoughtDuration } from "./thoughts";
 import {
+  BACKGROUND_TURN,
   backgroundTurnRowId,
   collectFoldedBackgroundId,
   foldBackgroundTurns,
@@ -160,6 +161,8 @@ export function turnView(
     lineBelow?: boolean;
     /** The session's harness family; Claude keeps assistant prose outside the work fold. */
     agentFamily?: string;
+    /** The running turn's foreground subagents the running tray took out of `rows`. */
+    trayAgents?: number;
   } = {},
 ): AcpmuxRow[] {
   return turnViewFrom(rows, expanded, options).rows;
@@ -176,6 +179,7 @@ export type TurnView = {
   working: boolean;
   sessionStatus: boolean;
   messageBreaks: readonly number[];
+  trayAgents?: number;
   /// Unchanged display prefix, excluding its last row whose fold boundary can change.
   reusedRows?: number;
   /// The steers that wait (snapshot `waitingSteers`): a new list draws the running turn again.
@@ -224,6 +228,7 @@ export function turnViewFrom(
     agentFamily,
     waitingSteers,
     messageBreaks = NO_MESSAGE_BREAKS,
+    trayAgents = 0,
   }: {
     now?: number;
     working?: boolean;
@@ -236,6 +241,10 @@ export function turnViewFrom(
     waitingSteers?: readonly string[];
     /// Sorted insertion times of synthetic rows that must separate received message runs.
     messageBreaks?: readonly number[];
+    /// The running turn's foreground subagents still running, counted by the caller when the
+    /// running tray took their groups out of `rows` (runningTray.ts `withSubagentLines`), so the
+    /// live line still reads "Waiting on 2 subagents" (``trayWaitAgents``).
+    trayAgents?: number;
   } = {},
   previous?: TurnView,
 ): TurnView {
@@ -251,6 +260,7 @@ export function turnViewFrom(
     previous.working === working &&
     previous.sessionStatus === sessionStatus &&
     previous.waitingSteers === waitingSteers &&
+    previous.trayAgents === trayAgents &&
     firstDateUnchanged(previous, now)
   )
     return previous;
@@ -359,6 +369,7 @@ export function turnViewFrom(
       agentFamily,
       waitingSteers,
       messageBreaks,
+      trayAgents,
     });
   for (let at = first; at < starts.length; at += 1) {
     const start = starts[at]!;
@@ -381,6 +392,7 @@ export function turnViewFrom(
       lineBelow,
       agentFamily,
       foldedBackground,
+      live ? trayAgents : 0,
     );
     // Other sessions' messages the agent read stay each its own line where it read them
     // (IncomingMessageCard.tsx). One it has not read yet (a steer that waits for its step) leaves
@@ -414,6 +426,7 @@ export function turnViewFrom(
     working,
     sessionStatus,
     messageBreaks,
+    trayAgents,
     reusedRows,
     ...(waitingSteers ? { waitingSteers } : {}),
     pending: pending.length ? pending : NO_PENDING,
@@ -465,6 +478,28 @@ function openFolds(rows: readonly AcpmuxRow[], start: number, end: number, expan
   return "";
 }
 
+/// `rows` with each agent reply of a lone "." marked `answersPerson` when `user` is the person's own
+/// prompt, so it still draws (visibleMessage.ts): a reply to the person is theirs to see, however
+/// short (Leo, 2026-11-03, on hiding punctuation-only replies: "well there are cases (rare) that you
+/// would want to see it..."). The "." answering another agent's message stays hidden: the walk stops
+/// at the turn's summary, the first background row or another agent's steered message, since what
+/// follows is not an answer to the person. Only a bare reply is copied; without one, `rows` itself.
+function answeringPerson(user: AcpmuxRow, rows: AcpmuxRow[]): AcpmuxRow[] {
+  if (user.kind !== "user" || user.incoming || user.received || user.inBackground !== undefined) return rows;
+  let out: AcpmuxRow[] | undefined;
+  for (let at = 0; at < rows.length; at += 1) {
+    const row = rows[at]!;
+    if (row.kind === "turnSummary" || row.kind === BACKGROUND_TURN || row.kind === "backgroundTask") break;
+    // Another agent's message steered into the turn: what follows answers it.
+    if (row.kind === "user" && row.incoming) break;
+    if (row.kind !== "assistant" || row.inBackground !== undefined || row.answersPerson) continue;
+    if (!isVisiblyEmptyMessage(row) || isVisiblyEmptyMessage({ ...row, answersPerson: true })) continue;
+    out ??= rows.slice();
+    out[at] = { ...row, answersPerson: true };
+  }
+  return out ?? rows;
+}
+
 /// The drawn rows of the turn at `rows[start]` (its prompt) up to `end`, then its held prompts.
 function shapedTurn(
   rows: readonly AcpmuxRow[],
@@ -480,6 +515,7 @@ function shapedTurn(
   lineBelow = false,
   agentFamily?: string,
   foldedBackground: ReadonlySet<string> = new Set(),
+  trayAgents = 0,
 ): AcpmuxRow[] {
   const user = rows[start]!;
   // A running turn changes with every event: it is neither read from nor kept in the cache, so its
@@ -526,7 +562,7 @@ function shapedTurn(
   );
   // A turn the agent ran on its own after this one ended (no prompt starts it) draws in its tail:
   // a quiet one, or one still running, as its one line (backgroundTurns.ts).
-  const turn = foldBackgroundTurns(kept, expanded);
+  const turn = foldBackgroundTurns(answeringPerson(user, kept), expanded);
   const held = source.filter((row) => row.kind === "user" && !continuesTurn(row));
   const visibleTurn =
     !isVisiblyEmptyMessage(user) || turn.some((row) => row.kind !== "turnSummary" && !isVisiblyEmptyMessage(row));
@@ -567,6 +603,7 @@ function shapedTurn(
       lineBelow,
       agentFamily,
       reply,
+      trayAgents,
     );
     // Where its runs fold, a run of them that carries messages between agents folds under one line
     // (messageRuns.ts; Leo, 2026-11-01: "this should be collapsible").
@@ -714,13 +751,14 @@ function shapeTurn(
   lineBelow = false,
   agentFamily?: string,
   reply?: string,
+  trayAgents = 0,
 ): AcpmuxRow[] {
   const end = turn.findIndex((row) => row.kind === "turnSummary");
   // A turn still running shows its work as it happens, under its live status; one without a
   // summary that is no longer running draws as it came.
   if (end < 0)
     return live
-      ? liveTurn(user, turn, clockOffset, liveRuns, sessionStatus, lineBelow)
+      ? liveTurn(user, turn, clockOffset, liveRuns, sessionStatus, lineBelow, trayAgents)
       : last
         ? turn.flatMap(withoutDrafts).map(endedPlan)
         : settledWithoutSummary(turn);
@@ -933,7 +971,9 @@ function shapeTurn(
     lineBelow &&
     (tail.some((row) => row.kind === "activity") || tail.slice(lastSummary + 1).some(isReply))
   )
-    shaped.push(...liveTurn({ ...summary, at: since }, answered, clockOffset, liveRuns, sessionStatus, lineBelow));
+    shaped.push(
+      ...liveTurn({ ...summary, at: since }, answered, clockOffset, liveRuns, sessionStatus, lineBelow, trayAgents),
+    );
   else shaped.push(...(live ? answered : answered.flatMap(withoutDrafts).map(endedPlan)));
   return shaped;
 }
@@ -1094,6 +1134,7 @@ function liveTurn(
   liveRuns = false,
   sessionStatus = false,
   lineBelow = false,
+  trayAgents = 0,
 ): AcpmuxRow[] {
   const drawn = turn.filter((row) => row.kind !== "typing" && !isVisiblyEmptyMessage(row));
   // A started chat's card that no row follows yet is not the turn's latest step. The latest step is
@@ -1109,7 +1150,7 @@ function liveTurn(
   // The status ticks on this computer's clock, from the prompt moved onto it.
   const at = user.at + clockOffset;
   if (lineBelow && liveRuns) {
-    const shaped = codexLiveTurn(user, drawn, rows, last, named, at, clockOffset, sessionStatus);
+    const shaped = codexLiveTurn(user, drawn, rows, last, named, at, clockOffset, sessionStatus, trayAgents);
     // The line is the turn's last row, made fresh here.
     if (named?.earlier) shaped.at(-1)!.linedCall = named.tool.id;
     return shaped;
@@ -1200,6 +1241,7 @@ function codexLiveTurn(
   at: number,
   clockOffset: number,
   sessionStatus: boolean,
+  trayAgents = 0,
 ): AcpmuxRow[] {
   let rows = runs;
   // The one live block sits at the turn's bottom, as the ChatGPT and Codex apps draw it: no
@@ -1236,7 +1278,7 @@ function codexLiveTurn(
   const plan = sessionStatus ? [...rows].reverse().find((row) => row.kind === "plan" && row.plan?.length) : undefined;
   // No call in flight and no answer streaming, while foreground subagents still run: the agent
   // waits on them ("Waiting on 2 subagents"), whatever its last row was.
-  const agents = named || answering ? 0 : foregroundAgents(drawn);
+  const agents = named || answering ? 0 : foregroundAgents(drawn) + trayAgents;
   if (agents > 0) Object.assign(line, { liveState: "subagents", liveAgents: agents });
   // With a todo list and no answer streaming, the activity line under the list is the live line
   // (below), which names the plan's step, so no call leaves its run for it.
@@ -1339,6 +1381,16 @@ function thoughtTime(rows: readonly AcpmuxRow[]): number | undefined {
 
 /// Foreground subagents still running in a live turn's rows (its subagent groups): the ones the
 /// agent waits on. One running in the background (`background`) outlives the turn, so it is no wait.
+/// The foreground subagents still running in the latest prompt's turn, read from the rows before the
+/// running tray takes their groups out (App.tsx passes it to ``turnViewFrom`` as `trayAgents`).
+/// Agents in groups before that prompt are an earlier turn's, which a cancel may have left running;
+/// a prompt still waiting to send opens no turn yet. A shell call's agent keeps its card in the rows
+/// (runningTray.ts), where the line counts it already.
+export function trayWaitAgents(rows: readonly AcpmuxRow[]): number {
+  let from = rows.length;
+  while (from > 0 && !(opensTurn(rows[from - 1]!) && !isUnsent(rows[from - 1]!))) from -= 1;
+  return from === 0 ? 0 : foregroundAgents(rows.slice(from).filter((row) => !isRunGroup(row)));
+}
 function foregroundAgents(rows: readonly AcpmuxRow[]): number {
   let count = 0;
   for (const row of rows)

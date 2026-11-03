@@ -62,6 +62,8 @@ extension NSWindow {
                 "ms": (frame.milliseconds - sentAt).rounded(), "file": name,
                 "outside_vs_before": m.outsideBefore, "outside_vs_final": m.outsideFinal, "intermediate": isIntermediate,
                 "blank": isBlank, "desync": isDesync, "content_intermediate": isContentIntermediate,
+                // The content area's own differences, for a script's first-content and final-frame times.
+                "content_vs_before": insideBefore, "content_vs_final": insideFinal, "flatness": m.flatness,
             ])
         }
         WindowFrame.writeStrip(frames.filter { $0.milliseconds >= before.milliseconds }, to: (dir as NSString).appendingPathComponent("strip.png"))

@@ -258,7 +258,12 @@ impl Hub {
         // is logged (`transfer_authority.rs`), so a failed receipt never reads as local.
         *session.transfer_authority.lock().unwrap_or_else(|e| e.into_inner()) = None;
         session.seq.store(last, Ordering::SeqCst);
-        session.meta.lock().unwrap().last_seq = last;
+        {
+            let mut meta = session.meta.lock().unwrap();
+            meta.last_seq = last;
+            // The copied log may end in transcript records: say it may have.
+            meta.transcript_seq = last;
+        }
         if live {
             self.restore_queue(&session);
             // The source's subagent retries stayed there: their prompts do not wait here.

@@ -23,6 +23,8 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
     public enum Reason: String, Sendable, Equatable, Decodable {
         case buildGateOff = "build-gate-off"
         case noTransfer = "no-transfer-for-harness"
+        /// Codex: the Mac's broker gives the machine short-lived access before the first prompt (cmux#33489).
+        case codexBroker = "codex-broker"
         case signedOut = "signed-out"
         case callerNotOwner = "caller-not-owner"
         case guestNotOwner = "guest-not-owner"
