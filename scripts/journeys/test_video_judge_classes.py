@@ -182,5 +182,94 @@ class PerDragTests(unittest.TestCase):
         self.assertEqual(report["split"], "journal")
 
 
+R = 8.33  # refresh ms of the synthetic traces below
+
+
+def two_pane_trace(xs, dt=None):
+    """A trace whose sample k shows panes a|b with the divider at xs[k] pt; dt[k] (ms) is the interval into sample k
+    (default one refresh)."""
+    t, samples = 0.0, []
+    for k, x in enumerate(xs):
+        if k:
+            t += (dt or {}).get(k, R)
+        samples.append({"t": round(t, 2), "panes": [["a", 0, 0, x, 100, 1], ["b", x + 1, 0, 300 - x, 100, 1]]})
+    return {"t0_s": 100.0, "refresh_ms": R, "samples": samples}
+
+
+def mouse_down(t0_s, t_ms):
+    return {"kind": {"mouse": {"_0": {"phase": "down"}}}, "uptimeNanos": int(round((t0_s + t_ms / 1000) * 1e9))}
+
+
+@unittest.skipUnless(JUDGE_TRACE.is_file(), "this kit has no video-cases/judge_trace.py")
+class DragFollowUpTests(unittest.TestCase):
+    """The review of #32947 (STATUS 8188): four faults of the per-drag split, one test each."""
+
+    @classmethod
+    def setUpClass(cls):
+        sys.path.insert(0, str(JUDGE_TRACE.parent))
+        import judge_trace  # noqa: E402
+        cls.jt = judge_trace
+
+    def test_drop_between_close_drags_counts_once(self):
+        """Drag 0 moves on samples 2..14, drag 1 starts at sample 15 and moves from 16; the interval into sample 16
+        is 16.7 ms (one refresh missed) and the movie misses the same refresh. Both parts' 2-refresh margins hold
+        sample 16: it is one drop in the trace and one in the movie, not one per part."""
+        xs = [100.0] * 2 + [100.0 + 2 * k for k in range(1, 14)] + [126.0] + [126.0 - 2 * k for k in range(1, 11)] + [106.0] * 4
+        trace = two_pane_trace(xs, {16: 2 * R})
+        t = [s["t"] for s in trace["samples"]]
+        frames = [[trace["t0_s"] + (v + 0.5) / 1000, "complete", True] for v in t]
+        events = {"hid": [], "journal": [mouse_down(100.0, 0.5), mouse_down(100.0, t[15])]}
+        report = self.jt.judge(trace, frames, 2.0, events)
+        self.assertEqual(len(report["motions"]), 2, report["motions"])
+        trace_drops = [d for d in report["defects"] if d["kind"] == "dropped" and d["frame"] is not None]
+        movie_drops = [d for d in report["defects"] if d["kind"] == "dropped" and d["frame"] is None]
+        self.assertEqual([d["frame"] for d in trace_drops], [16], trace_drops)
+        self.assertEqual(len(movie_drops), 1, movie_drops)
+        self.assertEqual(trace_drops[0]["drag"], 1, trace_drops)
+        # Each film frame belongs to one part: the parts' frame counts add up to at most the film's.
+        self.assertLessEqual(report["movie"]["complete"], len(frames), report["movie"])
+        self.assertLessEqual(report["movie"]["frames_in_motion"], len(frames), report["movie"])
+
+    def test_drag_labels_name_the_drag_that_starts_the_part(self):
+        """Two mouse-downs before the trace starts (-2000 and -1000 ms) both cut at sample 0, then drags at 34 ms and
+        at 300 ms. Each part is labelled with the last drag that starts it: drags 1, 2, 3, at -1000, 34, 300 ms."""
+        xs = [100.0] * 2 + [100.0 + 2 * k for k in range(1, 4)] + [106.0] * 6 + [106.0 + 2 * k for k in range(1, 4)] \
+            + [112.0] * 30 + [112.0 - 2 * k for k in range(1, 4)] + [106.0] * 4
+        trace = two_pane_trace(xs)
+        t = [s["t"] for s in trace["samples"]]
+        downs = [-2000.0, -1000.0, t[11] - 0.5, t[44] - 0.5]
+        report = self.jt.judge(trace, None, 2.0, {"hid": [], "journal": [mouse_down(100.0, v) for v in downs]})
+        labels = [(m["input"]["drag"], m["input"]["t_ms"]) for m in report["motions"]]
+        self.assertEqual(labels, [(1, -1000.0), (2, round(downs[2], 2)), (3, round(downs[3], 2))], report["motions"])
+
+    def test_edge_that_moves_only_in_its_last_step_is_an_end_jump(self):
+        """Three panes: the a|b divider moves 2 pt each refresh for 10 refreshes; the b|c divider stays and then jumps
+        10 pt in the last step only. That snap is an end-jump (the old judge flagged it; comparing with the last
+        moving step alone found no step to compare with)."""
+        samples, t = [], 0.0
+        for k in range(16):
+            x = 100.0 + 2 * min(max(k - 2, 0), 10)
+            y = 200.0 + (10.0 if k >= 12 else 0.0)
+            samples.append({"t": round(t, 2), "panes": [["a", 0, 0, x, 100, 1], ["b", x + 1, 0, y - x - 1, 100, 1],
+                                                        ["c", y + 1, 0, 400 - y, 100, 1]]})
+            t += R
+        report = self.jt.judge({"t0_s": 100.0, "refresh_ms": R, "samples": samples}, None, 2.0, None)
+        jumps = [d for d in report["defects"] if d["kind"] == "end-jump"]
+        self.assertTrue(any("pane c left" in d["what"] for d in jumps), report["defects"])
+        self.assertTrue(any("pane b right" in d["what"] for d in jumps), report["defects"])
+
+    def test_unsplit_film_with_drags_says_so(self):
+        """Two HID drags with no host_offset_s and no journal mouse-down: nothing places them on the trace's clock,
+        so the film stays one motion, and the report says why (rkd-probe-col-drag-3-heavy-dark of feat-5851715)."""
+        xs = [100.0] * 2 + [100.0 + 2 * k for k in range(1, 6)] + [110.0] * 10 + [110.0 - 2 * k for k in range(1, 6)] + [100.0] * 3
+        hid = [{"kind": "drag", "t_sent": 8.5, "t_returned": 9.6, "args": {}},
+               {"kind": "drag", "t_sent": 10.1, "t_returned": 10.4, "args": {}}]
+        report = self.jt.judge(two_pane_trace(xs), None, 2.0, {"hid": hid, "journal": []})
+        self.assertIsNone(report["split"])
+        notes = " ".join(report.get("notes") or [])
+        self.assertIn("2 HID drag", notes, report.get("notes"))
+        self.assertIn("not split", notes, report.get("notes"))
+
+
 if __name__ == "__main__":
     unittest.main()
