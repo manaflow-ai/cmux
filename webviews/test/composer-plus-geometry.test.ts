@@ -298,7 +298,15 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       // box down to that row's top.
       const innerFoot = shown(card?.querySelector(":scope > .acpmux-chrome-area > .acpmux-composer-foot"));
       const cardRect = shown(card);
-      const box = cardRect && innerFoot ? DOMRect.fromRect({ x: cardRect.left, y: cardRect.top, width: cardRect.width, height: innerFoot.top - cardRect.top }) : cardRect;
+      const box =
+        cardRect && innerFoot
+          ? DOMRect.fromRect({
+              x: cardRect.left,
+              y: cardRect.top,
+              width: cardRect.width,
+              height: innerFoot.top - cardRect.top,
+            })
+          : cardRect;
       const control = (selector: string): Control | null => {
         const buttons = [...(card?.querySelectorAll(selector) ?? [])].filter((element) => shown(element));
         const button = buttons[0];
