@@ -23,6 +23,10 @@ Verdict:
     is run again in its slot (at most --rounds replacements per run; see the note at PRESSURE_SAMPLES), so the verdict
     stands on --rounds rounds under pressure; the summary names the replaced rounds.
   - TRIAL PASS: every round passed, but with fewer than 10 rounds or less than +15 GB asked of the hog: no .pass.
+  - A PASS writes no .pass while an open P0 journey (open-p0-journeys.txt) or a golden video case
+    (video-goldens.txt, VIDEO EXTRA item 9) has no PASS, or has a FAIL, on the exact build job, or while the typing
+    rule fails (TYPING UNDER LOAD: no judged L6 run on the build, or one with p95 > 1 / max > 2 refreshes, a lost or
+    merged key; typing-load-results/<JOB>.jsonl).
 Each round must write its own results (a new --out folder; results of this build, newer than the round).
   - DIAGNOSTIC (NOT JUDGED), with --diagnostic: where the slot has no key window, the lines are typed after the
     creation hold, not at once; every other step is checked and each check's pass count is reported. Never a .pass
@@ -403,6 +407,149 @@ def open_p0_blockers(job, waived=None):
     return blockers
 
 
+# Video goldens (VIDEO EXTRA item 9, lead 2026-11-02 00:29Z): each finding of the video program, once fixed, keeps
+# its case's clean video as a golden. A later build's run of the same case is judged against it by
+# video_golden.py (the case's own judge plus the end layout), which appends one row per run to the ledger. A .pass
+# also needs each listed golden case to have passed, and never failed, on the exact build job: the same rule as the
+# open P0 journeys. A fleet check of the dogfood smoke gate, not a CI job or step (Lawrence 2026-10-23).
+VIDEO_GOLDENS = Path(os.environ.get("SMOKE_GATE_VIDEO_GOLDENS", "/Users/lawrence/fun/wt/handoff/video-goldens.txt"))
+GOLDEN_LEDGER = Path(os.environ.get("SMOKE_GATE_GOLDEN_LEDGER", "/Users/lawrence/fun/wt/handoff/video-golden-results"))
+
+
+def golden_list():
+    """(state, [fields...]) of the golden list: ("missing", []) when there is no list (no golden yet), ("listed",
+    rows), or ("unreadable: <error>", []) when it or its folder cannot be read (that blocks the .pass)."""
+    try:
+        if not VIDEO_GOLDENS.exists():
+            return "missing", []
+        return "listed", [l.split() for l in VIDEO_GOLDENS.read_text().splitlines()
+                          if l.strip() and not l.lstrip().startswith("#")]
+    except OSError as error:
+        return f"unreadable: {error}", []
+
+
+def golden_blockers(job, listing=None):
+    """[(list line, why)] of the golden video cases that block a .pass for JOB: no PASS on JOB in the golden ledger,
+    or any FAIL. A missing list blocks nothing (no golden yet); an unreadable one blocks. LISTING: golden_list()'s
+    answer, read once by the caller so the .pass names exactly the cases this check read.
+    Rollout: the list stays absent until the per-build golden runs write the ledger (video_golden.py after each
+    listed case's round on the build); a list without those runs blocks every .pass until they ran."""
+    state, listed = listing if listing is not None else golden_list()
+    if state.startswith("unreadable"):
+        return [(str(VIDEO_GOLDENS), f"the golden list is {state}: no .pass")]
+    rows = []
+    try:
+        for text in (GOLDEN_LEDGER / f"{job}.jsonl").read_text().splitlines():
+            try:
+                row = json.loads(text)
+            except ValueError:
+                continue
+            if isinstance(row, dict) and row.get("build_job") == job:
+                rows.append(row)
+    except OSError:
+        pass
+    blockers = []
+    for fields in listed:
+        mine = [r for r in rows if r.get("case") == fields[0]]
+        fails = [r for r in mine if r.get("status") == "fail"]
+        # Only a judged run of a clean kit counts (as for the open P0 journeys).
+        passes = [r for r in mine if r.get("status") == "pass" and r.get("kit_dirty") is False]
+        line = " ".join(fields)
+        if fails:
+            blockers.append((line, f"FAILED on {job}: {len(fails)} fail(s), e.g. {fails[0].get('out')}: "
+                                   f"{str(fails[0].get('reason') or '')[:160]}"))
+        elif not passes:
+            blockers.append((line, f"has no golden PASS on {job} ({len(mine)} result(s))"))
+    return blockers
+
+
+# TYPING UNDER LOAD (Lawrence P0 2026-11-02, lead 02:3xZ): "video + metric evidence that typing into terminals is
+# never laggy". A .pass needs, on the exact build job, at least one judged L6 typing run (every load at once plus the
+# 15 GB hog) whose key-to-photon is at most TYPING_P95 refreshes at p95 and TYPING_MAX at max (120 Hz), with no lost or
+# merged key and the exact order; and no judged L6 run that breaks it. Rows come from typing/ledger.py (one per judged
+# run, after the video judge and keys_check.py) in TYPING_LEDGER/<JOB>.jsonl. Only video-judged rows count (the rule
+# is photon time); a row of a dirty kit, a SMOKE ENV round, or a display that was not 120 Hz never counts.
+TYPING_LEDGER = Path(os.environ.get("SMOKE_GATE_TYPING_LEDGER", "/Users/lawrence/fun/wt/handoff/typing-load-results"))
+TYPING_PROFILE = "L6"
+TYPING_P95 = 1
+TYPING_MAX = 2
+
+
+def typing_row_ok(row):
+    """(counts, breaks, why) of one ledger row. A row counts only for a run that happened as the rule says: a pass of
+    the journey, both 60 s parts played in full, a 120 Hz video judge of both, the load alive until it was stopped with
+    the focus never moved, the 15 GB hog held (>= 12 GB) for L6, a clean kit and no host dialog. A row whose start is
+    the HID post (t_post, an upper bound of the latency) counts only when it passes (review at 8802cbd6e87)."""
+    if row.get("kit_dirty") is not False or row.get("smoke_env") is not False or row.get("source") != "video":
+        return False, False, "not judged (dirty kit, SMOKE ENV, or no video judge)"
+    if row.get("status") != "pass" or row.get("parts") != 2 or not row.get("planned_keys") \
+            or row.get("keys") != row.get("planned_keys"):
+        return False, False, f"not judged (status {row.get('status')}, parts {row.get('parts')}, keys {row.get('keys')} of {row.get('planned_keys')})"
+    if not row.get("load_ok") or (row.get("profile") == TYPING_PROFILE and float(row.get("hog_held_gb") or 0) < 12):
+        return False, False, f"not judged (load_ok {row.get('load_ok')}, hog {row.get('hog_held_gb')} GB)"
+    try:
+        hz_ok = abs(float(row.get("refresh_ms") or 0) - 1000 / 120) <= 0.35
+    except (TypeError, ValueError):
+        hz_ok = False
+    if not hz_ok:
+        return False, False, f"display at {row.get('refresh_ms')} ms, not 120 Hz"
+    p95, top = row.get("p95_refreshes"), row.get("max_refreshes")
+    slow, broke = [], []
+    if p95 is None or p95 > TYPING_P95:
+        slow.append(f"p95 {p95} > {TYPING_P95} refresh")
+    if top is None or top > TYPING_MAX:
+        slow.append(f"max {top} > {TYPING_MAX} refreshes")
+    # Breaches that do not depend on the start clock (review should-fix 2 at 71bef9a1695).
+    if row.get("missing_frames"):
+        broke.append(f"{row.get('missing_frames')} keys never shown")
+    if row.get("lost") or row.get("merged") or row.get("order_ok") is not True:
+        broke.append(f"keys: lost {row.get('lost')}, merged {row.get('merged')}, order_ok {row.get('order_ok')}")
+    # cmux-ad 03:40Z: no timestamp from Python counts. A row whose key starts are not the keys' own NSEvent times is
+    # provisional and never counts (pass or breach); a row whose achieved rate is under 95% of its target is not run.
+    if row.get("start_clock") != "nsevent":
+        # Lost keys and a wrong order come from the echoed bytes, not from any clock: they block even here.
+        if row.get("lost") or row.get("order_ok") is not True:
+            return True, True, f"keys: lost {row.get('lost')}, order_ok {row.get('order_ok')} (provisional timing)"
+        return False, False, "provisional (key start from a Python post time, not the NSEvent time): " + "; ".join(slow + broke)
+    if row.get("rate_ok") is not True:
+        return False, False, f"not run (achieved {row.get('achieved_keys_per_s')} keys/s of {row.get('target_keys_per_s')})"
+    return True, bool(slow or broke), "; ".join(slow + broke)
+
+
+# The rule is live only while TYPING_RULE_ON exists (the lead creates it when the L6 load tool and the per-build L6
+# round exist), so it never blocks every .pass before its evidence can be made (review must-fix 2 at 8802cbd6e87).
+TYPING_RULE_ON = Path(os.environ.get("SMOKE_GATE_TYPING_RULE_ON", "/Users/lawrence/fun/wt/handoff/typing-load-rule.on"))
+
+
+def typing_blockers(job):
+    """[(what, why)] that block a .pass for JOB under the typing rule (empty = the rule holds or is not live)."""
+    try:
+        if not TYPING_RULE_ON.exists():
+            return []
+    except OSError as error:
+        return [(str(TYPING_RULE_ON), f"the typing rule switch cannot be read ({error}): no .pass")]
+    rows = []
+    try:
+        for text in (TYPING_LEDGER / f"{job}.jsonl").read_text().splitlines():
+            try:
+                row = json.loads(text)
+            except ValueError:
+                continue
+            if isinstance(row, dict) and row.get("build_job") == job and row.get("profile") == TYPING_PROFILE:
+                rows.append(row)
+    except OSError:
+        pass
+    counted = [(r,) + typing_row_ok(r)[1:] for r in rows if typing_row_ok(r)[0]]
+    broken = [(r, why) for r, broke, why in counted if broke]
+    if broken:
+        r, why = broken[0]
+        return [(f"typing-load {TYPING_PROFILE}", f"{len(broken)} judged run(s) on {job} break the rule, e.g. {r.get('out')}: {why}")]
+    if not counted:
+        return [(f"typing-load {TYPING_PROFILE}", f"no judged {TYPING_PROFILE} typing run on {job} ({len(rows)} row(s); "
+                                                 f"ledger {TYPING_LEDGER})")]
+    return []
+
+
 def build_state(job, deadline, poll=30.0):
     """The fleet state of build JOB once it is done, failed or cancelled, or its last state at DEADLINE."""
     while True:
@@ -625,6 +772,8 @@ def main(argv=None):
             return 75
         waived = []
         blockers = open_p0_blockers(opts.build, waived)
+        listing = golden_list()
+        goldens = golden_blockers(opts.build, listing)
         if blockers:
             text = "\n".join([f"smoke-gate: {opts.rounds} of {opts.rounds} rounds passed, but an open P0 journey blocks the "
                               f".pass ({OPEN_P0}; --build must be the full job id):"]
@@ -632,9 +781,26 @@ def main(argv=None):
                              + [f"  waived FAIL {w['id']} {w['out']}: {w['reason']}" for w in waived])
             (out / "open-p0.txt").write_text(text + "\n")
             print(text, file=sys.stderr)
+        if goldens:
+            text = "\n".join([f"smoke-gate: {opts.rounds} of {opts.rounds} rounds passed, but a golden video case blocks "
+                              f"the .pass ({VIDEO_GOLDENS}; ledger {GOLDEN_LEDGER}):"]
+                             + [f"  {line}: {why}" for line, why in goldens])
+            (out / "video-goldens.txt").write_text(text + "\n")
+            print(text, file=sys.stderr)
+        typing = typing_blockers(opts.build)
+        if typing:
+            text = "\n".join([f"smoke-gate: {opts.rounds} of {opts.rounds} rounds passed, but the typing rule blocks the "
+                              f".pass (p95 <= {TYPING_P95}, max <= {TYPING_MAX} refreshes in {TYPING_PROFILE}, no lost or merged key):"]
+                             + [f"  {line}: {why}" for line, why in typing])
+            (out / "typing-load.txt").write_text(text + "\n")
+            print(text, file=sys.stderr)
+        if blockers or goldens or typing:
             return 75
         handoff = Path(opts.handoff)
         handoff.mkdir(parents=True, exist_ok=True)
+        summary["video_goldens"] = {"list": listing[0], "checked": [f[0] for f in listing[1]]}
+        summary["typing_rule"] = {"live": TYPING_RULE_ON.exists(), "profile": TYPING_PROFILE, "p95": TYPING_P95,
+                                  "max": TYPING_MAX, "ledger": str(TYPING_LEDGER)}
         summary["open_p0_waived"] = waived
         summary["open_p0_checked"] = [l.split()[0] for l in OPEN_P0.read_text().splitlines()
                                       if l.strip() and not l.lstrip().startswith("#")]

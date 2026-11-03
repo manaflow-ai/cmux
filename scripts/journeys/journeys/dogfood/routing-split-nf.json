@@ -1,0 +1,274 @@
+{
+  "id": "routing-split-nf",
+  "priority": "P1",
+  "title": "Routing C: Cmd-D / Cmd-Shift-D, then a line at once: it runs in the new pane only (no film: the verdict is the app's and the daemon's state)",
+  "why": "P0 1193 (Cmd-D twice, keys to the wrong new terminal), #29262",
+  "source": "VIDEO EXTRA item 5, focus and input routing (lead 2026-11-02 00:29Z; STATUS 4271, 4283)",
+  "budget_seconds": 160,
+  "options": {
+    "key_path": "real"
+  },
+  "continue_not_judged": true,
+  "finally": [
+    {
+      "do": "video_close_open",
+      "title": "stop a recording a failed check left open (its movie is the evidence)"
+    },
+    {
+      "do": "env_windows",
+      "at": "end",
+      "title": "host dialogs at the end (SMOKE ENV mark)"
+    },
+    {
+      "do": "rpc",
+      "method": "debug.focus",
+      "title": "the focus and key-hold state at the end (records only)"
+    },
+    {
+      "do": "app_log",
+      "seconds": 90,
+      "grep": "newTab|closeTab|creation.hold|focus|firstResponder|keyRouter",
+      "title": "the app log of the last 90 s (records only)"
+    },
+    {
+      "do": "smoke_close_all"
+    }
+  ],
+  "steps": [
+    {
+      "do": "smoke_ready",
+      "timeout": 60
+    },
+    {
+      "do": "env_windows",
+      "at": "start"
+    },
+    {
+      "do": "smoke_remember_workspaces"
+    },
+    {
+      "do": "smoke_make_key"
+    },
+    {
+      "do": "smoke_key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "setup-c0-ws"
+    },
+    {
+      "do": "expect",
+      "title": "set-up: Cmd-N makes the workspace of c0",
+      "since": "setup-c0-ws",
+      "timeout": 20,
+      "all": [
+        {
+          "smoke_frame": {}
+        }
+      ]
+    },
+    {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "setup-c0"
+    },
+    {
+      "do": "outwait_hold"
+    },
+    {
+      "do": "smoke_type",
+      "text": "echo c0home-${nonce}",
+      "enter": true
+    },
+    {
+      "do": "expect",
+      "title": "set-up: the terminal of c0 ran its line",
+      "since": "setup-c0",
+      "timeout": 30,
+      "all": [
+        {
+          "smoke_daemon_lines": {
+            "lines": [
+              "c0home-${nonce}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_adopt_line",
+      "line": "c0home-${nonce}",
+      "as": "c0"
+    },
+    {
+      "do": "smoke_snapshot",
+      "name": "c1"
+    },
+    {
+      "do": "smoke_key",
+      "key": "d",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "c1"
+    },
+    {
+      "do": "routing_type_now",
+      "text": "echo RC1-${nonce}-$((6*7))"
+    },
+    {
+      "do": "expect",
+      "title": "C1: Cmd-D then a line at once: it ran in the new pane only",
+      "since": "c1",
+      "timeout": 20,
+      "all": [
+        {
+          "routing_marker": {
+            "line": "RC1-${nonce}-42",
+            "on": "new:c1",
+            "attempt": "C1"
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "RC1-${nonce}-42"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_snapshot",
+      "name": "c2"
+    },
+    {
+      "do": "smoke_key",
+      "key": "d",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ],
+      "mark": "c2"
+    },
+    {
+      "do": "routing_type_now",
+      "text": "echo RC2-${nonce}-$((6*7))"
+    },
+    {
+      "do": "expect",
+      "title": "C2: Cmd-Shift-D then a line at once: it ran in the new pane only",
+      "since": "c2",
+      "timeout": 20,
+      "all": [
+        {
+          "routing_marker": {
+            "line": "RC2-${nonce}-42",
+            "on": "new:c2",
+            "attempt": "C2"
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "RC2-${nonce}-42"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_snapshot",
+      "name": "c3"
+    },
+    {
+      "do": "smoke_key",
+      "key": "d",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "c3"
+    },
+    {
+      "do": "routing_type_now",
+      "text": "echo RC3-${nonce}-$((6*7))"
+    },
+    {
+      "do": "expect",
+      "title": "C3: Cmd-D then a line at once: it ran in the new pane only",
+      "since": "c3",
+      "timeout": 20,
+      "all": [
+        {
+          "routing_marker": {
+            "line": "RC3-${nonce}-42",
+            "on": "new:c3",
+            "attempt": "C3"
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "RC3-${nonce}-42"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "smoke_snapshot",
+      "name": "c4"
+    },
+    {
+      "do": "smoke_key",
+      "key": "d",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ],
+      "mark": "c4"
+    },
+    {
+      "do": "routing_type_now",
+      "text": "echo RC4-${nonce}-$((6*7))"
+    },
+    {
+      "do": "expect",
+      "title": "C4: Cmd-Shift-D then a line at once: it ran in the new pane only",
+      "since": "c4",
+      "timeout": 20,
+      "all": [
+        {
+          "routing_marker": {
+            "line": "RC4-${nonce}-42",
+            "on": "new:c4",
+            "attempt": "C4"
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "RC4-${nonce}-42"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

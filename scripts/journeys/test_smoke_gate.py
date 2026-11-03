@@ -96,7 +96,11 @@ def gate(plan, tmp, extra=(), env_extra=None, rounds=None):
     env = {k: v for k, v in os.environ.items() if not k.startswith("CAPTURE_HOST_")}
     if not os.path.exists(os.path.join(tmp, "open-p0.txt")):
         open(os.path.join(tmp, "open-p0.txt"), "w").write("# no open P0 journeys\n")
-    env.update({"SMOKE_GATE_OPEN_P0": os.path.join(tmp, "open-p0.txt"), "JOURNEYS_P0_LEDGER": os.path.join(tmp, "ledger")})
+    env.update({"SMOKE_GATE_OPEN_P0": os.path.join(tmp, "open-p0.txt"), "JOURNEYS_P0_LEDGER": os.path.join(tmp, "ledger"),
+                "SMOKE_GATE_VIDEO_GOLDENS": os.path.join(tmp, "video-goldens.txt"),
+                "SMOKE_GATE_GOLDEN_LEDGER": os.path.join(tmp, "golden-ledger"),
+                "SMOKE_GATE_TYPING_LEDGER": os.path.join(tmp, "typing-ledger"),
+                "SMOKE_GATE_TYPING_RULE_ON": os.path.join(tmp, "typing-rule.on")})
     env.update({"SMOKE_PLAN": json.dumps(plan), "SMOKE_GATE_CMUX_CI": "/bin/false",
                 "SMOKE_JOURNEY": str(HERE / "journeys" / "dogfood" / "smoke-dogfood.json"), **(env_extra or {})})
     done = subprocess.run([sys.executable, str(GATE), "--build", "job123", "--rounds", str(rounds or len(plan)), "--runner", runner,
@@ -620,6 +624,139 @@ class FailingStep(unittest.TestCase):
             steps.insert(1, {"do": "expect", "ok": False, "error": "real", "title": "t"})
             (d / "result.json").write_text(json.dumps({"steps": steps}))
             self.assertEqual(mod.failing_step(Path(tmp))["error"], "real")
+
+
+class TypingRule(unittest.TestCase):
+    """TYPING UNDER LOAD: no .pass without a judged L6 run on the build that holds p95 <= 1 and max <= 2 refreshes."""
+
+    GOOD = {"profile": "L6", "build_job": "J", "kit_dirty": False, "smoke_env": False, "source": "video",
+            "refresh_ms": 8.333, "p95_refreshes": 1, "max_refreshes": 2, "lost": [], "merged": [], "order_ok": True,
+            "status": "pass", "parts": 2, "keys": 973, "planned_keys": 973, "load_ok": True, "hog_held_gb": 14.2,
+            "missing_frames": 0, "start_clock": "nsevent", "rate_ok": True}
+
+    def setUp(self):
+        self.on = tempfile.NamedTemporaryFile(delete=False)
+        self.on.close()
+
+    def tearDown(self):
+        os.unlink(self.on.name)
+
+    def rows(self, mod, tmp, *rows):
+        mod.TYPING_RULE_ON = Path(self.on.name)
+        mod.TYPING_LEDGER = Path(tmp) / "typing"
+        mod.TYPING_LEDGER.mkdir(exist_ok=True)
+        (mod.TYPING_LEDGER / "J.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+
+    def test_no_row_blocks_and_a_good_row_passes(self):
+        mod = load_gate()
+        with tempfile.TemporaryDirectory() as tmp:
+            mod.TYPING_LEDGER = Path(tmp) / "none"
+            mod.TYPING_RULE_ON = Path(tmp) / "off"
+            self.assertEqual(mod.typing_blockers("J"), [], "a rule that is not live blocks nothing")
+            mod.TYPING_RULE_ON = Path(self.on.name)
+            self.assertIn("no judged L6", mod.typing_blockers("J")[0][1])
+            self.rows(mod, tmp, self.GOOD)
+            self.assertEqual(mod.typing_blockers("J"), [])
+
+    def test_a_breach_blocks_even_beside_a_good_row(self):
+        mod = load_gate()
+        with tempfile.TemporaryDirectory() as tmp:
+            for bad in ({"p95_refreshes": 2}, {"max_refreshes": 3}, {"lost": [5]}, {"merged": [{"first": 1}]},
+                        {"order_ok": False}, {"missing_frames": 3}):
+                self.rows(mod, tmp, self.GOOD, dict(self.GOOD, **bad, out="/r"))
+                self.assertIn("break the rule", mod.typing_blockers("J")[0][1], bad)
+
+    def test_rows_that_do_not_count(self):
+        mod = load_gate()
+        with tempfile.TemporaryDirectory() as tmp:
+            for skip in ({"kit_dirty": True}, {"smoke_env": True}, {"source": "in-app"}, {"refresh_ms": 16.67},
+                         {"profile": "L5"}, {"build_job": "OTHER"}, {"status": "fail"}, {"parts": 1},
+                         {"keys": 400}, {"load_ok": False}, {"hog_held_gb": 3}, {"refresh_ms": "x"},
+                         {"start_clock": "t_post", "p95_refreshes": 3}, {"rate_ok": False}):
+                self.rows(mod, tmp, dict(self.GOOD, **skip))
+                self.assertIn("no judged L6", mod.typing_blockers("J")[0][1], skip)
+            # a breach in a row that does not count does not block a good row
+            self.rows(mod, tmp, self.GOOD, dict(self.GOOD, p95_refreshes=5, smoke_env=True))
+            self.assertEqual(mod.typing_blockers("J"), [])
+
+    def test_a_python_timed_row_never_counts(self):
+        """cmux-ad 03:40Z: a key start from a Python timestamp is provisional: it neither passes nor breaks."""
+        mod = load_gate()
+        with tempfile.TemporaryDirectory() as tmp:
+            self.rows(mod, tmp, dict(self.GOOD, start_clock="t_post"))
+            self.assertIn("no judged L6", mod.typing_blockers("J")[0][1])
+            self.rows(mod, tmp, self.GOOD, dict(self.GOOD, start_clock="t_post", p95_refreshes=4))
+            self.assertEqual(mod.typing_blockers("J"), [])
+            # a lost key is a byte fact, not a time: it blocks even in a provisional row
+            self.rows(mod, tmp, self.GOOD, dict(self.GOOD, start_clock="t_post", lost=[3], out="/r"))
+            self.assertIn("break the rule", mod.typing_blockers("J")[0][1])
+
+    def test_a_low_rate_row_is_not_run(self):
+        mod = load_gate()
+        with tempfile.TemporaryDirectory() as tmp:
+            self.rows(mod, tmp, dict(self.GOOD, rate_ok=False))
+            self.assertIn("no judged L6", mod.typing_blockers("J")[0][1])
+
+    def test_the_rule_holds_back_the_pass_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            open(os.path.join(tmp, "open-p0.txt"), "w").write("# none open\n")
+            open(os.path.join(tmp, "typing-rule.on"), "w").close()
+            code, summary = gate(["pass"] * 10, tmp, extra=("--hosts", "cmux99", "--whole-host", "cmux99"))
+            self.assertEqual(code, 75)
+            self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
+            if not summary["gate_dirty"]:
+                self.assertIn("no judged L6", open(os.path.join(tmp, "out", "typing-load.txt")).read())
+
+
+class VideoGoldens(unittest.TestCase):
+    """VIDEO EXTRA item 9: a .pass needs every listed golden video case passed, and never failed, on the build."""
+
+    def test_no_list_blocks_nothing_and_the_ledger_decides(self):
+        mod = load_gate()
+        with tempfile.TemporaryDirectory() as tmp:
+            mod.VIDEO_GOLDENS, mod.GOLDEN_LEDGER = Path(tmp) / "goldens.txt", Path(tmp) / "ledger"
+            self.assertEqual(mod.golden_blockers("J"), [])  # no list yet: no golden, nothing blocks
+            mod.VIDEO_GOLDENS.write_text("# case judge golden finding owner\nrouting-split routing /g/a F1 o\n")
+            self.assertIn("no golden PASS", mod.golden_blockers("J")[0][1])
+            mod.GOLDEN_LEDGER.mkdir()
+            rows = [{"case": "routing-split", "status": "pass", "build_job": "J", "kit_dirty": True},
+                    {"case": "routing-split", "status": "pass", "build_job": "OTHER", "kit_dirty": False}]
+            (mod.GOLDEN_LEDGER / "J.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+            self.assertEqual(len(mod.golden_blockers("J")), 1)  # a dirty kit's pass and another build's do not count
+            with open(mod.GOLDEN_LEDGER / "J.jsonl", "a") as f:
+                f.write(json.dumps({"case": "routing-split", "status": "pass", "build_job": "J", "kit_dirty": False}) + "\n")
+            self.assertEqual(mod.golden_blockers("J"), [])
+            with open(mod.GOLDEN_LEDGER / "J.jsonl", "a") as f:
+                f.write(json.dumps({"case": "routing-split", "status": "fail", "build_job": "J", "out": "/r"}) + "\n")
+            self.assertIn("FAILED on J", mod.golden_blockers("J")[0][1])
+            self.assertEqual(mod.golden_list()[0], "listed")
+            # A list read once is what the check judges, whatever the file says later.
+            self.assertEqual(mod.golden_blockers("J", ("listed", [])), [])
+            self.assertIn("unreadable", mod.golden_blockers("J", ("unreadable: denied", []))[0][1])
+            mod.VIDEO_GOLDENS = Path(tmp) / "gone.txt"
+            self.assertEqual(mod.golden_list(), ("missing", []))
+
+    def test_a_listed_golden_without_a_pass_holds_back_the_pass_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            open(os.path.join(tmp, "open-p0.txt"), "w").write("# none open\n")
+            open(os.path.join(tmp, "video-goldens.txt"), "w").write("routing-split routing /g/a F1 owner\n")
+            code, summary = gate(["pass"] * 10, tmp, extra=("--hosts", "cmux99", "--whole-host", "cmux99"))
+            self.assertEqual(summary["verdict"], "PASS")
+            self.assertEqual(code, 75)
+            self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
+            if not summary["gate_dirty"]:  # the golden check runs after the committed-gate check
+                self.assertIn("has no golden PASS on job123", open(os.path.join(tmp, "out", "video-goldens.txt")).read())
+
+    def test_both_blockers_are_reported_together(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            open(os.path.join(tmp, "open-p0.txt"), "w").write("some-p0 kit@1 owner S\n")
+            open(os.path.join(tmp, "video-goldens.txt"), "w").write("routing-split routing /g/a F1 owner\n")
+            code, summary = gate(["pass"] * 10, tmp, extra=("--hosts", "cmux99", "--whole-host", "cmux99"))
+            self.assertEqual(code, 75)
+            self.assertFalse(os.path.exists(os.path.join(tmp, "handoff", "job123.pass")))
+            if not summary["gate_dirty"]:
+                self.assertTrue(os.path.exists(os.path.join(tmp, "out", "open-p0.txt")))
+                self.assertTrue(os.path.exists(os.path.join(tmp, "out", "video-goldens.txt")))
 
 
 class OpenP0(unittest.TestCase):

@@ -1,0 +1,251 @@
+{
+  "id": "routing-smoke-seq-nf",
+  "priority": "P1",
+  "title": "Routing H: the smoke gate's sequence, 3 x (Cmd-N, Ctrl-`, a line at once); each line runs in its own new terminal (no film: the verdict is the app's and the daemon's state)",
+  "why": "the 1-in-7 failure of smoke step 16 before #30827 (STATUS 4124, 4288)",
+  "source": "VIDEO EXTRA item 5, focus and input routing (lead 2026-11-02 00:29Z; STATUS 4271, 4283)",
+  "budget_seconds": 120,
+  "options": {
+    "key_path": "real"
+  },
+  "continue_not_judged": true,
+  "finally": [
+    {
+      "do": "video_close_open",
+      "title": "stop a recording a failed check left open (its movie is the evidence)"
+    },
+    {
+      "do": "env_windows",
+      "at": "end",
+      "title": "host dialogs at the end (SMOKE ENV mark)"
+    },
+    {
+      "do": "rpc",
+      "method": "debug.focus",
+      "title": "the focus and key-hold state at the end (records only)"
+    },
+    {
+      "do": "app_log",
+      "seconds": 90,
+      "grep": "newTab|closeTab|creation.hold|focus|firstResponder|keyRouter",
+      "title": "the app log of the last 90 s (records only)"
+    },
+    {
+      "do": "smoke_close_all"
+    }
+  ],
+  "steps": [
+    {
+      "do": "smoke_ready",
+      "timeout": 60
+    },
+    {
+      "do": "env_windows",
+      "at": "start"
+    },
+    {
+      "do": "smoke_remember_workspaces"
+    },
+    {
+      "do": "smoke_make_key"
+    },
+    {
+      "do": "smoke_snapshot",
+      "name": "h1"
+    },
+    {
+      "do": "smoke_key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "h1-ws"
+    },
+    {
+      "do": "expect",
+      "title": "H1: Cmd-N shows its workspace",
+      "since": "h1-ws",
+      "timeout": 20,
+      "all": [
+        {
+          "smoke_workspaces": {
+            "new": 1
+          }
+        },
+        {
+          "smoke_frame": {}
+        }
+      ]
+    },
+    {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "h1"
+    },
+    {
+      "do": "routing_type_now",
+      "text": "echo RH1-${nonce}-$((6*7))"
+    },
+    {
+      "do": "smoke_snapshot",
+      "name": "h2"
+    },
+    {
+      "do": "smoke_key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "h2-ws"
+    },
+    {
+      "do": "expect",
+      "title": "H2: Cmd-N shows its workspace",
+      "since": "h2-ws",
+      "timeout": 20,
+      "all": [
+        {
+          "smoke_workspaces": {
+            "new": 2
+          }
+        },
+        {
+          "smoke_frame": {}
+        }
+      ]
+    },
+    {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "h2"
+    },
+    {
+      "do": "routing_type_now",
+      "text": "echo RH2-${nonce}-$((6*7))"
+    },
+    {
+      "do": "smoke_snapshot",
+      "name": "h3"
+    },
+    {
+      "do": "smoke_key",
+      "key": "n",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "h3-ws"
+    },
+    {
+      "do": "expect",
+      "title": "H3: Cmd-N shows its workspace",
+      "since": "h3-ws",
+      "timeout": 20,
+      "all": [
+        {
+          "smoke_workspaces": {
+            "new": 3
+          }
+        },
+        {
+          "smoke_frame": {}
+        }
+      ]
+    },
+    {
+      "do": "smoke_key",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "mark": "h3"
+    },
+    {
+      "do": "routing_type_now",
+      "text": "echo RH3-${nonce}-$((6*7))"
+    },
+    {
+      "do": "expect",
+      "title": "H1: the line typed at once after Ctrl-` 1 of 3 ran in its new terminal only",
+      "since": "h1",
+      "timeout": 20,
+      "all": [
+        {
+          "routing_marker": {
+            "line": "RH1-${nonce}-42",
+            "on": "new:h1..h2",
+            "attempt": "H1",
+            "in_new_workspace": true
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "RH1-${nonce}-42"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "expect",
+      "title": "H2: the line typed at once after Ctrl-` 2 of 3 ran in its new terminal only",
+      "since": "h1",
+      "timeout": 20,
+      "all": [
+        {
+          "routing_marker": {
+            "line": "RH2-${nonce}-42",
+            "on": "new:h2..h3",
+            "attempt": "H2",
+            "in_new_workspace": true
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "RH2-${nonce}-42"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "expect",
+      "title": "H3: the line typed at once after Ctrl-` 3 of 3 ran in its new terminal only",
+      "since": "h1",
+      "timeout": 20,
+      "all": [
+        {
+          "routing_marker": {
+            "line": "RH3-${nonce}-42",
+            "on": "new:h3",
+            "attempt": "H3",
+            "in_new_workspace": true
+          }
+        },
+        {
+          "smoke_key_window": {}
+        },
+        {
+          "frame_screen": {
+            "shows": [
+              "RH3-${nonce}-42"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

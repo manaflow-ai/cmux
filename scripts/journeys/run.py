@@ -72,7 +72,11 @@ BUILD_CACHE_KEEP = 3  # builds kept in ~/.cache/cmux-journeys/builds on a mini (
 SETUP_RESERVE = 240
 JOURNEY_SECONDS = LEASE_SECONDS - SETUP_RESERVE - 40
 RESULT_FILE = re.compile(r"(?:\./)?((?:[a-z0-9][a-z0-9-]*/)?(?:result\.json|check-\d{2,3}\.png|clip/frame-\d{5}\.png"
-                         r"|restore-trace\.json|diag-[a-z]+\.(?:json|png|txt)|diag-app-sample\.txt)|host\.json|summary\.json)")
+                         r"|restore-trace\.json|diag-[a-z]+\.(?:json|png|txt)|diag-app-sample\.txt"
+                         # TYPING UNDER LOAD (ext_load.py): the echo log, the in-app probe, the flow trace and the load
+                         r"|echo\.jsonl|probe\.csv|probe-[a-z]+\.json|flows/(?:flows-\d+\.jsonl|[a-z0-9_-]+-\d+\.(?:blackbox|recording)\.cmxtrace)"
+                         r"|load/L[0-9](?:\.stdout|\.stderr|/(?:[A-Za-z0-9_-]+/)?[a-z_-]+\.(?:json|jsonl)))"
+                         r"|host\.json|summary\.json)")
 RESULT_MAX_BYTES = 64 << 20
 RESULT_TAR_MAX_BYTES = 768 << 20
 STEP_NAMES = {name[len("step_"):] for name in dir(driver.Journey) if name.startswith("step_")}
@@ -378,6 +382,10 @@ def kit_tar(specs):
         tar.add(HERE / "hid_inject.swift", arcname="hid_inject.swift")  # built only by ext_video's hid_inject steps
         tar.add(HERE / "hid_inject_log.py", arcname="hid_inject_log.py")
         tar.add(OCR_SOURCE, arcname="ocr.swift")
+        # TYPING UNDER LOAD (ext_load.py): the load tools and the typist/echo programs, from this commit.
+        for folder in ("tui-kit", "typing"):
+            if (HERE / folder).is_dir():
+                tar.add(HERE / folder, arcname=folder, filter=lambda t: None if "__pycache__" in t.name else t)
         data = json.dumps([{k: v for k, v in s.items() if not k.startswith("_")} for s in specs]).encode()
         info = tarfile.TarInfo("journeys.json")
         info.size, info.mode = len(data), 0o644
@@ -577,7 +585,8 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
                        timeout=left(150), check=False).stdout
         take_results(files, out, set(ids))
         # ext_video's recordings (handoff resize-videos/KIT.md): movies are hundreds of MB, fetched on their own.
-        videos = remote(host, f"cd {q(work + '/out')} && {VIDEO_FETCH}", timeout=left(240), check=False).stdout
+        # Compressed on the mini (VIDEO_FETCH), with the typing kit's 420 s bound (two 60 s L6 movies at 60 Mbit/s).
+        videos = remote(host, f"cd {q(work + '/out')} && {VIDEO_FETCH}", timeout=left(420), check=False).stdout
         take_videos(videos, out, set(ids))
         if hog_started:
             hog_log = remote(host, f"tail -c 2000000 {q(work + '/hog.jsonl')}", timeout=left(60), check=False).stdout
