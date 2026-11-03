@@ -978,7 +978,7 @@ export function ComposerPickers({
   // narrow row ("Med"). Before the session reports, it names the held pick.
   const quickDetail = effortLabel ?? (awaiting ? (heldChoice?.name ?? pendingEffort) : undefined);
   const quickShort = effortLabel ? effortShort : awaiting ? heldShort : undefined;
-  const usage = compactingUsage(summary?.usage, summary?.usageStats);
+  const usage = compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
   const usageNote =
     showContextUsage && usage && usage.size > 0
       ? t(PICKER_LABELS.context, { percent: Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100) })
@@ -2000,10 +2000,14 @@ export const ArrowUpIcon = () => (
     <path d="M8 12.9V3.4M3.9 7.5 8 3.4l4.1 4.1" />
   </Icon>
 );
-/** Steer's return glyph (↵): a prompt typed during a turn goes in now, as Codex and Claude draw it. */
+/** Send's return glyph (↵) in Claude's look, drawn in Claude Code desktop's proportions: a wider
+ *  bar, a taller stem and a fuller arrowhead with a tight corner (Leo 2026-11-02: "our send button i
+ *  think can be nicer lokoing ... compared to claude code"). At the composer's 18 px trailing glyph
+ *  its ink is about 13 × 12 px, Claude Code's. */
+export const RETURN_GLYPH_PATH = "M13.1 3.45v4.1a1.2 1.2 0 0 1-1.2 1.2H2.9M6.7 4.95 2.9 8.75l3.8 3.8";
 export const ReturnIcon = () => (
   <Icon>
-    <path d="M12.6 3.6v4.1a1.8 1.8 0 0 1-1.8 1.8H3.6M6.6 6.4 3.4 9.5l3.2 3.1" />
+    <path d={RETURN_GLYPH_PATH} />
   </Icon>
 );
 /** Stop: a plain outline square with the mic's stroke, Claude Code desktop's, never a disc. */

@@ -8,6 +8,7 @@ mod activity;
 pub(crate) mod admission;
 mod adopted_fences;
 mod adoption;
+pub(crate) mod agent_hold;
 mod agent_pairs;
 mod message_events;
 pub use agent_pairs::PairGuard;

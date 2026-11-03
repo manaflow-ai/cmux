@@ -26,9 +26,9 @@ enum DebugFrameStrip {
         let start = ContinuousClock.now
         // `crop: "strip"`: only the focused pane's tab strip is kept (full scale stays cheap); the report
         // then measures the strip alone.
-        let cropsStrip = params["crop"]?.stringValue == "strip"
-        let crop = cropsStrip ? controller.content?.focusedPane.flatMap { window.unitRect(of: $0.view.stripView) } : nil
-        let recording = Task.detached { await WindowFrame.record(number, scale: scale, crop: crop, from: start, until: 120 + duration) }
+        let crop = params["crop"]?.stringValue == "strip" ? controller.content?.focusedPane.flatMap { window.unitRect(of: $0.view.stripView) } : nil
+        let above = params["above"]?.boolValue == true && crop == nil ? window.frameStripBounds : nil
+        let recording = Task.detached { if let above { await WindowFrame.recordAbove(number, bounds: above, scale: scale, from: start, until: 120 + duration) } else { await WindowFrame.record(number, scale: scale, crop: crop, from: start, until: 120 + duration) } }
         // The key goes in once the recorder has frames from before it.
         let lead = DemandTimer(owner: "debug.frame_strip.lead")
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in

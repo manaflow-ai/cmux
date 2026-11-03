@@ -10,6 +10,7 @@ import CmuxNextDesign
 import CmuxNextErrorJournal
 import CmuxNextSettings
 import CmuxNextSidebar
+import CmuxNextTabs
 import CmuxNextTerminal
 import CmuxNextWakeups
 
@@ -601,6 +602,11 @@ final class AppControl {
             .mainActor("debug.cloud_machine_fixture") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugCloudMachineFixture.show(call.params, services: services))
+            },
+            .mainActor("debug.native_row_tools_fixture") { [weak services] call in
+                guard let services else { return .value(.null) }
+                let window = DebugWindowSnapshot.window(call.params.merging(["kind": .string("main")]) { current, _ in current }, services: services)
+                return .value(DebugNativeRowToolsFixture(overlay: DebugNativeRowToolsFixtureView.self).show(call.params, in: window))
             },
             // Captures of the workspace, tab and pane right-click menus and their folders (tour:object-menu-*).
             .mainActor("debug.object_menu") { [weak services] call in

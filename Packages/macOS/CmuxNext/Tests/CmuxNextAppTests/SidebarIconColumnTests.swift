@@ -174,4 +174,22 @@ import Testing
         let rowColumn = itemRow.frame.minX + SidebarStyle.trailingColumnCenterX(rowWidth: itemRow.frame.width - SidebarStyle.horizontalInset)
         #expect(abs(chevronX - rowColumn) <= Self.tolerance, "\(look): the header chevron centers at \(chevronX), its rows' marks at \(rowColumn)")
     }
+
+    /// Pinned-section titles use the same optical midline as machine headers and row glyphs, at every text size.
+    /// Measure the real label's baseline and cap height, independently of the production positioning helper.
+    @Test(arguments: SidebarDensity.allCases, SidebarTextSize.allCases)
+    func aBandHeaderTitleAndChevronShareTheMidLine(density: SidebarDensity, textSize: SidebarTextSize) throws {
+        try SidebarGroupRailAlignmentTests.with(density, .off, textSize: textSize) {
+            let header = SidebarSectionHeaderView(frame: NSRect(x: 0, y: 0, width: 260, height: SidebarDensityTokens.headerHeight))
+            header.configure(title: "Projects", collapsed: true)
+            header.layout()
+            let label = try #require(header.subviews.compactMap { $0 as? ChromeLabel }.first)
+            let font = try #require(label.font)
+            let inkMidY = label.frame.minY + label.firstBaselineOffsetFromTop - font.capHeight / 2
+            #expect(abs(inkMidY - header.bounds.midY) <= Self.tolerance,
+                    "\(density)/\(textSize): title optical center \(inkMidY), row center \(header.bounds.midY)")
+            #expect(abs(header.chevron.frame.midY - inkMidY) <= Self.tolerance,
+                    "\(density)/\(textSize): title and chevron must share a midline")
+        }
+    }
 }

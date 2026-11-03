@@ -16,7 +16,9 @@
 //! `focus_input_step`, `focus_debug_window`), the window focus machine
 //! (`cmux_focus_*`, [`focus`]: a handle per window, typed events and
 //! replies, no JSON), the close successor rules (`cmux_close_focus_*`,
-//! [`close_focus`]: typed, one call per close),
+//! [`close_focus`]: typed, one call per close), agent cursor visibility for
+//! the app (`cmux_agent_cursor_visibility`, [`agent_cursor`]: typed, no JSON,
+//! per input event and per motion frame),
 //! the sidebar document mirror (`cmux_sidebar_mirror_*`, [`sidebar_mirror`]),
 //! the sidebar row face (`cmux_sidebar_face_*`, [`sidebar_face`]: typed
 //! requests and replies, no JSON), and the column scroll reducer
@@ -27,6 +29,7 @@ use cmux_layout_reducer::{sidebar_drag, sidebar_drop, sidebar_layout};
 use std::ffi::{CString, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
+pub mod agent_cursor;
 pub mod close_focus;
 pub mod focus;
 pub mod scroll;

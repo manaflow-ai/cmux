@@ -67,12 +67,18 @@ public nonisolated enum PaneResize {
     @MainActor
     public static func press(_ pane: LayoutPaneID, _ direction: LayoutDirection, model: LayoutModel, view: LayoutRootView) -> Bool {
         guard let screen = model.screen(containing: pane) else { return true }
-        switch change(for: pane, direction: direction, in: screen.layout, shown: view.shownResizeRange(ofScreenContaining: pane)) {
+        let change = change(for: pane, direction: direction, in: screen.layout, shown: view.shownResizeRange(ofScreenContaining: pane))
+        // Every pane of the screen keeps its content's size through the spring and lays it out once at the landing.
+        if change != nil { view.keyboardResizeWillChange(screenContaining: pane) }
+        switch change {
         case .splitRatio(let split, let ratio): model.setSplitRatio(split, ratio: ratio, transaction: .make(), phase: .ended)
         case .columnWidth(let column, let width): model.setColumnWidth(column, width: width, transaction: .make(), phase: .ended)
         case .rowHeights(let column, let heights): model.setRowHeights(column, heights: heights, fit: heights.reduce(0) { $0 + $1.height } == 1000)
         case nil: return false
         }
+        // The spring starts in the key's own turn (as a split's frame does, `LayoutRootView.syncWithModel`): the very
+        // next display frame moves, never one that ran before the layout's observation turn.
+        view.syncWithModel()
         return true
     }
 

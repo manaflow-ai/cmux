@@ -112,6 +112,9 @@ function GallerySessionInfo({
       <SessionInfoPanel
         width={panelWidth}
         placement={placement}
+        // Over a transcript it floats over the chat's column (a foot), where it is glass; otherwise it
+        // sits in the gutter or pushes, with no card (SessionInfo.tsx SessionInfoPanel).
+        foot={transcript && placement === "overlay" ? 0 : undefined}
         chrome={chrome}
         // The head draws only with a close: as in the chat pane.
         onClose={scope || closable ? () => undefined : undefined}
@@ -317,6 +320,70 @@ const dragOutputsOverContext: Play = async (ctx) => {
   await ctx.pointer.down({ selector: grip });
   await ctx.pointer.move({ selector: '[data-section="context"]' });
   await ctx.waitFor(() => ctx.document.querySelector('[data-slot="outputs"][data-lifted]'));
+};
+
+const FOLDABLE_HEAD =
+  ".acpmux-session-info-section > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger";
+const style = (ctx: PlayContext, element: Element) => ctx.document.defaultView!.getComputedStyle(element);
+
+/// cmux#32765, as native #32674: a section's fold chevron sits after its title and shows only while its
+/// head is hovered (or keyboard focused). At rest no chevron draws, but its room is kept, so the title
+/// does not move when it shows.
+const chevronOnHoverAfterTitle: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(`${FOLDABLE_HEAD} > .acpmux-session-info-section__fold`));
+  const folds = [...ctx.document.querySelectorAll(`${FOLDABLE_HEAD} > .acpmux-session-info-section__fold`)];
+  for (const fold of folds)
+    if (style(ctx, fold).visibility !== "hidden") throw new Error("A section's fold chevron draws at rest");
+  const head = folds[0]!.parentElement!;
+  const section = head.closest<HTMLElement>(".acpmux-session-info-section")!.dataset.section;
+  const selector = `[data-section="${section}"] > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger`;
+  const title = head.querySelector(".acpmux-session-info-section__title")!;
+  const before = title.getBoundingClientRect();
+  await ctx.hover({ selector });
+  const fold = ctx.find({ selector: `${selector} > .acpmux-session-info-section__fold` });
+  await ctx.waitFor(() => style(ctx, fold).visibility === "visible");
+  const after = title.getBoundingClientRect();
+  if (after.left !== before.left || after.width !== before.width)
+    throw new Error("The title moved when the chevron showed");
+  if (fold.getBoundingClientRect().left < after.right) throw new Error("The fold chevron is not after the title");
+};
+
+/// As native #32674: the six-dot grip draws nothing at rest, nor for a pointer over a section's other
+/// rows; it shows while its section's head is hovered, at the head's right edge.
+const gripOnHeadHoverOnly: Play = async (ctx) => {
+  const handles = () => [...ctx.document.querySelectorAll(".acpmux-session-info-section__handle")];
+  await ctx.waitFor(() => handles().length > 0);
+  for (const handle of handles())
+    if (style(ctx, handle).opacity !== "0") throw new Error("A section's drag grip draws at rest");
+  const head = ctx.find({ selector: FOLDABLE_HEAD });
+  const section = head.closest<HTMLElement>(".acpmux-session-info-section")!;
+  const handle = section.querySelector(":scope > .acpmux-session-info-section__handle")!;
+  const row = section.querySelector(".ui-disclosure-panel :is(.acpmux-session-info-row, li)");
+  if (row && row.getClientRects().length > 0) {
+    await ctx.hover({
+      selector: `[data-section="${section.dataset.section}"] .ui-disclosure-panel :is(.acpmux-session-info-row, li)`,
+    });
+    if (style(ctx, handle).opacity !== "0") throw new Error("A body row's hover showed its section's grip");
+  }
+  await ctx.hover({
+    selector: `[data-section="${section.dataset.section}"] > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger`,
+  });
+  await ctx.waitFor(() => style(ctx, handle).opacity === "1");
+  if (handle.getBoundingClientRect().left < head.getBoundingClientRect().right - 0.5)
+    throw new Error("The grip is not at the head's right edge");
+};
+
+/// As native #32661: pushed beside the chat (or in the empty gutter) the panel draws no card behind its
+/// sections: no fill, no blur, no shadow.
+const noCardBehind: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-session-info"));
+  const panel = ctx.find({ selector: ".acpmux-session-info" });
+  const look = style(ctx, panel);
+  if (panel.classList.contains("ui-glass")) throw new Error("The panel is a glass card where nothing runs under it");
+  if (look.backgroundColor !== "rgba(0, 0, 0, 0)" || look.backgroundImage !== "none")
+    throw new Error(`The panel paints a card: ${look.backgroundColor} ${look.backgroundImage}`);
+  if (!["none", ""].includes(look.backdropFilter) || look.boxShadow !== "none")
+    throw new Error(`The panel draws a card's blur or shadow: ${look.backdropFilter} ${look.boxShadow}`);
 };
 
 // Every section title shares the Environment rows' text column, with or without an icon.
@@ -1000,6 +1067,17 @@ export default componentEntry<Props>({
       props: breakdownProps,
       play: openMcpTools,
     },
+    "context-autocompact-window": {
+      note: "Shipped (Leo, 2026-11-02: \"whatever a user set their compact window to it should be that instead of always showing the defautl (e.g. we should be seieng 400k)\"): a 1M model whose chat compacts at 400K reads 43% with 171.4K / 400K, the window Claude Code's /context names, not the model's 1M.",
+      props: {
+        ...breakdownProps,
+        summary: { ...summary, contextBreakdown: CONTEXT_BREAKDOWN, usage: { used: 171_400, size: 1_000_000 } },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => /171\.4K\s*\/\s*400K/.test(text(ctx)));
+        if (/\/\s*1M/.test(text(ctx))) throw new Error("Context still reads the model's 1M window");
+      },
+    },
     "context-breakdown-hues": {
       note: "Alternative (not shipped): each category a different hue turned from the theme accent, as Claude Code desktop colors them. Reads faster, but brings colors the theme does not have.",
       props: {
@@ -1165,8 +1243,19 @@ export default componentEntry<Props>({
       props: { ...busy, closable: true, ceiling: "calc((100% - var(--acpmux-session-info-top, 0px)) * 0.9)" },
     },
     push: {
-      note: "Settings > Agent Chat > Session Info set to Push: the panel sits beside the chat and narrows it, instead of lying over it with a shadow. It is glass there too, with its left hairline as its only edge.",
+      note: 'Pushed: the panel sits beside the chat and narrows it. Nothing runs under it, so it draws no card: its sections sit on the pane with no fill, blur or shadow, as the native panel (#32661; Leo, 2026-11-02: "we still HAVE AN ASININE BACKGROUND").',
       props: { ...full, placement: "push" },
+      play: noCardBehind,
+    },
+    "header-chevron-hover": {
+      note: "A section head under the pointer: its fold chevron shows one grid gap after the title (cmux#32765, as native #32674). At rest no head draws a chevron, and its room is kept, so the title never moves.",
+      props: { ...full, placement: "push" },
+      play: chevronOnHoverAfterTitle,
+    },
+    "header-grip-hover": {
+      note: "A section head under the pointer: the six-dot grip shows at the head's right edge (as native #32674). At rest no grip draws, and a pointer over the section's other rows shows none.",
+      props: { ...full, placement: "push" },
+      play: gripOnHeadHoverOnly,
     },
     "subagent-parent": {
       note: "The chat's own panel while a subagent works in a worktree: the chat's folder, branch, context, pull requests and tasks, and its Subagents list, which opens each subagent's own panel.",

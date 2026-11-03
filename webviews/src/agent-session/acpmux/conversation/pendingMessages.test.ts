@@ -386,15 +386,18 @@ test("one projection context deduplicates across a batch, standalone notice, and
   };
   const batch = batchLaneNotices([first, second]);
   const projected = projectInboxRows([...batch, standalone, direct]);
-  expect(projected).toHaveLength(3);
-  expect(projected[0]?.laneNoticeBatch?.rows).toHaveLength(1);
-  expect(
-    projected[0]?.laneNoticeBatch?.rows[0]?.incoming?.kind === "message" &&
-      projected[0].laneNoticeBatch.rows[0].incoming.message.name,
-  ).toBe("lane-b");
-  expect(projected[1]?.incoming?.kind === "message" && projected[1].incoming.message.name).toBe("lane-c");
-  expect(projected[2]).toBe(direct);
+  // Next to each other, they draw as one "Received N messages" row (laneNoticeBatches.ts
+  // `receivedRun`), each message once: lane-a's notice repeats the direct delivery.
+  expect(projected).toHaveLength(1);
+  const members = projected[0]?.laneNoticeBatch?.rows ?? [];
+  expect(members.map((row) => row.incoming?.kind === "message" && row.incoming.message.name)).toEqual([
+    "lane-b",
+    "lane-c",
+    "lane-a",
+  ]);
+  expect(members[2]).toBe(direct);
   expect(projected.some((row) => row.text?.includes("New messages from other agents"))).toBe(false);
+  expect(members.some((row) => row.text?.includes("New messages from other agents"))).toBe(false);
 });
 
 test("projection caches are isolated by source row identity across chats", () => {
