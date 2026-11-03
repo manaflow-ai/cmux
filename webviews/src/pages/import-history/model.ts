@@ -216,11 +216,16 @@ export class ImportHistoryStore {
       try {
         const origin = row.kind === "text" ? (row.id as Origin) : undefined;
         const source = origin
-          ? (await client.call<{ source: string }>(OPS.prepareText, { summaryOrigin: origin, text: row.text ?? "" })).source
+          ? (await client.call<{ source: string }>(OPS.prepareText, { summaryOrigin: origin, text: row.text ?? "" }))
+              .source
           : row.source;
         if (this.stopped) return;
         if (!source) throw new Error("cmux.importHistory.missing_source");
-        const report = await client.call<ImportReport>(OPS.dryRun, { source, batch, ...(origin ? { summaryOrigin: origin } : {}) });
+        const report = await client.call<ImportReport>(OPS.dryRun, {
+          source,
+          batch,
+          ...(origin ? { summaryOrigin: origin } : {}),
+        });
         if (this.stopped) return;
         if (
           !Number.isFinite(report.plan.new) ||
@@ -245,7 +250,11 @@ export class ImportHistoryStore {
       }
       this.row(row.id, { phase: "writing" });
       try {
-        const result = await client.call<ImportReport>(OPS.write, { source, batch, ...(origin ? { summaryOrigin: origin } : {}) });
+        const result = await client.call<ImportReport>(OPS.write, {
+          source,
+          batch,
+          ...(origin ? { summaryOrigin: origin } : {}),
+        });
         if (this.stopped) return;
         this.row(row.id, { phase: "done", report: result });
         if ((result.written ?? 0) > 0) this.set({ canUndo: true });
