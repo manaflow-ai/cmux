@@ -3968,7 +3968,7 @@ jobs:
       # of 28 measured shards; swift-test-shards.py SHARD_FLOOR_SECONDS) is spilled here and runs
       # with a deadline of its own. It runs after a red broad pass too, so its verdict is not lost.
       - name: Run package test shards the broad pass spilled
-        if: ${{ !cancelled() && (steps.broad-tests.outcome == 'success' || steps.broad-tests.outcome == 'failure') }}
+        if: ${{ (!cancelled() && (steps.broad-tests.outcome == 'success' || steps.broad-tests.outcome == 'failure')) && steps.reuse.outputs.hit != 'true' }}
         timeout-minutes: 30
         working-directory: Packages/macOS/CmuxNext
         env:

@@ -344,6 +344,13 @@ class PerTest(unittest.TestCase):
         other = log("◇ Test run started.", "◇ Test foo() started.", "◇ Test fooBar() started.",
                     "✔ Test fooBar() passed after 0.1 seconds.")
         self.assertIn("1 test(s) started and never finished: foo", reds.read(other).truncated)
+        # A cut-into pass closes the longest name it fits, once: fooBar(), never foo() as well.
+        both = log("◇ Test run started.", "◇ Test foo() started.", "◇ Test fooBar() started.",
+                   "✔ Test fooBarswift runtime: backtrace-on-crash is not supported for privileged executables.")
+        self.assertIn("1 test(s) started and never finished: foo", reds.read(both).truncated)
+        # A run's own summary does not close a test named run().
+        named_run = log("◇ Test run started.", "◇ Test run() started.", "✔ Test run with 1 test in 1 suite passed after 0.1 seconds.")
+        self.assertIn("1 test(s) started and never finished: run", reds.read(named_run).truncated)
 
     def test_the_bundle_runners_exited_line_is_a_crash_after_a_shared_failure(self):
         crash = log("◇ Test run started.", failed("a()"), "✘ Test a() failed after 0.1 seconds with 1 issue.",

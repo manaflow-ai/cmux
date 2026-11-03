@@ -249,7 +249,7 @@ count_awk='
   }
   is_finish($0) && $0 !~ /^➜ Test .* skipped/ {
     counted_name = block_key(name_of($0))
-    if (!(counted_name in started) && $0 ~ /^✔ Test /) counted_name = spliced_start(counted_name)
+    if (!(counted_name in started) && $0 ~ /^✔ Test / && $0 !~ /^✔ Test run with /) counted_name = spliced_start(counted_name)
     # Read it into a variable first. Naming first_open[counted_name] as the target of an
     # assignment CREATES that key before the right-hand side is evaluated, so
     # `first_open[n] = first_open_run(n) + 1` made first_open_run take its "already set" branch

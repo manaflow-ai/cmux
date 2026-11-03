@@ -199,6 +199,14 @@ cut=$(grep '^::error title=cmux-next swift test cut short::' <<<"$out" || true)
 grep -q '2 tests finished (2 passed, 0 failed, 0 skipped) and 1 started and never finished' <<<"$cut" \
   || fail "a spliced pass line is counted as never finished" "$out"
 grep -q 'Never finished: foo()$' <<<"$cut" || fail "the spliced pass closed the wrong test" "$cut"
+# A run's own summary does not close a test named run().
+cat > "$TMP/run-named.out" <<'EOF'
+◇ Test run started.
+◇ Test run() started.
+✔ Test run with 1 test in 1 suite passed after 0.001 seconds.
+EOF
+run run-named 0
+[[ "$status" != 0 ]] || fail "a run summary closed a test named run()" "$out"
 
 # A crash exit without a summary keeps its status and names the unfinished test.
 run cut 139
