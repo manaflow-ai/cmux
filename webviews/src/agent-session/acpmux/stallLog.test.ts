@@ -104,7 +104,11 @@ test("a slow send with nothing missing, or with an event only just written, logs
 /// request on it: what the pane saw after acpmux was replaced under the app's bridge (#32859). Its
 /// `_acpmux/events` read finds the transcript record the pane missed (written a minute ago), or with
 /// `rawOnly` only a raw harness line, which acpmux never streams to the pane.
-async function stalledStream(options: { deafOn: "cancel" | "prompt"; rawOnly?: boolean }) {
+async function stalledStream(options: {
+  deafOn: "cancel" | "prompt" | "never";
+  rawOnly?: boolean;
+  liveBeforeRead?: boolean;
+}) {
   const { AcpmuxDirectClient, deliveryTiming } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   // The Stop check's wait, shortened (a build without it has none to shorten).
@@ -137,6 +141,25 @@ async function stalledStream(options: { deafOn: "cancel" | "prompt"; rawOnly?: b
         // reads (a turn's opener) go to the mock.
         if (method === "_acpmux/events" && params.limit === 1 && (params.kinds === undefined || transcript)) {
           eventReads.push(params);
+          // A slow read: the record it finds came live first (a healthy stream), written long ago.
+          if (options.liveBeforeRead) {
+            (this as unknown as { emit(target: string, step: unknown): void }).emit(String(params.sessionId), {
+              update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "still here" } },
+            });
+            return {
+              events: [
+                {
+                  seq: Number(params.afterSeq) + 1,
+                  sessionId: params.sessionId,
+                  at: Date.now() - 60_000,
+                  dir: "in",
+                  kind: "agent_message_chunk",
+                  msg: {},
+                },
+              ],
+              hasMore: true,
+            };
+          }
           // A raw line is never in a transcript read; a transcript record is in either.
           if (this.deaf && (options.rawOnly ? !transcript : true))
             return {
@@ -183,7 +206,8 @@ async function stalledStream(options: { deafOn: "cancel" | "prompt"; rawOnly?: b
     override send(raw: string): void {
       if (JSON.parse(raw).method === "session/cancel") {
         if (options.deafOn === "cancel") this.deaf = true;
-        this.stop();
+        // A turn that runs on past Stop (it ends after the check).
+        if (!options.liveBeforeRead) this.stop();
         return;
       }
       super.send(raw);
@@ -233,6 +257,8 @@ test("Stop in a chat whose events stopped reaching the pane connects again, and 
       true,
     );
     expect(run.eventReads.every((read) => Array.isArray(read.kinds) && read.kinds.includes("transcript"))).toBe(true);
+    // One reconnect: the new connection carries the events, so nothing checks or drops it again.
+    expect(run.sockets()).toBe(2);
   } finally {
     run.done();
   }
@@ -250,6 +276,22 @@ test("a send whose echo never reaches the pane connects again, so the chat catch
 
 test("acpmux holding only raw harness lines past the pane is no stall: the pane keeps its connection", async () => {
   const run = await stalledStream({ deafOn: "cancel", rawOnly: true });
+  try {
+    void run.client.send("long job").catch(() => undefined);
+    expect(await settle(() => run.snapshot()?.isWorking === true, 10_000)).toBe(true);
+    await run.client.cancel();
+    expect(await settle(() => run.eventReads.length > 0)).toBe(true);
+    // The read's reply and the client's handling of it are microtasks: a few turns of the loop end them.
+    for (let turn = 0; turn < 3; turn++) await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(run.sockets()).toBe(1);
+    expect(run.errors.filter((line) => line.includes("agent pane stall"))).toEqual([]);
+  } finally {
+    run.done();
+  }
+});
+
+test("a slow stall read whose record already came live keeps the connection: the stream works", async () => {
+  const run = await stalledStream({ deafOn: "never", liveBeforeRead: true });
   try {
     void run.client.send("long job").catch(() => undefined);
     expect(await settle(() => run.snapshot()?.isWorking === true, 10_000)).toBe(true);

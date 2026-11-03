@@ -3419,13 +3419,18 @@ export class AcpmuxDirectClient {
     const socket = this.socket;
     const generation = this.selectionGeneration;
     const connection = socket?.readyState === WebSocket.OPEN ? "open" : "not open";
+    const asked = Date.now();
     void this.typed(
       "_acpmux/events",
       { sessionId, afterSeq: paneSeq, limit: 1, kinds: ["transcript"] },
       STALL_CHECK_MS,
     ).then(
       (result) => {
-        const line = stallLine(sessionId, paneSeq, records(result?.events)[0], Date.now(), connection, cause);
+        const newer = records(result?.events)[0];
+        // The record came live while the read was out: the stream works, only the read was slow.
+        if (newer && this.lastSeq >= newer.seq) return;
+        // Its age when the check asked: a slow answer does not make a record in flight look missed.
+        const line = stallLine(sessionId, paneSeq, newer, asked, connection, cause);
         if (!line) return;
         console.error(line);
         this.recoverStall(socket, sessionId, generation);
@@ -3444,6 +3449,11 @@ export class AcpmuxDirectClient {
     if (!socket || this.closed || this.socket !== socket || this.endedSocket === socket) return;
     if (this.selectedSessionId !== sessionId || generation !== this.selectionGeneration) return;
     if (socket.readyState !== WebSocket.OPEN) return;
+    // An open still reading the chat (a reconnect's) is already catching up; before the first one
+    // there is no lost path to take.
+    if (this.opening || !this.hasConnected) return;
+    // A send still waiting on this socket gets the lost connection's answer, as when it drops: a
+    // prompt this Mac's acpmux took is sent again under its promptId (lostPrompt.ts), so it runs once.
     this.wire.lifecycle("stalled", { sessionId, message: "the chat's events stopped; connecting again" });
     this.connectionEnded(socket);
     try {
