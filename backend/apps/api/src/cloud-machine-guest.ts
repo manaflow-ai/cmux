@@ -266,7 +266,8 @@ export const handleCloudMachineGuest = async (request: Request, env: Env, machin
     const command = body.command
     if (typeof command !== "string" || command.trim() === "") return refuse(400, "vm_invalid_command", "command must be a non-empty string")
     const bytes = new TextEncoder().encode(command)
-    let line = execCommand(command)
+    // Only an inline command is quoted into the wrapper (quoting a long one could take many times its size).
+    let staged: string | null = null
     if (bytes.byteLength > INLINE_COMMAND_MAX_BYTES) {
       const path = `/tmp/.cmux-exec-${crypto.randomUUID().replaceAll("-", "")}`
       for (let at = 0; at < bytes.byteLength; at += STAGE_PIECE_BYTES) {
@@ -277,9 +278,11 @@ export const handleCloudMachineGuest = async (request: Request, env: Env, machin
           return piece instanceof Response ? piece : refuse(502, "vm_unavailable", (piece.stderr || "the command could not be staged on the machine").slice(-500))
         }
       }
-      line = execCommand(stagedCommand(path))
+      staged = path
     }
-    const r = await run(line, null, execTimeout(body.timeoutMs))
+    const r = await run(execCommand(staged === null ? command : stagedCommand(staged)), null, execTimeout(body.timeoutMs))
+    // Refused before it started (busy, not running, unreachable): the staged file goes too.
+    if (r instanceof Response && staged !== null) await run(asWorkUser(`rm -f ${shellQuote(staged)}`), null, FS_TIMEOUT_MS)
     return r instanceof Response ? r : ok({ exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr })
   }
 
