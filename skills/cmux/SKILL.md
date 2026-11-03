@@ -73,6 +73,21 @@ To start another agent on a task and show it, use one command, `acpmux new -n NA
 
 To open a link, the MCP tool `workspace_open_url` loads it on the workspace's right side, but it navigates a browser tab already there; `cmux browser profile open URL --profile default --background true` (MCP `browser_profile_open` with `activate: false`) adds a tab and keeps the pane's selected tab. `tab focus`, `workspace focus`, `agents tab select` and `focus: true` do move the person's focus: use them only when asked. `current` is the workspace the person looks at, not yours: from a cmux terminal `status set` without a selector targets that terminal's workspace, but an agent chat has no terminal, so name the workspace (`$CMUX_WORKSPACE_ID` when set).
 
+## Messaging a Chief or a person
+
+Any coding agent (Claude Code, Codex, OpenCode, pi, an acpmux session) can message the person's Chief, another Chief, or a person or group chat in Home. Use `cmux chat`, or the MCP tools `chat_send`, `chat_read` and `chat_list` (same arguments):
+
+```bash
+cmux chat list                                              # the Chief chats: Chief, Codex Chief, Muse Chief…
+cmux chat send --to chief --text "a12 is blocked on CI" --class blocker
+cmux chat send --to codex --text "Is PR 33023 safe to land?" --wait --timeout 600 --json   # waits for that Chief's reply
+cmux chat send --to "Leo" --text "The build is green"       # a person or a group chat, by its Home name
+cmux chat read --to chief --last 10 --json
+cmux chat wait --to chief --from chief --timeout 300        # the Chief's next message
+```
+
+`--to chief` is the person's own Chief; a Chief's name (`codex` is "Codex Chief") or id is that Chief; any other name is a person or a group chat. Your message is always yours, never the person's: the chat shows `[from NAME]`, where NAME is your acpmux session, else `HARNESS-SESSION@HOST` (for example `claude-3fa9c1d2@mini-7`), or `--as NAME`. A Chief reads it as an agent's words, so it will not run local actions on it the way it would for the person. `--wait` prints a Chief's reply when its turn ends; a person's reply arrives in Home, and an acpmux session also gets a Chief's reply back as an acpmux message. `--class` says what you ask (`question`, `block`, `blocker`, `action`, `result`, `fyi`).
+
 ## Asking the person
 
 The person allows tools through the chat's mode and the harness's own permission prompts, never through your questions. A chat in Full access (Claude Code `bypassPermissions`, Codex full access) has already allowed every tool call its harness would ask about. Never ask them to allow, confirm or approve a step, with AskUserQuestion or in text ("allow this?", "should I go ahead?"): decide, say why in one line, and go on. Deciding never widens the task: a step a cmux skill keeps for the person's own request (importing a browser's cookies, deleting their data) waits for that request, and a cmux consent card (computer use setup) is theirs to answer; leave such a step out and say so. Ask only about product taste you cannot settle from the request or the code (how something should look, read or behave), and ask it as that choice, never as a permission. The cmux MCP server's instructions say the same (`acpmux::agent_tools::ASKING_RULE`).
