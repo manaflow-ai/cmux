@@ -326,7 +326,10 @@ impl Hub {
                             }
                         }
                     };
-                    if outcome.get("stopReason").and_then(Value::as_str) == Some("cancelled") {
+                    if outcome.get("stopReason").and_then(Value::as_str) == Some("cancelled")
+                        || outcome.pointer("/_meta/acpmux/status").and_then(Value::as_str)
+                            == Some("interrupted")
+                    {
                         if state.epoch < generation {
                             state.epoch = generation;
                             self.workflow_runs
@@ -411,6 +414,40 @@ impl Hub {
             }
         }
         Ok(allowed)
+    }
+
+    /// Called under the run gate, after checking its generation, on a terminal failure.
+    pub(crate) async fn workflow_cancel_activity(
+        self: &Arc<Self>,
+        run: &RunRecord,
+        activity: &str,
+    ) -> Result<(), RpcError> {
+        let prefix = format!("{activity}-");
+        for child in run.activities.values().filter(|child| {
+            child.outcome.is_none() && (child.id == activity || child.id.starts_with(&prefix))
+        }) {
+            match &child.child {
+                Child::Agent { session_id, prompt_id, .. } => {
+                    if let Ok(session) = self.resolve(session_id) {
+                        self.remove_queued(&session, prompt_id);
+                        if session.turn().is_some_and(|turn| turn.prompt_id == *prompt_id) {
+                            self.cancel(&session).await?;
+                        }
+                    }
+                }
+                Child::Machine { session_id, task_id, .. } => {
+                    if let Ok(session) = self.resolve(session_id) {
+                        match self.bg_stop(&session, task_id).await {
+                            Err(error) if error.code != RpcError::not_found("").code => {
+                                return Err(error);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Read the final assistant message inside this prompt's exact persisted turn window.
