@@ -78,6 +78,35 @@ struct BrowserTabCloseLeavesAtOnceTests {
         }
     }
 
+    /// A page that neither closes nor asks by the deadline (a hung renderer) closes without asking: its
+    /// tab never comes back unasked, since the close took effect on the click.
+    @Test func aPageThatNeverDecidesClosesItsTabAtTheDeadlineAndNeverBringsItBack() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let store = services.daemon.store
+            let pane = try #require(services.windows.active?.focusedPane)
+            let handle = pane.pane.handle
+            let kept = try await connection.newFrontendBrowserTab(url: "https://example.com/kept", engine: .webkit, in: handle, activate: false)
+            let hung = try await connection.newFrontendBrowserTab(url: "https://example.com/hung", engine: .webkit, in: handle, activate: false)
+            try await PinnedPageTests.until({ [kept, hung].allSatisfy { store.tab(surface: $0.surface).map { pane.orderedIDs.map(\.rawValue).contains($0.id) } == true } })
+            let id = try #require(store.tab(surface: hung.surface)).id
+            let undo = try #require(services.closedTabs?.undoToasts)
+            undo.hiddenPages.deadline = .milliseconds(300)
+            defer { undo.hiddenPages.deadline = .seconds(5) }
+            undo.pageDecidesClose = { _, tab in tab.rawValue == id }
+
+            #expect(services.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: id), origin: .user)))
+            var cameBack = false
+            let deadline = ContinuousClock.now + .seconds(10)
+            while store.liveTreeLists(tab: id) != false, ContinuousClock.now < deadline {
+                if pane.orderedIDs.map(\.rawValue).contains(id) { cameBack = true }
+                try await Task.sleep(for: .milliseconds(5))
+            }
+            #expect(!cameBack, "the hung page's tab came back with no question")
+            #expect(store.liveTreeLists(tab: id) == false, "the hung page's tab was never closed: \(store.pane(handle)?.tabs.map(\.id) ?? [])")
+            #expect(store.tab(surface: kept.surface) != nil, "the other tab closed")
+        }
+    }
+
     /// A page that asks ("Leave site?") brings its tab back at its place, selected, before the
     /// question (`HiddenPageCloses.restore`, which the page's question and its `.activate` run).
     @Test func aPageThatAsksBringsItsTabBackSelected() async throws {

@@ -12,9 +12,9 @@ import CmuxNextWakeups
 ///
 /// The page's own close (no handler, or Leave) lifts the hide in the turn its close takes the tab out
 /// again (``lift(_:)``, no flash). A page that asks (beforeunload's "Leave site?", or any question it
-/// raises meanwhile) brings its tab back in place, selected, before the question (``restore(_:)``); so
-/// does a page that has neither closed nor asked by ``deadline``, so no tab stays hidden with its page
-/// running. `Pane` is the pane controller (compared by identity).
+/// raises meanwhile) brings its tab back in place, selected, before the question (``restore(_:)``). A page
+/// that has neither closed nor asked by ``deadline`` is closed without asking (`timedOut`): the close took
+/// effect on the click, so its tab never comes back unasked. `Pane` is the pane controller (compared by identity).
 @MainActor
 public final class HiddenPageCloses<Pane: AnyObject> {
     /// One hidden tab: its surface, and whether its page asks the person now (nil: no page to watch).
@@ -34,18 +34,22 @@ public final class HiddenPageCloses<Pane: AnyObject> {
     private let hidden: @MainActor (Pane) -> PendingPaneClose?
     private let lifted: @MainActor (Pane, PendingPaneClose) -> Void
     private let restored: @MainActor (Pane, PendingPaneClose?, String) -> Void
+    private let timedOut: @MainActor (Pane, String) -> Void
 
-    /// How long a hidden tab waits for its page to close or ask before it comes back.
+    /// How long a hidden tab waits for its page to close or ask before it closes without asking.
     public var deadline: Duration = .seconds(5)
 
     /// - Parameter hidden: Shows a pane's tabs left; returns the pane's close when no tab is left.
     /// - Parameter lifted: A pane's close yields to the close its last hidden tab's page started.
     /// - Parameter restored: A tab comes back: the pane's close (if any) is taken back, the tab selected.
+    /// - Parameter timedOut: A tab whose page did not decide by ``deadline`` closes now, without asking (its hide lifted).
     public init(hidden: @escaping @MainActor (Pane) -> PendingPaneClose?, lifted: @escaping @MainActor (Pane, PendingPaneClose) -> Void,
-                restored: @escaping @MainActor (Pane, PendingPaneClose?, String) -> Void) {
+                restored: @escaping @MainActor (Pane, PendingPaneClose?, String) -> Void,
+                timedOut: @escaping @MainActor (Pane, String) -> Void) {
         self.hidden = hidden
         self.lifted = lifted
         self.restored = restored
+        self.timedOut = timedOut
     }
 
     nonisolated deinit {}
@@ -69,7 +73,7 @@ public final class HiddenPageCloses<Pane: AnyObject> {
             }
             let timer = DemandTimer(owner: "tabs.hiddenPageClose")
             entries[id] = Entry(hide: hide, pane: pane, watch: watch, timer: timer)
-            timer.schedule(after: deadline) { @MainActor [weak self] in self?.restore(id) }
+            timer.schedule(after: deadline) { @MainActor [weak self] in self?.expire(id) }
             hid = true
         }
         guard hid, let close = hidden(pane), paneCloses[ObjectIdentifier(pane)] == nil else { return }
@@ -90,7 +94,13 @@ public final class HiddenPageCloses<Pane: AnyObject> {
         return true
     }
 
-    /// The page of tab `id` asks the person (or did not decide in time): the tab comes back at its
+    /// The page of tab `id` neither closed nor asked in time: it closes without asking.
+    public func expire(_ id: String) {
+        guard let pane = entries[id]?.pane, lift(id) else { return }
+        timedOut(pane, id)
+    }
+
+    /// The page of tab `id` asks the person: the tab comes back at its
     /// place, selected, with its pane, before the question shows.
     @discardableResult
     public func restore(_ id: String) -> Bool {
