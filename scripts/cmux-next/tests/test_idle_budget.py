@@ -49,11 +49,11 @@ class IdleBudgetTests(unittest.TestCase):
                     return {}
                 if method == "debug.agent_pane":
                     return {"document_ready": True, "body_text_length": 100, "engine": "cef"}
-                key = "terminal" if self.hidden else f"newtab{self.count}"
+                key = "terminal" if self.hidden else f"tab_newtab{self.count}"
                 return {"windows": [{"panes": [{"pane": "p", "focused": True,
                          "kind": "terminal" if self.hidden else "agent", "selected_tab": key,
                          "shown_tab": key, "content_installed": True, "content_in_window": True}]}],
-                        "hibernation": {"chat_pages": [f"newtab{i}" for i in range(1, self.count + 1)]}}
+                        "hibernation": {"chat_pages": [f"tab_newtab{i}" for i in range(1, self.count + 1)]}}
 
         for count in (1, 5, 20):
             app = App()
@@ -71,7 +71,7 @@ class IdleBudgetTests(unittest.TestCase):
         class App:
             def rpc(self, *args, **kwargs):
                 return {}
-        with self.assertRaisesRegex(RuntimeError, "only built 0 of 5"):
+        with self.assertRaisesRegex(RuntimeError, "lacks hibernation.chat_pages"):
             ib.build_newtabs(App(), 5, limit=0)
         with self.assertRaisesRegex(RuntimeError, "lacks hibernation.chat_pages"):
             ib.newtab_evidence(App(), {"keys": ["a"]})
@@ -79,15 +79,19 @@ class IdleBudgetTests(unittest.TestCase):
     def test_newtab_setup_preserves_full_panes_and_readiness_error(self):
         pane = {"pane": "p", "focused": True, "kind": "agent", "selected_tab": "tab_real",
                 "shown_tab": "tab_real", "content_installed": True, "content_in_window": True}
-        readiness = {"error": "page script failed"}
+        readiness = {"error": "page script failed", "document_ready": True, "body_text_length": 100}
 
         class App:
+            created = False
+
             def rpc(self, method, params=None, **kwargs):
                 if method == "action.run":
+                    self.created = True
                     return {}
                 if method == "debug.agent_pane":
                     return readiness
-                return {"windows": [{"panes": [pane]}], "hibernation": {"chat_pages": ["tab_real"]}}
+                return {"windows": [{"panes": [pane] if self.created else []}],
+                        "hibernation": {"chat_pages": ["tab_real"] if self.created else []}}
 
         with patch.object(ib.time, "monotonic", side_effect=[0, 0, 2]), patch.object(ib.time, "sleep"):
             with self.assertRaises(ib.NewTabSetupError) as failure:
@@ -106,6 +110,70 @@ class IdleBudgetTests(unittest.TestCase):
                         "selected_tab": "pending_tab_1", "shown_tab": "pending_tab_1",
                         "content_installed": True, "content_in_window": True}]}],
                         "hibernation": {"chat_pages": ["pending_tab_1"]}}
+
+        with patch.object(ib.time, "monotonic", side_effect=[0, 0, 2]), patch.object(ib.time, "sleep"):
+            with self.assertRaisesRegex(ib.NewTabSetupError, "only built 0 of 1"):
+                ib.build_newtabs(App(), 1, limit=1)
+
+    def test_newtab_setup_focuses_the_new_stable_agent_before_readiness(self):
+        class App:
+            def __init__(self):
+                self.created = self.focused = self.hidden = False
+                self.calls = []
+
+            def rpc(self, method, params=None, **kwargs):
+                self.calls.append((method, params))
+                if method == "action.run":
+                    if params["action"] == "newTab.page":
+                        self.created = True
+                    elif params["action"] == "tab.focus":
+                        self.assert_target = params["target"]
+                        self.focused = params["target"] == "tab:tab_new"
+                    elif params["action"] == "nextSurface":
+                        self.hidden = True
+                    return {}
+                if method == "debug.agent_pane":
+                    assert self.focused and params["pane"] == "agent", "readiness needs the target pane's focus"
+                    return {"document_ready": True, "body_text_length": 100, "engine": "cef"}
+                panes = [{"pane": "other", "kind": "page", "focused": not self.focused},
+                         {"pane": "existing", "kind": "agent", "focused": False,
+                          "selected_tab": "tab_existing", "shown_tab": "tab_existing",
+                          "content_installed": True, "content_in_window": True}]
+                if self.created:
+                    key = "terminal" if self.hidden else "tab_new"
+                    panes.append({"pane": "agent", "kind": "terminal" if self.hidden else "agent",
+                                  "focused": self.focused, "selected_tab": key, "shown_tab": key,
+                                  "content_installed": True, "content_in_window": True})
+                return {"windows": [{"panes": panes}],
+                        "hibernation": {"chat_pages": ["tab_existing"] + (["tab_new"] if self.created else [])}}
+
+        app = App()
+        with patch.object(ib.time, "monotonic", side_effect=[0, 0, 0, 2, 2]), patch.object(ib.time, "sleep"):
+            opened = ib.build_newtabs(app, 1, limit=1)
+        self.assertEqual(opened["keys"], ["tab_new"])
+        self.assertEqual(app.assert_target, "tab:tab_new")
+        focus = next(i for i, (method, params) in enumerate(app.calls)
+                     if method == "action.run" and params["action"] == "tab.focus")
+        ready = next(i for i, (method, params) in enumerate(app.calls)
+                     if method == "debug.agent_pane" and params["action"] == "readiness")
+        self.assertLess(focus, ready)
+
+    def test_newtab_setup_requires_observed_focus_even_when_focus_action_succeeds(self):
+        class App:
+            created = False
+
+            def rpc(self, method, params=None, **kwargs):
+                if method == "action.run":
+                    if params["action"] == "newTab.page":
+                        self.created = True
+                    return {}
+                if method == "debug.agent_pane":
+                    raise AssertionError("an unfocused pane cannot pass readiness")
+                panes = [{"pane": "agent", "kind": "agent", "focused": False,
+                          "selected_tab": "tab_new", "shown_tab": "tab_new",
+                          "content_installed": True, "content_in_window": True}] if self.created else []
+                return {"windows": [{"panes": panes}],
+                        "hibernation": {"chat_pages": ["tab_new"] if self.created else []}}
 
         with patch.object(ib.time, "monotonic", side_effect=[0, 0, 2]), patch.object(ib.time, "sleep"):
             with self.assertRaisesRegex(ib.NewTabSetupError, "only built 0 of 1"):
