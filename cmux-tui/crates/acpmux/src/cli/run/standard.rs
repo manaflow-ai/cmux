@@ -681,7 +681,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let mut prompt_id = PromptId::new(prompt_id);
             // A tool's notice names its sender (`cli/send_notice.rs`), so it is a named sender's
             // message on any daemon, one that knows no notice too.
-            let notice = crate::cli::send_notice::of_args(notice, from.as_deref(), |k| {
+            let notice = crate::cli::send_notice::of_args(*notice, from.as_deref(), |k| {
                 std::env::var(k).ok()
             })?;
             let from = from.or_else(|| notice.as_ref().map(|n| n.sender().to_owned()));

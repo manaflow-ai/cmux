@@ -272,7 +272,7 @@ pub enum Command {
         #[arg(long, value_name = "FILE")]
         attach: Vec<PathBuf>,
         #[command(flatten)]
-        notice: SendNotice,
+        notice: Box<SendNotice>,
     },
     /// Team-scoped durable messages. Needs a team hub (`meshRelay`); on there by default.
     Inbox(InboxArgs),
@@ -1750,7 +1750,7 @@ mod help_contract_tests {
             "https://x.dev/run/2",
         ]);
         let Ok(Command::Send { notice, .. }) = full else { panic!("did not parse") };
-        let SendNotice { notice, severity, title, sender, host, links } = notice;
+        let SendNotice { notice, severity, title, sender, host, links } = *notice;
         assert!(notice);
         assert_eq!(severity.as_deref(), Some("fire"));
         assert_eq!(title.as_deref(), Some("T"));
