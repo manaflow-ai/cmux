@@ -228,14 +228,16 @@ class RunTests(unittest.TestCase):
         broken = write_judges(self.w.root / "judges-unloadable", video="raise ImportError('half a file')\n")
         code, out = self.w.run(broken)
         self.assertEqual(code, 2, out)
-        self.assertIn("NO VERDICT: the runner failed", out)
+        self.assertIn("NO VERDICT", out)
+        self.assertIn("ImportError: half a file", out)
 
     def test_a_worker_that_dies_is_no_verdict_not_a_difference(self):
         dying = write_judges(self.w.root / "judges-dying", trace="import os\ndef load_trace(p):\n    os._exit(9)\n"
                                                                   "def judge(*a):\n    return {}\n")
         code, out = self.w.run(dying)
         self.assertEqual(code, 2, out)
-        self.assertIn("NO VERDICT: the runner failed", out)
+        self.assertIn("NO VERDICT", out)
+        self.assertIn("ended with code 9 and no result", out)
 
     def test_a_changed_store_file_is_no_verdict(self):
         f = self.w.store / "films" / "build-b-120x1" / "rk-held.events.json"

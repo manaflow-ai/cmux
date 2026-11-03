@@ -51,12 +51,16 @@ import hashlib
 import importlib
 import json
 import math
-import multiprocessing
 import os
 import platform
 import re
+import selectors
+import shutil
+import signal
 import subprocess
 import sys
+import tempfile
+import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -109,7 +113,9 @@ def normalize(value, roots):
         return value
     if isinstance(value, Path):
         return normalize(str(value), roots)
-    return normalize(repr(value), roots)
+    if isinstance(value, (set, frozenset)):
+        return sorted((normalize(v, roots) for v in value), key=canonical)
+    raise TypeError(f"a judge result holds a {type(value).__name__}, which has no stable JSON form")
 
 
 def canonical(value):
@@ -129,7 +135,15 @@ def sha256_file(path):
 
 
 def summary(judge, result):
-    """A short reading of RESULT for a reviewer (expected.json, and the difference lines of `run`)."""
+    """A short reading of RESULT for a reviewer (expected.json, and the difference lines of `run`); a result of a
+    shape this reading does not know gives {"summary_error": ...} (the sha256 of the whole result decides anyway)."""
+    try:
+        return _summary(judge, result)
+    except (AttributeError, TypeError, KeyError, ValueError) as error:
+        return {"summary_error": f"{type(error).__name__}: {error}"[:200]}
+
+
+def _summary(judge, result):
     if not isinstance(result, dict):
         return {"result": str(type(result).__name__)}
     if "error" in result and len(result) == 1:
@@ -231,11 +245,14 @@ def put_content(folder, value):
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
     target = folder / f"{sha}.json"
-    if not target.exists():
-        tmp = folder / f".{sha}.part"
-        tmp.write_text(text)
-        os.chmod(tmp, 0o444)
-        os.replace(tmp, target)
+    if target.exists():
+        if hashlib.sha256(target.read_bytes()).hexdigest() != sha:
+            raise ValueError(f"{target} does not hash to its name: the store changed (never kept as this result)")
+        return sha
+    tmp = folder / f".{sha}.part"
+    tmp.write_text(text)
+    os.chmod(tmp, 0o444)
+    os.replace(tmp, target)
     return sha
 
 
@@ -315,37 +332,64 @@ def copy_reflink(src, dst):
             fout.write(block)
 
 
-def snapshot_folder(source, store, folder):
-    """Copies FOLDER's judged files into the store, read-only. Returns ({file: [size, sha256]}, [problems]). A store
-    file that differs from the source is never replaced (the store is immutable): it is a problem."""
-    src_dir, dst_dir = Path(source) / folder, Path(store) / "films" / folder
-    files, problems = {}, []
-    dst_dir.mkdir(parents=True, exist_ok=True)
-    if not os.access(dst_dir, os.W_OK):
-        os.chmod(dst_dir, 0o755)
+def plan_folder(source, folder, recorded, names):
+    """(the files to take {name: [size, sha256]}, problems) of one gallery FOLDER, decided before anything is copied.
+    RECORDED is the files table's entry for the folder ({} for a new folder), NAMES the films found in it now. A
+    recorded file must be byte-identical (the store is immutable: a changed film needs a new folder name). In a
+    recorded folder a new file is taken only when it belongs to a new film (<new film>.*); a new file of a recorded
+    film or of the folder (display.json, diag-tiers.json: inputs of every film there) is refused, since it would change
+    what a blessed film is."""
+    src_dir = Path(source) / folder
+    recorded_films = {n for n in names if any(f.startswith(n + ".") for f in recorded)}
+    new_films = [n for n in names if n not in recorded_films]
+    take, problems = {}, []
     for path in sorted(src_dir.iterdir()):
         if not path.is_file() or not path.name.endswith(KEEP_SUFFIXES):
             continue
-        sha, size = sha256_file(path), path.stat().st_size
-        dst = dst_dir / path.name
-        if dst.exists():
-            kept = sha256_file(dst)
-            if kept != sha:
-                problems.append(f"{folder}/{path.name}: the store copy differs from the source; the store is immutable "
-                                "(a changed film needs a new folder name)")
-            files[path.name] = [dst.stat().st_size, kept]
+        entry = [path.stat().st_size, sha256_file(path)]
+        if path.name in recorded:
+            if list(recorded[path.name]) != entry:
+                problems.append(f"{folder}/{path.name}: differs from the stored copy; the store is immutable (a changed "
+                                "film needs a new folder name)")
             continue
-        tmp = dst_dir / f".{path.name}.part"
-        copy_reflink(path, tmp)
-        if sha256_file(tmp) != sha or sha256_file(path) != sha:
-            os.remove(tmp)
-            problems.append(f"{folder}/{path.name}: the source changed while it was copied; not taken")
+        if recorded and not any(path.name.startswith(n + ".") for n in new_films):
+            problems.append(f"{folder}/{path.name}: a new input of the folder's recorded films; the store is immutable "
+                            "(a changed film needs a new folder name)")
             continue
-        os.chmod(tmp, 0o444)
-        os.replace(tmp, dst)
-        files[path.name] = [size, sha]
-    os.chmod(dst_dir, 0o555)
-    return files, problems
+        take[path.name] = entry
+    return take, problems
+
+
+def copy_folder(source, store, folder, take):
+    """Copies the files TAKE of FOLDER into the store (reflink, verified, read-only), and leaves films/ and every
+    folder under it read-only. Returns problems (a source that changed while it was copied: nothing of it is kept)."""
+    films = Path(store) / "films"
+    dst_dir = films / folder
+    chain = [films] + [films / p for p in reversed(Path(folder).parents) if str(p) != "."] + [dst_dir]
+    for d in chain:
+        d.mkdir(exist_ok=True)
+        os.chmod(d, 0o755)
+    problems, done = [], []
+    try:
+        for name, (size, sha) in sorted(take.items()):
+            src, tmp = Path(source) / folder / name, dst_dir / f".{name}.part"
+            copy_reflink(src, tmp)
+            if sha256_file(tmp) != sha or sha256_file(src) != sha:
+                os.remove(tmp)
+                problems.append(f"{folder}/{name}: the source changed while it was copied; not taken")
+                break
+            os.chmod(tmp, 0o444)
+            done.append((tmp, dst_dir / name))
+        if problems:
+            for tmp, _ in done:
+                os.remove(tmp)
+            return problems
+        for tmp, dst in done:
+            os.replace(tmp, dst)
+        return []
+    finally:
+        for d in reversed(chain):
+            os.chmod(d, 0o555)
 
 
 def cmd_snapshot(opts):
@@ -373,28 +417,26 @@ def cmd_snapshot(opts):
         found.pop(f)
     problems = []
     with concurrent.futures.ThreadPoolExecutor(max(1, opts.jobs)) as pool:
-        jobs = {folder: pool.submit(snapshot_folder, opts.source, store, folder) for folder in found}
-        for folder, names in found.items():
-            files, issues = jobs[folder].result()
-            problems += issues
-            if issues:
-                continue
-            # A folder may gain new films later (a new round published into it); a recorded file never changes and
-            # is never dropped (snapshot_folder already refused a changed one).
-            old = table.get(folder) or {}
-            conflicts = [n for n in old if n in files and files[n] != old[n]]
-            if conflicts:
-                problems.append(f"{folder}: {', '.join(conflicts)} are not the files films.json records; the store is "
-                                "immutable")
-                continue
-            merged = dict(old)
-            merged.update(files)
-            table[folder] = dict(sorted(merged.items()))
-            for name in names:
-                kinds = {fname[len(name) + 1:] for fname in merged if fname.startswith(name + ".")}
-                judges = film_judges(kinds)
-                if judges:
-                    films_doc["films"].setdefault(f"{folder}/{name}", {"tier": "baseline"})["judges"] = judges
+        plans = {folder: pool.submit(plan_folder, opts.source, folder, table.get(folder) or {}, names)
+                 for folder, names in found.items()}
+        plans = {folder: job.result() for folder, job in plans.items()}
+    for folder, names in found.items():
+        take, issues = plans[folder]
+        if not issues and take:
+            issues = copy_folder(opts.source, store, folder, take)
+        problems += issues
+        if issues:
+            continue  # nothing of a refused folder is kept or recorded
+        # A folder may gain new films later (a new round published into it); a recorded file never changes and is never
+        # dropped.
+        merged = dict(table.get(folder) or {})
+        merged.update(take)
+        table[folder] = dict(sorted(merged.items()))
+        for name in names:
+            kinds = {fname[len(name) + 1:] for fname in merged if fname.startswith(name + ".")}
+            judges = film_judges(kinds)
+            if judges:
+                films_doc["films"].setdefault(f"{folder}/{name}", {"tier": "baseline"})["judges"] = judges
     films_doc["files_table"] = put_content(store / "tables", {"folders": dict(sorted(table.items()))})
     write_json(manifest / "films.json", films_doc)
     for p in problems:
@@ -405,14 +447,32 @@ def cmd_snapshot(opts):
 
 
 # ---------------------------------------------------------------------------------------------------------------
-# Judging (worker processes)
+# Judging: one process per film, in a sealed view, with a budget
 # ---------------------------------------------------------------------------------------------------------------
+# A film is judged in a process of its own (a judge's module state cannot carry from one film to the next, so a result
+# does not depend on --jobs or the order), with only its folder's pinned files in view (reflink copies under
+# <store>/.scratch: a judge that lists its folder or reads a file beside it sees exactly what the table pins, and cannot
+# change the store), with fresh bytecode (-X pycache_prefix), and within a budget. Anything that keeps the run from
+# saying what a judge gives on that film is a FAULT, which makes the run NO VERDICT: the film's budget passed, the
+# process died or wrote no result, judge_scan timed out or was killed, MemoryError, an OSError of the machine (no file
+# descriptors, no memory, no space, an I/O error), or a result that cannot be pinned (a value normalize does not know).
+# A judge that raises any other exception gives that error as its result: it is the judge's, and a fix of it shows.
+TRANSIENT_ERRNOS = {errno.EMFILE, errno.ENFILE, errno.ENOMEM, errno.EAGAIN, errno.ENOSPC, errno.EIO, errno.EINTR}
+FILM_SECONDS = 900          # the default budget of one film, all its judges (the slowest film of the first bless: see
+                            # the run line "slowest film"; keep this well above it)
+SCRATCH = ".scratch"
+
+
+class Fault(Exception):
+    """The run cannot say what a judge gives (see above): NO VERDICT."""
+
+
 _MODULES = {}
 _JUDGES_DIR = []
 
 
-def _init_worker(judges_dir):
-    """Loads the judges of JUDGES_DIR in this fresh worker process (spawned: nothing of the parent's imports)."""
+def _load_judges(judges_dir):
+    """Imports the judges of JUDGES_DIR in this process (a fresh one: nothing of the parent's imports)."""
     for k in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
         os.environ[k] = "1"
     judges_dir = str(Path(judges_dir).resolve())
@@ -424,19 +484,31 @@ def _init_worker(judges_dir):
         module = importlib.import_module(name)
         where = str(Path(module.__file__).resolve())
         if where != os.path.join(judges_dir, rel):
-            raise RuntimeError(f"{name} loaded from {where}, not from {judges_dir}")
+            raise Fault(f"{name} loaded from {where}, not from {judges_dir}")
         _MODULES[name] = module
+
+
+def _python(*args):
+    """This interpreter, isolated, with bytecode written only under a fresh prefix (never a stale __pycache__)."""
+    return [sys.executable, "-I", "-X", f"pycache_prefix={_PYCACHE[0]}", *args]
+
+
+_PYCACHE = [tempfile.gettempdir()]
 
 
 def _judge_scan(base):
     """judge_scan.py as its own process (it has a command line only): its exit code and the report it wrote."""
-    import tempfile
     script = os.path.join(_JUDGES_DIR[0], "video-cases", "judge_scan.py")
     with tempfile.TemporaryDirectory(prefix="judge-scan-") as tmp:
         out = os.path.join(tmp, "report.json")
-        done = subprocess.run([sys.executable, "-I", script, f"{base}.mov.scan", "--trace", f"{base}.trace.json",
-                               "--scale", str(_scale_of(base)), "--json", out], capture_output=True, text=True,
-                              timeout=JUDGE_SCAN_TIMEOUT_S, cwd=tmp)
+        try:
+            done = subprocess.run(_python(script, f"{base}.mov.scan", "--trace", f"{base}.trace.json",
+                                          "--scale", str(_scale_of(base)), "--json", out),
+                                  capture_output=True, text=True, timeout=JUDGE_SCAN_TIMEOUT_S, cwd=tmp)
+        except subprocess.TimeoutExpired:
+            raise Fault(f"judge_scan did not finish in {JUDGE_SCAN_TIMEOUT_S} s")
+        if done.returncode < 0:
+            raise Fault(f"judge_scan was ended by signal {-done.returncode}")
         report = read_json(out)
     result = {"exit": done.returncode, "report": report}
     if report is None:
@@ -469,21 +541,73 @@ def _call(judge, base):
     return _MODULES["judge_keys"].judge(base)
 
 
-def judge_film(store, film, judges):
-    """Every judge of FILM: {judge: {"sha256", "summary", "result"}}."""
-    base = str(Path(store) / "films" / film)
-    roots = [str(Path(store) / "films"), str(store)]
-    out = {}
-    for judge in judges:
-        try:
-            result = _call(judge, base)
-        except SystemExit as error:
-            result = {"error": f"SystemExit: {error.code}"}
-        except Exception as error:  # a judge that raises gives that as its result (a fix of it then shows)
-            result = {"error": f"{type(error).__name__}: {error}"}
-        result = normalize(result, roots)
-        out[judge] = {"sha256": digest(result), "summary": summary(judge, result), "result": result}
-    return film, out
+def seal_view(store, table, film, root):
+    """A folder under ROOT holding films/<the film's folder>/ with that folder's pinned files (reflink copies, so a
+    judge can neither see an unpinned file nor change the store). Returns (the view, the film's base path in it)."""
+    folder, name = film.rsplit("/", 1)
+    view = Path(tempfile.mkdtemp(prefix="view-", dir=root))
+    target = view / "films" / folder
+    target.mkdir(parents=True)
+    for file in table.get(folder) or {}:
+        copy_reflink(Path(store) / "films" / folder / file, target / file)
+    return view, str(target / name)
+
+
+def judge_film(store, table, film, judges, root, started=lambda judge: None):
+    """Every judge of FILM in a sealed view: {judge: {"sha256", "summary", "result"}}. Raises Fault (see above).
+    STARTED(judge) is called as each judge starts (the film's process reports it, so a budget names the judge)."""
+    view, base = seal_view(store, table, film, root)
+    try:
+        roots = [str(view / "films"), str(view)]
+        out = {}
+        for judge in judges:
+            started(judge)
+            try:
+                result = _call(judge, base)
+            except Fault:
+                raise
+            except MemoryError:
+                raise Fault(f"{judge}: MemoryError")
+            except OSError as error:
+                if error.errno in TRANSIENT_ERRNOS:
+                    raise Fault(f"{judge}: {type(error).__name__}: {error}")
+                result = {"error": f"{type(error).__name__}: {error}"}
+            except SystemExit as error:
+                result = {"error": f"SystemExit: {error.code}"}
+            except Exception as error:  # a judge that raises gives that as its result (a fix of it then shows)
+                result = {"error": f"{type(error).__name__}: {error}"}
+            try:
+                result = normalize(result, roots)
+            except TypeError as error:
+                raise Fault(f"{judge}: a result that cannot be pinned: {error}")
+            out[judge] = {"sha256": digest(result), "summary": summary(judge, result), "result": result}
+        return out
+    finally:
+        shutil.rmtree(view, ignore_errors=True)
+
+
+def _film_main(argv):
+    """`judge_goldens.py _judge-film STORE TABLE_SHA JUDGES_DIR ROOT FILM JUDGE...`: one film. On stdout, one JSON
+    line {"start": judge} as each judge starts, then one JSON object ({"results": ...} or {"fault": ...})."""
+    store, table_sha, judges_dir, root, film, judges = argv[0], argv[1], argv[2], argv[3], argv[4], argv[5:]
+    _PYCACHE[0] = root
+
+    def started(judge):
+        sys.stdout.write(canonical({"start": judge}) + "\n")
+        sys.stdout.flush()
+    try:
+        _load_judges(judges_dir)
+        table = get_content(Path(store) / "tables", table_sha)["folders"]
+        payload = {"results": judge_film(store, table, film, judges, root, started)}
+    except Fault as fault:
+        payload = {"fault": str(fault)}
+    except MemoryError:
+        payload = {"fault": "MemoryError"}
+    except Exception as error:  # the runner's own failure in this film: NO VERDICT, never a result
+        payload = {"fault": f"the film's process failed: {type(error).__name__}: {error}"}
+    sys.stdout.write(canonical(payload))
+    sys.stdout.flush()
+    return 0
 
 
 def verify_file(path, size, sha):
@@ -498,55 +622,118 @@ def verify_file(path, size, sha):
 
 
 def verify_store(store, films_doc, films, jobs):
-    """Problems with the store files of FILMS' folders (missing, other size, other content), against the files table
-    whose hash films.json pins."""
+    """Problems with the store against the files table whose hash films.json pins: a file of FILMS' folders missing,
+    of another size or content; any file or folder in films/ the table does not name (the judges never see one: they
+    run in sealed views; but a store with one is not the store the table pins)."""
     try:
         table = files_table(store, films_doc)
     except (OSError, ValueError) as error:
         return [f"the files table: {error}"]
+    root = Path(store) / "films"
+    problems = []
+    known_dirs = {""} | {str(Path(f)) for f in table} | {str(p) for f in table for p in Path(f).parents if str(p) != "."}
+    for path in sorted(root.rglob("*")) if root.is_dir() else []:
+        rel = str(path.relative_to(root))
+        if path.is_dir():
+            if rel not in known_dirs:
+                problems.append(f"films/{rel}/: a folder the files table does not name")
+        elif str(path.parent.relative_to(root)) not in table or path.name not in table[str(path.parent.relative_to(root))]:
+            problems.append(f"films/{rel}: a file the files table does not pin")
     folders = sorted({f.rsplit("/", 1)[0] for f in films})
     work = []
     for folder in folders:
         entry = table.get(folder)
         if entry is None:
-            work.append((None, f"{folder}: not in the files table"))
+            problems.append(f"{folder}: not in the files table")
             continue
         for name, (size, sha) in entry.items():
-            work.append((Path(store) / "films" / folder / name, (size, sha)))
-    problems = [w[1] for w in work if w[0] is None]
+            work.append((root / folder / name, (size, sha)))
     with concurrent.futures.ThreadPoolExecutor(max(1, jobs)) as pool:
-        for problem in pool.map(lambda w: verify_file(w[0], *w[1]), [w for w in work if w[0] is not None]):
+        for problem in pool.map(lambda w: verify_file(w[0], *w[1]), work):
             if problem:
                 problems.append(problem)
     return problems
 
 
-class RunnerTimeout(RuntimeError):
-    """The judges did not finish within the run's deadline (a judge that hangs): NO VERDICT, never a difference."""
+class RunnerTimeout(Fault):
+    """The judges did not finish within the run's deadline: NO VERDICT, never a difference."""
 
 
-def judge_all(store, films_doc, films, judges_dir, jobs, deadline_s=None):
-    """Every judge result of FILMS, judged in spawned workers that import only JUDGES_DIR's judges. A run longer than
-    DEADLINE_S raises RunnerTimeout naming the films still running (their workers are ended)."""
-    ctx = multiprocessing.get_context("spawn")
-    results = {}
-    pool = concurrent.futures.ProcessPoolExecutor(max(1, jobs), mp_context=ctx, initializer=_init_worker,
-                                                  initargs=(str(judges_dir),))
-    try:
-        futures = {pool.submit(judge_film, str(store), film, films_doc["films"][film]["judges"]): film for film in films}
+def judge_all(store, films_doc, films, judges_dir, jobs, deadline_s=None, film_s=FILM_SECONDS):
+    """Every judge result of FILMS: {film: {judge: ...}}, and the slowest film's seconds. Each film runs in its own
+    process (the module text above); at most JOBS at once. A film past FILM_S seconds, or the whole run past
+    DEADLINE_S, ends its process group (this run's own children) and raises Fault; so does a film's fault."""
+    root = Path(store) / SCRATCH
+    root.mkdir(exist_ok=True)
+    run_root = Path(tempfile.mkdtemp(prefix=f"run-{os.getpid()}-", dir=root))
+    table_sha = films_doc["files_table"]
+    queue = list(films)
+    running = {}  # pid -> (Popen, film, started, chunks)
+    results, slowest = {}, (0.0, None)
+    selector = selectors.DefaultSelector()
+    started_run = time.monotonic()
+
+    def end(proc):
         try:
-            for future in concurrent.futures.as_completed(futures, timeout=deadline_s):
-                film, out = future.result()
-                results[film] = out
-        except concurrent.futures.TimeoutError:
-            left = sorted(film for future, film in futures.items() if not future.done())
-            for proc in list(getattr(pool, "_processes", {}).values()):
-                proc.terminate()  # our own spawned workers only (this pool's children)
-            raise RunnerTimeout(f"{len(left)} films not judged within {deadline_s:.0f} s (a judge that hangs?): "
-                                + ", ".join(left[:8]))
+            os.killpg(proc.pid, signal.SIGKILL)  # the film's own process group: our child and its children
+        except ProcessLookupError:
+            pass
+        proc.wait()
+
+    try:
+        while queue or running:
+            while queue and len(running) < max(1, jobs):
+                film = queue.pop(0)
+                proc = subprocess.Popen(_python(str(Path(__file__).resolve()), "_judge-film", str(store), table_sha,
+                                                str(Path(judges_dir).resolve()), str(run_root), film,
+                                                *films_doc["films"][film]["judges"]),
+                                        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
+                running[proc.pid] = (proc, film, time.monotonic(), [])
+                selector.register(proc.stdout, selectors.EVENT_READ, proc.pid)
+            now_t = time.monotonic()
+            budget_left = min(started + film_s for _, _, started, _ in running.values()) - now_t
+            if deadline_s is not None:
+                budget_left = min(budget_left, started_run + deadline_s - now_t)
+            for key, _ in selector.select(timeout=max(0.0, budget_left)):
+                proc, film, started, chunks = running[key.data]
+                block = os.read(key.fileobj.fileno(), 1 << 20)
+                if block:
+                    chunks.append(block)
+                    continue
+                selector.unregister(key.fileobj)
+                key.fileobj.close()
+                code = proc.wait()
+                del running[key.data]
+                elapsed = time.monotonic() - started
+                slowest = max(slowest, (elapsed, film))
+                lines = b"".join(chunks).split(b"\n")
+                try:
+                    payload = json.loads(lines[-1] or b"null")
+                except ValueError:
+                    payload = None
+                if not isinstance(payload, dict) or code != 0:
+                    raise Fault(f"{film}: the film's process ended with code {code} and "
+                                f"{'no result' if not isinstance(payload, dict) else 'a result'}")
+                if "fault" in payload:
+                    raise Fault(f"{film}: {payload['fault']}")
+                results[film] = payload["results"]
+            now_t = time.monotonic()
+            late = [(film, chunks) for proc, film, started, chunks in running.values() if now_t - started >= film_s]
+            if late:
+                film, chunks = late[0]
+                begun = re.findall(rb'\{"start":"([a-z_]+)"\}', b"".join(chunks))
+                judge = begun[-1].decode() if begun else "loading the judges"
+                raise Fault(f"{film}: {judge} did not finish in the film's budget of {film_s:.0f} s (--film-seconds)")
+            if deadline_s is not None and now_t - started_run >= deadline_s:
+                raise RunnerTimeout(f"{len(queue) + len(running)} films not judged within {deadline_s:.0f} s: "
+                                    + ", ".join(sorted(f for _, f, _, _ in running.values())[:8]))
     finally:
-        pool.shutdown(wait=False, cancel_futures=True)
-    return results
+        for proc, _, _, _ in list(running.values()):
+            end(proc)
+            proc.stdout.close()
+        selector.close()
+        shutil.rmtree(run_root, ignore_errors=True)
+    return results, slowest
 
 
 def select(films_doc, only):
@@ -568,20 +755,39 @@ def utc_now():
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _git(cwd, *args):
+    done = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True)
+    if done.returncode != 0:
+        raise RuntimeError(f"git {' '.join(args[:2])} in {cwd}: {done.stderr.strip()[:200]}")
+    return done.stdout.strip()
+
+
 def git_state(judges_dir):
-    """(commit, {judge file: blob}, uncommitted judge files) of the judges' checkout, or None when it is no checkout."""
-    git = ["git", "-C", str(judges_dir)]
+    """The judges' and the runner's checkouts: {"commit", "blobs" (the judge files), "dirty" (judge files with
+    uncommitted changes), "runner": {"commit", "blob", "dirty"}}, or None when the judges' folder is no checkout. The
+    runner is part of what a golden pins: it makes the judges' inputs (the trace judge's scale, frames and events) and
+    normalizes their results."""
     try:
-        top = subprocess.run(git + ["rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True).stdout.strip()
-        commit = subprocess.run(git + ["rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
-    except (subprocess.CalledProcessError, FileNotFoundError):
+        _git(judges_dir, "rev-parse", "--show-toplevel")
+    except (RuntimeError, FileNotFoundError):
         return None
     paths = [str(Path(judges_dir).resolve() / rel) for rel in JUDGE_FILES]
-    dirty = subprocess.run(git + ["status", "--porcelain", "--", *paths], capture_output=True, text=True).stdout.strip()
-    blobs = {}
-    for rel, path in zip(JUDGE_FILES, paths):
-        blobs[rel] = subprocess.run(git + ["hash-object", path], capture_output=True, text=True).stdout.strip()
-    return {"commit": commit, "top": top, "blobs": blobs, "dirty": dirty}
+    runner = Path(__file__).resolve()
+    state = {"commit": _git(judges_dir, "rev-parse", "HEAD"), "dirty": _git(judges_dir, "status", "--porcelain", "--", *paths),
+             "blobs": {rel: _git(judges_dir, "hash-object", path) for rel, path in zip(JUDGE_FILES, paths)}}
+    try:
+        state["runner"] = {"commit": _git(runner.parent, "rev-parse", "HEAD"), "blob": _git(runner.parent, "hash-object", str(runner)),
+                           "dirty": _git(runner.parent, "status", "--porcelain", "--", str(runner))}
+    except (RuntimeError, FileNotFoundError):
+        state["runner"] = {"commit": None, "blob": hashlib.sha1(b"blob %d\0" % runner.stat().st_size + runner.read_bytes()).hexdigest(),
+                           "dirty": f"{runner}: not in a git checkout"}
+    return state
+
+
+def runner_blob():
+    runner = Path(__file__).resolve()
+    data = runner.read_bytes()
+    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -740,8 +946,9 @@ def unit_tests(judges_dir):
         return None
     ran = failed = skipped = 0
     for path in files:
-        done = subprocess.run([sys.executable, "-I", str(path)], capture_output=True, text=True, cwd=str(path.parent),
-                              timeout=UNIT_TEST_TIMEOUT_S)
+        with tempfile.TemporaryDirectory(prefix="judge-unit-") as pycache:
+            done = subprocess.run([sys.executable, "-I", "-X", f"pycache_prefix={pycache}", str(path)], capture_output=True,
+                                  text=True, cwd=str(path.parent), timeout=UNIT_TEST_TIMEOUT_S)
         text = done.stdout + done.stderr
         m = re.search(r"^Ran (\d+) tests?", text, re.M)
         n = int(m.group(1)) if m else 0
@@ -772,13 +979,22 @@ def cmd_bless(opts):
             print(f"REFUSED: uncommitted judge files (a bless names the judges' commit):\n{judges_state['dirty']}",
                   file=sys.stderr)
             return 2
+        if judges_state["runner"]["dirty"]:
+            print("REFUSED: uncommitted runner (a bless names the runner it ran with; the runner makes the judges' "
+                  f"inputs and normalizes their results):\n{judges_state['runner']['dirty']}", file=sys.stderr)
+            return 2
     films = select(films_doc, None)
     problems = verify_store(store, films_doc, films, opts.jobs)
     if problems:
         print("REFUSED (NO VERDICT): the store is not the one films.json records:\n  " + "\n  ".join(problems[:40]),
               file=sys.stderr)
         return 2
-    results = judge_all(store, films_doc, films, opts.judges, opts.jobs, opts.deadline_minutes * 60)
+    try:
+        results, slowest = judge_all(store, films_doc, films, opts.judges, opts.jobs, opts.deadline_minutes * 60,
+                                     opts.film_seconds)
+    except Fault as fault:
+        print(f"REFUSED (NO VERDICT): {fault}", file=sys.stderr)
+        return 2
     passed, total, failures, no_verdict = check_truth(store, manifest, results)
     if no_verdict:
         print("REFUSED (NO VERDICT): a TRUTH ruler fact does not hold:\n  " + "\n  ".join(no_verdict), file=sys.stderr)
@@ -806,11 +1022,13 @@ def cmd_bless(opts):
     history = list(old.get("history") or [])
     history.append({"at": utc_now(), "reason": opts.reason, "films": len(films), "changed": changed,
                     "judges": {k: v for k, v in (judges_state or {}).items() if k in ("commit", "blobs", "dirty")},
-                    **({"git_check": "skipped (--no-git-check)"} if opts.no_git_check else {})})
+                    "runner": (judges_state or {}).get("runner") or {"blob": runner_blob()},
+                    "slowest_film_s": round(slowest[0], 1),
+                    **({"git_check": False} if opts.no_git_check else {})})
     write_json(manifest / "expected.json", {"v": 1, "toolchain": toolchain(), "calls": CALLS, "history": history,
                                             "films": entries})
     print(f"blessed {len(films)} films ({sum(len(v) for v in entries.values())} results); changed {len(changed)}; "
-          f"truth: {passed} of {total}: {opts.reason}")
+          f"truth: {passed} of {total}; slowest film {slowest[0]:.1f} s ({slowest[1]}): {opts.reason}")
     return 0
 
 
@@ -830,12 +1048,28 @@ def cmd_run(opts):
         print(f"NO VERDICT: the judges were blessed with other calls: {json.dumps(expected.get('calls'))}", file=sys.stderr)
         return 2
     films = select(films_doc, opts.only)
+    if not films:
+        print(f"NO VERDICT: no film matches {opts.only or 'the manifest'}: a run that judges nothing proves nothing",
+              file=sys.stderr)
+        return 2
     missing = [f for f in select({"films": expected.get("films") or {}}, opts.only) if f not in films_doc["films"]]
     problems = verify_store(store, films_doc, films, opts.jobs) + [f"{f}: in expected.json, not in films.json" for f in missing]
+    for film in films:
+        for judge, entry in sorted(((expected.get("films") or {}).get(film) or {}).items()):
+            try:
+                load_expected(store, entry["sha256"])
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                problems.append(f"{film} {judge}: the blessed result {str(entry.get('sha256'))[:12]} cannot be read: {error}")
     if problems:
-        print("NO VERDICT: the store is not the one films.json records:\n  " + "\n  ".join(problems[:40]), file=sys.stderr)
+        print("NO VERDICT: the store is not the one films.json and expected.json record:\n  " + "\n  ".join(problems[:40]),
+              file=sys.stderr)
         return 2
-    results = judge_all(store, films_doc, films, opts.judges, opts.jobs, opts.deadline_minutes * 60)
+    try:
+        results, slowest = judge_all(store, films_doc, films, opts.judges, opts.jobs, opts.deadline_minutes * 60,
+                                     opts.film_seconds)
+    except Fault as fault:
+        print(f"NO VERDICT: {fault}", file=sys.stderr)
+        return 2
     total = same = 0
     diffs, report = [], {}
     for film in films:
@@ -877,8 +1111,11 @@ def cmd_run(opts):
                          + f" in {', '.join(names)}")
             if failed:
                 unit_line, unit_failed = "TRUTH FAIL " + unit_line, True
+    blessed_runner = ((expected.get("history") or [{}])[-1].get("runner") or {}).get("blob")
+    runner_note = "" if blessed_runner in (None, runner_blob()) else \
+        f"; the runner changed since the bless ({str(blessed_runner)[:12]} -> {runner_blob()[:12]}): a difference may be the runner's"
     print(f"judge goldens: {len(films)} films, judges in {Path(opts.judges).resolve()}: reproduced {same} of {total}; "
-          f"truth: {t_passed} of {t_total}; {unit_line}")
+          f"truth: {t_passed} of {t_total}; {unit_line}; slowest film {slowest[0]:.1f} s{runner_note}")
     if opts.json:
         write_json(opts.json, {"reproduced": same, "results": total, "films": report, "differences": sorted(diffs),
                                "truth": {"passed": t_passed, "total": t_total, "failures": t_failures,
@@ -891,6 +1128,9 @@ def cmd_run(opts):
 
 
 def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["_judge-film"]:
+        return _film_main(argv[1:])
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("command", choices=("snapshot", "bless", "run"))
     ap.add_argument("--store", default=str(DEFAULT_STORE))
@@ -905,6 +1145,8 @@ def main(argv=None):
     ap.add_argument("--no-git-check", action="store_true", help="bless: accept uncommitted judges (tests only)")
     ap.add_argument("--no-unit-tests", action="store_true",
                     help="run: do not run the judges' unit tests (said in the result line; for older judges only)")
+    ap.add_argument("--film-seconds", type=float, default=FILM_SECONDS,
+                    help=f"bless and run: NO VERDICT when one film's judges have not finished in this long (default {FILM_SECONDS})")
     ap.add_argument("--deadline-minutes", type=float, default=60.0,
                     help="bless and run: NO VERDICT when the judges have not finished in this long (default 60)")
     ap.add_argument("--settled-minutes", type=float, default=10.0,
