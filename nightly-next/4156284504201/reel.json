@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "build": "4156284504201",
+  "notes": "notes/4156284504201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32830,
+      "title": "fix(transcript): a running row's shimmer keeps the label's ellipsis and count colours",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32818,
+      "title": "debug(next): frame_strip above: true records the windows over the window too, so a Chromium page shows in it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32698,
+      "title": "Subagent tray: a line names its task, reads Done · 36s, and sits on the composer's glass",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25643,
+      "title": "fix(agent-chat): settle old rail jumps across history prepend",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26230,
+      "title": "feat(agent-chat): live reload streamed artifact fences",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26353,
+      "title": "ci: push triggers run only on the branches that need them",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27141,
+      "title": "feat(ui): add native popup descriptor seam to shared primitives",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32763,
+      "title": "agent pane: a chat opened in a split starts with Session Info closed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32802,
+      "title": "chief-cloud-machines skill: run a task as a Cloud agent chat with cmux cloud start-chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32762,
+      "title": "fix(composer): a press on an inline attachment's x or Retry never drags the chip",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32805,
+      "title": "Transcript: a running tool row shimmers its words, not a spinner at the far edge (\"doesn't claude desktop have the thinking shimmer go across stuff\")",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32792,
+      "title": "Cloud Native: give the Native child the user's TMPDIR, and stop the link before a Native retry",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32635,
+      "title": "P0 RESIZE KEYS K3: a keyboard resize holds pane content through its spring and lays it out once after the landing",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32796,
+      "title": "skills: cmux cloud start-chat is the one command for a Cloud chat and its reply",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32737,
+      "title": "cmux cloud start-chat: start a Cloud chat, send a prompt and read the reply in one command",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
