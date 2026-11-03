@@ -58,6 +58,20 @@ impl Hub {
         description: Option<String>,
         notify: bool,
     ) -> Result<Value, RpcError> {
+        self.bg_start_with_id(session, command, cwd, None, description, notify).await
+    }
+
+    /// Workflow-only stable identity. The durable claim is written before spawning, so an
+    /// uncertain launch is never executed a second time after a daemon crash.
+    pub(crate) async fn bg_start_with_id(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        command: &str,
+        cwd: Option<PathBuf>,
+        fixed_id: Option<&str>,
+        description: Option<String>,
+        notify: bool,
+    ) -> Result<Value, RpcError> {
         if command.trim().is_empty() {
             return Err(RpcError::invalid_params("command is empty"));
         }
@@ -81,6 +95,17 @@ impl Hub {
             return Err(RpcError::invalid_params(format!("{} is not a folder", cwd.display())));
         }
         let dir = self.bg_dir(session);
+        if let Some(id) = fixed_id {
+            if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+                return Err(RpcError::invalid_params("invalid stable task id"));
+            }
+            if let Some(record) = bg_run::read_record(&dir, id) {
+                if record.command != command || record.cwd != cwd.to_string_lossy() {
+                    return Err(RpcError::invalid_params("stable task identity changed"));
+                }
+                return Ok(bg_view(&dir, &record, LIST_TAIL));
+            }
+        }
         // A runner whose lock cannot be probed counts: the cap never lets an unknown one by.
         let running = self.bg_records(&dir).iter().filter(|r| !bg_gone(&dir, &r.id)).count();
         if running >= MAX_RUNNING {
@@ -92,7 +117,26 @@ impl Hub {
         std::fs::create_dir_all(&dir).map_err(internal)?;
         let generation = bg_generation(&dir, true).map_err(internal)?;
         let uuid = uuid::Uuid::now_v7().simple().to_string();
-        let id = format!("bg-{}", uuid.get(20..).unwrap_or(&uuid));
+        let id = fixed_id
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("bg-{}", uuid.get(20..).unwrap_or(&uuid)));
+        if fixed_id.is_some() {
+            use std::io::Write as _;
+            let claim = dir.join(format!("{id}.claim"));
+            match std::fs::OpenOptions::new().write(true).create_new(true).open(claim) {
+                Ok(mut file) => {
+                    file.write_all(command.as_bytes()).map_err(internal)?;
+                    file.sync_all().map_err(internal)?;
+                    std::fs::File::open(&dir).and_then(|f| f.sync_all()).map_err(internal)?;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    return Err(RpcError::internal(
+                        "workflow task launch is uncertain; refusing to execute it twice",
+                    ));
+                }
+                Err(error) => return Err(internal(error)),
+            }
+        }
         let set = self.bg_runner.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let (runner, segment) = match set {
             Some(set) => set,
@@ -108,6 +152,7 @@ impl Hub {
             cwd,
             env,
             segment,
+            retain_all: fixed_id.is_some(),
             generation,
             description: description.map(|d| d.trim().to_owned()).filter(|d| !d.is_empty()),
             notify,
@@ -180,6 +225,35 @@ impl Hub {
         let tasks: Vec<Value> =
             self.bg_records(&dir).iter().map(|r| bg_view(&dir, r, LIST_TAIL)).collect();
         json!({"tasks": tasks})
+    }
+
+    pub(crate) fn workflow_bg_uncertain(&self, session: &Session, id: &str) -> bool {
+        let dir = self.bg_dir(session);
+        dir.join(format!("{id}.claim")).exists() && bg_run::read_record(&dir, id).is_none()
+    }
+
+    /// Wait on the runner's liveness lock, including a runner adopted after daemon restart.
+    /// No sampling timer; dropping the workflow's agent does not terminate this owned task.
+    pub(crate) async fn workflow_bg_wait(
+        &self,
+        session: &Session,
+        id: &str,
+    ) -> Result<Value, RpcError> {
+        let (dir, _) = self.bg_record(session, id)?;
+        let path = bg_run::lock_path(&dir, id);
+        workflow_bg_wait_lock(path).await?;
+        let (dir, record) = self.bg_record(session, id)?;
+        let view = tokio::task::spawn_blocking(move || workflow_bg_output(&dir, &record))
+            .await
+            .map_err(internal)??;
+        if view.get("state").and_then(Value::as_str) != Some("exited")
+            || view.get("exitCode").and_then(Value::as_i64) != Some(0)
+        {
+            return Err(
+                RpcError::internal("workflow machine command did not succeed").with_data(view)
+            );
+        }
+        Ok(view)
     }
 
     fn bg_record(&self, session: &Session, id: &str) -> Result<(PathBuf, Record), RpcError> {
@@ -279,6 +353,38 @@ impl Hub {
             }
         }
         bg_cleared(&dir)
+    }
+}
+
+/// The runner can outlive this daemon, so its potentially unbounded lock wait must not use
+/// Tokio's blocking pool: runtime shutdown waits for that pool even after the future is gone.
+/// This detached thread owns only its descriptor and sender, and closes both when the runner
+/// exits. Dropping the receiver neither stops the runner nor delays daemon shutdown.
+async fn workflow_bg_wait_lock(path: PathBuf) -> Result<(), RpcError> {
+    #[cfg(unix)]
+    {
+        let (finished, result) = tokio::sync::oneshot::channel();
+        std::thread::Builder::new()
+            .name("workflow-bg-wait".into())
+            .spawn(move || {
+                let wait = || -> Result<(), RpcError> {
+                    use std::os::fd::AsRawFd;
+                    let file = std::fs::File::open(path).map_err(internal)?;
+                    // SAFETY: this thread owns the descriptor, which closes on return.
+                    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH) } != 0 {
+                        return Err(internal(std::io::Error::last_os_error()));
+                    }
+                    Ok(())
+                };
+                let _ = finished.send(wait());
+            })
+            .map_err(internal)?;
+        result.await.map_err(internal)?
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Err(RpcError::internal("workflow machine tasks require Unix"))
     }
 }
 
@@ -387,6 +493,40 @@ async fn bg_wait_gone(dir: &std::path::Path, id: &str) -> bool {
     true
 }
 
+/// Workflow results are collected after the runner releases its liveness lock. Decode once:
+/// a UTF-8 character can cross a read boundary, and binary output must round-trip exactly.
+fn workflow_bg_output(dir: &std::path::Path, record: &Record) -> Result<Value, RpcError> {
+    use base64::Engine;
+    let mut output = Vec::new();
+    let mut cursor = 0;
+    loop {
+        let read =
+            bg_run::read_output(dir, &record.id, Some(cursor), OUTPUT_DEFAULT).map_err(internal)?;
+        if read.start != cursor {
+            return Err(RpcError::internal("workflow machine output was lost from its spool"));
+        }
+        let next = read.start + read.data.len() as u64;
+        output.extend_from_slice(&read.data);
+        if next >= read.total {
+            break;
+        }
+        if next <= cursor {
+            return Err(RpcError::internal("workflow machine output spool ended unexpectedly"));
+        }
+        cursor = next;
+    }
+    if record.output_error.is_some() {
+        return Err(RpcError::internal("workflow machine output spool failed"));
+    }
+    let mut view = bg_view(dir, record, 0);
+    view.set("data", json!(base64::engine::general_purpose::STANDARD.encode(&output)));
+    view.set("text", json!(String::from_utf8_lossy(&output)));
+    view.set("fromByte", json!(0));
+    view.set("nextByte", json!(output.len()));
+    view.set("skippedBytes", json!(0));
+    Ok(view)
+}
+
 /// A task as the wire carries it: `state` is `running`, `exited`, `stopped`, `killed` (a signal
 /// nobody here sent) or `lost` (its runner died without a word), with its last `tail` bytes.
 pub(super) fn bg_view(dir: &std::path::Path, r: &Record, tail: u64) -> Value {
@@ -468,5 +608,92 @@ async fn bg_spawn(runner: &crate::self_command::SelfCommand, spec: &bg_run::Spec
         Ok(Ok(_)) => Err(anyhow!("the task did not start")),
         Ok(Err(e)) => Err(e),
         Err(_) => Err(anyhow!("the task's runner did not answer in time")),
+    }
+}
+
+#[cfg(test)]
+mod workflow_output_tests {
+    use super::*;
+    use base64::Engine;
+
+    #[cfg(unix)]
+    #[test]
+    fn workflow_lock_wait_does_not_delay_runtime_shutdown() {
+        use std::future::Future as _;
+        use std::os::fd::AsRawFd;
+
+        let dir = cmux_unix_socket::short_test_dir("workflow-bg-shutdown");
+        let path = dir.path().join("task.lock");
+        let runner = std::fs::File::create(&path).unwrap();
+        // SAFETY: the test owns this descriptor and holds it until after the shutdown check.
+        assert_eq!(unsafe { libc::flock(runner.as_raw_fd(), libc::LOCK_EX) }, 0);
+        let (shutdown, stopped) = std::sync::mpsc::channel();
+        let daemon = std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+            runtime.block_on(async {
+                let mut wait = std::pin::pin!(workflow_bg_wait_lock(path));
+                // Start the actual lock wait before dropping its future and the runtime.
+                std::future::poll_fn(|cx| {
+                    assert!(wait.as_mut().poll(cx).is_pending());
+                    std::task::Poll::Ready(())
+                })
+                .await;
+            });
+            drop(runtime);
+            let _ = shutdown.send(());
+        });
+        let shutdown_before_exit = stopped.recv_timeout(std::time::Duration::from_secs(5));
+        // Release before joining or asserting: the old blocking-pool implementation must also
+        // be able to clean up after its bounded failure, rather than hanging the test process.
+        drop(runner);
+        daemon.join().unwrap();
+        assert!(shutdown_before_exit.is_ok(), "daemon shutdown waited for the machine task");
+    }
+
+    fn result(data: &[u8]) -> Value {
+        let dir = cmux_unix_socket::short_test_dir("workflow-bg-result");
+        let mut spool =
+            bg_run::Spool::create_with_retention(dir.path(), "task", 1024, true).unwrap();
+        spool.write(data).unwrap();
+        drop(spool);
+        let record = Record {
+            id: "task".into(),
+            ended_at: Some(1),
+            exit_code: Some(0),
+            ..Record::default()
+        };
+        workflow_bg_output(dir.path(), &record).unwrap()
+    }
+
+    #[test]
+    fn workflow_output_decodes_utf8_once_across_read_boundaries() {
+        let text = format!("{}🦀tail", "x".repeat((OUTPUT_DEFAULT - 1) as usize));
+        let view = result(text.as_bytes());
+        assert_eq!(view["text"], text);
+        assert_eq!(
+            base64::engine::general_purpose::STANDARD
+                .decode(view["data"].as_str().unwrap())
+                .unwrap(),
+            text.as_bytes()
+        );
+        assert_eq!(view["fromByte"], 0);
+        assert_eq!(view["nextByte"], text.len());
+    }
+
+    #[test]
+    fn workflow_output_keeps_complete_binary_data() {
+        let bytes: Vec<u8> =
+            (0..(OUTPUT_DEFAULT as usize * 3 + 5)).map(|i| (i % 256) as u8).collect();
+        let view = result(&bytes);
+        assert_eq!(
+            base64::engine::general_purpose::STANDARD
+                .decode(view["data"].as_str().unwrap())
+                .unwrap(),
+            bytes
+        );
+        assert_eq!(view["text"], String::from_utf8_lossy(&bytes).as_ref());
+        assert_eq!(view["totalBytes"], bytes.len());
+        assert_eq!(view["nextByte"], bytes.len());
+        assert_eq!(view["skippedBytes"], 0);
     }
 }

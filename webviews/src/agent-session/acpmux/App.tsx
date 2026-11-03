@@ -185,7 +185,8 @@ import { NewChatPrewarm, type PrewarmTarget } from "./newChatPrewarm";
 import { harnessProfiles } from "./harnessProfiles";
 import { setStartModeSource } from "./startMode";
 import { setPromptSurfaces } from "./surfaces/promptSurface";
-import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
+import type { MockScript } from "./mock";
+import { preparedMockTransport } from "./mockTransport";
 import { BridgeSocket } from "./bridgeSocket";
 import { useComposerKeyboard } from "./composerFocus";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
@@ -583,6 +584,7 @@ import { configureLiveLineBelow, useLiveLineBelow } from "./liveLineBelow";
 import { configureToolRunLook } from "./toolRunLook";
 import { configureSentLook } from "./conversation/SentMessageLine";
 import { configureInboxNoticeLook } from "./conversation/inboxNoticeLook";
+import { configureMessageLineLook } from "./conversation/messageLineLook";
 import { configureNoticeLook } from "./conversation/noticeLook";
 import { InboxNoticeCard } from "./conversation/InboxNoticeCard";
 import { mergeInboxNotices, type InboxMessage } from "./conversation/inboxNotice";
@@ -10594,6 +10596,7 @@ function AcpmuxPane() {
         configureToolRunLook(theme.toolRunLook);
         configureSentLook(theme.sentLook);
         configureInboxNoticeLook(theme.inboxNoticeLook);
+        configureMessageLineLook(theme.messageLineLook);
         configureNoticeLook(theme.noticeLook);
         configureTurnActionsPlacement(theme.turnActionsPlacement);
         configureSubagentTray(theme.subagentTray);
@@ -10965,13 +10968,19 @@ function AcpmuxPane() {
           setHostErrorShown(false);
           return;
         }
+        // Native chats never load the in-page daemon or its fixture transcripts. Keep this
+        // await in the mock branch so the native handshake still starts in the same turn.
+        const mockModule = mock ? (preparedMockTransport() ?? (await import("./mock"))) : undefined;
+        if (cancelled) return;
         // A new chat in mock mode starts without a session too, as against a real daemon.
-        const mockConfig: AcpmuxHostConfig = host.newSession
-          ? { ...mockHost, sessionId: undefined, newSession: true }
-          : mockHost;
+        const config: AcpmuxHostConfig = mockModule
+          ? host.newSession
+            ? { ...mockModule.mockHost, sessionId: undefined, newSession: true }
+            : mockModule.mockHost
+          : (host as AcpmuxHostConfig);
         let connectingClient: AcpmuxDirectClient | undefined;
         const client = await AcpmuxDirectClient.connect(
-          mock ? mockConfig : (host as AcpmuxHostConfig),
+          config,
           (next) => {
             harnessSwitch.reconcile(next);
             rowsRef.current = next.rows;
@@ -11028,8 +11037,8 @@ function AcpmuxPane() {
             retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
             retryDelay = nextRetryDelay(retryDelay, true);
           },
-          mock
-            ? () => new MockAcpmuxSocket(undefined, window.cmuxAcpmuxMockScript) as unknown as WebSocket
+          mockModule
+            ? () => new mockModule.MockAcpmuxSocket(undefined, window.cmuxAcpmuxMockScript) as unknown as WebSocket
             : bridge
               ? () => new BridgeSocket() as unknown as WebSocket
               : undefined,

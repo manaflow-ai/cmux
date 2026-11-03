@@ -14,7 +14,8 @@
 //! Output: segment files `<id>.out.<start>`, named by where they start in the task's whole output,
 //! so the files alone say what is kept (a crash never leaves them disagreeing with a record). At
 //! `segment` bytes a new file starts and the one before the previous is deleted: at most two are
-//! kept, the newest 8 MiB by default. A reader opens the files first and reads its descriptors.
+//! kept, the newest 8 MiB by default. Workflow tasks opt into one unrotated file so their
+//! final result retains every byte. A reader opens the files first and reads its descriptors.
 //!
 //! Stop: the folder's generation and a newline written to `<id>.ctl` in one write. A writer's open
 //! fails (ENXIO) unless this runner holds the FIFO open, so a stop never reaches anything but this
@@ -59,6 +60,9 @@ pub struct Spec {
     #[serde(default)]
     pub env: BTreeMap<String, String>,
     pub segment: u64,
+    /// Stable workflow tasks need their complete final result, rather than a bounded tail.
+    #[serde(default)]
+    pub retain_all: bool,
     /// The chat folder's generation (`hub/bg_tasks.rs`): its records carry it, so a runner that
     /// outlived a purge never shows in a later folder of the same name.
     #[serde(default)]
@@ -149,11 +153,12 @@ fn segments(dir: &Path, id: &str) -> std::io::Result<Vec<u64>> {
     Ok(starts)
 }
 
-/// The bounded output; [`Spool::write`] starts a new segment at `segment` bytes.
+/// Output retained as either a bounded rotating tail or one complete workflow file.
 pub struct Spool {
     dir: PathBuf,
     id: String,
     segment: u64,
+    retain_all: bool,
     file: std::fs::File,
     prev: Option<u64>,
     start: u64,
@@ -162,13 +167,36 @@ pub struct Spool {
 
 impl Spool {
     pub fn create(dir: &Path, id: &str, segment: u64) -> std::io::Result<Self> {
+        Self::create_with_retention(dir, id, segment, false)
+    }
+
+    pub fn create_with_retention(
+        dir: &Path,
+        id: &str,
+        segment: u64,
+        retain_all: bool,
+    ) -> std::io::Result<Self> {
         let file = std::fs::File::create(segment_path(dir, id, 0))?;
         let (dir, id) = (dir.to_owned(), id.to_owned());
-        Ok(Self { dir, id, segment: segment.max(1), file, prev: None, start: 0, len: 0 })
+        Ok(Self {
+            dir,
+            id,
+            segment: segment.max(1),
+            retain_all,
+            file,
+            prev: None,
+            start: 0,
+            len: 0,
+        })
     }
 
     pub fn write(&mut self, mut data: &[u8]) -> std::io::Result<()> {
         use std::io::Write;
+        if self.retain_all {
+            self.file.write_all(data)?;
+            self.len += data.len() as u64;
+            return Ok(());
+        }
         while !data.is_empty() {
             if self.len >= self.segment {
                 let start = self.start + self.len;
@@ -467,7 +495,7 @@ pub fn main() -> anyhow::Result<()> {
         }
         // Read and write: the FIFO never reads as closed, and a stop's open finds a reader.
         let control = std::fs::OpenOptions::new().read(true).write(true).open(&ctl)?;
-        let spool = Spool::create(&dir, &id, spec.segment)?;
+        let spool = Spool::create_with_retention(&dir, &id, spec.segment, spec.retain_all)?;
         let (reader, writer) = std::io::pipe()?;
         let shell = ["/bin/bash", "/bin/sh"].into_iter().find(|s| Path::new(s).exists());
         let mut cmd = std::process::Command::new(shell.unwrap_or("/bin/sh"));
@@ -622,6 +650,32 @@ pub fn main() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn workflow_spool_retains_more_than_the_normal_two_segments() {
+        let dir = cmux_unix_socket::short_test_dir("bg-workflow-spool");
+        let mut spool = Spool::create_with_retention(dir.path(), "t", SEGMENT, true).unwrap();
+        let data: Vec<u8> = (0..(2 * SEGMENT + 123) as usize).map(|i| (i % 251) as u8).collect();
+        for chunk in data.chunks(64 << 10) {
+            spool.write(chunk).unwrap();
+        }
+        drop(spool);
+        assert_eq!(segments(dir.path(), "t").unwrap(), [0]);
+        let complete = read_output(dir.path(), "t", Some(0), u64::MAX).unwrap();
+        assert_eq!(complete.kept_from, 0);
+        assert_eq!(complete.total, data.len() as u64);
+        assert_eq!(complete.data, data);
+    }
+
+    #[test]
+    fn legacy_bg_specs_keep_bounded_retention() {
+        let spec: Spec = serde_json::from_value(serde_json::json!({
+            "dir":"/tmp", "id":"task", "sessionId":"owner", "command":"true",
+            "cwd":"/tmp", "segment":10
+        }))
+        .unwrap();
+        assert!(!spec.retain_all);
+    }
 
     /// A summary line names the task by its description (else its command) on one line, says
     /// how it ended, and its status is `ok` only for exit 0.

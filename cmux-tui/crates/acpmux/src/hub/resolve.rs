@@ -80,8 +80,8 @@ impl Hub {
                 model: p.model.clone(),
                 effort: p.effort.clone(),
                 policy: p.policy,
-                prefer: vec![],
                 env: p.env.clone(),
+                ..Default::default()
             });
         }
         if remote {

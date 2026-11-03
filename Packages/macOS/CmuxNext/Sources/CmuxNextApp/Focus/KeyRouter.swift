@@ -86,9 +86,7 @@ final class KeyRouter: BrowserKeyRouting {
 
     /// Only chords AppKit treats as key equivalents are candidates, so plain
     /// typing, Option characters and IME input are never intercepted.
-    nonisolated static func isChord(_ flags: NSEvent.ModifierFlags) -> Bool {
-        !flags.isDisjoint(with: [.command, .control])
-    }
+    nonisolated static func isChord(_ flags: NSEvent.ModifierFlags) -> Bool { !flags.isDisjoint(with: [.command, .control]) }
 
     // MARK: Decision
 
@@ -378,9 +376,7 @@ final class KeyRouter: BrowserKeyRouting {
     /// sidebar list), never in a text field, DevTools or browser focus mode,
     /// whose own Cmd-J stays theirs, and never while an input method is
     /// composing (marked text), so IME input is never cut short.
-    nonisolated static func canArm(focus: FocusState, hasMarkedText: Bool) -> Bool {
-        !hasMarkedText && allows(.content, focus: focus)
-    }
+    nonisolated static func canArm(focus: FocusState, hasMarkedText: Bool) -> Bool { !hasMarkedText && allows(.content, focus: focus) }
 
     /// Ends a waiting chord and hides the leader's overlay (a click, a
     /// window closing, the app resigning active).
