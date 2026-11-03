@@ -33,7 +33,7 @@ It makes:
 | Root-owned binaries (the Chief can run, never replace them) | `/srv/chief/bin` (root:root 0755) |
 | System user `chief` and everything it writes | `/srv/chief/home` (its HOME: `.local`, `.claude`), `/srv/chief/ws` (the agents' shared work dir), `/srv/chief/brain` (the Chief's state) |
 | Slice with the caps (`CPUQuota`, `MemoryMax`, `TasksMax`) | `/etc/systemd/system/chief-box.slice` |
-| Units `chief-box-daemon`, `chief-box-acpmux`, `chief-box-host` | `/etc/systemd/system/` (User=chief, `ProtectSystem=strict`, `ReadWritePaths=/srv/chief`, no capabilities, private /tmp) |
+| Units `chief-box-daemon`, `chief-box-acpmux`, `chief-box-host` | `/etc/systemd/system/` (User=chief, `ProtectSystem=strict`, `ReadWritePaths=/srv/chief`, no capabilities; one private /tmp the three share, owned by the daemon unit, which the others join and stop and restart with; `TMPDIR=/srv/chief/brain/tmp`). install.sh writes each unit to a temp file and renames it, and refuses a unit path that is a symlink (a masked unit) |
 | Settings (owner, paths; no secret) | `/srv/chief/chief-box.env` (root, 0644) |
 | The model login (root 0600, read by systemd, never in a unit) | `/srv/chief/model.env` |
 | The owner's command | `/usr/local/bin/chief-box` |
