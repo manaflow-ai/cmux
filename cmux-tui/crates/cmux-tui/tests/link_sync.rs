@@ -1075,3 +1075,6 @@ fn a_full_disk_on_the_machine_answers_disk_full() {
     assert_eq!(answer["error_code"], json!("disk_full"), "{answer}");
     assert_eq!(answer["error"], json!("The Cloud machine's disk is full"));
 }
+
+#[path = "link_sync/git_index.rs"]
+mod git_index;
