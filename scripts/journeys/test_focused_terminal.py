@@ -40,9 +40,14 @@ class KeyMadeTerminalApp:
     `daemon_tab_without_public_id_reads`, the daemon's tab first carries the host id as its `terminal` (its public
     id not yet known). The daemon knows only public ids: a screen read of the host id is selector.not_found."""
 
-    def __init__(self, standin_reads, old_tab_reads=0, keys=True, daemon_tab_without_public_id_reads=0):
+    def __init__(self, standin_reads, old_tab_reads=0, keys=True, daemon_tab_without_public_id_reads=0,
+                 standin_id=STANDIN, page_only_reads=0):
         self.standin_reads, self.old_tab_reads, self.keys = standin_reads, old_tab_reads, keys
         self.no_public_reads = daemon_tab_without_public_id_reads
+        # standin_id: Ctrl-`'s ProvisionalTab is pending_tab_...; a Cmd-D split's provisional tab is tab_<32 hex>
+        # (ProvisionalPane.swift), with the host id as its terminal all the same. page_only_reads: the first reads
+        # list only an app page tab in the pane (no terminal tab, so no terminal_key to judge the build by).
+        self.standin_id, self.page_only_reads = standin_id, page_only_reads
         self.reads, self.screen_reads = 0, []
 
     def panes(self):
@@ -53,11 +58,15 @@ class KeyMadeTerminalApp:
         assert method == "snapshot.get", method
         self.reads += 1
         first = {"id": "tab_first", "terminal": "term_first", "terminal_key": "first-key"}
-        n = self.reads
+        if self.reads <= self.page_only_reads:
+            page = {"id": "tab_page", "kind": "page", "page": "newtab", "title": "New Tab", "selected": True}
+            pane = {"id": PANE, "selected_tab": "tab_page", "tabs": [page]}
+            return {"topology": {"workspaces": [{"name": "jr-tab", "screens": [{"panes": [pane]}]}]}}
+        n = self.reads - self.page_only_reads
         if n <= self.old_tab_reads:  # the pane still selects the old tab; the view is the new one's
             tab, selected = None, first
         elif n <= self.old_tab_reads + self.standin_reads:
-            tab = {"id": STANDIN, "terminal": HOST_ID, "terminal_key": HOST_ID}
+            tab = {"id": self.standin_id, "terminal": HOST_ID, "terminal_key": HOST_ID}
             selected = tab
         elif n <= self.old_tab_reads + self.standin_reads + self.no_public_reads:
             tab = {"id": DAEMON_TAB, "terminal": HOST_ID, "terminal_key": HOST_ID}
@@ -173,17 +182,26 @@ class SocketMadeTerminalApp(KeyMadeTerminalApp):
 
     _daemon_sock = "/tmp/fake-daemon.sock"
 
-    def __init__(self, standin_reads, created=True, **kw):
+    def __init__(self, standin_reads, created=True, stray_view_reads=0, **kw):
         super().__init__(standin_reads, **kw)
-        self.created, self.acted = created, False
+        # created: True (the daemon's public id), "host" (the host id: PublicIDTargetResolver names a terminal by
+        # terminalResourceID ?? terminalID, so the host id while the mirror's tab has no public id yet), False (none:
+        # `created` leaves out what did not show within its 2 s limit).
+        self.created, self.acted, self.stray_view_reads, self.views = created, False, stray_view_reads, 0
 
     def panes(self):
-        return super().panes() if self.acted else []
+        if not self.acted:
+            return []
+        self.views += 1
+        if self.views <= self.stray_view_reads:  # another window's new terminal has the focus for a moment
+            return [{"pane": "pane_other", "focused": True, "kind": "terminal", "terminal_id": "b" * 32, "host_pid": 7}]
+        return super().panes()
 
     def rpc(self, method, params=None, timeout=None):
         if method == "action.run":
             self.acted = True
-            made = ["ws_e4a2", DAEMON_TAB, PUBLIC_ID] if self.created else []
+            term = {True: PUBLIC_ID, "host": HOST_ID}.get(self.created)
+            made = ["ws_e4a2", DAEMON_TAB, term] if term else []
             return {"action": "newTab", "args": (params or {}).get("args"), "created": made, "ran": True, "waited": True}
         return super().rpc(method, params, timeout)
 
@@ -229,6 +247,70 @@ class SocketNewTerminalTests(unittest.TestCase):
             journey.step_script_new_terminal({"name": "jr-tab", "timeout": 1})
         self.assertIn("created", str(caught.exception))
         self.assertEqual(app.screen_reads, [])
+
+
+class CreatedFormTests(unittest.TestCase):
+    """Review of #34098 at e4dff9c76c5 (comment 6612613375). The reply can name the created terminal by its host id
+    (while the app's mirror has no public id for it yet); that id is the creation's key all the same. A focused pane
+    that is not the created terminal's is waited out, not taken and not an error before the deadline."""
+
+    journey = SocketNewTerminalTests.journey
+
+    def test_script_new_terminal_with_the_created_host_id_adopts_the_daemons_tab(self):
+        app = SocketMadeTerminalApp(standin_reads=2, created="host")
+        journey = self.journey(app)
+        result = journey.step_script_new_terminal({"name": "jr-tab", "timeout": 3})
+        self.assertEqual((journey.term, result["terminal"]), (PUBLIC_ID, PUBLIC_ID))
+        self.assertNotIn(HOST_ID, app.screen_reads)
+
+    def test_script_new_terminal_with_the_created_host_id_waits_for_the_public_id(self):
+        app = SocketMadeTerminalApp(standin_reads=1, created="host", daemon_tab_without_public_id_reads=2)
+        journey = self.journey(app)
+        journey.step_script_new_terminal({"name": "jr-tab", "timeout": 3})
+        self.assertEqual(journey.term, PUBLIC_ID)
+        self.assertNotIn(HOST_ID, app.screen_reads)
+
+    def test_new_terminal_with_the_created_host_id_adopts_the_daemons_tab(self):
+        # Green before the fix too (the step fell back to the view's creation key); kept as the guard of the form.
+        app = SocketMadeTerminalApp(standin_reads=2, created="host")
+        journey = self.journey(app)
+        journey.step_new_terminal({"name": "jr-tab", "timeout": 3})
+        self.assertEqual((journey.term, journey.pane), (PUBLIC_ID, PANE))
+        self.assertNotIn(HOST_ID, app.screen_reads)
+
+    def test_a_focused_pane_that_is_not_the_created_terminals_is_waited_out(self):
+        app = SocketMadeTerminalApp(standin_reads=0, stray_view_reads=3)
+        journey = self.journey(app)
+        journey.step_new_terminal({"name": "jr-tab", "timeout": 3})
+        self.assertEqual((journey.term, journey.pane), (PUBLIC_ID, PANE))
+
+    def test_a_focused_pane_that_stays_another_fails_at_the_deadline_naming_both_panes(self):
+        app = SocketMadeTerminalApp(standin_reads=0, stray_view_reads=10 ** 6)
+        journey = self.journey(app)
+        started = D.now()
+        with self.assertRaises(D.StepError) as caught:
+            journey.step_new_terminal({"name": "jr-tab", "timeout": 1})
+        self.assertGreaterEqual(D.now() - started, 0.9)
+        self.assertIn("pane_other", str(caught.exception))
+        self.assertIn(PANE, str(caught.exception))
+
+
+class StandInFormTests(unittest.TestCase):
+    play = FocusedTerminalTests.play
+
+    def test_a_split_standin_tab_whose_terminal_is_the_host_id_is_waited_out(self):
+        # Cmd-D's provisional tab is tab_<32 hex>, not pending_tab_: the term_ rule, not the prefix, waits it out.
+        # Green before the fix too; the guard of the split journeys (adopt_pane, focused_terminal after Cmd-D).
+        app = KeyMadeTerminalApp(standin_reads=2, standin_id="tab_" + "c" * 32)
+        journey, result = self.play(app)
+        self.assertEqual(journey.term, PUBLIC_ID)
+        self.assertNotIn(HOST_ID, app.screen_reads)
+
+    def test_a_pane_that_lists_only_page_tabs_at_first_is_waited_out_not_refused(self):
+        # A page tab never has terminal_key; only terminal tabs can say that a build has no terminal_key.
+        app = KeyMadeTerminalApp(standin_reads=1, page_only_reads=2)
+        journey, result = self.play(app)
+        self.assertEqual(journey.term, PUBLIC_ID)
 
 
 if __name__ == "__main__":
