@@ -1062,9 +1062,9 @@ export class SubagentFold {
       agent.action = action;
       delete agent.actionShell;
     }
-    // acpmux names a Claude agent's agentId (what SendMessage reaches and resumes it by) on its
-    // records too, not only in its Agent call's result (cmux-tui acpmux subagents.rs).
-    agent.agentId = text(change.agentId) ?? agent.agentId;
+    // The agentId a SendMessage names it by, which acpmux puts on its progress, so a
+    // "Sent to" row names it when its Agent call's result is on a page not loaded.
+    agent.agentId ??= text(change.agentId);
     const before = [agent.tokens, agent.toolUses];
     agent.tokens = count(change.tokens) ?? agent.tokens;
     agent.toolUses = count(change.toolUses) ?? agent.toolUses;

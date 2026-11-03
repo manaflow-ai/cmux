@@ -25,5 +25,7 @@ export const trayFoldHeadLook = defineExperiment({
       description: "Only counts (1 subagent running · 1 command), as before, for comparison.",
     },
   },
-  defaultArm: "two",
+  // One newest name that fits beats two cut ones (Leo, 2026-11-03, on a bar that read "Context
+  // around the ask and memory search · glaeda-gh wait pid 88061 --timeout 800; tail -6 /t… +6 more").
+  defaultArm: "one",
 });

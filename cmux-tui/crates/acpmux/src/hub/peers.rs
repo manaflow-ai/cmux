@@ -662,7 +662,9 @@ impl Hub {
                             |r: &RemoteSession| r.summary.get("createdAt").and_then(Value::as_u64);
                         let listed = map.of_peer(&peer).map(|(_, r)| r);
                         let listed = listed.map(|r| (r.receipt.mux_session_id.clone(), created(r)));
-                        self.peer_snapshots.listed(&peer, listed.collect(), true);
+                        if self.peer_snapshots.allows(generation) {
+                            self.peer_snapshots.listed(&peer, listed.collect(), true);
+                        }
                         (changed, old.into_values().collect::<Vec<_>>())
                     };
                     // A notice before this list may have changed a row while its
@@ -736,7 +738,13 @@ impl Hub {
                             RemoteSession { peer: peer.clone(), summary: summary.clone(), receipt },
                         );
                         let created = summary.get("createdAt").and_then(Value::as_u64);
-                        self.peer_snapshots.listed(&peer, vec![(mux_id.clone(), created)], false);
+                        if self.peer_snapshots.allows(generation) {
+                            self.peer_snapshots.listed(
+                                &peer,
+                                vec![(mux_id.clone(), created)],
+                                false,
+                            );
+                        }
                     }
                     self.save_peer_cache(&peer, generation, false);
                     let _ = self.events.send(HubEvent {
