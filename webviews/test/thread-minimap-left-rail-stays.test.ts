@@ -154,6 +154,7 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
           // widest step whenever the gutter has room for it, down to --cmux-space-1 in the tight
           // gutter), whatever the chat column does.
           const railInset = tightInset(width);
+          console.log("DIAGRAIL", name, width, JSON.stringify({ closed, open, pushed }));
           for (const state of [closed, open, pushed]) {
             expect(state).toMatchObject({ shown: true, insidePane: true });
             expect(state.occluded).toBe(state.distance! < -0.5);

@@ -316,6 +316,7 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
           try {
             const { panel } = await openSessionInfo(page, 0, placement);
             const open = await fit(panel);
+            console.log("DIAGFIT", width, height, JSON.stringify(await panel.evaluate((node) => { const box = node.getBoundingClientRect(); const body = node.querySelector(".acpmux-session-info__body")!; const kids = [...body.querySelectorAll(":scope > .acpmux-session-info-sections > *")].map((e) => [e.className, e.getBoundingClientRect().bottom]); return { bottom: box.bottom, border: getComputedStyle(node).borderBottomWidth, pad: getComputedStyle(body).paddingBottom, bodyBottom: body.getBoundingClientRect().bottom, secBottom: body.querySelector(".acpmux-session-info-sections")!.getBoundingClientRect().bottom, kids }; })), JSON.stringify(open));
             cards.push({ height, ...open });
             if (height !== 520) continue;
             // Context starts open (Leo, 2026-11-01); fold it: the card ends at its sections again,
@@ -539,6 +540,10 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
               scrolls: body.scrollHeight > body.clientHeight + 1,
             };
           });
+          console.log("DIAG540", JSON.stringify(await page.evaluate(() => {
+            const r = (e: Element | null) => { if (!e) return null; const b = e.getBoundingClientRect(); return [e.className, Math.round(b.left), Math.round(b.top), Math.round(b.right), Math.round(b.bottom)]; };
+            return { aside: r(document.querySelector("aside.acpmux-session-info")), attrs: [...document.querySelector("aside.acpmux-session-info")!.attributes].map((a) => a.name + "=" + a.value), composer: r(document.querySelector(".acpmux-composer")), box: r(document.querySelector(".acpmux-composer-box")), dock: r(document.querySelector(".acpmux-dock")), main: r(document.querySelector(".acpmux-main")), shell: r(document.querySelector(".acpmux-shell")), scroll: r(document.querySelector(".acpmux-scroll")), rows: [...document.querySelectorAll(".acpmux-row")].slice(0,2).map(r), col: getComputedStyle(document.querySelector(".acpmux-shell")!).getPropertyValue("--acpmux-session-info-column") };
+          })));
           expect({ covers, scrolls }).toEqual({ covers: false, scrolls: true });
         } finally {
           await page.close();
