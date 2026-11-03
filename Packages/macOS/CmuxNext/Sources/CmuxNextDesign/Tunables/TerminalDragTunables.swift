@@ -23,7 +23,7 @@ public nonisolated struct TerminalDragTunables {
     public static let framesOwnedByCommit = Tunable<Bool>.toggle(
         "motion.frameOwner.terminals", section, "Terminal frame and size in one commit",
         help: "A resized terminal shows its new size only in the commit that has its frame drawn at that size; until then it keeps its last size and frame. Off: the size changes at once and the frame comes 1-4 refreshes later.",
-        default: false, code: "TerminalDragTunables.framesOwnedByCommit")
+        default: true, code: "TerminalDragTunables.framesOwnedByCommit")
 
     public static var all: [TunableDescriptor] { [holdsSurfaceDuringDrag.descriptor, framesOwnedByCommit.descriptor] }
 }
