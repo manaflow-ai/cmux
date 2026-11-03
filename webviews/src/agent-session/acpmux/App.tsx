@@ -2393,6 +2393,7 @@ const isStepRow = (row: AcpmuxRow | undefined) =>
     row.kind === "policyUnenforced" ||
     row.kind === "agentPair" ||
     row.kind === "sessionStart" ||
+    row.kind === BACKGROUND_TURN ||
     (row.kind === "activity" && !isEditRow(row)));
 /// A step row by its layout mark: a step row above, or the running turn's line right under one
 /// (model.ts `isLiveStep`, which `layoutConversation` marks MARK_STEP), so the live line and its
