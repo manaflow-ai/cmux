@@ -32,6 +32,12 @@ public nonisolated struct CmuxDialogSpec: Equatable, Sendable {
         /// and the check boxes last, where NSAlert puts its suppression button. No key glyphs: Return and
         /// Escape still answer (Leo, 2026-11-03: "aren't these all kinda awkward looking").
         case safeDefault
+
+        /// ``safeDefault`` when one of `buttons` is destructive, else ``standard``: the end choices of a
+        /// dialog then sit as quiet red text under Cancel and the default (Quit cmux?, Leo 2026-11-03).
+        public init(alertFor buttons: [CmuxDialogButton]) {
+            self = buttons.contains { $0.role == .destructive } ? .safeDefault : .standard
+        }
     }
 
     public init(title: String, lines: [String] = [], origin: String? = nil, fields: [CmuxDialogField] = [],
