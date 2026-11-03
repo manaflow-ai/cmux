@@ -102,6 +102,8 @@ every read and op is checked against `principal.team`. Inside one team:
   appends `{n, at, actor, op, automation, summary}` to SchedulerDO's private `automation_audit`
   table. `automation.audit.list` gives admins and owners the team's log, and anyone else the entries
   of automations they may view. Bodies and secret values are never in an entry.
+- The PlanetScale projection (`automation.upsert`) carries `sharing` and `editors`; nothing reads it
+  per member today, and any reader added later must apply the same view rule.
 - **Secrets (next slice).** Team automation secrets are named; a body names them
   (`{{secret.NAME}}`), and a run resolves them in its owner team only, after the permission check.
   This slice does not store secret values in the Cloud: the existing `cmux cloud secret` values stay
@@ -111,7 +113,7 @@ every read and op is checked against `principal.team`. Inside one team:
 
 | Surface | How |
 |---|---|
-| App | Automations page: rows show where each runs (This Mac / Cloud), and the Run now, Pause and Move to… actions call the CLI below |
+| App | Automations page: rows show where each runs (This Mac / Cloud). Next slice: its Run now, Pause and Move to… buttons call the CLI below (they are not wired yet) |
 | CLI | `cmux automation list|create|update|run|pause|resume|delete|runs|teleport|import` (`--target cloud` for Cloud) |
 | MCP | `automation_list`, `automation_get`, `automation_create`, `automation_run`, `automation_pause`, `automation_resume`, `automation_delete`, `automation_runs`, `automation_teleport`; they run the same CLI code |
 | Chief | the Mac Chief's automation tool (`cmux automation …`) and the Cloud Chief's jobs, plus `teleport` |

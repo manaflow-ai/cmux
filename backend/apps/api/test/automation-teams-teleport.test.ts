@@ -191,8 +191,8 @@ describe("catch-up policy", () => {
   it("latest fires the newest missed slot once", async () => {
     const team = newTeam()
     const p = member(team, "admin")
-    await allowRuns(team)
     const { id, newest } = await importMissed(team, p, "latest", 4)
+    await allowRuns(team)
     await wakeUntilQuiet(team)
     const runs = (await runsOf(team, p, id)).filter((r) => r.state !== "skipped")
     expect(runs.map((r) => r.trigger.scheduled_at)).toEqual([newest])
@@ -201,8 +201,8 @@ describe("catch-up policy", () => {
   it("all fires each missed slot once, oldest first", async () => {
     const team = newTeam()
     const p = member(team, "admin")
-    await allowRuns(team)
     const { id, last_slot, newest } = await importMissed(team, p, "all", 4)
+    await allowRuns(team)
     await wakeUntilQuiet(team)
     const fired = (await runsOf(team, p, id)).filter((r) => r.state !== "skipped").map((r) => r.trigger.scheduled_at).sort()
     expect(fired).toEqual(slots("0 * * * *", "UTC", last_slot, newest))
@@ -211,8 +211,8 @@ describe("catch-up policy", () => {
   it("all fires at most the newest 10 missed slots and records the rest as missed", async () => {
     const team = newTeam()
     const p = member(team, "admin")
-    await allowRuns(team)
     const { id } = await importMissed(team, p, "all", 15)
+    await allowRuns(team)
     await wakeUntilQuiet(team)
     const runs = await runsOf(team, p, id)
     expect(runs.filter((r) => r.state !== "skipped")).toHaveLength(10)
@@ -222,8 +222,8 @@ describe("catch-up policy", () => {
   it("none fires nothing late and records one missed run", async () => {
     const team = newTeam()
     const p = member(team, "admin")
-    await allowRuns(team)
     const { id } = await importMissed(team, p, "none", 4)
+    await allowRuns(team)
     await wakeUntilQuiet(team)
     const runs = await runsOf(team, p, id)
     expect(runs.filter((r) => r.state !== "skipped")).toEqual([])
@@ -235,6 +235,8 @@ describe("catch-up policy", () => {
   it("latest skips a slot older than 24 hours and records it as missed", async () => {
     const team = newTeam()
     const p = member(team, "admin")
+    // The object is bound by its first op; the run policy goes in after it.
+    await create(team, p)
     await allowRuns(team)
     const yearly = { type: "cron", expr: "0 0 1 1 *", tz: "UTC" }
     const now = Date.now()
@@ -271,8 +273,8 @@ describe("teleport handoff (single writer)", () => {
   it("begin fences the Cloud copy: no fire, no run, no second handoff; abort lifts the fence", async () => {
     const team = newTeam()
     const p = member(team, "admin")
-    await allowRuns(team)
     const made = await create(team, p, { triggers: [HOURLY, { type: "manual" }] })
+    await allowRuns(team)
     const id = made.value.id as string
     const trigger = made.value.triggers[0].id as string
     const next_at = made.value.triggers[0].next_at as number
