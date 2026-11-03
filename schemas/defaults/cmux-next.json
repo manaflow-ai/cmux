@@ -7233,6 +7233,7 @@
     "tunable.sidebar.insertMotion.nudge": 6.0,
     "tunable.sidebar.laneFixture": false,
     "tunable.sidebar.laneStatus": false,
+    "tunable.sidebar.leadingColumn": "inset",
     "tunable.sidebar.multiView": false,
     "tunable.sidebar.notificationBadge": "classic",
     "tunable.sidebar.notificationIcon": "bell",

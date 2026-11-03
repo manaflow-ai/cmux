@@ -63,6 +63,38 @@ struct CmdWEmptiedSplitPaneLeavesInItsTurnTests {
         }
     }
 
+    /// (Review of #32898) Two quick Cmd-Ws on a split of two terminals, the first running a program: the second empties
+    /// the pane, which hides. Whichever read answers first, the first terminal's question shows its pane again with it,
+    /// and the idle terminal's close goes through.
+    @Test func aProgramsTabBackShowsThePaneALaterCloseHid() async throws {
+        try await Self.withFocusedSplit { s in
+            let other = try await s.connection.newTab(in: s.handle).surface
+            try await PinnedPageTests.until({ s.store.tab(surface: other).map { s.pane.orderedIDs.map(\.rawValue).contains($0.id) } == true })
+            let idle = try #require(s.store.tab(surface: other))
+            _ = try await s.connection.request(SendInputRequest(surface: s.tab.surface, text: "sleep 600\r"))
+            try await Self.waitRunning("sleep", s)
+            s.pane.select(TabID(s.tab.id))
+            try await PinnedPageTests.until({ s.pane.stripModel.selectedID?.rawValue == s.tab.id })
+            let hold = s.services.daemon.closeReadHold
+            hold.arm()
+            defer { hold.release() }
+            #expect(s.services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user)))
+            #expect(Self.shown(s), "a close that keeps a tab in its pane hid the pane")
+            #expect(s.services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user)))
+            #expect(!Self.shown(s), "the close of the pane's last other tab did not hide the pane")
+            hold.release()
+            try await PinnedPageTests.until({ Self.question() != nil }, report: { "no close question" })
+            try await PinnedPageTests.until({ Self.shown(s) && s.pane.orderedIDs.map(\.rawValue).contains(s.tab.id) },
+                                            report: { "the pane did not come back with the program's tab: shown \(Self.shown(s)), strip \(s.pane.orderedIDs)" })
+            try await PinnedPageTests.until({ s.store.tab(surface: idle.surface) == nil }, report: { "the idle terminal's close never landed" })
+            _ = CmuxDialogCenter.shared.press(try #require(Self.question()).id, button: "cancel")
+            try await PinnedPageTests.until({ !TabCloseGuard.asking.contains(s.tab.id) }, report: { "the cancelled close still asks" })
+            try await Self.turns()
+            #expect(Self.shown(s), "Cancel did not keep the pane")
+            #expect(Self.inDaemon(s), "Cancel did not keep the pane in the daemon's tree")
+        }
+    }
+
     /// Cmd-W -> the emptied pane gone from the shown layout, per round: in the key's turn with the hide, a daemon read
     /// later without it. Prints its p50/p95 (same harness before and after, the PR's Performance table).
     @Test func measureCmdWToEmptiedPaneGone() async throws {
