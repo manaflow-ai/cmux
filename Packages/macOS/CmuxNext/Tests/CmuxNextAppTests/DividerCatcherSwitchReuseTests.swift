@@ -47,6 +47,31 @@ import Testing
         #expect(catchers.panelsMade == 1)
     }
 
+    /// NEWTAB DEVTOOLS FRAMES (key turn): each Cmd-T from a terminal shows the New Tab page's Chromium page window over
+    /// the pane, and each Cmd-W takes it away. With no page shown the panels left the window, so every Cmd-T made a new
+    /// catcher window (a new window server context) in its key turn. A page that leaves and comes back makes no window.
+    @Test func aPageThatLeavesAndComesBackMakesNoNewPanel() throws {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 800, height: 500), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.orderFrontRegardless()
+        let page = Self.page(over: window)
+        defer { window.removeChildWindow(page); page.close() }
+        let catchers = DividerMouseCatchers(window: window)
+        defer { catchers.teardown() }
+        let sidebarEdge = LayoutMouseArea(id: "sidebar-resize", rect: CGRect(x: 240, y: 0, width: 8, height: 400), resizesColumns: false)
+        catchers.update([sidebarEdge], active: true)
+        #expect(catchers.panelsMade == 1)
+        // Cmd-W: no page window shows; Cmd-T: the New Tab page shows again.
+        catchers.update([sidebarEdge], active: false)
+        #expect(catchers.windowNumbers.isEmpty, "with no page shown no panel takes the mouse: \(catchers.windowNumbers)")
+        catchers.update([sidebarEdge], active: true)
+        #expect(catchers.panelsMade == 1, "a page that came back made \(catchers.panelsMade - 1) new catcher window(s)")
+        #expect(catchers.windowNumbers.count == 1)
+    }
+
     /// A divider that leaves while another stays: its panel is parked in the window with no size and no mouse.
     @Test func aParkedPanelTakesNoMouse() throws {
         _ = NSApplication.shared
