@@ -43,9 +43,31 @@ A, B, C, D = "a" * 40, "b" * 40, "c" * 40, "d" * 40
 
 
 class WaitTests(unittest.TestCase):
-    def test_a_push_with_no_last_covered_one_runs_at_once_from_its_own_base(self):
-        self.assertEqual(coalesce.plan_wait(None, A, B, 1000.0, 900), (0.0, B))
-        self.assertEqual(coalesce.plan_wait(None, A, "0" * 40, 1000.0, 900), (0.0, ""))
+    def test_a_push_with_no_last_covered_one_runs_every_web_check_at_once(self):
+        # #33892: with no marker (the first run, an eviction) the pushes replaced before this one are outside its own
+        # push range B..A: a web/ change among them would never be checked if a docs-only A routed from B.
+        self.assertEqual(coalesce.plan_wait(None, A, B, 1000.0, 900), (0.0, coalesce.EVERYTHING))
+        self.assertEqual(coalesce.plan_wait(None, A, "0" * 40, 1000.0, 900), (0.0, coalesce.EVERYTHING))
+
+    def test_the_off_switch_routes_every_push_from_its_own_base(self):
+        self.assertEqual(coalesce.plan_wait(None, A, B, 1000.0, 0, off=True), (0.0, B))
+        self.assertEqual(coalesce.plan_wait({"sha": D, "started": 999.0, "covered": {D: C}}, A, B, 1000.0, 0,
+                                            off=True), (0.0, B))
+        self.assertEqual(coalesce.plan_wait(None, A, "0" * 40, 1000.0, 0, off=True), (0.0, ""))
+
+    def test_no_marker_records_the_full_run_so_its_rerun_runs_everything_too(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out, output = Path(tmp, "last.json"), Path(tmp, "output")
+            args = SimpleNamespace(off=False, hold_minutes=15, last=str(Path(tmp, "missing.json")), sha=A, before=B,
+                                   out=str(out))
+            with unittest.mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(output)}), \
+                    redirect_stdout(io.StringIO()) as printed:
+                coalesce.wait(args, sleep=lambda s: None, clock=lambda: 1000.0)
+            self.assertIn(f"base={coalesce.EVERYTHING}\n", output.read_text())
+            self.assertIn("every web check", printed.getvalue())
+            marker = coalesce.read_last(str(out))
+            self.assertEqual(marker["covered"], {A: coalesce.EVERYTHING})
+            self.assertEqual(coalesce.plan_wait(marker, A, B, 1001.0, 900, attempt=2), (0.0, coalesce.EVERYTHING))
 
     def test_a_push_inside_the_window_waits_for_it_and_routes_from_the_last_covered_commit(self):
         last = {"sha": B, "started": 1000.0}
@@ -63,9 +85,9 @@ class WaitTests(unittest.TestCase):
         # A newer push ran since: the re-run of A still routes from C, never from the newer covered commit.
         last = {"sha": D, "started": 2000.0, "covered": {A: C, D: A}}
         self.assertEqual(coalesce.plan_wait(last, A, B, 2001.0, 900, attempt=2), (0.0, C))
-        # Forgotten: its own push base, no wait.
+        # Forgotten: the range its first attempt covered is unknown, so every web check, no wait (#33892).
         self.assertEqual(coalesce.plan_wait({"sha": D, "started": 2000.0, "covered": {}}, A, B, 2001.0, 900,
-                                            attempt=2), (0.0, B))
+                                            attempt=2), (0.0, coalesce.EVERYTHING))
 
     def test_a_rerun_leaves_the_marker_as_it_was(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -170,7 +192,7 @@ class BisectTests(unittest.TestCase):
         git(repo, "commit", "-qm", subject)
         return git(repo, "rev-parse", "HEAD")
 
-    def run_bisect(self, *, base_red=(), flaky_history=False, old_red_in_file=False, timed_out=False):
+    def run_bisect(self, *, base_red=(), flaky_history=False, old_red_in_file=False, timed_out=False, crashed=False):
         tmp = Path(self.tmp.name)
         repo = tmp / "repo"
         repo.mkdir()
@@ -183,14 +205,22 @@ class BisectTests(unittest.TestCase):
         culprit = self.commit(repo, "webviews/src/a.ts", "2\n", "break a (#103)")
         self.commit(repo, "Sources/x.swift", "x\n", "swift only (#104)")
         head = self.commit(repo, "webviews/src/c.ts", "1\n", "another web (#105)")
-        # The probe stub: a.test.ts fails wherever a.ts says 2.
+        # The probe stub: a.test.ts fails wherever a.ts says 2. It writes a bun log and the runner's summary line and
+        # turns them into the probe's output with the shards' own results writer (webviews_test_results.py), so the
+        # bisect reads the production shape: a passing file, or only its named failures, and each file's run state.
         probe = tmp / "probe.sh"
-        probe.write_text("#!/usr/bin/env bash\nset -e\nsha=$1 out=$3\necho \"$sha\" >> \"$PROBED\"\n"
-                         "if [ \"$(git show \"$sha:webviews/src/a.ts\")\" = 2 ]; then ok=false; else ok=true; fi\n"
-                         "printf '{\"src/a.test.ts\": %s, \"src/a.test.ts > renders\": %s%s}\\n' \"$ok\" \"$ok\" "
-                         "\"$OLD_RED\" > \"$out\"\n"
-                         # A probe that timed out: the file red, no test named.
-                         "if [ -n \"$TIMED_OUT\" ]; then printf '{\"src/a.test.ts\": false}\\n' > \"$out\"; fi\n")
+        probe.write_text(
+            "#!/usr/bin/env bash\nset -e\nsha=$1 out=$3\necho \"$sha\" >> \"$PROBED\"\n"
+            "d=\"$(mktemp -d)\" log=\"$d/src_a.test.ts.log\" result=PASS\n"
+            "if [ \"$(git show \"$sha:webviews/src/a.ts\")\" = 2 ]; then echo '(fail) renders [1.00ms]' >> \"$log\";"
+            " result=FAIL; else echo '(pass) renders [1.00ms]' >> \"$log\"; fi\n"
+            # Every probe also fails a test of the same file that was already red at BASE.
+            "if [ -n \"$OLD_RED\" ]; then echo '(fail) was red [1.00ms]' >> \"$log\"; result=FAIL; fi\n"
+            # A probe that timed out (no test named, no tally), or died before its end (no tally).
+            "if [ -n \"$TIMED_OUT\" ]; then : > \"$log\"; result=TIMEOUT\n"
+            "elif [ -z \"$CRASHED\" ]; then echo 'Ran 2 tests across 1 file. [2.00ms]' >> \"$log\"; fi\n"
+            "printf '%s src/a.test.ts %s\\n' \"$result\" \"$log\" > \"$d/summary\"\n"
+            "CMUX_WEB_TEST_STATES=\"$out.states\" python3 \"$RESULTS_PY\" \"$d/summary\" \"$out\"\n")
         results = tmp / "shard1.json"
         results.write_text(json.dumps({"src/a.test.ts": False, "src/a.test.ts > renders": False,
                                        "src/old.test.ts": False, "src/old.test.ts > stays red": False,
@@ -213,18 +243,13 @@ class BisectTests(unittest.TestCase):
                                report=str(report), max_probes=coalesce.MAX_PROBES)
         here = os.getcwd()
         os.chdir(repo)
-        os.environ["PROBED"] = str(probed)
-        # Every probe also reports a test of the same file that was already red at BASE.
-        os.environ["OLD_RED"] = ', "src/a.test.ts > was red": false' if old_red_in_file else ""
-        os.environ["TIMED_OUT"] = "1" if timed_out else ""
+        env = {"PROBED": str(probed), "OLD_RED": "1" if old_red_in_file else "", "TIMED_OUT": "1" if timed_out else "",
+               "CRASHED": "1" if crashed else "", "RESULTS_PY": str(ROOT / "scripts/ci/webviews_test_results.py")}
         try:
-            with redirect_stdout(io.StringIO()) as printed:
+            with unittest.mock.patch.dict(os.environ, env), redirect_stdout(io.StringIO()) as printed:
                 self.assertEqual(coalesce.bisect(args), 0)
         finally:
             os.chdir(here)
-            del os.environ["PROBED"]
-            del os.environ["OLD_RED"]
-            del os.environ["TIMED_OUT"]
         return base, culprit, printed.getvalue(), probed.read_text().split(), json.loads(report.read_text())
 
     def setUp(self):
@@ -252,6 +277,41 @@ class BisectTests(unittest.TestCase):
         found = test_reds.bisect_report(printed)["src/a.test.ts"]
         self.assertEqual((found["kind"], found["first_red"], found["pr"]), ("first", culprit, 103))
         self.assertTrue(probed)
+
+    def test_a_probe_failing_only_a_base_red_test_is_green_for_the_new_one(self):
+        # #33880: the results name no passing test, so a probe where only the test already red at BASE fails in the
+        # file read as no verdict, and the search never narrowed. The file ran to its end: the new test passed there.
+        _, culprit, printed, probed, report = self.run_bisect(old_red_in_file=True)
+        self.assertEqual(report["files"]["src/a.test.ts"][0], "first")
+        self.assertTrue(probed)
+
+    def test_a_probe_that_died_before_its_end_is_no_verdict_for_the_new_test(self):
+        # FAIL naming only the old red, and no closing tally: the new test may never have run.
+        _, _, printed, probed, _ = self.run_bisect(old_red_in_file=True, crashed=True)
+        self.assertTrue(probed)
+        self.assertEqual(test_reds.bisect_report(printed)["src/a.test.ts"]["kind"], "unresolved")
+
+    def test_probe_verdicts(self):
+        f, wanted = "src/a.test.ts", {"src/a.test.ts > new"}
+        done = {"result": "FAIL", "completed": True}
+        cut = {"result": "FAIL", "completed": False}
+        here, gone = (lambda: True), (lambda: False)
+        self.assertIs(coalesce.probe_verdict(f, wanted, {f + " > new": False}, done, here), True)
+        self.assertIs(coalesce.probe_verdict(f, wanted, {f + " > new": False}, cut, here), True)
+        self.assertIs(coalesce.probe_verdict(f, wanted, {f + " > old": False}, done, here), False)
+        self.assertIsNone(coalesce.probe_verdict(f, wanted, {f + " > old": False}, cut, here))
+        self.assertIsNone(coalesce.probe_verdict(f, wanted, {f + " > old": False}, None, here))
+        self.assertIs(coalesce.probe_verdict(f, wanted, {f: True}, {"result": "PASS", "completed": True}, here), False)
+        self.assertIs(coalesce.probe_verdict(f, wanted, {f: True}, None, here), False)  # a passing file, no states
+        self.assertIsNone(coalesce.probe_verdict(f, wanted, {f: False}, {"result": "TIMEOUT", "completed": False},
+                                                 here))
+        # Red with no test named, though bun closed with its tally (`Ran 0 tests across 1 file.` after a load error).
+        self.assertIsNone(coalesce.probe_verdict(f, wanted, {f: False}, done, here))
+        self.assertIs(coalesce.probe_verdict(f, wanted, {}, None, gone), False)  # not in the commit yet
+        self.assertIsNone(coalesce.probe_verdict(f, wanted, {}, None, here))
+        # A file-level red (no test named at HEAD): any red in the file.
+        self.assertIs(coalesce.probe_verdict(f, {f}, {f + " > old": False}, done, here), True)
+        self.assertIs(coalesce.probe_verdict(f, {f}, {f: True}, None, here), False)
 
     def test_a_probe_that_timed_out_is_no_verdict_for_the_new_test(self):
         # Every probe red whole with no test named: never a green, so no commit after it is named the first red.
@@ -297,6 +357,56 @@ class BisectTests(unittest.TestCase):
                 self.assertEqual(coalesce.bisect(args), 0)
             self.assertIn("nothing to bisect", printed.getvalue())
             self.assertEqual(test_reds.bisect_report(printed.getvalue()), {})
+
+
+class ProbeTests(unittest.TestCase):
+    def test_the_results_writer_records_each_files_run_state(self):
+        results_py = load("webviews_test_results_for_coalesce", "webviews_test_results.py")
+        with tempfile.TemporaryDirectory() as tmp:
+            logs = {"done": "(fail) old [1.00ms]\n 1 pass\n 1 fail\nRan 2 tests across 1 file. [3.00ms]\n",
+                    "cut": "(fail) old [1.00ms]\nerror: segmentation fault\n",
+                    "retried": "Ran 2 tests across 1 file. [3.00ms]\n--- retry, alone ---\n(fail) old\n",
+                    "colored": "(fail) old\n\x1b[0mRan 2 tests across 1 file.\x1b[0m [3.00ms]\n",
+                    "slow": "", "ok": ""}
+            lines = []
+            for name, text in logs.items():
+                Path(tmp, name + ".log").write_text(text)
+                result = {"slow": "TIMEOUT", "ok": "PASS"}.get(name, "FAIL")
+                lines.append(f"{result} src/{name}.test.ts {tmp}/{name}.log")
+            lines.append(f"FAIL src/missing.test.ts {tmp}/missing.log")
+            summary = Path(tmp, "summary")
+            summary.write_text("\n".join(lines) + "\n")
+            out, states = Path(tmp, "out.json"), Path(tmp, "out.json.states")
+            with unittest.mock.patch.dict(os.environ, {"CMUX_WEB_TEST_STATES": str(states)}):
+                self.assertEqual(results_py.main([str(summary), str(out)]), 0)
+            got = {f.split("/")[1].split(".")[0]: v["completed"] for f, v in json.loads(states.read_text()).items()}
+            self.assertEqual(got, {"done": True, "cut": False, "retried": False, "colored": True, "slow": False,
+                                   "ok": True, "missing": False})
+            # The results themselves keep their shape.
+            self.assertEqual(json.loads(out.read_text())["src/ok.test.ts"], True)
+            self.assertNotIn("src/done.test.ts", json.loads(out.read_text()))
+            # Without the variable, no states file.
+            states.unlink()
+            with unittest.mock.patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("CMUX_WEB_TEST_STATES", None)
+                results_py.main([str(summary), str(out)])
+            self.assertFalse(states.exists())
+
+    def test_the_probe_exports_the_headless_shell_the_shards_use(self):
+        # #33880: ensure-system-chrome.sh writes it to $GITHUB_ENV, which only later steps see.
+        text = (ROOT / "scripts/ci/web-bisect-probe.sh").read_text()
+        block = text[text.index('chrome_out="$('):text.index("cd webviews || exit 0")]
+        self.assertIn('"$runner/ensure-system-chrome.sh"', block)
+        self.assertLess(text.index("CMUX_CHROME_HEADLESS_SHELL="), text.index('bash "$runner/run-webviews-tests.sh"'))
+        self.assertIn('CMUX_WEB_TEST_STATES="$out.states"', text)
+        with tempfile.TemporaryDirectory() as tmp:
+            helper = Path(tmp, "ensure-system-chrome.sh")
+            helper.write_text("#!/usr/bin/env bash\necho 'system Chrome 142 at /opt/chrome'\n"
+                              "echo 'CMUX_CHROME_HEADLESS_SHELL=/cache/chrome-headless-shell'\n")
+            helper.chmod(0o755)
+            got = subprocess.run(["bash", "-c", f"runner={tmp}\n{block}\nprintf '%s' \"$CMUX_CHROME_HEADLESS_SHELL\""],
+                                 capture_output=True, text=True, check=True, env={"PATH": os.environ["PATH"]})
+            self.assertTrue(got.stdout.endswith("/cache/chrome-headless-shell"), got.stdout)
 
 
 class ReportTests(unittest.TestCase):
@@ -379,6 +489,8 @@ class WorkflowTests(unittest.TestCase):
     def test_the_bisect_runs_on_a_red_push_and_never_fails(self):
         job = self.web["jobs"]["web-bisect"]
         self.assertIn("needs.web.result == 'failure'", job["if"])
+        # A run of every web check has no covered range to bisect.
+        self.assertIn(f"needs.coalesce.outputs.base != '{coalesce.EVERYTHING}'", job["if"])
         self.assertIn("github.event_name == 'push'", job["if"])
         bisect = next(s for s in job["steps"] if s["name"] == "Bisect the new webview reds")
         self.assertIs(bisect["continue-on-error"], True)
@@ -391,6 +503,24 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.lint["concurrency"]["group"], "cmux-next-web-lint-${{ github.sha }}")
         self.assertNotIn("web-lint", self.web["jobs"])
         self.assertNotIn("needs", self.lint["jobs"]["web-lint"])
+
+    def test_an_unknown_covered_range_runs_every_web_subarea(self):
+        import web_subareas  # noqa: PLC0415
+        self.assertEqual(web_subareas.EVERY_SUBAREA, coalesce.EVERYTHING)
+        steps = yaml.safe_load(CI_WEB.read_text())["jobs"]["web-subarea-scope"]["steps"]
+        fetch = next(s for s in steps if s.get("name") == "Fetch the push base")
+        self.assertIn(f"inputs.push_base != '{coalesce.EVERYTHING}'", fetch["if"])
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp, "output")
+            env = {"GITHUB_OUTPUT": str(output), "EVENT_NAME": "push", "GITHUB_REF": "refs/heads/feat-cmux-next",
+                   "WEB_SUBAREAS_BASE": coalesce.EVERYTHING}
+            with unittest.mock.patch.dict(os.environ, env), redirect_stdout(io.StringIO()), \
+                    unittest.mock.patch.object(web_subareas, "changed_paths",
+                                               side_effect=AssertionError("no diff for an unknown range")):
+                self.assertEqual(web_subareas.route(), 0)
+            everything = Path(tmp, "all")
+            web_subareas.WebSubareas.all().emit(everything)
+            self.assertEqual(output.read_text(), everything.read_text())
 
     def test_the_pull_request_webview_verdict_is_untouched(self):
         # Condition 3: react-apps-base-check runs on pull requests only, from the head shards' own results.

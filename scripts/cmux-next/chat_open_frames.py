@@ -6,15 +6,17 @@ view a second later"; a cold local chat reaches its final frame in under 300 ms.
 the frames the window server composited, not on the page's own first-content mark:
 
   first_content_ms  the first frame after the click whose content area differs from before the click and is
-                    not one flat color (a blank pane is not content)
+                    not blank (frame_strip's `blank`: flat and unlike both before and the final frame); a sparse
+                    chat page is nearly one color too, so flatness alone does not tell a blank pane
   final_frame_ms    the first frame of the settled run: every frame from it to the end of the strip equals
                     the last one, and the run is at least `settle_frames` frames long (else the open never
                     settled inside the strip and has no final frame)
   first_is_final    the first content frame is the final frame and no frame was blank: nothing changed after
                     the chat first drew
-  transcript_ms     when the page first drew its composer and transcript rows (or its empty chat), from the
-                    page's own layout_watch started at the click: an open counts only when this is inside the
-                    strip, so a strip that settled on the chat's chrome before its transcript came is no pass
+  transcript_ms     when the page first drew transcript rows, from the page's own layout_watch started at the
+                    click (its first paint when that had rows, else the first row that appeared after it): an
+                    open counts only when this is inside the strip, so a strip that settled on the chat's chrome
+                    before its transcript came is no pass
   between_frames    frames from first content to the final frame that equal neither (text first, then the view)
   blank_frames      frames the strip marked blank (the content area flat and unlike before and after)
 
@@ -25,8 +27,6 @@ import statistics
 
 # frame_strip's own default tolerance: a difference at or under it is the same picture.
 TOLERANCE = 0.002
-# frame_strip's blank rule: a content area this flat is one color.
-FLAT = 0.995
 
 
 def _number(value):
@@ -42,8 +42,7 @@ def final_frame(frames, settle_frames=10, tolerance=TOLERANCE):
     if not after or any(not _number(f.get("content_vs_final")) for f in after):
         out["error"] = "frame_strip rows carry no content_vs_final (a build before the click cases?)"
         return out
-    first = next((i for i, f in enumerate(after)
-                  if (f.get("content_vs_before") or 0) > tolerance and (f.get("flatness") or 0) <= FLAT), None)
+    first = next((i for i, f in enumerate(after) if (f.get("content_vs_before") or 0) > tolerance and not f.get("blank")), None)
     final = len(after)
     while final > 0 and after[final - 1]["content_vs_final"] <= tolerance:
         final -= 1
@@ -77,15 +76,22 @@ def row_drift(watch):
 
 
 def transcript_ms(watch, watch_started_ms, strip_ms):
-    """When the page first drew its transcript, in ms from the click (its layout_watch's first paint plus when the
-    watch started), or None when it did not draw one inside the strip. The click cases open chats with messages,
-    so a first paint with no transcript rows (`first_rows` 0: the empty chat, or a page still loading, which
-    reads the same) is not the transcript, nor is a watch from a page that does not report its rows."""
+    """When the page first drew its transcript, in ms from the click (when the watch started plus its first paint
+    when that had rows, else plus the first row that appeared later), or None when it drew none inside the strip.
+    The click cases open chats with messages, so a first paint with no rows (`first_rows` 0: the empty chat, or a
+    page still loading) is not the transcript, nor is a watch from a page that does not report its rows."""
     if not isinstance(watch, dict) or not _number(watch.get("first_content_ms")) or not _number(watch_started_ms):
         return None
-    if not _number(watch.get("first_rows")) or watch["first_rows"] <= 0:
+    if not _number(watch.get("first_rows")):
         return None
-    at = round(max(0, watch_started_ms) + watch["first_content_ms"], 1)
+    if watch["first_rows"] > 0:
+        drawn = watch["first_content_ms"]
+    else:
+        drawn = min((item["at_ms"] for item in watch.get("appeared") or []
+                     if str(item.get("element", "")).startswith("row#") and _number(item.get("at_ms"))), default=None)
+        if drawn is None:
+            return None
+    at = round(max(0, watch_started_ms) + drawn, 1)
     return at if at <= strip_ms else None
 
 

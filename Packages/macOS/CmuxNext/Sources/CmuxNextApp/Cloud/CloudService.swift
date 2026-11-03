@@ -539,7 +539,7 @@ final class CloudService {
             hasLoadedMachines = true
             loadedAccount = account
             listedMachineIDs = Set(list.filter { $0.status != .destroyed }.map(\.id))
-            listLoadedAt = .now
+            listLoadedAt = .now; codexBroker.machinesListed(list)
             await startHubForSSHRoutes()
             return true
         } catch {

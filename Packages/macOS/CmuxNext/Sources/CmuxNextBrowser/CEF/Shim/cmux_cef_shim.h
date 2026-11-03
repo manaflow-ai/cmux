@@ -188,6 +188,12 @@ typedef enum {
   // line (MIME types and ".ext"); s2 = the default path or file name. Chromium
   // shows no panel; a closed or crashed browser cancels it.
   CMUX_SHIM_FILE_DIALOG = 48,
+  // 49 (PAGE_MESSAGE) and 50 (EVALUATE_RESULT) come from the fork (API 29).
+  // The text Chromium shows for the hovered link (CefDisplayHandler::
+  // OnStatusMessage): s1 = the text, "" when the pointer left the link. The
+  // shim turns Chrome's own status bubble off (chrome_status_bubble), so the
+  // host draws this inside the tab's pane.
+  CMUX_SHIM_STATUS_MESSAGE = 51,
 } cmux_shim_event_kind_t;
 
 typedef enum {
