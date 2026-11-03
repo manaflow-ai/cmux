@@ -15,6 +15,7 @@ import { threadMinimapHeight } from "../agent-session/acpmux/threadMinimap/heigh
 import { threadMinimapGutter } from "../agent-session/acpmux/threadMinimap/gutter.experiment";
 import { threadMinimapLit } from "../agent-session/acpmux/threadMinimap/lit.experiment";
 import { threadMinimapMark } from "../agent-session/acpmux/threadMinimap/mark.experiment";
+import { threadMinimapIncoming } from "../agent-session/acpmux/threadMinimap/incoming.experiment";
 import { chatMinimapPlaceholder } from "../agent-session/acpmux/chatMinimap/placeholder.experiment";
 import { startedSessionCards } from "../agent-session/acpmux/started/startedSessions.experiment";
 import { finishedTaskLook } from "../agent-session/acpmux/conversation/taskLine.experiment";
@@ -49,6 +50,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   newTabComposerTrailingGap,
   threadMinimapLit,
   threadMinimapMark,
+  threadMinimapIncoming,
   chatMinimapPlaceholder,
   turnErrorCard,
   pausedMachineResume,
