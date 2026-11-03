@@ -464,7 +464,7 @@ def start_vdisplay(host, work, mode, hold, out, timeout):
 
 
 SETTLE_SECONDS = 75  # default bound of the Shortcuts-load wait after the launch (film leases; STATUS 7817)
-SETTLE_MIN_SECONDS = 20  # settle_host.py's quiet time: with less spare lease time than this the wait is skipped
+SETTLE_MIN_SECONDS = 25  # settle_host.py's 20 s quiet time + SETTLE_START_SECONDS: with less the wait could never be quiet
 DRIVER_RESERVE = 45  # s the lease keeps after the driver's deadline (fetch and release), as `budget` below
 OCR_WARMUP_RESERVE = 60  # s the driver's text-reader warm-up takes inside its own deadline (driver.py main; SETUP_RESERVE)
 SETTLE_SSH_SLACK = 20  # s the settle's ssh call may run past its bound (ssh, zsh -l, python start, a late poll)

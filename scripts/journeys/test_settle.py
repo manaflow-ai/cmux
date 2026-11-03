@@ -252,6 +252,9 @@ class RunLeaseSettleTest(unittest.TestCase):
         self.assertEqual(self.run.settle_bound(75, 540, [{"budget_seconds": 260}]), 75)
         self.assertEqual(self.run.settle_bound(75, 420, [{"budget_seconds": 250}]), 45)
         self.assertEqual(self.run.settle_bound(75, 380, [{"budget_seconds": 250}]), 0)
+        # a bound under 25 s could never see 20 s of quiet after the 5 s start: skipped
+        self.assertEqual(self.run.settle_bound(75, 399, [{"budget_seconds": 250}]), 0)
+        self.assertEqual(self.run.settle_bound(75, 400, [{"budget_seconds": 250}]), 25)
         out = self.lease(budget=400)
         self.assertNotIn("settle", self.calls)
         self.assertIn("driver", self.calls)
