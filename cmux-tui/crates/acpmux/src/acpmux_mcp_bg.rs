@@ -244,8 +244,8 @@ mod tests {
 echo "$*" >> '{}'
 case "$*" in
   "run watch"*) exit 1 ;;
-  "run view"*conclusion*) echo "conclusion: failure  https://example.com/run/7" ;;
-  "run view"*jobs*) echo "build, lint" ;;
+  "run view"*"--json conclusion"*) echo "conclusion: failure  https://example.com/run/7" ;;
+  "run view"*"--json jobs"*) echo "build, lint" ;;
   "pr view"*) echo 0123456789abcdef0123456789abcdef01234567 ;;
   "pr checks"*--watch*) exit 0 ;;
   "pr checks"*) echo "" ;;
