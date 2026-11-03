@@ -216,3 +216,24 @@ button.cv-agentmsg__name:focus-visible {
 .cv-agentmsg__line:is(:hover, :active, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) {
   color: var(--cv-text);
 }
+
+/* A stacked message row's first line (messageLineLook.ts, the default): on its own line under the
+   row's verb, recipient and count, at the text column, dim, cut there with one ellipsis (Leo said
+   yes, 2026-11-02, to splitting "Sent to <chip> · and 5 more commands <preview>" so the chip and
+   count read on the first line and the preview below). The row's one tone, never lit on hover.
+   model.ts adds its --cv-message-preview-line (MESSAGE_PREVIEW_LINE_PT) under the 22px row. */
+.cv-msgline__preview {
+  box-sizing: border-box;
+  height: var(--cv-message-preview-line, 18px);
+  min-width: 0;
+  padding-inline-start: var(--cv-tool-text-inset);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+  line-height: var(--cv-message-preview-line, 18px);
+  letter-spacing: var(--text-detail--letter-spacing);
+  cursor: default;
+  user-select: none;
+}

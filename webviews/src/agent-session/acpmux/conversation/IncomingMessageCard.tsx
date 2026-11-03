@@ -56,6 +56,7 @@ import { MessageScopeContext, type MessageScope } from "../chips/messageScope";
 import { mentionedRepository } from "../../../githubReferences";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { laneNotice } from "./laneReport";
+import "./AgentMessageRow.css";
 import "./LaneNoticeBatch.css";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
@@ -63,6 +64,7 @@ import { useTranscriptReadOnly } from "./readOnly";
 import { Face } from "../multiplayer/Faces";
 import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
 import { isGuest, type Participant } from "../multiplayer/participants";
+import { useMessageLineLook } from "./messageLineLook";
 
 /// A family sender's label, its relation before its name ("Parent · coordinator").
 const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
@@ -295,6 +297,7 @@ export function IncomingMessageLine({
   // estimator reads it.
   const [opened, setOpen] = useState(() => messageOpened(session, id));
   const open = whole || opened;
+  const lineLook = useMessageLineLook();
   const show = (next: boolean) => {
     setMessageOpened(session, id, next);
     setOpen(next);
@@ -394,11 +397,15 @@ export function IncomingMessageLine({
       lineClassName="cv-agent-activity-row"
       toggleLabel={t("message.collapsedLabel", { from, preview: preview || t("message.noText") })}
       label={
-        // Find counts the panel's whole text, not the line's first-line copy of it.
-        <span className="cv-received__preview" data-find-skip="">
-          {preview || t("message.noText")}
-        </span>
+        // Find counts the panel's whole text, not the line's first-line copy of it. Stacked (the
+        // default, messageLineLook.ts) the first line is under the sender, on its own line.
+        lineLook === "single" ? (
+          <span className="cv-received__preview" data-find-skip="">
+            {preview || t("message.noText")}
+          </span>
+        ) : null
       }
+      below={lineLook === "stacked" && !open ? preview || t("message.noText") : undefined}
       // It opens at once, its height alone moving, as the message's card always did; closing fades.
       fadeIn={false}
       // One slot at the line's end, over the preview's tail, shown on hover or focus: it never moves

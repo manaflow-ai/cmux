@@ -12,7 +12,7 @@ import { useContext, useLayoutEffect, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { useT } from "../i18n";
 import { agentStartLook } from "./agentStart.experiment";
-import { Spinner } from "./icons";
+import { Envelope, Spinner } from "./icons";
 import { BackgroundHint } from "./BackgroundHint";
 import { useSubsessionInfo } from "../subagents/subsessions";
 import { ShimmerText } from "./ShimmerText";
@@ -116,7 +116,11 @@ export function Thinking({
   // (App.tsx counts nothing while the tray lists it).
   const counts = useContext(WorkingCountsContext);
   const tokens = counts?.tokens;
-  const showTokens = Boolean(tokens) && timed;
+  // A send's line names who it goes to and for how long; the turn's token counts there are noise
+  // (Leo, 2026-11-02, on "Sending message to gcp-codex-swarm-10/right-pane 3m 56s · ↓1.4K out ↑819.5K
+  // in" among the message rows: "i also think this is quite weird looking").
+  const sending = doing !== undefined && sendName !== undefined;
+  const showTokens = Boolean(tokens) && timed && !sending;
   const parts = counts && !waiting ? workingParts(t, counts) : [];
   // The `silent` and `spinner` start looks keep the line's box (`.cv-worked`'s height) with no words.
   if (startLook !== "thinking")
@@ -131,6 +135,12 @@ export function Thinking({
   return (
     // `cv-worked--live`: its words start on the icon rows' text column (conversation.css).
     <div className={`cv-worked cv-worked--live${below ? " is-below" : ""}${quiet ? "" : " is-quiet"}`} data-find-skip>
+      {/* A send's line takes the envelope every message row draws, in the one icon column. */}
+      {sending && !waiting && (
+        <span className="cv-worked__icon" aria-hidden="true">
+          <Envelope />
+        </span>
+      )}
       {waiting ? (
         <output className="cv-thinking cv-waiting" data-waiting={waiting}>
           {t(WAITING_LABEL[waiting])}

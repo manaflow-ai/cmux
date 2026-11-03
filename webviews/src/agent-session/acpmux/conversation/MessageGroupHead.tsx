@@ -12,6 +12,8 @@ import { ChevronRight } from "./icons";
 import { SenderMark } from "./IncomingMessageCard";
 import type { IncomingMessage } from "./incomingMessage";
 import { useInboxNoticeLook } from "./inboxNoticeLook";
+import { useMessageLineLook } from "./messageLineLook";
+import "./AgentMessageRow.css";
 import "./MessageGroupHead.css";
 
 const ROW_ICON = rowIconSize(12);
@@ -61,7 +63,13 @@ export function MessageGroupHead({
   ariaLabel?: string;
 }) {
   const look = useInboxNoticeLook();
+  // Stacked (the default, messageLineLook.ts): the senders on their own line under the count, cut
+  // there, as a message row's first line is; `quiet` keeps them in the tooltip only.
+  const lineLook = useMessageLineLook();
+  const below = lineLook === "stacked" && look !== "group-count" && !open ? senders : undefined;
+  const inline = lineLook === "single" ? senders : undefined;
   return (
+    <>
     <button
       type="button"
       className={`cv-tool cv-message-group__head${className ? ` ${className}` : ""}`}
@@ -78,11 +86,19 @@ export function MessageGroupHead({
       </span>
       <span className="cv-tool__text">
         <span className="cv-message-group__count">{count}</span>
-        {senders && <span className="cv-message-group__senders">{senders}</span>}
+        {inline && <span className="cv-message-group__senders">{inline}</span>}
       </span>
       <span className="cv-tool__chevron" aria-hidden="true">
         <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${open ? " is-open" : ""}`} />
       </span>
     </button>
+    {below && (
+      // The head's tooltip and label already name them; this line is for the eye and the pointer.
+      // oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
+      <div className="cv-msgline__preview cv-message-group__below" aria-hidden data-find-skip="" onClick={onToggle}>
+        {below}
+      </div>
+    )}
+    </>
   );
 }
