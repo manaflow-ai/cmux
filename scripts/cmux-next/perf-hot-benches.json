@@ -7,7 +7,7 @@
       "owner": "PL-daemon"
     },
     "feed-live-event": {
-      "what": "one Feed owner event while the Feed list is open: the mirror's sorted items, the list's sections and the changed rows",
+      "what": "one Feed owner event while the Feed list is open: FeedOrderedIndex.apply (binary search per moved id, one array move per inserted or removed row, for the list and the timeline) and the changed rows. FeedOrder.sortedNewest is not on this path: only FeedInboxGroups(items:) and tests call it; the live Inbox groups the ledger's ordered sections with no sort (FeedInboxGroups(sections:filter:now:)).",
       "bench": "CMUX_NEXT_FEED_BENCH (CmuxNextFeed/Views/FeedBench.swift) and scripts/cmux-next/feed-perf.py, 300 and 1500 items",
       "owner": "Feed"
     },
@@ -92,8 +92,8 @@
       "owner": "Performance Lead (PL-instant)"
     },
     "chats-window-diff": {
-      "what": "one acpmux chats window message on the main actor: the window's keys and the changed rows (sidebar chat history; acpmux sorts, filters and pages)",
-      "bench": "ChatsWindowMainThreadTests (rows touched per change, 3,000-chat index) on the fleet, and the debug hang monitor (debug.hangs) on a many-chat load",
+      "what": "one acpmux chats window message on the main actor: AcpmuxChatWindows.apply walks the window's keys (20 for the sidebar history, 24 for New Tab cards, a palette page), never acpmux's index. acpmux holds the index (3,000 chats in the test) and sends only the window's changed rows.",
+      "bench": "ChatsWindowMainThreadTests (a 20-row window over a 3,000-chat index that stays in acpmux: one changed chat is one row in the message and the window's keys on main) on the fleet, and the debug hang monitor (debug.hangs) on a many-chat load",
       "owner": "Performance Lead"
     },
     "acpmux-wait-wake": {
