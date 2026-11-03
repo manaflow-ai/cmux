@@ -1924,6 +1924,13 @@ impl Brain {
         // tool calls (steered on acpmux); one that cannot reach it waits for
         // the next turn and never stops it (decision 2026-10-09).
         let human = matches!(source, Source::Message { .. } | Source::Spawn(_));
+        let owner = matches!(
+            source,
+            Source::Message {
+                requires_approval: false,
+                ..
+            }
+        );
         let same = self.phase == Phase::Running && self.turn_side() == conversation;
         let item = Queued {
             logged: false,
@@ -1936,6 +1943,16 @@ impl Brain {
         self.queue.push_back(item);
         if human && same && wakes {
             self.interrupt_for_newer();
+        }
+        // A person's message never waits behind a turn adopted from before
+        // a restart (an update relaunch, `orphan_wait`): that turn cannot
+        // take it, so it is folded and ended as at its deadline, and the
+        // next turn reads the message at once, as a running turn is
+        // interrupted for one (steer.rs; user 2026-10-21). Another agent's
+        // message waits for it, as for any running turn.
+        if owner && wakes && self.orphan_wait.is_some() {
+            (self.log)("a new message: folding and ending the adopted turn session it waited for");
+            self.adopt_orphans(true);
         }
         self.maybe_start_turn();
     }
