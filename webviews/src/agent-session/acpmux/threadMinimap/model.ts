@@ -248,6 +248,27 @@ export function railTop(height: number, viewportHeight: number, foot = viewportH
   return Math.max(0, Math.min(Math.round((room.top + room.bottom - height) / 2), Math.floor(view - height)));
 }
 
+/// The rail's height over a bottom stack that reaches higher than the one its box was laid out for
+/// (a composer grown by a draft, a tray or bar opened over the view): the box keeps its top, so the
+/// rail does not move with the stack (Leo, 2026-11-01: "the left side scroll rail needs to not really
+/// get affected by most other layout things"), and its foot rises with the stack instead, so no tick
+/// runs under it (Leo, 2026-11-03: "this left scroll rail prob goes a little bit too far down now").
+/// A rail with room to spare under it keeps its height until the stack takes that room; past it the
+/// list scrolls in what is left. `restFoot` is the foot the box was laid out for, `liveFoot` the
+/// stack's top now, both in the rail's coordinates.
+export function railClearHeight(
+  height: number,
+  top: number,
+  viewportHeight: number,
+  restFoot: number,
+  liveFoot: number,
+): number {
+  const grown = restFoot - liveFoot;
+  if (grown <= 0) return height;
+  const clear = Math.floor(railRoom(viewportHeight, liveFoot).bottom - top);
+  return Math.max(0, Math.min(height, Math.max(clear, height - Math.ceil(grown))));
+}
+
 /// The fade a rail longer than its room draws at an edge with more rows past it: 2.5rem
 /// (threadMinimap.css `.acpmux-minimap__list[data-fade-*]`), and at most a quarter of a short rail.
 export const RAIL_FADE = 40;

@@ -21,8 +21,6 @@ public protocol PaneTabRowSharing: AnyObject {
     /// Whether the pane draws its tabs at the row's leading end; false while a lone tab hides, so the
     /// view shows through all of the row but its tools and the pane's toolbar. Called before ``setTabRow(height:trailingInset:)``.
     func setTabRowTabs(shown: Bool)
-    /// The view takes the whole row when its pane holds one tab, and the pane hides that tab (a chat; Leo 2026-11-03).
-    var tabRowTakesLoneTab: Bool { get }
     /// What the pane's toolbar fills its frame with while the view shares the row, so the toolbar reads as the
     /// surface the view paints around it: a view that is a window above the pane (a Chromium chat) leaves the
     /// toolbar a hole, and where it paints its own surface across the row (alone in its pane) the hole would
@@ -32,7 +30,6 @@ public protocol PaneTabRowSharing: AnyObject {
 
 extension PaneTabRowSharing {
     public func setTabRowTabs(shown: Bool) {}
-    public var tabRowTakesLoneTab: Bool { false }
     public var tabRowHoleFill: CGColor? { nil }
 
     /// Points the strip gives up beside the view's tools in a row `room` wide (at most half of it).
@@ -81,7 +78,6 @@ extension PaneTabRowForwarding {
     }
     public func setTabRow(height: CGFloat, trailingInset: CGFloat) { tabRowSharer?.setTabRow(height: height, trailingInset: trailingInset) }
     public func setTabRowTabs(shown: Bool) { tabRowSharer?.setTabRowTabs(shown: shown) }
-    public var tabRowTakesLoneTab: Bool { tabRowSharer?.tabRowTakesLoneTab ?? false }
     public var tabRowHoleFill: CGColor? { tabRowSharer?.tabRowHoleFill }
 }
 

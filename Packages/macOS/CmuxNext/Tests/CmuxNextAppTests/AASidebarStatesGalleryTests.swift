@@ -83,6 +83,10 @@ import Testing
         _ = NSApplication.shared
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil; StatusIndicatorAppearance.shared.refresh() }
+        // The favicon styles sheets set `sidebar.faviconStyle` per column: the store takes overrides only once it is
+        // active and knows the key, as the app's is from launch.
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all)
         // The shared config caches whether loops run; read it again with Reduce Motion off, so busy rows draw the spinner.
         StatusIndicatorAppearance.shared.refresh()
         let root = AANestedGroupsGalleryTests.packageRoot
@@ -91,8 +95,12 @@ import Testing
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         let renderer = SidebarStatesPlaygroundRenderer(design: .shared, themes: try Self.themes())
         let playground = SidebarStatesPlaygroundView(renderer: renderer)
-        let sheets = SidebarStatesPlaygroundAppearance.allCases.compactMap { playground.sheets[$0] }
-        #expect(sheets.count == 2)
+        let stateSheets = SidebarStatesPlaygroundAppearance.allCases.compactMap { playground.sheets[$0] }
+        #expect(stateSheets.count == 2)
+        // The favicon styles sheets (`sidebar.faviconStyle`, Lawrence msg 19869), written as sheet-favicons-<appearance>.png.
+        let faviconSheets = SidebarStatesPlaygroundAppearance.allCases.compactMap { playground.faviconSheets[$0] }
+        #expect(faviconSheets.count == 2)
+        let sheets = stateSheets + faviconSheets
         // A window as large as the playground's content, so no sheet is clipped by its scroll view.
         let size = NSSize(width: sheets.map(\.frame.width).max() ?? 1200,
                           height: sheets.map(\.frame.height).reduce(0, +) + 80)
@@ -110,6 +118,10 @@ import Testing
             sheet.display()
             let image = try Self.capture(sheet)
             let name = sheet.appearanceKind.rawValue
+            if faviconSheets.contains(where: { $0 === sheet }) {
+                try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: "sheet-favicons-\(name).png"))
+                continue
+            }
             try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: "sheet-\(name).png"))
             for density in SidebarDensity.allCases {
                 let frame = try #require(sheet.densityFrames[density])
