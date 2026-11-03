@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 import CmuxNextWakeups
 
 /// What a section or row needs from the panel: its colors and how a click reaches the page. A value,
@@ -87,7 +88,9 @@ struct SessionInfoLine: Equatable {
     var font: NSFont {
         switch kind {
         case .title: Typography.bodyEmphasized
-        case .header: Typography.header
+        // A section's title is the rows' size at medium weight, the web panel's
+        // `.acpmux-session-info-section__title` (font-weight 500), never the bold chrome header.
+        case .header: Typography.bodyEmphasized
         case .row: Typography.body
         case .more: Typography.caption
         }
@@ -164,11 +167,12 @@ final class AgentPaneSessionInfoContent: NSView {
         scroll.contentView = clip
         clip.onGeometryChange = { [weak self] in self?.updateEdgeFades() }
         scroll.drawsBackground = false
-        scroll.hasVerticalScroller = true
+        // No scroller at all, as Claude Code's panel: the list scrolls by wheel, trackpad and keyboard,
+        // and the edge fades say there is more (Leo, 2026-11-03: "i mean there's literally no scrollbar
+        // in claude code it's just scrollable"). The web body hides its own the same way (sessionInfo.css).
+        scroll.hasVerticalScroller = false
         scroll.hasHorizontalScroller = false
-        scroll.autohidesScrollers = true
         scroll.documentView = list
-        SystemScrollers.followThin(scroll)
         scroll.contentView.wantsLayer = true
         edgeFadeMask.startPoint = CGPoint(x: 0.5, y: 1)
         edgeFadeMask.endPoint = CGPoint(x: 0.5, y: 0)
@@ -205,6 +209,15 @@ final class AgentPaneSessionInfoContent: NSView {
         ]
         edgeFadeMask.locations = [NSNumber(value: 0), NSNumber(value: Double(fadeFraction)), NSNumber(value: Double(1 - fadeFraction)), NSNumber(value: 1)]
         edgeFadeMask.frame = scroll.contentView.bounds
+    }
+
+    /// The content's height at `width`: the list's, so the panel ends after its last section.
+    func fittingHeight(forWidth width: CGFloat) -> CGFloat { list.height(forWidth: width) }
+
+    /// The list's height changed: the panel's frame follows it (AgentPaneSessionInfoPanel).
+    var onHeightChange: (() -> Void)? {
+        get { list.onHeightChange }
+        set { list.onHeightChange = newValue }
     }
 
     /// The list's views, for tests.
@@ -258,6 +271,8 @@ final class SessionInfoListView: NSView {
     /// Clears a revealed row's highlight; a new reveal replaces the pending one.
     private let revealTimer = DemandTimer(owner: "SessionInfo.reveal")
     var width: CGFloat = 0 { didSet { if width != oldValue { place() } } }
+    /// The list's height changed (new items, a fold, a new width): the panel's frame follows it.
+    var onHeightChange: (() -> Void)?
 
     @discardableResult
     func show(_ items: [SessionInfoItem], ink: SessionInfoInk) -> Bool {
@@ -370,7 +385,19 @@ final class SessionInfoListView: NSView {
         }
     }
 
+    /// The list's height at `width` with its current items, without moving a view: the panel hugs
+    /// it (Leo, 2026-11-02: "IT IS TAKING THIS STUPID FUCKING SPACE FOR NO REASON").
+    func height(forWidth width: CGFloat) -> CGFloat { arrange(width: width, apply: false) }
+
     private func place() {
+        let height = arrange(width: width, apply: true)
+        let changed = abs(frame.height - height) >= 0.5
+        setFrameSize(NSSize(width: width, height: height))
+        if changed { onHeightChange?() }
+    }
+
+    @discardableResult
+    private func arrange(width: CGFloat, apply: Bool) -> CGFloat {
         var y = SessionInfoMetrics.padding
         let inner = max(0, width - 2 * SessionInfoMetrics.edge)
         for (item, view) in zip(items, subviews) {
@@ -379,24 +406,24 @@ final class SessionInfoListView: NSView {
                 let height: CGFloat
                 if let line = view as? SessionInfoLineView {
                     height = line.height(forWidth: inner)
-                    line.frame = CGRect(x: SessionInfoMetrics.edge, y: y, width: inner, height: height)
+                    if apply { line.frame = CGRect(x: SessionInfoMetrics.edge, y: y, width: inner, height: height) }
                 } else {
                     height = (view as? ChromeLabel)?.naturalSize.height ?? 16
-                    view.frame = CGRect(x: SessionInfoMetrics.inset, y: y + 6, width: max(0, width - 2 * SessionInfoMetrics.inset), height: height)
+                    if apply { view.frame = CGRect(x: SessionInfoMetrics.inset, y: y + 6, width: max(0, width - 2 * SessionInfoMetrics.inset), height: height) }
                 }
                 y += height + 12
             case .separator:
                 y += SessionInfoMetrics.groupGap
-                view.frame = CGRect(x: SessionInfoMetrics.edge, y: y, width: inner, height: 1)
+                if apply { view.frame = CGRect(x: SessionInfoMetrics.edge, y: y, width: inner, height: 1) }
                 y += 1 + SessionInfoMetrics.groupGap
             case .line:
                 guard let line = view as? SessionInfoLineView else { continue }
                 let height = line.height(forWidth: inner)
-                line.frame = CGRect(x: SessionInfoMetrics.edge, y: y, width: inner, height: height)
+                if apply { line.frame = CGRect(x: SessionInfoMetrics.edge, y: y, width: inner, height: height) }
                 y += height
             }
         }
-        setFrameSize(NSSize(width: width, height: y + SessionInfoMetrics.padding))
+        return y + SessionInfoMetrics.padding
     }
 }
 
@@ -473,7 +500,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     private(set) var line: SessionInfoLine
     private var ink: SessionInfoInk
     private var glyph: NSView?
-    private var grip: NSImageView?
+    private var grip: SessionInfoGripView?
     private let title = ChromeLabel(labelWithString: "")
     private var detail: ChromeLabel?
     private var subtitle: ChromeLabel?
@@ -486,9 +513,12 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     private var marksView: SessionInfoMarksView?
     private(set) var buttons: [SessionInfoButtonView] = []
     private var hovered = false { didSet { paint() } }
+    private var focused = false { didSet { paint() } }
     private(set) var isDragging = false
     private(set) var isMenuOpen = false
     private var dragStart: NSPoint?
+    /// The press began on the grip: its click alone does nothing, as the web panel's handle button.
+    private var pressedGrip = false
 
     init(line: SessionInfoLine, ink: SessionInfoInk) {
         self.line = line
@@ -497,6 +527,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         wantsLayer = true
         layer?.cornerRadius = SessionInfoMetrics.rowRadius
         rebuild()
+        paint()
     }
 
     /// Rebuild every value-bearing child from the page model. Rows are keyed by id so this view
@@ -526,7 +557,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
             trailing = Self.label(text, font: font, color: colors.tone(line.trailingTone))
         }
         if let unfolded = line.unfolded {
-            chevron = Self.image(unfolded ? "chevron.down" : "chevron.right", font: Typography.caption, tint: colors.tertiary)
+            chevron = Self.image(unfolded ? "chevron.down" : "chevron.right", font: Typography.caption, tint: colors.secondary)
         }
         if let values = line.segments, !values.isEmpty { segmentedMeter = SessionInfoSegmentsView(values: values, colors: colors) }
         else if let value = line.meter { meter = SessionInfoMeterView(value: value, colors: colors) }
@@ -547,8 +578,9 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
             menuButton?.onPress = { [weak self] in self?.showMenu() }
         }
         if line.reorderable {
-            grip = Self.image("line.3.horizontal", font: Typography.caption, tint: colors.tertiary)
-            grip?.themedToolTip = line.reorderLabel ?? line.title
+            let grip = SessionInfoGripView(rest: colors.secondary, lit: colors.primary)
+            grip.themedToolTip = line.reorderLabel ?? line.title
+            self.grip = grip
         }
         buttons = line.buttons.map { SessionInfoButtonView(button: $0, ink: ink) }
         for view in [glyph, grip, title, detail, subtitle, trailing, chevron, meter, segmentedMeter, marksView, toggle, menuButton].compactMap({ $0 }) + buttons { addSubview(view) }
@@ -593,6 +625,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         isMenuOpen = false
         isDragging = false
         dragStart = nil
+        pressedGrip = false
         subviews.forEach { $0.removeFromSuperview() }
         rebuild()
         updateTrackingAreas()
@@ -637,19 +670,47 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         return label
     }
 
+    /// `symbol` is an SF Symbol, or `cmux:` and a pack icon name (Changes' `cmux:git.pullrequest.merged`),
+    /// which draws the pack's own glyph at the web rows' size (1.2 x the label, design/icons "Sizes").
     private static func image(_ symbol: String, font: NSFont, tint: NSColor) -> NSImageView {
         let view = NSImageView()
-        view.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: font.pointSize, weight: .regular))
+        if let icon = packIcon(symbol, font: font) {
+            view.image = icon
+        } else {
+            view.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+                .withSymbolConfiguration(.init(pointSize: font.pointSize, weight: .regular))
+        }
         view.contentTintColor = tint
         view.imageScaling = .scaleProportionallyDown
         return view
     }
 
+    static let packPrefix = "cmux:"
+
+    /// The pack's template image for a `cmux:` name the pack has; nil for an SF Symbol name.
+    static func packIcon(_ symbol: String, font: NSFont) -> NSImage? {
+        guard symbol.hasPrefix(packPrefix) else { return nil }
+        let icon = IconName(String(symbol.dropFirst(packPrefix.count)))
+        guard IconPack.bundled.drawing(for: icon) != nil else { return nil }
+        return NSImage.icon(icon, size: (font.pointSize * 1.2).rounded())
+    }
+
     private var lead: CGFloat { CGFloat(line.indent) * SessionInfoMetrics.indent + SessionInfoMetrics.inset - SessionInfoMetrics.edge }
     /// The title column: the same for a line with an icon and one without, so headers and rows
-    /// start their titles on one line.
-    private var textX: CGFloat { lead + (grip != nil ? 14 : 0) + SessionInfoMetrics.iconBox + LayoutGrid.gap }
+    /// start their titles on one line. The grip takes no room of its own (it sits at the line's
+    /// right edge).
+    private var textX: CGFloat { lead + SessionInfoMetrics.iconBox + LayoutGrid.gap }
+    /// The six-dot grip shows on hover and while it drags; at rest the line draws no glyph for it.
+    var showsGrip: Bool { grip != nil && (hovered || isDragging) }
+    /// A foldable header's chevron, after its title, shows on hover and keyboard focus.
+    var showsChevron: Bool { chevron != nil && (hovered || focused) }
+    /// Where a press grabs the grip: the line's right inset, past the trailing column, full height
+    /// (the web panel's `.acpmux-session-info-section__handle`, in the body's right inset).
+    var gripHitRect: CGRect? {
+        guard grip != nil else { return nil }
+        let right = SessionInfoMetrics.trail
+        return CGRect(x: bounds.width - right, y: 0, width: right, height: bounds.height)
+    }
 
     func height(forWidth width: CGFloat) -> CGFloat {
         var height = title.naturalSize.height
@@ -724,13 +785,16 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         let subtitleHeight = subtitle.map { $0.size(forWidth: max(1, textWidth)).height } ?? 0
         let block = titleSize.height + (subtitle != nil ? 1 + subtitleHeight : 0) + (line.kind == .row && (meter != nil || segmentedMeter != nil) ? 6 : 0)
         var y = (height - block) / 2
-        // The chevron's room comes off the title's, so it never runs into the meta or the meter.
-        let chevronWidth: CGFloat = chevron != nil ? 16 : 0
+        // The chevron sits one grid gap after the title in a 16pt icon box (the web panel's
+        // `.acpmux-session-info-section__fold`). Its room comes off the title's whether or not it
+        // shows, so it never runs into the meta or the meter and the title never moves on hover.
+        let chevronWidth: CGFloat = chevron != nil ? LayoutGrid.gap + LayoutGrid.iconBox : 0
         let titleWidth = max(0, min(titleSize.width, textWidth - chevronWidth))
         title.frame = CGRect(x: textX, y: y, width: titleWidth, height: titleSize.height)
         var after = textX + titleWidth
         if let chevron {
-            chevron.frame = CGRect(x: after + 6, y: y, width: 10, height: titleSize.height)
+            chevron.frame = CGRect(x: after + LayoutGrid.gap, y: y + (titleSize.height - LayoutGrid.iconBox) / 2,
+                                   width: LayoutGrid.iconBox, height: LayoutGrid.iconBox)
             after += chevronWidth
         }
         if let detail {
@@ -745,9 +809,11 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
             let inkWidth: CGFloat = line.wave != nil && !line.working ? 14 : side
             glyph.frame = CGRect(x: lead + (box - inkWidth) / 2, y: y + (titleSize.height - side) / 2, width: inkWidth, height: side)
         }
-        if let grip {
-            let side: CGFloat = 12
-            grip.frame = CGRect(x: max(0, lead - 6), y: y + (titleSize.height - side) / 2, width: side, height: side)
+        if let grip, let hit = gripHitRect {
+            // Six dots, 6 by 14, centred in the right inset on the title's line.
+            let size = SessionInfoGripView.size
+            grip.frame = CGRect(x: hit.midX - size.width / 2, y: y + (titleSize.height - size.height) / 2,
+                                width: size.width, height: size.height)
         }
         y += titleSize.height
         if let subtitle {
@@ -788,24 +854,46 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     override func mouseExited(with event: NSEvent) { hovered = false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func mouseDown(with event: NSEvent) {
+        focusEnclosingSessionInfoPanel()
         let point = convert(event.locationInWindow, from: nil)
-        dragStart = line.reorderable && line.id != nil && (grip?.frame.contains(point) == true) ? point : nil
+        pressedGrip = line.reorderable && line.id != nil && (gripHitRect?.contains(point) == true)
+        dragStart = pressedGrip ? point : nil
         isDragging = false
     }
     override func mouseDragged(with event: NSEvent) {
         guard let start = dragStart, line.reorderable, line.id != nil else { return }
         let point = convert(event.locationInWindow, from: nil)
-        if hypot(point.x - start.x, point.y - start.y) >= 4 { isDragging = true }
+        if !isDragging, hypot(point.x - start.x, point.y - start.y) >= 4 {
+            isDragging = true
+            paint()
+            NSCursor.closedHand.set()
+        }
     }
     override func mouseUp(with event: NSEvent) {
         let inside = bounds.contains(convert(event.locationInWindow, from: nil))
-        defer { dragStart = nil; isDragging = false }
+        let onGrip = pressedGrip
+        defer { dragStart = nil; pressedGrip = false; isDragging = false; paint() }
         if isDragging, let id = line.id {
             ink.move(id, self, convert(event.locationInWindow, from: nil))
-        } else if inside {
+        } else if inside, !onGrip {
             press()
         }
         ink.flush()
+    }
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        if showsGrip, let hit = gripHitRect { addCursorRect(hit, cursor: isDragging ? .closedHand : .openHand) }
+    }
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        // Keyboard focus only (the web's :focus-visible): a click that focuses a header leaves no chevron.
+        if accepted, NSApp.isFullKeyboardAccessEnabled { focused = true }
+        return accepted
+    }
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned { focused = false }
+        return resigned
     }
 
     override func accessibilityPerformPress() -> Bool { press() }
@@ -864,6 +952,42 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     /// (Leo, 2026-11-02: "we still HAVE AN ASININE FUCKIGN BACKGROUND").
     private func paint() {
         layer?.backgroundColor = hovered && line.action != nil && line.kind != .header ? ink.colors.hover.cgColor : nil
+        grip?.isHidden = !showsGrip
+        grip?.lit = isDragging
+        chevron?.isHidden = !showsChevron
+        window?.invalidateCursorRects(for: self)
+    }
+}
+
+/// A section's six-dot drag grip, drawn here as the web panel draws its handle (SessionInfoSection.tsx
+/// `GRIP_DOTS`: a 6 by 14 box, dots of radius 0.9 at x 1.25 and 4.75, y 3, 7 and 11). Muted at rest,
+/// the text color while it drags.
+final class SessionInfoGripView: NSView {
+    static let size = CGSize(width: 6, height: 14)
+    private let rest: NSColor
+    private let litColor: NSColor
+    var lit = false { didSet { if lit != oldValue { needsDisplay = true } } }
+
+    init(rest: NSColor, lit: NSColor) {
+        self.rest = rest
+        self.litColor = lit
+        super.init(frame: CGRect(origin: .zero, size: Self.size))
+        setAccessibilityElement(false)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        (lit ? litColor : rest).setFill()
+        let radius: CGFloat = 0.9
+        for y in [3, 7, 11] as [CGFloat] {
+            for x in [1.25, 4.75] as [CGFloat] {
+                NSBezierPath(ovalIn: CGRect(x: x - radius, y: y - radius, width: 2 * radius, height: 2 * radius)).fill()
+            }
+        }
     }
 }
 
@@ -926,7 +1050,7 @@ final class SessionInfoButtonView: NSView {
     override func mouseEntered(with event: NSEvent) { hovered = true }
     override func mouseExited(with event: NSEvent) { hovered = false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func mouseDown(with event: NSEvent) {}
+    override func mouseDown(with event: NSEvent) { focusEnclosingSessionInfoPanel() }
     override func mouseUp(with event: NSEvent) {
         guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
         press()

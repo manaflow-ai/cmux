@@ -81,7 +81,18 @@ pub const CAPABILITIES: &[Capability] = &[
     // Server-side local/non-closed session-list filters used by native quit
     // census callers. Older daemons keep serving the unfiltered list.
     Capability { id: "session-list-filters-v1", wire: &[method::MUX_SESSIONS] },
+    // The MCP connect card (plans/cmux-next/mcp-connect-DESIGN.md): an agent asks, only the
+    // person answers. Older daemons answer neither method.
+    Capability {
+        id: "mcp-connect-v1",
+        wire: &[method::MUX_MCP_CONNECT_REQUEST, method::MUX_MCP_CONNECT_ANSWER],
+    },
+    // `_acpmux/sessions {pendingOnly: true}`: only the chats with a pending ask, without the
+    // list's pace (the app's dialog list). Older daemons would answer the whole list.
+    Capability { id: "session-list-pending-v1", wire: &[method::MUX_SESSIONS] },
     Capability { id: "machine.join.stdin.v1", wire: &[] },
+    // `acpmux machine vault pull|status|forget` (crate::vault): CLI-only, no wire method.
+    Capability { id: crate::vault::CAPABILITY, wire: &[] },
     Capability {
         id: "machine-consent-v1",
         wire: &[method::MUX_MACHINE_CONSENT_SET, method::MUX_MACHINE_CONSENT_GET],
@@ -303,7 +314,8 @@ mod tests {
             crate::protocol::registry().iter().map(|decl| decl.name).collect();
         for capability in CAPABILITIES {
             // Machine onboarding is CLI-only and has no daemon wire method.
-            if capability.id == "machine.join.stdin.v1" {
+            if capability.id == "machine.join.stdin.v1" || capability.id == crate::vault::CAPABILITY
+            {
                 assert!(capability.wire.is_empty());
                 continue;
             }

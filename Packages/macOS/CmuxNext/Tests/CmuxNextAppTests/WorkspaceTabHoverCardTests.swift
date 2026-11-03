@@ -298,7 +298,7 @@ struct WorkspaceTabHoverCardTests {
             SidebarTab(id: TabID("claude"), title: "Claude Code", kind: .agentChat, folder: "~/Projects/cmux", state: .working),
         ])
 
-        #expect(view.reportedLines == ["app · ~ · Done", "Claude Code · ~/Projects/cmux · Working"])
+        #expect(view.reportedLines == ["app · ~ · Done", "Claude Code · ~/Projects/cmux"])
         let down = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 1,
                                                  windowNumber: 0, context: nil, characters: "\u{F701}",
                                                  charactersIgnoringModifiers: "\u{F701}", isARepeat: false, keyCode: 125))
@@ -448,6 +448,36 @@ struct WorkspaceTabHoverCardTests {
         #expect(body.keys.isEmpty)
         #expect(coordinator.machine.shownTarget == nil, "the row key did not dismiss the card")
         try await WorkspaceHoverCardScrollTests.tearDown(window, coordinator)
+    }
+
+    /// Leo 2026-11-02: "YOU SHOULD BE ABLE TO CLOSE THESE TABS FROM THE HOVER PREVIEW". A hovered row shows a ✕
+    /// that closes its tab; the card stays open, and a card that cannot close tabs shows none.
+    @Test func aHoveredRowsCloseButtonClosesItsTabAndKeepsTheCard() throws {
+        _ = NSApplication.shared
+        let target = WorkspaceID("ws")
+        var workspace = SidebarWorkspace(id: target, title: "Workspace", directory: "~/project")
+        workspace.tabs = [SidebarTab(id: TabID("shell"), title: "Shell"), SidebarTab(id: TabID("review"), title: "Review")]
+        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+        let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: [.workspace(workspace)])])
+        var closed: (WorkspaceID, TabID)?
+        model.onIntent = { if case let .closeTab(workspace, tab) = $0 { closed = (workspace, tab) } }
+        let list = SidebarListView(model: model)
+        list.reload(animated: false)
+        let id = WorkspaceHoverCardController.targetID(target)
+        let card = try #require(list.hoverCard.hoverCardBody(for: id)?.view as? WorkspaceHoverCardView)
+        let row = try #require(card.tabList.rowViews.last)
+        #expect(row.closeButton.isHidden, "the ✕ showed on a row the pointer is not on")
+        row.isHovered = true
+        #expect(!row.closeButton.isHidden, "a hovered row has no ✕")
+        row.closeButton.onPress?()
+        #expect(closed?.0 == target)
+        #expect(closed?.1 == TabID("review"))
+
+        let bare = WorkspaceTabHoverCardView()
+        bare.configure(title: "w", tabs: [SidebarTab(id: TabID("t"), title: "Tab")])
+        let bareRow = try #require(bare.rowViews.first)
+        bareRow.isHovered = true
+        #expect(bareRow.closeButton.isHidden, "a card that cannot close tabs showed a ✕")
     }
 
     private static func descendants(of view: NSView) -> [NSView] {

@@ -337,6 +337,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_SECRET_REQUEST, Request),
         untyped(method::MUX_SECRET_SUBMIT, Request),
         untyped(method::MUX_SECRET_RUN, Request),
+        untyped(method::MUX_MCP_CONNECT_REQUEST, Request),
+        untyped(method::MUX_MCP_CONNECT_ANSWER, Request),
         // Chats (`server/chats.rs`).
         untyped("_acpmux/chats", Request),
         untyped("_acpmux/chats_watch", Request),
@@ -424,6 +426,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/peer_reconnect", Request),
         untyped("_acpmux/peer_remove", Request),
         untyped("_acpmux/peer_snapshot", Request),
+        untyped("_acpmux/peer_snapshots_clear", Request),
         untyped(method::MUX_PAIR_TICKET_NEW, Request),
         untyped(method::MUX_PAIR_LIST, Request),
         untyped(method::MUX_PAIR_REVOKE, Request),

@@ -34,12 +34,6 @@ final class WorkspaceRowView: SidebarRowView {
     /// cap, a huge context, a storm of subagents): a small warning triangle in the trailing
     /// cluster, apart from the working spinner; its tooltip says each rule and the number.
     let usageWarningMark = DecorativeImageView()
-    /// The computer the workspace runs on (`WorkspaceRowContent.machine`): its icon in one neutral
-    /// colour, a status mark's size, in the trailing column; hidden while the sidebar lists one machine.
-    let machineMark = DecorativeImageView() // the row's label names the machine
-    internal(set) var machine: SidebarMachineMark?
-    /// The side `machineMark`'s image was drawn at.
-    private var machineMarkSize: CGFloat = 0
     /// The workspace's tabs play sound (or are muted): a small speaker in the
     /// trailing cluster, always shown while they do, crossed out while they
     /// are muted. A click mutes or unmutes them (`onToggleAudio`).
@@ -160,9 +154,7 @@ final class WorkspaceRowView: SidebarRowView {
         usageWarningMark.imageScaling = .scaleProportionallyDown
         usageWarningMark.isHidden = true
         usageWarningMark.setAccessibilityElement(false)
-        machineMark.imageScaling = .scaleProportionallyDown
-        machineMark.isHidden = true
-        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, usageWarningMark, machineMark, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, tabCount, prBadge, placeholderBar, statusBlock,
+        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, usageWarningMark, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, tabCount, prBadge, placeholderBar, statusBlock,
          treeLine, pullRequests, keycap, treeFoldButton, rollUp].forEach(addSubview)
         setUpSessionTree()
         tabCount.isHidden = true
@@ -175,6 +167,7 @@ final class WorkspaceRowView: SidebarRowView {
         layer?.addSublayer(progressTrack)
         closeButton.isHidden = true
         audioButton.isHidden = true
+        pinButton.isHidden = true // hover only (layoutPin shows it), so it makes no image before then
         placeholderBar.wantsLayer = true
         placeholderBar.layer?.cornerRadius = Metrics.chipCornerRadius(height: SidebarStyle.placeholderBarHeight)
         placeholderBar.isHidden = true
@@ -282,7 +275,8 @@ final class WorkspaceRowView: SidebarRowView {
             placeholderBar.alphaValue = 1
         }
         // The name the row draws (`sidebar.rowTitle`): the workspace's, else a breadcrumb to its focused tab.
-        let shownTitle = ws.rowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat)
+        // A started session named like its parent says whose it is (`WorkspaceRowContent.subagentOf`).
+        let shownTitle = shown.subagentOf.map(Strings.subagentOf) ?? ws.rowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat)
         title.stringValue = shownTitle
         lastTitle = shownTitle
         hiddenWorkspaceName = ws.namesWorkspace(shownTitle) ? nil : ws.title
@@ -327,15 +321,6 @@ final class WorkspaceRowView: SidebarRowView {
             : NSImage.icon(symbol: "exclamationmark.triangle.fill", size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1))
         usageWarningMark.isHidden = usageWarningMark.image == nil
         usageWarningMark.themedToolTip = usageWarningMark.isHidden ? nil : ws.usageWarnings.joined(separator: "\n")
-        let previousMachine = machine
-        machine = isShowingPlaceholder ? nil : shown.machine
-        // A new image only when the mark or its size changes: every patch and every row scrolled in configures the row.
-        let machineSize = SidebarStyle.statusGlyphSize // drawn at its box's size, as the status marks beside it
-        if machine != previousMachine || machineSize != machineMarkSize || (machine != nil && machineMark.image == nil) {
-            machineMarkSize = machineSize
-            machineMark.image = machine.map { Self.machineMarkImage($0, side: machineSize) }
-        }
-        machineMark.isHidden = machineMark.image == nil
         audio = isShowingPlaceholder ? nil : ws.audio
         audioButton.isHidden = audio == nil
         audioButton.icon = audio == .muted ? .browserTabMuted : .browserTabAudio
@@ -360,7 +345,8 @@ final class WorkspaceRowView: SidebarRowView {
             button.setAccessibilityIdentifier("cmux.sidebar.workspace.\(ws.id.rawValue).\(control)")
         }
         setAccessibilityLabel(accessibilityText(ws, content: shown,
-                                                title: ws.spokenRowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat)))
+                                                title: shown.subagentOf.map(Strings.subagentOf)
+                                                    ?? ws.spokenRowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat)))
         needsLayout = true
         needsDisplay = true
     }

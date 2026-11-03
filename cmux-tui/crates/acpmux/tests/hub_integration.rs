@@ -33,6 +33,8 @@ mod agent_inbox;
 mod agent_pairs;
 #[path = "hub_integration/auto_resume.rs"]
 mod auto_resume;
+#[path = "hub_integration/away_recap.rs"]
+mod away_recap;
 #[path = "hub_integration/carried_turns.rs"]
 mod carried_turns;
 #[cfg(unix)]
@@ -52,6 +54,8 @@ mod inbox_digest;
 mod lanes;
 #[path = "hub_integration/log_retention.rs"]
 mod log_retention;
+#[path = "hub_integration/mcp_connect.rs"]
+mod mcp_connect;
 #[path = "hub_integration/permission_display.rs"]
 mod permission_display;
 #[path = "hub_integration/permission_groups.rs"]
@@ -104,6 +108,8 @@ mod steer_now;
 mod steer_only;
 #[path = "hub_integration/stop.rs"]
 mod stop;
+#[path = "hub_integration/stop_steer_requeue.rs"]
+mod stop_steer_requeue;
 #[path = "hub_integration/stuck_liveness.rs"]
 mod stuck_liveness;
 #[path = "hub_integration/subagent_retry.rs"]
@@ -999,6 +1005,7 @@ async fn family_defaults_presets_and_the_target_grammar() {
             policy: Some(PermissionPolicy::ApproveAll),
             prefer: vec!["fake-pool".into()],
             env: BTreeMap::new(),
+            permission_mode: None,
         },
     );
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();

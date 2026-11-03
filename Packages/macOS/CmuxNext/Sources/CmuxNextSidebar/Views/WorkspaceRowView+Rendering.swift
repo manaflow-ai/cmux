@@ -78,8 +78,6 @@ extension WorkspaceRowView {
             tabCount.setColor(Palette.textTertiary)
             mutedMark.setTint(Palette.textTertiary)
             usageWarningMark.setTint(Palette.attention)
-            // One neutral colour for every machine (Leo 2026-11-01): no per-machine tint on the row's mark.
-            machineMark.setTint(Palette.textTertiary)
             prBadge.setColor(Palette.textSecondary)
             tintSessionTree()
             let waits = if case .waiting = activityState { true } else { false }
@@ -100,6 +98,7 @@ extension WorkspaceRowView {
 
     override func layout() {
         super.layout()
+        activity.dotDiameter = SidebarStyle.statusDotSize // one diameter for every status dot (Lawrence msg 19696)
         let full = layoutBounds
         layoutColorRail(in: full)
         // The name lines and the trailing cluster center in the head; the
@@ -128,8 +127,10 @@ extension WorkspaceRowView {
         case .swatch?: side = SidebarStyle.dotSize + Metrics.space1
         case .symbol?, .emoji?, .favicon?: side = SidebarStyle.iconColumnBox
         }
-        // The icon's box starts on lead (where an iconless title would start) and its glyph centers in it; the text
-        // column is the grid's, one gap after the box.
+        // The icon's box starts on lead (where an iconless title would start) and its glyph's ink starts there too, as
+        // the pins' and Home's do (`SidebarStyle.iconColumnGlyphX`, Lawrence msg 19643); the text column is the
+        // grid's, one gap after the box.
+        icon.leadsWithInk = SidebarStyle.leadingColumnLook != .centered
         icon.frame = NSRect(x: leading, y: cy - side / 2, width: side, height: side)
         layoutTreeLine(leading: SidebarStyle.columns(rowWidth: b.width).lead)
 
@@ -202,7 +203,7 @@ extension WorkspaceRowView {
         // the count takes the next slot, a small glyph centered in it.
         if badge.state.isUnread, columnMark?.view !== badge {
             let w = badge.preferredWidth
-            let h = badge.state == .dot ? SidebarStyle.unreadDotSize : SidebarStyle.badgeHeight
+            let h = badge.state == .dot ? SidebarStyle.statusDotSize : SidebarStyle.badgeHeight
             badge.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: w, height: h))
             badgeEdge = columns.trailingEdge(before: badge.frame)
         }
@@ -229,14 +230,6 @@ extension WorkspaceRowView {
         if !mutedMark.isHidden {
             mutedMark.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: ind, height: ind))
             trailing = columns.trailingEdge(before: mutedMark.frame)
-        }
-        if !machineMark.isHidden, columnMark?.view !== machineMark {
-            // The computer the row runs on: a status mark's box on the trailing column's line, centered on the row
-            // (Leo 2026-11-01, on the small tinted cloud before the name: "I HATE HOW SMALL THEY ARE I HATE THAT
-            // THEY'RE ON THE LEFT I HATE THAT THEY'RE ON THE BOTTOM"). It gives way to the hover controls as the
-            // other marks do.
-            machineMark.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: SidebarStyle.statusGlyphSize, height: SidebarStyle.statusGlyphSize))
-            trailing = columns.trailingEdge(before: machineMark.frame)
         }
         if !usageWarningMark.isHidden {
             // The triangle takes a status mark's box (the spinner's, `statusGlyphFrame`); with no spinner it is the
@@ -291,7 +284,7 @@ extension WorkspaceRowView {
         updateCalmTitleTip()
         subtitle.wantsLayer = true
         subtitle.setTrailingFade(occlusion: coverStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
-        for mark in [activity, rowBadge, agentMark, mutedMark, usageWarningMark, machineMark, audioButton, presenceDots, timeLabel, tabCount, prBadge] as [NSView] {
+        for mark in [activity, rowBadge, agentMark, mutedMark, usageWarningMark, audioButton, presenceDots, timeLabel, tabCount, prBadge] as [NSView] {
             // The column's mark gives way while the hover controls show; so does a status spinner left of it.
             let status = mark === activity || (mark === agentMark && markReplacesStatus)
             let covered = mark === usageWarningMark ? false : mark === columnMark?.view ? markGivesWay

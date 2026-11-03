@@ -257,6 +257,9 @@ extension LiveCoordinator {
         }
         // Streamed browser tabs that dropped open again on the focused Mac's link.
         StreamedBrowserDirectory.shared.linkChanged(macID: session.macID)
+        // The Mac app's own Feed requests, for as long as this link lives (#33818).
+        let needsYou = session.needsYou
+        Task { await needsYou.read(on: link, macID: macID) }
         do {
             let channel = try await link.openChannel(service: "acpmux", args: [:])
             // The link closed while the channel opened: nothing more on it.

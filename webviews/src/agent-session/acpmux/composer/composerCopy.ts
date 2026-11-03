@@ -72,7 +72,13 @@ const STORE_KEY = "cmux.composer.copy.v1";
 /// item, or null for one it left out (refused, unreadable). Undefined until it answers.
 type Written = (string | null)[] | undefined;
 
-type Remembered = { text: string; parts: ComposerCopy["parts"]; files?: (string | null)[] };
+type Remembered = {
+  revision: string;
+  text: string;
+  parts: ComposerCopy["parts"];
+  files?: (string | null)[];
+  copyID?: string;
+};
 
 function globalStorage(): Storage | undefined {
   try {
@@ -84,13 +90,26 @@ function globalStorage(): Storage | undefined {
 
 /// The order of the copy just made, kept for a paste of it into any composer of this origin, with
 /// the files the host wrote once it says (`files`).
-export function rememberCopy(copy: ComposerCopy, files?: Written, storage: Storage | undefined = globalStorage()) {
+export function rememberCopy(
+  copy: ComposerCopy,
+  files?: Written,
+  storage: Storage | undefined = globalStorage(),
+  copyID?: string,
+) {
+  const revision = crypto.randomUUID();
   try {
-    const kept: Remembered = { text: copy.text, parts: copy.parts, ...(files ? { files } : {}) };
+    const kept: Remembered = {
+      revision,
+      text: copy.text,
+      parts: copy.parts,
+      ...(files ? { files } : {}),
+      ...(copyID ? { copyID } : {}),
+    };
     storage?.setItem(STORE_KEY, JSON.stringify(kept));
   } catch {
     // Storage full or off: a paste of the copy puts its files in as any paste does.
   }
+  return revision;
 }
 
 /// A copy of text alone (the field's own): the last attachment copy is no longer on the pasteboard.
@@ -107,7 +126,8 @@ function remembered(storage: Storage | undefined): Remembered | undefined {
     const raw = storage?.getItem(STORE_KEY);
     if (!raw) return undefined;
     const value = JSON.parse(raw) as Partial<Remembered>;
-    if (typeof value.text !== "string" || !Array.isArray(value.parts)) return undefined;
+    if (typeof value.revision !== "string" || typeof value.text !== "string" || !Array.isArray(value.parts))
+      return undefined;
     const parts = value.parts.filter(
       (part): part is Remembered["parts"][number] =>
         Boolean(part) &&
@@ -117,7 +137,13 @@ function remembered(storage: Storage | undefined): Remembered | undefined {
     const files = Array.isArray(value.files)
       ? value.files.map((name) => (typeof name === "string" ? name : null))
       : undefined;
-    return { text: value.text, parts, ...(files ? { files } : {}) };
+    return {
+      revision: value.revision,
+      text: value.text,
+      parts,
+      ...(files ? { files } : {}),
+      ...(typeof value.copyID === "string" ? { copyID: value.copyID } : {}),
+    };
   } catch {
     return undefined;
   }
@@ -130,10 +156,9 @@ export type PastePart = { text: string } | { id: string } | { file: File };
 const lines = (text: string) => text.replace(/\r\n?/g, "\n");
 
 /// How a paste of a copy made here goes back in, in its order; none for any other paste (the field's
-/// and the intake's own paste take it). The paste is that copy when its files are the ones the host
-/// wrote for it, by name and in order: while the pasteboard holds file URLs WebKit gives a page the
-/// files with no text, so the text comes from the copy kept here, never from the paste. A paste with
-/// no files is the copy when its text is (the host wrote nothing, or the files did not come). Each
+/// and the intake's own paste take it). The host puts a unique marker in the clipboard's HTML:
+/// WebKit preserves it alongside files even when it hides their plain text. File names alone cannot
+/// identify a copy: consecutive screenshots often share a name. Each
 /// attachment comes back by id where this composer still has every one (`known`), else as its file.
 export function pastePlan(
   data: DataTransfer | null,
@@ -142,7 +167,12 @@ export function pastePlan(
 ): PastePart[] | undefined {
   if (!data) return undefined;
   const copy = remembered(storage);
-  if (!copy) return undefined;
+  if (!copy?.copyID) return undefined;
+  // The host's marker precedes the text. Bound the inert parse even for a very large HTML paste.
+  const html = document.createElement("template");
+  html.innerHTML = data.getData("text/html").slice(0, 4096);
+  if (html.content.querySelector("[data-cmux-composer-copy]")?.getAttribute("data-cmux-composer-copy") !== copy.copyID)
+    return undefined;
   const files = [...data.files];
   const text = lines(data.getData("text/plain"));
   /// Each item's file in the paste, by item.
@@ -173,17 +203,21 @@ export const pastesPlaced = new WeakSet<Event>();
 /// written by the host as their own items. The field already put the text there, so a host that
 /// refuses (no gesture, a page outside the app) leaves the text copied.
 export function writeComposerCopy(copy: ComposerCopy) {
-  rememberCopy(copy);
-  void postNative<{ files?: { item?: unknown; name?: unknown }[] }>("composer.copy", {
+  const storage = globalStorage();
+  const revision = rememberCopy(copy, undefined, storage);
+  void postNative<{ copyID?: string; files?: { item?: unknown; name?: unknown }[] }>("composer.copy", {
     text: copy.text,
     items: copy.items,
   })
     .then((reply) => {
+      if (remembered(storage)?.revision !== revision) return;
       const files: (string | null)[] = copy.items.map(() => null);
       for (const each of reply?.files ?? [])
         if (typeof each.item === "number" && typeof each.name === "string" && each.item < files.length)
           files[each.item] = each.name;
-      rememberCopy(copy, files);
+      rememberCopy(copy, files, storage, reply?.copyID);
     })
-    .catch(() => rememberCopy(copy, []));
+    .catch(() => {
+      if (remembered(storage)?.revision === revision) forgetCopy(storage);
+    });
 }

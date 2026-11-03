@@ -19,7 +19,7 @@ struct AgentPaneRelayedAllowTests {
     final class PageInbox: @unchecked Sendable { // crash-allow: test support; every access holds the lock
         private let state = Mutex<(frames: [String], waiters: [(String, CheckedContinuation<String, Never>)])>(([], []))
 
-        func deliver(_ frames: [String]) {
+        nonisolated func deliver(_ frames: [String]) {
             let ready = state.withLock { state -> [(CheckedContinuation<String, Never>, String)] in
                 state.frames += frames
                 var ready: [(CheckedContinuation<String, Never>, String)] = []

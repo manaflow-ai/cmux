@@ -4,6 +4,9 @@
 // closed. Leo, 2026-11-02: "the entire ... point was to have it look good work good HAVE THE ...
 // TOGGLED HIGHLIGHT".
 import { afterEach, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import vm from "node:vm";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -137,6 +140,8 @@ async function mount() {
     root.render(<Pane />);
   });
   await flushFrames();
+  // The page told the App about its panel on mount, so a closed state below is the App's too.
+  expect(sent.length).toBeGreaterThan(0);
   const toggle = () => container.querySelector<HTMLButtonElement>("button.acpmux-session-info-toggle")!;
   // A chat's panel may start open (its saved state); every case starts from closed.
   if (toggle().getAttribute("aria-pressed") === "true") {
@@ -221,4 +226,32 @@ test("switching the pane to another chat shows that chat's state on the toggle a
   await flushFrames();
   expect(nativeOpen()).toBe(true);
   expect(pressed(toggle())).toBe(true);
+});
+
+/// The old host's action script exactly as the App writes it (AgentPaneSessionInfo.actionScript), for
+/// the action `id`: its Swift template with the JSON value in place of `\(value.compactText)`.
+function oldHostActionScript(id: string): string {
+  const swift = readFileSync(
+    join(import.meta.dir, "../../Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneSessionInfo.swift"),
+    "utf8",
+  );
+  const template = /return "(window\.cmuxAcpmuxSessionInfo[^"]*\\\(value\.compactText\)[^"]*)"/.exec(swift)?.[1];
+  if (!template) throw new Error("AgentPaneSessionInfo.actionScript's template was not found");
+  return template.replace("\\(value.compactText)", JSON.stringify(id));
+}
+
+test("the old host's close script parses, reaches the page and turns the toggle off", async () => {
+  const toggle = await mount();
+  await click(toggle());
+  expect(pressed(toggle())).toBe(true);
+  const script = oldHostActionScript("close");
+  // `?.action?(…)` (before #32673) is a syntax error: the close never reached the page.
+  expect(script).toContain("?.action?.(");
+  expect(() => new vm.Script(script.replace("?.action?.(", "?.action?("))).toThrow(SyntaxError);
+  const bridge = { host: setNativeSessionInfoHost, action: runNativeSessionInfoAction };
+  const compiled = new vm.Script(script);
+  await act(async () => compiled.runInNewContext({ window: { cmuxAcpmuxSessionInfo: bridge } }));
+  await flushFrames();
+  expect(nativeOpen()).toBe(false);
+  expect(pressed(toggle())).toBe(false);
 });

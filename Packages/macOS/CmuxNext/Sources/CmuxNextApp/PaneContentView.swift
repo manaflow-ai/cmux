@@ -16,19 +16,17 @@ import os
 /// between them, a browser's toolbar included.
 final class PaneContentView: NSView, PaneContentChrome {
     let stripView: TabStripView
-    /// The strip's colors: its pane's scope, subtler while another pane
-    /// has focus (`setChromeEmphasis`).
-    private let stripScope = ThemeScope(level: .terminal)
+    /// The strip's colors: its pane's scope, subtler while another pane has focus (`setChromeEmphasis`). Chrome, not
+    /// `.terminal`, which keeps the terminal theme under an App Theme (`PaneStripAppThemeTests`).
+    private let stripScope = ThemeScope(level: .workspace)
     /// The pane's own scope, under its workspace's: it pins nothing unless the pane has its own
     /// background (`PaneContentView+Backdrop`), so its strip and content inherit as before.
     let paneScope = ThemeScope(level: .workspace)
     /// The pane's own background and tint (`PaneContentView+Backdrop`).
     let backdropState = PaneBackdropState()
     private var paneBackgroundsObservation: Task<Void, Never>?
+    private var loneTabObservation: Task<Void, Never>?
     let contentHost = NSView()
-    /// The surface of the content sharing the tab row now (``PaneTabRowSharing/tabRowSurface``), whose
-    /// background the strip paints behind its tabs (``paintStrip()``); nil while nothing shares it.
-    private(set) var rowSurface: SurfaceKind?
     private(set) weak var content: NSView?
     /// Explicitly observed ownership: first-paint holds can change this without a tab-store update.
     let nativeToolOwner = PaneNativeToolOwner()
@@ -136,6 +134,9 @@ final class PaneContentView: NSView, PaneContentChrome {
                 self?.refreshBandHeight()
             }
         }
+        loneTabObservation = Task { [weak self] in // a lone tab gives a chat the whole row (layout)
+            for await _ in ObservationStream({ stripModel.hasLoneTab }) { self?.needsLayout = true }
+        }
         paneBackgroundsObservation = Task { [weak self] in
             for await _ in ObservationStream({ DesignSettings.shared.paneBackgrounds }) { self?.paintPaneBackdrop() }
         }
@@ -160,6 +161,7 @@ final class PaneContentView: NSView, PaneContentChrome {
             tokenObservation?.cancel()
             placementObservation?.cancel()
             paneBackgroundsObservation?.cancel()
+            loneTabObservation?.cancel()
             agentTagObservation?.cancel()
         }
     }
@@ -173,12 +175,11 @@ final class PaneContentView: NSView, PaneContentChrome {
         // Pinned to a browser's band, the strip follows its constraints and
         // the browser fills the pane (its band holds the strip's place).
         let shown = shownStripHeight
-        stripView.isHidden = shown <= 0
         toolbar?.view.isHidden = shown <= 0
         let tools = toolbarWidth(shown: shown), room = bounds.width - tools, row = onTop && !isBandActive && !hidesStrip && hostsContent && shown > 0 ? content as? PaneTabRowSharing : nil
         let rowContent = row?.fitsTabRow(room: room) == true ? row : nil, rowTools = rowContent?.tabRowWidth(room: room) ?? 0 // a chat's tools in the row when they fit (PaneTabRowSharing)
-        let surface = rowTools > 0 ? rowContent?.tabRowSurface : nil
-        if surface != rowSurface { rowSurface = surface; paintStrip() }
+        let loneTab = rowTools > 0 && rowContent?.tabRowTakesLoneTab == true && stripView.model.hasLoneTab // TabStripModel.hasLoneTab
+        stripView.isHidden = shown <= 0 || loneTab
         if !isBandActive {
             stripView.frame = NSRect(x: 0, y: onTop ? 0 : bounds.height - shown, width: bounds.width - tools - rowTools, height: shown)
             toolbar?.view.frame = NSRect(x: bounds.width - tools, y: stripView.frame.minY, width: tools, height: shown)
@@ -223,7 +224,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         }
         layoutParked()
         layoutAgentTag()
-        if hostsContent, let sharing = content as? PaneTabRowSharing { sharing.offerTabRow(height: rowContent == nil ? 0 : shown, trailingInset: tools, in: self) }
+        if hostsContent, let sharing = content as? PaneTabRowSharing { sharing.offerTabRow(height: rowContent == nil ? 0 : shown, trailingInset: tools, tabs: !loneTab, toolbar: toolbar?.view, in: self) } else { toolbar?.view.paintTabRowHole(nil) }
         if hostChanged { onResize?() }
     }
 
@@ -469,15 +470,12 @@ final class PaneContentView: NSView, PaneContentChrome {
         paintPaneBackdrop()
     }
 
-    /// The strip: clear, or the user's tab bar background (R55). While a chat shares the row, the
-    /// background its page paints under the header (``PaneTabRowSharing/tabRowSurface``), so the row
-    /// behind the tabs and the chat's tools is one fill with no band of its own.
+    /// The strip: clear, or the user's tab bar background (R55). A chat sharing the row never gives it
+    /// a fill: the row, its tabs and the chat's tools sit on the window's own glass (Leo, 2026-11-03,
+    /// on the chat's color behind the header buttons: "it's so obvious to just remove the thing").
     func paintStrip() {
         stripView.wantsLayer = true
-        let surface = rowSurface
-        stripView.layer?.backgroundColor = stripView.performWithTheme {
-            (Palette.surfaceOverride(.tabBar) ?? surface.flatMap { Palette.surfaceOverride($0) })?.cgColor
-        }
+        stripView.layer?.backgroundColor = stripView.performWithTheme { Palette.surfaceOverride(.tabBar)?.cgColor }
     }
 }
 // A terminal or page edge inside the titlebar band never moves the window;

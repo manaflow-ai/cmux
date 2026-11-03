@@ -9,6 +9,8 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case select(WorkspaceID)
     /// Show one of a workspace's tabs (a row of its hover card).
     case selectTab(workspace: WorkspaceID, tab: TabID)
+    /// Close one of a workspace's tabs (a row's ✕ on its hover card); the card stays open.
+    case closeTab(workspace: WorkspaceID, tab: TabID)
     /// Move workspaces, in tree order, to a position. Covers reorder, moving
     /// into or out of groups, pinning, and unpinning.
     case reorder([WorkspaceID], to: DropPosition)

@@ -6,7 +6,7 @@ import SwiftUI
 /// the clock and how many of this Mac's agents run a turn. A click anywhere
 /// but the Lock Mac button wakes it. The sky is Core Animation layers
 /// (``NightSkyView``), so a scene left up for hours costs the main thread only
-/// the clock's update once a second.
+/// the clock's update once a minute and changes to the agent count.
 struct SleepySceneView: View {
     let workingAgents: @MainActor () -> Int
     let wake: @MainActor () -> Void
@@ -26,16 +26,16 @@ struct SleepySceneView: View {
                 Image(systemName: "moon.zzz.fill")
                     .font(.system(size: 96, weight: .regular))
                     .foregroundStyle(Color(red: 1.0, green: 0.92, blue: 0.62))
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    VStack(spacing: 8) {
+                VStack(spacing: 8) {
+                    TimelineView(.everyMinute) { context in
                         Text(context.date, format: .dateTime.hour().minute())
                             .font(.system(size: 64, weight: .thin, design: .rounded))
                             .monospacedDigit()
-                        let working = workingAgents()
-                        Text(working == 0 ? SleepyModeStrings.noAgentsWorking : SleepyModeStrings.agentsWorking(working))
-                            .font(.title3)
-                            .foregroundStyle(.white.opacity(0.7))
                     }
+                    let working = workingAgents()
+                    Text(working == 0 ? SleepyModeStrings.noAgentsWorking : SleepyModeStrings.agentsWorking(working))
+                        .font(.title3)
+                        .foregroundStyle(.white.opacity(0.7))
                 }
                 .foregroundStyle(.white)
                 .allowsHitTesting(false)
