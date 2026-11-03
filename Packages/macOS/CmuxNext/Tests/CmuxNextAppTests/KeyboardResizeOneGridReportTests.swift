@@ -70,7 +70,7 @@ struct KeyboardResizeOneGridReportTests {
         }
     }
 
-    /// p1 | p2 in one column, a terminal in each, p2 focused; the test is the clock.
+    /// p1 | p2 (or p1 over p2) in one column, a terminal in each, p2 focused; the test is the clock.
     final class Rig {
         let provider = Panes()
         let model: LayoutModel
@@ -79,10 +79,10 @@ struct KeyboardResizeOneGridReportTests {
         /// The work the landing left for after its frame's commit, run when the test says.
         var afterCommit: [@MainActor () -> Void] = []
 
-        init() throws {
+        init(axis: SplitAxis) throws {
             _ = NSApplication.shared
             _ = GhosttyRuntime.shared
-            let columns = [LayoutColumn(id: "c0", width: 1, root: .split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")))]
+            let columns = [LayoutColumn(id: "c0", width: 1, root: .split("x", axis: axis, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")))]
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(columns))], activeScreenID: "s", focusedPane: "p2")
             root = LayoutRootView(model: model, contentProvider: provider)
             root.context.reduceMotionOverride = false
@@ -121,10 +121,11 @@ struct KeyboardResizeOneGridReportTests {
         }
     }
 
-    /// Ctrl-Shift-H or Ctrl-Shift-L on p2 (`resizePaneLeft`, `resizePaneRight`): one terminal grows, the other shrinks.
-    @Test(arguments: [LayoutDirection.left, .right])
+    /// Ctrl-Shift-H, L, K or J on p2 (`resizePaneLeft`, `resizePaneRight`, `resizePaneUp`, `resizePaneDown`): one
+    /// terminal grows, the other shrinks.
+    @Test(arguments: [LayoutDirection.left, .right, .up, .down])
     func aKeyPressSendsEachTerminalOnlyItsFinalGridAndNoSurfaceTakesItsStartSizeAgain(direction: LayoutDirection) async throws {
-        let rig = try Rig()
+        let rig = try Rig(axis: direction == .left || direction == .right ? .horizontal : .vertical)
         defer { rig.close() }
         // The launch's grids (the first layout) are not this press's.
         for pane in Rig.panes { _ = try await rig.grids(pane) }
