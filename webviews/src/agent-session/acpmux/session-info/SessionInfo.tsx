@@ -286,9 +286,10 @@ export const sessionInfoPushes = (
 /// moves right as the chat widens.
 const columnEnd = (chatWidth: number, column?: ChatColumn) => chatWidth - transcriptColumn(chatWidth, column).inset;
 
-/// A room of an even number of pixels: the column centered in the chat beside it then starts on a
-/// whole pixel and keeps the width it has in the whole pane (pushKeepsColumn), never a pixel less.
-const even = (room: number) => Math.ceil(room / 2) * 2;
+/// A room of a multiple of 8 pixels: the column's inset is on the 4 grid (model.ts transcriptColumn,
+/// design/grid.md 5.5), so the column centered in the chat beside it then starts on it and keeps the
+/// width it has in the whole pane (pushKeepsColumn), never a pixel less.
+const even = (room: number) => Math.ceil(room / 8) * 8;
 
 /// The room a pushed panel `panel` wide (pushedWidth) takes from the chat's right end: by default only
 /// what the gutter lacks, so the chat narrows gradually from the pane width where the gutter stops

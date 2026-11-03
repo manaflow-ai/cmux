@@ -1354,7 +1354,8 @@ const FALLBACK_CHAR_WIDTH = 8;
 const PAGE_EDGE = gridLength("icon-box");
 export function transcriptColumn(paneWidth: number, { min, max, share }: ChatColumn = chatColumn(), endReserve = 0) {
   const column = Math.min(max, Math.max(min, paneWidth * share));
-  const inset = Math.max(PAGE_EDGE * gridScale(), Math.round((paneWidth - column) / 2));
+  // On the 4 grid (design/grid.md 5.5), as `round(down, ..., 4px)` in conversation.css.
+  const inset = Math.max(PAGE_EDGE * gridScale(), 4 * Math.floor((paneWidth - column) / 8));
   const insetEnd = Math.max(inset, endReserve);
   return { inset, insetEnd, width: paneWidth - inset - insetEnd };
 }
