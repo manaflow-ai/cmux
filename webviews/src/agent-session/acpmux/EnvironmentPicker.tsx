@@ -257,13 +257,27 @@ export function EnvironmentPicker({
       ),
     [ordered, sections, words],
   );
+  // Each saved environment's name (savedEnvironmentLabel); one that would still read as a machine's
+  // own row ("cmux16", no folder) says it is saved.
+  const savedLabels = useMemo(() => {
+    const machineNames = new Set(environments.map((environment) => environment.label.toLowerCase()));
+    return new Map(
+      listedSaved.map((environment) => {
+        const label = savedEnvironmentLabel(environment);
+        return [
+          environment.id,
+          machineNames.has(label.toLowerCase()) ? `${label} · ${t("composer.envSaved")}` : label,
+        ] as const;
+      }),
+    );
+  }, [environments, listedSaved]);
   // The saved environments, first, by name, machine and the Saved section's name.
   const savedShown = useMemo(
     () =>
       listedSaved.filter((environment) =>
-        matches(words, `${savedEnvironmentLabel(environment)} ${t("composer.envSaved")}`),
+        matches(words, `${savedLabels.get(environment.id) ?? environment.name} ${t("composer.envSaved")}`),
       ),
-    [listedSaved, words],
+    [listedSaved, savedLabels, words],
   );
   // Each shown row's environment and place in the list.
   const positions = useMemo(
@@ -500,7 +514,7 @@ export function EnvironmentPicker({
         >
           <EnvironmentIcon kind={environment.kind} />
           <span className="acpmux-menu-text acpmux-location-name">
-            <span className="acpmux-menu-label">{savedEnvironmentLabel(environment)}</span>
+            <span className="acpmux-menu-label">{savedLabels.get(environment.id) ?? environment.name}</span>
           </span>
           <span className="acpmux-location-check" aria-hidden="true">
             {value === checkedRow && <CheckIcon />}

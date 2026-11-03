@@ -202,9 +202,17 @@ export function savedEnvironmentIsFolder(environment: SavedEnvironmentDraft): bo
 
 /// A saved environment's name as the picker shows it: an SSH one says its machine too, unless its
 /// name already does, so a row named after a folder ("Projects") never hides which machine it is on.
+/// One named just after its machine says its folder ("cmux16 · Projects"), so it never reads as the
+/// machine's own row (Claude Desktop listed "cmux16" twice).
 export function savedEnvironmentLabel(environment: SavedEnvironmentDraft): string {
   const host = environment.kind === "ssh" ? environment.host : undefined;
-  if (!host || environment.name.toLowerCase().includes(host.toLowerCase())) return environment.name;
+  if (!host) return environment.name;
+  const name = environment.name.toLowerCase();
+  if (name === host.toLowerCase()) {
+    const folder = environment.folder?.replace(/\/+$/, "").split("/").pop();
+    return folder ? `${environment.name} · ${folder}` : environment.name;
+  }
+  if (name.includes(host.toLowerCase())) return environment.name;
   return `${environment.name} · ${host}`;
 }
 
