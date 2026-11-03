@@ -77,7 +77,7 @@ describe("Slack conversation adapter", () => {
     expect(h.receive()).toMatchObject({ ok: true })
     h.expire(root)
     expect(h.receive({ slackUserName: "Updated" })).toMatchObject({ ok: true, changed: false, value: { message_id: root, expired: true } })
-    expect(h.message(root)).toBeUndefined()
+    expect(h.rows.get(conversation.TABLE_MSG, root)).toBeUndefined()
     expect(h.state().last_seq).toBe(1)
   })
 
