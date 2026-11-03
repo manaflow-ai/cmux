@@ -149,8 +149,8 @@ how long it may take (it plans the leases). Copy `journeys/p0/type.json` (the sm
 
 | `do` | Fields | What it does |
 | --- | --- | --- |
-| `new_terminal` | `via`, `name` | `via: "key"`: the person's New Terminal Tab key (Ctrl-\`, newSurface) through `debug.key` (origin user: it claims the window's keyboard), then as `focused_terminal`; use it in every journey that plays what a person does. `via: "socket"` (the default, kept for older journeys): `action.run newTab` named `name` (focused); waits for the new focused terminal pane and its first prompt; later steps use that terminal |
-| `script_new_terminal` | `name`, `focus` | automation on purpose: a script's `action.run newTab` through the socket; waits for the topology to list workspace `name` with a terminal and its first prompt, without waiting for it to show (a script's newTab does not take a text input the person has: cp/fix-chief-composer-focus) |
+| `new_terminal` | `via`, `name` | `via: "key"`: the person's New Terminal Tab key (Ctrl-\`, newSurface) through `debug.key` (origin user: it claims the window's keyboard), then as `focused_terminal`; use it in every journey that plays what a person does. `via: "socket"` (the default, kept for older journeys): `action.run newTab` named `name` (focused); waits for the new focused terminal pane that holds the terminal the reply says it created (else the pane view's own creation key) and its first prompt; later steps use that terminal |
+| `script_new_terminal` | `name`, `focus` | automation on purpose: a script's `action.run newTab` through the socket; adopts the terminal the reply says it created (`created`: the daemon's public id at once, or the creation's host id once its tab is the daemon's) and waits for its first prompt, without waiting for the workspace to show (a script's newTab does not take a text input the person has: cp/fix-chief-composer-focus); a reply that names no created terminal fails the step |
 | `neutral_prompt` | | writes `PS1='J> '` (zsh and bash), `cd /tmp` and a clear into the PTY through the daemon (set-up, not under test; no host, user or path in any frame) |
 | `type` | `text`, `enter`, `mark` | presses each character with `debug.key`, then Return when `enter` |
 | `key` | `key`, `modifiers`, `mark` | one `debug.key` (`modifiers`: `control`, `shift`, `option`, `cmd`; named keys: `return`, `escape`, `tab`, `space`, `up`, `down`, `left`, `right`, `delete`, `pageup`, ...) |
@@ -248,10 +248,21 @@ corrupted one).
 ```
 
 `marker_install` writes the program to `/tmp/jr-m-<nonce>` and binds `${marker}`; the program prints the token as a
-text line (the daemon and app checks see what `echo` printed) and the marker below it. The pane needs at least 30
-columns (the program says so and exits 3 otherwise). `frame_marker_lacks {"token": T, "with": W}` replaces
-`frame_lacks`: it holds only on a frame that shows W's marker. A check's detail lists each marker it found (its
-position, cell width and 24-bit digest, the first six hex digits of sha256 of its token).
+text line (the daemon and app checks see what `echo` printed), a blank line, the marker and a blank line (no glyph of
+a text line can reach a marker pixel row). It needs the pane's own width to be at least 30 columns (it reads the
+terminal's size, not an exported `COLUMNS`; it exits 3 when the pane is narrower and 4 when its output is no
+terminal), and the typed command line itself is about 40 columns. `frame_marker_lacks {"token": T, "with": W}` is the
+negative for the journey's own lines (the frame negative for other text stays `frame_screen` `lacks`): it holds only
+on a frame that shows W's marker and has no unreadable marker; it proves the absence only where the frame shows the
+pane, so a marker scrolled away or covered is not seen either way. A check's detail lists each marker it found (its
+position, cell width, line height and 24-bit digest, the first six hex digits of sha256 of its token).
+
+What a marker proves and what it does not: that this run's terminal output reached the window's pixels, at the cell
+grid, in colors a capture keeps. It draws cell backgrounds only, so it does not prove that glyphs render: a build that
+draws no text would still show markers. Journeys that check the app's own text keep `frame_text` (no fold, no second
+reading; a misread there is "not judged: reader misread"). Real-app rounds (2026-11-03): 1x on cmux21 (8 x 17 px
+cells) and 2x on cmux23 with `--vdisplay 120x2` (16 x 34 px cells), 0 unreadable markers in 938 reads. A frame
+check at 2x takes about 1.5-1.8 s on a mini (the standard-library reader of a 2200x1440 snapshot).
 
 ### Step groups (`ext_*.py`)
 

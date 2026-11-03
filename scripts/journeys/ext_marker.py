@@ -43,7 +43,6 @@ import hashlib
 import itertools
 import os
 import re
-import shutil
 import struct
 import sys
 import zlib
@@ -124,29 +123,43 @@ def marker_cells(token):
 # ---- reading a frame -------------------------------------------------------------------------------------------------
 def read_png(path):
     """(width, height, rows) of an 8-bit RGB or RGBA PNG, no interlace (the app's window snapshots); rows[y] is width
-    x 4 bytes RGBA. Standard library only. Anything else raises ValueError."""
+    x 4 bytes RGBA. Standard library only. Anything else, a cut or damaged file included, raises ValueError (the
+    driver's checks catch it: the check fails with the reason, the journey and the driver run go on)."""
+    name = Path(path).name
     data = Path(path).read_bytes()
     if data[:8] != b"\x89PNG\r\n\x1a\n":
-        raise ValueError(f"{Path(path).name}: not a PNG")
+        raise ValueError(f"{name}: not a PNG")
     pos, idat, head = 8, [], None
-    while pos + 8 <= len(data):
+    while True:
+        if pos + 12 > len(data):
+            raise ValueError(f"{name}: the file ends inside a chunk at byte {pos} (a cut file: no IEND)")
         size = struct.unpack(">I", data[pos:pos + 4])[0]
         kind = data[pos + 4:pos + 8]
+        if pos + 12 + size > len(data):
+            raise ValueError(f"{name}: chunk {kind!r} at byte {pos} says {size} bytes; the file ends before them")
+        body = data[pos + 8:pos + 8 + size]
         if kind == b"IHDR":
-            head = struct.unpack(">IIBBBBB", data[pos + 8:pos + 21])
+            if size != 13:
+                raise ValueError(f"{name}: IHDR of {size} bytes (13 expected)")
+            head = struct.unpack(">IIBBBBB", body)
         elif kind == b"IDAT":
-            idat.append(data[pos + 8:pos + 8 + size])
+            idat.append(body)
         elif kind == b"IEND":
             break
         pos += 12 + size
     if head is None:
-        raise ValueError(f"{Path(path).name}: no IHDR")
+        raise ValueError(f"{name}: no IHDR")
+    if not idat:
+        raise ValueError(f"{name}: no IDAT")
     width, height, depth, color, _, _, interlace = head
     if depth != 8 or color not in (2, 6) or interlace:
-        raise ValueError(f"{Path(path).name}: unsupported PNG (bit depth {depth}, color type {color}, interlace {interlace})")
+        raise ValueError(f"{name}: unsupported PNG (bit depth {depth}, color type {color}, interlace {interlace})")
     bpp = 4 if color == 6 else 3
     stride = width * bpp
-    raw = zlib.decompress(b"".join(idat))
+    try:
+        raw = zlib.decompress(b"".join(idat))
+    except zlib.error as error:
+        raise ValueError(f"{name}: the pixel data does not decompress: {error}") from error
     if len(raw) != height * (stride + 1):
         raise ValueError(f"{Path(path).name}: {len(raw)} bytes of pixel data for {width}x{height}")
     rows, prev, at = [], bytearray(stride), 0
@@ -342,12 +355,18 @@ def main(argv):
         sys.stderr.write("usage: jr-mark TOKEN (1-64 printable ASCII characters, no spaces)\n")
         return 2
     token = argv[1]
-    columns = shutil.get_terminal_size(fallback=(80, 24)).columns
+    # The terminal's own width (an exported COLUMNS need not be the pane's): a marker is drawn by a terminal only.
+    try:
+        columns = os.get_terminal_size(sys.stdout.fileno()).columns
+    except OSError:
+        print("jr-mark: the output is not a terminal; a marker is drawn by the terminal that shows it")
+        return 4
     if columns < MARKER_CELLS:
         print(f"jr-mark: the pane has {columns} columns; a marker needs {MARKER_CELLS}")
         return 3
     cells = "".join("\x1b[48;2;%d;%d;%dm " % color for color in marker_cells(token))
-    sys.stdout.write(token + "\n" + cells + "\x1b[0m\n")
+    # A blank line before and after the cells: no glyph of a text line above or below can reach a marker pixel row.
+    sys.stdout.write(token + "\n\n" + cells + "\x1b[0m\n\n")
     sys.stdout.flush()
     return 0
 
