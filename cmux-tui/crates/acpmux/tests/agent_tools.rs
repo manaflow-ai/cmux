@@ -187,33 +187,49 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
         upstreams.as_array().unwrap().iter().filter_map(|s| s["name"].as_str()).collect();
     assert_eq!(
         names,
-        ["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux-subsessions", "cmux-forum", "acpmux"],
+        [
+            "cmux-cua",
+            "cmux-secrets",
+            "cmux-mcp",
+            "cmux-sessions",
+            "cmux-subsessions",
+            "cmux-forum",
+            "acpmux"
+        ],
         "{upstreams}"
     );
     assert_eq!(upstreams[0]["command"], json!(cua), "{upstreams}");
     assert_eq!(upstreams[1]["args"], json!(["secret-mcp"]), "{upstreams}");
     assert_eq!(upstreams[1]["env"]["ACPMUX_SECRET_SESSION"], json!(id), "{upstreams}");
-    assert_eq!(upstreams[2]["args"], json!(["offer-mcp"]), "{upstreams}");
-    assert_eq!(upstreams[2]["env"]["ACPMUX_OFFER_SESSION"], json!(id), "{upstreams}");
+    // The connected MCP servers (`mcp_proxy.rs`): the proxy proves this session with its caller
+    // token, on this daemon's socket only, and holds no key or token.
+    assert_eq!(upstreams[2]["args"], json!(["mcp-proxy"]), "{upstreams}");
+    assert_eq!(upstreams[2]["env"]["ACPMUX_MCP_SESSION"], json!(id), "{upstreams}");
+    let proxy_env = upstreams[2]["env"].to_string();
+    for key in ["ACPMUX_SESSION_ID", "ACPMUX_SESSION_TOKEN", "ACPMUX_SESSION_TOKEN_SOCKET"] {
+        assert!(proxy_env.contains(key), "{key}: {upstreams}");
+    }
+    assert_eq!(upstreams[3]["args"], json!(["offer-mcp"]), "{upstreams}");
+    assert_eq!(upstreams[3]["env"]["ACPMUX_OFFER_SESSION"], json!(id), "{upstreams}");
     // Sub-sessions (`subsession_mcp.rs`), on by default: the server acts as
     // this session with its caller token, on this daemon's socket only.
-    assert_eq!(upstreams[3]["args"], json!(["subsession-mcp"]), "{upstreams}");
-    let sub_env = upstreams[3]["env"].to_string();
+    assert_eq!(upstreams[4]["args"], json!(["subsession-mcp"]), "{upstreams}");
+    let sub_env = upstreams[4]["env"].to_string();
     for key in ["ACPMUX_SESSION_ID", "ACPMUX_SESSION_TOKEN", "ACPMUX_SESSION_TOKEN_SOCKET"] {
         assert!(sub_env.contains(key), "{key}: {upstreams}");
     }
     assert!(sub_env.contains(&id), "{upstreams}");
     // The forum tools (`forum_mcp.rs`) act as this session the same way.
-    assert_eq!(upstreams[4]["args"], json!(["forum-mcp"]), "{upstreams}");
-    let forum_env = upstreams[4]["env"].to_string();
+    assert_eq!(upstreams[5]["args"], json!(["forum-mcp"]), "{upstreams}");
+    let forum_env = upstreams[5]["env"].to_string();
     for key in ["ACPMUX_SESSION_ID", "ACPMUX_SESSION_TOKEN", "ACPMUX_SESSION_TOKEN_SOCKET"] {
         assert!(forum_env.contains(key), "{key}: {upstreams}");
     }
     assert!(forum_env.contains(&id), "{upstreams}");
     // Messaging other sessions (`acpmux_mcp.rs`): acpmux_send and the reads act as this session
     // the same way, so a message it sends is this session's, never the person's.
-    assert_eq!(upstreams[5]["args"], json!(["acpmux-mcp"]), "{upstreams}");
-    let lanes_env = upstreams[5]["env"].to_string();
+    assert_eq!(upstreams[6]["args"], json!(["acpmux-mcp"]), "{upstreams}");
+    let lanes_env = upstreams[6]["env"].to_string();
     for key in ["ACPMUX_SESSION_ID", "ACPMUX_SESSION_TOKEN", "ACPMUX_SESSION_TOKEN_SOCKET"] {
         assert!(lanes_env.contains(key), "{key}: {upstreams}");
     }
@@ -338,7 +354,7 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     )
     .unwrap();
     assert_eq!(upstreams[0]["command"], json!(cua), "{config}");
-    assert_eq!(upstreams[2]["args"], json!(["offer-mcp"]), "{config}");
+    assert_eq!(upstreams[3]["args"], json!(["offer-mcp"]), "{config}");
     assert!(!argv.iter().any(|a| a == "--strict-mcp-config"), "the user's servers stay: {argv:?}");
     let at = argv.iter().position(|a| a == "--plugin-dir").expect("--plugin-dir");
     let plugin = PathBuf::from(&argv[at + 1]);

@@ -141,6 +141,7 @@ fn own_servers_run_under_the_daemon_prefix() {
         [
             (crate::cua_v2::SERVER_NAME, "cua-mcp"),
             (crate::secret_mcp::SERVER_NAME, "secret-mcp"),
+            (crate::mcp_proxy::SERVER_NAME, "mcp-proxy"),
             (crate::offer_mcp::SERVER_NAME, "offer-mcp"),
             (crate::subsession_mcp::SERVER_NAME, "subsession-mcp"),
             (crate::forum_mcp::SERVER_NAME, "forum-mcp"),

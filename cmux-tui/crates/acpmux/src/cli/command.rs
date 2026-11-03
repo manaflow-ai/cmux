@@ -432,6 +432,10 @@ pub enum Command {
     /// server for one agent session (agent_tools.rs registers it; not for people).
     #[command(hide = true)]
     SecretMcp,
+    /// The MCP servers the person connected through cmux: an MCP stdio server for one agent
+    /// session whose calls the daemon makes (agent_tools.rs registers it; not for people).
+    #[command(hide = true)]
+    McpProxy,
     /// The agent's offer_session tool: an MCP stdio server for one agent
     /// session (agent_tools.rs registers it; not for people).
     #[command(hide = true)]

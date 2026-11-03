@@ -667,6 +667,19 @@ pub mod method {
     /// answers, with `mcp_connect_answer`.
     pub const MUX_MCP_CONNECT_REQUEST: &str = "_acpmux/mcp_connect_request";
     pub const MUX_MCP_CONNECT_ANSWER: &str = "_acpmux/mcp_connect_answer";
+    /// The approved connections at work (`hub/mcp_calls.rs`). `mcp-proxy` (the chat's caller)
+    /// lists, calls and watches; the person lists all, answers a call card, sets a tool's policy,
+    /// gives a key, signs in, removes, and reads the audit log.
+    pub const MUX_MCP_TOOLS: &str = "_acpmux/mcp_tools";
+    pub const MUX_MCP_CALL: &str = "_acpmux/mcp_call";
+    pub const MUX_MCP_WATCH: &str = "_acpmux/mcp_watch";
+    pub const MUX_MCP_CONNECTIONS: &str = "_acpmux/mcp_connections";
+    pub const MUX_MCP_CALL_ANSWER: &str = "_acpmux/mcp_call_answer";
+    pub const MUX_MCP_POLICY: &str = "_acpmux/mcp_policy";
+    pub const MUX_MCP_SET_KEY: &str = "_acpmux/mcp_set_key";
+    pub const MUX_MCP_SIGN_IN: &str = "_acpmux/mcp_sign_in";
+    pub const MUX_MCP_REMOVE: &str = "_acpmux/mcp_remove";
+    pub const MUX_MCP_AUDIT: &str = "_acpmux/mcp_audit";
     /// An agent offers the person a parallel chat (`hub/offers.rs`): a chip
     /// the person accepts or dismisses with `offer_respond`.
     pub const MUX_OFFER_SESSION: &str = "_acpmux/offer_session";

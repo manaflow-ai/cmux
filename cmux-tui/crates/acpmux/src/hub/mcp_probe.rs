@@ -45,6 +45,8 @@ struct Conn {
 enum Sent {
     Reply(String, String),
     Unauthorized(String),
+    /// HTTP 404 to a request with a session id: the server forgot the session.
+    Expired,
 }
 
 impl Conn {
@@ -80,6 +82,9 @@ impl Conn {
                 .unwrap_or_default()
                 .to_owned();
             return Ok(Sent::Unauthorized(challenge));
+        }
+        if status.as_u16() == 404 && self.session.is_some() {
+            return Ok(Sent::Expired);
         }
         if status.is_redirection() {
             return Err("the server redirected; cmux does not follow it".to_owned());
@@ -128,6 +133,99 @@ fn sign_in(challenge: &str) -> Probe {
     }
 }
 
+/// The HTTP client of every MCP request: a timeout, and redirects off (T4).
+fn client() -> Option<reqwest::Client> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    reqwest::Client::builder()
+        .timeout(TIMEOUT)
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .ok()
+}
+
+/// What one tool call came back with.
+#[derive(Debug)]
+pub enum Called {
+    /// The server's `tools/call` result (its `content`, `isError` and the rest).
+    Result(Value),
+    /// The server wants a (new) sign-in.
+    SignIn { resource_metadata: Option<String>, scopes: Vec<String> },
+    /// The call failed; the text names why and holds no secret.
+    Failed(String),
+}
+
+/// Calls the server's tool `name` at `url` with `arguments`. `session` is the MCP session id an
+/// earlier call kept: when the server forgot it (404), or there is none, the call starts a new
+/// one first. Returns the result and the session id to keep.
+pub async fn call_tool(
+    url: &str,
+    key: Option<KeyHeader<'_>>,
+    session: Option<String>,
+    name: &str,
+    arguments: &Value,
+) -> (Called, Option<String>) {
+    let target = match check_url(url) {
+        Ok(t) => t,
+        Err(refusal) => return (Called::Failed(refusal.0), None),
+    };
+    let Some(http) = client() else {
+        return (Called::Failed("could not start an HTTP client".to_owned()), None);
+    };
+    let key = key.as_ref();
+    let mut conn = Conn { http, url: target.url.clone(), session };
+    for attempt in 0..2 {
+        if conn.session.is_none() || attempt > 0 {
+            conn.session = None;
+            match conn.post(&initialize_body(1), Some(1), key).await {
+                Ok(Sent::Unauthorized(c)) => {
+                    return (
+                        Called::SignIn {
+                            resource_metadata: resource_metadata_url(&c),
+                            scopes: challenge_scopes(&c),
+                        },
+                        None,
+                    );
+                }
+                Ok(Sent::Reply(ct, body)) => {
+                    if let Err(refusal) = reply_result(&ct, &body, 1) {
+                        return (Called::Failed(refusal.0), None);
+                    }
+                }
+                Ok(Sent::Expired) => {
+                    return (Called::Failed("the server ended the session".to_owned()), None);
+                }
+                Err(e) => return (Called::Failed(e), None),
+            }
+            let _ = conn.post(&initialized_note(), None, key).await;
+        }
+        let body = cmux_mcp_connect::wire::tools_call_body(2, name, arguments);
+        match conn.post(&body, Some(2), key).await {
+            Ok(Sent::Expired) if attempt == 0 => continue,
+            Ok(Sent::Expired) => {
+                return (Called::Failed("the server ended the session".to_owned()), None);
+            }
+            Ok(Sent::Unauthorized(c)) => {
+                return (
+                    Called::SignIn {
+                        resource_metadata: resource_metadata_url(&c),
+                        scopes: challenge_scopes(&c),
+                    },
+                    None,
+                );
+            }
+            Ok(Sent::Reply(ct, body)) => {
+                let out = match reply_result(&ct, &body, 2) {
+                    Ok(result) => Called::Result(result),
+                    Err(refusal) => Called::Failed(refusal.0),
+                };
+                return (out, conn.session);
+            }
+            Err(e) => return (Called::Failed(e), conn.session),
+        }
+    }
+    (Called::Failed("the server ended the session".to_owned()), None)
+}
+
 /// Connects to `url` and lists its tools. `url` must pass the URL rules again (the card may be
 /// old); a key, when given, goes in its header.
 pub async fn probe(url: &str, key: Option<KeyHeader<'_>>) -> Probe {
@@ -135,19 +233,14 @@ pub async fn probe(url: &str, key: Option<KeyHeader<'_>>) -> Probe {
         Ok(t) => t,
         Err(refusal) => return Probe::Failed(refusal.0),
     };
-    let _ = rustls::crypto::ring::default_provider().install_default();
-    let http = match reqwest::Client::builder()
-        .timeout(TIMEOUT)
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-    {
-        Ok(c) => c,
-        Err(_) => return Probe::Failed("could not start an HTTP client".to_owned()),
+    let Some(http) = client() else {
+        return Probe::Failed("could not start an HTTP client".to_owned());
     };
     let mut conn = Conn { http, url: target.url.clone(), session: None };
     let key = key.as_ref();
     let server = match conn.post(&initialize_body(1), Some(1), key).await {
         Ok(Sent::Unauthorized(c)) => return sign_in(&c),
+        Ok(Sent::Expired) => return Probe::Failed("the server ended the session".to_owned()),
         Ok(Sent::Reply(ct, body)) => match reply_result(&ct, &body, 1) {
             Ok(r) => r.get("serverInfo").cloned().unwrap_or(Value::Null),
             Err(refusal) => return Probe::Failed(refusal.0),
@@ -162,6 +255,7 @@ pub async fn probe(url: &str, key: Option<KeyHeader<'_>>) -> Probe {
         let id = 2 + page as u64;
         let result = match conn.post(&tools_list_body(id, cursor.as_deref()), Some(id), key).await {
             Ok(Sent::Unauthorized(c)) => return sign_in(&c),
+            Ok(Sent::Expired) => return Probe::Failed("the server ended the session".to_owned()),
             Ok(Sent::Reply(ct, body)) => match reply_result(&ct, &body, id) {
                 Ok(r) => r,
                 Err(refusal) => return Probe::Failed(refusal.0),

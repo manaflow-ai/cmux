@@ -1105,6 +1105,7 @@ impl Hub {
         if state.pending.is_empty()
             && session.status() == SessionStatus::Waiting
             && !self.secrets.waiting_in(&session.id)
+            && !self.mcp_connects.waiting_in(&session.id)
         {
             self.set_status(session, status_after_ask(session, prev));
         }

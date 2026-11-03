@@ -94,6 +94,7 @@ pub mod machine_wake;
 pub mod mailbox;
 pub mod managed_codex;
 pub mod mcp_hint;
+pub mod mcp_proxy;
 pub mod mesh;
 pub mod mesh_control;
 pub mod mesh_http;

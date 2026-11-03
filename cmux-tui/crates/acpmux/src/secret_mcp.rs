@@ -249,6 +249,29 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
                     field(&result, "name").as_str().unwrap_or("the server"),
                     field(&result, "scope").as_str().unwrap_or("chat"),
                 )
+            } else if *field(&result, "connect") == "connected" {
+                let prefix = field(&result, "toolPrefix").as_str().unwrap_or("server");
+                let count = field(&result, "tools").as_array().map_or(0, Vec::len);
+                format!(
+                    "Connected {} (scope {}). Its {count} tools are yours now as {prefix}__<tool> on \
+                     the cmux-mcp server (refresh your tool list if you do not see them). cmux makes \
+                     each call with the user's sign-in; a tool that writes waits for the user's OK. \
+                     Tools: {}",
+                    field(&result, "name").as_str().unwrap_or("the server"),
+                    field(&result, "scope").as_str().unwrap_or("chat"),
+                    field(&result, "tools")
+                        .as_array()
+                        .map(|t| t
+                            .iter()
+                            .map(|x| format!(
+                                "{prefix}__{} ({})",
+                                field(x, "name").as_str().unwrap_or(""),
+                                field(x, "policy").as_str().unwrap_or("ask")
+                            ))
+                            .collect::<Vec<_>>()
+                            .join(", "))
+                        .unwrap_or_default(),
+                )
             } else if *field(&result, "connect") == "keyNeeded" {
                 format!(
                     "The user approved {}. It needs a key, which the user types only into the card's \

@@ -220,6 +220,7 @@ impl Hub {
             || session.status() == SessionStatus::Waiting
             || !session.pending_permissions().is_empty()
             || self.secrets.waiting_in(&session.id)
+            || self.mcp_connects.waiting_in(&session.id)
             || self.owner_busy(session)
     }
 
