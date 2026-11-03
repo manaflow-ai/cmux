@@ -21,6 +21,7 @@ extension HomeProjection {
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, !self.stopped else { return }
+                self.observedWakes += 1
                 self.observedPass()
                 self.observe()
             }

@@ -44,26 +44,34 @@ import Testing
         rig.delta("token_cost", seq: 0, "\(HomeChatRig.tag)Here is the plan.")
         for view in views { view.projection.observedPass() }
         rig.frame()
+        // The views' store observations run in their own main-actor tasks.
+        for _ in 0..<4 { await Task.yield() }
         let before = views.map(\.projection.refreshPasses)
+        let wakesBefore = views.map(\.projection.observedWakes)
         let words = HomeStreamingPerfTests.replyTokens(count: Self.tokens)
         var store: [Double] = [], passes: [Double] = [], total: [Double] = []
         for (index, word) in words.enumerated() {
             let t0 = CACurrentMediaTime()
             rig.delta("token_cost", seq: UInt64(index + 1), word)
             let t1 = CACurrentMediaTime()
+            // What a wake costs each view (its observation runs this pass when the token wakes it).
             for view in views { view.projection.observedPass() }
             let t2 = CACurrentMediaTime()
             store.append((t1 - t0) * 1_000)
             passes.append((t2 - t1) * 1_000)
             total.append((t2 - t0) * 1_000)
+            // The real path: each view's store observation, if the token woke it.
+            for _ in 0..<3 { await Task.yield() }
         }
         let after = views.map(\.projection.refreshPasses)
         let ran = zip(after, before).map { $0 - $1 }.reduce(0, +)
+        let woke = zip(views.map(\.projection.observedWakes), wakesBefore).map { $0 - $1 }.reduce(0, +)
         let reply = rig.store.liveRun(in: HomeChatRig.conversation)?.text.utf8.count ?? 0
         print(Self.line("views=\(count) store", store))
         print(Self.line("views=\(count) passes", passes))
         print(Self.line("views=\(count) total", total))
-        print("HOMETOKEN views=\(count) tokens \(Self.tokens) refreshPasses \(ran) replyBytes \(reply) history \(rig.store.transcript(for: HomeChatRig.conversation).count)")
+        print("HOMETOKEN views=\(count) tokens \(Self.tokens) refreshPasses \(ran) wakes \(woke) replyBytes \(reply) history \(rig.store.transcript(for: HomeChatRig.conversation).count)")
+        #expect(woke == 0, "\(woke) store observation wakes for \(Self.tokens) talk tokens in \(count) whole-message view(s)")
         #expect(ran == 0, "\(ran) projection passes for \(Self.tokens) talk tokens in \(count) whole-message view(s): none shows a token")
     }
 }
