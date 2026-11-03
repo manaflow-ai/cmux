@@ -885,8 +885,18 @@ export class SubagentFold {
       markTranscriptSummaryVersion(drawn.rows, revisions.summary);
       views[id] = drawn.rows;
     }
+    // The same record while every view is the same array, so a snapshot that changes no subagent
+    // compares equal by identity (HOT PATH AUDIT area F, row W1).
+    const kept = this.publishedViews;
+    if (kept) {
+      const ids = Object.keys(views);
+      if (ids.length === Object.keys(kept).length && ids.every((id) => kept[id] === views[id])) return kept;
+    }
+    this.publishedViews = views;
     return views;
   }
+
+  private publishedViews: Record<string, AcpmuxRow[]> | undefined;
 
   private record(id: string, entry: ChildEntry): void {
     const entries = this.own.get(id) ?? [];

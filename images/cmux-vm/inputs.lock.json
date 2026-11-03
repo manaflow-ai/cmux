@@ -421,15 +421,15 @@
     },
     {
       "name": "claude",
-      "version": "2.1.267",
-      "url": "https://downloads.claude.ai/claude-code-releases/2.1.267/linux-x64/claude",
-      "sha256": "0399c793ff571d5946ef923d80b4f330d05ac4b6842a6b0775468f5d389403c0",
-      "size": 217013744,
+      "version": "2.1.299",
+      "url": "https://downloads.claude.ai/claude-code-releases/2.1.299/linux-x64/claude",
+      "sha256": "2d894a4b1bfaaa9aab72aeff7803e3c73bc2510f279a171f6b8f59f72d17d077",
+      "size": 265342136,
       "format": "raw",
       "fileName": "claude",
       "bin": { "claude": "claude" },
       "versionArgs": ["--version"],
-      "expect": "2.1.267"
+      "expect": "2.1.299"
     },
     {
       "name": "codex",

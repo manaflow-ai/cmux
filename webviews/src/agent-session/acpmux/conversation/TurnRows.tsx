@@ -17,6 +17,7 @@ import { ToolRun } from "./ToolRun";
 import { ThoughtRow } from "./ThoughtRow";
 import { groupId, runStretches, toolGroups, type ToolGroup } from "./toolGroups";
 import type { RetryNote } from "../subagents/retryState";
+import { RowReplyButton } from "./SelectionReply";
 import { TurnActionsContext } from "./turnActions";
 import { errorRecovery, signInRetry, type ErrorRecovery } from "./errorRecovery";
 import { footerLabel, isEmptyFooter, isStopped, workedLabel } from "./turns";
@@ -441,6 +442,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             )}
             {!messages && <PinButton rowId={row.id} />}
             {!messages && text && <ReadAloudButton id={row.id} text={text} />}
+            {!messages && text && <RowReplyButton text={text} />}
             {!messages && text && row.answerId && <MessageMore rowId={row.answerId} />}
             {authenticationFailed && transferCloudCredentials && row.retryRowId && prompt && (
               <button

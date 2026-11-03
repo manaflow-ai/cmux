@@ -56,6 +56,9 @@ public extension AuthCoordinator {
             try await manager.acceptTeamInvitation(id: id)
         }
         guard generation == sessionGeneration, isAuthenticated else { throw CMUXTeamError.signedOut }
+        // A team-list read that started while the accept ran may have read the list before the
+        // join: it must not land over the re-read below.
+        teamListGeneration &+= 1
         await refreshTeams()
         // The membership is already written; a failed local selection leaves the person in the
         // team with their previous team active, which the team picker can change.

@@ -813,7 +813,7 @@ export default agentPaneEntry({
         const item = { selector: ".acpmux-composer-foot .acpmux-model .acpmux-picker-button" };
         await ctx.waitFor(() => ctx.document.querySelector(item.selector));
         await ctx.click(item);
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-menu"));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cols [role=tablist] [role=tab]"));
       },
     },
     "footer-harness-unpicked": {
@@ -1692,8 +1692,8 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
-        // It waits in the one collapsed group of waiting messages (PendingMessagesCard.tsx).
-        await ctx.click({ selector: ".cv-pending__toggle" });
+        // It waits as its own line; with others it waits in their one collapsed group (PendingMessagesCard.tsx).
+        if (ctx.document.querySelector(".cv-pending__toggle")) await ctx.click({ selector: ".cv-pending__toggle" });
         await ctx.waitFor(() => ctx.document.querySelector('[data-queued-message="q1"] .cv-disclosure__toggle'));
         await ctx.click({ selector: '[data-queued-message="q1"] .cv-disclosure__toggle' });
         await ctx.waitFor(() =>
@@ -2818,13 +2818,16 @@ export default agentPaneEntry({
         summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
       }),
       play: async (ctx) => {
-        await openModelMenu(ctx);
+        // A new chat's menu has a rail, so the button opens the columns.
+        await ctx.click(MODEL_BUTTON);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cols [role=listbox] [role=option]"));
         // The rail's tabs draw a mark alone; each names its harness.
-        await ctx.click({ selector: '.acpmux-quick-rail-tab[aria-label="Codex"]' });
+        const codex = '.acpmux-cols-tab[aria-label="Codex"]';
+        await ctx.click({ selector: codex });
         await ctx.waitFor(
           () =>
-            ctx.find({ selector: '.acpmux-quick-rail-tab[aria-label="Codex"]' }).getAttribute("aria-pressed") ===
-              "true" && ctx.document.querySelector('.acpmux-quick-body [role="menuitemradio"]') !== null,
+            ctx.find({ selector: codex }).getAttribute("aria-selected") === "true" &&
+            ctx.document.querySelector(".acpmux-cols [role=listbox] [role=option]") !== null,
         );
       },
     },

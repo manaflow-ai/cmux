@@ -68,6 +68,7 @@ import "./harnessStatus.css";
 import "../../markdown-task-checkbox.css";
 import { devHostParams, installDevHost } from "../../dev-host/host";
 import { seedDevRecents } from "./devRecents";
+import { prepareMockTransport } from "./mockTransport";
 
 // `?mock` runs the page in a plain browser against the in-page mock daemon (no cmux host), the
 // way the screenshot harness stubs the bridge; `?recents=demo` seeds a few recent models so the
@@ -92,4 +93,9 @@ if (devHost) {
 }
 // The dev server has no locales/<code>.js: install the whole string table before the pane loads.
 globalThis.__cmuxPaneStrings ??= (await import("./generated/strings.json")).default;
-await import("./main");
+// Prepare the standalone mock daemon before the pane can paint its first handshake.
+// Keep main's import first in source order: the shipped stylesheet order is derived from it.
+const mountPane = () => import("./main");
+if (!devHost && params.has("mock") && !window.webkit?.messageHandlers?.agentSession)
+  prepareMockTransport(await import("./mock"));
+await mountPane();
