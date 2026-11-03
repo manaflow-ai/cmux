@@ -61,6 +61,11 @@ import Testing
                                                     create: { () async throws -> String in throw CloudAPIError.http(status: 402, code: "vm_active_limit_exceeded", message: "full") })
         }
         #expect(sent.prompts.isEmpty)
+        // cmux#32710: the pool refusal is the classic one a Pause can lift (the pool counts only running machines).
+        await #expect(throws: CloudMachineCreateFlow.Failure.upgradeRequired(.pool)) {
+            try await CloudMachineCreateFlow.legacy(name: nil, startedByPerson: true, gate: { .allowed }, confirm: { _ in false },
+                                                    create: { () async throws -> String in throw CloudAPIError.http(status: 402, code: "vm_resource_pool_exceeded", message: "full") })
+        }
     }
 
     @Test func gateReadsThePlanLimits() {
