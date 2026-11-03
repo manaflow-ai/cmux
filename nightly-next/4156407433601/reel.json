@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "build": "4156407433601",
+  "notes": "notes/4156407433601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 32752,
+      "title": "Agent reads answer on a loaded app: dialog list skips the paced session list, catalog reads skip the barrier",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32758,
+      "title": "Prompt rail: hoverable when the chat column is narrower than its pane",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32817,
+      "title": "Session Info: the page draws it by default again, with the native panel's header buttons",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32785,
+      "title": "fix(sidebar): Cmd-N from Home places the new workspace once, at the top",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32832,
+      "title": "test: fold-keeps-place opens the \"Received 3 messages\" row first",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
