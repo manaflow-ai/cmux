@@ -6,6 +6,13 @@ enum QuitStrings {
         String(localized: "quit.title", defaultValue: "Quit cmux?", table: "Quit", bundle: .module)
     }
 
+    /// What each choice does to running sessions, in one short paragraph.
+    static var choicesExplained: String {
+        String(localized: "quit.choicesExplained",
+               defaultValue: "Keep Sessions Running leaves your terminals and agents running. End Sessions stops them and keeps your tabs and splits; End Everything also closes the workspaces.",
+               table: "Quit", bundle: .module)
+    }
+
     static func programsRunning(_ count: Int) -> String {
         String(localized: "quit.programsRunning", defaultValue: "\(count) programs are running.", table: "Quit", bundle: .module)
     }
