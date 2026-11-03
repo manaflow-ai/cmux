@@ -306,7 +306,8 @@ test("a send of a file the agent wrote with Write opens to that message rendered
   const send = groups.flatMap((group) => (group.type === "send" ? [group.send] : []))[0]!;
   const container = await render(<AcpmuxSendLine tool={tool} send={send} />);
   const row = container.querySelector<HTMLElement>(".cv-sent")!;
-  expect(row.textContent).toContain("Composer");
+  // Shut, the message's first line is its own line under the row (messageLineLook.ts, stacked).
+  expect(container.querySelector(".cv-sent__below")?.textContent).toContain("Composer");
   await act(async () => row.click());
   expect(container.querySelector(".cv-subsession__markdown h2")?.textContent).toBe("Composer");
   expect(container.querySelector(".cv-subsession__markdown strong")?.textContent).toBe("ship");
