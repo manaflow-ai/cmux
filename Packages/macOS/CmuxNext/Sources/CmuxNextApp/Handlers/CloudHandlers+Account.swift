@@ -72,9 +72,11 @@ extension CloudHandlers {
         runTracked("new Cloud workspace", context) {
             let cloud = context.services.cloud, services = context.services
             let userID = cloud.auth.user?.id, teamID = cloud.auth.teamID
+            // Release: read the remote switch now, so the offer below reflects it (DEV and NIGHTLY skip it).
+            if !DevTools.isEnabled { await cloud.readHarnessLoginCopySwitch() }
             let availability = CloudWorkspaceSetupWizard.CredentialAvailability.resolve(
                 teamID: cloud.auth.teamID, supportsFileRoute: AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: cloud.configuration.linkSource, isSignedIn: true, passesLogin: true),
-                passesLogin: CloudStartChat.passesHarnessLoginHere)
+                passesLogin: CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: DevTools.isEnabled, defaults: .standard, remoteSwitch: cloud.harnessLoginCopySwitch.current))
             let present: (CmuxDialogSpec) async -> CmuxDialogAnswer = { spec in
                 let scope: CmuxDialogScope = services.windows.active?.window.map(CmuxDialogScope.window) ?? .app
                 return await CmuxDialogCenter.shared.present(spec, in: scope)
@@ -162,6 +164,8 @@ extension CloudHandlers {
                     throw CancellationError()
                 }
                 if provider == .codex {
+                    // The Release consent covers the Claude login only; the Codex broker stays DEV and NIGHTLY.
+                    guard DevTools.isEnabled else { return }
                     guard let windowID = window?.id, let originalWindow = services.windows.controller(for: windowID)?.window else {
                         throw CancellationError()
                     }
@@ -172,13 +176,15 @@ extension CloudHandlers {
                         })
                     return
                 }
+                guard await CloudStartChat.loginCopyGate(services).copyAllowed() else { return } // the transfer checks it again last
                 let transfer = CloudCredentialTransfer(provider: .claude,
                     machineID: session.machineID, teamID: teamID, userID: userID, openTerminal: { [weak services] line in
                         await services?.openLocalProviderLogin(line) ?? false
                     })
                 try await transfer.run(api: cloud.machineAPI, currentTeamID: { cloud.auth.teamID },
                                        currentUserID: { cloud.auth.user?.id }, confirmed: true,
-                                       callerOwnsVM: { [machineID = session.machineID] in try await cloud.callerOwnsVM(machineID) })
+                                       callerOwnsVM: { [machineID = session.machineID] in try await cloud.callerOwnsVM(machineID) },
+                                       stillAllowed: CloudStartChat.loginCopyGate(services).stillAllowed)
             }
         }
     }
