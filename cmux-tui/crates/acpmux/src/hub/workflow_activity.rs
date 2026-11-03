@@ -329,7 +329,27 @@ impl Hub {
                                     Err(error) => return Err(workflow_error(error)),
                                 }
                             }
-                            self.prompt_outcome(&session, &waiting_id).await
+                            let outcome = self.prompt_outcome(&session, &waiting_id);
+                            tokio::pin!(outcome);
+                            let mut accepted = Some(accepted);
+                            loop {
+                                // A queued retry still belongs to the daemon's account wait.
+                                // Only its exact running turn starts workflow stall recovery.
+                                if session.turn().is_some_and(|turn| turn.prompt_id == waiting_id)
+                                    && let Some(accepted) = accepted.take()
+                                {
+                                    let _ = accepted.send(json!({"state":"started"}));
+                                }
+                                tokio::select! {
+                                    result = &mut outcome => break result,
+                                    event = changes.recv() => {
+                                        self.workflow_runs.store().authorize(&run.id,generation,&run.owner_session_id).map_err(workflow_error)?;
+                                        if let Err(error) = event && !matches!(error,tokio::sync::broadcast::error::RecvError::Lagged(_)) {
+                                            return Err(workflow_error(error));
+                                        }
+                                    }
+                                }
+                            }
                         } else {
                             self.prompt_with(
                                 &session,
@@ -357,6 +377,7 @@ impl Hub {
                         Some(gate)
                     };
                     let mut admitted = false;
+                    let mut admission_open = true;
                     let mut waiting = false;
                     let mut nudge_reconciled = false;
                     let deadline = tokio::time::sleep(stall);
@@ -364,8 +385,22 @@ impl Hub {
                     let outcome = loop {
                         tokio::select! {
                             result = &mut future => {drop(gate.take()); break result;},
-                            _ = &mut admission, if !admitted => {
+                            value = &mut admission, if admission_open => {
+                                admission_open=false;
+                                if value.is_err() {continue;}
                                 admitted=true; drop(gate.take());
+                                waiting = session.status() == SessionStatus::Waiting || session.meta().usage_limits.is_some();
+                                if automatic && recovery.waiting.is_some() {
+                                    let admission_gate = self.workflow_runs.gate(&run.id).lock_owned().await;
+                                    self.workflow_runs.store().authorize(&run.id,generation,&run.owner_session_id).map_err(workflow_error)?;
+                                    state.observation += 1;
+                                    let current = recovery.key.clone();
+                                    recovery.observe(&current,state.observation,RecoveryEvent::Resumed);
+                                    state.recovery = Some(recovery.clone());
+                                    self.workflow_runs.store().update_activity_policy(&run.id,generation,&run.owner_session_id,&activity.id,serde_json::to_value(&state).map_err(workflow_error)?).map_err(workflow_error)?;
+                                    drop(admission_gate);
+                                }
+                                deadline.as_mut().reset(tokio::time::Instant::now()+stall);
                                 if let Some(nudge) = &state.nudge {nudge_reconciled=self.workflow_nudge(run,generation,nudge).await?;}
                             },
                             event = events.recv() => {
@@ -840,7 +875,7 @@ mod tests {
     fn activity_chat() -> (Arc<Hub>, RunRecord, ActivityRecord) {
         let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_workflow_agent.py");
         let mut config: crate::config::Config =
-            serde_json::from_value(json!({"defaultHarness":"fake",
+            serde_json::from_value(json!({"defaultHarness":"fake","autoResumeDelaysMs":[1000],
             "harnesses":{"fake":{"argv":["python3",fixture]},"fake-alternate":{"argv":["python3",fixture,"alternate"]}}}))
             .unwrap();
         config.store.mode = crate::config::StoreMode::Memory;
@@ -1035,6 +1070,37 @@ mod tests {
         );
         assert_eq!(turns(&hub, &child), 1);
         cleanup(hub, resumed).await;
+    }
+
+    #[tokio::test]
+    async fn workflow_automatic_retry_stall_nudges_then_restarts_after_running_admission() {
+        let (hub, run, child) = activity_chat();
+        let result=tokio::time::timeout(std::time::Duration::from_secs(15),hub.workflow_execute(&run,run.generation,&child,"capacity-then-stall",&json!({"harness":"fake","fallbackHarness":"fake-alternate","stallMs":200,"schema":{"type":"object","required":["ok"]}}))).await.unwrap().unwrap();
+        assert_eq!(result, json!({"ok":true}));
+        let Child::Agent { session_id, .. } = &child.child else { unreachable!() };
+        let mut working = None;
+        let mut nudges = Vec::new();
+        hub.store
+            .scan_strict(session_id, 0, &mut |event| {
+                match event.msg.pointer("/params/update/content/text").and_then(Value::as_str) {
+                    Some("retry working") => working = Some(event.seq),
+                    Some("nudge accepted") => nudges.push(event.seq),
+                    _ => {}
+                }
+                true
+            })
+            .unwrap();
+        assert_eq!(nudges.len(), 1, "the running retry gets its one stall nudge");
+        assert!(
+            working.unwrap() < nudges[0],
+            "capacity waiting must not trigger a premature nudge"
+        );
+        assert_eq!(turns(&hub, &child), 2, "original turn and same-account daemon retry only");
+        assert_eq!(
+            hub.resolve(&format!("{session_id}-restart")).unwrap().meta().harness,
+            "fake-alternate"
+        );
+        cleanup(hub, run).await;
     }
 
     #[tokio::test]
