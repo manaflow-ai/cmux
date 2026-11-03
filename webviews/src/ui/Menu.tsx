@@ -484,6 +484,8 @@ function anchorElement(anchor: MenuPopupProps["anchor"], popup: HTMLElement | nu
 
 export interface MenuItemProps {
   className?: string;
+  /** Stable action id for automation and gallery fixtures. */
+  "data-value"?: string;
   disabled?: boolean;
   shortcut?: ReactNode;
   onSelect?(event: MouseEvent<HTMLElement> | PointerEvent<HTMLElement>): void;
@@ -492,6 +494,7 @@ export interface MenuItemProps {
 
 export function MenuItem({
   className,
+  "data-value": dataValue,
   disabled,
   shortcut,
   onSelect,
@@ -512,6 +515,7 @@ export function MenuItem({
   return (
     <BaseMenu.Item
       className={cx("ui-menu-item", className)}
+      {...(dataValue === undefined ? {} : { "data-value": dataValue })}
       disabled={disabled}
       {...(closeOnClick === undefined ? {} : { closeOnClick })}
       {...(expanded === undefined ? {} : { "aria-expanded": expanded })}
@@ -635,9 +639,9 @@ export function MenuRadioItem({
   );
 }
 
-export function MenuGroup({ label, children }: { label: string; children: ReactNode }) {
+export function MenuGroup({ label, className, children }: { label: string; className?: string; children: ReactNode }) {
   return (
-    <BaseMenu.Group className="ui-menu-group">
+    <BaseMenu.Group className={cx("ui-menu-group", className)}>
       <BaseMenu.GroupLabel className="ui-menu-group-label">{label}</BaseMenu.GroupLabel>
       {children}
     </BaseMenu.Group>

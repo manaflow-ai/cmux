@@ -115,6 +115,10 @@
 /* The picker menus open above the field at their chip (useUiAnchor). The chip is their containing block, so the width comes from the rows and the viewport, never the chip. */
 /* A picker on the dropdown layer (ui/README.md, "Layers and transparency"): above a field's suggestions on the New Tab page (Leo 10-15: the model menu opened under them). */
 .acpmux-menu{font-family:var(--font-ui);font-size:var(--text-control);position:absolute;bottom:calc(100% + 6px);z-index:var(--layer-dropdown);width:max-content;min-width:min(220px,calc(100vw - 16px));max-width:min(420px,calc(100vw - 16px));height:auto;max-height:min(360px,50vh);overflow-x:hidden;overflow-y:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);color:var(--agent-text);line-height:18px;transform-origin:var(--transform-origin,bottom left);letter-spacing:var(--text-control--letter-spacing)}
+/* MenuPopup is positioned by the shared UI positioner. The legacy absolute placement above is
+   retained for the remaining hand-rolled palette, while migrated picker popups must stay in the
+   positioner's layout box so collision detection measures their real size. */
+.acpmux-menu.acpmux-picker-menu{position:relative;inset:auto;z-index:auto}
 /* The picker menus open above the field, aligned with its edges. */
 .acpmux-menu-start{left:0}
 .acpmux-menu-end{right:0;transform-origin:var(--transform-origin,bottom right)}

@@ -162,11 +162,22 @@ export function MentionMenu({
         activeIndex={active < 0 ? 0 : active}
         onActiveIndexChange={onHover}
         onOpen={onPick}
+        aria-busy={state?.kind === "searching"}
         getItemId={(_, index) => `acpmux-mention-${index}`}
         itemAttributes={(item) => ({ "data-mention-kind": item.kind })}
         className="ui-popup ui-glass acpmux-slash-menu acpmux-mention-menu"
         id="acpmux-mention-menu"
         rowClassName="acpmux-slash-row acpmux-mention-row"
+        empty={state?.kind === "searching" && items.length === 0 ? <FileSearchLoading mention /> : undefined}
+        footer={
+          note ? (
+            <output
+              className={state?.kind === "searching" ? "acpmux-file-loading-note" : "acpmux-file-note"}
+            >
+              {note}
+            </output>
+          ) : undefined
+        }
         renderItem={(item) => (
           <>
             <span className="acpmux-mention-icon" data-mention-icon={item.kind}>
@@ -181,13 +192,6 @@ export function MentionMenu({
           </>
         )}
       />
-      {note && (
-        <output
-          className={state?.kind === "searching" ? "acpmux-file-loading-note" : "acpmux-file-note"}
-        >
-          {note}
-        </output>
-      )}
     </>
   );
 }

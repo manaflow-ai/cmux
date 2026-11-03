@@ -36,6 +36,9 @@ export interface ListboxProps<T> {
   onActiveIndexChange?(index: number): void;
   listRef?: Ref<HTMLDivElement>;
   empty?: ReactNode;
+  /** Content rendered after the rows, such as a loading or status note. */
+  footer?: ReactNode;
+  "aria-busy"?: boolean;
   id?: string;
 }
 
@@ -58,6 +61,8 @@ export function Listbox<T>({
   onActiveIndexChange,
   listRef: externalListRef,
   empty,
+  footer,
+  "aria-busy": ariaBusy,
   id: listId,
 }: ListboxProps<T>) {
   const [highlight, setHighlight] = useState(Math.max(0, initialIndex));
@@ -137,6 +142,7 @@ export function Listbox<T>({
       role="listbox"
       tabIndex={0}
       aria-label={label}
+      aria-busy={ariaBusy || undefined}
       aria-activedescendant={
         items.length ? (getItemId?.(items[current], current) ?? `${id}-${current}`) : undefined
       }
@@ -164,6 +170,7 @@ export function Listbox<T>({
         </div>
       ))}
       {items.length === 0 && empty}
+      {footer}
     </div>
   );
 }
