@@ -94,6 +94,8 @@ def pids_fds(pids):
         return None
     done = subprocess.run(["lsof", "-a", "-n", "-P", "-p", ",".join(str(p) for p in sorted(pids)), "-F", "f",
                            "/dev/ptmx"], capture_output=True, text=True, timeout=30)
+    if done.stderr.strip() or not done.stdout.strip():  # a failed scan is no count (0 would read as all released)
+        return None
     return sum(1 for line in done.stdout.splitlines() if line.startswith("f"))
 
 
@@ -126,10 +128,13 @@ def close_workspace(app, wid):
         return True
     except heavy_profile.Refused as error:
         try:
-            app.rpc("action.run", {"action": "closeWorkspace", "workspace_id": wid, "confirm": True}, timeout=30)
-            return True
-        except (OSError, ValueError, heavy_profile.Refused):
-            return str(error)[:400]
+            reply = app.rpc("action.run", {"action": "closeWorkspace", "target": "workspace:%s" % wid,
+                                           "args": {"confirm": True}}, timeout=30)
+        except (OSError, ValueError, heavy_profile.Refused) as second:
+            return ("%s; then closeWorkspace: %s" % (error, second))[:400]
+        if isinstance(reply, dict) and reply.get("error"):  # App.rpc returns an app error, it does not raise
+            return ("%s; then closeWorkspace: %s" % (error, reply["error"]))[:400]
+        return True
 
 
 def measure(app, a, result, root, wid, pane):
