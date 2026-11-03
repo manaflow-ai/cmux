@@ -12,7 +12,8 @@ import Foundation
 /// A person's run (palette) imports at once. Any other run (an agent's MCP
 /// tool, the CLI from a script or agent) must give a reason, and the person
 /// first answers ``CookieImportConsentPanel``, which names the agent's chat or
-/// terminal tab; nothing of the other browser is read before Allow. After
+/// terminal tab; nothing of the other browser is read before Allow, and only
+/// the person's own click allows (no automation can, the agent's included). After
 /// Allow macOS asks for the browser's Keychain key (Chromium) or cmux needs
 /// Full Disk Access (Safari). Cookies stay in memory between the reader and
 /// the target profile's Chromium jar; only counts leave the run, and no
@@ -81,7 +82,8 @@ public final class CookieImportService {
             let request = CookieImportRequest(requester: requester, reason: reason, source: sourceName,
                                               sourceIsSafari: profile.browser.family == .safari, domains: filter.domains, target: target.name)
             let reveal = host.reveal
-            let panel = CookieImportConsentPanel(request: request, onShowRequester: requester.tabID.map { tab in { reveal(tab) } })
+            let panel = CookieImportConsentPanel(request: request, onShowRequester: requester.tabID.map { tab in { reveal(tab) } },
+                                                 isPersonEvent: host.isPersonEvent)
             asking = panel
             let answer = await panel.ask(on: window)
             asking = nil

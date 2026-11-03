@@ -67,6 +67,9 @@ struct CuaTargetGuard: Sendable {
                 throw unresolved("window_id")
             }
             try check(await resolver.app(forWindowID: nativeID), reference: "window \(id)")
+            // A window out of screen capture is a consent or secret prompt (cmux's cookie import and join
+            // consent, a password reveal): only the person answers it, whatever app shows it.
+            if await resolver.isCaptureExcluded(windowID: nativeID) { throw captureExcluded() }
         }
         for key in ["bundle_id", "app_bundle_id"] {
             if let value = object[key], !(value is NSNull) {
@@ -134,6 +137,10 @@ struct CuaTargetGuard: Sendable {
         if Self.opaqueDispatchTools.contains(name) {
             throw ToolError("Computer use does not allow \(name) in cmux. Call the tools directly, or use run_steps with pid and window_id.")
         }
+    }
+
+    private func captureExcluded() -> ToolError {
+        ToolError(String(localized: "computerUse.target.captureExcluded", defaultValue: "Computer use cannot use this window. It is a prompt that only the person can answer, and it is not in screenshots.", bundle: localizationBundle))
     }
 
     private func unsupportedTarget() -> ToolError {
