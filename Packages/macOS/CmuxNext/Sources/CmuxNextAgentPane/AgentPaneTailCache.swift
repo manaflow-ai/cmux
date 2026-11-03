@@ -46,6 +46,8 @@ public final class AgentPaneTailCache {
 
     /// Least recently remembered first.
     private var entries: [Entry] = []
+    private(set) var generation: UInt64 = 0
+    private(set) var acceptsTails = true
 
     /// ``shared`` is the one store both hosts answer from. A second one would split the cache: a
     /// tail handed to one would be invisible to the other, and a chat would open cold for no
@@ -62,6 +64,7 @@ public final class AgentPaneTailCache {
     /// open from acpmux as it did before — and it also drops any tail already kept for that chat,
     /// because the page has read on since and this one is what it now stands behind.
     public func remember(_ tail: JSONValue?, for sessionId: String) {
+        guard acceptsTails else { return }
         var kept = entries.filter { $0.sessionId != sessionId }
         if let tail, Self.holds(tail) { kept.append(Entry(sessionId: sessionId, tail: tail)) }
         entries = Array(kept.suffix(Self.chats))
@@ -85,8 +88,13 @@ public final class AgentPaneTailCache {
 
     /// Forgets every tail: the session's chats are no longer this person's.
     public func clear() {
+        generation &+= 1
+        acceptsTails = false
         entries.removeAll()
     }
+
+    /// A new signed-in lifecycle may hand tails to the host again.
+    public func resume() { acceptsTails = true }
 
     /// Whether `tail` is a page tail this keeps: records, not too many of them, and not too large.
     /// The byte bound is measured over the whole tail and not only its records, because the rest of
