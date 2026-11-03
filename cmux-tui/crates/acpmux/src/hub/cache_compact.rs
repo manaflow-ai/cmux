@@ -78,7 +78,7 @@ pub(crate) fn wait_ms(update: &Value, threshold: f64, now_ms: u64) -> Option<u64
 
 impl Hub {
     /// `on_update` for an update the agent sent, then the timer for a live `usage_update`.
-    pub(super) fn on_update_cache(
+    pub(in crate::hub) fn on_update_cache(
         self: &Arc<Self>,
         session: &Arc<Session>,
         params: Option<&Value>,
@@ -94,7 +94,7 @@ impl Hub {
     }
 
     /// A live (not replayed) `usage_update` of `session`: arms its timer again (module docs).
-    pub(super) fn cache_compact_on_usage(self: &Arc<Self>, session: &Arc<Session>, update: &Value) {
+    fn cache_compact_on_usage(self: &Arc<Self>, session: &Arc<Session>, update: &Value) {
         let mut timers = TIMERS.lock().unwrap_or_else(|e| e.into_inner());
         if let Some((_, timer, _)) = timers.remove(&session.id) {
             timer.abort();
@@ -105,17 +105,18 @@ impl Hub {
         let deadline = self.clock_now().saturating_add(wait.saturating_mul(1_000_000));
         let clock = self.clock.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let generation = GENERATION.fetch_add(1, Ordering::SeqCst);
-        let (hub, weak) = (Arc::downgrade(self), Arc::downgrade(session));
+        let (hub, weak, id) = (Arc::downgrade(self), Arc::downgrade(session), session.id.clone());
         let task = tokio::spawn(async move {
             clock.sleep_until(std::time::Duration::from_nanos(deadline)).await;
-            let (Some(hub), Some(session)) = (hub.upgrade(), weak.upgrade()) else { return };
-            // Its own entry, or a later usage replaced it (the lock orders it after the insert).
+            // Its own entry goes, or a later usage replaced it (the lock orders this after the
+            // insert); a dropped session or hub leaves nothing behind.
             let mut timers = TIMERS.lock().unwrap_or_else(|e| e.into_inner());
-            if timers.get(&session.id).is_none_or(|(g, _, _)| *g != generation) {
+            if timers.get(&id).is_none_or(|(g, _, _)| *g != generation) {
                 return;
             }
-            timers.remove(&session.id);
+            timers.remove(&id);
             drop(timers);
+            let (Some(hub), Some(session)) = (hub.upgrade(), weak.upgrade()) else { return };
             hub.cache_compact_fire(&session, expires).await;
         });
         timers.insert(session.id.clone(), (generation, task.abort_handle(), expires));
@@ -154,10 +155,16 @@ impl Hub {
         {
             return;
         }
+        // Sent only while the chat still ends on the turn it ended on now (`after_turn`, checked
+        // with no await before the turn is taken and again after): a Web or phone turn that
+        // started and ended meanwhile refuses it, so it never lifts that turn's remote floor.
+        let last = session.meta().last_turn.as_ref().and_then(|t| t.get("turnId").cloned());
+        let Some(last) = last.and_then(|t| t.as_str().map(str::to_owned)) else { return };
         let opts = PromptOptions {
             prompt_id: Some(format!("cache-compact-{}", uuid::Uuid::now_v7())),
             provenance: Some(json!({"kind": KIND})),
             no_queue: true,
+            after_turn: Some(last),
             ..PromptOptions::default()
         };
         let blocks = vec![json!({"type": "text", "text": "/compact"})];
