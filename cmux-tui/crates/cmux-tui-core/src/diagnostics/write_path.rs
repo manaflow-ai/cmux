@@ -90,5 +90,8 @@ pub struct WritePathSnapshot {
     pub wal_synced_commits: u64,
     /// Bytes of the WAL frames those commits appended (a 24-byte header and one page each): what the
     /// registry's writes put on the disk, so a test can tell a change's bytes from the session's size (#32408).
+    /// Two cases are not exact. The first commit after a WAL restart counts only the frames past the old WAL's
+    /// count when it writes more frames than the old WAL held (a commit over about 4 MiB, the checkpoint size).
+    /// Frames another connection appends to the same database count toward the next commit of this one.
     pub registry_wal_frame_bytes: u64,
 }
