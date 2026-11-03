@@ -486,11 +486,12 @@ export function ComposerContext({
   const savedPick = savedRows?.environments.find(
     (environment) => environment.id === savedRows.current && !savedEnvironmentIsFolder(environment),
   );
-  // A folder pick: the saved environment that is only that folder, if there is one, else the folder.
+  // A folder pick is always the folder (the page's project, which Cloud sends and recent projects
+  // record), then the saved environment that is only that folder, if there is one.
   const pickFolder = (cwd: string) => {
+    onProject?.(cwd);
     const environment = savedRows && savedFolders.find((candidate) => normalizeCwd(candidate.folder) === cwd);
     if (environment) savedRows.onPick(environment.id);
-    else onProject?.(cwd);
   };
   // What the environment control names: the row the list checks, so this Mac reads "This Mac" (its
   // own name stays in the tooltip's list row), any other machine its name.
