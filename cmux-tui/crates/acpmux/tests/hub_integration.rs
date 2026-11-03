@@ -845,7 +845,10 @@ async fn session_search_finds_prompts_and_replies_newest_first() {
         .unwrap();
     }
     let r = c
-        .request(method::MUX_SESSION_SEARCH, json!({"sessionId": "finder", "query": "quota broker"}))
+        .request(
+            method::MUX_SESSION_SEARCH,
+            json!({"sessionId": "finder", "query": "quota broker"}),
+        )
         .await
         .unwrap();
     assert_eq!(r["sessionId"], json!(id), "{r}");
@@ -874,7 +877,9 @@ async fn session_search_finds_prompts_and_replies_newest_first() {
         .unwrap();
     assert_eq!(r["hits"][0]["snippet"], "a QUOTA for the broker again", "{r}");
     assert_eq!(r["hits"].as_array().unwrap().len(), 1, "{r}");
-    for params in [json!({"sessionId": id, "query": " "}), json!({"sessionId": "nobody", "query": "x"})] {
+    for params in
+        [json!({"sessionId": id, "query": " "}), json!({"sessionId": "nobody", "query": "x"})]
+    {
         assert!(c.request(method::MUX_SESSION_SEARCH, params).await.is_err());
     }
 }
