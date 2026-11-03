@@ -123,6 +123,13 @@ success-output = "final"
 filter = 'test(/^netdrop_/)'
 success-output = "final"
 
+# R-DURABILITY S0 (cmux-journal src/sync_bench_tests.rs) prints its SYNC-BENCH lines on stdout:
+# the cost of each sync primitive on the host. A fleet step shows them only when a passing test's
+# output is kept. It does nothing outside a fleet step keyed sync-bench.
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-journal) & test(=sync_bench_tests::sync_bench_measures_each_primitive_on_this_host)'
+success-output = "final"
+
 # Fuzz row g (the acpmux crash fuzz, tests/fuzz_crash_durable.rs) prints its FUZZ-G lines on
 # stdout; a fleet step shows them only when a passing test's output is kept. One test fuzzes
 # three seeds for up to 70 s each and shrinks a failure for up to 90 s more. It does nothing
