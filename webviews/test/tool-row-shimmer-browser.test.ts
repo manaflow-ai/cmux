@@ -19,6 +19,7 @@ type Row = {
   shimmer: boolean;
   bandAnimation: string;
   litText: string;
+  litOverflow: string;
   animations: number;
   color: string;
   wordsGrew: boolean;
@@ -84,6 +85,7 @@ await requireBrowserLane("tool-row-shimmer-browser.test.ts", async () => {
             shimmer: Boolean(shimmer && getComputedStyle(shimmer).display !== "none"),
             bandAnimation: band ? getComputedStyle(band).animationName : "none",
             litText: lit?.textContent ?? "",
+            litOverflow: lit ? getComputedStyle(lit).textOverflow : "",
             animations: row.getAnimations({ subtree: true }).length,
             color: getComputedStyle(words).color,
             wordsGrew: words.scrollWidth > words.clientWidth + 0.5,
@@ -109,6 +111,8 @@ await requireBrowserLane("tool-row-shimmer-browser.test.ts", async () => {
         expect(row.bandAnimation, `band: ${row.id}`).toBe("cmux-shimmer-band");
         // The band lights the row's own words.
         expect(row.litText, `lit words: ${row.id}`).toBe(row.text);
+        // A cut label ends in its ellipsis under the band too.
+        expect(row.litOverflow, `lit ellipsis: ${row.id}`).toBe("ellipsis");
         expect(row.animations, `loops: ${row.id}`).toBe(2);
         // The moving band never makes the words read as cut (ToolRow's disclosure check).
         expect(row.wordsGrew, `words box: ${row.id}`).toBe(false);
