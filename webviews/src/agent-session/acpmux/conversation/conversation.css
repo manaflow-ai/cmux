@@ -3530,7 +3530,7 @@ button.cv-video-frames__frame:focus-visible {
   color: var(--cv-text);
   outline: 2px solid var(--agent-accent, currentColor);
   outline-offset: 1px;
-  border-radius: 3px;
+  border-radius: var(--ds-radius-sm);
 }
 /* A message to another agent (MessageCard.tsx) is the shared agent message row
    (AgentMessageRow.css). Opened, its text grows in place under the line, at the line's text
