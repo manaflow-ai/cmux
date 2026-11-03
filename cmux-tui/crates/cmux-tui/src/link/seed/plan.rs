@@ -572,7 +572,10 @@ fn commits(repo: &Repo, scratch: &Scratch) -> Result<Commits, Fallback> {
     // are either way.
     let sparse_flag: &[&str] = if sparse.is_some() { &["--sparse"] } else { &[] };
     if skipped.is_empty() {
-        run(repo.scratch_git(&index).args(["add", "-A"]).args(sparse_flag), "adding the working tree")?;
+        run(
+            repo.scratch_git(&index).args(["add", "-A"]).args(sparse_flag),
+            "adding the working tree",
+        )?;
     } else {
         // Git add writes blobs to the repository's real object store even
         // with a scratch index. Removing a skipped secret from that index
