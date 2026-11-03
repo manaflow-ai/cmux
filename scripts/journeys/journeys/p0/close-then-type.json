@@ -8,7 +8,8 @@
  "steps": [
   {
    "do": "new_terminal",
-   "name": "jr-close-type"
+   "via": "key",
+   "title": "the person's New Terminal Tab key (Ctrl-`): a script's newTab is listed but not shown while Home's composer has the keyboard (run p0jr-634398d4-close-then-type-a1-s50)"
   },
   {
    "do": "neutral_prompt"
