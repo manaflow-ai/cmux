@@ -25,7 +25,7 @@
   margin: var(--ds-space-2) 0 var(--ds-space-1);
   color: var(--agent-muted);
   font-size: var(--text-detail);
-  font-weight: 500;
+  font-weight: var(--weight-emphasis);
 }
 .acpmux-imessage-thread {
   display: flex;

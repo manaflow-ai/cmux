@@ -44,7 +44,7 @@ function GalleryNativeSessionInfo() {
     return () => setNativeHost(undefined);
   }, []);
   return (
-    <div className="acpmux-shell" style={{ padding: 20 }}>
+    <div className="acpmux-shell" style={{ padding: "var(--ds-space-5)" }}>
       {ready ? <NativeSessionInfo {...props} /> : null}
       <h3>Native Session Info model</h3>
       <p>The real adapter emits these sections and rows to the app.</p>
