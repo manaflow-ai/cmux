@@ -197,6 +197,35 @@ struct ComputerUseLiveCaptureTests {
         #expect(card?.done == false, "the new session's own frame is live")
     }
 
+    /// One helper session can be routed into a different chat tab without the macOS window
+    /// changing. A frame requested while the previous chat was visible belongs to that routing.
+    @Test(.timeLimit(.minutes(1)))
+    func movingTheSameSessionToAnotherChatDropsItsOldInFlightFrame() async throws {
+        let rig = Rig()
+        rig.sight.seen = ["a", "b"]
+        try await rig.streaming()
+        rig.frames.holdReads = true
+        try await rig.nextTick()
+        #expect(await rig.frames.next() == .read("st1", after: 0))
+
+        // The original chat tab is gone; the same session now routes to the one working chat b.
+        rig.host.chats = [ComputerUsePreviewBoardTests.chat("b", working: true)]
+        rig.host.chatsChanged()
+        #expect(rig.capture.target == .init(session: "s", chat: "b", window: Self.window))
+        #expect(!rig.capture.isStreaming, "the old chat's read must be invalidated")
+        #expect(await rig.frames.next() == .stop("st1", helper: true))
+        rig.frames.release()
+        await rig.settled(2)
+        #expect(rig.preview.board.entries["s"]?.frame == nil, "chat b cannot receive chat a's pending frame")
+
+        #expect(await rig.frames.next() == .start(Self.window, helper: "host-1"))
+        await rig.settled(3)
+        try await rig.nextTick()
+        #expect(await rig.frames.next() == .read("st2", after: 0))
+        let card = try #require(await rig.host.next { $0?.session == "s" && $0?.frame == FakeSurfaceFrames.url(1) })
+        #expect(card?.done == false)
+    }
+
     // MARK: It stops at once
 
     @Test(.timeLimit(.minutes(1)))
