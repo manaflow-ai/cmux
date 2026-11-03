@@ -1709,3 +1709,25 @@ test("a saved folder-only environment picked after another machine shows This Ma
   );
   expect(folder?.textContent).toContain("cmux");
 });
+
+test("three chips: the machine chip lists machines only, never a saved environment, and a folder-only pick is This Mac", async () => {
+  const savedBoth = {
+    environments: [
+      { id: "f1", name: "cmux", kind: "local", folder: "/Users/you/src/cmux", updatedAt: 1 },
+      { id: "s1", name: "Projects", kind: "ssh", host: "gpu-box", folder: "/home/dev/Projects", updatedAt: 2 },
+    ],
+    onPick: () => undefined,
+    onClear: () => undefined,
+    onCreate: () => undefined,
+    onEdit: () => undefined,
+  };
+  await mount(true, { ...shipped, saved: savedBoth });
+  await pickAnother();
+  expect(popoverLabels("machines")).toEqual(["gpu-box", t("composer.addMachine")]);
+  const text = doc().querySelector(".acpmux-env-popover.acpmux-env-rows-machines")!.textContent ?? "";
+  for (const name of ["cmux", "Projects", t("composer.envSaved")]) expect(text, name).not.toContain(name);
+  // The folder-only one picked (Create environment, or the folder menu): This Mac, two chips.
+  await updateProps({ saved: { ...savedBoth, current: "f1" } });
+  expect(computerButton()!.getAttribute("aria-label")).toBe(`${t("composer.environment")}: ${t("composer.thisMac")}`);
+  expect(machineButton()).toBeUndefined();
+});
