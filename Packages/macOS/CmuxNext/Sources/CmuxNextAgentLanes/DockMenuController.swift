@@ -13,8 +13,8 @@ public protocol DockMenuHost: AnyObject {
     func dockMenuHarnesses() async -> [AcpmuxHarnessRow]
     /// The machines a new chat can start on (this Mac, acpmux peers, Cloud machines).
     func dockMenuMachines() async -> [AgentChatDestinations.Destination]
-    /// Whether any window is open.
-    var dockMenuHasWindow: Bool { get }
+    /// Whether any window is open, and whether the active one shows a pane a row can open in.
+    var dockMenuWindow: DockMenuWindow { get }
     /// Brings the last closed window back, else opens a new one (a Dock click's reopen).
     func dockMenuReopenWindow()
     /// Runs New Agent Chat with `arguments` (`harness`, `host`), as Cmd-I and the palette do.
@@ -118,18 +118,19 @@ public final class DockMenuController: NSObject {
     /// or machine and Continue, Unread and Recent open their chat instead of failing.
     func run(_ action: DockMenuAction) {
         guard let host else { return }
-        guard host.dockMenuHasWindow else {
+        guard host.dockMenuWindow != .closed else {
             host.dockMenuReopenWindow()
             // A plain New Chat needs nothing more: a new window comes with its New Tab page.
             if action != .newChat(harness: nil, machine: nil) { waiting = action }
             return
         }
+        waiting = nil // a pick made while a window is open supersedes one still waiting
         perform(action, host)
     }
 
     /// A window mounted its first pane: a row picked while no window was open runs in it now.
     public func windowDidShowContent() {
-        guard let action = waiting, let host else { return }
+        guard let action = waiting, let host, host.dockMenuWindow == .pane else { return }
         waiting = nil
         perform(action, host)
     }
@@ -145,6 +146,16 @@ public final class DockMenuController: NSObject {
             do { try host.dockMenuOpenChat(chat) } catch { host.dockMenuRefuse(String(describing: error)) }
         }
     }
+}
+
+/// The app's windows as the Dock menu's rows need them (`DockMenuHost.dockMenuWindow`).
+public nonisolated enum DockMenuWindow: Equatable, Sendable {
+    /// No window is open.
+    case closed
+    /// A window is open; the active one shows no pane yet.
+    case noPane
+    /// The active window shows a pane.
+    case pane
 }
 
 /// What a Dock menu row does.

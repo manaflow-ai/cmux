@@ -70,6 +70,8 @@ struct DockMenuTests {
         func dockMenuHarnesses() async -> [AcpmuxHarnessRow] { reads += 1; return [AcpmuxHarnessRow(id: "codex", kind: "acp", source: "path")] }
         func dockMenuMachines() async -> [AgentChatDestinations.Destination] { [] }
         var dockMenuHasWindow = true
+        var dockMenuHasPane = true
+        var dockMenuWindow: DockMenuWindow { !dockMenuHasWindow ? .closed : dockMenuHasPane ? .pane : .noPane }
         var reopens = 0
         func dockMenuReopenWindow() { reopens += 1 }
         func dockMenuNewChat(_ arguments: [String: ActionValue]) { newChats.append(arguments) }
@@ -139,6 +141,34 @@ struct DockMenuTests {
         controller.run(.newChat(harness: nil, machine: nil))
         controller.windowDidShowContent()
         #expect(host.reopens == 1 && !controller.isWaiting && host.newChats.isEmpty)
+        controller.stop()
+    }
+
+    @Test func aWaitingRowWaitsForAPaneInTheActiveWindow() {
+        let host = Host()
+        host.dockMenuHasWindow = false
+        host.dockMenuHasPane = false
+        let controller = DockMenuController(lanes: AgentLaneStore(), marks: AgentPriorityMarks(defaults: nil), host: host)
+        controller.run(.open(chat: "a"))
+        host.dockMenuHasWindow = true
+        controller.windowDidShowContent() // a window, but its active window shows no pane yet
+        #expect(host.opened.isEmpty && controller.isWaiting)
+        host.dockMenuHasPane = true
+        controller.windowDidShowContent()
+        #expect(host.opened == ["a"] && !controller.isWaiting)
+        controller.stop()
+    }
+
+    @Test func aPickWithAWindowOpenDropsAStaleWaitingPick() {
+        let host = Host()
+        host.dockMenuHasWindow = false
+        let controller = DockMenuController(lanes: AgentLaneStore(), marks: AgentPriorityMarks(defaults: nil), host: host)
+        controller.run(.open(chat: "stale"))
+        host.dockMenuHasWindow = true
+        controller.run(.open(chat: "b"))
+        #expect(!controller.isWaiting)
+        controller.windowDidShowContent() // a later first-pane mount runs nothing old
+        #expect(host.opened == ["b"])
         controller.stop()
     }
 }
