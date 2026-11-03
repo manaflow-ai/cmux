@@ -103,9 +103,11 @@ fn an_agents_prompt_names_its_sender_and_a_persons_none() {
         "CLAUDE_CODE_SESSION_ID" => Some("9d1c0e7a-1111".to_owned()),
         _ => None,
     };
+    // The chat shows it as Claude Code › its session on this machine (u20190).
     assert_eq!(
         plain.sender(&claude, &host),
         AgentSender::new("claude-9d1c0e7a@mini-7", None, None)
+            .map(|s| s.with_display("Claude Code", Some("9d1c0e7a@mini-7")))
     );
 }
 

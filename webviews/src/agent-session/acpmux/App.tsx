@@ -593,7 +593,7 @@ import { InboxNoticeCard } from "./conversation/InboxNoticeCard";
 import { mergeInboxNotices, type InboxMessage } from "./conversation/inboxNotice";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { cloudCredentialRecovery } from "./cloudCredentialRecovery";
-import { cloudAgentLogin, localApiKeyLogin } from "./cloudAgentLogin";
+import { cloudAgentLogin, localApiKeyLogin, SIGN_IN_ON_MACHINE } from "./cloudAgentLogin";
 import { handoffTurns } from "./cloudHandoffTurn";
 import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
@@ -8260,6 +8260,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         gesture: (intent) =>
           postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
         openURL: (url) => void callChipHost("browser.openIn", { url, browserId: "cmux" }),
+        // Claude's automatic page in a Chromium tab whose localhost is the chat's machine
+        // (AgentPaneSignInPage.swift); the host refuses where it cannot, and the card pastes instead.
+        openOnMachine: (url) =>
+          postNative("browser.openIn", { url, browserId: SIGN_IN_ON_MACHINE }).then(
+            () => true,
+            () => false,
+          ),
         isCurrent: (owner) => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession),
         currentClient: () => directClient.current ?? undefined,
       }),
@@ -8737,7 +8744,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [canBackground, snapshot.isWorking, snapshot.rows],
   );
   foregroundNow.current = foreground;
-  const backgroundHint = !quick && canBackground && snapshot.isWorking ? runInBackground : undefined;
   const [autoOpenSubagents, setAutoOpenSubagents] = useAutoOpenSubagents();
   /// Shows subagent `id`: a person's open in a pane of its own right of the chat, focused; a new
   /// subagent's own open (`focus` false) only while the summary card's switch is on
@@ -8849,7 +8855,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // a running foreground subagent holds Ctrl-B by itself.
   const foregroundAgent =
     canBackground && snapshot.isWorking && freshAgents.some((agent) => running(agent) && !agent.background);
-  useBackgroundKey(!quick && (foreground.length > 0 || foregroundAgent), runInBackground);
+  // Ctrl-B and the line's hint offer the same thing at the same time: the hint (a button) shows only
+  // while Ctrl-B moves something, never over a chat or call it can't move (Leo, 2026-11-03: "this run
+  // in background sometimes i can't actually do anything to put it in the background").
+  const backgroundable = !quick && (foreground.length > 0 || foregroundAgent);
+  useBackgroundKey(backgroundable, runInBackground);
+  const backgroundHint = backgroundable ? runInBackground : undefined;
   const chatTones = useMemo(() => (chatAgents.length > 0 ? agentTones(chatAgents) : undefined), [chatAgents]);
   // A message to a subagent names it by its description, never its agentId (MessageCard.tsx).
   const chatAgentNames = useMemo(() => agentNames(chatAgents), [chatAgents]);
