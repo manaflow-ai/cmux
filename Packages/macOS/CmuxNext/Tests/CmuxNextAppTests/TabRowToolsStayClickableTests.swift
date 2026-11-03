@@ -15,12 +15,17 @@ import Testing
     /// A chat that draws `need` points of tools in the row whenever the pane offers it, as the page does.
     final class RowChat: NSView, PaneTabRowSharing {
         let need: CGFloat
+        let tabRowTakesLoneTab: Bool
         private(set) var shared: CGFloat = 0
+        private(set) var tabsShown = true
         var onTabRowToolsChange: (() -> Void)?
-        init(need: CGFloat) {
+        init(need: CGFloat, takesLoneTab: Bool = false) {
             self.need = need
+            tabRowTakesLoneTab = takesLoneTab
             super.init(frame: .zero)
         }
+
+        func setTabRowTabs(shown: Bool) { tabsShown = shown }
 
         @available(*, unavailable)
         required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -62,6 +67,39 @@ import Testing
         }
         // A pane wide enough for the tools shares the row; a narrow one keeps the chat's own header row.
         #expect(chatUnderRow == (CGFloat(width) - pane.toolbarWidth(shown: strip.height) >= chat.need * 2))
+    }
+
+    /// Leo (2026-11-03), on the tab row over a chat alone in its pane: "have even more of that area be not
+    /// some row blocking it? cuz isn't it kinda arbitrary anyway if you literally only have one tab there?"
+    /// A chat that shares the row hides its pane's one tab (the page shows through); a second tab brings
+    /// the strip back. A view that does not take the lone tab (Home's tools) keeps it.
+    @Test(arguments: [true, false])
+    func aLoneChatTabGivesTheChatTheRow(takesLoneTab: Bool) {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 500), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.orderOut(nil); window.close() }
+        let model = TabStripModel(tabs: [TabItem(id: TabID("t0"), title: "Chat")])
+        let pane = PaneContentView(stripModel: model, reveal: LaunchReveal(deadline: .zero))
+        pane.frame = window.contentLayoutRect
+        window.contentView = pane
+        let chat = RowChat(need: 220, takesLoneTab: takesLoneTab)
+        _ = pane.show(chat)
+        let settle = {
+            for _ in 0..<4 {
+                pane.needsLayout = true
+                pane.layoutSubtreeIfNeeded()
+            }
+        }
+        settle()
+        #expect(pane.contentHost.frame.minY < pane.stripView.frame.maxY, "the chat shares the row")
+        #expect(pane.stripView.isHidden == takesLoneTab)
+        #expect(chat.tabsShown == !takesLoneTab)
+
+        model.tabs.append(TabItem(id: TabID("t1"), title: "Terminal"))
+        settle()
+        #expect(!pane.stripView.isHidden, "a second tab shows the strip again")
+        #expect(chat.tabsShown)
     }
 
     /// Leo (2026-11-03), on the chat's own color (`appearance.surfaces.agentPane`) drawn as a rectangle

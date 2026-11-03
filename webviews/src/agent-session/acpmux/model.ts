@@ -970,9 +970,6 @@ export type AcpmuxSnapshot = {
   /// its input and output (`inputTokens`, `cachedReadTokens`, `cachedWriteTokens`, `outputTokens`,
   /// claude_stdio/inbound.rs); unset otherwise.
   turnTokenSplit?: TurnTokenSplit;
-  /// The running turn's agent has said nothing since its prompt, past acpmux's `silentTurnMs`
-  /// (direct.ts `silentTurn`): the turn's line says the model has not answered.
-  silentTurn?: true;
   /// Stop (or Esc) was sent and the running turn has not ended yet (direct.ts `cancel`): Stop
   /// turns and says it is stopping, so a press never looks like it did nothing.
   stopping?: true;
