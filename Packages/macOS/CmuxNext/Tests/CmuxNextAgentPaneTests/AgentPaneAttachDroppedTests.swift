@@ -150,7 +150,7 @@ struct AgentPaneAttachDroppedTests {
 
     /// Same native operations before and after the matching change. Values are reported, never a
     /// timing gate; every measurement checks the exact reordered paths and per-file attribution.
-    @Test(arguments: [1024, 16384], ["takeItems", "source", "sources"])
+    @Test(.serialized, arguments: [1024, 16384], ["takeItems", "source", "sources"])
     func reorderedNameMatchingBenchmark(count: Int, operation: String) throws {
         let urls = (0..<count).map { URL(fileURLWithPath: "/tmp/matching/attachment-\($0).bin") }
         let expected = Array(urls.reversed())
