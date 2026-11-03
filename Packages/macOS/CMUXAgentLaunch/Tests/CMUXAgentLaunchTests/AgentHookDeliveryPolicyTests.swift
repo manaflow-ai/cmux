@@ -81,8 +81,9 @@ struct AgentHookDeliveryPolicyTests {
 
     @Test("Without terminal evidence the exported agent PID is kept")
     func missingTerminalEvidenceKeepsExportedPID() {
-        // An exited exported PID, or a hook run without a terminal, gives no
-        // evidence that the exported PID belongs to another pane.
+        // An exported PID that is still alive, or a hook run without a
+        // terminal, gives no evidence that the exported PID belongs to
+        // another pane.
         let terminals: [Int: Int64] = [4_343: 0x1002]
         #expect(policy.hookAgentPID(
             environmentPID: 4_242,
@@ -104,6 +105,26 @@ struct AgentHookDeliveryPolicyTests {
             invocationAgentPID: nil,
             controllingTerminal: { _ in 0x1001 }
         ) == 4_242)
+    }
+
+    @Test("A dead exported agent PID yields to the hook's live agent")
+    func deadExportedPIDYieldsToInvocationAgent() {
+        // A detached background worker inherits the exported PID of the
+        // process that started its session, which exits after `claude --bg`.
+        // Neither PID has a controlling terminal, so only liveness separates
+        // the stale identity from the worker that ran the hook.
+        #expect(policy.hookAgentPID(
+            environmentPID: 4_242,
+            invocationAgentPID: 4_343,
+            controllingTerminal: { _ in nil },
+            processIsAlive: { $0 != 4_242 }
+        ) == 4_343)
+        #expect(policy.hookAgentPID(
+            environmentPID: 4_242,
+            invocationAgentPID: nil,
+            controllingTerminal: { _ in 0x1001 },
+            processIsAlive: { $0 != 4_242 }
+        ) == nil)
     }
 
     @Test("Agent names produce stable ASCII PID environment keys")
