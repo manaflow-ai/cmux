@@ -166,28 +166,37 @@ def build_newtabs(app, count, limit=60):
     """Show and load every page before hiding it; a lazy store tab is not a renderer."""
     keys, engines = [], []
 
-    def action(name):
-        reply = app.rpc("action.run", {"action": name, "origin": "script", "focus": True, "wait": True}, timeout=60)
+    def action(name, **params):
+        reply = app.rpc("action.run", {"action": name, "origin": "script", "focus": True, "wait": True, **params}, timeout=60)
         if not isinstance(reply, dict) or reply.get("error") or reply.get("code"):
             raise RuntimeError(f"{name} failed: {reply}")
 
     for _ in range(count):
+        existing = live_chat_pages(read_rpc(app, "debug.surfaces"))
         action("newTab.page")
         deadline, last, ready = time.monotonic() + limit, {}, None
         while time.monotonic() < deadline:
             last = read_rpc(app, "debug.surfaces")
-            candidates = [p for p in surface_panes(last) if p.get("focused") and p.get("kind") == "agent"
+            candidates = [p for p in surface_panes(last) if p.get("kind") == "agent"
                           and p.get("selected_tab") == p.get("shown_tab") and p.get("content_installed")
-                          and p.get("content_in_window") and not p.get("blank")]
+                          and p.get("content_in_window") and not p.get("blank")
+                          and str(p.get("selected_tab", "")).startswith("tab_")
+                          and p.get("selected_tab") not in existing]
             if len(candidates) == 1:
                 pane = candidates[0]
                 key = pane.get("selected_tab")
                 if key and not key.startswith("pending_tab_") and key not in keys and key in live_chat_pages(last):
+                    if not pane.get("focused"):
+                        # Creating a page can leave a different pane focused. Target the
+                        # real tab, then observe focus before asking its document readiness.
+                        action("tab.focus", target=f"tab:{key}")
+                        time.sleep(0.1)  # bench: bounded wait for the target pane to take focus
+                        continue
                     ready = app.rpc("debug.agent_pane", {"action": "readiness", "pane": pane["pane"]}, timeout=30)
-                    if isinstance(ready, dict) and ready.get("document_ready") and ready.get("body_text_length", 0) > 0:
+                    if isinstance(ready, dict) and not ready.get("error") and not ready.get("code") and ready.get("document_ready") and ready.get("body_text_length", 0) > 0:
                         # The store may replace a provisional id while the page loads.
                         current = read_rpc(app, "debug.surfaces")
-                        if any(p.get("selected_tab") == key and p.get("shown_tab") == key
+                        if any(p.get("selected_tab") == key and p.get("shown_tab") == key and p.get("focused")
                                for p in surface_panes(current)) and key in live_chat_pages(current):
                             engine = read_rpc(app, "debug.agent_pane", {"action": "engine", "pane": pane["pane"]})
                             keys.append(key)
@@ -200,6 +209,7 @@ def build_newtabs(app, count, limit=60):
     # last page wraps to it without replacing (and closing) a New Tab via newSurface.
     action("nextSurface")
     deadline = time.monotonic() + limit
+    report = {}
     while time.monotonic() < deadline:
         report = read_rpc(app, "debug.surfaces")
         panes = surface_panes(report)

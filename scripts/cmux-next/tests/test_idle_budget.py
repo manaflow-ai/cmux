@@ -71,7 +71,7 @@ class IdleBudgetTests(unittest.TestCase):
         class App:
             def rpc(self, *args, **kwargs):
                 return {}
-        with self.assertRaisesRegex(RuntimeError, "only built 0 of 5"):
+        with self.assertRaisesRegex(RuntimeError, "lacks hibernation.chat_pages"):
             ib.build_newtabs(App(), 5, limit=0)
         with self.assertRaisesRegex(RuntimeError, "lacks hibernation.chat_pages"):
             ib.newtab_evidence(App(), {"keys": ["a"]})
@@ -79,15 +79,19 @@ class IdleBudgetTests(unittest.TestCase):
     def test_newtab_setup_preserves_full_panes_and_readiness_error(self):
         pane = {"pane": "p", "focused": True, "kind": "agent", "selected_tab": "tab_real",
                 "shown_tab": "tab_real", "content_installed": True, "content_in_window": True}
-        readiness = {"error": "page script failed"}
+        readiness = {"error": "page script failed", "document_ready": True, "body_text_length": 100}
 
         class App:
+            created = False
+
             def rpc(self, method, params=None, **kwargs):
                 if method == "action.run":
+                    self.created = True
                     return {}
                 if method == "debug.agent_pane":
                     return readiness
-                return {"windows": [{"panes": [pane]}], "hibernation": {"chat_pages": ["tab_real"]}}
+                return {"windows": [{"panes": [pane] if self.created else []}],
+                        "hibernation": {"chat_pages": ["tab_real"] if self.created else []}}
 
         with patch.object(ib.time, "monotonic", side_effect=[0, 0, 2]), patch.object(ib.time, "sleep"):
             with self.assertRaises(ib.NewTabSetupError) as failure:
