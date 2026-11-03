@@ -17,6 +17,7 @@ extension DividerDrag {
                                         axis: divider.axis, minimumA: divider.minimumA, minimumB: divider.minimumB,
                                         snaps: DividerDragState.snaps(equalShare: tree?.equalizedRatio(for: id)))
             drag.tree = tree
+            drag.startSnap = layout.ratio(of: id).flatMap { drag.snap(at: $0, style: style) }
             // Option pushes only what scrolls: a split across a strip column.
             if divider.axis == .horizontal, screen.scrolls(kind),
                let column = layout.columns.first(where: { $0.trees.contains { $0.node(for: id) != nil } }) {

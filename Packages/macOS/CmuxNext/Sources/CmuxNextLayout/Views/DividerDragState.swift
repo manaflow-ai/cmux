@@ -20,6 +20,10 @@ struct DividerDragState {
     /// (cx-piioc), and the one the divider sits on now.
     var snaps: [Double] = []
     var snapped: Double?
+    /// The snap the divider sat on at the press: it holds nothing until the divider has left its reach once, so
+    /// a drag from an equal split follows the pointer from its first point instead of standing still for the snap
+    /// distance and then jumping (RESIZE KEYS, feat-5851715 films: 91-99 ms still, then 8.5 pt). Shift keeps it.
+    var startSnap: Double?
     /// The pointer along `axis` (content space) and its velocity in pt/s,
     /// lightly smoothed, for the release spring (`SplitMotion.seed`).
     var pointer: (position: CGFloat, time: CFTimeInterval)?
@@ -78,6 +82,17 @@ struct DividerDragState {
         return velocity
     }
 
+    /// The split's room along `axis`: its container less the divider.
+    func availableExtent(_ style: LayoutStyle) -> CGFloat {
+        (axis == .horizontal ? container.width : container.height) - style.dividerThickness
+    }
+
+    /// The snap of `snaps` the divider sits on (within half a point) when its leading side is `ratio` of the room.
+    func snap(at ratio: Double, style: LayoutStyle) -> Double? {
+        let room = availableExtent(style)
+        return snaps.first { abs(CGFloat($0 - ratio)) * room <= 0.5 }
+    }
+
     /// How close, in points, a split divider comes to a snap before it lands there.
     static let snapDistance: CGFloat = 8
     static func snaps(equalShare: Double?) -> [Double] {
@@ -94,9 +109,11 @@ struct DividerDragState {
     /// A split divider's ratio with the pointer at `point` (content space),
     /// snapped; entering a snap mid-drag plays the alignment haptic.
     mutating func splitRatio(at point: CGPoint, style: LayoutStyle, phase: LayoutGesturePhase) -> Double {
+        let active = modifiers.snap ? snaps : snaps.filter { $0 != startSnap }
         let ratio = SplitGeometry.ratio(forPointer: axis == .horizontal ? point.x : point.y, grabOffset: grabOffset, container: container,
                                         axis: axis, style: style, minimumA: minimumA, minimumB: minimumB,
-                                        snaps: snaps, snapDistance: snapReach)
+                                        snaps: active, snapDistance: snapReach)
+        if let startSnap, abs(CGFloat(ratio - startSnap)) * availableExtent(style) > Self.snapDistance { self.startSnap = nil }
         let landed = snaps.contains(ratio) ? ratio : nil
         if let landed, landed != snapped, phase != .ended {
             NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
