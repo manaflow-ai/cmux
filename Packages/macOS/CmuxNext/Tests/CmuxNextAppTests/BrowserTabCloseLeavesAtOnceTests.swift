@@ -76,6 +76,56 @@ struct BrowserTabCloseLeavesAtOnceTests {
         }
     }
 
+    /// Both tabs of a split pane are deciding pages, closed in one gesture: the pane leaves at once, and when the pages
+    /// close (their `.close` requests) the gesture is still ONE Reopen Closed step. Review of #32876 at 66aaa5601f8: the
+    /// emptied pane had no controller shown, so each page's close went to the daemon alone, outside the gesture.
+    @Test func closingAnEmptiedPanesDecidingPagesIsOneReopenStep() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let store = services.daemon.store
+            let window = try #require(services.windows.active)
+            let first = try #require(window.workspaceContent?.panes.values.first?.pane)
+            _ = try await connection.split(first.handle, direction: .right)
+            let screenPanes = { store.workspaces.flatMap(\.screens).first { $0.panes.contains { $0 === first } }?.panes ?? [] }
+            try await PinnedPageTests.until({ screenPanes().count == 2 && screenPanes().allSatisfy { !$0.tabs.isEmpty } && window.workspaceContent?.panes.count == 2 },
+                                            within: .seconds(30), report: { "\(screenPanes().count) panes" })
+            let right = try #require(screenPanes().first { $0 !== first })
+            var ids: [String] = []
+            for name in ["a", "b"] {
+                let page = try await connection.newFrontendBrowserTab(url: "https://example.com/\(name)", engine: .webkit, in: right.handle, activate: true)
+                try await PinnedPageTests.until({ store.tab(surface: page.surface) != nil })
+                ids.append(try #require(store.tab(surface: page.surface)).id)
+            }
+            for tab in right.tabs where !ids.contains(tab.id) {
+                #expect(services.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .cli)))
+            }
+            let controller = try #require(services.paneController(for: right))
+            try await PinnedPageTests.until({ Set(controller.orderedIDs.map(\.rawValue)) == Set(ids) }, report: { "\(controller.orderedIDs)" })
+            var pages: [any BrowserTab] = []
+            for id in ids {
+                controller.select(StripTabID(id))
+                try await PinnedPageTests.until({ services.cache.browsers[id] != nil }, report: { "the page of \(id) was never made" })
+                pages.append(try #require(services.cache.browsers[id]?.tab))
+            }
+            let layout = try #require(controller.workspace?.layoutModel)
+            let paneID = controller.layoutPaneID
+            let undo = try #require(services.closedTabs?.undoToasts)
+            var deciding = Set(ids)
+            undo.pageDecidesClose = { _, tab in deciding.contains(tab.rawValue) }
+            let seen = Set(store.closedItems.map(\.id))
+
+            CloseUndoToasts.close(in: controller, ids.map { StripTabID($0) })
+            #expect(layout.isClosing(paneID), "the emptied pane waits on screen for its pages")
+            // The pages close, one after the other, as Chromium reports them.
+            deciding = []
+            for page in pages { services.cache.pageRequests.browserTab(page, didRequest: .close) }
+            try await PinnedPageTests.until({ ids.allSatisfy { store.liveTreeLists(tab: $0) == false } }, within: .seconds(10),
+                                            report: { "open: \(ids.filter { store.liveTreeLists(tab: $0) != false })" })
+            let fresh = { store.closedItems.filter { !seen.contains($0.id) } }
+            try await PinnedPageTests.until({ fresh().flatMap(\.tabs).count >= 2 }, report: { "closed: \(fresh().map { ($0.id, $0.tabs.count) })" })
+            #expect(fresh().count == 1, "one gesture stored \(fresh().count) Reopen Closed steps: \(fresh().map(\.tabs.count))")
+        }
+    }
+
     /// The measure (same harness at base and head): a person's close of a deciding page's tab to the
     /// tab gone from its strip, 20 rounds. The page never answers within the round's 1 s, as a slow
     /// renderer; then it closes the tab (the `closeTab` its page's close runs). Prints p50/p95.
