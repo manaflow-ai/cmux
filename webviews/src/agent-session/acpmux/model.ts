@@ -466,6 +466,11 @@ export type AcpmuxRow = {
   /// behind, by id and version, while that text still moves.
   doingAt?: number;
   doingShell?: boolean;
+  /// The Codex-style live line names a command still running in an earlier run, which that run
+  /// draws no row for (conversation/turns.ts `lineCall`, `codexRuns`): its call id. While the reader
+  /// is scrolled up, the call stays out of its run when the line lets go of it
+  /// (conversation/turnEndHold.ts `callsToHold`).
+  linedCall?: string;
   /// `doing` names the latest step, finished, which the live line holds until the next step
   /// (conversation/turns.ts `liftedStep`): "Ran grep …".
   doingDone?: boolean;
@@ -590,6 +595,10 @@ export type AcpmuxActivity = {
     images?: string[];
     /// A shell that went on in the background: running there, then how it ended.
     background?: AcpmuxBackgroundState;
+    /// The person approved this call's permission ask (Allow, Always allow, or a switch to the
+    /// harness's highest mode while its card was open): the row says "Approved" at its edge
+    /// instead of a receipt line of its own (direct.ts `markApproved`).
+    approved?: true;
   };
 };
 
@@ -843,7 +852,13 @@ export type AcpmuxSnapshot = {
     /// Context-window tokens used of the session's window, from the agent's last usage update, and
     /// `setup`, the part the agent took before the conversation (its system prompt, tools and
     /// memory), when the harness reports it (`_meta.acpmux.setup`).
-    usage?: { used: number; size: number; setup?: number };
+    usage?: {
+      used: number;
+      size: number;
+      setup?: number;
+      /// When the chat's prompt cache lapses (unix ms; acpmux claude_stdio/prompt_cache.rs).
+      cacheExpiresAt?: number;
+    };
     /// What the context holds by category, as Claude Code's /context said after the last turn
     /// (acpmux `contextBreakdown`); unset for other harnesses. Each list holds at most 50 rows,
     /// the largest.
@@ -2030,8 +2045,10 @@ function measuredRowHeight(
     // from the icon column and 10px padding across): the whole text
     // (conversation/IncomingMessageCard.tsx), its images' 128px, and Details' 24px line.
     const line = lineRow();
-    // Shut, its first line sits under the sender (stacked look).
-    if (!messageOpened(sessionId, row.id)) return finish(line + messagePreviewLine(true));
+    // Shut, its first line sits under the sender (stacked look); a tool's notice keeps its title
+    // on the line (IncomingMessageCard.tsx).
+    if (!messageOpened(sessionId, row.id))
+      return finish(line + messagePreviewLine(!row.incoming.message.notice));
     const { lineHeight } = metrics();
     const text = row.incoming.message.text;
     if (receivedPrepared.size > 256) receivedPrepared.clear();

@@ -9,14 +9,16 @@ tab:
   1. the tab shows the PDF: its document is the PDF (`document.contentType`),
      in Chromium its PDF viewer loads it (the tab takes the PDF's own title);
      a screenshot of each tab is kept in --out;
-  2. nothing is downloaded: no file of that name lands in ~/Downloads.
+  2. nothing is downloaded: no file of that name lands in the app's downloads folder (its own
+     folder in the scratch, CMUX_NEXT_DOWNLOADS_DIR, never the account's ~/Downloads).
 
 Quits the app through the socket (by PID if it hangs) and stops the tag's daemons at the end.
 """
-import argparse, base64, glob, http.server, json, os, plistlib, subprocess, sys, tempfile, threading, time
+import argparse, base64, glob, http.server, json, os, plistlib, shutil, subprocess, sys, tempfile, threading, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+import kit_downloads  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -35,7 +37,10 @@ CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 SCRATCH = tempfile.mkdtemp(prefix=f"pdf-{opts.tag}-")
 CONFIG = os.path.join(SCRATCH, "cmux.json")
-DOWNLOADS = os.path.expanduser("~/Downloads")
+# The app's downloads folder (CMUX_NEXT_DOWNLOADS_DIR, Debug builds): the account's ~/Downloads would make macOS
+# ask for Downloads access in a prompt that covers a fleet Mac's screen.
+DOWNLOADS = os.path.join(SCRATCH, "downloads")
+os.makedirs(DOWNLOADS)
 BASE_ENV = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"}
 CLI_ENV = {**BASE_ENV, "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1"}
@@ -144,11 +149,14 @@ write(EMPTY_GHOSTTY, "")
 teardown = TagTeardown(APP)
 teardown.install()
 app = subprocess.Popen([BINARY], env={**BASE_ENV, "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",
-                                      "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": EMPTY_GHOSTTY},
+                                      "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": EMPTY_GHOSTTY,
+                                      "CMUX_NEXT_DOWNLOADS_DIR": DOWNLOADS},
                        stdout=open(os.path.join(opts.out, "app.log"), "w"), stderr=subprocess.STDOUT)
 print(f"app pid {app.pid}, scratch {SCRATCH}, origin {ORIGIN}, out {opts.out}", flush=True)
 try:
     wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), "app socket", 120)
+    # The "not downloaded" checks look only in DOWNLOADS: refuse to run them unless the app saves there.
+    kit_downloads.require(rpc("debug.downloads"), DOWNLOADS)
     to_workspace()
     for engine in ("webkit", "chromium"):
         name = f"doc-{engine}-{RUN}.pdf"
@@ -171,7 +179,7 @@ try:
         else:
             print(f"note: {engine}: no screenshot ({shot.get('error') if isinstance(shot, dict) else shot})", flush=True)
         time.sleep(3)  # a download would have landed by now
-        landed = [f for f in os.listdir(DOWNLOADS) if RUN in f] if os.path.isdir(DOWNLOADS) else []
+        landed = [f for f in os.listdir(DOWNLOADS) if RUN in f]
         check(not landed, f"{engine}: the PDF is not downloaded ({landed})")
 finally:
     rpc("action.run", {"action": "quitEndSessions"})
@@ -182,10 +190,7 @@ finally:
     teardown.end()
     server.shutdown()
     server.server_close()
-    # A PDF downloaded by mistake carries this run's id; nothing else is touched.
-    for name in (os.listdir(DOWNLOADS) if os.path.isdir(DOWNLOADS) else []):
-        if RUN in name:
-            os.remove(os.path.join(DOWNLOADS, name))
+    shutil.rmtree(SCRATCH, ignore_errors=True)  # a PDF downloaded by mistake is in its downloads folder
 
 print(f"{len(failures)} failure(s); artifacts in {opts.out}")
 sys.exit(1 if failures else 0)

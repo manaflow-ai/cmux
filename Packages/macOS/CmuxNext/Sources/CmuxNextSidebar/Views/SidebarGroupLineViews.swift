@@ -133,8 +133,9 @@ final class SidebarGroupLineViews {
     }
 }
 
-/// One members' line: Chrome's (Leo 2026-10-19), a flat-ended 2 pt bar in its header bar's exact color.
-/// Square ends need no mask or drawn image, so the line keeps its shape in every frame of the rows' spring.
+/// One members' line, the sidebar's left bar: Chrome's (Leo 2026-10-19), a 2 pt bar in its header bar's exact color,
+/// one capsule with the same round cap at the top and the bottom (Lawrence msg 19775, `SidebarGroupLineShape`).
+/// The layer's corner clip draws the caps, so the line keeps its shape in every frame of the rows' spring.
 final class GroupLineView: NSView {
     /// The view's bounds spring can keep presenting the old rail height after its model height reaches zero.
     /// Keep the shape taller than any sidebar line so the view, not the shape, clips the shrinking rail.
@@ -151,8 +152,7 @@ final class GroupLineView: NSView {
     init() {
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = 0 // flat body and left edge; the top-right edge has Chrome's cut.
-        layer?.masksToBounds = true
+        layer?.masksToBounds = true // the corner clip draws the capsule's caps (`updateShape`)
         railShape.fillColor = NSColor.black.cgColor
         layer?.addSublayer(railShape)
     }
@@ -190,16 +190,13 @@ final class GroupLineView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        let connected = SidebarStyle.groupChromeShape
-        // The clipping layer owns the terminal cap, so it follows the presentation bounds through a fold.
-        // Rounding the oversized body's bottom instead would clip the cap off the visible rail.
-        layer?.cornerRadius = connected ? bounds.width / 2 : 0
-        layer?.maskedCorners = layer?.contentsAreFlipped() == true
-            ? [.layerMinXMaxYCorner, .layerMaxXMaxYCorner] : [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        // The clipping layer owns both caps (one capsule, `SidebarGroupLineShape`), so they follow the presentation
+        // bounds through a fold; rounding the oversized body instead would clip the bottom cap off the visible rail.
+        layer?.cornerRadius = SidebarGroupLineShape.cornerRadius(width: bounds.width)
+        layer?.maskedCorners = SidebarGroupLineShape.corners
         let height = max(bounds.height, railShape.frame.height, Self.shapeCoverageHeight)
         railShape.frame = CGRect(x: 0, y: 0, width: bounds.width, height: height)
-        railShape.path = connected ? SidebarGroupLineShape.connected(width: bounds.width, height: height)
-            : SidebarGroupLineShape.line(width: bounds.width, height: height)
+        railShape.path = SidebarGroupLineShape.body(width: bounds.width, height: height)
     }
 
     /// Reads `sidebar.groupHeader` and `sidebar.groupColors` and repaints once when either changes; one

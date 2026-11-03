@@ -11,7 +11,11 @@
 //! - a turn the logs show open ends `cancelled` with `detail: clone_boot`, and no continuation
 //!   is queued for it;
 //! - every prompt its queue held is removed (`queue_removed`, `reason: clone_boot`);
-//! - no restored auto-resume wait or held agent message goes in again.
+//! - a restored auto-resume wait is skipped for good (`auto_resume_skipped`, `skipped:
+//!   clone_boot`), so no later start of the copy restores it;
+//! - every message its agent pairs held for it is dropped (`agent_pair_dropped`, `reason:
+//!   clone_boot`), so no restored or later resume delivers it;
+//! - its outbox is set aside unread (`daemon.rs`), and no held agent message goes in again.
 //!
 //! The chats stay, with their history, and the person can go on in any of them by hand.
 //!
@@ -96,9 +100,9 @@ impl Hub {
     /// A copy's first start: every prompt the restored queue holds is removed, so none runs on
     /// this machine as well as on the one it was copied from.
     pub(super) fn drop_cloned_queue(&self, session: &Arc<Session>) {
-        if self.clone_of().is_none() {
-            return;
-        }
+        let Some(from) = self.clone_of() else { return };
+        // And what its agent pairs held for it (`agent_pairs.rs`).
+        self.drop_cloned_pair_holds(session, from);
         let ids: Vec<String> = session
             .queue
             .lock()
@@ -215,6 +219,154 @@ mod tests {
         assert!(queue.len() == 2 && queue[1] == "p2", "{queue:?}");
         assert!(queue[0].starts_with("p1"), "the continuation runs first: {queue:?}");
         assert!(events.iter().all(|e| e.msg["detail"] != "clone_boot"), "{events:?}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A store at `root` holding chat `c1`, whose log `write` fills.
+    fn chat_with(root: &std::path::Path, write: impl Fn(&Hub, &Arc<Session>)) -> Config {
+        let mut cfg = Config::default();
+        cfg.store.mode = StoreMode::Local;
+        cfg.auto_resume_delays_ms = Some(vec![60_000]);
+        let store = crate::store::open(&cfg.store, root).unwrap();
+        let meta = json!({
+            "schema": crate::store::META_SCHEMA, "id": "c1", "name": "c1", "harness": "claude",
+            "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 2,
+        });
+        store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+        let hub = Hub::new(cfg.clone(), store);
+        let session = hub.resolve("c1").unwrap();
+        write(&hub, &session);
+        cfg
+    }
+
+    /// A daemon on `root` reads `c1`'s log and resumes what it restored, as a copy's first start
+    /// (`from`) or not: the log after, and what its agent pairs hold for `c1` (held messages,
+    /// restored resumes to run).
+    async fn start(
+        root: &std::path::Path,
+        cfg: &Config,
+        from: Option<&str>,
+    ) -> (Vec<EventRecord>, (usize, usize)) {
+        let hub = Hub::new_deferred(
+            cfg.clone(),
+            crate::store::open(&cfg.store, root).unwrap(),
+            crate::mailbox::Mailbox::memory(),
+        );
+        if let Some(from) = from {
+            hub.set_clone_boot(from.to_owned());
+        }
+        let session = hub.resolve("c1").unwrap();
+        hub.load_session_log(&session);
+        hub.resume_restored_as(std::slice::from_ref(&session), true);
+        let holds = hub.pair_holds_for("c1");
+        let events = hub.events("c1", 0, 10_000).unwrap();
+        hub.shutdown_all().await;
+        (events, holds)
+    }
+
+    /// The capture holds a turn that failed on a dropped connection and the retry it scheduled.
+    fn failed_with_retry(hub: &Hub, session: &Arc<Session>) {
+        hub.append(
+            session,
+            "mux",
+            "turn_started",
+            json!({
+                "turnId": "t1", "promptId": "p1", "control": "local", "trustGate": false
+            }),
+        );
+        hub.append_unknown_outcome(session, json!({
+            "turnId": "t1", "promptId": "p1", "status": "failed", "errorText": "stream disconnected"
+        }));
+        hub.append(
+            session,
+            "mux",
+            "auto_resume_scheduled",
+            json!({
+                "turnId": "t1", "promptId": "p1", "attempt": 1, "of": 1, "reason": "transport",
+                "nextAt": crate::hub::now_ms() + 600_000
+            }),
+        );
+    }
+
+    fn kinds<'a>(events: &'a [EventRecord], kind: &str) -> Vec<&'a Value> {
+        events.iter().filter(|e| e.kind == kind).map(|e| &e.msg).collect()
+    }
+
+    #[tokio::test]
+    async fn a_copy_settles_the_inherited_retry_wait_for_good() {
+        // An ordinary restart restores the wait (the fixture is one a restart retries).
+        let root = temp("retry-control");
+        let cfg = chat_with(&root, failed_with_retry);
+        let (events, _) = start(&root, &cfg, None).await;
+        assert_eq!(kinds(&events, "auto_resume_restored").len(), 1, "{events:?}");
+        let _ = std::fs::remove_dir_all(&root);
+
+        // A copy's first start skips it, durably.
+        let root = temp("retry");
+        let cfg = chat_with(&root, failed_with_retry);
+        let (events, _) = start(&root, &cfg, Some("vm_first")).await;
+        assert!(kinds(&events, "auto_resume_restored").is_empty(), "{events:?}");
+        let skipped = kinds(&events, "auto_resume_skipped");
+        assert_eq!(skipped.len(), 1, "{events:?}");
+        assert_eq!(
+            (&skipped[0]["turnId"], &skipped[0]["skipped"], &skipped[0]["cloneOf"]),
+            (&json!("t1"), &json!("clone_boot"), &json!("vm_first"))
+        );
+
+        // The copy's next, ordinary restart restores nothing and writes nothing new.
+        let (again, _) = start(&root, &cfg, None).await;
+        assert!(kinds(&again, "auto_resume_restored").is_empty(), "{again:?}");
+        assert_eq!(again.len(), events.len(), "a later start changed the settled log");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The capture holds a pair with `a` paused, a message from `a` held for `c1`, and the
+    /// person's resume that was delivering it when the first machine's daemon stopped.
+    fn paused_pair(hub: &Hub, session: &Arc<Session>) {
+        hub.append(
+            session,
+            "mux",
+            "agent_pair_paused",
+            json!({"peer": "a", "reason": "alternating"}),
+        );
+        hub.append(
+            session,
+            "mux",
+            "agent_pair_held",
+            json!({
+                "from": "a", "to": "c1", "promptId": "h1", "client": "acpmux", "order": 1,
+                "prompt": [{"type": "text", "text": "over to you"}],
+                "provenance": {"kind": "subsession_message", "from": "a", "to": "c1"},
+            }),
+        );
+        hub.append(session, "mux", "agent_pair_resumed", json!({"peer": "a", "by": "request"}));
+    }
+
+    #[tokio::test]
+    async fn a_copy_drops_what_its_agent_pairs_held_for_good() {
+        // An ordinary restart holds the message and drains the resumed pair.
+        let root = temp("pair-control");
+        let cfg = chat_with(&root, paused_pair);
+        let (_, holds) = start(&root, &cfg, None).await;
+        assert_eq!(holds, (1, 1));
+        let _ = std::fs::remove_dir_all(&root);
+
+        // A copy's first start drops it, in the log, and leaves nothing to deliver.
+        let root = temp("pair");
+        let cfg = chat_with(&root, paused_pair);
+        let (events, holds) = start(&root, &cfg, Some("vm_first")).await;
+        assert_eq!(holds, (0, 0), "a copy would deliver the first machine's message");
+        let dropped = kinds(&events, "agent_pair_dropped");
+        assert_eq!(dropped.len(), 1, "{events:?}");
+        assert_eq!(
+            (&dropped[0]["promptId"], &dropped[0]["peer"], &dropped[0]["reason"]),
+            (&json!("h1"), &json!("a"), &json!("clone_boot"))
+        );
+
+        // The copy's next, ordinary restart holds nothing either.
+        let (again, holds) = start(&root, &cfg, None).await;
+        assert_eq!(holds, (0, 0));
+        assert_eq!(again.len(), events.len(), "a later start changed the settled log");
         let _ = std::fs::remove_dir_all(&root);
     }
 

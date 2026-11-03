@@ -24,14 +24,10 @@ const counts: WorkingCounts = {
 };
 const working: AcpmuxRow = { id: "working", kind: "working", version: 1, at: START };
 
-/// The lines that draw the count in their text. The live line at the bottom (Thinking.tsx) keeps it
-/// in its hover instead (`thinkingLine`): in the transcript the counts read as debug noise.
 export const tokenLines: Record<string, ReactElement> = {
+  "the live line at the bottom (Thinking.tsx)": <Thinking since={START} now={now} below />,
   "the line over the turn (WorkingFor.tsx)": <WorkingFor row={working} now={now} />,
 };
-
-/// The Codex layout's live line at the bottom, at 35s.
-export const thinkingLine: ReactElement = <Thinking since={START} now={now} below />;
 
 /// A turn's tokens split as acpmux reports them: 12.4K out, 2.1M read.
 export const SPLIT: TurnTokenSplit = { output: 12_400, input: 18_000, cacheRead: 2_080_000, cacheWrite: 42_000 };

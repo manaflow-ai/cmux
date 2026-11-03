@@ -177,6 +177,18 @@
 .acpmux-session-info[data-placement="overlay"] {
   --ui-enter-distance: 24px;
 }
+/* A floating Session Info opens in its final place on the click. Its exit still slides away, and
+   the foot of an already open panel still follows a growing composer. */
+.acpmux-session-info[data-placement="overlay"]:is([data-presence="from"], [data-presence="shown"]) {
+  opacity: 1;
+  translate: none;
+  transition-property: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-session-info[data-placement="overlay"][data-presence="shown"][data-over-chat][data-foot-moves] {
+    transition-property: max-height;
+  }
+}
 .acpmux-session-info[data-resizing] {
   user-select: none;
 }

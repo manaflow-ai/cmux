@@ -10,7 +10,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { SPLIT, thinkingLine, tokenLines, tokenLineMarkup } from "./support/turnTokenLines";
+import { SPLIT, tokenLines, tokenLineMarkup } from "./support/turnTokenLines";
 
 const conversationCss = readFileSync(
   path.resolve(import.meta.dir, "../src/agent-session/acpmux/conversation/conversation.css"),
@@ -26,8 +26,10 @@ const rule = (selector: string) => {
 for (const [name, line] of Object.entries(tokenLines))
   test(`${name}: the count is its own span, which the quieter rule keys on`, () => {
     const html = tokenLineMarkup(line);
+    // The live line says one count as Claude Code's does, "679.9K tokens" (claude-code-tool-rows.test.tsx).
+    const count = name.includes("Thinking.tsx") ? "679.9K tokens" : "679.9K out";
     expect(html).toContain(
-      '<span class="cv-worked__count"><span class="cv-worked__sep" aria-hidden="true">·</span><span class="cv-worked__tokens">679.9K out</span></span>',
+      `<span class="cv-worked__count"><span class="cv-worked__sep" aria-hidden="true">·</span><span class="cv-worked__tokens">${count}</span></span>`,
     );
     // The line's words come before the count's span, outside it.
     expect(html.indexOf("cv-worked__count")).toBeGreaterThan(html.search(/Working for|Thinking/));
@@ -44,20 +46,14 @@ test("the count takes the theme's tertiary text token, in tabular numerals, neve
   expect(conversationCss).toContain("--cv-text-dim: var(--agent-soft);");
 });
 
-// The coordinator, relaying Leo's capture of "Thinking 7m 34s · ↓ 4.5K out ↑ 1.4M in": the counts on
-// the live line are "debug noise in the main transcript". The line keeps them in its hover.
-test("the live line at the bottom keeps the counts in its hover, not its text, beside its icon", () => {
-  for (const [split, hover] of [
-    [undefined, "679.9K out"],
-    [SPLIT, "12.4K out"],
-  ] as const) {
-    const html = tokenLineMarkup(thinkingLine, split);
-    expect(html).not.toContain("cv-worked__count");
-    expect(html).not.toContain("cv-worked__tokens");
-    expect(html).toMatch(
-      new RegExp(`<div class="cv-worked cv-worked--live[^"]*" title="[^"]*${hover.replace(".", "\\.")}`),
-    );
-    // Its icon sits in the rows' one icon column, as every row's does.
-    expect(html).toContain('<span class="cv-worked__icon" aria-hidden="true">');
-  }
+// The coordinator, relaying Leo's capture of "Thinking 7m 34s · ↓ 4.5K out ↑ 1.4M in": the split
+// counts on the live line are "debug noise in the main transcript". It says one count, as Claude
+// Code's does, keeps the split in that count's hover, and draws its icon in the rows' column.
+test("the live line at the bottom says one count, the split on hover, beside its icon", () => {
+  const line = Object.entries(tokenLines).find(([name]) => name.includes("Thinking.tsx"))![1];
+  const html = tokenLineMarkup(line, SPLIT);
+  expect(html).toContain('<span class="cv-worked__tokens" title="');
+  expect(html).toMatch(/cv-worked__tokens" title="[^"]*12\.4K/);
+  expect(html.replace(/title="[^"]*"/g, "")).not.toMatch(/↓|↑| in</);
+  expect(html).toContain('<span class="cv-worked__icon" aria-hidden="true">');
 });

@@ -141,13 +141,16 @@ export function subsessionState(entry: AcpmuxSessionEntry): SubsessionState {
 export function subsessionInfo(entry: AcpmuxSessionEntry): SubsessionInfo {
   const state = subsessionState(entry);
   const name = entry.shortName || entry.displayTitle || entry.title || entry.sessionId;
-  const title = entry.displayTitle || entry.title;
+  // Its first title that is not only its name or id: sessionEntry's display title is the session's
+  // name (`lead/october-review`) whenever acpmux gave it one, which would hide the real title.
+  const title = [entry.displayTitle, entry.title].find(
+    (candidate) => candidate && candidate !== name && candidate !== entry.name && candidate !== entry.sessionId,
+  );
   return {
     sessionId: entry.sessionId,
     ...(entry.harness ? { harness: entry.harness } : {}),
     name,
-    // A title acpmux only filled in from the session's name or id is no title of its own.
-    ...(title && title !== name && title !== entry.name && title !== entry.sessionId ? { title } : {}),
+    ...(title ? { title } : {}),
     state,
     ...(state === "done" && entry.unread ? { unread: true as const } : {}),
     ...(entry.queued ? { queued: entry.queued } : {}),
