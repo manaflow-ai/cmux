@@ -9,6 +9,8 @@ import { createAcpmuxDebug, type AcpmuxDebug } from "../../src/agent-session/acp
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
 import { received } from "../../src/agent-session/acpmux/incomingFixture";
 import { turnView } from "../../src/agent-session/acpmux/conversation/turns";
+import { PromptText } from "../../src/agent-session/acpmux/conversation/PromptText";
+import { gridScale, MARK_OTHER, transcriptGap } from "../../src/agent-session/acpmux/transcriptGrid";
 // The pane's styles, as its dev entry loads them (acpmux/dev.tsx).
 import "../../src/pages/shared/desktop.css";
 import "../../src/ui/popupSurface.css";
@@ -65,10 +67,132 @@ function BatchMeasureRow({ row }: { row: AcpmuxRow }) {
 }
 const batchRegistry = { "batch-measure": Object.assign(BatchMeasureRow, { measure: () => 4 }) };
 
+// Real prompt effects, including a short-text guess that wraps long and a long-text guess
+// whose display label fits. The row's effect narrows its child after the child has committed.
+const promptText = "word ".repeat(16).trim();
+const showPrompt = (text: string) => text;
+const showLabel = () => "Label";
+const promptUpdates = new Map<string, (compact: boolean) => void>();
+let promptTrace: string[] = [];
+let transcriptRenders = 0;
+let stopPromptTrace: (() => void) | undefined;
+function PromptMeasureRow({ row }: { row: AcpmuxRow }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [compact, setCompact] = useState(false);
+  const label = row.id === "prompt-label";
+  useLayoutEffect(() => {
+    ref.current!.style.width = label ? "200px" : "50px";
+    promptTrace.push(`write:${row.id}`);
+    promptUpdates.set(row.id, setCompact);
+    return () => {
+      promptUpdates.delete(row.id);
+    };
+  }, [row.id, label]);
+  return (
+    <div ref={ref} className="cv-user__bubble" data-prompt-measure={row.id} style={{ width: 400 }}>
+      <PromptText rowId={row.id} text={compact ? "word" : row.text!} show={label ? showLabel : showPrompt} />
+    </div>
+  );
+}
+function PromptSentinel() {
+  return <div data-prompt-sentinel="">Following row</div>;
+}
+const promptRegistry = {
+  "prompt-measure": Object.assign(PromptMeasureRow, { measure: () => 20 }),
+  "prompt-sentinel": Object.assign(PromptSentinel, { measure: () => 20 }),
+};
+const noActivity = () => {};
+const noExpanded = new Set<string>();
+
+export type PromptMeasureApi = {
+  mount: () => void;
+  compact: (compact: boolean) => { parentRenders: number; immediateReads: number };
+  rerender: () => void;
+  startTrace: () => void;
+  finishTrace: () => { trace: string[]; parentRenders: number };
+  snapshot: () => {
+    gap: number;
+    rows: { id: string; top: number; bottom: number; height: number; clamped: boolean; toggle: string | null }[];
+  };
+};
+declare global {
+  interface Window {
+    __promptMeasure: PromptMeasureApi;
+  }
+}
+
 function Transcript() {
+  transcriptRenders += 1;
   const [rows, setRows] = useState<AcpmuxRow[]>([]);
   const [older, setOlder] = useState(false);
   const [batch, setBatch] = useState(false);
+  const [prompts, setPrompts] = useState(false);
+  const [, setRevision] = useState(0);
+  window.__promptMeasure = {
+    mount() {
+      flushSync(() => {
+        setPrompts(true);
+        setRows([
+          ...["prompt-wrap-0", "prompt-wrap-1", "prompt-label"].map((id) => ({
+            id,
+            kind: "prompt-measure",
+            version: 1,
+            at: 1,
+            text: id === "prompt-label" ? Array.from({ length: 12 }, () => "line").join("\n") : promptText,
+          })),
+          { id: "prompt-sentinel", kind: "prompt-sentinel", version: 1, at: 2 },
+        ]);
+      });
+    },
+    compact(compact) {
+      // Only this renderer commits: no setRows, version bump, or parent state change can
+      // accidentally stand in for the queue's child-only microtask fallback.
+      flushSync(() => promptUpdates.get("prompt-wrap-0")!(compact));
+      return {
+        parentRenders: transcriptRenders,
+        immediateReads: promptTrace.filter((entry) => entry.startsWith("prompt:")).length,
+      };
+    },
+    rerender() {
+      flushSync(() => setRevision((value) => value + 1));
+    },
+    startTrace() {
+      stopPromptTrace?.();
+      promptTrace = [];
+      const style = window.getComputedStyle;
+      window.getComputedStyle = function (element, pseudo) {
+        if (element.matches(".cv-user__text")) {
+          const id = element.closest("[data-row-id]")?.getAttribute("data-row-id");
+          if (id?.startsWith("prompt-")) promptTrace.push(`prompt:${id}`);
+        }
+        return style.call(window, element, pseudo);
+      };
+      stopPromptTrace = () => {
+        window.getComputedStyle = style;
+        stopPromptTrace = undefined;
+      };
+    },
+    finishTrace() {
+      stopPromptTrace?.();
+      return { trace: [...promptTrace], parentRenders: transcriptRenders };
+    },
+    snapshot() {
+      return {
+        gap: transcriptGap(MARK_OTHER, MARK_OTHER) * gridScale(),
+        rows: [...document.querySelectorAll<HTMLElement>('.acpmux-row[data-row-id^="prompt-"]')].map((row) => {
+          const rect = row.getBoundingClientRect();
+          return {
+            id: row.dataset.rowId!,
+            top: rect.top,
+            bottom: rect.bottom,
+            height: rect.height,
+            clamped: row.querySelector(".cv-user__text")?.classList.contains("is-clamped") ?? false,
+            toggle: row.querySelector(".cv-user__more")?.getAttribute("aria-expanded") ?? null,
+          };
+        }),
+      };
+    },
+  };
   (window as unknown as { __batchMeasure: (version: number) => string[] }).__batchMeasure = (version) => {
     measureTrace = [];
     const read = Element.prototype.getBoundingClientRect;
@@ -99,12 +223,12 @@ function Transcript() {
   show = setRows;
   return (
     <VirtualTranscript
-      rows={batch ? rows : turnView(older ? [olderRow, ...rows] : rows, new Set())}
-      registry={batch ? batchRegistry : undefined}
+      rows={batch || prompts ? rows : turnView(older ? [olderRow, ...rows] : rows, new Set())}
+      registry={prompts ? promptRegistry : batch ? batchRegistry : undefined}
       sessionId="session-1"
       jumpButton
-      onToggleActivity={() => {}}
-      expanded={new Set()}
+      onToggleActivity={noActivity}
+      expanded={noExpanded}
     />
   );
 }

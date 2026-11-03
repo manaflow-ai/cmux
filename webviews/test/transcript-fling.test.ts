@@ -10,6 +10,7 @@ import { webkit, type Browser } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import type { PromptMeasureApi } from "./browser/transcript-fling.harness";
 
 await requireBrowserLane("transcript-fling.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -134,6 +135,108 @@ await requireBrowserLane("transcript-fling.test.ts", async () => {
           expect(result.trace).not.toContain("read:batch-0");
         }
       }
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("prompt reads batch after sibling writes and corrections place rows before paint", async () => {
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const page = await browser!.newPage({ viewport: { width: 900, height: 900 }, reducedMotion: "reduce" });
+    type Snapshot = ReturnType<PromptMeasureApi["snapshot"]>;
+    const placed = (snapshot: Snapshot) => {
+      expect(snapshot.rows.map((row) => row.id)).toEqual([
+        "prompt-wrap-0",
+        "prompt-wrap-1",
+        "prompt-label",
+        "prompt-sentinel",
+      ]);
+      for (const [index, row] of snapshot.rows.entries()) {
+        expect(row.height).toBeGreaterThan(0);
+        // An overlap-only assertion misses a stale, too-tall estimate after unclamping.
+        if (index > 0)
+          expect(Math.abs(row.top - snapshot.rows[index - 1]!.bottom - snapshot.gap)).toBeLessThanOrEqual(1);
+      }
+    };
+    const unchanged = (first: Snapshot, next: Snapshot) => {
+      placed(first);
+      placed(next);
+      for (const [index, row] of first.rows.entries()) {
+        expect(Math.abs(row.top - next.rows[index]!.top)).toBeLessThanOrEqual(1);
+        expect(Math.abs(row.height - next.rows[index]!.height)).toBeLessThanOrEqual(1);
+      }
+    };
+    try {
+      await installPaintedFrames(page);
+      await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-fling.html`);
+      await page.waitForFunction(() => "__promptMeasure" in window);
+      await page.addStyleTag({
+        content: `
+        .acpmux-row.acpmux-prompt-measure,.acpmux-row.acpmux-prompt-sentinel{min-height:0;padding:0}
+        [data-prompt-measure].cv-user__bubble{max-width:none;padding:0;font:20px/20px monospace;letter-spacing:0;--cv-line-height:20px}
+        [data-prompt-sentinel]{height:20px}
+      `,
+      });
+      await page.evaluate(async () => {
+        document.documentElement.dataset.agentMotion = "off";
+        await document.fonts.ready;
+      });
+      const mount = await page.evaluate(async () => {
+        const probe = window.__promptMeasure;
+        probe.startTrace();
+        await window.cmuxPaintFrame(() => probe.mount());
+        const trace = probe.finishTrace();
+        const first = probe.snapshot();
+        await window.cmuxPaintFrame();
+        return { ...trace, first, next: probe.snapshot() };
+      });
+      const writes = mount.trace.filter((entry) => entry.startsWith("write:"));
+      expect(writes).toEqual(["write:prompt-wrap-0", "write:prompt-wrap-1", "write:prompt-label"]);
+      const firstRead = mount.trace.findIndex((entry) => entry.startsWith("prompt:"));
+      expect(firstRead).toBeGreaterThanOrEqual(writes.length);
+      expect(mount.trace.slice(0, firstRead)).toEqual(writes);
+      expect(mount.first.rows.slice(0, 3).map((row) => [row.clamped, row.toggle])).toEqual([
+        [true, "false"],
+        [true, "false"],
+        [false, null],
+      ]);
+      unchanged(mount.first, mount.next);
+
+      // A child-only content commit has no ancestor effect to drain its queued measurement.
+      // Read after one microtask, before the rendering step/ResizeObserver can rescue it.
+      for (const compact of [true, false]) {
+        const change = await page.evaluate(async (short) => {
+          const probe = window.__promptMeasure;
+          probe.startTrace();
+          const immediate = probe.compact(short);
+          await Promise.resolve();
+          const microtask = probe.finishTrace();
+          const clampedBeforePaint = document
+            .querySelector('[data-prompt-measure="prompt-wrap-0"] .cv-user__text')!
+            .classList.contains("is-clamped");
+          await window.cmuxPaintFrame();
+          const first = probe.snapshot();
+          await window.cmuxPaintFrame();
+          return { immediate, microtask, clampedBeforePaint, first, next: probe.snapshot() };
+        }, compact);
+        expect(change.immediate.parentRenders).toBe(mount.parentRenders);
+        expect(change.immediate.immediateReads).toBe(0);
+        expect(change.microtask.trace.length).toBeGreaterThan(0);
+        expect(change.microtask.trace.every((entry) => entry === "prompt:prompt-wrap-0")).toBe(true);
+        expect(change.clampedBeforePaint).toBe(!compact);
+        expect(change.first.rows[0]!.clamped).toBe(!compact);
+        expect(change.first.rows[0]!.toggle).toBe(compact ? null : "false");
+        unchanged(change.first, change.next);
+      }
+
+      const idle = await page.evaluate(async () => {
+        const probe = window.__promptMeasure;
+        probe.startTrace();
+        await window.cmuxPaintFrame(() => probe.rerender());
+        return probe.finishTrace();
+      });
+      expect(idle.parentRenders).toBeGreaterThan(mount.parentRenders);
+      expect(idle.trace).toEqual([]);
     } finally {
       await page.close();
     }

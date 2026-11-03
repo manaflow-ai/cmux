@@ -30,6 +30,7 @@ import { githubRefLabel, UrlChip } from "../chips/LinkChips";
 import { textLinks } from "../chips/paths";
 import { SkillWordsContext } from "./skillWords";
 import { withSkillWords } from "./SkillWord";
+import { CommitMeasurements } from "./commitMeasurements";
 
 export function PromptText({
   rowId,
@@ -70,10 +71,12 @@ export function PromptText({
   const huge = hugeTyped ?? hasHugeTypedPart(parts);
   const long = huge || (measured?.parts === parts ? measured.long : guess);
   const body = useRef<HTMLDivElement>(null);
+  const measurements = useContext(CommitMeasurements);
   useLayoutEffect(() => {
     const node = body.current;
     if (!node) return;
-    const measure = () => {
+    const read = () => {
+      if (body.current !== node || !node.isConnected) return;
       // The node's own window: a test DOM may install none as a global.
       const style = node.ownerDocument.defaultView?.getComputedStyle?.(node);
       const lineHeight = parseFloat(style?.lineHeight ?? "");
@@ -90,15 +93,21 @@ export function PromptText({
       const next = height > COLLAPSED_PROMPT_LINES * lineHeight + 1;
       // Confirming the guess changes no UI. Keep that mount to one commit; a width or content
       // change that disagrees still updates the fold synchronously before paint.
-      setMeasured((last) => ((last?.parts === parts ? last.long : guess) === next ? last : { parts, long: next }));
+      return () =>
+        setMeasured((last) => ((last?.parts === parts ? last.long : guess) === next ? last : { parts, long: next }));
     };
-    measure();
-    if (typeof ResizeObserver !== "function") return;
+    const measure = () => read()?.();
+    const cancel = measurements ? measurements.enqueue(read) : undefined;
+    if (!measurements) measure();
+    if (typeof ResizeObserver !== "function") return cancel;
     const observer = new ResizeObserver(measure);
     // The bubble: a text drawn whole has no box to observe.
     observer.observe(node.parentElement ?? node);
-    return () => observer.disconnect();
-  }, [parts, guess, long, open, children]);
+    return () => {
+      cancel?.();
+      observer.disconnect();
+    };
+  }, [parts, guess, long, open, children, measurements]);
   const collapsed = long && !open;
   // A huge prompt draws literally, and collapsed only its head: the clamp hides the rest anyway,
   // and laying out megabytes of hidden text froze the chat (promptCollapse.ts HUGE_PROMPT_CHARS).

@@ -51,10 +51,13 @@ for (const key of Object.getOwnPropertyNames(dom.window))
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
 
-const { act, Profiler } = await import("react");
+const { act, Profiler, StrictMode, useLayoutEffect, useState } = await import("react");
+const { flushSync } = await import("react-dom");
 const { createRoot } = await import("react-dom/client");
 const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
 const { PromptText } = await import("../src/agent-session/acpmux/conversation/PromptText");
+const { CommitMeasurements, useCommitMeasurements } =
+  await import("../src/agent-session/acpmux/conversation/commitMeasurements");
 const { foldMotion } = await import("../src/agent-session/acpmux/conversation/fold");
 const { FindReveal } = await import("../src/agent-session/acpmux/conversation/chatFind");
 const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
@@ -104,14 +107,15 @@ const toggle = () => host.querySelector<HTMLButtonElement>(".cv-user__more");
 
 // Supply layout that JSDOM does not perform, while keeping the real component, effects and
 // observer lifecycle. The profiler counts commits, not timings on the test machine.
-function measuredPrompt(
+async function measuredPrompt(
   initialHeight: number,
   run: (fixture: {
     render: (text: string) => void;
     resize: (height: number) => void;
     commits: string[];
     measurements: () => number;
-  }) => void,
+    setHeight: (height: number) => void;
+  }) => void | Promise<void>,
 ) {
   act(() => root.unmount());
   resetTranscriptDisclosure();
@@ -145,7 +149,7 @@ function measuredPrompt(
   };
   const show = (text: string) => text;
   try {
-    run({
+    await run({
       render: (text) =>
         act(() =>
           root.render(
@@ -165,6 +169,9 @@ function measuredPrompt(
       },
       commits,
       measurements: () => measurements,
+      setHeight: (next) => {
+        height = next;
+      },
     });
   } finally {
     act(() => root.unmount());
@@ -179,8 +186,78 @@ function measuredPrompt(
 }
 
 try {
-  test("measuring a short prompt confirms its first render without a second commit", () => {
-    measuredPrompt(20, ({ render, resize, commits, measurements }) => {
+  test("batched prompts correct wrong guesses and child-only changes through StrictMode", async () => {
+    await measuredPrompt(240, async ({ setHeight, resize }) => {
+      let parentRenders = 0;
+      let change: (text: string) => void = () => {};
+      const show = (text: string) => text;
+      function Child() {
+        const [text, setText] = useState("A short guess that wraps");
+        change = setText;
+        return (
+          <div className="cv-user__bubble">
+            <PromptText rowId="batched-prompt" text={text} show={show} />
+          </div>
+        );
+      }
+      function Parent() {
+        parentRenders += 1;
+        const measurements = useCommitMeasurements();
+        useLayoutEffect(() => {
+          measurements.flush();
+        });
+        return (
+          <CommitMeasurements.Provider value={measurements}>
+            <Child />
+          </CommitMeasurements.Provider>
+        );
+      }
+      act(() =>
+        root.render(
+          <StrictMode>
+            <Parent />
+          </StrictMode>,
+        ),
+      );
+      expect(body().classList.contains("is-clamped")).toBe(true);
+      const before = parentRenders;
+      setHeight(40);
+      await act(async () => {
+        flushSync(() => change(lines(12)));
+        // The parent cannot supply a synchronous drain for this child-only update.
+        expect(parentRenders).toBe(before);
+        await Promise.resolve();
+      });
+      expect(body().classList.contains("is-clamped")).toBe(false);
+      expect(toggle()).toBeNull();
+      expect(parentRenders).toBe(before);
+      resize(240);
+      expect(body().classList.contains("is-clamped")).toBe(true);
+      resize(40);
+      expect(toggle()).toBeNull();
+      // A queued result from the old text must not outlive the subtree that registered it.
+      const readsBeforeUnmount = body().textContent;
+      await act(async () => {
+        flushSync(() => change("replacement"));
+        flushSync(() => root.render(null));
+        await Promise.resolve();
+      });
+      expect(readsBeforeUnmount).toBe(lines(12));
+      expect(host.childElementCount).toBe(0);
+      act(() =>
+        root.render(
+          <StrictMode>
+            <Parent />
+          </StrictMode>,
+        ),
+      );
+      expect(body().textContent).toBe("A short guess that wraps");
+      expect(toggle()).toBeNull();
+    });
+  });
+
+  test("measuring a short prompt confirms its first render without a second commit", async () => {
+    await measuredPrompt(20, ({ render, resize, commits, measurements }) => {
       const text = "Keep every visible row rendered";
       render(text);
       expect(measurements()).toBeGreaterThan(0);
@@ -194,8 +271,8 @@ try {
     });
   });
 
-  test("measuring a long prompt confirms its initial clamp without a second commit", () => {
-    measuredPrompt(240, ({ render, commits, measurements }) => {
+  test("measuring a long prompt confirms its initial clamp without a second commit", async () => {
+    await measuredPrompt(240, ({ render, commits, measurements }) => {
       const text = lines(12);
       render(text);
       expect(measurements()).toBeGreaterThan(0);
@@ -206,8 +283,8 @@ try {
     });
   });
 
-  test("a measured prompt folds and unfolds when its width crosses ten lines", () => {
-    measuredPrompt(20, ({ render, resize }) => {
+  test("a measured prompt folds and unfolds when its width crosses ten lines", async () => {
+    await measuredPrompt(20, ({ render, resize }) => {
       const text = "word ".repeat(12).trim();
       render(text);
       resize(240);
@@ -220,8 +297,8 @@ try {
     });
   });
 
-  test("new content ignores the previous prompt measurement and still follows later resize", () => {
-    measuredPrompt(240, ({ render, resize }) => {
+  test("new content ignores the previous prompt measurement and still follows later resize", async () => {
+    await measuredPrompt(240, ({ render, resize }) => {
       render("A short guess that wraps in a narrow bubble");
       expect(body().classList.contains("is-clamped")).toBe(true);
       // Same mounted component, different text: the old short guess must not override a new
