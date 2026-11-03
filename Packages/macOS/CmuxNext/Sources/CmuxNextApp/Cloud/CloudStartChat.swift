@@ -77,8 +77,15 @@ struct CloudStartChat {
                 }
             }
             CloudMove.toast(services, toastID, message, duration: .seconds(retry == nil ? 12 : 30), retry: retry)
-            return AgentPaneReply.failure(code: "cloud_start_failed", message: message)
+            return AgentPaneReply.failure(code: Self.failureCode(error), message: message)
         }
+    }
+
+    /// A plan refusal is recoverable by upgrading or picking This Mac, and must
+    /// survive the native reply as a distinct cause for the Cloud progress card.
+    /// Other failures keep their existing generic code and host retry behavior.
+    nonisolated static func failureCode(_ error: any Error) -> String {
+        CloudMachineCreation.proRefusal(error) == nil ? "cloud_start_failed" : "cloud_plan_required"
     }
 
     /// Why no Cloud chat can start at all now, the sandbox's codes (`AgentPageChats.wireSandbox`):

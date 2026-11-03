@@ -53,6 +53,9 @@ test("the start's answer: an opened chat clears the card, a failure keeps it wit
     cloudStartEnded(begun(), "k-1", { ok: false, code: "cloud_start_failed", message: "No machine\nfree" }),
   ).toEqual({ ...begun(), state: "failed", message: "No machine free" });
   expect(cloudStartEnded(begun(), "k-1", { ok: false, code: "unavailable" })).toEqual({ ...begun(), state: "failed" });
+  expect(
+    cloudStartEnded(begun(), "k-1", { ok: false, code: "cloud_plan_required", message: "Upgrade to use Cloud" }),
+  ).toEqual({ ...begun(), state: "failed", message: "Upgrade to use Cloud", refusal: "cloud_plan_required" });
   expect(cloudStartEnded(begun(), "k-2", { ok: true })).toEqual(begun());
   expect(cloudStartEnded(undefined, "k-1", { ok: true })).toBeUndefined();
 });

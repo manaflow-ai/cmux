@@ -11,6 +11,7 @@ import {
 import { AlertCircle, Check, ChevronDown, ChevronRight, Folder, Spinner } from "./conversation/icons";
 import { fileSizeLabel } from "./FileAttachment";
 import { paneLanguage, usePaneLanguage, useT, type StringKey, type Translate } from "./i18n";
+import { cloudPlanRecoveryLabels } from "./cloudPlanRecoveryLabels";
 import "./cloudStart.css";
 
 type ChecklistStatus = "done" | "running" | "pending" | "skipped" | "error";
@@ -275,10 +276,14 @@ export function CloudStartView({
   start,
   bubble = true,
   onOpenEnvironment,
+  onRunHere,
+  onDismiss,
 }: {
   start: CloudStartProgress;
   bubble?: boolean;
   onOpenEnvironment?: (options: { environmentId?: string; repository?: string; section: "script" }) => void;
+  onRunHere?: () => void;
+  onDismiss?: () => void;
 }) {
   const t = useT();
   const arm = experimentArm(cloudStartLook);
@@ -289,6 +294,7 @@ export function CloudStartView({
     setExpanded(start.initialized !== true);
   }, [start.initialized]);
   const language = usePaneLanguage();
+  const planLabels = cloudPlanRecoveryLabels(language);
   const rows = startupChecklist(start, t, now, language);
   const known = facts(start, t);
   const openEnvironment = () => {
@@ -372,6 +378,23 @@ export function CloudStartView({
         <output className="acpmux-cloud-start__status" role="alert">
           {start.message ?? t("sandbox.failed")}
         </output>
+      )}
+      {failed && start.refusal === "cloud_plan_required" && (
+        <div className="acpmux-cloud-start__actions">
+          <a className="acpmux-cloud-start__link" href="https://cmux.com/pricing" target="_blank" rel="noreferrer">
+            {planLabels.upgrade}
+          </a>
+          {onRunHere && (
+            <button type="button" className="acpmux-cloud-start__link" onClick={() => onRunHere()}>
+              {planLabels.runHere}
+            </button>
+          )}
+          {onDismiss && (
+            <button type="button" className="acpmux-cloud-start__link" onClick={() => onDismiss()}>
+              {t("harness.notNow")}
+            </button>
+          )}
+        </div>
       )}
       {known.length > 0 && (
         <ul className="acpmux-cloud-start__chips" data-look={arm}>

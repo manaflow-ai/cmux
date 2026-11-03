@@ -66,6 +66,13 @@
 .acpmux-cloud-start[data-state="failed"] .acpmux-cloud-start__status {
   color: var(--agent-danger, currentColor);
 }
+.acpmux-cloud-start__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin-top: 4px;
+}
 .acpmux-cloud-start__chips {
   display: flex;
   flex-wrap: wrap;
