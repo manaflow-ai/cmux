@@ -209,4 +209,6 @@ fn hpa_state_probe_daemon_side_of_one_change() {
         );
     }
     mux.shutdown();
+    // nextest prints a test's output only when it fails.
+    panic!("HPADIAG done: this DIAG test fails on purpose so its output prints");
 }
