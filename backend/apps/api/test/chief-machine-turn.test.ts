@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { machineAuthState, machineHarness, machineSignInURL, runMachineAgent, type MachineAgentPorts, type MachineState } from "../src/chief-brain/brain-machine.ts"
+import { authorizeMachineHand, machineAuthState, machineHarness, machineSignInURL, runMachineAgent, type MachineAgentPorts, type MachineState } from "../src/chief-brain/brain-machine.ts"
 import type { StoredEvent } from "../src/hand-wire.ts"
 import { env } from "cloudflare:workers"
 import { runInDurableObject } from "cloudflare:test"
@@ -78,6 +78,16 @@ describe("default Chief machine turn", () => {
     const unknown = fixture()
     unknown.ports.auth = vi.fn(async () => "unknown")
     expect(await runMachineAgent(unknown.ports, "hand_a", "/home/cmux/proj", "claude", "build me X", "scoped-run", 1000)).toMatchObject({ ok: true })
+  })
+
+  it("rejects a revoked Hand even when its display info is ok and a session was saved", async () => {
+    const f = fixture({ phase: "running", operation: "scoped-run", hand: "hand_a", cwd: "/home/cmux/proj", session: "machine-session", after: 1, text: "" })
+    const scope = { owner: "user_revoked", chief: "agent_revoked", workspace: "chief-default-user_revoked", team: "team_revoked", machine: "machine_revoked", provider: "freestyle", connection_machine: "vm_abcdefghijklmnopqrst", install: "inst_revoked" }
+    const fake = { HAND_DO: { idFromName: (x: string) => x, get: () => ({ info: async () => ({ ok: true, value: { revoked_at: Date.now(), paired_at: 1, level: "full", profile: "sandbox", online: true, hello: { profile: "sandbox", roots: ["/home/cmux/proj"] } } }) }) } } as unknown as Env
+    f.ports.authorize = () => authorizeMachineHand(fake, scope, "/home/cmux/proj")
+    await expect(runMachineAgent(f.ports, "hand_a", "/home/cmux/proj", "claude", "build me X", "scoped-run", 1000)).rejects.toThrow("hand.revoked")
+    expect(f.ports.start).not.toHaveBeenCalled()
+    expect(f.ports.events).not.toHaveBeenCalled()
   })
 
   it("fails explicitly on permission requests and preserves the owner's restrictions", async () => {

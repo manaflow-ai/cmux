@@ -28,10 +28,12 @@ export type LoginStart = { loginId: string; url: string; userCode?: string; need
 const SIGN_IN_HOSTS = new Set(["claude.com", "claude.ai", "platform.claude.com", "console.anthropic.com", "auth.anthropic.com", "auth.openai.com"])
 const MACHINE_STATE = (id: string) => `machine:${id}`
 const transportRetry = (error: unknown): boolean => !(error instanceof Error) || error.message === "chief.machine.transport_unavailable" || !/^(chief\.machine\.|hand\.|disabled$|other_chief$|chief_archived$|chief_placed$)/.test(error.message)
-const authorizeMachineHand = async (env: Env, scope: DefaultHandScope, cwd?: string): Promise<void> => {
+export const authorizeMachineHand = async (env: Env, scope: DefaultHandScope, cwd?: string): Promise<void> => {
   const hand = handStub(env, defaultHandId(scope)) as unknown as { info(c: { kind: "chief"; user: string; agent: string }): Promise<HandReply<HandSummary & { hello: { profile?: string; roots?: Array<string> } | null }>> }
   const info = await hand.info({ kind: "chief", user: scope.owner, agent: scope.chief })
   if (!info.ok) throw new Error(info.error.code)
+  // info() also returns a revoked hand for owner UI display. Its success is not authorization.
+  if (info.value.revoked_at !== null || info.value.paired_at === null) throw new Error("hand.revoked")
   if (info.value.level !== "full") throw new Error("chief.machine.permission_required")
   if (!info.value.online || info.value.profile !== "sandbox" || info.value.hello?.profile !== "sandbox") throw new Error("chief.machine.hand_offline")
   if (cwd && !info.value.hello.roots?.includes(cwd)) throw new Error("chief.machine.cwd_changed")
