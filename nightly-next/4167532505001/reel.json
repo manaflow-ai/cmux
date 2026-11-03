@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "build": "4167532505001",
+  "notes": "notes/4167532505001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 34034,
+      "title": "cmux-vm staging: approve the Cloud Native image with cmux-tui af078d6c and Claude Code 2.1.299",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34033,
+      "title": "cmux-next: record NSButton viewDidMoveToSuperview in the selector table (fixes base red from #33113)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33993,
+      "title": "Agent pane: restore the line-start toggle inset #33249 halved by mistake",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28627,
+      "title": "fix(inspector): keep workflow results open when a run finishes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34016,
+      "title": "Cloud Codex broker: a failed catch-up after a relaunch tries again until the access ends",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33965,
+      "title": "ci: machine vault E2E cleanup fits the cancel grace, confirms the machine revoke",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
