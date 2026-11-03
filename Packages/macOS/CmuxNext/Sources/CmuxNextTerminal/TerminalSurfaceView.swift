@@ -512,6 +512,7 @@ public final class TerminalSurfaceView: NSView {
             lastShowsForLaunchFrame = shows
             session?.frameChanges.wake()
         }
+        holdSavedFrame(hidden: pause != nil)
         let drawing = pause == nil && !showsSavedFrame
         guard drawing != lastOcclusionVisible else { return }
         lastOcclusionVisible = drawing
@@ -541,7 +542,29 @@ public final class TerminalSurfaceView: NSView {
     func endSavedFrame() {
         guard showsSavedFrame else { return }
         showsSavedFrame = false
+        savedFrameVolatile = false
         updateOcclusion()
+    }
+
+    /// Whether the saved frame's pages are volatile now (``holdSavedFrame(hidden:)``).
+    private var savedFrameVolatile = false
+
+    /// A saved frame the person cannot see is the system's to reclaim under memory pressure, as Chrome discards a hidden
+    /// tab's content: volatile while its surface is hidden and has not drawn, non-volatile again before it shows. A frame
+    /// the system purged meanwhile leaves the layer empty and the surface takes the cold path at once (it draws its own
+    /// frame), never a purged surface's blank pages on screen.
+    private func holdSavedFrame(hidden: Bool) {
+        guard showsSavedFrame, let frame = presentedFrame else { return }
+        if hidden {
+            guard !savedFrameVolatile else { return }
+            savedFrameVolatile = true
+            frame.makeVolatile()
+        } else if savedFrameVolatile {
+            savedFrameVolatile = false
+            guard !frame.reclaim() else { return }
+            layer?.contents = nil
+            showsSavedFrame = false // the caller's next line reads it: the surface draws now
+        }
     }
 
     /// A paused surface keeps the frame its layer shows, volatile until it shows again
