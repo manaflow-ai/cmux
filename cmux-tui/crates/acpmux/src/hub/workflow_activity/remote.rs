@@ -2,6 +2,16 @@
 //! checks. The run owns a persisted dispatch request before anything is sent.
 use super::*;
 
+fn remote_brief_id(run_id: &str, activity_id: &str, epoch: u64, corrected: bool) -> String {
+    format!(
+        "wf-{}",
+        crate::workflow_runs::digest(&format!(
+            "{run_id}:{activity_id}-remote-g{epoch}-{}",
+            u8::from(corrected)
+        ))
+    )
+}
+
 fn remote_request(
     run: &RunRecord,
     activity: &ActivityRecord,
@@ -12,9 +22,7 @@ fn remote_request(
     host: &str,
     allowed: &Option<Vec<String>>,
 ) -> Value {
-    let brief_id = format!("{}-remote-g{epoch}-{}", activity.id, u8::from(corrected));
-    let brief_id =
-        format!("wf-{}", crate::workflow_runs::digest(&format!("{}:{brief_id}", run.id)));
+    let brief_id = remote_brief_id(&run.id, &activity.id, epoch, corrected);
     // A domain-separated, per-brief capability cannot authorize another brief
     // or recover the owner's general caller proof. Only its hash reaches the receipt.
     let receipt_token =
@@ -45,6 +53,42 @@ fn dispatch_child(request: &Value, host: &str) -> Result<Child, RpcError> {
         prompt_id: format!("wfp-{digest}"),
         host: Some(host.into()),
     })
+}
+
+/// A reserved-looking logical sibling is never an owned remote effect. Match
+/// the internal kind and the complete persisted dispatch identity, including
+/// the exact destination, before a parent failure may send its cancellation.
+pub(super) fn child_of(run_id: &str, parent: &ActivityRecord, child: &ActivityRecord) -> bool {
+    if parent.kind != "agent" || child.kind != "remote_agent_prompt" {
+        return false;
+    }
+    let Child::Agent { host: Some(host), .. } = &parent.child else {
+        return false;
+    };
+    let Some((epoch, corrected)) = child
+        .id
+        .strip_prefix(&format!("{}-remote-", parent.id))
+        .and_then(|suffix| suffix.split_once('-'))
+    else {
+        return false;
+    };
+    let Ok(epoch) = epoch.parse::<u64>() else {
+        return false;
+    };
+    if !matches!(corrected, "0" | "1")
+        || child.id != format!("{}-remote-{epoch}-{corrected}", parent.id)
+    {
+        return false;
+    }
+    let Some(request) = child.policy.get("remoteDispatch") else {
+        return false;
+    };
+    let brief_id = remote_brief_id(run_id, &parent.id, epoch, corrected == "1");
+    request.get("briefId").and_then(Value::as_str) == Some(brief_id.as_str())
+        && request.get("host").and_then(Value::as_str) == Some(host.as_str())
+        && request.get("durable").and_then(Value::as_bool) == Some(true)
+        && child.fingerprint == crate::workflow_runs::digest(&request.to_string())
+        && dispatch_child(request, host).is_ok_and(|expected| child.child == expected)
 }
 
 fn reply(result: &Value) -> Result<String, RpcError> {
@@ -617,7 +661,10 @@ mod tests {
             true,
             "terminal failure must send the exact remote cancellation tombstone"
         );
-        assert!(remote.resolve(request["briefId"].as_str().unwrap()).is_err());
+        assert!(
+            matches!(&pending.child, Child::Agent { session_id, .. } if remote.resolve(session_id).is_err()),
+            "pre-launch cancellation created a remote child"
+        );
         hub.shutdown_all().await;
         remote.shutdown_all().await;
         server.abort();

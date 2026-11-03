@@ -755,7 +755,8 @@ impl Hub {
             return Ok(());
         };
         for child in run.activities.values().filter(|child| {
-            child.outcome.is_none() && (child.id == activity || workflow_child_of(parent, child))
+            child.outcome.is_none()
+                && (child.id == activity || workflow_child_of(run, parent, child))
         }) {
             match &child.child {
                 Child::Agent { session_id, prompt_id, host } => {
@@ -853,7 +854,10 @@ impl Hub {
 /// Internal child kinds cannot be requested by the runner. Require their exact
 /// deterministic identity and owned session/task as well, so a logical sibling
 /// named like `test-prompt-x` is never mistaken for a child of `test`.
-fn workflow_child_of(parent: &ActivityRecord, child: &ActivityRecord) -> bool {
+fn workflow_child_of(run: &RunRecord, parent: &ActivityRecord, child: &ActivityRecord) -> bool {
+    if remote::child_of(&run.id, parent, child) {
+        return true;
+    }
     match (&parent.child, &child.child, child.kind.as_str()) {
         (
             Child::Agent { session_id, prompt_id, host },
