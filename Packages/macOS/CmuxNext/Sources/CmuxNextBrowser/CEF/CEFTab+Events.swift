@@ -110,9 +110,10 @@ extension CEFTab {
                 emit(.unhandledEscape)
             } else if let key = BrowserPageKey(windowsKeyCode: keyCode, shift: shift) {
                 // Chromium's "no editable field" misses rich editors (Gmail's compose body), where `f`
-                // started link hints mid-sentence (#32982): the page says whether it is typing first.
+                // started link hints mid-sentence (#32982): the page says whether it is typing first, and a
+                // page that cannot answer (closed, timed out) starts nothing late.
                 Task { [weak self] in // task-owner: one page query per unhandled letter; the router re-checks focus after it.
-                    guard let self, (try? await evaluate(LinkHintSession.typingScript, world: .isolated, gesture: .cmux)) != .bool(true) else { return }
+                    guard let self, (try? await evaluate(LinkHintSession.typingScript, world: .isolated, gesture: .cmux)) == .bool(false) else { return }
                     emit(.unhandledKey(key))
                 }
             }

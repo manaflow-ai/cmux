@@ -58,8 +58,10 @@ public nonisolated extension LinkHintSession {
         if (doc.designMode === 'on') return true;
         let element = doc.activeElement;
         while (element && element.shadowRoot && element.shadowRoot.activeElement) element = element.shadowRoot.activeElement;
-        if (!element || element === doc.body || element === doc.documentElement) return false;
+        if (!element) return false;
+        // Before the body: an iframe editor (TinyMCE, CKEditor 4) types in an editable body.
         if (element.isContentEditable) return true;
+        if (element === doc.body || element === doc.documentElement) return false;
         const tag = (element.tagName || '').toUpperCase();
         if (tag === 'TEXTAREA' || tag === 'SELECT') return !element.disabled && !element.readOnly;
         if (tag === 'INPUT') return !element.disabled && !element.readOnly && textTypes.test(element.type || 'text');

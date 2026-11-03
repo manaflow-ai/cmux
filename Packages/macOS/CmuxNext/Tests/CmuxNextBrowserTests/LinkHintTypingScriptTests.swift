@@ -47,6 +47,15 @@ import Testing
         #expect(try Self.typing("document.designMode = 'on';"))
     }
 
+    @Test func anEditableBodyIsTyping() throws {
+        // TinyMCE and CKEditor 4 type in the editable body of their iframe.
+        #expect(try Self.typing("document.body.isContentEditable = true;"))
+        #expect(try Self.typing("""
+        var frame = doc(); frame.body.isContentEditable = true; frame.activeElement = frame.body;
+        document.activeElement = el('IFRAME', { contentDocument: frame });
+        """))
+    }
+
     @Test func anEditorInsideAnOpenShadowRootIsTyping() throws {
         #expect(try Self.typing("""
         var inner = el('DIV', { isContentEditable: true });
