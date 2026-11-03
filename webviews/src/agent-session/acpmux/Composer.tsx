@@ -253,7 +253,8 @@ export type ComposerHandle = {
 
 /// A capture from the + menu's Attach Screenshot… or Attach Window…: the preview the chip shows and
 /// the model gets, and `original`, where the host saved the capture as taken (on the chat's machine).
-export type CapturedShot = { file: File; original?: string };
+/// An older host that cannot receive originals returns a separate recovery note with its preview.
+export type CapturedShot = { file: File; original?: string; originalUnavailable?: string };
 
 export type ComposerWake = {
   attachments?: ComposerAttachment[];
@@ -2499,14 +2500,17 @@ export function Composer({
                     const source = captureScope.current;
                     void capture?.(action === "composer.attachWindow" ? "window" : "screen")
                       .then(async (shot) => {
-                        // The host saved the original already: nothing uploads.
-                        if (shot && source !== null && captureScope.current === source)
+                        // A staged original is reused; the preview stays inline.
+                        if (shot && source !== null && captureScope.current === source) {
                           await attach(
                             [shot.file],
                             false,
                             undefined,
                             shot.original ? [{ path: shot.original, folder: false }] : undefined,
                           );
+                          if (shot.originalUnavailable && captureScope.current === source)
+                            setAttachError(shot.originalUnavailable);
+                        }
                       })
                       .catch((error: unknown) => {
                         if (source !== null && captureScope.current === source)

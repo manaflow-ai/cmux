@@ -53,9 +53,10 @@ enum AgentPaneCapture {
             return AgentPaneReply.failure(code: "capture.failed", message: AgentPaneModel.captureFailedMessage)
         }
         let result = await Self.answer(file, taken: taken ?? Date(), stager: stager, session: session)
-        // A failed attachment leaves its only original at the recovery path in the error.
+        // A failed/unsupported upload leaves its original at the reported recovery path.
         // Successful/cancelled captures finish their one off-main cleanup before replying.
-        if result["ok"] as? Bool == true {
+        if result["ok"] as? Bool == true,
+           (result["value"] as? [String: Any])?["originalUnavailable"] == nil {
             await Task.detached(priority: .utility) { try? FileManager.checked.removeItem(at: file) }.value
         }
         return result
@@ -72,8 +73,9 @@ enum AgentPaneCapture {
         }.value
         // Esc: `screencapture` wrote nothing.
         guard size > 0 else { return AgentPaneReply.success(["cancelled": true]) }
-        let original = await stage(file, name: name, size: size, stager: stager, session: session)
-        guard (stager == nil || original != nil), preview != nil || original != nil else {
+        let staged = await stage(file, name: name, size: size, stager: stager, session: session)
+        let original: String? = if case .saved(let path) = staged { path } else { nil }
+        guard staged != .failed, preview != nil || original != nil else {
             return AgentPaneReply.failure(
                 code: "capture_failed",
                 message: "The screenshot could not be attached. Its original was kept at \(file.path).",
@@ -85,6 +87,12 @@ enum AgentPaneCapture {
         if let preview {
             answer["mimeType"] = preview.mimeType
             answer["data"] = preview.data.base64EncodedString()
+        }
+        if staged == .unsupported, stager != nil {
+            answer["originalUnavailable"] = [
+                "userMessage": "The screenshot preview was attached. This chat cannot receive the original; it was kept at \(file.path).",
+                "originalPath": file.path,
+            ]
         }
         if let original { answer["original"] = ["path": original, "name": name] }
         return AgentPaneReply.success(answer)
@@ -98,34 +106,41 @@ enum AgentPaneCapture {
         return "Screenshot \(formatter.string(from: taken)).png"
     }
 
+    private enum Stage: Equatable {
+        case saved(String), unsupported, failed
+    }
+
     /// Saves `file` as taken through the chat's upload stager (begin, chunks of at most
     /// ``chunkBytes`` read from the file, finish), as the page's staged upload would, without a
     /// gesture of its own: the capture's click already paid for it. A fresh chat has no session
     /// until its first prompt: the stager is asked for none, and the one for a chat on this Mac
     /// (AgentChatUploads) saves a new chat's upload under Chat Uploads itself; one that needs a
-    /// session refuses, and the capture reports failure while retaining its local original. The saved path, nil when the
-    /// chat's host saves nothing or the save failed (what it staged is cancelled).
-    @MainActor private static func stage(_ file: URL, name: String, size: Int, stager: AgentPaneUploadStager?, session: String?) async -> String? {
-        guard let stager else { return nil }
-        let begun = value(await stager(.begin(name: name, size: size, batchToken: nil, batch: nil), session))
-        guard let token = begun?["token"] as? String, !token.isEmpty, (begun?["size"] as? NSNumber)?.intValue == size else { return nil }
+    /// session refuses, and the capture reports failure while retaining its local original.
+    /// Older daemons that cannot upload files still receive the preview, with a separate recovery note.
+    @MainActor private static func stage(_ file: URL, name: String, size: Int, stager: AgentPaneUploadStager?, session: String?) async -> Stage {
+        guard let stager else { return .unsupported }
+        let beginReply = await stager(.begin(name: name, size: size, batchToken: nil, batch: nil), session)
+        let begun = value(beginReply)
+        guard let token = begun?["token"] as? String, !token.isEmpty, (begun?["size"] as? NSNumber)?.intValue == size else { return stageFailure(beginReply) }
         let chunk = min((begun?["chunkSize"] as? NSNumber)?.intValue ?? chunkBytes, chunkBytes)
-        let cancel = { () async -> String? in
+        let cancel = { (failure: Stage) async -> Stage in
             _ = await stager(.cancel(token: token), session)
-            return nil
+            return failure
         }
-        guard chunk > 0 else { return await cancel() }
+        guard chunk > 0 else { return await cancel(.failed) }
         var offset = 0
         while offset < size {
             let at = offset
             // Read off the main actor: memory stays one chunk, whatever the capture's size.
             let data = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { Self.read(file, at: at, count: min(chunk, size - at)) }.value
-            guard let data, !data.isEmpty else { return await cancel() }
-            let answer = value(await stager(.chunk(token: token, offset: offset, data: data), session))
-            guard (answer?["offset"] as? NSNumber)?.intValue == offset + data.count else { return await cancel() }
+            guard let data, !data.isEmpty else { return await cancel(.failed) }
+            let chunkReply = await stager(.chunk(token: token, offset: offset, data: data), session)
+            let answer = value(chunkReply)
+            guard (answer?["offset"] as? NSNumber)?.intValue == offset + data.count else { return await cancel(stageFailure(chunkReply)) }
             offset += data.count
         }
-        guard let finished = value(await stager(.finish(token: token), session)) else { return await cancel() }
+        let finishReply = await stager(.finish(token: token), session)
+        guard let finished = value(finishReply) else { return await cancel(stageFailure(finishReply)) }
         // Local/peer stagers answer path; CloudUploads answers one upload for this one file.
         // Never pick an arbitrary entry from an ambiguous response.
         let path: String?
@@ -136,8 +151,13 @@ enum AgentPaneCapture {
         } else {
             path = nil
         }
-        guard let path, path.hasPrefix("/") else { return await cancel() }
-        return path
+        guard let path, path.hasPrefix("/") else { return await cancel(.failed) }
+        return .saved(path)
+    }
+
+    private static func stageFailure(_ reply: [String: Any]) -> Stage {
+        let error = reply["error"] as? [String: Any]
+        return reply["ok"] as? Bool == false && error?["code"] as? String == "unsupported" ? .unsupported : .failed
     }
 
     /// What one pick produced.

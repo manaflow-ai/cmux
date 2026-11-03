@@ -6732,10 +6732,12 @@ function AcpmuxPane() {
       mimeType?: string;
       data?: string;
       original?: { path?: unknown };
+      originalUnavailable?: { userMessage?: unknown };
       source?: unknown;
     } | null>("composer.capture", { mode });
     const path = shot?.original?.path;
     const original = typeof path === "string" && path.startsWith("/") ? path : undefined;
+    const unavailable = shot?.originalUnavailable?.userMessage;
     if (!shot?.data && !original) return undefined;
     const name = shot?.name ?? "Screenshot.png";
     // cmux took it: its chip wears cmux's icon (composer/attachmentSources.ts).
@@ -6747,6 +6749,7 @@ function AcpmuxPane() {
     return {
       file: withSource(new File([bytes], name, { type: shot.mimeType ?? "image/png" }), source),
       ...(original ? { original } : {}),
+      ...(typeof unavailable === "string" ? { originalUnavailable: unavailable } : {}),
     };
   }, []);
   const uploadFiles = useCallback(
