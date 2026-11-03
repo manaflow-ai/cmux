@@ -19,7 +19,7 @@ import UniformTypeIdentifiers
 /// (base64, the PNG itself when it is within ``previewMaxBytes``), `original` where the capture as
 /// taken was saved, for the agent to read. The page attaches both as one chip and never sends the
 /// bytes back, which would need a second gesture. A chat whose host saves nothing (no stager) gets
-/// the preview alone; `{cancelled: true}` when the person presses Esc. A failed original stage
+/// its preview with the retained original's recovery path; `{cancelled: true}` when the person presses Esc. A failed original stage
 /// reports the retained local file's path instead of silently substituting its preview, and the
 /// `capture.failed` error answers a `screencapture` that could not start or ended with an error.
 enum AgentPaneCapture {
@@ -88,7 +88,7 @@ enum AgentPaneCapture {
             answer["mimeType"] = preview.mimeType
             answer["data"] = preview.data.base64EncodedString()
         }
-        if staged == .unsupported, stager != nil {
+        if staged == .unsupported {
             answer["originalUnavailable"] = [
                 "userMessage": "The screenshot preview was attached. This chat cannot receive the original; it was kept at \(file.path).",
                 "originalPath": file.path,
