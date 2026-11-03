@@ -266,42 +266,17 @@ export const GitHubMark = ({ size = 16, className, style }: CvIconProps) => (
   </svg>
 );
 
-/** The working track's strength: the faint part of the ring the gap shows (ChatGPT's reads about a
- * quarter of its ink; the native `StatusIndicatorTunables.trackOpacity` is the same mark's). */
-export const WORKING_TRACK_OPACITY = 0.22;
-/** The share of the ring the working arc covers, from 12 o'clock clockwise: ChatGPT's measures 0.72
- * (a gap of about 100°). The native `StatusIndicatorPlan.workingArcLength`. */
-export const WORKING_ARC_LENGTH = 0.72;
-/** The working ring's stroke on the 16 viewBox: ChatGPT's is about a sixth of the ring's width, a
- * third heavier than the 1.5 loading arc. The native `StatusIndicatorPlan.workingStrokeScale`. */
-export const WORKING_STROKE_WIDTH = 2;
-const WORKING_RADIUS = 5.25;
-
-/** The path of `share` of the r 5.25 ring from 12 o'clock clockwise. */
-export function workingArcPath(share: number): string {
-  const angle = 2 * Math.PI * share;
-  const x = +(8 + WORKING_RADIUS * Math.sin(angle)).toFixed(2);
-  const y = +(8 - WORKING_RADIUS * Math.cos(angle)).toFixed(2);
-  return `M8 2.75a5.25 5.25 0 ${share > 0.5 ? 1 : 0} 1 ${x} ${y}`;
-}
-const WORKING_ARC_PATH = workingArcPath(WORKING_ARC_LENGTH);
-
 /** The running mark of a transcript row. Agent work (the default) draws the working look the
- * app picks (`data-working-look` on the root, conversation.css): a breathing dot, the turning
- * ring, or a still dot while the row's words shimmer. Agent work's spinner is ChatGPT's: a ring
- * with one gap turning slowly (Leo 2026-11-02, on ChatGPT's beside ours: "THIS IS CHATGPT", "IT
- * GOES SLOWER"), a bright arc (`cv-spinner__sweep`, 0.72 of the ring, round caps, stroke 2) over a
- * faint track (`cv-spinner__track`, 22%) that shows in the gap, one turn per `--cmux-spinner-period`
- * (1400ms). It replaces #31455's faint ring with a short 80° sweep, which read too faint, and is
- * never the macOS activity indicator's spokes (#29903; Leo 2026-11-01: "why the f*** did you make
- * the spinner into this????"). As the native rows draw it (CmuxNextDesign
- * `StatusIndicatorPlan.workingGlyph`). `loading` (a check or a page loading, not agent work) keeps
- * its thin arc. `cv-spinner` turns either on the shared clock. */
+ * app picks (`data-working-look` on the root, conversation.css): a breathing dot, the turning arc,
+ * or a still dot while the row's words shimmer. `loading` (a check or a page loading, not agent
+ * work) always draws the turning arc. Agent work's spinner is the settled thin arc, never the macOS
+ * activity indicator's segmented spokes (#29903 swapped them in; Leo 2026-11-01: "why the f*** did
+ * you make the spinner into this????"). `cv-spinner` turns it on the shared clock. */
 export const Spinner = ({
   size = 16,
   className,
   style,
-  strokeWidth,
+  strokeWidth = 1.5,
   loading = false,
 }: CvIconProps & { loading?: boolean }) => (
   <svg
@@ -314,35 +289,14 @@ export const Spinner = ({
     aria-hidden="true"
     data-working={loading ? undefined : ""}
   >
-    {loading ? (
-      <path
-        className="cv-spinner__arc"
-        d="M8 2.75a5.25 5.25 0 1 1-4.55 2.63"
-        stroke="currentColor"
-        strokeWidth={strokeWidth ?? 1.5}
-        strokeLinecap="round"
-      />
-    ) : (
-      <>
-        <circle
-          className="cv-spinner__track"
-          cx="8"
-          cy="8"
-          r={WORKING_RADIUS}
-          stroke="currentColor"
-          strokeWidth={strokeWidth ?? WORKING_STROKE_WIDTH}
-          opacity={WORKING_TRACK_OPACITY}
-        />
-        <path
-          className="cv-spinner__sweep"
-          d={WORKING_ARC_PATH}
-          stroke="currentColor"
-          strokeWidth={strokeWidth ?? WORKING_STROKE_WIDTH}
-          strokeLinecap="round"
-        />
-        <circle className="cv-spinner__dot" cx="8" cy="8" r="3" />
-      </>
-    )}
+    <path
+      className="cv-spinner__arc"
+      d="M8 2.75a5.25 5.25 0 1 1-4.55 2.63"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+    />
+    {!loading && <circle className="cv-spinner__dot" cx="8" cy="8" r="3" />}
   </svg>
 );
 

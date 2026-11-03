@@ -29,8 +29,14 @@ const INSTALL_TIMEOUT: Duration = Duration::from_secs(605);
 /// A parsed `cmux nightly` command.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Command {
-    List { limit: u32 },
-    Install { target: Target },
+    /// `--help`, `-h` or `help`: the usage text, with no app needed.
+    Help,
+    List {
+        limit: u32,
+    },
+    Install {
+        target: Target,
+    },
 }
 
 /// The build `install` goes to.
@@ -45,6 +51,11 @@ pub(crate) enum Target {
 pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
     let messages = &crate::localization::catalog().app_control;
     let usage = || UsageError::new(messages.nightly.usage);
+    if rest.first().map(String::as_str) == Some("help")
+        || rest.iter().any(|word| word == "--help" || word == "-h")
+    {
+        return Ok(Command::Help);
+    }
     match rest.first().map(String::as_str) {
         Some("list") => {
             let mut limit = 10;
@@ -64,20 +75,26 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
                 limit = value
                     .and_then(|value| value.parse::<u32>().ok())
                     .filter(|limit| (1..=50).contains(limit))
-                    .ok_or_else(|| UsageError::new(messages.missing_value.replace("{flag}", "--limit")))?;
+                    .ok_or_else(|| {
+                        UsageError::new(messages.missing_value.replace("{flag}", "--limit"))
+                    })?;
             }
             Ok(Command::List { limit })
         }
         Some("install") => {
             let target = match rest.get(1).map(String::as_str) {
                 Some("previous") => Target::Previous,
-                Some(build) if !build.is_empty() && build.bytes().all(|byte| byte.is_ascii_digit()) => {
+                Some(build)
+                    if !build.is_empty() && build.bytes().all(|byte| byte.is_ascii_digit()) =>
+                {
                     Target::Build(build.to_owned())
                 }
                 _ => return Err(usage()),
             };
             if let Some(extra) = rest.get(2) {
-                return Err(UsageError::new(messages.unexpected_argument.replace("{value}", extra)));
+                return Err(UsageError::new(
+                    messages.unexpected_argument.replace("{value}", extra),
+                ));
             }
             Ok(Command::Install { target })
         }
@@ -88,6 +105,10 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
 /// Runs `command` against the app behind the socket.
 pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
     let messages = &crate::localization::catalog().app_control.nightly;
+    if *command == Command::Help {
+        println!("{}", messages.usage);
+        return 0;
+    }
     let mut stream = match super::connect_command(global) {
         Ok(stream) => stream,
         Err(error) => return super::super::wire::print_local_error(&error, global.output, 3),
@@ -95,14 +116,20 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
     let limit = match command {
         Command::List { limit } => *limit,
         // `previous` and a named build are looked up among the most builds `updates.builds` lists.
-        Command::Install { .. } => 50,
+        Command::Help | Command::Install { .. } => 50,
     };
-    let listing = match super::exchange(&mut stream, "updates.builds", json!({ "limit": limit }), LIST_TIMEOUT) {
+    let listing = match super::exchange(
+        &mut stream,
+        "updates.builds",
+        json!({ "limit": limit }),
+        LIST_TIMEOUT,
+    ) {
         Ok(Ok(value)) => value,
         Ok(Err(error)) => return super::super::wire::print_operation_error(&error, global.output),
         Err(message) => return failure("app.transport", &message, global.output),
     };
     match command {
+        Command::Help => 0,
         Command::List { .. } => match global.output {
             OutputMode::Human => {
                 print!("{}", human(&listing, messages));
@@ -135,7 +162,9 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
                     OutputMode::Human => 0,
                     _ => super::super::wire::print_local_success(&value, global.output),
                 },
-                Switched::Answer(Err(error)) => super::super::wire::print_operation_error(&error, global.output),
+                Switched::Answer(Err(error)) => {
+                    super::super::wire::print_operation_error(&error, global.output)
+                }
                 // The app quits into the new build once the swap is done: the connection closing
                 // with no answer after the request went out is that restart.
                 Switched::Restarted => match global.output {
@@ -205,7 +234,8 @@ pub(super) fn pick<'a>(
     if listing.get("switches").and_then(Value::as_bool) == Some(false) {
         return Err(("nightly.cannot_switch", messages.cannot_switch.to_owned()));
     }
-    let builds: &[Value] = listing.get("builds").and_then(Value::as_array).map_or(&[], Vec::as_slice);
+    let builds: &[Value] =
+        listing.get("builds").and_then(Value::as_array).map_or(&[], Vec::as_slice);
     let installed = text(listing, "installed").unwrap_or_default();
     match target {
         Target::Previous => builds
@@ -213,16 +243,28 @@ pub(super) fn pick<'a>(
             .filter(|build| flag(build, "switchable"))
             .filter(|build| text(build, "build").is_some_and(|number| older(&number, &installed)))
             .max_by(|left, right| {
-                order(&text(left, "build").unwrap_or_default(), &text(right, "build").unwrap_or_default())
+                order(
+                    &text(left, "build").unwrap_or_default(),
+                    &text(right, "build").unwrap_or_default(),
+                )
             })
-            .ok_or_else(|| ("nightly.no_previous", messages.no_previous.replace("{build}", &installed))),
+            .ok_or_else(|| {
+                ("nightly.no_previous", messages.no_previous.replace("{build}", &installed))
+            }),
         Target::Build(number) => {
-            let Some(build) = builds.iter().find(|build| text(build, "build").as_deref() == Some(number))
+            let Some(build) =
+                builds.iter().find(|build| text(build, "build").as_deref() == Some(number))
             else {
-                return Err(("nightly.unknown_build", messages.unknown_build.replace("{build}", number)));
+                return Err((
+                    "nightly.unknown_build",
+                    messages.unknown_build.replace("{build}", number),
+                ));
             };
             if flag(build, "installed") {
-                return Err(("nightly.installed", messages.installed_already.replace("{build}", number)));
+                return Err((
+                    "nightly.installed",
+                    messages.installed_already.replace("{build}", number),
+                ));
             }
             if build.get("health").and_then(Value::as_str) == Some("pulled") {
                 let reason = text(build, "pulled_reason").unwrap_or_default();
@@ -251,7 +293,8 @@ fn older(build: &str, than: &str) -> bool {
 
 /// One line per build, newest first: `*` marks the running one.
 pub(super) fn human(listing: &Value, messages: &NightlyMessages) -> String {
-    let builds: &[Value] = listing.get("builds").and_then(Value::as_array).map_or(&[], Vec::as_slice);
+    let builds: &[Value] =
+        listing.get("builds").and_then(Value::as_array).map_or(&[], Vec::as_slice);
     if builds.is_empty() {
         return format!("{}\n", messages.no_builds);
     }
