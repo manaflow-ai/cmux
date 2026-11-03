@@ -227,6 +227,9 @@ impl QuestionReplyPrompt {
         let numeric = !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit());
         let number = if numeric { digits.parse::<usize>().ok() } else { None };
         let folded = fold(&text);
+        if folded.is_empty() {
+            return Err(ReplyError::NoMatch);
+        }
         let alias = self.permission_aliases.and_then(|(yes, no)| match folded.as_str() {
             "yes" => Some(yes),
             "no" => Some(no),
@@ -252,7 +255,7 @@ impl QuestionReplyPrompt {
             return unique(exact.into_iter());
         }
         // Digits and yes/no are never fuzzy guesses in ordinary choice prompts.
-        if numeric || folded.is_empty() || matches!(folded.as_str(), "yes" | "no") {
+        if numeric || matches!(folded.as_str(), "yes" | "no") {
             return Err(ReplyError::NoMatch);
         }
         unique(labels.iter().enumerate().filter_map(|(index, label)| {

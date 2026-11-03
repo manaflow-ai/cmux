@@ -376,6 +376,10 @@ fn markdown_options_match_the_plain_label_the_person_sees() {
     let prompt = prompt(q);
     assert!(prompt.render().contains("1. Red"));
     assert_eq!(resolve(&prompt, "Red"), resolve(&prompt, "1"));
+    let mut q = question();
+    q.items[0].options[0].label = "---".into();
+    let hidden_label = QuestionReplyPrompt::new(identity(), "thread-1".into(), q).unwrap();
+    assert_eq!(resolve(&hidden_label, ""), Err(ReplyError::NoMatch));
 }
 
 fn observed() -> ObservedReply<'static> {
