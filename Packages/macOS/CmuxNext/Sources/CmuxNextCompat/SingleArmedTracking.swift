@@ -7,7 +7,7 @@ public import Observation
 /// one per CLI read of the control snapshot before the launch restore, 2.4-2.6 s for the restore's first registry write).
 ///
 /// While the armed registration has not fired, nothing the computation read changed, so a run over the same `shape`
-/// (what the computation walks without observing it: windows, mounted content) reads the same values and runs
+/// (what the computation walks without observing it, such as windows, their mounted content and the active one) reads the same values and runs
 /// untracked. A run over another shape arms again, so what it reads is tracked too.
 @MainActor
 public final class SingleArmedTracking {

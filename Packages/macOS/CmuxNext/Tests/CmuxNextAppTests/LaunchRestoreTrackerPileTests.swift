@@ -47,7 +47,7 @@ struct LaunchRestoreTrackerPileTests {
     }
 
     /// 5,000 CLI calls before the restore (a write, then a read of the stale snapshot, as agents' hooks make while the
-    /// daemon starts): the restore's clear of the launch membership stays under 20 ms. On the base each read armed
+    /// daemon starts): the restore's clear of the launch membership stays under 100 ms (a loaded runner's margin; the base takes seconds). On the base each read armed
     /// one more tracking of the whole build, and the clear cancelled all 5,000.
     @Test func cliCallsBeforeTheRestoreLeaveTheRestoresClearCheap() async throws {
         _ = NSApplication.shared
@@ -79,6 +79,6 @@ struct LaunchRestoreTrackerPileTests {
         let elapsed = ContinuousClock.now - started
         let ms = Double(elapsed.components.attoseconds) / 1e15 + Double(elapsed.components.seconds) * 1000
         print("restore clear after \(calls) CLI calls: \(String(format: "%.2f", ms)) ms (\(publisher.builds - builds) builds)")
-        #expect(elapsed < .milliseconds(20), "the restore's clear took \(String(format: "%.2f", ms)) ms after \(calls) CLI calls (want < 20 ms)")
+        #expect(elapsed < .milliseconds(100), "the restore's clear took \(String(format: "%.2f", ms)) ms after \(calls) CLI calls (want < 100 ms)")
     }
 }

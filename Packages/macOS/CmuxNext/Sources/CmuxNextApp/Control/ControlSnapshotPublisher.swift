@@ -110,9 +110,10 @@ final class ControlSnapshotPublisher {
         let started = ContinuousClock.now
         builds += 1
         topologyDirty.store(false, ordering: .releasing)
-        let (built, settings, tabSearch) = tracking.track(shape: services.windows.controllers.map { ObjectIdentifier($0) }) {
-            (Self.topology(services, cache: workspaceInfos, sequences: false), services.settings?.snapshot.root,
-             TabSearchFactsBuilder.facts(services, cache: workspaceInfos))
+        // What the build walks unobserved: the windows, each one's mounted content and panes, and the active window.
+        let shape = services.windows.controllers.flatMap { [ObjectIdentifier($0)] + ($0.content.map { [ObjectIdentifier($0)] + $0.panes.values.map(ObjectIdentifier.init).sorted() } ?? []) }
+        let (built, settings, tabSearch) = tracking.track(shape: shape + [services.windows.active].compactMap { $0.map(ObjectIdentifier.init) }) {
+            (Self.topology(services, cache: workspaceInfos, sequences: false), services.settings?.snapshot.root, TabSearchFactsBuilder.facts(services, cache: workspaceInfos))
         } onChange: { [weak self] in
             // Runs synchronously inside the mutation; publish after it lands.
             self?.topologyDirty.store(true, ordering: .releasing)
