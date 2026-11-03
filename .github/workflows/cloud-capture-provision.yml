@@ -10,13 +10,14 @@ name: Cloud capture account provision
 # and dropped. Every run is a rotation, so rerunning is how the credential is replaced. Dispatch it on main.
 #
 # With `grant_email` set, the run only gives that existing capture test account (cmux-cloud-capture…@manaflow.dev,
-# e.g. the no-team owner account) the `pro` operator plan: no password change, nothing sealed or uploaded.
+# e.g. the no-team owner account) the `pro` operator plan and a verified primary email (so a team invitation to it
+# can be accepted): no password change, nothing sealed or uploaded.
 
 on:
   workflow_dispatch:
     inputs:
       grant_email:
-        description: Only grant the pro operator plan to this existing capture test account (no rotation, no bundle)
+        description: Only grant the pro operator plan and a verified email to this existing capture test account (no rotation, no bundle)
         required: false
         default: ""
 
@@ -54,7 +55,7 @@ jobs:
             sudo apt-get install -y -qq --no-install-recommends libsodium23
           fi
 
-      - name: Grant the operator plan only
+      - name: Grant the operator plan and a verified email only
         if: inputs.grant_email != ''
         env:
           NEXT_PUBLIC_STACK_PROJECT_ID: ${{ vars.NEXT_PUBLIC_STACK_PROJECT_ID }}
