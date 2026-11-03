@@ -402,11 +402,11 @@
 }
 /* Shared Button owns the hit box, hover/press fill and keyboard focus. The mark stays
    secondary until selected or hovered; the highlight covers this control alone. */
-.acpmux-minimap__bookmark.ui-btn {
+.acpmux-minimap__bookmark.ui-button.ui-btn {
   color: var(--agent-muted);
 }
-.acpmux-minimap__bookmark.ui-btn:hover,
-.acpmux-minimap__bookmark.ui-btn[aria-pressed="true"] {
+.acpmux-minimap__bookmark.ui-button.ui-btn:hover,
+.acpmux-minimap__bookmark.ui-button.ui-btn[aria-pressed="true"] {
   color: var(--agent-text);
 }
 .acpmux-minimap__reply {
