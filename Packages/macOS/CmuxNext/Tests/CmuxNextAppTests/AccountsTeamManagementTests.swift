@@ -224,6 +224,22 @@ import Testing
         #expect(services.activeTeam?.team?.id == "team-research")
     }
 
+    /// When the switch to the joined team fails, the person is still in the team but their
+    /// previous team stays active, and the notice does not claim otherwise.
+    @Test func aJoinWhoseSwitchFailsDoesNotSayTheTeamIsActive() async throws {
+        let services = MockAccountsServices()
+        services.receivedInvitations = [Self.research]
+        let model = await loaded(services)
+        services.teamFailure = CMUXTeamError.unavailable
+
+        #expect(try await run(model, "team.accept", team: "inv-research") == nil)
+
+        let list = try #require(model.pageState.teamList)
+        #expect(list.rows.map(\.name) == ["Personal", "Acme", "Research"])
+        #expect(list.notice?.text == "You joined “Research”.")
+        #expect(services.activeTeam?.team?.id == "team-personal")
+    }
+
     @Test func decliningRemovesTheInvitationAndJoinsNothing() async throws {
         let services = MockAccountsServices()
         services.receivedInvitations = [Self.research]
