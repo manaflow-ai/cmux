@@ -372,6 +372,8 @@ extension SettingsSchema {
         // What a new chat may do without asking: an agent must not widen its own approvals.
         "agents.defaultPermissionMode": .userOnly,
         "computerUse.enabled": .userOnly,
+        // On, cmux reads the person's Messages database: only the person turns that on.
+        "imessage.enabled": .userOnly,
         "computerUse.driver": .userOnly,
         // How hard cmux pulls the person back from another app: theirs to pick, not an agent's.
         "notifications.dockBounce": .userOnly,

@@ -404,6 +404,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
             GroupSpec(keys: ["browser.omnibar.remoteSuggestions", "announcements.fetch"],
                       title: SettingsText.keyed("settings.pageGroup.network", "Network Requests")),
             GroupSpec(group: "settings.group.hangReports"),
+            // The opt-in Messages mirror: read only, local only (ImessageMirrorSetting).
+            GroupSpec(group: "settings.group.imessage"),
             // The hosts an ssh:// link from another app reaches without asking (ExternalLinkGate).
             GroupSpec(group: "settings.group.sshLinks"),
         ],

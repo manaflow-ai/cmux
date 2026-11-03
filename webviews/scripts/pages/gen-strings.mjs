@@ -229,6 +229,11 @@ export const PAGES = {
     out: "webviews/src/pages/stats/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/stats/Localizable.xcstrings" }],
   },
+  // The Messages mirror page (cmux-page://cmux.imessage/); its table lives next to it.
+  imessage: {
+    out: "webviews/src/pages/imessage/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/imessage/Localizable.xcstrings" }],
+  },
   // The Chief Usage page (cmux-page://cmux.chief-usage/); its table lives next to it.
   "chief-usage": {
     out: "webviews/src/pages/chief-usage/generated/strings.json",

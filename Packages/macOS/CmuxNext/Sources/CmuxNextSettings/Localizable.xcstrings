@@ -198819,6 +198819,530 @@
           }
         }
       }
+    },
+    "settings.group.imessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Messages"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الرسائل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poruke"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beskeder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nachrichten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mensajes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Messages"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Messaggi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meldinger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wiadomości"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mensagens"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сообщения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้อความ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mesajlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повідомлення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tin nhắn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "訊息"
+          }
+        }
+      }
+    },
+    "settings.imessage.enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mirror Messages (local only)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عكس الرسائل (محليًا فقط)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zrcali poruke (samo lokalno)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spejl Beskeder (kun lokalt)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nachrichten spiegeln (nur lokal)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replicar Mensajes (solo local)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mettre en miroir Messages (local uniquement)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replica Messaggi (solo locale)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージをミラー（ローカルのみ）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឆ្លុះសារ (តែក្នុងម៉ាស៊ីនប៉ុណ្ណោះ)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지 미러링(로컬 전용)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speil Meldinger (kun lokalt)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dublowanie Wiadomości (tylko lokalnie)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espelhar Mensagens (somente local)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зеркалировать Сообщения (только локально)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มิเรอร์ข้อความ (เฉพาะในเครื่อง)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mesajlar'ı Yansıt (yalnızca yerel)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дзеркалити Повідомлення (лише локально)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sao chép Tin nhắn (chỉ cục bộ)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "镜像信息（仅本地）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "鏡像訊息（僅限本機）"
+          }
+        }
+      }
+    },
+    "settings.imessage.enabled.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows your Messages conversations in cmux, read only. cmux reads the Messages database on this Mac; nothing is copied, synced or sent anywhere. macOS asks you to give cmux Full Disk Access first."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض محادثات الرسائل في cmux للقراءة فقط. يقرأ cmux قاعدة بيانات الرسائل على هذا الـ Mac؛ لا يتم نسخ أي شيء أو مزامنته أو إرساله إلى أي مكان. يطلب منك macOS أولًا منح cmux «الوصول الكامل إلى القرص»."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikazuje vaše razgovore iz aplikacije Poruke u cmux-u, samo za čitanje. cmux čita bazu podataka aplikacije Poruke na ovom Macu; ništa se ne kopira, sinkronizira niti šalje nigdje. macOS će prvo tražiti da cmux-u dodijelite Potpuni pristup disku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser dine samtaler fra Beskeder i cmux, skrivebeskyttet. cmux læser databasen for Beskeder på denne Mac; intet kopieres, synkroniseres eller sendes nogen steder hen. macOS beder dig først om at give cmux Fuld diskadgang."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt deine Unterhaltungen aus Nachrichten in cmux an, schreibgeschützt. cmux liest die Nachrichten-Datenbank auf diesem Mac; nichts wird kopiert, synchronisiert oder irgendwohin gesendet. macOS fordert dich zuerst auf, cmux Festplattenvollzugriff zu erteilen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra tus conversaciones de Mensajes en cmux, de solo lectura. cmux lee la base de datos de Mensajes en este Mac; no se copia, sincroniza ni envía nada a ningún sitio. macOS te pedirá primero que concedas a cmux Acceso total al disco."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche vos conversations Messages dans cmux, en lecture seule. cmux lit la base de données de Messages sur ce Mac ; rien n’est copié, synchronisé ni envoyé ailleurs. macOS vous demande d’abord d’accorder à cmux l’Accès complet au disque."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra le tue conversazioni di Messaggi in cmux, in sola lettura. cmux legge il database di Messaggi su questo Mac; nulla viene copiato, sincronizzato o inviato altrove. macOS ti chiede prima di concedere a cmux l’Accesso completo al disco."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージの会話を cmux に読み取り専用で表示します。cmux はこの Mac 上のメッセージのデータベースを読み取り、コピー、同期、送信は一切行いません。最初に macOS が cmux にフルディスクアクセスを許可するよう求めます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញការសន្ទនា សារ របស់អ្នកក្នុង cmux ដោយអានតែប៉ុណ្ណោះ។ cmux អានមូលដ្ឋានទិន្នន័យ សារ នៅលើ Mac នេះ ហើយគ្មានអ្វីត្រូវបានចម្លង ធ្វើសមកាលកម្ម ឬផ្ញើទៅកន្លែងណាទេ។ macOS នឹងសុំឱ្យអ្នកផ្តល់ ការចូលប្រើថាសពេញលេញ ដល់ cmux ជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지 대화를 cmux에 읽기 전용으로 표시합니다. cmux는 이 Mac의 메시지 데이터베이스를 읽으며, 어디에도 복사, 동기화 또는 전송되지 않습니다. 먼저 macOS가 cmux에 전체 디스크 접근 권한을 부여하라고 요청합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser Meldinger-samtalene dine i cmux, skrivebeskyttet. cmux leser Meldinger-databasen på denne Macen; ingenting kopieres, synkroniseres eller sendes noe sted. macOS ber deg først gi cmux Full disktilgang."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyświetla Twoje rozmowy z Wiadomości w cmux, tylko do odczytu. cmux odczytuje bazę danych Wiadomości na tym Macu; nic nie jest kopiowane, synchronizowane ani nigdzie wysyłane. macOS najpierw poprosi o przyznanie cmux Pełnego dostępu do dysku."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra suas conversas do Mensagens no cmux, somente leitura. O cmux lê o banco de dados do Mensagens neste Mac; nada é copiado, sincronizado ou enviado para lugar nenhum. O macOS primeiro pede que você conceda ao cmux o Acesso Total ao Disco."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывает ваши переписки из Сообщений в cmux только для чтения. cmux читает базу данных Сообщений на этом Mac; ничего не копируется, не синхронизируется и никуда не отправляется. Сначала macOS попросит предоставить cmux Доступ ко всему диску."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงการสนทนาในข้อความของคุณใน cmux แบบอ่านอย่างเดียว cmux อ่านฐานข้อมูลข้อความบน Mac เครื่องนี้ ไม่มีการคัดลอก ซิงค์ หรือส่งไปที่ใด ก่อนอื่น macOS จะขอให้คุณมอบการเข้าถึงดิสก์แบบเต็มให้ cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mesajlar konuşmalarınızı cmux'ta salt okunur olarak gösterir. cmux bu Mac'teki Mesajlar veritabanını okur; hiçbir şey kopyalanmaz, senkronize edilmez veya herhangi bir yere gönderilmez. macOS önce cmux'a Tam Disk Erişimi vermenizi ister."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показує ваші розмови з Повідомлень у cmux лише для читання. cmux читає базу даних Повідомлень на цьому Mac; нічого не копіюється, не синхронізується і нікуди не надсилається. Спершу macOS попросить надати cmux Повний доступ до диска."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiển thị các cuộc trò chuyện Tin nhắn của bạn trong cmux, chỉ để đọc. cmux đọc cơ sở dữ liệu Tin nhắn trên máy Mac này; không có gì được sao chép, đồng bộ hóa hay gửi đi đâu cả. Trước tiên, macOS sẽ yêu cầu bạn cấp Truy cập toàn bộ ổ đĩa cho cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 中以只读方式显示你的信息对话。cmux 会读取这台 Mac 上的“信息”数据库；不会复制、同步或发送到任何地方。macOS 会先要求你授予 cmux“完全磁盘访问权限”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 中以唯讀方式顯示你的訊息對話。cmux 會讀取這部 Mac 上的「訊息」資料庫；不會拷貝、同步或傳送到任何地方。macOS 會先要求你授予 cmux「完整磁碟取用權限」。"
+          }
+        }
+      }
+    },
+    "settings.imessage.enabled.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows your Messages conversations in cmux"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض محادثات الرسائل في cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikazuje vaše razgovore iz aplikacije Poruke u cmux-u"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser dine samtaler fra Beskeder i cmux"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt deine Unterhaltungen aus Nachrichten in cmux an"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra tus conversaciones de Mensajes en cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche vos conversations Messages dans cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra le tue conversazioni di Messaggi in cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージの会話を cmux に表示します"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញការសន្ទនា សារ របស់អ្នកក្នុង cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지 대화를 cmux에 표시합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser Meldinger-samtalene dine i cmux"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyświetla Twoje rozmowy z Wiadomości w cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra suas conversas do Mensagens no cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывает ваши переписки из Сообщений в cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงการสนทนาในข้อความของคุณใน cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mesajlar konuşmalarınızı cmux'ta gösterir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показує ваші розмови з Повідомлень у cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiển thị các cuộc trò chuyện Tin nhắn của bạn trong cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 中显示你的信息对话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 中顯示你的訊息對話"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
