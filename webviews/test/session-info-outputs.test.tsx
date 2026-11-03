@@ -2,6 +2,8 @@
 // Session Info's Outputs (Claude Code desktop's): each artifact the chat produced by its title with an
 // Artifact tag, opening in the side panel beside the chat; the gallery; the files, each opening its
 // diff; the links with a Link tag. Every row opens what it names.
+// Every section in view (`setSessionInfoMore(true)`): the panel's compact default view is
+// session-info-compact-default.test.tsx's.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -10,7 +12,7 @@ import type { Artifact } from "../src/agent-session/acpmux/conversation/artifact
 import { renderId } from "../src/agent-session/acpmux/conversation/renderCall";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
-import { resetSessionInfoState } from "../src/agent-session/acpmux/session-info/sessionInfoState";
+import { resetSessionInfoState, setSessionInfoMore } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import {
   OUTPUTS_SHOWN,
   OutputsSection,
@@ -49,7 +51,10 @@ function installDom(): HTMLElement {
   return dom.window.document.getElementById("root")!;
 }
 
-beforeEach(() => resetSessionInfoState());
+beforeEach(() => {
+  resetSessionInfoState();
+  setSessionInfoMore(true);
+});
 
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
