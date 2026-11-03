@@ -1,4 +1,5 @@
 public import CmuxNextDesign
+import CoreGraphics
 
 /// Parses the sidebar section settings (`sidebar.*` in cmux.json). A
 /// missing key is its default; a bad value is the default plus a diagnostic.
@@ -17,6 +18,12 @@ public nonisolated enum SidebarSectionsSetting {
     public static let densityPath = ["sidebar", "density"]
     /// `sidebar.textSize` (``SidebarTextSize``): the list's text, leading glyphs and rows together.
     public static let textSizePath = ["sidebar", "textSize"]
+    /// The person's own sidebar sizes (2026-11-02: "make it so that i can custom the text sizes and the stuff
+    /// as well on the sidebar"): points at Interface Size 100%; absent leaves each to the density and text size.
+    public static let titleSizePath = ["sidebar", "titleSize"]
+    public static let detailSizePath = ["sidebar", "detailSize"]
+    public static let rowHeightPath = ["sidebar", "rowHeight"]
+    public static let rowPaddingPath = ["sidebar", "rowPadding"]
     /// `sidebar.style`: standard or the thin rail (plans/cmux-next/minimal-sidebar.md).
     public static let stylePath = ["sidebar", "style"]
     public static let showProjectsPath = ["sidebar", "showProjects"]
@@ -120,34 +127,71 @@ public nonisolated enum SidebarSectionsSetting {
         SettingDescriptor(densityPath, section: .appearance, group: group,
                           title: SettingsText.keyed("settings.sidebar.density", "Sidebar Density"),
                           help: SettingsText.keyed("settings.sidebar.density.help",
-                                                   "Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."),
+                                                   "Normal rows match the Codex app's sidebar. Compact rows are smaller and closer together. Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."),
                           kind: .choice(SidebarDensity.allCases.map { density in
                               switch density {
                               case .compact: SettingChoice(density.rawValue, SettingsText.keyed("settings.choice.compact", "Compact"))
+                              case .normal: SettingChoice(density.rawValue, SettingsText.keyed("settings.choice.normal", "Normal"))
                               case .comfortable: SettingChoice(density.rawValue, SettingsText.keyed("settings.choice.comfortable", "Comfortable"))
                               case .expanded: SettingChoice(density.rawValue, SettingsText.keyed("settings.choice.expanded", "Expanded"))
                               }
                           }),
                           default: .string(SidebarSectionsPreferences.defaults.density.rawValue),
-                          keywords: ["sidebar", "density", "expanded", "compact", "comfortable", "rows", "preview", "two lines", "taller", "t3", "codex"])
+                          keywords: ["sidebar", "density", "expanded", "normal", "compact", "comfortable", "rows", "preview", "two lines", "taller", "t3", "codex"])
     }
 
     /// Lawrence msg 17752: "we also need option for sidebar text to be very significantly bigger. this is
-    /// how big chatgpt is by default, let's match them". Larger is that size.
+    /// how big chatgpt is by default, let's match them"; then (2026-10-30) "small | medium | large", Medium
+    /// that size; then (2026-11-02) "the default for the sidebar text should be the codex text size": Small.
     static func textSizeDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(textSizePath, section: .appearance, group: group,
                           title: SettingsText.keyed("settings.sidebar.textSize", "Sidebar Text Size"),
                           help: SettingsText.keyed("settings.sidebar.textSize.help",
-                                                   "Makes the sidebar's names, headers, icons and rows larger together. Larger matches the ChatGPT app's sidebar."),
+                                                   "Sizes the sidebar's names, headers, icons and rows together. Small, the default, matches the Codex app's sidebar; Medium matches the ChatGPT app's."),
                           kind: .choice(SidebarTextSize.allCases.map { size in
                               switch size {
-                              case .standard: SettingChoice(size.rawValue, SettingsText.keyed("settings.choice.default", "Default"))
+                              case .small: SettingChoice(size.rawValue, SettingsText.keyed("settings.choice.sidebarTextSmall", "Small"))
+                              case .medium: SettingChoice(size.rawValue, SettingsText.keyed("settings.choice.sidebarTextMedium", "Medium"))
                               case .large: SettingChoice(size.rawValue, SettingsText.keyed("settings.choice.sidebarTextLarge", "Large"))
-                              case .larger: SettingChoice(size.rawValue, SettingsText.keyed("settings.choice.sidebarTextLarger", "Larger"))
                               }
                           }),
                           default: .string(SidebarSectionsPreferences.defaults.textSize.rawValue),
-                          keywords: ["sidebar", "text", "size", "font", "bigger", "larger", "large", "zoom", "readable", "accessibility", "chatgpt", "rows"])
+                          keywords: ["sidebar", "text", "size", "font", "bigger", "larger", "small", "medium", "large", "zoom", "readable", "accessibility", "chatgpt", "codex", "rows"])
+    }
+
+    /// The custom sizes (``titleSizePath`` and the rest): numbers in points, absent by default ("Density default").
+    static func customSizeDescriptors(group: SettingText) -> [SettingDescriptor] {
+        let densityDefault = SettingsText.keyed("settings.default.density", "Density default")
+        func number(_ range: ClosedRange<CGFloat>, step: Double, placeholder: Double) -> SettingKind {
+            .number(SettingNumber(Double(range.lowerBound)...Double(range.upperBound), step: step, unit: .points, placeholder: placeholder))
+        }
+        typealias P = SidebarSectionsPreferences
+        return [
+            SettingDescriptor(titleSizePath, section: .appearance, group: group,
+                              title: SettingsText.keyed("settings.sidebar.titleSize", "Sidebar Title Size"),
+                              help: SettingsText.keyed("settings.sidebar.titleSize.help",
+                                                       "The size of workspace names in the sidebar, in points. Empty follows the density and text size."),
+                              kind: number(P.titleSizeRange, step: 0.5, placeholder: 13), default: nil, defaultLabel: densityDefault,
+                              keywords: ["sidebar", "title", "name", "text", "font", "size", "custom", "points"]),
+            SettingDescriptor(detailSizePath, section: .appearance, group: group,
+                              title: SettingsText.keyed("settings.sidebar.detailSize", "Sidebar Detail Size"),
+                              help: SettingsText.keyed("settings.sidebar.detailSize.help",
+                                                       "The size of the lines under workspace names and of listed tabs, in points. Empty follows the density and text size."),
+                              kind: number(P.detailSizeRange, step: 0.5, placeholder: 12), default: nil, defaultLabel: densityDefault,
+                              keywords: ["sidebar", "detail", "subtitle", "second line", "tabs", "text", "font", "size", "custom", "points"]),
+            SettingDescriptor(rowHeightPath, section: .appearance, group: group,
+                              title: SettingsText.keyed("settings.sidebar.rowHeight", "Sidebar Row Height"),
+                              help: SettingsText.keyed("settings.sidebar.rowHeight.help",
+                                                       "The height of a one-line sidebar row, in points. Rows sit 2 points apart. Empty follows the density and text size."),
+                              kind: number(P.rowHeightRange, step: 1, placeholder: 28), default: nil, defaultLabel: densityDefault,
+                              keywords: ["sidebar", "row", "height", "spacing", "taller", "shorter", "custom", "points"]),
+            SettingDescriptor(rowPaddingPath, section: .appearance, group: group,
+                              title: SettingsText.keyed("settings.sidebar.rowPadding", "Sidebar Row Padding"),
+                              help: SettingsText.keyed("settings.sidebar.rowPadding.help",
+                                                       "The space at the left and right of sidebar rows, in points. Empty follows the density."),
+                              kind: number(P.rowPaddingRange, step: 1, placeholder: 8), default: nil, defaultLabel: densityDefault,
+                              keywords: ["sidebar", "row", "padding", "inset", "margin", "indent", "custom", "points"]),
+        ]
     }
 
     static func styleDescriptor(group: SettingText) -> SettingDescriptor {
@@ -359,13 +403,18 @@ public nonisolated enum SidebarSectionsSetting {
             }
         }
         if let value = root.value(at: textSizePath) {
-            if let text = value.stringValue, let size = SidebarTextSize(rawValue: text) {
+            if let text = value.stringValue, let size = SidebarTextSize(setting: text) {
                 result.textSize = size
             } else {
                 let choices = SidebarTextSize.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.textSize", message: "expected one of " + choices))
             }
         }
+        typealias P = SidebarSectionsPreferences
+        result.titleSize = size(root, titleSizePath, P.titleSizeRange, &diagnostics)
+        result.detailSize = size(root, detailSizePath, P.detailSizeRange, &diagnostics)
+        result.rowHeight = size(root, rowHeightPath, P.rowHeightRange, &diagnostics)
+        result.rowPadding = size(root, rowPaddingPath, P.rowPaddingRange, &diagnostics)
         if let value = root.value(at: stylePath) {
             if let text = value.stringValue, let style = SidebarLayoutStyle(rawValue: text) {
                 result.style = style
@@ -391,6 +440,19 @@ public nonisolated enum SidebarSectionsSetting {
             return fallback
         }
         return flag
+    }
+
+    /// A custom size in points at `path`: nil when absent, or (with a diagnostic) when it is not a number in `range`.
+    private static func size(_ root: JSONValue, _ path: [String], _ range: ClosedRange<CGFloat>,
+                             _ diagnostics: inout [SettingsDiagnostic]) -> CGFloat? {
+        guard let value = root.value(at: path) else { return nil }
+        guard let number = value.doubleValue, range.contains(CGFloat(number)) else {
+            let name = path.joined(separator: ".")
+            diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: name,
+                                                  message: "expected a size in points from \(Int(range.lowerBound)) to \(Int(range.upperBound))"))
+            return nil
+        }
+        return CGFloat(number)
     }
 
     private static func share(_ root: JSONValue, _ path: [String], _ name: String, fallback: Double,

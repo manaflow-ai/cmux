@@ -32,6 +32,7 @@
   ],
   "weights": [
     { "name": "regular", "weight": 400, "for": "everything by default" },
+    { "name": "sidebar", "weight": 430, "for": "sidebar row titles: the Codex desktop sidebar's UI weight (cmux issue 28793)" },
     { "name": "emphasis", "weight": 600, "for": "titles, headings, selected or unread rows, group labels" },
     { "name": "strong", "weight": 700, "for": "monogram initials drawn in an avatar circle" }
   ]

@@ -1,5 +1,17 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-02: `sidebar.density` Normal, the new default, is the Codex desktop sidebar of
+  https://github.com/manaflow-ai/cmux/issues/28793 ("the default for the sidebar text should be the codex text size";
+  "make sure that this does not affect users who are on comfort level or compact level right now"; "make comfortable
+  even more comfortable than this"). Compact is the sidebar from before Normal, number for number (24 pt rows on 26,
+  `Typography.body` and caption, 6 pt inset; Minimal 20 pt), so whoever set Compact sees no change. Comfortable is
+  Normal with more room (32 pt rows, 10 pt inset, Normal's 13 pt text): it changes from 28 pt rows and 12 pt text.
+  Expanded takes Normal's one-line tokens. `sidebar.textSize` Small (Codex) is the default again; Medium is ChatGPT.
+  New custom sizes, absent by default: `sidebar.titleSize`, `sidebar.detailSize`, `sidebar.rowHeight`,
+  `sidebar.rowPadding` (points at Interface Size 100%, win over density and text size), in the new Sidebar Sizes card
+  with density and text size ("make it so that i can custom the text sizes and the stuff as well on the sidebar").
+  New action `sidebar.density.normal` (Normal Rows in the sidebar's Options). Regression: `SidebarCodexTextDefaultsTests`
+  (`compactKeepsTheSidebarFromBefore`, `customSizesWin`), `SidebarTextSizeTests`, `SidebarTextSizeSettingTests`.
 - 2026-11-03: the update and notice cards take the theme. Leo, verbatim, on the Downloading Update card: "will this
   be themeed properly?". The download bar was the fixed secondary-text gray (`Palette.textSecondary`) and the Update
   Ready and notice cards' veil the neutral gray; the bar is now the theme's accent (`Palette.accentFill`, the primary
@@ -415,7 +427,7 @@ A workspace close removes only the workspace. The daemon close path and remote-c
 | New group place | A group made with no index forms first, right below Home (`workspaces.newPlacement` top, the default); existing groups keep their places. | a905 |
 | Minimal rows | Name plus one state mark (spinner, unread dot, needs-you dot). No times, PR badge, status words or Now line by default. | Lawrence 10-21 |
 | Heights | Group headers, workspace rows and band rows have one height at each density. | Lawrence 10-19, 10-22 |
-| Text size | `sidebar.textSize` scales the list together: text, leading glyphs and row heights. Default keeps the original 12 pt on 26 pt; Larger is the ChatGPT app's sidebar (14 pt titles on a 31 pt row pitch). Trailing marks keep their size. | Lawrence msg 17752 |
+| Text size | `sidebar.textSize` scales the list together: text, leading glyphs and row heights. Small | Medium | Large: Small, the default, is the Codex desktop sidebar (13 pt titles on a 30 pt pitch); Medium the ChatGPT app's sidebar (14 pt titles on a 31 pt pitch); Large a step past it (15 pt on 34). Trailing marks keep their size. | Lawrence msg 17752; 2026-10-30 "small \| medium \| large" |
 | Row gaps | Two consecutive rows are one row spacing (`space1`) apart everywhere in the list: under a group's last member, a folder's last row (Group by Folder), the Pinned block's last row and the session tree's last pinned chat, folded or open. No padding of their own after groups, folders or pins (`groupBottomPadding` is gone). A leading pin's ink centers on the icon column an unpinned row's icon centers on, and on the row. Gaps between headed sections are unchanged. | Leo 2026-10-21 ("ALL THIS RELATIVELY UNNECESSARY SPACING AFTER GROUPS AND AFTER PINS"), https://github.com/manaflow-ai/cmux/pull/23800 |
 | Machine header status | A machine's dot is green only once its daemon finished the handshake; a spinner (the shared `StatusIndicatorView.spinner()`, in the dot's place) while it connects, reconnects or installs, never a pulsing dot; red when it is offline, unreachable, refused or failed; grey only while a Cloud machine is paused; amber when cmux-tui must be installed. An optional update reads as connected: the green dot, its words in the tooltip. This Mac draws none while connected. The agent pane's composer strip shows the same word (`MachineLinkState`). | Leo 2026-10-28 ("you just get a little green dot ... as if you were working on your own computer, but now it's remote"); the rulebook's "working state is a spinner, never a breathing, pulsing or blinking dot" |
 | Performance | Terminal typing stays smooth while the sidebar rearranges (p95 frame under 8 ms). | Lawrence 11215 |

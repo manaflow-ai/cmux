@@ -7,48 +7,60 @@ import CoreGraphics
 /// pinned and other top or bottom bands (`SidebarRegionMetrics.standard`) and
 /// the row padding (`SidebarStyle.horizontalInset`).
 ///
-/// Compact (the default) and expanded keep the app tokens exactly. Comfortable
-/// keeps one line per row and adds height and room, sized like the medium
-/// sidebar size of the system's own sidebars (28 pt rows against the small
-/// size's 24 pt), at the app's compact density:
+/// Normal, the default, is the Codex desktop sidebar (https://github.com/manaflow-ai/cmux/issues/28793):
+/// 13 pt titles at weight 430, 12 pt detail lines, one-line rows on a 30 pt pitch (a 28 pt row and the
+/// `space1` gap) and 8 pt horizontal padding. Compact is the sidebar from before it, unchanged for
+/// whoever picked it: the app's 24 pt row, `Typography.body` titles and caption details, a 6 pt inset.
+/// Comfortable is Normal with more room: taller rows, wider padding, bigger section gaps. Expanded
+/// takes Normal's one-line tokens and adds its second line. At the app's compact density:
 ///
-/// | token                  | compact | comfortable | step              |
-/// |------------------------|---------|-------------|-------------------|
-/// | row, group             | 24      | 28          | + `space2`        |
-/// | machine/section header | 22      | 26          | + `space2`        |
-/// | row with a detail line | 37      | 41          | row + detail line |
-/// | horizontal inset       | 6       | 8           | `space3`→`space4` |
-/// | section gap            | 8       | 12          | `space4`→`space5` |
-/// | list top padding       | 4       | 6           | `space2`→`space3` |
+/// | token                  | compact | normal | comfortable | rule                         |
+/// |------------------------|---------|--------|-------------|------------------------------|
+/// | row, group             | 24      | 28     | 32          | normal + `space2`            |
+/// | row pitch (+ `space1`) | 26      | 30     | 34          |                              |
+/// | title / detail         | 12 / 10.5 | 13 / 12 | 13 / 12  | `body`/`caption`, `sidebarRow`/`sidebarDetail` |
+/// | machine/section header | 22      | 22     | 26          | + `space2`                   |
+/// | horizontal inset       | 6       | 8      | 10          | `space3`, `space4`, `space4`+`space1` |
+/// | section gap            | 8       | 8      | 12          | `space4`→`space5`            |
+/// | list top padding       | 4       | 4      | 6           | `space2`→`space3`            |
 ///
-/// Row title and detail text size and weight do not change with density (Interface Size and
-/// `sidebar.textSize` own the text size); `sidebar.textSize` (``SidebarTextSize``) adds its
-/// `rowStep` to every row and header height here, on top of any density. A group header's name
-/// keeps its existing rule and follows its bar (`SidebarStyle.groupHeaderFont`: 11 pt on the 24 pt row,
-/// 12 pt on the 28 pt row). Row spacing stays `space1` so selection fills
+/// `sidebar.textSize` (``SidebarTextSize``) adds its steps on top of any density. The custom sizes
+/// (`sidebar.titleSize`, `sidebar.detailSize`, `sidebar.rowHeight`, `sidebar.rowPadding`) win over
+/// both, exactly, in points at Interface Size 100%. `appearance.metrics.sidebarRowHeight` and a custom
+/// density's `sidebarRowHeight` token still set the Normal and Compact rows. A group header's name
+/// keeps its existing rule and follows its bar (`SidebarStyle.groupHeaderFont`). Row spacing stays `space1` so selection fills
 /// keep their rhythm, and it is the only gap between rows: a group's or the
 /// Pinned block's last row adds no padding (Leo 2026-10-21). Values are read at layout time, never cached, so a
 /// change applies live.
 enum SidebarDensityTokens {
-    static var density: SidebarDensity { DesignSettings.shared.sidebarSections.density }
+    static var preferences: SidebarSectionsPreferences { DesignSettings.shared.sidebarSections }
+    static var density: SidebarDensity { preferences.density }
     static var isComfortable: Bool { density == .comfortable }
+    /// Compact: the sidebar's look before Normal (the app's row and type), kept exactly.
+    static var isCompact: Bool { density == .compact }
     /// `sidebar.textSize`: the list's text, leading glyphs and rows grow together.
-    static var textSize: SidebarTextSize { DesignSettings.shared.sidebarSections.textSize }
+    static var textSize: SidebarTextSize { preferences.textSize }
+    /// The text size's steps over this density's sizes (Compact steps from its own smaller base).
+    static var textSteps: SidebarTextSize.Steps { SidebarRowTokens.current.textSteps }
     /// The extra height of a comfortable row or header, plus the text size's (``SidebarRowTokens``,
     /// which the sidebar's cards read too).
     private static var extra: CGFloat { SidebarRowTokens.current.extraHeight }
 
-    /// A one-line workspace row, group header or band row.
+    /// A one-line workspace row, group header or band row: `sidebar.rowHeight` when set, else the
+    /// density's (Compact the app's row, the others the list's Codex row) plus the comfortable and text size steps.
     static var rowHeight: CGFloat { SidebarRowTokens.current.rowHeight }
     /// A workspace row with one detail line: the one-line row plus that line's height, so a row's
     /// text keeps the same room above and below with one line or more (Leo 2026-10-20). With
-    /// `SidebarTunables.evenRowText` off, the app's fixed step instead.
+    /// `SidebarTunables.evenRowText` off, the app's fixed step over a one-line row instead.
     static var rowHeightWithSubtitle: CGFloat {
-        SidebarTunables.evenRowText.value ? rowHeight + SidebarStyle.detailLineHeight : Metrics.sidebarRowHeightWithSubtitle + extra
+        SidebarTunables.evenRowText.value
+            ? rowHeight + SidebarStyle.detailLineHeight
+            : rowHeight + Metrics.sidebarSubtitleStep
     }
     /// A machine or section header in the list, and a band's header.
     static var headerHeight: CGFloat { Metrics.sidebarHeaderHeight + extra }
-    /// Rows inset from the sidebar edge, and their content from the row edge.
+    /// Rows inset from the sidebar edge, and their content from the row edge: `sidebar.rowPadding` when set;
+    /// else Codex's 8 pt `--padding-row-x` (issue 28793), 6 pt at Compact, 10 pt at Comfortable.
     static var horizontalInset: CGFloat { SidebarRowTokens.current.horizontalInset }
     static var iconBox: CGFloat { isComfortable ? LayoutGrid.iconBoxComfortable : LayoutGrid.iconBox }
     /// Compatibility name used by the existing session-tree layout. The tree's base indent is

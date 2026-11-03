@@ -3,7 +3,7 @@ import CmuxNextDesign
 import CmuxNextSettings
 import os
 
-/// Sidebar Density: Compact / Comfortable / Expanded (cx-13w3; palette and
+/// Sidebar Density: Compact / Normal / Comfortable / Expanded (cx-13w3; palette and
 /// the sidebar's Options). Each writes `sidebar.density`, so the choice follows cmux.json;
 /// the menu checks the current one and keeps every choice visible.
 enum SidebarDensityActions {
@@ -12,7 +12,7 @@ enum SidebarDensityActions {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let current = { (context.services.settings?.snapshot.sidebarSections ?? .defaults).density }
         let choices: [(ActionID, SidebarDensity)] = [
-            ("sidebar.density.compact", .compact), ("sidebar.density.comfortable", .comfortable), ("sidebar.density.expanded", .expanded),
+            ("sidebar.density.compact", .compact), ("sidebar.density.normal", .normal), ("sidebar.density.comfortable", .comfortable), ("sidebar.density.expanded", .expanded),
         ]
         for (id, value) in choices {
             registry.bind(id, unavailable: { nil }) { invocation in

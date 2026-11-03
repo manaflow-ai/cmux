@@ -219,6 +219,11 @@ public nonisolated struct SettingsPageLayout: Sendable {
             // Show Workspace Tabs leads the Sidebar card: it is off by default, and this is
             // where a person turns each workspace's tabs back on (#26384).
             GroupSpec(group: "settings.group.sidebar"),
+            // The sidebar's density, text size and the person's own sizes in one card (2026-11-02).
+            card("settings.pageGroup.sidebarSizes", "Sidebar Sizes", [
+                "sidebar.density", "sidebar.textSize", "sidebar.titleSize", "sidebar.detailSize",
+                "sidebar.rowHeight", "sidebar.rowPadding",
+            ]),
             card("settings.pageGroup.sidebarWorkspaces", "Sidebar Workspaces", [
                 "workspaces.newPlacement", "workspaces.autoName", "sidebar.groupByComputer", "sidebar.sessionTree",
                 "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps",

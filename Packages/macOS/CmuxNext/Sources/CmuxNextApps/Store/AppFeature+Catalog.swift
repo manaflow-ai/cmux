@@ -170,7 +170,7 @@ extension AppFeature {
                        name: t("store.feature.hoverCards.name", "Hover Cards"),
                        summary: t("store.feature.hoverCards.summary", "Hold the pointer on a workspace to see its agents, branch and ports."),
                        keywords: ["hover", "preview", "card"]),
-            // Sidebar views, so they need no command palette to find (Leo 2026-10-21). Compact is
+            // Sidebar views, so they need no command palette to find (Leo 2026-10-21). Normal is
             // the default, so Remove on either card goes back to it.
             AppFeature(id: "sidebar.comfortable", setting: "sidebar.density", on: .choice("comfortable"),
                        category: .sidebar, preview: .sidebarRows(.comfortable),
