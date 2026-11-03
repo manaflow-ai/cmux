@@ -1,0 +1,27 @@
+.claude-code-tool-rows {
+  box-sizing: border-box;
+  min-height: 100%;
+  padding: 24px;
+  color: var(--cv-text);
+  font-family: var(--cv-font, var(--font-ui));
+}
+.claude-code-tool-rows__prose {
+  margin: 16px 0;
+  line-height: 22px;
+}
+/* No icons, as Claude Code draws its rows. */
+.claude-code-tool-rows[data-look="bare"] .cv-tool > .cv-tool__icon {
+  display: none;
+}
+/* Claude Code's right-pointing caret: never turned down while closed. */
+.claude-code-tool-rows[data-look="caret"] .cv-tool__chevron:not(.is-open) {
+  transform: none;
+}
+/* The stage stacks its rows in flow; the transcript places each one itself. */
+.claude-code-tool-rows .acpmux-row {
+  position: relative;
+  left: auto;
+  right: auto;
+  min-height: 0;
+  padding-bottom: 0;
+}

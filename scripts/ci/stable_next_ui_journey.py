@@ -213,15 +213,17 @@ class Journey:
         return [f"UI step {s['step']} failed: {json.dumps(s['detail'], default=str)[:300]}" for s in self.steps if not s["ok"]]
 
     def session(self) -> None:
-        tabs_before = len(self.shown_tabs())
         code, listed = self.cmux("terminal", "list", "--json")
         terms_before = set()
         if code == 0:
             terms_before = {part for part in listed.replace('"', " ").split() if part.startswith(("term_", "t_"))}
         opened = self.run_action("newTab")
-        grown = self.wait(lambda: len(self.shown_tabs()) > tabs_before)
-        self.step("terminal", bool(grown) and "error" not in opened, {"run": opened, "tabs_before": tabs_before,
-                                                                     "tabs_after": len(self.shown_tabs())})
+        # From Home, New Tab opens a new workspace with one tab, so the shown tab count does not grow:
+        # the tab the action made must be the one selected in a shown pane.
+        made = [str(i) for i in opened.get("created") or [] if str(i).startswith("tab_")]
+        shown = self.wait(lambda: made and made[-1] in {str(t.get("id")) for t in self.selected_tabs()})
+        self.step("terminal", bool(shown) and "error" not in opened,
+                  {"run": opened, "selected": [t.get("id") for t in self.selected_tabs()]})
 
         term = self.wait(lambda: self.terminal_id(terms_before), 30)
         typed = self.cmux("terminal", term, "write", "--text", ECHO_COMMAND + "\n") if term else (1, "no terminal id")
@@ -298,4 +300,9 @@ def journey(process, socket_path, env, app, out, report) -> list[str]:
 
 if __name__ == "__main__":
     smoke.AFTER_RENDER = journey
+    # The fresh home has no login keychain, so Chromium's first Safe Storage read put up "Keychain
+    # Not Found" and held its pages (runs 41419773317, 41412431661); a real install has a keychain.
+    # The mock keychain (CEFSwitches: CMUX_MOCK_KEYCHAIN=1, which also turns the password import off)
+    # keeps the test home throwaway.
+    smoke.EXTRA_ENV = {"CMUX_MOCK_KEYCHAIN": "1"}
     sys.exit(smoke.main())

@@ -63,9 +63,8 @@ enum BrowserChordTable {
     /// Italic, Underline, Insert Link, Strikethrough, bulleted and numbered lists, and paragraph
     /// alignment. Chrome gives a page these keys before its own menus; cmux does the same in a
     /// Chromium tab, and runs the cmux action bound to the chord (Cmd-B Toggle Sidebar, Cmd-I New
-    /// Agent Chat, Shift-Cmd-L Open Browser) only when the page leaves the key unhandled. The
-    /// match is on the chord typed, not the action: Shift-Cmd-L is Left Align in Google Docs, so
-    /// Open Browser waits for the page on purpose, and so does any action rebound onto one of these.
+    /// Agent Chat) only when the page leaves the key unhandled, matched on the chord typed. Shift-Cmd-L
+    /// New Browser Tab (``KeyRouter/opensBrowserActions``) runs first, as Chrome's Cmd-T, not Left Align.
     nonisolated static let pageEditingChords: Set<Shortcut> = [
         Shortcut("b"), Shortcut("i"), Shortcut("u"), Shortcut("k"),
         Shortcut("x", modifiers: [.command, .shift]), Shortcut("7", modifiers: [.command, .shift]),

@@ -63,7 +63,7 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/threadMinimap/ThreadMinimap.tsx#ThreadMinimap"],
   variants: {
     states: {
-      note: "Shipped look, at rest mid-thread: every third prompt is another session's message; every tick shares one column, one x and one width, with no tint.",
+      note: "Shipped look, at rest mid-thread: every third prompt is another session's message; every tick shares one column, one x and one width. Other sessions' ticks draw a step dimmer at rest (incoming.experiment.ts; runs of them fold, threadMinimapIncomingFold.gallery.ts).",
       snapshot: chat(rows, { title: "Messages from other sessions at rest" }),
       play: async (ctx) => {
         look(ctx.document, "none");
@@ -82,7 +82,7 @@ export default agentPaneEntry({
       },
     },
     "tint-at-rest": {
-      note: "Compared, not shipped: one column, other sessions' ticks a step dimmer at rest (25% against 40%).",
+      note: "Now the shipped look (incoming.experiment.ts `secondary` and `folded-secondary`): one column, other sessions' ticks a step dimmer at rest (25% against 40%).",
       snapshot: chat(rows, { title: "Other sessions tinted at rest" }),
       play: async (ctx) => {
         look(ctx.document, "tint");

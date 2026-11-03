@@ -41,6 +41,14 @@ agent hibernates after 2 idle minutes and its own background shells end with it;
 keeps running, and bg_list and bg_output read it later by its id.";
 /// Most replies `last` returns.
 const MAX_LAST: u64 = 20;
+/// How many sessions `ls` lists unless asked for another `limit`, and the most it lists: a fleet
+/// holds thousands of sessions (8,636 on one Mac, 29 MB as whole rows), and a reply that large
+/// closed the MCP connection of every harness that asked for it.
+const LS_DEFAULT_LIMIT: usize = 100;
+const LS_MAX_LIMIT: usize = 500;
+/// The fields of a session `ls` answers with in `structuredContent`; `info` has the rest.
+const LS_FIELDS: &[&str] =
+    &["name", "status", "title", "peer", "sessionId", "harness", "cwd", "updatedAt"];
 
 #[path = "acpmux_mcp_artifacts.rs"]
 pub(crate) mod artifacts;
@@ -91,11 +99,13 @@ fn base_tools() -> Value {
         },
         {
             "name": "ls",
-            "description": "List the agent sessions on this machine and its peers, one line each: name, state and title. Use it to find the session to message.",
+            "description": "List the agent sessions on this machine and its peers, one line each: name, state and title, newest first. Closed sessions are left out unless status is closed, and the list stops at limit and says how many more match. Use it to find the session to message.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "status": {"type": "string", "description": "Only sessions in this state: running, ready, idle, closed or waiting."}
+                    "status": {"type": "string", "description": "Only sessions in this state: running, ready, idle, waiting, disconnected or closed."},
+                    "query": {"type": "string", "description": "Only sessions whose name, title or peer contains this text (any case)."},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": LS_MAX_LIMIT, "description": "Most sessions to list (default 100)."}
                 }
             }
         },
@@ -381,23 +391,49 @@ fn send_class(args: &Value) -> Result<Option<String>, String> {
 
 /// `ls`: `acpmux ls` as one line per session.
 async fn ls(daemon: &Arc<Client>, args: &Value) -> Value {
-    let all = match daemon.whole_list(method::MUX_SESSIONS, json!({})).await {
-        Ok(v) => v,
-        Err(e) => return refusal(e),
+    // Closed sessions are most of a fleet's list; the daemon leaves them out unless asked for.
+    let params = match arg(args, "status") {
+        Some("closed") => json!({}),
+        _ => json!({"excludeStatus": ["closed"]}),
     };
+    match daemon.whole_list(method::MUX_SESSIONS, params).await {
+        Ok(all) => ls_result(&all, args),
+        Err(e) => refusal(e),
+    }
+}
+
+/// What `ls` answers for the daemon's whole list: the sessions `status` and `query` keep (closed
+/// ones only when `status` asks for them), newest first, at most `limit`, each as its
+/// [`LS_FIELDS`], and how many more there were.
+fn ls_result(all: &Value, args: &Value) -> Value {
     let status = arg(args, "status");
-    let rows: Vec<Value> = all["sessions"]
+    let query = arg(args, "query").map(str::to_lowercase);
+    let limit = args
+        .get("limit")
+        .and_then(Value::as_u64)
+        .map_or(LS_DEFAULT_LIMIT, |n| (n as usize).clamp(1, LS_MAX_LIMIT));
+    let field = |s: &Value, k: &str| s[k].as_str().unwrap_or_default().to_owned();
+    let mut rows: Vec<&Value> = all["sessions"]
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|s| status.is_none_or(|want| s["status"].as_str() == Some(want)))
-        .cloned()
+        .filter(|s| match status {
+            Some(want) => s["status"].as_str() == Some(want),
+            None => s["status"].as_str() != Some("closed"),
+        })
+        .filter(|s| {
+            query.as_deref().is_none_or(|q| {
+                ["name", "title", "peer"].iter().any(|k| field(s, k).to_lowercase().contains(q))
+            })
+        })
         .collect();
     if rows.is_empty() {
-        return ok("No sessions.".to_owned(), json!({"sessions": []}));
+        return ok("No sessions.".to_owned(), json!({"sessions": [], "more": 0}));
     }
-    let field = |s: &Value, k: &str| s[k].as_str().unwrap_or_default().to_owned();
-    let lines: Vec<String> = rows
+    rows.sort_by_key(|s| std::cmp::Reverse(s["updatedAt"].as_u64().unwrap_or(0)));
+    let more = rows.len().saturating_sub(limit);
+    rows.truncate(limit);
+    let mut lines: Vec<String> = rows
         .iter()
         .map(|s| {
             let name = match (s["peer"].as_str(), field(s, "name")) {
@@ -413,7 +449,24 @@ async fn ls(daemon: &Arc<Client>, args: &Value) -> Value {
             }
         })
         .collect();
-    ok(lines.join("\n"), json!({"sessions": rows}))
+    if more > 0 {
+        lines.push(format!(
+            "… {more} more: raise limit (up to {LS_MAX_LIMIT}), narrow with query, or pass status (closed lists the closed ones)."
+        ));
+    }
+    let slim: Vec<Value> = rows
+        .iter()
+        .map(|s| {
+            let row: serde_json::Map<String, Value> = LS_FIELDS
+                .iter()
+                .filter_map(|k| {
+                    s.get(*k).filter(|v| !v.is_null()).map(|v| ((*k).to_owned(), v.clone()))
+                })
+                .collect();
+            Value::Object(row)
+        })
+        .collect();
+    ok(lines.join("\n"), json!({"sessions": slim, "more": more}))
 }
 
 #[cfg(test)]

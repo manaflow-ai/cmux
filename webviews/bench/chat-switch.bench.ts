@@ -14,6 +14,8 @@
 // switch, so a slow arm shows what it asked for.
 // LATENCY=ms delays every answer, as a remote or busy daemon does (a local one answers in about 1 ms):
 // a switch that waits on several answers in turn shows it, one that draws from memory does not.
+// Each arm's last round then sits still for 5 s (bench/stability.ts): the timer, frame and animation wakeups and
+// the renderer's task time of a chat at rest after a switch.
 //   bun bench/chat-switch.bench.ts [rounds=7] [turns=300]
 /// <reference types="bun" />
 import fs from "node:fs";
@@ -22,6 +24,7 @@ import path from "node:path";
 import { chromium } from "playwright";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 import { perfRow, TARGET_MS } from "./perfRow";
+import { addStabilityProbe, cpuSession, measureIdle, settledAt, type Idle } from "./stability";
 
 const ROUNDS = Number(process.argv[2] ?? 7);
 const TURNS = Number(process.argv[3] ?? 300);
@@ -145,12 +148,29 @@ try {
   });
   releases.push(["static server", () => statics.stop(true)]);
   const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${A}`;
-  const browser = await chromium.launch({ channel: "chrome", headless: true });
+  const browser = await chromium.launch({
+    ...(process.env.CMUX_CHROME_HEADLESS_SHELL
+      ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL }
+      : { channel: "chrome" }),
+    headless: true,
+  });
   releases.push(["browser", () => browser.close()]);
 
-  type Round = { latest: number; settled: number; longTasks: number; longMs: number; shift: number; sent: string[] };
-  const open = async (idle: number): Promise<Round> => {
-    const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+  type Round = {
+    latest: number;
+    settled: number;
+    longTasks: number;
+    longMs: number;
+    shift: number;
+    sent: string[];
+    quiet?: Idle;
+  };
+  const open = async (idle: number, still = false): Promise<Round> => {
+    const context = await browser.newContext({ viewport: { width: 1200, height: 800 } });
+    // The idle counters only: the box sampler's per-frame reads would add to this bench's own timings.
+    await addStabilityProbe(context, { boxes: false });
+    const page = await context.newPage();
+    const cdp = await cpuSession(page, true);
     calls = [];
     await page.goto(url);
     await page.waitForFunction((text) => document.body.textContent?.includes(text), FIRST_TEXT, {
@@ -219,8 +239,14 @@ try {
         ),
       [B, SECOND_TEXT] as const,
     );
-    await page.close();
-    return { ...got, sent: calls.map((call) => `${call.method}${call.sessionId === B ? " (B)" : ""}`) };
+    const sent = calls.map((call) => `${call.method}${call.sessionId === B ? " (B)" : ""}`);
+    let quiet: Idle | undefined;
+    if (still) {
+      await settledAt(page);
+      [quiet] = await measureIdle([{ page, cdp }]);
+    }
+    await context.close();
+    return { ...got, sent, ...(quiet ? { quiet } : {}) };
   };
 
   const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!;
@@ -232,7 +258,7 @@ try {
   ] as const) {
     await open(idle); // warm the server and the browser process
     const rounds: Round[] = [];
-    for (let round = 0; round < ROUNDS; round++) rounds.push(await open(idle));
+    for (let round = 0; round < ROUNDS; round++) rounds.push(await open(idle, round === ROUNDS - 1));
     const of = (pick: (r: Round) => number) => median(rounds.map(pick));
     console.log(
       [
@@ -255,6 +281,24 @@ try {
     });
     perfRow({ name: `chat_switch.${key}.settled`, p50: of((r) => r.settled), p95: of((r) => r.settled) });
     perfRow({ name: `chat_switch.${key}.long_ms`, p50: of((r) => r.longMs), p95: of((r) => r.longMs) });
+    // Stability (bench/stability.ts): no shift, and a chat at rest wakes nothing.
+    const cls = Math.round(of((r) => r.shift) * 1e4) / 1e4;
+    perfRow({ name: `chat_switch.${key}.cls`, p50: cls, p95: cls, unit: "score", target: 0, floor: 0.001 });
+    const quiet = rounds.at(-1)!.quiet!;
+    console.log(
+      `  at rest for 5 s: ${quiet.wakeups} wakeups, ${quiet.cpuMs?.toFixed(1) ?? "-"} ms of renderer tasks` +
+        (quiet.sources.length ? `; ${quiet.sources.slice(0, 4).join("; ")}` : ""),
+    );
+    perfRow({
+      name: `chat_switch.${key}.idle_wakeups`,
+      p50: quiet.wakeups,
+      p95: quiet.wakeups,
+      unit: "count",
+      target: 0,
+      floor: 0.5,
+    });
+    if (quiet.cpuMs !== null)
+      perfRow({ name: `chat_switch.${key}.idle_cpu_ms`, p50: quiet.cpuMs, p95: quiet.cpuMs, target: 5, floor: 2 });
   }
 } finally {
   await release();

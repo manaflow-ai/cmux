@@ -125,6 +125,7 @@ impl Translator {
                         self.turn_output.store(false, Ordering::SeqCst);
                         *self.prompt_echo.lock().await = Some(uuid);
                         self.cancelled.store(false, Ordering::SeqCst);
+                        self.step_stopped.store(false, Ordering::SeqCst);
                         let mut pending = self.pending.lock().await;
                         *self.abandoned.lock().await = pending
                             .iter()
@@ -473,9 +474,11 @@ impl Translator {
     }
 
     /// The interrupt that stops Claude Code's current step for a steer sent now: unlike a Stop
-    /// it leaves `cancelled` unset, so the steer Claude Code reads after the step runs on in the
-    /// same turn. Its ack answers `answer` (`MUX_STEP_NOW`), when one waits for it.
+    /// it leaves `cancelled` unset, and the stopped step's result ends the turn and carries the
+    /// steer, which runs as a turn of its own (`carry.rs`). Its ack answers `answer`
+    /// (`MUX_STEP_NOW`), when one waits for it.
     pub(super) fn step_interrupt(&self, answer: Option<&Id>) -> Value {
+        self.step_stopped.store(true, Ordering::SeqCst);
         let request_id = match answer {
             Some(id) => format!("now-{id}"),
             None => format!("int-{}", self.next_control.fetch_add(1, Ordering::SeqCst)),

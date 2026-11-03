@@ -23,7 +23,8 @@ final class SidebarUpdateCardView: NSView {
     /// The Hide button or a menu item: the card's id and the action's id.
     var onCloseAction: ((String, String) -> Void)?
     private(set) var card: SidebarUpdateCard?
-    /// The composer's surface, under everything else.
+    /// The cards' surface, under everything else, its veil in the theme's glass tint (as the
+    /// Updated and notice cards'; Leo 2026-11-03: "will this be themeed properly?").
     let surface = CardSurfaceView()
     private let titleLabel = ChromeLabel(labelWithString: "")
     /// The short version and build date.
@@ -112,6 +113,7 @@ final class SidebarUpdateCardView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        surface.takesThemeTint = true
         addSubview(surface)
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.maximumNumberOfLines = 1

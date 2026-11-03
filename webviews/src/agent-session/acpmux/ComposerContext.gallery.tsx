@@ -678,6 +678,38 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
       },
     },
+    "environment-picker-hover": {
+      note: 'Hover is not selection (Austin, 2026-11-02: "This highlighting needs some fix"): the pointer on Cloud draws the neutral menu wash, inset 5 at radius 5 as the model picker\'s rows, while This Mac keeps only its check. Just opened (environment-picker), no row is lit.',
+      props: {
+        ...baseProps,
+        environments: true,
+        peers: ["gpu-box", "Cloud machine"],
+        peerKinds: { "gpu-box": "ssh", "Cloud machine": "cloud" },
+        peerConnected: { "gpu-box": true, "Cloud machine": false },
+      },
+      play: async (ctx) => {
+        await openEnvironment(ctx);
+        await ctx.hover({ role: "option", name: /Cloud/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"][data-highlighted]'));
+      },
+    },
+    "environment-picker-keyboard": {
+      note: "The arrow keys move the same wash: Down from the open menu lights Cloud; This Mac keeps its check.",
+      props: {
+        ...baseProps,
+        environments: true,
+        peers: ["gpu-box", "Cloud machine"],
+        peerKinds: { "gpu-box": "ssh", "Cloud machine": "cloud" },
+        peerConnected: { "gpu-box": true, "Cloud machine": false },
+      },
+      play: async (ctx) => {
+        await openEnvironment(ctx);
+        await ctx.press("ArrowDown");
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(".acpmux-env-popover:not(.acpmux-env-highlight-auto) [data-highlighted]"),
+        );
+      },
+    },
     "environment-picker-machines": {
       note: "Machines… (the control's right-click menu): every machine, This Mac first, then the person's other machines with ⌥⌘1–9, one line each; gpu-box is connected (a filled dot), Cloud machine is not (a ring); this Mac has no status. No Cloud row here: Cloud is the main list's.",
       props: {

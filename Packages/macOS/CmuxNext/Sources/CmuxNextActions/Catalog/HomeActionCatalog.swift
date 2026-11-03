@@ -13,7 +13,7 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                                     "home.renameConversation", "home.addMembers", "home.removeMember", "home.leaveConversation",
                                     "home.muteConversation", "home.unmuteConversation", "home.sendMessage",
                                     "home.createGroup", "home.setChiefReplies"]
-        return all.map { descriptor in
+        return (all + debugOnly).map { descriptor in
             var descriptor = descriptor
             descriptor.waitsForResult = waits.contains(descriptor.id)
             // Invite to Team sends only from its dialog, where the person sees the seat cost and
@@ -444,6 +444,30 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
         ]
+    }
+
+    /// DEV builds only: Debug > Agent Messages Playground (the agent-message header variants live in the
+    /// real Home transcript, user 2026-11-02). `style` picks a variant (0: the shipped look), `expanded`
+    /// opens the folds, `team` shows a chat with a teammate.
+    private static var debugOnly: [ActionDescriptor] {
+        #if DEBUG
+        [
+            ActionDescriptor(
+                id: "home.agentMessagePlayground", title: t("action.home.agentMessagePlayground", "Agent Messages Playground"),
+                keywords: ["home", "chief", "agent", "messages", "playground", "variants", "header", "fold", "debug"],
+                category: .window, symbol: "square.stack.3d.up", surfaces: [.palette, .menu],
+                arguments: [
+                    ActionArgument(name: "style", title: t("argument.home.playgroundStyle", "Header Style"), kind: .int(0...29), isRequired: false),
+                    ActionArgument(name: "expanded", title: t("argument.home.playgroundExpanded", "Expanded"), kind: .bool, isRequired: false),
+                    ActionArgument(name: "team", title: t("argument.home.playgroundTeam", "Team Chat"), kind: .bool, isRequired: false),
+                ],
+                mainMenu: .debug, isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+        ]
+        #else
+        []
+        #endif
     }
 
     /// When a group's Chiefs answer: `auto` (the default), `mentions` or `all`.
