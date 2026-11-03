@@ -251,19 +251,19 @@ def judge(trace, frames=None, scale=2.0, events=None):
         if rows:
             lo_s = t0 + float(samples[first - 1]["t"]) / 1000 - 2 * refresh / 1000
             hi_s = t0 + float(samples[last]["t"]) / 1000 + 2 * refresh / 1000
-            # A film frame belongs to the part whose samples it follows (from this part's first sample to the next
-            # part's first sample, both by host time).
-            if part_lo > 0:
-                lo_s = max(lo_s, t0 + float(samples[part_lo]["t"]) / 1000)
-            if part_hi < len(samples):
-                hi_s = min(hi_s, t0 + float(samples[part_hi]["t"]) / 1000)
-            inside_rows = [(k, float(r[0]), r[1] if len(r) > 1 else None) for k, r in enumerate(rows) if lo_s <= float(r[0]) < hi_s]
-            complete = [(k, t) for k, t, st in inside_rows if st in (None, "complete", 0, "0")]
-            # The interval into the part's first frame (from the frame before it) is this part's too.
-            before = [(k, float(r[0])) for k, r in enumerate(rows) if float(r[0]) < lo_s
-                      and (r[1] if len(r) > 1 else None) in (None, "complete", 0, "0")]
-            pairs = list(zip(([before[-1]] if before and complete else []) + complete, complete))
-            for (k0, a), (k1, b) in pairs:
+            # The motion's film frames are those within 2 refreshes of it, as before the split. Of these, a frame
+            # belongs to this part when it comes at or after this part's first sample and before the next part's
+            # first sample (host time), and an interval belongs to the part of its later frame: two close drags'
+            # margins share frames, but each frame and each interval is counted once.
+            own_lo = t0 + float(samples[part_lo]["t"]) / 1000 if part_lo > 0 else float("-inf")
+            own_hi = t0 + float(samples[part_hi]["t"]) / 1000 if part_hi < len(samples) else float("inf")
+            window = [(k, float(r[0]), r[1] if len(r) > 1 else None) for k, r in enumerate(rows) if lo_s <= float(r[0]) <= hi_s]
+            in_window = [(k, t) for k, t, st in window if st in (None, "complete", 0, "0")]
+            inside_rows = [w for w in window if own_lo <= w[1] < own_hi]
+            complete = [(k, t) for k, t in in_window if own_lo <= t < own_hi]
+            for (k0, a), (k1, b) in zip(in_window, in_window[1:]):
+                if not own_lo <= b < own_hi:
+                    continue
                 missed = round((b - a) * 1000 / refresh) - 1
                 if missed >= 1:
                     d = {"kind": "dropped", "frame": None, "movie_frame": k1, "t_ms": round((b - t0) * 1000, 2),
