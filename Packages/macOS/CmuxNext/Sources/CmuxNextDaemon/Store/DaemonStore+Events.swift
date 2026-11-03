@@ -277,6 +277,14 @@ extension DaemonStore {
         case .selectionChanged(let delta):
             applySelection(delta)
             return .none
+        case .workspacePresentationChanged(let delta):
+            // The whole entity, read when the daemon wrote it: O(that workspace).
+            guard let workspace = index.workspacesByID[WorkspaceModel.identity(delta.entity)] else { return .none }
+            let group = workspace.group
+            workspace.update(delta.entity)
+            indexed(workspace)
+            if workspace.group != group { sidebarNeedsRecompute = true }
+            return .none
         case .treeChanged, .layoutChanged:
             return .resync
         case .personalChanged:

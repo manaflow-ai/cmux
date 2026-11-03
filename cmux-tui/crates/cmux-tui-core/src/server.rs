@@ -2826,6 +2826,7 @@ fn layout_request_to_spec(layout: LayoutRequest) -> anyhow::Result<LayoutSpec> {
 mod tree_json;
 pub(crate) use tree_json::selection_changed_json;
 pub(crate) use tree_json::tree_entity_json;
+pub(crate) use tree_json::workspace_presentation_changed_json;
 pub(crate) use tree_json::workspaces_json;
 use tree_json::{pane_json, tree_delta_json};
 

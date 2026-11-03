@@ -301,6 +301,20 @@ pub(super) fn subscribe_command(
                     json!({"event": "tree-changed"})
                 }
                 MuxEvent::TreeSelectionChanged(_) => continue,
+                MuxEvent::WorkspacePresentationChanged(workspace)
+                    if tree_deltas && selection_deltas =>
+                {
+                    event_mux
+                        .with_state(|state| {
+                            crate::server::workspace_presentation_changed_json(
+                                state,
+                                &event_mux.tree_decorations_in_state(state),
+                                *workspace,
+                            )
+                        })
+                        .unwrap_or_else(|| json!({"event": "tree-changed"}))
+                }
+                MuxEvent::WorkspacePresentationChanged(_) => json!({"event": "tree-changed"}),
                 MuxEvent::SizeStateChanged { surface, runtime, state } => {
                     if !event_mux
                         .control_clients
@@ -480,6 +494,7 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
         }),
         MuxEvent::TreeChanged => json!({"event": "tree-changed"}),
         MuxEvent::TreeSelectionChanged(_) => json!({"event": "tree-changed"}),
+        MuxEvent::WorkspacePresentationChanged(_) => json!({"event": "tree-changed"}),
         MuxEvent::TreeDelta(_) => json!({"event": "tree-changed"}),
         MuxEvent::FrontendProjectionChanged {
             frontend,

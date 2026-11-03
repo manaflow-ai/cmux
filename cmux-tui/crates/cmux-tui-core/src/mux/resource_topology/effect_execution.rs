@@ -514,6 +514,18 @@ impl Mux {
                 };
                 if let Some(name) = optional_owned_string(fields, "name")? {
                     surface.set_name(Some(name));
+                    // Its `tab-added` went out before the name: the name is a `tab-changed` (#32408).
+                    let decorations = self.tree_decorations();
+                    let renamed = self.with_state(|state| {
+                        super::super::presentation::tab_changed_delta(
+                            state,
+                            &decorations,
+                            surface.id,
+                        )
+                    });
+                    if let Some(delta) = renamed {
+                        self.emit(MuxEvent::TreeDelta(delta));
+                    }
                 }
                 self.created_resource_path(surface.id)
             }
