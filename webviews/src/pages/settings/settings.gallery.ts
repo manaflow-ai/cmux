@@ -1150,6 +1150,22 @@ Object.assign(variants, {
     steps: [wait("[data-registry-agent]")],
     note: "Add Agent from ACP Registry…: one click per agent; Added when it is a harness, disabled when it cannot start here.",
   }),
+  "agents-registry-overflow": variant("agents", {
+    focus: "agents.registry",
+    agents: {
+      registry: {
+        agents: Array.from({ length: 40 }, (_, index) => ({
+          id: `sample-agent-${index}`,
+          name: `Sample agent ${index}`,
+          description: "Sample coding agent",
+          version: "1.0.0",
+          launch: "path" as const,
+        })),
+      },
+    },
+    steps: [wait("[data-registry-agent]")],
+    note: "Forty ACP Registry agents in the capped add-agent list.",
+  }),
   "agents-stable-check-idle": variant("agents", {
     note: "Check actions at rest, reserving their translated Checking label width.",
     agents: { doctor: {} },
