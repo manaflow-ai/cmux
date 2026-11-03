@@ -1,5 +1,5 @@
 //! The C ABI of the host budget (`include/cmux_host_budget_ffi.h`, Swift module
-//! `CCmuxHostBudgetFFI`), for the macOS app, which links it through cmux-app-ffi: the host CPU/RAM budget's verdict from
+//! `CCmuxHostBudgetFFI`), linked into the macOS app through cmux-app-ffi: the host CPU/RAM budget's verdict from
 //! this process's own meter, a verdict judged again with the memory pressure
 //! the dispatch source reports, and the tracker that turns verdicts into the
 //! level the app shows. The formula lives once, in this crate, which acpmux's
@@ -61,8 +61,9 @@ pub extern "C" fn cmux_host_budget_local_verdict_json() -> *mut c_char {
     answer(json::local_verdict)
 }
 
-/// `verdict` judged again with memory pressure `level` (1 normal, 2 warn,
-/// 4 critical: `DISPATCH_MEMORYPRESSURE_*`); null when it is not a verdict.
+/// `verdict` judged again with the memory pressure of a dispatch source event:
+/// its `DISPATCH_MEMORYPRESSURE_*` flags as they come (1 normal, 2 warn,
+/// 4 critical), read worst first, so 6 is critical. Null when it is not a verdict.
 ///
 /// # Safety
 ///
@@ -71,13 +72,13 @@ pub extern "C" fn cmux_host_budget_local_verdict_json() -> *mut c_char {
 pub unsafe extern "C" fn cmux_host_budget_with_pressure_json(
     verdict: *const u8,
     verdict_len: usize,
-    level: u32,
+    flags: u32,
 ) -> *mut c_char {
     // SAFETY: forwarded from the caller's contract.
     let Some(verdict) = (unsafe { text(verdict, verdict_len) }) else {
         return std::ptr::null_mut();
     };
-    answer(|| json::verdict_with_pressure(verdict, level))
+    answer(|| json::verdict_with_pressure(verdict, flags))
 }
 
 /// The verdict for given numbers with the built-in formula

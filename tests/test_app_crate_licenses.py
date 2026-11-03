@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The app-linked crate license gate (plans/cmux-next/remote-desktop-c7.md 3):
 x264, cmux-rd-host and OpenH264 source never enter an app-linked crate graph,
-and every crate in it carries an allowed license or is one of the ten named
+and every crate in it carries an allowed license or is one of the eleven named
 first-party GPL crates. Runs on synthetic `cargo metadata` output, no cargo."""
 
 import importlib.util
@@ -103,6 +103,7 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-cloud-start-core",
                     "cmux-palette-ranker",
                     "cmux-remote-browser",
+                    "cmux-host-budget",
                 ]
             ),
         )

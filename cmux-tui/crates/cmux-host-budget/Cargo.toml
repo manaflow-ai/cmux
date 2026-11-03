@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "The host's CPU and RAM budget (cmuxterm-hq#2995): the formula, the verdict, the sampler and the level the app shows. acpmux's daemon status use it; its C ABI is for the macOS app (cmux-app-ffi)."
+description = "The host's CPU and RAM budget (cmuxterm-hq#2995): the formula, the verdict, the sampler and the level the app shows. acpmux's daemon status uses it, and the macOS app links its C ABI through cmux-app-ffi."
 
 [features]
 # The daemon's async reads of the meter (`Meter::current`, `Meter::peek`), which
@@ -15,7 +15,6 @@ default = ["tokio"]
 tokio = ["dep:tokio"]
 
 [dependencies]
-dirs = "6"
 libc = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

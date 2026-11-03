@@ -29,8 +29,8 @@
 //! sample ([`HostProbe`]) and the override file ([`load_budget`]) are blocking
 //! reads: run them off the async runtime, as [`Meter`] does. acpmux's
 //! `daemon status` `host_pressure` and the warning on a turn's acceptance read
-//! its meter (feature `tokio`). The macOS app is to link this crate
-//! through cmux-app-ffi (the FFI move PR): it reads its own [`Meter`] when no daemon answers, judges a
+//! its meter (feature `tokio`). The macOS app links this crate
+//! through cmux-app-ffi, and its Swift half is to call it: it reads its own [`Meter`] when no daemon answers, judges a
 //! verdict again with the memory pressure the system reports ([`with_pressure`]),
 //! and turns verdicts into the level it shows ([`Tracker`]). No other copy of
 //! the formula exists.
@@ -139,7 +139,7 @@ fn apply_key(f: &mut Formula, key: &str, value: &Value) {
 pub fn override_path() -> Option<PathBuf> {
     match std::env::var_os(OVERRIDE_ENV).filter(|v| !v.is_empty()) {
         Some(path) => Some(PathBuf::from(path)),
-        None => dirs::home_dir().map(|h| h.join(".config/cmux/host-budget.json")),
+        None => home::home_dir().map(|h| h.join(".config/cmux/host-budget.json")),
     }
 }
 
@@ -354,6 +354,9 @@ pub fn short_host_name(name: &str) -> String {
     let short = name.split('.').next().unwrap_or_default().trim().to_ascii_lowercase();
     if short.is_empty() { "localhost".into() } else { short }
 }
+
+// The user's home directory without `dirs` (whose option-ext is MPL-2.0).
+mod home;
 
 // Samples on demand and keeps the last verdict (no timer).
 mod meter;

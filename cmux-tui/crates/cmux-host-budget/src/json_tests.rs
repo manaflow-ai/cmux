@@ -52,17 +52,32 @@ fn an_event_keeps_the_session_facts() {
     assert_eq!(parsed["over"].as_array().unwrap().len(), 3);
 }
 
+/// The dispatch source's event is a set of bit flags (`DISPATCH_MEMORYPRESSURE_NORMAL` 1,
+/// `_WARN` 2, `_CRITICAL` 4), and the worst flag set wins, as the Swift monitor reads it:
+/// a combined event of 6 is critical and 3 is warn. An event with none of them is unknown.
 #[test]
-fn the_dispatch_levels_are_the_sysctls() {
+fn the_dispatch_flags_read_worst_first() {
     let fine = serde_json::to_string(&gray(2.0, 1, 0.5, 0.0, &Budget::default())).unwrap();
-    let pressure = |level| {
-        let v: Value = serde_json::from_str(&verdict_with_pressure(&fine, level).unwrap()).unwrap();
+    let pressure = |flags| {
+        let v: Value = serde_json::from_str(&verdict_with_pressure(&fine, flags).unwrap()).unwrap();
         v["pressure"].as_str().unwrap().to_owned()
     };
     assert_eq!(
-        [pressure(1), pressure(2), pressure(4), pressure(3)],
-        ["normal", "warn", "critical", "unknown"]
+        [1, 2, 4, 6, 3, 7, 5, 0, 8].map(pressure),
+        [
+            "normal", "warn", "critical", "critical", "warn", "critical", "critical", "unknown",
+            "unknown"
+        ]
     );
+}
+
+/// A critical event that comes with the warn flag keeps the memory reason.
+#[test]
+fn a_combined_critical_event_keeps_the_memory_reason() {
+    let fine = serde_json::to_string(&gray(2.0, 1, 0.5, 0.0, &Budget::default())).unwrap();
+    let v: Value = serde_json::from_str(&verdict_with_pressure(&fine, 6).unwrap()).unwrap();
+    assert_eq!(v["over"], serde_json::json!(["memory pressure critical"]));
+    assert_eq!(level_of(&v.to_string(), Level::Normal), Some(Level::Critical));
 }
 
 /// The tracker fed JSON: a verdict moves it, anything else leaves it.
