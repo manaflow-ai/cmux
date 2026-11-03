@@ -99,7 +99,7 @@ impl Causes {
                     "subagent_step"
                 } else if text("subagent_type").is_some() {
                     "subagent"
-                } else if text("task_type") == Some("monitor")
+                } else if matches!(text("task_type"), Some("monitor" | "local_monitor"))
                     || text("tool_name") == Some("Monitor")
                 {
                     "monitor"
@@ -117,8 +117,10 @@ impl Causes {
                     .and_then(|id| self.tasks.iter().rev().find(|t| t.id == id))
                     .map_or("unknown", |t| t.kind);
                 let summary = text("summary").unwrap_or("");
-                let interim = INTERIM.iter().any(|w| summary.contains(w))
-                    || line.get("interim").and_then(Value::as_bool) == Some(true);
+                // A failure is a failure, whatever else it says: it always shows.
+                let interim = text("status") != Some("failed")
+                    && (INTERIM.iter().any(|w| summary.contains(w))
+                        || line.get("interim").and_then(Value::as_bool) == Some(true));
                 let status =
                     if interim { "interim" } else { text("status").unwrap_or("completed") };
                 let w = weight(kind, status);
@@ -226,6 +228,15 @@ mod tests {
         let c = cause_of(monitor(), "completed", "");
         assert_eq!((c["kind"].as_str(), c["weight"].as_str()), (Some("monitor"), Some("silent")));
         assert_eq!(cause_of(monitor(), "failed", "")["weight"], "failure");
+    }
+
+    #[test]
+    fn a_failure_that_also_says_interim_still_shows_and_a_local_monitor_is_a_monitor() {
+        let agent = || Some(started("t1", json!({"subagent_type": "general-purpose"})));
+        assert_eq!(cause_of(agent(), "failed", "Its result may be interim.")["weight"], "failure");
+        let local = || Some(started("t1", json!({"task_type": "local_monitor"})));
+        let c = cause_of(local(), "completed", "");
+        assert_eq!((c["kind"].as_str(), c["weight"].as_str()), (Some("monitor"), Some("silent")));
     }
 
     #[test]

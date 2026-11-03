@@ -582,6 +582,62 @@ export const mockSessions: MockSession[] = [
     },
   },
   {
+    // A Stop the agent never answered, with another agent's message steered in a second after it
+    // (Leo, 2026-11-03: "this is an "interesting" recovery flow... idk if it should be showing things
+    // like that"): acpmux forced the turn's end 10 s later and ran the message as the next turn's
+    // prompt, same promptId. The stopped turn reads "Stopped", the message comes after it.
+    sessionId: "mock-forced-stop",
+    title: "Migrate the parser to the new token stream",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 9400,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply: "Still on the parser: the lexer is done, the lookahead is next.",
+    history: (at) => [
+      {
+        ago: at + 120_000,
+        mux: "user_message",
+        msg: { text: "Migrate the parser to the new token stream", promptId: "mock-fs-1", turnId: "mock-fs-turn-1" },
+      },
+      { ago: at + 120_000, mux: "turn_started", msg: { turnId: "mock-fs-turn-1", promptId: "mock-fs-1" } },
+      { ago: at + 80_000, update: text("The lexer already emits the new tokens. I'm moving the lookahead over next.") },
+      { ago: at + 60_000, mux: "stopping", msg: { turnId: "mock-fs-turn-1" } },
+      {
+        ago: at + 59_000,
+        mux: "user_message",
+        msg: {
+          text: "Status check: are you still on the parser migration?",
+          promptId: "mock-fs-late",
+          turnId: "mock-fs-turn-1",
+          steer: true,
+          _meta: { provenance: { kind: "session_message", from: "mock-session", fromShortName: "coordinator" } },
+        },
+      },
+      { ago: at + 50_000, mux: "turn_end", msg: { stopReason: "cancelled", turnId: "mock-fs-turn-1" } },
+      {
+        ago: at + 50_000,
+        mux: "turn_result",
+        msg: { status: "cancelled", stopReason: "cancelled", turnId: "mock-fs-turn-1", cancelForced: true },
+      },
+      {
+        ago: at + 40_000,
+        mux: "user_message",
+        msg: {
+          text: "Status check: are you still on the parser migration?",
+          promptId: "mock-fs-late",
+          turnId: "mock-fs-turn-2",
+          _meta: { provenance: { kind: "session_message", from: "mock-session", fromShortName: "coordinator" } },
+        },
+      },
+      { ago: at + 40_000, mux: "turn_started", msg: { turnId: "mock-fs-turn-2", promptId: "mock-fs-late" } },
+      { ago: at + 10_000, update: text("Still on the parser: the lexer is done, the lookahead is next.") },
+      { ago: at, mux: "turn_result", msg: { status: "completed", turnId: "mock-fs-turn-2" } },
+    ],
+  },
+  {
     sessionId: "mock-session-links",
     title: "Which lanes own Session Info",
     harness: "claude",

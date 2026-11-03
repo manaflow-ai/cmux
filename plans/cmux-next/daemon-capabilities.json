@@ -124,6 +124,7 @@
     "subscribe-scroll-on-attach-v1",
     "tab-attention-request-id-v1",
     "tab-attention-v1",
+    "tab-column-client-pane-v1",
     "tab-column-respawn-v1",
     "tab-drag-v1",
     "tab-group-icon-v1",

@@ -19,6 +19,8 @@ import { GuestComposer } from "../agent-session/guest/GuestComposer";
 import { GuestPrompts } from "../agent-session/guest/guestPrompts";
 import { chiefApi, type ChiefApi } from "./api";
 import { ChiefOutbox } from "./outbox";
+import { MachineSignIn } from "./MachineSignIn";
+import { machineLoginApi, type MachineLoginApi } from "./machineLogin";
 import { ChiefTranscript } from "./transcript";
 import {
   ChiefWire,
@@ -32,6 +34,7 @@ import {
 export interface ChiefWebProps {
   api?: ChiefApi;
   storage?: Storage;
+  loginApi?: MachineLoginApi;
   openSocket?: (url: string, protocols: string[]) => SocketLike;
 }
 
@@ -59,7 +62,7 @@ function browserStorage(): Storage {
   }
 }
 
-export function ChiefWeb({ api = chiefApi, storage, openSocket }: ChiefWebProps) {
+export function ChiefWeb({ api = chiefApi, loginApi = machineLoginApi, storage, openSocket }: ChiefWebProps) {
   const t = useT();
   const [identity, setIdentity] = useState<ChiefIdentity>();
   const [failed, setFailed] = useState<"expired" | "offline" | "inaccessible">();
@@ -121,6 +124,7 @@ export function ChiefWeb({ api = chiefApi, storage, openSocket }: ChiefWebProps)
           key={`${identity.chiefId}:${identity.mainConversationId}`}
           identity={identity}
           api={api}
+          loginApi={loginApi}
           storage={saved}
           openSocket={openSocket}
         />
@@ -159,11 +163,13 @@ export function ChiefWeb({ api = chiefApi, storage, openSocket }: ChiefWebProps)
 function ChiefChat({
   identity,
   api,
+  loginApi,
   storage,
   openSocket,
 }: {
   identity: ChiefIdentity;
   api: ChiefApi;
+  loginApi: MachineLoginApi;
   storage: Storage;
   openSocket?: ChiefWebProps["openSocket"];
 }) {
@@ -171,6 +177,7 @@ function ChiefChat({
   const [transcript] = useState(() => new ChiefTranscript());
   const { rows, working } = useSyncExternalStore(transcript.subscribe, transcript.snapshot);
   const [connection, setConnection] = useState<ChiefConnection>("connecting");
+  const [loginRun, setLoginRun] = useState<string>();
   const [expanded, setExpanded] = useState(() => new Set<string>());
   const [confirmed, setConfirmed] = useState(() => new Set<string>());
   const prompts = useMemo(
@@ -192,6 +199,7 @@ function ChiefChat({
       { identity, ticket: () => api.ticket(controller.signal), open: openSocket },
       {
         rows: transcript.update,
+        machineLogin: setLoginRun,
         accepted: (clientId) => {
           outbox.accepted(clientId);
           setConfirmed((previous) => new Set(previous).add(clientId));
@@ -273,6 +281,18 @@ function ChiefChat({
         )}
       </main>
       <div className="chief-web__dock">
+        {loginRun && connection !== "expired" && connection !== "inaccessible" && (
+          <MachineSignIn
+            key={loginRun}
+            run={loginRun}
+            api={loginApi}
+            onExpired={() => {
+              wire.current?.stop();
+              queue.current?.stop();
+              setConnection("expired");
+            }}
+          />
+        )}
         {pending.length > 0 && (
           <section className="chief-web__outbox" aria-live="polite">
             {pending.map((prompt) => (

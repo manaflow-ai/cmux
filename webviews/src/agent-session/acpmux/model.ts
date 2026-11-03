@@ -564,6 +564,12 @@ export type AcpmuxRow = {
   /// The summary of a turn a prompt sent now ended, not Stop or Esc (direct.ts): the turn goes on
   /// under that prompt, so it draws no "You stopped after" (conversation/turns.ts).
   continued?: boolean;
+  /// A stopped turn's summary that acpmux ended itself because the agent never answered Stop
+  /// (`cancelForced`, hub/cancel.rs). It draws as any stop; only the footer's tooltip says so.
+  stopForced?: true;
+  /// A steer logged after its turn's Stop and never read: drawn as a plain message below the stop
+  /// (direct.ts `deferLateSteers`), until acpmux runs it again as the next prompt.
+  afterStop?: true;
   /// A waiting steer's promptId, which its Send now names (conversation/PendingSteer.tsx).
   steerPromptId?: string;
   /// A prompt's promptId as acpmux recorded it (its `user_message` record's): the thread rail keys
