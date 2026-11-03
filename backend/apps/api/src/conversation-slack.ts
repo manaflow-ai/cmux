@@ -41,7 +41,8 @@ const receive = (state: Head, raw: unknown, ctx: ReduceContext): ReduceResult<He
   if (!state || state.kind !== "chief" || w.ownerUserId !== input.owner || !state.participants.some((p) => p.id === input.owner && p.kind === "human" && p.left_at === undefined) || !state.participants.some((p) => p.id === input.agent && p.kind === "agent" && p.owner_user === input.owner && p.left_at === undefined)) return fail("forbidden")
   const author = `slack:${w.slackTeamId}:${w.slackUserId}`
   const key = slackMessageKey(w)
-  const messageKey = conversation.msgKey(author, key)
+  // Slack timestamps identify messages within a workspace/channel, independently of the author.
+  const messageKey = key
   const priorId = ctx.rows?.get<{ message_id: string }>(conversation.TABLE_MSGKEY, messageKey)?.row.message_id
   if (priorId) {
     const prior = ctx.rows?.get<conversation.Message>(conversation.TABLE_MSG, priorId)?.row
@@ -105,7 +106,7 @@ export const slackOutbound = (rows: RowReader, message: conversation.Message, st
   while (root && !slackThread(root)) {
     if (visited.has(root.id)) return
     visited.add(root.id)
-    const next = root.thread_root ?? root.reply_to?.message_id
+    const next: string | undefined = root.thread_root ?? root.reply_to?.message_id
     root = next ? rows.get<conversation.Message>(conversation.TABLE_MSG, next)?.row : undefined
   }
   const link = slackThread(root)

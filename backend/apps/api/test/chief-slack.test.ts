@@ -59,8 +59,9 @@ describe("Chief Slack bridge", () => {
       b.kick = () => undefined
       try {
         const inbound = input(user, team)
-        const first = await b.slackInbound({ agent: chief.id, conversation: chief.main_conversation, inbound })
-        expect(first).toMatchObject({ ok: true, queued: true })
+        const concurrent = await Promise.all(Array.from({ length: 3 }, () => b.slackInbound({ agent: chief.id, conversation: chief.main_conversation, inbound })))
+        expect(concurrent.every((result) => result.ok)).toBe(true)
+        expect(concurrent.filter((result) => result.ok && result.queued)).toHaveLength(1)
         expect(await b.slackInbound({ agent: chief.id, conversation: chief.main_conversation, inbound })).toMatchObject({ ok: true, queued: false })
         expect(await b.slackInbound({ agent: chief.id, conversation: chief.main_conversation, inbound: { ...inbound, ts: "123.002", isOwner: true, slackUserId: "UOWNER", text: "I approve" } })).toMatchObject({ ok: true })
         expect(b.sql.exec("SELECT * FROM cb_slack_threads").toArray()).toHaveLength(1)
@@ -100,6 +101,8 @@ describe("Chief Slack bridge", () => {
     const valid = input("user_test", "team_test")
     expect(validSlackInbound(valid)).toBe(true)
     expect(validSlackInbound({ ...valid, isOwner: "yes" as unknown as boolean })).toBe(false)
+    const bound = exports as unknown as { PlatformChief: { slackInbound(input: SlackInbound): Promise<{ ok: boolean; code?: string }> } }
+    expect(await bound.PlatformChief.slackInbound({ ...valid, text: "" })).toEqual({ ok: false, code: "validation.invalid" })
     const rpc = new PlatformChief(createExecutionContext(), { ENVIRONMENT: "production" } as Env)
     expect(await rpc.slackInbound(valid)).toEqual({ ok: false, code: "slack.disabled" })
   })

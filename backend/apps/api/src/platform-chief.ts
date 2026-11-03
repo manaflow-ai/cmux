@@ -1,5 +1,6 @@
 import { WorkerEntrypoint } from "cloudflare:workers"
 import type { Env } from "./env.ts"
+import type { UserDO } from "./user-do.ts"
 import { slackEnabled, validSlackInbound, type SlackInbound } from "./chief-slack.ts"
 import { brainName } from "./chief-brain/brain-do.ts"
 
@@ -8,7 +9,7 @@ export class PlatformChief extends WorkerEntrypoint<Env> {
   async slackInbound(inbound: SlackInbound) {
     if (!slackEnabled(this.env)) return { ok: false as const, code: "slack.disabled" }
     if (!validSlackInbound(inbound)) return { ok: false as const, code: "validation.invalid" }
-    const user = this.env.USER_DO.get(this.env.USER_DO.idFromName(inbound.ownerUserId))
+    const user = this.env.USER_DO.get(this.env.USER_DO.idFromName(inbound.ownerUserId)) as unknown as Pick<UserDO, "readOp">
     const r = await user.readOp(inbound.ownerUserId, { identity: `session:${inbound.ownerUserId}`, kind: "session", user: inbound.ownerUserId }, "chief.list", {})
     if (!r.ok) return { ok: false as const, code: r.code }
     const chiefs = (r.value as { chiefs?: Array<{ id: string; main_conversation: string | null; is_default: boolean; archived_at: string | null; brain_place?: unknown }> }).chiefs ?? []

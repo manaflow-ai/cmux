@@ -62,6 +62,16 @@ describe("Slack conversation adapter", () => {
     expect(h.state().last_seq).toBe(2)
   })
 
+  it("dedupes by workspace, channel and timestamp regardless of delivery metadata", () => {
+    const h = harness()
+    expect(h.receive()).toMatchObject({ ok: true, value: { message_id: root, seq: 1 } })
+    expect(h.receive({ slackUserId: "UOTHER", slackUserName: "Updated", text: "Redelivered", threadTs: "999.001" }, "msg_other")).toMatchObject({ ok: true, changed: false, value: { message_id: root, seq: 1 } })
+    expect(h.state().last_seq).toBe(1)
+    expect(h.message(root)).toMatchObject({ author: "slack:T123:U123", parts: [{ type: "text", text: inbound.text }] })
+    expect(h.receive({ channelId: "COTHER" }, "msg_channel")).toMatchObject({ ok: true, value: { seq: 2 } })
+    expect(h.receive({ slackTeamId: "TOTHER" }, "msg_team")).toMatchObject({ ok: true, value: { seq: 3 } })
+  })
+
   it("never exposes Slack injection to a normal principal or another Chief's owner", () => {
     const h = harness()
     expect(h.receive({}, root, session)).toMatchObject({ ok: false, code: "forbidden" })
