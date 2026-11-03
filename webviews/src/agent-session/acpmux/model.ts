@@ -2512,7 +2512,14 @@ export function scrollLeadRanges(
   maxLead: number,
 ): RowRange[] {
   const lead = Math.min(Math.abs(delta) * steps, maxLead);
-  const ranges = [visibleLayoutRange(layoutModel, delta < 0 ? scrollTop - lead : scrollTop, viewportHeight + lead)];
+  // When one frame skips the whole capped lead, build the immediate neighbourhood and the
+  // predicted landing windows, not the skipped band too. Keep a viewport either side for a
+  // sudden slowdown or reversal. Smaller, uneven scrollbar drags retain the contiguous lead.
+  const ranges = [
+    Math.abs(delta) > maxLead
+      ? visibleLayoutRange(layoutModel, scrollTop - viewportHeight, 3 * viewportHeight)
+      : visibleLayoutRange(layoutModel, delta < 0 ? scrollTop - lead : scrollTop, viewportHeight + lead),
+  ];
   if (Math.abs(delta) * steps <= maxLead) return ranges;
   const margin = Math.min(Math.abs(delta) / 4, viewportHeight / 2);
   for (let step = 1; step <= steps; step += 1)
