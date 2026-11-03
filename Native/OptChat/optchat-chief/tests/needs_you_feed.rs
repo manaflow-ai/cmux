@@ -111,10 +111,11 @@ fn an_escalated_sign_in_is_an_open_needs_you_request_in_the_feed() {
 
     feed.wait("the sign-in request", |r| !r.posts.is_empty());
     let (post, key) = feed.0.lock().unwrap().posts[0].clone();
-    assert_eq!(key, "chief-auth:h0me:a1:npmjs.com");
+    assert_eq!(post["dedupe_key"], "chief-auth:h0me:a1:npmjs.com");
+    // One idempotency key per escalation: a later one is not a replay of a closed item.
+    assert!(key.starts_with("chief-auth:h0me:a1:npmjs.com:"), "{key}");
     assert_eq!(post["type"], "request");
     assert_eq!(post["kind"], "sign-in");
-    assert_eq!(post["dedupe_key"], key);
     assert_eq!(post["title"], "Sign in to npmjs.com");
     assert_eq!(post["prompt"]["origin"], "https://www.npmjs.com");
     assert_eq!(
@@ -131,7 +132,10 @@ fn an_escalated_sign_in_is_an_open_needs_you_request_in_the_feed() {
             .is_some_and(|t| !t.is_empty())
     );
     assert!(post["expires_in_ms"].as_u64().is_some());
-    assert_eq!(h.brain.open_sign_ins(), vec![key]);
+    assert_eq!(
+        h.brain.open_sign_ins(),
+        vec!["chief-auth:h0me:a1:npmjs.com".to_owned()]
+    );
 }
 
 #[test]
@@ -221,5 +225,15 @@ fn a_signed_in_message_names_its_site_unless_it_is_the_only_one() {
         "The user did not touch the sensor in 10 minutes.",
         "npmjs.com",
         true
+    ));
+    assert!(!says_signed_in(
+        "You're not signed in yet; wait.",
+        "npmjs.com",
+        true
+    ));
+    assert!(!says_signed_in(
+        "npmjs.com isn't logged in yet",
+        "npmjs.com",
+        false
     ));
 }

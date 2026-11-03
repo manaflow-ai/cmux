@@ -159,14 +159,33 @@ pub fn says_signed_in(message: &str, site: &str, only: bool) -> bool {
     ]
     .iter()
     .any(|w| text.contains(w));
+    // "not signed in yet", "isn't logged in": the sign-in still waits.
+    let negated = [
+        "not signed in",
+        "n't signed in",
+        "not logged in",
+        "n't logged in",
+        "not yet signed in",
+    ]
+    .iter()
+    .any(|w| text.contains(w));
     let site = site.trim().to_ascii_lowercase();
     let bare = site.strip_prefix("www.").unwrap_or(&site);
-    signed && (only || (!bare.is_empty() && text.contains(bare)))
+    signed && !negated && (only || (!bare.is_empty() && text.contains(bare)))
 }
 
 enum Op {
-    Post { key: String, post: Value },
-    Cancel { key: String, reason: &'static str },
+    /// `idempotency`: one per escalation, so a new escalation after the item
+    /// closed posts again instead of replaying the closed one.
+    Post {
+        key: String,
+        idempotency: String,
+        post: Value,
+    },
+    Cancel {
+        key: String,
+        reason: &'static str,
+    },
 }
 
 /// The open sign-in requests of one Chief, by dedupe key.
@@ -175,6 +194,8 @@ pub struct SignInRequests {
     tx: Option<Sender<Op>>,
     /// Open requests: dedupe key -> (subagent, site).
     open: BTreeMap<String, (String, String)>,
+    /// Posts so far (part of each post's idempotency key).
+    posts: u64,
 }
 
 impl SignInRequests {
@@ -193,7 +214,11 @@ impl SignInRequests {
                     let mut items: HashMap<String, String> = HashMap::new();
                     for op in rx {
                         match op {
-                            Op::Post { key, post } => match port.request(&post, &key) {
+                            Op::Post {
+                                key,
+                                idempotency,
+                                post,
+                            } => match port.request(&post, &idempotency) {
                                 Ok(item) => {
                                     items.insert(key, item);
                                 }
@@ -218,6 +243,7 @@ impl SignInRequests {
             chief: chief.to_owned(),
             tx: tx.flatten(),
             open: BTreeMap::new(),
+            posts: 0,
         }
     }
 
@@ -228,8 +254,18 @@ impl SignInRequests {
             key.clone(),
             (agent.to_owned(), request.site.trim().to_owned()),
         );
+        let at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis());
+        self.posts += 1;
+        let idempotency = format!(
+            "{}:{at}:{}",
+            key.chars().take(160).collect::<String>(),
+            self.posts
+        );
         self.send(Op::Post {
             key,
+            idempotency,
             post: post(&self.chief, agent, request, session),
         });
     }
