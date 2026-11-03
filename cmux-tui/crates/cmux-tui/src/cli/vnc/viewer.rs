@@ -458,9 +458,7 @@ impl Viewer {
         };
         if let Some(action) = command {
             if action == KeyAction::Command(Command::SendEscape) {
-                return self.defer_or_send(DeferredInput::Event(term::Event::Key(
-                    term::KeyEvent::new(term::KeyCode::Char(']'), term::KeyModifiers::CONTROL),
-                )));
+                return self.defer_or_send(DeferredInput::SendEscape);
             }
             if action == KeyAction::Command(Command::ToggleViewOnly) {
                 return self.defer_or_send(DeferredInput::ToggleViewOnly);
@@ -482,6 +480,7 @@ impl Viewer {
             DeferredInput::ToggleViewOnly => {
                 self.key_action(KeyAction::Command(Command::ToggleViewOnly))
             }
+            DeferredInput::SendEscape => self.key_action(KeyAction::Command(Command::SendEscape)),
         }
     }
 

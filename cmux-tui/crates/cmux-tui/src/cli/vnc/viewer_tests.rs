@@ -40,6 +40,21 @@ fn replaying_old_focus_loss_preserves_new_command_prefix() {
     assert!(viewer.receive_terminal(key_event('q', term::KeyModifiers::NONE)).unwrap());
 }
 
+#[test]
+fn doubled_command_prefix_queues_the_complete_escape_chord() {
+    let mut viewer = disconnected_viewer();
+    viewer.keyboard = Keyboard::new(true);
+    viewer.deferred_input.push(&DeferredInput::Event(term::Event::FocusGained)).unwrap();
+    for _ in 0..2 {
+        viewer.receive_terminal(key_event(']', term::KeyModifiers::CONTROL)).unwrap();
+    }
+    assert_eq!(
+        viewer.deferred_input.pop().unwrap(),
+        Some(DeferredInput::Event(term::Event::FocusGained))
+    );
+    assert_eq!(viewer.deferred_input.pop().unwrap(), Some(DeferredInput::SendEscape));
+}
+
 struct StalledPaste {
     closed: Arc<(Mutex<bool>, Condvar)>,
     first_key: mpsc::SyncSender<()>,

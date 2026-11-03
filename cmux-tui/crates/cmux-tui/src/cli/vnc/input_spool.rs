@@ -17,6 +17,7 @@ const BUFFER_BYTES: usize = 16 * 1024;
 pub(super) enum DeferredInput {
     Event(Event),
     ToggleViewOnly,
+    SendEscape,
 }
 
 #[derive(Default)]
