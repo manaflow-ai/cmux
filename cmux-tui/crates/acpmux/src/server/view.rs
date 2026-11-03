@@ -22,6 +22,10 @@ pub(super) fn attach(hub: &Hub, conn: &Conn, s: &crate::hub::Session, opts: SubO
         s.meta().agent_session_id,
         hub.started_at,
     ));
+    // A person's client shows it: it may get a session recap (`hub/away_recap.rs`).
+    if !hidden && !a_link(conn) {
+        hub.recap_person_shows(s);
+    }
     let mut subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
     match subs.insert(s.id.clone(), opts) {
         // A peer's chat of the same raw id counted nothing here: this attachment is new.
@@ -127,6 +131,9 @@ pub(super) fn view(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcE
         .ok_or_else(|| RpcError::invalid_params("attach to the session before _acpmux/view"))?;
     if open(conn) {
         hub.presence.view(&s.id, &conn.id, &Who::of(author.as_ref()), visible)?;
+    }
+    if author.is_none() && visible && !a_link(conn) {
+        hub.recap_person_shows(&s);
     }
     if author.is_none() && sub.hidden == visible {
         sub.hidden = !visible;
