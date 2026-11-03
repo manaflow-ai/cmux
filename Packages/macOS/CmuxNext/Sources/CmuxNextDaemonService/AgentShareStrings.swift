@@ -189,52 +189,52 @@ enum AgentShareStrings {
 }
 
 /// The Invite People sheet's words (design chat-multiplayer.md 2), for the App's view.
-public enum AgentShareSheetStrings {
-    public static func title(_ chat: String) -> String {
+public extension AgentShareInviteSheetModel {
+    var title: String {
         String(format: String(localized: "agentShare.sheet.title", defaultValue: "Invite People to “%@”", table: "AgentShare", bundle: .module), chat)
     }
 
-    public static var body: String {
+    var intro: String {
         String(localized: "agentShare.sheet.body", defaultValue: "People you invite sign in with their cmux account and see this chat as you do, including command output and the agent’s reasoning.", table: "AgentShare", bundle: .module)
     }
 
-    public static var accountPlaceholder: String {
+    var accountPlaceholder: String {
         String(localized: "agentShare.sheet.account", defaultValue: "Email or @handle", table: "AgentShare", bundle: .module)
     }
 
-    public static var invite: String { AgentShareStrings.inviteConsentAllow }
+    var inviteTitle: String { AgentShareStrings.inviteConsentAllow }
 
     /// The role's name in the picker and on a row.
-    public static func role(_ role: String) -> String {
+    func roleTitle(_ role: String) -> String {
         if role == "view" {
             return String(localized: "agentShare.sheet.canView", defaultValue: "Can view", table: "AgentShare", bundle: .module)
         }
         return String(localized: "agentShare.sheet.canTalk", defaultValue: "Can talk", table: "AgentShare", bundle: .module)
     }
 
-    /// What the role lets them do, under the field.
-    public static func roleDetail(_ role: String) -> String { AgentShareStrings.inviteRoleLine(role) }
+    /// What the chosen role lets them do, under the field.
+    var roleDetail: String { AgentShareStrings.inviteRoleLine(role) }
 
     /// A row's second line: the role, and whether a device of theirs is in the chat now.
-    public static func rowDetail(role: String, joined: Bool) -> String {
-        guard joined else { return Self.role(role) }
-        return String(format: String(localized: "agentShare.sheet.joined", defaultValue: "%@ · In the chat now", table: "AgentShare", bundle: .module), Self.role(role))
+    func rowDetail(_ row: Row) -> String {
+        guard row.joined else { return roleTitle(row.role) }
+        return String(format: String(localized: "agentShare.sheet.joined", defaultValue: "%@ · In the chat now", table: "AgentShare", bundle: .module), roleTitle(row.role))
     }
 
-    public static var remove: String {
+    var removeTitle: String {
         String(localized: "agentShare.sheet.remove", defaultValue: "Remove", table: "AgentShare", bundle: .module)
     }
 
-    public static var empty: String {
+    var emptyText: String {
         String(localized: "agentShare.sheet.empty", defaultValue: "No one is invited yet.", table: "AgentShare", bundle: .module)
     }
 
     /// Remove (the account) versus removing one device from the chat (a kick).
-    public static var removeNote: String {
+    var removeNote: String {
         String(localized: "agentShare.sheet.removeNote", defaultValue: "Remove ends their access on every device. Removing just one of their devices from the chat doesn’t keep their account out.", table: "AgentShare", bundle: .module)
     }
 
-    public static var close: String {
+    var closeTitle: String {
         String(localized: "agentShare.sheet.close", defaultValue: "Close", table: "AgentShare", bundle: .module)
     }
 }

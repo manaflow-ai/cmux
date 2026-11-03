@@ -305,6 +305,54 @@ struct AgentShareTests {
 
     /// The sheet runs the op's own work: Invite sends the field's account with the role, clears the
     /// field and reads the list again; a refusal stays on the sheet as its status, the field kept.
+    /// The sheet is AppKit (no SwiftUI host): it draws the model's rows, each with its role, and a
+    /// row's Remove runs the work for that account.
+    @Test func theSheetIsAppKitAndRemovesFromItsRow() async throws {
+        @MainActor final class Daemon {
+            var removed: [String] = []
+            var shares = [AgentSessionShare(shareId: "s", state: "active", session: AgentShareTests.session, surface: 1,
+                                            invitees: [AgentSessionShareInvitee(account: "@theo", role: "view", invitedAt: 1, state: "invited")])]
+        }
+        let daemon = Daemon()
+        let model = AgentShareInviteSheetModel(chat: "Fix the build", session: Self.session, work: .init(
+            list: { daemon.shares },
+            invite: { _, _ in },
+            remove: { account in
+                daemon.removed.append(account)
+                daemon.shares = []
+            }))
+        await model.load()
+        let card = AgentShareInviteCard(model: model)
+        card.update()
+        func all(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(all) }
+        #expect(!all(card).contains { String(describing: type(of: $0)).contains("NSHostingView") })
+        let rows = all(card).compactMap { $0 as? AgentShareInviteRowView }
+        try #require(rows.count == 1)
+        #expect(rows[0].account.stringValue == "@theo")
+        #expect(rows[0].detail.stringValue == model.roleTitle("view"))
+        #expect(!card.inviteButton.isEnabled, "Invite is off with an empty field")
+        rows[0].removePressed()
+        for _ in 0..<50 where daemon.removed.isEmpty || !model.rows.isEmpty { await Task.yield() }
+        #expect(daemon.removed == ["@theo"])
+        card.update()
+        #expect(all(card).compactMap { $0 as? AgentShareInviteRowView }.isEmpty)
+        #expect(!card.empty.isHidden)
+    }
+
+    /// An account typed while an invite runs stays in the field.
+    @Test func typingDuringAnInviteKeepsTheNewAccount() async {
+        @MainActor final class Box { var model: AgentShareInviteSheetModel? }
+        let box = Box()
+        let model = AgentShareInviteSheetModel(chat: "Fix the build", session: Self.session, work: .init(
+            list: { [] },
+            invite: { _, _ in box.model?.account = "@bo" },
+            remove: { _ in }))
+        box.model = model
+        model.account = "@ana"
+        await model.invite()
+        #expect(model.account == "@bo")
+    }
+
     @Test func theSheetInvitesAndRemovesThroughTheWork() async {
         @MainActor final class Daemon {
             var shares: [AgentSessionShare] = []

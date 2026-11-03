@@ -81,7 +81,8 @@ public final class AgentShareInviteSheetModel {
         }
     }
 
-    /// Invites the field's account with ``role``; the field clears when the daemon took it.
+    /// Invites the field's account with ``role``; the field clears when the daemon took it, unless
+    /// the person typed another account meanwhile.
     public func invite() async {
         let account = account.trimmingCharacters(in: .whitespacesAndNewlines)
         guard canInvite else { return }
@@ -90,7 +91,8 @@ public final class AgentShareInviteSheetModel {
         do {
             try await work.invite(account, role)
             status = nil
-            self.account = ""
+            // Typing a next account while the invite ran keeps it.
+            if self.account.trimmingCharacters(in: .whitespacesAndNewlines) == account { self.account = "" }
         } catch {
             status = AgentShareStrings.failure(error).message
         }
