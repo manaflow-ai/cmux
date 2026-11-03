@@ -500,6 +500,91 @@ class RecorderWaitTests(unittest.TestCase):
         self.assertEqual(j.px["films"][-1]["bytes"], {"movie": 1234, "scan": 56789})
 
 
+
+STALL = ("video_start {name}: ScreenCaptureKit did not start: debug.motion: ScreenCaptureKit did not start the capture "
+         "within 10.0 seconds")  # sweep-b08cc6f-120x2, px-new-column-c2-s025: both starts, 0.5 s apart
+
+
+class FilmJourney(FakeJourney):
+    """A journey that plays px_record_start as a film's sub-step (the driver installs ext steps on its journeys)."""
+
+    def step_px_record_start(self, step):
+        return X.step_px_record_start(self, step)
+
+
+def recorded_film(name, speed=1.0):
+    """A film as gen_pixel.py writes it: focus and wait, the recorder, the motion, the rebuild after it."""
+    return {"do": "px_film", "name": name, "speed": speed,
+            "steps": [{"do": "wait", "seconds": 0, "title": f"{name} settle"},
+                      {"do": "px_record_start", "name": name, "seconds": 8, "require_hz": 120, "lead": 0.5,
+                       "fixture": {"p0": {"kind": "tui", "fill": "#FFFF00"}}},
+                      {"do": "wait", "seconds": 0, "title": f"{name} play"}],
+            "after": [{"do": "wait", "seconds": 0, "title": f"{name} rebuild"}]}
+
+
+class FilmNotStartedTests(unittest.TestCase):
+    """A film whose recording ScreenCaptureKit does not start (sweep-b08cc6f-120x2, cmux22: 4 of 40 starts stalled at the
+    app's 10 s bound; the retry 0.5 s later took in px-close-pane-3-s025 and px-col-drag-2-s1, not in
+    px-new-column-c2-s025) is that film's "not run" line: before the recorder every film only focuses and waits, so its
+    motion and its rebuild are skipped and the journey goes on with the next film. It was the whole journey's not run:
+    px-new-column-c2 lost all six films. A second film whose recorder does not start ends the journey (not run)."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ext-pixel-ns-")
+        self.clock = FakeClock()
+        self.saved = (X.V.step_video_start, X.D.now, X.time)
+        X.D.now, X.time = self.clock.monotonic, self.clock
+        self.starts, self.stalls = [], set()
+
+        def video_start(j, step):
+            self.starts.append(step["name"])
+            if step["name"] in self.stalls:
+                raise D.NotRun(STALL.format(name=step["name"]))
+            if step["name"] in getattr(self, "slow_display", ()):
+                raise D.NotRun(f"video_start {step['name']}: the window's display runs at 16.67 ms a frame, not 120 Hz")
+            j.video = {"name": step["name"], "notes": {}}
+            return {"path": step["name"] + ".mov"}
+
+        X.V.step_video_start = video_start
+
+    def tearDown(self):
+        X.V.step_video_start, X.D.now, X.time = self.saved
+
+    def test_a_film_that_does_not_start_is_not_run_and_the_next_film_records(self):
+        self.stalls = {"px-f-s025"}
+        j = FilmJourney(FakeApp(), self.tmp)
+        first = X.step_px_film(j, recorded_film("px-f-s025", 0.25))
+        self.assertEqual(first["status"], "not run")
+        self.assertIn("ScreenCaptureKit did not start", first["reason"])
+        self.assertIn("after 1 earlier start(s)", first["reason"])
+        self.assertEqual(self.starts, ["px-f-s025", "px-f-s025"])  # the retry ran
+        self.assertEqual(j.played, ["px-f-s025 settle"])  # no motion, no rebuild: nothing of the film ran
+        second = X.step_px_film(j, recorded_film("px-f-s05", 0.5))
+        self.assertEqual(second["status"], "recorded")
+        self.assertEqual(j.played, ["px-f-s025 settle", "px-f-s05 settle", "px-f-s05 play", "px-f-s05 rebuild"])
+        self.assertEqual([(f["film"], f["status"]) for f in j.px["films"]],
+                         [("px-f-s025", "not run"), ("px-f-s05", "recorded")])
+        self.assertIn("ScreenCaptureKit did not start", j.px["films"][0]["reason"])
+
+    def test_a_second_film_that_does_not_start_ends_the_journey(self):
+        self.stalls = {"px-f-s025", "px-f-s1"}
+        j = FilmJourney(FakeApp(), self.tmp)
+        self.assertEqual(X.step_px_film(j, recorded_film("px-f-s025", 0.25))["status"], "not run")
+        self.assertEqual(X.step_px_film(j, recorded_film("px-f-s05", 0.5))["status"], "recorded")
+        with self.assertRaises(D.NotRun) as caught:
+            X.step_px_film(j, recorded_film("px-f-s1", 1.0))
+        self.assertIn("ScreenCaptureKit did not start", str(caught.exception))
+        self.assertIn("2 films of this journey", str(caught.exception))
+
+    def test_other_not_runs_still_end_the_journey(self):
+        self.slow_display = {"px-f-s025"}
+        j = FilmJourney(FakeApp(), self.tmp)
+        with self.assertRaises(D.NotRun) as caught:
+            X.step_px_film(j, recorded_film("px-f-s025", 0.25))
+        self.assertIn("not 120 Hz", str(caught.exception))
+        self.assertEqual(self.starts, ["px-f-s025"])
+
+
 SWITCH = "motion.frameOwner.terminals"
 
 
