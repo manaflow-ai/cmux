@@ -70,13 +70,9 @@ test("four quiet background task lines with lone replies fold into one closed li
   expect(ids(open).slice(3)).toEqual([
     run,
     backgroundTurnRowId("a"),
-    "a-dot",
     backgroundTurnRowId("b"),
-    "b-dot",
     backgroundTurnRowId("c"),
-    "c-dot",
     backgroundTurnRowId("d"),
-    "d-dot",
   ]);
 });
 
@@ -129,7 +125,6 @@ test("a member line opened on its own keeps its rows inside the run", () => {
     run,
     backgroundTurnRowId("a"),
     "a-work",
-    "a-dot",
     backgroundTurnRowId("b"),
   ]);
 });
