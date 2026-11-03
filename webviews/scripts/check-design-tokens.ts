@@ -25,6 +25,7 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as ts from "typescript";
 import { fillKind, glassContextRules, targetsRequiredGlass, type Block } from "./check-glass-never-opaque";
+import { isIconSelector } from "./check-icon-scale";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = join(ROOT, "src");
@@ -38,6 +39,8 @@ const WEIGHTS = new Set(["400", "600", "normal"]);
 /** Token definitions and generated sheets: the literals the rest of the tree must reference. */
 const TOKEN_FILES = new Set(["pages/shared/desktop.css"]);
 const CONTROL_HEIGHT = new Set([0, 20, 24, 28, 32]);
+// An icon box's height is on the icon scale (design/grid.md: 12, 14, 16, 20), which check-icon-scale.ts owns.
+const ICON_HEIGHT = new Set([...CONTROL_HEIGHT, 12, 14, 16]);
 const CSS_ROOTS = ["."];
 const ROOT_FILES: string[] = [];
 const NAMED_GLASS = /\.(?:nt-box|acpmux-env-panel|acpmux-composer-strip|acpmux-composer)\b/;
@@ -219,11 +222,12 @@ function pxValues(value: string): number[] {
   return [...value.matchAll(/(-?(?:\d+\.?\d*|\.\d+))px\b/gi)].map((match) => Number(match[1]));
 }
 
-export function isOutsideScale(property: string, value: string): boolean {
+export function isOutsideScale(property: string, value: string, selector = ""): boolean {
   const values = pxValues(value);
   // Tokens do not exempt adjacent literals or fallback values from the scale.
   if (!values.length) return false;
-  const allowed = HEIGHT_PROPERTY.test(property) ? CONTROL_HEIGHT : SPACING;
+  const heights = isIconSelector(selector) ? ICON_HEIGHT : CONTROL_HEIGHT;
+  const allowed = HEIGHT_PROPERTY.test(property) ? heights : SPACING;
   return values.some((number) => !allowed.has(number));
 }
 
@@ -258,7 +262,7 @@ function findingsForFile(file: string): Finding[] {
         });
       } else if (
         HEIGHT_PROPERTY.test(declaration.property) &&
-        isOutsideScale(declaration.property, declaration.value)
+        isOutsideScale(declaration.property, declaration.value, block.selector)
       ) {
         findings.push({
           file: rel,

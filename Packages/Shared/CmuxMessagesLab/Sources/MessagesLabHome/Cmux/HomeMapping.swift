@@ -84,15 +84,18 @@ enum HomeMapping {
     static func message(_ item: TranscriptItem, aliases: [IdempotencyKey: ID], me: ParticipantID,
                         summary: ConversationSummary?, media: Media = { _ in nil }, links: Links = { _ in nil },
                         roots: Roots = { _ in nil }) -> Message {
+        // An agent's message sent through my CLI or MCP tool: the agent's, without its label (HomeAgentSender).
+        let agent = HomeAgentSender(item, me: me)
+        let item = agent?.unlabelled(item) ?? item
         let (parts, owners) = projectedParts(item, summary: summary, media: media, links: links)
         let messageID = id(item, aliases: aliases)
         // A person's text shows as typed, and so does a part with mentions (their offsets index
         // the text as written): only an agent's text is Markdown (MessagesLab's opt-in
         // `Message.format`; plain by default, so a local send is plain before HomeStore has it).
         let mentions = item.parts.contains { if case let .text(_, m) = $0 { return !m.isEmpty } else { return false } }
-        let format: MessageFormat = isAgent(item.author, summary) && !mentions ? .markdown : .plain
-        var message = Message(id: messageID, senderId: item.author.rawValue, sentAt: Instant.format(item.createdAt),
-                parts: parts, replyTo: replyTo(item, roots: roots), status: status(item, me: me, summary: summary), edits: edits(item),
+        let format: MessageFormat = (isAgent(item.author, summary) || agent != nil) && !mentions ? .markdown : .plain
+        var message = Message(id: messageID, senderId: agent?.participantID ?? item.author.rawValue, sentAt: Instant.format(item.createdAt),
+                parts: parts, replyTo: replyTo(item, roots: roots), status: agent == nil ? status(item, me: me, summary: summary) : nil, edits: edits(item),
                 retractedAt: item.isRetracted ? Instant.format(item.editedAt ?? item.createdAt) : nil,
                 reactions: item.reactions.map { reaction($0, partIndex: projectedIndex($0.partIndex, owners)) }, format: format)
         // ThreadMode.tree: the message a nested reply answers (HomeMapping+Tree.swift).
@@ -429,15 +432,23 @@ enum HomeMapping {
     }
 
     /// `avatars`: a chosen avatar by participant id (the host's Chief avatars); anyone else draws their initials.
+    /// `items`: the shown messages; each agent that sent one through my CLI is a participant too (HomeAgentSender).
     static func participants(_ summary: ConversationSummary?, me: ParticipantID,
-                             avatars: [String: Participant.Avatar] = [:]) -> [Participant] {
+                             avatars: [String: Participant.Avatar] = [:], items: [TranscriptItem] = []) -> [Participant] {
         var out = (summary?.participants ?? []).map {
             // The name a person reads (never an internal id): a group transcript shows it over their bubbles.
             Participant(id: $0.id.rawValue, displayName: $0.visibleName, isMe: $0.id == me,
                         avatar: avatars[$0.id.rawValue] ?? .monogram($0.initials))
         }
         if !out.contains(where: \.isMe) { out.append(Participant(id: me.rawValue, displayName: "", isMe: true, avatar: nil)) }
+        out += HomeAgentSender.all(in: items, me: me).map(\.participant)
         return out
+    }
+
+    /// Whether the transcript names other senders' runs and draws their avatars: a group, a Chief
+    /// chat shared with people, or a chat where agents sent through my CLI (HomeAgentSender).
+    static func showsSenders(_ summary: ConversationSummary?, me: ParticipantID, items: [TranscriptItem]) -> Bool {
+        summary?.showsSenderNames(me: me) == true || items.contains { HomeAgentSender($0, me: me) != nil }
     }
 
     static func title(_ summary: ConversationSummary?, me: ParticipantID) -> String {

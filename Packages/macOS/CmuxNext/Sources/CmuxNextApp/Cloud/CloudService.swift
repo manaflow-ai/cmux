@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCloudCredentials
+import CmuxNextCloudTunnel
 import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextControl
@@ -9,6 +10,7 @@ import CmuxNextDaemon
 import CmuxNextHomeEngine
 import CmuxNextPhoneAccess
 import CmuxNextRemoteLocalhost
+import CmuxNextSettings
 import Foundation
 import Observation
 import os
@@ -41,6 +43,25 @@ final class CloudService {
     @ObservationIgnored let harnessLoginCopySwitch = CloudHarnessLoginCopySwitch()
     @ObservationIgnored private let work: BackgroundWork
     @ObservationIgnored private(set) var hub: CloudTunnelHub?
+    /// The opt-in Cloud Tunnel (plans/cmux-next/cloud-tunnel-DESIGN.md), off by default. Built on first
+    /// use; its bundle probe runs off the main thread.
+    @ObservationIgnored private(set) lazy var systemTunnel = CloudTunnelController(
+        probe: CloudTunnelBundleProbe(bundle: .main),
+        activator: LiveSystemExtensionActivator(),
+        manager: LiveTunnelManager(),
+        enroller: CloudTunnelEnroller { [browser = CloudTunnelBrowserEnroller(api: api, paths: paths, deviceName: Self.deviceName)] in
+            try await browser.enrollBrowserPeer()
+        }
+    )
+
+    /// The settings ``followTunnelSetting(_:)`` follows; sign-out turns the tunnel's setting off there.
+    @ObservationIgnored private weak var tunnelSettings: SettingsController?
+
+    /// Applies `cloud.tunnel.enabled` to ``systemTunnel``, the one path for Settings, the CLI and MCP.
+    func followTunnelSetting(_ settings: SettingsController) {
+        tunnelSettings = settings
+        systemTunnel.follow(ObservationStream { CloudTunnelSetting().enabled(in: settings.snapshot.root) })
+    }
     /// Whether a cmux Pro offer is on screen (CloudPresenter.offerPro).
     @ObservationIgnored var proOfferOpen = false
     /// Each machine list that carries the plan (`limits.planId`) reports it: the paid-plan welcome step
@@ -898,7 +919,18 @@ final class CloudService {
         await link.endLink(final: false)
         do { try await AcpmuxEnvironment.clearPeerTails(build: LaunchIdentity.current().build, work: work) } catch { logger.error("clear peer tails on sign-out: \(String(describing: error), privacy: .public)") }
         desktopRdTokens.removeAll()
-        if let hub { await hub.revoke() }
+        let tunnelWasOn = ![CloudTunnelStatus.off.name, "unavailable"].contains(systemTunnel.status.name)
+        if let hub {
+            await hub.revoke()
+        } else if tunnelWasOn, let id = try? paths.loadOrCreateDeviceID() {
+            // No hub ran: revoke this Mac's peers (the Cloud Tunnel's `browser` one too) directly.
+            do { try await api.revokeTunnel(deviceID: id) } catch { logger.error("tunnel revoke failed: \(String(describing: error), privacy: .public)") }
+        }
+        // The revoke above removed the tunnel's peer; its setting and saved VPN configuration go with it.
+        if tunnelWasOn {
+            try? await tunnelSettings?.set(.bool(false), at: CloudTunnelSetting.enabledPath)
+            await systemTunnel.disable()
+        }
         // Revoke the install while the Stack session still exists.
         if let stackUser = auth.user?.id {
             let auth = auth
@@ -914,7 +946,7 @@ final class CloudService {
     func ensureLink() async { await link.ensureLink() }
 
     /// ``CloudLinkLifecycle/ensureLinkReport()``, for the DEBUG socket method.
-    func ensureLinkReport() async -> JSONValue { await link.ensureLinkReport() }
+    func ensureLinkReport() async -> CmuxNextDaemon.JSONValue { await link.ensureLinkReport() }
 
     /// Registers (or reuses) this Mac's install for the signed-in user and
     /// mints one token. A failure is logged: the relay mints again when it
