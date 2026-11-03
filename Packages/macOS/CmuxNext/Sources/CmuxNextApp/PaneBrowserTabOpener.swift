@@ -220,7 +220,7 @@ extension PaneBrowserTabOpener {
                 return nil
             } catch {
                 split.finished(nil)
-                return "new-frontend-browser-tab: \(error)"
+                return ActionWorkFailure("new-frontend-browser-tab", error) // typed: a timeout stays a timeout
             }
         })
     }
