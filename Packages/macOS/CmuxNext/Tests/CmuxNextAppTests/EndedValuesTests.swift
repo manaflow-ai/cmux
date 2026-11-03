@@ -66,4 +66,35 @@ struct EndedValuesTests {
         _ = numbers.number(for: b)
         #expect(numbers.number(for: a) == first, "the second value of a took a new number after b went out")
     }
+
+    /// Codex review 5 (FIX at d307c16972b5): the refusal state was one entry per transaction, so a change sent from inside
+    /// another of the same transaction ended that entry, and a refusal after it was lost.
+    @Test func aChangeSentInsideOneOfItsOwnTransactionKeepsTheRefusal() {
+        let model = Self.model()
+        let transaction = LayoutTransactionID.make()
+        let outer = EndedValues([.width("c0", 0.55), .width("c1", 0.45)], transaction: transaction)
+        let inner = EndedValues([.width("c2", 0.6)], transaction: transaction)
+        var sent: [ColumnID] = [], nested = false
+        model.intentHandler = { intent in
+            guard case let .setColumnWidth(column, _, _, transaction, .ended) = intent else { return }
+            sent.append(column)
+            if column == "c0", !nested {
+                nested = true
+                _ = inner.send(in: model)
+                model.rejectTransaction(transaction)
+            }
+        }
+        #expect(!outer.send(in: model), "the outer change said it went after the app refused its transaction")
+        #expect(!sent.contains("c1"), "the refused outer change still sent c1: \(sent)")
+    }
+
+    /// Codex review 5: the daemon numbers kept only the last 32 transactions, so 32 others numbered between two values of
+    /// one transaction gave its second value a new number (two undo steps for one change).
+    @Test func aTransactionKeepsItsNumberWhileManyOthersGoOut() {
+        var numbers = GestureTransactionNumbers()
+        let a = LayoutTransactionID.make()
+        let first = numbers.number(for: a)
+        for _ in 0..<40 { _ = numbers.number(for: .make()) }
+        #expect(numbers.number(for: a) == first, "a's second value took a new number after 40 other transactions")
+    }
 }
