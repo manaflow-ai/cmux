@@ -18,6 +18,7 @@ import argparse, base64, glob, http.server, json, os, plistlib, shutil, subproce
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+import kit_downloads  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -154,6 +155,8 @@ app = subprocess.Popen([BINARY], env={**BASE_ENV, "CMUX_NEXT_SOCKET_MODE": "auto
 print(f"app pid {app.pid}, scratch {SCRATCH}, origin {ORIGIN}, out {opts.out}", flush=True)
 try:
     wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), "app socket", 120)
+    # The "not downloaded" checks look only in DOWNLOADS: refuse to run them unless the app saves there.
+    kit_downloads.require(rpc("debug.downloads"), DOWNLOADS)
     to_workspace()
     for engine in ("webkit", "chromium"):
         name = f"doc-{engine}-{RUN}.pdf"

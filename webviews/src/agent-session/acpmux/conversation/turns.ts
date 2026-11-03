@@ -1080,7 +1080,12 @@ function liveTurn(
   const rows = liveRuns ? codexRuns(mergeShortNotes(drawn, steerDialogueIn(drawn)), named?.tool.id) : drawn;
   // The status ticks on this computer's clock, from the prompt moved onto it.
   const at = user.at + clockOffset;
-  if (lineBelow && liveRuns) return codexLiveTurn(user, drawn, rows, last, named, at, clockOffset, sessionStatus);
+  if (lineBelow && liveRuns) {
+    const shaped = codexLiveTurn(user, drawn, rows, last, named, at, clockOffset, sessionStatus);
+    // The line is the turn's last row, made fresh here.
+    if (named?.earlier) shaped.at(-1)!.linedCall = named.tool.id;
+    return shaped;
+  }
   if (lineBelow) {
     const shown = withLiveStep(rows, last);
     const plan = sessionStatus
@@ -1331,7 +1336,8 @@ function runningCall(
   return undefined;
 }
 
-type LineCall = { tool: NonNullable<ReturnType<typeof runningCall>>; at: number };
+/// `earlier`: the command runs in an earlier run, which leaves it out for the line (`codexRuns`).
+type LineCall = { tool: NonNullable<ReturnType<typeof runningCall>>; at: number; earlier?: true };
 
 /// The call the Codex-style live line names: the newest one running in the turn's latest step, else
 /// the newest command still running anywhere in the turn, so a command never runs under "Thinking"
@@ -1342,7 +1348,7 @@ function lineCall(drawn: readonly AcpmuxRow[], last: AcpmuxRow): LineCall | unde
   for (let index = drawn.length - 1; index >= 0; index -= 1) {
     const row = drawn[index]!;
     const tool = runningCall(row, (call) => call.kind === "execute" && !call.background && !isDraftCall(call));
-    if (tool) return { tool, at: row.at };
+    if (tool) return { tool, at: row.at, earlier: true };
   }
   return undefined;
 }
