@@ -135,12 +135,7 @@ extension AppControl {
             "missing_features": .array((compat?.missingOptional ?? []).map(JSONValue.string)),
             "file_ops": fileOps.map(JSONValue.bool) ?? .null,
             "harness_login": session.harnessLogin.map { .string($0.summary) } ?? .null,
-            // Each workspace's durable id (`workspace_id` in `cloud new-workspace`'s answer) and its
-            // `ws_…` id on registry daemons; `cmux workspace list` and MCP `workspace_list` list them.
-            "workspaces": .array(store.workspaces.map { workspace in
-                .object(["id": .string(workspace.id), "name": .string(workspace.displayName),
-                         "resource_id": workspace.resourceID.map { .string($0.rawValue) } ?? .null])
-            }),
+            "workspaces": .array(store.workspaces.map { $0.cloudMachineWorkspaceRow }),
         ]
     }
 }

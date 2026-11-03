@@ -96,6 +96,7 @@ import { BUSY_TRIES, busyDelay, RequestBudget, waitsForSlot } from "./requestBud
 import { translate } from "./i18n";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
 import { cliHost, incomingPrompt, type IncomingContext, type IncomingMessage } from "./conversation/incomingMessage";
+import { noticeRowText } from "./conversation/agentNotice";
 import { inboxText, type InboxMessage } from "./conversation/inboxNotice";
 import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
@@ -1158,6 +1159,8 @@ export function mergeToolItem(
       endedAt: before?.endedAt ?? (ended ? at : undefined),
       // A shell that went to the background stays there as its call's result comes in.
       ...(before?.background ? { background: before.background } : {}),
+      // An approval stays on its call as the call's result comes in.
+      ...(before?.approved ? { approved: true as const } : {}),
       locations,
       ...(input ? { inputPath: input } : {}),
       images: update.content === undefined ? before?.images : imagesFromContent(update.content),
@@ -1864,10 +1867,6 @@ export class AcpmuxDirectClient {
   private lastSeq = 0;
   private turnOpen = false;
   private autoResumedAttempt: number | undefined;
-  /// The open turn's agent has said nothing since its prompt, past acpmux's `silentTurnMs`
-  /// (`turn_silent`, hub/silent_turn.rs): the line says the model has not answered. acpmux hearing
-  /// the model (`turn_heard`), or the turn's end, clears it; the agent's own bookkeeping does not.
-  private silentTurn = false;
   /// The last seq seen when Stop was pressed: only a turn event after it answers that Stop. A
   /// rebuild (loadOlder, lag resync) replays older ones, which must not answer a later Stop.
   private stopAfterSeq?: number;
@@ -2771,7 +2770,6 @@ export class AcpmuxDirectClient {
     this.queue = [];
     this.queueWithdrawn = [];
     this.turnOpen = false;
-    this.silentTurn = false;
     this.streamingAssistant = undefined;
     this.streamingAssistantMessageId = undefined;
     this.assistantCut = false;
@@ -4924,7 +4922,6 @@ export class AcpmuxDirectClient {
     this.runningTurnId = undefined;
     this.autoResumedAttempt = undefined;
     this.turnPrompt = undefined;
-    this.silentTurn = false;
     this.turnTokens = undefined;
     this.turnTokenSplit = undefined;
     this.streamingAssistant = undefined;
@@ -5354,6 +5351,10 @@ export class AcpmuxDirectClient {
     // the stream again then would split the reply that streams on.
     if (this.rows.has(rowId)) return;
     const decision = permissionDecision(asked, msg.outcome);
+    // An approval reads on the call it approved ("Approved" at the row's edge), never as a loose
+    // line holding the raw command (Leo, 2026-11-02). A call this page has not drawn keeps the line.
+    if ((decision.kind === "allowed" || decision.kind === "allowedAlways") && this.markApproved(asked.toolCallId))
+      return;
     this.closeSegment();
     this.rows.set(rowId, {
       id: rowId,
@@ -5381,6 +5382,12 @@ export class AcpmuxDirectClient {
     const rowId = `permission-${permission.permissionId}`;
     // Drawn already (a resync replays the live records after its rebuild drew them).
     if (this.rows.has(rowId)) return;
+    // Asked of nobody: in Bypass permissions or Full access, an approval the mode gave on its own
+    // draws nothing; the call's own row already says what ran (Leo, 2026-11-02, on "Approved: cd
+    // /tmp; for i in 1 2 3; do gh issue create … (Bypass permissions)": "but what's going on with
+    // these?"). Only a card the person saw, settled by switching to that mode, is noted, on its call.
+    if (!this.askedPermissions.has(permission.permissionId)) return;
+    if (this.markApproved(permission.toolCallId)) return;
     this.closeSegment();
     const mode = harnessModeName(this.summary?.family, this.summary?.harness, msg.fullAccess);
     this.rows.set(rowId, {
@@ -5395,6 +5402,21 @@ export class AcpmuxDirectClient {
         mode,
       }),
     });
+  }
+
+  /// Marks tool call `callId` approved on the row that draws it ("Approved" at its edge); false
+  /// when this page draws no such call, and the caller keeps its receipt line.
+  private markApproved(callId: string | undefined): boolean {
+    const id = callId === undefined ? undefined : this.toolRows.get(callId);
+    const row = id ? this.rows.get(id) : undefined;
+    const index = row?.items?.findIndex((item) => item.tool?.id === callId) ?? -1;
+    if (!row?.items || index < 0) return false;
+    const item = row.items[index]!;
+    if (item.tool!.approved) return true;
+    const items = [...row.items];
+    items[index] = { ...item, tool: { ...item.tool!, approved: true } };
+    this.rows.set(row.id, { ...row, version: row.version + 1, items }, true);
+    return true;
   }
 
   /// The text and tool fold before a record close, as a tool call's would: the work after an answer
@@ -5770,7 +5792,15 @@ export class AcpmuxDirectClient {
             : incomingPrompt(raw, msg, this.incomingContext());
         const shown =
           incoming?.kind === "message"
-            ? { text: incoming.message.text, incoming, resend: raw }
+            ? {
+                // A tool's notice keeps its title in the row's text, so Find, Copy and export read it
+                // and a notice of a title alone is no empty row.
+                text: incoming.message.notice
+                  ? noticeRowText(incoming.message.notice, incoming.message.text)
+                  : incoming.message.text,
+                incoming,
+                resend: raw,
+              }
             : incoming?.kind === "notice"
               ? { text: incoming.text, incoming }
               : incoming?.kind === "inbox"
@@ -5855,10 +5885,8 @@ export class AcpmuxDirectClient {
         // A prompt opens its turn; a steer goes into the turn already open.
         if (promptId && msg.steer !== true) this.turnPrompt = promptRoot(promptId);
         this.turnOpen = true;
-      } else if (event.kind === "turn_silent") {
-        this.silentTurn = this.turnOpen;
-      } else if (event.kind === "turn_heard") {
-        this.silentTurn = false;
+      } else if (event.kind === "turn_silent" || event.kind === "turn_heard") {
+        // acpmux's diagnostics of a quiet model (hub/silent_turn.rs): the turn still reads Thinking.
       } else if (event.kind === "turn_started") {
         const startedTurnId = typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
         // A prompt opens its turn (user_message); one opening with none open, and naming no turn, is
@@ -5871,7 +5899,6 @@ export class AcpmuxDirectClient {
         this.turnOpen = true;
         if (startedTurnId !== undefined) this.runningTurnId = startedTurnId;
         else if (agentStarted) this.runningTurnId = undefined;
-        this.silentTurn = false;
         this.turnTokens = event.seq >= this.usageFromSeq ? 0 : undefined;
         this.turnTokenSplit = this.turnTokens === undefined ? undefined : NO_TOKENS;
         this.subagents.startTurn();
@@ -5914,7 +5941,6 @@ export class AcpmuxDirectClient {
           );
         this.turnOpen = false;
         this.turnPrompt = undefined;
-        this.silentTurn = false;
         this.turnTokens = undefined;
         this.turnTokenSplit = undefined;
         this.settleCompactions(event.seq, event.kind === "turn_result" && msg.cancelForced === true);
@@ -6525,7 +6551,6 @@ export class AcpmuxDirectClient {
       ...(this.replayThrough === undefined && this.turnTokens && this.turnTokenSplit
         ? { turnTokenSplit: this.turnTokenSplit }
         : {}),
-      ...(this.replayThrough === undefined && this.turnOpen && this.silentTurn ? { silentTurn: true as const } : {}),
       // Only a peer runs on another clock; this computer's own sessions need no correction.
       ...(summary?.peer && this.clockOffset !== undefined ? { clockOffsetMs: this.clockOffset } : {}),
       canFork: this.canFork,
@@ -7729,6 +7754,13 @@ export class AcpmuxDirectClient {
       text: body,
       replyId: `m-${crypto.randomUUID()}`,
     });
+  }
+  /// The session an agent link or a `HOST/NAME` names (acpmux `_acpmux/resolve`, hub/locate.rs):
+  /// only sessions this daemon lists, its own and its peers', resolve; any other rejects.
+  async resolveSession(query: string): Promise<unknown> {
+    const value = query.trim();
+    if (!value) throw new Error(translate("error.notOpen"));
+    return this.request("_acpmux/resolve", { query: value }, 10_000);
   }
   /// A thread of the chat's inbox (acpmux `_acpmux/inbox_thread`), oldest first, for an inbox
   /// notice's line the person opened (conversation/InboxNoticeCard.tsx). It marks nothing read: the
@@ -9329,7 +9361,6 @@ export class AcpmuxDirectClient {
       turnOpen: this.turnOpen,
       // The running turn's prompt is the held events', never an older page's.
       turnPrompt: this.turnPrompt,
-      silentTurn: this.silentTurn,
       turnTokens: this.turnTokens,
       turnTokenSplit: this.turnTokenSplit,
       streamingAssistant: this.streamingAssistant,
@@ -9369,7 +9400,6 @@ export class AcpmuxDirectClient {
     this.runningTurnId = undefined;
     this.turnOpen = false;
     this.turnPrompt = undefined;
-    this.silentTurn = false;
     this.turnTokens = undefined;
     this.turnTokenSplit = undefined;
     this.streamingAssistant = undefined;

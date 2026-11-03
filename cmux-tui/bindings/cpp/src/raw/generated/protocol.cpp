@@ -8358,6 +8358,116 @@ Result<Screen> Codec<Screen>::decode(const Json& value) {
     return result;
 }
 
+Result<Json> Codec<SelectionPane>::encode(const SelectionPane& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_active_tab = encode_value(value.active_tab);
+    if (!encoded_active_tab) return std::move(encoded_active_tab).error();
+    object.emplace("active_tab", std::move(encoded_active_tab).value());
+    auto encoded_focused_at = encode_value(value.focused_at);
+    if (!encoded_focused_at) return std::move(encoded_focused_at).error();
+    object.emplace("focused_at", std::move(encoded_focused_at).value());
+    auto encoded_id = encode_value(value.id);
+    if (!encoded_id) return std::move(encoded_id).error();
+    object.emplace("id", std::move(encoded_id).value());
+    return Json(std::move(object));
+}
+
+Result<SelectionPane> Codec<SelectionPane>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    SelectionPane result{};
+    const Json* field_active_tab = value.find("active_tab");
+    if (!field_active_tab) {
+        return make_error(ErrorCode::decode, "missing required field 'active_tab'");
+    }
+    if (field_active_tab) {
+        auto decoded = decode_value<std::uint64_t>(*field_active_tab);
+        if (!decoded) return std::move(decoded).error();
+        result.active_tab = std::move(decoded).value();
+    }
+    const Json* field_focused_at = value.find("focused_at");
+    if (!field_focused_at) {
+        return make_error(ErrorCode::decode, "missing required field 'focused_at'");
+    }
+    if (field_focused_at) {
+        auto decoded = decode_value<std::uint64_t>(*field_focused_at);
+        if (!decoded) return std::move(decoded).error();
+        result.focused_at = std::move(decoded).value();
+    }
+    const Json* field_id = value.find("id");
+    if (!field_id) {
+        return make_error(ErrorCode::decode, "missing required field 'id'");
+    }
+    if (field_id) {
+        auto decoded = decode_value<Id>(*field_id);
+        if (!decoded) return std::move(decoded).error();
+        result.id = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<SelectionScreen>::encode(const SelectionScreen& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_active = encode_value(value.active);
+    if (!encoded_active) return std::move(encoded_active).error();
+    object.emplace("active", std::move(encoded_active).value());
+    auto encoded_active_pane = encode_value(value.active_pane);
+    if (!encoded_active_pane) return std::move(encoded_active_pane).error();
+    object.emplace("active_pane", std::move(encoded_active_pane).value());
+    auto encoded_id = encode_value(value.id);
+    if (!encoded_id) return std::move(encoded_id).error();
+    object.emplace("id", std::move(encoded_id).value());
+    auto encoded_panes = encode_value(value.panes);
+    if (!encoded_panes) return std::move(encoded_panes).error();
+    object.emplace("panes", std::move(encoded_panes).value());
+    return Json(std::move(object));
+}
+
+Result<SelectionScreen> Codec<SelectionScreen>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    SelectionScreen result{};
+    const Json* field_active = value.find("active");
+    if (!field_active) {
+        return make_error(ErrorCode::decode, "missing required field 'active'");
+    }
+    if (field_active) {
+        auto decoded = decode_value<bool>(*field_active);
+        if (!decoded) return std::move(decoded).error();
+        result.active = std::move(decoded).value();
+    }
+    const Json* field_active_pane = value.find("active_pane");
+    if (!field_active_pane) {
+        return make_error(ErrorCode::decode, "missing required field 'active_pane'");
+    }
+    if (field_active_pane) {
+        auto decoded = decode_value<Id>(*field_active_pane);
+        if (!decoded) return std::move(decoded).error();
+        result.active_pane = std::move(decoded).value();
+    }
+    const Json* field_id = value.find("id");
+    if (!field_id) {
+        return make_error(ErrorCode::decode, "missing required field 'id'");
+    }
+    if (field_id) {
+        auto decoded = decode_value<Id>(*field_id);
+        if (!decoded) return std::move(decoded).error();
+        result.id = std::move(decoded).value();
+    }
+    const Json* field_panes = value.find("panes");
+    if (!field_panes) {
+        return make_error(ErrorCode::decode, "missing required field 'panes'");
+    }
+    if (field_panes) {
+        auto decoded = decode_value<std::vector<SelectionPane>>(*field_panes);
+        if (!decoded) return std::move(decoded).error();
+        result.panes = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<SendExpectAgent>::encode(const SendExpectAgent& value) {
     (void)value;
     Json::Object object;
@@ -25976,6 +26086,11 @@ Result<Json> Codec<NewFrontendBrowserTabRequest>::encode(const NewFrontendBrowse
         if (!encoded) return std::move(encoded).error();
         object.emplace("rows", std::move(encoded).value());
     }
+    if (!value.split.is_absent()) {
+        auto encoded = encode_value(value.split);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("split", std::move(encoded).value());
+    }
     if (!value.title.is_absent()) {
         auto encoded = encode_value(value.title);
         if (!encoded) return std::move(encoded).error();
@@ -26084,6 +26199,16 @@ Result<NewFrontendBrowserTabRequest> Codec<NewFrontendBrowserTabRequest>::decode
             auto decoded = decode_value<std::uint16_t>(*field_rows);
             if (!decoded) return std::move(decoded).error();
             result.rows = Field<std::uint16_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_split = value.find("split");
+    if (field_split) {
+        if (field_split->is_null()) {
+            result.split = Field<ConversationTabSplit>::null();
+        } else {
+            auto decoded = decode_value<ConversationTabSplit>(*field_split);
+            if (!decoded) return std::move(decoded).error();
+            result.split = Field<ConversationTabSplit>(std::move(decoded).value());
         }
     }
     const Json* field_title = value.find("title");
@@ -38437,6 +38562,85 @@ Result<ScrollChangedEvent> Codec<ScrollChangedEvent>::decode(const Json& value) 
     return result;
 }
 
+Result<Json> Codec<SelectionChangedEvent>::encode(const SelectionChangedEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("selection-changed")));
+    auto encoded_active = encode_value(value.active);
+    if (!encoded_active) return std::move(encoded_active).error();
+    object.emplace("active", std::move(encoded_active).value());
+    if (value.active_workspace) {
+        auto encoded = encode_value(*value.active_workspace);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("active_workspace", std::move(encoded).value());
+    } else {
+        object.emplace("active_workspace", Json(nullptr));
+    }
+    auto encoded_screens = encode_value(value.screens);
+    if (!encoded_screens) return std::move(encoded_screens).error();
+    object.emplace("screens", std::move(encoded_screens).value());
+    auto encoded_workspace = encode_value(value.workspace);
+    if (!encoded_workspace) return std::move(encoded_workspace).error();
+    object.emplace("workspace", std::move(encoded_workspace).value());
+    return Json(std::move(object));
+}
+
+Result<SelectionChangedEvent> Codec<SelectionChangedEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    SelectionChangedEvent result{};
+    const Json* field_active = value.find("active");
+    if (!field_active) {
+        return make_error(ErrorCode::decode, "missing required field 'active'");
+    }
+    if (field_active) {
+        auto decoded = decode_value<bool>(*field_active);
+        if (!decoded) return std::move(decoded).error();
+        result.active = std::move(decoded).value();
+    }
+    const Json* field_active_workspace = value.find("active_workspace");
+    if (!field_active_workspace) {
+        return make_error(ErrorCode::decode, "missing required field 'active_workspace'");
+    }
+    if (field_active_workspace) {
+        if (field_active_workspace->is_null()) {
+            result.active_workspace.reset();
+        } else {
+            auto decoded = decode_value<Id>(*field_active_workspace);
+            if (!decoded) return std::move(decoded).error();
+            result.active_workspace = std::move(decoded).value();
+        }
+    }
+    const Json* field_screens = value.find("screens");
+    if (!field_screens) {
+        return make_error(ErrorCode::decode, "missing required field 'screens'");
+    }
+    if (field_screens) {
+        auto decoded = decode_value<std::vector<SelectionScreen>>(*field_screens);
+        if (!decoded) return std::move(decoded).error();
+        result.screens = std::move(decoded).value();
+    }
+    const Json* field_workspace = value.find("workspace");
+    if (!field_workspace) {
+        return make_error(ErrorCode::decode, "missing required field 'workspace'");
+    }
+    if (field_workspace) {
+        auto decoded = decode_value<Id>(*field_workspace);
+        if (!decoded) return std::move(decoded).error();
+        result.workspace = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("selection-changed"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<SettingsChangedEvent>::encode(const SettingsChangedEvent& value) {
     (void)value;
     Json::Object object;
@@ -40268,6 +40472,53 @@ Result<WorkspaceMovedEvent> Codec<WorkspaceMovedEvent>::decode(const Json& value
     }
     if (field_event) {
         if (*field_event != Json(std::string("workspace-moved"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
+Result<Json> Codec<WorkspacePresentationChangedEvent>::encode(const WorkspacePresentationChangedEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("workspace-presentation-changed")));
+    auto encoded_entity = encode_value(value.entity);
+    if (!encoded_entity) return std::move(encoded_entity).error();
+    object.emplace("entity", std::move(encoded_entity).value());
+    auto encoded_workspace = encode_value(value.workspace);
+    if (!encoded_workspace) return std::move(encoded_workspace).error();
+    object.emplace("workspace", std::move(encoded_workspace).value());
+    return Json(std::move(object));
+}
+
+Result<WorkspacePresentationChangedEvent> Codec<WorkspacePresentationChangedEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    WorkspacePresentationChangedEvent result{};
+    const Json* field_entity = value.find("entity");
+    if (!field_entity) {
+        return make_error(ErrorCode::decode, "missing required field 'entity'");
+    }
+    if (field_entity) {
+        auto decoded = decode_value<Workspace>(*field_entity);
+        if (!decoded) return std::move(decoded).error();
+        result.entity = std::move(decoded).value();
+    }
+    const Json* field_workspace = value.find("workspace");
+    if (!field_workspace) {
+        return make_error(ErrorCode::decode, "missing required field 'workspace'");
+    }
+    if (field_workspace) {
+        auto decoded = decode_value<Id>(*field_workspace);
+        if (!decoded) return std::move(decoded).error();
+        result.workspace = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("workspace-presentation-changed"))) {
             return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
         }
     }
@@ -42225,6 +42476,11 @@ Result<Event> Codec<Event>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
+    if (name.value() == "selection-changed") {
+        auto decoded = decode_value<SelectionChangedEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
     if (name.value() == "settings-changed") {
         auto decoded = decode_value<SettingsChangedEvent>(value);
         if (!decoded) return std::move(decoded).error();
@@ -42350,6 +42606,11 @@ Result<Event> Codec<Event>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
+    if (name.value() == "workspace-presentation-changed") {
+        auto decoded = decode_value<WorkspacePresentationChangedEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
     if (name.value() == "workspace-renamed") {
         auto decoded = decode_value<WorkspaceRenamedEvent>(value);
         if (!decoded) return std::move(decoded).error();
@@ -42452,6 +42713,9 @@ constexpr std::array<CommandFieldRequirement, 5> kCommand168FieldRequirements{{
     {"route", 0U, "page-tab-route-v1"},
     {"split", 0U, "conversation-tab-split-v1"},
     {"transaction", 0U, "conversation-tab-transaction-v1"},
+}};
+constexpr std::array<CommandFieldRequirement, 1> kCommand169FieldRequirements{{
+    {"split", 0U, "frontend-browser-tab-split-v1"},
 }};
 constexpr std::array<CommandFieldRequirement, 7> kCommand170FieldRequirements{{
     {"cwd", 12U, "terminal-placement-env-v1"},
@@ -42759,7 +43023,7 @@ constexpr std::array<CommandMetadata, 288> kCommands{{
     {"move-workspace-to-group", "control", 12U, "workspace-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"new-browser-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"new-conversation-tab", "control", 12U, "conversation-tabs-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand168FieldRequirements)},
-    {"new-frontend-browser-tab", "control", 12U, "frontend-browser-tabs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"new-frontend-browser-tab", "control", 12U, "frontend-browser-tabs-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand169FieldRequirements)},
     {"new-pane", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand170FieldRequirements)},
     {"new-pane-right", "control", 9U, "viewport-splits-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand171FieldRequirements)},
     {"new-remote-terminal-tab", "control", 12U, "remote-terminal-tabs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -42879,7 +43143,7 @@ constexpr std::array<CommandMetadata, 288> kCommands{{
     {"ws-listen", "local-admin", 12U, "ws-listen-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"zoom-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
 }};
-constexpr std::array<EventMetadata, 88> kEvents{{
+constexpr std::array<EventMetadata, 90> kEvents{{
     {"activity-changed", 12U, "vm-activity-v1", "control", "emitted"},
     {"agent-changed", 11U, "", "subscribe", "emitted"},
     {"agent-inventory-changed", 12U, "agent-inventory-watch-v1", "control", "emitted"},
@@ -42942,6 +43206,7 @@ constexpr std::array<EventMetadata, 88> kEvents{{
     {"screen-closed", 7U, "", "subscribe-deltas", "emitted"},
     {"screen-renamed", 7U, "", "subscribe-deltas", "emitted"},
     {"scroll-changed", 6U, "", "subscribe,attach-byte,attach-render,attach-browser", "emitted"},
+    {"selection-changed", 12U, "tree-selection-deltas-v1", "subscribe-deltas", "emitted"},
     {"settings-changed", 12U, "settings-v1", "subscribe", "emitted"},
     {"size-state", 12U, "shared-sizing-v1", "subscribe,attach-byte,attach-render", "emitted"},
     {"status", 5U, "", "subscribe", "emitted"},
@@ -42967,6 +43232,7 @@ constexpr std::array<EventMetadata, 88> kEvents{{
     {"workspace-changed", 12U, "workspace-metadata-v1", "subscribe-deltas", "emitted"},
     {"workspace-closed", 7U, "", "subscribe-deltas", "emitted"},
     {"workspace-moved", 7U, "", "subscribe-deltas", "emitted"},
+    {"workspace-presentation-changed", 12U, "tree-selection-deltas-v1", "subscribe-deltas", "emitted"},
     {"workspace-renamed", 7U, "", "subscribe-deltas", "emitted"},
 }};
 }  // namespace
