@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 import CmuxNextWakeups
 
 /// What a section or row needs from the panel: its colors and how a click reaches the page. A value,
@@ -668,13 +669,29 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         return label
     }
 
+    /// `symbol` is an SF Symbol, or `cmux:` and a pack icon name (Changes' `cmux:git.pullrequest.merged`),
+    /// which draws the pack's own glyph at the web rows' size (1.2 x the label, design/icons "Sizes").
     private static func image(_ symbol: String, font: NSFont, tint: NSColor) -> NSImageView {
         let view = NSImageView()
-        view.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: font.pointSize, weight: .regular))
+        if let icon = packIcon(symbol, font: font) {
+            view.image = icon
+        } else {
+            view.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+                .withSymbolConfiguration(.init(pointSize: font.pointSize, weight: .regular))
+        }
         view.contentTintColor = tint
         view.imageScaling = .scaleProportionallyDown
         return view
+    }
+
+    static let packPrefix = "cmux:"
+
+    /// The pack's template image for a `cmux:` name the pack has; nil for an SF Symbol name.
+    static func packIcon(_ symbol: String, font: NSFont) -> NSImage? {
+        guard symbol.hasPrefix(packPrefix) else { return nil }
+        let icon = IconName(String(symbol.dropFirst(packPrefix.count)))
+        guard IconPack.bundled.drawing(for: icon) != nil else { return nil }
+        return NSImage.icon(icon, size: (font.pointSize * 1.2).rounded())
     }
 
     private var lead: CGFloat { CGFloat(line.indent) * SessionInfoMetrics.indent + SessionInfoMetrics.inset - SessionInfoMetrics.edge }
