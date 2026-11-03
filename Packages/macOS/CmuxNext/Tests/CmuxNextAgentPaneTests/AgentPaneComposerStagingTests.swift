@@ -98,7 +98,8 @@ struct AgentPaneComposerStagingTests {
     private static func regularFiles(in folder: URL) -> Set<URL> {
         let enumerator = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.isRegularFileKey])
         let entries = enumerator?.allObjects as? [URL] ?? []
-        return Set(entries.filter { (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true })
+        return Set(entries.filter { (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true }
+            .map { $0.resolvingSymlinksInPath() })
     }
 
     /// A complete small staged copy, including the web path's separate ordering metadata.
@@ -214,10 +215,12 @@ struct AgentPaneComposerStagingTests {
         ]))
         let token = try #require(live["token"] as? String)
         #expect(Self.failed(await Self.ask(model, "composer.copy.finish", ["token": token])))
-        _ = try Self.value(await Self.ask(model, "composer.copy.cancel", ["token": token]))
+        let stageCancelled = await Self.ask(model, "composer.copy.cancel", ["token": token])
+        #expect(stageCancelled["ok"] as? Bool == true)
         #expect(Self.failed(await Self.ask(model, "composer.copy.chunk", ["token": token, "offset": 0, "data": "YQ=="])))
         #expect(Self.failed(await Self.ask(model, "composer.copy.finish", ["token": token])))
-        _ = try Self.value(await Self.ask(model, "composer.copy.cancel", ["token": file.reference]))
+        let fileCancelled = await Self.ask(model, "composer.copy.cancel", ["token": file.reference])
+        #expect(fileCancelled["ok"] as? Bool == true)
         #expect(Self.failed(await Self.ask(model, "composer.copy.staged", ["text": text.reference, "items": [
             ["name": "one.txt", "mimeType": "text/plain", "reference": file.reference],
         ]])))
@@ -278,7 +281,7 @@ struct AgentPaneComposerStagingTests {
         #expect(file.lastPathComponent == "one.txt")
         #expect(try String(contentsOf: file, encoding: .utf8) == "aaaa")
         // The selection and ordering metadata cannot accumulate alongside published attachments.
-        #expect(Self.regularFiles(in: folder) == Set([file]))
+        #expect(Self.regularFiles(in: folder) == Set([file.resolvingSymlinksInPath()]))
     }
 
     @Test func aFailedClipboardWriteRemovesAllOfItsStagedFiles() async throws {
