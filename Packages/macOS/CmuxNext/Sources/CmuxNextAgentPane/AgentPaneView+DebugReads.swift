@@ -69,10 +69,33 @@ extension AgentPaneView {
                 "engine": .string(engineName),
                 "chromium_page_shown": .bool(debugChromiumPageShown)
             ])
+            members["watchdog"] = debugPaintWatchdogSnapshot ?? .null
             return .object(members)
         } catch {
             return .object(["pane": .string(pane), "error": .string(String(describing: error))])
         }
+    }
+
+    /// Captures native presentation state synchronously before the loading watchdog reveals an
+    /// unreported page. The snapshot is replaced on each watchdog reveal and never drives behavior.
+    func captureDebugPaintWatchdogSnapshot() {
+        debugPaintWatchdogSnapshot = .object([
+            "holds_page_away": .bool(holdsPageAway),
+            "model_has_painted": .bool(model.hasPainted),
+            "page_reported_paint": .bool(model.pageReportedPaint),
+            "loading_present": .bool(loadingView.superview != nil),
+            "loading_hidden": .bool(loadingView.isHidden),
+            "page_alpha": .number(Double(pageContent.alphaValue)),
+            "page_frame_x": .number(Double(pageContent.frame.origin.x)),
+            "page_frame_y": .number(Double(pageContent.frame.origin.y)),
+            "page_frame_width": .number(Double(pageContent.frame.width)),
+            "page_frame_height": .number(Double(pageContent.frame.height)),
+            "pane_hidden": .bool(isHiddenOrHasHiddenAncestor),
+            "window_visible": .bool(window?.isVisible == true),
+            "window_occlusion_visible": .bool(window?.occlusionState.contains(.visible) == true),
+            "engine": .string(engineName),
+            "chromium_page_shown": .bool(debugChromiumPageShown)
+        ])
     }
 
     /// `debug.agent_pane inspector`: calls the page bridge that Show ACP Inspector calls

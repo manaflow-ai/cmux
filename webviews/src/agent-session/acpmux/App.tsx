@@ -858,9 +858,9 @@ declare global {
       configure(options: Record<string, unknown>): void;
     };
     cmuxAcpmuxDebug?: AcpmuxDebug;
-    /// DEBUG-only timing evidence for a spare-page chat adoption. One object is replaced for each
-    /// adoption; its four fields are the event, React effect, first rAF and native report samples.
-    cmuxSessionAdoptionPaint?: Partial<Record<"event" | "effect" | "raf" | "report", SessionAdoptionPaintSample>>;
+    /// Timing evidence for a spare-page chat adoption. One object is replaced for each adoption;
+    /// visibility keeps only the first hidden sample and the latest transition.
+    __cmuxSessionAdoptionPaint?: Partial<Record<"event" | "effect" | "firstHidden" | "visibility" | "scheduled" | "raf" | "report", SessionAdoptionPaintSample>>;
     cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
     /// Mock mode only: a recorded turn the in-page daemon replays (webviews/scripts/agent-pane).
     cmuxAcpmuxMockScript?: MockScript;
@@ -871,6 +871,8 @@ declare global {
 type SessionAdoptionPaintSample = {
   at: number;
   sessionId?: string;
+  showsWhatItIs?: boolean;
+  paintReported?: boolean;
   visibilityState: DocumentVisibilityState;
   hidden: boolean;
   innerWidth: number;
@@ -879,14 +881,21 @@ type SessionAdoptionPaintSample = {
   bodyHeight: number;
 };
 
-/// Records only the state needed to explain a missed adoption paint. This is DEBUG harness data,
-/// overwritten per adoption, and has no timers, observers or retained history.
-function recordSessionAdoptionPaint(stage: "event" | "effect" | "raf" | "report", sessionId?: string): void {
-  if (stage !== "event" && !window.cmuxSessionAdoptionPaint?.event) return;
+/// Records only the state needed to explain a missed adoption paint, overwritten per adoption.
+/// Visibility has one first-hidden and one latest-transition slot, never growing history.
+function recordSessionAdoptionPaint(
+  stage: "event" | "effect" | "firstHidden" | "visibility" | "scheduled" | "raf" | "report",
+  sessionId?: string,
+  state?: Pick<SessionAdoptionPaintSample, "showsWhatItIs" | "paintReported">,
+): void {
+  if (stage !== "event" && !window.__cmuxSessionAdoptionPaint?.event) return;
   const body = document.body?.getBoundingClientRect();
   const sample: SessionAdoptionPaintSample = {
     at: performance.now(),
-    ...(sessionId ? { sessionId } : {}),
+    ...(sessionId || window.__cmuxSessionAdoptionPaint?.event?.sessionId
+      ? { sessionId: sessionId || window.__cmuxSessionAdoptionPaint?.event?.sessionId }
+      : {}),
+    ...state,
     visibilityState: document.visibilityState,
     hidden: document.hidden,
     innerWidth: window.innerWidth,
@@ -894,7 +903,7 @@ function recordSessionAdoptionPaint(stage: "event" | "effect" | "raf" | "report"
     bodyWidth: body?.width ?? 0,
     bodyHeight: body?.height ?? 0,
   };
-  window.cmuxSessionAdoptionPaint = { ...(stage === "event" ? {} : window.cmuxSessionAdoptionPaint), [stage]: sample };
+  window.__cmuxSessionAdoptionPaint = { ...(stage === "event" ? {} : window.__cmuxSessionAdoptionPaint), [stage]: sample };
 }
 
 function emptySnapshot(): AcpmuxSnapshot {
@@ -9966,6 +9975,7 @@ function AcpmuxPane() {
   // may never come although the first one drew (cx-zjtn.6; PagePaintProbe in CmuxNextPages waits
   // the same way).
   const paintReported = useRef(false);
+  const adoptionVisibilityCleanup = useRef<(() => void) | undefined>();
   // A tab opening an existing chat adopted this prewarmed New Tab page (useSessionAdoption, below):
   // the chat it switches to, until that chat is drawn. Until then the page has not drawn what it is.
   const [adoptingSession, setAdoptingSession] = useState<string>();
@@ -10073,38 +10083,50 @@ function AcpmuxPane() {
     },
     [runAdoption],
   );
-  useEffect(() => {
-    if (adoptingSession !== undefined) recordSessionAdoptionPaint("effect", adoptingSession);
-  }, [adoptingSession]);
   const onSessionAdoption = useCallback(
     (adoption: SessionAdoption) => {
+      adoptionVisibilityCleanup.current?.();
+      const onVisibilityChange = () => {
+        recordSessionAdoptionPaint("visibility");
+        if (document.hidden && !window.__cmuxSessionAdoptionPaint?.firstHidden) {
+          recordSessionAdoptionPaint("firstHidden");
+        }
+      };
+      document.addEventListener("visibilitychange", onVisibilityChange);
+      adoptionVisibilityCleanup.current = () => document.removeEventListener("visibilitychange", onVisibilityChange);
       recordSessionAdoptionPaint("event", adoption.sessionId);
       adoptSession(adoption);
     },
     [adoptSession],
   );
   useSessionAdoption(onSessionAdoption);
+  useEffect(() => () => adoptionVisibilityCleanup.current?.(), []);
   // What this frame drew, not only that it drew: a chat taken from a kept tail is on screen in the
   // frame the open landed on, so the host shows the page instead of fading it in (tailCache.ts,
   // AgentPaneView+Loading.swift). A kept tail is drawn before the frame that shows what the pane
   // is, so it is known by the time this reports; the report happens once either way.
   const drewKeptTail = clientSnapshot.drewKeptTail === true;
   useEffect(() => {
+    recordSessionAdoptionPaint("effect", undefined, {
+      showsWhatItIs,
+      paintReported: paintReported.current,
+    });
     if (!showsWhatItIs || paintReported.current) return;
     paintReported.current = true;
-    requestAnimationFrame(() =>
-      {
-        recordSessionAdoptionPaint("raf", adoptingSession);
-        setTimeout(() => {
-          recordSessionAdoptionPaint("report", adoptingSession);
+    recordSessionAdoptionPaint("scheduled", undefined, { showsWhatItIs, paintReported: true });
+    requestAnimationFrame(() => {
+      recordSessionAdoptionPaint("raf");
+      setTimeout(() => {
+        recordSessionAdoptionPaint("report");
+        adoptionVisibilityCleanup.current?.();
+        adoptionVisibilityCleanup.current = undefined;
         void callNative("pane.painted", { drewKeptTail }).catch(() => undefined);
         void loadDiffPanel();
         void loadHighlightedCode();
         void loadEditDiffHunks();
-        }, 0);
-      },
-    );
-  }, [showsWhatItIs, drewKeptTail, adoptingSession]);
+      }, 0);
+    });
+  }, [showsWhatItIs, drewKeptTail]);
   const summary = snapshot.summary;
   const localCwd =
     summary && !summary.peer && !(summary.host && summary.hostKind !== "local") ? summary.cwd : undefined;

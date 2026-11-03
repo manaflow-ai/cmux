@@ -144,6 +144,10 @@ public final class AgentPaneView: NSView {
     /// The page lies outside the window until it draws the chat a tab adopted it for
     /// (`AgentPaneView+SessionAdopt`): a Chromium page draws in its own window, over any cover.
     var holdsPageAway = false
+#if DEBUG || CMUX_BENCH_HOOKS
+    /// Native state captured immediately before the loading watchdog reveals an unreported page.
+    var debugPaintWatchdogSnapshot: JSONValue?
+#endif
     /// A Chromium page moved here waits for its first layout in a window (`AgentPaneView+MoveCover`).
     var chromiumMove: ChromiumMove?
     public private(set) lazy var redraw = page.map { AgentPageRedraw(page: $0) } ?? AgentPageRedraw(webView: webView) // a chat shown again draws first
