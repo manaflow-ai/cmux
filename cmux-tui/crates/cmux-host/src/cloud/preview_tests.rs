@@ -211,7 +211,9 @@ fn preview_client_uses_bound_identity_and_platform_origin_with_one_401_refresh()
         (200, inventory(vec![fresh.clone()])),
     ]);
     let reply = client.preview(&ask(PreviewOperation::Url, Some(3000)), NOW);
-    assert_eq!(reply, json!({"ok":true,"value":fresh}));
+    assert_eq!(reply["ok"], true);
+    assert_eq!(reply["value"]["url"], "https://p-3000.preview.cmux.dev");
+    assert!(!reply.to_string().contains("token="));
     assert!(!reply.to_string().contains("bearer-"));
     let state = fake.state.lock().unwrap();
     assert_eq!(state.minted, 2);
