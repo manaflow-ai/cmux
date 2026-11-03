@@ -65,7 +65,7 @@ describe("kernel lock entry", () => {
     delete raw.kernel.builder;
     raw.kernel.buildTimestamp = "yesterday";
     const problems = problemsOf(raw);
-    expect(problems).toContain("kernel.version: needs an exact stable release such as 6.1.191");
+    expect(problems).toContain("kernel.version: needs an exact stable release such as 6.1.190");
     expect(problems).toContain("kernel.sha256: missing or not 64 lowercase hex");
     expect(problems).toContain("kernel.baseConfigSha256: missing or not 64 lowercase hex");
     expect(problems).toContain("kernel.builder: missing (the snapshot the kernel builds on)");
@@ -77,23 +77,24 @@ describe("guest kernel status", () => {
   const { kernel } = readInputsLock();
 
   test("a machine on the locked kernel has no problems", () => {
-    const out = `running=${kernel.version} installed=${kernel.version} attempts=0 on-cmux-kernel=yes\n`;
-    expect(parseGuestKernelStatus(out)).toEqual({ running: kernel.version, installed: kernel.version, attempts: 0, onCmuxKernel: true });
+    const out = `running=${kernel.version} installed=${kernel.version} attempts=0 on-cmux-kernel=yes oops=no\n`;
+    expect(parseGuestKernelStatus(out)).toEqual({ running: kernel.version, installed: kernel.version, attempts: 0, onCmuxKernel: true, oops: "no" });
     expect(guestKernelProblems(kernel, out)).toEqual([]);
   });
 
   test("the provider kernel, a stale install and a pending attempt are each reported", () => {
-    const out = "running=6.1.102 installed=6.1.190 attempts=1 on-cmux-kernel=no";
+    const out = "running=6.1.102 installed=6.1.189 attempts=1 on-cmux-kernel=no oops=yes";
     expect(parseGuestKernelStatus(out).onCmuxKernel).toBe(false);
     expect(guestKernelProblems(kernel, out)).toEqual([
-      `installed kernel 6.1.190, lock ${kernel.version}`,
+      `installed kernel 6.1.189, lock ${kernel.version}`,
       `running kernel 6.1.102, lock ${kernel.version}`,
       "switch attempt count 1 (want 0 on the cmux kernel)",
+      "kernel oops since boot: yes (dmesg has the trace)",
     ]);
   });
 
   test("no status line at all is a problem, not a pass", () => {
-    expect(guestKernelProblems(kernel, "")).toHaveLength(3);
+    expect(guestKernelProblems(kernel, "")).toHaveLength(4);
   });
 });
 
@@ -207,7 +208,7 @@ describe("cmux-guest-kernel", () => {
   const kernelBytes = new TextEncoder().encode("a kernel\n");
 
   /** A fake root with the kernel installed as `installed`, running `running`, after `attempts` switches. */
-  function fakeRoot(opts: { running: string; installed: string; attempts?: number; corrupt?: boolean }): string {
+  function fakeRoot(opts: { running: string; installed: string; attempts?: number; corrupt?: boolean; tainted?: number }): string {
     const root = mkdtempSync(path.join(tmpdir(), "guest-kernel-root-"));
     for (const dir of ["usr/lib/cmux/kernel", "var/lib/cmux", "proc/sys/kernel"]) mkdirSync(path.join(root, dir), { recursive: true });
     writeFileSync(path.join(root, "usr/lib/cmux/kernel/vmlinuz"), kernelBytes);
@@ -215,17 +216,19 @@ describe("cmux-guest-kernel", () => {
     writeFileSync(path.join(root, "usr/lib/cmux/kernel/release"), `${opts.installed}\n`);
     writeFileSync(path.join(root, "proc/sys/kernel/osrelease"), `${opts.running}\n`);
     writeFileSync(path.join(root, "proc/cmdline"), "console=ttyS0\n");
+    if (opts.tainted !== undefined) writeFileSync(path.join(root, "proc/sys/kernel/tainted"), `${opts.tainted}\n`);
     if (opts.attempts !== undefined) writeFileSync(path.join(root, "var/lib/cmux/guest-kernel-attempts"), `${opts.attempts}\n`);
     return root;
   }
   const cli = (root: string, command: string) => runChild("python3", ["-I", script, command], { env: { ...process.env, CMUX_GUEST_KERNEL_ROOT: root } });
   const attemptsOf = (root: string) => readFileSync(path.join(root, "var/lib/cmux/guest-kernel-attempts"), "utf8").trim();
 
-  test("status reports the running and installed releases and the count", async () => {
-    const root = fakeRoot({ running: "6.1.102", installed: "6.1.191", attempts: 1 });
-    const r = await cli(root, "status");
-    expect(r.status).toBe(0);
-    expect(r.stdout.trim()).toBe("running=6.1.102 installed=6.1.191 attempts=1 on-cmux-kernel=no");
+  test("status reports the releases, the count and an oops (taint flag D) apart from other taints", async () => {
+    const status = async (tainted?: number) => (await cli(fakeRoot({ running: "6.1.102", installed: "6.1.190", attempts: 1, tainted }), "status")).stdout.trim();
+    expect(await status(0)).toBe("running=6.1.102 installed=6.1.190 attempts=1 on-cmux-kernel=no oops=no");
+    expect(await status(512)).toEndWith(" oops=no");
+    expect(await status(128 | 512)).toEndWith(" oops=yes");
+    expect(await status(undefined)).toEndWith(" oops=unknown");
   });
 
   test("booted and boot clear the count on the cmux kernel without switching", async () => {

@@ -179,11 +179,11 @@ export async function switchToGuestKernel(vm: Vm, L: StepLog, release: string): 
 }
 
 /** `cmux-guest-kernel status` as fields; `onCmuxKernel` is the running release equal to the installed one. */
-export function parseGuestKernelStatus(stdout: string): { running?: string; installed?: string; attempts?: number; onCmuxKernel: boolean } {
+export function parseGuestKernelStatus(stdout: string): { running?: string; installed?: string; attempts?: number; onCmuxKernel: boolean; oops?: string } {
   const line = stdout.trim().split("\n").find((l) => l.startsWith("running=")) ?? "";
   const kv = new Map(line.split(" ").map((pair) => [pair.slice(0, pair.indexOf("=")), pair.slice(pair.indexOf("=") + 1)] as const));
   const attempts = kv.has("attempts") ? Number(kv.get("attempts")) : undefined;
-  return { running: kv.get("running"), installed: kv.get("installed"), attempts, onCmuxKernel: kv.get("on-cmux-kernel") === "yes" && kv.get("running") === kv.get("installed") };
+  return { running: kv.get("running"), installed: kv.get("installed"), attempts, onCmuxKernel: kv.get("on-cmux-kernel") === "yes" && kv.get("running") === kv.get("installed"), oops: kv.get("oops") };
 }
 
 /** Problems with a machine's kernel state against the lock; none on a machine that runs the locked kernel. */
@@ -193,5 +193,7 @@ export function guestKernelProblems(lock: GuestKernelLock, statusStdout: string)
   if (status.installed !== lock.version) problems.push(`installed kernel ${status.installed ?? "none"}, lock ${lock.version}`);
   if (status.running !== lock.version) problems.push(`running kernel ${status.running ?? "unknown"}, lock ${lock.version}`);
   if (status.attempts !== 0) problems.push(`switch attempt count ${status.attempts ?? "unreadable"} (want 0 on the cmux kernel)`);
+  // An oops can leave a lock held (an ext4 journal handle hangs every later write), so it fails the check.
+  if (status.oops !== "no") problems.push(`kernel oops since boot: ${status.oops ?? "unreadable"} (dmesg has the trace)`);
   return problems;
 }

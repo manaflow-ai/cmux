@@ -751,6 +751,9 @@ async function finalizeAndCollect(ctx: Ctx): Promise<void> {
   result.fstrim = (await L.step(vm, "fstrim", "fstrim -v / 2>&1 || true")).trim();
   result.pageCache = (await L.step(vm, "drop-cache-warm-bind-path", warmBindPathCommand())).trim();
   await L.step(vm, "machine-health-arm", MACHINE_HEALTH_ARM_COMMAND);
+  // Last, after the heaviest work: the kernel the snapshot keeps has not oopsed on this image.
+  const problems = guestKernelProblems(lock.kernel, await L.step(vm, "kernel-health", `${GUEST_KERNEL_CLI} status`));
+  if (problems.length > 0) throw new Error(`guest kernel before the snapshot: ${problems.join("; ")}`);
 }
 
 /**

@@ -14,7 +14,7 @@ system-shutdown hook cmux-guest-kernel.shutdown resets the virtio devices
 (Linux 6.1 leaves them running across kexec) and systemd jumps to the
 loaded kernel.
 
-  cmux-guest-kernel status       print the running and the installed release
+  cmux-guest-kernel status       print the running and the installed release, the count, any oops
   cmux-guest-kernel load         verify and load the installed kernel (no switch)
   cmux-guest-kernel boot         from the timer: load and switch, once per cold boot
   cmux-guest-kernel switch       load and switch now; ends every process, keeps the disk
@@ -65,6 +65,14 @@ def installed_release():
 
 def running_release():
     return read(f"{ROOT}/proc/sys/kernel/osrelease")
+
+
+def oopsed():
+    """yes when the running kernel has oopsed since boot (taint flag D), no, or unknown."""
+    try:
+        return "yes" if int(read(f"{ROOT}/proc/sys/kernel/tainted")) & (1 << 7) else "no"
+    except (FileNotFoundError, ValueError):
+        return "unknown"
 
 
 def attempts():
@@ -132,7 +140,7 @@ def main(argv):
     command = argv[1] if len(argv) > 1 else "status"
     if command == "status":
         running, installed = running_release(), installed_release()
-        print(f"running={running} installed={installed} attempts={attempts()} on-cmux-kernel={'yes' if running == installed else 'no'}")
+        print(f"running={running} installed={installed} attempts={attempts()} on-cmux-kernel={'yes' if running == installed else 'no'} oops={oopsed()}")
         return 0
     if command == "load":
         load()

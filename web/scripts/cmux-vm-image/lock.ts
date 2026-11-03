@@ -412,7 +412,7 @@ function checkKernel(raw: unknown, problems: string[]): void {
     return;
   }
   const version = str(raw.version);
-  if (!version || !KERNEL_VERSION.test(version)) problems.push("kernel.version: needs an exact stable release such as 6.1.191");
+  if (!version || !KERNEL_VERSION.test(version)) problems.push("kernel.version: needs an exact stable release such as 6.1.190");
   const url = str(raw.url);
   const tarball = url ? KERNEL_ORG_TARBALL.exec(url) : null;
   if (!tarball) problems.push("kernel.url: must be a cdn.kernel.org linux-<version>.tar.xz URL");
