@@ -45,6 +45,8 @@ export const NONCE_VAR = "MACHINE_VAULT_E2E"
 export const KEY_VAR = "ANTHROPIC_API_KEY"
 export const VAULT_CAPABILITY = "machine.vault.pull.v1"
 export const PROMPT = `Run \`printenv ${NONCE_VAR}\` and reply with exactly its output.`
+/** After a SIGKILL, a child's result comes at most this much later. */
+export const KILL_GRACE_MS = 500
 export const CHILD_PATH = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 const NAME = /^ci-vault-\d{1,20}(?:-\d{1,4})?$/
 const USER = /^[a-z_][a-z0-9_-]{0,31}$/
@@ -406,6 +408,11 @@ export async function runE2E(
     if (listed.code !== 0) throw new Failed(`vault ls: exit ${listed.code}`)
     const rows = lastJson(listed.stdout)?.entries
     const existing = new Set<string>((Array.isArray(rows) ? rows : []).map((e: any) => String(e?.name ?? "")))
+    // The nonce's name is this harness's own: an entry already there is another run's (the workflow
+    // serializes dispatches) or a killed run's leftover. Never overwrite it, never delete it.
+    if (existing.has(NONCE_VAR)) {
+      throw new Failed(`${NONCE_VAR} is already in this account's vault (another run, or a killed run's leftover): left as it is; remove it with cmux machine vault rm ${NONCE_VAR} once no run is going`)
+    }
     live()
     vaultAttempted.push(NONCE_VAR)
     const setNonce = await cli(["machine", "vault", "set", NONCE_VAR], `${nonce}\n`)
@@ -554,17 +561,32 @@ export function realDeps(): Deps {
         child.stdin.on("error", () => undefined)
         if (stdin !== undefined) child.stdin.write(stdin)
         child.stdin.end()
-        const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs)
         let hard: ReturnType<typeof setTimeout> | undefined
+        let grace: ReturnType<typeof setTimeout> | undefined
+        // After SIGKILL the result comes at most KILL_GRACE_MS later, even if a descendant (ssh, say) still
+        // holds the pipes open: they are let go and the run answers as killed.
+        const kill = () => {
+          child.kill("SIGKILL")
+          grace ??= setTimeout(() => {
+            child.stdout.destroy()
+            child.stderr.destroy()
+            done(null)
+          }, KILL_GRACE_MS)
+        }
+        const timer = setTimeout(kill, timeoutMs)
         const stop = () => {
           child.kill("SIGTERM")
-          hard = setTimeout(() => child.kill("SIGKILL"), 2_000)
+          hard = setTimeout(kill, 2_000)
         }
         if (signal?.aborted) stop()
         else signal?.addEventListener("abort", stop, { once: true })
+        let settled = false
         const done = (code: number | null) => {
+          if (settled) return
+          settled = true
           clearTimeout(timer)
           if (hard) clearTimeout(hard)
+          if (grace) clearTimeout(grace)
           signal?.removeEventListener("abort", stop)
           resolve({ code, stdout: Buffer.concat(out).toString(binary ? "latin1" : "utf8"), stderr: Buffer.concat(err).toString("utf8") })
         }

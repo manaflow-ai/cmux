@@ -29,6 +29,12 @@ on:
 permissions:
   contents: read
 
+# One run at a time: every run uses the same account's vault and the same MACHINE_VAULT_E2E name. A
+# second dispatch queues; a started run is never cancelled (it would leave its machine and entries).
+concurrency:
+  group: machine-vault-e2e
+  cancel-in-progress: false
+
 jobs:
   e2e:
     if: github.ref == 'refs/heads/feat-cmux-next'

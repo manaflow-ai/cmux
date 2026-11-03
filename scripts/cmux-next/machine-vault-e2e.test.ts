@@ -10,6 +10,7 @@ import {
   type Deps,
   type Options,
   lastJson,
+  realDeps,
   refusal,
   replyText,
   runE2E
@@ -270,6 +271,24 @@ describe("machine-vault-e2e", () => {
     expect(e.cleanup.vaultRemoved).toEqual([NONCE_VAR, KEY_VAR])
     // Nothing the main flow would have done next ran: no join.
     expect(f.calls.some((a) => a.includes("add"))).toBe(false)
+  })
+
+  test("an existing nonce entry is neither overwritten nor removed", async () => {
+    const f = fakes()
+    f.vault.add(NONCE_VAR)
+    const e = await runE2E(opts, env(), f.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain(`${NONCE_VAR} is already in this account's vault`)
+    expect(f.stdins[NONCE_VAR]).toBeUndefined()
+    expect(f.vault.has(NONCE_VAR)).toBe(true)
+    expect(f.calls.some((a) => a.includes("rm"))).toBe(false)
+  })
+
+  test("a killed child whose descendant holds its pipes still answers", async () => {
+    const started = Date.now()
+    const r = await realDeps().run(["/bin/sh", "-c", "sleep 30 & sleep 30"], { env: { PATH: "/usr/bin:/bin" }, timeoutMs: 50 })
+    expect(r.code).toBeNull()
+    expect(Date.now() - started).toBeLessThan(3_000)
   })
 
   test("a failed required cleanup fails the run", async () => {

@@ -104,6 +104,10 @@ class MachineVaultE2EWorkflow(unittest.TestCase):
             self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", text, path)
             self.assertNotIn("auth.json", text, path)
 
+    def test_one_run_at_a_time(self) -> None:
+        self.assertEqual(load()["concurrency"], {"group": "machine-vault-e2e", "cancel-in-progress": "false"})
+        self.assertIn("is already in this account's vault", SCRIPT.read_text(encoding="utf-8"))
+
     def test_no_xtrace(self) -> None:
         for s in steps():
             self.assertNotRegex(s.get("run", ""), r"set -[a-z]*x|set -o xtrace|bash -x")
