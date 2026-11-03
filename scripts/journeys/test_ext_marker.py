@@ -16,15 +16,20 @@ a light fill), encode each frame as a PNG and decode it with the module's own PN
 its own token, every corrupted marker must be refused (never read as another token), and a frame with no marker must
 give none.
 """
+import fcntl
 import hashlib
 import json
 import os
+import pty
+import select
 import random
 import re
 import struct
 import subprocess
 import sys
 import tempfile
+import time
+import termios
 import unittest
 import zlib
 from pathlib import Path
@@ -146,6 +151,28 @@ def tokens(rng, n):
     return sorted(out)
 
 
+def run_in_terminal(args, columns, env=None, timeout=20):
+    """(exit code, output) of the marker program run in a pseudo-terminal COLUMNS wide, as a shell in a pane runs it."""
+    pid, fd = pty.fork()
+    if pid == 0:  # the child: the pty is its terminal
+        os.execve(sys.executable, [sys.executable, "-I", str(HERE / "ext_marker.py"), *args], env or dict(os.environ))
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 24, columns, 0, 0))
+    out, end = b"", time.monotonic() + timeout
+    while time.monotonic() < end:
+        ready, _, _ = select.select([fd], [], [], 0.2)
+        if ready:
+            try:
+                chunk = os.read(fd, 65536)
+            except OSError:  # the program ended and closed the terminal
+                break
+            if not chunk:
+                break
+            out += chunk
+    _, status = os.waitpid(pid, 0)
+    os.close(fd)
+    return os.waitstatus_to_exitcode(status), out.decode().replace("\r\n", "\n")
+
+
 def scan_png(frame, directory, name):
     path = frame.png(Path(directory) / f"{name}.png")
     width, height, rows = M.read_png(path)
@@ -173,23 +200,38 @@ class EncodingTests(unittest.TestCase):
             seen.setdefault(M.token_digest(token), set()).add(token)
         self.assertTrue(all(len(v) == 1 for v in seen.values()), "two tokens with one digest in the corpus")
 
-    def test_the_marker_program_prints_the_text_line_and_the_cells(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            done = subprocess.run([sys.executable, "-I", str(HERE / "ext_marker.py"), "733287-42"],
-                                  capture_output=True, text=True, env=dict(os.environ, COLUMNS="80"), cwd=tmp)
-        self.assertEqual(done.returncode, 0, done.stderr)
-        text, cells = done.stdout.split("\n")[:2]
-        self.assertEqual(text, "733287-42")
+    def test_the_marker_program_prints_the_text_line_and_the_cells_between_blank_lines(self):
+        # The token line, a blank line, the 30 cells, a blank line: no glyph of a text line can reach a marker
+        # pixel row (review of #34071: a glyph in the marker row makes it unreadable).
+        code, out = run_in_terminal(["733287-42"], 80)
+        self.assertEqual(code, 0, out)
+        lines = out.split("\n")
+        self.assertEqual(lines[0], "733287-42")
+        self.assertEqual((lines[1], lines[3]), ("", ""))
+        cells = lines[2]
         got = [tuple(int(v) for v in m) for m in re.findall(r"\x1b\[48;2;(\d+);(\d+);(\d+)m ", cells)]
         self.assertEqual(got, M.marker_cells("733287-42"))
         self.assertTrue(cells.endswith("\x1b[0m"))
         self.assertEqual(len(re.sub(r"\x1b\[[0-9;]*m", "", cells)), M.MARKER_CELLS, "one space per cell")
 
     def test_the_program_refuses_a_pane_too_narrow_for_the_marker(self):
+        code, out = run_in_terminal(["733287-42"], M.MARKER_CELLS - 1)
+        self.assertEqual(code, 3, out)
+        self.assertIn("columns", out)
+
+    def test_the_width_is_the_terminals_not_an_exported_columns(self):
+        # A shell can export COLUMNS that is not the pane's width: the terminal's own size decides.
+        code, out = run_in_terminal(["733287-42"], M.MARKER_CELLS - 1, env=dict(os.environ, COLUMNS="200"))
+        self.assertEqual(code, 3, out)
+        code, out = run_in_terminal(["733287-42"], 80, env=dict(os.environ, COLUMNS="10"))
+        self.assertEqual(code, 0, out)
+
+    def test_the_program_refuses_an_output_that_is_no_terminal(self):
         done = subprocess.run([sys.executable, "-I", str(HERE / "ext_marker.py"), "733287-42"],
-                              capture_output=True, text=True, env=dict(os.environ, COLUMNS=str(M.MARKER_CELLS - 1)))
-        self.assertEqual(done.returncode, 3)
-        self.assertIn("columns", done.stdout + done.stderr)
+                              capture_output=True, text=True, env=dict(os.environ, COLUMNS="80"))
+        self.assertEqual(done.returncode, 4, done.stdout)
+        self.assertIn("terminal", done.stdout + done.stderr)
+        self.assertNotIn("\x1b[48;2;", done.stdout)
 
     def test_the_program_refuses_a_token_it_cannot_mark(self):
         for bad in ("", "a b", "x" * 65, "café"):
@@ -247,6 +289,59 @@ class PngReaderTests(unittest.TestCase):
             path.write_bytes(b"not a png")
             with self.assertRaises(ValueError):
                 M.read_png(path)
+
+    def test_a_cut_or_damaged_png_is_a_value_error(self):
+        # Review of #34071 at 1ac0a680ca6 (finding 1): struct.error and zlib.error escaped the driver's handler.
+        frame = Frame(16, 8, (0, 0, 0))
+        with tempfile.TemporaryDirectory() as tmp:
+            good = frame.png(Path(tmp) / "good.png").read_bytes()
+            ihdr_end = 8 + 8 + 13 + 4
+            idat = good.index(b"IDAT") - 4
+            size = struct.unpack(">I", good[idat:idat + 4])[0]
+            cases = {
+                "cut inside IHDR": good[:8 + 8 + 5],
+                "cut inside IDAT": good[:idat + 8 + size // 2],
+                "damaged IDAT data": good[:idat + 8] + b"\xff" * size + good[idat + 8 + size:],
+                "no IDAT": good[:ihdr_end] + good[idat + 12 + size:],
+                "a chunk longer than the file": good[:idat] + struct.pack(">I", 10 ** 6) + good[idat + 4:],
+            }
+            for name, data in cases.items():
+                with self.subTest(case=name):
+                    path = Path(tmp) / "bad.png"
+                    path.write_bytes(data)
+                    with self.assertRaises(ValueError):
+                        M.read_png(path)
+
+    def test_a_damaged_snapshot_fails_its_check_and_the_journey_not_the_driver(self):
+        sys.path.insert(0, str(HERE.parent / "cmux-next"))
+        import driver as D
+
+        class App:
+            snapshot_window = None
+
+            def snapshot(self, path):
+                frame = Frame(16, 8, (0, 0, 0))
+                data = frame.png(path).read_bytes()
+                at = data.index(b"IDAT") + 4
+                Path(path).write_bytes(data[:at] + b"\xff" * 12 + data[at + 12:])
+                return Path(path)
+
+            def panes(self):
+                return []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            spec = {"id": "damaged", "steps": [{"do": "expect", "all": [{"frame_marker": "ok-1-42"}], "timeout": 0.1}]}
+            saved, D.FRAME_GRACE = getattr(D, "FRAME_GRACE", None), 0.3
+            try:
+                journey = D.Journey(spec, App(), tmp, D.now() + 60, 1.0)
+                journey.clip_frames = lambda: 0  # the clip scales frames with macOS sips; this test runs anywhere
+                result = journey.run()
+            finally:
+                if saved is not None:
+                    D.FRAME_GRACE = saved
+        self.assertEqual(result["status"], "fail", result)
+        check = next(e for e in result["evidence"] if e["check"] == "frame_marker")
+        self.assertIn("does not decompress", json.dumps(check))
 
 
 class CorpusTests(unittest.TestCase):
@@ -334,6 +429,60 @@ class CorpusTests(unittest.TestCase):
                            rng.randint(1, cell_h), color)
             markers = M.scan_markers(frame.width, frame.height, [bytes(r) for r in frame.rows])
             self.assertEqual(markers, [], n)
+
+
+class ReadRuleTests(unittest.TestCase):
+    """Each rule that keeps a cut, covered or blended marker from reading (review of #34071 at 1ac0a680ca6, finding 3:
+    four of them could be removed with all 13 tests still passing)."""
+
+    def frame(self):
+        return Frame(400, 60, (0, 0, 0))
+
+    def scan(self, frame):
+        with tempfile.TemporaryDirectory() as tmp:
+            return scan_png(frame, tmp, "rule")
+
+    def test_rows_that_decode_to_two_markers_are_one_unreadable_marker(self):
+        frame = self.frame()
+        draw_marker(frame, "first-234567-42", 8, 10, 8, 9)
+        draw_marker(frame, "second-234567-42", 8, 19, 8, 9)  # the same x and cell: one band of 18 rows
+        got = self.scan(frame)
+        self.assertEqual(len(got), 1, got)
+        self.assertFalse(got[0]["ok"], got)
+        self.assertIn("different markers", got[0]["why"])
+
+    def test_a_data_cell_one_pixel_wider_is_unreadable(self):
+        frame = self.frame()
+        cells = M.marker_cells("ok-234567-42")
+        x = 8
+        for i, color in enumerate(cells):
+            w = 9 if i == 6 else 8  # cell 6 (a data cell) one pixel wider; the cells after it shift by 1 px
+            frame.rect(x, 10, w, 17, color)
+            x += w
+        got = self.scan(frame)
+        self.assertEqual(len(got), 1, got)
+        self.assertFalse(got[0]["ok"], got)
+        self.assertIn("cell 6", got[0]["why"])
+
+    def test_a_band_under_six_pixel_rows_is_no_marker_and_six_is_one(self):
+        # The rule's numbers, not the module's constant: a test that reads MIN_ROWS follows any change of it.
+        frame = self.frame()
+        draw_marker(frame, "ok-234567-42", 8, 10, 8, 5)
+        self.assertEqual(self.scan(frame), [])
+        frame = self.frame()
+        draw_marker(frame, "ok-234567-42", 8, 10, 8, 6)
+        got = self.scan(frame)
+        self.assertEqual([m["digest"] for m in got if m["ok"]], [M.token_digest("ok-234567-42")])
+
+    def test_start_runs_of_unequal_width_are_no_marker(self):
+        frame = self.frame()
+        cells = M.marker_cells("ok-234567-42")
+        x = 8
+        for i, color in enumerate(cells):
+            w = 9 if i == 2 else 8  # the START's third run one pixel wider; every cell after it still 8 px
+            frame.rect(x, 10, w, 17, color)
+            x += w
+        self.assertEqual(self.scan(frame), [])
 
 
 class RealFrameTests(unittest.TestCase):
