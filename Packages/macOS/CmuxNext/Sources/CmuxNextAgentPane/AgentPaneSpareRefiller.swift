@@ -37,11 +37,14 @@ public final class AgentPaneSpareRefiller {
     }
 
     /// The pool's own quiet-input warm ran: no open is pending any more.
-    public func settled() {
-        guard isOpening else { return }
+    /// - Returns: Whether an open was pending.
+    @discardableResult
+    public func settled() -> Bool {
+        guard isOpening else { return false }
         generation &+= 1
         isOpening = false
         timer.cancel()
+        return true
     }
 
     /// A spare was handed out: its replacement once the open settled. A later open restarts the wait (a rapid pair

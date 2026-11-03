@@ -80,9 +80,8 @@ enum DebugNewTab {
     private static func state(_ services: AppServices) async -> JSONValue {
         let pool = services.newTabSpares
         let omnibar = NewTabPage.omnibar(services, excluding: nil)
-        let window = pool.spare.map { JSONValue.number(Double($0.window)) } ?? .null
         // Ready: the page asked for its handshake, so it is loaded and rendered.
-        let parked = pool.spares.map { (["window": window, "ready": .bool($0.model.hasHandshake)] as [String: JSONValue], WebContentProcess.identifier(of: $0.webView)) }
+        let parked = pool.spares.map { (["window": $0.window.map { .number(Double($0.windowNumber)) } ?? .null, "ready": .bool($0.model.hasHandshake)] as [String: JSONValue], WebContentProcess.identifier(of: $0.webView)) }
         var report: [String: JSONValue] = [
             "openings": .array(pool.openings.map(opening)),
             "capacity": .number(Double(pool.capacity)),

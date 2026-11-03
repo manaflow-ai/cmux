@@ -80,7 +80,7 @@ final class NewTabSparePool {
     /// Makes the native spare now, parked in the target window (no-op when the setting is off, a
     /// spare is parked or no window is the target). The warm timer calls it; tests call it directly.
     func warmNative() {
-        guard wantsNative, nativeSpare == nil, let content = target?.contentView else { return }
+        guard wantsNative, nativeSpare == nil, !pressured, let content = target?.contentView else { return }
         park(in: content)
         let host = BenchSpans.measure("pool.makeNativeSpare") {
             NativeNewTabView.hosted(NativeNewTabModel(page: NewTabPage.sparePage(services), actions: NativeNewTabActions()))
@@ -351,6 +351,7 @@ final class NewTabSparePool {
     func dropAll() {
         nativeSpare?.removeFromSuperview()
         nativeSpare = nil
+        awaitingPaint.removeAll()
         for view in slot.dropAll() {
             covers.forget(view)
             view.removeFromSuperview()
@@ -400,7 +401,7 @@ final class NewTabSparePool {
     private var unparked: AgentPaneView? { slot.all.first { $0.superview == nil } }
 
     private func warmNow() {
-        refills.settled() // the quiet-input backstop also ends an open whose page never reported its frame
+        if refills.settled() { schedulePrepare() } // the backstop ends an open whose page never reported its frame
         if let inputMonitor { NSEvent.removeMonitor(inputMonitor) }
         inputMonitor = nil
         warmNative()
@@ -412,7 +413,7 @@ final class NewTabSparePool {
             BenchSpans.measure("pool.park") { parking.addSubview(view) }
             schedulePrepare()
             snapshotParked(view)
-            if slot.shouldWarm { scheduleWarm() }
+            if slot.shouldWarm, usedThisSession { scheduleWarm() }
             return
         }
         guard webKit.state == .ready else { return webKit.probe { [weak self] in self?.scheduleWarm() } }
@@ -428,7 +429,7 @@ final class NewTabSparePool {
         slot.parked(view)
         snapshotParked(view)
         schedulePrepare()
-        if slot.shouldWarm { scheduleWarm() } // the second once input is quiet: a parked page may report no paint until shown
+        if slot.shouldWarm, usedThisSession { scheduleWarm() } // a launch loads one page: the second's load never meets the first open
     }
 
     private func watchMemoryPressure() {
