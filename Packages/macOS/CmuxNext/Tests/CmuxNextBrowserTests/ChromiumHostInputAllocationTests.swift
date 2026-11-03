@@ -65,11 +65,8 @@ struct ChromiumHostInputAllocationTests {
         print("CEF-HOST-INPUT-ALLOCS per event, cmux's own: " + counts.map { "\($0.0) \(per($0.1))" }.joined(separator: ", ")
               + " (\(Self.events) events each; controls: frame loop \(frameLoop), AppKit reads mouse \(mouseReads), "
               + "key \(keyReads), scroll \(wheelReads); sink \(sink & 1))")
-        // A cost of the path itself repeats on every event (at least `events` allocations in a count); a control can
-        // differ from its loop by a few one-time allocations either way (fleet: -4 of 500 on a send). So the bound is
-        // under half an allocation per event: any per-event allocation fails, a one-time difference does not.
         for (name, count) in counts {
-            #expect(count < Self.events / 2, "a forwarded \(name) made \(per(count)) allocations per event of its own")
+            #expect(count == 0, "a forwarded \(name) made \(per(count)) allocations per event of its own")
         }
     }
 
