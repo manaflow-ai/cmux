@@ -17,6 +17,7 @@ final class WindowKeyFamily {
     private weak var window: NSWindow?
     private let environment: WindowKeyEnvironment
     private let views = NSHashTable<WindowMaterialView>.weakObjects()
+    private let walks = NSHashTable<WindowKeyStateWalk>.weakObjects()
     private var observers: [MainActorObservation] = []
     /// The keyboard left the window's family after the family held it.
     private(set) var isInactive = false
@@ -58,10 +59,16 @@ final class WindowKeyFamily {
         if observers.isEmpty { startObserving() }
     }
 
+    /// The content's key-state walk gate: told at each check, after the notices of the change posted.
+    func add(_ walk: WindowKeyStateWalk) {
+        walks.add(walk)
+        if observers.isEmpty { startObserving() }
+    }
+
     func remove(_ view: WindowMaterialView) {
         views.remove(view)
-        // The last view left: no one reads the state, so no notice should cost a check.
-        if views.allObjects.isEmpty { observers.removeAll() }
+        // The last reader left: no notice should cost a check.
+        if views.allObjects.isEmpty, walks.allObjects.isEmpty { observers.removeAll() }
     }
 
     private func startObserving() {
@@ -95,15 +102,15 @@ final class WindowKeyFamily {
         environment.nextTurn { [weak self] in
             guard let self else { return }
             self.checkPending = false
+            for walk in self.walks.allObjects { walk.keyMoved() }
             guard self.isObserving, let window = self.window else { return }
             self.checks += 1
             let key = self.environment.keyWindow()
             // Chromium can make a page window key before the fork places it as this window's
             // child (a browser-tab workspace switch): a parentless page window acts for the main
             // window, as `KeyWindowRole` resolves it.
-            let parentlessPage = key.map { $0.parent == nil && $0.sheetParent == nil && Self.isChromiumPageWindow($0) } ?? false
             let holds = WindowMaterialView.family(of: window, holds: key, owner: { $0.parent ?? $0.sheetParent })
-                || (parentlessPage && window.isMainWindow)
+                || key.map { Self.isParentlessPage($0) && window.isMainWindow } == true
             let active = self.environment.isAppActive()
             let inactive = WindowMaterialView.looksInactive(appActive: active, familyHoldsKey: holds,
                                                             familyHeldKey: self.familyHeldKey)
@@ -129,8 +136,19 @@ final class WindowKeyFamily {
     }
 
     /// `CefNSWindow`: a Chromium page window.
-    private static func isChromiumPageWindow(_ window: NSWindow) -> Bool {
+    static func isChromiumPageWindow(_ window: NSWindow) -> Bool {
         guard let pageClass = NSClassFromString("CefNSWindow") else { return false }
         return window.isKind(of: pageClass)
+    }
+
+    /// A page window Chromium made key before the fork placed it as a window's child: it acts for the main window.
+    static func isParentlessPage(_ key: NSWindow, isPage: @MainActor (NSWindow) -> Bool = isChromiumPageWindow) -> Bool {
+        key.parent == nil && key.sheetParent == nil && isPage(key)
+    }
+
+    /// Whether `key` is `window` or one of its own page windows (a parentless one acting for the main window); a sheet or
+    /// a panel is not (``WindowKeyStateWalk``).
+    static func holdsAsPage(_ key: NSWindow, window: NSWindow, isPage: @MainActor (NSWindow) -> Bool) -> Bool {
+        key === window || (key.parent === window && isPage(key)) || (isParentlessPage(key, isPage: isPage) && window.isMainWindow)
     }
 }

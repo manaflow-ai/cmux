@@ -12,8 +12,8 @@ import CmuxNextWakeups
 /// window becomes key the parked page moves there (a reparent, no reload).
 /// Opening the new tab page in any window adopts it in the same main-actor
 /// turn (no load, no React mount on the open path); the next spare starts
-/// once input has been quiet for ``idleInput``, so making a web view never
-/// lands in the user's typing. The spare waits at the size of the pane
+/// ``openSettle`` after a handout (else once input is quiet for ``idleInput``),
+/// so making a web view never lands in an open's frames (nor, when idle, in typing). The spare waits at the size of the pane
 /// content Cmd-T fills (the target window's focused pane), refitted when a
 /// pane there changes size or focus, so the adoption changes no size: WebKit
 /// shows it at once at its final layout (hqacp-v2: a page parked at the
@@ -83,9 +83,7 @@ final class NewTabSparePool {
     /// cold). The pane's view for `key` claims it (``claimNative(_:)``); the next spare follows when input is quiet.
     func takeNative(for key: String) -> NativeNewTabHostingView? {
         guard let host = nativeSpare else { return nil }
-        // Re-park the replacement in the next main-actor turn. Waiting for the idle-input
-        // debounce here leaves the next Cmd-T/Cmd-N with no warm page at all.
-        defer { scheduleWarmImmediately() }
+        defer { scheduleWarm(afterOpen: true) }
         nativeSpare = nil
         host.removeFromSuperview()
         // One opening at a time: a spare an earlier open took but no pane claimed (its tab closed first) goes.
@@ -260,10 +258,8 @@ final class NewTabSparePool {
         observeWindows()
         if target == nil, let window { retarget(window) }
         guard let view = slot.take() else { return nil }
-        // Hand the parked page out now, then start making its replacement without waiting for
-        // the user's input to go quiet. The replacement is background work on the next turn;
-        // a later New Tab click therefore does not fall back to a cold mount.
-        defer { if refill == .now { scheduleWarmImmediately() } else { scheduleWarm() } }
+        // Hand the parked page out now; its replacement comes once this open settled (`scheduleWarm(afterOpen:)`).
+        defer { scheduleWarm(afterOpen: refill == .now) }
         snapshotGeneration &+= 1
         view.redraw.newTabFrameCaptureChanged = nil
         view.isHidden = false
@@ -368,11 +364,17 @@ final class NewTabSparePool {
 
     // MARK: Warming
 
-    /// Arms the quiet-input deadline; each key or click pushes it back.
-    private func scheduleWarm() {
+    /// Arms the quiet-input deadline; each key or click pushes it back. `afterOpen` (a handout): ``openSettle`` after it,
+    /// unmoved by input, never in the open's frames, where a web view and a Chromium browser (10-40 ms of main-thread
+    /// tasks) dropped 4-17 refreshes per Cmd-T (#32910). Chrome makes its spare renderer after the navigation too.
+    private func scheduleWarm(afterOpen: Bool = false) {
         let web = services.agentTabs.canHostChat && (slot.shouldWarm || unparked != nil)
         guard target != nil, web || (wantsNative && nativeSpare == nil) else { return }
         watchMemoryPressure()
+        if afterOpen, !refillAfterOpen {
+            refillAfterOpen = true
+            return warmTimer.schedule(after: Self.openSettle) { @MainActor [weak self] in self?.warmNow() }
+        }
         if inputMonitor == nil {
             inputMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .scrollWheel]) {
                 [weak self] event in
@@ -383,26 +385,21 @@ final class NewTabSparePool {
         armWarmTimer()
     }
 
-    /// Replaces a handed-out spare on the next main-actor turn. A handout is a background
-    /// rewarm boundary, not an idle-input boundary: the pool must have another fully rendered
-    /// composer ready for the next New Tab or new workspace.
-    private func scheduleWarmImmediately() {
-        let web = services.agentTabs.canHostChat && (slot.shouldWarm || unparked != nil)
-        guard target != nil, web || (wantsNative && nativeSpare == nil) else { return }
-        watchMemoryPressure()
-        warmTimer.schedule(after: .zero) { @MainActor [weak self] in self?.warmNow() }
-    }
+    /// From a handout to its replacement (and the launch warm's quiet input).
+    static let openSettle: Duration = .milliseconds(250)
+    private var refillAfterOpen = false
 
     /// Whether this run has warmed a spare yet: the first one starts at once, before the person
     /// types (a cold launch's first Cmd-N then finds a page that is loading or loaded, cx-ec99).
     private var warmedOnce = false
 
     private func armWarmTimer() {
+        guard !refillAfterOpen else { return } // the handout's replacement keeps its time (`scheduleWarm(afterOpen:)`)
         // Only the launch warm comes early, after the first frame: a `take()` that found nothing
         // (it set `usedThisSession`) must not make a web view in the person's keystroke.
         let launch = !warmedOnce && !usedThisSession
         warmedOnce = warmedOnce || launch
-        warmTimer.schedule(after: launch ? .milliseconds(250) : Self.idleInput) { @MainActor [weak self] in self?.warmNow() }
+        warmTimer.schedule(after: launch ? Self.openSettle : Self.idleInput) { @MainActor [weak self] in self?.warmNow() }
     }
 
     /// A recycled spare not yet back in the window.
@@ -414,6 +411,7 @@ final class NewTabSparePool {
     private func warmNow() {
         if let inputMonitor { NSEvent.removeMonitor(inputMonitor) }
         inputMonitor = nil
+        refillAfterOpen = false
         warmNative()
         guard services.agentTabs.canHostChat else { return }
         if let view = unparked, let content = target?.contentView {

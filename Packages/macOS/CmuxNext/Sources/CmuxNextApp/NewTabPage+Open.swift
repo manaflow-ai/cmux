@@ -106,22 +106,18 @@ extension NewTabPage {
         fillPaletteActions(services)
     }
 
-    /// Lists the Commands palette's actions (30-50 ms on the main thread) for the New Tab pages that
-    /// show without them, on the frame after the one that shows the page, so Cmd-T and Cmd-N never
-    /// wait for them. The web pages take them in place (``AgentPaneView/refreshNewTabActions(_:)``);
-    /// a page with no view yet (Cmd-N's first page before its pane shows it) takes them into its
-    /// stored page, so the view made from it later lists them. One pass per call, no repeat.
+    /// Lists the Commands palette's actions for the New Tab pages that show without them, as background work from
+    /// the next frame on (``AgentPaneNewTabActions``: a slice of actions per task, yielding to input), so Cmd-T and
+    /// Cmd-N never wait for them and the open's frames never hold the whole list (PACING TRIAGE #32910). The web pages
+    /// take them in place (``AgentPaneView/refreshNewTabActions(_:)``); a page with no view yet (Cmd-N's first page
+    /// before its pane shows it) takes them into its stored page, so the view made from it later lists them.
     static func fillPaletteActions(_ services: AppServices) {
-        closeFrame.scheduleFrame {
-            closeFrame.scheduleFrameFromMain { [weak services] in
-                guard let services else { return }
-                let tabs = services.agentTabs
-                let views = tabs.newTabPages.keys.compactMap { tabs.views[$0] }.filter { $0.model.newTab?.omnibar.actions.isEmpty == true }
-                let unshown = tabs.newTabPages.filter { tabs.views[$0.key] == nil && $0.value.page.omnibar.actions.isEmpty }.map(\.key)
-                guard !views.isEmpty || !unshown.isEmpty else { return }
-                let actions = paletteActions(services)
-                for view in views { view.refreshNewTabActions(actions) }
-                for key in unshown { tabs.newTabPages[key]?.page.omnibar.actions = actions }
+        let tabs = services.agentTabs
+        let lacking = { (key: String) in tabs.views[key].map { $0.model.newTab?.omnibar.actions.isEmpty == true } ?? (tabs.newTabPages[key]?.page.omnibar.actions.isEmpty == true) }
+        // Checked at the listing's first task: Cmd-N's page joins `newTabPages` after this call (`firstPageNewTab`).
+        services.newTabActions.list(wanted: { tabs.newTabPages.keys.contains(where: lacking) }) { listed in
+            for key in tabs.newTabPages.keys where lacking(key) {
+                if let view = tabs.views[key] { view.refreshNewTabActions(listed) } else { tabs.newTabPages[key]?.page.omnibar.actions = listed.actions }
             }
         }
     }
