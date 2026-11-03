@@ -744,9 +744,16 @@ impl Hub {
         run: &RunRecord,
         activity: &str,
     ) -> Result<(), RpcError> {
-        let prefix = format!("{activity}-");
+        // Descendants use explicit separators. A plain prefix would cancel a sibling
+        // such as `test-lint` when stopping `test`.
+        let child_prefixes = ["-prompt-", "-task-", "-nudge-", "-remote-"];
         for child in run.activities.values().filter(|child| {
-            child.outcome.is_none() && (child.id == activity || child.id.starts_with(&prefix))
+            child.outcome.is_none()
+                && (child.id == activity
+                    || child_prefixes.iter().any(|suffix| {
+                        child.id.starts_with(activity)
+                            && child.id[activity.len()..].starts_with(suffix)
+                    }))
         }) {
             match &child.child {
                 Child::Agent { session_id, prompt_id, host } => {
