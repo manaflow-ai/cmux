@@ -26,9 +26,10 @@
  *      never a pass).
  *   5. Cleanup in `finally` and on SIGINT/SIGTERM, most important first: the machine revoke (the
  *      join's machine id directly, then confirmed on the list), the vault entries this run set, the
- *      token file, the install revoke, the sign-out. A cleanup step it cannot confirm fails the run.
- *      After a cancel the whole cleanup ends within CANCEL_BUDGET_MS (GitHub's grace is SIGINT, then
- *      SIGTERM 7.5 s later, then SIGKILL), every request and command on what is left of it.
+ *      install revoke, the sign-out, then the token file. A cleanup step it cannot confirm fails the
+ *      run. After a cancel the whole cleanup ends by CANCEL_BUDGET_MS (GitHub's grace is SIGINT, then
+ *      SIGTERM 7.5 s later, then SIGKILL): every request and command on what is left of it, less a
+ *      killed child's grace; a step with no time left fails, and so does a pass still going then.
  *      Then a secret scan of the disposable home (skipped after a cancel) and the output.
  * Exit 0 when the evidence says pass, 1 otherwise, 2 for a refused invocation.
  */
@@ -223,13 +224,23 @@ export async function runE2E(
   }
   // A cancel sets one absolute deadline, CANCEL_BUDGET_MS after it, aborts every main-flow request and
   // stops every main-flow child. Every later request and command (cleanup's own) ends by the deadline:
-  // `budget(cap)` is `cap` before a cancel and what is left of the deadline (at most `cap`) after it.
+  // `budget(cap, grace)` is `cap` before a cancel; after it, what is left of the deadline less `grace`
+  // (at most `cap`), and a step with no time left is not started: it fails instead. A command's grace is
+  // KILL_GRACE_MS, the time its result may take after the SIGKILL its timeout sends.
   let cancelled = false
   let cancelAt = 0
   let cancelBy = Infinity
   const stopRequests = new AbortController()
   const left = () => cancelBy - deps.now()
-  const budget = (cap: number) => (cancelled ? Math.max(250, Math.min(cap, left())) : cap)
+  const budget = (cap: number, grace = 0) => {
+    if (!cancelled) return cap
+    const ms = Math.min(cap, left() - grace)
+    if (ms <= 0) throw new Failed("cleanup ran out of the cancel deadline")
+    return ms
+  }
+  // Resolves on the cancel.
+  let wake: () => void = () => undefined
+  const woken = new Promise<void>((resolve) => (wake = resolve))
   /** True when `work` settles within `ms`; the timer is dropped either way. */
   const within = async (work: Promise<unknown>, ms: number) => {
     const timer = new AbortController()
@@ -261,7 +272,7 @@ export async function runE2E(
     else live()
     const work = deps.run([opts.cmux, ...args, "--cloud-token-file", tokenFile], {
       env: cliEnv,
-      timeoutMs: own ? budget(timeoutMs) : timeoutMs,
+      timeoutMs: own ? budget(timeoutMs, KILL_GRACE_MS) : timeoutMs,
       ...(stdin === undefined ? {} : { stdin }),
       signal: own ?? stopChildren.signal
     })
@@ -282,7 +293,7 @@ export async function runE2E(
   const userRun = async (args: string[], timeoutMs = 60_000, binary = false, own?: AbortSignal) => {
     if (own) ownCheck(own)
     else live()
-    const work = deps.run(asUser(args), { env: { PATH: CHILD_PATH }, timeoutMs: own ? budget(timeoutMs) : timeoutMs, binary, signal: own ?? stopChildren.signal })
+    const work = deps.run(asUser(args), { env: { PATH: CHILD_PATH }, timeoutMs: own ? budget(timeoutMs, KILL_GRACE_MS) : timeoutMs, binary, signal: own ?? stopChildren.signal })
     const r = await (own ? work : track(work))
     if (!binary) childText.push(r.stdout, r.stderr)
     return r
@@ -351,8 +362,12 @@ export async function runE2E(
     call(`${opts.origin}${path}`, { method, headers: { authorization: `Bearer ${await accessToken(own)}` } }, own)
   /** The token file, fresh: the CLI reads it on each command. */
   const writeToken = async (own?: AbortSignal) => {
-    deps.writeFile(tokenFile, `${await accessToken(own)}\n`)
+    const token = await accessToken(own)
+    // An interrupted cleanup pass never writes it again: the pass that replaced it may have removed it.
+    if (own) ownCheck(own)
+    deps.writeFile(tokenFile, `${token}\n`)
     tokenWritten = true
+    evidence.cleanup.tokenFileRemoved = false
   }
 
   /** Revokes this run's machine: the id the join printed directly, then whatever the list still shows
@@ -401,14 +416,13 @@ export async function runE2E(
     }
   }
 
-  /** One cleanup pass, most important first: the machine, the vault, the token file, the install, the
+  /** One cleanup pass, most important first: the machine, the vault, the install, the
    * sign-out. Every step is required: what it cannot confirm goes in `found` and fails the run. A pass
    * can run again (a cancel interrupts a running one and starts a fresh one on its deadline). */
   const cleanupPass = async (own: AbortSignal, found: string[]) => {
     const fail = (e: unknown, what: string) => found.push(e instanceof Failed ? e.message : what)
     // The user's processes go, alongside the rest.
-    const killing = deps
-      .run(["sudo", "-n", "-u", opts.user, "--", "/bin/kill", "-KILL", "-1"], { env: { PATH: CHILD_PATH }, timeoutMs: budget(5_000), signal: own })
+    const killing = (async () => deps.run(["sudo", "-n", "-u", opts.user, "--", "/bin/kill", "-KILL", "-1"], { env: { PATH: CHILD_PATH }, timeoutMs: budget(5_000, KILL_GRACE_MS), signal: own }))()
       .catch(() => undefined)
     // Wait for what the main flow had in flight, so nothing it started lands after this looks. A cancel
     // after a vault write or the registration started but before it answered left `stack` and `install`
@@ -435,14 +449,6 @@ export async function runE2E(
         }
       }
     }
-    if (tokenWritten && !evidence.cleanup.tokenFileRemoved) {
-      try {
-        deps.removeFile(tokenFile)
-        evidence.cleanup.tokenFileRemoved = true
-      } catch {
-        found.push("could not remove the token file")
-      }
-    }
     if (install && stack && evidence.cleanup.installRevoked !== true) {
       evidence.cleanup.installRevoked = await op("install.revoke", { install }, own).then(() => true, () => false)
       if (!evidence.cleanup.installRevoked) found.push("could not revoke the run's cmux install")
@@ -459,6 +465,15 @@ export async function runE2E(
   }
 
   // The pass running now, its stop and its findings; only the last pass's findings count.
+  const removeToken = (found: string[]) => {
+    try {
+      deps.removeFile(tokenFile)
+      evidence.cleanup.tokenFileRemoved = true
+    } catch {
+      evidence.cleanup.tokenFileRemoved = false
+      found.push("could not remove the token file")
+    }
+  }
   let current: Promise<void> = Promise.resolve()
   let passStop = new AbortController()
   let passFound: string[] = []
@@ -473,12 +488,25 @@ export async function runE2E(
       stopChildren.abort()
       startPass()
       // A cancel during a pass replaces `current` with a fresh pass: wait until none replaced the one awaited.
+      // After a cancel, the wait ends at the deadline whatever is still running: that pass is stopped and
+      // the run fails.
       let awaited: Promise<void>
+      let late = false
       do {
         awaited = current
-        await awaited
+        if (!cancelled) await Promise.race([awaited.catch(() => undefined), woken])
+        else if (!(await within(awaited, Math.max(0, left())))) {
+          passStop.abort()
+          late = true
+          break
+        }
       } while (awaited !== current)
-      problems.push(...passFound)
+      const found = [...passFound]
+      if (late) found.push("cleanup did not finish by the cancel deadline")
+      // The token file goes once every pass is over or stopped (a stopped pass writes it no more), so no
+      // pass can write it after its removal.
+      if (tokenWritten) removeToken(found)
+      problems.push(...found)
       if (cancelled) evidence.cleanup.cancelCleanupMs = deps.now() - cancelAt
     })())
   /** A signal: one deadline, CANCEL_BUDGET_MS from now. Stop the main flow; a cleanup pass already running
@@ -494,8 +522,9 @@ export async function runE2E(
       if (cleaning) {
         const old = current
         passStop.abort()
-        current = within(old, Math.min(1_000, left())).then(() => startPass())
+        current = within(old, Math.max(0, Math.min(1_000, left()))).then(() => startPass())
       }
+      wake()
     }
     return cleanup()
   }

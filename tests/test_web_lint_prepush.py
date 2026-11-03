@@ -258,6 +258,78 @@ class WebLintPrePushTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("web lint", result.stderr)
 
+    # 385cb09a747 and c0230efd501 changed only CmuxNext Swift files, adding a SwiftUI field without
+    # .focusEffectDisabled(). webviews' check:text-focus reads those files too, but no webviews trigger matched a
+    # Swift-only push, so the hook ran nothing and feat-cmux-next's `web lint` went red after the push.
+    TEXT_FOCUS = "scripts/cmux-next/check-text-focus-rings.py"
+    SWIFT_SOURCE = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Field.swift"
+
+    def text_focus_fixture(self):
+        """webviews' check gains the real check:text-focus piece (the real script) and a CmuxNext Swift tree,
+        seeded on origin; returns the log of the other pieces, which must not run for a Swift-only push."""
+        target = self.repo / self.TEXT_FOCUS
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(SOURCE / self.TEXT_FOCUS, target)
+        log = self.root / "pieces.log"
+        self.write("webviews/package.json", WEBVIEWS_PACKAGE.replace(
+            '"sh check-lanes.sh && sh check-format.sh"',
+            '"python3 ../scripts/cmux-next/run-check-pieces.py", "check:pieces": '
+            '"sh check-lanes.sh && bun run check:text-focus && sh check-format.sh", '
+            '"check:text-focus": "python3 ../scripts/cmux-next/check-text-focus-rings.py"'))
+        self.write("webviews/check-lanes.sh", f"#!/bin/sh\necho lanes >> {log}\n" + CHECK_LANES)
+        self.write(self.SWIFT_SOURCE, 'struct Field {\n    var body: some View {\n'
+                   '        TextField("Name", text: $name)\n            .focusEffectDisabled()\n    }\n}\n')
+        self.commit("text-focus piece")
+        seeded = self.push(CMUX_WEB_LINT_SKIP_REASON="fixture: seed the text-focus piece on origin first")
+        self.assertEqual(seeded.returncode, 0, seeded.stderr)
+        return log
+
+    def test_a_swift_only_push_with_a_focus_ring_field_is_refused(self):
+        log = self.text_focus_fixture()
+        before = self.remote_head()
+        self.write(self.SWIFT_SOURCE, 'struct Field {\n    var body: some View {\n'
+                   '        TextField("Name", text: $name)\n    }\n}\n')
+        self.commit("a field with a focus ring")
+
+        for env in ({}, LIGHT_HOST):
+            with self.subTest(env=env):
+                result = self.push(**env)
+
+                self.assertNotEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.remote_head(), before, "the field with a ring must not reach origin")
+                self.assertIn("check-text-focus-rings.py", result.stderr)
+                self.assertIn(f"{self.SWIFT_SOURCE}:3", result.stderr, "must name the field")
+                self.assertFalse(log.exists(), "a Swift-only push runs only the pieces that read Swift")
+
+    def test_a_clean_swift_only_push_runs_only_the_pieces_that_read_it(self):
+        log = self.text_focus_fixture()
+        self.write(self.SWIFT_SOURCE, 'struct Field {\n    var body: some View {\n'
+                   '        SecureField("Key", text: $key)\n            .focusEffectDisabled()\n    }\n}\n')
+        self.commit("a field without a ring")
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+
+        dry = subprocess.run([sys.executable, "scripts/web_lint_prepush.py", "--dry-run", "--base", "HEAD~1",
+                              "--head", head], cwd=self.repo, env=self.env, text=True, capture_output=True)
+        result = self.push()
+
+        self.assertEqual(dry.returncode, 0, dry.stderr)
+        self.assertEqual(dry.stdout, "webviews: python3 ../scripts/cmux-next/check-text-focus-rings.py\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertRegex(result.stderr, r"web lint passed in \d+\.\ds \(webviews\)")
+        self.assertFalse(log.exists(), "a Swift-only push runs only the pieces that read Swift")
+        self.assertEqual(self.remote_head(), head)
+
+    def test_a_swift_file_no_piece_reads_runs_no_lint(self):
+        self.text_focus_fixture()
+        self.write("Packages/macOS/CmuxNext/Sources/CmuxNextApp/Notes.md", "TextField(\n")
+        self.write("Packages/Shared/Other/Field.swift", 'TextField("Name", text: $name)\n')
+        self.commit("files the text-focus check does not read")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("web lint", result.stderr)
+
     def test_a_lint_error_in_the_pushed_commit_is_refused_when_the_working_tree_has_the_fix(self):
         # The fix is made but not committed: linting the working tree passed this push (0b115ab).
         before = self.remote_head()
@@ -1255,6 +1327,38 @@ class CheckPiecesTests(unittest.TestCase):
         self.assertEqual(lint.check_pieces(SOURCE, package, "check", lambda rel: manifest), ["a", "b"])
         manifest = json.dumps({"scripts": {"check": "a && b"}})
         self.assertEqual(lint.check_pieces(SOURCE, package, "check", lambda rel: manifest), ["a", "b"])
+
+    def test_a_check_script_declares_what_it_reads_from_its_own_constants(self):
+        lint = load_lint(SOURCE)
+        source = ('import os\nTREE = "webviews/src"\nSWIFT = "Packages/X/Sources"\nMORE = ("a/b.json", SWIFT + "/c")\n'
+                  'INPUTS = (TREE, f"{SWIFT}/**/*.swift", *MORE, "**/*.xcstrings")\n')
+        self.assertEqual(lint.declared_inputs(source), ("webviews/src", "Packages/X/Sources/**/*.swift", "a/b.json",
+                                                        "Packages/X/Sources/c", "**/*.xcstrings"))
+        for unknown in ('INPUTS = (os.path.join("a", "b"),)\n', 'INPUTS = f"{NOPE}/x"\n', 'INPUTS = (NOPE,)\n',
+                        "INPUTS = (\n", ""):
+            with self.subTest(source=unknown):
+                self.assertEqual(lint.declared_inputs(unknown), ())
+        for path, pattern, hit in (("Packages/X/Sources/A/B.swift", "Packages/X/Sources/**/*.swift", True),
+                                   ("Packages/X/Sources/A/B.md", "Packages/X/Sources/**/*.swift", False),
+                                   ("Packages/X/SourcesOld/B.swift", "Packages/X/Sources/**/*.swift", False),
+                                   ("ios/Localizable.xcstrings", "**/*.xcstrings", True),
+                                   ("webviews/src/a.ts", "webviews/src", True),
+                                   ("webviews/srcs/a.ts", "webviews/src", False),
+                                   ("a/b.json", "a/b.json", True)):
+            with self.subTest(path=path, pattern=pattern):
+                self.assertEqual(lint.input_matches(path, pattern), hit)
+
+    def test_the_real_webviews_check_runs_the_swift_reading_pieces_for_a_swift_change(self):
+        # The real package.json and scripts: a CmuxNext Swift change runs the source checks that walk those files,
+        # and a change none of them reads runs nothing.
+        lint = load_lint(SOURCE)
+        webviews = next(p for p in lint.SCRIPT_PACKAGES if p.directory == "webviews")
+        read = lambda rel: (SOURCE / rel).read_text(encoding="utf-8")
+        pieces = lint.input_pieces(SOURCE, webviews, ["Packages/macOS/CmuxNext/Sources/CmuxNextApp/New.swift"], read)
+        for script in ("check-text-focus-rings.py", "check-toast-targets.py", "check-dialog-key-hints.py",
+                       "check-system-blue.py"):
+            self.assertTrue([piece for piece in pieces if script in piece], (script, pieces))
+        self.assertEqual(lint.input_pieces(SOURCE, webviews, ["README.md", "ios/App.swift"], read), [])
 
 
 if __name__ == "__main__":
