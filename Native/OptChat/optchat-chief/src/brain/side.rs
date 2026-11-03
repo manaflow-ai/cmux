@@ -229,7 +229,16 @@ impl Brain {
             // own conversation; another Chief is a `chief:` person.
             let owner_msg = self.settings.membership.is_owner_message(summary, &message);
             let lifts_floor = match self.admit(summary, &message, &text, owner_msg, Some(conversation)) {
-                super::rights_gate::Admit::Answered => return,
+                super::rights_gate::Admit::Answered => {
+                    // Answered by the host: handled now, never read again.
+                    self.state
+                        .side
+                        .entry(conversation.to_owned())
+                        .or_default()
+                        .handled(message.seq, &message.id);
+                    self.save();
+                    return;
+                }
                 super::rights_gate::Admit::Queue { lifts_floor } => lifts_floor,
             };
             let remote = message

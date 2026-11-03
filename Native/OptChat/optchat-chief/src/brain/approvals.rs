@@ -271,6 +271,7 @@ impl Brain {
             return Ok(());
         }
         (self.log)(&format!("refused {tool} ({REFUSED_BY})"));
+        self.audit_refusal(tool, Some(input), REFUSED_BY);
         // A model that calls it again and again is stopped, as for a
         // refused permission request.
         if self.turn_ask {

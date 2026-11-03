@@ -417,8 +417,8 @@ enum Arg {
 /// no configuration from the files they read (so not `git`, whose repo
 /// config can name a program to run), and with [`WRITE_FLAGS`] refused they
 /// write nothing. Anything else takes an approver.
-pub const READ_ONLY_COMMANDS: [&str; 10] =
-    ["ls", "cat", "head", "tail", "wc", "grep", "pwd", "date", "du", "stat"];
+pub const READ_ONLY_COMMANDS: [&str; 9] =
+    ["ls", "cat", "head", "tail", "wc", "grep", "pwd", "du", "stat"];
 
 /// Arguments that make a read-only command write or run something.
 const WRITE_FLAGS: [&str; 4] = ["--output", "-exec", "-delete", "--pre"];
@@ -1085,7 +1085,7 @@ mod tests {
         for ok in ["Read", "Bash(du*)", "Bash(ls -la)", "mcp__github__*", "Read(/a/*)", "WebFetch(https://docs.rs/*)"] {
             assert!(Pattern::parse(ok).is_ok(), "{ok}");
         }
-        for bad in ["", "Bash(*)", "Read(relative/*)", "*", "mcp__*", "Foo(x)", "Bash(", "Bash()", "Bash", "Bash(cp *)", "Bash(python3*)", "Bash(git push*)", "Bash(git status*)", "Bash(lsof*)"] {
+        for bad in ["", "Bash(*)", "Read(relative/*)", "*", "mcp__*", "Foo(x)", "Bash(", "Bash()", "Bash", "Bash(cp *)", "Bash(python3*)", "Bash(git push*)", "Bash(git status*)", "Bash(lsof*)", "Bash(date*)"] {
             assert!(Pattern::parse(bad).is_err(), "{bad}");
         }
     }

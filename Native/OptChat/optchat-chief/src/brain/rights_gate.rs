@@ -141,7 +141,7 @@ impl Brain {
         let rights = self.rights_table();
         let trimmed = text.trim();
         if trimmed.starts_with('/') {
-            if let Some(answer) = self.command(&rights, summary, &person, owner_msg, trimmed) {
+            if let Some(answer) = self.command(&rights, summary, &person, owner_msg, trimmed, &message.id) {
                 self.answer_message(target, message, "rights", &answer);
                 return Admit::Answered;
             }
@@ -267,7 +267,15 @@ impl Brain {
 
     /// A chat command, answered by the host; None: not a command (the text
     /// goes to the Chief as written).
-    fn command(&mut self, rights: &Rights, summary: &Summary, person: &str, owner_msg: bool, text: &str) -> Option<String> {
+    fn command(
+        &mut self,
+        rights: &Rights,
+        summary: &Summary,
+        person: &str,
+        owner_msg: bool,
+        text: &str,
+        message_id: &str,
+    ) -> Option<String> {
         let owned = crate::rights::command_words(text);
         let words: Vec<&str> = owned.iter().map(String::as_str).collect();
         let verb = words.first()?.trim_start_matches('/');
@@ -352,8 +360,15 @@ impl Brain {
                     }
                     _ => return Some(format!("usage: /{verb} {}", usage_of(verb))),
                 }
+                // A change runs once per message: a message read again after a
+                // restart (its floor not yet saved) finds its record and
+                // changes nothing, so it never undoes a later change.
+                let via = format!("chat:{message_id}");
+                if audit::read(&root).is_ok_and(|rs| rs.iter().any(|r| r.entry.via.as_deref() == Some(via.as_str()))) {
+                    return Some(format!("/{verb}: done already."));
+                }
                 let owner = self.settings.membership.owner.clone();
-                let answer = match crate::rights::run_as(&cli, &root, &owner, person, "chat") {
+                let answer = match crate::rights::run_as(&cli, &root, &owner, person, &via) {
                     Ok(done) => done,
                     Err(e) => return Some(format!("/{verb}: {e}")),
                 };
@@ -370,6 +385,7 @@ impl Brain {
         ctx.turn_people.clear();
         ctx.turn_key = Some(key.to_owned());
         self.add_turn_people(items);
+        self.forget_authors(items);
         let owner = self.settings.membership.owner.clone();
         if let Some(ctx) = self.rights.as_mut()
             && ctx.turn_people.is_empty()
@@ -386,8 +402,8 @@ impl Brain {
         let mut people: Vec<String> = std::mem::take(&mut ctx.turn_people);
         for item in items {
             let who = match &item.source {
-                super::Source::Message { id, requires_approval, .. } => match ctx.authors.remove(id) {
-                    Some(p) => Some(p),
+                super::Source::Message { id, requires_approval, .. } => match ctx.authors.get(id) {
+                    Some(p) => Some(p.clone()),
                     None if *requires_approval => Some(UNKNOWN.to_owned()),
                     None => Some(owner.clone()),
                 },
@@ -402,6 +418,17 @@ impl Brain {
             }
         }
         ctx.turn_people = people;
+    }
+
+    /// Forgets the authors of `items` once they are in the turn for good
+    /// (started or delivered).
+    pub(super) fn forget_authors(&mut self, items: &[super::Queued]) {
+        let Some(ctx) = self.rights.as_mut() else { return };
+        for item in items {
+            if let super::Source::Message { id, .. } = &item.source {
+                ctx.authors.remove(id);
+            }
+        }
     }
 
     /// Audits the ended turn's cost against its people.
@@ -472,8 +499,8 @@ impl Brain {
                 tool,
                 what,
                 input_sha256: input_sha,
-                decision: "allow".into(),
-                by: Some("chief tool (its arguments checked when it runs)".into()),
+                decision: "pass".into(),
+                by: Some("chief tool: its arguments are checked when it runs".into()),
                 ..Entry::default()
             });
             return json!({});
