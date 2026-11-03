@@ -178,7 +178,19 @@ final class CEFLayerHosting {
     /// A display was added, removed or changed its rate (`CEFRuntime`'s one app-wide observer of
     /// `NSApplication.didChangeScreenParametersNotification` calls every host view's): the cap may differ.
     func displaysChanged() {
+        displayIntervals = nil
         syncDeadline()
+    }
+
+    /// Every display's shortest frame interval, read once and again only after a display change
+    /// (``displaysChanged()``): a tab show reads no display list (HOT PATH AUDIT frames, tab-switch).
+    private var displayIntervals: [Double]?
+
+    private func shortestIntervals() -> [Double] {
+        if let displayIntervals { return displayIntervals }
+        let read = refreshIntervals()
+        displayIntervals = read
+        return read
     }
 
     /// The host view moved to another window (`CEFHostView.viewDidMoveToWindow`):
@@ -294,7 +306,8 @@ final class CEFLayerHosting {
         let tunable = inLiveResize ? liveResizeDeadlineMs()
             : inPaneDrag ? dragResizeDeadlineMs()
             : (page != nil ? resizeDeadlineMs() : 0)
-        let deadline = CEFResizeSyncDeadline(tunableMilliseconds: tunable, refreshIntervals: refreshIntervals()).milliseconds
+        // A page that waits for nothing (0) needs no cap and reads no display.
+        let deadline = tunable <= 0 ? 0 : CEFResizeSyncDeadline(tunableMilliseconds: tunable, refreshIntervals: shortestIntervals()).milliseconds
         guard deadline != appliedDeadlineMs else { return }
         // Recorded only when the fork took it, so a refused value is tried again at the next sync.
         if setResizeSync(browser, deadline) { appliedDeadlineMs = deadline }
