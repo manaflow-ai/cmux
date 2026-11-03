@@ -55,18 +55,18 @@ extension PaneContentView {
             return
         }
         parked.removeAll { $0.view == nil || $0.view === view }
-        // A top-held key hold keeps a row-sharing chat's parked frame to the landing; bottom-held, it joins the held rect rowless (S1B).
+        // A top-held key hold keeps a row-sharing chat's parked frame to the landing; bottom-held, it joins the held rect
+        // rowless and the landing sizes it once (no autoresizing, so the area's release leaves it) (S1B).
         let topHeld = contentHost.hold?.bottom == false, held = contentHost.isHolding
         if held, !topHeld, let row = view as? PaneTabRowSharing { row.setTabRow(height: 0, trailingInset: 0) }
         if let frame = parkedFrame(of: view), held ? topHeld : view.frame == frame && frame != contentHost.bounds {
-            // A chat parked at the size it shows at (`layoutParked`) keeps it: the pane's next layout moves the host under
-            // the tab row and puts the chat at its origin, at the same size. Sized to the host here first, its page drew a
-            // frame at the strip's height less and then grew back: the chat jumped as it showed.
+            // A chat parked at the size it shows at (`layoutParked`) keeps it: the pane's next layout moves the host under the
+            // tab row and puts the chat at its origin, same size (sized to the host first, its page jumped as it showed).
             view.autoresizingMask = []
             needsLayout = true
         } else {
             if view.frame != contentHost.contentBounds { view.frame = contentHost.contentBounds }
-            view.autoresizingMask = [.width, .height]
+            view.autoresizingMask = held && parkedFrame(of: view) != nil ? [] : [.width, .height]
         }
         // Above what still shows (a backdrop or a held page); hidden parked
         // views stay where they are, so a switch moves no view.
