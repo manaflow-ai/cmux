@@ -75,7 +75,12 @@ public struct TerminalLastFrames {
         guard !atOnce, capacity > 0 else { return note("evicted_at_once") }
         guard let frame = TerminalLastFrame(of: session, showsOutput: session.showsOutput) else { return note("evicted_no_frame") }
         note("kept")
-        for _ in insert(frame, for: key, capacity: Self.capacity(warm: capacity)) { note("dropped") }
+        keep(frame, for: key, warm: capacity, physicalBytes: ProcessInfo.processInfo.physicalMemory)
+    }
+
+    /// Keeps `frame` for `key` within the store's bound for a warm set of `warm` on a Mac with `physicalBytes`.
+    mutating func keep(_ frame: TerminalLastFrame, for key: String, warm: Int, physicalBytes: UInt64) {
+        for _ in insert(frame, for: key, capacity: Self.capacity(warm: warm, physicalBytes: physicalBytes)) { note("dropped") }
     }
 
     /// `key`'s new session draws now: it shows the frame that waits for it, if any.

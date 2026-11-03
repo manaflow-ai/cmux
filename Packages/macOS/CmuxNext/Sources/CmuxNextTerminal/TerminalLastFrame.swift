@@ -20,8 +20,13 @@ public final class TerminalLastFrame {
     public let showsOutput: Bool
 
     /// The frame `session` presents now; nil before its first draw.
-    public init?(of session: TerminalSession, showsOutput: Bool = true) {
+    public convenience init?(of session: TerminalSession, showsOutput: Bool = true) {
         guard let surface = session.surfaceView.presentedFrame else { return nil }
+        self.init(surface: surface, showsOutput: showsOutput)
+    }
+
+    /// `surface` as a kept frame (volatile from now on).
+    init(surface: IOSurface, showsOutput: Bool) {
         self.surface = surface
         self.showsOutput = showsOutput
         surface.makeVolatile()
