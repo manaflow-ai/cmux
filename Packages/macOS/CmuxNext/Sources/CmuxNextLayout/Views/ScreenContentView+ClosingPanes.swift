@@ -6,21 +6,30 @@ import CmuxNextDesign
 /// the pane was (the F2 hole: 710 px in a pane close, 530 px in a column close). `motion.frameOwner.contentPolicy` off
 /// (read at the close): the host hides in the close's turn, as before.
 extension ScreenContentView {
-    /// `pane` left the layout in a close that springs (`reconcile`): its host retires, shown on its collapsing frame with
-    /// the policy on (read now), else hidden. `frame`: where it showed, before this change carried the strip.
-    func retireClosing(_ pane: PaneID, frame: AnimatedFrame?, before: ScreenGeometry, carried: Bool, offset: CGFloat) {
-        guard context.followsContentPolicy, !isCanvas, let frame, context.hosts[pane]?.superview === self else {
-            context.retire(pane, from: screenID)
+    /// The panes `closing` left the layout in a close that springs (`reconcile`): each host retires, shown with its ground
+    /// on what its neighbours have not covered yet with the policy on (read now), else hidden. A pane that nothing closes
+    /// over (no neighbour on a spring beside it, directly or through another closing pane) hides, as before. `frame`:
+    /// where it showed, before this change carried the strip.
+    func retireClosing(_ closing: [(pane: PaneID, frame: AnimatedFrame?)], before: ScreenGeometry, carried: Bool, offset: CGFloat) {
+        guard !closing.isEmpty else { return }
+        guard context.followsContentPolicy, !isCanvas else {
+            for (pane, _) in closing { context.retire(pane, from: screenID) }
             return
         }
-        // In the new layout's coordinates, as the live frames this change carried (`reconcile`).
-        let scrolls = before.scrolls(pane: pane)
-        let drift = carried && scrolls ? before.viewShift(offset: offset) - baseGeometry.viewShift(offset: offset) : 0
-        let style = context.style
-        closingPanes.begin(pane, shown: frame.rect.offsetBy(dx: drift, dy: 0), before: before,
-                           maxGap: max(style.columnGap, style.dividerHitThickness) + 1, rank: liveRank(of: pane, in: before),
-                           viewShift: carried ? baseGeometry.viewShift(offset: offset) : nil)
-        context.retire(pane, from: screenID, showsGround: true)
+        let style = context.style, viewShift = carried ? baseGeometry.viewShift(offset: offset) : nil
+        for (pane, frame) in closing {
+            guard let frame, context.hosts[pane]?.superview === self else { continue }
+            // In the new layout's coordinates, as the live frames this change carried (`reconcile`).
+            let drift = carried && before.scrolls(pane: pane) ? before.viewShift(offset: offset) - baseGeometry.viewShift(offset: offset) : 0
+            closingPanes.begin(pane, shown: frame.rect.offsetBy(dx: drift, dy: 0), before: before,
+                               maxGap: max(style.columnGap, style.dividerHitThickness) + 1, rank: liveRank(of: pane, in: before), viewShift: viewShift)
+        }
+        let still = closingPanes.still(Set(closing.map(\.pane)), frames: paneFrames)
+        for (pane, _) in closing {
+            let shows = closingPanes.entries[pane] != nil && !still.contains(pane)
+            if !shows { closingPanes.drop(pane) }
+            context.retire(pane, from: screenID, showsGround: shows)
+        }
     }
 
     /// A close taken back before it landed: the pane's live frame starts where its closing frame shows, with its sides'

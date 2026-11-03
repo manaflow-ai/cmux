@@ -131,6 +131,38 @@ struct ClosingPanes {
         }
     }
 
+    /// A row column stopped scrolling (`ScreenContentView.carryRowOffset`): its closing panes keep where they show.
+    mutating func shiftY(inRowColumn column: ColumnID, by delta: CGFloat) {
+        for (pane, entry) in entries where entry.rowColumn == column {
+            var entry = entry
+            entry.minY.fixed += delta
+            entry.maxY.fixed += delta
+            entries[pane] = entry
+        }
+    }
+
+    /// The panes of `closing` whose sides ride nothing that moves: no live neighbour on a spring, and no neighbour that
+    /// closes beside them and rides one. Nothing closes over them, so they go at once, as before S3c (their place shows
+    /// what the layout rests at from the first frame, never a ground that pops at the landing).
+    func still(_ closing: Set<PaneID>, frames: [PaneID: AnimatedFrame]) -> Set<PaneID> {
+        func moves(_ frame: AnimatedFrame) -> Bool {
+            frame.rect != frame.targetRect || [frame.x, frame.y, frame.width, frame.height].contains { $0.velocity != 0 }
+        }
+        func neighbours(_ entry: Entry) -> [PaneID] { entry.minX.neighbours + entry.maxX.neighbours + entry.minY.neighbours + entry.maxY.neighbours }
+        var covered = Set(entries.compactMap { pane, entry in
+            !closing.contains(pane) || neighbours(entry).contains { frames[$0].map(moves) ?? false } ? pane : nil
+        })
+        var grew = true
+        while grew {
+            grew = false
+            for (pane, entry) in entries where !covered.contains(pane) && neighbours(entry).contains(where: covered.contains) {
+                covered.insert(pane)
+                grew = true
+            }
+        }
+        return closing.subtracting(covered)
+    }
+
     private static func shiftX(_ entry: inout Entry, by delta: CGFloat) {
         entry.minX.fixed += delta
         entry.maxX.fixed += delta
@@ -141,12 +173,16 @@ struct ClosingPanes {
     mutating func remove(_ pane: PaneID, frames: [PaneID: AnimatedFrame]) -> AnimatedFrame? {
         guard let rect = rects(frames: frames)[pane], let entry = entries.removeValue(forKey: pane) else { return nil }
         order.removeAll { $0 == pane }
-        func speed(_ side: Side, _ velocity: (AnimatedFrame) -> CGFloat) -> CGFloat {
-            side.neighbours.lazy.compactMap { frames[$0] }.map(velocity).first ?? 0
+        /// The velocity of the live neighbour whose facing edge places this side now (the slowest one).
+        func speed(_ side: Side, at value: CGFloat, edge: (CGRect) -> CGFloat, _ velocity: (AnimatedFrame) -> CGFloat) -> CGFloat {
+            let live = side.neighbours.compactMap { frames[$0] }
+            return live.min { abs(edge($0.rect) - value) < abs(edge($1.rect) - value) }.map(velocity) ?? 0
         }
         var frame = AnimatedFrame(rect)
-        let vMinX = speed(entry.minX) { $0.x.velocity + $0.width.velocity }, vMaxX = speed(entry.maxX) { $0.x.velocity }
-        let vMinY = speed(entry.minY) { $0.y.velocity + $0.height.velocity }, vMaxY = speed(entry.maxY) { $0.y.velocity }
+        let vMinX = speed(entry.minX, at: rect.minX - entry.minX.gap, edge: \.maxX) { $0.x.velocity + $0.width.velocity }
+        let vMaxX = speed(entry.maxX, at: rect.maxX + entry.maxX.gap, edge: \.minX) { $0.x.velocity }
+        let vMinY = speed(entry.minY, at: rect.minY - entry.minY.gap, edge: \.maxY) { $0.y.velocity + $0.height.velocity }
+        let vMaxY = speed(entry.maxY, at: rect.maxY + entry.maxY.gap, edge: \.minY) { $0.y.velocity }
         frame.x.velocity = vMinX
         frame.width.velocity = vMaxX - vMinX
         frame.y.velocity = vMinY

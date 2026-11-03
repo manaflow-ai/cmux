@@ -61,6 +61,11 @@ final class LayoutViewContext {
     var frameTimingOverride: Bool?
     /// A divider, column-edge or row-edge drag event waits for the window's frame tick (`motion.frameOwner.timing`).
     var dragsOnFrameTick: Bool { frameTimingOverride ?? MotionTunables.frameOwnerTiming.value }
+    /// Pins `motion.frameOwner.tabStrip` (S1) for this view only (tests): the process-wide switch leaks across suites.
+    var tabStripOverride: Bool?
+    /// FRAME OWNER S1 (`DesignTunables.frameOwnerTabStrip`): a key hold holds only each pane's content area. Read when each
+    /// hold begins.
+    var followsTabStrip: Bool { tabStripOverride ?? DesignTunables.frameOwnerTabStrip.value }
     /// Pins `motion.frameOwner.contentPolicy` for this view only (tests), as ``frameTimingOverride`` pins S2's switch.
     var contentPolicyOverride: Bool?
     /// FRAME OWNER S3 (`LayoutTunables.frameOwnerContentPolicy`): a key resize's containers follow their panes and only

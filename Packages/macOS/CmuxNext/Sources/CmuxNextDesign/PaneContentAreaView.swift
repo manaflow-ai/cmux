@@ -44,6 +44,11 @@ public final class PaneContentAreaView: NSView {
     /// that joins mid-hold (a tab switch) is held with the rest and its pane's rest-size change applies to it too.
     public var contentBounds: CGRect { heldSize.map { CGRect(origin: .zero, size: $0) } ?? bounds }
 
+    /// The rect `view` takes when it fills the area: ``contentBounds``, or the area's bounds for a container that already
+    /// follows the pane through this hold (switched away and back). A container that joins comes in at the held rect, so
+    /// what it measures on its way in (a terminal's rest size) is from the held size.
+    public func contentBounds(for view: NSView) -> CGRect { handed.contains(ObjectIdentifier(view)) ? bounds : contentBounds }
+
     /// The containers handed this hold (``PaneMotionHoldFollowing``), which follow the area until it ends: one shown or added
     /// during the hold hears it in its first frame; one whose producer stops holding (a page whose DevTools docked) keeps
     /// following and lays its producer out live.
@@ -94,7 +99,8 @@ public final class PaneContentAreaView: NSView {
             } else if handing {
                 follower.followPaneMotion(hold, heldSize: heldSize)
             }
-            if follower.frame != bounds {
+            // A hidden one (parked) takes the area's bounds when it shows again (`followerDidShow`).
+            if !follower.isHidden, follower.frame != bounds {
                 follower.frame = bounds
                 follower.needsLayout = true // its ground, toolbar and producer placement, in this frame's layout pass
             }

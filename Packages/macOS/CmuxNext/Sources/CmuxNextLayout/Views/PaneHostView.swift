@@ -89,9 +89,9 @@ final class PaneHostView: NSView, RestingPlacement {
                         holdsUntilAfterLanding = true
                         heldContentSize = content.frame.size
                         heldPin = nil
-                        heldArea = DesignTunables.frameOwnerTabStrip.value ? (content as? PaneMotionHolding)?.paneMotionHoldArea : nil
+                        heldArea = screen.context.followsTabStrip ? (content as? PaneMotionHolding)?.paneMotionHoldArea : nil
                         // FRAME OWNER S3, latched here: a flip of the switch applies from the next hold, never inside one.
-                        heldAreaFollows = heldArea != nil && screen.context.followsContentPolicy
+                        (heldAreaFollows, announcedRest) = (heldArea != nil && screen.context.followsContentPolicy, nil)
                         // The area hears the hold in the key's turn, before the press's rest size goes to the content
                         // (`announceRest`): the surface takes its final size at the edge that stays, never at another
                         // edge for one frame. No frame changes here: the host is still at its start size.
@@ -143,7 +143,7 @@ final class PaneHostView: NSView, RestingPlacement {
 
     /// The one layout at the size the spring landed at, before the content hears it landed.
     private func releaseHeldContent() {
-        (holdsUntilAfterLanding, heldPin, heldContentSize, heldAnchor) = (false, nil, nil, nil)
+        (holdsUntilAfterLanding, heldPin, heldContentSize, heldAnchor, announcedRest) = (false, nil, nil, nil, nil)
         layOutLetGoContent()
         content.notifyPaneMotionSettled()
         isContentHandoff = false
@@ -332,7 +332,7 @@ final class PaneHostView: NSView, RestingPlacement {
 
     /// The content's rounded corners and the ring's shape from the current
     /// clip frame and the content's header and footer. Changes no frame.
-    private func applyChromeShape() {
+    func applyChromeShape() {
         let framesContent = reporter?.paneFramesContent ?? true
         var style = LayoutStyle()
         style.panePadding = padding
@@ -341,7 +341,9 @@ final class PaneHostView: NSView, RestingPlacement {
         let (header, footer) = roundedBands
         let rounded = PaneChromeGeometry.roundedRect(inPadded: rect, headerHeight: header, footerHeight: footer)
         let radius = PaneChromeGeometry.cornerRadius(for: rounded, style: style)
-        if let reporter, !wholeCard {
+        if showsClosingGround {
+            clipView.setCornerRadius(radius) // a closing pane's ground keeps its pane's rounded corners (FRAME OWNER S3c)
+        } else if let reporter, !wholeCard {
             clipView.setCornerRadius(0)
             reporter.setPaneContentCornerRadius(radius)
         } else {
@@ -356,7 +358,8 @@ final class PaneHostView: NSView, RestingPlacement {
     /// it is now (`restSize` against the current frame, both less the padding): called by the screen once
     /// when a spring starts or retargets to a new size, never per frame.
     func announceRest() {
-        guard let change = restSizeChange else { return }
+        guard let change = restSizeChange ?? returnedToHeldSize else { return }
+        if heldAreaFollows { announcedRest = restContentSize }
         heldAnchor = content.notifyPaneMotionWillRest(sizeChange: change)
         // A keyboard resize keeps the start size through retargets too (fast presses): one layout, after the landing.
         if heldContentSize != nil, !holdsUntilAfterLanding {
@@ -369,6 +372,18 @@ final class PaneHostView: NSView, RestingPlacement {
             }
             layoutClip()
         }
+    }
+
+    /// FRAME OWNER S3 (a key hold whose containers follow): the content-area rest size the content last heard in this hold.
+    private var announcedRest: CGSize?
+
+    /// Zero when a key hold's rest went back to the size the hold began at after the content heard another (a press and
+    /// its reverse in one hold): the content rests at that size, and hears it now, in the press's turn (one grid there,
+    /// none at the landing). Nil otherwise.
+    private var returnedToHeldSize: CGSize? {
+        guard heldAreaFollows, let announced = announcedRest, let rest = restContentSize,
+              abs(announced.width - rest.width) >= 0.5 || abs(announced.height - rest.height) >= 0.5 else { return nil }
+        return .zero
     }
 
     /// The content area at rest (``restSize`` less the padding) minus the content's size now; nil without a

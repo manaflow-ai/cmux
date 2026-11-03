@@ -212,6 +212,47 @@ struct PaneContentPolicyTests {
         }
     }
 
+    /// A press and its reverse in one key hold (Ctrl-Shift-H, then L 4 frames later, before the first lands): the panes
+    /// rest where they began. Each terminal hears each press's final grid in that press's turn (the reverse one too, though
+    /// it rests at the size the hold began at), and its surface takes no new size at the landing.
+    @Test func aPressAndItsReverseInOneHoldSendEachGridInItsTurn() async throws {
+        let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
+        defer { rig.close() }
+        rig.root.context.contentPolicyOverride = true
+        let panes: [PaneID] = ["p1", "p2"]
+        for pane in panes { _ = try await Self.grids(pane, rig) }
+        var start: [PaneID: (size: CGSize, grid: TerminalGridSize?)] = [:]
+        for pane in panes {
+            let surface = try Self.surface(pane, in: rig)
+            start[pane] = (surface.frame.size, surface.fittedGrid)
+        }
+        #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
+        rig.root.syncWithModel()
+        rig.root.layoutSubtreeIfNeeded()
+        var atPress: [PaneID: [TerminalGridSize]] = [:]
+        for pane in panes { atPress[pane] = try await Self.grids(pane, rig) }
+        for frame in 1...4 { #expect(rig.frame(), "the first press landed after \(frame) frames") }
+        #expect(PaneResize.press("p2", .right, model: rig.model, view: rig.root))
+        rig.root.syncWithModel()
+        rig.root.layoutSubtreeIfNeeded()
+        var atReverse: [PaneID: [TerminalGridSize]] = [:], sizeAtReverse: [PaneID: CGSize] = [:]
+        for pane in panes {
+            atReverse[pane] = try await Self.grids(pane, rig)
+            sizeAtReverse[pane] = try Self.surface(pane, in: rig).frame.size
+        }
+        let frames = Self.run(rig)
+        #expect(frames > 3, "the reverse press did not spring (\(frames) frames)")
+        for pane in panes {
+            let was = try #require(start[pane]), surface = try Self.surface(pane, in: rig)
+            let startGrid = try #require(was.grid, "SETUP: \(pane) fits no grid at rest")
+            #expect(atPress[pane]?.count == 1 && atPress[pane]?.first != startGrid, "\(pane): the first press sent \(atPress[pane] ?? [])")
+            #expect(atReverse[pane] == [startGrid], "\(pane): the reverse press sent \(atReverse[pane] ?? []), not the start grid \(startGrid)")
+            #expect(try await Self.grids(pane, rig).isEmpty, "\(pane) sent a grid at the landing")
+            #expect(surface.frame.size == sizeAtReverse[pane] && surface.frame.size == was.size,
+                    "\(pane)'s surface took \(surface.frame.size) at the landing (\(String(describing: sizeAtReverse[pane])) at the reverse press, \(was.size) at rest)")
+        }
+    }
+
     /// The grids `pane`'s terminal asked its PTY for since the last call (a focus report after them is the marker).
     static func grids(_ pane: PaneID, _ rig: Rig) async throws -> [TerminalGridSize] {
         let session = try #require(rig.provider.sessions[pane])
@@ -253,8 +294,7 @@ struct PaneContentPolicyTests {
         joining.surfaceView.bridge.takeUnretainedValue().input.focusGained()
         let grids = await io.gridsUntilMarker()
         let final = try #require(joining.surfaceView.fittedGrid)
-        #expect(grids.last == final && grids.filter({ $0 != final }).count <= 1,
-                "the joining terminal asked its PTY for \(grids), not its final grid \(final)")
+        #expect(grids == [final], "the joining terminal asked its PTY for \(grids), not its final grid \(final) once")
     }
 
     // MARK: Note 5: S3c
@@ -348,8 +388,9 @@ struct PaneContentPolicyTests {
     /// A close taken back before it landed shows the same host again, with its content, from where its closing frame
     /// showed: no new host, no new terminal.
     @Test func aCloseTakenBackShowsTheSameHost() throws {
-        let rig = Rig(.columns([LayoutColumn(id: "c0", width: 0.5, root: .leaf("p1")), LayoutColumn(id: "c1", width: 0.5, root: .leaf("p2"))]),
-                      focused: "p2")
+        // A split pair: closing p2 grows p1 over its place (a column at the strip's end has nothing that closes over it, and
+        // hides at once as before).
+        let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
         defer { rig.close() }
         rig.root.context.contentPolicyOverride = true
         let host = try #require(rig.root.context.hosts["p2"])
@@ -369,6 +410,48 @@ struct PaneContentPolicyTests {
         try Self.run(rig)
         #expect(rig.provider.sessions["p2"]?.session === session, "the close taken back made a new terminal")
         #expect(host.superview != nil && !host.isHidden, "the host taken back is not in the layout after the landing")
+    }
+
+    /// A close taken back while motion is off (Reduce Motion turned on during the close): the pane comes back at its place
+    /// at once, with no spring left running.
+    @Test func aCloseTakenBackWithoutMotionSnapsToItsPlace() throws {
+        // A split pair: closing p2 grows p1 over its place (a column at the strip's end has nothing that closes over it, and
+        // hides at once as before).
+        let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
+        defer { rig.close() }
+        rig.root.context.contentPolicyOverride = true
+        let host = try #require(rig.root.context.hosts["p2"])
+        let rest = host.frame
+        let close = try #require(rig.model.showPaneClose("p2"))
+        rig.root.syncWithModel()
+        rig.root.layoutSubtreeIfNeeded()
+        for _ in 1...5 { _ = rig.frame() }
+        try #require(host.showsClosingGround && host.frame.width < rest.width - 1, "SETUP: p2 is not on its close spring (\(host.frame))")
+        rig.root.context.reduceMotionOverride = true
+        rig.model.cancelPaneClose(close)
+        rig.root.syncWithModel()
+        rig.root.layoutSubtreeIfNeeded()
+        #expect(rig.root.context.hosts["p2"] === host, "the close taken back made a new host")
+        #expect(abs(host.frame.minX - rest.minX) < 0.5 && abs(host.frame.width - rest.width) < 0.5, "p2 is at \(host.frame), not at its place \(rest)")
+        #expect(try !rig.screen.hasMotion, "a spring still runs after a change with motion off")
+    }
+
+    /// A column at the strip's end closes (two columns, the right one closes): nothing closes over its place (the left
+    /// column keeps its strip frame; only the camera moves), so it hides at once, as before S3c, and its place shows what
+    /// the layout rests at from the first frame: no ground that pops at the landing.
+    @Test func aPaneNothingClosesOverHidesAtOnce() throws {
+        let rig = Rig(.columns([LayoutColumn(id: "c0", width: 0.5, root: .leaf("p1")), LayoutColumn(id: "c1", width: 0.5, root: .leaf("p2"))]),
+                      focused: "p2")
+        defer { rig.close() }
+        rig.root.context.contentPolicyOverride = true
+        let host = try #require(rig.root.context.hosts["p2"])
+        _ = try #require(rig.model.showPaneClose("p2"))
+        rig.root.syncWithModel()
+        rig.root.layoutSubtreeIfNeeded()
+        #expect(host.isHidden && !host.showsClosingGround, "a pane nothing closes over showed its ground")
+        #expect(try rig.screen.closingPanes.isEmpty, "a pane nothing closes over has a closing frame")
+        Self.run(rig)
+        #expect(host.superview == nil, "the closed host is left in the tree after the landing")
     }
 
     /// The layers of `view`'s tree: each view's backing layer, the views under it included.

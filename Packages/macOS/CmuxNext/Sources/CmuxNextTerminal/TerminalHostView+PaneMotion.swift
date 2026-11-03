@@ -25,10 +25,14 @@ extension TerminalHostView: PaneMotionHoldFollowing {
     var paneMotionBasisSize: CGSize { followedHold?.heldSize ?? bounds.size }
 
     /// The surface's frame while the host follows `followed`: its held size on the hold's edges of the area it shows in
-    /// (less a legacy scroller's strip).
+    /// (less a legacy scroller's strip). One exception to the still edge: a pane that grows down with its prompt in the
+    /// lower half (`motionAnchor` answered `.bottom`) keeps the surface's bottom on its moving bottom edge, so the prompt on
+    /// the final grid's last row stays in view; the surface is taller than the pane then, so it still covers it.
     func followedSurfaceFrame(_ followed: (hold: PaneMotionHold, heldSize: CGSize), in area: CGRect) -> CGRect { // perf-hot: 4ms motion-frame
         let size = surfaceHold?.size ?? surfaceSize(forHostSize: followed.heldSize)
         let shown = CGRect(x: area.minX, y: area.minY, width: max(0, area.width - scrollerWidth), height: area.height)
-        return followed.hold.producerFrame(size, in: shown)
+        var hold = followed.hold
+        if case .bottom? = surfaceHold?.anchor { hold.bottom = true }
+        return hold.producerFrame(size, in: shown)
     }
 }

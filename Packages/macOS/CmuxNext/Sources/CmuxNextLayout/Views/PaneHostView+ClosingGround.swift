@@ -13,6 +13,7 @@ extension PaneHostView {
         showsClosingGround = true
         content.isHidden = true
         clipView.layer?.backgroundColor = ground
+        applyChromeShape() // the pane's own rounded corners (its content rounded them while it showed)
     }
 
     func endClosingGround() {
@@ -20,5 +21,6 @@ extension PaneHostView {
         showsClosingGround = false
         content.isHidden = false
         applyDockFill()
+        applyChromeShape()
     }
 }

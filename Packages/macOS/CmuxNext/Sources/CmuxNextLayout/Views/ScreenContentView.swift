@@ -308,7 +308,8 @@ final class ScreenContentView: NSView {
                 // Already carried into this layout's coordinates with the closing panes (`ClosingPanes.carry`).
                 if takenBack != nil, carried { carriedShown[pane] = frame.x.value + shift(baseGeometry, pane) }
                 zoomMotion.returning(pane)
-                frame.setTarget(target, alpha: 1)
+                // A close taken back springs on as any live frame does (it snaps when this change does not animate).
+                if takenBack != nil { place(&frame, at: target, animated: animateFrames) } else { frame.setTarget(target, alpha: 1) }
                 paneFrames[pane] = frame
             }
             if let handoff, handoff.pane == pane {
@@ -320,6 +321,7 @@ final class ScreenContentView: NSView {
         }
         // Out of a zoom: the covered panes it kept that this layout did not take back (closed while zoomed) go now.
         if structural, !zoomed { context.releaseRetired(of: screenID, until: .zoom) }
+        var closing: [(pane: PaneID, frame: AnimatedFrame?)] = []
         for pane in paneFrames.keys where baseGeometry.panes[pane] == nil {
             let frame = paneFrames.removeValue(forKey: pane)
             if covering, context.hosts[pane]?.superview === self, frame != nil {
@@ -330,8 +332,9 @@ final class ScreenContentView: NSView {
             // pane now and tears it down when the motion lands (`LayoutViewContext.retire`): its neighbours' first
             // frames carry no teardown.
             guard !context.livePanes.contains(pane) else { continue }
-            if departing, animateFrames { retireClosing(pane, frame: frame, before: before, carried: carried, offset: offset) } else { context.release(pane) }
+            if departing, animateFrames { closing.append((pane, frame)) } else { context.release(pane) }
         }
+        retireClosing(closing, before: before, carried: carried, offset: offset)
 
         // Dividers and column edges.
         var targets: [DividerHandleView.Kind: (rect: CGRect, axis: SplitAxis)] = [:]
