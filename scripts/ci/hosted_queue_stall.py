@@ -8,7 +8,7 @@ is still going: in run 41683652930 (2026-11-03) pick-nightly-sign-runner waited 
 signer-app 532 s on hosted Ubuntu, then signer-dmg and legacy-signer-app over 10 min each.
 
 pick-nightly-sign-runner runs this right before those jobs queue. It reads the jobs of
-this run attempt (one API request) and calls hosted Ubuntu stalled when a job on
+this run attempt (one API request per hundred jobs) and calls hosted Ubuntu stalled when a job on
 ubuntu-24.04 waited STALL_SECONDS or more before it started, or is still queued that
 long. The pick's own job counts: it ran on hosted Ubuntu, so its own wait is a sample.
 The signer jobs then take Blacksmith Linux 4 vCPU on this attempt, the route a re-run
@@ -53,7 +53,9 @@ def hosted_waits(jobs: Iterable[Mapping[str, Any]], now: dt.datetime) -> list[tu
         if created is None:
             continue
         started = parse(job.get("started_at"))
-        queued = job.get("status") == "queued" or started is None
+        queued = job.get("status") == "queued"
+        if not queued and started is None:
+            continue  # held by an environment (`waiting`) or skipped: it never asked hosted Ubuntu for a runner
         end = now if queued else started
         if end < created:
             continue
@@ -72,13 +74,21 @@ def verdict(jobs: Iterable[Mapping[str, Any]], now: dt.datetime) -> tuple[str, s
     return "moving", f"the longest hosted Ubuntu wait in this run is {seconds} s ({name})"
 
 
-def read_jobs(repo: str, run_id: str, attempt: str, token: str) -> list[dict[str, Any]]:
-    url = f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100"
-    request = urllib.request.Request(url, headers={
-        "Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
-        "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cmux-hosted-queue-stall/1"})
-    with urllib.request.urlopen(request, timeout=20) as response:  # noqa: S310 - fixed api.github.com URL
-        return list(json.load(response).get("jobs") or [])
+def read_jobs(repo: str, run_id: str, attempt: str, token: str, pages: int = 3) -> list[dict[str, Any]]:
+    jobs: list[dict[str, Any]] = []
+    for page in range(1, pages + 1):
+        url = (f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/attempts/{attempt}/jobs"
+               f"?per_page=100&page={page}")
+        request = urllib.request.Request(url, headers={
+            "Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
+            "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cmux-hosted-queue-stall/1"})
+        with urllib.request.urlopen(request, timeout=15) as response:  # noqa: S310 - fixed api.github.com URL
+            body = json.load(response)
+        batch = list(body.get("jobs") or [])
+        jobs.extend(batch)
+        if len(batch) < 100 or len(jobs) >= int(body.get("total_count") or 0):
+            break
+    return jobs
 
 
 def main(env: Mapping[str, str] = os.environ,

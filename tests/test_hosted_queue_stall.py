@@ -53,6 +53,11 @@ class Verdict(unittest.TestCase):
                 job("x", 900, 10, labels=("ubuntu-24.04", "extra")), job("pick-nightly-sign-runner", 20, 18)]
         self.assertEqual(stall.verdict(jobs, NOW)[0], "moving")
 
+    def test_a_held_or_skipped_job_is_no_sample(self):
+        jobs = [job("signer-app", 900, None, status="waiting"), job("legacy-signer-dmg", 900, None, status="completed"),
+                job("pick-nightly-sign-runner", 20, 18)]
+        self.assertEqual(stall.verdict(jobs, NOW)[0], "moving")
+
     def test_no_hosted_job_yet_is_moving(self):
         self.assertEqual(stall.verdict([], NOW)[0], "moving")
 

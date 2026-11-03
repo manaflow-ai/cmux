@@ -3511,7 +3511,7 @@ jobs:
       attempt: ${{ github.run_attempt }}
       # A newer run's build is already on the feed: signer-app and build-sign-notarize-nightly skip.
       overtaken: ${{ steps.overtaken.outputs.overtaken }}
-      # stalled: this run's hosted Ubuntu waited 3 min or more, so the signer route takes Blacksmith Linux 4 vCPU now.
+      # stalled: hosted Ubuntu waited 3+ min in this run (hosted_queue_stall.py).
       hosted: ${{ steps.hosted.outputs.hosted }}
     steps:
       - name: Checkout publication tooling at the workflow commit
@@ -3656,6 +3656,7 @@ jobs:
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
           PLATFORM: hosted
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
         run: python3 .publish-tooling/scripts/ci/nightly_sign_runner.py
 
   build-sign-notarize-nightly:
@@ -4787,9 +4788,9 @@ jobs:
         timeout-minutes: 12
         run: bash .publish-tooling/scripts/ci/nightly-steps/launch-smoke-gate.sh "$DMG"
 
-  # The signer jobs take hosted Ubuntu first, Blacksmith Linux 4 vCPU on a re-run or when pick-nightly-sign-runner's
-  # `hosted` output says this run's hosted queue stalled 3 min (scripts/ci/hosted_queue_stall.py; run 41683652930's
-  # signer-app waited 532 s). Notarization-bound, not CPU-bound; tests/test_ci_self_hosted_guard.sh allowlists the lines.
+  # The signer jobs take hosted Ubuntu first, Blacksmith Linux 4 vCPU on a re-run or once pick-nightly-sign-runner's
+  # `hosted` says this run's hosted queue stalled (run 41683652930's signer-app waited 532 s). Notarization-bound;
+  # tests/test_ci_self_hosted_guard.sh allowlists the lines.
   signer-build:
     # Only decide: the signer binary builds while the app does, off the path to the feed (it waited for
     # pick-nightly-sign-runner, about 45 s of pickup and cache restore after the pick in run 41570134320).
