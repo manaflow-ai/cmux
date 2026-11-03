@@ -1494,12 +1494,18 @@ class CheckPiecesTests(unittest.TestCase):
                                        "spec.loader.exec_module(importlib.util.module_from_spec(spec))\n",
             "runpy.run_path": "import runpy\nrunpy.run_path(os.path.join(HERE, 'helper.py'))\n",
             "a zip on sys.path": "sys.path.insert(0, os.path.join(HERE, 'lib.zip'))\nimport zipped\n",
+            "a tree program": "import subprocess\nsubprocess.run([os.path.join(HERE, 'run.sh')])\n",
+            "os.execv": "os.execv(os.path.join(HERE, 'run.sh'), ['run.sh'])\n",
         }
         for way, body in ways.items():
             with self.subTest(way=way):
                 pushed = {"scripts/cmux-next/helper.py": "open(MARKER, 'w').close()\n",
+                          "scripts/cmux-next/run.sh": "#!/bin/sh\ntouch MARKER\n",
                           "rootmod.py": "open(MARKER, 'w').close()\n"}
                 result, marker, tree = self.run_trusted("import os, sys\n" + sibling + body, pushed)
+                (tree / "scripts/cmux-next/run.sh").chmod(0o755)
+                if way in ("a tree program", "os.execv"):
+                    result = subprocess.run(result.args, cwd=tree / "webviews", text=True, capture_output=True)
                 if way == "a zip on sys.path":
                     import zipfile
                     with zipfile.ZipFile(tree / "scripts/cmux-next/lib.zip", "w") as archive:
@@ -1510,8 +1516,10 @@ class CheckPiecesTests(unittest.TestCase):
                 self.assertFalse(marker.exists(), "pushed code ran")
 
     def test_the_trusted_runner_still_reads_data_files_in_the_tree(self):
+        # And runs a program from outside the tree on it, as check-xcstrings-keys runs `git -C <tree>`.
         result, _, _ = self.run_trusted(
-            "import json, os\nHERE = os.path.dirname(__file__)\n"
+            "import json, os, subprocess, sys\nHERE = os.path.dirname(__file__)\n"
+            "subprocess.run([sys.executable, '-c', 'pass', HERE], check=True)\n"
             "print(json.load(open(os.path.join(HERE, 'data.json')))['ok'])\n",
             {"scripts/cmux-next/data.json": '{"ok": "yes"}'})
         self.assertEqual((result.returncode, result.stdout), (0, "yes\n"), result.stderr)

@@ -444,17 +444,22 @@ def trusted_pieces(repo: Path, package: ScriptPackage, files: list[str], risky: 
 
 
 # Runs a reviewed check script (argv[2]) as if it sat at its own path (argv[3]) in the tree argv[1], so it reads
-# that tree (each check finds its repository from __file__). Nothing from the tree may run as code:
+# that tree (each check finds its repository from __file__). No module or code file in the tree is imported or opened
+# as code, and no program in the tree is started:
 # * -I keeps the environment and the user site out; '' and the working directory (the pushed package) leave sys.path
 #   before anything is imported, so no pushed module can stand in for the stdlib;
 # * a finder first on sys.meta_path refuses any module whose file is in the tree (the import statement,
 #   __import__ and importlib.import_module all ask it), and the `import` audit event refuses one while sys.path
 #   names the tree or a folder in it;
 # * the `open` audit event refuses to open a code file in the tree (.py, .pyc, .so, .zip, .pth ...), which is how
-#   runpy, spec_from_file_location/exec_module and zipimport read one; `ctypes.dlopen` of a tree path is refused.
+#   runpy, spec_from_file_location/exec_module and zipimport read one; `ctypes.dlopen` of a tree path is refused;
+# * subprocess, os.exec* and os.posix_spawn are refused when the program they start is in the tree (judged by the
+#   program, never its arguments: check-xcstrings-keys runs `git -C <tree>`).
+# Out of reach for any in-process guard: a reviewed check that execs text it reads (open() and io.open_code() raise
+# the same audit event). That is a review rule: a check never executes what it reads.
 # The reviewed script is read and compiled before the guards go in: the hook's copy lives in the checkout's git
 # directory, which is inside the tree when the lint runs in place. A refusal is an ImportError that fails the check
-# loudly; a check reads data files in the tree as it likes.
+# loudly; a check reads data files in the tree (not files with a code suffix) as it likes.
 TRUSTED_RUNNER = (
     "import sys\n"
     "sys.path[:] = [p for p in sys.path if p not in ('', '.')]\n"
@@ -488,6 +493,10 @@ TRUSTED_RUNNER = (
     "            no(name)\n"
     "    elif event == 'ctypes.dlopen' and details[0] and in_tree(details[0]):\n"
     "        no(details[0])\n"
+    "    elif event in ('subprocess.Popen', 'os.exec', 'os.posix_spawn', 'os.spawn'):\n"
+    "        program = details[0] if event != 'os.spawn' else details[1]\n"
+    "        if isinstance(program, (str, bytes, os.PathLike)) and os.sep in os.fsdecode(program) and in_tree(program):\n"
+    "            no(os.fsdecode(program))\n"
     "sys.meta_path.insert(0, TreeFinder)\n"
     "sys.addaudithook(refuse)\n"
     "sys.argv = [path, *args]\n"
