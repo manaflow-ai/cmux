@@ -1,17 +1,26 @@
 public import CoreGraphics
 
-/// The column strip of one screen as the scroll reducer sees it: content-space
+/// The column strip of one screen as the scroll reducer reads it: content-space
 /// column frames in order, the pane frames inside each column, the viewport
 /// width and the gap. Built from `ScreenLayout` + `ScreenGeometry`, or by hand
 /// in tests (for example a column wider than the viewport).
+///
+/// Only the reducer's input: the rules that read it (reveal, centering, the
+/// camera anchor, snapping) are Rust's, cmux-layout-reducer `scroll`, behind
+/// ``ColumnScrollState/reduce(_:)``.
 public nonisolated struct ColumnStrip: Hashable, Sendable {
+    /// One column of the strip.
     public struct Column: Hashable, Sendable {
+        /// The column's identity: the camera anchors on it across snapshots.
         public var id: ColumnID
+        /// The column's content-space frame.
         public var frame: CGRect
         /// Pane frames of this column in content space, in layout order.
         public var panes: [PaneID]
+        /// Each pane's content-space frame.
         public var paneFrames: [PaneID: CGRect]
 
+        /// A column with its panes.
         public init(id: ColumnID, frame: CGRect, panes: [PaneID] = [], paneFrames: [PaneID: CGRect] = [:]) {
             self.id = id
             self.frame = frame
@@ -20,9 +29,13 @@ public nonisolated struct ColumnStrip: Hashable, Sendable {
         }
     }
 
+    /// The columns, leading to trailing.
     public var columns: [Column]
+    /// Width of the viewport the strip shows through.
     public var viewportWidth: CGFloat
+    /// Width of the laid-out strip.
     public var contentWidth: CGFloat
+    /// The gap before, between and after the columns.
     public var gap: CGFloat
     /// The presentation axis before transposition; row cameras animate without horizontal carry compensation.
     public var axis: SplitAxis = .horizontal
@@ -30,11 +43,14 @@ public nonisolated struct ColumnStrip: Hashable, Sendable {
     /// dock covers (layout-model.md F6). Reveal, visibility and snapping
     /// measure against the uncovered window between them; 0 without one.
     public var leadingCover: CGFloat = 0
+    /// See ``leadingCover``.
     public var trailingCover: CGFloat = 0
+    /// Where the adapters' strips start: a row stack's min y (``RowScroll``), a
+    /// scroll area's window min x (``ScrollAreaScroll``). The reducer transposes
+    /// and shifts those strips itself.
+    var origin: CGFloat = 0
 
-    /// Width of the uncovered window.
-    public var visibleWidth: CGFloat { max(1, viewportWidth - leadingCover - trailingCover) }
-
+    /// A strip of these columns.
     public init(columns: [Column], viewportWidth: CGFloat, contentWidth: CGFloat, gap: CGFloat) {
         self.columns = columns
         self.viewportWidth = viewportWidth
@@ -57,44 +73,5 @@ public nonisolated struct ColumnStrip: Hashable, Sendable {
         self.init(columns: columns, viewportWidth: geometry.stripWidth, contentWidth: geometry.contentWidth, gap: gap)
         leadingCover = max(0, geometry.uncoveredMinX - geometry.stripMinX)
         trailingCover = max(0, geometry.stripMinX + geometry.stripWidth - geometry.uncoveredMaxX)
-    }
-
-    public var maxOffset: CGFloat { max(0, contentWidth - viewportWidth) }
-
-    public func clamp(_ offset: CGFloat) -> CGFloat { min(max(offset, 0), maxOffset) }
-
-    public func index(of column: ColumnID) -> Int? { columns.firstIndex { $0.id == column } }
-
-    public func index(ofPane pane: PaneID) -> Int? { columns.firstIndex { $0.paneFrames[pane] != nil || $0.panes.contains(pane) } }
-
-    public func column(containing pane: PaneID) -> Column? { index(ofPane: pane).map { columns[$0] } }
-
-    /// A column at least as wide as the viewport cannot show whole (it is
-    /// left-aligned). Narrower columns shrink their padding instead.
-    public func isWide(_ frame: CGRect) -> Bool { frame.width >= visibleWidth - 0.5 }
-
-    /// Padding: the gap, shrunk when the column is nearly as wide as the view.
-    public func padding(for width: CGFloat) -> CGFloat { min(max((visibleWidth - width) / 2, 0), gap) }
-
-    /// True when `rect` (with its padding) lies inside the viewport at `offset`.
-    public func isFullyVisible(_ rect: CGRect, at offset: CGFloat) -> Bool {
-        let pad = padding(for: rect.width)
-        return rect.minX - pad >= offset + leadingCover - 0.5 && rect.maxX + pad <= offset + leadingCover + visibleWidth + 0.5
-    }
-
-    /// A column counts as visible when it shows whole, or when it is wider
-    /// than the view and covers all of it.
-    public func isColumnVisible(_ index: Int, at offset: CGFloat) -> Bool {
-        let frame = columns[index].frame
-        if isWide(frame) { return frame.minX <= offset + leadingCover + 0.5 && frame.maxX >= offset + leadingCover + visibleWidth - 0.5 }
-        return isFullyVisible(frame, at: offset)
-    }
-
-    /// Relative order of the columns present in both strips is unchanged
-    /// (only insertions, removals and width changes happened).
-    public func keepsOrder(of other: ColumnStrip) -> Bool {
-        let mine = Set(columns.map(\.id))
-        let theirs = Set(other.columns.map(\.id))
-        return columns.map(\.id).filter(theirs.contains) == other.columns.map(\.id).filter(mine.contains)
     }
 }

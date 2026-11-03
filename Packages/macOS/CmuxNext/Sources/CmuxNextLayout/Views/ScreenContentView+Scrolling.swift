@@ -25,7 +25,9 @@ extension ScreenContentView {
         let areasNeedFrames = syncAreas(focused: focused, source: source, animated: animate, reveals: reveals)
         let rowsNeedFrames = syncRows(focused: focused, source: source, animated: animate, reveals: reveals) || areasNeedFrames
         guard let strip else {
-            scrollState = ColumnScrollState()
+            // A split screen syncs often: reset only a state that ever held a strip or a spring,
+            // so each sync does not make a new Rust handle.
+            if !scrollState.isPristine { scrollState = ColumnScrollState() }
             settleCarried()
             if !leadsFrame { applyPresentation() }
             // Resetting the camera can start a carried pane off screen. Keep its spring
