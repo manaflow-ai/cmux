@@ -124,8 +124,8 @@ class OneDownload(unittest.TestCase):
         self.assertEqual(len(self.log.read_text().splitlines()), 1)
 
 
-class Fill(unittest.TestCase):
-    """build_cache.py alone: the store URL (curl, sha256 checked), its fallback, and an older copy's download."""
+class FillBase(unittest.TestCase):
+    """build_cache.py alone, against a local web server that serves a small app zip."""
     def setUp(self):
         t = OneDownload("test_a_filled_cache_makes_no_download")
         t.setUp()
@@ -152,6 +152,11 @@ class Fill(unittest.TestCase):
 
     def downloads(self):
         return self.t.log.read_text().splitlines() if self.t.log.exists() else []
+
+
+
+class Fill(FillBase):
+    """The store URL (curl, sha256 checked), its fallback, and an older copy's download."""
 
     def test_the_store_url_is_read_and_checked(self):
         done = self.fill(self.sha, self.url)
@@ -190,7 +195,7 @@ class Fill(unittest.TestCase):
         self.assertEqual(sorted(p.name for p in builds.iterdir()), ["J2", "J3", "J4"])
 
 
-class FollowUps(Fill):
+class FollowUps(FillBase):
     """The review of #33108 (findings 1, 6 and 7): an older copy at the install, a closed stderr, dead temporaries."""
 
     def test_a_killed_fills_folder_is_removed_and_a_live_ones_kept(self):
