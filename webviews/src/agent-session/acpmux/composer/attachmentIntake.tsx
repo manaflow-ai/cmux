@@ -1310,7 +1310,7 @@ export function AttachmentChip({
       t(ATTACHMENT_LABELS.editPasted),
     );
   }
-  // A text file (attachments.ts readAttachment) or a picked selection: the same page of its first
+  // An older draft's text file or a picked selection: the same page of its first
   // lines, under its name and line count.
   if (attachment.kind === "text" && attachment.text !== undefined) {
     const lines = pasteLines(attachment.text);

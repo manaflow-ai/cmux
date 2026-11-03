@@ -1,7 +1,6 @@
 /// Dropped files go to session storage and are linked from the prompt (composer/intakeFiles.ts).
 /// Images get a metadata-free preview as an ACP image block plus their original session path.
 /// Existing document/text chips remain readable for persisted drafts from older versions.
-import { base64 } from "./composer/imageWork";
 import type { DictationRecording } from "./dictationText";
 import { keepThumb, prepareImageOffThread, thumbnailOffThread } from "./composer/imagePool";
 import { liftInlineImages } from "./inlineImages";
@@ -87,8 +86,6 @@ export type AttachmentError = {
   name: string;
   reason: "tooLarge" | "unsupported" | "imagesUnsupported";
 };
-/// A refusal with the file it refuses, so a caller can send that file another way (a chat's upload).
-export type RefusedFile = AttachmentError & { file: File; unreadable?: boolean };
 
 export type PromptBlock =
   | { type: "text"; text: string; _meta?: { cmux: { pasted: true } } }
@@ -359,13 +356,6 @@ export type OrderedDraftPart =
 /** Anthropic's per-image limit; a preview past it is scaled down further (composer/imageWork.ts). */
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 export { IMAGE_BUDGET_BYTES, MAX_IMAGE_SIDE, base64 } from "./composer/imageWork";
-/** The bytes a PDF may have to go as a document block: its base64 (13.4 MiB) stays under acpmux's
- * 31 MiB bound on one message (#23247), below the app's 32 MiB frame, with room for the rest
- * of the prompt; the same cap as a file sent to an ssh peer (`_acpmux/file_put`). A larger PDF goes
- * as a link to its copy (intakeFiles.ts). */
-export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
-/** A text file this large is already a lot of prompt. */
-export const MAX_TEXT_BYTES = 256 * 1024;
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 /// Pictures the models do not take as they are (an iPhone's HEIC, TIFF, BMP, AVIF) but the engine
 /// can decode: they go as PNG or JPEG. One it cannot decode goes as a file instead.
@@ -380,50 +370,14 @@ export function isImageFile(file: Pick<File, "name" | "type">): boolean {
   );
 }
 
-function isPdf(file: File): boolean {
-  return file.type === "application/pdf" || /\.pdf$/i.test(file.name);
-}
-
-/// Reads every file in a batch for the composer; per-file size and type rules still apply.
-export async function readAttachments(
-  files: File[],
-  allowImages: boolean,
-): Promise<{ attachments: ComposerAttachment[]; errors: RefusedFile[] }> {
-  const attachments: ComposerAttachment[] = [];
-  const errors: RefusedFile[] = [];
-  for (const file of files) {
-    // A dropped folder arrives as a File whose bytes cannot be read.
-    const result = await readAttachment(file, allowImages).catch((): RefusedFile => ({
-      name: file.name,
-      reason: "unsupported",
-      file,
-      unreadable: true,
-    }));
-    if ("reason" in result) errors.push({ ...result, file });
-    else attachments.push(result);
-  }
-  return { attachments, errors };
-}
-
-export async function readAttachment(
+/// Makes an image's metadata-free preview. All original files, including non-images and images
+/// that cannot be decoded, go through intakeFiles.ts as local links or chunked uploads.
+export async function readImageAttachment(
   file: File,
   allowImages: boolean,
   id: string = crypto.randomUUID(),
 ): Promise<ComposerAttachment | AttachmentError> {
   const name = file.name || "file";
-  if (isPdf(file)) {
-    if (file.size > MAX_DOCUMENT_BYTES) return { name, reason: "tooLarge" };
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    return {
-      id,
-      kind: "document",
-      name,
-      mimeType: "application/pdf",
-      size: file.size,
-      data: base64(bytes),
-      pageCount: pdfPageCount(bytes),
-    };
-  }
   if (IMAGE_TYPES.has(file.type)) {
     if (!allowImages) return { name, reason: "imagesUnsupported" };
     // A picture the engine cannot decode is not a picture after all: it goes as a file.
@@ -433,10 +387,7 @@ export async function readAttachment(
     if (!allowImages) return { name, reason: "imagesUnsupported" };
     return (await imageChip(file, id, name)) ?? { name, reason: "unsupported" };
   }
-  if (file.size > MAX_TEXT_BYTES) return { name, reason: "tooLarge" };
-  const text = decodeText(new Uint8Array(await file.arrayBuffer()));
-  if (text === undefined) return { name, reason: "unsupported" };
-  return { id, kind: "text", name, mimeType: file.type || "text/plain", size: file.size, text };
+  return { name, reason: "unsupported" };
 }
 
 /// An image's chip: its metadata-free preview, made off the main thread (composer/imagePool.ts),
@@ -741,17 +692,6 @@ export function recordingLeftOutNotice(
   if (reason === "elsewhere") return "dictation.recordingElsewhere";
   if (reason === "writeFailed") return "dictation.recordingNotSaved";
   return reason === "narrowband" ? "dictation.recordingNarrowband" : "dictation.recordingTooLong";
-}
-
-/** Counts PDF page objects without parsing or rendering the document. */
-function pdfPageCount(bytes: Uint8Array): number | undefined {
-  try {
-    const source = new TextDecoder("latin1").decode(bytes);
-    const count = [...source.matchAll(/\/Type\s*\/Page(?:\s|\/|>)/g)].length;
-    return count > 0 ? count : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 function longestBacktickRun(text: string): number {

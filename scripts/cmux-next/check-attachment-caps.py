@@ -37,8 +37,6 @@ RETAINED_BOUNDS = {
     },
     "webviews/src/agent-session/acpmux/attachments.ts": {
         "MAX_IMAGE_BYTES": "Model image representation budget; larger previews are downsampled.",
-        "MAX_DOCUMENT_BYTES": "Inline protocol-frame budget; larger originals use file links.",
-        "MAX_TEXT_BYTES": "Inline prompt-text budget; larger originals use file links.",
         "MAX_AUDIO_BYTES": "Inline audio protocol-frame budget; not staged file admission.",
     },
     "webviews/src/pages/home-channels/attachmentService.ts": {

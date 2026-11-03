@@ -5,7 +5,7 @@ import {
   isImageFile,
   linkAttachment,
   linkItems,
-  readAttachment,
+  readImageAttachment,
   savedAttachment,
   type AttachmentError,
   type ComposerAttachment,
@@ -93,7 +93,7 @@ export async function intakeFiles(
   // image to be decoded, and a send waits only for the image itself.
   const prepared = files.map(async (file, index) => {
     const result = isImageFile(file)
-      ? await readAttachment(file, options.allowImages).catch(() => undefined)
+      ? await readImageAttachment(file, options.allowImages).catch(() => undefined)
       : undefined;
     const image = result && !("reason" in result) ? result : undefined;
     if (image) {

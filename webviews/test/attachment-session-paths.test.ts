@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { promptBlocks, readAttachment } from "../src/agent-session/acpmux/attachments";
+import { promptBlocks, readImageAttachment } from "../src/agent-session/acpmux/attachments";
 import { intakeFiles } from "../src/agent-session/acpmux/composer/intakeFiles";
 import { uploadToMachine } from "../src/agent-session/acpmux/cloudUploads";
 
@@ -121,7 +121,7 @@ test("images use a 1568 px preview and retain the session path of the original",
 
 test("a small image is reencoded too, so metadata is never passed through", async () => {
   const drawn = imageEngine(320, 240);
-  const result = await readAttachment(new File(["EXIF GPS"], "small.jpg", { type: "image/jpeg" }), true);
+  const result = await readImageAttachment(new File(["EXIF GPS"], "small.jpg", { type: "image/jpeg" }), true);
   expect(drawn).toEqual([{ width: 320, height: 240 }]);
   expect(result).toMatchObject({ kind: "image", data: btoa("clean pixels") });
 });
@@ -163,15 +163,15 @@ test("large PDFs, text and unknown binary files stream complete originals as pro
     });
     return file;
   });
-  expect(await readAttachment(files[0]!, true)).toEqual({
+  expect(await readImageAttachment(files[0]!, true)).toEqual({
     name: "reference.pdf",
     reason: "unsupported",
   });
-  expect(await readAttachment(files[1]!, true)).toEqual({
+  expect(await readImageAttachment(files[1]!, true)).toEqual({
     name: "notes.txt",
     reason: "unsupported",
   });
-  expect(await readAttachment(files[2]!, true)).toEqual({
+  expect(await readImageAttachment(files[2]!, true)).toEqual({
     name: "opaque.custom",
     reason: "unsupported",
   });
