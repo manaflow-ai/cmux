@@ -141,7 +141,6 @@ final class CEFHostView: NSView {
         // The fork reads these first on every update of a shown page.
         let geometry = CEFHostGeometry(of: self)
         readGeometry = geometry
-        readPlacement = PlacementKey(of: self)
         return occlusionMemoValue(for: geometry).bridged
     }
 
@@ -268,15 +267,13 @@ final class CEFHostView: NSView {
         if let windowObserver { NotificationCenter.default.removeObserver(windowObserver) }
         windowObserver = nil
         readGeometry = nil
-        readPlacement = nil
         invalidateOcclusionMemo()
         // A resize-wait tunable edit made while out of a window applies (CEFResizeSyncDeadline).
         layerHosting.windowDidChange()
         guard let window else { return }
         windowObserver = NotificationCenter.default.addObserver(forName: Notification.Name.browserChildWindowPagesNeedUpdate, object: window, queue: .main) { [weak self] note in
             let force = note.userInfo?[browserPagesForceUpdateKey] as? Bool ?? false
-            let geometryOnly = note.userInfo?[browserPagesGeometryOnlyKey] as? Bool ?? false
-            MainActor.assumeIsolated { self?.pagesNeedUpdate(force: force, geometryOnly: geometryOnly) } // main-proof: observer on queue: .main
+            MainActor.assumeIsolated { self?.pagesNeedUpdate(force: force) } // main-proof: observer on queue: .main
         }
     }
 
@@ -291,16 +288,8 @@ final class CEFHostView: NSView {
     /// re-mask (Lawrence 2026-10-23: splits lag more with Chromium pages).
     /// `force`: a page window moved by something other than the fork must be
     /// put back over its host even though the host did not move.
-    /// `geometryOnly`: a layout motion frame that changed no clip shape (`browserPagesGeometryOnlyKey`); a page whose
-    /// ``PlacementKey`` is the one the fork last read works out no geometry then (O(moved pages) builds per frame).
-    func pagesNeedUpdate(force: Bool, geometryOnly: Bool = false) { // perf-hot: 0.05ms cef-geometry (every page, every motion frame)
-        let key = PlacementKey(of: self)
-        if geometryOnly, !force, readGeometry != nil, key == readPlacement {
-            Self.trackerStats.geometrySkips += 1
-            return
-        }
+    func pagesNeedUpdate(force: Bool) {
         let now = CEFHostGeometry(of: self)
-        readPlacement = key
         guard force || readGeometry != now else {
             Self.trackerStats.geometrySkips += 1
             return
@@ -309,47 +298,12 @@ final class CEFHostView: NSView {
         // The fork updates inside the post; a hidden or not yet created page reads nothing
         // there, so what it was told is recorded here (a still hidden page has nothing new).
         readGeometry = now
-        readPlacement = key
     }
-
-    /// The inputs of ``CEFHostGeometry`` that a layout motion frame can change without changing a clip shape: the
-    /// host's rect in its window, the window's frame and scale, the hidden state, the host's own occlusion and the
-    /// window's occluders over it. The clip inputs and the ancestors' visible rect change only with a clip shape (a
-    /// strip clip, corners, padding), whose requests carry no `geometryOnly` and work the geometry out in full.
-    struct PlacementKey: Equatable {
-        var inWindow: CGRect
-        var windowFrame: CGRect
-        var scale: CGFloat
-        var hidden: Bool
-        var occlusion: [CGRect]
-        var rounded: [CEFClipShape.RoundedRect]
-        var windowOcclusion: [CGRect]
-
-        init(of view: CEFHostView) {
-            let window = view.window
-            let inWindow = view.convert(view.bounds, to: nil)
-            self.inWindow = inWindow
-            windowFrame = window?.frame ?? .zero
-            scale = window?.backingScaleFactor ?? 0
-            hidden = view.isHiddenOrHasHiddenAncestor
-            occlusion = view.occlusionRects
-            rounded = view.roundedOcclusions
-            windowOcclusion = ((window as? any BrowserWindowOcclusionProviding)?.browserOcclusionRectsInWindow ?? []).compactMap { rect in
-                let shared = rect.intersection(inWindow)
-                return shared.isNull || shared.isEmpty ? nil : shared
-            }
-        }
-    }
-
-    /// The ``PlacementKey`` of the geometry the fork last read (or was told); nil when unknown.
-    private var readPlacement: PlacementKey?
 
     /// Tells the tracker about moves AppKit does not report (layer
     /// transforms, manual frame animation in an ancestor).
     func postGeometryChange() { // perf-hot: 0.2ms cef-geometry (each post makes the fork re-place one page window)
         invalidateOcclusionMemo()
-        // Something the key does not see may have changed (an own occlusion, a direct post): the next frame builds in full.
-        readPlacement = nil
         Self.trackerStats.geometryPosts += 1
         NotificationCenter.default.post(name: CEFHostView.geometryDidChange, object: self)
     }

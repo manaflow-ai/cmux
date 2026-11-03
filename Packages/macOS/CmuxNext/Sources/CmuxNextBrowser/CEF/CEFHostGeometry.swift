@@ -23,11 +23,10 @@ nonisolated struct CEFHostGeometry: Equatable, Sendable {
     var backingScale: CGFloat
     var hidden: Bool
 
-    /// `view`'s geometry now. Counts itself (`geometryBuilds`); the clip memo
-    /// counts the fork's reads.
+    /// `view`'s geometry now. Reads no tracker counter: the clip memo counts
+    /// the fork's reads only.
     @MainActor
     init(of view: CEFHostView) {
-        CEFHostView.trackerStats.geometryBuilds += 1
         let window = view.window
         let inWindow = view.convert(view.bounds, to: nil)
         screenRect = window?.convertToScreen(inWindow) ?? inWindow
