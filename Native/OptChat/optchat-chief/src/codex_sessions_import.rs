@@ -66,6 +66,16 @@ pub fn count_sessions(dir: &Path) -> (usize, u64) {
         .fold((0, 0), |(n, b), m| (n + 1, b + m.len()))
 }
 
+/// A session the person drove: not `codex exec` (tools, reviewers) and not a
+/// subagent another agent spawned.
+fn interactive(meta: &Value) -> bool {
+    let source = &meta["source"];
+    !(source.as_str() == Some("exec")
+        || meta["originator"].as_str() == Some("codex_exec")
+        || source.get("subagent").is_some()
+        || meta["thread_source"].as_str() == Some("subagent"))
+}
+
 /// User messages Codex writes itself (context, instructions), not the person's.
 fn injected(text: &str) -> bool {
     let t = text.trim_start();
@@ -104,6 +114,7 @@ fn message_text(content: &Value) -> String {
 pub fn convert_session(text: &str, seen_pastes: &mut HashSet<String>) -> Vec<CodexItem> {
     let mut out = Vec::new();
     let mut reply: Option<CodexItem> = None;
+    let mut seen_header = false;
     for line in text.lines() {
         let Ok(v) = serde_json::from_str::<Value>(line) else {
             continue;
@@ -116,9 +127,12 @@ pub fn convert_session(text: &str, seen_pastes: &mut HashSet<String>) -> Vec<Cod
             .to_owned();
         match v["type"].as_str() {
             Some("session_meta") => {
-                if p["source"].as_str() == Some("exec")
-                    || p["originator"].as_str() == Some("codex_exec")
-                {
+                // A fork or resume repeats a header; the first one names the session.
+                if seen_header {
+                    continue;
+                }
+                seen_header = true;
+                if !interactive(p) {
                     return Vec::new();
                 }
                 let cwd = p["cwd"].as_str().unwrap_or("");
@@ -151,7 +165,9 @@ pub fn convert_session(text: &str, seen_pastes: &mut HashSet<String>) -> Vec<Cod
                             date,
                         });
                     }
-                    Some("assistant") => {
+                    // Commentary (progress notes between tool calls) is never the
+                    // turn's reply; older transcripts carry no phase.
+                    Some("assistant") if p["phase"].as_str() != Some("commentary") => {
                         reply = Some(CodexItem {
                             kind: "ai",
                             text: body,
@@ -235,6 +251,37 @@ mod tests {
             ]
         );
         assert_eq!(items[2].date, "2026-11-01T10:00:06.000Z");
+    }
+
+    #[test]
+    fn commentary_is_never_the_final_reply() {
+        let say = |at: &str, phase: &str, text: &str| {
+            line(
+                serde_json::json!({"timestamp":at,"type":"response_item","payload":{"type":"message",
+                "role":"assistant","phase":phase,"content":[{"type":"output_text","text":text}]}}),
+            )
+        };
+        let t = [
+            meta("cli", "codex_cli_rs"),
+            msg("2026-11-01T10:00:03.000Z", "user", "input_text", "go"),
+            say("2026-11-01T10:00:04.000Z", "final_answer", "done"),
+            say("2026-11-01T10:00:05.000Z", "commentary", "checking more"),
+        ]
+        .concat();
+        let items = convert_session(&t, &mut HashSet::new());
+        assert_eq!(items.last().unwrap().text, "done");
+        // A turn still running: only commentary so far, so no reply yet.
+        let running = [
+            meta("cli", "codex_cli_rs"),
+            msg("2026-11-01T10:00:03.000Z", "user", "input_text", "go"),
+            say("2026-11-01T10:00:04.000Z", "commentary", "looking"),
+        ]
+        .concat();
+        assert!(
+            convert_session(&running, &mut HashSet::new())
+                .iter()
+                .all(|i| i.kind != "ai")
+        );
     }
 
     #[test]

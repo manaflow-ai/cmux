@@ -164,6 +164,28 @@ pub fn side_text(it: &Item) -> String {
     )
 }
 
+/// Reads `side_text` back: (kind, date, text) of an imported note.
+pub fn parse_side_text(note: &str) -> Option<(&str, &str, &str)> {
+    let (header, text) = note.split_once('\n')?;
+    let inner = header.strip_prefix("[imported from ")?.strip_suffix(']')?;
+    let mut parts = inner.rsplitn(3, " · ");
+    let date = parts.next()?;
+    let kind = parts.next()?;
+    parts.next()?;
+    Some((kind, date, text))
+}
+
+/// Keys of the items a memory export holds as imported notes.
+fn keys_of_side_notes<'a>(lines: impl Iterator<Item = &'a str>) -> HashSet<String> {
+    lines
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .filter_map(|v| {
+            let (kind, date, text) = parse_side_text(v["text"].as_str()?)?;
+            Some(item_key(kind, date, text))
+        })
+        .collect()
+}
+
 fn keys_file(paths: &Paths) -> PathBuf {
     paths.root.join("import-keys.txt")
 }
@@ -174,6 +196,9 @@ pub fn local_known(paths: &Paths) -> Result<HashSet<String>, String> {
     if paths.memory_db.exists() {
         let (main, _) = crate::migrate_cloud::memory_lines(&paths.memory_db)?;
         known = keys_of_export_lines(main.iter().map(String::as_str));
+        // Imported notes carry their item's key in their header, so a write cut
+        // off before import-keys.txt was appended still counts as done.
+        known.extend(keys_of_side_notes(main.iter().map(String::as_str)));
     }
     if let Ok(text) = std::fs::read_to_string(keys_file(paths)) {
         known.extend(text.lines().map(str::to_owned));
