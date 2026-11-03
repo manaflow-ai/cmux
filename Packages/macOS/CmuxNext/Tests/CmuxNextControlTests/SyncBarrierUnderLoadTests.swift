@@ -14,6 +14,9 @@ import Testing
     func makeRouter(barrier: @escaping @Sendable () async throws -> UInt64) -> ControlRouter {
         let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(),
                                    configuration: ControlRouter.Configuration(requestDeadline: Self.deadline))
+        // A loaded topology at daemon sequence 0: the barrier's sequence is then already reflected,
+        // so the test measures the barrier's wait, not a snapshot that never loads.
+        router.snapshots.publish { $0.topology.isLoaded = true }
         router.registerSyncBarrier(barrier)
         return router
     }
