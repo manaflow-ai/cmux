@@ -43,16 +43,25 @@ await requireBrowserLane("cloud-menu-highlight-browser.test.ts", async () => {
   for (const colorScheme of ["light", "dark"] as const) {
     for (const [entry, variant, selector, automatic] of scenes) {
       test(`${variant}: ${colorScheme} selection and navigation stay distinct`, async () => {
-        const page = await browser.newPage({ viewport: { width: 620, height: 480 }, deviceScaleFactor: 2, reducedMotion: "reduce" });
+        const page = await browser.newPage({
+          viewport: { width: 620, height: 480 },
+          deviceScaleFactor: 2,
+          reducedMotion: "reduce",
+        });
         try {
           const port = (vite.httpServer!.address() as { port: number }).port;
-          await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant, colorScheme, width: 620, height: 480 })}`);
+          await page.goto(
+            `http://127.0.0.1:${port}${galleryFrame(entry, { variant, colorScheme, width: 620, height: 480 })}`,
+          );
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady);
           expect(await page.locator("html").getAttribute("data-gallery-ready")).toBe("1");
-          const report = await page.evaluate(() => JSON.stringify((window as unknown as { cmuxGalleryPlayReport: unknown }).cmuxGalleryPlayReport));
+          const report = await page.evaluate(() =>
+            JSON.stringify((window as unknown as { cmuxGalleryPlayReport: unknown }).cmuxGalleryPlayReport),
+          );
           expect(playFailures(report)).toEqual([]);
           await page.locator(selector).waitFor({ state: "visible" });
-          if (process.env.FAST_CHECKS_OUT) await page.screenshot({ path: path.join(process.env.FAST_CHECKS_OUT, `${variant}-${colorScheme}.png`) });
+          if (process.env.FAST_CHECKS_OUT)
+            await page.screenshot({ path: path.join(process.env.FAST_CHECKS_OUT, `${variant}-${colorScheme}.png`) });
           const paints = await page.locator(selector).evaluate((popup) => {
             const probe = document.createElement("span");
             probe.style.background = "var(--acpmux-menu-hover)";
@@ -62,7 +71,10 @@ await requireBrowserLane("cloud-menu-highlight-browser.test.ts", async () => {
             return {
               neutral,
               selectedCount: popup.querySelectorAll('[aria-checked="true"], [data-current]').length,
-              highlighted: [...popup.querySelectorAll("[data-highlighted]")].map((row) => ({ background: getComputedStyle(row).backgroundColor, shadow: getComputedStyle(row).boxShadow })),
+              highlighted: [...popup.querySelectorAll("[data-highlighted]")].map((row) => ({
+                background: getComputedStyle(row).backgroundColor,
+                shadow: getComputedStyle(row).boxShadow,
+              })),
               selected: [...popup.querySelectorAll('[aria-checked="true"], [data-current]')]
                 .map((row) => row.closest('[role="option"], [role="menuitemradio"], [role="menuitemcheckbox"]'))
                 .filter((row): row is Element => row !== null && !row.hasAttribute("data-highlighted"))

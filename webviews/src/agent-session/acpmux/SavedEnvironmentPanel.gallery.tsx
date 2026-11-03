@@ -76,7 +76,8 @@ export default componentEntry<ComponentProps<typeof SavedEnvironmentPanel>>({
   title: "Saved environment panel",
   area: "Agent pane",
   covers: ["agent-session/acpmux/SavedEnvironmentPanel.tsx#SavedEnvironmentPanel"],
-  styles: () => Promise.all([import("./styles.css"), import("./composerLocation.css"), import("./savedEnvironments.css")]),
+  styles: () =>
+    Promise.all([import("./styles.css"), import("./composerLocation.css"), import("./savedEnvironments.css")]),
   load: () => import("./SavedEnvironmentPanel").then((module) => module.SavedEnvironmentPanel),
   widths: { narrow: 360, normal: 620, wide: 760 },
   height: 320,

@@ -233,14 +233,14 @@
   overflow: auto;
 }
 .acpmux-location-menu .acpmux-menu-item { width: 100%; text-align: left; }
-.acpmux-location-menu .ui-menu-item[data-highlighted] { background: var(--acpmux-menu-highlight); }
+.acpmux-location-menu .ui-menu-item[data-highlighted] { background: var(--acpmux-menu-hover); }
 .acpmux-location-menu .acpmux-menu-description { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-location-name[data-warning="true"],
 .acpmux-location-name[data-warning="true"] .acpmux-menu-description { color: var(--acpmux-warning); }
 .acpmux-location-menu .ui-separator { flex: none; height: 1px; border: 0; margin: 4px 6px; background: color-mix(in srgb, var(--agent-text) 12%, transparent); }
 /* A started chat's Choose folder… under the folder field's rows (dogfood 09): a plain row, not a button face. */
 .acpmux-location-choose { border: 0; background: none; color: inherit; font: inherit; }
-.acpmux-location-choose:hover, .acpmux-location-choose:focus-visible { background: var(--acpmux-menu-highlight); outline: none; }
+.acpmux-location-choose:hover, .acpmux-location-choose:focus-visible { background: var(--acpmux-menu-hover); outline: none; }
 
 /* The controls row's rhythm (Leo 2026-10-14: "one consistent gap, group related controls, and
    right-align the trailing cluster"). Its groups: [+] [model · effort] [permission mode · Plan]
@@ -1454,7 +1454,11 @@
    hover and the arrow keys only: the row Base UI highlights by itself on open draws nothing, so the
    current machine shows by its check alone (Austin 2026-11-02: "This highlighting needs some fix",
    a dark teal block edge to edge over This Mac's check). */
-.acpmux-menu.acpmux-location-menu.acpmux-folder-popover { padding: var(--cmux-menu-highlight-inset); }
+/* The folder popover keeps the popup's vertical padding: a taller inset shortens its capped scroll
+   viewport, so arrowing and filtering scroll its rows further (gallery shift baseline,
+   composer-context#lane-checkouts-open). The environment picker has no cap to hit. */
+.acpmux-menu.acpmux-location-menu.acpmux-folder-popover { padding: var(--ui-popup-padding) var(--cmux-menu-highlight-inset); }
+.acpmux-menu.acpmux-location-menu.acpmux-env-popover { padding: var(--cmux-menu-highlight-inset); }
 .acpmux-folder-popover .acpmux-menu-item {
   padding-inline: calc(var(--cmux-menu-icon-x) - var(--cmux-menu-highlight-inset))
     calc(var(--cmux-menu-trailing) - var(--cmux-menu-highlight-inset));

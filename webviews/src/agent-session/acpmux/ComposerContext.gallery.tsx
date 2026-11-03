@@ -52,7 +52,13 @@ const baseProps = {
 const fleetProps = { ...baseProps, ...fleetPeers() };
 const folderMenuProps = {
   ...baseProps,
-  summary: { sessionId: "gallery-folder", harness: "claude", cwd: projects[1]!.cwd, host: "This Mac", hostKind: "local" as const },
+  summary: {
+    sessionId: "gallery-folder",
+    harness: "claude",
+    cwd: projects[1]!.cwd,
+    host: "This Mac",
+    hostKind: "local" as const,
+  },
 };
 /// The account's Cloud machines acpmux does not list (cloudMachines.ts): paused, ready and booting.
 const accountMachines = [
