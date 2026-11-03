@@ -956,6 +956,7 @@ impl Mux {
     pub(crate) fn set_input_lane_for_test(&self, on: bool) {
         self.state.set_route_publishing_for_test(on);
         self.control_clients.set_input_lane_for_test(on);
+        self.remote_relay().peers.set_publishing_for_test(on);
         self.surface_operation_admission.set_lock_free_for_test(on);
     }
 

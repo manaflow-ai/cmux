@@ -133,15 +133,14 @@ impl<K: Eq + Hash + Clone + RouteKey<V>, V: Clone> RouteTable<K, V> {
         Some(removed)
     }
 
-    /// Room for `additional` more entries (a mutation plan reserves before it commits); routes nothing. A map with
-    /// room already is not copied out of a published snapshot.
+    /// Room for `additional` more entries; routes nothing. A mutation plan reserves before its durable commit, so
+    /// the insert after the commit allocates nothing (`ResourceMutationPlan::apply`). A map a published snapshot
+    /// shares is copied here, before the commit, never by that insert; the plan reserves and applies under one
+    /// state guard, so no publication shares the map again in between.
     pub fn try_reserve(
         &mut self,
         additional: usize,
     ) -> Result<(), std::collections::TryReserveError> {
-        if self.0.capacity().saturating_sub(self.0.len()) >= additional {
-            return Ok(());
-        }
         Arc::make_mut(&mut self.0).try_reserve(additional)
     }
 }

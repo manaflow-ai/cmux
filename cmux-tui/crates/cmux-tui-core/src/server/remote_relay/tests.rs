@@ -1004,28 +1004,39 @@ fn a_poisoned_pairing_lock_denies_the_owner_scope() {
 }
 
 /// A poisoned peers lock cannot say which clients have a peer record, so
-/// no client gets a principal from it and none is trusted as local.
+/// no client gets a principal from it and none is trusted as local. The
+/// same on the input lane (R-DAEMON-STATE stage S1), whose readers load the
+/// published records instead of the lock.
 #[test]
 fn a_poisoned_peers_lock_gives_no_principal_and_no_local_trust() {
-    let fixture = fixture();
-    let client = remote(&fixture, "inst_1", OWNER);
-    poison(&fixture.mux.remote_relay().peers);
-    assert_eq!(fixture.mux.principal(client), None);
-    assert!(fixture.mux.is_remote_client(fixture.local));
-    assert_eq!(fixture.mux.principal(fixture.local), None);
-    let late = fixture.mux.control_clients.register(ClientTransport::Remote, writer().0);
-    assert_eq!(
-        fixture.mux.bind_remote_peer(late, &peer("inst_1", OWNER)),
-        Err(BindRefused::State(POISONED_PEERS))
-    );
+    for lane in [false, true] {
+        let fixture = fixture();
+        fixture.mux.set_input_lane_for_test(lane);
+        let client = remote(&fixture, "inst_1", OWNER);
+        fixture.mux.remote_relay().peers.poison_for_test();
+        assert_eq!(fixture.mux.principal(client), None, "lane {lane}");
+        assert!(fixture.mux.is_remote_client(fixture.local), "lane {lane}");
+        assert_eq!(fixture.mux.principal(fixture.local), None, "lane {lane}");
+        let late = fixture.mux.control_clients.register(ClientTransport::Remote, writer().0);
+        assert_eq!(
+            fixture.mux.bind_remote_peer(late, &peer("inst_1", OWNER)),
+            Err(BindRefused::State(POISONED_PEERS)),
+            "lane {lane}"
+        );
+    }
 }
 
+/// The same for the client registry, also on the input lane, whose readers
+/// load the registry's published facts instead of its lock.
 #[test]
 fn a_poisoned_registry_lock_trusts_no_client_as_local() {
-    let fixture = fixture();
-    fixture.mux.control_clients.state.poison_for_test();
-    assert!(fixture.mux.control_clients.transport_of(fixture.local).is_none());
-    assert!(fixture.mux.is_remote_client(fixture.local));
+    for lane in [false, true] {
+        let fixture = fixture();
+        fixture.mux.set_input_lane_for_test(lane);
+        fixture.mux.control_clients.state.poison_for_test();
+        assert!(fixture.mux.control_clients.transport_of(fixture.local).is_none(), "lane {lane}");
+        assert!(fixture.mux.is_remote_client(fixture.local), "lane {lane}");
+    }
 }
 
 /// A revoke that meets a poisoned lock cannot tell the install's streams
@@ -1035,7 +1046,7 @@ fn a_revoke_on_a_poisoned_lock_closes_every_remote_stream() {
     let fixture = fixture();
     let one = remote(&fixture, "inst_1", OWNER);
     let other = remote(&fixture, "inst_2", OWNER);
-    poison(&fixture.mux.remote_relay().peers);
+    fixture.mux.remote_relay().peers.poison_for_test();
     assert_eq!(fixture.mux.revoke_remote_install("inst_1"), Err(POISONED_PEERS));
     assert!(!fixture.mux.control_clients.is_remote(one));
     assert!(!fixture.mux.control_clients.is_remote(other));
