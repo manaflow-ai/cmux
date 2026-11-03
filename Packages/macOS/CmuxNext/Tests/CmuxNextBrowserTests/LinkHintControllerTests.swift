@@ -201,6 +201,33 @@ import Testing
         #expect(escape.sent == ["b", "^b"], "Escape: the page got \(escape.sent)")
     }
 
+    /// Review 6603845634 finding 1 (a regression of e98112e): a label typed in full before the labels came is picked
+    /// when they come, after their draw. A click or a new link-hints start during that draw (a few ms) cancelled the
+    /// pick: it never clicked, and the labels the draw put on the page stayed there. The pick, once decided, removes
+    /// the labels and acts, whatever comes during the draw.
+    @Test func aPickDecidedWhenTheLabelsComeSurvivesAClickDuringTheirDraw() async throws {
+        let harness = try Harness()
+        var asked: [String] = []
+        let draw = Answer<BrowserJSValue>()
+        harness.controller.script = { _, source in
+            asked.append(source == LinkHintSession.removeScript ? "remove" : "draw")
+            return source == LinkHintSession.removeScript ? .bool(false) : await draw.next()
+        }
+        await harness.start()
+        let label = Array(LinkHintSession.labels(count: 30))[7]
+        harness.type(label.map(String.init))
+        harness.focus.give(false)
+        await harness.until { harness.targets.isAsked }
+        harness.targets.give(Self.targets(30))
+        await harness.until { draw.isAsked }
+        #expect(!harness.controller.isActive, "the pick did not end the session when the labels came")
+        harness.controller.cancel() // a click (AppServices' mouse-down observer) or a new start, while the labels draw
+        draw.give(.bool(true))
+        await harness.until { asked.contains("remove") }
+        #expect(asked.contains("remove"), "the decided pick was dropped: the labels it drew stay on the page and nothing was clicked (asked: \(asked))")
+        #expect(harness.sent.isEmpty, "a hint letter reached the page: \(harness.sent)")
+    }
+
     /// A click before the page answered ends the session: every held key goes to the page first, in order.
     @Test func aClickBeforeTheAnswerGivesEveryHeldKeyToThePageInOrder() async throws {
         let harness = try Harness()
