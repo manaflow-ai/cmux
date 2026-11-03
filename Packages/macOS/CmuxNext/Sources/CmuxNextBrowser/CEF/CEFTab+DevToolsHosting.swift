@@ -67,6 +67,16 @@ extension CEFTab {
         return CEFHostView.outermost(host.hostView.occlusionRects.map { $0.offsetBy(dx: frame.minX, dy: frame.minY) } + bars)
     }
 
+    /// The page window's clip, in window coordinates (`CEFHostView.pageClip`: the pane's rounded
+    /// clip, the column strip's clip where a docked column covers the pane, the window's corners),
+    /// or nil when the page shows as a plain rectangle. The page window's mask shows the page only
+    /// inside it, so a window snapshot paints the page's image only there too: a page scrolled
+    /// under Home's docked column stays under it in the image, as on screen.
+    public var pageWindowClip: CGPath? {
+        guard host.visibleTab === self, host.hostView.superview === container else { return nil }
+        return host.hostView.pageClipInWindow
+    }
+
     /// `rects` (content view coordinates) in a subview at `frame`.
     private static func local(_ rects: [CGRect], in frame: CGRect) -> [CGRect] {
         rects.compactMap { rect in

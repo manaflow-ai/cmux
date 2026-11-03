@@ -8,6 +8,7 @@ mod activity;
 pub(crate) mod admission;
 mod adopted_fences;
 mod adoption;
+pub(crate) mod agent_hold;
 mod agent_pairs;
 mod message_events;
 pub use agent_pairs::PairGuard;
@@ -27,6 +28,7 @@ pub(crate) mod session_auth;
 pub(crate) mod subagent_retry;
 pub(crate) mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
+pub(crate) use lane_reports::TAG as REPORTS_TO_TAG;
 pub(crate) use policy_mode::SetRequest;
 mod bookmarks;
 pub(crate) mod cancel;
@@ -44,6 +46,8 @@ mod fork;
 #[cfg(test)]
 mod host_notice_tests;
 #[cfg(test)]
+mod peer_notice_cost_tests;
+#[cfg(test)]
 mod prompt_accept_tests;
 #[cfg(test)]
 mod shutdown_scan_tests;
@@ -51,6 +55,7 @@ mod shutdown_scan_tests;
 mod shutdown_tests;
 pub(crate) use fork::offers_fork;
 mod fork_at;
+pub(crate) mod fork_before;
 mod fork_transcript_auth;
 pub mod forum;
 pub(crate) mod full_access_bound;
@@ -94,7 +99,7 @@ pub(crate) use log_load::AdoptionReady;
 mod model_options;
 mod new_request;
 pub use model_options::{
-    current_effort, current_model, current_option, resolve_config_id, web_url,
+    current_effort, current_model, current_option, resolve_config_id, web_url, web_url_for_session,
 };
 mod model_hint;
 mod models_view;
@@ -391,6 +396,9 @@ pub struct PromptOptions {
     pub resend: bool,
     /// The rules the prompt runs under, checked again at dispatch.
     pub control: Control,
+    /// A native Cloud mobile prompt: apply the phone's asking-mode policy,
+    /// including to a prompt that waited in the queue.
+    pub cloud_mobile: bool,
     /// Whether this prompt came from a gated app/Web path and must be checked
     /// again when a queued turn is dispatched.
     pub trust_gate: bool,
@@ -494,7 +502,7 @@ pub struct Hub {
     pub(super) live_session_ids: StdMutex<std::collections::HashSet<String>>,
     /// Serialized summaries for closed sessions. Metadata commits replace the row before the
     /// next full list, so full callers do not rebuild closed-session projections.
-    pub(super) closed_summary_cache: StdMutex<HashMap<String, (u64, String, String)>>,
+    pub(super) closed_summary_cache: StdMutex<HashMap<String, ClosedSummaryCacheEntry>>,
     /// Projection-only message repairs in flight, keyed by destination and delivery id. These
     /// retries never resend a prompt and are bounded in `message_events.rs`.
     pub(super) message_repairs: StdMutex<std::collections::HashSet<(String, String)>>,
@@ -742,6 +750,17 @@ pub struct Hub {
     pub(crate) briefs: dispatch::Briefs,
     /// Every Claude workflow of this daemon's chats (`workflow_index.rs`).
     pub(crate) workflow_index: workflow_index::WorkflowIndex,
+}
+
+/// Serialized forms of one closed session. Each form has its own generation and tag-expiry
+/// deadline: building a list row must never make a previously cached full row look fresh.
+pub(super) struct ClosedSummaryCacheEntry {
+    pub(super) list_generation: u64,
+    pub(super) list_next_expiry: u64,
+    pub(super) list: String,
+    pub(super) full_generation: u64,
+    pub(super) full_next_expiry: u64,
+    pub(super) full: String,
 }
 
 impl Hub {
@@ -1189,6 +1208,7 @@ impl Hub {
             meta: StdMutex::new(meta),
             child: Mutex::new(None),
             spawn_lock: Mutex::new(()),
+            fork_lock: Mutex::new(()),
             close_lock: Mutex::new(()),
             harness_use: RwLock::new(()),
             idle_refusal_logged: AtomicU64::new(0),
@@ -1336,6 +1356,15 @@ impl Hub {
 
     pub(super) fn cached_closed_summary(&self, session: &Session, with_tools: bool) -> Value {
         let id = session.id.clone();
+        let now = now_ms();
+        let next_expiry = session
+            .meta()
+            .tags
+            .values()
+            .filter_map(|tag| tag.expires_at)
+            .filter(|expires_at| *expires_at > now)
+            .min()
+            .unwrap_or(0);
         let generation = self.events.summary_generation.load(Ordering::SeqCst);
         if session.status() == SessionStatus::Closed
             && let Some(bytes) = self
@@ -1343,8 +1372,17 @@ impl Hub {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .get(&id)
-                .filter(|entry| entry.0 == generation)
-                .map(|entry| if with_tools { &entry.2 } else { &entry.1 })
+                .and_then(|entry| {
+                    let (entry_generation, entry_expiry, bytes) = if with_tools {
+                        (entry.full_generation, entry.full_next_expiry, &entry.full)
+                    } else {
+                        (entry.list_generation, entry.list_next_expiry, &entry.list)
+                    };
+                    (entry_generation == generation
+                        && (entry_expiry == 0 || now < entry_expiry)
+                        && !bytes.is_empty())
+                    .then_some(bytes)
+                })
             && let Ok(row) = serde_json::from_str(bytes)
         {
             return row;
@@ -1356,17 +1394,35 @@ impl Hub {
         };
         if session.status() == SessionStatus::Closed {
             let mut cache = self.closed_summary_cache.lock().unwrap_or_else(|e| e.into_inner());
-            let entry =
-                cache.entry(id).or_insert_with(|| (generation, String::new(), String::new()));
-            entry.0 = generation;
+            // A summary may have been built while purge was unregistering the session. Recheck
+            // the tombstone while holding the cache lock so a late reader cannot recreate it.
+            if session.purged.load(Ordering::SeqCst) {
+                return row;
+            }
+            let entry = cache.entry(id).or_insert_with(|| ClosedSummaryCacheEntry {
+                list_generation: 0,
+                list_next_expiry: 0,
+                list: String::new(),
+                full_generation: 0,
+                full_next_expiry: 0,
+                full: String::new(),
+            });
             let bytes = serde_json::to_string(&row).unwrap_or_default();
             if with_tools {
-                entry.2 = bytes;
+                entry.full_generation = generation;
+                entry.full_next_expiry = next_expiry;
+                entry.full = bytes;
             } else {
-                entry.1 = bytes;
+                entry.list_generation = generation;
+                entry.list_next_expiry = next_expiry;
+                entry.list = bytes;
             }
         }
         row
+    }
+
+    pub(super) fn remove_cached_closed_summary(&self, id: &str) {
+        self.closed_summary_cache.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
     }
 
     /// The sessions the daemon may need to summarize on a hot path. Closed records are looked up

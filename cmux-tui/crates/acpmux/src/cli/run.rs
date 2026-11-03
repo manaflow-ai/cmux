@@ -18,6 +18,7 @@ mod extra;
 pub(crate) mod fanout;
 pub(crate) mod launch;
 mod ls;
+mod ls_leads;
 mod ls_pages;
 mod ls_tools;
 pub use ls::LsArgs;

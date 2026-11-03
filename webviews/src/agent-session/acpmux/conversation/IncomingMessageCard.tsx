@@ -42,6 +42,7 @@ import { Markdown } from "./Markdown";
 import { CardCopy } from "./CardCopy";
 import { knownMark } from "../../shared/AgentMark";
 import { useSenderChat, useSenderPlace } from "../subagents/subsessions";
+import { harnessLabel, runModel } from "../subagents/agentRuns";
 import { AgentIdentity } from "../subagents/AgentIdentity";
 import { agentTone } from "../subagents/agentTones";
 import { useAgentAvatar } from "../agentAvatar";
@@ -109,6 +110,30 @@ export function SenderMark({ message }: { message: IncomingMessage }) {
   );
 }
 
+/// What a sender runs on, for its line's hover: "Codex · gpt-6.1-sol high", its harness's name, then
+/// its model and effort (a listed chat's, else the ones the message names), each only when known
+/// (Leo, 2026-10-28: "when you hover over the button, it should be able to tell you, like, a bit
+/// more metadata. Like, at the very least tell you what model did it, what effort level").
+export function senderAbout(
+  harness: string | undefined,
+  listed: { model?: string; effort?: string } | undefined,
+  named: { model?: string; effort?: string },
+): string | undefined {
+  const model = runModel({ model: listed?.model ?? named.model, effort: listed?.effort ?? named.effort });
+  return [harness && harnessLabel(harness), model].filter(Boolean).join(" · ") || undefined;
+}
+
+/// A sender's name as its line shows it beside its machine: a peer's chat comes named
+/// `<machine>/<name>` (acpmux hub/peers.rs), and the line names the machine after the name already,
+/// so the name drops that prefix: "merge-timeout · lane-vm-01", never "lane-vm-01/merge-timeout ·
+/// lane-vm-01" (Leo, 2026-11-02, on that line: "wtf these tool call spacing things are still weird").
+export function senderLabel(name: string, host: string | undefined): string {
+  const prefix = host ? `${host}/` : "";
+  return prefix && name.toLowerCase().startsWith(prefix.toLowerCase()) && name.length > prefix.length
+    ? name.slice(prefix.length)
+    : name;
+}
+
 /// The sender's mark and name at a received line's start (and a waiting group's sender head,
 /// PendingMessagesCard.tsx): the name opens the sender's chat when there is one to open.
 export function SenderName({ message, onOpen }: { message: IncomingMessage; onOpen(sessionId: string): void }) {
@@ -116,8 +141,8 @@ export function SenderName({ message, onOpen }: { message: IncomingMessage; onOp
   // A Chief's message names the Chief and draws its avatar (chiefFace.ts); its turn session is no
   // chat of the list, so no listed chat with its name stands in for it, and it is no chat to open.
   const chief = useChiefFace(message.chief);
-  const name = (message.chief && chief?.name) || message.name;
   const sender = useSenderChat(message.chief ? "" : message.name, message.sessionId);
+  const name = (message.chief && chief?.name) || senderLabel(message.name, sender.host);
   // Read only (a guest): the sender's chat is not this reader's to open.
   const readOnly = useTranscriptReadOnly();
   const sessionId = message.chief || readOnly ? undefined : sender.sessionId;
@@ -128,14 +153,17 @@ export function SenderName({ message, onOpen }: { message: IncomingMessage; onOp
       : "";
   const from = inboxNames || (message.relation ? t(RELATION_LABEL[message.relation], { name }) : name);
   const icon = <SenderMark message={message} />;
+  // The harness, model and effort it runs on, under the name's tooltip and on the mark's.
+  const about = message.chief
+    ? undefined
+    : senderAbout(senderHarness(sender.harness, message.harness), sender.run, message);
   // "Open chief-ui (studio-mac)": the chat the name opens, and the other machine it runs on.
-  const openTitle = sender.host
-    ? t("subagents.openOnHost", { name, host: sender.host })
-    : t("subagents.open", { name });
+  const open = sender.host ? t("subagents.openOnHost", { name, host: sender.host }) : t("subagents.open", { name });
+  const openTitle = about ? `${open}\n${about}` : open;
   return (
     // Its own part of the line: the name opens the sender's chat or nothing, never the message.
     <span className="cv-received__sender" data-own-click="">
-      <span className="cv-received__mark" aria-hidden="true">
+      <span className="cv-received__mark" aria-hidden="true" title={about}>
         {icon}
       </span>
       {sessionId ? (
@@ -143,11 +171,11 @@ export function SenderName({ message, onOpen }: { message: IncomingMessage; onOp
           name={from}
           className="cv-received__from cv-received__from--open"
           title={openTitle}
-          ariaLabel={openTitle}
+          ariaLabel={open}
           onClick={() => onOpen(sessionId)}
         />
       ) : (
-        <AgentTag name={from} className="cv-received__from" />
+        <AgentTag name={from} className="cv-received__from" title={about} />
       )}
       {/* The other machine the sender's chat runs on, on the line itself, not only in the name's
           tooltip (Leo, 2026-10-27, on a lane's message: "Is this, like, from another machine? But

@@ -33,6 +33,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// A new chat's typed text before it has a session (`chat.unsentDraft`, cx-z5vd): the App
     /// keeps it with the tab, so a relaunch opens the chat with it.
     case unsentDraft(String)
+    /// What a new chat leaves when its tab opens another chat (`chat.leftover`, cmux#32276): its
+    /// typed text and prompts held for a trust answer, kept for its window's next new chat.
+    case newChatLeftover(String)
+    /// A New Tab page showed that leftover as its draft (`chat.leftoverTaken`): its window's slot gives it up.
+    case newChatLeftoverTaken(String)
     /// A settled transcript scroll's frame intervals in milliseconds, at
     /// most ``maximumPacingFrames``; returns the native display interval and rate mode.
     case framePacing([Double])
@@ -59,6 +64,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `harness.restart {}`: the card's Restart Chat: this chat's agent restarts on the installed
     /// version and resumes (after its turn); answers `{restarted, after_turn}`. Only with a gesture.
     case harnessRestart
+    /// `account.add`: the local picker form adds a route through the unix socket, on a real gesture.
+    case addAccount(AgentPaneAddAccount)
     /// `shell.read {id, after}`: the run's output from byte `after`.
     case shellRead(id: String, after: Int)
     /// `shell.stop {id}`: interrupt the run's process group.
@@ -204,8 +211,17 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.tabRowTools {width}`: the chat header's tools take `width` CSS pixels at the trailing
     /// end of the pane's tab row (``AgentPaneTabRow``), 0 when the page draws none there.
     case tabRowTools(width: Double)
+    /// The current page-owned Session Info model, or its withdrawal.
+    case sessionInfo(AgentPaneSessionInfoModel?)
+    /// `pane.sessionInfo.overlays {rects}`: the page's open popups (viewport CSS pixels), which the
+    /// natively drawn Session Info steps behind; empty when none shows.
+    case sessionInfoOverlays([AgentPaneSessionInfoOverlay])
+    /// Copies a native Session Info menu item through the platform clipboard.
+    case copyText(String)
     /// `pane.tabRowTools.set {tools}`: declarative native controls for the shared tab row.
     case tabRowToolsSet([PaneTabRowTool])
+    /// `pane.tabRowTools.openMenu {id, menuItemId?}`: opens a native page menu for palette expansion.
+    case tabRowToolsOpenMenu(id: String, menuItemID: String?)
     /// `/btw <question>` asks acpmux for one bounded inline side answer.
     case btwInline(question: String, sessionId: String)
     /// New side chat: open the fork `sessionId` the page just made beside this chat.
@@ -217,9 +233,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// sub-session its agent started, the session that started it, with `sender` the chat that sent
     /// it a message): its tab, else one beside this chat, focused (``AgentPaneOfferOpen``).
     case offerOpen(String, sender: Bool)
-    /// `chat.asks.open {sessionId}`: Needs you went to another chat's ask: that chat's tab, else a
-    /// new tab beside this chat; never this chat replaced in place (``AgentPaneAskOpen``).
-    case asksOpen(String)
+    /// `chat.asks.open {sessionId, where?}`: Needs you went to another chat's ask: on this chat's
+    /// right by default, else the workspace whose tab shows it or a new workspace, as the person
+    /// picked; never this chat replaced in place (``AgentPaneAskOpen``).
+    case asksOpen(String, AgentPaneAskPlace)
+    /// `chat.attention.open {tabId}`: Needs you went to a marked tab.
+    case attentionOpen(String)
     /// `chat.asks.answer {sessionId, permissionId, optionId}`: the home's inbox answered another
     /// chat's ask in place, with that ask's allow once or deny once (``AgentPaneAskAnswer``).
     case asksAnswer(AgentPaneAskAnswer)

@@ -83,8 +83,11 @@ final class TerminalScroller: NSScrollView {
     }
 
     /// The width the host keeps free for the scroller: the legacy scroller's, else none.
-    var reservedWidth: CGFloat {
-        scrollerStyle == .legacy ? NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy) : 0
+    var reservedWidth: CGFloat { Self.reservedWidth(for: scrollerStyle) }
+
+    /// The strip a scroller of `style` takes beside the surface: a legacy one's width, none for an overlay one.
+    static func reservedWidth(for style: NSScroller.Style) -> CGFloat {
+        style == .legacy ? NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy) : 0
     }
 
     /// The frame for a host of `bounds`: a strip at the trailing edge.

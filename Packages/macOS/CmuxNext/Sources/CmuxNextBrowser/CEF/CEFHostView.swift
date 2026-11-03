@@ -53,7 +53,7 @@ final class CEFHostView: NSView {
         updateBackground()
         fileDrag.view = self
         layerHosting.view = self
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         Self.registerMotionSampler()
         #endif
     }
@@ -157,6 +157,18 @@ final class CEFHostView: NSView {
 
     /// The pane's rounded clip, the column strip's clip and the window's corners, in this view.
     var pageClip: CGPath? { clipShape().path }
+
+    /// ``pageClip`` in window coordinates, the shape the page window's mask shows on screen; nil
+    /// when the page is a plain rectangle. A page clipped away entirely gets an empty path.
+    var pageClipInWindow: CGPath? {
+        guard let clip = pageClip else { return nil }
+        let origin = convert(NSPoint.zero, to: nil)
+        let unitX = convert(NSPoint(x: 1, y: 0), to: nil)
+        let unitY = convert(NSPoint(x: 0, y: 1), to: nil)
+        var toWindow = CGAffineTransform(a: unitX.x - origin.x, b: unitX.y - origin.y,
+                                         c: unitY.x - origin.x, d: unitY.y - origin.y, tx: origin.x, ty: origin.y)
+        return clip.copy(using: &toWindow)
+    }
 
     /// The last clip shape and what it was worked out from. The fork reads
     /// the clip and the occlusion rects on every geometry update, several
@@ -497,7 +509,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     private func refreshSyncedDrag() {
         guard let page = syncedDragHostings.first else { return }
         var hostings = [page]
-        if !isHiddenOrHasHiddenAncestor, let host = tab?.devToolsController.views?.host, host.superview === self {
+        if !isHiddenOrHasHiddenAncestor, let host = tab?.devToolsController.views?.host, host.superview === self, !host.isHidden {
             hostings.append(host.layerHosting)
         }
         for hosting in syncedDragHostings where !hostings.contains(where: { $0 === hosting }) {
@@ -516,10 +528,12 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
         for hosting in hostings { hosting.paneResizeDrag(active: false) }
     }
 
-    /// A plain page shown here: no docked DevTools, side panel or device fit, which place the page themselves.
+    /// A plain page shown here: no docked DevTools taking room, side panel or device fit, which place the page
+    /// themselves. Views kept hidden after an unreported DevTools open take no room (#32253): the page still holds.
     private var pageCanHold: Bool {
         guard let tab else { return false }
-        return tab.host.hostView.superview === self && tab.devToolsController.views == nil
+        return tab.host.hostView.superview === self && !tab.devToolsController.reservesRoom
+            && !(tab.devToolsController.deviceModeOn && tab.devToolsController.views != nil)
             && tab.sidePanel.state == nil && tab.deviceEmulation == nil
     }
 

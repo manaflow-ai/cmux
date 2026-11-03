@@ -418,6 +418,8 @@ pub mod method {
     pub const MUX_MESH_CONTROL: &str = "_acpmux/mesh_control";
     /// Resume agent message pairs the runaway guard paused (`hub/agent_pairs.rs`).
     pub const MUX_AGENT_PAIR_RESUME: &str = "_acpmux/agent_pair_resume";
+    /// The person takes a managed chat over, or hands it back (`hub/agent_hold.rs`).
+    pub const MUX_AGENT_HOLD: &str = "_acpmux/agent_hold";
     /// Retry a chat's failed last turn now (`hub/auto_resume/retry_turn.rs`).
     pub const MUX_RETRY: &str = "_acpmux/retry";
     /// What this daemon knows of a chat's sign-in (`hub/session_auth.rs`).
@@ -439,7 +441,7 @@ pub mod method {
     pub const MUX_MAIL_READ: &str = "_acpmux/mail/read";
     pub const MUX_MAIL_WAIT: &str = "_acpmux/mail/wait";
     pub const MUX_MAIL_ACK: &str = "_acpmux/mail/ack";
-    /// Team-scoped relay messaging (Labs gated): send and inspect durable inbox entries.
+    /// Team-scoped relay messaging (on wherever a hub is configured): send and inspect durable inbox entries.
     pub const MUX_TEAM_SEND: &str = "_acpmux/team/send";
     pub const MUX_TEAM_INBOX: &str = "_acpmux/team/inbox";
     pub const MUX_TEAM_READ: &str = "_acpmux/team/read";

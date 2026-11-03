@@ -528,19 +528,37 @@ button.cv-subagent > :last-child {
   padding-inline: var(--acpmux-tray-inset);
   height: var(--ui-row-height, 28px);
 }
+/* The time and the state word as one cluster at the line's end (AgentLine.tsx, cmux#31492): it
+   sizes to its words and sits against the chevron, or against Stop on a line that has one. The time
+   never cuts; a long state word gives way first. Workflow progress stays beside the title. */
+.acpmux-running-tray .acpmux-agent-line__trail {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--acpmux-tray-gap);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+/* The time ends the cluster, after the state word and its dot ("Done · 36s"): it sizes to its
+   tabular digits and its right edge never moves, so a tick moves nothing but a new digit. It never
+   cuts; the state word gives way first. */
 .acpmux-running-tray .acpmux-agent-line__time {
   box-sizing: border-box;
-  flex: 0 0 var(--acpmux-tray-time-width);
-  min-width: var(--acpmux-tray-time-width);
+  flex: none;
+  max-width: var(--acpmux-tray-time-width);
   overflow: hidden;
   text-align: right;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
-/* Status has its own fixed track after the time. Workflow progress stays beside the title. */
+.acpmux-running-tray .acpmux-agent-line__sep {
+  flex: none;
+  color: var(--agent-muted);
+}
 .acpmux-running-tray .acpmux-agent-line__meta {
   flex: 0 1 auto;
   min-width: 0;
-  max-width: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
@@ -572,12 +590,11 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray[data-row="inline"] .acpmux-agent-line > .acpmux-agent-line__button > .acpmux-summary-text {
   flex: 0 1 auto;
 }
-.acpmux-running-tray[data-row="inline"] .acpmux-agent-line .acpmux-agent-line__meta {
+.acpmux-running-tray[data-row="inline"] .acpmux-agent-line .acpmux-agent-line__trail {
   justify-content: flex-start;
 }
 .acpmux-running-tray[data-row="inline"] .acpmux-agent-line .acpmux-agent-line__time {
-  flex: 0 0 auto;
-  min-width: 0;
+  width: auto;
   text-align: start;
 }
 .acpmux-running-tray[data-row="inline"] .acpmux-agent-line .acpmux-agent-line__stop-track {
@@ -594,10 +611,40 @@ button.cv-subagent > :last-child {
   box-shadow: none;
 }
 .acpmux-running-tray[data-settled][data-card][data-surface="tint"] {
-  background: color-mix(in srgb, var(--agent-text) 5%, transparent);
+  --acpmux-tray-fill: color-mix(in srgb, var(--agent-text) 5%, transparent);
 }
 .acpmux-running-tray[data-settled][data-card][data-surface="rim"] {
-  background: color-mix(in srgb, var(--agent-text) 2%, transparent);
+  --acpmux-tray-fill: color-mix(in srgb, var(--agent-text) 2%, transparent);
+}
+/* A card over the composer is the composer's own glass (composerStates.css: the composer surface at
+   70%, or 50% over a see-through window, frosted) with the tray's tint over it, so the transcript
+   never shows through its lines: the reply's footer icons read through a settled line that drew no
+   surface (Leo, 2026-11-02: "this running thing now looks mildly awkward"). It stays glass, never
+   opaque; Reduce Transparency gives it the composer's solid fill, as the card. */
+.acpmux-running-tray[data-card] {
+  --acpmux-tray-glass: color-mix(in srgb, var(--acpmux-composer-solid) 70%, transparent);
+  --acpmux-tray-frost: blur(24px) saturate(1.25);
+  background:
+    linear-gradient(var(--acpmux-tray-fill, color-mix(in srgb, var(--agent-text) 8%, transparent)), var(--acpmux-tray-fill, color-mix(in srgb, var(--agent-text) 8%, transparent))),
+    var(--acpmux-tray-glass);
+  -webkit-backdrop-filter: var(--acpmux-tray-frost);
+  backdrop-filter: var(--acpmux-tray-frost);
+}
+:root[data-cmux-see-through] .acpmux-running-tray[data-card] {
+  --acpmux-tray-glass: color-mix(in srgb, var(--acpmux-composer-solid) 50%, transparent);
+  --acpmux-tray-frost: var(--surface-blur);
+}
+:root[data-reduce-transparency] .acpmux-running-tray[data-card] {
+  /* glass-opaque-allow: the Reduce Transparency fill only, as the composer card's */
+  --acpmux-tray-glass: var(--acpmux-composer-solid);
+  --acpmux-tray-frost: none;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-running-tray[data-card] {
+    /* glass-opaque-allow: the Reduce Transparency fill only, as the composer card's */
+    --acpmux-tray-glass: var(--acpmux-composer-solid);
+    --acpmux-tray-frost: none;
+  }
 }
 /* The header's mark is off by default (trayHead.experiment.ts `bare`, Leo, 2026-11-01: "why did you
    guys not remove the 3/4"): its slot stays, unseen, so the counts keep the text column. */
@@ -610,6 +657,10 @@ button.cv-subagent > :last-child {
    end in. A long title truncates; the time never does. */
 .acpmux-running-tray__head > .acpmux-running-tray__title {
   flex: 0 1 auto;
+  /* Its counts change in place (trayMotion.tsx `Tick` steadyCounts): every digit one width, so a
+     count ticking over moves nothing after it but a new digit (Leo, 2026-10-31: "jolting every time
+     there's a new subagent or command"). */
+  font-variant-numeric: tabular-nums;
 }
 .acpmux-running-tray__time {
   flex: 1 0 auto;
@@ -630,8 +681,8 @@ button.cv-subagent > :last-child {
   align-items: center;
   justify-content: center;
 }
-/* A line's trailing tracks, in order: its time, its state, Stop's track (empty where it has no Stop,
-   so nothing moves), then the chevron's. */
+/* A line's trailing tracks, in order: its time and state (one cluster), Stop's track (given to that
+   cluster where the line has no Stop), then the chevron's. */
 .acpmux-running-tray .acpmux-agent-line__stop-track {
   flex: 0 0 var(--acpmux-tray-stop-width);
 }
@@ -715,14 +766,15 @@ button.cv-subagent > :last-child {
   min-width: 0;
   margin-left: calc(14px + var(--acpmux-line-icon-gap, 8px) + var(--acpmux-tray-indent, 0px));
 }
-.acpmux-running-tray .acpmux-agent-line__time {
-  grid-area: 1 / 2;
+/* The time and state cluster spans the duration and status tracks and ends where Stop begins. A
+   line with no Stop (one that ended, or that cannot be stopped) gives the cluster Stop's empty
+   track too, so its time and state sit right beside the chevron (cmux#31492). */
+.acpmux-running-tray .acpmux-agent-line__trail {
+  grid-row: 1;
+  grid-column: 2 / 4;
 }
-.acpmux-running-tray .acpmux-agent-line__meta {
-  grid-area: 1 / 3;
-  width: 100%;
-  max-width: none;
-  justify-content: flex-start;
+.acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__stop-slot:empty) .acpmux-agent-line__trail {
+  grid-column: 2 / 5;
 }
 .acpmux-running-tray .acpmux-agent-line__stop-track {
   grid-area: 1 / 4;
@@ -768,8 +820,15 @@ button.cv-subagent > :last-child {
   .acpmux-running-tray .acpmux-agent-line__button > .acpmux-summary-text {
     grid-column: 1 / -1;
   }
-  .acpmux-running-tray :is(.acpmux-agent-line__time, .acpmux-agent-line__meta, .acpmux-agent-line__stop-track, .acpmux-agent-line__chevron, .acpmux-agent-line__chevron-track) {
+  .acpmux-running-tray :is(.acpmux-agent-line__trail, .acpmux-agent-line__stop-track, .acpmux-agent-line__chevron, .acpmux-agent-line__chevron-track) {
     grid-row: 2;
+  }
+  /* The controls line has the title's track free: a long state word takes that room first. */
+  .acpmux-running-tray .acpmux-agent-line__trail {
+    grid-column: 1 / 4;
+  }
+  .acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__stop-slot:empty) .acpmux-agent-line__trail {
+    grid-column: 1 / 5;
   }
   .acpmux-running-tray .acpmux-agent-line__stop-slot {
     top: auto;
@@ -939,6 +998,15 @@ button.cv-subagent > :last-child {
 .cv-subagent-done-row > .cv-tool__chevron {
   flex: none;
   pointer-events: none;
+}
+/* In the transcript its mark follows the line's words, before the hover buttons; the time stays at
+   the line's end (conversation.css "chevron right after its words"). It opens a chat, not a fold,
+   so it keeps pointing right. */
+.acpmux-row .cv-subagent-done-row > .cv-subagent-done__chevron {
+  order: 1;
+}
+.acpmux-row .cv-subagent-done-row > .cv-subagent-done__note {
+  order: 2;
 }
 .cv-subagent-done-row > .cv-tool__chevron.is-idle {
   visibility: hidden;

@@ -35,8 +35,7 @@ public final class PaletteController {
     /// of guessing it from the active window, which the palette's own
     /// `relativeTo:` and the key window can both disagree with.
     public var onVisibilityChange: ((Bool, NSWindow?) -> Void)?
-    /// Main-thread phases of each open, request to committed first frame
-    /// (the stall bench, `debug.timings`).
+    /// Main-thread phases of each open, request to committed first frame (the stall bench, `debug.timings`).
     public var onPresented: ((PaletteOpenTiming) -> Void)?
     /// The `systemUptime` timestamp of the input event that opens the palette
     /// (a key-down), or nil when no event caused the open (CLI, socket). Read
@@ -46,6 +45,7 @@ public final class PaletteController {
     private var openStarted: ContinuousClock.Instant?
     private var openInput: Duration = .zero
     private var modelReady: ContinuousClock.Instant?
+    let registryRows = RegistryPaletteRows() // the command rows kept across opens: an open builds only the changed ones
 
     /// What the user acted on when the palette opened (`PaletteSources.context`).
     public private(set) var capturedTargets: [ActionTargetRef] = []

@@ -62,6 +62,10 @@ struct Fake {
     computer_use: Option<Value>,
     /// The card's answer to `permissions.request`; `granted` when unset.
     setup_outcome: Option<Value>,
+    /// The app's `cloud.machines` answer; an app without it answers `{ran: true}`.
+    cloud_machines: Option<Value>,
+    /// The server was started on another session (`--session`, `--socket`).
+    other_session: bool,
     /// `{method, params, thread}` of each request the app caller got.
     app_calls: std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
     sent: RefCell<Vec<Value>>,
@@ -161,6 +165,10 @@ impl Fake {
 }
 
 impl Backend for Fake {
+    fn app_session(&self) -> bool {
+        !self.other_session
+    }
+
     fn app_caller(&self) -> Option<computer_use_gate::AppCaller> {
         let status = self.computer_use.clone()?;
         let outcome = self.setup_outcome.clone().unwrap_or_else(|| json!({"outcome": "granted"}));
@@ -306,6 +314,9 @@ impl Backend for Fake {
                     .topology
                     .clone()
                     .unwrap_or_else(|| json!({"topology": {"windows": [{"id": "win_a"}]}})))
+            }
+            "cloud.machines" if self.cloud_machines.is_some() => {
+                Ok(self.cloud_machines.clone().unwrap_or_default())
             }
             "feed.list" => {
                 let mut live = self.live.borrow_mut();
@@ -1327,6 +1338,14 @@ fn agents_action_tools_send_the_cli_requests_and_move_focus_only_by_purpose() {
     let list = &sent_of(&server, "app")[0];
     assert_eq!(list["method"], "feed.list");
     assert_eq!(list["params"]["pending_only"], false);
+    // A read's receipt reads the app's last snapshot: no read barrier to wait out.
+    let state = &sent_of(&server, "app")[1];
+    assert_eq!(state["method"], "snapshot.get");
+    assert_eq!(state["params"], json!({"after": 0}));
+    server.backend.sent.borrow_mut().clear();
+    call(&mut server, "agents_palette_open", json!({"idempotency_key": "palette-2"}));
+    let state = sent_of(&server, "app").into_iter().find(|s| s["method"] == "snapshot.get");
+    assert_eq!(state.expect("a change's receipt reads the app")["params"], json!({}));
 
     server.backend.sent.borrow_mut().clear();
     let result = call(
@@ -1527,6 +1546,7 @@ mod agent_wait;
 
 mod caller_scope;
 mod catalog;
+mod cloud_workspace_list;
 mod machine_catalog;
 mod retained;
 mod settings;
@@ -2106,7 +2126,7 @@ fn open_splits_and_opens_in_one_call() {
     assert!(
         result["structuredContent"]["recovery"]
             .as_str()
-            .is_some_and(|s| s.to_ascii_lowercase().contains("inspect")),
+            .is_some_and(|s| s.contains("Inspect created_pane")),
         "the pending open needs a usable recovery hint: {result}"
     );
     let sent = uncertain.backend.sent.borrow();
@@ -2114,6 +2134,46 @@ fn open_splits_and_opens_in_one_call() {
     assert!(
         !sent.iter().any(|s| s["request"]["operation"] == "pane.close"),
         "a lost acknowledgement must never close a possibly successful viewer: {sent:?}"
+    );
+    drop(sent);
+
+    // The same composite ID replays a split and app action under the same
+    // stage keys even if the app drops its acknowledgement twice.
+    uncertain.backend.sent.borrow_mut().clear();
+    let args = json!({"name": "open",
+        "arguments": {"kind": "file", "path": "/work/docs/notes.md", "where": "below",
+                      "idempotency_key": "same-open-request"}});
+    for _ in 0..2 {
+        let result = uncertain.call(&args).expect("open tool result");
+        assert_eq!(result["isError"], true, "{result}");
+        assert_eq!(result["structuredContent"]["state"], "in_progress", "{result}");
+        assert_eq!(result["structuredContent"]["created_pane"], pane, "{result}");
+        assert_eq!(
+            result["structuredContent"]["open_idempotency_key"], "same-open-request",
+            "{result}"
+        );
+    }
+    let sent = uncertain.backend.sent.borrow();
+    let keys = |operation: &str| {
+        sent.iter()
+            .filter(|s| s["request"]["operation"] == operation)
+            .filter_map(|s| s["request"]["idempotency_key"].as_str())
+            .collect::<Vec<_>>()
+    };
+    let splits = keys("pane.split");
+    assert_eq!(splits.len(), 2, "{sent:?}");
+    assert_eq!(splits[0], splits[1], "same split key must be replayed");
+    let actions = sent.iter().filter(|s| s["method"] == "action.run").collect::<Vec<_>>();
+    assert_eq!(actions.len(), 2, "{sent:?}");
+    assert_eq!(actions[0]["key"], actions[1]["key"], "same app run key must be replayed");
+    assert!(
+        actions[0]["key"].as_str().is_some_and(|key| !key.is_empty()),
+        "a composite open must send a stable app action key"
+    );
+    assert!(splits[0] != actions[0]["key"].as_str().unwrap_or_default());
+    assert!(
+        !sent.iter().any(|s| s["request"]["operation"] == "pane.close"),
+        "an uncertain open never rolls back its stage: {sent:?}"
     );
     drop(sent);
 

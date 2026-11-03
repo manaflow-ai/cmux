@@ -100,7 +100,7 @@
 .acpmux-model-effort{flex:none;margin-left:4px;padding:2px 6px;border-radius:4px;background:var(--acpmux-menu-hover);color:var(--agent-muted);font-size:12px;line-height:16px}
 .acpmux-effort .acpmux-picker-button,.acpmux-picker-button .acpmux-icon:last-child{color:var(--agent-muted)}
 .acpmux-mp-refresh-spinner{width:12px;height:12px;border:1.5px solid color-mix(in srgb,currentColor 35%,transparent);border-top-color:currentColor;border-radius:50%}
-@media (prefers-reduced-motion: no-preference){.acpmux-mp-refresh-spinner{animation:cmux-spin var(--cmux-spinner-period,900ms) linear infinite}}
+@media (prefers-reduced-motion: no-preference){.acpmux-mp-refresh-spinner{animation:cmux-spin var(--cmux-spinner-period, 1400ms) linear infinite}}
 :root[data-status-indicators=static] .acpmux-mp-refresh-spinner{animation:none}
 /* The context ring is a button the size of the mic; resting on it or focusing it shows the context card (contextCard.css). */
 .acpmux-context{flex:none}
@@ -138,7 +138,10 @@
 .acpmux-composer-plus .acpmux-menu-label{flex:0 1 auto;min-width:0}
 .acpmux-composer-plus .acpmux-menu-description{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-composer-plus .acpmux-menu-item>svg{flex:none}
-.acpmux-menu-item{display:flex;align-items:center;gap:var(--cmux-menu-icon-gap);min-height:var(--ui-row-height);padding:5px var(--ui-row-padding-inline);box-sizing:border-box;border-radius:var(--ui-row-radius)}
+/* Custom picker rows use the same AppKit menu grid as Menu/ContextMenu. The old 8px inset put
+   icon rows' labels at 36px (and plain rows at 12px); the shared leading line is 15px, with a
+   14px icon and 6px label gap making the icon-row text line 35px from the popup edge. */
+.acpmux-menu-item{display:flex;align-items:center;gap:var(--cmux-menu-icon-gap);min-height:var(--ui-row-height);padding:5px var(--ui-row-padding-inline);padding-inline:calc(var(--cmux-menu-icon-x) - var(--ui-popup-padding));box-sizing:border-box;border-radius:var(--ui-row-radius)}
 .acpmux-project-browse{width:100%;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:default}
 .ui-menu-check{flex:none;display:inline-flex;align-items:center;justify-content:center;line-height:1}
 .acpmux-menu .ui-menu-check{color:var(--acpmux-composer-dim);font-family:var(--font-ui);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
@@ -184,12 +187,17 @@
    lines continue across stacked parts). */
 .acpmux-newtab{--acpmux-newtab-mark:26px}
 .acpmux-newtab-box{border-radius:22px;background:color-mix(in srgb,var(--acpmux-composer-bg) 72%,transparent);-webkit-backdrop-filter:blur(18px) saturate(1.08);backdrop-filter:blur(18px) saturate(1.08);box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge),var(--elevation-2)}
-.acpmux-newtab-row{display:flex;align-items:center;gap:10px;height:56px;padding:0 8px 0 18px;cursor:text}
+/* The field row's one-line height: the row and the prompt editor in it share it (--acpmux-newtab-row). */
+.acpmux-newtab{--acpmux-newtab-row:56px}
+.acpmux-newtab-row{display:flex;align-items:center;gap:10px;min-height:var(--acpmux-newtab-row);padding:0 8px 0 18px;cursor:text}
 /* The field row is the text area: the I-beam over all of it, and a press anywhere in it focuses the field (NewTabPage); its switch keeps the arrow. The box has no hover state (Leo 2026-10-18). */
 .acpmux-newtab-switch{cursor:default}
 .acpmux-newtab-row>.acpmux-icon{color:var(--acpmux-composer-dim)}
-.acpmux-newtab-field{flex:1;min-width:0;height:100%;border:0;outline:0;padding:0;background:none;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text));font:inherit;font-size:var(--text-content)}
-.acpmux-newtab-field::placeholder{color:var(--acpmux-composer-placeholder);opacity:1}
+/* The field is the chat composer's prompt editor (MarkdownField, markdownField.css), sized as the row's one line: one line keeps the row 56 px tall; a long prompt wraps and grows to the composer's line cap, then scrolls (the New Tab screen's .nt-field). */
+.acpmux-newtab-field.acpmux-md-field{--acpmux-newtab-pad-block:calc((var(--acpmux-newtab-row) - 1lh) / 2);flex:1;min-width:0;align-self:stretch;display:block;box-sizing:border-box;min-height:var(--acpmux-newtab-row);max-height:min(calc(var(--acpmux-composer-max-lines, 12) * 1lh + 2 * var(--acpmux-newtab-pad-block)),40vh);margin:0;padding:var(--acpmux-newtab-pad-block) 0;overflow-x:hidden;overflow-y:auto;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height)}
+.acpmux-newtab-field.acpmux-md-field .acpmux-md-root{min-height:1lh;box-sizing:border-box}
+.acpmux-newtab-field.acpmux-md-field .acpmux-md-placeholder{left:0;right:0;top:var(--acpmux-newtab-pad-block);color:var(--acpmux-composer-placeholder)}
+.acpmux-newtab-field.acpmux-md-field .acpmux-md{min-height:1lh;font-size:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;white-space:pre-wrap;overflow-wrap:break-word}
 .acpmux-newtab-switch{flex:none;display:flex;gap:2px;margin:0;min-width:0;border:0;padding:3px;border-radius:15px;background:color-mix(in srgb,var(--agent-text) 6%,var(--acpmux-base))}
 .acpmux-newtab-kind{display:flex;align-items:center;gap:6px;height:32px;padding:0 10px;border:0;border-radius:12px;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:13px;white-space:nowrap}
 .acpmux-newtab-kind:hover{color:var(--agent-text)}
@@ -305,7 +313,7 @@
 .acpmux-unavailable[data-unavailable="connecting"] .acpmux-unavailable-copy>*{flex-shrink:0}
 /* A host failure above the composer (HostError.tsx HostUnavailableLine): one muted line cut to the
    width, and one small quiet button. Nothing shows while the host is still recovering. */
-.acpmux-host-line{display:flex;align-items:center;gap:8px;min-width:0;margin:0 var(--cv-inset,max(18px,calc((100% - 760px)/2)));padding-bottom:8px;color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height);letter-spacing:var(--text-caption--letter-spacing)}
+.acpmux-host-line{display:flex;align-items:center;gap:8px;min-width:0;margin:0 calc(var(--cv-inset-end,var(--cv-inset,max(18px,calc((100% - 760px)/2)))) - var(--acpmux-stack-outset,0px)) 0 calc(var(--cv-inset,max(18px,calc((100% - 760px)/2))) - var(--acpmux-stack-outset,0px));padding-bottom:8px;color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height);letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-host-line-message{flex:0 1 auto;min-width:0;margin:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;user-select:text;-webkit-user-select:text}
 .acpmux-host-line button{flex:none;height:24px;padding:0 8px;border:0;border-radius:6px;background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text);font:inherit}
 .acpmux-host-line button:hover:not(:disabled){background:color-mix(in srgb,var(--agent-text) 13%,transparent)}
@@ -704,7 +712,7 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-rules-head{display:flex;align-items:center;gap:6px}.acpmux-rules-title{font-weight:600;color:var(--agent-text)}.acpmux-rules-count{color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}.acpmux-rules-notice .acpmux-rules-head button{margin:0 0 0 auto;padding:2px 6px;background:transparent;color:var(--agent-muted)}.acpmux-rules-newest{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.acpmux-rules-key{font-family:var(--font-mono);font-size:var(--text-caption);color:var(--agent-muted)}.acpmux-rules-list{margin:6px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px;max-height:min(40vh,240px);overflow-y:auto;overscroll-behavior:contain}
 .acpmux-harness-spinner{display:inline-block;margin-right:6px;vertical-align:-1px;color:var(--agent-muted)}
 .acpmux-harness-notice .acpmux-harness-spinner{margin:0 0 0 6px}
-@media (prefers-reduced-motion: no-preference){.acpmux-harness-spinner{animation:cmux-spin var(--cmux-spinner-period,900ms) linear infinite}}
+@media (prefers-reduced-motion: no-preference){.acpmux-harness-spinner{animation:cmux-spin var(--cmux-spinner-period, 1400ms) linear infinite}}
 :root[data-status-indicators=static] .acpmux-harness-spinner{animation:none}
 .acpmux-instructions-notice button[data-notice-action=dismiss]{background:transparent;color:var(--agent-muted)}
 .acpmux-composer{flex-wrap:wrap}.acpmux-composer-dropping .acpmux-composer-box{border-color:var(--agent-accent)}
@@ -919,6 +927,9 @@ fieldset.acpmux-question[hidden]{display:none}
    A column: the search field, then the list, which is the scroller, so the field never scrolls away
    or fades with the rows. */
 .acpmux-palette-menu{display:flex;flex-direction:column;width:min(360px,calc(100vw - 16px));max-height:min(480px,70vh);padding:0;overflow:hidden}
+/* The palette deliberately removes the popup's outer padding, so its rows put the shared icon
+   column back at the popup edge instead of subtracting the absent padding token. */
+.acpmux-palette-menu .acpmux-menu-item { padding-inline: var(--cmux-menu-icon-x); }
 .acpmux-palette-menu{animation:none!important;transition:none!important}
 .acpmux-palette-menu .acpmux-menu-item>svg{flex:none;color:var(--agent-muted)}
 .acpmux-palette-search{flex:none;padding:var(--ui-popup-padding);border-bottom:.5px solid var(--agent-border)}

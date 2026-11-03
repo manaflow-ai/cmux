@@ -2119,8 +2119,13 @@ impl Brain {
         key: Option<&str>,
         queue: bool,
     ) -> Result<String, String> {
-        if let Some(name) = super::session_tell::session_name(id) {
-            return self.session_tell(name, message);
+        // acpmux sessions have one send tool, #30082's acpmux_send; tell
+        // names subagents (and Chiefs, before it reaches here).
+        if let Some(name) = id.trim().strip_prefix("session:") {
+            return Err(format!(
+                "tell: {id} is an acpmux session; message it with the acpmux_send tool (to: \"{}\")",
+                name.trim()
+            ));
         }
         let Some((_, sub)) = self.state.sub(id) else {
             return Err(format!("no subagent {id}"));

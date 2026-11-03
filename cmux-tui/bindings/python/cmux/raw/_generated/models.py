@@ -4490,6 +4490,19 @@ class ServerStatsRequest:
 
 
 @dataclass(frozen=True)
+class SetAttachVisibilityRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-attach-visibility/request'
+    surface: Id
+    visible: bool
+
+
+@dataclass(frozen=True)
+class SetAttachVisibilityResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-attach-visibility/result'
+    viewers: int
+
+
+@dataclass(frozen=True)
 class SetCellPixelsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/set-cell-pixels/request'
     width_px: int
@@ -6534,6 +6547,8 @@ __all__ = [
     'SendResult',
     'SendKeyRequest',
     'ServerStatsRequest',
+    'SetAttachVisibilityRequest',
+    'SetAttachVisibilityResult',
     'SetCellPixelsRequest',
     'SetClientInfoRequest',
     'SetClientSizingRequest',

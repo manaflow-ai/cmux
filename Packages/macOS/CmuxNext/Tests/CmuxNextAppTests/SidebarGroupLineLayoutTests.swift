@@ -59,7 +59,7 @@ import Testing
         #expect(SidebarStyle.groupLineCut == 6)
         let inset = SidebarStyle.groupLineCornerInset
         #expect(inset >= 4 && inset <= 5, "about 4 to 5 pt inside the header: \(inset)")
-        #expect(inset + SidebarStyle.groupBarWidth == SidebarStyle.rowCornerRadius, "the line's right edge is off the corner arc's end")
+        #expect(inset + SidebarStyle.groupBarWidth == Metrics.itemCornerRadius, "the line's right edge is off the item corner arc's end")
     }
 
     @Test func theRailRoundsOnlyItsRightCorners() {

@@ -66,6 +66,34 @@ function dropScreenshotAndVideo(ctx: PlayContext) {
   ctx.find({ selector: ".acpmux-md" }).dispatchEvent(drop);
 }
 
+/// The `attachment-inline-reorder` scenes: two screenshots, 1 (blue) and 2 (amber), pasted side by
+/// side at the end of the prompt's text.
+async function pasteTwoScreenshots(ctx: PlayContext) {
+  const view = ctx.document.defaultView!;
+  view.cmuxAcpmuxComposer?.({ attachmentView: "inline" });
+  const files = await Promise.all(
+    ["#5b8def", "#e0a84f"].map(async (color, index) => {
+      const canvas = ctx.document.createElement("canvas");
+      canvas.width = 480;
+      canvas.height = 300;
+      const drawing = canvas.getContext("2d")!;
+      drawing.fillStyle = color;
+      drawing.fillRect(0, 0, 480, 300);
+      drawing.fillStyle = "white";
+      drawing.font = "160px system-ui";
+      drawing.fillText(String(index + 1), 200, 210);
+      const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
+      return new view.File([blob], `Screenshot ${index + 1}.png`, { type: "image/png" });
+    }),
+  );
+  const field = ctx.find({ selector: ".acpmux-md-field" }) as MarkdownFieldElement;
+  field.acpmuxMarkdownField!.setCaret("Which layout reads better?".length);
+  const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", { value: { files, types: ["Files"], getData: () => "" } });
+  ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-md [data-inline-attachment] img").length === 2);
+}
+
 /// The `attachment-inline-caret` scene: a screenshot pasted between "Compare this" and "with".
 async function pasteComparison(ctx: PlayContext) {
   const view = ctx.document.defaultView!;
@@ -275,6 +303,38 @@ const waitingSteerSr2 = () => {
 const steering = (steers: boolean) => {
   const running = chat(working, { isWorking: true });
   return { ...running, summary: { ...running.summary!, steering: steers } };
+};
+
+// Leo, 2026-11-03: "this looks kinda weird when i send now and there was a previously steered
+// message". An earlier steer Claude has not read, and a prompt queued after it; Send now on the
+// queued prompt makes it a steer under the same promptId, and the agent reads both at its next step.
+const steerThenQueued = (sentNow: boolean) => {
+  const rows = [
+    user("Add retries", 6),
+    assistant("Adding retries to the fetch loop…", 3, { streaming: true }),
+    user("Use the cache dir, not tmp", 1, {
+      id: "user-steer-earlier",
+      steer: "waiting",
+      steerPromptId: "p-steer-earlier",
+    }),
+  ];
+  const queued = "Then add a test for the 429 path";
+  const running = sentNow
+    ? chat([...rows, user(queued, 0.2, { id: "user-steer-now", steer: "waiting", steerPromptId: "p-queued-now" })], {
+        isWorking: true,
+        newestOwnSteer: "user-steer-now",
+      })
+    : chat(rows, { isWorking: true, queue: [{ id: "p-queued-now", prompt: queued }] });
+  return {
+    ...running,
+    summary: {
+      ...running.summary!,
+      harness: "claude-sr2",
+      family: "claude-sr2",
+      steering: true,
+      backgroundsWork: true,
+    },
+  };
 };
 
 // A new chat in CWD beside a recent chat there with a PR (the suggested prompt's source).
@@ -1253,6 +1313,21 @@ export default agentPaneEntry({
       ready: { draft: "Compare this with the previous result." },
       play: pasteComparison,
     },
+    "attachment-inline-reorder": {
+      note: 'Leo, 2026-11-02: "I can\'t drag to reorder these inline attachments very easily anymore". Two screenshots in the text, the pointer away: no × shows. A press anywhere on a thumbnail and a drag moves it in the text (composer-inline-reorder.browser.test.ts).',
+      snapshot: chat(finished),
+      ready: { draft: "Which layout reads better?" },
+      play: pasteTwoScreenshots,
+    },
+    "attachment-inline-reorder-hover": {
+      note: "The pointer on the first screenshot: its small × shows in the top-right corner, and only there; the rest of the thumbnail is where a drag starts.",
+      snapshot: chat(finished),
+      ready: { draft: "Which layout reads better?" },
+      play: async (ctx) => {
+        await pasteTwoScreenshots(ctx);
+        await ctx.hover({ selector: ".acpmux-md [data-inline-attachment] .acpmux-attachment-image" });
+      },
+    },
     "attachment-inline-arrow": {
       note: 'Leo: "i dont want left arrow to be selecting them??? just jump over them treat them like it\'s one character". The screenshot pasted after "Compare this", then Left: the caret jumps to before the chip, which stays unselected. Right jumps back after it; Shift+arrow takes it as one unit.',
       snapshot: chat(finished),
@@ -1731,6 +1806,12 @@ export default agentPaneEntry({
       },
     },
     "history-recall-older-page": {
+      checks: {
+        layoutShiftMax: {
+          value: 0.12,
+          reason: "The delayed older page intentionally inserts transcript rows above the composer.",
+        },
+      },
       note: "Play: recall C, then an older page arrives while the field still shows it; ↑ continues with B instead of jumping to A.",
       snapshot: chat(historyPageRows),
       play: async (ctx) => {
@@ -1749,6 +1830,9 @@ export default agentPaneEntry({
         ).cmuxAcpmuxBridge;
         if (!bridge) throw new Error("gallery pane bridge is unavailable");
         bridge.receive(chat(historyPageOlderRows));
+        // Prove the prepend arrived before exercising recall. Without this wait, a dropped bridge
+        // update would leave the original B,C snapshot in place and still make the next ↑ return B.
+        await ctx.waitFor(() => ctx.document.querySelector(`[data-row-id="${historyPageOlderRows[0]!.id}"]`));
         await ctx.press("ArrowUp");
         await ctx.waitFor(() => prompt() === "B: update the retry helper");
       },
@@ -1805,6 +1889,20 @@ export default agentPaneEntry({
         const after = actions?.getBoundingClientRect();
         if (!before || !after || before.top !== after.top || before.height !== after.height)
           throw new Error("the steer's action row moved when Send now left");
+      },
+    },
+    "steer-send-now-queued-after-steer": {
+      note: "Play: an earlier steer Claude has not read, and a prompt queued after it. Send now on the queued prompt makes it a steer the agent reads with the earlier one at its next step: neither offers Send now or the X again, and both show their normal hover actions.",
+      snapshot: steerThenQueued(false),
+      native: { "chat.queue.edit": { ok: true } },
+      afterCall: { "chat.queue.edit": steerThenQueued(true) },
+      play: async (ctx) => {
+        await ctx.hover({ text: "Then add a test for the 429 path" });
+        await ctx.click({ selector: ".acpmux-queued-steer" });
+        // The queued prompt is now a steer in the transcript, under the earlier one.
+        await ctx.waitFor(() =>
+          [...ctx.document.querySelectorAll(".cv-user")].some((n) => n.textContent?.includes("Then add a test")),
+        );
       },
     },
     "steer-marks": {

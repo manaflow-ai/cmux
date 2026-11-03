@@ -215,6 +215,53 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
     // flicker"). A popover caught mid-fade blurred the bars only part way, mixing them with their
     // sharp selves by its opacity: they are blurred in full while it shows at all, sharp once it is
     // gone.
+    // The rail's preview card follows the pointer from row to row by its own inline transform, with
+    // no resize or child change (threadMinimap/PreviewCard.tsx): the blur follows it there.
+    test("a surface moved by its inline transform takes its blur with it", async () => {
+      const page = await open(browser);
+      await attach(page);
+      expect(await barContrast(page, MIDDLE, ...INSIDE)).toBeLessThan(5);
+      const before = await barContrast(page, MIDDLE, ...OUTSIDE);
+      await page.evaluate(() => (document.getElementById("popover")!.style.transform = "translateX(-200px)"));
+      await settle(page);
+      // Its new place, over the left bars, is blurred; its old place is sharp again.
+      expect(await barContrast(page, MIDDLE, 48, 232)).toBeLessThan(5);
+      expect(await barContrast(page, MIDDLE, 268, 436)).toBeGreaterThan(before * 0.9);
+      await page.close();
+    });
+
+    // The rail's preview card and the Summary popover both cover the transcript: each keeps its own
+    // hole, and the card closing leaves the Summary's blur (and its owner word) in place.
+    test("two surfaces over one element each keep their blur; one detaching leaves the other's", async () => {
+      const page = await open(browser);
+      await attach(page, { owner: "summary" });
+      await page.evaluate(() => {
+        const target = window as unknown as {
+          attachSeeThroughBlur(e: HTMLElement, candidates?: (e: HTMLElement) => Iterable<Element>): () => void;
+          detachCard?: () => void;
+        };
+        const card = document.createElement("aside");
+        card.id = "card";
+        card.style.cssText = "position:absolute;left:24px;top:40px;width:160px;height:100px;border-radius:12px";
+        document.querySelector(".stage")!.append(card);
+        target.detachCard = target.attachSeeThroughBlur(card, () => document.querySelectorAll(".chat"));
+      });
+      await settle(page);
+      const owners = () => page.evaluate(() => document.querySelector(".chat")!.getAttribute("data-glass-under"));
+      expect(await owners()).toBe("summary");
+      expect(await barContrast(page, MIDDLE, ...INSIDE)).toBeLessThan(5);
+      expect(await barContrast(page, MIDDLE, 48, 160)).toBeLessThan(5);
+      await page.evaluate(() => {
+        (window as unknown as { detachCard(): void }).detachCard();
+        document.getElementById("card")!.remove();
+      });
+      await settle(page);
+      expect(await owners()).toBe("summary");
+      expect(await barContrast(page, MIDDLE, ...INSIDE)).toBeLessThan(5);
+      expect(await barContrast(page, MIDDLE, 48, 160)).toBeGreaterThan(40);
+      await page.close();
+    });
+
     test("a popover mid-fade blurs the bars in full, never part way", async () => {
       const page = await open(browser);
       const before = await barContrast(page, MIDDLE, ...INSIDE);

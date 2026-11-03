@@ -5,8 +5,9 @@
 // during the hold moves the offset by however far the line moved, and none of them follows the
 // latest row meanwhile.
 //
-// Tool/work disclosures clicked at or near the end instead pin the bottom and move the thread
-// as one stack (App.tsx, Leo 2026-10-31). Other disclosures keep the clicked line even when closing
+// Tool/work disclosures clicked at or near the end, and any line opened there (`opensBody`, Leo
+// 2026-11-02), instead pin the bottom and move the thread as one stack: what opens pushes the text
+// above it up (App.tsx, Leo 2026-10-31). Other disclosures keep the clicked line even when closing
 // near the end: foldRoomFor prevents a browser clamp, and trimmedFoldRoom releases that room as the
 // reader scrolls up, the rows fill it, or a send/Jump to latest returns to following.
 import { foldMs } from "./fold";
@@ -46,6 +47,16 @@ export const FOLD_HOLD_MIN_MS = 400; // motion-allow: a hold timer, not an anima
 /// Whether the physical scroller is at (or within the normal follow deadband of) its end.
 export function atFoldBottom(scrollTop: number, clientHeight: number, scrollHeight: number, deadband: number): boolean {
   return scrollHeight > clientHeight + 0.5 && scrollHeight - clientHeight - scrollTop <= deadband;
+}
+
+/// Whether a click on `toggle` opens what it holds: a closed disclosure (`aria-expanded="false"`, on
+/// itself or on its header's button) or the `<summary>` of a closed `<details>`.
+export function opensBody(toggle: HTMLElement): boolean {
+  if (toggle.tagName === "SUMMARY") return !(toggle.parentElement as HTMLDetailsElement | null)?.open;
+  const expanded = toggle.hasAttribute("aria-expanded")
+    ? toggle
+    : toggle.querySelector("[aria-expanded]:not([aria-haspopup])");
+  return expanded?.getAttribute("aria-expanded") === "false";
 }
 
 export type FoldAnchor = {

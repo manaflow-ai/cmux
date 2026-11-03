@@ -10,6 +10,7 @@ import CmuxNextDesign
 import CmuxNextErrorJournal
 import CmuxNextSettings
 import CmuxNextSidebar
+import CmuxNextTabs
 import CmuxNextTerminal
 import CmuxNextWakeups
 
@@ -126,7 +127,7 @@ final class AppControl {
         // The newest action runs and the over-budget counters (zero-latency.md, the budget contract).
         service.router.register([budget.method(registry: registry)])
         service.router.register(DebugHibernationControl.methods(services))
-        service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }] + services.daemon.creationHold.methods + services.daemon.closeReadHold.methods)
+        service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugRequestLatencyMethod()] + services.daemon.creationHold.methods + services.daemon.closeReadHold.methods)
         service.router.register([
             .mainActor("debug.frames") { [probe = frameProbe] call in .value(probe.handle(call.params)) },
             // Main-thread blocking call sites since launch (threading-model.md); {"reset": true} zeroes the counts.
@@ -601,6 +602,11 @@ final class AppControl {
             .mainActor("debug.cloud_machine_fixture") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugCloudMachineFixture.show(call.params, services: services))
+            },
+            .mainActor("debug.native_row_tools_fixture") { [weak services] call in
+                guard let services else { return .value(.null) }
+                let window = DebugWindowSnapshot.window(call.params.merging(["kind": .string("main")]) { current, _ in current }, services: services)
+                return .value(DebugNativeRowToolsFixture(overlay: DebugNativeRowToolsFixtureView.self).show(call.params, in: window))
             },
             // Captures of the workspace, tab and pane right-click menus and their folders (tour:object-menu-*).
             .mainActor("debug.object_menu") { [weak services] call in

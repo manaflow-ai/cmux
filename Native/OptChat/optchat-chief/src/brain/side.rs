@@ -260,7 +260,6 @@ impl Brain {
                     seq: message.seq,
                     id: message.id.clone(),
                     remote,
-                    agent: sender.as_ref().map(|s| s.name.clone()),
                     requires_approval: !self
                         .settings
                         .membership

@@ -350,6 +350,7 @@ impl Hub {
             "turnId": turn.turn_id,
             "control": turn.control.as_str(),
             "trustGate": continues.trust_gate,
+            "cloudMobile": session.floor.cloud_mobile_turn.load(Ordering::SeqCst),
             "trigger": turn.trigger,
             "carried": {"fromTurnId": from, "promptIds": c.prompt_ids},
         });

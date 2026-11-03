@@ -1,6 +1,7 @@
 /* The transcript family row: one quiet line by default, with its panel growing below the anchored
    header. Incoming messages use the same DisclosureRow API when their shared bridge lands. */
-/* A row's line has the tool rows' 26px height in 2px margins and their regular weight, as the
+/* A row's line has the tool rows' height (--cv-tool-row-height), no outer margin of its own (its
+   container's gap gives the room, as the layout grid has it) and their regular weight, as the
    received-message line it sits among does (conversation.css .cv-received): consecutive rows of the
    family stack with no extra gap and none of them is bold (Leo, 2026-10-29: "why is one of these
    bold? And why is there space, a fucking gap in between them?"). */

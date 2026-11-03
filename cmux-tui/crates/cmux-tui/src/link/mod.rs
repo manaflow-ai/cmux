@@ -5,7 +5,6 @@
 mod access_cli;
 mod agent_cli;
 mod cloud;
-#[cfg(target_os = "linux")]
 mod cloud_broker;
 mod cloud_fs;
 mod control;
@@ -15,6 +14,8 @@ mod dial;
 mod dial_cli;
 mod enrollment;
 mod ensure;
+mod native_broker;
+mod native_route;
 // `cmux link seed plan`; `cmux link seed push|clone|pull` is [`seed_cli`].
 #[cfg_attr(not(test), allow(dead_code))]
 mod seed;
@@ -62,6 +63,7 @@ use std::sync::Arc;
 use anyhow::{Context as _, anyhow, bail};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+use cmux_json::JsonSet as _;
 use cmux_link::LINK_PORT;
 use cmux_link::overlay_addr::overlay_address;
 use cmux_link::owner_session::OwnerSession;
@@ -196,6 +198,7 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
                 "--server-config",
                 "--credential-socket",
                 "--ready-fd",
+                "--native-cloud-broker-fd",
             ],
         )?),
         "ensure" => {
@@ -406,6 +409,16 @@ async fn reload(socket: &Path) -> bool {
 }
 
 fn run_serve(flags: &Flags) -> anyhow::Result<()> {
+    let native = flags.contains_key("--native-cloud-broker-fd");
+    if native
+        && ["--credential-socket", "--session-socket", "--server-config"]
+            .iter()
+            .any(|flag| flags.contains_key(*flag))
+    {
+        bail!("cloud.native.scope_conflict");
+    }
+    let broker =
+        flags.get("--native-cloud-broker-fd").map(|fd| native_broker::bind(fd)).transpose()?;
     // Before any setup: an update during it is still seen (`launchd_refresh.rs`).
     #[cfg(target_os = "macos")]
     let watch = launchd::plist_path()
@@ -418,7 +431,7 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
     let credential_socket = flags.get("--credential-socket").map(PathBuf::from);
     // `server.json` is read once: the owner session is parsed from, and
     // `link.status` hashes, the same bytes.
-    let config_path = server_config_path(flags);
+    let config_path = if native { None } else { server_config_path(flags) };
     let config_bytes = read_server_config(config_path.as_deref())?;
     let owner = owner_session(config_path.as_deref(), config_bytes.as_deref())?;
     let ready = match flags.get("--ready-fd") {
@@ -429,15 +442,19 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
     // UDP bind: a second `serve` of the same state directory stops here.
     let _lock = serve_lock(&state)?;
     let served = ensure::Served::of(flags, config_path, config_bytes.as_deref());
-    tokio_runtime()?.block_on(serve(
-        state,
-        session_socket,
-        credential_socket,
-        owner,
-        ready,
-        served,
-        watch,
-    ))
+    let cloud = match broker {
+        Some(bound) => CloudAccess::Broker(Box::new(bound)),
+        None => CloudAccess::Relay(credential_socket),
+    };
+    tokio_runtime()?.block_on(serve(state, session_socket, cloud, owner, ready, served, watch))
+}
+
+/// How a serve resolves cloud hosts: through the app's inherited native broker
+/// stream, or through the credential relay socket (none: cloud hosts fail
+/// closed as unavailable). `run_serve` refuses a broker with a relay socket.
+enum CloudAccess {
+    Broker(Box<cloud_broker::Bound>),
+    Relay(Option<PathBuf>),
 }
 
 /// `<state>/link.lock`, held by a running `serve` (never blocks).
@@ -502,14 +519,25 @@ fn owner_session(
 async fn serve(
     state: LinkState,
     session_socket: Option<PathBuf>,
-    credential_socket: Option<PathBuf>,
+    mut cloud: CloudAccess,
     owner: Option<Arc<OwnerSession>>,
     ready: Option<ensure::ReadyPipe>,
     served: ensure::Served,
     watch: Option<AgentWatch>,
 ) -> anyhow::Result<()> {
-    let config = state.config().context("run `cmux link init --install ID` first")?;
-    let private_key = state.private_key()?;
+    let native = matches!(&cloud, CloudAccess::Broker(bound) if bound.identity.is_some());
+    let identity = match &mut cloud {
+        CloudAccess::Broker(bound) => bound.identity.take(),
+        CloudAccess::Relay(_) => None,
+    };
+    let (config, private_key, native_route) = match identity {
+        Some(identity) => (identity.config, identity.key, Some(identity.route)),
+        None => (
+            state.config().context("run `cmux link init --install ID` first")?,
+            state.private_key()?,
+            None,
+        ),
+    };
     let public_key = state::public_key(&private_key);
     let socket =
         tokio::net::UdpSocket::bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, config.port)))
@@ -524,13 +552,30 @@ async fn serve(
         },
         socket,
     )?;
-    let overlay = Arc::new(MeshOverlay::new(mesh, private_key));
+    let overlay = Arc::new(MeshOverlay::new(mesh, private_key).with_native_route(native_route));
     // Cloud host ids resolve through the private credential relay owned by
     // the signed-in app. A missing relay fails closed as unavailable.
-    let resolver = Arc::new(cloud::CloudResolver::new(
-        credential_socket.map_or_else(cloud::RelaySource::unavailable, cloud::RelaySource::socket),
-    ));
-    let peers = Arc::new(Peers::load(state.peers_path())?);
+    let (source, broker_driver) = match cloud {
+        CloudAccess::Broker(bound) => {
+            let cloud_broker::Bound { stream, .. } = *bound;
+            stream.set_nonblocking(true)?;
+            let (source, driver) = cloud_broker::channel(tokio::net::UnixStream::from_std(stream)?);
+            (cloud::CloudSource::Broker(source), Some(driver))
+        }
+        CloudAccess::Relay(credential_socket) => (
+            cloud::CloudSource::Relay(
+                credential_socket
+                    .map_or_else(cloud::RelaySource::unavailable, cloud::RelaySource::socket),
+            ),
+            None,
+        ),
+    };
+    let resolver = Arc::new(cloud::CloudResolver::new(source));
+    let peers = Arc::new(if native {
+        Peers::isolated(state.peers_path())
+    } else {
+        Peers::load(state.peers_path())?
+    });
     overlay.sync_peers(&peers.snapshot()).await?;
     let listener = overlay.listen(LINK_PORT).await?;
     let socket_path = state.socket_path();
@@ -542,7 +587,7 @@ async fn serve(
             .to_string()
             .into();
     registration::write(&state.registration_dir(), &Registration::new(socket_path.clone(), pid))?;
-    let ready_line = json!({
+    let mut ready_line = json!({
         "event": "link-ready",
         "socket": socket_path,
         "pid": pid,
@@ -550,6 +595,10 @@ async fn serve(
         "udp": udp,
         "relay_available": cmux_link::dial::RELAY_AVAILABLE,
     });
+    if native {
+        ready_line.set("native", json!(true));
+        ready_line.set("wg_public_key", json!(STANDARD.encode(public_key)));
+    }
     print_json(&ready_line);
     if let Some(ready) = ready {
         ready.send(&ready_line);
@@ -559,6 +608,7 @@ async fn serve(
         () = serve_overlay(listener, peers.clone(), session_socket, owner) => Ok(()),
         signal = shutdown_signal() => signal,
         outcome = launchd_agent_outcome(watch) => outcome,
+        broker = cloud_broker::run(broker_driver) => broker.map_err(anyhow::Error::from),
     };
     registration::remove_if_owned(&state.registration_dir(), pid);
     let _ = std::fs::remove_file(&socket_path);
@@ -568,11 +618,10 @@ async fn serve(
 /// Bind the local socket at mode 0600 in a 0700 directory, replacing a
 /// stale socket but never a live one.
 fn bind_local(path: &Path) -> anyhow::Result<tokio::net::UnixListener> {
-    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    use std::os::unix::fs::PermissionsExt;
     if let Some(parent) = path.parent() {
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(parent)?;
         // Never bind in a folder another user or a symlink put there.
-        state::check_socket_dir(parent)?;
+        state::ensure_socket_dir(parent)?;
     }
     if path.exists() {
         if std::os::unix::net::UnixStream::connect(path).is_ok() {

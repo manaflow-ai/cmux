@@ -96,6 +96,12 @@ const panelToggle = (shown: boolean, icon = "view.list") =>
     onToggle: () => undefined,
   });
 const summary = panelToggle(false);
+const sessionInfoToggle = createElement(PanelToggle, {
+  className: "acpmux-session-info-toggle",
+  label: "Session Info",
+  shown: true,
+  onToggle: () => undefined,
+});
 
 const openMenu: Play = async (ctx) => {
   await ctx.focus({ role: "button", name: "Chat actions" });
@@ -150,9 +156,10 @@ const groupTreatment =
 // Plain icons (Leo 2026-10-25: "why do the icons have their own background border situation instead of
 // just being, you know, good"; 2026-10-31: "AND THE FUCKING BACKGROUND ON THIS FUCKING BUILD ON THESE
 // BUTTONS STILL ISN'T FUCKING REMOVESD"): with the right-side panel and Terminal's split open, Terminal
-// hovered and the chat menu open, no header tool draws a fill, a border or a shadow, pressed or not. A
-// pressed one reads as on by its lit ink alone, hovered or not, as the App's pane toolbar toggles do (Leo,
-// 2026-10-26: "why is the button not toggled?" / "i literally meant the ui depicting it as toggled or not").
+// hovered and the chat menu open, no header tool draws a border or a shadow, and none at rest draws a fill.
+// A pressed one reads as on by the filled rounded square and its lit ink, hovered or not, and the open
+// menu's trigger keeps the square too (Leo, 2026-10-26: "why is the button not toggled?"; 2026-11-02:
+// "HAVE THE ... TOGGLED HIGHLIGHT", his reference; #28962 removed only the resting fill).
 const plainIcons: Play = async (ctx) => {
   const { setHeaderState } = await import("./headerState");
   setHeaderState({ lit: ["splitRight"] });
@@ -162,8 +169,8 @@ const plainIcons: Play = async (ctx) => {
   const view = ctx.document.defaultView!;
   const tools = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools .acpmux-header-tool")];
   const clear = (color: string) => /^rgba\(.*,\s*0\)$|^transparent$/.test(color);
-  if (!clear(view.getComputedStyle(panel).backgroundColor))
-    throw new Error("the open panel toggle draws a plate on hover");
+  if (clear(view.getComputedStyle(panel).backgroundColor))
+    throw new Error("the open panel toggle loses its filled square on hover");
   const litInk = view.getComputedStyle(panel).color;
   await ctx.hover({ role: "button", name: "Terminal" });
   await openMenu(ctx);
@@ -177,7 +184,11 @@ const plainIcons: Play = async (ctx) => {
     const style = view.getComputedStyle(tool);
     const name = tool.getAttribute("aria-label");
     const pressed = tool.getAttribute("aria-pressed") === "true";
-    if (!clear(style.backgroundColor)) throw new Error(`header tool ${name} draws a fill: ${style.backgroundColor}`);
+    const lit = pressed || tool.hasAttribute("data-popup-open") || tool.matches(":hover");
+    if (lit && pressed && clear(style.backgroundColor))
+      throw new Error(`header tool ${name} is pressed without its square`);
+    if (!lit && !clear(style.backgroundColor))
+      throw new Error(`header tool ${name} draws a fill at rest: ${style.backgroundColor}`);
     if (pressed && style.color !== litInk) throw new Error(`header tool ${name} is pressed without the lit ink`);
     if (["top", "right", "bottom", "left"].some((side) => style.getPropertyValue(`border-${side}-width`) !== "0px"))
       throw new Error(`header tool ${name} draws a border`);
@@ -188,6 +199,44 @@ const plainIcons: Play = async (ctx) => {
   if (view.getComputedStyle(on).color === view.getComputedStyle(off).color)
     throw new Error("the open panel's toggle has the same ink as a tool at rest");
 };
+
+// Session Info open: its toggle is the filled rounded square with the lit ink, and every other tool
+// has nothing behind it at rest (Leo 2026-11-02: "HAVE THE ... TOGGLED HIGHLIGHT", settled by his
+// reference of the header with its list button highlighted; #28962 removed only the resting fill).
+// `accentless` applies a dark theme with no accent first (the default neutral accent: the lit ink is the
+// primary text), where an ink-only toggle read as off.
+const sessionInfoOpen =
+  (accentless: boolean): Play =>
+  async (ctx) => {
+    if (accentless) {
+      const [{ applyAgentTheme }, { agentPaneTheme }, tokens] = await Promise.all([
+        import("../../shared/theme"),
+        import("../../../gallery/theme/web"),
+        import("../../../gallery/theme/tokens"),
+      ]);
+      const dark = tokens.deriveTokens({ ...tokens.GHOSTTY_DEFAULT, accent: "neutral" });
+      if (!dark.isDark) throw new Error("the fixture theme is not dark");
+      applyAgentTheme(agentPaneTheme(dark, false) as never);
+    }
+    await ctx.waitFor(() => ctx.document.querySelector('.acpmux-session-info-toggle[aria-pressed="true"]'));
+    const view = ctx.document.defaultView!;
+    const clear = (color: string) => /^rgba\(.*,\s*0\)$|^transparent$/.test(color);
+    const toggle = ctx.find({ selector: '.acpmux-session-info-toggle[aria-pressed="true"]' });
+    const style = view.getComputedStyle(toggle);
+    if (clear(style.backgroundColor)) throw new Error("the open Session Info toggle draws no filled square");
+    // The lit ink as the page resolves it (header.css's fallbacks), read from a probe.
+    const probe = ctx.document.createElement("span");
+    probe.style.color = "var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)))";
+    toggle.parentElement!.append(probe);
+    const litInk = view.getComputedStyle(probe).color;
+    probe.remove();
+    if (style.color !== litInk) throw new Error(`the open Session Info toggle is not lit: ${style.color} vs ${litInk}`);
+    for (const tool of ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools .acpmux-header-tool")) {
+      if (tool === toggle || tool.matches(":hover, [data-popup-open], [aria-pressed=true]")) continue;
+      const fill = view.getComputedStyle(tool).backgroundColor;
+      if (!clear(fill)) throw new Error(`header tool ${tool.getAttribute("aria-label")} draws a fill at rest: ${fill}`);
+    }
+  };
 
 // The App found the chat branch's pull request: open, 3 of 5 checks passed, one failing (cx-tcwj).
 const pullRequestChip: Play = async (ctx) => {
@@ -441,7 +490,7 @@ export default componentEntry<HeaderToolsProps>({
       props: { ...base, inbox },
     },
     "native-row-tools": {
-      note: "Native row tools opt-in: Summary and quick-action icons move to the native host. Needs You keeps its web button and anchored rich list; the chat menu stays web. No default changes.",
+      note: "Native row tools opt-in: Summary, quick-action icons, their customization menus and chat overflow move to the native host. Needs You keeps its web button and anchored rich list. No default changes.",
       props: {
         ...base,
         inbox,
@@ -454,7 +503,8 @@ export default componentEntry<HeaderToolsProps>({
       play: async (ctx) => {
         await ctx.waitFor(() => !ctx.document.querySelector("[data-quick-action], .acpmux-header-panel-toggle"));
         ctx.find({ selector: ".acpmux-needs-you-button" });
-        ctx.find({ role: "button", name: "Chat actions" });
+        if (ctx.document.querySelector('button[aria-label="Chat actions"]'))
+          throw new Error("native chat overflow must not leave a duplicate DOM trigger");
       },
     },
     "unified-compact": {
@@ -507,8 +557,18 @@ export default componentEntry<HeaderToolsProps>({
       play: panelsOpen,
     },
     "panel-open": {
-      note: "Session Info is open: its toggle uses the text ink and selected glyph without a box, matching every other header control.",
+      note: "Session Info is open: its toggle is the filled rounded square with the lit ink and selected glyph; the other header controls have nothing behind them.",
       props: { ...base, summary: panelToggle(true) },
+    },
+    "session-info-open": {
+      note: "Session Info open: its toggle is the filled rounded square (the hover pill's size, a subtle tint) with the lit ink; every other tool has nothing behind it at rest.",
+      props: { ...base, summary: sessionInfoToggle },
+      play: sessionInfoOpen(false),
+    },
+    "session-info-open-accentless": {
+      note: "The same in a dark theme with no accent (the lit ink is the primary text): the filled square still shows the toggle on.",
+      props: { ...base, summary: sessionInfoToggle },
+      play: sessionInfoOpen(true),
     },
     "panel-icon-list": {
       note: "Panel icon option: three list rows with circular markers, matching ChatGPT's session rail control; this is the shipped choice.",
@@ -523,7 +583,7 @@ export default componentEntry<HeaderToolsProps>({
       props: { ...base, summary: panelToggle(false, "agent.session") },
     },
     "plain-icons": {
-      note: "Plain icons: the panel and Terminal's split open, Terminal hovered, the chat menu open; no tool draws a box, and the open panel's toggle is lit by its ink.",
+      note: "Plain icons: the panel and Terminal's split open, Terminal hovered, the chat menu open; no tool at rest draws a box, and the open panel's toggle is the filled rounded square with the lit ink.",
       props: { ...base, summary: panelToggle(true) },
       play: plainIcons,
     },

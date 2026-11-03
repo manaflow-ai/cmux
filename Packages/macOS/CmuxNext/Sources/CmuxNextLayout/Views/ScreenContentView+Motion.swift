@@ -16,6 +16,8 @@ extension ScreenContentView {
         defer { if resizeGesture == .landing { finishResizeGestureIfLanded() } }
         guard hasMotion || reportScrollOnSettle else {
             scrollRidesFrames = false
+            // At rest (a user pan holds the camera, so hasMotion leaves it out): what a close retired goes now.
+            context.releaseRetired(of: screenID)
             return false
         }
         var moving = false
@@ -58,6 +60,11 @@ extension ScreenContentView {
         }
         if !moving { scrollRidesFrames = false }
         applyPresentation()
+        // The key resize's spring landed (the hosts laid their content out at rest in this pass): the next motion
+        // resizes content live again unless another key press holds it.
+        if !moving { holdsContentForKeyResize = false }
+        // The motion landed: the hosts a close retired are torn down in this frame, not in its first.
+        if !moving { context.releaseRetired(of: screenID) }
         return moving
     }
     /// A close's first frame of the pane, divider and (riding them) camera springs, the strip's and

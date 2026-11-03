@@ -63,6 +63,10 @@ export type IncomingMessage = {
   /// The sender's harness when the message names it (`fromHarness`: a peer's relayed message, whose
   /// chat is not listed here), for its mark.
   harness?: string;
+  /// The sender's model and thinking effort when the message names them (`fromModel`,
+  /// `fromEffort`), for its line's hover; a listed chat's own come first.
+  model?: string;
+  effort?: string;
   /// What the sender wrote.
   text: string;
   /// The prompt as the agent got it.
@@ -253,7 +257,7 @@ function linkEnd(line: string, from: number): number {
 /// Merged`), which the card's chip says already: a record read before the signature was taken out
 /// on every path, or a queued one, may still start with it.
 export function unsigned(text: string, name: string): string {
-  const signed = namedFirst(text) ?? fromFirst(text);
+  const signed = namedFirst(text) ?? fromFirst(text) ?? colonFirst(text);
   return signed && namesSender(signed.name, [name]) ? signed.text : text;
 }
 
@@ -266,15 +270,30 @@ export function cliHost(client: unknown): string | undefined {
 /// What a `user_message` is when not the person's own as recorded, or undefined when it is.
 export function incomingPrompt(
   text: string,
-  msg: { _meta?: { provenance?: unknown }; client?: unknown; fromHarness?: unknown } | undefined,
+  msg:
+    | {
+        _meta?: { provenance?: unknown };
+        client?: unknown;
+        fromHarness?: unknown;
+        fromModel?: unknown;
+        fromEffort?: unknown;
+      }
+    | undefined,
   context?: IncomingContext,
 ): IncomingPrompt | undefined {
   const provenance = msg?._meta?.provenance as Record<string, unknown> | undefined;
   // Relayed from another machine (acpmux hub/peers.rs): its files are that machine's, on every path.
   const remote = String(msg?.client ?? "").startsWith("acpmux-peer#") ? { remote: true as const } : {};
-  // The sender's harness, when acpmux names it (a relayed message's sender is not listed here).
+  // The sender's harness, model and effort, when acpmux names them (a relayed message's sender is
+  // not listed here).
   const fromHarness = trimmed(provenance?.fromHarness) ?? trimmed(msg?.fromHarness);
-  const harness = fromHarness ? { harness: fromHarness } : {};
+  const fromModel = trimmed(provenance?.fromModel) ?? trimmed(msg?.fromModel);
+  const fromEffort = trimmed(provenance?.fromEffort) ?? trimmed(msg?.fromEffort);
+  const harness = {
+    ...(fromHarness && { harness: fromHarness }),
+    ...(fromModel && { model: fromModel }),
+    ...(fromEffort && { effort: fromEffort }),
+  };
   // acpmux's notice of the chat's inbox: its threads, never its text for the agent; one that names
   // no thread is bookkeeping.
   if (provenance?.kind === "inbox_notice") {
@@ -442,6 +461,16 @@ const AGENT_NAME = /^[\w.@/:-]+(?: [\w.@/:-]+){0,3}$/;
 /// Brackets that are not a sender: Claude Code's interruption note and a subagent's hand-back,
 /// cmux's own message header.
 const NOT_A_NAME = /^(?:Request interrupted|Subagent hand-back|cmux agent message)/;
+
+/// A sender's name then a colon before its message, `merge-timeout: please deploy …`: one word,
+/// which `unsigned` drops only when it names the sender, so the line never names the sender twice
+/// (Leo, 2026-11-02, on "lane-vm-01/merge-timeout · lane-v… merge-timeout: please deploy …": "wtf these tool
+/// call spacing things are still weird").
+const COLON_PREFIX = /^([\w.@/-]+):\s+(\S[\s\S]*)$/;
+function colonFirst(text: string): { name: string; text: string } | undefined {
+  const prefixed = COLON_PREFIX.exec(text);
+  return prefixed ? { name: prefixed[1]!, text: prefixed[2]!.trim() } : undefined;
+}
 
 /// The agent named first in brackets in `text`, and its message after the name.
 function namedFirst(text: string): { name: string; text: string } | undefined {

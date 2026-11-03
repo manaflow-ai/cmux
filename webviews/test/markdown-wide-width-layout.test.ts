@@ -281,6 +281,25 @@ await requireBrowserLane("markdown-wide-width-layout.test.ts", async () => {
         await page.close();
       });
 
+      // User 2026-11-02: "markdown bg is not transparent". Over a background picture the native host
+      // sends `--cmux-reading-background` clear (WebTheme), so the viewer shows the App Theme's one
+      // veil like the terminals; where the desktop reads through, that variable is the opaque surface.
+      test("over a background picture the page shows the window's veil", async () => {
+        const page = await open(engine, 1200);
+        const background = await page.evaluate(() => {
+          const root = document.documentElement;
+          const bootstrap = document.createElement("style");
+          bootstrap.textContent = "html{background:var(--cmux-surface-background) !important}";
+          document.head.append(bootstrap);
+          root.style.setProperty("--cmux-surface-background", "rgba(239, 241, 245, 0)");
+          root.style.setProperty("--cmux-surface-solid", "rgb(239, 241, 245)");
+          root.style.setProperty("--cmux-reading-background", "rgba(239, 241, 245, 0)");
+          return getComputedStyle(root).backgroundColor;
+        });
+        expect(background).toBe("rgba(239, 241, 245, 0)");
+        await page.close();
+      });
+
       test("code is 85-90% of the body text, at the default and at a 14px body", async () => {
         const page = await open(engine, 1200);
         for (const css of ["", "--cmux-md-font-size: 14px;", "--cmux-md-font-size: 22px;"]) {

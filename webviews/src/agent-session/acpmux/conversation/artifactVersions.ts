@@ -4,6 +4,57 @@
 import { artifactKind, documentName, type Artifact } from "./artifactPreview";
 import { parseMarkdown, type MdBlock } from "./Markdown";
 
+export type ArtifactSourceRow = {
+  id: string;
+  version: number;
+  kind: string;
+  text?: string;
+  at?: number;
+};
+
+/// The row and parser block key identify one fence across streamed snapshots.
+export function artifactIdentity(rowId: string, blockKey: string): string {
+  return `${rowId}\u0000${blockKey}`;
+}
+
+/// Finds a newer source for one opened fence. A snapshot at or before `afterRevision` is stale,
+/// so the panel keeps its last accepted source while an out-of-order harness update catches up.
+export function artifactForIdentity(
+  rows: readonly ArtifactSourceRow[],
+  identity: string,
+  afterRevision = -Infinity,
+): Artifact | undefined {
+  const separator = identity.lastIndexOf("\u0000");
+  if (separator < 1) return undefined;
+  const rowId = identity.slice(0, separator);
+  const blockKey = identity.slice(separator + 1);
+  const path = blockKey.split(".");
+  const index = Number(path[0]);
+  if (!/^\d+$/.test(path[0]!) || !Number.isSafeInteger(index)) return undefined;
+  const row = rows.find((candidate) => candidate.id === rowId && candidate.kind === "assistant");
+  if (!row || row.version <= afterRevision || !row.text) return undefined;
+  let block = parseMarkdown(row.text)[index];
+  for (let at = 1; block && at < path.length; at += 2) {
+    const branch = path[at]!;
+    const child = path[at + 1];
+    if (child === undefined || !/^\d+$/.test(child)) return undefined;
+    if (branch === "q" && block.type === "blockquote") block = block.children[Number(child)];
+    else if (/^i\d+$/.test(branch) && block.type === "list")
+      block = block.items[Number(branch.slice(1))]?.children[Number(child)];
+    else return undefined;
+  }
+  if (!block || block.type !== "code") return undefined;
+  const kind = artifactKind(block.lang, block.code);
+  if (!kind) return undefined;
+  return {
+    kind,
+    lang: block.lang ?? kind,
+    code: block.code,
+    identity,
+    revision: row.version,
+  };
+}
+
 /// The chat's documents of `artifact`'s kind and title, oldest first, each text once. One with no
 /// title, or that the replies do not hold, is its only version.
 export function artifactVersions(replies: readonly string[], artifact: Artifact): Artifact[] {
@@ -17,7 +68,12 @@ export function artifactVersions(replies: readonly string[], artifact: Artifact)
       seen.add(document.code);
       versions.push(document);
     }
-  return seen.has(artifact.code) ? versions : [artifact];
+  if (!seen.has(artifact.code)) {
+    // A live rewrite is not finished yet, but it is still the newest version of this document.
+    if (!artifact.identity || versions.length === 0) return [artifact];
+    versions.push(artifact);
+  }
+  return versions;
 }
 
 /// A finished reply's documents, parsed once: the panel reads them again on every streamed delta.

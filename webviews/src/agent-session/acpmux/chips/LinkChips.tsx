@@ -18,6 +18,7 @@ import { FileDoc, Folder, GitHubMark, Globe } from "../conversation/icons";
 import { usePathInfo, useSiteInfo } from "./linkStore";
 import { isPrivateUrl, redactUrlText } from "./linkDisplay";
 import { isDeniedPath, pathName, textLinks } from "./paths";
+import { bareFileNames, useReplyFolders } from "./replyFolders";
 import { LinkHoverCard } from "./LinkHoverCard";
 import { pullRequestRef } from "./PullRequestCard";
 import { usePullRequestState } from "./pullRequestStore";
@@ -62,6 +63,49 @@ function HostPathChip({ path, label, written }: { path: string; label?: ReactNod
       <span className="cv-chip__label">{label ?? pathName(path)}</span>
     </button>
   );
+}
+
+/// A bare file name in a reply (`chromium-fixed-opaque.png`): the path chip of that file in the
+/// first folder the reply names (replyFolders.ts) where the host finds it, else `fallback` (the
+/// name as written). Never guessed: another machine's message or a read-only reader asks nothing,
+/// and a folder or a missing, denied or text-only file stays as written.
+export function SiblingFileChip({
+  name,
+  folders,
+  fallback,
+}: {
+  name: string;
+  folders?: readonly string[];
+  fallback?: ReactNode;
+}) {
+  const reply = useReplyFolders();
+  const scope = useMessageScope();
+  const readOnly = useTranscriptReadOnly();
+  const candidates = folders ?? reply;
+  if (!candidates.length || scope?.host !== undefined || readOnly) return fallback ?? name;
+  return <FolderFileChip name={name} folders={candidates} fallback={fallback ?? name} />;
+}
+
+function FolderFileChip({
+  name,
+  folders,
+  fallback,
+}: {
+  name: string;
+  folders: readonly string[];
+  fallback: ReactNode;
+}) {
+  const path = `${folders[0]}${name}`;
+  const { info, answered, policy } = usePathInfo(path);
+  const found =
+    !isDeniedPath(path) &&
+    !info?.folder &&
+    (info?.place === "root" || (info?.place === "outside" && policy.outsideRoots !== "text"));
+  if (found) return <PathChip path={path} written={name} />;
+  // Asked and not there: the next folder the reply names.
+  if (answered && folders.length > 1)
+    return <FolderFileChip name={name} folders={folders.slice(1)} fallback={fallback} />;
+  return fallback;
 }
 
 /// A file on the machine an agent's message came from: its name, the path and the
@@ -137,11 +181,11 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
 /// Plain reply text with its paths and URLs as chips (D4); `key` prefixes the chips' keys.
 export function linkedText(text: string, key: string): ReactNode[] {
   const links = textLinks(text);
-  if (!links.length) return [text];
+  if (!links.length) return namedText(text, key);
   const out: ReactNode[] = [];
   let at = 0;
   links.forEach((link, index) => {
-    if (link.start > at) out.push(text.slice(at, link.start));
+    if (link.start > at) out.push(...namedText(text.slice(at, link.start), `${key}-${index}-names`));
     out.push(
       link.kind === "path" ? (
         <PathChip
@@ -157,6 +201,21 @@ export function linkedText(text: string, key: string): ReactNode[] {
       ),
     );
     at = link.end;
+  });
+  if (at < text.length) out.push(...namedText(text.slice(at), `${key}-names`));
+  return out;
+}
+
+/// Text between a reply's paths: each bare file name may be a file in a folder the reply names.
+function namedText(text: string, key: string): ReactNode[] {
+  const names = bareFileNames(text);
+  if (!names.length) return [text];
+  const out: ReactNode[] = [];
+  let at = 0;
+  names.forEach((name, index) => {
+    if (name.start > at) out.push(text.slice(at, name.start));
+    out.push(<SiblingFileChip key={`${key}-${index}`} name={name.name} />);
+    at = name.end;
   });
   if (at < text.length) out.push(text.slice(at));
   return out;

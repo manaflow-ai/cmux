@@ -21,6 +21,7 @@ import os from "node:os";
 import path from "node:path";
 import { chromium } from "playwright";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
+import { perfRow, TARGET_MS } from "./perfRow";
 
 const ROUNDS = Number(process.argv[2] ?? 7);
 const TURNS = Number(process.argv[3] ?? 300);
@@ -144,7 +145,7 @@ try {
   });
   releases.push(["static server", () => statics.stop(true)]);
   const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${A}`;
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({ channel: "chrome", headless: true });
   releases.push(["browser", () => browser.close()]);
 
   type Round = { latest: number; settled: number; longTasks: number; longMs: number; shift: number; sent: string[] };
@@ -244,6 +245,16 @@ try {
       ].join(" | "),
     );
     console.log(`  the pane sent for the switch: ${rounds.at(-1)!.sent.join(", ") || "nothing"}`);
+    // The median of rounds, as both p50 and p95 (perfRow.ts); from the select call.
+    const key = arm.replace(" ", "_");
+    perfRow({
+      name: `chat_switch.${key}.latest`,
+      p50: of((r) => r.latest),
+      p95: of((r) => r.latest),
+      target: TARGET_MS.response,
+    });
+    perfRow({ name: `chat_switch.${key}.settled`, p50: of((r) => r.settled), p95: of((r) => r.settled) });
+    perfRow({ name: `chat_switch.${key}.long_ms`, p50: of((r) => r.longMs), p95: of((r) => r.longMs) });
   }
 } finally {
   await release();

@@ -56,9 +56,11 @@ struct CloudCLITargetTests {
         #expect(try CloudHandlers.machine(ActionInvocation(origin: .user), f.context) === f.session)
     }
 
-    @Test func newCloudWorkspaceKeepsTheFallbackForAnyCaller() throws {
+    /// One workspace, one new machine (design/cloud.md rule 1): a CLI run with no target never
+    /// opens on the only listed machine, which may be a teammate's or a fleet lane VM.
+    @Test func newCloudWorkspaceFromTheCLIWithNoTargetMakesANewMachine() throws {
         let f = Self.fixture()
-        #expect(try CloudHandlers.machine(ActionInvocation(origin: .cli), f.context, fallsBack: true) === f.session)
+        #expect(try CloudHandlers.workspaceMachine(ActionInvocation(origin: .cli), f.context) == nil)
     }
 
     // MARK: Results for non-person runs

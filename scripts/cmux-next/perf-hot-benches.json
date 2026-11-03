@@ -1,6 +1,11 @@
 {
   "_doc": "Hot-path ids for `// perf-hot: <budget> <path-id>` markers (plans/cmux-next/codebase-health.md section 6). scripts/cmux-next/guardrails.py warns when a push changes a marked function and names the bench here. Run it yourself on the fleet (nx-remote --needs gui), light and STRESS (perf-lead-brief), before and after; never add it to CI.",
   "paths": {
+    "daemon-request": {
+      "what": "the app's daemon-request probe on every request to the daemon (DaemonRequestLatency.record: one bucket lookup and three relaxed atomics)",
+      "bench": "scripts/cmux-next/austins-day (app_requests: the probe's own p99 under 80 agents)",
+      "owner": "PL-daemon"
+    },
     "feed-live-event": {
       "what": "one Feed owner event while the Feed list is open: the mirror's sorted items, the list's sections and the changed rows",
       "bench": "CMUX_NEXT_FEED_BENCH (CmuxNextFeed/Views/FeedBench.swift) and scripts/cmux-next/feed-perf.py, 300 and 1500 items",
