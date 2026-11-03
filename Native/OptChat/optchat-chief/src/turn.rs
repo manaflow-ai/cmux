@@ -207,6 +207,27 @@ impl PartialEq for Reuse {
     }
 }
 
+/// The kept session a turn ends (`TurnStart::retire`): at `end`, after the
+/// turn's prompt went out, or when the turn returns before that.
+struct Retire<'a> {
+    agents: &'a dyn AgentPort,
+    session: Option<String>,
+}
+
+impl Retire<'_> {
+    fn end(&mut self) {
+        if let Some(old) = self.session.take() {
+            let _ = self.agents.end_session(&old);
+        }
+    }
+}
+
+impl Drop for Retire<'_> {
+    fn drop(&mut self) {
+        self.end();
+    }
+}
+
 /// A turn session that kept running after its acpmux connection was lost:
 /// its later events are folded into the log, and it is removed, once acpmux
 /// is back (section 7: everything the agent does is logged).
@@ -410,9 +431,16 @@ pub fn run_with_drafts(
         harness: admitted.profile.clone(),
         ..start.session.clone()
     };
-    if let Some(old) = &start.retire {
-        let _ = agents.end_session(old);
-    }
+    // The kept session this turn does not take is ended once the turn's
+    // prompt is out, not before its session starts: ending it (a cancel,
+    // then the process group's TERM grace) sat in front of every first turn
+    // after a host restart. It is a Claude Code session (only those are
+    // kept), so it never shares a CODEX_HOME with the new one (E18). Every
+    // early return below ends it too (`Retire`'s drop).
+    let mut retire = Retire {
+        agents,
+        session: start.retire.clone(),
+    };
     // The kept session, while acpmux still has it and nothing waits in it.
     let reused = start.reuse.as_ref().and_then(Reuse::take).and_then(|r| {
         use cmux_chief::acp::SessionStatus as S;
@@ -563,7 +591,9 @@ pub fn run_with_drafts(
     let (tx, rx) = channel();
     interrupt.wake_with(Some(tx.clone()));
     let blocks = reused.map_or_else(|| start.blocks.clone(), |r| r.blocks.clone());
-    if let Err(e) = agents.start_prompt(&session, blocks, &start.prompt_id, tx) {
+    let started = agents.start_prompt(&session, blocks, &start.prompt_id, tx);
+    retire.end();
+    if let Err(e) = started {
         interrupt.wake_with(None);
         let _ = agents.end_session(&session);
         if reused.is_some() {
