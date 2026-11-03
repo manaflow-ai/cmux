@@ -37,7 +37,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding {
     var onResize: (() -> Void)?
     var onPaneHeaderHeightChange: (() -> Void)?
     private var contentCornerRadius: CGFloat = 0
-    private var tabRow: (offered: Bool, tools: CGFloat) = (false, 0) // the tab-row decision at rest (layout); a key resize's area hold keeps it
+    private var tabRow: (offered: Bool, tools: CGFloat) = (false, 0) // a chat's tab-row decision at rest (layout); a key resize's area hold keeps it (S1)
     /// The edge the strip sits on (`tabs.barPosition`, R109); follows
     /// `DesignSettings` (`observePlacement`).
     var barPosition: TabBarPosition = .top {
@@ -176,7 +176,6 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding {
         let shown = shownStripHeight
         toolbar?.view.isHidden = shown <= 0
         let tools = toolbarWidth(shown: shown), room = bounds.width - tools, row = onTop && !isBandActive && !hidesStrip && hostsContent && shown > 0 ? content as? PaneTabRowSharing : nil
-        // A chat's tools in the row when they fit (PaneTabRowSharing); while a key resize holds the content area, the decision it began with (FRAME OWNER S1).
         let held = contentHost.isHolding, rowContent = (held ? tabRow.offered : row?.fitsTabRow(room: room) == true) ? row : nil, rowTools = held ? tabRow.tools : rowContent?.tabRowWidth(room: room) ?? 0
         let loneTab = rowTools > 0 && rowContent?.tabRowTakesLoneTab == true && stripView.model.hasLoneTab // TabStripModel.hasLoneTab
         stripView.isHidden = shown <= 0 || loneTab
