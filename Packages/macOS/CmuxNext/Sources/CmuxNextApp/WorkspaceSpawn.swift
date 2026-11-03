@@ -78,7 +78,7 @@ struct WorkspaceSpawner {
                     }
                 }, settle: { await Self.settled(on: daemon) }) { try await named.create(key, rule: rule) }
             } catch {
-                windows.forgetCreate(key.rawValue)
+                windows.forgetCreate(key.rawValue); windows.newPlacements.forget(key.rawValue)
                 throw windows.createFailed(key.rawValue, error)
             }
         }
@@ -127,7 +127,7 @@ struct WorkspaceSpawner {
                 }
             } catch {
                 shown.abandon()
-                windows.forgetCreate(key.rawValue)
+                windows.forgetCreate(key.rawValue); windows.newPlacements.forget(key.rawValue)
                 throw windows.createFailed(key.rawValue, error)
             }
         }
