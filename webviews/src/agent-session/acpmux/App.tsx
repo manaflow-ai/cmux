@@ -6816,13 +6816,15 @@ function AcpmuxPane() {
   );
   const drivingUntil = useMemo(() => {
     const now = Date.now();
-    const until = managerDrivingUntil(
+    // Rows carry a peer's clock (SSH, Cloud): this computer's is the peer's plus the offset.
+    const peerUntil = managerDrivingUntil(
       chatManager,
       snapshot.rows,
       snapshot.queue.map((entry) => entry.message),
     );
+    const until = peerUntil === undefined ? undefined : peerUntil + (snapshot.clockOffsetMs ?? 0);
     return until !== undefined && until > now ? until : undefined;
-  }, [chatManager, snapshot.rows, snapshot.queue]);
+  }, [chatManager, snapshot.rows, snapshot.queue, snapshot.clockOffsetMs]);
   // The line goes when the window ends: one timer to that moment, cleared when the chat, its rows
   // or the window change and on unmount (its stop condition).
   const [drivingExpired, setDrivingExpired] = useState<number | undefined>(undefined);
