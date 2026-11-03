@@ -441,6 +441,41 @@ class PrePushGateTests(unittest.TestCase):
                 self.assertIn(self.STALE, output)
                 self.assertNotIn("Traceback", output)
 
+    def test_a_stale_install_never_takes_the_tool_pins_from_the_checkout(self):
+        # Review of 9b89be5eefd: an install with no lint-tools.lock read the checkout's (the pushed branch) and
+        # downloaded and ran the binary that lock names; its sha256 proves nothing, it comes from the same lock.
+        snapshot = Path(self.git("config", "--get", "core.hooksPath").stdout.strip()) / "cmux-next-checks"
+        (snapshot.resolve() / "lint-tools.lock").unlink()
+        marker = self.root / "pushed-code-ran"
+        tools = self.root / "tools"  # a fresh tools folder, so no pinned binary already there answers instead
+        payload = self.root / "payload"
+        payload.mkdir()
+        import hashlib
+        import zipfile
+        binary = payload / "ast-grep"
+        binary.write_text(f"#!/bin/sh\ntouch {marker}\n")
+        archive = payload / "tool.zip"
+        with zipfile.ZipFile(archive, "w") as zf:
+            zf.write(binary, "ast-grep")
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        gate = load_gate_tools()
+        rows = "".join(f"{tool}\t9.9.9\t{gate.platform_key()}\t{archive.as_uri()}\t{digest}\t{tool}\n"
+                       for tool in ("ast-grep", "swiftformat", "swiftlint"))
+        self.write("scripts/cmux-next/lint-tools.lock", "# tool\tversion\tplatform\turl\tsha256\tbinary-in-zip\n" + rows)
+        self.kit("Pinned", NEW_CLEAN.replace("Fresh", "Pinned"))
+        self.commit("a pushed lock and a Swift change")
+        before = self.remote_head()
+
+        result = self.push(CMUX_LINT_TOOLS_DIR=str(tools))
+
+        output = result.stdout + result.stderr
+        self.assertFalse(marker.exists(), "the hook ran a binary the pushed lock named")
+        self.assertFalse(tools.exists() and any(tools.iterdir()), "the hook downloaded what the pushed lock named")
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn(self.STALE, output)
+        self.assertNotIn("Traceback", output)
+
     def test_a_merge_cannot_use_an_upstream_removal_to_pay_for_the_branch_s_own_debt(self):
         # Upstream removes a try! and a main hop from Shared.swift; the branch adds a try! of the same text and a
         # main hop to Shared.swift and merges upstream in. Over the old remote head the removals pay for both
