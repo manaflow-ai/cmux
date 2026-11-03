@@ -24,8 +24,9 @@ final class TabContentCache {
     private let daemon: DaemonService
     var terminals: [String: TerminalEntry] = [:]
     var browsers: [String: BrowserEntry] = [:] {
-        didSet { if browsers.count != oldValue.count { pageRequests.media.tabsChanged(); pageInstalls.bump(Set(browsers.keys).symmetricDifference(oldValue.keys), installed: false) } }
+        didSet { if browsers.count != oldValue.count { pageRequests.media.tabsChanged(); pageInstalls.bump(Set(browsers.keys).symmetricDifference(oldValue.keys), installed: false); for key in oldValue.keys where browsers[key] == nil { openTabFeed.stop(key) } } } // a page that left takes its Switch to Tab row
     }
+    let openTabFeed = OmniboxOpenTabFeed() // the omnibar engines' open-tab indexes, kept as pages open, navigate and close
     var ledger = SurfaceLedger<String, ObjectIdentifier>(capacity: WarmSetBudget.standard.terminalCapacity)
     var presenters: [ObjectIdentifier: WeakPresenter] = [:]
     var withdrawnBy: [String: WeakPresenter] = [:] // the pane that last withdrew each tab (`release`)
@@ -432,6 +433,7 @@ final class TabContentCache {
         if agentDrivenTabs.contains(key) { page.markAgentDriven() } else if page.isAgentDriven { agentDrivenTabs.insert(key) }
         pageRequests.proxiedTabs.adopt(store: (page as? CEFTab)?.machineStore, key: key)
         browsers[key] = entry
+        openTabFeed.follow(page, key: key) { [weak self] page in self?.suggestionEngine(forPage: page) }
         (page as? CEFTab)?.onReadyForKeys = { [weak self] in self?.onBrowserReady?(key) } // the page is ready for keys (a restored one: its document loaded)
         pageInstalls.bump([key])
         // Pages are kept by hibernation, never by the terminal warm set.
