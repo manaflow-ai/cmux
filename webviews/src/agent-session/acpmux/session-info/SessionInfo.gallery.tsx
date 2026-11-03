@@ -1317,7 +1317,7 @@ export default componentEntry<Props>({
       play: chevronOnHoverAfterTitle,
     },
     "header-grip-hover": {
-      note: 'A section head under the pointer: the six-dot grip shows left of the title, in the head\'s leading padding (Leo, 2026-11-03: "why dont we have the drag grabber to the left of the title"). The title does not move. At rest no grip draws, and a pointer over the section\'s other rows shows none.',
+      note: "A section head under the pointer: the six-dot grip shows left of the title, in the head's leading padding (Leo, 2026-11-03: \"why dont we have the drag grabber to the left of the title\"). The title does not move. At rest no grip draws, and a pointer over the section's other rows shows none.",
       props: { ...full, placement: "push" },
       play: gripOnHeadHoverOnly,
     },
