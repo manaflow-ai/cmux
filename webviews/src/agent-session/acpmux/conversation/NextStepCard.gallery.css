@@ -14,8 +14,8 @@
 
 /* recap: the recap card's buttons (RecapCard.tsx): the accent-filled yes, the rest bare text. */
 .acpmux-next-step-gallery[data-next-step-look="recap"] .acpmux-next-step__answer {
-  min-height: 26px;
-  padding: 0 10px;
+  min-height: var(--ds-control-row, 28px);
+  padding: 0 var(--ds-space-3, 12px);
   border-radius: 7px;
   background: none;
   color: var(--agent-muted);
@@ -34,7 +34,7 @@
 /* list: the answers stacked as the question card's rows, full width, the first highlighted. */
 .acpmux-next-step-gallery[data-next-step-look="list"] .acpmux-next-step__answers {
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
 }
 .acpmux-next-step-gallery[data-next-step-look="list"] .acpmux-next-step__answer {
   justify-content: space-between;

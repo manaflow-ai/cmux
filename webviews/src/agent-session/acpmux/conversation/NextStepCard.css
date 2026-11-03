@@ -38,7 +38,7 @@
 .acpmux-next-step__answer {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--ds-space-2, 8px);
   min-height: var(--ds-control-primary, 32px);
   max-width: 100%;
   box-sizing: border-box;
