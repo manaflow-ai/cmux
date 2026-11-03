@@ -16,6 +16,7 @@ await requireBrowserLane("menu-scroll-edge-fade.browser.test.ts", async () => {
     ["ui.select", "overflowing", ".ui-select-popup"],
     ["pages.icon-picker", "categories", ".icon-category-menu"],
     ["agent-pane.project-chooser", "long-no-actions", ".ui-combobox-list"],
+    ["agent-pane.composer-context", "folder-long-list", ".ui-combobox-viewport"],
     ["new-tab.quick-model-menu", "short-more-models", ".acpmux-quick-body"],
   ] as const;
   beforeAll(async () => {
