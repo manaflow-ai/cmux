@@ -165,6 +165,12 @@ final class WorkspaceHoverCardController: HoverCardSource {
             }
             self.coordinator.dismiss(.action)
         }
+        // A row's ✕ closes its tab and the card stays: the workspace's next tabs reach it through
+        // `contentChanged` (Leo 2026-11-02: "YOU SHOULD BE ABLE TO CLOSE THESE TABS FROM THE HOVER PREVIEW").
+        body.tabList.onClose = { [weak list] tabID in
+            guard let list, list.hoverCardRow(ws)?.tabs.contains(where: { $0.id == tabID }) == true else { return }
+            list.model.send(.closeTab(workspace: ws, tab: tabID))
+        }
         body.setResources(resources.report)
         bodyID = id
         if openedByRequest { startSampling(id) }
@@ -343,7 +349,9 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     private let hostDot = HoverCardAccessoryView()
     /// The workspace's status in the shared indicator, on its own row under the name with its
     /// word beside it (Leo 2026-10-13: an unlabeled mark under the name read as a smudge).
-    private let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.tracksWindowOcclusion = true; return view }()
+    /// It keeps turning while the card is ordered out (its phase comes from the shared spinner clock), so a card shown
+    /// again draws no still frame first (Leo 2026-11-02: "IT RE-RENDERS THE SPINNER VIEW").
+    private let activity = StatusIndicatorView()
     private let activityLabel = ChromeLabel(labelWithString: "")
     private let activityRow = NSStackView()
     private let ageLabel = ChromeLabel(labelWithString: "")

@@ -1102,12 +1102,30 @@ An empty group now keeps only its header at rest. The header's existing + appear
   this extremely stupid looking?" / "the tiny cloud icon the repeated cloud cloud cloud". The card's header names the
   machine once, "Cloud" or the remote machine's name in the secondary ink (its color pick when the person picked one)
   right after the title, its connection dot beside it; the title has no icon on such a card and the separate Cloud row
-  is gone. A tab row names a machine only when the tab runs somewhere other than the header says; this Mac's rows keep
-  "This Mac". The workspace row draws no machine glyph (the trailing machine mark of #29833, itself replacing #22763's
+  is gone. A tab row names a machine only when the tab runs somewhere other than the header says; this Mac's rows name
+  no machine either (see the next section). The workspace row draws no machine glyph (the trailing machine mark of #29833, itself replacing #22763's
   leading glyph); its accessibility label still names the machine. Replaces the hover host row of #30244 and the
   per-row machine of #31511 on remote cards. Gallery: "Cloud workspace · machine named once · chosen". Tests:
   `WorkspaceHoverHostIdentityTests.aCloudCardNamesItsMachineExactlyOnce`, `WorkspaceTabHoverCardRichRowsTests`,
   `SidebarMachineMarkTests.aRowOnAnotherMachineDrawsNoMachineGlyph`, `HoverCardMachineColorTests`.
+
+## Hover card tab rows close on ✕, never flicker, and keep their line short (2026-11-02)
+
+- Leo 2026-11-02 23:55Z: "YOU SHOULD BE ABLE TO CLOSE THESE TABS FROM THE HOVER PREVIEW AND THE HOVER PREVIEW SHOULD NOT
+  MAKE THE SIDEBAR FLICKER ... I HAVE IT AS MY LAST HOVERED THING THEN I LEAVE IT THEN I GO BACK AND IT RE-RENDERS THE
+  SPINNER VIEW" / "PLUS THE PLACEMENT LOOKS LIKE SHIT".
+- A hovered tab row shows a ✕ in its trailing slot (over the unread dot) that sends `SidebarIntent.closeTab`; the card
+  stays open and the closed tab leaves it through `contentChanged`. A card with no `onClose` shows no ✕.
+- Coming back to the row whose card is still fading out shows the same card with no crossfade
+  (`HoverCardMachine.lastShownID`; `HoverCardPanel.present` no longer crossfades a body over itself), and the rows'
+  spinners do not follow the panel's occlusion, so they keep their shared-clock phase instead of redrawing.
+- The row's spinner sits right after its title, centred on the title line. Its meta line drops "Working" (the spinner
+  says it), names "This Mac" only on the `namesLocalMachine` variant, ends in an ellipsis when too long, and a lane
+  session name ("lane-vm-11/nightly-rollback") shows its last part. Gallery: "Tab rows · spinner after the title ·
+  chosen", "Tab rows · close ✕ on hover · chosen", "Tab rows · only another machine named · chosen". Tests:
+  `WorkspaceTabHoverCardTests.aHoveredRowsCloseButtonClosesItsTabAndKeepsTheCard`,
+  `WorkspaceHoverCardBehaviorTests.comingBackToTheSameRowShowsTheSameCardWithNoCrossfade`,
+  `WorkspaceTabHoverCardRichRowsTests`.
 
 ## Reviewed behavior-only commits
 
