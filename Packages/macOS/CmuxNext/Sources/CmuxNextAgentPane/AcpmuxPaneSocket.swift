@@ -196,7 +196,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
             var used = 0
             var rest = NSRange(location: 0, length: 0)
             complete = cocoa.getBytes(buffer.baseAddress, maxLength: count, usedLength: &used, encoding: utf8,
-                                      options: [], range: NSRange(location: 0, length: cocoa.length), remainingRange: &rest)
+                                      options: [], range: NSRange(location: 0, length: cocoa.length), remaining: &rest)
                 && rest.length == 0 && used == count
             return complete ? used : 0
         }
