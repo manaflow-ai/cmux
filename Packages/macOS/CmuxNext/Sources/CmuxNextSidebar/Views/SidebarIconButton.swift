@@ -66,6 +66,7 @@ final class SidebarIconButton: ClickableButton {
         title = ""
         isBordered = false
         setAccessibilityLabel(label)
+        defersThemedToolTipTracking = true
         applyToolTip()
         wantsLayer = true
         target = self
@@ -144,17 +145,11 @@ final class SidebarIconButton: ClickableButton {
         self.image = image
     }
 
-    /// The label as the themed tooltip (when ``showsLabelToolTip``), registered once the button shows: a hidden
-    /// button cannot be hovered (REOPEN-F7: each row's hidden hover buttons registered theirs before the first
-    /// frame). VoiceOver's help is set at once, shown or not.
+    /// The label as the themed tooltip (when ``showsLabelToolTip``). Its text, its shortcut and VoiceOver's help are set
+    /// at once; the hover tracking area waits until the button shows (``NSView/defersThemedToolTipTracking``): a hidden
+    /// button cannot be hovered (REOPEN-F7: each row's hidden hover buttons added theirs before the first frame).
     private func applyToolTip() {
         let text = showsLabelToolTip && !label.isEmpty ? label : nil
-        guard !isHiddenOrHasHiddenAncestor, window != nil else {
-            // A registered one stays in step; an unregistered one waits for the button to show.
-            if themedToolTip != nil { themedToolTip = text }
-            setAccessibilityHelp(text)
-            return
-        }
         if themedToolTip != text { themedToolTip = text }
     }
 
@@ -194,7 +189,7 @@ final class SidebarIconButton: ClickableButton {
         super.viewDidMoveToWindow()
         if window != nil {
             renderIcon()
-            applyToolTip()
+            themedToolTipCanShow()
         }
         if takesKeyFocus { keyRepaint.track() }
     }
@@ -237,10 +232,18 @@ final class SidebarIconButton: ClickableButton {
         hover.pointer?.refresh()
     }
 
+    /// A move into a shown superview in the same window shows the button with no unhide or window change.
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        guard window != nil else { return }
+        renderIcon()
+        themedToolTipCanShow()
+    }
+
     override func viewDidUnhide() {
         super.viewDidUnhide()
         renderIcon()
-        applyToolTip()
+        themedToolTipCanShow()
         hover.pointer?.refresh()
     }
 }
