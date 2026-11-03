@@ -338,7 +338,7 @@ pub(crate) struct ClientRegistry {
     /// A role-main `client-hello` (the app's frontend) came since this owner
     /// started: from then on nothing but its keepers holds an app session's
     /// owner (owner_keepers.rs).
-    pub(super) frontend_seen: std::sync::atomic::AtomicBool,
+    pub(super) frontend_seen: AtomicBool,
     pub(super) url_opens: url_open::URLRequests,
     pub(crate) clipboard_reads: clipboard_read::ClipboardReads,
     /// Connection-scoped loopback streams (`loopback-forward-v1`).
@@ -408,7 +408,7 @@ impl ClientRegistry {
         Self {
             detach_waker: Mutex::new(None),
             client_presence_observers: Mutex::new(Vec::new()),
-            frontend_seen: std::sync::atomic::AtomicBool::new(false),
+            frontend_seen: AtomicBool::new(false),
             next_id: AtomicU64::new(1),
             url_opens: url_open::URLRequests::default(),
             clipboard_reads: Default::default(),

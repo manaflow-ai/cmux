@@ -58,14 +58,14 @@ impl ClientRegistry {
     /// and tells the presence observers the first time: an app session's
     /// owner is held only by its keepers from then on (owner_keepers.rs).
     pub(super) fn note_frontend(&self) {
-        if !self.frontend_seen.swap(true, std::sync::atomic::Ordering::AcqRel) {
+        if !self.frontend_seen.swap(true, Ordering::AcqRel) {
             self.notify_client_presence();
         }
     }
 
     /// Whether a role-main hello came since this owner started.
     pub(crate) fn frontend_seen(&self) -> bool {
-        self.frontend_seen.load(std::sync::atomic::Ordering::Acquire)
+        self.frontend_seen.load(Ordering::Acquire)
     }
 
     /// Reserves the daemon handoff for an orphan exit, atomically with the
