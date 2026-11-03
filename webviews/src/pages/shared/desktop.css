@@ -705,7 +705,7 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
    ui/spinnerClock.ts. Spinners write `animation: cmux-spin var(--cmux-spinner-period) linear
    infinite` inside `prefers-reduced-motion: no-preference`, never their own keyframes. */
 :root {
-  --cmux-spinner-period: 1400ms;
+  --cmux-spinner-period: 900ms;
   --cmux-breath-period: 2.4s;
   --cmux-shimmer-period: 2.8s;
 }
