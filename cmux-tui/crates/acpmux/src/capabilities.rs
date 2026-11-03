@@ -95,7 +95,7 @@ pub const CAPABILITIES: &[Capability] = &[
     // asks the daemon to pull or forget when the values live only in its memory.
     Capability {
         id: crate::vault::CAPABILITY,
-        wire: &[method::MUX_VAULT_PULL, method::MUX_VAULT_FORGET],
+        wire: &[method::MUX_VAULT_PULL, method::MUX_VAULT_FORGET, method::MUX_VAULT_STATUS],
     },
     Capability {
         id: "machine-consent-v1",

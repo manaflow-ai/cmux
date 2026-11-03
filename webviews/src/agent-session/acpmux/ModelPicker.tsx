@@ -29,7 +29,8 @@ import { groupVariants } from "./modelVariants";
 import { registerPicker } from "./pickerOpeners";
 import { OnNewTab } from "./newTabComposer";
 import { relevantModelSections } from "./relevantModels";
-import { QuickModelMenu, type QuickFamily, type QuickModel } from "./QuickModelMenu";
+import { type QuickFamily, type QuickModel } from "./QuickModelMenu";
+import { QuickModelColumns } from "./QuickModelColumns";
 import type { PickerProfile } from "./pickerProfiles";
 import { useUiAnchor } from "../../ui/anchor";
 import { graphemePrefix } from "../../ui/initials";
@@ -960,6 +961,7 @@ export function ModelPicker(props: ModelPickerProps) {
       list.push({
         id: entry.id,
         name: entry.name,
+        accountFamily: entry.family ?? entry.acpmuxHarness ?? entry.id,
         ...(hasAgentMark(entry.mark ?? entry.id) ? { mark: entry.mark ?? entry.id } : {}),
         models: shown.map(tabRow),
         more: more.map(tabRow),
@@ -1289,7 +1291,7 @@ export function ModelPicker(props: ModelPickerProps) {
         // The compact menu's chip is its Base UI menu button (submenus need one); a press while
         // the full picker is open only closes it.
         <>
-          <QuickModelMenu
+          <QuickModelColumns
             open={quickOpen}
             onOpenChange={(next) => {
               // A close is only ever the compact menu's own; a press on the chip while the full
@@ -1337,7 +1339,7 @@ export function ModelPicker(props: ModelPickerProps) {
                       quickRow("", model),
                     )
                   : [],
-              current: props.model,
+              current: props.predictedModel ?? props.model,
               ...(picksOwnModel(current?.family) ? { ownModel: true } : {}),
               onModel: (id) => {
                 quickPicked.current = true;
@@ -1389,7 +1391,7 @@ export function ModelPicker(props: ModelPickerProps) {
                 data-label={detailShort}
               />
             )}
-          </QuickModelMenu>
+          </QuickModelColumns>
         </>
       ) : (
         <>
