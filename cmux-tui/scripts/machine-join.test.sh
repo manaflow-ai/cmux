@@ -153,6 +153,8 @@ case "\$*" in
     case "\${JT_VAULT:-fail}" in
       ok) printf '{\n  "state": "ok",\n  "env": ["OPENAI_API_KEY", "GITHUB_TOKEN"],\n  "note": "sk-must-not-print"\n}\n' ;;
       not_granted) printf '{"state": "not_granted"}\n' ;;
+      off) printf '{"state": "off"}\n' ;;
+      partial) printf '{"state": "partial", "env": ["OPENAI_API_KEY"], "note": "sk-must-not-print"}\n'; exit 1 ;;
       *) echo "acpmux: vault failed sk-must-not-print" >&2; exit 1 ;;
     esac ;;
   "harness codex-runtime --help") [ "\${JT_CODEX_RT:-0}" = 1 ] || exit 2 ;;
@@ -679,6 +681,21 @@ suite() {
   check "vault fail: still exit 0 (got $rc)" rc_is 0
   check "vault fail: warns with the exit code only" out_has "the vault pull did not finish (acpmux exit 1)"
   check "vault fail: acpmux's words are not shown" eval '! out_has "sk-must-not-print"'
+
+  new_case vault-off
+  JT_CAPS="acpmux-v1 machine.join.stdin.v1 machine.vault.pull.v1"
+  JT_VAULT=off
+  run_join env CMUX_JOIN_HARNESSES=none
+  check "vault off: exit 0 (got $rc)" rc_is 0
+  check "vault off: says nothing of the vault" eval '! grep -q "vault:\|vault pull" "$d/out"'
+
+  new_case vault-partial
+  JT_CAPS="acpmux-v1 machine.join.stdin.v1 machine.vault.pull.v1"
+  JT_VAULT=partial
+  run_join env CMUX_JOIN_HARNESSES=none
+  check "vault partial: the join still exits 0 (got $rc)" rc_is 0
+  check "vault partial: warns with names" out_has "warning: the vault pull got 1 env vars (OPENAI_API_KEY), not all of them"
+  check "vault partial: nothing else" eval '! out_has "sk-must-not-print"'
 
   new_case vault-no-capability
   JT_VAULT=ok

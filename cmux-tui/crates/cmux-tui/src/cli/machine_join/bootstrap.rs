@@ -6,7 +6,9 @@
 //! - `machine add --usb PATH` writes `PATH/cmux-setup.command` (0700: the same
 //!   pasted line, then the file removes itself once the join worked) and a
 //!   README.txt. The token is in the .command file and nowhere else: not on
-//!   stdout, not in `--json`, not in the README. The line lives a day at most.
+//!   stdout, not in `--json`, not in the README. The line lives as long as the
+//!   platform allows a line (10 minutes today). Existing files or symlinks at
+//!   either name are refused before a token is made; nothing is overwritten.
 //! - `machine add USER@HOST --vault|--bootstrap` runs the line on the host over
 //!   ssh. The token reaches the remote shell on ssh's stdin (`read`), never in
 //!   an argument list on either side, and the remote `sh` gets it in its
@@ -67,10 +69,12 @@ impl std::fmt::Debug for SshPlan {
 }
 
 /// The join over ssh: the remote shell reads the token from stdin into an unexported
-/// variable and hands it to the join script's `sh` in its environment, as the pasted line does.
+/// variable, downloads the join script to a temp file (a failed download exits 1, never runs an
+/// empty script), and hands the token to its `sh` in its environment, as the pasted line does.
+/// Its exit code is the join's.
 pub(super) fn join_plan(origin: &str, host: &str, token: &str) -> SshPlan {
     let remote = format!(
-        "sh -c 'IFS= read -r t; curl -fsSL {origin}/v1/machines/join.sh | CMUX_JOIN=\"$t\" sh'"
+        "sh -c 'IFS= read -r t; f=$(mktemp \"${{TMPDIR:-/tmp}}/cmux-join.XXXXXX\") || exit 1; trap \"rm -f \\\"\\$f\\\"\" EXIT; curl -fsSL {origin}/v1/machines/join.sh -o \"$f\" || {{ echo \"cmux: could not download the join script from {origin}\" >&2; exit 1; }}; CMUX_JOIN=\"$t\" sh \"$f\"'"
     );
     SshPlan {
         argv: ["ssh", "-o", "ConnectTimeout=15", "--", host, remote.as_str()]
@@ -119,18 +123,28 @@ pub(super) fn run_ssh(plan: &SshPlan) -> std::io::Result<i32> {
     Ok(status.code().unwrap_or(SSH_FAILED))
 }
 
-/// The stick's `.command`: the pasted line, then it removes itself once the join worked.
-pub(super) fn usb_script(line: &str, expires: &str) -> String {
+/// The stick's `.command`: downloads the join script to a temp file (a failed download keeps
+/// the file and exits nonzero), runs it with the token in its environment, and removes itself
+/// only once the join worked; otherwise it exits with the join's code.
+pub(super) fn usb_script(origin: &str, token: &str, expires: &str) -> String {
     format!(
         "#!/bin/sh
 # cmux: makes this Mac one of your cmux machines. Double-click it in Finder.
 # It works once and expires {expires}. Whoever holds this file can join
 # your team's machines until then. Once the join works it deletes itself.
 here=\"$0\"
-if{line}; then
+f=\"$(mktemp \"${{TMPDIR:-/tmp}}/cmux-join.XXXXXX\")\" || exit 1
+trap 'rm -f \"$f\"' EXIT
+if ! curl -fsSL {origin}/v1/machines/join.sh -o \"$f\"; then
+  printf '%s\\n' \"cmux: could not download the join script from {origin}; check this Mac's internet, then double-click again\"
+  exit 1
+fi
+if CMUX_JOIN={token} sh \"$f\"; then
   rm -f -- \"$here\" && printf '%s\\n' \"cmux: done; removed $here\"
 else
-  printf '%s\\n' \"cmux: the join did not finish; the lines above say why\"
+  rc=$?
+  printf '%s\\n' \"cmux: the join did not finish (exit $rc); the lines above say why\"
+  exit \"$rc\"
 fi
 "
     )
@@ -159,9 +173,9 @@ join works.
     )
 }
 
-/// "on 2026-11-03 at 14:32 UTC", or "within a day" when the time is unreadable.
+/// "on 2026-11-03 at 14:32 UTC", or "soon" when the time is unreadable.
 pub(super) fn expiry_date_words(expires_at_ms: Option<u64>) -> String {
-    let Some(ms) = expires_at_ms else { return "within a day".into() };
+    let Some(ms) = expires_at_ms else { return "soon".into() };
     let secs = ms / 1000;
     let (days, of_day) = (secs / 86_400, secs % 86_400);
     let (y, m, d) = civil_from_days(i64::try_from(days).unwrap_or(0));
@@ -182,7 +196,18 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
     (y, u32::try_from(m).unwrap_or(1), u32::try_from(d).unwrap_or(1))
 }
 
-/// Writes the stick's two files: the `.command` owner-only (0700), the README 0644.
+/// The stick's file names that are already taken (a file, a folder or a symlink, followed or
+/// not): nothing is ever overwritten or written through a link.
+pub(super) fn usb_taken(dir: &Path) -> Vec<PathBuf> {
+    [USB_SCRIPT, USB_README]
+        .iter()
+        .map(|name| dir.join(name))
+        .filter(|path| std::fs::symlink_metadata(path).is_ok())
+        .collect()
+}
+
+/// Writes the stick's two files, each new (`O_CREAT|O_EXCL`, which never follows a symlink):
+/// the `.command` owner-only (0700), the README 0644.
 pub(super) fn write_usb(
     dir: &Path,
     script: &str,
@@ -191,22 +216,19 @@ pub(super) fn write_usb(
     use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
     let script_path = dir.join(USB_SCRIPT);
     let readme_path = dir.join(USB_README);
-    // A stick from an earlier run: its line is replaced, never appended to.
-    match std::fs::remove_file(&script_path) {
-        Ok(()) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => return Err(e),
+    let create = |path: &Path, mode: u32, text: &str| -> std::io::Result<()> {
+        let mut file =
+            std::fs::OpenOptions::new().write(true).create_new(true).mode(mode).open(path)?;
+        file.write_all(text.as_bytes())?;
+        file.sync_all()?;
+        // The umask may have taken bits off.
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+    };
+    create(&readme_path, 0o644, readme)?;
+    if let Err(e) = create(&script_path, 0o700, script) {
+        let _ = std::fs::remove_file(&readme_path);
+        return Err(e);
     }
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o700)
-        .open(&script_path)?;
-    file.write_all(script.as_bytes())?;
-    file.sync_all()?;
-    // The umask may have taken bits off: the owner must be able to run it.
-    std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o700))?;
-    std::fs::write(&readme_path, readme)?;
     Ok((script_path, readme_path))
 }
 
@@ -218,11 +240,17 @@ pub(super) fn add_usb(
     out: &mut dyn Write,
     options: RunOptions,
 ) -> Result<i32, Failure> {
-    // Checked before a token exists, so a wrong path spends nothing.
+    // Checked before a token exists, so a wrong path or a used stick spends nothing.
     if !std::fs::metadata(dir).is_ok_and(|m| m.is_dir()) {
         return Err(Failure::usage(format!(
             "{} is not a folder: name the stick's folder (for example /Volumes/STICK)",
             dir.display()
+        )));
+    }
+    if let Some(taken) = usb_taken(dir).first() {
+        return Err(Failure::usage(format!(
+            "{} already exists: remove it (and the stick's other cmux file) first; nothing is overwritten",
+            taken.display()
         )));
     }
     let add = Add {
@@ -234,7 +262,7 @@ pub(super) fn add_usb(
     };
     let minted = mint_for(platform, &add)?;
     let expires = expiry_date_words(minted.expires_at_ms);
-    let script = Zeroizing::new(usb_script(&join_line(&platform.origin, &minted.token), &expires));
+    let script = Zeroizing::new(usb_script(&platform.origin, &minted.token, &expires));
     let (script_path, readme_path) =
         write_usb(dir, &script, &usb_readme(&expires, args.vault)).map_err(|e| {
             Failure::new(

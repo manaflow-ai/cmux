@@ -65,14 +65,14 @@ const REVOKE_BOUND: &str = "30 seconds";
 const DEFAULT_TTL_SECS: u64 = 600;
 /// The longest a pasted line lives (the platform's range).
 const MAX_TTL_SECS: u64 = 600;
-/// A stick's line: its default and longest life.
-pub(super) const USB_TTL_SECS: u64 = 24 * 3600;
+/// A stick's line: its default life, the platform's longest (a longer one is a platform change).
+pub(super) const USB_TTL_SECS: u64 = MAX_TTL_SECS;
 
 mod bootstrap;
 pub(super) mod vault;
 
 const USAGE: &str = "usage: cmux machine add [--name NAME] [--ttl 10m] [--wait|--no-wait] [--vault [--yes]]
-       cmux machine add --usb PATH [--ttl 24h] [--vault [--yes]]
+       cmux machine add --usb PATH [--ttl 10m] [--vault [--yes]]
        cmux machine add USER@HOST --vault|--bootstrap [--yes]
        cmux machine revoke ID|NAME [--yes]
        cmux machine rotate ID|NAME
@@ -306,8 +306,7 @@ fn parse_verb(verb: &str, rest: &[String]) -> Result<Command, UsageError> {
             }
             add.host = positional.first().cloned();
             add.yes = yes;
-            let max = if add.usb.is_some() { USB_TTL_SECS } else { MAX_TTL_SECS };
-            add.ttl = ttl.map(|text| parse_ttl(&text, max)).transpose()?;
+            add.ttl = ttl.map(|text| parse_ttl(&text)).transpose()?;
             add.name = name;
             add.wait = wait;
             check_add(&add)?;
@@ -356,16 +355,10 @@ fn check_add(add: &AddArgs) -> Result<(), UsageError> {
     Ok(())
 }
 
-/// `10m`, `600s`, `24h` or `600`: whole seconds from one minute to `max` (ten minutes for a
-/// pasted line, the platform's range; a day for a stick's).
-fn parse_ttl(text: &str, max: u64) -> Result<u64, UsageError> {
-    let error = || {
-        UsageError::new(if max == USB_TTL_SECS {
-            "--ttl takes 1m to 24h with --usb (for example 12h)"
-        } else {
-            "--ttl takes 1m to 10m (for example 5m)"
-        })
-    };
+/// `10m`, `600s` or `600`: whole seconds from one minute to ten minutes (the platform's range).
+fn parse_ttl(text: &str) -> Result<u64, UsageError> {
+    let max = MAX_TTL_SECS;
+    let error = || UsageError::new("--ttl takes 1m to 10m (for example 5m)");
     let (digits, scale) = if let Some(hours) = text.strip_suffix('h') {
         (hours, 3600)
     } else if let Some(minutes) = text.strip_suffix('m') {

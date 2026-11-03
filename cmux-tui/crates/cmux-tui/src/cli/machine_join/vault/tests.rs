@@ -323,10 +323,10 @@ fn add_flags_parse_together_and_refuse_what_does_not_fit() {
         Verb::Add(AddArgs { host: Some("mini-9".into()), vault: true, ..AddArgs::default() })
     );
     assert_eq!(
-        command(&["machine", "add", "--usb", "/Volumes/STICK", "--ttl", "12h"]).verb,
+        command(&["machine", "add", "--usb", "/Volumes/STICK", "--ttl", "5m"]).verb,
         Verb::Add(AddArgs {
             usb: Some("/Volumes/STICK".into()),
-            ttl: Some(12 * 3600),
+            ttl: Some(300),
             ..AddArgs::default()
         })
     );
@@ -337,6 +337,7 @@ fn add_flags_parse_together_and_refuse_what_does_not_fit() {
         vec!["machine", "add", "--bootstrap"],
         vec!["machine", "add", "--usb", "/x", "leo@mini-9", "--vault"],
         vec!["machine", "add", "--usb", "/x", "--ttl", "25h"],
+        vec!["machine", "add", "--usb", "/x", "--ttl", "1h"],
         vec!["machine", "add", "--usb", "/x", "--wait"],
         vec!["machine", "add", "--usb"],
         vec!["machine", "add", "--ttl", "1h"],

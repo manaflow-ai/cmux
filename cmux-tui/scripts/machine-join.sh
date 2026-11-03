@@ -492,20 +492,26 @@ pull_vault() {
   # Read into memory only: acpmux's answer never reaches disk.
   v="$("$acpmux" host vault pull --json </dev/null 2>/dev/null)" || vrc=$?
   v="$(printf '%s' "$v" | tr -d ' \t\r\n')"
+  # The env names in acpmux's answer, as one space-separated list (names only).
+  names="$(printf '%s' "$v" | sed -n 's/.*"env":\[\([^]]*\)\].*/\1/p' | tr ',' '\n' |
+    sed -n 's/^"\([A-Za-z_][A-Za-z0-9_]*\)"$/\1/p' | tr '\n' ' ')"
+  count=0
+  for n in $names; do count=$((count + 1)); done
   case "$v" in
     *'"state":"not_granted"'*)
       say "vault: not shared with this machine (from your Mac: cmux machine vault grant $name)"
       ;;
+    # The hub has no vault: nothing to pull, nothing to say.
+    *'"state":"off"'*) ;;
     *'"state":"ok"'*)
-      names="$(printf '%s' "$v" | sed -n 's/.*"env":\[\([^]]*\)\].*/\1/p' | tr ',' '\n' |
-        sed -n 's/^"\([A-Za-z_][A-Za-z0-9_]*\)"$/\1/p' | tr '\n' ' ')"
-      count=0
-      for n in $names; do count=$((count + 1)); done
       if [ "$count" = 0 ]; then
         say "vault: no env vars yet"
       else
         say "vault: $count env vars (${names% })"
       fi
+      ;;
+    *'"state":"partial"'*)
+      say "warning: the vault pull got $count env vars${names:+ (${names% })}, not all of them; retry: $acpmux host vault pull"
       ;;
     *) say "warning: the vault pull did not finish (acpmux exit $vrc); retry: $acpmux host vault pull" ;;
   esac

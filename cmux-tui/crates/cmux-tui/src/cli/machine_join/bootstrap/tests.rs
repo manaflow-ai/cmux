@@ -76,10 +76,10 @@ fn usb_writes_the_token_only_into_an_owner_only_command_file() {
         assert!(ran.plans.is_empty());
         let script_path = stick.path().join(USB_SCRIPT);
         let script = std::fs::read_to_string(&script_path).unwrap();
-        let line = format!(" curl -fsSL {origin}/v1/machines/join.sh | CMUX_JOIN={TOKEN} sh");
         assert!(script.starts_with("#!/bin/sh\n"), "{script}");
-        assert!(script.contains(&format!("if{line}; then\n  rm -f -- \"$here\"")), "{script}");
-        assert_eq!(script.matches(TOKEN).count(), 1, "the token once, in the line");
+        assert!(script.contains(&format!("curl -fsSL {origin}/v1/machines/join.sh -o \"$f\"")), "{script}");
+        assert!(script.contains(&format!("if CMUX_JOIN={TOKEN} sh \"$f\"; then\n  rm -f -- \"$here\"")), "{script}");
+        assert_eq!(script.matches(TOKEN).count(), 1, "the token once, in the join's env");
         let mode = std::fs::metadata(&script_path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o700);
         let readme = std::fs::read_to_string(stick.path().join(USB_README)).unwrap();
@@ -88,7 +88,7 @@ fn usb_writes_the_token_only_into_an_owner_only_command_file() {
         let entries: Vec<_> = std::fs::read_dir(stick.path()).unwrap().collect();
         assert_eq!(entries.len(), 2, "the script and the README only");
         let mint = requests.recv().unwrap();
-        assert_eq!(body_of(&mint), json!({"ttlSeconds": 86_400}), "a day by default");
+        assert_eq!(body_of(&mint), json!({"ttlSeconds": 600}), "the platform's longest line");
         match output {
             OutputMode::Human => {
                 assert!(ran.out.contains("Whoever holds this stick can join your team's machines"));
@@ -110,17 +110,22 @@ fn usb_with_vault_asks_first_and_a_bad_path_spends_no_token() {
     let stick = tempfile::tempdir().unwrap();
     let path = stick.path().to_str().unwrap().to_owned();
     let (origin, requests) = minting();
-    let ran = run_add(&["machine", "add", "--usb", &path, "--vault", "--ttl", "2h"], &origin, OutputMode::Human, true, &[]);
+    let ran = run_add(&["machine", "add", "--usb", &path, "--vault", "--ttl", "5m"], &origin, OutputMode::Human, true, &[]);
     assert_eq!(ran.code, Ok(0));
     assert_eq!(ran.asked, vec!["This machine gets 1 env var from your vault: OPENAI_API_KEY. Continue?"]);
     requests.recv().unwrap();
-    assert_eq!(body_of(&requests.recv().unwrap()), json!({"ttlSeconds": 7200, "vault": true}));
+    assert_eq!(body_of(&requests.recv().unwrap()), json!({"ttlSeconds": 300, "vault": true}));
     let readme = std::fs::read_to_string(stick.path().join(USB_README)).unwrap();
     assert!(readme.contains("env vars in your cmux vault"));
-    // A second run on the same stick replaces the line.
-    let (origin, _requests) = minting();
-    let ran = run_add(&["machine", "add", "--usb", &path], &origin, OutputMode::Quiet, true, &[]);
-    assert_eq!(ran.code, Ok(0));
+    // A second run on the same stick overwrites nothing and makes no token.
+    let before = std::fs::read_to_string(stick.path().join(USB_SCRIPT)).unwrap();
+    let (origin, requests) = minting();
+    let failure = run_add(&["machine", "add", "--usb", &path], &origin, OutputMode::Quiet, true, &[])
+        .code
+        .unwrap_err();
+    assert!(failure.message.contains("already exists"), "{}", failure.message);
+    assert!(requests.try_recv().is_err(), "no token for a used stick");
+    assert_eq!(std::fs::read_to_string(stick.path().join(USB_SCRIPT)).unwrap(), before);
     let missing = stick.path().join("not-there");
     let (origin, requests) = minting();
     let failure = run_add(
@@ -136,35 +141,93 @@ fn usb_with_vault_asks_first_and_a_bad_path_spends_no_token() {
     assert!(requests.try_recv().is_err(), "no token for a path that is not a folder");
 }
 
-/// A fake `curl` that serves `script`, on a PATH dir of its own.
-fn fake_curl(dir: &Path, script: &str) -> PathBuf {
+#[test]
+fn a_used_or_linked_stick_is_refused_and_nothing_is_written_through_a_link() {
+    for (name, link) in [(USB_SCRIPT, false), (USB_README, false), (USB_SCRIPT, true), (USB_README, true)] {
+        let stick = tempfile::tempdir().unwrap();
+        let elsewhere = stick.path().join("elsewhere");
+        std::fs::write(&elsewhere, "keep").unwrap();
+        let taken = stick.path().join(name);
+        if link {
+            std::os::unix::fs::symlink(&elsewhere, &taken).unwrap();
+        } else {
+            std::fs::write(&taken, "keep").unwrap();
+        }
+        let path = stick.path().to_str().unwrap().to_owned();
+        let (origin, requests) = minting();
+        let failure = run_add(&["machine", "add", "--usb", &path], &origin, OutputMode::Human, true, &[])
+            .code
+            .unwrap_err();
+        assert_eq!(failure.exit, 2, "{name} link={link}");
+        assert!(requests.try_recv().is_err(), "checked before a token is made");
+        assert_eq!(std::fs::read_to_string(&elsewhere).unwrap(), "keep");
+        // write_usb itself never writes through a link either (O_EXCL), and leaves no half stick.
+        assert!(write_usb(stick.path(), "script", "readme").is_err(), "{name} link={link}");
+        assert_eq!(std::fs::read_to_string(&elsewhere).unwrap(), "keep");
+        assert_eq!(std::fs::read_to_string(&taken).unwrap(), "keep");
+    }
+    // A dangling link counts as taken too.
+    let stick = tempfile::tempdir().unwrap();
+    std::os::unix::fs::symlink(stick.path().join("nowhere"), stick.path().join(USB_README)).unwrap();
+    assert_eq!(usb_taken(stick.path()).len(), 1);
+    assert!(write_usb(stick.path(), "script", "readme").is_err());
+    assert!(!stick.path().join("nowhere").exists());
+}
+
+/// A fake `curl` that writes `script` to its `-o` file (or stdout) and exits `code`, on a PATH dir
+/// of its own.
+fn fake_curl(dir: &Path, script: &str, code: i32) -> PathBuf {
     let bin = dir.join("bin");
     std::fs::create_dir_all(&bin).unwrap();
     let curl = bin.join("curl");
     let log = dir.join("curl-argv");
-    std::fs::write(&curl, format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >>'{}'\ncat <<'EOS'\n{script}\nEOS\n", log.display())).unwrap();
+    std::fs::write(
+        &curl,
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >>'{}'\n[ {code} = 0 ] || exit {code}\nout=/dev/stdout\nwhile [ $# -gt 0 ]; do [ \"$1\" = -o ] && out=$2; shift; done\ncat >\"$out\" <<'EOS'\n{script}\nEOS\n",
+            log.display()
+        ),
+    )
+    .unwrap();
     std::fs::set_permissions(&curl, std::fs::Permissions::from_mode(0o755)).unwrap();
     bin
 }
 
 #[test]
 fn the_usb_command_deletes_itself_only_after_a_join_that_worked() {
-    for (served, kept) in [("exit 0", false), ("exit 3", true)] {
+    // (what the join does, curl's exit, the .command's exit, whether the .command stays)
+    for (served, curl_code, exit, kept) in
+        [("exit 0", 0, 0, false), ("exit 3", 0, 3, true), ("exit 0", 22, 1, true)]
+    {
         let dir = tempfile::tempdir().unwrap();
         let got = dir.path().join("got");
-        let bin = fake_curl(dir.path(), &format!("printf '%s' \"$CMUX_JOIN\" >'{}'\n{served}", got.display()));
-        let line = join_line("https://p.example", TOKEN);
-        let script = usb_script(&line, "on 2026-11-03 at 10:00 UTC");
+        let bin = fake_curl(
+            dir.path(),
+            &format!("printf '%s' \"$CMUX_JOIN\" >'{}'\n{served}", got.display()),
+            curl_code,
+        );
+        let script = usb_script("https://p.example", TOKEN, "on 2026-11-03 at 10:00 UTC");
         let (script_path, _) = write_usb(dir.path(), &script, "readme").unwrap();
         let status = std::process::Command::new("/bin/sh")
             .arg(&script_path)
             .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+            .env("TMPDIR", dir.path())
             .stdout(std::process::Stdio::null())
             .status()
             .unwrap();
-        assert!(status.success());
-        assert_eq!(script_path.exists(), kept, "{served}");
-        assert_eq!(std::fs::read_to_string(&got).unwrap(), TOKEN, "the join's sh got it in its env");
+        assert_eq!(status.code(), Some(exit), "{served} curl={curl_code}");
+        assert_eq!(script_path.exists(), kept, "{served} curl={curl_code}");
+        if curl_code != 0 {
+            assert!(!got.exists(), "a failed download runs nothing");
+        } else {
+            assert_eq!(std::fs::read_to_string(&got).unwrap(), TOKEN, "the join's sh got it in its env");
+        }
+        let left: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_name().to_string_lossy().starts_with("cmux-join."))
+            .collect();
+        assert!(left.is_empty(), "the downloaded script is removed");
         let curl_argv = std::fs::read_to_string(dir.path().join("curl-argv")).unwrap();
         assert!(!curl_argv.contains("cmj_"), "{curl_argv}");
     }
@@ -174,10 +237,9 @@ fn the_usb_command_deletes_itself_only_after_a_join_that_worked() {
 fn the_ssh_plan_carries_the_token_on_stdin_never_in_argv() {
     let plan = join_plan("https://p.example", "leo@mini-9", TOKEN);
     assert_eq!(plan.argv[..5], ["ssh", "-o", "ConnectTimeout=15", "--", "leo@mini-9"].map(str::to_owned));
-    assert_eq!(
-        plan.argv[5],
-        "sh -c 'IFS= read -r t; curl -fsSL https://p.example/v1/machines/join.sh | CMUX_JOIN=\"$t\" sh'"
-    );
+    assert!(plan.argv[5].starts_with("sh -c 'IFS= read -r t; "), "{}", plan.argv[5]);
+    assert!(plan.argv[5].contains("curl -fsSL https://p.example/v1/machines/join.sh -o \"$f\" || {"));
+    assert!(plan.argv[5].ends_with("CMUX_JOIN=\"$t\" sh \"$f\"'"));
     assert!(plan.argv.iter().all(|a| !a.contains("cmj_")));
     assert_eq!(plan.stdin.as_deref().map(String::as_str), Some(format!("{TOKEN}\n").as_str()));
     assert!(!format!("{plan:?}").contains(TOKEN), "Debug hides stdin");
@@ -199,7 +261,7 @@ fn the_ssh_plan_carries_the_token_on_stdin_never_in_argv() {
 fn run_ssh_writes_the_token_to_ssh_stdin_and_the_remote_sh_gets_it_in_its_env() {
     let dir = tempfile::tempdir().unwrap();
     let got = dir.path().join("got");
-    let bin = fake_curl(dir.path(), &format!("printf '%s' \"$CMUX_JOIN\" >'{}'", got.display()));
+    let bin = fake_curl(dir.path(), &format!("printf '%s' \"$CMUX_JOIN\" >'{}'\nexit 5", got.display()), 0);
     // A fake ssh: records its argv, then runs the remote command as sshd would (`sh -c`).
     let ssh = dir.path().join("ssh");
     let argv_log = dir.path().join("ssh-argv");
@@ -215,7 +277,7 @@ fn run_ssh_writes_the_token_to_ssh_stdin_and_the_remote_sh_gets_it_in_its_env() 
     std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o755)).unwrap();
     let mut plan = join_plan("https://p.example", "leo@mini-9", TOKEN);
     plan.argv[0] = ssh.to_str().unwrap().to_owned();
-    assert_eq!(run_ssh(&plan).unwrap(), 0);
+    assert_eq!(run_ssh(&plan).unwrap(), 5, "the join's own exit code comes back");
     assert_eq!(std::fs::read_to_string(&got).unwrap(), TOKEN);
     let argv = std::fs::read_to_string(&argv_log).unwrap();
     assert!(argv.contains("leo@mini-9") && !argv.contains("cmj_"), "{argv}");
@@ -274,5 +336,5 @@ fn a_sticks_expiry_reads_as_a_date() {
     assert_eq!(expiry_date_words(Some(1_793_243_400_250)), "on 2026-10-29 at 03:10 UTC");
     assert_eq!(expiry_date_words(Some(0)), "on 1970-01-01 at 00:00 UTC");
     assert_eq!(expiry_date_words(Some(951_782_400_000)), "on 2000-02-29 at 00:00 UTC");
-    assert_eq!(expiry_date_words(None), "within a day");
+    assert_eq!(expiry_date_words(None), "soon");
 }
