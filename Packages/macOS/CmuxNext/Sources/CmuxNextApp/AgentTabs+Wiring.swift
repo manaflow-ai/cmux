@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextCloudCredentials
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDaemonService
@@ -557,7 +558,7 @@ extension AgentTabStore {
     /// turns it off; a Release recovery then reads the remote switch and asks the consent first,
     /// CloudPresenter.recoverCredentials).
     static func cloudCredentialTransferIsAvailable(linkSource: CloudConfiguration.LinkSource, isSignedIn: Bool,
-                                                   passesLogin: Bool = CloudStartChat.offersLoginCopyHere) -> Bool {
+                                                   passesLogin: Bool = CloudCredentialTransfer.offersLoginCopy(isDogfoodBuild: DevTools.isEnabled, defaults: .standard)) -> Bool {
         isSignedIn && passesLogin
     }
 }

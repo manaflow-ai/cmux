@@ -315,7 +315,8 @@ impl Hub {
         session: &Arc<Session>,
         prompt_id: &str,
     ) -> Result<(), RpcError> {
-        self.cancel_matching(session, None, Some(prompt_id)).await
+        let running = self.stop_prompt_retry(session, prompt_id)?;
+        self.cancel_matching(session, None, Some(running.as_deref().unwrap_or(prompt_id))).await
     }
 
     /// A Stop while Claude compacts ends the turn at once and withdraws the person's queued
@@ -351,8 +352,11 @@ impl Hub {
         };
         // Stop also stops an automatic continuation that has not fired yet, and the running
         // turn gets none (`auto_resume.rs`).
-        self.stop_auto_resume(session);
-        self.stop_subagent_retries(session, false);
+        if expected_prompt.is_none() {
+            self.stop_auto_resume(session);
+            self.stop_subagent_retries(session, false);
+        }
+        // The exact prompt path already fenced only its own continuation before matching.
         // The turn was captured with its fence before waiting for the child writer.
         // A second Stop must not retarget a queued or auto-resumed next turn.
         let Some(child) = session.child.lock().await.clone() else {
