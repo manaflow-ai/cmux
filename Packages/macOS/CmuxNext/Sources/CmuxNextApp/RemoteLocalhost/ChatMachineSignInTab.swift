@@ -20,7 +20,7 @@ enum ChatMachineSignInTab {
     /// opens the page that gives a code to paste.
     static func opener(for url: URL, agentTab key: String, from pane: PaneController) -> (@MainActor () -> Bool)? {
         let services = pane.services
-        guard let (tab, _) = services.locateTabOnAnyMachine(key),
+        guard let (tab, _) = services.locateTab(key, onMachine: pane.daemon.machineID),
               let daemon = try? services.machines.agentDaemon(forTab: tab),
               case .machine = services.remoteLocalhost.route(daemon: daemon, workspace: nil, engine: .cef),
               services.cache.browserTabs.cefUnavailable() == nil else { return nil }
