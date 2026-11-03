@@ -84,7 +84,9 @@
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box > .acpmux-chrome-area > .acpmux-composer-foot {
   grid-column: 1 / -1;
   grid-row: 3;
-  margin: calc(-4px * var(--cmux-interface-scale, 1)) 0 calc(var(--acpmux-composer-block-inset) - 4px);
+  /* The prompt's row keeps its block inset under + (the grid's 48 px line), and the row stands as
+     far off the box's bottom as + off its left. */
+  margin: 0 0 var(--acpmux-composer-inset, 8px);
   padding-inline-end: calc(var(--acpmux-composer-inset, 8px) - 3px);
 }
 .acpmux-main[data-dock="float"]
@@ -96,7 +98,12 @@
 .acpmux-composer[data-composer-look="codex"]:has(> .acpmux-composer-box > .acpmux-chrome-area > .acpmux-composer-foot)
   > .acpmux-composer-under
   .acpmux-look-slot {
-  bottom: calc(var(--acpmux-composer-block-inset) - 4px + var(--grid-composer-quiet-row-height, 28px) / 2 - 12px);
+  bottom: calc(var(--acpmux-composer-inset, 8px) + var(--grid-composer-quiet-row-height, 28px) / 2 - 12px);
+}
+/* The box is raised over the tray (above), so the dots' host after it stands over the box's row. */
+.acpmux-composer[data-composer-look="codex"]:has(> .acpmux-composer-box > .acpmux-chrome-area > .acpmux-composer-foot)
+  > .acpmux-composer-under {
+  z-index: calc(var(--layer-raised, 1) + 1);
 }
 
 /* Full access names its risk in the theme's accent, where Codex draws orange. */
