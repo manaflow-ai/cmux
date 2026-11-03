@@ -4627,8 +4627,10 @@ export class AcpmuxDirectClient {
       (latest.seq === undefined || typeof detail.lastSeq !== "number" || latest.seq >= detail.lastSeq);
     if (latestIsNew) this.summary = { ...this.summary, ...latest.session };
     // The page's records may open a turn whose end acpmux never logged (a cut turn, its status
-    // record older than the page): the summary read with them says whether it still runs.
-    if (this.turnOpen && this.replayThrough === undefined && !runsTurn(this.summary?.status)) this.hostEndedTurn();
+    // record older than the page): the summary read with them says whether it still runs. A
+    // watched chat's turns are the other app's, never acpmux's status (hub/watch.rs).
+    if (this.turnOpen && this.replayThrough === undefined && !this.summary?.watching && !runsTurn(this.summary?.status))
+      this.hostEndedTurn();
     this.queue = mergeQueue(
       this.queue,
       (latestIsNew ? latest?.session.queue : detail.queue) ?? [],

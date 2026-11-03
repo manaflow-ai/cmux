@@ -37,7 +37,7 @@ const started: Step = ["mux", "turn_started", { turnId: "t1", promptId: "p1" }];
 const status = (value: string): Step => ["mux", "status", { status: value }];
 
 /// A daemon whose chat has `steps` logged and lists the chat as `listed`; `push` sends live records.
-function fakeDaemon(steps: Step[], listed: string) {
+function fakeDaemon(steps: Step[], listed: string, extra: Record<string, unknown> = {}) {
   let socket: any;
   const history = steps.map((step, index) => record(step, index + 1));
   const session = {
@@ -49,6 +49,7 @@ function fakeDaemon(steps: Step[], listed: string) {
     status: listed,
     turnCount: 1,
     updatedAt: START,
+    ...extra,
   };
   const answer = (method: string, params: any) => {
     switch (method) {
@@ -132,6 +133,14 @@ test("a chat opened after its turn was cut reads no turn, whatever its records o
   const { client, last } = await connect(daemon);
   expect(last().isWorking).toBe(false);
   expect(typing(last())).toBe(false);
+  client.close();
+});
+
+test("a watched chat's open turn stays open: its turns never set acpmux's status", async () => {
+  // hub/watch.rs logs the other app's turns as records and leaves the chat's status as it was.
+  const daemon = fakeDaemon([prompt, started], "idle", { watching: "claude" });
+  const { client, last } = await connect(daemon);
+  expect(last().isWorking).toBe(true);
   client.close();
 });
 
