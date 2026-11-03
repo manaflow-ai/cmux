@@ -11,14 +11,13 @@
 # left bound 1 of 4 small machines came up; with it unbound every one did.
 # The disk goes last, and only once / is mounted read-only (systemd-shutdown
 # remounts it and syncs before running these hooks). If / is still writable,
-# the disk stays bound and the switch may hang; the machine is then reset and
-# comes back on the provider kernel with its disk intact, and the attempt
-# guard stops a second try.
+# the disk stays bound and the switch may hang; once the machine is power
+# cycled it comes back on the provider kernel with its disk intact, and the
+# attempt guard keeps it there (cmux-guest-kernel, MAX_ATTEMPTS).
 #
-# systemd runs the hooks in this directory in parallel; this is the only one
-# the image installs. systemd only calls them with "kexec" when it kexecs
-# through reboot(RB_KEXEC); the image does not install kexec-tools, whose
-# kexec(8) would take that path over and skip the hook entirely.
+# systemd runs the hooks in this directory in parallel, after the final
+# remount and before the kexec itself; this is the only one the image
+# installs. A manual `kexec -e` (kexec-tools, not in the image) skips them.
 [ "$1" = kexec ] || exit 0
 drivers="${CMUX_SYSFS:-/sys}/bus/virtio/drivers"
 mounts="${CMUX_PROC:-/proc}/mounts"

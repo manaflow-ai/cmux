@@ -82,7 +82,7 @@ import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_CHECK_PATH, dnsCheckScript, resolverBakeCommand } from "./dns";
 import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, hasFlag, Ledger, readGuestBytes, run, sleep, StepLog, type Vm } from "./guest";
-import { buildGuestKernel, type BuiltGuestKernel, GUEST_KERNEL_CLI, GUEST_KERNEL_DIRS_COMMAND, GUEST_KERNEL_IMAGE, guestKernelFiles, guestKernelInstallCommand, guestKernelProblems, switchToGuestKernel } from "./guest-kernel";
+import { buildGuestKernel, type BuiltGuestKernel, GUEST_KERNEL_CLI, GUEST_KERNEL_DIRS_COMMAND, GUEST_KERNEL_IMAGE, guestKernelConfigCheckCommand, guestKernelFiles, guestKernelInstallCommand, guestKernelProblems, switchToGuestKernel } from "./guest-kernel";
 import { HOST_CLI, HOST_CONFIG_PATH, HOST_UNIT, hostConfig, hostUnit } from "./host-agent";
 import {
   METADATA_GUARD_FILE,
@@ -629,7 +629,6 @@ async function recordDaemonInfo(ctx: Ctx): Promise<void> {
   ctx.result.activityProbe = probe.trim().split("\n").at(-1) ?? "";
 }
 
-/** The health loop and guard drop-ins, through the script's own `install` (machine-health.ts); one pass recorded. */
 /**
  * The cmux guest kernel (guest-kernel.ts): written with its script, shutdown hook and units, then
  * the builder switches to it. Everything before this step is files on disk, which the switch keeps;
@@ -638,10 +637,11 @@ async function recordDaemonInfo(ctx: Ctx): Promise<void> {
 async function installGuestKernel(ctx: Ctx, built: BuiltGuestKernel): Promise<void> {
   const { vm, L, lock, options, result } = ctx;
   writeFileSync(path.join(options.outDir, `vmlinuz-${built.release}`), built.bytes);
+  await L.step(vm, "kernel-config-check", guestKernelConfigCheckCommand(lock.kernel, lock.base.fingerprint.kernelRelease));
   await L.step(vm, "kernel-dirs", GUEST_KERNEL_DIRS_COMMAND);
   await writeGuestFile(vm, GUEST_KERNEL_IMAGE, built.bytes, 0o644);
   for (const file of guestKernelFiles()) await writeGuestFile(vm, file.path, file.bytes, file.mode);
-  await L.step(vm, "kernel-install", guestKernelInstallCommand(lock.kernel, built.sha256, lock.base.fingerprint.kernelRelease));
+  await L.step(vm, "kernel-install", guestKernelInstallCommand(lock.kernel, built.sha256));
   const switchMs = await switchToGuestKernel(vm, L, lock.kernel.version);
   await firstExec(vm, Date.now());
   const problems = guestKernelProblems(lock.kernel, await L.step(vm, "kernel-status", `${GUEST_KERNEL_CLI} status`));
@@ -651,6 +651,7 @@ async function installGuestKernel(ctx: Ctx, built: BuiltGuestKernel): Promise<vo
   result.guestKernel = { release: built.release, sha256: built.sha256, gcc: built.gcc, builderVmId: built.builderVmId, buildSecs: Math.round(built.buildMs / 1000), switchSecs: Math.round(switchMs / 1000) };
 }
 
+/** The health loop and guard drop-ins, through the script's own `install` (machine-health.ts); one pass recorded. */
 async function installMachineHealth(ctx: Ctx): Promise<void> {
   const { vm, L } = ctx;
   for (const file of machineHealthFiles()) await writeGuestFile(vm, file.path, file.text, file.mode);

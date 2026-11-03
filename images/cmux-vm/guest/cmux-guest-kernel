@@ -25,7 +25,7 @@ The kernel file is checked against its sha256 before every load. A machine
 that fails to come up on the cmux kernel is not switched again: each switch is
 counted in ATTEMPTS, the count is cleared early in every boot that runs the
 cmux kernel (`booted`, from cmux-guest-kernel-booted.service), and
-`boot` stops after MAX_ATTEMPTS so the machine stays on the provider kernel
+`boot` does not switch again after a switch that did not come up, so the machine stays on the provider kernel
 (reported by `status` and the journal) instead of looping.
 """
 
@@ -42,7 +42,9 @@ KERNEL = f"{KERNEL_DIR}/vmlinuz"
 RELEASE_FILE = f"{KERNEL_DIR}/release"
 SHA256_FILE = f"{KERNEL_DIR}/vmlinuz.sha256"
 ATTEMPTS = f"{ROOT}/var/lib/cmux/guest-kernel-attempts"
-MAX_ATTEMPTS = 2
+# One switch that did not come up is enough: the next cold boot stays on the provider kernel
+# until an install (or `reset`) clears the count. Measured switches came up 10 of 10.
+MAX_ATTEMPTS = 1
 
 SYS_KEXEC_FILE_LOAD = 320  # x86_64
 KEXEC_FILE_NO_INITRAMFS = 0x4

@@ -77,7 +77,7 @@ The guest side is `images/cmux-vm/guest/cmux-guest-kernel` (load with `kexec_fil
 
 - `cmux-guest-kernel.shutdown`, a system-shutdown hook: before the jump it unbinds every virtio driver, the disk last and only once `/` is read-only. 6.1 leaves virtio devices running across kexec, and the host kept writing into buffers the old kernel posted: without the hook the new kernel hung on every `sm` and default-size machine (it came up only on `2xl`); without the disk, 1 of 4; with all of them, 10 of 10 (8 to 22 s).
 - `cmux-guest-kernel.timer`: a cold boot (power off and start, or the provider's automatic restart) runs the provider kernel again, and the timer switches 30 s into the boot. Not earlier: the provider's start call waits for its guest agent and failed every time the machine rebooted at 2 s; start returns at 2.3 to 2.8 s and nothing in the guest marks it.
-- `cmux-guest-kernel-booted.service` clears the switch attempt count early in every boot on the cmux kernel; after two switches that did not come up, the timer leaves the machine on the provider kernel instead of looping.
+- `cmux-guest-kernel-booted.service` clears the switch attempt count early in every boot on the cmux kernel; after a switch that did not come up, the timer leaves the machine on the provider kernel instead of trying again, until an install clears the count.
 
 Running machines get it with `images/cmux-vm/guest-kernel-install.ts` (docs/cloud-guest-upgrades.md), which also moves a machine from an older cmux kernel to the locked one.
 

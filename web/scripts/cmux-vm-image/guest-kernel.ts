@@ -59,21 +59,25 @@ export function sha256Hex(bytes: Uint8Array): string {
 export const GUEST_KERNEL_DIRS_COMMAND = `install -d -m 0755 ${GUEST_KERNEL_DIR} /usr/lib/systemd/system-shutdown /var/lib/cmux`;
 
 /**
- * After the files and the kernel are written: record its release and sha256, check the
- * base kernel's config is the one the kernel was built from, verify and enable the units,
- * clear the switch attempt count, and load the kernel once without switching (a kernel the
- * base cannot load fails here).
- *
- * The config check runs only on the provider kernel (`providerRelease`): a machine already on
- * an older cmux kernel reports that kernel's config, and it is upgraded to the new one in place.
+ * Before anything is written: the base kernel's config must be the one the kernel was built
+ * from. Checked only on the provider kernel (`providerRelease`): a machine already on an older
+ * cmux kernel reports that kernel's config, and it is upgraded to the new one in place.
  */
-export function guestKernelInstallCommand(lock: GuestKernelLock, imageSha256: string, providerRelease: string): string {
+export function guestKernelConfigCheckCommand(lock: GuestKernelLock, providerRelease: string): string {
+  return `test "$(uname -r)" != ${sq(providerRelease)} || test "$(zcat /proc/config.gz | sha256sum | cut -d' ' -f1)" = ${lock.baseConfigSha256} || { echo "base kernel config differs from kernel.baseConfigSha256 (after a base change, set it by hand from the new base's /proc/config.gz)"; exit 1; }`;
+}
+
+/**
+ * After guestKernelConfigCheckCommand passed and the files and the kernel are written: record its
+ * release and sha256, verify and enable the units, clear the switch attempt count, and load the
+ * kernel once without switching (a kernel the base cannot load fails here).
+ */
+export function guestKernelInstallCommand(lock: GuestKernelLock, imageSha256: string): string {
   const units = GUEST_KERNEL_UNITS.map((u) => `/etc/systemd/system/${u}`).join(" ");
   return [
     `printf '%s\\n' ${sq(lock.version)} > ${GUEST_KERNEL_DIR}/release`,
     `printf '%s  vmlinuz\\n' ${imageSha256} > ${GUEST_KERNEL_IMAGE}.sha256`,
     `chown -R root:root ${GUEST_KERNEL_DIR} && chmod 0644 ${GUEST_KERNEL_DIR}/*`,
-    `{ test "$(uname -r)" != ${sq(providerRelease)} || test "$(zcat /proc/config.gz | sha256sum | cut -d' ' -f1)" = ${lock.baseConfigSha256} || { echo "base kernel config differs from kernel.baseConfigSha256 (after a base change, rerun with --update-lock and set it from the new base's /proc/config.gz)"; exit 1; }; }`,
     `systemd-analyze verify ${units}`,
     "systemctl daemon-reload",
     "systemctl enable cmux-guest-kernel.timer cmux-guest-kernel-booted.service >/dev/null 2>&1",
@@ -130,8 +134,9 @@ export async function buildGuestKernel(fs: Freestyle, ledger: Ledger, L: StepLog
     const deadline = Date.now() + BUILD_BUDGET_MS;
     for (;;) {
       if (signal?.aborted) throw new Error("kernel build abandoned: the bake failed");
-      const rc = await run(builder.vm, `cat /root/${BUILD_UNIT}.rc 2>/dev/null || true`);
-      const code = rc.stdout.trim();
+      // A dropped call is a poll that saw nothing yet; the deadline still bounds the wait.
+      const rc = await run(builder.vm, `cat /root/${BUILD_UNIT}.rc 2>/dev/null || true`).catch(() => null);
+      const code = rc?.stdout.trim() ?? "";
       if (code !== "") {
         const log = await L.step(builder.vm, "kernel-build-log", `tail -60 /root/${BUILD_UNIT}.log`);
         if (code !== "0") throw new Error(`kernel build exited ${code}: ${log.slice(-1500)}`);

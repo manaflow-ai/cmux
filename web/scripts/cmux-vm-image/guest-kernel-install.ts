@@ -24,6 +24,7 @@ import {
   GUEST_KERNEL_DIR,
   GUEST_KERNEL_DIRS_COMMAND,
   GUEST_KERNEL_IMAGE,
+  guestKernelConfigCheckCommand,
   guestKernelFiles,
   guestKernelInstallCommand,
   guestKernelProblems,
@@ -63,10 +64,11 @@ export async function install(options: InstallOptions): Promise<string> {
   if (running !== provider && running !== installed.trim()) {
     throw new Error(`${options.vmId} runs kernel ${running}, neither the provider's ${provider} nor an installed cmux kernel`);
   }
+  await L.step(vm, "kernel-config-check", guestKernelConfigCheckCommand(lock.kernel, provider));
   await L.step(vm, "kernel-dirs", GUEST_KERNEL_DIRS_COMMAND);
   await writeRootFile(vm, GUEST_KERNEL_IMAGE, kernel.bytes, 0o644);
   for (const file of guestKernelFiles()) await writeRootFile(vm, file.path, file.bytes, file.mode);
-  await L.step(vm, "kernel-install", guestKernelInstallCommand(lock.kernel, kernel.sha256, provider));
+  await L.step(vm, "kernel-install", guestKernelInstallCommand(lock.kernel, kernel.sha256));
   if (options.switchNow) {
     await switchToGuestKernel(vm, L, lock.kernel.version);
     const problems = guestKernelProblems(lock.kernel, await L.step(vm, "kernel-status", `${GUEST_KERNEL_CLI} status`));
