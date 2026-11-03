@@ -218,7 +218,8 @@ def step_video_stop(j, step):
         trace = json.loads(trace_path.read_text())
     else:
         trace = {"samples": []}
-    entries = [e for e in R._journal_entries(j, 400) if int(e.get("seq") or 0) > int(rec["journal_seq"])]
+    keep_journal(j)
+    entries = sorted(rec.get("journal_kept", {}).values(), key=lambda e: int(e.get("seq") or 0))
     (base.parent / f"{rec['name']}.events.json").write_text(json.dumps({"hid": rec["hid"], "journal": entries}))
     layers = R._layers_window(j)
     meta = {"name": rec["name"], "start": rec["start"], "counts": counts, "window": layers, "pid": j.app.pid,
@@ -259,6 +260,18 @@ def _latest_sample(j):
     samples = json.loads(path.read_text()).get("samples") if path.exists() else []
     path.unlink(missing_ok=True)
     return samples[-1] if samples else {}
+
+
+def keep_journal(j):
+    """Keeps the app's input-journal entries since the recording started (the app holds only its last 400), by seq."""
+    rec = getattr(j, "video", None)
+    if rec is None:
+        return
+    kept = rec.setdefault("journal_kept", {})
+    for e in R._journal_entries(j, 400):
+        seq = int(e.get("seq") or 0)
+        if seq > int(rec["journal_seq"]):
+            kept[seq] = e
 
 
 def _target_point(j, target):

@@ -68,6 +68,11 @@ def step_rk_press(j, step):
         V._hid_log(j, "key", {"key": key["key"], "modifiers": mods, "press": i, "of": count, "due": round(due, 6)},
                    sent, returned, answer)
         sent_log.append({"i": i, "late_ms": round((sent - due) * 1000, 1), "took_ms": round((returned - sent) * 1000, 1)})
+        # The app's input journal keeps its last 400 entries and a press writes about 6 (two modifier flags each way, the
+        # key's down and up): a burst of 60 pushed its first 5 key-downs out before video_stop read it (feat-5851715
+        # rk-held, cmux23). Every 20 presses the entries so far are kept with the recording.
+        if (i + 1) % 20 == 0:
+            V.keep_journal(j)
     if mark:
         j.marks[mark] = start
     late = max((s["late_ms"] for s in sent_log), default=0)
