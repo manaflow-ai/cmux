@@ -400,6 +400,33 @@
   border-top: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   pointer-events: none;
 }
+/* The panel's one Show more (SessionInfoSectionList `more`): a whole-row fold under Leo's four, its
+   label, then the less-used sections it holds, cut to the row. No hover fill, as every fold. */
+.acpmux-session-info-more {
+  min-width: 0;
+}
+.acpmux-session-info-more > span {
+  flex: none;
+}
+.acpmux-session-info-more > .acpmux-session-info-more__names {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-session-info-more:hover {
+  color: var(--agent-text);
+}
+/* Gallery-only `capped` look: each open section's body cut at three rows, with its own Show more. */
+.acpmux-session-info-slot[data-capped] .ui-disclosure-panel {
+  max-height: calc(3 * var(--grid-row));
+  overflow: hidden;
+}
+.acpmux-session-info-slot:has(.ui-disclosure-trigger[aria-expanded="false"]) > .acpmux-session-info-cap-fold,
+.acpmux-session-info-slot[data-capped] .acpmux-session-info-pr-fold {
+  display: none;
+}
 /* A lifted section (held, or settling after the drop) floats over its neighbours as they slide: it
    carries no hairline, and only while held does it take a raised surface and a shadow, so it reads over
    the rows it passes. At rest no section is a box (session-panel.md). */

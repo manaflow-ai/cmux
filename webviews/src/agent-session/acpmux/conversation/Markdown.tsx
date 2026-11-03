@@ -20,7 +20,8 @@ import { renderFence } from "./renderCall";
 import { isRemoteMedia, RemoteMedia } from "../chips/ReplyMedia";
 import { CodeHandoff, PlainCode } from "./StreamingCode";
 import type { Reveal } from "./RevealedMarkdown";
-import { ArxivMark, FileDoc, GitHubMark, Globe, ImageIcon } from "./icons";
+import { ArxivMark, GitHubMark, Globe, ImageIcon } from "./icons";
+import { FileKindIcon } from "../chips/FileKindIcon";
 import { MathDisplay, MathInline } from "./Math";
 import { fenceStep } from "./fenceRule";
 import { closesFence, codeSpans, fenceOpening } from "../slashCommands";
@@ -486,7 +487,7 @@ export const linkIcon = (href: string) => {
   const kind = linkKind(href);
   if (kind === "github") return <GitHubMark size={14} className="cv-link__icon cv-link__icon--gh" />;
   if (kind === "citation") return <ArxivMark size={16} className="cv-link__icon" />;
-  if (kind === "file") return <FileDoc size={16} className="cv-link__icon" />;
+  if (kind === "file") return <FileKindIcon path={href} className="cv-link__icon" />;
   return <Globe size={16} strokeWidth={1.1} className="cv-link__icon" />;
 };
 

@@ -15,7 +15,6 @@ import Testing
     /// A chat that draws `need` points of tools in the row whenever the pane offers it, as the page does.
     final class RowChat: NSView, PaneTabRowSharing {
         let need: CGFloat
-        var tabRowSurface: SurfaceKind? = .agentPane
         private(set) var shared: CGFloat = 0
         var onTabRowToolsChange: (() -> Void)?
         init(need: CGFloat) {
@@ -65,12 +64,13 @@ import Testing
         #expect(chatUnderRow == (CGFloat(width) - pane.toolbarWidth(shown: strip.height) >= chat.need * 2))
     }
 
-    /// Leo (2026-11-01), on a chat with its own background color (`appearance.surfaces.agentPane`):
-    /// "why is the background STILL not removed". The page painted the chat's color under its tools,
-    /// but the row behind the tabs kept the pane's theme background, a darker band across the top.
-    /// While the chat shares the row, the strip paints the chat's background; otherwise its own.
+    /// Leo (2026-11-03), on the chat's own color (`appearance.surfaces.agentPane`) drawn as a rectangle
+    /// behind the header buttons in the pane's tab row: "it's so obvious to just remove the thing". The
+    /// row has no backing: while the chat shares it, the strip behind the tabs stays clear (only the
+    /// user's own tab bar color fills it), as the page leaves the row clear behind the tools
+    /// (webviews header.css, `html:has(.acpmux-shell[data-tab-row])`). #32039 painted the chat's color here.
     @Test(arguments: [480, 900])
-    func theRowBehindTheTabsTakesTheChatsBackground(width: Int) throws {
+    func theTabRowHasNoBackingWhileTheChatSharesIt(width: Int) throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: CGFloat(width), height: 500), styleMask: [.titled],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -87,19 +87,13 @@ import Testing
             pane.needsLayout = true
             pane.layoutSubtreeIfNeeded()
         }
-        let shares = pane.contentHost.frame.minY < pane.stripView.frame.maxY
-        let fill = pane.stripView.layer?.backgroundColor.flatMap { NSColor(cgColor: $0)?.usingColorSpace(.sRGB) }
-        if shares {
-            let shown = try #require(fill, "the row behind the tabs has no fill while the chat paints its own")
-            #expect(abs(shown.redComponent - chatColor.red) < 0.01 && abs(shown.blueComponent - chatColor.blue) < 0.01,
-                    "the strip paints \(shown), not the chat's \(chatColor)")
-        } else {
-            #expect(fill == nil, "a chat in its own header row leaves the strip clear")
-        }
-        // Nothing sharing the row: the strip is clear again.
-        chat.tabRowSurface = nil
-        pane.needsLayout = true
-        pane.layoutSubtreeIfNeeded()
-        #expect(pane.stripView.layer?.backgroundColor == nil)
+        #expect(pane.stripView.layer?.backgroundColor == nil, "the tab row paints the chat's color behind the tabs")
+        // The user's own tab bar color still fills the strip.
+        let barColor = ThemeRGB(hex: 0x113355)
+        pane.paneScope.setSurfaceBackgrounds(SurfaceBackgrounds(overrides: [.agentPane: SurfaceBackground(color: chatColor, opacity: 1),
+                                                                            .tabBar: SurfaceBackground(color: barColor, opacity: 1)]))
+        pane.themeDidChange()
+        let fill = try #require(pane.stripView.layer?.backgroundColor.flatMap { NSColor(cgColor: $0)?.usingColorSpace(.sRGB) })
+        #expect(abs(fill.blueComponent - barColor.blue) < 0.01, "the strip paints \(fill), not the tab bar's \(barColor)")
     }
 }
