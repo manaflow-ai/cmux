@@ -1,6 +1,7 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "transcript.sentFrom": {"comment":"Agent pane: small muted line, beside the Chief's avatar, above a prompt the Chief sent this chat on the person's behalf; {name} is the Chief's name","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"أُرسلت من {name}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Poslano iz {name}"}},"da":{"stringUnit":{"state":"needs_review","value":"Sendt fra {name}"}},"de":{"stringUnit":{"state":"needs_review","value":"Gesendet von {name}"}},"en":{"stringUnit":{"state":"translated","value":"Sent from {name}"}},"es":{"stringUnit":{"state":"needs_review","value":"Enviado desde {name}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Envoyé depuis {name}"}},"it":{"stringUnit":{"state":"needs_review","value":"Inviato da {name}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{name} から送信"}},"km":{"stringUnit":{"state":"needs_review","value":"បានផ្ញើពី {name}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{name}에서 보냄"}},"nb":{"stringUnit":{"state":"needs_review","value":"Sendt fra {name}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wysłano z {name}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Enviado de {name}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отправлено из {name}"}},"th":{"stringUnit":{"state":"needs_review","value":"ส่งจาก {name}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{name} üzerinden gönderildi"}},"uk":{"stringUnit":{"state":"needs_review","value":"Надіслано з {name}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Gửi từ {name}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"从 {name} 发送"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"從 {name} 傳送"}}}},
     "needsYou.expand": {"comment":"Agent pane Needs you: button that expands an ask's row to its whole text, options and next steps","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إظهار المزيد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prikaži više"}},"da":{"stringUnit":{"state":"needs_review","value":"Vis mere"}},"de":{"stringUnit":{"state":"needs_review","value":"Mehr anzeigen"}},"en":{"stringUnit":{"state":"translated","value":"Show more"}},"es":{"stringUnit":{"state":"needs_review","value":"Mostrar más"}},"fr":{"stringUnit":{"state":"needs_review","value":"Afficher plus"}},"it":{"stringUnit":{"state":"needs_review","value":"Mostra altro"}},"ja":{"stringUnit":{"state":"needs_review","value":"さらに表示"}},"km":{"stringUnit":{"state":"needs_review","value":"បង្ហាញបន្ថែម"}},"ko":{"stringUnit":{"state":"needs_review","value":"더 보기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Vis mer"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pokaż więcej"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mostrar mais"}},"ru":{"stringUnit":{"state":"needs_review","value":"Показать больше"}},"th":{"stringUnit":{"state":"needs_review","value":"แสดงเพิ่มเติม"}},"tr":{"stringUnit":{"state":"needs_review","value":"Daha fazla göster"}},"uk":{"stringUnit":{"state":"needs_review","value":"Показати більше"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hiện thêm"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"显示更多"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"顯示更多"}}}},
     "needsYou.collapse": {"comment":"Agent pane Needs you: button that folds an expanded ask's row back to one card","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إظهار أقل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prikaži manje"}},"da":{"stringUnit":{"state":"needs_review","value":"Vis mindre"}},"de":{"stringUnit":{"state":"needs_review","value":"Weniger anzeigen"}},"en":{"stringUnit":{"state":"translated","value":"Show less"}},"es":{"stringUnit":{"state":"needs_review","value":"Mostrar menos"}},"fr":{"stringUnit":{"state":"needs_review","value":"Afficher moins"}},"it":{"stringUnit":{"state":"needs_review","value":"Mostra meno"}},"ja":{"stringUnit":{"state":"needs_review","value":"表示を減らす"}},"km":{"stringUnit":{"state":"needs_review","value":"បង្ហាញតិច"}},"ko":{"stringUnit":{"state":"needs_review","value":"간단히 보기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Vis mindre"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pokaż mniej"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mostrar menos"}},"ru":{"stringUnit":{"state":"needs_review","value":"Показать меньше"}},"th":{"stringUnit":{"state":"needs_review","value":"แสดงน้อยลง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Daha az göster"}},"uk":{"stringUnit":{"state":"needs_review","value":"Показати менше"}},"vi":{"stringUnit":{"state":"needs_review","value":"Ẩn bớt"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"收起"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"收合"}}}},
     "needsYou.context": {"comment":"Agent pane Needs you: button that shows the last turns of the chat before an ask","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إظهار السياق"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prikaži kontekst"}},"da":{"stringUnit":{"state":"needs_review","value":"Vis kontekst"}},"de":{"stringUnit":{"state":"needs_review","value":"Kontext anzeigen"}},"en":{"stringUnit":{"state":"translated","value":"Show context"}},"es":{"stringUnit":{"state":"needs_review","value":"Mostrar contexto"}},"fr":{"stringUnit":{"state":"needs_review","value":"Afficher le contexte"}},"it":{"stringUnit":{"state":"needs_review","value":"Mostra contesto"}},"ja":{"stringUnit":{"state":"needs_review","value":"コンテキストを表示"}},"km":{"stringUnit":{"state":"needs_review","value":"បង្ហាញបរិបទ"}},"ko":{"stringUnit":{"state":"needs_review","value":"맥락 보기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Vis kontekst"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pokaż kontekst"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mostrar contexto"}},"ru":{"stringUnit":{"state":"needs_review","value":"Показать контекст"}},"th":{"stringUnit":{"state":"needs_review","value":"แสดงบริบท"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bağlamı göster"}},"uk":{"stringUnit":{"state":"needs_review","value":"Показати контекст"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hiện ngữ cảnh"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"显示上下文"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"顯示上下文"}}}},
@@ -193137,138 +193138,6 @@
         }
       }
     },
-    "transcript.fromChief": {
-      "comment": "Agent pane: small label above a prompt the Chief sent this subagent (its task, a follow-up or a restart message), so it does not read as the person's own",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "من Chief"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Od Chiefa"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fra Chief"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vom Chief"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "From the Chief"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Del Chief"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Du Chief"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dal Chief"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief から"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ពី Chief"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief가 보냄"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fra Chief"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Od Chiefa"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Do Chief"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "От Chief"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "จาก Chief"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief'ten"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Від Chief"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Từ Chief"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "来自 Chief"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "來自 Chief"
-          }
-        }
-      }
-    },
     "transcript.promptShowAll": {
       "comment": "Agent pane: button under a long collapsed prompt from the Chief that shows its whole text",
       "extractionState": "manual",
@@ -204692,6 +204561,7 @@
         }
       }
     },
+    "sessionInfo.subagent.backPlain": {"comment":"Agent pane: the Inspector's back button on a subagent's panel when what spawned it has no readable name (never its raw session id)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Back"}},"ar":{"stringUnit":{"state":"needs_review","value":"رجوع"}},"bs":{"stringUnit":{"state":"needs_review","value":"Nazad"}},"da":{"stringUnit":{"state":"needs_review","value":"Tilbage"}},"de":{"stringUnit":{"state":"needs_review","value":"Zurück"}},"es":{"stringUnit":{"state":"needs_review","value":"Atrás"}},"fr":{"stringUnit":{"state":"needs_review","value":"Retour"}},"it":{"stringUnit":{"state":"needs_review","value":"Indietro"}},"ja":{"stringUnit":{"state":"needs_review","value":"戻る"}},"km":{"stringUnit":{"state":"needs_review","value":"ថយក្រោយ"}},"ko":{"stringUnit":{"state":"needs_review","value":"뒤로"}},"nb":{"stringUnit":{"state":"needs_review","value":"Tilbake"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wstecz"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Voltar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Назад"}},"th":{"stringUnit":{"state":"needs_review","value":"ย้อนกลับ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Geri"}},"uk":{"stringUnit":{"state":"needs_review","value":"Назад"}},"vi":{"stringUnit":{"state":"needs_review","value":"Quay lại"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"返回"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"返回"}}}},
     "sessionInfo.subagent.back": {
       "comment": "Agent pane: the Inspector's back button on a subagent's panel, to what spawned it (the chat, or its parent subagent)",
       "extractionState": "manual",

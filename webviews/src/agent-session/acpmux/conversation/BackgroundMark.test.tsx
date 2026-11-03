@@ -97,12 +97,16 @@ for (const [name, Row] of [
   ["CommandRow", CommandRow],
   ["ToolRow", ToolRow],
 ] as const) {
-  test(`${name}: running in the background shows the running mark and no time`, async () => {
+  test(`${name}: running in the background shimmers its words, with no mark at the edge and no time`, async () => {
     const container = await render(<Row item={call({ state: "running" })} />);
     const mark = container.querySelector(".cv-command__bg-state")!;
     expect(mark.getAttribute("title")).toBe(translate("tools.background.running"));
     expect(mark.textContent).toBe(translate("tools.background.running"));
-    expect(mark.querySelector(".cv-spinner")).not.toBeNull();
+    // Leo, 2026-11-03, on its spinner a whole column away from the words: "this is kinda weird looking".
+    expect(container.querySelector(".cv-spinner")).toBeNull();
+    const shimmer = container.querySelector(".cv-row-shimmer")!;
+    expect(shimmer.getAttribute("aria-hidden")).toBe("true");
+    expect(shimmer.hasAttribute("inert")).toBe(true);
     expect(container.querySelector(".cv-command__ok")).toBeNull();
     expect(container.querySelector(".cv-command__time")).toBeNull();
   });
@@ -110,6 +114,7 @@ for (const [name, Row] of [
   test(`${name}: finished in the background is a check with the shell's whole run time`, async () => {
     const container = await render(<Row item={call({ state: "completed", endedAt: STARTED + 6_100 })} />);
     expect(container.querySelector(".cv-command__bg-state")).toBeNull();
+    expect(container.querySelector(".cv-row-shimmer")).toBeNull();
     expect(container.querySelector(".cv-command__ok")).not.toBeNull();
     // Its time runs to the shell's end, not the launch's 200ms.
     expect(container.querySelector(".cv-command__time")!.textContent).toBe(translate("duration.s", { n: "6.1" }));
