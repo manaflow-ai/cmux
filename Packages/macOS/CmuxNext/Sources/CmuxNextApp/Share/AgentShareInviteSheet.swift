@@ -40,7 +40,9 @@ final class AgentShareInviteCard: NSView, NSTextFieldDelegate {
     let rowStack = NSStackView()
     private var shownRows: [AgentShareInviteSheetModel.Row] = []
     private var shownRemoving: Set<String> = []
-    private var isFollowing = true
+    /// Bumped each time the card joins or leaves a window: a change callback from an older chain
+    /// ends there, so one chain follows the model while the card shows and none after it closes.
+    private var generation = 0
 
     init(model: AgentShareInviteSheetModel) {
         self.model = model
@@ -71,7 +73,7 @@ final class AgentShareInviteCard: NSView, NSTextFieldDelegate {
         setAccessibilityLabel(model.title)
         setAccessibilityModal(true)
         identifier = NSUserInterfaceItemIdentifier("cmux.agentShare.invites")
-        follow()
+        update()
     }
 
     @available(*, unavailable)
@@ -82,27 +84,27 @@ final class AgentShareInviteCard: NSView, NSTextFieldDelegate {
         window?.makeFirstResponder(field)
     }
 
+    /// Follows the model while the card is in a window (the overlay host detaches and re-attaches
+    /// it as it presents), and stops when it leaves.
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window != nil { focusField() }
-    }
-
-    override func removeFromSuperview() {
-        isFollowing = false
-        super.removeFromSuperview()
+        generation += 1
+        guard window != nil else { return }
+        follow(generation)
+        focusField()
     }
 
     override func cancelOperation(_ sender: Any?) { onClose?() }
 
     // MARK: Following the model
 
-    private func follow() {
-        guard isFollowing else { return }
+    private func follow(_ chain: Int) {
+        guard chain == generation, window != nil else { return }
         withObservationTracking {
             update()
         } onChange: { [weak self] in
-            // task-owner: one redraw per model change; ends when the card is gone
-            Task { @MainActor [weak self] in self?.follow() }
+            // task-owner: one redraw per model change; ends when the card leaves its window
+            Task { @MainActor [weak self] in self?.follow(chain) }
         }
     }
 
