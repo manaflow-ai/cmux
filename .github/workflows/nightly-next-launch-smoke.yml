@@ -81,9 +81,10 @@ jobs:
       # Another run whose smoke of this build is queued or running, else empty: a scheduled tick then
       # starts no second smoke of it.
       in_flight: ${{ steps.in-flight.outputs.in_flight }}
-      # The smoke's placement (side_lane_placement.py): the side route, and the Blacksmith label the
-      # cascade lists `launch-smoke` for when no idle owned Mac takes it. Empty keeps the side label.
-      runner: ${{ steps.place.outputs.runner }}
+      # The smoke's placement: an idle nightly slot first (nightly_build_runner.py), else
+      # side_lane_placement.py's side route and the Blacksmith label the cascade lists
+      # `launch-smoke` for when no idle owned Mac takes it. Empty keeps the side label.
+      runner: ${{ steps.slot.outputs.owned || steps.place.outputs.runner }}
       blacksmith_12_jobs: ${{ steps.place.outputs.blacksmith_12_jobs }}
       blacksmith_6_jobs: ${{ steps.place.outputs.blacksmith_6_jobs }}
       # The attempt that placed: a re-run of the smoke alone keeps attempt 1's outputs, which name a
@@ -166,6 +167,25 @@ jobs:
           GH_TOKEN: ${{ steps.route-token.outputs.token || github.token }}
         run: python3 scripts/ci/nightly_next_launch_smoke.py in-flight --build "$BUILD" >> "$GITHUB_OUTPUT"
 
+      # A nightly verify job goes first on the minis (glaeda's NIGHTLY_VERIFY_WORKFLOWS): an idle
+      # nightly slot (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, one runner per opted-in mini that takes only
+      # nightly jobs and listens on a full mini) takes the smoke before the shared side label, as
+      # nightly-next-canary.yml's pick does. On 2026-11-02 at 15:09Z eleven smokes of successive
+      # builds sat on glaeda-side-std-xcode-26.6 behind PR jobs (the oldest 3.8 h) while eight
+      # nightly-std listeners were idle. `owned` is a slot label while a slot runner is idle now, or
+      # (only while every Blacksmith macOS label is stalled) a busy slot the rescue watches; else empty.
+      - name: Pick an idle nightly slot
+        id: slot
+        if: steps.route-token.outputs.token != '' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER != '' && (github.event_name != 'schedule' || steps.in-flight.outputs.in_flight == '')
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          SNAPSHOT_TOKEN: ${{ steps.route-token.outputs.token }}
+          OWNED_LABELS: ${{ vars.CI_NIGHTLY_NEXT_BUILD_RUNNER }}
+          CANDIDATE: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 }}
+        run: python3 scripts/ci/nightly_build_runner.py
+
       # The routing order, as cmux-next's Mac jobs take it: an idle owned Mac on the side label, else a
       # free Blacksmith macOS slot (12 vCPU, then 6), else 6 vCPU's queue while it moves, and only then
       # the side label's queue (next_macos_cascade.py). FRESH_JOBS ranks the smoke with a feed's
@@ -173,7 +193,7 @@ jobs:
       # Anything unread or refused places nothing, and the smoke keeps the side label.
       - name: Place the smoke
         id: place
-        if: steps.route-token.outputs.token != '' && (github.event_name != 'schedule' || steps.in-flight.outputs.in_flight == '')
+        if: steps.route-token.outputs.token != '' && steps.slot.outputs.owned == '' && (github.event_name != 'schedule' || steps.in-flight.outputs.in_flight == '')
         continue-on-error: true
         timeout-minutes: 2
         env:

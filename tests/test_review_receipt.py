@@ -30,8 +30,9 @@ def review(state="COMMENTED", body="", at="2026-10-21T05:00:00Z", oid=HEAD, auth
             "commit": {"oid": oid}}
 
 
-def pr(comments=(), reviews=(), head=HEAD):
-    return {"headRefOid": head, "comments": {"nodes": list(comments)}, "reviews": {"nodes": list(reviews)}}
+def pr(comments=(), reviews=(), head=HEAD, labels=()):
+    return {"headRefOid": head, "comments": {"nodes": list(comments)}, "reviews": {"nodes": list(reviews)},
+            "labels": {"nodes": [{"name": name} for name in labels]}}
 
 
 SHIP = f"Review (subagent, correctness first): SHIP at {HEAD}"
@@ -142,6 +143,78 @@ class NewestReviewSaysWait(unittest.TestCase):
     def test_an_older_hold_does_not_refuse_a_newer_receipt(self):
         hold = comment("Hold: do not merge until #1 lands", at="2026-10-21T04:00:00Z")
         self.assertIn("SHIP", receipt.decide(pr([hold, comment(SHIP)]), HEAD)[0])
+
+    def test_an_automatic_ship_does_not_clear_a_human_hold(self):
+        hold = comment("Hold: dogfood first.", at="2026-10-21T05:00:00Z")
+        automatic = comment(
+            f"Review (codex, next-review): SHIP at {HEAD}\n"
+            "<!-- next-review since=2026-10-21T05:30:00Z run=feed -->\n"
+            f"<!-- autoreview verdict=SHIP sha={HEAD} -->",
+            at="2026-10-21T06:00:00Z",
+        )
+        who, why = receipt.decide(pr([hold, automatic]), HEAD)
+        self.assertEqual(who, "", why)
+        self.assertIn("Hold", why)
+
+    def test_a_later_human_review_releases_the_hold_over_an_automatic_ship(self):
+        hold = comment("Hold: dogfood first.", at="2026-10-21T05:00:00Z")
+        automatic = comment(
+            f"Review (codex, next-review): SHIP at {HEAD}\n"
+            "<!-- next-review since=2026-10-21T05:30:00Z run=feed -->\n"
+            f"<!-- autoreview verdict=SHIP sha={HEAD} -->",
+            at="2026-10-21T06:00:00Z",
+        )
+        human = comment(SHIP, at="2026-10-21T07:00:00Z")
+        self.assertIn("SHIP", receipt.decide(pr([hold, automatic, human]), HEAD)[0])
+
+    def test_a_human_approval_quoting_an_automatic_body_still_releases_the_hold(self):
+        hold = comment("Hold: dogfood first.", at="2026-10-21T05:00:00Z")
+        body = (
+            f"Review (codex, next-review): SHIP at {HEAD}\n"
+            "<!-- next-review since=2026-10-21T05:30:00Z run=feed -->\n"
+            f"<!-- autoreview verdict=SHIP sha={HEAD} -->"
+        )
+        automatic = comment(body, at="2026-10-21T06:00:00Z")
+        human = review("APPROVED", body=body, at="2026-10-21T07:00:00Z")
+        self.assertIn("approved", receipt.decide(pr([hold, automatic], [human]), HEAD)[0])
+
+    def test_a_human_comment_quoting_an_automatic_body_still_releases_the_hold(self):
+        hold = comment("Hold: dogfood first.", at="2026-10-21T05:00:00Z")
+        body = (
+            f"Review (codex, next-review): SHIP at {HEAD}\n"
+            "<!-- next-review since=2026-10-21T05:30:00Z run=feed -->\n"
+            f"<!-- autoreview verdict=SHIP sha={HEAD} -->"
+        )
+        automatic = comment(body, at="2026-10-21T06:00:00Z")
+        human = comment(body, at="2026-10-21T07:00:00Z")
+        self.assertIn("SHIP", receipt.decide(pr([hold, automatic, human]), HEAD)[0])
+
+    def test_a_retained_automatic_marker_on_a_hold_stays_a_hold(self):
+        retained = comment(
+            f"Hold: dogfood first.\n<!-- next-review since=2026-10-21T05:30:00Z run=feed -->\n"
+            f"<!-- autoreview verdict=SHIP sha={HEAD} -->",
+            at="2026-10-21T06:00:00Z",
+        )
+        who, why = receipt.decide(pr([retained]), HEAD)
+        self.assertEqual(who, "", why)
+        self.assertIn("Hold", why)
+
+    def test_a_hold_lift_line_releases_the_automatic_ship(self):
+        hold = comment("Hold: dogfood first.", at="2026-10-21T05:00:00Z")
+        automatic = comment(
+            f"Review (codex, next-review): SHIP at {HEAD}\n"
+            "<!-- next-review since=2026-10-21T05:30:00Z run=feed -->\n"
+            f"<!-- autoreview verdict=SHIP sha={HEAD} -->",
+            at="2026-10-21T06:00:00Z",
+        )
+        lift = comment("Hold lifted.", at="2026-10-21T07:00:00Z")
+        self.assertIn("SHIP", receipt.decide(pr([hold, automatic, lift]), HEAD)[0])
+
+    def test_a_hold_lift_line_releases_a_prior_human_ship(self):
+        prior = comment(SHIP, at="2026-10-21T04:00:00Z")
+        hold = comment("Hold: dogfood first.", at="2026-10-21T05:00:00Z")
+        lift = comment("Hold lifted.", at="2026-10-21T07:00:00Z")
+        self.assertIn("SHIP", receipt.decide(pr([prior, hold, lift]), HEAD)[0])
 
 
 class BareWaitLine(unittest.TestCase):
@@ -294,6 +367,29 @@ class NewestIndependentVerdictWins(unittest.TestCase):
         self.passes([self.box("SHIP", self.A, 1), self.carried(self.C, self.A, 9)])
         self.passes([self.carried(self.C, self.A, 9)], [review("APPROVED", at=self.at(1), oid=self.A)])
 
+    def test_a_ship_whose_text_says_carries_is_a_review(self):
+        """cmux#27632 (2026-10-29): "Review (independent review subagent): SHIP at <head>. ... the warning carries the
+        whole finding." is an independent SHIP; the word marks a carried receipt only in the reviewer label, or as
+        "carried from" / "carried over" on the line."""
+        line = (f"Review (independent review subagent): SHIP at {self.C}. Both are fixed: the warning carries the "
+                "whole finding.")
+        self.passes([comment(line, at=self.at(3))])
+        self.assertIsNone(receipt.CARRIED.search(line))
+        for first in (f"Review (codex gpt-6-astra high; carried): SHIP at {self.C}",
+                      f"Review (codex gpt-6-astra high fast, independent box review-26809-7554; carried): SHIP at {self.C}",
+                      f"Review (Astra; carried): SHIP at {self.C}", f"Review (Astra, carries): SHIP at {self.C}",
+                      f"Review (codex): SHIP at {self.C} (carried from {self.A[:8]})",
+                      f"Review (codex): SHIP at {self.C}; the SHIP at {self.A[:8]} is carried over the base merge",
+                      f"REVIEW (codex): SHIP at {self.C}, Carried From {self.A[:8]}"):
+            with self.subTest(first=first):
+                self.assertTrue(receipt.CARRIED.search(first))
+                self.refused([comment(first, at=self.at(3))])  # a carried SHIP alone never passes
+        for first in (f"Review (subagent): SHIP at {self.C}; the fix carries over to the iOS lane",
+                      f"Review (subagent): SHIP at {self.C}, the change carried the old test along"):
+            with self.subTest(first=first):
+                self.assertIsNone(receipt.CARRIED.search(first))
+                self.passes([comment(first, at=self.at(3))])
+
     def test_a_carried_ship_needs_an_independent_ship_behind_it(self):
         self.refused([self.carried(self.C, self.A, 9)])
 
@@ -337,6 +433,36 @@ class NewestIndependentVerdictWins(unittest.TestCase):
                 status = receipt.main(["manaflow-ai/cmux", "42", self.C, "--pr-file", handle.name])
         self.assertEqual(status, 1)
         self.assertIn("the newest independent verdict is a BLOCK (autoreview BLOCK by teamleaderleo)", err.getvalue())
+
+
+class RiskHighExactHead(unittest.TestCase):
+    """cmux-ad, 2026-10-30, decision 788: a risk:high pull request needs a receipt on the exact head; no carried SHIP
+    (a lane's or next-review's carry across a base merge) counts for it. risk:normal and risk:low keep the carry."""
+    REVIEWED = "ab" * 20
+
+    def carried(self, line):
+        return pr([comment(f"Review (subagent, correctness first): SHIP at {self.REVIEWED}", at="2026-10-21T05:00:00Z"),
+                   comment(line, at="2026-10-21T06:00:00Z")], labels=self.labels)
+
+    def test_a_carried_ship_never_clears_risk_high(self):
+        for line in (f"Review (next-review patch-id; carried): SHIP at {HEAD}",
+                     f"Review (subagent): SHIP at {HEAD} (carried from {self.REVIEWED[:12]})"):
+            for labels, passes in ((("risk:high",), False), (("RISK:HIGH", "ready-to-land"), False),
+                                   (("risk:normal",), True), (("risk:low",), True), ((), True)):
+                with self.subTest(line=line, labels=labels):
+                    self.labels = labels
+                    who, why = receipt.decide(self.carried(line), HEAD)
+                    self.assertEqual(bool(who), passes, why)
+                    if not passes:
+                        self.assertIn("risk:high needs an independent review of this exact head", why)
+
+    def test_an_own_ship_on_the_exact_head_clears_risk_high(self):
+        who, why = receipt.decide(pr([comment(SHIP)], labels=("risk:high",)), HEAD)
+        self.assertIn("SHIP", who, why)
+        self.assertIn("approved", receipt.decide(pr(reviews=[review("APPROVED")], labels=("risk:high",)), HEAD)[0])
+        # A newer BLOCK on another head still takes it back.
+        block = comment(f"Review (subagent): BLOCK at {OTHER}", at="2026-10-21T07:00:00Z")
+        self.assertEqual(receipt.decide(pr([comment(SHIP), block], labels=("risk:high",)), HEAD)[0], "")
 
 
 class Command(unittest.TestCase):
@@ -383,7 +509,8 @@ class Command(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         query = " ".join(calls[0])
         # next-autoland's windows, so the two tools judge the same reviews and comments.
-        for field in ("__typename", "authorAssociation", "commit{oid}", "reviews(last:30)", "comments(last:40)"):
+        for field in ("__typename", "authorAssociation", "commit{oid}", "reviews(last:30)", "comments(last:40)",
+                      "labels(first:100){nodes{name}}"):
             self.assertIn(field, query)
 
     def test_a_rate_limited_read_exits_3(self):

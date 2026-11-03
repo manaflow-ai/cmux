@@ -100,6 +100,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/gh_budget_wait.sh
             scripts/ci/nightly_next_cancelled_tip.sh
+            scripts/ci/nightly_compile_red.py
             scripts/ci/nightly_next_feed_watch.py
             scripts/ci/nightly_next_rolling.py
             scripts/ci/nightly_next_stuck_run.py
@@ -119,6 +120,15 @@ jobs:
       # token's /rate_limit headers then, to name the limiter.
       - name: Wait through GitHub API rate limits in this job's gh calls
         run: bash .tick-tooling/scripts/ci/gh_budget_wait.sh --install
+      # Only the promotion request waits through a rate limit. The stuck-run rescue, the
+      # cancelled-tip re-run and the rolling rule set GH_BUDGET_WAIT_ATTEMPTS=1, so a refused
+      # read fails at once into each one's own fallback (no cancel, no re-run; the rolling rule
+      # promotes or waits as its docstring says). Their reads are captured by Python, so the
+      # wrapper's 60+120+240+300 s backoff was invisible, and it held the one serialized tick
+      # group: ticks 41392901357, 41398820119, 41433152543 and 41440726202 (2026-11-02) sat
+      # 12-25 min in those steps, and the landings behind them started building 15-30 min late
+      # instead of about 5. The next tick (a landing, a finished build, or the 5-minute cron)
+      # reads again.
 
       # The release train (nightly-next-train.yml, docs/ci/nightly-next-train.md).
       # on: the train replaces the promotion below (a train commit is not on
@@ -148,7 +158,7 @@ jobs:
           "$RUNNER_TEMP/tick-venv/bin/python" -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3
           echo "$RUNNER_TEMP/tick-venv/bin" >> "$GITHUB_PATH"
 
-      # A nightly-next or promotion run with a job no runner took for 20 minutes (a label
+      # A nightly-next or promotion run with a job no runner took for 3 minutes (a label
       # that stopped serving, run 40771197361) is cancelled here when an existing path builds
       # it again: the step below re-runs the tip's push run, the tip builds over an older
       # commit's, and the promotion request asks again. Gated and running runs are never
@@ -157,20 +167,28 @@ jobs:
       - name: Cancel a nightly-next run stuck without a runner
         if: inputs.sha == ''
         continue-on-error: true
-        timeout-minutes: 5
+        # The rescue can read once, settle for FORCE_AFTER + 1 bounded waits,
+        # and read again before a force-cancel. Leave room for those API reads.
+        timeout-minutes: 15
         env:
           GH_TOKEN: ${{ github.token }}
           NIGHTLY_NEXT_TRAIN: ${{ vars.NIGHTLY_NEXT_TRAIN }}
-        run: python3 .tick-tooling/scripts/ci/nightly_next_stuck_run.py "$GITHUB_REPOSITORY"
+          GH_BUDGET_WAIT_ATTEMPTS: "1"
+        run: python3 -u .tick-tooling/scripts/ci/nightly_next_stuck_run.py "$GITHUB_REPOSITORY"
 
       # A tip on nightly-next whose newest run ended cancelled (a rescue that lost its
       # re-run, run 40340830337) is never requested again below ("already on
       # nightly-next"), so it is re-run here; scripts/ci/nightly_next_cancelled_tip.sh.
       - name: Re-run a cancelled nightly-next tip
+        # An explicit SHA asks for a newer tip without waiting on recovery of the
+        # current nightly tip (whose API reads may wait out an hour of rate limits).
+        # Automatic ticks retain recovery in their shared, serialized group.
+        if: inputs.sha == ''
         # The promotion below must run even when this check cannot.
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_BUDGET_WAIT_ATTEMPTS: "1"
         run: bash .tick-tooling/scripts/ci/nightly_next_cancelled_tip.sh "$GITHUB_REPOSITORY"
 
       # The rolling rule (scripts/ci/nightly_next_rolling.py): promote at once when nothing is
@@ -184,6 +202,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           WINDOW_MINUTES: ${{ vars.NIGHTLY_NEXT_ROLLING_MINUTES || '10' }}
+          GH_BUDGET_WAIT_ATTEMPTS: "1"
         run: python3 .tick-tooling/scripts/ci/nightly_next_rolling.py --repo "$GITHUB_REPOSITORY" --tip "$(git rev-parse HEAD)" --window-minutes "$WINDOW_MINUTES"
 
       - name: Request nightly-next promotion on main
