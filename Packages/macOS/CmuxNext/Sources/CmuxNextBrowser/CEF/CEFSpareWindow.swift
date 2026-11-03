@@ -49,9 +49,9 @@ final class CEFSpareWindow {
     var onNeeded: (@MainActor () -> Void)?
     /// Tabs Chromium created in the spare's window before a tab took it.
     private var parked: [(browser: Int32, disposition: BrowserNewTabDisposition, bounds: CGRect?)] = []
-    /// The untaken spare page and the host whose window it is in: the spare's, or the pane's that took
-    /// that window until its placeholder closes. At most one.
-    private(set) var page: (browser: Int32, host: CEFPaneHost)?
+    /// The untaken spare page, the host whose window it is in (the spare's, or the pane's that took
+    /// that window until its placeholder closes) and how it is frozen. At most one.
+    private(set) var page: (browser: Int32, host: CEFPaneHost, freeze: CEFPageFreeze)?
     /// True inside the `tab_add` that makes the spare page: its OnAfterCreated is no Chromium tab to adopt
     /// (`CEFRuntime.browserCreated`).
     private(set) var isMakingPage = false
@@ -121,25 +121,29 @@ final class CEFSpareWindow {
         let browser = add()
         #endif
         guard browser != 0 else { return false }
-        page = (browser, spare)
+        // No one sees it: no frames, timers or tasks until a tab takes it.
+        page = (browser, spare, CEFPageFreeze.freeze(browser, runtime: runtime))
         return true
     }
 
     /// The spare page for `tab`, which `host` is about to make a browser for in its live window,
-    /// when one is ready and the tab may take it: the default profile's own store, no remote machine's
-    /// store, not incognito, no history to restore (that needs a browser with no committed entries,
-    /// `tab_add` with an empty URL), in a pane (not a popup host or the spare). The page is the tab's
-    /// from now on; the next idle moment makes the next one.
+    /// thawed, when one is ready and the tab may take it. Only a tab the person sees (`host` shows it)
+    /// and no agent drives: a hidden or agent-driven background tab never uses up the page that makes
+    /// the person's next new tab fast (the person's input goes before automation). Also the default
+    /// profile's own store, no remote machine's store, not incognito; no history to restore (that needs
+    /// a browser with no committed entries, `tab_add` with an empty URL); in a pane (not a popup host or
+    /// the spare). The page is the tab's from now on; the next idle moment makes the next one.
     func takePage(for tab: CEFTab, in host: CEFPaneHost) -> (browser: Int32, host: CEFPaneHost)? {
-        guard let page, tab.pendingRestore == nil, tab.machineStore == nil,
-              host.key.profile == page.host.key.profile, host.key.machineKey == nil, !host.key.offTheRecord,
-              !host.isPopupHost, !host.isSpare else { return nil }
+        guard let page, host.visibleTab === tab, !tab.isAgentDriven, !tab.awaitsWindowMove, tab.pendingRestore == nil,
+              tab.machineStore == nil, host.key.profile == page.host.key.profile, host.key.machineKey == nil,
+              !host.key.offTheRecord, !host.isPopupHost, !host.isSpare else { return nil }
         self.page = nil
+        page.freeze.thaw(page.browser, runtime: host.runtime)
         #if DEBUG || CMUX_BENCH_HOOKS
         host.runtime.benchMarks.point("cef.spare_page_taken")
         #endif
         onNeeded?()
-        return page
+        return (page.browser, page.host)
     }
 
     /// The untaken spare page in `host`'s window closes: that window was taken and its placeholder
