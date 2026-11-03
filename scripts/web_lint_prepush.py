@@ -12,6 +12,12 @@ What runs, per area touched by the change:
   its package.json (the exact step CI runs: Oxfmt, Oxlint with the type check,
   and webviews' source checks such as check:browser-lanes). The `&&` pieces of
   that script run at once, so the hook costs the slowest piece, not the sum.
+* A check runs when any input it reads changes. A source-check piece (`python3 ../scripts/cmux-next/X.py`)
+  that reads files outside its package's triggers declares them next to its own path constants, as a
+  module-level `INPUTS` tuple (read with `ast`, never run; see declared_inputs()). A change that touches one
+  of them, and none of the package's triggers, runs only those pieces: a Swift-only push runs webviews'
+  check:text-focus on the CmuxNext sources it reads (385cb09a747 and c0230efd501 went red on feat-cmux-next
+  that way), not the whole webviews check, and installs nothing.
 * cmux-tui/frontends/web/ imports `cmux` from cmux-tui/bindings/typescript, whose exports
   point at a tsc-built dist/. That package is installed and built first, as CI does (npm ci,
   npm run build; bun when npm is missing), and only when its inputs changed since the last
@@ -63,8 +69,10 @@ heap and Node heap.
 from __future__ import annotations
 
 import argparse
+import ast
 import concurrent.futures
 import contextlib
+import fnmatch
 import hashlib
 import json
 import os
@@ -120,7 +128,8 @@ class ScriptPackage:
     """A package whose package.json `check` script is the lint CI runs."""
 
     directory: str
-    # Paths whose change makes this package's check run.
+    # Paths whose change makes this package's whole check run. A piece that reads more declares the rest itself
+    # (`INPUTS` in its script, declared_inputs()); a change to those runs that piece alone (input_pieces()).
     triggers: tuple[str, ...]
     # Paths that hold code the check executes (configs, scripts, the lockfile).
     # A push that changes one is not linted by the hook: the hook would run code
@@ -188,6 +197,9 @@ class Result:
 @dataclass
 class Plan:
     script_packages: list[ScriptPackage] = field(default_factory=list)
+    # Per package whose triggers the change missed: the source-check pieces whose declared INPUTS it touches,
+    # run alone, with no install (input_pieces()).
+    script_pieces: dict[str, list[str]] = field(default_factory=dict)
     eslint_files: dict[str, list[str]] = field(default_factory=dict)
     untrusted: list[tuple[str, list[str]]] = field(default_factory=list)
 
@@ -270,13 +282,117 @@ def snapshot(repo: Path, sha: str | None):
     return names.__contains__, (lambda rel: git(repo, "show", f"{sha}:{rel}"))
 
 
-def make_plan(repo: Path, files: list[str], guard_executed: bool, exists=None) -> Plan:
+# The module-level name a source-check script declares the repository paths it reads under.
+INPUTS_NAME = "INPUTS"
+
+
+def declared_inputs(source: str) -> tuple[str, ...]:
+    """The paths a check script declares it reads: its module-level `INPUTS` tuple, read with `ast`, never run.
+    An entry is a string literal, a module-level string constant's name, an f-string or `+` of those, or `*NAME`
+    of a module-level tuple of them, so the declaration names the very constants the script walks:
+    `INPUTS = (TREE, f"{SWIFT_TREE}/**/*.swift")`. () when there is none or it is anything else."""
+    try:
+        module = ast.parse(source)
+    except (SyntaxError, ValueError):
+        return ()
+    constants: dict[str, str | tuple[str, ...]] = {}
+
+    def text(node) -> str | None:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        if isinstance(node, ast.Name):
+            found = constants.get(node.id)
+            return found if isinstance(found, str) else None
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            left, right = text(node.left), text(node.right)
+            return None if left is None or right is None else left + right
+        if isinstance(node, ast.JoinedStr):
+            parts = [text(part.value if isinstance(part, ast.FormattedValue) and part.conversion == -1
+                          and part.format_spec is None else part) for part in node.values]
+            return None if None in parts else "".join(parts)
+        return None
+
+    def strings(node) -> tuple[str, ...] | None:
+        if not isinstance(node, (ast.Tuple, ast.List)):
+            return None
+        entries: list[str] = []
+        for item in node.elts:
+            if isinstance(item, ast.Starred) and isinstance(item.value, ast.Name) \
+                    and isinstance(constants.get(item.value.id), tuple):
+                entries += constants[item.value.id]
+            elif text(item) is not None:
+                entries.append(text(item))
+            else:
+                return None
+        return tuple(entries)
+
+    for statement in module.body:
+        if not (isinstance(statement, ast.Assign) and len(statement.targets) == 1
+                and isinstance(statement.targets[0], ast.Name)):
+            continue
+        name = statement.targets[0].id
+        if name == INPUTS_NAME:
+            return strings(statement.value) or ()
+        found = text(statement.value)
+        found = found if found is not None else strings(statement.value)
+        if found is not None:
+            constants[name] = found
+        else:
+            constants.pop(name, None)
+    return ()
+
+
+def input_matches(path: str, pattern: str) -> bool:
+    """PATH is one of PATTERN's files: a path (that file, or anything under that folder), or `DIR/**/GLOB` and
+    `**/GLOB` (a file whose name matches GLOB anywhere under DIR, or anywhere)."""
+    if "**/" in pattern:
+        prefix, name = pattern.split("**/", 1)
+        return path.startswith(prefix) and fnmatch.fnmatchcase(posixpath.basename(path), name)
+    pattern = pattern.rstrip("/")
+    return path == pattern or path.startswith(f"{pattern}/")
+
+
+def piece_inputs(package: ScriptPackage, piece: str, read) -> tuple[str, ...]:
+    """What a source-check piece declares it reads (declared_inputs()), for a `python3 [-I] SCRIPT.py` piece the
+    hook may run (light_script: a guarded scripts/ path); () for any other piece."""
+    argv = light_argv(piece)
+    if not argv or argv[0] != "python3" or not light_script(package, argv):
+        return ()
+    script = next(word for word in argv[1:] if not word.startswith("-"))
+    try:
+        return declared_inputs(read(posixpath.normpath(posixpath.join(package.directory, script))))
+    except (OSError, ValueError, SystemExit):  # SystemExit: git() on a path the commit does not have
+        return ()
+
+
+def input_pieces(repo: Path, package: ScriptPackage, files: list[str], read) -> list[str]:
+    """The pieces of PACKAGE's check (`bun run NAME` resolved, as light_leaves() does) whose declared inputs FILES
+    touch, in check order, each once."""
+    scripts = package_scripts(repo, package, read)  # {} for a package.json that is missing or unreadable
+    if not files or not scripts:
+        return []
+    leaves, _ = light_leaves(package, script_chain(scripts, "check"), scripts)
+    chosen = []
+    for piece in leaves:
+        inputs = piece_inputs(package, piece, read)
+        if piece not in chosen and any(input_matches(f, pattern) for f in files for pattern in inputs):
+            chosen.append(piece)
+    return chosen
+
+
+def make_plan(repo: Path, files: list[str], guard_executed: bool, exists=None, read=None) -> Plan:
     exists = exists or (lambda rel: (repo / rel).is_file())
+    read = read or (lambda rel: (repo / rel).read_text(encoding="utf-8"))
     plan = Plan()
     for package in SCRIPT_PACKAGES:
         if not exists(f"{package.directory}/package.json"):
             continue
         if not any(under(f, package.triggers) for f in files):
+            # No trigger: only the pieces that declare an input the change touches. A push that changes a piece's
+            # own script changes an executed path, which is a trigger, so these never run code the push changed.
+            pieces = input_pieces(repo, package, files, read)
+            if pieces:
+                plan.script_pieces[package.directory] = pieces
             continue
         risky = executed_changes(package, files) if guard_executed else []
         if risky:
@@ -298,14 +414,18 @@ def make_plan(repo: Path, files: list[str], guard_executed: bool, exists=None) -
     return plan
 
 
-def check_pieces(repo: Path, package: ScriptPackage, script: str, read=None) -> list[str]:
-    read = read or (lambda rel: (repo / rel).read_text(encoding="utf-8"))
-    scripts = json.loads(read(f"{package.directory}/package.json")).get("scripts", {})
-    # webviews' `check` runs its `check:pieces` chain through run-check-pieces.py; the pieces are the list.
+def script_chain(scripts: dict, script: str) -> list[str]:
+    """The `&&` pieces of SCRIPT in a package.json's SCRIPTS. webviews' `check` runs its `check:pieces` chain
+    through run-check-pieces.py; the pieces are the list."""
     body = scripts.get(f"{script}:pieces") or scripts.get(script)
-    if not body:
+    if not isinstance(body, str):
         return []
     return [piece.strip() for piece in body.split("&&") if piece.strip()]
+
+
+def check_pieces(repo: Path, package: ScriptPackage, script: str, read=None) -> list[str]:
+    read = read or (lambda rel: (repo / rel).read_text(encoding="utf-8"))
+    return script_chain(json.loads(read(f"{package.directory}/package.json")).get("scripts", {}), script)
 
 
 def package_scripts(repo: Path, package: ScriptPackage, read=None) -> dict[str, str]:
@@ -653,7 +773,7 @@ def light_plan(repo: Path, plan: Plan, mode: str, has_modules=None) -> Plan:
     (HAS_MODULES(directory), default: in REPO) is dropped with a note (CI checks it), and a package's local builds
     are skipped, said once."""
     has_modules = has_modules or (lambda directory: (repo / directory / "node_modules").is_dir())
-    kept = Plan(untrusted=plan.untrusted)
+    kept = Plan(untrusted=plan.untrusted, script_pieces=plan.script_pieces)  # source checks need no node_modules
     ci = f"CI's `web lint` job and the pull request's fast gates check it ({LOCAL_HEAVY_ENV}=0: no install or build here)"
     for package in plan.script_packages:
         if not has_modules(package.directory):
@@ -682,6 +802,10 @@ def check_jobs(repo: Path, plan: Plan, script: str, fix: bool, cache: bool, heav
                   else [light_argv(piece) for piece in light_pieces(repo, package, script, mode, read)])
         for piece in pieces:
             jobs.append((package.directory, piece, repo / package.directory, package_env(repo, package.directory)))
+    if not fix:  # a source-check piece has nothing to fix; it runs as its argument list, no shell, either way
+        for directory, pieces in plan.script_pieces.items():
+            for piece in pieces:
+                jobs.append((directory, light_argv(piece), repo / directory, package_env(repo, directory)))
     for directory, files in plan.eslint_files.items():
         jobs.append((directory, eslint_command(repo, directory, files, fix, cache), repo / directory,
                      package_env(repo, directory)))
@@ -803,7 +927,7 @@ def charge_new_only(repo: Path, base: str, plan: Plan, tree: Path, results: list
     """--new-only: each failed package check runs again on BASE. A red whose every finding BASE has too passes
     with a warning; otherwise the result keeps only the findings it adds. A host that runs no heavy checks makes
     no base tree and runs nothing again: every red stays the change's."""
-    packages = {p.directory: p for p in plan.script_packages}
+    packages = {p.directory for p in plan.script_packages} | set(plan.script_pieces)
     failed = [r for r in results if r.returncode != 0 and r.label in packages]
     if not failed:
         return
@@ -814,9 +938,11 @@ def charge_new_only(repo: Path, base: str, plan: Plan, tree: Path, results: list
     compare = load_compare()
     with tree_of(repo, base, sorted({r.label for r in failed})) as base_tree:
         for result in failed:
-            if ensure_deps(base_tree, result.label):
+            whole = result.label not in plan.script_pieces  # a lone source-check piece needs no install
+            if whole and ensure_deps(base_tree, result.label):
                 continue  # no base to compare with: the red stays this change's
-            compare.generate_strings(base_tree / result.label)
+            if whole:
+                compare.generate_strings(base_tree / result.label)
             again = run(result.label, result.command, base_tree / result.label, package_env(base_tree, result.label))
             if again.returncode == 0:
                 continue
@@ -921,12 +1047,12 @@ def main(argv: list[str] | None = None) -> int:
             files = [f"{package.directory}/package.json" for package in SCRIPT_PACKAGES]
         # Planned from the commit's objects: a full lint tree is written only when something needs linting.
         exists, read = snapshot(repo, head)
-        plan = make_plan(repo, files, guard_executed=args.pre_push, exists=exists)
+        plan = make_plan(repo, files, guard_executed=args.pre_push, exists=exists, read=read)
         for directory, risky in plan.untrusted:
             print(f"{mode}: {directory}: not linted here: this push changes code the lint runs "
                   f"({', '.join(risky[:5])}{' …' if len(risky) > 5 else ''}). The `web lint` CI job checks it; "
                   f"run `{FIX_COMMAND}` yourself if you trust this branch.", file=sys.stderr)
-        if not plan.script_packages and not plan.eslint_files:
+        if not plan.script_packages and not plan.script_pieces and not plan.eslint_files:
             if args.dry_run:
                 print("nothing to lint")
             continue

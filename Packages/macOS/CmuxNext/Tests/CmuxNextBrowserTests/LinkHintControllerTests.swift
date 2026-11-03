@@ -201,6 +201,80 @@ import Testing
         #expect(escape.sent == ["b", "^b"], "Escape: the page got \(escape.sent)")
     }
 
+    /// Review 6603845634 finding 2: the bound of an ended session fires after a new session started (its fire was taken
+    /// off the main actor before the cancel). It must not end the new session, whose own bound still runs.
+    @Test func anEndedSessionsBoundNeverEndsTheNextSession() async throws {
+        let harness = try Harness()
+        await harness.start()
+        let stale = harness.controller.boundForCurrentSession()
+        harness.controller.cancel()
+        await harness.start()
+        harness.type(["i"])
+        stale()
+        #expect(harness.controller.isActive, "the ended session's bound ended the new session")
+        #expect(harness.sent.isEmpty, "the new session's held key went to the page: \(harness.sent)")
+        harness.controller.cancel()
+    }
+
+    /// Review 6603845634 finding 3: a start while a session holds a key that starts link hints again. The start's
+    /// cancel delivers that key, which starts a session inside the start; the start must end that session too (its
+    /// focus check must never answer for the session the start makes).
+    @Test func aStartWhoseCancelStartsASessionLeavesOnlyItsOwnSession() async throws {
+        let harness = try Harness()
+        let answers = Answers()
+        harness.controller.focusAnswer = { _ in await answers.next() }
+        await harness.start()
+        harness.type(["<cmd-f>"])
+        var inner = 0
+        harness.controller.send = { [weak harness] keys in
+            guard let harness else { return }
+            harness.sent += keys.map(Harness.describe)
+            if keys.contains(where: { $0.charactersIgnoringModifiers == "<cmd-f>" }), inner == 0 {
+                inner += 1
+                harness.controller.start(.follow, tab: harness.tab, window: harness.shell, isFocused: { true }, openInSplit: { _ in }, noLinks: {})
+            }
+        }
+        harness.controller.start(.follow, tab: harness.tab, window: harness.shell, isFocused: { true }, openInSplit: { _ in }, noLinks: {})
+        await harness.until { answers.asked >= 3 }
+        #expect(inner == 1, "the held chord did not start a session inside the start")
+        harness.type(["a", "b"]) // held by the start's own session, until its page answers
+        answers.give(asked: 2, true) // the inner session's focus check (the 2nd asked) answers: "a text field has the keyboard"
+        await harness.until { false }
+        #expect(harness.controller.isActive, "the inner session's answer ended the start's own session")
+        #expect(!harness.sent.contains("a"), "the inner session's answer gave the start's held keys to the page: \(harness.sent)")
+        harness.controller.cancel()
+    }
+
+    /// Focus answers for several sessions: each waiter in the order asked; a cancelled one gets nil.
+    @MainActor private final class Answers {
+        private var waiters: [(id: Int, waiter: CheckedContinuation<Bool?, Never>)] = []
+        private var cancelled: Set<Int> = []
+        private(set) var asked = 0
+        nonisolated deinit {}
+
+        func next() async -> Bool? {
+            asked += 1
+            let id = asked
+            return await withTaskCancellationHandler {
+                await withCheckedContinuation { waiter in
+                    if cancelled.remove(id) != nil { waiter.resume(returning: nil) } else { waiters.append((id, waiter)) }
+                }
+            } onCancel: {
+                MainActor.assumeIsolated { self.cancel(id) }
+            }
+        }
+
+        private func cancel(_ id: Int) {
+            if let index = waiters.firstIndex(where: { $0.id == id }) { waiters.remove(at: index).waiter.resume(returning: nil) } else { cancelled.insert(id) }
+        }
+
+        /// Answers the `asked`-th question, if it still waits.
+        func give(asked id: Int, _ value: Bool?) {
+            guard let index = waiters.firstIndex(where: { $0.id == id }) else { return }
+            waiters.remove(at: index).waiter.resume(returning: value)
+        }
+    }
+
     /// A click before the page answered ends the session: every held key goes to the page first, in order.
     @Test func aClickBeforeTheAnswerGivesEveryHeldKeyToThePageInOrder() async throws {
         let harness = try Harness()

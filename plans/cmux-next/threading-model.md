@@ -127,7 +127,9 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
 - Terminal: `com.cmuxterm.next.terminal.output`, `com.cmuxterm.next.localpty.read`, `com.cmuxterm.next.localpty.write`
 - Settings and files: `com.cmuxterm.next.settings.watcher`, `cmux.files.fsevents`, `cmux.files.tree-fsevents`,
   `com.cmuxterm.home.cache` (the `HomeCache` actor's executor, user-initiated: its file writes block this queue,
-  never a pool thread, so the forced quit's last draft write runs with the pool full; CmuxHomeCore, shared with iOS)
+  never a pool thread, so the forced quit's last draft write runs with the pool full; CmuxHomeCore, shared with iOS),
+  `cmux.chief.movedMarker` (the Chief home's `state/moved.json` vnode watch, utility, serial: event delivery only,
+  it blocks on nothing; one re-arm per folder change; ChiefMovedMarkerAttachment)
 - Remote and mobile: `com.cmuxterm.next.remote-localhost`, `com.cmuxterm.next.remote-localhost.peer-scan`, `com.cmuxterm.next.cloud-browser-proxy`,
   `com.cmuxterm.next.cloud-hub-loopback` (Open Desktop's SOCKS connections to the app's WireGuard hub),
   `cmux.cloud.machine-io.stdin` (one Worker machine exec or file call's request into the bundled cmux's stdin,
@@ -166,7 +168,10 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   `debug.window_record`, `debug.motion.trace` (a `debug.motion` `trace_stop`/`trace_read` with `path`: the report's JSON serialization and file
   write, utility, serial, one item per call, so no back-pressure), `debug.motion.record` (a `debug.motion` `record_*` movie in DEBUG and bench builds: its
   ScreenCaptureKit frames, the encoder appends and the scanline and frame-list file writes; user-initiated, serial;
-  a frame the encoder is not ready for is counted and dropped, never queued, so no back-pressure), `com.cmuxterm.next.busy-watchdog` (the busy watchdog's kernel reads: each
+  a frame the encoder is not ready for is counted and dropped, never queued, so no back-pressure), `debug.frame_strip.screen`
+  (a `debug.new_tab` `frame_strip` with `above` in DEBUG and bench builds, when the process lacks the Screen Recording grant:
+  its ScreenCaptureKit frames, each copied and downscaled into the strip; user-initiated, serial; ScreenCaptureKit's own
+  queue depth of 8 drops frames the queue has not taken, so no back-pressure; ends with the strip), `com.cmuxterm.next.busy-watchdog` (the busy watchdog's kernel reads: each
   process's `proc_pid_rusage` and `proc_pidinfo`, the Chromium helper list, the main thread's `thread_info` and
   stack sample; utility, serial; at most one window open or close is pending, so no back-pressure; a read the
   kernel holds delays only the next window). A diagnostic never makes a system call on the main thread: the

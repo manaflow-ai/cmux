@@ -383,7 +383,13 @@ class Wiring(unittest.TestCase):
                                  (github_script, True, 5))
                 self.assertEqual(ranged["env"]["ARTIFACT"], fallback["with"]["name"])
                 self.assertEqual(ranged["env"]["FETCH_DEST"], fallback["with"]["path"])
-                self.assertIn(spawn, ranged["with"]["script"])
+                if job == "signer-dmg-image":
+                    # Run 41665278171: the daemon assets come down beside the app, not 39 s after it.
+                    self.assertIn(".spawn('python3', ['-I', '.publish-tooling/scripts/ci/fetch_run_artifact.py', "
+                                  "'--name', name, '--dest', dest], {stdio: 'inherit'})", ranged["with"]["script"])
+                    self.assertIn("fetch(process.env.ARTIFACT, process.env.FETCH_DEST)", ranged["with"]["script"])
+                else:
+                    self.assertIn(spawn, ranged["with"]["script"])
                 self.assertIn("core.setFailed(", ranged["with"]["script"])
                 self.assertNotIn("GITHUB_ENV", yaml.safe_dump(ranged))
                 self.assertNotIn("GH_TOKEN", ranged["env"])
@@ -393,6 +399,13 @@ class Wiring(unittest.TestCase):
         self.assertIn("else core.exportVariable('SIGNER_APP_FETCHED', 'true')",
                       image["Download the signed app (parallel ranges)"]["with"]["script"])
         self.assertEqual(image["Download the signed app"]["if"], "env.SIGNER_APP_FETCHED != 'true'")
+        self.assertIn("fetch('cmux-nightly-remote-daemon', 'remote-daemon-assets')",
+                      image["Download the signed app (parallel ranges)"]["with"]["script"])
+        self.assertIn("if (daemon === 0) core.exportVariable('SIGNER_DAEMON_FETCHED', 'true')",
+                      image["Download the signed app (parallel ranges)"]["with"]["script"])
+        daemon = image["Download SSH daemon assets"]
+        self.assertEqual(daemon["if"], "env.SIGNER_DAEMON_FETCHED != 'true'")
+        self.assertEqual((daemon["with"]["name"], daemon["with"]["path"]), ("cmux-nightly-remote-daemon", "remote-daemon-assets"))
         # signer-dmg reads only the app's Info.plist and so never sets the flag.
         self.assertNotIn("SIGNER_APP_FETCHED", yaml.safe_dump(JOBS["signer-dmg"].get("env") or {}))
         self.assertNotIn("Download the signed app (parallel ranges)", [s.get("name") for s in JOBS["signer-dmg"]["steps"]])

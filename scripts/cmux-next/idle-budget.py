@@ -180,7 +180,10 @@ def build_newtabs(app, count, limit=60):
         focused = [p for p in surface_panes(report) if p.get("focused") and p.get("pane")]
         if len(focused) != 1:
             raise NewTabSetupError("no unique focused pane for the covering terminal", report)
-        action("newSurface", target=f"pane:{focused[0]['pane']}")
+        selected = focused[0].get("selected_tab")
+        if not isinstance(selected, str) or not selected.startswith("tab_"):
+            raise NewTabSetupError("focused pane has no stable tab for the covering terminal", report)
+        action("newSurface", target=f"tab:{selected}")
     deadline = time.monotonic() + limit
     while time.monotonic() < deadline:
         report = read_rpc(app, "debug.surfaces")
