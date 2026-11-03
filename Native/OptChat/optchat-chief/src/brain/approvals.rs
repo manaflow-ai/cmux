@@ -470,7 +470,7 @@ impl Brain {
                 && self
                     .state
                     .sub(&id)
-                    .is_some_and(|(_, s)| Self::approval_shown(s))
+                    .is_some_and(|(_, s)| Self::approval_workspace_shown(s))
             {
                 continue;
             }
@@ -511,6 +511,24 @@ impl Brain {
                 if let Err(e) = crate::approval::record(dir, fields) {
                     (self.log)(&format!("recording a refusal in the trace: {e}"));
                 }
+            }
+            if let Some(id) = self.state.sub_by_session(&p.session_id)
+                && self.state.sub(&id).is_some_and(|(_, sub)| {
+                    sub.permission.as_ref().is_some_and(|current| {
+                        current.id == p.permission_id && current.request == p.request
+                    })
+                })
+            {
+                self.cancel_home_approval(&id);
+                let outcome = if result.is_ok() {
+                    "its request was denied"
+                } else {
+                    "the request is no longer answerable here; its denial could not be confirmed"
+                };
+                self.tell_person_once(
+                    &p.permission_id,
+                    &format!("{id}'s approval expired because it was not answered; {outcome}."),
+                );
             }
             if let Some(id) = self.state.sub_by_session(&p.session_id)
                 && let Some(sub) = self.state.sub_mut(&id)
