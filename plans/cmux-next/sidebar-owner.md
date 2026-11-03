@@ -1117,8 +1117,8 @@ An empty group now keeps only its header at rest. The header's existing + appear
 - A hovered tab row shows a ✕ in its trailing slot (over the unread dot) that sends `SidebarIntent.closeTab`; the card
   stays open and the closed tab leaves it through `contentChanged`. A card with no `onClose` shows no ✕.
 - Coming back to the row whose card is still fading out shows the same card with no crossfade
-  (`HoverCardMachine.lastShownID`; `HoverCardPanel.present` no longer crossfades a body over itself), and the rows'
-  spinners do not follow the panel's occlusion, so they keep their shared-clock phase instead of redrawing.
+  (`HoverCardMachine.lastShownID`; `HoverCardPanel.present` no longer crossfades a body over itself), so its spinners
+  keep turning in place; a row shown again for the same tab keeps its hover state.
 - The row's spinner sits right after its title, centred on the title line. Its meta line drops "Working" (the spinner
   says it), names "This Mac" only on the `namesLocalMachine` variant, ends in an ellipsis when too long, and a lane
   session name ("lane-vm-11/nightly-rollback") shows its last part. Gallery: "Tab rows · spinner after the title ·

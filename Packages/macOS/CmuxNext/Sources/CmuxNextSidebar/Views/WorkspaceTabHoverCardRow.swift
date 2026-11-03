@@ -63,14 +63,12 @@ final class WorkspaceTabHoverCardRow: NSView {
         // a line still too long ends in an ellipsis, never cut off at the card's edge.
         detail.lineBreakMode = .byTruncatingTail
         trailingLabel.font = Typography.system(.monospacedDigit, size: Typography.caption.pointSize, weight: .regular)
-        // The card's panel orders out on hide; following its occlusion stopped the spinner then and restarted it
-        // when the card came back, a frame drawn still before it turned (Leo 2026-11-02: "IT RE-RENDERS THE SPINNER
-        // VIEW"). Its phase comes from the shared spinner clock, and an ordered-out window composites nothing, so it
-        // keeps turning; it stops when its tab stops working or the row leaves the window.
-        activity.tracksWindowOcclusion = false
+        activity.tracksWindowOcclusion = true
         unreadDot.wantsLayer = true
         unreadDot.isHidden = true
         closeButton.showsLabelToolTip = false
+        // The card's panel never becomes key: the first click on the ✕ must close, as the row's own click selects.
+        closeButton.takesFirstClick = true
         closeButton.isHidden = true
         closeButton.onPress = { [weak self] in self?.onClose?() }
         for view in [icon, title, detail, trailingLabel, activity, unreadDot, closeButton] { addSubview(view) }

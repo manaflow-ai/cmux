@@ -59,12 +59,6 @@ import Testing
         #expect(line(remote, machine: local) == "~ · lab-mini")
     }
 
-    @Test func aRemoteTerminalNamesItsOwnSessionOverTheWorkspacesMachine() {
-        var remote = SidebarTab(id: TabID("remote"), title: "zsh", kind: .remoteTerminal, folder: "~")
-        remote.machine = "lab-mini"
-        #expect(line(remote, machine: local) == "~ · lab-mini")
-    }
-
     /// A working chat's spinner sits beside its title, so its line drops "Working".
     @Test func agentRowsShowModelAndTimeAndLeaveWorkingToTheSpinner() {
         var chat = SidebarTab(id: TabID("chat"), title: "claude-sr2-coord", kind: .agentChat, brand: "claude", folder: "~/src/cmux",
