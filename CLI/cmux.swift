@@ -6354,6 +6354,12 @@ struct CMUXCLI {
         CodeRouterLaunchPolicy().commandRequiresHandoff(commandArgs)
     }
 
+    /// Executes the requested CLI command after resolving global options and socket routing.
+    ///
+    /// Commands that need no app connection execute locally; app-owned commands use the
+    /// selected socket and authentication context.
+    ///
+    /// - Throws: Argument-validation, command-execution or socket-transport errors.
     func run() async throws {
         let processEnv = ProcessInfo.processInfo.environment
         // The resolver has stable debug/release fallbacks at runtime, but its
@@ -39592,6 +39598,12 @@ export default {
             }
         }
 
+        /// Resolves a corroborated Cursor Shell completion or failure against pending approvals.
+        ///
+        /// Ignores unrelated or insufficiently attributed events, preserves remaining approvals,
+        /// and publishes the reconciled lifecycle and resume binding for the resolved surface.
+        ///
+        /// - Parameter failed: Whether the event reports Shell failure rather than completion.
         func resolveCursorShellHook(failed: Bool) async {
             guard def.name == "cursor" else {
                 sendAgentFeedTelemetry()
@@ -45584,12 +45596,26 @@ export default {
 
     private func runCursorInstallHooks() throws { try installAgentHooks(Self.agentDef(named: "cursor")!) }
     private func runCursorUninstallHooks() throws { try uninstallAgentHooks(Self.agentDef(named: "cursor")!) }
+    /// Dispatches a Cursor hook through the shared agent lifecycle handler.
+    ///
+    /// - Parameters:
+    ///   - commandArgs: Cursor hook subcommand and arguments.
+    ///   - client: Socket connection for the target cmux instance.
+    ///   - telemetry: Command-scoped hook telemetry.
+    /// - Throws: Hook-validation or dispatch errors.
     private func runCursorHook(commandArgs: [String], client: SocketClient, telemetry: CLISocketSentryTelemetry) async throws {
         try await runGenericAgentHook(def: Self.agentDef(named: "cursor")!, commandArgs: commandArgs, client: client, telemetry: telemetry)
     }
 
     private func runGeminiInstallHooks() throws { try installAgentHooks(Self.agentDef(named: "gemini")!) }
     private func runGeminiUninstallHooks() throws { try uninstallAgentHooks(Self.agentDef(named: "gemini")!) }
+    /// Dispatches a Gemini hook through the shared agent lifecycle handler.
+    ///
+    /// - Parameters:
+    ///   - commandArgs: Gemini hook subcommand and arguments.
+    ///   - client: Socket connection for the target cmux instance.
+    ///   - telemetry: Command-scoped hook telemetry.
+    /// - Throws: Hook-validation or dispatch errors.
     private func runGeminiHook(commandArgs: [String], client: SocketClient, telemetry: CLISocketSentryTelemetry) async throws {
         try await runGenericAgentHook(def: Self.agentDef(named: "gemini")!, commandArgs: commandArgs, client: client, telemetry: telemetry)
     }
@@ -45738,6 +45764,17 @@ export default {
         try uninstallAgentHooks(def)
     }
 
+    /// Routes connected hook commands to enqueue, Feed, Claude or generic agent handling.
+    ///
+    /// Setup and uninstall commands belong to the earlier no-socket dispatch path.
+    ///
+    /// - Parameters:
+    ///   - commandArgs: Arguments following the top-level `hooks` command.
+    ///   - client: Socket connection for the selected cmux instance.
+    ///   - telemetry: Command-scoped breadcrumbs and transport-error reporting.
+    ///   - socketPassword: Optional authentication value forwarded to hook handling.
+    ///   - hookDeadline: Optional deadline forwarded to deadline-aware handlers.
+    /// - Throws: Invalid-target, hook-dispatch or socket-transport errors.
     private func runHooksSocketCommand(
         commandArgs: [String],
         client: SocketClient,

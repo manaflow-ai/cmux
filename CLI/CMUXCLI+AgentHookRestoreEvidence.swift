@@ -2,6 +2,7 @@ import Foundation
 import CMUXAgentLaunch
 
 extension CMUXCLI {
+    /// Reports whether a captured Codex launch explicitly sets approval, sandbox or networking.
     private func codexLaunchHasExplicitPermissions(_ launchCommand: AgentHookLaunchCommandRecord?) -> Bool {
         CodexResumePermissionPolicy().hasExplicitPermissions(in: launchCommand)
     }
@@ -83,6 +84,18 @@ extension CMUXCLI {
         )?.preservingExternalLauncher(from: [current, mapped?.launchCommand])
     }
 
+    /// Selects current or persisted launch evidence before repairing eligible Codex permissions.
+    ///
+    /// Rejected captures may use only a trusted same-kind fallback. A same-process mapped
+    /// capture can retain explicit permissions that are absent from the current capture.
+    ///
+    /// - Parameters:
+    ///   - kind: Agent kind whose resume command is being published.
+    ///   - current: Launch evidence from the current hook observation.
+    ///   - mapped: Previously persisted session evidence, when available.
+    ///   - transcriptPath: Optional transcript used to recover missing Codex permissions.
+    ///   - currentPID: Observed process identity used to corroborate mapped evidence.
+    /// - Returns: Selected launch metadata, a retained rejection, or nil when no launch should be published.
     private func selectedAgentHookResumeLaunchCommand(
         kind: String,
         current: AgentHookLaunchCommandRecord?,
@@ -264,6 +277,16 @@ extension CMUXCLI {
         return launchCommand
     }
 
+    /// Recovers missing Codex permission fields from bounded, actor-isolated transcript evidence.
+    ///
+    /// Complete explicit policies and captures without usable timing or transcript metadata
+    /// return unchanged. Recorded values never replace explicit launch arguments.
+    ///
+    /// - Parameters:
+    ///   - launchCommand: Capture to repair, or nil when no launch was selected.
+    ///   - transcriptPath: Optional path to the session's permission evidence.
+    ///   - observedAt: Current hook time; takes precedence over the capture's older timestamp.
+    /// - Returns: The original or repaired capture, preserving nil when no capture exists.
     private func repairedCodexLaunchCommand(
         _ launchCommand: AgentHookLaunchCommandRecord?,
         transcriptPath: String?,

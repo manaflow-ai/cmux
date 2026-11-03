@@ -45,6 +45,13 @@ def run_wrapper(
     inherited_other_agent: bool = False,
     sibling_shim_available: bool = True,
 ) -> tuple[int, list[str], list[str], dict[str, str], str]:
+    """Run the production wrapper with disposable fake Codex and cmux executables.
+
+    Launcher, PATH and inherited-identity variants expose the actual forwarded argv,
+    hook requests and process metadata. Return exit status, argv, cmux calls,
+    exported metadata and stderr so assertions can distinguish passthrough from
+    an instrumented session. Real socket fixtures are created only when requested.
+    """
     with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
         tmp = Path(td)
         wrapper_dir = tmp / ("wrapper bin" if profile_reorders_path or inherited_path_reorders_path else "wrapper-bin")
@@ -248,6 +255,11 @@ def expect(condition: bool, message: str, failures: list[str]) -> None:
 
 
 def test_custom_launch_command(failures: list[str]) -> None:
+    """Check custom-launcher selection, literal argv forwarding and one inner hook owner.
+
+    Includes executable paths, disabled hooks, nested launches, preflight commands
+    and error propagation without silently substituting the ordinary launcher.
+    """
     for argv in (
         ["resume", SESSION_ID, "-a", "never", "-s", "workspace-write"],
         ["resume", SESSION_ID, "literal $(printf injected); 'quoted'"],
@@ -330,6 +342,7 @@ def test_custom_launch_command(failures: list[str]) -> None:
 
 
 def test_custom_launcher_profile_reorders_path(failures: list[str]) -> None:
+    """Keep real PID registration and one hook set after login profiles reorder PATH."""
     for argv in ([], ["resume", SESSION_ID, "-a", "never", "-s", "workspace-write"]):
         code, actual, calls, env, stderr = run_wrapper(
             socket_state="stale", argv=argv, launch_command="subcodex",
@@ -350,6 +363,11 @@ def test_custom_launcher_profile_reorders_path(failures: list[str]) -> None:
 
 
 def test_executable_launcher_inherited_path(failures: list[str]) -> None:
+    """Exercise sibling and separate managed shims with native-first inherited PATH.
+
+    The launcher must retain literal resume arguments, consume its reentry guard,
+    and replace inherited agent identity with the real Codex process metadata.
+    """
     argv = ["resume", SESSION_ID, "-a", "never", "-s", "workspace-write",
             "", "two words", "literal $(false); 'quoted'", "line1\nline2"]
     for managed_shim, reordered_path, sibling_shim in (
@@ -586,6 +604,7 @@ def test_headless_marker_follows_the_subcommand(failures: list[str]) -> None:
 
 
 def main() -> int:
+    """Run wrapper behavior regressions and return nonzero when any collected assertion fails."""
     failures: list[str] = []
     test_custom_launch_command(failures)
     test_custom_launcher_profile_reorders_path(failures)

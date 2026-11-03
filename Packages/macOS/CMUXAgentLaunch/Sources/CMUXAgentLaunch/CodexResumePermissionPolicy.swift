@@ -44,6 +44,7 @@ public struct CodexResumePermissionPolicy: Sendable {
         guard !launchCommand.arguments.isEmpty, !permissionArguments.isEmpty else { return launchCommand }
         var launchCommand = launchCommand
         let explicit = permissionFields(launchCommand)
+        /// Inserts recovered options before the prompt separator, preserving literal prompt arguments.
         func insertRecovered(_ arguments: [String]) {
             // Flags after `--` are prompt text, not Codex options.
             let index = launchCommand.arguments.firstIndex(of: "--") ?? launchCommand.arguments.endIndex
@@ -55,6 +56,7 @@ public struct CodexResumePermissionPolicy: Sendable {
             insertRecovered(permissionArguments)
             return launchCommand
         }
+        /// Reads the value following a recovered option, returning nil for absent or incomplete pairs.
         func inferredValue(_ option: String) -> String? {
             guard let index = permissionArguments.firstIndex(of: option),
                   index + 1 < permissionArguments.count else { return nil }
@@ -128,6 +130,10 @@ public struct CodexResumePermissionPolicy: Sendable {
         return arguments.isEmpty ? nil : arguments
     }
 
+    /// Identifies explicitly supplied fields and resolves flag-over-config sandbox precedence.
+    ///
+    /// Argument parsing stops at the prompt separator. Unrecognized parent-table syntax
+    /// remains authoritative so recovery cannot guess over an explicit override.
     private func permissionFields(
         _ launchCommand: AgentLaunchCommand?
     ) -> (approval: Bool, sandbox: Bool, network: Bool, sandboxMode: String?) {
@@ -201,6 +207,7 @@ public struct CodexResumePermissionPolicy: Sendable {
         return (approval, sandbox, network, mode)
     }
 
+    /// Extracts split, compact or equals-form Codex config overrides without interpreting their values.
     private func configOverride(in arguments: [String], at index: Int) -> String? {
         let argument = arguments[index]
         if argument == "-c" || argument == "--config" {
@@ -213,6 +220,7 @@ public struct CodexResumePermissionPolicy: Sendable {
     }
 
 
+    /// Trims a recorded policy string and treats blank values as absent evidence.
     private func normalizedValue(_ value: String?) -> String? {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -1008,6 +1008,11 @@ def codex_hook_commands(hooks: dict) -> list[str]:
 
 
 def test_codex_resume_retains_recorded_network_policy(cli_path: str, root: Path) -> None:
+    """Check published resume bindings against recorded and explicit permission policies.
+
+    Isolated transcripts and socket fixtures cover Boolean-only network evidence,
+    config/flag precedence, independent field recovery and monitor-free teardown.
+    """
     cases = [
         (True, None, "split", []), (False, None, "split", []),
         (None, None, "split", []), (1, None, "split", []),
@@ -4323,6 +4328,7 @@ def test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path: str, root:
 
 
 def main() -> int:
+    """Run the native-CLI hook regressions and return a failing status on setup or assertion errors."""
     try:
         cli_path = resolve_cmux_cli()
     except Exception as exc:

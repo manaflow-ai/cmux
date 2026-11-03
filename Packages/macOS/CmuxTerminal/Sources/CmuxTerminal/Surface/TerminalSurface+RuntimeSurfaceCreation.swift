@@ -12,6 +12,15 @@ internal import CMUXDebugLog
 // MARK: - Native runtime-surface creation/config assembly
 
 extension TerminalSurface {
+    /// Assembles the launch environment and callbacks, then creates the native terminal surface.
+    ///
+    /// - Parameters:
+    ///   - app: Ghostty application that owns the surface.
+    ///   - view: Native host used for rendering and surface callbacks.
+    ///   - scaleFactors: View and backing-scale values used in runtime configuration.
+    ///   - agentCommandShims: Prepared managed agent entrypoints, when available.
+    ///   - spawnPolicy: Snapshot of launch preferences and integration policy.
+    /// - Returns: The created surface when initialization succeeds, plus pending runtime startup input.
     @MainActor
     func createNativeRuntimeSurface(
         app: ghostty_app_t,

@@ -172,6 +172,7 @@ struct AgentIntegrationSettingsStoreTests {
         #expect(store.customClaudePath == "/usr/local/bin/claude")
     }
 
+    /// Treats unset or whitespace-only launcher settings as absent and trims a configured prefix.
     @Test func codexLaunchCommandTrimsAndNilsEmpty() {
         let defaults = makeScratchDefaults()
         let store = AgentIntegrationSettingsStore(defaults: defaults)

@@ -41,6 +41,16 @@ public struct AutomationSection: View {
     @State private var automationRulesActionIsError = false
     @State private var automationRulesRefreshID = 0
     private struct SocketPasswordStatus: Equatable { let message: String; let isError: Bool }
+    /// Creates automation controls backed by the supplied settings stores and host actions.
+    ///
+    /// - Parameters:
+    ///   - defaultsStore: Store for ordinary persisted preference values.
+    ///   - jsonStore: Configuration store parameter; currently unused by this section.
+    ///   - secretStore: Store for the socket password.
+    ///   - catalog: Keys and defaults shared with the other settings surfaces.
+    ///   - errorLog: Sink for settings read/write failures.
+    ///   - hostActions: App-owned operations exposed by the settings window.
+    ///   - socketPolicyResolver: Resolver for effective socket access policy.
     public init(
         defaultsStore: UserDefaultsSettingsStore,
         jsonStore: JSONConfigStore,
@@ -93,6 +103,7 @@ public struct AutomationSection: View {
         _portRangeModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.portRange))
     }
     private static let columnWidth: CGFloat = 196
+    /// Renders the automation cards and keeps their observed settings and status projections current.
     public var body: some View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.automation", defaultValue: "Automation"), section: .automation)
@@ -365,6 +376,7 @@ public struct AutomationSection: View {
             SettingsCardNote(String(localized: "settings.automation.claudeCode.note", defaultValue: "When enabled, cmux wraps the claude command to inject session tracking and notification hooks. Disable if you prefer to manage Claude Code hooks yourself."))
         }
     }
+    /// Presents Codex hook integration and the launch-command preference used by new or restored terminals.
     @ViewBuilder
     private var codexCard: some View {
         SettingsCard {

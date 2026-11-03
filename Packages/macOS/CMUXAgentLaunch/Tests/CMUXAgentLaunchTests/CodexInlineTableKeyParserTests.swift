@@ -3,6 +3,7 @@ import Testing
 
 @Suite
 struct CodexInlineTableKeyParserTests {
+    /// Keeps escaped spellings of TOML keys equivalent to their decoded Unicode scalar values.
     @Test("Basic keys use TOML escape rules", arguments: [
         ("writable\\U0000005Froots", "writable_roots"),
         ("network\\u005faccess", "network_access"),
@@ -19,6 +20,7 @@ struct CodexInlineTableKeyParserTests {
         #expect(CodexInlineTableKeyParser().parse(table) == Set([fixture.1]))
     }
 
+    /// Rejects invalid key encodings so permission recovery can preserve an unknown explicit override.
     @Test("Malformed escapes and invalid scalars stay unknown", arguments: [
         "\\U00110000", "\\uD800", "\\uDC00", "\\uD83D\\uDE00", "\\U000000GG",
         "\\u12", "\\U00005F", "\\xG0", "\\q", "\\/", "trailing\\",
@@ -28,6 +30,7 @@ struct CodexInlineTableKeyParserTests {
         #expect(CodexInlineTableKeyParser().parse("{\"\(key)\"=[]}") == nil)
     }
 
+    /// Ensures literal TOML keys retain backslashes rather than expanding Unicode escapes.
     @Test("Literal keys preserve backslashes")
     func literalKey() {
         let key = "literal\\U0000005Fkey"

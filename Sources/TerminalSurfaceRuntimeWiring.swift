@@ -78,6 +78,7 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
     private let computerUseConfigStore = JSONConfigStore(fileURL: CmuxConfigLocation().userConfigFile)
     private let computerUseEnabledKey = SettingCatalog().computerUse.enabled
 
+    /// Snapshots terminal launch preferences, socket authentication and managed-policy overrides for a new surface.
     func currentSpawnPolicy() -> TerminalSurfaceSpawnPolicy {
         let integrations = AgentIntegrationSettingsStore(defaults: .standard)
         return TerminalSurfaceSpawnPolicy(
