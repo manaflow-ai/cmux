@@ -217,7 +217,7 @@ test("the chosen Cloud environment travels with the start; an absent choice pres
   expect(calls[1]).not.toHaveProperty("environment");
 });
 
-/// A `localStorage` stand-in that outlives one page's `cloudStartKeys` (a relaunch makes a new one).
+/// A `localStorage` stand-in that outlives one page's `cloudStartKeys` (a page reload makes a new one).
 function memoryStore() {
   const items = new Map<string, string>();
   return {
@@ -251,12 +251,12 @@ test("a retry of a start whose answer was lost sends the first key again, so the
   ]);
 });
 
-test("a start's key outlives a relaunch while its answer is out, and is new once it opened a chat", () => {
+test("a start's key outlives a page reload while its answer is out, and is new once it opened a chat", () => {
   const store = memoryStore();
   const next = counter();
   const start = { task: "fix it", cwd: "/Users/me/paint" };
   const first = cloudStartKeys(store, () => 1_000, next).keyFor(start);
-  // The app relaunched mid-create: a new page, the same prompt sent again.
+  // The page reloaded mid-create: a new page, the same prompt sent again.
   const again = cloudStartKeys(store, () => 2_000, next);
   expect(again.keyFor(start)).toBe(first);
   again.ended(start, { ok: true });

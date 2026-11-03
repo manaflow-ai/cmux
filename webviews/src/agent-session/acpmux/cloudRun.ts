@@ -112,7 +112,9 @@ export function oneCloudStart(
   };
 }
 
-/// Where a Cloud start's key is kept between sends: `localStorage` in the page, so a relaunch keeps it.
+/// Where a Cloud start's key is kept between sends: the page's `localStorage`. The agent panes share
+/// one in-memory web data store (AgentPaneView+Warmup), so it outlives a page reload or a closed tab
+/// but not an app relaunch.
 export type CloudStartKeyStore = {
   getItem(name: string): string | null;
   setItem(name: string, value: string): void;
@@ -157,7 +159,7 @@ function pageKeyStore(): CloudStartKeyStore | undefined {
 }
 
 /// One key per start the person asked for (#33493). A retry of a start whose answer was lost or
-/// failed (the same prompt sent again from the composer, also after a relaunch) reuses its first
+/// failed (the same prompt sent again from the composer, also after a page reload) reuses its first
 /// key, so the host's ledger (cmux-tui `link/start_chat_cli.rs`, keyed by it) reaches the machine
 /// that start made or is making instead of creating a second one. The key is forgotten once the
 /// start opened its chat, or the cap card sent the prompt here instead; a changed prompt, folder,
