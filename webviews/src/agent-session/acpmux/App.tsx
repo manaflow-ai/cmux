@@ -577,7 +577,13 @@ import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { opensBesideRows, sideChatRow } from "./header/sideChatRow";
 import { isCurrentMenuCommand, parseMenuCommand } from "./header/menuCommands";
 import { errorRecovery, lastFailedTurn } from "./conversation/errorRecovery";
-import { NewestSteerContext, PendingSteer, takeBackSteer, takesSteersBack } from "./conversation/PendingSteer";
+import {
+  markSentNow,
+  NewestSteerContext,
+  PendingSteer,
+  takeBackSteer,
+  takesSteersBack,
+} from "./conversation/PendingSteer";
 import { Thinking } from "./conversation/Thinking";
 import { type WorkingCounts, WorkingCountsContext, WorkingFor } from "./conversation/WorkingFor";
 import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
@@ -1078,7 +1084,12 @@ const answerHeld = (promptId: string, approve: boolean, revision?: number): Prom
   );
 
 const editQueued = (promptId: string, edit: QueueEdit) =>
-  callNative<{ ok?: boolean } | null>("chat.queue.edit", { promptId, ...edit }).then((result) => result?.ok === true);
+  callNative<{ ok?: boolean } | null>("chat.queue.edit", { promptId, ...edit }).then((result) => {
+    const ok = result?.ok === true;
+    // Whichever control sent it now, its steer row (same promptId) offers no Send now again.
+    if (ok && edit.op === "send_now") markSentNow(promptId);
+    return ok;
+  });
 
 /// The width the header's tools take in the pane's tab row, so the App narrows the tabs (header/tabRow.ts).
 const reportTabRowTools = (width: number) => void callNative("pane.tabRowTools", { width }).catch(() => undefined);
