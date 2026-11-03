@@ -127,10 +127,17 @@ extension AgentPaneModel {
         guard AgentPaneMediaGrants.types[file.pathExtension.lowercased()] != nil,
               let values = try? file.resourceValues(forKeys: [.isRegularFileKey]), values.isRegularFile == true
         else { return Self.replyFailure(.mediaRefused) }
-        // Outside the roots, a reference movie is refused as Quick Look refuses it: the player
-        // would play the media it points at.
+        // Outside the roots the pane plays a private snapshot (a clone, free on APFS), as Quick Look
+        // does, never the path: every range request reopens what it was granted, so a file rewritten
+        // or a folder swapped for a link after this check never reaches the player. A reference
+        // movie is refused, as Quick Look refuses it: the player would play the media it points at.
         if attached != nil {
-            guard await AgentPaneVideoInfo.isSelfContained(file), !chatIsElsewhere else { return Self.replyFailure(.mediaRefused) }
+            guard let copy = await videoSnapshot(src) else { return Self.replyFailure(.mediaRefused) }
+            guard await AgentPaneVideoInfo.isSelfContained(copy), !chatIsElsewhere else {
+                await AgentPaneVideoInfo.discard(copy)
+                return Self.replyFailure(.mediaRefused)
+            }
+            return AgentPaneReply.success(["src": AgentPaneMediaGrants.shared.grant(copy)])
         }
         return AgentPaneReply.success(["src": AgentPaneMediaGrants.shared.grant(file)])
     }

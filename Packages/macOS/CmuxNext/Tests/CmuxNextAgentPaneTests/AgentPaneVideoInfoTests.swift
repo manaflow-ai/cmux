@@ -258,12 +258,22 @@ struct AgentPaneVideoInfoTests {
 
         let model = AgentPaneModel(host: NoHost())
         model.replyLinks.home = home.path
+        let videos = folder.appendingPathComponent("videos", isDirectory: true)
+        model.replyLinks.videoFolder = videos
         let played = await Self.ask(model, "media.load", ["src": clip.path])
         #expect(Self.errorCode(played) == nil, "\(played)")
         let src = try #require((played["value"] as? [String: Any])?["src"] as? String)
         #expect(src.hasPrefix("cmux-agent://pane/__media/") && src.hasSuffix(".mov"))
         let url = try #require(URL(string: src))
-        #expect(AgentPaneMediaGrants.shared.file(for: url)?.resolvingSymlinksInPath() == clip.resolvingSymlinksInPath())
+        // The grant is a private copy, never the path: what the player reads is the clip as it was checked.
+        let granted = try #require(AgentPaneMediaGrants.shared.file(for: url))
+        #expect(granted.path.hasPrefix(videos.path + "/") && granted.lastPathComponent == "clip.mov")
+        let bytes = try Data(contentsOf: clip)
+        #expect(try Data(contentsOf: granted) == bytes)
+        // Rewritten into a reference movie after the grant, the clip never reaches the player.
+        try Data(contentsOf: pointer).write(to: clip)
+        #expect(try Data(contentsOf: granted) == bytes)
+        #expect(await AgentPaneVideoInfo.isSelfContained(granted))
         #expect(Self.errorCode(await Self.ask(model, "media.load", ["src": pointer.path])) == AgentPaneReplyError.mediaRefused.rawValue)
     }
 
