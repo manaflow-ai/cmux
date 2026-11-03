@@ -95,7 +95,7 @@ import Testing
             let key = key
             cache.onBrowserReady = { [weak cache] ready in
                 guard ready == key, firstFrame == nil, !(cache?.existingBrowser(ready)?.tab is HibernatedBrowserTab) else { return }
-                firstFrame = cache?.existingBrowser(ready).map { Self.omnibar($0, in: rig).displayedText }
+                firstFrame = cache?.existingBrowser(ready).map { HibernatedTabOmnibarTests.omnibar($0, in: rig).displayedText }
             }
             cache.present(key, by: rig.pane, presence: .visible)
             try await rig.until("the page woke") { firstFrame != nil }
