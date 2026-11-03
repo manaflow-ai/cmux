@@ -39,7 +39,8 @@ struct ChatTailCacheTests {
         let host = HeldSnapshotHost()
         let started = await host.started
         let reply = Task {
-            await AgentPaneTailCache.reply(to: "chat.tail.get", params: ["sessionId": "s-1"], host: host)
+            let value = await AgentPaneTailCache.reply(to: "chat.tail.get", params: ["sessionId": "s-1"], host: host)
+            return Self.value(value) is NSNull
         }
         for await _ in started { break }
         AgentPaneTailCache.shared.clear()
@@ -50,7 +51,7 @@ struct ChatTailCacheTests {
         // A new sign-in cannot make the old lifecycle's queued reply current again.
         AgentPaneTailCache.shared.resume()
         await host.deliver(try JSONSerialization.data(withJSONObject: Self.tail(4)))
-        #expect(Self.value(await reply.value) is NSNull)
+        #expect(await reply.value)
         _ = Self.bridge("chat.tail", ["sessionId": "s-1", "tail": Self.tail(2)])
         #expect(Self.seqs(Self.value(Self.bridge("chat.tail.get", ["sessionId": "s-1"]))) == [1, 2])
     }
