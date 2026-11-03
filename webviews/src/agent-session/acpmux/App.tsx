@@ -3007,7 +3007,10 @@ export function VirtualTranscript({
     if (!streams) return;
     for (let index = paneRows.length - 1; index >= 0; index -= 1) {
       const row = paneRows[index]!;
-      if (row.kind === "assistant" && row.streaming) return void drewStreamingRow(row.id, row.text);
+      if (row.kind === "assistant" && row.streaming) {
+        drewStreamingRow(row.id, row.text);
+        return;
+      }
       if (row.kind === "user") break;
     }
     drewStreamingRow(undefined, undefined);
