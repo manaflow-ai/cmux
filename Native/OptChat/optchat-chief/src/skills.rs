@@ -29,12 +29,12 @@ pub const BUILTIN: [(&str, &str); 7] = [
         include_str!("../skills/chief-auth-escalation/SKILL.md"),
     ),
     (
-        "chief-teleport",
-        include_str!("../skills/chief-teleport/SKILL.md"),
-    ),
-    (
         "chief-cloud-machines",
         include_str!("../skills/chief-cloud-machines/SKILL.md"),
+    ),
+    (
+        "chief-teleport",
+        include_str!("../skills/chief-teleport/SKILL.md"),
     ),
     (
         "cmux-adoption",
