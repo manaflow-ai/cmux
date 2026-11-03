@@ -156,6 +156,11 @@ public final class AgentPaneModel {
     /// Opens a turn's local web page in a browser tab beside the agent;
     /// false when it could not.
     @ObservationIgnored public var onOpenPreview: (@MainActor (URL) -> Bool)?
+    /// Claude's automatic sign-in page of a Cloud chat (``AgentPaneSignInPage/callbackPort(_:)``),
+    /// in a Chromium tab whose localhost is the chat's machine: the open, or nil when no such tab
+    /// can be made here (the card then opens the page that gives a code to paste). Asked before any
+    /// gesture is spent.
+    @ObservationIgnored public var onOpenSignInOnMachine: (@MainActor (URL) -> (@MainActor () -> Bool)?)?
     /// Start Agent's panel (``AgentPaneQuickHooks``): its page's `quick.*` requests.
     @ObservationIgnored public var quick: AgentPaneQuickHooks?
     /// This build's URL scheme, handed to the page with every handshake so
