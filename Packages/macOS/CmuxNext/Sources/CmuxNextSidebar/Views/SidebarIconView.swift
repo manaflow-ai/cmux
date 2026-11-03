@@ -13,7 +13,7 @@ final class SidebarIconView: NSView {
     private let swatch = CALayer()
     private let emoji = SidebarEmojiGlyphView()
     private var icon: WorkspaceIcon?
-    /// What the last `configure` drew from (the glyphs scale with the title font).
+    /// What the last `configure` drew from (the glyphs scale with the title font and the density's icon column).
     private var configured: (icon: WorkspaceIcon?, pointSize: CGFloat)?
     /// One ink for every symbol, tinted or not (the solid group header's
     /// glyph ink, cx-qno.22: a red icon must not vanish on a red bar); nil
@@ -64,7 +64,7 @@ final class SidebarIconView: NSView {
     func configure(icon: WorkspaceIcon?) {
         // A row's status tick configures the row again with the same icon: keep the image. A new
         // NSImage redraws (pack icons run their drawing handler) and relays out at the next display.
-        let pointSize = SidebarStyle.titleFont.pointSize
+        let pointSize = SidebarStyle.workspaceSymbolPointSize
         if let configured, configured.icon == icon, configured.pointSize == pointSize { return }
         configured = (icon, pointSize)
         self.icon = icon
@@ -83,7 +83,8 @@ final class SidebarIconView: NSView {
             inkKey = "symbol|\(name)|\(pointSize)"
             imageView.isHidden = false
         case let .favicon(favicon)?:
-            imageView.image = NSImage(cgImage: favicon.image, size: NSSize(width: SidebarStyle.kindGlyphSize, height: SidebarStyle.kindGlyphSize))
+            let side = SidebarStyle.workspaceFaviconSide
+            imageView.image = NSImage(cgImage: favicon.image, size: NSSize(width: side, height: side))
             inkKey = "favicon|\(UInt(bitPattern: ObjectIdentifier(favicon.image).hashValue))"
             imageView.isHidden = false
         case .swatch?, nil:
@@ -122,11 +123,11 @@ final class SidebarIconView: NSView {
 
     override func layout() {
         super.layout()
-        // A row's icon column can be wider than the glyph (the comfortable 20 pt box): the glyph keeps its own
-        // `iconBox` square, centered in the column, so density moves the column and not the glyph's size.
+        // The glyph fills the density's icon column (`SidebarStyle.workspaceGlyphSide`: 16 compact, 20 comfortable), so
+        // a roomier density draws a larger icon, not the compact one in a wider slot.
         // `leadsWithInk`: each glyph's drawn ink starts at x 0 by `SidebarStyle.iconColumnGlyphX`; the chip, the dot and
         // the emoji's square are their own ink, a symbol or favicon image is measured (`SidebarGlyphInk`).
-        let side = min(bounds.width, bounds.height, SidebarStyle.iconBox)
+        let side = min(bounds.width, bounds.height, SidebarStyle.workspaceGlyphSide)
         let square = CGRect(x: 0, y: 0, width: side, height: side)
         let content = CGRect(x: leadsWithInk ? SidebarStyle.iconColumnGlyphX(leading: 0, ink: square) : (bounds.width - side) / 2,
                              y: (bounds.height - side) / 2, width: side, height: side)

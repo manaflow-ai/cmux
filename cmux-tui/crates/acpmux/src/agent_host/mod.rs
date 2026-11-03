@@ -263,6 +263,9 @@ pub struct TranslatorSpec {
     /// The chat's prompt suggestions at spawn (its `prompt-suggestions` option, on unless off).
     #[serde(default = "suggestions_default")]
     pub prompt_suggestions: bool,
+    /// The chat's session recap choice at spawn (its `session-recap` option).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recap: Option<String>,
     /// Claude's own session id when it is known at spawn.
     pub claude_session_id: Option<String>,
 }

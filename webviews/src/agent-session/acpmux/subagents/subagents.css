@@ -662,6 +662,13 @@ button.cv-subagent > :last-child {
      there's a new subagent or command"). */
   font-variant-numeric: tabular-nums;
 }
+/* Folded, the header names what runs (trayFoldHead.experiment.ts); the rest are a count that, like
+   the time, never truncates: the names give way first. */
+.acpmux-running-tray__more {
+  flex: none;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
 .acpmux-running-tray__time {
   flex: 1 0 auto;
   text-align: left;
@@ -846,6 +853,26 @@ button.cv-subagent > :last-child {
   border-radius: 0;
   background: none;
 }
+/* A running line's Stop is the filled rounded square of Claude Desktop's running rows, now that the
+   line draws no spinner and no "Running" word (Leo, 2026-11-03: "do we really need a running symbol
+   vs just having the time and a square stop button?"). Its tone is trayStopLook's arm
+   (trayPanel.experiment.ts): the text colour by default, muted like the time, or on a faint box. Its
+   track, size and centre stay the composer Stop's; a refused stop keeps the danger colour. */
+.acpmux-running-tray[data-stop="solid"] :is(.cv-subagent__stop, .acpmux-session-info-stop):not([data-state="failed"]) {
+  color: var(--agent-text);
+}
+.acpmux-running-tray[data-stop="muted"] :is(.cv-subagent__stop, .acpmux-session-info-stop):not([data-state="failed"]) {
+  color: var(--agent-muted);
+}
+.acpmux-running-tray[data-stop="muted"] :is(.cv-subagent__stop, .acpmux-session-info-stop):not([data-state="failed"]):hover {
+  color: var(--agent-text);
+}
+.acpmux-running-tray[data-stop="boxed"] :is(.cv-subagent__stop, .acpmux-session-info-stop) > svg {
+  box-sizing: content-box;
+  padding: var(--ds-space-1);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+}
 /* A line whose context menu is open (its Stop) stays lit while the pointer is in the menu. */
 .acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__button:enabled):hover,
 .acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__button[data-popup-open]),
@@ -994,6 +1021,19 @@ button.cv-subagent > :last-child {
 .cv-subagent-done-row > .cv-subagent-done__trail {
   flex: none;
   margin-inline-start: auto;
+}
+/* The name chip takes the room the line has and is cut, with an ellipsis, only at the row's edge,
+   never at AgentTag.css's 40% cap (#29754); the words before it keep their width. A block box so
+   text-overflow draws the ellipsis; the 20px line keeps it one line. */
+.cv-subagent-done .cv-agent-activity__sentence > .cv-agent-tag {
+  display: block;
+  flex: 0 1 auto;
+  max-width: none;
+}
+/* What follows the name (why it stopped, why it failed) is cut first, the chip only once it is gone
+   (SubagentDoneLine.tsx: "the line cuts it first"). */
+.cv-subagent-done .cv-agent-activity__sentence > .cv-subagent-done__suffix {
+  flex: 0 1000 auto;
 }
 .cv-subagent-done-row > .cv-tool__chevron {
   flex: none;

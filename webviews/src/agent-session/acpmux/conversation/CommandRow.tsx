@@ -12,6 +12,7 @@ import { commandFolder } from "./commandFolder";
 import { menuPartRef } from "./menuParts";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
+import { ApprovedMark } from "./ApprovedMark";
 import { RowShimmer } from "./ShimmerText";
 import { Check, ChevronRight, TerminalSquare } from "./icons";
 import { isRunning, toolDuration } from "./toolGroups";
@@ -20,12 +21,13 @@ import { ROW_WIDTH, shortCommand } from "./shortCommand";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { rowFailed, toolFailure } from "./toolFailure";
 import { leadingVerb, ToolLabel } from "./ToolVerb";
-import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
+import { failureWord, InlineFailureCause, ToolFailureCause, useInStep } from "./ToolFailureCause";
 
 // direct.ts replaces only the changed item. Keep every expanded sibling out of that stream's
 // render/output work; the row's own disclosure, Find and language subscriptions still update it.
 export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActivity }) {
   const t = useT();
+  const step = useInStep();
   const tool = item.tool!;
   // The Verbose transcript view opens the command to its output.
   const [open, setOpen] = useTranscriptDisclosure(`command:${tool.id}`, false, true);
@@ -102,11 +104,12 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
           {!tool.background && <InlineFailureCause failure={failure} />}
         </span>
         <span className="cv-command__meta">
+          {tool.approved && <ApprovedMark />}
           {foreground ? null : tool.background ? (
             <BackgroundMark background={tool.background} />
           ) : failure ? (
             <span className="cv-command__failed" data-find-skip>
-              {failureWord(t, failure)}
+              {failureWord(t, failure, step)}
             </span>
           ) : (
             <Check size={14} className="cv-command__ok" />

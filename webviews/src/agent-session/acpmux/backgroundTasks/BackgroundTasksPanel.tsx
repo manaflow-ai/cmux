@@ -22,8 +22,11 @@
 // page lands, then the agent's rows; its progress refreshes it while it is open, and closing it
 // disposes the reader. Workflow agents open only where the app reads workflows (Labs), as elsewhere.
 //
-// What runs turns the shared spinner, never a pulsing dot. Its one clock ticks each second only
-// while something runs and the pane shows (SubagentGroup.tsx `useNow`), and stops with the panel.
+// What runs draws no running symbol (no spinner, no pulsing dot), only its ticking time and its
+// filled square Stop, as Claude Desktop's panel reads (Leo, 2026-11-03: "do we really need a
+// running symbol vs just having the time and a square stop button?"). Its one clock ticks each
+// second only while something runs and the pane shows (SubagentGroup.tsx `useNow`), and stops
+// with the panel.
 import {
   createContext,
   useCallback,
@@ -35,7 +38,7 @@ import {
   type ReactNode,
 } from "react";
 import { formatDuration } from "../conversation/turns";
-import { ChevronLeft, Close, Expand, Spinner } from "../conversation/icons";
+import { ChevronLeft, Close, Expand } from "../conversation/icons";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
@@ -378,7 +381,6 @@ function GroupBlock({
     <div className="acpmux-bg__group" data-state={live ? "running" : group.state} data-group={group.id}>
       <div className="acpmux-bg__agent">
         <button type="button" className="acpmux-bg__name" disabled={!opens} onClick={opens}>
-          {live && <Spinner size={12} loading />}
           <span className="acpmux-bg__label">{group.name}</span>
           {opens && (
             <span className="acpmux-bg__chevron" aria-hidden="true">
@@ -508,13 +510,10 @@ function TaskRow({
   return (
     <div className="acpmux-bg__task" data-state={task.state}>
       <button type="button" className="acpmux-bg__task-open" disabled={!opens} onClick={opens}>
-        {task.state === "running" ? (
-          <Spinner size={12} loading />
-        ) : (
-          <span className="acpmux-bg__disclosure" aria-hidden="true">
-            <Icon name="disclosure.collapsed" size={12} row />
-          </span>
-        )}
+        {/* A running task's time and Stop say it runs: it leads with the same mark as one that ended. */}
+        <span className="acpmux-bg__disclosure" aria-hidden="true">
+          <Icon name="disclosure.collapsed" size={12} row />
+        </span>
         <span className="acpmux-bg__label">{task.title}</span>
       </button>
       <span className="acpmux-bg__time">{time(task.startedAt, task.endedAt, now, task.state === "running")}</span>
@@ -555,7 +554,7 @@ function StopSlot({
           onStop(target).catch(() => setState("failed"));
         }}
       >
-        <Icon name="action.stop" size={12} />
+        <Icon name="action.stop" size={12} selected />
       </button>
     </span>
   );
