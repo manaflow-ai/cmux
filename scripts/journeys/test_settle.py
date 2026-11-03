@@ -14,7 +14,8 @@ last ones (the app's CEF helpers) up to 30 s after the launch, inside the first 
 - every nested helper app of the clone is registered with lsregister -f; an lsregister failure is recorded;
 - run.py packs settle_host.py, runs it on a film lease (--whole-host --vdisplay) after the launch and before the
   driver, writes OUT/settle-<lease>.json, and never fails the lease when it fails; it takes only lease time the
-  journeys do not need (skipped when there is none); with --settle-seconds 0, on a slot lease or with no --vdisplay
+  journeys and the driver's OCR warm-up do not need (skipped when there is none; after a wait to its bound the
+  driver's deadline still holds the budgets plus the warm-up); with --settle-seconds 0, on a slot lease or with no --vdisplay
   (the smoke gate) it does not run; a ps that fails or prints nothing is never quiet; the registrations are inside
   the bound.
 """
@@ -197,6 +198,41 @@ class RunLeaseSettleTest(unittest.TestCase):
         [f] = list(out.glob("settle-*.json"))
         self.assertTrue(json.loads(f.read_text())["quiet"])
 
+    def deadline_after(self, download, settle_seconds, budget=250):
+        """The driver's --deadline-seconds on a fake clock: the download takes DOWNLOAD s, a settle its bound + 2 s."""
+        import re
+        clock, seen, run = [1000.0], [], self.run
+        saved = (run.time.monotonic, run.time.sleep, run.remote)
+        inner = run.remote
+
+        def remote(host, script, input=None, timeout=600, check=True):
+            if "cmux-ci artifact" in script:
+                clock[0] += download
+            if "settle_host.py" in script:
+                clock[0] += int(re.search(r"--max-seconds (\d+)", script).group(1)) + 2
+            if "driver.py" in script:
+                seen.append(int(re.search(r"--deadline-seconds (\d+)", script).group(1)))
+            return inner(host, script, input=input, timeout=timeout, check=check)
+        run.time.monotonic = lambda: clock[0]
+        run.time.sleep = lambda sec: clock.__setitem__(0, clock[0] + sec)
+        run.remote = remote
+        try:
+            self.lease(budget=budget, settle_seconds=settle_seconds)
+        finally:
+            run.time.monotonic, run.time.sleep, run.remote = saved
+        return seen[0] if seen else None
+
+    def test_after_the_wait_the_driver_keeps_its_budget_and_the_ocr_warmup(self):
+        # The reviewer's repro (a 250 s journey; the settle runs to its bound + 2 s). The wait takes only time above
+        # budget + OCR warm-up: with it the driver's deadline is never under min(no-wait deadline, budget + warm-up).
+        need = 250 + self.run.OCR_WARMUP_RESERVE
+        for download in (60, 100, 150, 200, 250, 300, 380):
+            base, settled = self.deadline_after(download, 0), self.deadline_after(download, 75)
+            with self.subTest(download=download, base=base, settled=settled):
+                self.assertIsNotNone(base)
+                self.assertGreaterEqual(settled, min(base, need))
+                self.assertGreaterEqual(settled, base - 75)
+
     def test_a_failing_settle_never_fails_the_lease(self):
         self.settle_reply = self.run.subprocess.TimeoutExpired("ssh", 135)
         out = self.lease()
@@ -212,11 +248,11 @@ class RunLeaseSettleTest(unittest.TestCase):
         self.assertEqual(self.calls.count("driver"), 3)
 
     def test_the_wait_never_takes_the_journeys_time(self):
-        # 540 s lease, journeys of 260 s, 45 s reserve: at most 75 s; journeys of 470 s: no spare time, skipped.
+        # left - 45 s (fetch, release) - 60 s (OCR warm-up) - 20 s (ssh slack) - the journeys' budgets, at most 75 s
         self.assertEqual(self.run.settle_bound(75, 540, [{"budget_seconds": 260}]), 75)
-        self.assertEqual(self.run.settle_bound(75, 340, [{"budget_seconds": 250}]), 45)
-        self.assertEqual(self.run.settle_bound(75, 300, [{"budget_seconds": 250}]), 0)
-        out = self.lease(budget=480)
+        self.assertEqual(self.run.settle_bound(75, 420, [{"budget_seconds": 250}]), 45)
+        self.assertEqual(self.run.settle_bound(75, 380, [{"budget_seconds": 250}]), 0)
+        out = self.lease(budget=400)
         self.assertNotIn("settle", self.calls)
         self.assertIn("driver", self.calls)
         [f] = list(out.glob("settle-*.json"))

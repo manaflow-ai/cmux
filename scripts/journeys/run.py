@@ -466,12 +466,17 @@ def start_vdisplay(host, work, mode, hold, out, timeout):
 SETTLE_SECONDS = 75  # default bound of the Shortcuts-load wait after the launch (film leases; STATUS 7817)
 SETTLE_MIN_SECONDS = 20  # settle_host.py's quiet time: with less spare lease time than this the wait is skipped
 DRIVER_RESERVE = 45  # s the lease keeps after the driver's deadline (fetch and release), as `budget` below
+OCR_WARMUP_RESERVE = 60  # s the driver's text-reader warm-up takes inside its own deadline (driver.py main; SETUP_RESERVE)
+SETTLE_SSH_SLACK = 20  # s the settle's ssh call may run past its bound (ssh, zsh -l, python start, a late poll)
+SETTLE_START_SECONDS = 5  # of that slack, what the ssh and the python start take in each call: taken off the bound
 
 
 def settle_bound(settle_seconds, lease_left, specs):
-    """Seconds the settle wait may take: at most SETTLE_SECONDS, and never time the batch's journeys need (their
-    budget_seconds plus DRIVER_RESERVE out of what is left on the lease); 0 when that is under SETTLE_MIN_SECONDS."""
-    spare = lease_left - DRIVER_RESERVE - sum(float(s.get("budget_seconds") or 0) for s in specs)
+    """Seconds the settle wait may take: at most SETTLE_SECONDS, and never time the driver needs after it: the batch's
+    budget_seconds, the driver's OCR warm-up, DRIVER_RESERVE and the ssh slack, out of what is left on the lease;
+    0 when that is under SETTLE_MIN_SECONDS."""
+    spare = (lease_left - DRIVER_RESERVE - OCR_WARMUP_RESERVE - SETTLE_SSH_SLACK
+             - sum(float(s.get("budget_seconds") or 0) for s in specs))
     bound = min(float(settle_seconds), spare)
     return int(bound) if bound >= SETTLE_MIN_SECONDS else 0
 
@@ -569,7 +574,7 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
             else:
                 try:
                     settled = remote(host, f"/usr/bin/python3 -I {q(work + '/kit/settle_host.py')} --app {q(facts.get('app', app))} "
-                                           f"--max-seconds {bound}", timeout=bound + 20, check=False)
+                                           f"--max-seconds {max(1, bound - SETTLE_START_SECONDS)}", timeout=bound + SETTLE_SSH_SLACK, check=False)
                     text = settled.stdout.decode(errors="replace").strip().splitlines()
                     error = settled.stderr.decode(errors="replace").strip()[-300:]
                 except (RuntimeError, subprocess.TimeoutExpired) as failure:
