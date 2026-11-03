@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { compileFunction } from "node:vm";
 import { act, startTransition, useCallback, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
@@ -40,17 +41,15 @@ type Inputs = {
   changedDrawn: Ref<Set<string>>;
   setDrawn: (update: (current: Heights) => Heights) => void;
 };
-const useFlush = new Function(
-  "useCallback",
-  "useRef",
-  "useLayoutEffect",
+const useFlush = compileFunction(
   new Bun.Transpiler({ loader: "ts" }).transformSync(`
 ${comparison}
 function useFlush({ drawnRef, pendingDrawn, changedDrawn, setDrawn }) {
 ${callback}
 return flushDrawn;
 }`) + "\nreturn useFlush;",
-)(useCallback, useRef, useLayoutEffect) as (inputs: Inputs) => () => void;
+  ["useCallback"],
+)(useCallback) as (inputs: Inputs) => () => void;
 
 let root: Root | undefined;
 let dom: JSDOM | undefined;
