@@ -52,9 +52,18 @@ acpmux session move CHAT --machine NAME --json      # the move
   with `acpmux machine add` (ssh over the tailnet) or `acpmux machine doctor
   NAME --fix`; do not copy files by hand.
 
-Back to the laptop is the same command run on the machine that now holds
-the chat (`ssh NAME acpmux session move CHAT --machine LAPTOP`), or from here
-with the chat's `HOST/ID` address.
+A chat that is on another machine moves from here too, with `--from`: this
+machine drives both ends over ssh, so a Mac mini and a cloud VM that cannot
+reach each other (or this laptop) still trade chats. `--machine local`
+brings one back here:
+
+```bash
+acpmux session move CHAT --from mini-3 --machine cloud-vm   # mini -> cloud VM
+acpmux session move CHAT --from cloud-vm --machine local    # back to this Mac
+```
+
+CHAT is the chat's name or id on that machine (`acpmux ls` shows
+`HOST/NAME`; give the part after the slash).
 
 ## Moving to cmux Cloud
 
