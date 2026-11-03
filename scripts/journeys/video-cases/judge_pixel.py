@@ -39,8 +39,10 @@ A found (or cut) side gives:
              within 1 px)
 and per pane and line, shell inside the pane: exact shell pixels inside the pane's rect (beyond the rest count).
 Dividers: the middle of the gap between the content edges of the two fixture panes beside each trace divider.
-Tab strips (the note's strip rows): the strip's two edges against the pane's edges; the selected tab's pill against
-the pane's left edge (information: a pill also moves when the tabs reflow with the strip's width).
+Tab strips (the note's strip rows): the strip's two edges against the pane's edges, each read inside the pane's own
+rect of the shown sample and 48 pt around it (a strip that lags its pane): a neighbour's strip that touches it with no
+shell between is never this strip (that side's edge is the pane's own edge); the selected tab's pill against the pane's
+left edge (information: a pill also moves when the tabs reflow with the strip's width).
 Page windows (D4): each Chromium host of the trace's page rows against its page window (trace) and the page's ring 1
 (film): covers the divider, or loses edge columns.
 Motions (an edge of the trace that moves, then rests 3 samples): settle_frames (from the first frame that shows the
@@ -85,6 +87,7 @@ PILL_BRIDGE = 2             # ground gaps this narrow inside a run (between glyp
 PILL_MIN_PX = 12            # the selected tab's pill: the longest run of non-ground pixels, at least this long
 PILL_WIDTH_SHARE = 0.25     # a pill run whose width is this share off its rest width is not the pill (a reflow, a title)
 HOST_TOL_PX = 0.99          # a page window this far off its host (device px) or more: off
+STRIP_REACH_PT = 48.0       # a strip edge is read this far outside its pane's rect (a strip that lags its pane)
 TOL_PX = 1.0                # device px: an edge this close is in place
 SKIP_PT = 24.0              # points walked over (fill and "other": the rulers, glyphs) from the fill to ring 3
 NEAR_PT = 48.0              # the walk starts this close to the pane edge
@@ -594,14 +597,22 @@ def divider_series(film, did):
 # ---------------------------------------------------------------------------------------------------------------
 # Tab strips and Chromium page windows
 # ---------------------------------------------------------------------------------------------------------------
-def strip_extent(codes, center, shell):
-    """[lo, hi) of the run of non-shell pixels around CENTER on a strip row (the strip and its tabs), or None."""
+def strip_extent(codes, center, shell, lo=0, hi=None, reach=0):
+    """[lo, hi) of this pane's strip on a strip row: the run of non-shell pixels around CENTER, read inside [lo - reach,
+    hi + reach) (the pane's own rect of the shown sample, widened by what a strip may lag). A side whose run goes on past
+    that range touches a neighbour's strip (no shell between two strips of one color class: narrow panes, a column edge):
+    its edge is the pane's own edge there, never the neighbour's far side. None when CENTER is shell."""
+    L = len(codes)
+    hi = L if hi is None else hi
+    a, b = max(0, int(math.floor(lo)) - reach), min(L, int(math.ceil(hi)) + reach)
     c = int(round(center))
-    if not 0 <= c < len(codes) or codes[c] == shell:
+    if not a <= c < b or codes[c] == shell:
         return None
-    shells = np.flatnonzero(codes == shell)
-    left, right = shells[shells < c], shells[shells > c]
-    return (int(left[-1]) + 1 if len(left) else 0), (int(right[0]) if len(right) else len(codes))
+    seg = np.flatnonzero(codes[a:b] == shell) + a
+    left, right = seg[seg < c], seg[seg > c]
+    lo_edge = int(left[-1]) + 1 if len(left) else (int(round(lo)) if a > 0 else 0)
+    hi_edge = int(right[0]) if len(right) else (int(round(hi)) if b < L else L)
+    return lo_edge, hi_edge
 
 
 def pill_run(rgb, lo, hi, ground):
@@ -942,12 +953,14 @@ def judge_strips(film, shown, rest_frames, spring, reduce, summary, add_frame, l
             if not top + 1 <= y <= top + strip_h * film.scale - 1:
                 continue
             codes = np.where(codes_line[f] == CUE, shell, codes_line[f])  # the cue is not the strip
-            ext[f] = strip_extent(codes, (x + w / 2) * film.scale, shell)
-        rest = [f for f in rest_frames if ext[f]] or [f for f in range(film.n) if ext[f]][:REST_FALLBACK]
+            ext[f] = strip_extent(codes, (x + w / 2) * film.scale, shell, x * film.scale, (x + w) * film.scale,
+                                  int(STRIP_REACH_PT * film.scale))
+        whole = [e if e and e[0] is not None and e[1] is not None else None for e in ext]
+        rest = [f for f in rest_frames if whole[f]] or [f for f in range(film.n) if whole[f]][:REST_FALLBACK]
         if not rest:
             continue
-        ground = ground_color(film, [rgb_all[f] for f in rest[:REST_FALLBACK]], [ext[f] for f in rest[:REST_FALLBACK]])
-        pill = [pill_run(rgb_all[f], ext[f][0], ext[f][1], ground) if ext[f] else None for f in range(film.n)]
+        ground = ground_color(film, [rgb_all[f] for f in rest[:REST_FALLBACK]], [whole[f] for f in rest[:REST_FALLBACK]])
+        pill = [pill_run(rgb_all[f], whole[f][0], whole[f][1], ground) if whole[f] else None for f in range(film.n)]
         # The selected tab's pill keeps its width unless the tabs reflow: a run far from its rest width is a reflow or
         # another run (a title, the next tab), not the pill: not found.
         widths = [pill[f][1] - pill[f][0] for f in rest if pill[f]]
