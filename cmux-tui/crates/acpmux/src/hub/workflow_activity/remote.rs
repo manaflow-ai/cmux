@@ -405,6 +405,57 @@ mod tests {
                 .iter()
                 .all(|a| a.policy.get("remoteDispatch").is_some() && a.outcome.is_some())
         );
+        let request = attempts[0].policy["remoteDispatch"].clone();
+        let brief_id = request["briefId"].as_str().unwrap();
+        let receipt = hub.briefs.get(brief_id).unwrap();
+        assert!(receipt.get("receiptToken").is_none(), "receipt leaked its capability");
+        let child = receipt["sessionId"].as_str().unwrap();
+        // Even a valid different local caller holding the exact request cannot
+        // replay or cancel the parent's receipt through its own connection.
+        assert!(
+            crate::server::workflow_owner_call(
+                &hub,
+                child,
+                crate::rpc::method::MUX_DISPATCH,
+                request.clone()
+            )
+            .await
+            .is_err()
+        );
+        let mut cancel = request.clone();
+        cancel["action"] = json!("cancel");
+        assert!(
+            crate::server::workflow_owner_call(
+                &hub,
+                child,
+                crate::rpc::method::MUX_DISPATCH,
+                cancel
+            )
+            .await
+            .is_err()
+        );
+        let listed = crate::server::workflow_owner_call(
+            &hub,
+            child,
+            crate::rpc::method::MUX_BRIEFS,
+            json!({}),
+        )
+        .await
+        .unwrap();
+        assert!(listed["briefs"].as_array().unwrap().is_empty());
+        let listed = crate::server::workflow_owner_call(
+            &hub,
+            &run.owner_session_id,
+            crate::rpc::method::MUX_BRIEFS,
+            json!({}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            listed["briefs"].as_array().unwrap().len(),
+            2,
+            "the proven initiating caller lost its own receipt visibility"
+        );
         let saved_activity = saved.activities.get(&activity.id).unwrap();
         assert_eq!(
             hub.workflow_remote_agent(
