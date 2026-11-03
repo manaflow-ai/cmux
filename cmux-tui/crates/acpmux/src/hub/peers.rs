@@ -593,6 +593,9 @@ impl Hub {
             match notice {
                 PeerNotice::Connected => {
                     tracing::info!(peer = %peer, "peer ready");
+                    // The link takes requests again: messages waiting for a peer go now, not
+                    // after the rest of their retry delay (`server/outbox.rs` `deliver`).
+                    self.outbox.peer_ready.notify_waiters();
                     // Sessions can be saved before the handshake marks the link ready.
                     // Persist its cleared outage once, without rewriting an already-clear cache.
                     if self.peer(&peer).is_some_and(|p| {
@@ -671,9 +674,6 @@ impl Hub {
                     for summary in gone {
                         self.announce_remote(&peer, summary, "purged");
                     }
-                    // The peer's sessions are known again: messages waiting for it go now,
-                    // not after the rest of their retry delay (`server/outbox.rs` `deliver`).
-                    self.outbox.peer_ready.notify_waiters();
                 }
                 PeerNotice::SessionChanged { session, kind, seq } => {
                     let Some(mux_id) =

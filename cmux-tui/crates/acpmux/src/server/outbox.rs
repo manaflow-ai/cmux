@@ -421,12 +421,8 @@ async fn status(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
             .get("limit")
             .and_then(Value::as_u64)
             .map_or(LIST_LIMIT, |n| usize::try_from(n).unwrap_or(LIST_LIMIT).min(LIST_LIMIT));
-        let deliveries: Vec<Value> =
-            hub.outbox.list(caller, limit).iter().map(Delivery::status).collect();
-        let pending = deliveries
-            .iter()
-            .filter(|d| matches!(d["status"].as_str(), Some("queued" | "delivering")))
-            .count();
+        let (deliveries, pending) = hub.outbox.list(caller, limit);
+        let deliveries: Vec<Value> = deliveries.iter().map(Delivery::status).collect();
         return Ok(json!({"deliveries": deliveries, "pending": pending}));
     }
     let id = str_param(params, "deliveryId")
@@ -530,6 +526,22 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         if delivery.settled() {
             return;
         }
+        // Past its day (a restart resumes old ones too): failed, never sent this late.
+        if expired(&delivery, crate::store::now_ms()) {
+            hub.outbox.update(id, |d| {
+                if !d.settled() {
+                    d.state = State::Failed;
+                    let last =
+                        d.error.take().map(|e| format!("; last error: {e}")).unwrap_or_default();
+                    d.error = Some(format!("not delivered within a day of being sent{last}"));
+                    crate::attach::strip(&mut d.request);
+                }
+            });
+            if let Some(path) = hub.outbox.attachments_path(&delivery) {
+                forget_attachments(path).await;
+            }
+            return;
+        }
         let attempt = delivery.attempts + 1;
         hub.outbox.update(id, |d| {
             if !d.settled() {
@@ -623,16 +635,34 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                     }
                     return;
                 };
-                // A peer whose sessions come back listed ends the wait (`Outbox::peer_ready`):
-                // a message to a machine that was down goes the moment it is reachable.
+                // A peer whose link is ready again ends the wait (`Outbox::peer_ready`): a message
+                // to a machine that was down goes the moment it is reachable. A projection intent
+                // keeps its bounded schedule: another peer's reconnects must not use it up. The
+                // wait never runs past the message's day.
+                let left = delivery
+                    .created_at
+                    .saturating_add(RETRY_FOR_MS)
+                    .saturating_sub(crate::store::now_ms());
+                let sleep =
+                    tokio::time::sleep(Duration::from_secs(secs).min(Duration::from_millis(left)));
                 let ready = hub.outbox.peer_ready.notified();
-                tokio::select! {
-                    () = tokio::time::sleep(Duration::from_secs(secs)) => {}
-                    () = ready => {}
+                if delivery.projection_only() {
+                    sleep.await;
+                } else {
+                    tokio::select! {
+                        () = sleep => {}
+                        () = ready => {}
+                    }
                 }
             }
         }
     }
+}
+
+/// Whether `delivery`, a message (not a projection intent, which keeps its own schedule), is
+/// past [`RETRY_FOR_MS`] since it was handed over and still not delivered.
+fn expired(delivery: &Delivery, now: u64) -> bool {
+    !delivery.projection_only() && now >= delivery.created_at.saturating_add(RETRY_FOR_MS)
 }
 
 /// The wait before the next attempt of `delivery`: the next of [`RETRY_DELAYS_SECS`], then
@@ -854,6 +884,15 @@ mod retry_delay_tests {
             assert!(retry_delay(&mut delays, &intent, 2_000).is_some());
         }
         assert_eq!(retry_delay(&mut delays, &intent, 2_000), None);
+    }
+
+    /// A message a day old is not sent (after a restart too); a projection intent is not timed.
+    #[test]
+    fn a_message_past_its_day_is_expired() {
+        let d = delivery(1_000, false);
+        assert!(!expired(&d, 1_000 + RETRY_FOR_MS - 1));
+        assert!(expired(&d, 1_000 + RETRY_FOR_MS));
+        assert!(!expired(&delivery(1_000, true), 1_000 + 10 * RETRY_FOR_MS));
     }
 }
 
