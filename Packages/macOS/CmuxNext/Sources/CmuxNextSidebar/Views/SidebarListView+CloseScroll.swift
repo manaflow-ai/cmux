@@ -72,13 +72,14 @@ extension SidebarListViewComponents {
                 isShiftingViewport = false
             }
         }
-        // A reload with no motion (a launch's restore, a space switch) jumps to the reveal in the frame it commits: the clip
-        // goes there first and apply realizes the rows once, around it (REOPEN-F7: applied at the anchor and then
-        // jumped, a reopened window far down its list built its rows twice before its first frame).
+        // A reload with no motion (a launch's restore; a held change released, a settle) jumps to the reveal in the frame it
+        // commits: the clip goes there first and apply realizes the rows once, around it (REOPEN-F7: applied at the
+        // anchor and then jumped, a reopened window far down its list built its rows twice before its first frame).
         // A Cmd-N row is new to a list that shows workspace rows already; the launch's restored rows are all new to a list
         // that shows none yet (only its section's header), so they jump too.
         let firstWorkspaceRows = toNewRow && !displayed.rows.contains { if case .workspace = $0.key { true } else { false } }
-        if !animated, !toNewRow || firstWorkspaceRows, abs(target - clip.bounds.minY) > 0.25 {
+        let jumps = !animated && (!toNewRow || firstWorkspaceRows) && abs(target - clip.bounds.minY) > 0.25
+        if jumps {
             if frame.height < after.content { setFrameSize(NSSize(width: frame.width, height: after.content)) }
             isShiftingViewport = true
             clip.setBoundsOrigin(NSPoint(x: clip.bounds.minX, y: target))
@@ -87,6 +88,9 @@ extension SidebarListViewComponents {
         }
         apply(layout, animated: animated, newRowsInPlace: toNewRow && !keepsOffset && abs(target - clip.bounds.minY) > 0.25)
         if abs(target - clip.bounds.minY) > 0.25 { scrollClip(to: target, animated: animated && !toNewRow) }
+        // The jump ends as the instant scroll it replaces did: the old viewport's rows park, a group editor follows, the
+        // hover follows the scroll. Apply already realized the rows in view, so this makes no row view.
+        if jumps { realizeVisibleRows() }
     }
 
     /// The identity a reveal tracks for the selection: its workspace, group or
