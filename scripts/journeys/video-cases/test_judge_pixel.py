@@ -234,9 +234,9 @@ def build(root, name, variant):
         note["chrome"] = [{"pane": "pa", "cell": [0, 0, a0, 150], "strip": [0, 0, a0, 12], "pill": [8, 2, 100, 8]},
                           {"pane": "pb", "cell": [b0, 0, 300 - b0, 150], "strip": [b0, 0, 300 - b0, 12], "pill": [b0 + 8, 2, 100, 8]}]
     if variant == "spring":
-        note["spring"] = dict(SPRING)
+        note.update(spring=dict(SPRING), input="keys")
     if variant == "spring-slow":
-        note["spring"] = {"response": SPRING["response"] * 2, "damping": SPRING["damping"]}
+        note.update(spring={"response": SPRING["response"] * 2, "damping": SPRING["damping"]}, input="keys")
     meta = {"start": {"width": W, "height": H, "scale": SCALE, "rows": rows, "columns": COLS}, "notes": {"pixel": note}}
     Path(f"{base}.meta.json").write_text(json.dumps(meta))
     return base

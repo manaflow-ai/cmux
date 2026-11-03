@@ -612,7 +612,7 @@ class PixelCasesTests(unittest.TestCase):
             film_steps = [st for f in wr["steps"] if f["do"] == "px_film" for st in f["steps"]]
             self.assertFalse([st for st in film_steps if st["do"] == "hid_drag"])
             frames = [st for st in film_steps if st["do"] == "px_window_frame"]
-            self.assertEqual([st["by"] for st in frames], [[-300, -150], [300, 150]] * 1)
+            self.assertEqual([st["by"] for st in frames], [[-300, -150], [300, 150]] * 2)  # two films: x1 and Reduce Motion
             self.assertEqual(next(st for st in film_steps if st["do"] == "px_record_start")["input"], "window resize (window_drag)")
             s1r = {s["id"]: s for s in specs if s["id"].endswith("-s1r")}
             self.assertEqual(len(s1r), 11)
