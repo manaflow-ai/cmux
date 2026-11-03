@@ -226,9 +226,13 @@ class CancelledTip(unittest.TestCase):
         result, calls = self.run_script("")
         self.assertEqual((result.returncode, len(calls)), (0, 1))
 
-    def test_the_tick_runs_it_from_its_own_tooling_before_the_promotion(self):
-        steps = yaml.safe_load(TICK.read_text())["jobs"]["request"]["steps"]
+    def test_the_tick_runs_it_from_its_own_tooling_in_the_unstick_job(self):
+        # Its own job (cmuxterm-hq#6671): in the request job it waited behind that job's runner,
+        # a 150-commit checkout and the serialized tick group.
+        job = yaml.safe_load(TICK.read_text())["jobs"]["unstick"]
+        steps = job["steps"]
         tooling = next(step for step in steps if step.get("with", {}).get("path") == ".tick-tooling")
+        self.assertEqual(tooling["with"]["ref"], "${{ github.sha }}")
         sparse = tooling["with"]["sparse-checkout"].split()
         self.assertIn("scripts/ci/nightly_next_cancelled_tip.sh", sparse)
         # nightly_repick.py and every scripts/ci module it imports.
@@ -239,12 +243,15 @@ class CancelledTip(unittest.TestCase):
         check = steps[names.index("Re-run a cancelled nightly-next tip")]
         self.assertTrue(check["continue-on-error"])
         # Automatic/empty-SHA ticks recover the current nightly tip in every train mode.
-        # Explicit-SHA ticks must reach promotion without waiting for an older tip's API reads.
-        self.assertEqual(check["if"], "inputs.sha == ''")
-        self.assertEqual(check["run"], 'bash .tick-tooling/scripts/ci/nightly_next_cancelled_tip.sh "$GITHUB_REPOSITORY"')
+        # Explicit-SHA ticks skip the job and reach promotion without waiting for an older tip's API reads.
+        self.assertIn("inputs.sha == ''", job["if"])
+        # The script reads nightly-next through the checkout's `origin`.
+        self.assertEqual(check["working-directory"], ".tick-tooling")
+        self.assertEqual(check["run"], 'bash scripts/ci/nightly_next_cancelled_tip.sh "$GITHUB_REPOSITORY"')
         self.assertLess(names.index("Wait through GitHub API rate limits in this job's gh calls"),
                         names.index("Re-run a cancelled nightly-next tip"))
-
+        request = [step.get("name") for step in yaml.safe_load(TICK.read_text())["jobs"]["request"]["steps"]]
+        self.assertNotIn("Re-run a cancelled nightly-next tip", request)
 
 if __name__ == "__main__":
     unittest.main()
