@@ -160,7 +160,7 @@
   background: transparent;
   color: var(--agent-text);
   font: inherit;
-  caret-color: var(--agent-text);
+  caret-color: var(--cmux-caret);
 }
 .cmux-app-scene-field::placeholder {
   color: var(--agent-muted);
