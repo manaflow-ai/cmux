@@ -320,7 +320,9 @@ fn a_page_first_chord_runs_its_action_only_when_the_page_leaves_it_unhandled() {
 }
 
 /// A page reports its unhandled keys in key order, so a report of a newer key
-/// means the older offered keys were handled: their actions never run.
+/// means the older offered keys were handled: their actions never run, and
+/// their offers close as handled, visibly (DESIGN.md 4.7: every offer ends
+/// exactly once; R9 R-L5: no offer ends with no sign).
 #[test]
 fn a_report_of_a_newer_key_means_the_older_offers_were_handled() {
     let mut s = page_window();
@@ -331,7 +333,13 @@ fn a_report_of_a_newer_key_means_the_older_offers_were_handled() {
     let find = s.press(chord("w1", F, "find", Tier::Navigation, Some(content("b1"))));
     assert!(matches!(s.last(bold), Some(InputEffect::Offer { .. })));
     let ran = s.send(InputEvent::PageUnhandled { id: find });
-    assert_eq!(ran, vec![InputEffect::Run { id: find, action: arc("find"), tab: Some(arc("b1")) }]);
+    assert_eq!(
+        ran,
+        vec![
+            InputEffect::OfferClosed { id: bold, reason: OfferEnd::Handled },
+            InputEffect::Run { id: find, action: arc("find"), tab: Some(arc("b1")) },
+        ]
+    );
     assert!(s.send(InputEvent::PageUnhandled { id: bold }).is_empty());
 }
 
