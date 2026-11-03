@@ -70,7 +70,7 @@ struct CloudLivePreviewTests {
         cat > "$d/stdin"
         printf '%s\n' "$@" > "$d/argv"
         cat "$d/reply"
-        """
+        """#
         try Data(script.utf8).write(to: binary)
         try Data(reply.utf8).write(to: folder.appendingPathComponent("reply"))
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: binary.path)

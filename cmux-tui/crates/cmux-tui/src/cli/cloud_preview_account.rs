@@ -69,7 +69,7 @@ fn run(request: &Request) -> Result<Value, ()> {
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|_| ())?;
-    // Aggregate budget across refresh and mutation, inside the app's 40s result deadline.
+    // Aggregate budget across refresh and mutation, inside the app's 35s subprocess deadline.
     let until = Instant::now() + Duration::from_secs(30);
     Ok(answer(&request.ask, &request.machine, &request.team, |method, path, body| {
         let Some(remaining) = until.checked_duration_since(Instant::now()) else {
