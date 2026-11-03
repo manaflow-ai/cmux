@@ -111,11 +111,11 @@ impl QuestionReplyPrompt {
     /// Collapse whitespace in labels/details so they cannot inject numbered rows.
     pub fn render(&self) -> String {
         let mut sections = Vec::new();
-        let mut number = 0;
+        let mut number = 0_usize;
         for item in &self.question.items {
             let mut lines = vec![plain_messages(&item.prompt)];
             for option in &item.options {
-                number += 1;
+                number = number.saturating_add(1);
                 lines.push(format!("{number}. {}", plain_messages(&option.label)));
                 if let Some(detail) = &option.detail {
                     let detail = plain_messages(detail);
@@ -243,7 +243,7 @@ impl QuestionReplyPrompt {
             .iter()
             .enumerate()
             .filter_map(|(index, label)| {
-                let candidate = index + 1;
+                let candidate = index.saturating_add(1);
                 (number == Some(candidate) || alias == Some(candidate) || label == &folded)
                     .then_some(candidate)
             })
@@ -255,12 +255,9 @@ impl QuestionReplyPrompt {
         if numeric || folded.is_empty() || matches!(folded.as_str(), "yes" | "no") {
             return Err(ReplyError::NoMatch);
         }
-        unique(
-            labels
-                .iter()
-                .enumerate()
-                .filter_map(|(index, label)| label.starts_with(&folded).then_some(index + 1)),
-        )
+        unique(labels.iter().enumerate().filter_map(|(index, label)| {
+            label.starts_with(&folded).then_some(index.saturating_add(1))
+        }))
     }
 
     fn choice(&self, number: usize) -> Option<(&crate::QuestionItem, &crate::QuestionOption)> {
