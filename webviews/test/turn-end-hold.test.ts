@@ -67,3 +67,49 @@ test("rows in the unchanged prefix are not looked at", () => {
   const view = turnView(ended, new Set());
   expect(foldsToHold(ended, view, view, view.length, ["t1"], new Set())).toEqual([]);
 });
+
+// cmux#33300: a message run open while the turn ran folds under the turn's "Worked for" at its end.
+// A member the reader had in view gave the hold its own run key besides the one the run's line
+// toggles, so the run stayed open on the first close and needed a second click.
+test("a message run held open at the turn's end closes on one click", () => {
+  const tool = (id: string, extra: Record<string, unknown> = {}) => ({
+    kind: "tool",
+    text: id,
+    tool: { id, title: id, kind: "read", status: "completed", ...extra },
+  });
+  const send = (id: string, to: string) =>
+    tool(id, { title: "SendMessage", kind: "other", inputSummary: JSON.stringify({ to, message: "the cap is in" }) });
+  const turn = [
+    row("p", "user", { text: "Coordinate the lanes" }),
+    row("run-1", "activity", { items: [send("s1", "lane-2/coord"), tool("r1"), send("s2", "lane-2/ui")] }),
+    row("report", "user", {
+      text: "",
+      continues: true,
+      incoming: { kind: "message", message: { name: "verify", sessionId: "verify", text: "Merged", raw: "Merged" } },
+    }),
+    row("run-2", "activity", { items: [tool("r2"), send("s3", "lane-2/owner"), tool("r3")] }),
+    row("p-answer", "assistant", { text: "Every lane has its orders. ".repeat(6) + "\n\n- one\n- two" }),
+  ];
+  const done = [...turn, row("p-end", "turnSummary", { status: "completed", durationMs: 9_000 })];
+  const codex = { liveRuns: true, lineBelow: true, agentFamily: "codex" } as const;
+  // While the turn ran, the reader opened its run of messages.
+  const closedLive = turnView(turn, new Set(), { ...codex, working: true });
+  const line = closedLive.find((each) => each.kind === "messageRun")!;
+  expect(line.messageRun?.rows).toEqual(expect.arrayContaining(["run-1", "report", "run-2"]));
+  const open = new Set([line.id]);
+  const live = turnView(turn, open, { ...codex, working: true });
+  expect(ids(live)).toContain("run-2");
+  // The turn ends with a later member of the run in view: the hold keeps the turn's fold open.
+  const held = foldsToHold(done, turnView(done, open, codex), live, undefined, ["report", "run-2"], open);
+  expect(held).toContain("worked-p");
+  const expanded = new Set([...open, ...held]);
+  const kept = turnView(done, expanded, codex);
+  const keptLine = kept.find((each) => each.kind === "messageRun")!;
+  expect(keptLine.foldOpen).toBe(true);
+  expect(ids(kept)).toContain("run-2");
+  // One click on the run's line closes it.
+  expanded.delete(keptLine.id);
+  const closed = turnView(done, expanded, codex);
+  expect(closed.find((each) => each.kind === "messageRun")?.foldOpen).toBe(false);
+  expect(ids(closed)).not.toContain("run-2");
+});
