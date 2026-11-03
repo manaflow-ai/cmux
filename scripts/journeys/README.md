@@ -272,8 +272,9 @@ in terminals, `pixel/page.html` (1, 2 and 3 CSS px borders) in Chromium tabs, an
 Reduce Motion; where the tunable store stays inactive, even after `debug.tunables activate`, only the x1 and
 Reduce Motion films play and each other speed is a "not run" line), `px_springs`, `px_tunable`, `px_page`,
 `px_agent_css` and `px_record_start` (ext_video's recorder with a scan row through every tab strip and lines
-across every pane border, and the judge's note). Each case has a six-speed journey and a `-s1r` journey (x1 and
-Reduce Motion, three to a lease). `video-cases/judge_pixel.py` judges the films from the exact scan lines;
+across every pane border, and the judge's note; it waits for the app's recorder to be idle and tries a start that
+did not take once more). Each case has a six-speed journey and a `-s1r` journey (x1 and Reduce Motion, three to a
+lease). run.py fetches the films compressed (`tar cz`: a scan of flat fixture colors shrinks about 30x). `video-cases/judge_pixel.py` judges the films from the exact scan lines;
 tests: `test_ext_pixel.py` (stdlib) and `video-cases/test_judge_pixel.py` (numpy).
 
 ## Judge
