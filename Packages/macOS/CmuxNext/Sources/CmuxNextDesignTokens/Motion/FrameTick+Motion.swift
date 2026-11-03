@@ -11,7 +11,7 @@ extension FrameTick {
     /// The time a motion client's step in this frame lands on: the time the frame shows (``targetTimestamp``) with
     /// ``MotionTunables/frameOwnerTiming`` on, else the link time (``timestamp``), as ``motionElapsed`` steps. A
     /// render-server move that starts inside the frame begins there, on the springs' time base (FRAME OWNER S1).
-    public var motionTimestamp: CFTimeInterval {
+    public var motionTimestamp: Double { // CFTimeInterval (seconds, CACurrentMediaTime base); Double needs no import here
         MotionTunables.frameOwnerTiming.value ? targetTimestamp : timestamp
     }
 }
