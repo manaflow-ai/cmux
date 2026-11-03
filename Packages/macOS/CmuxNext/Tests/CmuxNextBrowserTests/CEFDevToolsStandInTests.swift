@@ -40,19 +40,18 @@ import Testing
         defer { rig.close() }
         let tab = try rig.attachedTab()
         tab.performDevTools(.dock(.bottom))
-        // Stands in for Core Animation's commit observer (before waiting, order 2,000,000): it marks each commit.
-        let commit = MainRunLoopObserver(activities: .beforeWaiting, order: 2_000_000) { _ in ShimLog.calls.append("commit") }
-        defer { commit.invalidate() }
-        tab.performDevTools(.show)
-        // The main-actor jobs the key's turn queued run now, before any commit of the run loop.
-        for _ in 0..<20 { await Task.yield() }
-        #expect(!ShimLog.calls.contains { $0.hasPrefix("command") }, "no Chromium creation before the key's frame commits")
-        #expect(tab.devToolsController.standIn, "the stand-in waits for its commit")
+        // Which stage of the main run loop's pass the command runs in. Core Animation commits at before-waiting, order
+        // 2,000,000: this observer runs right after that commit and marks what follows as after it. Every other stage
+        // of a pass (the input's sources, the main queue's jobs, timers) is the turn before the commit.
+        ShimLog.stage = .turn
+        let turn = MainRunLoopObserver(activities: [.beforeTimers, .beforeSources, .afterWaiting], order: 0) { _ in ShimLog.stage = .turn }
+        let committed = MainRunLoopObserver(activities: .beforeWaiting, order: 2_000_001) { _ in ShimLog.stage = .afterCommit }
+        defer { turn.invalidate(); committed.invalidate() }
+        // The key arrives as a person's key does: in a run-loop callout, not in a main-queue job.
+        MainRunLoopBlock.perform { tab.performDevTools(.show) }
         await rig.until { ShimLog.calls.contains { $0.hasPrefix("command") } }
-        let committed = try #require(ShimLog.calls.firstIndex(of: "commit"), "a run-loop pass committed")
-        let asked = try #require(ShimLog.calls.firstIndex { $0.hasPrefix("command") }, "Chromium was asked")
-        #expect(committed < asked, "the commit of the stand-in's frame comes before Chromium's creation")
         #expect(ShimLog.calls.filter { $0.hasPrefix("command") } == ["command \(Rig.browser) show"], "one open")
+        #expect(ShimLog.commandStages == [.afterCommit], "Chromium creates DevTools only after the key's frame committed")
     }
 
     /// The fake Chromium opens nothing (no DEVTOOLS_WILL_OPEN): the stand-in rolls back after the command.
@@ -152,6 +151,7 @@ import Testing
 
         init() throws {
             ShimLog.calls = []
+            ShimLog.commandStages = []
             root = FileManager.default.temporaryDirectory.appending(path: "cef-devtools-standin-\(UUID().uuidString)", directoryHint: .isDirectory)
             runtime = CEFRuntime(shim: try ShimLog.library(), storage: CEFProfileStorage(root: root))
         }
@@ -213,6 +213,11 @@ private nonisolated enum ShimLog {
     nonisolated(unsafe) static var calls: [String] = []
     /// Runs inside the show command (a Chromium that creates DevTools sends DEVTOOLS_WILL_OPEN there).
     nonisolated(unsafe) static var onShow: (@MainActor () -> Void)?
+    /// The run-loop stage the main thread is in (``CEFDevToolsStandInTests/chromiumIsAskedOnlyAfterTheKeysFrameCommitted()``).
+    enum Stage: Equatable { case turn, afterCommit }
+    nonisolated(unsafe) static var stage = Stage.turn
+    /// The stage each command was sent in.
+    nonisolated(unsafe) static var commandStages: [Stage] = []
 
     static func library() throws -> CEFShimLibrary {
         let version: @convention(c) () -> Int32 = { 29 }
@@ -221,6 +226,7 @@ private nonisolated enum ShimLog {
             let name = [CEFShimLibrary.DevToolsCommand.show: "show", CEFShimLibrary.DevToolsCommand.close: "close",
                         CEFShimLibrary.DevToolsCommand.console: "console", CEFShimLibrary.DevToolsCommand.inspect: "inspect"][command]
             ShimLog.calls.append("command \(browser) \(name ?? String(command))")
+            ShimLog.commandStages.append(ShimLog.stage)
             if let onShow = ShimLog.onShow { MainActor.assumeIsolated { onShow() } }
             return 1
         }
