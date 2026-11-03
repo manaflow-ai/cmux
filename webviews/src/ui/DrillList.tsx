@@ -184,11 +184,11 @@ export function DrillList<T>(props: DrillListProps<T>) {
       renderRow={(index, style) => row(rows[index], index, style)}
     />
   ) : (
-    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an inline listbox with rich rows; no native element fits.
     <div
       ref={scrollEdges}
       id={listId}
       className={cx("ui-scroll-edge-fade", props.listClassName)}
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an inline listbox with rich rows; no native element fits.
       role="listbox"
       aria-label={props.listLabel}
     >
