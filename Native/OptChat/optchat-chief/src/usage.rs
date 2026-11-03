@@ -296,7 +296,6 @@ struct Writer {
 
 impl Writer {
     fn append(&self, line: &Line) -> std::io::Result<()> {
-        let _lock = meter::ledger_lock(&self.dir).map_err(std::io::Error::other)?;
         let month = local_month(line.ts);
         let file = self.dir.join(format!("{month}.jsonl"));
         let new_month = !file.exists();
@@ -352,18 +351,6 @@ impl Ledger {
         let ev = event.get("ev").and_then(Value::as_str).unwrap_or("");
         if !billable(ev) {
             return;
-        }
-        if ev == "usage.identity" {
-            let identity = meter::Attribution::event(event);
-            if let Ok(bytes) = serde_json::to_vec(&identity) {
-                let _ = std::fs::OpenOptions::new()
-                    .create(true)
-                    .write(true)
-                    .truncate(true)
-                    .mode(0o600)
-                    .open(self.writer.dir.join("identity.json"))
-                    .and_then(|mut f| f.write_all(&bytes));
-            }
         }
         let mut state = self
             .state
@@ -533,7 +520,6 @@ fn take_lock(path: &Path) -> Result<LockGuard, String> {
 pub fn backfill(root: &Path, force: bool) -> Result<Backfill, String> {
     let ledger = dir(root);
     make_dir(&ledger).map_err(|e| format!("{}: {e}", ledger.display()))?;
-    meter::backfill_people(root)?;
     let marker = ledger.join("backfill.json");
     let done: Option<Value> = std::fs::read_to_string(&marker)
         .ok()
@@ -562,12 +548,6 @@ pub fn backfill(root: &Path, force: bool) -> Result<Backfill, String> {
         dir: ledger.clone(),
     };
     let mut fold = Fold::new();
-    if let Ok(bytes) = std::fs::read(ledger.join("identity.json"))
-        && let Ok(mut identity) = serde_json::from_slice::<Value>(&bytes)
-    {
-        identity["ev"] = json!("usage.identity");
-        fold.observe(&identity, "trace");
-    }
     let mut report = Backfill::default();
     let mut through = after;
     // Months retention would delete at once are not written.

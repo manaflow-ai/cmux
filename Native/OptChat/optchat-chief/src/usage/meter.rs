@@ -24,6 +24,9 @@ pub fn payer_provider(harness: &str, base_url: Option<&str>) -> (&'static str, &
     {
         return ("platform", "cmux-router");
     }
+    if matches!(harness, "native" | "api") && base_url.is_none_or(str::is_empty) {
+        return ("unknown", "unknown");
+    }
     let provider = match host {
         "api.anthropic.com" => "anthropic",
         "api.openai.com" => "openai",
@@ -66,7 +69,9 @@ impl Attribution {
             .as_deref()
             .map(|h| payer_provider(h, v["base_url"].as_str()));
         Self {
-            person: account_id(v["person"].as_str()).map(str::to_owned),
+            person: v
+                .get("person")
+                .map(|person| account_id(person.as_str()).unwrap_or("unknown").to_owned()),
             team: opt_s(v, "team"),
             chief: opt_s(v, "chief"),
             payer: opt_s(v, "payer").or_else(|| route.map(|r| r.0.into())),
@@ -139,20 +144,23 @@ impl Meter {
             "usage.identity" => self.owner = Attribution::event(v),
             "usage.native_route" => self.native_route = Attribution::event(v),
             "usage.message" => {
-                if let (Some(id), Some(person)) = (
-                    opt_s(v, "id"),
-                    account_id(v["person"].as_str()).map(str::to_owned),
-                ) {
+                if let Some(id) = opt_s(v, "id") {
+                    let person = account_id(v["person"].as_str())
+                        .unwrap_or("unknown")
+                        .to_owned();
                     Fold::remember(&mut self.people, id, person);
                 }
             }
             "turn.start" => {
                 let mut context = self.event(v).over(&self.owner);
-                if let Some(person) = v["message_keys"].as_array().and_then(|keys| {
-                    keys.iter()
-                        .find_map(|k| self.people.get(k.as_str()?).cloned())
-                }) {
-                    context.person = Some(person);
+                if let Some(first) = v["message_keys"].as_array().and_then(|keys| keys.first()) {
+                    context.person = Some(
+                        first
+                            .as_str()
+                            .and_then(|id| self.people.get(id))
+                            .cloned()
+                            .unwrap_or_else(|| "unknown".to_owned()),
+                    );
                 }
                 self.active = context.clone();
                 if let Some(key) = opt_s(v, "turn") {
@@ -263,86 +271,6 @@ pub fn export_row(chief: &Chief, line: &Line) -> Value {
         "status": line.status, "payer": payer,
         "kind": line.kind, "machine": line.machine,
     })
-}
-
-pub(super) fn ledger_lock(dir: &Path) -> Result<std::fs::File, String> {
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .mode(0o600)
-        .open(dir.join("identity.lock"))
-        .map_err(|e| e.to_string())?;
-    file.lock().map_err(|e| e.to_string())?;
-    Ok(file)
-}
-
-/// Refresh missing people only. Preserve unknown extension fields (tier/route)
-/// and malformed lines, and replace each month atomically under the live lock.
-pub(super) fn backfill_people(root: &Path) -> Result<u64, String> {
-    let ledger = dir(root);
-    let identity: Attribution = std::fs::read(ledger.join("identity.json"))
-        .ok()
-        .and_then(|b| serde_json::from_slice(&b).ok())
-        .unwrap_or_default();
-    let Some(person) = account_id(identity.person.as_deref()) else {
-        return Ok(0);
-    };
-    let _migration = take_lock(&ledger.join("identity-backfill.lock"))?;
-    let mut count = 0;
-    for (_, file) in month_files(&ledger) {
-        let text = std::fs::read_to_string(&file).map_err(|e| e.to_string())?;
-        let mut changed = false;
-        let mut out = String::new();
-        for text in text.lines() {
-            let mut value: Value = serde_json::from_str(text).unwrap_or(Value::Null);
-            if value.is_object() && value["person"].is_null() {
-                value["person"] = json!(person);
-                out.push_str(&value.to_string());
-                changed = true;
-                count += 1;
-            } else {
-                out.push_str(text);
-            }
-            out.push('\n');
-        }
-        if changed {
-            let temp = file.with_extension(format!("meter-{}", std::process::id()));
-            let result = (|| {
-                let mut f = std::fs::OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .mode(0o600)
-                    .open(&temp)?;
-                f.write_all(out.as_bytes())?;
-                // Most of the rewrite is prepared without blocking live turns.
-                // Copy any append made since our snapshot while committing.
-                let _lock = ledger_lock(&ledger).map_err(std::io::Error::other)?;
-                use std::io::{Seek, SeekFrom};
-                let mut source = std::fs::File::open(&file)?;
-                source.seek(SeekFrom::Start(text.len() as u64))?;
-                for tail in std::io::BufReader::new(source).lines() {
-                    let tail = tail?;
-                    let mut value: Value = serde_json::from_str(&tail).unwrap_or(Value::Null);
-                    if value.is_object() && value["person"].is_null() {
-                        value["person"] = json!(person);
-                        count += 1;
-                        writeln!(f, "{value}")?;
-                    } else {
-                        writeln!(f, "{tail}")?;
-                    }
-                }
-                f.sync_all()?;
-                std::fs::rename(&temp, &file)
-            })();
-            if let Err(e) = result {
-                let _ = std::fs::remove_file(&temp);
-                return Err(e.to_string());
-            }
-        }
-    }
-    Ok(count)
 }
 
 #[cfg(test)]

@@ -346,7 +346,7 @@ impl Brain {
                 .then_some(summary)
                 .and_then(|summary| summary.participants.iter().find(|p| p.id == message.author))
                 .filter(|p| p.kind == cmux_conversation::ParticipantKind::Human)
-                .map(|p| p.person.as_deref().unwrap_or(&p.id))
+                .and_then(|p| p.person.as_deref())
                 .filter(|id| *id != cmux_chief::rules::USER_LOCAL);
             self.trace.emit(
                 "usage.message",
