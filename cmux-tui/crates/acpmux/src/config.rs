@@ -1194,6 +1194,14 @@ pub struct Config {
     /// dropped at the next save.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_permission_mode: Option<String>,
+    /// `holdAgentStartsToStarter`: a chat an agent starts from its shell (`acpmux new|run`,
+    /// `cmux agents chat new`, a local `_acpmux/dispatch`) naming no mode or policy takes its
+    /// starter's limits (`hub/start_mode.rs`, "Inherit"). Off (the default, user 2026-11-03):
+    /// it starts at the person's configured start level and default policy, as a start with no
+    /// starter does; a starter in full access still passes it on, and a sub-session is always
+    /// held to its parent.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hold_agent_starts_to_starter: bool,
     /// `composerMaxRows`: most rows the TUI composer grows to before it
     /// scrolls. Env `ACPMUX_COMPOSER_ROWS` overrides. Default 12.
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -57,8 +57,13 @@
 //! `start_gate.rs`), never the person, a peer, a Web connection or a request
 //! value, and never a session a remote connection started (`remote_origin`:
 //! its chats keep the rule below, a caller that asks keeps the harness's own
-//! mode); a start with none is unchanged. Each field the start leaves out is
-//! inherited on its own:
+//! mode); a start with none is unchanged. A `session/new` start (not a
+//! sub-session) inherits only from a starter in full access, or from any
+//! starter under `holdAgentStartsToStarter` (off by default, user 2026-11-03:
+//! "make sure cmux agent open by default will be in yolo mode"); else it runs
+//! the person's configured default as a start with none does. A starter's
+//! limits never bound an agent that drops its caller token anyway. Each field
+//! the start leaves out is inherited on its own:
 //!
 //! - no policy: the defaults' (family or preset) when no wider than the
 //!   starter's effective policy, else the starter's own. A starter with no
