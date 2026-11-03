@@ -239,10 +239,21 @@ corrupted one).
 ```
 
 `marker_install` writes the program to `/tmp/jr-m-<nonce>` and binds `${marker}`; the program prints the token as a
-text line (the daemon and app checks see what `echo` printed) and the marker below it. The pane needs at least 30
-columns (the program says so and exits 3 otherwise). `frame_marker_lacks {"token": T, "with": W}` replaces
-`frame_lacks`: it holds only on a frame that shows W's marker. A check's detail lists each marker it found (its
-position, cell width and 24-bit digest, the first six hex digits of sha256 of its token).
+text line (the daemon and app checks see what `echo` printed), a blank line, the marker and a blank line (no glyph of
+a text line can reach a marker pixel row). It needs the pane's own width to be at least 30 columns (it reads the
+terminal's size, not an exported `COLUMNS`; it exits 3 when the pane is narrower and 4 when its output is no
+terminal), and the typed command line itself is about 40 columns. `frame_marker_lacks {"token": T, "with": W}` is the
+negative for the journey's own lines (the frame negative for other text stays `frame_screen` `lacks`): it holds only
+on a frame that shows W's marker and has no unreadable marker; it proves the absence only where the frame shows the
+pane, so a marker scrolled away or covered is not seen either way. A check's detail lists each marker it found (its
+position, cell width, line height and 24-bit digest, the first six hex digits of sha256 of its token).
+
+What a marker proves and what it does not: that this run's terminal output reached the window's pixels, at the cell
+grid, in colors a capture keeps. It draws cell backgrounds only, so it does not prove that glyphs render: a build that
+draws no text would still show markers. Journeys that check the app's own text keep `frame_text` (no fold, no second
+reading; a misread there is "not judged: reader misread"). Real-app rounds (2026-11-03): 1x on cmux21 (8 x 17 px
+cells) and 2x on cmux23 with `--vdisplay 120x2` (16 x 34 px cells), 0 unreadable markers in 938 reads. A frame
+check at 2x takes about 1.5-1.8 s on a mini (the standard-library reader of a 2200x1440 snapshot).
 
 ### Step groups (`ext_*.py`)
 
