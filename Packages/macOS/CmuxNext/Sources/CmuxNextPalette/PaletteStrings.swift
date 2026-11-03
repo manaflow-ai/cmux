@@ -27,6 +27,10 @@ nonisolated enum PaletteStrings {
     static var settingsTitle: String { String(localized: "palette.page.settings", defaultValue: "Change Settings", bundle: .module) }
     static var settingsPlaceholder: String { String(localized: "palette.placeholder.settings", defaultValue: "Search settings…", bundle: .module) }
     static var searchActionsPlaceholder: String { String(localized: "palette.placeholder.actions", defaultValue: "Search actions…", bundle: .module) }
+    /// A title with its state at the end ("Toggle Left Sidebar · On").
+    static func titleWithState(_ title: String, _ state: String) -> String {
+        String(localized: "palette.toggle.titleWithState", defaultValue: "\(title) · \(state)", bundle: .module)
+    }
     static var noResults: String { String(localized: "palette.noResults", defaultValue: "No Results", bundle: .module) }
     static var noResultsHint: String { String(localized: "palette.noResults.hint", defaultValue: "Try a different search, or press Esc to go back.", bundle: .module) }
     static var actions: String { String(localized: "palette.footer.actions", defaultValue: "Actions", bundle: .module) }

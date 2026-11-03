@@ -16,7 +16,7 @@ import { newApiKeyId, newSnapshotId, newVmId, TenantId, UpstreamId, UserId, type
 import { memoryLimitsLayer, type TenantLimits } from "../../src/limits/service.ts";
 import { StoreError } from "../../src/db/sql.ts";
 import { tenantPolicyLayer } from "../../src/policy.ts";
-import { Entitlements } from "../../src/proofs/tenant-may-create.ts";
+import { Entitlements, entitlementsFromPolicyLayer } from "../../src/proofs/tenant-may-create.ts";
 import { UpstreamClient } from "../../src/upstream/client.ts";
 import { makeUpstreamClient } from "../../src/upstream/live.ts";
 import { parseVmImages, VmImages } from "../../src/upstream/live-images.ts";
@@ -44,6 +44,11 @@ export interface HarnessOptions {
   readonly environment?: "local" | "staging" | "production";
   /** Tenants treated as dev/test in production. */
   readonly devTestTenants?: ReadonlyArray<string>;
+  /**
+   * Use the Worker's own entitlement rules (entitlementsFromPolicyLayer) instead of the setBilling list, with these
+   * MANAFLOW_TEAM_TENANT_IDS and CMUX_VM_ENTITLED_SERVICE_IDS values.
+   */
+  readonly policyEntitlements?: { readonly manaflowTenantIds?: ReadonlyArray<string>; readonly entitledServiceIds?: ReadonlyArray<string> };
   /** Live VMs per tenant. */
   readonly maxVms?: number;
   /** Live snapshots per tenant. */
@@ -211,11 +216,14 @@ export async function makeHarness(options: HarnessOptions = {}) {
     ...(options.maxSnapshots === undefined ? {} : { maxSnapshots: options.maxSnapshots }),
     ...(options.ratePerMinute === undefined ? {} : { ratePerMinute: options.ratePerMinute }),
     ...(options.maxUploadBytes === undefined ? {} : { maxUploadBytes: options.maxUploadBytes }),
+    ...options.policyEntitlements,
   });
 
-  const entitlements = Layer.succeed(Entitlements, {
-    mayCreate: (caller) => Effect.sync(() => billed.has(caller.tenantId)),
-  });
+  const entitlements = options.policyEntitlements === undefined
+    ? Layer.succeed(Entitlements, {
+      mayCreate: (caller) => Effect.sync(() => billed.has(caller.tenantId)),
+    })
+    : entitlementsFromPolicyLayer.pipe(Layer.provide(policy));
 
   const apiKeys = Layer.succeed(ApiKeyStore, {
     findActiveByHash: (hash, now) =>
