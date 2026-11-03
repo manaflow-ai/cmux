@@ -1,5 +1,12 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-03: the update and notice cards take the theme. Leo, verbatim, on the Downloading Update card: "will this
+  be themeed properly?". The download bar was the fixed secondary-text gray (`Palette.textSecondary`) and the Update
+  Ready and notice cards' veil the neutral gray; the bar is now the theme's accent (`Palette.accentFill`, the primary
+  text with no accent chosen) on the theme's hover-fill track, and both cards' `CardSurfaceView` takes the theme's glass
+  tint (`takesThemeTint`), as the Updated card's does since 2026-11-02. Layout and copy are unchanged. Regression:
+  `SidebarCardSurfaceTests.theDownloadBarIsTheThemesAccent` (dark and light, neutral and chosen accent) and the
+  cards' `...InTheThemesTint` surface tests.
 - 2026-11-03: folding a group never changes the rows' width. Leo: "why when i collapse/expand the cosmic-gray group
   do the workspace horizontal widths differ?". The list took the clip's width, which a legacy scroller narrows by 11 pt
   only while the rows overflow (an open long group); `SidebarListView.rowsWidth(in:)` now counts the scroller for its
