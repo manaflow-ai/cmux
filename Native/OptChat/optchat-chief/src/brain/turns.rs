@@ -11,6 +11,7 @@ use super::{
     Brain, Engine, Input, PROGRESS_TICK, Phase, Queued, SETTLE_BOUND, Source, answer_entry,
     reply_key_at,
 };
+use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 
 use crate::acpmux::SessionSpec;
@@ -423,6 +424,30 @@ impl Brain {
             .map(|t| t.key.clone())
             .unwrap_or_default();
         optchat_host::fault("brain:after-turn-log");
+        let posted: Vec<String> = items
+            .iter()
+            .filter_map(|q| match &q.source {
+                Source::Message { id, .. } => self.posted.remove(id),
+                _ => None,
+            })
+            .collect();
+        // Only messages still queued keep their stamp (a retracted one never
+        // reaches a turn).
+        let queued: HashSet<&str> = self
+            .queue
+            .iter()
+            .filter_map(|q| match &q.source {
+                Source::Message { id, .. } => Some(id.as_str()),
+                _ => None,
+            })
+            .collect();
+        self.posted.retain(|id, _| queued.contains(id.as_str()));
+        self.first_words = FirstWords::start(
+            &key,
+            posted.iter().map(String::as_str),
+            std::time::Instant::now(),
+            chrono::Utc::now(),
+        );
         self.set_cursor(self.state.logged_seq);
         if side.is_none() {
             self.set_typing(true);
@@ -1184,6 +1209,7 @@ impl Brain {
             return;
         }
         let s = &outcome.stats;
+        let first_words = self.first_words.ms(key);
         // Who ended a cancelled turn: the Chief itself (`stop`, `sleep`, after
         // it replied by send), the owner, or neither (a lost session).
         let by_chief = self.tool_stopped || self.denial_stopped.is_some();
@@ -1231,6 +1257,14 @@ impl Brain {
                 // then the first request's first token.
                 "start_ms": s.start_ms,
                 "ttft_ms": s.ttft_ms,
+                // The model route's share of ttft_ms: the first request's
+                // time to its message_start.
+                "headers_ms": s.headers_ms,
+                // What the person waits for: their message posted (and the
+                // turn's start) to the first reply draft on screen.
+                "first_draft_ms": first_words.first_draft,
+                "posted_to_start_ms": first_words.posted_to_start,
+                "posted_to_first_draft_ms": first_words.posted_to_first_draft,
                 // What answered (harness_gate): the engine panel reads these.
                 "harness_profile": outcome.harness.as_ref().map(|h| h.profile.as_str()),
                 "harness_kind": outcome.harness.as_ref().map(|h| h.kind.as_str()),
@@ -2067,6 +2101,180 @@ mod ended_turn_text_tests {
         assert_eq!(
             ended_turn_text(None, Some("refused".into()), false, true, "x"),
             "(turn refused)"
+        );
+    }
+}
+
+/// The clock of a turn's first visible words (Leo, 2026-11-03: "why is chief
+/// so slow :(" at "Thinking · 13s"): from the turn's start, and from when the
+/// earliest message it answers was posted, to its first reply draft. The
+/// trace's `turn.end` carries them so a nightly is checked against the
+/// target without a screen recording.
+#[derive(Clone, Debug, Default)]
+pub(super) struct FirstWords {
+    turn: String,
+    /// The earliest posted message's `created_at` (the conversation owner's
+    /// clock, the same machine for a local Chief).
+    posted: Option<chrono::DateTime<chrono::Utc>>,
+    started: Option<(std::time::Instant, chrono::DateTime<chrono::Utc>)>,
+    first_draft: Option<(std::time::Instant, chrono::DateTime<chrono::Utc>)>,
+}
+
+/// `FirstWords`' numbers for `turn.end`, in ms (None: not seen).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct FirstWordsMs {
+    /// The turn's start to its first reply draft.
+    pub first_draft: Option<u64>,
+    /// The message posted to the turn's start (the host's queue, catch-up
+    /// after a restart, the settle wait).
+    pub posted_to_start: Option<u64>,
+    /// The message posted to the first reply draft: what the person waits.
+    pub posted_to_first_draft: Option<u64>,
+}
+
+impl FirstWords {
+    /// The clock of `turn`, started now, for messages posted at `posted`
+    /// (RFC 3339; unreadable ones are skipped).
+    pub fn start<'a>(
+        turn: &str,
+        posted: impl IntoIterator<Item = &'a str>,
+        now: std::time::Instant,
+        wall: chrono::DateTime<chrono::Utc>,
+    ) -> FirstWords {
+        let posted = posted
+            .into_iter()
+            .filter_map(|p| chrono::DateTime::parse_from_rfc3339(p).ok())
+            .map(|p| p.with_timezone(&chrono::Utc))
+            .min();
+        FirstWords {
+            turn: turn.to_owned(),
+            posted,
+            started: Some((now, wall)),
+            first_draft: None,
+        }
+    }
+
+    /// A draft of `turn` went out: the first one with text stops the clock.
+    pub fn draft(
+        &mut self,
+        turn: &str,
+        has_text: bool,
+        now: std::time::Instant,
+        wall: chrono::DateTime<chrono::Utc>,
+    ) {
+        if has_text && turn == self.turn && self.started.is_some() && self.first_draft.is_none() {
+            self.first_draft = Some((now, wall));
+        }
+    }
+
+    /// The numbers of `turn` (all None for another turn's clock).
+    pub fn ms(&self, turn: &str) -> FirstWordsMs {
+        if turn != self.turn {
+            return FirstWordsMs::default();
+        }
+        let ms = |d: chrono::TimeDelta| u64::try_from(d.num_milliseconds()).ok();
+        FirstWordsMs {
+            first_draft: self
+                .started
+                .zip(self.first_draft)
+                .map(|((s, _), (d, _))| d.saturating_duration_since(s).as_millis() as u64),
+            posted_to_start: self
+                .posted
+                .zip(self.started)
+                .and_then(|(p, (_, w))| ms(w - p)),
+            posted_to_first_draft: self
+                .posted
+                .zip(self.first_draft)
+                .and_then(|(p, (_, w))| ms(w - p)),
+        }
+    }
+}
+
+#[cfg(test)]
+mod first_words_tests {
+    use super::{FirstWords, FirstWordsMs};
+    use std::time::{Duration, Instant};
+
+    fn at(s: &str) -> chrono::DateTime<chrono::Utc> {
+        chrono::DateTime::parse_from_rfc3339(s)
+            .unwrap()
+            .with_timezone(&chrono::Utc)
+    }
+
+    #[test]
+    fn posted_to_first_draft_counts_from_the_earliest_message() {
+        let t0 = Instant::now();
+        let mut fw = FirstWords::start(
+            "k",
+            [
+                "2026-11-03T09:00:01.500Z",
+                "2026-11-03T09:00:00.000Z",
+                "bad",
+            ],
+            t0,
+            at("2026-11-03T09:00:02.000Z"),
+        );
+        // A draft with no text, or another turn's, does not stop the clock.
+        fw.draft(
+            "k",
+            false,
+            t0 + Duration::from_millis(100),
+            at("2026-11-03T09:00:02.100Z"),
+        );
+        fw.draft(
+            "other",
+            true,
+            t0 + Duration::from_millis(200),
+            at("2026-11-03T09:00:02.200Z"),
+        );
+        fw.draft(
+            "k",
+            true,
+            t0 + Duration::from_millis(3000),
+            at("2026-11-03T09:00:05.000Z"),
+        );
+        fw.draft(
+            "k",
+            true,
+            t0 + Duration::from_millis(4000),
+            at("2026-11-03T09:00:06.000Z"),
+        );
+        assert_eq!(
+            fw.ms("k"),
+            FirstWordsMs {
+                first_draft: Some(3000),
+                posted_to_start: Some(2000),
+                posted_to_first_draft: Some(5000),
+            }
+        );
+        assert_eq!(fw.ms("other"), FirstWordsMs::default());
+    }
+
+    #[test]
+    fn a_turn_with_no_posted_message_or_no_draft_has_only_what_it_saw() {
+        let t0 = Instant::now();
+        let fw = FirstWords::start("k", [], t0, at("2026-11-03T09:00:02.000Z"));
+        assert_eq!(fw.ms("k"), FirstWordsMs::default());
+        // A message stamped after the start (another clock) gives no number.
+        let mut fw = FirstWords::start(
+            "k",
+            ["2026-11-03T09:00:03.000Z"],
+            t0,
+            at("2026-11-03T09:00:02.000Z"),
+        );
+        fw.draft(
+            "k",
+            true,
+            t0 + Duration::from_millis(500),
+            at("2026-11-03T09:00:02.500Z"),
+        );
+        assert_eq!(
+            fw.ms("k"),
+            FirstWordsMs {
+                first_draft: Some(500),
+                posted_to_start: None,
+                posted_to_first_draft: None,
+            }
         );
     }
 }

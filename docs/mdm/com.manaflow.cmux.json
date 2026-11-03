@@ -1928,6 +1928,12 @@
       "title" : "Reactions Can Wake the Chief",
       "type" : "boolean"
     },
+    "cloud.agentsStartWithoutAsking" : {
+      "default" : false,
+      "description" : "An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on.",
+      "title" : "Let Agents Start Cloud Sessions Without Asking",
+      "type" : "boolean"
+    },
     "cloud.newWorkspaceFolder" : {
       "default" : "inherit",
       "description" : "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder.",

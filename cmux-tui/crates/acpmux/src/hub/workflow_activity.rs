@@ -59,6 +59,9 @@ impl Hub {
             .await;
         }
         match &activity.child {
+            Child::CiMachine { intent } => {
+                self.workflow_ci_execute(run, generation, activity, intent).await
+            }
             Child::Machine { session_id, task_id, .. } => {
                 let gate = self.workflow_runs.gate(&run.id).lock_owned().await;
                 self.workflow_runs
@@ -778,6 +781,9 @@ impl Hub {
                 && (child.id == activity || workflow_child_of(run, parent, child))
         }) {
             match &child.child {
+                Child::CiMachine { intent } => {
+                    self.workflow_ci_cancel(child, intent).await?;
+                }
                 Child::Agent { session_id, prompt_id, host } => {
                     if host.as_deref().is_some_and(|host| host != "local") {
                         self.workflow_cancel_remote(run, child).await?;
