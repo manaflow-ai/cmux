@@ -50,9 +50,10 @@ final class KeyRouter: BrowserKeyRouting {
     var whichKey: WhichKeyController?
     /// Leaving the app ends a waiting chord (the overlay hides with it); the token removes itself when released.
     private var resignObserver: MainActorObservation?
-    init(registry: ActionRegistry, inputDispatch: InputDispatchContext = InputDispatchContext()) {
-        self.registry = registry
-        self.inputDispatch = inputDispatch
+    let heldKeyReplay: HeldKeyReplay // where a creation hold's keys run again (``CreationInputCoordinator``)
+    init(registry: ActionRegistry, inputDispatch: InputDispatchContext = InputDispatchContext(),
+         heldKeyReplay: @escaping HeldKeyReplay = { event, _, _ in NSApp.sendEvent(event) }) {
+        (self.registry, self.inputDispatch, self.heldKeyReplay) = (registry, inputDispatch, heldKeyReplay)
         resignObserver = MainActorObservation(NSApplication.didResignActiveNotification) { [weak self] in self?.cancelChord() }
     }
     // MARK: Tiers
@@ -141,7 +142,7 @@ final class KeyRouter: BrowserKeyRouting {
                 if candidate.tier == .content { return .deliver }
             }
             if Self.allows(candidate.tier, id: candidate.id, focus: focus) {
-                return Self.offersToPage(candidate, focus: focus, facts: facts) ? .offerToPage(candidate) : .run(candidate)
+                return Self.offersToPage(candidate, event: event, focus: focus, facts: facts) ? .offerToPage(candidate) : .run(candidate)
             }
         }
         // The code editor's Cmd-[ / Cmd-] are outdent and indent (Monaco), not page Back / Forward.
@@ -178,9 +179,11 @@ final class KeyRouter: BrowserKeyRouting {
     /// goes (the key window). Returns whether the key was consumed.
     func interceptKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool { // perf-hot: 0.5ms key-dispatch (every key-down of the process)
         guard event.type == .keyDown else { return false }
+        services?.linkHints.noteKeyDown(event, in: window) // whether the page had it (Chromium sends back a key it left unhandled)
         // A key-down the dispatcher already decided (sent again: a view's doCommand re-sending a chord, a replayed
         // dispatch) is not decided twice: it goes on to AppKit's dispatch, so its action never runs a second time.
         if decided.contains(event) { return false }
+        if answersBlockingDialog(event, in: window) { return true }  // never the view's under the dialog
         if newTabInputCoordinator.capture(event, in: window) { return true }
         if creationInputCoordinator.capture(event, in: window) { return true }
         // Set again only when this key runs an action (debug.key reports it).
@@ -339,7 +342,7 @@ final class KeyRouter: BrowserKeyRouting {
     /// The New Tab action owns this buffer before a cold page has a readiness object.
     lazy var newTabInputCoordinator = NewTabInputCoordinator(router: self)
     /// A pending split or terminal tab owns its window's keys until the new terminal has the keyboard (cx-wb5.76).
-    lazy var creationInputCoordinator = CreationInputCoordinator(router: self)
+    lazy var creationInputCoordinator = CreationInputCoordinator(router: self, replay: heldKeyReplay)
     /// Browser focus mode's double-Escape exit (``routesFocusModeEscape(_:in:)``).
     var focusModeEscape = BrowserFocusModeEscapeExit()
 

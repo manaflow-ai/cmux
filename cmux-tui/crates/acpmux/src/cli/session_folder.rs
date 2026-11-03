@@ -20,7 +20,7 @@ pub(crate) fn new_session_cwd(host: Option<&str>, cwd: Option<PathBuf>) -> Resul
 /// The line `acpmux new` prints once the session exists: on a peer, the machine and the
 /// folder the session runs in there (with no --cwd, the one the peer picked).
 pub(crate) fn created_line(name: &str, id: &str, host: Option<&str>, cwd: Option<&str>) -> String {
-    let mut line = format!("created {name} ({})", &id[..8.min(id.len())]);
+    let mut line = format!("created {name} ({})", id.get(..8).unwrap_or(id));
     if let Some(host) = host {
         line.push_str(&format!(" on {host}"));
         if let Some(cwd) = cwd.filter(|c| !c.is_empty()) {

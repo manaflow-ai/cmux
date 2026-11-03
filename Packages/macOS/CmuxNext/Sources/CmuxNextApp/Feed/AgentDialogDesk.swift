@@ -35,21 +35,7 @@ final class AgentDialogDesk {
     }
 
     /// One pending prompt as acpmux reports it.
-    struct Pending {
-        let session: String
-        let sessionName: String?
-        let permission: String
-        let request: [String: Any]
-
-        /// The prompt as a question this socket may answer; nil for a tool permission.
-        var question: AgentQuestion? {
-            guard let data = try? JSONSerialization.data(withJSONObject: request),
-                  let json = try? AgentQuestionJSON(data: data),
-                  let question = AgentQuestion(permissionRequest: json, permissionId: permission, session: session),
-                  question.source.harness != .acp else { return nil }
-            return question
-        }
-    }
+    typealias Pending = AgentDialogPrompt
 
     // MARK: feed.list
 
@@ -58,24 +44,10 @@ final class AgentDialogDesk {
         var items: [JSONValue] = []
         if let line = await open() {
             defer { line.close() }
-            items = await pending(on: line).map { item($0) }
+            items = await line.pendingPrompts().map { item($0) }
         }
         if !pendingOnly { items += answered.reversed() }
         return .object(["items": .array(items)])
-    }
-
-    private func pending(on line: any AgentDialogLine) async -> [Pending] {
-        let sessions = (await line.call("_acpmux/sessions", [:]))?["sessions"] as? [[String: Any]] ?? []
-        var out: [Pending] = []
-        for summary in sessions where (summary["pendingPermissions"] as? NSNumber)?.intValue ?? 0 > 0 {
-            guard let session = summary["sessionId"] as? String else { continue }
-            let entries = (await line.call("_acpmux/info", ["sessionId": session]))?["pending"] as? [[String: Any]] ?? []
-            for entry in entries {
-                guard let permission = entry["permissionId"] as? String, let request = entry["request"] as? [String: Any] else { continue }
-                out.append(Pending(session: session, sessionName: summary["name"] as? String, permission: permission, request: request))
-            }
-        }
-        return out
     }
 
     private func item(_ prompt: Pending, status: String = "pending") -> JSONValue {
@@ -219,7 +191,7 @@ final class AgentDialogDesk {
         guard let line = await open() else {
             throw ControlError(code: "unavailable", message: Self.text("agentDialogs.noAcpmux", "No agent daemon (acpmux) answers in this app"))
         }
-        guard let prompt = await pending(on: line).first(where: { $0.permission == id }) else {
+        guard let prompt = await line.pendingPrompts().first(where: { $0.permission == id }) else {
             line.close()
             throw ControlError(code: "not_found", message: Self.text("agentDialogs.notFound",
                 "No pending dialog %@; it may have been answered or ended", id), data: ["request_id": .string(id)])
@@ -245,6 +217,17 @@ final class AgentDialogDesk {
 
     private static func text(_ key: StaticString, _ english: String.LocalizationValue, _ arguments: any CVarArg...) -> String {
         String(format: String(localized: key, defaultValue: english, table: "AgentDialogs", bundle: .module), arguments: arguments)
+    }
+}
+
+extension AgentDialogPrompt {
+    /// The prompt as a question this socket may answer; nil for a tool permission.
+    var question: AgentQuestion? {
+        guard let data = try? JSONSerialization.data(withJSONObject: request),
+              let json = try? AgentQuestionJSON(data: data),
+              let question = AgentQuestion(permissionRequest: json, permissionId: permission, session: session),
+              question.source.harness != .acp else { return nil }
+        return question
     }
 }
 

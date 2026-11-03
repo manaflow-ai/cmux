@@ -30,11 +30,10 @@ use super::error::FsError;
 use super::ops::FsService;
 use super::sys;
 use super::write::{PendingWrite, WriteMode};
+use cmux_json::JsonSet as _;
 
 /// Bytes moved per read or write.
 pub const STREAM_CHUNK_BYTES: usize = 256 * 1024;
-/// Largest write stream.
-pub const MAX_STREAM_WRITE_BYTES: u64 = 64 * 1024 * 1024 * 1024;
 
 /// A request line that opens a byte stream.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -98,7 +97,7 @@ pub fn answer(id: &Value, result: Result<Value, FsError>) -> Value {
                 "error_code": error.code(),
             });
             if let Some(details) = error.details() {
-                value["error_details"] = details;
+                value.set("error_details", details);
             }
             value
         }
@@ -185,9 +184,6 @@ fn serve_write(
     reader: &mut impl Read,
     writer: &mut impl Write,
 ) -> io::Result<()> {
-    if size > MAX_STREAM_WRITE_BYTES {
-        return send(writer, &answer(id, Err(FsError::TooLarge { total: Some(size) })));
-    }
     let begun = WriteMode::parse(mode, expected)
         .and_then(|mode| PendingWrite::begin(service.roots(), path, mode, Some(size)));
     let mut pending = match begun {

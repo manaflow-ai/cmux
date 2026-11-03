@@ -184,6 +184,15 @@ pub const ACTIONS: &[ActionDef] = &[
         args: "",
     },
     ActionDef {
+        action: Action::Retry,
+        name: "retry",
+        aliases: &["resume-turn"],
+        label: "retry the selected session's failed turn",
+        keys: "R (transcript)",
+        group: "talking",
+        args: "",
+    },
+    ActionDef {
         action: Action::Allow,
         name: "allow",
         aliases: &["yes"],

@@ -13,6 +13,7 @@ import { resetLinkStore } from "../src/agent-session/acpmux/chips/linkStore";
 import { resetPullRequestStore } from "../src/agent-session/acpmux/chips/pullRequestStore";
 import { resetReferenceExistence } from "../src/agent-session/acpmux/chips/referenceExistence";
 import { newReferenceScopeCache, referenceScopes } from "../src/agent-session/acpmux/conversation/bareReferences";
+import { setMessageOpened } from "../src/agent-session/acpmux/conversation/incomingOpened";
 import { useDom } from "./support/unknownWrite";
 
 const dom = useDom();
@@ -84,11 +85,12 @@ async function render(
   // The host's answers are promises (no timers): a few turns of the event loop settle every
   // link.inspect and pr.inspect and the renders after them.
   for (let pass = 0; pass < 10; pass++) await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  // The replies' chips: a prompt's explicit `owner/repo#N` draws as its own chip too (sent prompts
+  // render Markdown, user-prompt-markdown.test.ts), which these rules about replies do not read.
   const chips = () =>
-    [...element.querySelectorAll<HTMLAnchorElement>("a.cv-chip.is-ref")].map((chip) => [
-      chip.textContent,
-      chip.getAttribute("href"),
-    ]);
+    [...element.querySelectorAll<HTMLAnchorElement>("a.cv-chip.is-ref")]
+      .filter((chip) => !chip.closest(".cv-user"))
+      .map((chip) => [chip.textContent, chip.getAttribute("href")]);
   return { element, calls, chips };
 }
 
@@ -139,7 +141,7 @@ test("rules a and b: a turn keeps its own mention; a later turn takes the last o
     ],
     [],
   );
-  // Prompts draw their text as written. The first reply keeps o/a (a later turn never rewrites
+  // The first reply keeps o/a (a later turn never rewrites
   // it); the last takes o/b, the one named last before its turn (rule b).
   expect(view.chips()).toEqual([
     // Named only by later turns: rule c finds it in no candidate, so rule d stands.
@@ -243,13 +245,19 @@ test("with no folder repository, a bare #N links only when the transcript names 
 test("rule d: with no evidence and one candidate, the folder's repository, asking nothing", async () => {
   const view = await render([user("What landed?"), assistant("#634 landed.")], []);
   expect(view.chips()).toEqual([["#634", pr(FOLDER, 634)]]);
-  expect(inspected(view.calls)).toEqual([]);
+  // Nothing to resolve; the drawn chip's own cache-only ask, for its mark's state colour, is all.
+  expect(view.calls.filter((call) => call.method === "pr.inspect").map((call) => call.params)).toEqual([
+    { url: pr(FOLDER, 634), cached: true },
+  ]);
 });
 
 test("an agent's message: its own address names the repository of its bare #N", async () => {
   const text = `[lane] #24175 merged: ${pr(CMUX, 24175)}. Next #24175 follow-up.`;
   const raw = `<agent-message from="lane">${text}</agent-message>`;
   const message = row("user", { text: raw, incoming: { kind: "message", message: { name: "lane", text, raw } } });
+  // Another agent's message is one line until opened, its whole text (and its chips) in the panel
+  // (IncomingMessageCard.tsx, #27312): the person opened this one.
+  setMessageOpened(undefined, message.id, true);
   const view = await render([message], []);
   const refs = view.chips().filter(([label]) => label === "#24175");
   expect(refs.length).toBeGreaterThan(0);
@@ -276,4 +284,46 @@ test("a streaming reply reads only its own row again; an older row that changed 
   const done = shell("gh pr list", `${pr("x/y", 9)}`);
   const again = referenceScopes([prompt, done, assistant("#9")], cache);
   expect(again(prompt.id).evidence.mentions.get(9)).toEqual([{ at: 1, repo: "x/y" }]);
+});
+
+// Leo 2026-10-29: "these auto render to the pr instead of just #1 #2...". The agent quoted his
+// "what is #1 / #2", and each bare number drew as a chip for cmux's (real, unrelated) pull
+// requests #1 and #2.
+test("Leo's #1 / #2: a quote's bare numbers stay text; explicit references stay chips", async () => {
+  const view = await render(
+    [
+      user("what is #1 / #2"),
+      // The turn names cmux#2 itself (rule a), so only the quote keeps the quoted #2 text.
+      assistant(`> what is #1 / #2\n\nThe options I listed, not pull requests (${CMUX}#2 is unrelated).`),
+    ],
+    [pr(CMUX, 1), pr(CMUX, 2)],
+    { folder: CMUX },
+  );
+  expect(view.chips()).toEqual([[`${CMUX}#2`, pr(CMUX, 2)]]);
+  expect(view.element.querySelector(".cv-quote")?.textContent).toContain("what is #1 / #2");
+});
+
+test("Leo's #1 / #2: a bare number far below the repository's named numbers stays text", async () => {
+  const view = await render(
+    [
+      user(`Land ${pr(CMUX, 27262)}, then what is #1 / #2`),
+      assistant('You asked "what is #1 / #2": #1 is the sidebar fix, #2 the composer one. #27262 is green.'),
+    ],
+    [pr(CMUX, 1), pr(CMUX, 2), pr(CMUX, 27262)],
+    { folder: CMUX },
+  );
+  expect(view.chips().filter(([label]) => label?.startsWith("#"))).toEqual([["#27262", pr(CMUX, 27262)]]);
+});
+
+test("rule 4: with the folder's repository out of range, only the cache's answer links a number", async () => {
+  const view = await render(
+    [user(`Land ${pr(CMUX, 27262)} and look at ${pr("o/r", 3)}`), assistant("#5 is o/r's; #6 is nobody's.")],
+    [pr("o/r", 5)],
+    { folder: CMUX },
+  );
+  expect(view.chips().filter(([label]) => label?.startsWith("#"))).toEqual([["#5", pr("o/r", 5)]]);
+  const asked = inspected(view.calls);
+  expect(asked).toContain(pr("o/r", 6));
+  // The folder's repository is out of range for both, so neither is asked about there.
+  expect(asked.filter((url) => url === pr(CMUX, 5) || url === pr(CMUX, 6))).toEqual([]);
 });

@@ -5,9 +5,9 @@ extension HoverCardSettings {
     /// `sidebar.hoverCards.enabled`: On by default. Off: no card opens on hover; Show Resource Usage still opens one.
     public nonisolated static let enabledPath = ["sidebar", "hoverCards", "enabled"]
     public nonisolated static let enabledDefault = true
-    /// `sidebar.hoverCards.delay`: Milliseconds the pointer rests before the first card opens (HoverCardTiming.showDelay). While a card shows, or within 500 ms after it went, the next one opens at once.
+    /// `sidebar.hoverCards.delay`: Milliseconds the pointer rests before the first card opens (HoverCardTiming.showDelay). 400 ms (Leo 2026-11-01: hover previews must appear a lot faster); it was Chrome's 1300 ms at standard tab width (Lawrence 2026-10-28 msg 15729). While a card shows, or within 300 ms after it went, the next one opens at once.
     public nonisolated static let delayPath = ["sidebar", "hoverCards", "delay"]
-    public nonisolated static let delayDefault: Double = 250
+    public nonisolated static let delayDefault: Double = 400
     public nonisolated static let delayRange: ClosedRange<Double> = 0...5000
     /// `sidebar.hoverCards.layout`: u3320 (Lawrence 2026-10-19): the workspace card's design (plans/cmux-next/hover-card-history/DESIGN.md). timeline (default): stats and a scrollable history of prompts, waits and finished turns; compact: the facts and the last three moments; log: the history alone; classic: the card before the history; minimal: title, status, last prompt.
     public nonisolated static let layoutPath = ["sidebar", "hoverCards", "layout"]
@@ -39,7 +39,7 @@ extension HoverCardSettings {
     public nonisolated static let groupsTabGroupsDefault = true
     /// `sidebar.hoverCards.groups.delay`: Lawrence 2026-10-20: "hovering on workspace group or tab group for a while should still show the card, like summary stuff, and should be fully customizable too." Longer than a row's card so a sweep across headers opens none.
     public nonisolated static let groupsDelayPath = ["sidebar", "hoverCards", "groups", "delay"]
-    public nonisolated static let groupsDelayDefault: Double = 600
+    public nonisolated static let groupsDelayDefault: Double = 1500
     public nonisolated static let groupsDelayRange: ClosedRange<Double> = 0...5000
     /// `sidebar.hoverCards.groups.order`: Lawrence 2026-10-20: "hovering on workspace group or tab group for a while should still show the card, like summary stuff, and should be fully customizable too." Which part leads the group card; the rest follow in their usual order.
     public nonisolated static let groupsOrderPath = ["sidebar", "hoverCards", "groups", "order"]

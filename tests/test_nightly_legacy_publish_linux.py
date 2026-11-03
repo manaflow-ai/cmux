@@ -62,9 +62,14 @@ class Workflow(unittest.TestCase):
     def test_publish_runs_on_blacksmith_linux(self) -> None:
         body = job("publish-nightly-identity-legacy")
         runs_on = re.search(r"^    runs-on: (.+)$", body, re.MULTILINE).group(1)
-        self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}")
         # It holds the Sparkle and R2 keys: never an owned host, never a Mac.
-        self.assertNotIn("LINUX_RUNNER", runs_on)
+        # The validated picker selects trusted Blacksmith Linux sizes and keeps a
+        # bounded fallback for older workflow revisions.
+        self.assertIn("needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.linux", runs_on)
+        self.assertIn("github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.linux_alternate", runs_on)
+        self.assertTrue(runs_on.endswith("|| 'blacksmith-32vcpu-ubuntu-2404' }}"), runs_on)
+        self.assertNotIn("vars.LINUX_RUNNER", runs_on)
+        self.assertNotIn("macos", runs_on)
 
     def test_publish_uses_no_apple_tool(self) -> None:
         body = job("publish-nightly-identity-legacy")

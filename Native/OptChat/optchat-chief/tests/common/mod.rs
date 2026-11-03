@@ -120,6 +120,10 @@ pub struct Owner {
     pub drafts: Vec<(String, optchat_chief::draft::Draft)>,
     /// Rejections for the next `message.send` ops, in order (None: accept).
     pub rejects: VecDeque<Option<String>>,
+    /// Rejections for report appends, after recording the attempted write.
+    pub run_append_rejects: VecDeque<Option<OpError>>,
+    /// Models a Cloud or older owner that never supports run storage.
+    pub runs_unsupported: bool,
     pub reconnects: usize,
     /// When set, `message.send` keys are remembered as the real owner does:
     /// a reused key with the same text replays (posts nothing), with other
@@ -143,8 +147,11 @@ pub struct Owner {
     pub no_link_previews: bool,
     /// Every run record summary the brain appended (`run_append`'s run).
     pub runs: Vec<Value>,
+    pub run_steps: Vec<(String, Value, Vec<Value>)>,
     /// When set, every attachment upload is refused with this code.
     pub refuse_uploads: Option<String>,
+    /// Panics outside the owner lock during an original-file upload.
+    pub panic_uploads: bool,
 }
 
 /// One side conversation as the fake owner keeps it.
@@ -258,20 +265,47 @@ impl PreviewPort for FakeUploader {
     fn upload_attachment(
         &mut self,
         conversation: &str,
-        bytes: &[u8],
+        path: &std::path::Path,
         mime_type: &str,
         name: &str,
         width: Option<u32>,
         height: Option<u32>,
     ) -> Result<DerivedImage, OpError> {
-        self.upload_image(
-            conversation,
-            bytes,
-            mime_type,
-            name,
+        use sha2::Digest;
+        use std::io::Read;
+        let panic_uploads = self.0.lock().unwrap().panic_uploads;
+        assert!(!panic_uploads, "injected attachment upload panic");
+        if let Some(code) = self.0.lock().unwrap().refuse_uploads.clone() {
+            return Err(OpError::Rejected(code));
+        }
+        let mut file =
+            std::fs::File::open(path).map_err(|error| OpError::Transport(error.to_string()))?;
+        let mut buffer = [0; 64 * 1024];
+        let mut hash = sha2::Sha256::new();
+        let mut byte_count = 0;
+        loop {
+            let read = file
+                .read(&mut buffer)
+                .map_err(|error| OpError::Transport(error.to_string()))?;
+            if read == 0 {
+                break;
+            }
+            byte_count += read as u64;
+            hash.update(&buffer[..read]);
+        }
+        let stored = DerivedImage {
+            hash: format!("{:x}", hash.finalize()),
+            mime_type: mime_type.into(),
+            byte_count,
+        };
+        self.0.lock().unwrap().uploads.push((
+            conversation.into(),
+            stored.clone(),
+            name.into(),
             width.unwrap_or(0),
             height.unwrap_or(0),
-        )
+        ));
+        Ok(stored)
     }
 }
 
@@ -432,8 +466,27 @@ impl ConversationPort for FakeDaemon {
         Ok(())
     }
 
-    fn run_append(&mut self, _: &str, run: Value, _: Vec<Value>) -> Result<(), OpError> {
-        self.0.lock().unwrap().runs.push(run);
+    fn run_append(
+        &mut self,
+        conversation: &str,
+        run: Value,
+        steps: Vec<Value>,
+    ) -> Result<(), OpError> {
+        let mut owner = self.0.lock().unwrap();
+        owner
+            .run_steps
+            .push((conversation.to_owned(), run.clone(), steps));
+        if owner.runs_unsupported {
+            return Err(OpError::Rejected("runs_unsupported".into()));
+        }
+        if run["id"]
+            .as_str()
+            .is_some_and(|id| id.starts_with("reports:"))
+            && let Some(reason) = owner.run_append_rejects.pop_front().flatten()
+        {
+            return Err(reason);
+        }
+        owner.runs.push(run);
         Ok(())
     }
 
@@ -565,6 +618,9 @@ pub struct Agents {
     /// The `_acpmux/harnesses` answer; None: `catalog()` (claude-sr and
     /// claude on acpmux's own Claude Code adapter, codex on its ACP adapter).
     pub catalog: Option<Value>,
+    pub machine_status: Option<Value>,
+    pub peer_catalogs: BTreeMap<String, Value>,
+    pub harness_health: BTreeMap<String, Value>,
     /// The harness acpmux reports a new session on (`session`); None: the
     /// one the spec asked for.
     pub session_harness: Option<String>,
@@ -792,13 +848,14 @@ impl AgentPort for FakeAgents {
             std::thread::sleep(delay);
         }
         // acpmux refuses any other session env key (acpmux session_env.rs ALLOWED_KEYS).
-        if let Some(key) = spec
-            .env
-            .keys()
-            .find(|k| !matches!(k.as_str(), "CMUX_WORKSPACE_ID" | "OPTCHAT_TURN_SEAL"))
-        {
+        if let Some(key) = spec.env.keys().find(|k| {
+            !matches!(
+                k.as_str(),
+                "CMUX_WORKSPACE_ID" | "OPTCHAT_TURN_SEAL" | "CMUX_CHIEF_PARTICIPANT"
+            )
+        }) {
             return Err(format!(
-                "session/new: env key {key} is not one a session may set (allowed: CMUX_WORKSPACE_ID, OPTCHAT_TURN_SEAL)"
+                "session/new: env key {key} is not one a session may set (allowed: CMUX_WORKSPACE_ID, OPTCHAT_TURN_SEAL, CMUX_CHIEF_PARTICIPANT)"
             ));
         }
         let mut inner = self.inner.lock().unwrap();
@@ -916,6 +973,43 @@ impl AgentPort for FakeAgents {
             .catalog
             .clone()
             .unwrap_or_else(catalog))
+    }
+
+    fn machine_status(&self) -> Result<Value, String> {
+        Ok(self
+            .inner
+            .lock()
+            .unwrap()
+            .machine_status
+            .clone()
+            .unwrap_or_else(
+                || json!({"here": {"os": "macos", "pressure": {"ok": true}}, "peers": []}),
+            ))
+    }
+
+    fn harness_catalog_on(&self, peer: Option<&str>) -> Result<Value, String> {
+        match peer {
+            Some(name) => self
+                .inner
+                .lock()
+                .unwrap()
+                .peer_catalogs
+                .get(name)
+                .cloned()
+                .ok_or_else(|| "no peer catalog".into()),
+            None => self.harness_catalog(),
+        }
+    }
+
+    fn harness_health_on(&self, peer: Option<&str>) -> Result<Value, String> {
+        Ok(self
+            .inner
+            .lock()
+            .unwrap()
+            .harness_health
+            .get(peer.unwrap_or("here"))
+            .cloned()
+            .unwrap_or_else(|| json!({"harnesses": []})))
     }
 
     fn session(&self, id: &str) -> Result<Option<cmux_chief::acp::SessionSummary>, String> {
@@ -1096,6 +1190,8 @@ pub fn settings(dir: &Path) -> Settings {
         home_view: None,
         membership: Default::default(),
         keep_turn_session: false,
+        chief_inbox: None,
+        screen_share: Some(dir.join("screen")),
     }
 }
 

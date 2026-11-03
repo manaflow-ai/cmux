@@ -66,8 +66,9 @@ public final class FilesPaneView: NSView {
             for await _ in ObservationStream({ [model, sidebar] in
                 _ = (model.entries, model.selection, model.folder, model.viewMode, model.phase, model.canGoBack,
                      model.canGoForward, model.showHidden, model.transferProgress, model.lastError,
-                     sidebar.favorites, sidebar.locations, sidebar.isVisible)
+                     sidebar.favorites, sidebar.locations, sidebar.isVisible, Typography.userScale, Typography.body.pointSize)
             }) {
+                self?.status.font = Typography.system(size: TypeScale.caption)
                 self?.render()
             }
         }

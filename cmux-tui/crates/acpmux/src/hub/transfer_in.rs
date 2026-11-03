@@ -18,12 +18,12 @@
 
 use super::transfer_guard::{Guard, bundle_path_kind};
 use super::transfer_out::{
-    DURABLE_TRANSFER_SCHEMA, MAX_BUNDLE, MAX_FILES, MAX_PAGE, TRANSFER_SCHEMA, inside,
-    transfers_dir,
+    DURABLE_TRANSFER_SCHEMA, MAX_FILES, MAX_PAGE, TRANSFER_SCHEMA, inside, transfers_dir,
 };
 use super::*;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use cmux_json::JsonSet as _;
 
 /// Held by a receive, a finish and a forget, so a forget either sees the move landed or drops its
 /// receive before the finish reads it, and no receive of it starts after.
@@ -102,9 +102,18 @@ impl Hub {
         if session.status() != SessionStatus::Closed {
             return false;
         }
-        let mut moved = session.moving().is_some();
+        if session.meta().moved_to.is_some() {
+            return true;
+        }
+        // A move only begun is not: a stopped chat is closed for its whole move.
+        if session.moving().is_some() {
+            return false;
+        }
+        // A move committed before `moved_to` was recorded: its log says so.
+        let mut moved = false;
         let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
-            moved |= e.kind == "transferred";
+            // The daemon's own records only: an agent's update may carry any kind.
+            moved |= e.dir == "mux" && e.kind == "transferred";
             !moved
         });
         moved
@@ -314,6 +323,19 @@ impl Hub {
         let _ = std::fs::remove_file(path);
     }
 
+    /// Fence the outgoing instance before staging the incoming durable store. Keep
+    /// this boundary shared by transfer_finish and its admission-race regression.
+    pub(super) async fn retire_transfer_instance(
+        &self,
+        old: &Arc<Session>,
+    ) -> Result<(), RpcError> {
+        // Retry tasks hold the same lock across their replaced check and append.
+        self.seal_retry_replacement(old);
+        // Drain an earlier retention commit before replacing the journal.
+        drop(old.append_lock.lock().unwrap_or_else(|e| e.into_inner()));
+        self.kill(old, false).await
+    }
+
     pub(super) async fn transfer_receive(&self, params: &Value) -> Result<Value, RpcError> {
         let manifest = params.get("manifest").cloned().unwrap_or(Value::Null);
         let guard = match params.get("guard") {
@@ -326,6 +348,16 @@ impl Hub {
                 "schema",
                 format!("this daemon takes {TRANSFER_SCHEMA} or {DURABLE_TRANSFER_SCHEMA}"),
             ));
+        }
+        // Prompts the owner approved that still wait for their place (`transfer_out.rs`): taken
+        // only by a daemon that runs them under the approved rules (`queue_approve.rs`).
+        if let Some(ids) = manifest
+            .get("approvedWaiting")
+            .filter(|ids| ids.as_array().is_some_and(|a| !a.is_empty()))
+            && !self.understands_queue_approval()
+        {
+            let why = "this daemon does not understand queue approval";
+            return Err(super::approved_prompts_error(ids.clone(), why));
         }
         let id = manifest["sessionId"].as_str().unwrap_or("");
         if !super::transfer::is_plain_id(id) {
@@ -348,13 +380,14 @@ impl Hub {
             return Err(e.with_data(json!({"harness": harness})));
         }
         let files = manifest["files"].as_array().cloned().unwrap_or_default();
-        let mut total = 0u64;
         for f in &files {
             inside(Path::new("/"), f["path"].as_str().unwrap_or(""))?;
-            total = total.saturating_add(f["size"].as_u64().unwrap_or(u64::MAX));
+            if f["size"].as_u64().is_none() {
+                return Err(RpcError::invalid_params("transfer: file size must be a u64"));
+            }
         }
-        if files.len() > MAX_FILES || total > MAX_BUNDLE {
-            return Err(transfer_error("size", format!("{} files, {total} bytes", files.len())));
+        if files.len() > MAX_FILES {
+            return Err(transfer_error("size", format!("{} files", files.len())));
         }
         if let Some(g) = &guard {
             self.guarded_receive_check(g, &manifest).await?;
@@ -380,7 +413,7 @@ impl Hub {
         made.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         let mut answer = json!({"receiveId": receive_id, "sessionId": id});
         if guard.is_some() {
-            answer["guarded"] = json!(true);
+            answer.set("guarded", json!(true));
         }
         Ok(answer)
     }
@@ -408,7 +441,9 @@ impl Hub {
             let e = transfer_error("offset", format!("{path:?} has {have} bytes, not {offset}"));
             return Err(e.with_data(json!({"size": have})));
         }
-        if data.len() as u64 > MAX_PAGE || have + data.len() as u64 > size {
+        if data.len() as u64 > MAX_PAGE
+            || size.checked_sub(have).is_none_or(|left| data.len() as u64 > left)
+        {
             return Err(transfer_error("size", format!("{path:?} is {size} bytes")));
         }
         use std::io::Write;
@@ -489,7 +524,7 @@ impl Hub {
             let path = bundle.join("session.json");
             let edited = std::fs::read(&path).map_err(anyhow::Error::from).and_then(|raw| {
                 let mut meta: Value = serde_json::from_slice(&raw)?;
-                meta["cwd"] = json!(cwd);
+                meta.set("cwd", json!(cwd));
                 Ok(std::fs::write(&path, serde_json::to_vec_pretty(&meta)?)?)
             });
             edited.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
@@ -512,11 +547,7 @@ impl Hub {
                 let e = transfer_error("cwd", "the chat's folder is not here; pass cwd");
                 return Err(e.with_data(json!({"reason": "cwd_missing", "cwd": cwd})));
             }
-            old.replaced.store(true, Ordering::SeqCst);
-            // A log retention pass that took the chat's append lock before the mark finishes its
-            // commit first; one after it leaves the chat alone (`hub/retention.rs`).
-            drop(old.append_lock.lock().unwrap_or_else(|e| e.into_inner()));
-            self.kill(old, false).await?;
+            self.retire_transfer_instance(old).await?;
         }
         let source_store = if replacing_durable { self.store.session_dir(id) } else { None };
         let source_store_backup = if let Some(source_store) = source_store.as_ref() {
@@ -655,5 +686,18 @@ impl Hub {
             });
         }
         Ok(json!({"transferId": transfer_id, "landed": landed}))
+    }
+}
+
+impl Hub {
+    /// Whether this daemon runs a prompt the owner approved under the approved rules
+    /// (`queue_approve.rs`, `author::QUEUE_APPROVAL_FEATURE` in its `initialize`): every build
+    /// with this code does; a test stands in for an older one.
+    pub(super) fn understands_queue_approval(&self) -> bool {
+        #[cfg(test)]
+        if self.queue_approval_off.load(Ordering::SeqCst) {
+            return false;
+        }
+        true
     }
 }

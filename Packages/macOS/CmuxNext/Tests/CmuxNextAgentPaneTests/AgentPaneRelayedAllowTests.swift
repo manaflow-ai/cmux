@@ -19,7 +19,7 @@ struct AgentPaneRelayedAllowTests {
     final class PageInbox: @unchecked Sendable { // crash-allow: test support; every access holds the lock
         private let state = Mutex<(frames: [String], waiters: [(String, CheckedContinuation<String, Never>)])>(([], []))
 
-        func deliver(_ frames: [String]) {
+        nonisolated func deliver(_ frames: [String]) {
             let ready = state.withLock { state -> [(CheckedContinuation<String, Never>, String)] in
                 state.frames += frames
                 var ready: [(CheckedContinuation<String, Never>, String)] = []
@@ -298,6 +298,52 @@ struct AgentPaneRelayedAllowTests {
             "modeId": "m", "answers": ["q": "B"]]]]) == nil)
     }
 
+    /// 2026-10-21: Leo answered a question card on another machine and acpmux refused it, "allowing
+    /// a permission is accepted only from the cmux app". A second answer reserved before the first
+    /// answer's frame went out revoked the first ticket (one slot per method), so the first answer
+    /// went out unproved. Each ask keeps its own ticket, as each prompt does (#29745).
+    @Test func answersToTwoAsksReservedBackToBackKeepTheirOwnTickets() throws {
+        let clock = AgentPaneSlowStartPromptTests.Clock()
+        let gestures = AgentPaneUserGestures(now: { clock.now })
+        let firstIntent = try #require(Self.intent(option: "yes", permission: "p1"))
+        let secondIntent = try #require(Self.intent(option: "yes", permission: "p2"))
+        func frame(_ permission: String, option: String = "yes") -> [String: Any] {
+            ["sessionId": "s", "permissionId": permission, "optionId": option, "_meta": ["cmuxGesture": "t"]]
+        }
+        let method = "_acpmux/permission_respond"
+
+        // Two clicks, two asks, before either answer's frame reaches the relay.
+        gestures.record(click: true)
+        let first = try #require(gestures.reserve(connection: 1, intent: firstIntent))
+        gestures.record(click: true)
+        let second = try #require(gestures.reserve(connection: 1, intent: secondIntent))
+        #expect(gestures.redeem(first, connection: 1, method: method, params: frame("p1")),
+                "the second ask's answer revoked the first ask's ticket")
+        #expect(gestures.redeem(second, connection: 1, method: method, params: frame("p2")))
+
+        // A newer answer to the same ask still replaces the older one.
+        gestures.record(click: true)
+        let older = try #require(gestures.reserve(connection: 1, intent: firstIntent))
+        gestures.record(click: true)
+        let newerIntent = try #require(Self.intent(option: "no", permission: "p1"))
+        let newer = try #require(gestures.reserve(connection: 1, intent: newerIntent))
+        #expect(!gestures.redeem(older, connection: 1, method: method, params: frame("p1")))
+        #expect(gestures.redeem(newer, connection: 1, method: method, params: frame("p1", option: "no")))
+
+        // Answer tickets stay bounded per connection, the oldest going first.
+        var reserved: [String] = []
+        for index in 0..<(AgentPaneUserGestures.permissionTicketsKept + 2) {
+            gestures.record(click: true)
+            let intent = try #require(Self.intent(option: "yes", permission: "q\(index)"))
+            reserved.append(try #require(gestures.reserve(connection: 1, intent: intent)))
+        }
+        #expect(!gestures.redeem(reserved[0], connection: 1, method: method, params: frame("q0")))
+        #expect(!gestures.redeem(reserved[1], connection: 1, method: method, params: frame("q1")))
+        #expect(gestures.redeem(reserved[2], connection: 1, method: method, params: frame("q2")))
+        let last = reserved.count - 1
+        #expect(gestures.redeem(reserved[last], connection: 1, method: method, params: frame("q\(last)")))
+    }
+
     /// The same review, through the transport: a ticket the page took for answer B does not let
     /// it send answer A to another machine (the gesture is refused, so nothing is signed).
     @Test func aTicketForOneAnswerIsRefusedForAnother() async throws {
@@ -342,8 +388,8 @@ struct AgentPaneRelayedAllowTests {
 
     /// The local daemon's own run (not the peer's) and a peer's prompt, seen by the page.
     static func peerChat(_ server: AcpmuxStandInServer, _ inbox: PageInbox, _ transport: AgentPaneTransport) async throws -> Int {
-        // A DEV build's memory key (the app configures it at launch).
-        AcpmuxMacApprover.shared.configure(keychainService: nil)
+        // A DEV build's memory key (the app makes its approver at launch and hands it to each pane).
+        transport.peerApprover = AgentPanePeerApprover(key: AcpmuxMacApprover(keychainService: nil))
         let local = String(repeating: "d", count: 32)
         server.answer("initialize", with: #"{"protocolVersion":1,"_meta":{"acpmux":{"origin":"local","personInstance":"\#(local)"}}}"#)
         transport.deliver = { event, done in inbox.deliver(event.frames); done() }
@@ -384,7 +430,7 @@ struct AgentPaneRelayedAllowTests {
         #expect(acpmux["decisionNonce"] as? String == Self.nonce)
         #expect(acpmux["personDecision"] == nil)
         let decision = try #require(acpmux["approverDecision"] as? [String: Any])
-        let identity = try #require(AcpmuxMacApprover.shared.identity)
+        let identity = try #require(transport.peerApprover?.key.identity)
         #expect(decision["approver"] as? String == identity.id)
         let expires = try #require((decision["expiresAt"] as? NSNumber)?.uint64Value)
         #expect(expires > before && expires <= before + 300)
@@ -600,7 +646,7 @@ struct AgentPaneRelayedAllowTests {
         let acpmux = try #require((params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any], "an unsigned group allow: \(sent)")
         let members = try #require(acpmux["approverDecisions"] as? [String: Any])
         #expect(Set(members.keys) == ["p1", "p2"])
-        let identity = try #require(AcpmuxMacApprover.shared.identity)
+        let identity = try #require(transport.peerApprover?.key.identity)
         let key = try P256.Signing.PublicKey(x963Representation: AcpmuxMacApproverTests.bytes(identity.publicKey))
         for (permission, toolCall, option, nonce) in [("p1", "call-1", "yes", Self.nonce), ("p2", "call-2", "ok", nonce2)] {
             let member = try #require(members[permission] as? [String: Any])

@@ -86,6 +86,7 @@ extension TabStripView {
             placed[slot.id] = place
         }
         pinClosingTabs()
+        updateCrowded()
         scrollOffset = TabScrollMath.clamp(scrollOffset, contentWidth: result.contentWidth, viewportWidth: viewportWidth)
         if keepsSelectedInView, drag == nil, let slot = model.selectedID.flatMap({ result.slot($0) }) {
             scrollOffset = TabScrollMath.offset(revealing: slot, current: scrollOffset, contentWidth: result.contentWidth, viewportWidth: viewportWidth,
@@ -98,6 +99,17 @@ extension TabStripView {
         // An opening tab first shows where it opens from; the move takes it to its slot.
         if !starts.isEmpty { place(starts, mapping: mappingBefore) }
         applyFrames(move: move, scrollFrom: mappingBefore)
+    }
+
+    /// ``isCrowded`` from the layout just made. Closing mode's pretend width keeps the tabs as they
+    /// were, so a close in progress does not flip it.
+    func updateCrowded() {
+        let squeezed = model.style != .compact && result.standardWidth > 0 && result.standardWidth < metrics.maxTabWidth - 0.5
+        let crowded = closingModeWidth == nil ? result.isOverflowing || squeezed : isCrowded
+        guard crowded != isCrowded else { return }
+        isCrowded = crowded
+        reveal.hover.restAlpha = TabTunables.restingControlAlpha(crowded: crowded)
+        onCrowdedChange?(crowded)
     }
 
     /// A closing tab's left edge stays on the previous tab's right edge minus the close width (0: our
@@ -129,10 +141,21 @@ extension TabStripView {
         return TabStripMove(generation: moveGeneration, motion: motion, closing: token == .tabClose ? nil : MotionMove.tween(.tabClose, in: Motion.tabs))
     }
 
+    /// Runs `work` once no strip move is in flight (at once when none is): a tab's open has ended its motion.
+    public func whenStill(_ work: @escaping @MainActor () -> Void) {
+        guard !movesInFlight.isEmpty else { return work() }
+        stillWaiters.append(work)
+    }
+
     /// Every move of `generation` ended: a closing tab or chip it carried goes, and the masks and
     /// clips that only that motion needed come off.
     func moveEnded(_ generation: Int) {
         movesInFlight.remove(generation)
+        if movesInFlight.isEmpty, !stillWaiters.isEmpty {
+            let waiting = stillWaiters
+            stillWaiters.removeAll()
+            waiting.forEach { $0() }
+        }
         let now = CACurrentMediaTime()
         // The move that ends last carries it; a little slack for the completion's own frame.
         for id in dying where (goesAt[id] ?? .infinity) <= now + 0.02 { removeTab(id) }
@@ -192,7 +215,7 @@ extension TabStripView {
                                            viewportWidth: viewportWidth)
         var layers = [scrollProbe] + cells.values.map(\.layer) + groups.chips.values.map(\.layer)
         layers += groups.bands.values.flatMap { [$0.washLayer, $0.lineLayer] }
-        if let button = newTabButton.layer { layers.append(button) }
+        layers += [newTabButton.layer, newTabMenuButton.layer].compactMap { $0 }
         TabStripMove.cancelScroll(on: layers)
     }
 
@@ -338,16 +361,20 @@ extension TabStripView {
         let buttonFrame = CGRect(x: pixel(buttonX), y: pixel(tabY + (tabHeight - buttonWidth) / 2), width: buttonWidth, height: buttonWidth)
         let buttonFrom = newTabButton.frame.origin
         newTabButton.frame = buttonFrame
+        newTabMenuButton.frame = CGRect(x: buttonFrame.maxX, y: buttonFrame.minY,
+                                       width: newTabControlsWidth - buttonWidth, height: buttonFrame.height)
         // The scroll moves it only where it follows the last tab both before and now (not held at the strip's end).
         let buttonEnd = pixel(tabsClip.frame.minX + viewportWidth) - 0.5
         let scroll = buttonFrame.minX < buttonEnd && buttonFrom.x < buttonEnd ? scrollPart(isPinned: false) : 0
-        if let move, let layer = newTabButton.layer, buttonFrom != buttonFrame.origin || abs(scroll) > 0.01 {
-            // A view's layer is in its superview's (flipped or not) coordinates: its position moved as its frame did.
+        if let move, buttonFrom != buttonFrame.origin || abs(scroll) > 0.01 {
+            // Both controls follow the same move and scroll, staying adjacent throughout the transition.
             let delta = CGPoint(x: buttonFrom.x - buttonFrame.minX - scroll, y: buttonFrom.y - buttonFrame.minY)
-            if abs(delta.x) > 0.01 || abs(delta.y) > 0.01 {
-                move.add(move.motion.additive("position", from: NSValue(point: delta), to: NSValue(point: .zero)), to: layer, as: "button")
+            for layer in [newTabButton.layer, newTabMenuButton.layer].compactMap({ $0 }) {
+                if abs(delta.x) > 0.01 || abs(delta.y) > 0.01 {
+                    move.add(move.motion.additive("position", from: NSValue(point: delta), to: NSValue(point: .zero)), to: layer, as: "button")
+                }
+                move.addScroll(scroll, to: layer)
             }
-            move.addScroll(scroll, to: layer)
         }
         edgeFade.update()
         // Tabs moved (scroll, reflow, close): what is under a still pointer may differ. Hit testing reads
@@ -372,6 +399,9 @@ extension TabStripView {
 }
 
 extension TabStripView: MotionAnimating {
+    /// Autoscroll has no end state: out of sight it just stops.
+    public func motionSettle() {}
+
     /// One autoscroll frame; false when no drag sits in an edge fade and no recorded move travels.
     public func motionStep(_ dt: Double) -> Bool {
         let scrolling = autoscrollDuringDrag(CGFloat(dt))

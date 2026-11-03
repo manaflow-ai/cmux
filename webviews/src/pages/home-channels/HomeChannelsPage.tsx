@@ -4,6 +4,7 @@
 // create popover, the inline editor, the keyboard's current message and a short notice.
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
+import { useLasting } from "../../ui/lasting";
 import { AttachmentContext } from "./AttachmentViews";
 import { AvatarContext } from "./avatars";
 import { Avatar, ChannelMark, PicturesContext } from "./Avatar";
@@ -48,6 +49,8 @@ import { Timeline } from "./Timeline";
 import type { HomeConversation, HomeMessage, HomeParticipant, HomeRun } from "./types";
 import { useHomeKeys } from "./useHomeKeys";
 import { useWebSwapHold } from "../shared/useWebSwapHold";
+import { PresentationToggle, usePresentation } from "./presentation";
+import { sliceWhole } from "../../ui/wholeChars";
 
 const NOTICE_MS = 1600;
 
@@ -62,6 +65,7 @@ export function HomeChannelsPage({
   pane?: Pane;
 }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const presentation = usePresentation(snap.selected);
   // WEB-SWAP: a web update's reload waits while a message lives only in this page: one on its way
   // to the owner, or a failed one with Retry (pages/shared/webSwap.ts).
   useWebSwapHold(
@@ -144,11 +148,14 @@ export function HomeChannelsPage({
     return map;
   }, [conversations, snap.me]);
   const runsWithPeople = useMemo<RunsContextValue>(
-    () => ({ ...runs, people, draftTurn: snap.draft?.turn }),
-    [runs, people, snap.draft?.turn],
+    () => ({ ...runs, people, draftTurn: snap.draft?.turn, presentation }),
+    [runs, people, snap.draft?.turn, presentation],
   );
   const mentionable = useMemo(() => others(open, me), [open, me]);
   const online = snap.connection === "online";
+  // The header says the page is offline or connecting only once that has lasted past the grace
+  // (ui/lasting.ts): a daemon restart or a dropped link that comes back shows nothing.
+  const offlineLasting = useLasting(!online);
   const name = open ? conversationName(open, me) : "";
   const channel = open ? channels.has(open.id) : false;
   const place = channel ? `#${name}` : name;
@@ -580,7 +587,8 @@ export function HomeChannelsPage({
                         )}
                       </p>
                       <span className="lg-spacer" />
-                      {!online && (
+                      <PresentationToggle conversation={open.id} strings={strings} />
+                      {offlineLasting && (
                         <output className="lg-connection">
                           {t(snap.connection === "connecting" ? "connection.connecting" : "connection.offline")}
                         </output>
@@ -796,5 +804,5 @@ function askedLine(id: string | undefined, messages: readonly HomeMessage[]): st
   const message = id ? messages.find((entry) => entry.id === id) : undefined;
   const text = message?.parts.find((part) => part.type === "text");
   const line = text && text.type === "text" ? text.text.split("\n")[0]!.trim() : "";
-  return line ? (line.length > 120 ? `${line.slice(0, 119)}…` : line) : undefined;
+  return line ? (line.length > 120 ? `${sliceWhole(line, 119)}…` : line) : undefined;
 }

@@ -16,6 +16,8 @@ public actor CloudCodexBroker {
     private let home: URL
     private var session: CodexBrokerSession?
     private var stopped = false
+    /// Set by ``detach()``: a quit or an update, after which delivered access stays where it is.
+    private var detached = false
     private var cached: CloudCodexAccessGrant?
     private var previousModeByMachine: [String: Data?] = [:]
     private var loadedPreviousMode: Set<String> = []
@@ -31,6 +33,10 @@ public actor CloudCodexBroker {
     private var targetWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
     private var refreshTask: Task<Void, Never>?
     private var refreshCycle = 0
+    /// The first wait before a failed renewal tries again; each failure after it doubles the wait, up
+    /// to ``renewalRetryCap``.
+    private let renewalRetryBase: Duration
+    static let renewalRetryCap: Duration = .seconds(300)
     private var refreshInFlight: Task<CloudCodexAccessGrant, any Error>?
     private var quitWaiters: [UUID: CheckedContinuation<Void, any Error>] = [:]
     private var quitTimers: [UUID: Task<Void, Never>] = [:]
@@ -41,7 +47,9 @@ public actor CloudCodexBroker {
                 executable: URL,
                 executablePrefix: [String] = [],
                 codexExecutable: URL,
-                home: URL) {
+                home: URL,
+                renewalRetryBase: Duration = .seconds(15)) {
+        self.renewalRetryBase = renewalRetryBase
         self.scope = scope
         self.currentScope = currentScope
         self.executable = executable
@@ -288,17 +296,7 @@ public actor CloudCodexBroker {
         guard targets[target.machineID] != nil else { throw CloudCodexBrokerError.cancelled }
         let generation = expectedGeneration ?? targetGenerations[target.machineID, default: 0]
         guard !pendingRevocations.contains(target.machineID), targetGenerations[target.machineID, default: 0] == generation else { throw CloudCodexBrokerError.cancelled }
-        let object: [String: Any] = [
-            "schema": 1,
-            "bridge": "codex-external-access-v1",
-            "accessToken": grant.accessToken,
-            "chatgptAccountId": grant.chatgptAccountID,
-            "expiresAt": Int64(grant.expiresAt.timeIntervalSince1970),
-            "installationID": UUID().uuidString,
-        ]
-        guard JSONSerialization.isValidJSONObject(object), let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
-            throw CloudCodexBrokerError.invalidReply
-        }
+        var data = Data()
         let suffix = UUID().uuidString.lowercased()
         let stageAccess = "/home/cmux/.config/cmux/codex-broker/.access-\(suffix).json"
         let stageMode = "/home/cmux/.config/cmux/agent-auth/.codex-\(suffix)"
@@ -311,9 +309,26 @@ public actor CloudCodexBroker {
             guard targets[target.machineID] != nil, targetGenerations[target.machineID] == generation,
                   try await target.isLive() else { throw CloudCodexBrokerError.targetOffline }
             if !loadedPreviousMode.contains(target.machineID) {
-                previousModeByMachine[target.machineID] = try await target.readFile(Self.modePath)
+                previousModeByMachine[target.machineID] = try await Self.modeBeforeBroker(target)
                 loadedPreviousMode.insert(target.machineID)
             }
+            // The access file carries the mode to restore, so a later run of cmux revokes what an
+            // earlier one left at quit (#33482) without mistaking its marker for the person's choice.
+            let previous = previousModeByMachine[target.machineID] ?? nil
+            let object: [String: Any] = [
+                "schema": 1,
+                "bridge": "codex-external-access-v1",
+                "accessToken": grant.accessToken,
+                "chatgptAccountId": grant.chatgptAccountID,
+                "expiresAt": Int64(grant.expiresAt.timeIntervalSince1970),
+                "installationID": UUID().uuidString,
+                "previousMode": previous.map { $0.base64EncodedString() } ?? NSNull(),
+            ]
+            guard JSONSerialization.isValidJSONObject(object),
+                  let encoded = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
+                throw CloudCodexBrokerError.invalidReply
+            }
+            data = encoded
             try await ensureScope()
             try await target.makeDirectory("/home/cmux/.config")
             try await target.makeDirectory("/home/cmux/.config/cmux")
@@ -339,6 +354,8 @@ public actor CloudCodexBroker {
             try await ensureScope()
             guard targets[target.machineID] != nil, targetGenerations[target.machineID] == generation else { throw CloudCodexBrokerError.cancelled }
         } catch {
+            // A quit cut this renewal short: whatever it committed stays, like every other delivery.
+            if detached { throw CloudCodexBrokerError.cancelled }
             var reconciliationFailed = false
             if commitAttempted, !committed {
                 // Exec can commit and lose its reply. Reconcile independently
@@ -388,6 +405,22 @@ public actor CloudCodexBroker {
         }
     }
 
+    /// The machine's Codex mode before any broker delivery. An `own` marker under an access file
+    /// this broker wrote is an earlier run's (one that quit and left it); its `previousMode` is the
+    /// person's own. Any other `own`, including one under an older broker file that records none,
+    /// is the person's choice (`cr use`, an agent login) and is kept.
+    static func modeBeforeBroker(_ target: CloudCodexBrokerTarget) async throws -> Data? {
+        let mode = try await target.readFile(modePath)
+        guard mode == Data("own\n".utf8),
+              let access = try await target.readFile(accessPath),
+              let object = try? JSONSerialization.jsonObject(with: access) as? [String: Any],
+              object["bridge"] as? String == "codex-external-access-v1",
+              let recorded = object["previousMode"] else { return mode }
+        if recorded is NSNull { return nil }
+        guard let text = recorded as? String, let previous = Data(base64Encoded: text) else { return mode }
+        return previous
+    }
+
     private func lockTarget(_ machineID: String) async {
         if targetLocks.insert(machineID).inserted { return }
         await withCheckedContinuation { targetWaiters[machineID, default: []].append($0) }
@@ -420,7 +453,33 @@ public actor CloudCodexBroker {
         refreshInFlight?.cancel()
         let endingTargets = Array(targets.merging(revocationTargets) { _, pending in pending }.values)
         if let session { await invalidate(session) }
-        var failed = pendingRevocations
+        let failed = await revokeWithinQuitBudget(endingTargets, failed: pendingRevocations)
+        cached = nil
+        return failed
+    }
+
+    /// Quit and update: stops renewal and the local process like ``shutdown()``, but leaves the
+    /// access delivered to each registered VM in place until the provider expires it, so a Cloud
+    /// Codex run keeps working after cmux quits or updates (#33482). Only revocations asked for
+    /// before the quit (a deleted machine, a failed delivery) still run, within the quit budget.
+    /// Returns the IDs whose pending revocation failed.
+    public func detach() async -> Set<String> {
+        // Snapshot first: a renewal the cancel below cuts short is not an ask to erase.
+        let asked = Array(revocationTargets.values)
+        let pending = pendingRevocations
+        stopped = true
+        detached = true
+        refreshTask?.cancel()
+        refreshTask = nil
+        refreshInFlight?.cancel()
+        if let session { await invalidate(session) }
+        let failed = await revokeWithinQuitBudget(asked, failed: pending)
+        cached = nil
+        return failed
+    }
+
+    private func revokeWithinQuitBudget(_ endingTargets: [CloudCodexBrokerTarget], failed initial: Set<String>) async -> Set<String> {
+        var failed = initial
         await withTaskGroup(of: (String, Bool).self) { group in
             for target in endingTargets {
                 group.addTask { [weak self] in
@@ -435,7 +494,6 @@ public actor CloudCodexBroker {
                 if succeeded { failed.remove(machineID) } else { failed.insert(machineID) }
             }
         }
-        cached = nil
         return failed
     }
 
@@ -469,35 +527,42 @@ public actor CloudCodexBroker {
 
     private func targetList() -> [CloudCodexBrokerTarget] { targets.values.sorted { $0.machineID < $1.machineID } }
 
-    private func scheduleRefresh(grant: CloudCodexAccessGrant) {
+    /// Renews `grant` before it expires. `failures` counts the renewals that failed in a row: after
+    /// one the next try comes after a backoff instead (``renewalRetryDelay(_:)``).
+    private func scheduleRefresh(grant: CloudCodexAccessGrant, failures: Int = 0) {
         // A foreground force-refresh can race a renewal fan-out. Keep the
         // active renewal task alive so its target delivery is not cancelled and
         // misclassified as a revoked target. The existing task will schedule
         // itself again after its fan-out; a completed failed task clears its
         // handle in the catch below.
-        guard refreshTask == nil, !targets.isEmpty else { return }
+        guard refreshTask == nil, !targets.isEmpty, !stopped else { return }
         refreshCycle += 1
         let cycle = refreshCycle
-        let wait = max(1, grant.expiresAt.timeIntervalSinceNow - 120)
+        let wait: Duration = failures == 0 ? .seconds(max(1, grant.expiresAt.timeIntervalSinceNow - 120)) : renewalRetryDelay(failures)
         let expectedScope = scope
         refreshTask = Task { [weak self] in
             do {
-                // wakeup-allow: one renewal wakeup before the short-lived grant expires
-                try await Task.sleep(for: .seconds(wait))
+                // wakeup-allow: one renewal wakeup before the short-lived grant expires, or one backoff after a failed renewal
+                try await Task.sleep(for: wait)
                 guard let self else { return }
                 guard await self.currentScope() == expectedScope else { throw CloudCodexBrokerError.scopeChanged }
                 let refreshed = try await self.retryRenewal { try await self.refreshAccess(schedule: false) }
                 let targets = await self.targetList()
+                var undelivered: (any Error)?
                 for target in targets {
                     do { try await self.retryRenewal { try await self.deliver(refreshed, target: target) } }
                     catch CloudCodexBrokerError.scopeChanged { throw CloudCodexBrokerError.scopeChanged }
-                    catch { continue }
+                    catch { if Self.retriesLater(error) { undelivered = error } }
                 }
+                // A machine its VM API failed to reach keeps its old access, which expires before the
+                // refreshed grant's renewal: it takes the backoff instead (cmux#33387).
+                if let undelivered { throw undelivered }
                 await self.rescheduleRefresh(after: refreshed, cycle: cycle)
             } catch {
                 // cancellation, logout, or a stopped VM ends renewal; do not
                 // leave a completed task handle blocking future scheduling.
-                if let self { await self.finishRefreshTask(cycle: cycle) }
+                // A transient failure (the Mac woke before its network did, Wi-Fi dropped) tries again later.
+                if let self { await self.renewalFailed(error, grant: grant, cycle: cycle, failures: failures) }
             }
         }
     }
@@ -515,6 +580,32 @@ public actor CloudCodexBroker {
             }
         }
         throw CloudCodexBrokerError.brokerUnavailable
+    }
+
+    /// A renewal that failed: it ends, and after a transient failure the next one is scheduled after a
+    /// backoff. Renewal used to end for good after its three quick retries (7 s), so a Mac that woke from
+    /// sleep at a renewal before its Wi-Fi was back never renewed again, and the Cloud machine's Codex
+    /// lost its access once the grant expired. Stops: the broker shut down, no target left, a newer
+    /// renewal, the account or team changed, Codex signed out, or the task cancelled.
+    private func renewalFailed(_ error: any Error, grant: CloudCodexAccessGrant, cycle: Int, failures: Int) {
+        finishRefreshTask(cycle: cycle)
+        guard cycle == refreshCycle, !Task.isCancelled, Self.retriesLater(error) else { return }
+        scheduleRefresh(grant: cached ?? grant, failures: failures + 1)
+    }
+
+    /// Whether a failed renewal tries again later: the local holder or a delivery failed, including the
+    /// holder's `codex_auth_unavailable` (``CloudCodexBrokerError/notAuthenticated``), which is also what an
+    /// offline refresh answers (the holder maps every refresh error but an account change to it, so a
+    /// sign-out and a network failure look alike; retrying a signed-out holder only asks it again, locally).
+    /// Never an account or team change, or a cancel.
+    static func retriesLater(_ error: any Error) -> Bool {
+        guard let failure = error as? CloudCodexBrokerError else { return false }
+        return [CloudCodexBrokerError.brokerUnavailable, .remoteDeliveryFailed, .expiredAccess, .invalidReply, .notAuthenticated].contains(failure)
+    }
+
+    /// The wait before renewal try `failures` (1 or more): the base, doubled per failure, capped.
+    func renewalRetryDelay(_ failures: Int) -> Duration {
+        min(renewalRetryBase * (1 << min(max(failures - 1, 0), 10)), Self.renewalRetryCap)
     }
 
     private func finishRefreshTask(cycle: Int) {

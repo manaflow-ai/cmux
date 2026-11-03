@@ -24,12 +24,17 @@ if (!built) console.warn("agent-pane-no-capsules: skipping (run scripts/cmux-nex
  * Cards New Tab template (u2851, from the user's scrawl of Aside's New Tab page) is a pill design
  * on purpose: its field and its selected Chats tab are round (newtab/screen.css). The other templates keep small-radius rects. */
 const SHAPES = new Set([
+  // App scene ABI drawing primitives, not agent-pane controls. Badge labels still use small-radius rects.
+  ".cmux-app-scene-circle",
+  ".cmux-app-scene-capsule",
   ".acpmux-switch",
   ".acpmux-quick-fast-toggle",
+  // Session Info's Remote Control switch track (#28981), styled like Settings' ds-switch.
+  ".acpmux-session-info-switch__input",
   ".acpmux-effort-track",
   ".acpmux-effort-fill",
   ".acpmux-context-card-bar",
-  ".acpmux-chat-inspector-context__bar",
+  ".acpmux-session-info-context__bar",
   // The workflow card's progress bar and its phase segments (4ad2cc9c8eff, #27019): 4 px bars.
   ".acpmux-workflow-card__progress",
   ".acpmux-workflow-card__phases > span",
@@ -81,7 +86,11 @@ function capsules(css: string) {
     const height = px(box.height);
     const width = px(box.width);
     if (radius === undefined) return [];
-    const square = height !== undefined && width !== undefined && Math.abs(width - height) < 1;
+    // Square when both sides are the same length, or the same token (`var(--ds-control-primary)`
+    // on both: the drop overlay's round mark, #24644).
+    const square =
+      (height !== undefined && width !== undefined && Math.abs(width - height) < 1) ||
+      (box.height !== undefined && box.height === box.width);
     const capsule = !square && (radius >= 999 || (height !== undefined && radius >= height / 2 - 0.5));
     return capsule ? [`${selector} (radius ${box.radius}, height ${box.height ?? "auto"})`] : [];
   });
@@ -90,11 +99,24 @@ function capsules(css: string) {
 describe("capsule detection", () => {
   test.each([
     ["a circle", ".control { width: 32px; height: 32px; border-radius: 999px; }", false],
+    [
+      "a token-sized circle",
+      ".control { width: var(--ds-control-primary); height: var(--ds-control-primary); border-radius: 999px; }",
+      false,
+    ],
+    [
+      "a pill of two tokens",
+      ".control { width: var(--ds-control-wide); height: var(--ds-control-primary); border-radius: 999px; }",
+      true,
+    ],
     ["a small-radius rectangle", ".control { width: 60px; height: 24px; border-radius: 4px; }", false],
     ["a fully rounded rectangle", ".control { width: 60px; height: 24px; border-radius: 999px; }", true],
     ["a half-height radius", ".control { width: 60px; height: 24px; border-radius: 12px; }", true],
     ["an auto-height pill", ".control { border-radius: 999px; }", true],
     ["a toggle track", ".acpmux-quick-fast-toggle { width: 30px; height: 20px; border-radius: 999px; }", false],
+    ["an app circle primitive", ".cmux-app-scene-circle { border-radius: 999px; }", false],
+    ["an app capsule primitive", ".cmux-app-scene-capsule { border-radius: 999px; }", false],
+    ["an app badge control", ".cmux-app-scene-badge-label { border-radius: 999px; }", true],
   ])("classifies %s", (_name, css, expected) => {
     expect(capsules(css).length > 0).toBe(expected);
   });

@@ -63,6 +63,9 @@ import Testing
     @Test func localImportStopsTheHostAndKeepsTheMuxHome() {
         let command = MemoryImportCommand(target: .local(muxHome: "/h/mux"))
         #expect(command.detect() == ["memory", "import-from", "detect", "--json", "--mux-home", "/h/mux"])
+        // LAUNCH-NO-TCC-PROMPTS: only the person's own Import asks for the zips in ~/Downloads and ~/Desktop.
+        #expect(!command.detect().contains("--exports"))
+        #expect(command.detect(exports: true).contains("--exports"))
         #expect(command.dryRun("codex") == ["memory", "import-from", "codex", "dry-run", "--json", "--mux-home", "/h/mux"])
         let write = command.write("claude-code", batch: "b9")
         #expect(write.starts(with: ["memory", "import-from", "claude-code", "write", "--json", "--batch", "b9", "--max-cost", "20"]))

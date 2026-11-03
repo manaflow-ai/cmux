@@ -86,9 +86,32 @@ test("every MCP call draws in an MCP, message or sub-session card, never as a To
     const groups = toolGroups(items);
     expect(drawnByToolRow(groups).filter((entry) => entry.tool && mcpCall(entry.tool))).toEqual([]);
     const carded = groups.flatMap((group) =>
-      group.type === "mcp" ? group.items : group.type === "message" || group.type === "subsession" ? [group.item] : [],
+      group.type === "mcp"
+        ? group.items
+        : group.type === "message" || group.type === "subsession"
+          ? [group.item]
+          : group.type === "subsessionGroup"
+            ? group.items
+            : [],
     );
     expect(carded).toHaveLength(items.filter((entry) => mcpCall(entry.tool!)).length);
+  }
+});
+
+test("adjacent start_session calls become one grouped disclosure", () => {
+  const starts = ["msg-fold", "picker-polish", "cloud-demo"].map((name) =>
+    item({
+      title: "mcp__cmux-subsessions__start_session",
+      inputSummary: JSON.stringify({ name, prompt: `Own the ${name} lane` }),
+      output: `Started sub-session ${name} (sessionId ${name}-id, depth 1).`,
+    }),
+  );
+  const group = toolGroups(starts);
+  expect(group).toHaveLength(1);
+  expect(group[0]?.type).toBe("subsessionGroup");
+  if (group[0]?.type === "subsessionGroup") {
+    expect(group[0].items).toHaveLength(3);
+    expect(group[0].calls.map((call) => call.name)).toEqual(["msg-fold", "picker-polish", "cloud-demo"]);
   }
 });
 
@@ -661,4 +684,68 @@ test("unchanged streamed tool revisions reuse the lifetime-owned parser memo", (
   const failed = toolGroups([writer, failedWriter, send]).find((entry) => entry.type === "send");
   expect(failed?.type).toBe("send");
   if (failed?.type === "send") expect(failed.send.text).toBeUndefined();
+});
+
+const sendMessage = (to: string, message: string, status = "completed") =>
+  item({ title: "SendMessage", kind: "other", status, inputSummary: JSON.stringify({ to, message }) });
+
+test("sent messages are never summed up: each, of any kind, is its own entry in order", () => {
+  // Leo 2026-10-31: "this +11 is really bad you guys should just render them all separately".
+  const shell = item({ title: "Bash", kind: "execute", command: "acpmux send tests 'cover retries'" });
+  const subsession = item({
+    title: "mcp__cmux-subsessions__send_message",
+    kind: "other",
+    inputSummary: JSON.stringify({ sessionId: "sub-tests", text: "and the backoff" }),
+    output: "Delivered into its running turn: it reads it at its next tool step.",
+  });
+  const failed = sendMessage("Picker", "lost", "failed");
+  const groups = toolGroups([sendMessage("Picker", "brief"), shell, subsession, sendMessage("Picker", "more"), failed]);
+  expect(groups.map((group) => group.type)).toEqual(["message", "send", "subsession", "message", "message"]);
+  // A sub-session start keeps its own card between two messages.
+  const start = item({
+    title: "mcp__cmux-subsessions__start_session",
+    kind: "other",
+    inputSummary: JSON.stringify({ name: "tests", prompt: "go" }),
+    output: "Started sub-session tests (sessionId tests-id, depth 1).",
+  });
+  expect(toolGroups([sendMessage("A", "one"), start, sendMessage("B", "two")]).map((g) => g.type)).toEqual([
+    "message",
+    "subsession",
+    "message",
+  ]);
+});
+
+test("a later Bash send renders the message file a Write tool made (Leo's raw-only row)", () => {
+  const writer = item({
+    title: "Write /tmp/coord/m1276.txt",
+    kind: "edit",
+    diffs: [{ path: "/tmp/coord/m1276.txt", newText: "## Composer\n\n- **ship** it\n" }],
+    startedAt: 1,
+    endedAt: 2,
+  });
+  const send = item({
+    title: "Bash",
+    kind: "execute",
+    command:
+      "bash -c '\"/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux\" send --no-wait --from coord build-box/composer - < /tmp/coord/m1276.txt 2>&1 | tail -1'",
+    output: "queued for delivery 01a17aa5",
+    startedAt: 3,
+    endedAt: 4,
+  });
+  const sent = (items: AcpmuxActivity[]) => {
+    const group = toolGroups(items).find((entry) => entry.type === "send");
+    expect(group?.type).toBe("send");
+    return group?.type === "send" ? group.send : undefined;
+  };
+  expect(sent([writer, send])?.text).toBe("## Composer\n\n- **ship** it\n");
+  expect(sent([writer, send])?.target).toBe("build-box/composer");
+  // An edit's hunk is not the file; a write to another path, or one after the send, says nothing.
+  const edit = item({ ...writer.tool!, diffs: [{ path: "/tmp/coord/m1276.txt", oldText: "a", newText: "b" }] });
+  expect(sent([edit, send])?.text).toBeUndefined();
+  const other = item({ ...writer.tool!, diffs: [{ path: "/tmp/other.txt", newText: "other" }] });
+  expect(sent([other, send])?.text).toBeUndefined();
+  const late = item({ ...writer.tool!, startedAt: 5, endedAt: 6 });
+  expect(sent([late, send])?.text).toBeUndefined();
+  const failed = item({ ...writer.tool!, status: "failed" });
+  expect(sent([failed, send])?.text).toBeUndefined();
 });

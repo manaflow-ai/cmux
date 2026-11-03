@@ -39,7 +39,7 @@ h1 { font-size: 17px; margin: 0; }
 h3 { font-size: 13px; margin: 0 0 6px; display: inline; }
 h4 { font-size: 12px; margin: 0 0 4px; }
 pre { white-space: pre-wrap; word-break: break-word; font: 12px/1.45 ui-monospace, Menlo, monospace; margin: 4px 0 0; }
-button { font: inherit; color: inherit; background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; cursor: pointer; }
+button { font: inherit; color: inherit; background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; cursor: default; }
 button:disabled { opacity: 0.4; cursor: default; }
 button.link { border: none; padding: 0; text-decoration: underline; background: none; }
 input, select { font: inherit; color: inherit; background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
@@ -51,7 +51,7 @@ input, select { font: inherit; color: inherit; background: var(--card); border: 
 .tabs button[aria-selected="true"] { border-bottom-color: var(--accent); font-weight: 600; }
 .bar, .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; justify-content: space-between; margin-bottom: 8px; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 10px 0; }
-details > summary { cursor: pointer; }
+details > summary { cursor: default; }
 .badges { display: flex; gap: 6px; }
 .badge { border: 1px solid var(--line); border-radius: 10px; padding: 1px 8px; font-size: 12px; }
 .badge.ok { color: var(--ok); border-color: var(--ok); }
@@ -100,7 +100,7 @@ details > summary { cursor: pointer; }
 .search input { width: 340px; }
 table { border-collapse: collapse; width: 100%; }
 th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
-tbody tr { cursor: pointer; }
+tbody tr { cursor: default; }
 tbody tr:hover { background: var(--shade); }
 /* One series, so the theme accent: --view is a warning/danger mix that read as an alarm color. */
 .latency { display: inline-block; height: 8px; background: var(--accent); border-radius: 2px; vertical-align: middle; }

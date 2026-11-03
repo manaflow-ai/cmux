@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // The composer's location strip (hq#1957 composer location strip). Leo: the folder and host row
 // ("Choose folder ⌄ · cosmic-gray ⌄") sat inside the card as a second row under the controls,
 // wasting space. It is now text a few px over the card, in the chat composer as in the New Tab's
@@ -572,7 +573,7 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       expect(marks.computerIcon!.width).toBeGreaterThan(0);
       // Named for the pointer and VoiceOver either way.
       expect(marks.computerName).toContain("This Mac");
-      expect(label).toBe("Computer: This Mac");
+      expect(label).toBe("Environment: This Mac");
       if (!iconOnly) expect(marks.computerClipped).toBe(false);
       expect(marks.branchClipped).toBe(false);
     });

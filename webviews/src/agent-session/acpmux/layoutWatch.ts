@@ -77,7 +77,8 @@ export async function layoutWatch(options: LayoutWatchOptions = {}): Promise<Rec
     await new Promise((resolve) => requestAnimationFrame(resolve));
   }
   const first = frames.findIndex(shown);
-  if (first < 0) return { frames: frames.length, first_content_ms: null, shifts: [], appeared: [], scroll_jumps: [] };
+  if (first < 0)
+    return { frames: frames.length, first_content_ms: null, first_rows: 0, shifts: [], appeared: [], scroll_jumps: [] };
   const base = frames[first]!;
   const shifts: Record<string, unknown>[] = [];
   const appeared: Record<string, unknown>[] = [];
@@ -112,6 +113,9 @@ export async function layoutWatch(options: LayoutWatchOptions = {}): Promise<Rec
   return {
     frames: frames.length,
     first_content_ms: Math.round(base.at),
+    // The transcript rows the first paint drew: 0 when it was the empty chat (or a page still loading its
+    // transcript, which reads the same), so a caller that opened a chat with messages can tell them apart.
+    first_rows: [...base.boxes.keys()].filter((name) => name.startsWith("row#")).length,
     elements: base.boxes.size,
     shifts,
     appeared,

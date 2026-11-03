@@ -1,6 +1,11 @@
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextDaemon
+import CmuxNextDesign
+import CmuxNextSidebar
+import Foundation
 
 /// The one path that opens a top page (TOP-SECTION-ITEMS-ARE-PAGES): the
 /// sidebar's top items, Cmd-1, `home.show` and `appStore.show` all come
@@ -57,6 +62,17 @@ enum TopPages {
         services.pages.register(HistoryTopPage(services: services))
         services.pages.register(BookmarksTopPage(services: services))
         services.pages.register(StashTopPage(services: services))
+        // Automations (docs/automations-platonic-ideal.md section 8): this Mac's store through the bundled CLI, Cloud through cloud.automation.
+        let automations = AutomationsPageHost(local: { [bundled = services.bundledCLI] in
+            guard let cli = await bundled.resolve() else { throw AutomationsPageHost.SourceError(code: "no_cli", message: "") }
+            let listed = try await ProcessRunner.run(executable: cli, arguments: ["--json", "automation", "list"], environment: nil, timeout: .seconds(10), clock: ContinuousClock())
+            guard listed.status == 0 else { throw AutomationsPageHost.SourceError(code: "cli_failed", message: String(decoding: listed.stderr, as: UTF8.self)) }
+            return listed.stdout
+        }, cloud: { [relay = CloudAutomationRelay.signedIn(services.cloud.auth)] in
+            try AutomationsPageHost.cloudValue(await relay.forward(Data(#"{"op":"automation.list","params":{"limit":100}}"#.utf8))) })
+        services.pages.register(WebPageTab(.automations, symbol: "clock.badge.checkmark", icon: .automation, title: SidebarBuiltIn.automations.title,
+                                           view: { [weak services] _ in let scope = services?.windows.active?.themeScope ?? .app; return automations.makeView(tokens: { [weak scope] in scope?.tokens ?? ThemeScope.app.tokens }) }))
+        _ = services.registry.bindEffect("automations.show", effect: { [weak services] _ in _ = services.map { TopPages.show(.page(.automations), services: $0) }; return .done })
     }
 
     /// The bookmarks profile of a Bookmarks top page: the browser profile

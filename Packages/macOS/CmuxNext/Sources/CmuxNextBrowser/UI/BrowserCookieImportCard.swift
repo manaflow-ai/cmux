@@ -5,7 +5,15 @@ import CmuxNextDesign
 /// person's cookies over from their other browsers: up to three browser
 /// icons, one title, one line of detail, then Don't Show Again (a quiet
 /// link), Not Now and Import Cookies. It never takes focus and every answer
-/// closes it. Under Reduce Transparency it is opaque (`OverlaySurfaceView`).
+/// closes it. It is the shared neutral glass of dialogs and prompt bars
+/// (`FloatingGlassStyle.dialog`: its veil, soft top-lit rim and radius) with
+/// the popups' shadow, never the theme-tinted glass with a veil of its own,
+/// whose square-clipped edge read as a dark, heavy outline over bright pages
+/// (Lawrence 2026-10-31: "border here looks bad"). Its material is the
+/// frosted blur of what is behind its window, never Liquid Glass, whose lens
+/// has nothing to bend in the clear overlay window and drew a dark 1 px
+/// outline (`prefersBlurToLiquidGlass`). Under Reduce Transparency it is
+/// opaque (`OverlaySurfaceView`).
 final class BrowserCookieImportCard: NSView {
     static let maximumIcons = 3
     var onChoice: ((BrowserCookieImportChoice) -> Void)?
@@ -53,10 +61,15 @@ final class BrowserCookieImportCard: NSView {
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.translatesAutoresizingMaskIntoConstraints = false
-        let content = OverlayBackingView()
+        let content = NSView()
         content.addSubview(stack)
-        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: BrowserMetrics.overlayCornerRadius)
+        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: Self.style.cornerRadius, tone: .neutralGlass(Self.style))
+        // It floats on the overlay host, a clear window over the page's own window: the blur
+        // samples the page behind it; Liquid Glass there drew a dark 1 px outline.
+        glass.samplesBehindWindow = true
+        glass.prefersBlurToLiquidGlass = true
         addSubview(glass)
+        castShadow()
         self.glass = glass
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: content.leadingAnchor),
@@ -85,7 +98,6 @@ final class BrowserCookieImportCard: NSView {
             buttons.spacing = BrowserMetrics.buttonSpacing * 2
             stack.spacing = padding * 3 / 4
             stack.edgeInsets = NSEdgeInsets(top: padding, left: padding, bottom: padding * 3 / 4, right: padding * 3 / 4)
-            glass.cornerRadius = BrowserMetrics.overlayCornerRadius
         }
         density.start()
         setAccessibilityElement(true)
@@ -96,6 +108,28 @@ final class BrowserCookieImportCard: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// The shared prompt glass.
+    static let style = FloatingGlassStyle.dialog
+
+    /// The popups' one subtle shadow, on this view's layer behind the glass
+    /// (the glass clips to its corners, so it cannot cast its own).
+    private func castShadow() {
+        wantsLayer = true
+        let elevation = PopupStyle.elevation2
+        layer?.masksToBounds = false
+        layer?.shadowColor = NSColor.black.cgColor
+        layer?.shadowOpacity = Float(elevation.alpha)
+        layer?.shadowRadius = elevation.layerRadius
+        layer?.shadowOffset = elevation.layerOffset()
+    }
+
+    override func layout() {
+        super.layout()
+        // CoreGraphics refuses a corner wider than half the rect.
+        let radius = min(Self.style.cornerRadius, min(bounds.width, bounds.height) / 2)
+        layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: radius, cornerHeight: radius, transform: nil)
+    }
 
     private static var iconSize: CGFloat { Metrics.iconSize + Metrics.space2 }
     private static var iconsWidth: CGFloat { iconSize * CGFloat(maximumIcons) - Metrics.space1 * CGFloat(maximumIcons - 1) }

@@ -80,13 +80,15 @@ describe("data-plane proxies pass the API-key scope to account selection", () =>
       },
       credential: async () => { throw new Error("no account should be selected"); },
       cooldown: async () => {},
+      hasRefreshingAccount: async () => false,
     }, { fetch: async () => { throw new Error("no upstream call expected"); } });
     const response = await proxy(new Request("https://coderouter.test/v1/responses", {
       method: "POST",
       headers: { authorization: `Bearer crk_${"a".repeat(43)}`, "content-type": "application/json" },
       body: JSON.stringify({ model: "gpt-test", input: [] }),
     }));
-    expect(response.status).toBe(503);
+    // No usable account is terminal for Codex (a 429 usage_limit_reached), not a retried 503.
+    expect(response.status).toBe(429);
     expect(seen).toEqual([{ kind: "api-key", apiKeyId: "key-1", teamId: "org-1", personal: false }]);
   });
 

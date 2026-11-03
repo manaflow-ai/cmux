@@ -244,14 +244,52 @@ struct CloudStartSessionTests {
             steps.note("prepare")
             return true
         })
-        var host = AgentTabRemoteHost(surface: 1, session: nil, machine: "devbox", endpoint: { throw CancellationError() },
+        var host = AgentTabRemoteHost(surface: 1, session: nil, machine: "devbox", hostID: "devbox", endpoint: { throw CancellationError() },
                                       servesKeyedReason: servesKeyedReason, approvals: approvals)
-        host.start = { _, _, key in
+        host.start = { _, _, _, key in
             steps.note(key == nil ? "start" : "start keyed")
             if key != nil { throw AgentRemoteStartRefusal(code: AgentSessionAttachError.needsKeyedStart, machine: "devbox", keyedRestartSafe: true) }
             return AgentTabRemoteStart.Started(surface: 1, session: "s-1")
         }
         return host
+    }
+
+    /// A fresh Cloud machine whose image baked a cmux-tui from before cmux#29107 refuses its creator's
+    /// first chat (`team_vm_blocked`): the start updates the machine to the app's build and tries once
+    /// more. With no update (`updateMachine` answers false, or none is wired), or for a refusal an older
+    /// daemon does not explain, the refusal stands and no second start runs.
+    @Test(arguments: [AgentSessionAttachError.teamMachine, "agent_session.host_unverified"])
+    func aStartAnOlderDaemonRefusedUpdatesTheMachineAndStartsOnceMore(code: String) async throws {
+        func host(_ steps: StartSteps, refusal: String, updates: Bool?) -> AgentTabRemoteHost {
+            var host = AgentTabRemoteHost(surface: 1, session: nil, machine: "devbox", hostID: "devbox", endpoint: { throw CancellationError() })
+            let updated = Mutex(false)
+            host.start = { _, _, _, _ in
+                steps.note("start")
+                if !updated.withLock({ $0 }) { throw AgentRemoteStartRefusal(code: refusal, machine: "devbox") }
+                return AgentTabRemoteStart.Started(surface: 1, session: "s-1")
+            }
+            if let updates {
+                host.updateMachine = {
+                    steps.note("update")
+                    updated.withLock { $0 = updates }
+                    return updates
+                }
+            }
+            return host
+        }
+        let through = StartSteps()
+        let started = try await host(through, refusal: code, updates: true).startNow(cwd: nil, harness: "claude") { through.note("proceed") }
+        #expect(started == AgentTabRemoteStart.Started(surface: 1, session: "s-1"))
+        #expect(through.all == ["proceed", "start", "update", "proceed", "start"], "\(through.all)")
+
+        for (refusal, updates) in [(code, false), (code, nil), ("agent_session.limit", true)] as [(String, Bool?)] {
+            let steps = StartSteps()
+            await #expect(throws: AgentRemoteStartRefusal(code: refusal, machine: "devbox")) {
+                try await host(steps, refusal: refusal, updates: updates).startNow(cwd: nil, harness: "claude") {}
+            }
+            let expected = refusal == code && updates != nil ? ["start", "update"] : ["start"]
+            #expect(steps.all == expected, "\(refusal) \(String(describing: updates)): \(steps.all)")
+        }
     }
 
     /// A sign-out or team switch during a keyed start stops it before the next restart or start
@@ -394,6 +432,25 @@ struct CloudStartSessionTests {
         #expect(failure.message == CloudStartSessionStrings.targetUnread(request.asked(machine: f.session.machineID)))
         #expect(failure.message.contains("`cmux cloud start-session --target machine:\(f.session.machineID) --agent claude`"))
         #expect(f.session.daemon.connection == nil, "nothing connected")
+    }
+
+    /// The session's machine gets the person's harness login before the session starts, as a composer
+    /// Cloud start's does: without it Claude there answered "The provider rejected Claude Code's
+    /// credentials on this Cloud machine" (cmuxterm-hq cloud-start-session capture, run 41415284694).
+    /// The step always records why it passed a login or not on the machine's row.
+    @Test func theSessionsMachineTakesTheHarnessLoginStep() async throws {
+        let f = Self.fixture()
+        #expect(f.session.harnessLogin == nil)
+        let start = CloudStartSession(services: f.services)
+        try await start.passHarnessLogin(f.session, agent: "claude") {}
+        let decision = try #require(f.session.harnessLogin, "start-session ran no harness login step")
+        #expect(decision.provider == .claude)
+        try await start.passHarnessLogin(f.session, agent: "pi") {}
+        #expect(f.session.harnessLogin?.provider == nil, "pi has no login to pass")
+        // A sign-out or team switch while the login waited (its confirm) stops the run there.
+        await #expect(throws: CloudStartSession.AccountChanged.self) {
+            try await start.passHarnessLogin(f.session, agent: "claude") { try CloudStartSession.check(Self.account, now: ["user-1", "team-2"], Self.asked) }
+        }
     }
 
     @Test func theAccountCheckRefusesAChangeAndStopsACancelledRun() async throws {

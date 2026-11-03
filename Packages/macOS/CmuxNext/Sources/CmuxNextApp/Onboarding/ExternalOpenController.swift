@@ -7,7 +7,7 @@ import CmuxNextSettings
 
 /// Opens what macOS hands cmux as the default browser, the `ssh:` and
 /// `x-man-page:` handler, a file's opener, Handoff or the Finder service: a tab in
-/// the current window's focused pane, per `ExternalOpenRouter`. A link in
+/// the current window's focused pane (never Chief's Home workspace), per `ExternalOpenRouter`. A link in
 /// this build's scheme (`cmux://tab/…`) runs `link.open`, the one path every
 /// link takes. Requests that arrive before a window has content (a cold
 /// launch by a link) wait and run when the first window shows its workspace.
@@ -105,8 +105,15 @@ final class ExternalOpenController {
         // shows a workspace so the tab shows, as a shown internal page does.
         // Without this the open waited until the user left Home.
         controller.leaveTopPage()
-        if controller.focusedPane == nil, !controller.showOpenableWorkspace() { createWorkspaceForPending(in: controller) }
-        guard let pane = controller.focusedPane else { return pending.append(route) }
+        // Chief's Home workspace keeps its layout (#27897): its focused pane is the chat's pinned
+        // dock, which moves a tab made there into a new column beside it. A tab from another app
+        // opens in a workspace of the person's instead, as from the Home page. A link in this
+        // build's scheme runs `link.open`, which places what it shows itself (a Chief session on Home).
+        let leavesHome: Bool
+        if case .deepLink = route { leavesHome = false } else { leavesHome = true }
+        let onHome = { leavesHome && controller.showsHomeWorkspace }
+        if controller.focusedPane == nil || onHome(), !controller.showOpenableWorkspace() { createWorkspaceForPending(in: controller) }
+        guard let pane = controller.focusedPane, !onHome() else { return pending.append(route) }
         if case .deepLink(let url) = route {
             // The user clicked it in another app: their run, which brings
             // cmux forward. Agent links are addresses published in public
@@ -235,6 +242,9 @@ final class CmuxServicesProvider: NSObject {
 }
 
 extension WindowController {
+    /// Whether the window shows Chief's Home workspace (`kind == "home"`) as a workspace.
+    var showsHomeWorkspace: Bool { content?.workspace.kind == "home" }
+
     /// Shows this window's most recently used workspace that is not Home,
     /// for something opened from another app while Home is shown. False when
     /// the window lists no other workspace. A workspace whose content is not

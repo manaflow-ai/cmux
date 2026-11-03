@@ -1,0 +1,14 @@
+[package]
+name = "cmux-json"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Non-panicking writes into serde_json values: JsonSet::set and set_path replace `v[\"key\"] = x`"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde_json.workspace = true

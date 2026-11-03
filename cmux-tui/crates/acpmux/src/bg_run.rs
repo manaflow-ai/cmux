@@ -63,6 +63,12 @@ pub struct Spec {
     /// outlived a purge never shows in a later folder of the same name.
     #[serde(default)]
     pub generation: String,
+    /// What the task is for, in a few words (`bg_start`'s `description`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Its chat gets one message when it ends (`hub/bg_tasks.rs` `bg_notify`).
+    #[serde(default)]
+    pub notify: bool,
 }
 
 /// `<id>.json`, written whole (to a temporary file, then renamed) each time it changes.
@@ -87,6 +93,12 @@ pub struct Record {
     /// [`Spec::generation`].
     #[serde(default)]
     pub generation: String,
+    /// [`Spec::description`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// [`Spec::notify`].
+    #[serde(default)]
+    pub notify: bool,
 }
 
 fn file(dir: &Path, id: &str, ext: &str) -> PathBuf {
@@ -97,6 +109,11 @@ pub fn lock_path(dir: &Path, id: &str) -> PathBuf {
 }
 pub fn ctl_path(dir: &Path, id: &str) -> PathBuf {
     file(dir, id, "ctl")
+}
+/// The mark that the task's end reached its chat (`hub/bg_tasks.rs` `bg_notify`): written once
+/// the chat took the message, so a restarted daemon never sends it again.
+pub fn notified_path(dir: &Path, id: &str) -> PathBuf {
+    file(dir, id, "notified")
 }
 fn segment_path(dir: &Path, id: &str, start: u64) -> PathBuf {
     file(dir, id, &format!("out.{start}"))
@@ -167,9 +184,10 @@ impl Spool {
                 (self.start, self.len) = (start, 0);
             }
             let n = data.len().min((self.segment - self.len) as usize);
-            self.file.write_all(&data[..n])?;
+            let Some((head, rest)) = data.split_at_checked(n) else { break };
+            self.file.write_all(head)?;
             self.len += n as u64;
-            data = &data[n..];
+            data = rest;
         }
         Ok(())
     }
@@ -197,7 +215,9 @@ pub fn read_output(dir: &Path, id: &str, from: Option<u64>, max: u64) -> std::io
     let mut open = None;
     for _ in 0..3 {
         let starts = segments(dir, id)?;
-        let opened: std::io::Result<Vec<_>> = starts[starts.len().saturating_sub(2)..]
+        let opened: std::io::Result<Vec<_>> = starts
+            .get(starts.len().saturating_sub(2)..)
+            .unwrap_or_default()
             .iter()
             .map(|&s| std::fs::File::open(segment_path(dir, id, s)).map(|f| (s, f)))
             .collect();
@@ -218,7 +238,7 @@ pub fn read_output(dir: &Path, id: &str, from: Option<u64>, max: u64) -> std::io
     })?;
     let Some((last, last_file)) = open.last() else { return Ok(Output::default()) };
     let total = last + last_file.metadata()?.len();
-    let kept_from = open[0].0;
+    let kept_from = open.first().map_or(*last, |(s, _)| *s);
     let start = from.map_or(total.saturating_sub(max), |f| f.min(total)).max(kept_from);
     let end = total.min(start.saturating_add(max));
     let starts: Vec<u64> = open.iter().map(|(s, _)| *s).collect();
@@ -233,6 +253,58 @@ pub fn read_output(dir: &Path, id: &str, from: Option<u64>, max: u64) -> std::io
         f.take(seg_end - at).read_to_end(&mut data)?;
     }
     Ok(Output { data, start, total, kept_from })
+}
+
+/// The longest label a summary line shows of a task's description or command, in characters.
+const LABEL_MAX: usize = 120;
+
+/// What a summary line calls a task: its description, else its command, on one line of at most
+/// [`LABEL_MAX`] characters (control and format characters become spaces).
+pub fn label(description: Option<&str>, command: &str) -> String {
+    let raw = description.map(str::trim).filter(|d| !d.is_empty()).unwrap_or(command);
+    let shown: String = raw
+        .chars()
+        .map(|c| {
+            let format = matches!(
+                c,
+                '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}'
+            );
+            if c.is_control() || c.is_whitespace() || format { ' ' } else { c }
+        })
+        .collect();
+    let one = shown.split(' ').filter(|w| !w.is_empty()).collect::<Vec<_>>().join(" ");
+    if one.chars().count() <= LABEL_MAX {
+        return one;
+    }
+    let mut cut: String = one.chars().take(LABEL_MAX - 1).collect();
+    cut.push('…');
+    cut
+}
+
+/// A task's view (`hub/bg_tasks.rs` `bg_view`) as one summary line and a status: `running`,
+/// `ok` (exit 0) or `failed` (any other end). The condensed-tool contract: the line is the first
+/// line of every `bg_*` result and its `summary`, the status its `status`.
+pub fn outcome(view: &serde_json::Value) -> (String, &'static str) {
+    use serde_json::Value;
+    let s = |k: &str| view.get(k).and_then(Value::as_str).unwrap_or_default();
+    let int = |k: &str| view.get(k).and_then(Value::as_i64);
+    let label = label(view.get("description").and_then(Value::as_str), s("command"));
+    let (verb, end, status) = match s("state") {
+        "running" => ("running", String::new(), "running"),
+        "stopped" => ("stopped", String::new(), "failed"),
+        "killed" => (
+            "killed",
+            int("signal").map(|n| format!(" (signal {n})")).unwrap_or_default(),
+            "failed",
+        ),
+        "lost" => ("lost", " (its runner ended without recording an exit)".to_owned(), "failed"),
+        _ => match int("exitCode") {
+            Some(0) => ("finished", " (exit 0)".to_owned(), "ok"),
+            Some(n) => ("finished", format!(" (exit {n})"), "failed"),
+            None => ("finished", String::new(), "failed"),
+        },
+    };
+    (format!("Background command {verb}: {label}{end}"), status)
 }
 
 /// The longest stop line a runner reads; a longer one is dropped, never kept growing.
@@ -427,6 +499,8 @@ pub fn main() -> anyhow::Result<()> {
             pid,
             started_at: crate::store::now_ms(),
             generation: spec.generation.clone(),
+            description: spec.description.clone(),
+            notify: spec.notify,
             ..Record::default()
         };
         // A closed answer pipe is an error here, never a SIGPIPE (ignored since the start).
@@ -459,7 +533,7 @@ pub fn main() -> anyhow::Result<()> {
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(_) => break,
             };
-            for &b in &buf[..n] {
+            for &b in buf.get(..n).unwrap_or_default() {
                 if b != b'\n' {
                     // Bounded: an overlong line is dropped whole.
                     if line.len() <= STOP_LINE_MAX {
@@ -489,7 +563,7 @@ pub fn main() -> anyhow::Result<()> {
                 };
                 // A spool that fails is said in the record; the pipe is still read, so the
                 // task never blocks on it.
-                if !failed && let Err(e) = spool.write(&buf[..n]) {
+                if !failed && let Err(e) = spool.write(buf.get(..n).unwrap_or_default()) {
                     failed = true;
                     let mut held = task.lock().unwrap_or_else(|e| e.into_inner());
                     held.record.output_error = Some(e.to_string());
@@ -548,6 +622,28 @@ pub fn main() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A summary line names the task by its description (else its command) on one line, says
+    /// how it ended, and its status is `ok` only for exit 0.
+    #[test]
+    fn a_tasks_outcome_is_one_line_and_a_status() {
+        use serde_json::json;
+        let view = |v: serde_json::Value| outcome(&v);
+        let ran = view(json!({"state": "running", "command": "make\n  test", "description": " "}));
+        assert_eq!(ran, ("Background command running: make test".to_owned(), "running"));
+        let ok =
+            view(json!({"state": "exited", "exitCode": 0, "command": "x", "description": "build"}));
+        assert_eq!(ok, ("Background command finished: build (exit 0)".to_owned(), "ok"));
+        let bad = view(json!({"state": "exited", "exitCode": 2, "command": "x"}));
+        assert_eq!(bad, ("Background command finished: x (exit 2)".to_owned(), "failed"));
+        let killed = view(json!({"state": "killed", "signal": 9, "command": "x"}));
+        assert_eq!(killed, ("Background command killed: x (signal 9)".to_owned(), "failed"));
+        assert_eq!(view(json!({"state": "stopped", "command": "x"})).1, "failed");
+        assert_eq!(view(json!({"state": "lost", "command": "x"})).1, "failed");
+        let long = label(None, &"a".repeat(500));
+        assert_eq!(long.chars().count(), LABEL_MAX);
+        assert!(long.ends_with('…'));
+    }
 
     /// Rotation keeps the newest two segments, named by their start, and a read by whole-output
     /// offset crosses them; one before the oldest kept byte starts at it.

@@ -30,7 +30,7 @@ public struct StatusMapping {
             reports.append(StatusReport(id: "agent:\(tab.id)", source: .agent, state: state,
                                         label: agent.agent, updatedAtMs: agent.updatedAtMs))
         }
-        if let record = ProgramStatusRecord.strongest(seen.visible(tab)), let state = state(record) {
+        if let record = ProgramStatusRecord.strongest(current(seen.visible(tab), agent: tab.agent)), let state = state(record) {
             // The title only: `app` is a machine name, never the only label.
             reports.append(StatusReport(id: "program:\(tab.id)", source: .program, state: state, label: record.title))
         }
@@ -65,13 +65,32 @@ public struct StatusMapping {
     /// sends itself.
     static let detectorSources: Set<String> = ["plugin", "detected"]
 
-    /// A detector's roster report gives way to an OSC 7501 record of the
-    /// same terminal reported at the same time or later: an explicit report
-    /// is never hidden by a guess. A record without a report time (an older
-    /// host) counts as fresher.
+    /// The roster report and the terminal's OSC 7501 records are two reports of one agent, and the
+    /// newer one is its state, so a stale `working` in either source shows no spinner.
+    ///
+    /// A roster report gives way to a record reported later: a hook roster that never saw its
+    /// turn end (a missed Stop, a restart) yields to the program's own later `done` or `idle`. A
+    /// detector's report also yields to a record of the same time: an explicit report is never
+    /// hidden by a guess. A record without a report time (an older host) counts as fresher.
     func yieldsToProgram(_ agent: AgentStatus, _ records: [ProgramStatusRecord]) -> Bool {
-        guard let source = agent.source, Self.detectorSources.contains(source) else { return false }
-        return records.contains { ($0.updatedAtMs ?? .max) >= agent.updatedAtMs }
+        let detector = agent.source.map(Self.detectorSources.contains) ?? false
+        return records.contains { record in
+            let at = record.updatedAtMs ?? .max
+            return detector ? at >= agent.updatedAtMs : at > agent.updatedAtMs
+        }
+    }
+
+    /// The OSC 7501 records still current against the terminal's hook roster: a `working` or
+    /// `blocked` record reported before the agent's latest hook is stale. Codex keeps reporting
+    /// `working` after its turn ends while a background terminal runs, and its Stop hook (idle)
+    /// is the newer fact (user, Oct 30). A `done` or `error` record stays: it is an unseen outcome
+    /// for the tab's badge, not a state. A detector's guess outranks no record.
+    func current(_ records: [ProgramStatusRecord], agent: AgentStatus?) -> [ProgramStatusRecord] {
+        guard let agent, !records.isEmpty, !(agent.source.map(Self.detectorSources.contains) ?? false) else { return records }
+        return records.filter { record in
+            guard record.state == .working || record.state == .blocked, let at = record.updatedAtMs else { return true }
+            return at >= agent.updatedAtMs
+        }
     }
 
     /// The turn state still to show. acpmux owns what the person has seen of
@@ -88,14 +107,14 @@ public struct StatusMapping {
     /// An acpmux turn or an OSC 7501 program waits for the user (the tab's
     /// still attention badge).
     public func needsInput(_ tab: TabModel) -> Bool {
-        turn(tab) == .needsInput || ProgramStatusRecord.strongest(tab.programStatus)?.state == .blocked
+        turn(tab) == .needsInput || ProgramStatusRecord.strongest(current(tab.programStatus, agent: tab.agent))?.state == .blocked
     }
 
     /// What the tab's strongest blocked OSC 7501 record waits for
     /// (permission, question, auth), for the tab's needs-input badge; nil
     /// when nothing blocks or the program named no kind.
     public func blockedKind(_ tab: TabModel) -> StatusBlockedKind? {
-        guard let record = ProgramStatusRecord.strongest(tab.programStatus), record.state == .blocked else { return nil }
+        guard let record = ProgramStatusRecord.strongest(current(tab.programStatus, agent: tab.agent)), record.state == .blocked else { return nil }
         return record.kind.flatMap { StatusBlockedKind(rawValue: $0.rawValue) }
     }
 
@@ -156,7 +175,7 @@ public struct StatusMapping {
         StatusStack.resolve(tabs.flatMap(reports) + reports(status), honoring: honored)
     }
 
-    /// A workspace's merged status, each tab's own (a listed tab row's mark) and whether any tab has
+    /// A workspace's merged status, each tab's own (a hover card tab row's mark) and whether any tab has
     /// agent work, from one read of each tab's reports: ``summary(tabs:status:)``, ``summary(_:)``
     /// per tab and ``isWorking(tabs:)`` at once (u9696, Lawrence's scratch/a-hover-tabs).
     public func summaries(tabs: [TabModel], status: WorkspaceStatus? = nil)

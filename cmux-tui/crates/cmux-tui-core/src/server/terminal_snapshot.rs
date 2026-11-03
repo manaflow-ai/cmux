@@ -68,8 +68,8 @@ use serde_json::{Value, json};
 use super::{
     AttachWorkerCommit, MarkedClientAttach, MessageWriter, OutboundStream,
     commit_client_attach_and_start_worker, detach_committed_attach, get_surface,
-    mark_client_attached, require_pty, rollback_failed_attach, spawn_attach_notification_stream,
-    terminal_colors_json,
+    mark_client_attached, require_pty, rollback_failed_attach,
+    spawn_attach_notification_stream_gated, terminal_colors_json,
 };
 use crate::stream_interrupt::StreamInterrupt;
 use crate::surface::snapshot_attach::{
@@ -80,6 +80,8 @@ use crate::surface::{AttachFrame, AttachFrameReceiver, AttachLifecycle, ViewerEv
 use crate::{Mux, Surface, SurfaceId};
 
 pub const TERMINAL_SNAPSHOT_CAPABILITY: &str = "terminal-snapshot-v1";
+/// `set-attach-visibility`: a snapshot viewer that does not show its terminal gets output once per wall-clock second.
+pub const ATTACH_VISIBILITY_CAPABILITY: &str = "attach-visibility-v1";
 /// READY is followed by its history chunks (scrollback, then FINISH).
 pub const TERMINAL_SNAPSHOT_HISTORY_CAPABILITY: &str = "terminal-snapshot-history-v1";
 /// A resize reaches an opted-in viewer as a READY without history.
@@ -163,10 +165,31 @@ pub(crate) struct SnapshotHave {
     snapshot_version: Option<u16>,
 }
 
+/// `set-attach-visibility` (`attach-visibility-v1`): the caller's snapshot attach of `surface` shows the terminal
+/// (`visible`) or not. A hidden viewer gets its output once per wall-clock second (all hidden viewers of the daemon on
+/// the same second, as Chrome aligns a hidden page's timers), at once past a byte cap, before any snapshot, and at once
+/// when it is shown again.
+#[derive(Debug, Deserialize)]
+pub(crate) struct AttachVisibilityParams {
+    pub(super) surface: SurfaceId,
+    pub(super) visible: bool,
+}
+
+/// `set-attach-visibility`: `{viewers}` reached; 0 when the caller has no snapshot attach of the surface.
+pub(crate) fn set_visibility(
+    mux: &Arc<Mux>,
+    client: u64,
+    params: AttachVisibilityParams,
+) -> anyhow::Result<Value> {
+    let viewers =
+        mux.control_clients.snapshot_viewers.set_visible(client, params.surface, params.visible);
+    Ok(json!({"viewers": viewers}))
+}
+
 /// `snapshot-request` (raw v12) and channel `snapshot_request`.
 #[derive(Debug, Deserialize)]
 pub(crate) struct SnapshotRequestParams {
-    surface: SurfaceId,
+    pub(super) surface: SurfaceId,
     /// `digest_mismatch | gap | generation_mismatch | attach`; informational.
     #[serde(default)]
     reason: Option<String>,
@@ -209,6 +232,12 @@ impl SnapshotViewers {
                 viewers.remove(&(client, surface));
             }
         }
+    }
+
+    /// `set-attach-visibility`: every snapshot viewer of `surface` on `client` shows the terminal or not. Returns how
+    /// many viewers it reached.
+    pub(super) fn set_visible(&self, client: u64, surface: SurfaceId, visible: bool) -> usize {
+        self.gates(client, surface).iter().filter(|gate| gate.set_visible(visible)).count()
     }
 
     fn gates(&self, client: u64, surface: SurfaceId) -> Vec<SnapshotRequestGate> {
@@ -550,9 +579,37 @@ struct SnapshotWorker {
     tail: Option<PendingTail>,
     /// The images cap when the viewer opted into images.
     images_cap: Option<u64>,
+    /// Output held while the viewer is hidden (`set-attach-visibility`), sent as one `output` event.
+    hidden_batch: Vec<u8>,
+}
+
+/// A hidden viewer's batch goes out at once past this many bytes (a hidden `yes` stays bounded).
+const HIDDEN_BATCH_MAX_BYTES: usize = 256 << 10;
+
+/// The next whole wall-clock second as an `Instant`: every hidden viewer of the daemon flushes on the same second, as
+/// Chrome aligns a hidden page's timers to whole seconds, so their wakeups coalesce.
+fn next_aligned_second() -> Instant {
+    let into = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.subsec_nanos())
+        .unwrap_or(0);
+    Instant::now() + std::time::Duration::from_nanos(1_000_000_000 - u64::from(into))
 }
 
 impl SnapshotWorker {
+    /// Sends the hidden batch as one `output` event (its offset is the position after its last byte).
+    fn flush_hidden_batch(&mut self) -> bool {
+        if self.hidden_batch.is_empty() {
+            return true;
+        }
+        let bytes = std::mem::take(&mut self.hidden_batch);
+        let value = json!({
+            "event": "output", "surface": self.surface_id, "data": base64(&bytes),
+            "generation": self.generation, "offset": self.offset,
+        });
+        self.send(&value)
+    }
+
     fn send(&self, value: &Value) -> bool {
         match self.writer.send_stream_backpressured(value, &self.outbound_stream) {
             Ok(()) => true,
@@ -637,36 +694,79 @@ impl SnapshotWorker {
         self.lifecycle.register_interrupt(&interrupt);
         self.receiver.wake_on(&interrupt);
         let mut digest_at: Option<Instant> = None;
+        // The aligned second a hidden batch goes out at (`set-attach-visibility`).
+        let mut batch_at: Option<Instant> = None;
         while self.writer.is_open()
             && self.outbound_stream.is_open()
             && !self.lifecycle.is_canceled()
         {
-            let deadline = if self.tail.is_some() { Some(Instant::now()) } else { digest_at };
+            // Shown again, or the second is up: what waits goes out now.
+            let due = batch_at.is_some_and(|at| Instant::now() >= at);
+            if !self.hidden_batch.is_empty() && (due || !self.gate.is_hidden()) {
+                batch_at = None;
+                if !self.flush_hidden_batch() {
+                    break;
+                }
+                digest_at = Some(Instant::now() + SNAPSHOT_DIGEST_IDLE);
+            }
+            // A hidden viewer's digest waits for the batch it would describe.
+            let digest = if self.hidden_batch.is_empty() { digest_at } else { None };
+            let deadline = if self.tail.is_some() {
+                Some(Instant::now())
+            } else {
+                [digest, batch_at].into_iter().flatten().min()
+            };
             let event = self.receiver.recv_viewer_event(&interrupt, deadline);
             let sent = match event {
+                // A snapshot or a READY follows every byte before it: the batch goes first.
                 Ok(ViewerEvent::Snapshot) => {
                     digest_at = None;
-                    self.send_snapshot()
+                    batch_at = None;
+                    self.flush_hidden_batch() && self.send_snapshot()
                 }
                 Ok(ViewerEvent::LocalReady(ready)) => {
                     digest_at = None;
-                    self.send_local_ready(&ready)
+                    batch_at = None;
+                    self.flush_hidden_batch() && self.send_local_ready(&ready)
+                }
+                Ok(ViewerEvent::Frame(AttachFrame::Output(output))) if self.gate.is_hidden() => {
+                    // Hidden: the bytes join the batch, which goes out on the aligned second or past its cap.
+                    // The idle digest follows them whichever flush sends them (it waits while bytes are batched).
+                    self.offset += output.len() as u64;
+                    self.hidden_batch.extend_from_slice(&output);
+                    if !output.is_empty() {
+                        digest_at = Some(Instant::now() + SNAPSHOT_DIGEST_IDLE);
+                    }
+                    if self.hidden_batch.len() >= HIDDEN_BATCH_MAX_BYTES {
+                        batch_at = None;
+                        self.flush_hidden_batch()
+                    } else {
+                        batch_at.get_or_insert_with(next_aligned_second);
+                        true
+                    }
                 }
                 Ok(ViewerEvent::Frame(frame)) => {
+                    // Any other frame keeps stream order: the batch goes first.
+                    batch_at = None;
+                    let flushed = self.flush_hidden_batch();
                     self.offset += frame_output_len(&frame) as u64;
                     if frame_output_len(&frame) > 0 {
                         digest_at = Some(Instant::now() + SNAPSHOT_DIGEST_IDLE);
                     }
-                    match frame_json(self.surface_id, &frame, self.generation, self.offset) {
-                        Some(value) => self.send(&value),
-                        None => true,
-                    }
+                    flushed
+                        && match frame_json(self.surface_id, &frame, self.generation, self.offset) {
+                            Some(value) => self.send(&value),
+                            None => true,
+                        }
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) if self.tail.is_some() => {
                     self.send_tail_chunk()
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    if digest_at.is_some_and(|deadline| Instant::now() >= deadline) {
+                    // A digest names the viewer's position: never one past bytes still in its batch.
+                    if self.hidden_batch.is_empty()
+                        && digest_at.is_some_and(|deadline| Instant::now() >= deadline)
+                    {
                         digest_at = None;
                         match self.surface.snapshot_digest() {
                             // Output that arrived after the queue emptied
@@ -685,6 +785,8 @@ impl SnapshotWorker {
                     }
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    // The terminal's last output reaches the viewer before its end.
+                    let _ = self.flush_hidden_batch();
                     self.lifecycle.cancel();
                     if self.writer.is_open() {
                         let _ = self.writer.send_stream_backpressured(
@@ -794,12 +896,13 @@ fn attach(
             surface.snapshot_stream_position().unwrap_or_default()
         }
     };
-    if let Err(error) = spawn_attach_notification_stream(
+    if let Err(error) = spawn_attach_notification_stream_gated(
         mux.clone(),
         surface_id,
         writer.clone(),
         lifecycle.clone(),
         outbound_stream.clone(),
+        Some(stream.requests.clone()),
     ) {
         lifecycle.cancel();
         rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
@@ -825,6 +928,7 @@ fn attach(
         offset,
         tail,
         images_cap,
+        hidden_batch: Vec::new(),
     };
     let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
     let spawned =

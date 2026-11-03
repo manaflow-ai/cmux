@@ -18,6 +18,7 @@
 use super::*;
 use crate::bg_run::{self, Record};
 use anyhow::{Context, anyhow};
+use cmux_json::JsonSet as _;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -47,12 +48,15 @@ impl Hub {
     }
 
     /// `_acpmux/bg/start`: runs `command` in `cwd` (the chat's folder by default), in the
-    /// environment the chat's agent runs with ([`Hub::bg_env`]).
+    /// environment the chat's agent runs with ([`Hub::bg_env`]). With `notify`, the chat gets
+    /// one message when it ends ([`Hub::bg_notify`]).
     pub async fn bg_start(
-        &self,
+        self: &Arc<Self>,
         session: &Arc<Session>,
         command: &str,
         cwd: Option<PathBuf>,
+        description: Option<String>,
+        notify: bool,
     ) -> Result<Value, RpcError> {
         if command.trim().is_empty() {
             return Err(RpcError::invalid_params("command is empty"));
@@ -87,7 +91,8 @@ impl Hub {
         let env = self.bg_env(session, &meta).await?;
         std::fs::create_dir_all(&dir).map_err(internal)?;
         let generation = bg_generation(&dir, true).map_err(internal)?;
-        let id = format!("bg-{}", &uuid::Uuid::now_v7().simple().to_string()[20..]);
+        let uuid = uuid::Uuid::now_v7().simple().to_string();
+        let id = format!("bg-{}", uuid.get(20..).unwrap_or(&uuid));
         let set = self.bg_runner.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let (runner, segment) = match set {
             Some(set) => set,
@@ -104,6 +109,8 @@ impl Hub {
             env,
             segment,
             generation,
+            description: description.map(|d| d.trim().to_owned()).filter(|d| !d.is_empty()),
+            notify,
         };
         bg_spawn(&runner, &spec).await.map_err(|e| RpcError::internal(format!("{e:#}")))?;
         // A stop or purge that came meanwhile missed it: it ends here.
@@ -113,6 +120,9 @@ impl Hub {
         }
         let record = bg_run::read_record(&dir, &id)
             .ok_or_else(|| RpcError::internal("the task's runner wrote no record"))?;
+        if record.notify {
+            self.bg_watch(&dir, &record);
+        }
         Ok(bg_view(&dir, &record, LIST_TAIL))
     }
 
@@ -121,7 +131,7 @@ impl Hub {
     /// the launch's own builder (`agent::harness_command`) from the profile as a spawn builds it
     /// now (`Hub::spawn_profile_for`: defaults, preset, chat store, session env, expansions).
     /// That is the env the agent wakes with, since a hibernated agent starts again from it.
-    async fn bg_env(
+    pub(super) async fn bg_env(
         &self,
         session: &Session,
         meta: &SessionMeta,
@@ -142,7 +152,7 @@ impl Hub {
 
     /// The folder's tasks: only records of its own generation, so a runner that outlived a purge
     /// of an earlier folder of this name never shows here.
-    fn bg_records(&self, dir: &std::path::Path) -> Vec<Record> {
+    pub(super) fn bg_records(&self, dir: &std::path::Path) -> Vec<Record> {
         let Ok(generation) = bg_generation(dir, false) else { return Vec::new() };
         let mut records: Vec<Record> = std::fs::read_dir(dir)
             .into_iter()
@@ -156,6 +166,12 @@ impl Hub {
             .collect();
         records.sort_by_key(|r| r.started_at);
         records
+    }
+
+    /// Whether a task of the chat runs (`Hub::in_use`).
+    pub(super) fn bg_running(&self, session: &Session) -> bool {
+        let dir = self.bg_dir(session);
+        self.bg_records(&dir).iter().any(|r| r.ended_at.is_none() && !bg_gone(&dir, &r.id))
     }
 
     /// `_acpmux/bg/list`: the chat's tasks, oldest first, each with the tail of its output.
@@ -191,11 +207,11 @@ impl Hub {
         let read = bg_run::read_output(&dir, id, from, max).map_err(internal)?;
         let mut view = bg_view(&dir, &record, 0);
         // The bytes exactly (`data`), and as text for an agent to read (`text`).
-        view["data"] = json!(base64::engine::general_purpose::STANDARD.encode(&read.data));
-        view["text"] = json!(String::from_utf8_lossy(&read.data));
-        view["fromByte"] = json!(read.start);
-        view["nextByte"] = json!(read.start + read.data.len() as u64);
-        view["skippedBytes"] = json!(from.map_or(0, |f| read.start.saturating_sub(f)));
+        view.set("data", json!(base64::engine::general_purpose::STANDARD.encode(&read.data)));
+        view.set("text", json!(String::from_utf8_lossy(&read.data)));
+        view.set("fromByte", json!(read.start));
+        view.set("nextByte", json!(read.start + read.data.len() as u64));
+        view.set("skippedBytes", json!(from.map_or(0, |f| read.start.saturating_sub(f))));
         Ok(view)
     }
 
@@ -303,7 +319,7 @@ fn bg_task_ids(dir: &std::path::Path) -> std::io::Result<Vec<String>> {
 /// empty file (a write a crash or a full disk cut short) is no generation: no task ever started
 /// with one, and `make` replaces it. A new one appears whole (written aside, then renamed), so a
 /// runner's stops always match the generation its folder holds.
-fn bg_generation(dir: &std::path::Path, make: bool) -> std::io::Result<String> {
+pub(super) fn bg_generation(dir: &std::path::Path, make: bool) -> std::io::Result<String> {
     let path = dir.join(".generation");
     let read = std::fs::read_to_string(&path).and_then(|g| match g.trim() {
         "" => Err(std::io::Error::new(std::io::ErrorKind::NotFound, "an empty generation")),
@@ -373,7 +389,7 @@ async fn bg_wait_gone(dir: &std::path::Path, id: &str) -> bool {
 
 /// A task as the wire carries it: `state` is `running`, `exited`, `stopped`, `killed` (a signal
 /// nobody here sent) or `lost` (its runner died without a word), with its last `tail` bytes.
-fn bg_view(dir: &std::path::Path, r: &Record, tail: u64) -> Value {
+pub(super) fn bg_view(dir: &std::path::Path, r: &Record, tail: u64) -> Value {
     // An exit the runner wrote is final; without one, only a free lock says the runner is gone.
     let running = r.ended_at.is_none() && !bg_gone(dir, &r.id);
     let state = match (running, r.ended_at, r.stopped, r.signal) {
@@ -384,14 +400,19 @@ fn bg_view(dir: &std::path::Path, r: &Record, tail: u64) -> Value {
         _ => "exited",
     };
     let read = bg_run::read_output(dir, &r.id, None, tail).unwrap_or_default();
-    json!({
+    let mut view = json!({
         "id": r.id, "sessionId": r.session_id, "command": r.command, "cwd": r.cwd,
+        "description": r.description, "notify": r.notify,
         "state": state, "pid": r.pid, "startedAt": r.started_at, "endedAt": r.ended_at,
         "exitCode": r.exit_code, "signal": r.signal, "totalBytes": read.total,
         "keptFromByte": read.kept_from, "tail": String::from_utf8_lossy(&read.data),
         // Set when the spool failed (a full disk): output after it is gone, so it is incomplete.
         "outputError": r.output_error,
-    })
+    });
+    let (summary, status) = bg_run::outcome(&view);
+    view.set("summary", json!(summary));
+    view.set("status", json!(status));
+    view
 }
 
 /// Starts the runner in a session of its own and waits for its one-line answer: the task runs.
@@ -413,7 +434,9 @@ async fn bg_spawn(runner: &crate::self_command::SelfCommand, spec: &bg_run::Spec
             Ok(())
         });
     }
-    let mut child = cmd.spawn().context("start the task's runner")?;
+    let mut child = cmd
+        .spawn()
+        .with_context(|| format!("start the task's runner ({})", runner.program().display()))?;
     if let Some(pid) = child.id() {
         crate::agent_host::scope::place(pid).await;
     }

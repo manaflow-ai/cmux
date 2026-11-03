@@ -3,9 +3,11 @@
 // (direct.ts). As in Claude desktop, the marks carry the state: a filled check is done, a thin
 // spinner runs and a dashed circle waits, with no heading, strike-through or bold. Once the turn
 // ends a step left in progress stops spinning. A screen reader hears the progress and each state.
+// Memoized on its immutable entries: tokens streaming elsewhere in the turn never redraw it.
+import { memo } from "react";
 import { useT, type StringKey } from "../i18n";
 import type { AcpmuxPlanEntry } from "../model";
-import { Check } from "./icons";
+import { Check, Spinner } from "./icons";
 
 const STATUS: Record<AcpmuxPlanEntry["status"], StringKey> = {
   completed: "plan.status.completed",
@@ -13,7 +15,13 @@ const STATUS: Record<AcpmuxPlanEntry["status"], StringKey> = {
   pending: "plan.status.pending",
 };
 
-export function PlanList({ entries, ended = false }: { entries: readonly AcpmuxPlanEntry[]; ended?: boolean }) {
+export const PlanList = memo(function PlanList({
+  entries,
+  ended = false,
+}: {
+  entries: readonly AcpmuxPlanEntry[];
+  ended?: boolean;
+}) {
   const t = useT();
   const done = entries.filter((entry) => entry.status === "completed").length;
   return (
@@ -29,6 +37,8 @@ export function PlanList({ entries, ended = false }: { entries: readonly AcpmuxP
           <li key={index} className="cv-plan__item" data-status={entry.status}>
             <span className="cv-plan__mark" aria-hidden="true">
               {entry.status === "completed" && <Check size={10} />}
+              {/* The step at work turns the one shared spinner (icons.tsx), never a ring of its own. */}
+              {entry.status === "in_progress" && !ended && <Spinner size={12} />}
             </span>
             <span className="cv-plan__text">{entry.content}</span>
             {/* The marks are drawn only; a screen reader hears the state. */}
@@ -38,4 +48,4 @@ export function PlanList({ entries, ended = false }: { entries: readonly AcpmuxP
       </ul>
     </div>
   );
-}
+});

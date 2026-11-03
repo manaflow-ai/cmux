@@ -15,6 +15,7 @@ import { VmInstallRevokes } from "./cloud-vm-revoke.ts"
 import { CoderouterEdge } from "./cloud-coderouter-edge.ts"
 import { emptyFenceSettles, publicSnapshot, type SnapshotRow } from "./domains/cloud-snapshot.ts"
 import { BACKSTOP_IDLE_SECONDS, silentSince } from "./cloud-idle.ts"
+import { AUTO_PAUSE_OFF, autoPauseOn } from "./auto-pause.ts"
 import { planView, teamPlan, type CloudConfig } from "./domains/cloud-plan.ts"
 import { CloudEntitlementStore } from "./cloud-entitlements.ts"
 import { decodeParams } from "./domains/common.ts"
@@ -22,7 +23,7 @@ import { cloudApprovalsDueAt, gateCloudRequest, InstallStarts, isApprovedRun, ne
 import { buildEnvironmentSnapshot, EnvironmentBuildError, environmentBuildStartExec } from "@cmux/cloud-env"
 import { asWorkUser, GuardedCloudSandbox } from "./cloud-env-sandbox.ts"
 import { ENV_SETUP_TIMEOUT_MS, isEnvBuild, publicEnvironment, TABLE_ENVIRONMENT_ROWS, type EnvironmentRow } from "./domains/cloud-environment.ts"
-import { CLOUD_PRIVATE_TABLES, cloudDomain, ledgerKey, LEDGER_KEEP_MS, publicMachine, TABLE_LEDGER, TABLE_MACHINE, TABLE_SNAPSHOT, TABLE_TOMBSTONE, TOMBSTONE_MS, type CloudState, type LedgerRow, type MachineRow, type TombstoneRow } from "./domains/cloud.ts"
+import { CLOUD_PRIVATE_TABLES, cloudDomain, ledgerKey, LEDGER_KEEP_MS, publicMachine, TABLE_LEDGER, TABLE_MACHINE, TABLE_SNAPSHOT, TABLE_TOMBSTONE, TOMBSTONE_MS, PLATFORM_IDENTITY_PREFIX, type CloudState, type LedgerRow, type MachineRow, type TombstoneRow } from "./domains/cloud.ts"
 
 /** How long a create or delete request waits for its provider call before it answers mutation.indeterminate. */
 const REQUEST_WAIT_MS = 25_000
@@ -59,6 +60,22 @@ const headView = (s: unknown) => {
  * connect, link and VM RPCs, the operator clear and the test controls.
  */
 export abstract class CloudCore extends OwnerDO<CloudState> {
+  /** Only CloudDO's service-binding lifecycle overrides this; ordinary user starts are unaffected. */
+  protected platformStartsAllowed(): boolean { return true }
+
+  /** Compensate an indeterminate platform resume without deleting its disk or memory. A successful
+   * pause response alone is insufficient: keep the start pending until the provider reports paused. */
+  private async settleDisabledPlatformStart(driver: GuardedCloudDriver | null, row: LedgerRow, tag: { team: string; machine: string }) {
+    if (!driver) throw new DriverError("cloud.platform.pause_pending", "the disabled resume still needs a provider pause", false)
+    const before = await driver.stateOf(row.provider_name, tag)
+    if (before.gone) return { key: row.key, ok: false, final: true, error: { code: "cloud.provider.vm_missing", message: "the VM is gone" } }
+    if (before.state !== "paused") await driver.power(row.provider_name, tag, "pause")
+    const after = await driver.stateOf(row.provider_name, tag)
+    if (after.gone) return { key: row.key, ok: false, final: true, error: { code: "cloud.provider.vm_missing", message: "the VM is gone" } }
+    if (after.state !== "paused") throw new DriverError("cloud.platform.pause_pending", "the disabled resume is not confirmed paused yet", false)
+    return { key: row.key, ok: false, final: true, error: { code: "cloud.platform.start_cancelled", message: "the disabled platform resume was paused" } }
+  }
+
   protected readonly vmStatus = new VmStatusQueue(this.sqlStore)
   /** The one durable path that ends VM installs (cloud-vm-revoke.ts). */
   protected readonly vmRevokes = new VmInstallRevokes(this.sqlStore)
@@ -321,6 +338,12 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
 
   /** Test only (fakeControl `unset`): configuration a test removes to prove a fail-closed path. */
   protected testUnset = new Set<string>()
+  /** Test only (fakeControl `auto_pause`): replaces CLOUD_IDLE_PAUSE; null = the Worker var decides. */
+  protected testAutoPause: boolean | null = null
+  /** Whether automatic pauses run at all (auto-pause.ts; off unless CLOUD_IDLE_PAUSE is "on"; Leo, 2026-10-30). */
+  protected autoPause(): boolean {
+    return this.testAutoPause ?? autoPauseOn(this.env)
+  }
   /** Test only (fakeControl `link_keys`): the signing secret a mint reads instead of the Worker's. */
   protected testLinkKeys: string | undefined
   /** The bind file's api_origin and env, or null when either is missing (then no create runs). */
@@ -358,30 +381,46 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
         .filter(([, p]) => p.machine === machine)
         .map(([key, p]) => ({ p, r: engine.rows.get<LedgerRow>(TABLE_LEDGER, key) }))
         .filter((x) => x.r !== undefined)
+        // Builder and warm-up cleanup are independent: a backed-off delete must not starve its peer.
+        .filter((x) => x.r!.row.op !== "env_cleanup" || x.p.due_at <= Date.now() + this.skewMs)
         .sort((a, b) => (a.r!.n ?? 0) - (b.r!.n ?? 0))[0]
       if (!oldest) return
       const due = oldest.r!
       const row = due.row
       // N4: a request runs a call at once only for its first attempt; after a failure it waits for
       // the backoff like the alarm, so fast same-key retries cannot spend the attempts.
-      const dueLimit = dueBy ?? (row.attempts === 0 ? Infinity : Date.now() + this.skewMs)
+      // A settled build creates cleanup during this pass, after the alarm's dueBy snapshot. Attempt
+      // that cleanup now while respecting its retry backoff.
+      const dueLimit = row.op === "env_cleanup" ? Date.now() + this.skewMs : dueBy ?? (row.attempts === 0 ? Infinity : Date.now() + this.skewMs)
       if (oldest.p.due_at > dueLimit) return
       // Cancelled-create finds restart at attempt 0: their keys must differ from the create's own.
-      const commitKey = `driver:${due.n}:${row.cancel ? "c" : "a"}${row.attempts}`
+      // Both cleanup rows are created in one revision; their results need distinct idempotency keys.
+      const commitKey = `driver:${due.n}:${row.op === "env_cleanup" ? `${row.provider_name}:` : ""}${row.cancel ? "c" : "a"}${row.attempts}`
       const tag = { team: engine.currentState.team ?? "", machine: row.machine }
-      const planDenied = (row.op === "create" || row.op === "start" || row.op === "resize" || row.op === "snapshot" || row.op === "env_build") && !row.cancel && !teamPlan(this.testUnset.has("CLOUD_ALLOWED_TEAMS") ? { ...this.config, allowedTeams: new Set() } : this.config, tag.team)
+      const owner = engine.rows.get<MachineRow>(TABLE_MACHINE, row.machine)?.row
+      const platformStart = row.op === "start" && owner?.platform === true && row.key.startsWith(ledgerKey(`${PLATFORM_IDENTITY_PREFIX}${owner.creator}`, ""))
+      let cancelStart = platformStart && (row.error?.code === "cloud.platform.pause_pending" || !this.platformStartsAllowed())
+      const planDenied = (row.op === "create" || row.op === "start" || row.op === "resize" || row.op === "snapshot" || row.op === "env_build") && !row.cancel && !cancelStart && !teamPlan(this.testUnset.has("CLOUD_ALLOWED_TEAMS") ? { ...this.config, allowedTeams: new Set() } : this.config, tag.team)
       const captureRecovery = row.op === "snapshot" && row.transport === "vm-api"
       const bindDenied = row.op === "create" && !row.cancel && !this.bindFileConfig()
+      // An automatic pause still in the ledger (a retry, or one made before the switch went off) never runs while it is off.
+      const autoPauseOff = row.op === "pause" && owner?.status === "pausing" && (owner.pause_reason === "idle" || owner.pause_reason === "no_report") && !this.autoPause()
       let driver: GuardedCloudDriver | null = null
       let routingError: DriverError | undefined
-      if ((!planDenied || captureRecovery) && !bindDenied) try {
-        driver = await this.driverFor(row, row.cancel || row.op === "delete" || row.op === "snapshot_delete" || row.op === "pause" || (planDenied && captureRecovery) ? "cleanup" : "operate", row.op === "create" && !row.cancel)
+      if ((!planDenied || captureRecovery) && !bindDenied && !autoPauseOff) try {
+        driver = await this.driverFor(row, row.cancel || cancelStart || row.op === "delete" || row.op === "env_cleanup" || row.op === "snapshot_delete" || row.op === "pause" || (planDenied && captureRecovery) ? "cleanup" : "operate", row.op === "create" && !row.cancel)
       } catch { routingError = new DriverError("cloud.provider.unavailable", "the VM tenant route is still being confirmed", false) }
+      if (platformStart && !this.platformStartsAllowed()) cancelStart = true
       // Tenant provisioning can await identity I/O. A delete committed meanwhile changes this to lookup-only work.
       if (row.op === "create" && !row.cancel && this.ledger(row.key)?.cancel) continue
       let result: { key: string; ok: boolean; provider_id?: string; bind_token_sha256?: string; error?: { code: string; message: string }; final?: boolean; snapshot_outcome?: "deleted" | "absent"; resources?: { cpu: number; memory_mb: number; disk_mb: number }; env_build?: { stage?: "boot" | "ready" | "setup" | "snapshot" | "warm"; log_tail?: string; timings?: { boot_ms: number; ready_ms: number; setup_ms: number; snapshot_ms: number; warm_ms: number; total_ms: number } } }
       // P1-1: a create runs only for a team with a plan (the allowlist may have changed since the intent). Deletes always run: they only stop cost.
-      if (planDenied && !captureRecovery) result = { key: row.key, ok: false, error: { code: "cloud.plan.required", message: "this team has no Cloud plan" }, final: true }
+      if (autoPauseOff) result = { key: row.key, ok: false, error: { code: AUTO_PAUSE_OFF, message: "automatic pause is off on this deployment (CLOUD_IDLE_PAUSE)" }, final: true }
+      else if (cancelStart) {
+        try { result = await this.settleDisabledPlatformStart(driver, row, tag) }
+        catch { result = { key: row.key, ok: false, error: { code: "cloud.platform.pause_pending", message: "the disabled resume still needs a confirmed pause" }, final: false } }
+      }
+      else if (planDenied && !captureRecovery) result = { key: row.key, ok: false, error: { code: "cloud.plan.required", message: "this team has no Cloud plan" }, final: true }
       // Review P3-a: the bind file's origin and env tag are checked before ensure, so a misconfiguration never leaves a running VM.
       else if (bindDenied) result = { key: row.key, ok: false, error: { code: "cloud.provider.unavailable", message: "CLOUD_API_ORIGIN (https) or the environment tag is not configured" }, final: true }
       else if (routingError) result = { key: row.key, ok: false, error: { code: routingError.code, message: routingError.message }, final: false }
@@ -413,7 +452,10 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
             result = { key: row.key, ok: true, provider_id: id, bind_token_sha256: await sha256Hex(token), ...(res ? { resources: { cpu: res.cpu, memory_mb: res.memory, disk_mb: res.storage } } : {}) }
           }
           else if (row.op === "env_build") result = await this.runEnvironmentBuild(driver, row, tag)
-          else if (row.op === "pause" || row.op === "start") result = (await driver.power(row.provider_name, tag, row.op), { key: row.key, ok: true })
+          else if (row.op === "pause" || row.op === "start") {
+            await driver.power(row.provider_name, tag, row.op)
+            result = platformStart && !this.platformStartsAllowed() ? await this.settleDisabledPlatformStart(driver, row, tag) : { key: row.key, ok: true }
+          }
           else if (row.op === "snapshot" && row.snapshot_name) result = { key: row.key, ok: true, provider_id: (await driver.snapshot(row.provider_name, tag, row.snapshot_name)).id }
           else if (row.op === "snapshot_delete" && row.snapshot_name) result = (await driver.removeSnapshot(row.snapshot_name, tag, emptyFenceSettles(row)), { key: row.key, ok: true })
           else if (row.op === "resize" && row.size) result = (await driver.resize(row.provider_name, tag, { cpu: row.size.cpu, memory: row.size.memory_mb, storage: row.size.disk_mb }), { key: row.key, ok: true })
@@ -423,7 +465,8 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
           // Only the step, status and provider code: never the key or a provider message body.
           console.warn(JSON.stringify({ msg: "cloud provider call failed", stream: engine.stream, op: row.op, machine: row.machine, attempt: row.attempts + 1, code: err.code, error: err.message }))
           const res = row.op === "resize" && err.final ? await driver.resourcesOf(row.provider_name, tag).catch(() => null) : null
-          result = { key: row.key, ok: false, error: { code: err.code, message: err.message }, final: err.final, ...(err instanceof VmApiSnapshotOutcome && err.outcome !== "pending" ? { snapshot_outcome: err.outcome } : {}), ...(res ? { resources: { cpu: res.cpu, memory_mb: res.memory, disk_mb: res.storage } } : {}) }
+          const retainPause = platformStart && (!this.platformStartsAllowed() || row.error?.code === "cloud.platform.pause_pending")
+          result = { key: row.key, ok: false, error: retainPause ? { code: "cloud.platform.pause_pending", message: "the disabled resume still needs a confirmed pause" } : { code: err.code, message: err.message }, final: retainPause ? false : err.final, ...(err instanceof VmApiSnapshotOutcome && err.outcome !== "pending" ? { snapshot_outcome: err.outcome } : {}), ...(res ? { resources: { cpu: res.cpu, memory_mb: res.memory, disk_mb: res.storage } } : {}) }
         }
       }
       if (this.env.ENVIRONMENT === "test" && this.dropResults > 0) {
@@ -431,7 +474,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
         return
       }
       this.submitSystem("cloud.driver_result", result, commitKey)
-      if (!result.ok) return
+      if (!result.ok && row.op !== "env_cleanup" && !(row.op === "env_build" && result.final)) return
       if (row.op === "start" && driver) await this.edge.started(driver, tag.team, row.machine, engine.rows.get<MachineRow>(TABLE_MACHINE, row.machine)?.row, Date.now() + this.skewMs)
     }
   }
@@ -478,7 +521,8 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     for (const t of [this.audit.pruneDueAt(), this.vmStatus.dueAt(), this.vmRevokes.dueAt(), this.vmRevokes.registerDueAt(), cloudApprovalsDueAt(this.ctx.storage.sql, now)]) if (t !== null) times.push(t)
     // The cost backstop: the earliest silent deadline of a running machine (never sooner than a minute: a
     // pause the limit held back must not re-fire the alarm at once).
-    for (const r of this.boundEngine?.rows.range<MachineRow>(TABLE_MACHINE, { limit: 1000 }) ?? []) if (r.row.status === "running" || r.row.status === "provisioning") times.push(Math.max(silentSince(r.row, this.vmStatus.lastActivityAt(r.row.id)) + BACKSTOP_IDLE_SECONDS * 1000, this.silentRetryAt(r.row.id) ?? 0, now + 60_000))
+    // With automatic pause off (auto-pause.ts) there is no backstop deadline to wake for.
+    if (this.autoPause()) for (const r of this.boundEngine?.rows.range<MachineRow>(TABLE_MACHINE, { limit: 1000 }) ?? []) if (r.row.status === "running" || r.row.status === "provisioning") times.push(Math.max(silentSince(r.row, this.vmStatus.lastActivityAt(r.row.id)) + BACKSTOP_IDLE_SECONDS * 1000, this.silentRetryAt(r.row.id) ?? 0, now + 60_000))
     // The cancelled-create lookups and the sweep need the provider: with none (key, prefix or image
     // removed), their overdue times would re-fire the alarm at once, forever (third review P2-1).
     if (cloudProviderReady(this.env)) {

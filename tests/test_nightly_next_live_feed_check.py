@@ -242,10 +242,12 @@ class WorkflowTests(unittest.TestCase):
         upload = job.index("- name: Upload nightly-next appcasts to R2")
         readback = job.index("- name: Read the live nightly-next feed back")
         self.assertLess(upload, readback)
-        # Last in the job, never failing it, and reported by report-nightly-failure.
-        self.assertNotIn("\n      - ", job[readback + 1:])
-        step = job[readback:]
-        self.assertIn("if: always() && steps.recheck.outputs.already_published != 'true' && steps.upload_next_appcasts.outcome == 'success'", step)
+        # Last in the job but for the lease release, never failing it, and reported by report-nightly-failure.
+        release = job.index("- name: Release the nightly-next publish lease")
+        self.assertNotIn("\n      - ", job[readback + 1:release - 1])
+        self.assertNotIn("\n      - ", job[release + 1:])
+        step = job[readback:release]
+        self.assertIn("if: always() && steps.recheck.outputs.already_published != 'true' && steps.upload_next_appcasts.outputs.feed_written == 'true'", step)
         self.assertIn("continue-on-error: true", step)
         self.assertIn("nightly_next_live_feed_check.py", step)  # the step runs publish-next-feed-readback.sh
         self.assertIn("feed_check: ${{ steps.feedcheck.outcome }}", job)

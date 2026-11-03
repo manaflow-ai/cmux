@@ -17,6 +17,8 @@ struct TabTitleResolver {
     var showsNewTabPage: @MainActor (TabModel) -> Bool
     /// A New Tab page tab's own title (`AgentHistoryPage.title`), if it has one.
     var newTabPageTitle: @MainActor (TabModel) -> String? = { _ in nil }
+    /// A subagent pane's own name (``SubagentTabTitles``), nil for any other tab.
+    var subagentTitle: @MainActor (TabModel) -> String? = { SubagentTabTitles.shared.title(ofTab: $0.id) }
     /// An agent chat's title before the user names it (`AgentChatTabTitle`).
     var chatTitle: @MainActor (TabModel) -> String = { AgentChatTabTitle.untitled($0.agentSession) }
     /// The name of the workspace an asked tab is in, when the caller knows it: an agent chat
@@ -26,8 +28,8 @@ struct TabTitleResolver {
     var conversationTitle: @MainActor (TabModel) -> String = { _ in Strings.untitledBrowser }
     /// The page an app or page tab shows, named and badged like that page.
     var page: @MainActor (TabModel) -> (title: String, icon: TabIcon)? = { _ in nil }
-    /// An incognito browser tab's live title (its daemon record is a placeholder).
-    var incognitoTitle: @MainActor (TabModel) -> String?? = { _ in nil }
+    /// An incognito browser tab's live title (its daemon record is a placeholder); nil `Bool`: look the tab up.
+    var incognitoTitle: @MainActor (TabModel, Bool?) -> String?? = { _, _ in nil }
 
     /// The app's live sources. `workspace`: the one workspace every asked tab is in, when the
     /// caller knows it (a pane snapshot: `RestoredNewTabPages.shows` then looks nothing up).
@@ -42,8 +44,8 @@ struct TabTitleResolver {
                let page = services.pages.storeTabItem(tab, page: provider.page) { return page }
             return tab.page != nil ? services.pages.storeTabItem(tab) : nil
         }
-        incognitoTitle = { [weak services] tab in
-            guard let services, tab.kind == .browser, services.cache.browserTabs.isIncognitoTab(tab.id) else { return nil }
+        incognitoTitle = { [weak services] tab, known in
+            guard let services, tab.kind == .browser, known ?? services.cache.browserTabs.isIncognitoTab(tab.id) else { return nil }
             return .some(services.cache.incognitoDisplay(tab).title)
         }
     }
@@ -70,6 +72,9 @@ struct TabTitleResolver {
     func untitled(_ tab: TabModel, fallback: String = Strings.untitledTerminal) -> String {
         if tab.agentSession != nil {
             if isNewTabPage(tab) { return newTabPageTitle(tab) ?? Strings.untitledBrowser }
+            // A subagent's pane is a tab on its chat's session: it shows the subagent's own name, never
+            // the chat's (Leo 2026-10-30: "subagents shouldn't be tab-named the exact same as the parent").
+            if let subagent = subagentTitle(tab) { return subagent }
             let title = chatTitle(tab)
             if title == AgentPaneModel.tabTitle, let name = workspaceName.flatMap(AgentChatTabTitle.taskName) { return name }
             return title
@@ -82,9 +87,12 @@ struct TabTitleResolver {
     }
 
     /// The name `tab` shows.
-    func title(_ tab: TabModel) -> String {
+    func title(_ tab: TabModel) -> String { title(tab, incognito: nil) }
+
+    /// `incognito`: the tab's answer when the caller knows (a sidebar row's workspace: no tab list read, F6).
+    func title(_ tab: TabModel, incognito: Bool?) -> String {
         if let page = page(tab) { return page.title }
-        if let incognito = incognitoTitle(tab) { return incognito ?? Strings.untitledBrowser }
+        if let incognito = incognitoTitle(tab, incognito) { return incognito ?? Strings.untitledBrowser }
         return TabItemMapping.shared.title(tab, fallbackTitle: untitled(tab))
     }
 }

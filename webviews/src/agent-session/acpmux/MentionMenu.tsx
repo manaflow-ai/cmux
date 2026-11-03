@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useEscapingList } from "../../ui/popupHost";
+import { useComposerListBox } from "./backdropLayer";
 import { readFileSearch, type FileMatch, type FileSearchSource, type Run } from "./fileSearchModel";
 import { Icon } from "./icons/Icon";
 import type { MentionItem } from "./mentionItems";
 import { PickerOption, PickerOptionList } from "../../ui/PickerPrimitives";
 import { useT } from "./i18n";
+import { FileSearchLoading } from "./FileSearchLoading";
 
 /// How long typing settles before the picker asks again (as Search files does).
 const MENTION_DEBOUNCE_MS = 80;
@@ -25,6 +27,21 @@ export function mentionQuery(markdown: string, at: number): { start: number; que
   // An odd number of backticks before it: inside a code span.
   if ((before.slice(0, start).match(/`/g)?.length ?? 0) % 2 === 1) return undefined;
   return { start, query: found[2]!.replace(/\\(.)/g, "$1") };
+}
+
+/// Where the caret, counted in the characters the prompt shows, falls in its markdown: a
+/// backslash escape and a character reference (the serializer's `&#x20;`) each show as one, and so
+/// does an attachment placed in the text: the editor counts its atom as one place, the markdown
+/// holds its whole token (attachments.ts inlineToken).
+export function markdownOffset(markdown: string, shown: number): number {
+  let index = 0;
+  for (let count = 0; count < shown && index < markdown.length; count++) {
+    const escape = /^(\\[!-/:-@[-`{-~]|&(#x[0-9a-f]+|#[0-9]+|[a-z][a-z0-9]*);|\uFFFC[\w.~%-]+\uFFFC)/i.exec(
+      markdown.slice(index),
+    );
+    index += escape ? escape[0].length : 1;
+  }
+  return index;
 }
 
 /// `@path ` as the prompt's markdown writes it: quoted when the path has a space (an agent reads a
@@ -97,8 +114,10 @@ export function MentionMenu({
   onPick(item: MentionItem): void;
 }) {
   const t = useT();
-  // Above the composer, or past the window's edge when the pane has no room there (cx-6k6cg).
-  const escape = useEscapingList("top", 6);
+  // Above the composer's box, or past the window's edge when the pane has no room there (cx-6k6cg).
+  // The list draws out of the box (backdropLayer.tsx): the box is what it stands beside.
+  const box = useComposerListBox();
+  const escape = useEscapingList("top", 6, undefined, box);
   useEffect(() => {
     document.getElementById(`acpmux-mention-${active}`)?.scrollIntoView?.({ block: "nearest" });
   }, [active]);
@@ -120,6 +139,7 @@ export function MentionMenu({
       className="ui-popup ui-glass acpmux-slash-menu acpmux-mention-menu"
       id="acpmux-mention-menu"
     >
+      {state?.kind === "searching" && items.length === 0 && <FileSearchLoading mention />}
       {items.map((item, index) => (
         <PickerOption
           key={item.key}
@@ -150,7 +170,11 @@ export function MentionMenu({
             : item.dir.length > 0 && <span className="acpmux-slash-description">{runs(item.dir)}</span>}
         </PickerOption>
       ))}
-      {note && <output className="acpmux-file-note">{note}</output>}
+      {note && (
+        <output className={state?.kind === "searching" ? "acpmux-file-loading-note" : "acpmux-file-note"}>
+          {note}
+        </output>
+      )}
     </PickerOptionList>
   );
 }

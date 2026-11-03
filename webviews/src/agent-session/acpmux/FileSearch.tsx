@@ -9,6 +9,7 @@ import {
   type Run,
 } from "./fileSearchModel";
 import { useT } from "./i18n";
+import { FileSearchLoading } from "./FileSearchLoading";
 
 /// How long typing settles before the palette asks again.
 const SEARCH_DEBOUNCE_MS = 80;
@@ -157,6 +158,7 @@ export function FileSearch({
       />
       {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
       <div id={listId} role="listbox" aria-label={t("files.search")} aria-busy={state.kind === "searching"}>
+        {state.kind === "searching" && results.length === 0 && <FileSearchLoading />}
         {results.map((match, index) => {
           const { dir, name } = matchRuns(match.path, match.matches);
           return (
@@ -180,7 +182,9 @@ export function FileSearch({
           );
         })}
       </div>
-      {note && <output className="acpmux-file-note">{note}</output>}
+      {note && (
+        <output className={state.kind === "searching" ? "acpmux-file-loading-note" : "acpmux-file-note"}>{note}</output>
+      )}
       {state.kind === "done" && state.truncated && results.length > 0 && (
         <output className="acpmux-file-note">{t("files.more", { count: results.length })}</output>
       )}

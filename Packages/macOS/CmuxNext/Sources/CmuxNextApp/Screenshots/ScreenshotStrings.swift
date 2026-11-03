@@ -1,4 +1,5 @@
 import CmuxNextDesign
+import CmuxNextScreenshots
 import Foundation
 
 /// Reasons `cmux window|pane|tab screenshot` gives. Keys live in
@@ -45,9 +46,20 @@ enum ScreenshotStrings {
         String(localized: "handlers.screenshot.tabNotShown", defaultValue: "The tab is not on screen. Show its workspace and select the tab, then retry",
                table: "MiscHandlers", bundle: .module)
     }
-    static var browserNeedsREPL: String {
-        String(localized: "handlers.screenshot.browserNeedsREPL",
-               defaultValue: "A browser page's screenshot for automation comes from the browser REPL, which hides the secrets on the page: browser_repl_eval with page.screenshot()",
+    /// An agent or a script asked for a browser tab no window shows: its pixels are all page.
+    static var pageNeedsGuardedCapture: String {
+        String(localized: "handlers.screenshot.pageNeedsGuardedCapture",
+               defaultValue: "The browser tab is not on screen. Capture its page with `cmux browser page screenshot`, which hides secrets, or show the tab and retry",
+               table: "MiscHandlers", bundle: .module)
+    }
+    static var windowChanging: String {
+        String(localized: "handlers.screenshot.windowChanging",
+               defaultValue: "The window kept animating or resizing, so its browser pages and chats could not be masked. Retry when it is still",
+               table: "MiscHandlers", bundle: .module)
+    }
+    static var maskFailed: String {
+        String(localized: "handlers.screenshot.maskFailed",
+               defaultValue: "The window's browser pages and chats could not be masked, so the capture was refused",
                table: "MiscHandlers", bundle: .module)
     }
     static func pageFailed(_ reason: String) -> String {
@@ -61,6 +73,14 @@ enum ScreenshotStrings {
         case .notOnScreen: notOnScreen
         case .minimized: minimized
         case .blank: blank
+        }
+    }
+
+    /// The reason for a masked capture that gave no image.
+    static func reason(_ failure: ScreenshotMask.Failure) -> String {
+        switch failure {
+        case .unsettled: windowChanging
+        case .unmaskable: maskFailed
         }
     }
 }

@@ -1,10 +1,12 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// The one toast component: the shared neutral glass (opaque under Reduce Transparency) with a small radius,
 /// bottom-center of its window above the content edge, held while the pointer is on it.
 @MainActor
+@Suite(.closesItsWindows)
 struct CmuxToastSurfaceTests {
     private static func surface(of view: CmuxToastView) throws -> OverlaySurfaceView {
         try #require(view.subviews.compactMap { $0 as? OverlaySurfaceView }.first)
@@ -57,6 +59,7 @@ struct CmuxToastSurfaceTests {
         let center = CmuxToastCenter(host: HeadlessToastHost())
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless],
                               backing: .buffered, defer: true)
+        defer { window.closeWithOverlayHost() }
         let handle = center.show(CmuxToast(id: "t", message: "Closed “New Tab”", action: .undo(),
                                            duration: .milliseconds(150)), in: window)
         center.setHovered(true, handle)
@@ -75,6 +78,7 @@ struct CmuxToastSurfaceTests {
         let center = CmuxToastCenter()
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless],
                               backing: .buffered, defer: false)
+        defer { window.closeWithOverlayHost() }
         let first = center.show(CmuxToast(id: "refusal", message: "Can’t close the last tab"), in: window)
         let shown = try #require(Self.toastViews(in: window).first)
         #expect(shown.layer?.animation(forKey: "opacity") != nil, "a new toast fades in")
@@ -100,6 +104,7 @@ struct CmuxToastSurfaceTests {
         let center = CmuxToastCenter(host: host)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless],
                               backing: .buffered, defer: false)
+        defer { window.closeWithOverlayHost() }
         let composer = AvoidedView(frame: NSRect(x: 100, y: 0, width: 400, height: 60))
         try #require(window.contentView).addSubview(composer)
         let handle = center.show(CmuxToast(id: "saved", message: "Saved"), in: window)
@@ -133,6 +138,7 @@ struct CmuxToastSurfaceTests {
         let (windowA, composerA) = try window()
         let (windowB, composerB) = try window()
         let (quiet, _) = try window()
+        defer { [windowA, windowB, quiet].forEach { $0.closeWithOverlayHost() } }
         let handles = [center.show(CmuxToast(id: "a", message: "Saved"), in: windowA),
                        center.show(CmuxToast(id: "b", message: "Saved"), in: windowB)]
         let toastA = try #require(Self.toastViews(in: windowA).first)
@@ -166,6 +172,7 @@ struct CmuxToastSurfaceTests {
             NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless],
                      backing: .buffered, defer: false)
         }
+        defer { windows.forEach { $0.closeWithOverlayHost() } }
         let composer = AvoidedView(frame: NSRect(x: 100, y: 0, width: 400, height: 60))
         try #require(windows[0].contentView).addSubview(composer)
         let handle = center.show(CmuxToast(id: "t", message: "Saved"), in: windows[0])
@@ -191,6 +198,7 @@ struct CmuxToastSurfaceTests {
         let center = CmuxToastCenter(host: CmuxToastOverlayHost())
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless],
                               backing: .buffered, defer: false)
+        defer { window.closeWithOverlayHost() }
         let first = center.show(CmuxToast(id: "t1", message: "Saved"), in: window)
         let second = center.show(CmuxToast(id: "t2", message: "Saved"), in: window)
 
@@ -210,6 +218,7 @@ struct CmuxToastSurfaceTests {
         let centers = hosts.map { CmuxToastCenter(host: $0) }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless],
                               backing: .buffered, defer: false)
+        defer { window.closeWithOverlayHost() }
         let composer = AvoidedView(frame: NSRect(x: 100, y: 0, width: 400, height: 60))
         try #require(window.contentView).addSubview(composer)
         let handles = centers.enumerated().map { $1.show(CmuxToast(id: "t\($0)", message: "Saved"), in: window) }
@@ -230,10 +239,32 @@ struct CmuxToastSurfaceTests {
         let center = CmuxToastCenter()
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless],
                               backing: .buffered, defer: false)
+        defer { window.closeWithOverlayHost() }
         let handles = (1...3).map { center.show(CmuxToast(id: "t\($0)", message: "Toast \($0)"), in: window) }
         let oldest = try #require(Self.toastViews(in: window).first { $0.toast.id == "t1" })
         let fourth = center.show(CmuxToast(id: "t4", message: "Toast 4"), in: window)
         #expect(handles[0].isDismissed)
+        let leaving = oldest.convert(oldest.bounds, to: nil)
+        for view in Self.toastViews(in: window) where view !== oldest {
+            #expect(!view.convert(view.bounds, to: nil).intersects(leaving), "\(view.toast.id) overlaps the leaving toast")
+        }
+        (handles + [fourth]).forEach { $0.dismiss() }
+    }
+
+    /// A taller toast pushing out the oldest: the one leaving still fades clear of every toast that
+    /// stays, measured on the stack's final heights (review of #27807).
+    @Test func aToastPushedOutByATallerOneFadesClearOfIt() throws {
+        let center = CmuxToastCenter()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 600), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        defer { window.closeWithOverlayHost() }
+        let handles = (1...3).map { center.show(CmuxToast(id: "t\($0)", message: "Toast \($0)"), in: window) }
+        let oldest = try #require(Self.toastViews(in: window).first { $0.toast.id == "t1" })
+        let long = String(repeating: "A machine could not update to this Mac's build. ", count: 4)
+        let fourth = center.show(CmuxToast(id: "t4", message: long), in: window)
+        #expect(handles[0].isDismissed)
+        let tall = try #require(Self.toastViews(in: window).first { $0.toast.id == "t4" })
+        #expect(tall.frame.height > oldest.frame.height + 8, "the fourth toast is not taller")
         let leaving = oldest.convert(oldest.bounds, to: nil)
         for view in Self.toastViews(in: window) where view !== oldest {
             #expect(!view.convert(view.bounds, to: nil).intersects(leaving), "\(view.toast.id) overlaps the leaving toast")
