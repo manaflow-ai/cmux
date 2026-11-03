@@ -123,12 +123,14 @@ fn policy_word(policy: Policy) -> &'static str {
     }
 }
 
-fn flag_word(flag: &Flag) -> String {
+/// The rule a flag broke, by name only: the matched words are the server's text and stay out of
+/// the card and the agent's context (T9).
+fn flag_word(flag: &Flag) -> &'static str {
     match flag {
-        Flag::Instruction(w) => format!("instruction: {w}"),
-        Flag::SecretPath(w) => format!("secret path: {w}"),
-        Flag::HiddenCharacters => "hidden characters".to_owned(),
-        Flag::TooLong(n) => format!("too long: {n} characters"),
+        Flag::Instruction(_) => "instruction",
+        Flag::SecretPath(_) => "secretPath",
+        Flag::HiddenCharacters => "hiddenCharacters",
+        Flag::TooLong(_) => "tooLong",
     }
 }
 

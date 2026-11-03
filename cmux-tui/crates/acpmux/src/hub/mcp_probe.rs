@@ -84,10 +84,11 @@ impl Conn {
         if status.is_redirection() {
             return Err("the server redirected; cmux does not follow it".to_owned());
         }
-        if let Some(id) = resp.headers().get("mcp-session-id").and_then(|v| v.to_str().ok()) {
-            if id.len() <= 256 && id.bytes().all(|b| (0x21..=0x7e).contains(&b)) {
-                self.session = Some(id.to_owned());
-            }
+        if let Some(id) = resp.headers().get("mcp-session-id").and_then(|v| v.to_str().ok())
+            && id.len() <= 256
+            && id.bytes().all(|b| (0x21..=0x7e).contains(&b))
+        {
+            self.session = Some(id.to_owned());
         }
         let content_type = resp
             .headers()
@@ -108,13 +109,12 @@ impl Conn {
                 return Err("the server's reply is too large".to_owned());
             }
             // A stream may stay open after the reply; stop once the reply to `expect` is in.
-            if let Some(id) = expect {
-                if content_type.starts_with("text/event-stream")
-                    && body.ends_with(b"\n")
-                    && reply_result(&content_type, &String::from_utf8_lossy(&body), id).is_ok()
-                {
-                    break;
-                }
+            if let Some(id) = expect
+                && content_type.starts_with("text/event-stream")
+                && body.ends_with(b"\n")
+                && reply_result(&content_type, &String::from_utf8_lossy(&body), id).is_ok()
+            {
+                break;
             }
         }
         Ok(Sent::Reply(content_type, String::from_utf8_lossy(&body).into_owned()))
