@@ -1,0 +1,215 @@
+{
+ "id": "marker-check",
+ "priority": "P1",
+ "title": "Frame markers: 36 markers the terminal draws are each read back from the window's pixels",
+ "why": "R-HARNESS S5 (#34071): the real-app check of ext_marker.py before journeys switch from text recognition to markers. Three batches of 12 markers in a new terminal; every marker must decode to its own token from a fresh snapshot, and a token never printed must be absent from a frame that shows the batch's last marker.",
+ "source": "REWRITE R-HARNESS DESIGN.md S5; STATUS 9303, 9402, 9444",
+ "budget_seconds": 240,
+ "steps": [
+  {
+   "do": "new_terminal",
+   "via": "key"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "marker_install"
+  },
+  {
+   "do": "type",
+   "text": "clear; for i in 10 11 12 13 14 15 16 17 18 19 20 21; do ${marker} m$i-${nonce}; done",
+   "enter": true,
+   "mark": "b10"
+  },
+  {
+   "do": "expect",
+   "title": "markers m10..m21: each read from the frame's pixels; a token never printed is absent",
+   "since": "b10",
+   "timeout": 20,
+   "all": [
+    {
+     "daemon_line": "m10-${nonce}"
+    },
+    {
+     "daemon_line": "m21-${nonce}"
+    },
+    {
+     "app_text_line": "m21-${nonce}"
+    },
+    {
+     "frame_marker": "m10-${nonce}"
+    },
+    {
+     "frame_marker": "m11-${nonce}"
+    },
+    {
+     "frame_marker": "m12-${nonce}"
+    },
+    {
+     "frame_marker": "m13-${nonce}"
+    },
+    {
+     "frame_marker": "m14-${nonce}"
+    },
+    {
+     "frame_marker": "m15-${nonce}"
+    },
+    {
+     "frame_marker": "m16-${nonce}"
+    },
+    {
+     "frame_marker": "m17-${nonce}"
+    },
+    {
+     "frame_marker": "m18-${nonce}"
+    },
+    {
+     "frame_marker": "m19-${nonce}"
+    },
+    {
+     "frame_marker": "m20-${nonce}"
+    },
+    {
+     "frame_marker": "m21-${nonce}"
+    },
+    {
+     "frame_marker_lacks": {
+      "token": "m9910-${nonce}",
+      "with": "m21-${nonce}"
+     }
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "clear; for i in 30 31 32 33 34 35 36 37 38 39 40 41; do ${marker} m$i-${nonce}; done",
+   "enter": true,
+   "mark": "b30"
+  },
+  {
+   "do": "expect",
+   "title": "markers m30..m41: each read from the frame's pixels; a token never printed is absent",
+   "since": "b30",
+   "timeout": 20,
+   "all": [
+    {
+     "daemon_line": "m30-${nonce}"
+    },
+    {
+     "daemon_line": "m41-${nonce}"
+    },
+    {
+     "app_text_line": "m41-${nonce}"
+    },
+    {
+     "frame_marker": "m30-${nonce}"
+    },
+    {
+     "frame_marker": "m31-${nonce}"
+    },
+    {
+     "frame_marker": "m32-${nonce}"
+    },
+    {
+     "frame_marker": "m33-${nonce}"
+    },
+    {
+     "frame_marker": "m34-${nonce}"
+    },
+    {
+     "frame_marker": "m35-${nonce}"
+    },
+    {
+     "frame_marker": "m36-${nonce}"
+    },
+    {
+     "frame_marker": "m37-${nonce}"
+    },
+    {
+     "frame_marker": "m38-${nonce}"
+    },
+    {
+     "frame_marker": "m39-${nonce}"
+    },
+    {
+     "frame_marker": "m40-${nonce}"
+    },
+    {
+     "frame_marker": "m41-${nonce}"
+    },
+    {
+     "frame_marker_lacks": {
+      "token": "m9930-${nonce}",
+      "with": "m41-${nonce}"
+     }
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "clear; for i in 50 51 52 53 54 55 56 57 58 59 60 61; do ${marker} m$i-${nonce}; done",
+   "enter": true,
+   "mark": "b50"
+  },
+  {
+   "do": "expect",
+   "title": "markers m50..m61: each read from the frame's pixels; a token never printed is absent",
+   "since": "b50",
+   "timeout": 20,
+   "all": [
+    {
+     "daemon_line": "m50-${nonce}"
+    },
+    {
+     "daemon_line": "m61-${nonce}"
+    },
+    {
+     "app_text_line": "m61-${nonce}"
+    },
+    {
+     "frame_marker": "m50-${nonce}"
+    },
+    {
+     "frame_marker": "m51-${nonce}"
+    },
+    {
+     "frame_marker": "m52-${nonce}"
+    },
+    {
+     "frame_marker": "m53-${nonce}"
+    },
+    {
+     "frame_marker": "m54-${nonce}"
+    },
+    {
+     "frame_marker": "m55-${nonce}"
+    },
+    {
+     "frame_marker": "m56-${nonce}"
+    },
+    {
+     "frame_marker": "m57-${nonce}"
+    },
+    {
+     "frame_marker": "m58-${nonce}"
+    },
+    {
+     "frame_marker": "m59-${nonce}"
+    },
+    {
+     "frame_marker": "m60-${nonce}"
+    },
+    {
+     "frame_marker": "m61-${nonce}"
+    },
+    {
+     "frame_marker_lacks": {
+      "token": "m9950-${nonce}",
+      "with": "m61-${nonce}"
+     }
+    }
+   ]
+  }
+ ]
+}
