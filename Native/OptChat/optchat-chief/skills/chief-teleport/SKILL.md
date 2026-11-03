@@ -10,6 +10,10 @@ The person asks in plain words; you do the whole move yourself with the `move`
 tool. Nothing is lost: your memory, this conversation, settings and subagent
 transcripts go with you, and the copy you leave stays for rollback.
 
+This skill moves you, the Chief. To move one agent chat or subagent to another
+machine ("teleport this chat to the mini"), follow the `agent-session-teleport`
+skill (`acpmux session move`) instead.
+
 | The person says | `to` |
 | --- | --- |
 | "teleport to the cloud", "go to cmux cloud" | `cloud` |
