@@ -225,17 +225,32 @@ impl Api {
     }
 
     pub(crate) fn set_brain(&self, chief: &str, enabled: bool) -> Result<(), String> {
-        let (status, value) = self.call(
-            "PUT",
-            &format!("/v1/chiefs/{chief}/brain"),
-            Some(&json!({"enabled": enabled})),
-        )?;
+        self.put_brain(
+            chief,
+            &json!({"enabled": enabled}),
+            if enabled { "brain on" } else { "brain off" },
+        )
+    }
+
+    /// Sets the hosted Chief's model; the cloud refuses one the account may not run.
+    pub(crate) fn set_brain_model(&self, chief: &str, model: &str) -> Result<(), String> {
+        self.put_brain(chief, &json!({"model": model}), "brain model")
+    }
+
+    fn put_brain(&self, chief: &str, body: &Value, what: &str) -> Result<(), String> {
+        let (status, value) = self.call("PUT", &format!("/v1/chiefs/{chief}/brain"), Some(body))?;
         if (200..300).contains(&status) && value["ok"] != false {
             return Ok(());
         }
+        let code = value["error"]["code"].as_str().unwrap_or("");
+        let hint = if code == "chief_claude_unavailable" || code == "chief_model_unavailable" {
+            " (this cloud account may not run that model in the cloud: it needs a paid plan, \
+             or --cloud-model with a model the account allows)"
+        } else {
+            ""
+        };
         Err(format!(
-            "brain {}: HTTP {status} {}",
-            if enabled { "on" } else { "off" },
+            "{what}: HTTP {status} {}{hint}",
             error_text(&value)
         ))
     }
@@ -539,6 +554,7 @@ pub fn move_to_cloud(
     checkpoint_sha: &str,
     name: &str,
     make_default: bool,
+    model: Option<&str>,
 ) -> Result<CloudMoved, String> {
     let short = &checkpoint_sha[..checkpoint_sha.len().min(16)];
     let made = api.op(
@@ -560,6 +576,11 @@ pub fn move_to_cloud(
         .unwrap_or_else(|| chief_main_conversation(&chief));
     if api.brain(&chief)? == Some(true) {
         api.set_brain(&chief, false)?;
+    }
+    // The model first: the cloud refuses one this account may not run (a paid model off its
+    // plan) here, before anything is copied, as it would when the brain turns on.
+    if let Some(model) = model {
+        api.set_brain_model(&chief, model)?;
     }
     // History.
     let conv_db = manifest
