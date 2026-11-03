@@ -70,6 +70,16 @@ struct CloudIdlePauseTests {
         #expect(next.idlePause?.lastDecision?.run.elapsedMs == 120)
     }
 
+    /// The CloudDO record uses seconds; a refreshed app list must preserve the last setting.
+    @Test func nextMachineRecordsReadIdlePolicyFromCloudDO() throws {
+        let off = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"id":"vm_off","status":"running","idle_policy":{"idle_seconds":0}}"#.utf8))
+        #expect(CloudMachine(next: off)?.idlePauseMinutes == 0)
+        let timed = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"id":"vm_15","status":"running","idle_policy":{"idle_seconds":900}}"#.utf8))
+        #expect(CloudMachine(next: timed)?.idlePauseMinutes == 15)
+        let seconds = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"id":"vm_odd","status":"running","idle_policy":{"idle_seconds":61}}"#.utf8))
+        #expect(CloudMachine(next: seconds)?.idlePauseMinutes == nil, "fractional-minute policies are unspecified to this UI")
+    }
+
     @Test func anOlderServerOrAnUnknownReasonDecodesAsNone() throws {
         let old = try JSONDecoder().decode(CloudMachine.self, from: Data(#"{"id":"vm-old","status":"paused"}"#.utf8))
         #expect(old.pauseReason == nil)
