@@ -248,6 +248,14 @@ impl Brain {
         let Some(id) = field("id") else {
             return false;
         };
+        // A reply to the other person's Chief whose request this turn runs
+        // (rights_gate.rs): the conversation's own talk, no local effect.
+        if tool == "mcp__optchat__tell"
+            && id.starts_with(crate::rights::CHIEF_PREFIX)
+            && self.turn_has_person(id)
+        {
+            return true;
+        }
         self.state
             .sub(id)
             .is_some_and(|(_, s)| s.policy.as_deref() == Some(crate::approval::ASK))
@@ -263,6 +271,7 @@ impl Brain {
             return Ok(());
         }
         (self.log)(&format!("refused {tool} ({REFUSED_BY})"));
+        self.audit_refusal(tool, Some(input), REFUSED_BY);
         // A model that calls it again and again is stopped, as for a
         // refused permission request.
         if self.turn_ask {
@@ -350,6 +359,11 @@ impl Brain {
         } else {
             self.forget_unanswered(&pending.session_id, &pending.permission_id);
         }
+        self.audit_refusal(
+            &pending.tool,
+            pending.request.pointer("/toolCall/rawInput"),
+            approver,
+        );
         if let Some(dir) = &self.settings.trace_dir {
             let fields = json!({
                 "turn": self.state.turn.as_ref().map(|t| t.key.clone()),

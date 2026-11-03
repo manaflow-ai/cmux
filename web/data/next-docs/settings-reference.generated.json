@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 559,
+  "count": 560,
   "sections": [
     {
       "id": "general",
@@ -212,6 +212,14 @@
           "help": "Add absolute paths to harness data folders. Protected folders are refused. Your organization can add locked folders.",
           "kind": "folder_list",
           "default": [],
+          "group": "Chats"
+        },
+        {
+          "key": "agents.chats.sessionRecap",
+          "title": "Session Recap",
+          "help": "When you come back to a Claude chat after 5 minutes or more, show a line on where it stands. Each recap is one small extra model call that counts toward your usage.",
+          "kind": "toggle",
+          "default": true,
           "group": "Chats"
         },
         {
