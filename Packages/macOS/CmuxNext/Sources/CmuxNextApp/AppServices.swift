@@ -699,6 +699,7 @@ final class AppServices {
             if self.sleepyMode.consumesKeyDown() { return true }
             return self.keyRouter.interceptKeyDown(event, in: window)
         }
+        (NSApp as? CmuxApplication)?.keyUpOrClickInterceptor = { [weak self] in self?.linkHints.inputWillDispatch($0) ?? false }
         (NSApp as? CmuxApplication)?.crossWindowKeyGuard = { [weak self] event, keyWindow in
             // Keys typed after New Window follow its new window on purpose (NewTabInputCoordinator).
             guard let self, !keyRouter.newTabInputCoordinator.followsNewWindow else { return false }
