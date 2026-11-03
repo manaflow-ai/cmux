@@ -6,7 +6,9 @@ import type { Env } from "./env.ts"
  * AppRegistryDO (custom-panes-DESIGN.md 6.1): one SQLite object, `idFromName("global")`, the
  * only copy of the app registry: publishers, submissions with their files, and the audit. Every
  * stateful rule of 6.3 runs here inside one synchronous transaction, so two submits cannot both
- * claim a publisher or both be pending. An approved submission is never written again.
+ * be pending. A publisher belongs to a person only once a reviewer approves that person's first
+ * submission under it: a submit never claims a name, so a pending or rejected submission cannot
+ * squat one. An approved submission is never written again.
  *
  * File bytes are stored in parts of at most PART bytes (a SQLite row holds at most 2 MB).
  */
@@ -101,7 +103,10 @@ export class AppRegistryDO extends DurableObject<Env> {
     return { publishers: this.ctx.storage.sql.exec<{ publisher: string }>(`SELECT publisher FROM publishers WHERE user = ? ORDER BY publisher`, user).toArray().map((r) => String(r.publisher)) }
   }
 
-  /** The stateful submit rules: publisher owner, one pending per app, version above every pending or approved one. */
+  /**
+   * The stateful submit rules: publisher owner, one pending per app, version above every pending or
+   * approved one. An unowned publisher is not claimed here; `decide` binds it on approval.
+   */
   async submit(user: string, s: CheckedSubmission): Promise<Result<Submission>> {
     const sql = this.ctx.storage.sql
     const now = Date.now()
@@ -113,10 +118,6 @@ export class AppRegistryDO extends DurableObject<Env> {
       if (live.some((r) => r.status === "pending")) return no(409, "registry.pending_exists", `${s.app} already has a submission waiting for review`)
       const top = live.map((r) => String(r.version)).sort(compareSemver).at(-1)
       if (top !== undefined && compareSemver(s.version, top) <= 0) return no(409, "registry.version_order", `version ${s.version} must be greater than ${top}`)
-      if (!owner) {
-        sql.exec(`INSERT INTO publishers (publisher, user, created_at) VALUES (?, ?, ?)`, s.publisher, user, now)
-        this.audit(user, "publisher.claim", null, { publisher: s.publisher })
-      }
       sql.exec(
         `INSERT INTO submissions (id, app, version, status, sha256, size, manifest, notes, submitter, submitted_at) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`,
         id,
@@ -159,7 +160,11 @@ export class AppRegistryDO extends DurableObject<Env> {
     return bytes ? { path, base64: encodeBase64(bytes) } : null
   }
 
-  /** Decides a pending submission; never the reviewer's own. Audited. */
+  /**
+   * Decides a pending submission; never the reviewer's own. Audited. Approving the first submission
+   * under an unowned publisher binds that publisher to its submitter, recorded as the reviewer's
+   * `publisher.verify`; one under a publisher another person now owns is refused.
+   */
   async decide(reviewer: string, id: string, decision: "approve" | "reject", reason: string | null): Promise<Result<Submission>> {
     const sql = this.ctx.storage.sql
     return this.ctx.storage.transactionSync((): Result<Submission> => {
@@ -168,6 +173,15 @@ export class AppRegistryDO extends DurableObject<Env> {
       if (s.status !== "pending") return no(409, "registry.decided", `this submission is already ${s.status}`)
       if (s.submitter === reviewer) return no(403, "registry.own_submission", "a reviewer never decides their own submission")
       const status = decision === "approve" ? "approved" : "rejected"
+      if (decision === "approve") {
+        const publisher = s.app.split("/")[0]!
+        const owner = sql.exec<{ user: string }>(`SELECT user FROM publishers WHERE publisher = ?`, publisher).toArray()[0]
+        if (owner && owner.user !== s.submitter) return no(409, "registry.publisher_taken", `the publisher "${publisher}" belongs to another person`)
+        if (!owner) {
+          sql.exec(`INSERT INTO publishers (publisher, user, created_at) VALUES (?, ?, ?)`, publisher, s.submitter, Date.now())
+          this.audit(reviewer, "publisher.verify", id, { publisher, user: s.submitter, repository: s.manifest.repository ?? null })
+        }
+      }
       sql.exec(`UPDATE submissions SET status = ?, decided_by = ?, decided_at = ?, reason = ? WHERE id = ? AND status = 'pending'`, status, reviewer, Date.now(), reason, id)
       this.audit(reviewer, decision, id, { app: s.app, version: s.version, sha256: s.sha256, ...(reason ? { reason } : {}) })
       return { ok: true, value: this.submission(id)! }

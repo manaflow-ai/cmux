@@ -101,7 +101,7 @@ describe("app registry submit", () => {
     expect((await call("/submissions", { method: "POST", sub: "app_dev_unverified", verified: false, body: bundle("pubu/x", "1.0.0") })).status).toBe(403)
   })
 
-  it("accepts a submission as pending with the bundle hash, claims the publisher and lists it as mine", async () => {
+  it("accepts a submission as pending with the bundle hash and lists it as mine", async () => {
     const body = bundle("alice/board", "0.1.0")
     const r = await submit("app_dev_alice", body)
     expect(r.status).toBe(201)
@@ -111,7 +111,8 @@ describe("app registry submit", () => {
     const files = Object.entries(body.files).map(([path, v]) => ({ path, bytes: Uint8Array.from(atob(v), (c) => c.charCodeAt(0)) }))
     expect(s.sha256).toBe(await bundleHash(files))
     expect(s.size).toBe(files.reduce((n, f) => n + f.bytes.length, 0))
-    expect((await call("/me", { sub: "app_dev_alice" })).body).toMatchObject({ reviewer: false, publishers: ["alice"] })
+    // A pending submission holds no publisher; approval binds it.
+    expect((await call("/me", { sub: "app_dev_alice" })).body).toMatchObject({ reviewer: false, publishers: [] })
     const mine = (await call("/submissions", { sub: "app_dev_alice" })).body.submissions
     expect(mine.map((m: any) => [m.id, m.status])).toEqual([[s.id, "pending"]])
     expect((await call("/submissions", { sub: "app_dev_bob" })).body.submissions).toEqual([])
@@ -123,10 +124,31 @@ describe("app registry submit", () => {
     const moved = { ...elsewhere.manifest, repository: "https://github.com/dave/board" }
     const movedBody = { ...elsewhere, manifest: moved, files: { ...elsewhere.files, "cmux-app.v2.json": b64(JSON.stringify(moved)) } }
     expect((await submit("app_dev_carol", movedBody)).body.error.code).toBe("registry.repository")
-    expect((await submit("app_dev_carol", bundle("carol/one", "1.0.0"))).status).toBe(201)
+    const one = await submit("app_dev_carol", bundle("carol/one", "1.0.0"))
+    expect(one.status).toBe(201)
+    expect((await decide("app_reviewer_1", one.body.submission.id, "approve")).status).toBe(200)
+    expect((await call("/me", { sub: "app_dev_carol" })).body.publishers).toEqual(["carol"])
     const other = await submit("app_dev_dave", bundle("carol/two", "1.0.0"))
     expect(other).toMatchObject({ status: 403, body: { error: { code: "registry.publisher_taken" } } })
     expect((await submit("app_dev_carol", bundle("carol/two", "1.0.0"))).status).toBe(201)
+  })
+
+  it("never lets an unapproved submission squat a publisher", async () => {
+    // Mallory submits under a name she does not own; it is rejected and holds nothing.
+    const squat = await submit("app_dev_mallory", bundle("somecompany/pane", "1.0.0"))
+    expect(squat.status).toBe(201)
+    expect((await call("/me", { sub: "app_dev_mallory" })).body.publishers).toEqual([])
+    expect((await decide("app_reviewer_1", squat.body.submission.id, "reject", "not the repository owner")).status).toBe(200)
+    // The real owner can submit while a squat is pending too, and the first approval binds the name.
+    const pending = await submit("app_dev_mallory", bundle("somecompany/other", "1.0.0"))
+    expect(pending.status).toBe(201)
+    const owner = await submit("app_dev_owner", bundle("somecompany/board", "1.0.0"))
+    expect(owner.status).toBe(201)
+    expect((await decide("app_reviewer_1", owner.body.submission.id, "approve")).status).toBe(200)
+    expect((await call("/me", { sub: "app_dev_owner" })).body.publishers).toEqual(["somecompany"])
+    // Approving the other person's pending submission under the now-owned name is refused.
+    expect(await decide("app_reviewer_2", pending.body.submission.id, "approve")).toMatchObject({ status: 409, body: { error: { code: "registry.publisher_taken" } } })
+    expect((await call("/me", { sub: "app_dev_mallory" })).body.publishers).toEqual([])
   })
 
   it("allows one pending submission per app and only greater versions", async () => {

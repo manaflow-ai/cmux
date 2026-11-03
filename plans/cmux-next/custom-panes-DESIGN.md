@@ -162,8 +162,11 @@ mismatch.
   email. A reviewer is a person on `APP_REVIEWERS` (comma-separated user ids), the same
   shape as `CLOUD_ADMIN_USERS`. Without `APP_REVIEWERS` the review routes answer 404.
 - Submit rules: `id` is `<publisher>/<name>` with the manifest's patterns; `cmux`,
-  `manaflow-ai` and `local` are reserved; a publisher belongs to the first person who
-  submits under it; `repository` is `https://github.com/<publisher>/...` (the daemon's
+  `manaflow-ai` and `local` are reserved; a publisher belongs to a person only once a
+  reviewer approves that person's first submission under it (the reviewer checks the
+  repository; the approval is audited as `publisher.verify`), so a pending or rejected
+  submission never holds a name, and approving a submission under a publisher another
+  person owns is refused; `repository` is `https://github.com/<publisher>/...` (the daemon's
   manifest rule for store apps, so an approved bundle always installs); the version is semver and greater than every pending or approved
   version of the app (a rejected version may be submitted again); one pending
   submission per app; at most 200 files, 2 MiB decoded in total, safe relative paths;
@@ -212,7 +215,7 @@ listings; update prompts for installed registry apps (the page shows the newer
 version, the person gets it again); search ranking; reports and takedown (a reviewer
 can reject only pending versions; removal of an approved version is a follow-up);
 proof that a publisher owns the GitHub account its name matches (in this MVP the
-first person to submit under a name holds it, and the reviewer checks the repository);
+reviewer checks the repository before the first approval binds the name);
 an event stream into web panes (a pane reads again on a timer).
 
 ## 8. Tests
