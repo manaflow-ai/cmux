@@ -137,7 +137,10 @@ public final class CloudAuth {
             anchor: anchor,
             config: config,
             launch: AuthLaunchOptions(clearAuthRequested: false, mockDataEnabled: false, environment: launchEnvironment,
-                                      includesDevAuth: devAuth, replaceStoredSessionWithAutoLogin: replaceSession),
+                                      includesDevAuth: devAuth, replaceStoredSessionWithAutoLogin: replaceSession,
+                                      // A capture build (CloudConfiguration.isCaptureBuild) signs in from the launch's
+                                      // credentials though it is not compiled DEBUG; devAuth is false in every shipped build.
+                                      allowsEnvironmentAutoLogin: devAuth),
             isOnline: { !useCaptureFixture }
         )
         activeTeam = ActiveTeam(source: coordinator)
