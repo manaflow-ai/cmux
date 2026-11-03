@@ -5,6 +5,7 @@ import CmuxNextSidebar
 import CmuxNextWorkspaceRepair
 import Foundation
 import Observation
+import os
 import CmuxNextWakeups
 
 /// One Cloud machine: its `/api/vm` record, its link, and the daemon
@@ -93,6 +94,8 @@ final class CloudMachineSession {
     /// For an app link, a click's connect on a paused machine is its resume.
     private(set) var resumeFailure: String?
 
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.link")
+
     /// - Parameter mainWork: The app's main-thread scheduler (the local daemon's), for the machine's event batches.
     convenience init(machine: CloudMachine, link: CloudMachineLink, mainWork: MainWorkScheduler) {
         self.init(machine: machine, link: link, appLink: nil, localIdentity: { nil }, mainWork: mainWork)
@@ -150,12 +153,18 @@ final class CloudMachineSession {
     /// click never drops a healthy connection, and only a click starts a
     /// paused machine (`cloud.machine.connect` starts it).
     func connect(origin: CloudLinkOrigin = .script) {
-        guard !disconnected, !machine.shownStatus.isChanging else { return }
+        guard !disconnected, !machine.shownStatus.isChanging else {
+            if appLink == nil { Self.logger.notice("legacy connect \(self.machineID, privacy: .public): skipped (\(self.disconnected ? "disconnected" : "changing: \(self.machine.shownStatus.rawValue)", privacy: .public))") }
+            return
+        }
         if appLink != nil {
             guard machine.status.isLive || origin == .user, !appConnecting, appTicket == nil || linkEnded != nil else { return }
             appConnecting = true
         } else {
-            guard machine.status.isLive else { return }
+            guard machine.status.isLive else {
+                Self.logger.notice("legacy connect \(self.machineID, privacy: .public): skipped (status \(self.machine.status.rawValue, privacy: .public))")
+                return
+            }
         }
         connects += 1
         // A resume that failed earlier says nothing about this connect.
@@ -177,11 +186,13 @@ final class CloudMachineSession {
             guard let link else { return }
             await link.resume()
             guard !disconnected, machine.status.isLive, !machine.shownStatus.isChanging else {
+                Self.logger.notice("legacy connect \(self.machineID, privacy: .public): dropped after its hop (status \(self.machine.shownStatus.rawValue, privacy: .public))")
                 noteMutationInterruption()
                 return
             }
             // A link start that a pause overtook changes nothing (`noteLink`).
             let suspendsBefore = suspends
+            Self.logger.notice("legacy connect \(self.machineID, privacy: .public): daemon \(self.daemon.isStarting ? "already starting" : "start", privacy: .public)")
             daemon.start(remote: { [weak self] in
                 await self?.noteLinkStarting(since: suspendsBefore)
                 do {
