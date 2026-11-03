@@ -25,6 +25,8 @@ import {
   paneHeader,
   type AcpmuxPermission,
   type AcpmuxSecretAsk,
+  type AcpmuxMcpScope,
+  MCP_SCOPES,
   type AcpmuxRow,
   type AcpmuxSnapshot,
   type QueueEdit,
@@ -172,6 +174,7 @@ import { opensTurn } from "./turnStart";
 import type { TrustSource } from "./folderTrust";
 import { TrustAsk, trustedLabel } from "./TrustAsk";
 import { SecretCard } from "./SecretCard";
+import { McpCallCard, McpConnectCard, type McpConnectActions } from "./McpConnectCard";
 import { ToolCards } from "./toolCards/ToolCards";
 import { type UploadProgressReport, uploadToMachine } from "./cloudUploads";
 import { droppedPaths } from "./composer/intakeFiles";
@@ -1188,6 +1191,22 @@ function fullAccessModeName(summary: AcpmuxSnapshot["summary"]): string | undefi
   if (!current || highestMode(summary?.family, summary?.harness)?.id !== current) return undefined;
   return harnessModeName(summary?.family, summary?.harness, current);
 }
+
+/// An MCP connect card's buttons in the page (`chat.mcp.*`): each goes to acpmux on the person's
+/// connection; Sign in opens the server's own page in a cmux browser tab.
+const mcpConnectActions = (requestId: string): McpConnectActions => ({
+  answer: (approve, scope) => callNative("chat.mcp.answer", { requestId, approve, ...(scope ? { scope } : {}) }),
+  signIn: (connectionId) =>
+    callNative("chat.mcp.signIn", { connectionId }).then((url) =>
+      typeof url === "string" && url ? callNative("browser.open", { url }) : undefined,
+    ),
+  setKey: (connectionId, key) => callNative("chat.mcp.setKey", { connectionId, key }).then((ok) => ok === true),
+  dismiss: () => void callNative("chat.mcp.dismiss", { requestId }).catch(() => undefined),
+});
+
+/// Answers a tool call card in the page (`chat.mcp.call`).
+const answerMcpCall = (requestId: string) => (approve: boolean, always: boolean) =>
+  callNative("chat.mcp.call", { requestId, approve, always }).catch(() => undefined);
 
 /// The composer chips on the New Tab page (cx-e2aa): no chat exists yet, so a pick starts a deferred
 /// switch to the shown agent in the page's project (`chat.new {deferred}`): acpmux starts the session
@@ -6862,6 +6881,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           "chat.queue.edit": ({ promptId, ...edit }) => client.editQueued(String(promptId), edit as QueueEdit),
           "chat.secret": ({ secretId, value }) =>
             client.secret(String(secretId), typeof value === "string" ? value : undefined),
+          "chat.mcp.answer": ({ requestId, approve, scope }) =>
+            client.mcpConnectAnswer(
+              String(requestId),
+              approve === true,
+              typeof scope === "string" && (MCP_SCOPES as readonly string[]).includes(scope)
+                ? (scope as AcpmuxMcpScope)
+                : undefined,
+            ),
+          "chat.mcp.signIn": ({ connectionId }) => client.mcpSignIn(String(connectionId)),
+          "chat.mcp.setKey": ({ connectionId, key }) => client.mcpSetKey(String(connectionId), String(key ?? "")),
+          "chat.mcp.dismiss": ({ requestId }) => client.dismissMcpConnect(String(requestId)),
+          "chat.mcp.call": ({ requestId, approve, always }) =>
+            client.mcpCallAnswer(String(requestId), approve === true, always === true),
           "chat.permission": ({ permissionId, optionId, answers, annotations, sessionId }) =>
             client.permission(
               String(permissionId),
@@ -9128,6 +9160,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     return callNative<void>("chat.new", folderContinuationRequest);
   }, []);
   const secret = snapshot.secret;
+  const mcpConnect = snapshot.mcpConnect;
+  const mcpCall = snapshot.mcpCall;
   const hasPermissionGroups = Boolean(
     snapshot.permissionGroups?.supported &&
     (snapshot.permissionGroups.groups.length > 0 || snapshot.permissionGroups.error),
@@ -9277,6 +9311,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               onAnswer={answerSecret(secret)}
             />
           )}
+          {mcpConnect && (
+            <McpConnectCard
+              key={mcpConnect.requestId}
+              ask={mcpConnect}
+              agent={snapshot.summary?.harness ? agentName(snapshot.summary.harness) : t("trust.agent")}
+              actions={mcpConnectActions(mcpConnect.requestId)}
+            />
+          )}
+          {mcpCall && <McpCallCard key={mcpCall.requestId} ask={mcpCall} onAnswer={answerMcpCall(mcpCall.requestId)} />}
         </>
       )}
     </div>

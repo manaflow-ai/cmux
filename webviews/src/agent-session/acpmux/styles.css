@@ -922,6 +922,14 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-secret-card-action{flex:none;height:26px;padding:0 10px;border:0;border-radius:6px;background:none;color:var(--agent-text);font:inherit;cursor:default}
 .acpmux-secret-card-action:disabled{color:var(--acpmux-composer-dim);cursor:default}
 .acpmux-secret-card-action:not(:disabled):hover{background:var(--acpmux-composer-hover)}
+/* The MCP connect and call cards (McpConnectCard.tsx): the secret card's frame, plus the exact address,
+   the publisher line (an unverified one in the warning color) and the scope menu. */
+.acpmux-mcp-card-target,.acpmux-mcp-card-arguments{font-family:var(--agent-mono,ui-monospace,monospace);font-size:var(--text-detail);overflow-wrap:anywhere}
+.acpmux-mcp-card-arguments{display:block;max-height:8em;overflow:auto;white-space:pre-wrap}
+.acpmux-mcp-card-verified,.acpmux-mcp-card-status{font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-mcp-card-unverified{font-size:var(--text-detail);color:var(--agent-warning,#c93)}
+.acpmux-mcp-card-scope{flex:1;min-width:0;height:26px;border:0;border-radius:6px;background:var(--agent-page-bg,var(--acpmux-base));box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);color:var(--agent-text);font:inherit}
+.acpmux-mcp-card-status{flex:1}
 .acpmux-secret-card-action:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 
 /* A permission ask (PermissionCard.tsx), after Claude Code desktop's prompt: a compact glass card

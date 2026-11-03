@@ -17,6 +17,9 @@ import type {
   AcpmuxPermission,
   AcpmuxPermissionScope,
   AcpmuxSecretAsk,
+  AcpmuxMcpCallAsk,
+  AcpmuxMcpConnectAsk,
+  AcpmuxMcpScope,
   AcpmuxSessionOffer,
   AcpmuxOfferResult,
   AcpmuxBackgroundState,
@@ -39,7 +42,7 @@ import type {
   StartSource,
   TurnTokenSplit,
 } from "./model";
-import { QUEUED_MESSAGE, TURN_RETRY, type AcpmuxTurnRetry } from "./model";
+import { MCP_SCOPES, QUEUED_MESSAGE, TURN_RETRY, type AcpmuxTurnRetry } from "./model";
 import { continuesTurn } from "./turnStart";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
@@ -543,6 +546,15 @@ const OPEN_HOLD_MS = 1500;
 let connectFailedAfterEarlyTail: string | undefined;
 /// An agent's secret card and its answer (cx-ncc.42): not transcript, so attach asks for them by kind.
 const SECRET_KINDS = ["secret_request", "secret_decision"];
+/// An agent's MCP connect card and a connected server's call card (acpmux `hub/mcp_connect.rs`,
+/// `hub/mcp_calls.rs`), with their answers and results: not transcript, so attach asks for them by kind.
+const MCP_KINDS = [
+  "mcp_connect_request",
+  "mcp_connect_decision",
+  "mcp_connect_result",
+  "mcp_call_request",
+  "mcp_call_decision",
+];
 /// The promptId acpmux gives a task result's prompt: `offer-result-<offerId>` (hub/offers.rs).
 const OFFER_RESULT_PROMPT = "offer-result-";
 /// A queued prompt sent now (`queue_order` `next`) or edited (`queue_updated`): not transcript in
@@ -560,6 +572,13 @@ const BACKGROUND_TURN_KIND = "background_turn";
 /// The capability id an acpmux with `_acpmux/agent_login/*` names (and its versioned spelling).
 const AGENT_LOGIN_CAPABILITIES = ["agent_login", "agent-login-v1"];
 const SECRET_GONE = ["no secret request with that id", "the agent stopped waiting"];
+/// acpmux's refusal of an MCP card it no longer has: the card closes.
+const MCP_SCOPE_SET: ReadonlySet<string> = new Set(MCP_SCOPES);
+const MCP_GONE = [
+  "no MCP connect card with that id",
+  "no MCP tool call card with that id",
+  "the agent stopped waiting",
+];
 
 const objectValue = (value: unknown): Record<string, unknown> | undefined =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
@@ -1945,6 +1964,8 @@ export class AcpmuxDirectClient {
   /// them one at a time.
   private waitingPermissions = new Map<string, AcpmuxPermission>();
   private pendingSecret?: AcpmuxSecretAsk;
+  private pendingMcpConnect?: AcpmuxMcpConnectAsk;
+  private pendingMcpCall?: AcpmuxMcpCallAsk;
   private groupedPermissions = new Map<string, AcpmuxPermission>();
   /// Every chat's open permission requests, for the Needs you list (needsYou/asks.ts).
   /// The pane's relay never sends `_acpmux/info`, so the app's host reads it (asks.ts `pendingReader`).
@@ -3058,6 +3079,8 @@ export class AcpmuxDirectClient {
     this.pendingPermission = undefined;
     this.waitingPermissions.clear();
     this.pendingSecret = undefined;
+    this.pendingMcpConnect = undefined;
+    this.pendingMcpCall = undefined;
     this.groupedPermissions.clear();
     this.openQuestions.clear();
     this.askedQuestions.clear();
@@ -3492,6 +3515,8 @@ export class AcpmuxDirectClient {
     this.pendingPermission = undefined;
     this.waitingPermissions = new Map();
     this.pendingSecret = undefined;
+    this.pendingMcpConnect = undefined;
+    this.pendingMcpCall = undefined;
     // A teammate's prompt whose authored record fell out of the kept tail keeps the author its row
     // had when the tail was kept (this page's or another tab's): acpmux's list names none.
     for (const entry of kept.queue) {
@@ -4605,6 +4630,7 @@ export class AcpmuxDirectClient {
         CONFIG_KIND,
         BOOKMARKS_KIND,
         ...SECRET_KINDS,
+        ...MCP_KINDS,
         // The chat's sub-session records: its running limit's `limits` changes (the eighth kind).
         SUBSESSION_KIND,
         ...(this.localOrigin ? QUEUE_KINDS : []),
@@ -5446,6 +5472,8 @@ export class AcpmuxDirectClient {
     this.pendingPermission = undefined;
     this.waitingPermissions = new Map();
     this.pendingSecret = undefined;
+    this.pendingMcpConnect = undefined;
+    this.pendingMcpCall = undefined;
     const opener = this.turnOpener;
     if (opener && (events[0]?.seq ?? Number.POSITIVE_INFINITY) <= opener.seq) this.turnOpener = undefined;
     // Drawn first, but neither firstSeq nor lastSeq moves: older pages still load from the held history.
@@ -5473,6 +5501,8 @@ export class AcpmuxDirectClient {
     const permission = this.pendingPermission;
     const waiting = this.waitingPermissions;
     const secret = this.pendingSecret;
+    const mcpConnect = this.pendingMcpConnect;
+    const mcpCall = this.pendingMcpCall;
     this.rebuild();
     this.summary = summary;
     this.limitsSeq = limitsSeq;
@@ -5481,6 +5511,8 @@ export class AcpmuxDirectClient {
     this.pendingPermission = permission;
     this.waitingPermissions = waiting;
     this.pendingSecret = secret;
+    this.pendingMcpConnect = mcpConnect;
+    this.pendingMcpCall = mcpCall;
     if (replayAfterSeq !== undefined)
       for (const event of this.events)
         if (event.seq > replayAfterSeq && event.dir === "mux") this.reduceLiveState(event);
@@ -5688,7 +5720,8 @@ export class AcpmuxDirectClient {
       };
     else if (event.kind === "secret_decision") {
       if (this.pendingSecret?.secretId === msg.secretId) this.pendingSecret = undefined;
-    } else if (event.kind === "permission_group" || event.kind === "permission_chat_allowance")
+    } else if (event.kind.startsWith("mcp_")) this.reduceMcp(event.kind, msg);
+    else if (event.kind === "permission_group" || event.kind === "permission_chat_allowance")
       void this.permissions.refresh().catch(() => {});
     else if (event.kind === "status") this.summary = { ...this.summary, status: msg.status };
     // The chat's sub-session limits changed (acpmux hub/subsessions.rs: the person, or an ancestor).
@@ -7391,6 +7424,8 @@ export class AcpmuxDirectClient {
         ? { permissionsWaiting: this.waitingPermissions.size }
         : {}),
       secret: this.pendingSecret,
+      ...(this.pendingMcpConnect ? { mcpConnect: this.pendingMcpConnect } : {}),
+      ...(this.pendingMcpCall ? { mcpCall: this.pendingMcpCall } : {}),
       asks: this.asks.list(),
       catalog: NO_CATALOG,
       commands: this.commands,
@@ -8866,6 +8901,114 @@ export class AcpmuxDirectClient {
       ...gestureMeta(ticket),
     });
   }
+  /// An MCP card's records (acpmux `hub/mcp_connect.rs`, `hub/mcp_calls.rs`) move the card: the
+  /// ask, the person's answer, then what the connect or sign-in found.
+  private reduceMcp(kind: string, msg: Record<string, unknown>) {
+    const text = (value: unknown) => (typeof value === "string" ? value : "");
+    const connect = this.pendingMcpConnect;
+    if (kind === "mcp_connect_request") {
+      const scope = text(msg.proposedScope);
+      this.pendingMcpConnect = {
+        requestId: text(msg.requestId),
+        title: text(msg.title) || text(msg.name),
+        publisher: text(msg.publisher),
+        verified: msg.verified === true,
+        target: text(msg.url) || (Array.isArray(msg.argv) ? msg.argv.map(String).join(" ") : ""),
+        auth: text(msg.auth),
+        reason: text(msg.reason),
+        proposedScope: (MCP_SCOPE_SET.has(scope) ? scope : "chat") as AcpmuxMcpScope,
+        phase: "ask",
+      };
+    } else if (kind === "mcp_connect_decision") {
+      if (connect?.requestId !== msg.requestId) return;
+      this.pendingMcpConnect = msg.outcome === "approved" ? { ...connect, phase: "connecting" } : undefined;
+    } else if (kind === "mcp_connect_result") {
+      // A sign-in's result names the connection, not the card.
+      const mine =
+        connect &&
+        (connect.requestId === msg.requestId || (connect.connectionId && connect.connectionId === msg.connectionId));
+      if (!mine) return;
+      const connectionId = text(msg.connectionId) || connect.connectionId;
+      const result = text(msg.connect);
+      const phase =
+        result === "connected"
+          ? "connected"
+          : result === "signInNeeded"
+            ? "signIn"
+            : result === "keyNeeded"
+              ? "key"
+              : "failed";
+      this.pendingMcpConnect = {
+        ...connect,
+        phase,
+        ...(connectionId ? { connectionId } : {}),
+        ...(Array.isArray(msg.tools) ? { tools: msg.tools.length } : {}),
+        ...(phase === "failed" ? { why: text(msg.why) } : {}),
+      };
+    } else if (kind === "mcp_call_request")
+      this.pendingMcpCall = {
+        requestId: text(msg.requestId),
+        title: text(msg.title) || text(msg.name),
+        tool: text(msg.tool),
+        kind: text(msg.kind),
+        arguments: text(msg.arguments),
+      };
+    else if (kind === "mcp_call_decision" && this.pendingMcpCall?.requestId === msg.requestId)
+      this.pendingMcpCall = undefined;
+  }
+  /// Answers an MCP connect card: approve with the person's scope, or decline.
+  async mcpConnectAnswer(requestId: string, approve: boolean, scope?: AcpmuxMcpScope): Promise<void> {
+    const sessionId = this.actingSessionId;
+    if (!sessionId) return;
+    try {
+      await this.request("_acpmux/mcp_connect_answer", {
+        sessionId,
+        requestId,
+        approve,
+        ...(approve && scope ? { scope } : {}),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      if (!MCP_GONE.some((gone) => message.includes(gone))) throw error;
+      if (this.pendingMcpConnect?.requestId === requestId) this.pendingMcpConnect = undefined;
+      this.emit();
+    }
+  }
+  /// Starts the person's sign-in to a kept connection; the authorize URL to open in a cmux tab.
+  async mcpSignIn(connectionId: string): Promise<string | undefined> {
+    const result = objectValue(await this.request("_acpmux/mcp_sign_in", { id: connectionId }));
+    return typeof result?.authorizeUrl === "string" ? result.authorizeUrl : undefined;
+  }
+  /// Gives a key server its key: acpmux checks it with the server and keeps it in the keychain.
+  async mcpSetKey(connectionId: string, key: string): Promise<boolean> {
+    const result = objectValue(await this.request("_acpmux/mcp_set_key", { id: connectionId, key }));
+    const ok = result?.connect === "connected";
+    const connect = this.pendingMcpConnect;
+    if (ok && connect?.connectionId === connectionId) {
+      this.pendingMcpConnect = { ...connect, phase: "connected" };
+      this.emit();
+    }
+    return ok;
+  }
+  /// Closes a connected or failed connect card (nothing waits on it any more).
+  dismissMcpConnect(requestId: string) {
+    if (this.pendingMcpConnect?.requestId !== requestId) return;
+    this.pendingMcpConnect = undefined;
+    this.emit();
+  }
+  /// Answers a tool call card: run it once, always (the tool's policy becomes always), or decline.
+  async mcpCallAnswer(requestId: string, approve: boolean, always: boolean): Promise<void> {
+    const sessionId = this.actingSessionId;
+    if (!sessionId) return;
+    try {
+      await this.request("_acpmux/mcp_call_answer", { sessionId, requestId, approve, always });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      if (!MCP_GONE.some((gone) => message.includes(gone))) throw error;
+      if (this.pendingMcpCall?.requestId === requestId) this.pendingMcpCall = undefined;
+      this.emit();
+    }
+  }
   /// Answers a secret card: `value` provides it (acpmux keeps it in memory and gives the agent a
   /// one-use ref), none declines. The wire log never holds the value (wire.ts).
   async secret(secretId: string, value?: string): Promise<void> {
@@ -9440,7 +9583,7 @@ export class AcpmuxDirectClient {
       beforeSeq: Number.MAX_SAFE_INTEGER,
       limit: KEPT_EVENTS,
       maxBytes: OPEN_PAGE_BYTES,
-      kinds: ["transcript", COMMANDS_KIND, USAGE_KIND, CONFIG_KIND, BOOKMARKS_KIND, ...SECRET_KINDS],
+      kinds: ["transcript", COMMANDS_KIND, USAGE_KIND, CONFIG_KIND, BOOKMARKS_KIND, ...SECRET_KINDS, ...MCP_KINDS],
     });
     // The chat was opened meanwhile: its attach holds the newer read.
     if (this.closed || this.socket !== connection || sessionId === this.selectedSessionId) return;

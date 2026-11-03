@@ -77,6 +77,12 @@ nonisolated enum AcpmuxPaneMethods {
         // the value goes to acpmux, which keeps it in memory and gives the agent a one-use ref. The
         // transport never logs a frame, so the value stays out of the host's logs.
         "_acpmux/secret_submit",
+        // The MCP connect card and a connected tool's call card (McpConnectCard.tsx,
+        // plans/cmux-next/mcp-connect-DESIGN.md): the person approves or declines the agent's ask
+        // with the scope they pick, starts the server's sign-in (acpmux answers the authorize URL the
+        // page opens in a cmux browser tab), gives a key server its key (acpmux keeps it in the
+        // keychain; the transport never logs a frame), and runs or declines a tool call.
+        "_acpmux/mcp_connect_answer", "_acpmux/mcp_sign_in", "_acpmux/mcp_set_key", "_acpmux/mcp_call_answer",
         // The chat menu's Archive / Unarchive and Mark as Unread of a session in the pane's scope
         // (direct.ts archive, markUnread; cx-jlzsf). `_acpmux/archive` sets or removes only the
         // `archived` tag: never `_acpmux/tag`, which may set any tag (the handoff target among
@@ -262,6 +268,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/inbox_thread", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
         "_acpmux/queue_approve", "_acpmux/queue_decline", "_acpmux/queue_get",
         "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
+        "_acpmux/mcp_connect_answer", "_acpmux/mcp_call_answer",
         "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/agent_hold", "_acpmux/app_reply",
         "_acpmux/watch_take_over",
         "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
@@ -348,6 +355,12 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/permission_group_respond": .whenDecisionAllows,
         // The card's Provide hands over a secret (its Decline is a click too).
         "_acpmux/secret_submit": .always,
+        // Connect, Sign in, Save key and Run are the person's clicks: each grants a server access
+        // (Cancel and Decline are clicks too).
+        "_acpmux/mcp_connect_answer": .always,
+        "_acpmux/mcp_sign_in": .always,
+        "_acpmux/mcp_set_key": .always,
+        "_acpmux/mcp_call_answer": .always,
         // Resume runs turns: the held messages go to both chats of the pair.
         "_acpmux/agent_pair_resume": .always,
         // Hand back delivers held messages, which runs turns.

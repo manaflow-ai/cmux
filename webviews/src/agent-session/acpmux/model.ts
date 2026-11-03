@@ -779,6 +779,42 @@ export const contentsUnknown = (diff: AcpmuxFileDiff) =>
 /// holds only the name and reason, never a value. The card answers with `_acpmux/secret_submit`.
 export type AcpmuxSecretAsk = { secretId: string; name: string; reason: string };
 
+/// The scopes an MCP connect card offers, narrowest first (acpmux `hub/mcp_connect.rs` SCOPES).
+export const MCP_SCOPES = ["chat", "chief", "allChiefs", "agents", "everywhere"] as const;
+export type AcpmuxMcpScope = (typeof MCP_SCOPES)[number];
+
+/// An agent's ask to connect an MCP server (acpmux `hub/mcp_connect.rs`): the `mcp_connect_request`
+/// record's checked facts, then where the connect is (`mcp_connect_decision`, `mcp_connect_result`).
+/// Never a key or token: a key goes from the card's private field to acpmux only.
+export type AcpmuxMcpConnectAsk = {
+  requestId: string;
+  title: string;
+  publisher: string;
+  verified: boolean;
+  /// The exact URL, or the command line of a local server.
+  target: string;
+  /// `oauth`, `key`, `none`, `discover` (a custom server's sign-in, learned at connect) or `device`.
+  auth: string;
+  reason: string;
+  proposedScope: AcpmuxMcpScope;
+  phase: "ask" | "connecting" | "signIn" | "key" | "connected" | "failed";
+  /// The kept connection (from `mcp_connect_result`), for Sign in and the key.
+  connectionId?: string;
+  tools?: number;
+  why?: string;
+};
+
+/// A connected server's tool that waits for the person (acpmux `hub/mcp_calls.rs`
+/// `mcp_call_request`): Run once, Always allow, or Decline.
+export type AcpmuxMcpCallAsk = {
+  requestId: string;
+  title: string;
+  tool: string;
+  kind: string;
+  /// The agent's arguments as JSON text, cut at 2000 characters.
+  arguments: string;
+};
+
 /// An agent's offer of a parallel chat (cx-807da, acpmux `hub/offers.rs`): the `session_offer`
 /// record, and its `session_offer_decision` once the person answered. Title and prompt are the
 /// agent's text, drawn as plain text.
@@ -1169,6 +1205,9 @@ export type AcpmuxSnapshot = {
   /// How many more asks wait behind `permission`, answered one at a time; absent when none do.
   permissionsWaiting?: number;
   secret?: AcpmuxSecretAsk;
+  /// An agent's MCP connect card (acpmux `hub/mcp_connect.rs`) and a connected tool's call card.
+  mcpConnect?: AcpmuxMcpConnectAsk;
+  mcpCall?: AcpmuxMcpCallAsk;
   /// Every chat's open permission requests, for the Needs you list (needsYou/asks.ts); the same
   /// array until one comes or goes.
   asks?: WatchedAsk[];
