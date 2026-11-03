@@ -7,7 +7,8 @@ import Foundation
 /// app asks the daemon for (`count(_:)`) without a hook in the app (#32408).
 ///
 /// A `list-workspaces` the store sends for its snapshot (`DaemonConnection.snapshot()`: the tree pipelined with
-/// `list-saved-tab-groups` or `list-personal`) counts as ``snapshotRead``; any other as itself.
+/// `list-saved-tab-groups` or `list-personal`) counts as ``snapshotRead``, except each connection's first (its
+/// connect), which counts as ``firstSnapshotRead``; any other `list-workspaces` counts as itself.
 nonisolated final class DaemonCommandTap: @unchecked Sendable {
     /// The socket the app connects to.
     let path: String
@@ -15,10 +16,11 @@ nonisolated final class DaemonCommandTap: @unchecked Sendable {
     private let lock = NSLock()
     private var counts: [String: Int] = [:]
     private var target: String?
-    /// A `list-workspaces` line whose kind the next request line decides (a snapshot's or a read of its own).
-    private var pendingTreeRead = false
-    /// The command name a store snapshot's `list-workspaces` counts under.
+    /// The command name a store snapshot's `list-workspaces` counts under: a connection's later
+    /// snapshots, each one the store asked for after its first (the connect's own, once per connection).
     static let snapshotRead = "list-workspaces (store snapshot)"
+    /// A connection's first store snapshot (its connect), counted apart.
+    static let firstSnapshotRead = "list-workspaces (first store snapshot)"
     private var closed = false
 
     init() throws {
@@ -79,14 +81,22 @@ nonisolated final class DaemonCommandTap: @unchecked Sendable {
                 continue
             }
             let pair = Pair(client, daemon)
+            let connection = Connection()
             // task-owner: one relayed connection's two directions; each ends at its side's end of stream
-            Thread.detachNewThread { [self] in pump(from: client, to: daemon, counting: true); pair.ended() }
-            Thread.detachNewThread { [self] in pump(from: daemon, to: client, counting: false); pair.ended() }
+            Thread.detachNewThread { [self] in pump(from: client, to: daemon, counting: connection); pair.ended() }
+            Thread.detachNewThread { [self] in pump(from: daemon, to: client, counting: nil); pair.ended() }
         }
     }
 
+    /// One relayed connection's request state: whether its store took its first snapshot, and a
+    /// `list-workspaces` whose kind the next request decides.
+    private nonisolated final class Connection: @unchecked Sendable {  // touched only by its one request pump
+        var pendingTreeRead = false
+        var snapshots = 0
+    }
+
     /// Copies `source` to `sink` until either ends; with `counting`, counts each request line's command.
-    private func pump(from source: Int32, to sink: Int32, counting: Bool) {
+    private func pump(from source: Int32, to sink: Int32, counting: Connection?) {
         var line = Data()
         var buffer = [UInt8](repeating: 0, count: 64 * 1024)
         while true {
@@ -99,10 +109,10 @@ nonisolated final class DaemonCommandTap: @unchecked Sendable {
                 offset += wrote
             }
             guard offset == read else { break }
-            guard counting else { continue }
+            guard let counting else { continue }
             line.append(contentsOf: buffer[0..<read])
             while let newline = line.firstIndex(of: UInt8(ascii: "\n")) {
-                note(line[line.startIndex..<newline])
+                note(line[line.startIndex..<newline], on: counting)
                 line.removeSubrange(line.startIndex...newline)
             }
         }
@@ -122,16 +132,18 @@ nonisolated final class DaemonCommandTap: @unchecked Sendable {
         }
     }
 
-    private func note(_ request: Data) {
+    private func note(_ request: Data, on connection: Connection) {
         guard let object = try? JSONSerialization.jsonObject(with: request) as? [String: Any],
               let command = object["cmd"] as? String else { return }
         lock.withLock {
-            if pendingTreeRead {
-                pendingTreeRead = false
+            if connection.pendingTreeRead {
+                connection.pendingTreeRead = false
                 let snapshot = command == "list-personal" || command == "list-saved-tab-groups"
-                counts[snapshot ? Self.snapshotRead : "list-workspaces", default: 0] += 1
+                if snapshot { connection.snapshots += 1 }
+                let name = !snapshot ? "list-workspaces" : connection.snapshots == 1 ? Self.firstSnapshotRead : Self.snapshotRead
+                counts[name, default: 0] += 1
             }
-            if command == "list-workspaces" { pendingTreeRead = true } else { counts[command, default: 0] += 1 }
+            if command == "list-workspaces" { connection.pendingTreeRead = true } else { counts[command, default: 0] += 1 }
         }
     }
 

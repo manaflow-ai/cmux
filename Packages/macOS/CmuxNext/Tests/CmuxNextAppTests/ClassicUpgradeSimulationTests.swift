@@ -309,6 +309,7 @@ struct ClassicUpgradeSimulationTests {
     /// that makes the store read the whole tree again (#32408). A 512-workspace upgrade took 577 full store
     /// snapshots: the store's work per workspace grew with the session (its last 64 workspaces took about four
     /// times as long as its first 64). Creating N workspaces must take no full snapshot: O(changed), not O(session).
+    /// A connection's first snapshot (its connect, once per connection, whatever the run makes) is counted apart.
     @Test func theRunTakesNoFullSnapshotForTheWorkspacesItMakes() async throws {
         let profile = ClassicUpgradeProfile.small
         let mac = try ClassicUpgradeSimulator.Mac()
