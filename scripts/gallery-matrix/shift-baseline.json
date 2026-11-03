@@ -1787,6 +1787,7 @@
     "agent-pane.transcript-spacing#empty-footer": 0,
     "agent-pane.transcript-spacing#relaxed": 0,
     "agent-pane.transcript-spacing#shipped": 0,
+    "agent-pane.transcript-type#claude-approve": 0.011,
     "agent-pane.transcript-type#claude-code-entry": 0.011,
     "agent-pane.transcript-type#codex-code": 0.01091,
     "agent-pane.transcript-type#reading": 0.16194,

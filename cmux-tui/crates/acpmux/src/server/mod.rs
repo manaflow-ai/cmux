@@ -468,6 +468,21 @@ impl Conn {
         self.send_replying(msg, None);
     }
 
+    /// A notification line built for every connection that reads it raw (a shared `session/update`,
+    /// `HubEvent::update_line`), as `send` would enqueue it for a local connection.
+    // perf-hot: 1us acpmux-token-fanout (every streamed token, per attached connection)
+    fn send_line(&self, line: &str) {
+        enqueue_outbound(
+            &self.out,
+            line.to_owned(),
+            false,
+            &self.outbound_dropped,
+            &self.outbound_gap_pending,
+            &self.outbound_lock,
+            &self.outbound_pending_controls,
+        );
+    }
+
     /// [`Self::send`] of the reply to a request whose method is `reply_to`: the size watch names
     /// it (`wire_size.rs`).
     fn send_replying(&self, msg: &Message, reply_to: Option<&str>) {
@@ -1936,13 +1951,30 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 && let Some(m) = rec.msg.get("method").and_then(Value::as_str)
                 && m == method::SESSION_UPDATE
             {
-                let mut params = rec.msg.get("params").cloned().unwrap_or(json!({}));
-                params.set("sessionId", Value::String(ev.session_id.clone()));
-                crate::hub::merge_mux_meta(
-                    &mut params,
-                    json!({"seq": rec.seq, "at": rec.at, "kind": rec.kind}),
-                );
-                conn.send(&Message::notification(method::SESSION_UPDATE, routed(params)));
+                let message = || {
+                    hub.session_update_encodes.fetch_add(1, Ordering::Relaxed);
+                    let mut params = rec.msg.get("params").cloned().unwrap_or(json!({}));
+                    params.set("sessionId", Value::String(ev.session_id.clone()));
+                    crate::hub::merge_mux_meta(
+                        &mut params,
+                        json!({"seq": rec.seq, "at": rec.at, "kind": rec.kind}),
+                    );
+                    Message::notification(method::SESSION_UPDATE, routed(params))
+                };
+                if conn.origin == Origin::Peer {
+                    // A peer daemon's link redacts and masks per connection (`send_replying`).
+                    conn.send(&message());
+                } else {
+                    // Every other connection reads the line as it is: built once per record,
+                    // shared (`HubEvent::update_line`). None: too large for one frame.
+                    let line = ev
+                        .update_line
+                        .get_or_init(|| message().bounded_line_replying(None).ok().map(Arc::from));
+                    match line {
+                        Some(line) => conn.send_line(line),
+                        None => conn.send(&message()),
+                    }
+                }
             }
             if rec.dir == "mux" {
                 conn.send(&Message::notification(
@@ -2600,3 +2632,7 @@ mod message_notice_tests {
         assert!(n.live(5));
     }
 }
+
+#[cfg(test)]
+#[path = "fanout_encode_tests.rs"]
+mod fanout_encode_tests;

@@ -713,7 +713,7 @@ class RunsOnFallbackTests(unittest.TestCase):
         # otherwise, and when unread, the build takes the plain ten-runner glaeda-nightly-only-m4pro.
         failures = [f"{path.name} {job_id}" for path in workflows()
                     for job_id, job in (load(path).get("jobs") or {}).items()
-                    if re.search(r"nightly-only-m4pro-builder|CI_NIGHTLY_ONLY_BUILDER_RUNNER", runs_on_text(job))]
+                    if re.search(r"nightly-only-m4pro-builder|nightly-only-xl-builder|CI_NIGHTLY_ONLY_BUILDER_RUNNER", runs_on_text(job))]
         self.assertEqual(failures, [], "the warm nightly builder label is a pick, never a runs-on literal")
 
     def test_a_single_host_variable_always_has_a_fallback(self) -> None:
