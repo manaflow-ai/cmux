@@ -167,7 +167,7 @@ export type ComposerEditCommand = "cut" | "copy" | "paste" | "pasteAsPlainText";
 export const COMPOSER_LABELS = {
   placeholder: "composer.placeholder",
   placeholderQueued: "composer.placeholderQueued",
-  placeholderSteer: "composer.placeholderSteer",
+  steerQueueTooltip: "composer.steerQueueTooltip",
   suggestFailing: "composer.suggestFailing",
   suggestDraft: "composer.suggestDraft",
   suggestOpen: "composer.suggestOpen",
@@ -1905,9 +1905,10 @@ export function Composer({
   // Queueing off (ChatGPT's and Codex's "Turn off queueing", queueing.ts): ⌘Return and Send steer
   // too, so nothing new waits. An agent that cannot steer still runs it after the turn.
   const steersAlways = steers && !queueing;
-  // Mid-turn it teaches both keys, as Claude's composer does: Return steers and ⌘Return queues.
-  // The Quick Composer's ⌘Return opens the window, so there it names Return alone; an agent that
-  // cannot steer says it queues.
+  // Mid-turn an agent that steers keeps Claude desktop's "Type / for commands" (Leo 2026-11-03:
+  // "well the enter/cmd enter used to be claude code's placeholder... now they have this"); the
+  // Send button's tooltip names ↵ steer and ⌘↵ queue instead. The Quick Composer's ⌘Return opens
+  // the window, so there it says Return steers; an agent that cannot steer says it queues.
   // While the double press is armed, the placeholder says to press Esc again, as Stop's hint does;
   // once Stop is sent, it says the turn is stopping until it ends.
   const placeholderKey = stopping
@@ -1920,7 +1921,7 @@ export function Composer({
           ? COMPOSER_LABELS.placeholderQueued
           : onOpenInWindow || steersAlways
             ? COMPOSER_LABELS.placeholderSteerQuick
-            : COMPOSER_LABELS.placeholderSteer;
+            : COMPOSER_LABELS.placeholder;
   // A side session's idle prompt reads "Reply in this session…" (the `placeholder` prop); the
   // mid-turn and Esc hints still win, since they say what a key does now.
   const placeholderText =
@@ -2238,9 +2239,11 @@ export function Composer({
                   : t(
                       !snapshot.isWorking
                         ? "composer.sendTooltip"
-                        : steersAlways || returnSteers
-                          ? "composer.steerTooltip"
-                          : "composer.queueTooltip",
+                        : returnSteers && !steersAlways && !onOpenInWindow
+                          ? COMPOSER_LABELS.steerQueueTooltip
+                          : steersAlways || returnSteers
+                            ? "composer.steerTooltip"
+                            : "composer.queueTooltip",
                     )
         }
       >

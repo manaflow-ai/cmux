@@ -1162,6 +1162,8 @@ export function mergeToolItem(
       endedAt: before?.endedAt ?? (ended ? at : undefined),
       // A shell that went to the background stays there as its call's result comes in.
       ...(before?.background ? { background: before.background } : {}),
+      // An approval stays on its call as the call's result comes in.
+      ...(before?.approved ? { approved: true as const } : {}),
       locations,
       ...(input ? { inputPath: input } : {}),
       images: update.content === undefined ? before?.images : imagesFromContent(update.content),
@@ -5361,6 +5363,10 @@ export class AcpmuxDirectClient {
     // the stream again then would split the reply that streams on.
     if (this.rows.has(rowId)) return;
     const decision = permissionDecision(asked, msg.outcome);
+    // An approval reads on the call it approved ("Approved" at the row's edge), never as a loose
+    // line holding the raw command (Leo, 2026-11-02). A call this page has not drawn keeps the line.
+    if ((decision.kind === "allowed" || decision.kind === "allowedAlways") && this.markApproved(asked.toolCallId))
+      return;
     this.closeSegment();
     this.rows.set(rowId, {
       id: rowId,
@@ -5388,6 +5394,12 @@ export class AcpmuxDirectClient {
     const rowId = `permission-${permission.permissionId}`;
     // Drawn already (a resync replays the live records after its rebuild drew them).
     if (this.rows.has(rowId)) return;
+    // Asked of nobody: in Bypass permissions or Full access, an approval the mode gave on its own
+    // draws nothing; the call's own row already says what ran (Leo, 2026-11-02, on "Approved: cd
+    // /tmp; for i in 1 2 3; do gh issue create … (Bypass permissions)": "but what's going on with
+    // these?"). Only a card the person saw, settled by switching to that mode, is noted, on its call.
+    if (!this.askedPermissions.has(permission.permissionId)) return;
+    if (this.markApproved(permission.toolCallId)) return;
     this.closeSegment();
     const mode = harnessModeName(this.summary?.family, this.summary?.harness, msg.fullAccess);
     this.rows.set(rowId, {
@@ -5402,6 +5414,21 @@ export class AcpmuxDirectClient {
         mode,
       }),
     });
+  }
+
+  /// Marks tool call `callId` approved on the row that draws it ("Approved" at its edge); false
+  /// when this page draws no such call, and the caller keeps its receipt line.
+  private markApproved(callId: string | undefined): boolean {
+    const id = callId === undefined ? undefined : this.toolRows.get(callId);
+    const row = id ? this.rows.get(id) : undefined;
+    const index = row?.items?.findIndex((item) => item.tool?.id === callId) ?? -1;
+    if (!row?.items || index < 0) return false;
+    const item = row.items[index]!;
+    if (item.tool!.approved) return true;
+    const items = [...row.items];
+    items[index] = { ...item, tool: { ...item.tool!, approved: true } };
+    this.rows.set(row.id, { ...row, version: row.version + 1, items }, true);
+    return true;
   }
 
   /// The text and tool fold before a record close, as a tool call's would: the work after an answer
