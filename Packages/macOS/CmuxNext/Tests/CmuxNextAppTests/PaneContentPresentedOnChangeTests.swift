@@ -162,4 +162,69 @@ import Testing
         pane.showSelected()
         #expect(reports.count == 1, "a later show of the same page reported again")
     }
+
+    /// The pane shows other content (a page tab): a change under its hidden browser chrome (the bound tab's page
+    /// replaced, or that tab closed) changes nothing the pane shows, so focus is not applied again; and the chrome
+    /// stays parked in the pane with the other browser tabs' pages in it.
+    @Test(.timeLimit(.minutes(1)))
+    func aHiddenBrowserChromeChangesNoPresentationAndStaysParked() async throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let store = services.daemon.store
+        store.connectionState = .connected(try Self.connected())
+        store.apply(snapshot: Self.tree())
+        let workspace = try #require(store.workspaces.first)
+        let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"w1","workspace_key":"w1"}"#.utf8))
+        let state = WindowState(record: record)
+        let provider = Provider()
+        services.pages.register(provider)
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 900, height: 600), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let content = WorkspaceContentController(workspace: workspace, daemon: services.daemon, services: services, state: state)
+        defer { withExtendedLifetime(services) { content.teardown(); window.close() } }
+        content.contentView.frame = NSRect(x: 0, y: 0, width: 900, height: 600)
+        window.contentView = content.contentView
+        window.orderFrontRegardless()
+        content.applyCurrent()
+        content.contentView.layoutSubtreeIfNeeded()
+        let pane = try #require(content.panes.values.first)
+        let tabs = ["a", "b", "c"].map { LocalBrowserTab.make(url: URL(string: "https://\($0).example/")) }
+        for tab in tabs {
+            services.cache.install(MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: tab.url)), for: tab.id)
+            state.localBrowserTabs[pane.paneKey].append(tab)
+        }
+        let page = services.pages.open(provider.page, in: pane.paneKey, of: store)
+        pane.syncStripFromStore()
+        for key in tabs.map(\.id) + [page] {
+            pane.applySelection(StripTabID(key))
+            pane.showSelected()
+        }
+        await Self.drainMain()
+        #expect(pane.currentTabKey == page)
+
+        let reports = Reports()
+        let paneKey = pane.paneKey
+        let previous = state.focus.observer
+        state.focus.observer = { observation in
+            previous?(observation)
+            if case .reduced(.contentPresented(let reported), _, _, _) = observation, reported == paneKey { reports.count += 1 }
+        }
+        defer { state.focus.observer = previous }
+
+        // The chrome's bound tab (c, shown last) gets a new page while the page tab shows.
+        services.cache.swapPage(tabs[2].id, with: MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: tabs[2].url)))
+        pane.showSelected()
+        #expect(reports.count == 0, "a page replaced under the hidden chrome was reported presented \(reports.count) times")
+
+        // Tab c closes: the chrome lets it go; tabs a and b keep their pages parked in the window.
+        state.localBrowserTabs[pane.paneKey].removeAll { $0.id == tabs[2].id }
+        services.cache.release(tabs[2].id)
+        pane.syncStripFromStore()
+        pane.showSelected()
+        #expect(reports.count == 0, "the hidden chrome's tab closing was reported presented")
+        for tab in tabs.prefix(2) {
+            #expect(services.cache.existingBrowser(tab.id)?.tab.contentView.window === window, "tab \(tab.id)'s page left the window")
+        }
+    }
 }

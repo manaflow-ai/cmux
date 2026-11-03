@@ -116,4 +116,82 @@ import Testing
         pane.bind(t, state: stateT)
         #expect(chrome.showsCookieImportOffer, "the offer left with the switch and never came back")
     }
+
+    /// History is the tab's, not the toolbar's (Chrome's HistoryTabHelper): a tab that never shows, or loads while
+    /// another tab of the pane shows, records its visits and finished loads then, and a later show records none again.
+    @Test func aHiddenTabRecordsItsVisitsAndFinishedLoads() async {
+        let history = InMemoryBrowserHistory()
+        let shown = Self.tab("shown.example"), hidden = Self.tab("hidden.example")
+        let a = BrowserEntry(tab: shown, history: history), b = BrowserEntry(tab: hidden, history: history)
+        var finished: [URL] = []
+        b.state.onPageFinished = { finished.append($0) }
+        let pane = BrowserPaneChrome()
+        let window = Self.window(pane.bind(b.tab, state: b.state))
+        defer {
+            window.close()
+            pane.drop()
+            a.close()
+            b.close()
+        }
+        pane.bind(a.tab, state: a.state)
+        let next = URL(string: "https://hidden.example/next")!
+        hidden.load(next)
+        await Self.settle()
+        let visits = { history.entries.filter { $0.url == next }.map(\.visitCount).reduce(0, +) }
+        #expect(visits() == 1, "the hidden tab's load is in history: \(history.entries.map(\.url))")
+        #expect(finished.last == next, "the hidden tab's finished load was reported: \(finished)")
+        pane.bind(b.tab, state: b.state)
+        await Self.settle()
+        #expect(visits() == 1, "showing the tab again records no second visit")
+        let never = Self.tab("never.example")
+        let c = BrowserEntry(tab: never, history: history)
+        defer { c.close() }
+        never.load(URL(string: "https://never.example/page")!)
+        await Self.settle()
+        #expect(history.entries.contains { $0.url.absoluteString == "https://never.example/page" }, "a tab never shown records its visits")
+    }
+
+    /// A tab moved to another pane while it did not show takes its held cookie import offer with it.
+    @Test func aHiddenTabMovedToAnotherPaneTakesItsCookieOffer() async {
+        let t = Self.tab("t.example"), u = Self.tab("u.example")
+        let stateT = BrowserChromeTabState(), stateU = BrowserChromeTabState()
+        let paneA = BrowserPaneChrome(), paneB = BrowserPaneChrome()
+        let chromeA = paneA.bind(t, state: stateT)
+        let window = Self.window(chromeA)
+        defer {
+            window.close()
+            paneA.drop()
+            paneB.drop()
+            t.close()
+            u.close()
+        }
+        let offer = BrowserCookieImportOffer(icons: [], title: "Import", detail: "", importTitle: "Import", notNowTitle: "Not now")
+        chromeA.showCookieImportOffer(offer) { _ in }
+        paneA.bind(u, state: stateU)
+        let chromeB = paneB.bind(t, state: stateT)
+        #expect(chromeB.showsCookieImportOffer, "the moved tab's offer shows in its new pane")
+        #expect(chromeA.currentCookieImportCard == nil, "and no longer waits in the old one")
+    }
+
+    /// A tab switch made inside an omnibar step (a "switch to tab" row): the switched-to tab's state goes back first,
+    /// and inputs queued after the switch apply to it, not to the leaving tab's state.
+    @Test func inputsAfterARestoreInsideAStepApplyToTheRestoredTab() {
+        let t = Self.tab("t.example")
+        let chrome = BrowserChromeView(tab: t)
+        defer { t.close() }
+        let controller = chrome.addressBar.controller
+        let resting = controller.state
+        let later = URL(string: "https://later.example/")!
+        let prior = controller.onStep
+        var switched = false
+        controller.onStep = {
+            prior?()
+            guard !switched else { return }
+            switched = true
+            controller.restore(resting)
+            controller.send(.pageURLChanged(later))
+        }
+        controller.send(.pageURLChanged(URL(string: "https://leaving.example/")!))
+        #expect(controller.state.pageURL == later, "the input after the switch was overwritten: \(String(describing: controller.state.pageURL))")
+    }
 }

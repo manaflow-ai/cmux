@@ -89,4 +89,18 @@ import Testing
             callback?()
         }
     }
+
+    /// A closed tab frees its toolbar state: no hook it holds keeps it (a closure capturing its own state was a cycle).
+    @Test func aClosedTabsStateIsFreed() async {
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        weak var freed: BrowserChromeTabState?
+        autoreleasepool {
+            let entry = services.cache.browser(for: "state-freed", url: URL(string: "https://example.com/freed"))
+            freed = entry.state
+            #expect(entry.state.loadOverride != nil, "the cache wired the tab's hooks")
+            services.cache.release("state-freed")
+        }
+        for _ in 0..<20 { await Task.yield() }
+        withExtendedLifetime(services) { #expect(freed == nil, "the closed tab's BrowserChromeTabState is still alive") }
+    }
 }
