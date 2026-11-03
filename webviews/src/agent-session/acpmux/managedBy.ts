@@ -48,7 +48,7 @@ export function managedBy(sessionId: string | undefined, sessions: readonly Entr
  *  stopped steering does not keep a standing line. */
 export const DRIVING_WINDOW_MS = 10 * 60_000;
 
-type PromptRow = Pick<AcpmuxRow, "kind" | "at" | "incoming" | "from">;
+export type PromptRow = Pick<AcpmuxRow, "kind" | "at" | "incoming" | "from">;
 
 /** A row a prompt made: the person's own, or another agent's message, never bookkeeping. */
 const isPrompt = (row: PromptRow): boolean =>
@@ -58,6 +58,8 @@ function messageFromManager(message: IncomingMessage, manager: ManagedBy): boole
   if (message.fromPerson) return false;
   if (manager.kind === "chief") return !!message.chief;
   if (message.sessionId) return message.sessionId === manager.sessionId;
+  // A Chief's message names no session; it is never another agent chat's.
+  if (message.chief) return false;
   return message.relation === "parent" || [manager.name, ...(manager.signs ?? [])].includes(message.name.trim());
 }
 
@@ -68,17 +70,16 @@ function sentByManager(row: PromptRow, manager: ManagedBy): boolean {
 
 /** Until when `manager` drives the chat whose rows are `rows` and whose queue holds the agent
  *  messages `queued`: its last message plus `DRIVING_WINDOW_MS`, when the chat's newest prompt is
- *  that manager's and is not the chat's first (the brief it was dispatched with), or from `now`
- *  while a message of its waits in the queue. Undefined when the person, or anyone else, sent the
+ *  that manager's and is not the chat's first (the brief it was dispatched with), or `Infinity`
+ *  while a message of its waits in the queue (the line stays until that message leaves it). Undefined when the person, or anyone else, sent the
  *  newest prompt, or the manager only dispatched it. */
 export function managerDrivingUntil(
   manager: ManagedBy | undefined,
   rows: readonly PromptRow[],
   queued: readonly (IncomingMessage | undefined)[] = [],
-  now = Date.now(),
 ): number | undefined {
   if (!manager) return undefined;
-  if (queued.some((message) => message && messageFromManager(message, manager))) return now + DRIVING_WINDOW_MS;
+  if (queued.some((message) => message && messageFromManager(message, manager))) return Infinity;
   let newest = -1;
   for (let index = rows.length - 1; index >= 0; index--) {
     if (isPrompt(rows[index]!)) {

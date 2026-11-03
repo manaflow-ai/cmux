@@ -2,7 +2,15 @@
 // starting chat for a sub-session or a chat another agent made, nobody for the person's own chat;
 // and Take over is remembered per chat.
 import { expect, test } from "bun:test";
-import { DRIVING_WINDOW_MS, isTakenOver, managedBy, managerDrivingUntil, takeOverManaged } from "./managedBy";
+import {
+  DRIVING_WINDOW_MS,
+  isTakenOver,
+  managedBy,
+  managerDrivingUntil,
+  takeOverManaged,
+  type PromptRow,
+} from "./managedBy";
+import type { IncomingMessage } from "./conversation/incomingMessage";
 import { sessionEntry } from "./sessionList";
 
 const entry = (sessionId: string, extra: Record<string, unknown> = {}) => sessionEntry({ sessionId, ...extra });
@@ -64,23 +72,27 @@ const now = Date.UTC(2026, 10, 3, 0, 5);
 const ago = (minutes: number) => now - minutes * 60_000;
 const coord = { kind: "agent", name: "claude-sr2-coord", sessionId: "coord", signs: ["claude-sr2-coord"] } as const;
 const fromCoord = { kind: "message", message: { name: "claude-sr2-coord", sessionId: "coord", text: "go", raw: "go" } } as const;
-const person = (at: number) => ({ kind: "user", at });
-const coordSays = (at: number) => ({ kind: "user", at, incoming: fromCoord });
-const reply = (at: number) => ({ kind: "assistant", at });
-const shown = (manager: Parameters<typeof managerDrivingUntil>[0], rows: Parameters<typeof managerDrivingUntil>[1], queued = []) => {
-  const until = managerDrivingUntil(manager, rows, queued, now);
+const person = (at: number): PromptRow => ({ kind: "user", at });
+const coordSays = (at: number): PromptRow => ({ kind: "user", at, incoming: fromCoord });
+const reply = (at: number): PromptRow => ({ kind: "assistant", at });
+const shown = (
+  manager: Parameters<typeof managerDrivingUntil>[0],
+  rows: readonly PromptRow[],
+  queued: readonly IncomingMessage[] = [],
+) => {
+  const until = managerDrivingUntil(manager, rows, queued);
   return until !== undefined && until > now;
 };
 
 test("a chat its manager only dispatched shows no line, however recent the brief", () => {
   expect(shown(coord, [coordSays(ago(60)), reply(ago(59))])).toBe(false);
   expect(shown(coord, [coordSays(ago(1))])).toBe(false);
-  expect(shown({ kind: "chief" }, [{ kind: "user", at: ago(1), from: "chief" }])).toBe(false);
+  expect(shown({ kind: "chief" }, [{ kind: "user", at: ago(1), from: "chief" } satisfies PromptRow])).toBe(false);
 });
 
 test("a manager's follow-up in the last ten minutes shows the line; past the window it goes", () => {
   const rows = [coordSays(ago(60)), reply(ago(59)), coordSays(ago(2)), reply(ago(1))];
-  expect(managerDrivingUntil(coord, rows, [], now)).toBe(ago(2) + DRIVING_WINDOW_MS);
+  expect(managerDrivingUntil(coord, rows)).toBe(ago(2) + DRIVING_WINDOW_MS);
   expect(shown(coord, rows)).toBe(true);
   expect(shown(coord, [coordSays(ago(60)), coordSays(ago(25)), reply(ago(24))])).toBe(false);
   expect(DRIVING_WINDOW_MS).toBe(10 * 60_000);
@@ -88,22 +100,34 @@ test("a manager's follow-up in the last ten minutes shows the line; past the win
 
 test("the person's own newest prompt, or another agent's, hides the line", () => {
   expect(shown(coord, [coordSays(ago(30)), coordSays(ago(3)), person(ago(2))])).toBe(false);
-  const other = { kind: "user", at: ago(1), incoming: { kind: "message", message: { name: "reviewer", sessionId: "rev", text: "", raw: "" } } };
+  const other: PromptRow = { kind: "user", at: ago(1), incoming: { kind: "message", message: { name: "reviewer", sessionId: "rev", text: "", raw: "" } } };
   expect(shown(coord, [coordSays(ago(30)), other])).toBe(false);
 });
 
 test("bookkeeping rows are not prompts; a Chief's follow-up drives its chat", () => {
-  const hidden = { kind: "user", at: ago(1), incoming: { kind: "hidden" } };
+  const hidden: PromptRow = { kind: "user", at: ago(1), incoming: { kind: "hidden" } };
   expect(shown(coord, [coordSays(ago(30)), coordSays(ago(3)), hidden])).toBe(true);
-  expect(shown({ kind: "chief" }, [{ kind: "user", at: ago(30), from: "chief" }, { kind: "user", at: ago(4), from: "chief" }])).toBe(true);
+  const chief = (at: number): PromptRow => ({ kind: "user", at, from: "chief" });
+  expect(shown({ kind: "chief" }, [chief(ago(30)), chief(ago(4))])).toBe(true);
 });
 
 test("a manager's message waiting in the queue drives the chat now", () => {
-  expect(shown(coord, [coordSays(ago(60))], [fromCoord.message] as never)).toBe(true);
-  expect(managerDrivingUntil(undefined, [coordSays(ago(30)), coordSays(ago(1))], [], now)).toBeUndefined();
+  expect(shown(coord, [coordSays(ago(60))], [fromCoord.message])).toBe(true);
+  // It stays while the message waits, however long: no window runs out under it.
+  expect(managerDrivingUntil(coord, [coordSays(ago(60))], [fromCoord.message])).toBe(Infinity);
+  expect(managerDrivingUntil(undefined, [coordSays(ago(30)), coordSays(ago(1))])).toBeUndefined();
+});
+
+test("a Chief's message is never taken for an agent manager's, even marked parent", () => {
+  const chiefSays: PromptRow = {
+    kind: "user",
+    at: ago(1),
+    incoming: { kind: "message", message: { name: "Chief", chief: "agent_mux", relation: "parent", text: "", raw: "" } },
+  };
+  expect(shown(coord, [coordSays(ago(30)), chiefSays])).toBe(false);
 });
 
 test("a sender named only by its chat's name still counts as the manager", () => {
-  const named = { kind: "user", at: ago(1), incoming: { kind: "message", message: { name: "claude-sr2-coord", text: "", raw: "" } } };
+  const named: PromptRow = { kind: "user", at: ago(1), incoming: { kind: "message", message: { name: "claude-sr2-coord", text: "", raw: "" } } };
   expect(shown(coord, [coordSays(ago(30)), named])).toBe(true);
 });

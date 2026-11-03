@@ -6,8 +6,7 @@
 // (managedBy.ts `managerDrivingUntil`): a chat its manager only dispatched, or that went quiet,
 // draws nothing.
 import { ManagedBanner } from "./ManagedBanner";
-import { managerDrivingUntil, type ManagedBy } from "./managedBy";
-import type { AcpmuxRow } from "./model";
+import { managerDrivingUntil, type ManagedBy, type PromptRow } from "./managedBy";
 import "./managedBanner.css";
 
 export type ManagedBannerDesign = "sending" | "driving" | "placeholder";
@@ -17,7 +16,7 @@ export type ManagedBannerDesignsProps = {
   manager: ManagedBy;
   /** The chat's rows, when the variant shows the rule rather than a design: no line unless the
    *  manager drives the chat at `now`. */
-  rows?: readonly Pick<AcpmuxRow, "kind" | "at" | "incoming" | "from">[];
+  rows?: readonly PromptRow[];
   now?: number;
 };
 
@@ -25,7 +24,7 @@ const noop = () => undefined;
 
 export function ManagedBannerDesigns({ design, manager, rows, now = Date.now() }: ManagedBannerDesignsProps) {
   if (rows) {
-    const until = managerDrivingUntil(manager, rows, [], now);
+    const until = managerDrivingUntil(manager, rows);
     if (until === undefined || until <= now) return <div className="acpmux-managed-design-empty" data-shown="false" />;
   }
   const name = manager.kind === "chief" ? "Chief" : manager.name;

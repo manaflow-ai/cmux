@@ -6820,7 +6820,6 @@ function AcpmuxPane() {
       chatManager,
       snapshot.rows,
       snapshot.queue.map((entry) => entry.message),
-      now,
     );
     return until !== undefined && until > now ? until : undefined;
   }, [chatManager, snapshot.rows, snapshot.queue]);
@@ -6828,7 +6827,8 @@ function AcpmuxPane() {
   // or the window change and on unmount (its stop condition).
   const [drivingExpired, setDrivingExpired] = useState<number | undefined>(undefined);
   useEffect(() => {
-    if (drivingUntil === undefined) return;
+    // A queued manager message keeps it (Infinity) until the queue changes: no timer.
+    if (drivingUntil === undefined || !Number.isFinite(drivingUntil)) return;
     const timer = setTimeout(() => setDrivingExpired(drivingUntil), Math.max(0, drivingUntil - Date.now()));
     return () => clearTimeout(timer);
   }, [drivingUntil]);
