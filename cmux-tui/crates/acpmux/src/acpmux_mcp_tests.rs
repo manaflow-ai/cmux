@@ -207,7 +207,7 @@ fn top_level_fields_are_each_items_defaults() {
     assert!(send::items(&json!({"messages": many})).unwrap_err().contains("at most 32"));
 }
 
-/// `file`: the message is the file's contents, read from a file of the caller's, bounded.
+/// `file`: small text stays inline, while large files arrive as attachments.
 #[tokio::test]
 async fn a_message_can_be_a_file_of_yours() {
     let (hub, client, _dir) = daemon().await;
@@ -228,8 +228,6 @@ async fn a_message_can_be_a_file_of_yours() {
     assert_eq!(r["structuredContent"]["sessionId"], json!(lane), "{r}");
     assert!(received(&hub, &lane, "Brief: land #1 when green.").await, "the file never arrived");
 
-    let big = dir.path().join("big.md");
-    std::fs::write(&big, "x".repeat(usize::try_from(send::MAX_FILE_BYTES).unwrap() + 1)).unwrap();
     let binary = dir.path().join("bin");
     std::fs::write(&binary, [0xff, 0xfe, 0x00]).unwrap();
     let empty = dir.path().join("empty");
@@ -239,7 +237,6 @@ async fn a_message_can_be_a_file_of_yours() {
     )
     .unwrap();
     let cases = [
-        (big.clone(), "more than 256 KiB"),
         (binary, "not UTF-8 text"),
         (empty, "the file is empty"),
         (dir.path().to_owned(), "not a regular file"),
@@ -272,6 +269,48 @@ async fn a_message_can_be_a_file_of_yours() {
     let both = json!({"to": "file-lane", "text": "x", "file": brief});
     let r = call(&client, &tool("send", both)).await;
     assert_eq!(text(&r), "give text or file, not both", "{r}");
+}
+
+/// Past both the old 256 KiB file refusal and the 31 MiB RPC envelope: the agent
+/// receives the complete file by reference, through the same durable outbox.
+#[tokio::test]
+async fn a_large_message_file_is_uploaded_and_reaches_the_agent_intact() {
+    use std::io::{Read, Write};
+    use sha2::Digest;
+    let (hub, client, _socket) = daemon().await;
+    let lane = session(&client, "large-file-lane").await;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("instructions.md");
+    let chunk = b"Read every part of these instructions.\n".repeat(2048);
+    let mut expected = sha2::Sha256::new();
+    {
+        let mut file = std::fs::File::create(&path).unwrap();
+        for _ in 0..540 {
+            file.write_all(&chunk).unwrap();
+            expected.update(&chunk);
+        }
+    }
+    assert!(std::fs::metadata(&path).unwrap().len() > 40 << 20);
+    let r = call(&client, &tool("send", json!({"to": "large-file-lane", "file": path}))).await;
+    assert_eq!(r["isError"], false, "{r}");
+    assert!(received(&hub, &lane, "instructions.md").await, "file was not recorded");
+    let finished = client.request(method::MUX_WAIT, json!({"sessions": [lane], "until": ["ready"], "timeoutMs": 20000})).await.unwrap();
+    assert_eq!(finished["timedOut"], false, "{finished}");
+    let reply = last_replies(&client, &lane, 1).await.unwrap().pop().unwrap();
+    // The fake agent prints resource_link:name:mime:file:///path.
+    let uri = reply.split_whitespace().find_map(|word| {
+        word.strip_prefix("resource_link:")?.split_once(":file://").map(|(_, path)| format!("file://{path}"))
+    }).unwrap_or_else(|| panic!("agent got no file reference: {reply}"));
+    let saved = reqwest::Url::parse(&uri).unwrap().to_file_path().unwrap();
+    let mut file = std::fs::File::open(saved).unwrap();
+    let mut actual = sha2::Sha256::new();
+    let mut bytes = [0u8; 65536];
+    loop {
+        let n = file.read(&mut bytes).unwrap();
+        if n == 0 { break; }
+        actual.update(&bytes[..n]);
+    }
+    assert_eq!(actual.finalize(), expected.finalize());
 }
 
 /// `supersede`: a second message under the same key replaces the first while it still waits.
