@@ -27,6 +27,7 @@ mod bg_tasks;
 mod bounded;
 mod btw;
 mod workflow_activity;
+pub(crate) mod workflow_ci;
 mod workflow_runs;
 // A turn ends when its agent ends it; the steers it runs on with are the next turn's.
 mod carried_turn;
@@ -119,6 +120,7 @@ mod personal_stats;
 mod policy_mode;
 mod policy_source;
 mod pool;
+pub(crate) use pool::SESSION_NEW_BUDGET;
 pub(crate) mod prompt_images;
 mod prompt_ledger;
 mod prompt_line;

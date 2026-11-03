@@ -114,6 +114,11 @@ impl Hub {
         for activity in run.activities.values().filter(|a| a.outcome.is_none()) {
             let result: Result<()> = async {
                 match &activity.child {
+                    Child::CiMachine { intent } => {
+                        self.workflow_ci_cancel(activity, intent)
+                            .await
+                            .map_err(|error| anyhow::anyhow!(error.message))?;
+                    }
                     Child::Agent { session_id, prompt_id, host } => {
                         if host.as_deref().is_some_and(|host| host != "local") {
                             self.workflow_cancel_remote(run, activity)

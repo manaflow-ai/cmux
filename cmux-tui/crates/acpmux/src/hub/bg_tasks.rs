@@ -59,7 +59,7 @@ impl Hub {
         notify: bool,
         result_line: bool,
     ) -> Result<Value, RpcError> {
-        self.bg_start_with_id(session, command, cwd, None, description, notify).await
+        self.bg_start_with_id(session, command, cwd, None, description, notify, result_line).await
     }
 
     /// Workflow-only stable identity. The durable claim is written before spawning, so an
@@ -72,6 +72,7 @@ impl Hub {
         fixed_id: Option<&str>,
         description: Option<String>,
         notify: bool,
+        result_line: bool,
     ) -> Result<Value, RpcError> {
         if command.trim().is_empty() {
             return Err(RpcError::invalid_params("command is empty"));
