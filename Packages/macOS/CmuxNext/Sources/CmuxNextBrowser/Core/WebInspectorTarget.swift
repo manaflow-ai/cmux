@@ -1,12 +1,18 @@
-import CmuxNextBrowser
-import WebKit
+public import WebKit
 
-/// The web view the inspector commands (Inspect Element, Toggle Developer
-/// Tools, the `devtools.*` set) act on: a browser tab of either engine, or
-/// any other `WKWebView` in the app (Markdown, an agent chat, an internal
-/// page, a gallery page in a pane).
+/// The web view the inspector commands (Inspect Element, Toggle Developer Tools, the `devtools.*`
+/// set) act on: a browser tab of either engine, or any other `WKWebView` in the app (Markdown, an
+/// agent chat, an internal page, a gallery page in a pane).
+///
+/// Chromium tabs show DevTools docked in the pane (``BrowserDevToolsHosting``); WebKit web views
+/// show Safari's Web Inspector (``WebKitInspector``), which every build allows; other engines only
+/// open their DevTools.
+///
+/// ```swift
+/// WebInspectorTarget.browser(tab).toggleInspector()
+/// ```
 @MainActor
-enum WebInspectorTarget {
+public enum WebInspectorTarget {
     /// A browser tab: Chromium DevTools for `.cef`, Web Inspector for WebKit.
     case browser(any BrowserTab)
     /// A web view that is not a browser tab.
@@ -26,7 +32,7 @@ enum WebInspectorTarget {
     }
 
     /// The WebKit web view, for Web Inspector: the plain one, or a WebKit tab's.
-    var webKitView: WKWebView? {
+    public var webKitView: WKWebView? {
         switch self {
         case .browser(let tab): (tab as? WebKitTab)?.webView
         case .webView(let webView): webView
@@ -34,7 +40,10 @@ enum WebInspectorTarget {
     }
 
     /// Whether `command` can run on this target, with the reason when not.
-    func support(for command: WebDevToolsCommand) -> WebDevToolsSupport {
+    ///
+    /// - Parameter command: The `devtools.*` command.
+    /// - Returns: Supported, or the limit that keeps it from running here.
+    public func support(for command: WebDevToolsCommand) -> WebDevToolsSupport {
         command.support(on: engine, isBrowserTab: isBrowserTab)
     }
 }

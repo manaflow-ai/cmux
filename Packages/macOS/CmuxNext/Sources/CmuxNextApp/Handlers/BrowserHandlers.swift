@@ -18,6 +18,15 @@ enum BrowserHandlers {
         BrowserEnabledToggle.bind(into: registry, context: context)
         BrowsingDataClear.bindClearHistory(registry, context: context)
         registry.bind("palette.browserToggleOmnibar", run: { invocation in try context.page(invocation).chrome.toggleOmnibar() })
+        bindPaletteStates(into: registry, page: { try? context.page(ActionInvocation()) }, focus: { context.services.windows.active?.focus.state },
+                          inspected: { WebInspectorTargets().target(in: context.services.windows.active) })
+    }
+
+    /// Each page toggle's palette row says whether it is on now (Lawrence 2026-11-03: "'toggle' options are very
+    /// confusing, since we don't know the current state"), read from the focused page, its window's focus state and
+    /// the inspected web view; tests pass their own. React Grab gets none: its state lives in the page's script world.
+    static func bindPaletteStates(into registry: ActionRegistry, page: @escaping @MainActor () -> BrowserEntry?,
+                                  focus: @escaping @MainActor () -> FocusState?, inspected: @escaping @MainActor () -> WebInspectorTarget?) {
     }
 
     private static func bindPage(into registry: ActionRegistry, context: AppActionContext) {
@@ -44,15 +53,15 @@ enum BrowserHandlers {
         // Any focused web view (WebInspectorTarget): disabled with the reason while none is.
         registry.bind("toggleBrowserDeveloperTools", unavailable: { DevToolsHandlers.noTargetReason(context) }, run: { invocation in
             let target = try DevToolsHandlers.target(invocation, context)
-            WebInspector.toggle(target)
+            target.toggleInspector()
             // WebKit's inspector visibility is not observable; Chromium's is.
             if case .browser = target { (try? context.page(invocation))?.chrome.toolbarButtons.refresh() }
         })
         registry.bind("showBrowserJavaScriptConsole", unavailable: { DevToolsHandlers.noTargetReason(context) }, run: {
-            WebInspector.showConsole(try DevToolsHandlers.target($0, context))
+            try DevToolsHandlers.target($0, context).showConsole()
         })
         registry.bind("inspectBrowserElement", unavailable: { DevToolsHandlers.noTargetReason(context) }, run: {
-            WebInspector.inspectElement(try DevToolsHandlers.target($0, context))
+            try DevToolsHandlers.target($0, context).inspectElement()
         })
         // Classic's Design Mode (plans/cmux-next/design-mode-DESIGN.md): highlights become cards in
         // an agent chat. The toolbar shows the mode (BrowserPageModes); a new document starts with it off.
