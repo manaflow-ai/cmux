@@ -528,7 +528,7 @@ pub(super) fn initialize_request(suggestions: bool) -> Value {
         "perTaskStopAffordance": true,
     });
     if suggestions {
-        request.set("promptSuggestions", true);
+        request.set("promptSuggestions", json!(true));
     }
     request
 }
