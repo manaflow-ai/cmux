@@ -300,6 +300,16 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var committedThisLoad = false
     /// Chromium is loading (its last `.loadingState`).
     @ObservationIgnored var chromiumLoading = false
+    /// Whether the current document painted content, asked of the page (``BrowserFirstPaintScript/query``): it waits
+    /// for the first contentful paint, and its observer is buffered, so a paint before it asked still counts. Nil: the
+    /// call failed or timed out. A test answers instead.
+    @ObservationIgnored var paintQuery: @MainActor (CEFTab) async -> Bool? = CEFTab.askPagePainted
+
+    /// The page's answer to ``BrowserFirstPaintScript/query``.
+    private static func askPagePainted(_ tab: CEFTab) async -> Bool? {
+        guard let value = try? await tab.evaluate(BrowserFirstPaintScript.query, world: .isolated, gesture: .cmux) else { return nil }
+        return value == .bool(true) ? true : nil
+    }
 
     /// The main frame's document painted content (`CEFFirstPaintBridge`).
     func documentDidFirstPaint() {

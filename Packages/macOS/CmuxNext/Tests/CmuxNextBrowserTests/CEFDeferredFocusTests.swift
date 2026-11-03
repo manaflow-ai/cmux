@@ -283,6 +283,64 @@ import Testing
         return (tab, { count.value })
     }
 
+    /// #33940 (follow-up of #32633; REOPEN VIDEO round rpk-trace2-cmux22/a3, STATUS 8918): the restored document
+    /// loaded and Chromium stopped loading, but its first paint report never came (it went before the lifecycle
+    /// observer started, or was lost). The page then never counted as ready and the keys waited the whole 2 s bound.
+    /// The tab asks the page once (a buffered paint observer, which never misses a paint that came before it asked):
+    /// a page that painted is ready, with no report and no bound.
+    @Test func aLoadedPageWhosePaintReportIsLostIsReadyFromThePagesOwnAnswer() async throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, reported) = try Self.readyTab(runtime, browser: 31, restored: "http://127.0.0.1:8080/?c=1")
+        let asked = Asked()
+        tab.paintQuery = { _ in asked.count += 1; return true }
+        runtime.handle(.loadingState(browser: 31, loading: true, canGoBack: false, canGoForward: false))
+        runtime.handle(.loadStart(browser: 31, url: "http://127.0.0.1:8080/?c=1", fromPost: false))
+        runtime.handle(.loadEnd(browser: 31, httpStatus: 200))
+        runtime.handle(.loadingState(browser: 31, loading: false, canGoBack: false, canGoForward: false))
+        for _ in 0..<50 where !tab.pageReady { await Task.yield() } // no paint report comes
+        #expect(tab.pageReady && reported() == 1, "a loaded page whose paint report was lost waited for a report that never comes")
+        #expect(asked.count == 1, "the page was asked \(asked.count) times")
+    }
+
+    /// The page's answer is for the document it was asked about: an answer that comes after the next document
+    /// committed makes nothing ready, and a failed answer keeps the page waiting for its paint report.
+    @Test func aPaintAnswerForAReplacedDocumentOrAFailedAnswerMakesNothingReady() async throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, reported) = try Self.readyTab(runtime, browser: 32, restored: "http://127.0.0.1:8080/?c=1")
+        let answer = Asked()
+        tab.paintQuery = { _ in
+            answer.count += 1
+            while !answer.release { await Task.yield() }
+            return answer.value
+        }
+        runtime.handle(.loadingState(browser: 32, loading: true, canGoBack: false, canGoForward: false))
+        runtime.handle(.loadStart(browser: 32, url: "http://127.0.0.1:8080/?c=1", fromPost: false))
+        runtime.handle(.loadEnd(browser: 32, httpStatus: 200))
+        runtime.handle(.loadingState(browser: 32, loading: false, canGoBack: false, canGoForward: false))
+        for _ in 0..<50 where answer.count == 0 { await Task.yield() }
+        #expect(answer.count == 1, "the loaded page was not asked whether it painted")
+        runtime.handle(.loadingState(browser: 32, loading: true, canGoBack: false, canGoForward: false))
+        runtime.handle(.loadStart(browser: 32, url: "http://127.0.0.1:8080/?c=2", fromPost: false)) // the next document
+        (answer.value, answer.release) = (true, true)
+        for _ in 0..<50 { await Task.yield() }
+        #expect(!tab.pageReady && reported() == 0, "the first document's answer made the next one ready")
+        answer.value = nil
+        runtime.handle(.loadEnd(browser: 32, httpStatus: 200))
+        runtime.handle(.loadingState(browser: 32, loading: false, canGoBack: false, canGoForward: false))
+        for _ in 0..<50 { await Task.yield() }
+        #expect(!tab.pageReady, "a failed answer made the page ready")
+        Self.paint(runtime, 32)
+        #expect(tab.pageReady && reported() == 1, "the paint report after a failed answer did not make the page ready")
+    }
+
+    @MainActor private final class Asked {
+        var count = 0
+        var release = false
+        var value: Bool?
+    }
+
     /// One whole load of `url` in CEF's order, with its document's first contentful paint before its load end.
     private static func load(_ runtime: CEFRuntime, _ browser: Int32, _ url: String) {
         runtime.handle(.loadingState(browser: browser, loading: true, canGoBack: false, canGoForward: false))
