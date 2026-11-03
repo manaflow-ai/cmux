@@ -3522,7 +3522,7 @@
     "subtitle": "Wersje podglądowe nowej aplikacji cmux",
     "metaTitle": "cmux NEXT NIGHTLY — wersje podglądowe",
     "metaDescription": "Pobierz cmux NEXT NIGHTLY, podgląd nowej aplikacji cmux budowany automatycznie z najnowszego commita. Działa obok cmux z własnymi automatycznymi aktualizacjami.",
-    "description": "cmux NEXT NIGHTLY to podgląd następnej wersji cmux, budowany automatycznie z najnowszego commita. Ma własny bundle ID, więc działa obok cmux i cmux NIGHTLY bez konfliktów. Wymaga Maca z czipem Apple.",
+    "description": "cmux NEXT NIGHTLY to podgląd następnej wersji cmux, budowany automatycznie z najnowszego commita. Instaluje się jako cmux NIGHTLY (bundle ID com.cmuxterm.app.nightly), więc zastępuje cmux NIGHTLY i działa obok cmux. Wymaga Maca z czipem Apple.",
     "download": "Pobierz NEXT NIGHTLY na Maca",
     "warning": "Wersje NEXT NIGHTLY mogą zawierać błędy lub niedokończone funkcje. Jeśli coś przestanie działać, zgłoś to na <githubLink>GitHub</githubLink> lub na <discordLink>#nightly-bugs na Discordzie</discordLink> i wróć do wersji stabilnej."
   },
