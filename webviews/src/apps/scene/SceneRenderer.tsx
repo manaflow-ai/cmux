@@ -273,32 +273,31 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch }: NodeP
         {content}
       </button>
     );
-  } else {
+  } else if (tappable) {
     rendered = (
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- Composite scene children may contain inputs or controls, which cannot be nested in a button.
       <div
         {...shared}
-        role={tappable ? "button" : node.type === "Divider" ? "separator" : "group"}
-        tabIndex={tappable && !disabled ? 0 : undefined}
-        aria-disabled={tappable && disabled ? true : undefined}
-        onClick={
-          tappable
-            ? (event) => {
-                event.stopPropagation();
-                tap();
-              }
-            : undefined
-        }
-        onKeyDown={
-          tappable
-            ? (event) => {
-                if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
-                event.preventDefault();
-                event.stopPropagation();
-                tap();
-              }
-            : undefined
-        }
+        role="button"
+        tabIndex={!disabled ? 0 : undefined}
+        aria-disabled={disabled || undefined}
+        onClick={(event) => {
+          event.stopPropagation();
+          tap();
+        }}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+          event.preventDefault();
+          event.stopPropagation();
+          tap();
+        }}
       >
+        {content}
+      </div>
+    );
+  } else {
+    rendered = (
+      <div {...shared} role={node.type === "Divider" ? "separator" : undefined}>
         {content}
       </div>
     );

@@ -88,7 +88,7 @@
   background-color: var(--app-hover);
 }
 .cmux-app-scene-node:is(button, [role="button"]):not([data-disabled]) {
-  cursor: pointer;
+  cursor: default;
 }
 .cmux-app-scene-node[data-disabled] {
   opacity: 0.5;

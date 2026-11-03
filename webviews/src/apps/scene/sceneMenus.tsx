@@ -143,8 +143,8 @@ export function SceneContextMenu({
       }}
       native={menu.native}
     >
+      {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- Relays context-menu keys from the focusable scene control inside, as ui/ContextMenu does; this wrapper is not a separate control. */}
       <div
-        role="group"
         className="cmux-app-scene-context"
         data-popup-open={point ? "" : undefined}
         onContextMenu={(event) => {

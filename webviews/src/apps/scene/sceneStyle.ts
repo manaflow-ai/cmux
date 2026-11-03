@@ -90,7 +90,8 @@ export function sceneStyle(props: SceneProps): SceneStyle {
   style["--app-hover"] = sceneColor(props.hoverBackground);
   style.gap = sceneNumber(props.spacing);
   if (props.fixedSize === "both" || props.fixedSize === "horizontal") style.flexShrink = 0;
-  if (props.cursor === "pointer" || props.cursor === "default") style.cursor = props.cursor;
+  // App controls follow the host's default cursor even when a cross-platform scene requests a hand.
+  if (props.cursor === "pointer" || props.cursor === "default") style.cursor = "default";
   return style;
 }
 
