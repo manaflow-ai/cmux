@@ -113,6 +113,27 @@
       }
     },
     {
+      "input": "https://example.com:bad/path with space",
+      "intent": {
+        "kind": "prompt",
+        "text": "https://example.com:bad/path with space"
+      }
+    },
+    {
+      "input": "https://[::1/path with space",
+      "intent": {
+        "kind": "prompt",
+        "text": "https://[::1/path with space"
+      }
+    },
+    {
+      "input": "https://bad%gg.com/path with space",
+      "intent": {
+        "kind": "prompt",
+        "text": "https://bad%gg.com/path with space"
+      }
+    },
+    {
       "input": "https://exa mple.com/path",
       "intent": {
         "kind": "prompt",
