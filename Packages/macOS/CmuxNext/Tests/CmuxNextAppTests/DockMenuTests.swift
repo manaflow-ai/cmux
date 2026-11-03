@@ -69,7 +69,8 @@ struct DockMenuTests {
         var opened: [String] = []
         func dockMenuHarnesses() async -> [AcpmuxHarnessRow] { reads += 1; return [AcpmuxHarnessRow(id: "codex", kind: "acp", source: "path")] }
         func dockMenuMachines() async -> [AgentChatDestinations.Destination] { [] }
-        func dockMenuShowWindow() -> Bool { false }
+        var dockMenuHasWindow: Bool { true }
+        func dockMenuReopenWindow() {}
         func dockMenuNewChat(_ arguments: [String: ActionValue]) { newChats.append(arguments) }
         func dockMenuOpenChat(_ id: String) { opened.append(id) }
     }

@@ -13,8 +13,10 @@ public protocol DockMenuHost: AnyObject {
     func dockMenuHarnesses() async -> [AcpmuxHarnessRow]
     /// The machines a new chat can start on (this Mac, acpmux peers, Cloud machines).
     func dockMenuMachines() async -> [AgentChatDestinations.Destination]
-    /// Brings a window back when none is open; true when it had to open one.
-    func dockMenuShowWindow() -> Bool
+    /// Whether any window is open.
+    var dockMenuHasWindow: Bool { get }
+    /// Brings the last closed window back, else opens a new one (a Dock click's reopen).
+    func dockMenuReopenWindow()
     /// Runs New Agent Chat with `arguments` (`harness`, `host`), as Cmd-I and the palette do.
     func dockMenuNewChat(_ arguments: [String: ActionValue])
     /// Shows the tab that shows the chat, else opens it in a new agent tab.
@@ -104,13 +106,13 @@ public final class DockMenuController: NSObject {
         switch action {
         case .newChat(let harness, let machine):
             // A window that had to open comes with its New Tab page, which is a new chat already.
-            guard !host.dockMenuShowWindow() else { return }
+            guard host.dockMenuHasWindow else { return host.dockMenuReopenWindow() }
             var arguments: [String: ActionValue] = [:]
             if let harness { arguments["harness"] = .string(harness) }
             if let machine { arguments["host"] = .string(machine) }
             host.dockMenuNewChat(arguments)
         case .open(let chat):
-            _ = host.dockMenuShowWindow()
+            if !host.dockMenuHasWindow { host.dockMenuReopenWindow() }
             host.dockMenuOpenChat(chat)
         }
     }
