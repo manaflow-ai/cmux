@@ -79,7 +79,16 @@ afterAll(() => {
   }
 });
 
-const settle = () => act(async () => void (await new Promise((done) => setTimeout(done, 80))));
+/// One macrotask, inside act so React commits what it brought.
+const tick = () => act(async () => void (await new Promise((done) => setTimeout(done, 0))));
+/// Yields until `ready` holds (an answer came, the idle ask ran), then once more so it rendered.
+async function until(ready: () => boolean) {
+  for (let turn = 0; turn < 5000 && !ready(); turn++) await tick();
+  expect(ready()).toBe(true);
+  await tick();
+}
+/// Every ref asked about has its answer.
+const answered = () => asked.every((query) => refs.knownSessionRef(query) !== undefined);
 
 async function draw(markdown: string, sessions: AcpmuxSessionEntry[] = []) {
   const store = new SubsessionStore();
@@ -103,12 +112,13 @@ const click = (element: Element) => {
   element.dispatchEvent(event);
   return event;
 };
-const hover = (element: Element) =>
-  act(async () => {
+async function hover(element: Element) {
+  await act(async () => {
     element.dispatchEvent(new dom.window.PointerEvent("pointerover", { bubbles: true }));
     element.dispatchEvent(new dom.window.PointerEvent("pointerenter", { bubbles: false }));
-    await new Promise((done) => setTimeout(done, 10));
   });
+  await until(answered);
+}
 const linkTo = (href: string) => [...host.querySelectorAll("a")].find((a) => a.getAttribute("href") === href);
 
 test("an agent link in inline code is a link that opens the reader's own session", async () => {
@@ -132,7 +142,7 @@ test("a click before any hover asks, then opens the chat", async () => {
   const opened = await draw(`\`${SESSION_LINK_REFS.lane}\``);
   const event = click(linkTo(SESSION_LINK_REFS.lane)!);
   expect(event.defaultPrevented).toBe(true);
-  await settle();
+  await until(() => opened.length > 0);
   expect(opened).toEqual(["mock-ghostty-config"]);
 });
 
@@ -154,7 +164,7 @@ test("an agent link to a session that is not the reader's opens its web page", a
   const count = (e: Event) => void (!e.defaultPrevented && followed++);
   dom.window.document.addEventListener("click", count);
   expect(click(link).defaultPrevented).toBe(true);
-  await settle();
+  await until(() => followed > 0);
   dom.window.document.removeEventListener("click", count);
   expect(followed).toBe(1);
   expect(opened).toEqual([]);
@@ -164,7 +174,7 @@ test("a HOST/NAME the daemon resolves becomes the session chip and opens the cha
   const opened = await draw(`- \`${SESSION_LINK_REFS.name}\``);
   // Plain code until the answer comes, asked once the page is idle.
   expect(host.querySelector("button")).toBeNull();
-  await settle();
+  await until(() => host.querySelector("button.cv-session-ref") !== null);
   const chip = host.querySelector<HTMLButtonElement>("button.cv-session-ref")!;
   expect(chip).not.toBeNull();
   expect(chip.textContent).toBe(SESSION_LINK_REFS.name);
@@ -187,13 +197,15 @@ test("a HOST/NAME the session list names is a chip at once, with no ask", async 
   expect(chip).not.toBeNull();
   act(() => void click(chip));
   expect(opened).toEqual(["mux-chief-ui"]);
-  await settle();
+  // The idle ask a name would make has had its turn: none was made.
+  await until(() => refs.knownSessionRef("gcp-agent-lane-3/chief-ui") === undefined);
+  await tick();
   expect(asked).toEqual([]);
 });
 
 test("code that only looks like a/b stays plain code unless it is a session", async () => {
   await draw(`\`${SESSION_LINK_REFS.unknown}\` \`${SESSION_LINK_REFS.path}\` \`3/4\` \`src/app.ts\` \`and/or\``);
-  await settle();
+  await until(() => asked.length === 3 && answered());
   expect(host.querySelector("a, button")).toBeNull();
   expect([...host.querySelectorAll("code")].map((code) => code.textContent)).toEqual([
     SESSION_LINK_REFS.unknown,
@@ -209,7 +221,7 @@ test("code that only looks like a/b stays plain code unless it is a session", as
 test("without a daemon an agent link is a plain web link and a name plain code", async () => {
   refs.setSessionRefResolver(undefined);
   const opened = await draw(`\`${SESSION_LINK_REFS.swarm}\` \`${SESSION_LINK_REFS.name}\``);
-  await settle();
+  await tick();
   const link = linkTo(SESSION_LINK_REFS.swarm)!;
   expect(link).toBeDefined();
   expect(click(link).defaultPrevented).toBe(false);

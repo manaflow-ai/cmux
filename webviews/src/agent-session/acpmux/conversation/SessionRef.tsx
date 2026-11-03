@@ -83,7 +83,9 @@ export function SessionRefCode({
         data-session-ref=""
         onClick={() => open(target.sessionId)}
       >
-        <SoftBroken text={text} />
+        <code className="cv-code">
+          <SoftBroken text={text} />
+        </code>
       </button>
     );
   }
