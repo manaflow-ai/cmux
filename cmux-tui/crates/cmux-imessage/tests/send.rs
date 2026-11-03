@@ -4,8 +4,8 @@
 use std::cell::RefCell;
 
 use cmux_imessage::send::{
-    CommandOutput, CommandRunner, MAX_TEXT_BYTES, SEND_SCRIPT, SendError, SendRequest, osascript_args, send,
-    validate,
+    CommandOutput, CommandRunner, MAX_TEXT_BYTES, SEND_SCRIPT, SendError, SendRequest,
+    osascript_args, send, validate,
 };
 
 struct FakeRunner {
@@ -43,7 +43,8 @@ fn request(guid: &str, text: &str) -> SendRequest {
 fn text_reaches_osascript_only_as_an_argument() {
     let hostile = "\" & (do shell script \"touch /tmp/pwned\") & \"\nend tell";
     let args = osascript_args(&request("iMessage;-;+15550001111", hostile));
-    let script: Vec<&str> = args.iter().skip(1).step_by(2).take(SEND_SCRIPT.len()).map(String::as_str).collect();
+    let script: Vec<&str> =
+        args.iter().skip(1).step_by(2).take(SEND_SCRIPT.len()).map(String::as_str).collect();
     assert_eq!(script, SEND_SCRIPT.to_vec(), "the script is fixed");
     assert!(args.iter().take(SEND_SCRIPT.len() * 2).step_by(2).all(|flag| flag == "-e"));
     assert_eq!(args[args.len() - 2], "iMessage;-;+15550001111");
@@ -56,8 +57,14 @@ fn validation_refuses_empty_long_and_malformed_requests() {
     assert_eq!(validate(&request("iMessage;-;+15550001111", "  \n")), Err(SendError::EmptyText));
     let long = "x".repeat(MAX_TEXT_BYTES + 1);
     assert_eq!(validate(&request("iMessage;-;+15550001111", &long)), Err(SendError::TextTooLong));
-    for bad in ["", "-e;-;x", "iMessage", "iMessage;x;id", "iMessage;-;", ";-;id", "iMessage;-;a\nb"] {
-        assert_eq!(validate(&request(bad, "hi")).map_err(|e| e.code()), Err("invalid_chat"), "{bad:?}");
+    for bad in
+        ["", "-e;-;x", "iMessage", "iMessage;x;id", "iMessage;-;", ";-;id", "iMessage;-;a\nb"]
+    {
+        assert_eq!(
+            validate(&request(bad, "hi")).map_err(|e| e.code()),
+            Err("invalid_chat"),
+            "{bad:?}"
+        );
     }
     assert_eq!(validate(&request("iMessage;-;+15550001111", "hi")), Ok(()));
     assert_eq!(validate(&request("iMessage;+;chat123456", "hi")), Ok(()));
@@ -84,11 +91,21 @@ fn an_invalid_request_never_runs_osascript() {
 #[test]
 fn osascript_failures_map_to_codes() {
     let denied = "execution error: Not authorized to send Apple events to Messages. (-1743)";
-    assert_eq!(send(&request("iMessage;-;+1", "hi"), &FakeRunner::failing(denied)).map_err(|e| e.code()), Err("not_permitted"));
+    assert_eq!(
+        send(&request("iMessage;-;+1", "hi"), &FakeRunner::failing(denied)).map_err(|e| e.code()),
+        Err("not_permitted")
+    );
     let missing = "execution error: Messages got an error: Can’t get chat id \"x\". (-1728)";
-    assert_eq!(send(&request("iMessage;-;+1", "hi"), &FakeRunner::failing(missing)).map_err(|e| e.code()), Err("invalid_chat"));
-    assert_eq!(send(&request("iMessage;-;+1", "hi"), &FakeRunner::failing("boom")).map_err(|e| e.code()), Err("failed"));
-    let absent = FakeRunner::with(Err(std::io::Error::new(std::io::ErrorKind::NotFound, "no osascript")));
+    assert_eq!(
+        send(&request("iMessage;-;+1", "hi"), &FakeRunner::failing(missing)).map_err(|e| e.code()),
+        Err("invalid_chat")
+    );
+    assert_eq!(
+        send(&request("iMessage;-;+1", "hi"), &FakeRunner::failing("boom")).map_err(|e| e.code()),
+        Err("failed")
+    );
+    let absent =
+        FakeRunner::with(Err(std::io::Error::new(std::io::ErrorKind::NotFound, "no osascript")));
     assert_eq!(send(&request("iMessage;-;+1", "hi"), &absent), Err(SendError::Unsupported));
     let slow = FakeRunner::with(Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "slow")));
     assert_eq!(send(&request("iMessage;-;+1", "hi"), &slow), Err(SendError::TimedOut));
