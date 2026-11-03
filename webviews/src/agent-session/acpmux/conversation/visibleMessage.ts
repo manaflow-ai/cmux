@@ -40,6 +40,8 @@ export function isVisiblyEmptyMessage(row: AcpmuxRow): boolean {
     row.kind === "user" &&
     row.incoming?.kind === "message" &&
     !row.incoming.message.fromPerson &&
+    // A tool's notice always has its title to show, whatever its body.
+    !row.incoming.message.notice &&
     isBareAgentText(row.incoming.message.text)
   )
     return (

@@ -53,6 +53,7 @@ fn moved_line(host: &str) -> String {
 
 pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> Result<()> {
     match cmd {
+        Command::ClearPeerSnapshots => crate::daemon::clear_peer_snapshots().await,
         Command::Session(control) => crate::cli::mesh_control::run(control, json_out).await,
         Command::Retention(args) => {
             let client = connect(true).await?;
@@ -974,13 +975,21 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     };
                     return crate::cli::hosts::update(client, name, all, opts, json_out).await;
                 }
-                PeerCmd::Enroll { host, name, harnesses, remote_binary, reverse } => {
+                PeerCmd::Enroll {
+                    host,
+                    name,
+                    harnesses,
+                    remote_binary,
+                    reverse,
+                    accept_new_host_key,
+                } => {
                     let plan = crate::cli::host_enroll::Plan::enroll(
                         host,
                         name,
                         harnesses,
                         remote_binary,
                         reverse,
+                        accept_new_host_key,
                     );
                     return crate::cli::host_enroll::run(client, plan, true, json_out).await;
                 }
@@ -998,6 +1007,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         remote_binary,
                         reverse,
                         lends_github: false,
+                        accept_new_host_key: false,
                     };
                     return crate::cli::host_enroll::run(client, plan, fix, json_out).await;
                 }
