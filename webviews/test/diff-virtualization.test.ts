@@ -316,10 +316,21 @@ await requireBrowserLane("diff-virtualization.test.ts", async () => {
         test(`closing a comment draft with ${action} releases the gutter button`, async () => {
           const commentsPage = await browser.newPage({ viewport: VIEWPORT });
           try {
+            await installPaintedFrames(commentsPage);
             await commentsPage.goto(`${base}/test/browser/diff-virtualization.html?fixture=comments`);
+            // The viewer measures and lays its rows out again over the first frames; a hover before
+            // that lands on a row that moves, and its + is drawn again (detached) under the click.
+            await commentsPage.waitForFunction(
+              () => document.getElementById("files-sidebar")?.dataset.fileCount === "1",
+              null,
+              { timeout: 60_000 },
+            );
+            await quiet(commentsPage);
             const gutter = commentsPage.locator('[data-column-number="4"]').first();
             await gutter.hover();
-            await commentsPage.locator("[data-utility-button]").click();
+            const utility = commentsPage.locator("[data-utility-button]");
+            await utility.waitFor({ state: "visible" });
+            await utility.click();
             const composer = commentsPage.locator(".comment-composer");
             await composer.waitFor();
             expect(await commentsPage.evaluate(() => (window as any).__INSTANCE.getSelectedLines())).not.toBeNull();
