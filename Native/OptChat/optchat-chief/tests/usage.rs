@@ -502,3 +502,115 @@ fn the_cli_reads_every_home_and_backfills_first() {
 
     assert!(usage::run(&["--by".into(), "nope".into()]).is_err());
 }
+
+#[test]
+fn credit_meter_preserves_identity_route_and_prompt_keys() {
+    let lines = fold_all(&[
+        json!({"ev":"turn.start", "turn":"t", "person":"user_alice", "team":"team_one", "chief":"chief_one", "harness":"native", "base_url":"https://coderouter.dev/v1"}),
+        turn_end(T0, "t", 0.1, 1, 3, 0, 2),
+        json!({"ev":"subagent.start", "id":"a1", "session":"s", "harness":"codex", "peer":"cloud-vm-1", "person":"user_alice", "chief":"chief_one"}),
+        json!({"ev":"subagent.answer", "id":"a1", "prompt_id":"p1", "ts":T0+1, "usage":{"input":1}}),
+        json!({"ev":"subagent.answer", "id":"a1", "prompt_id":"p2", "ts":T0+2, "usage":{"input":1}}),
+    ]);
+    let a = serde_json::to_value(&lines[0]).unwrap();
+    assert_eq!(a["person"], "user_alice");
+    assert_eq!(a["team"], "team_one");
+    assert_eq!(a["chief"], "chief_one");
+    assert_eq!(a["payer"], "platform");
+    assert_eq!(a["provider"], "cmux-router");
+    let sub = serde_json::to_value(&lines[1]).unwrap();
+    assert_eq!(sub["machine"], "cloud-vm-1");
+    assert_eq!(sub["harness"], "codex");
+    assert_eq!(sub["payer"], "own");
+    assert_ne!(lines[1].key, lines[2].key);
+}
+
+#[test]
+fn credit_export_and_person_summary_are_cli_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path();
+    std::fs::write(home.join("chief-id"), "chief_one").unwrap();
+    let trace = Trace::open(&home.join("optchat/traces"), false).unwrap();
+    trace.emit("turn.end", json!({"turn":"k", "person":"user_alice", "team":"team_one", "chief":"chief_one", "harness":"claude", "model":"opus", "status":"ok", "cost_usd":0.1, "usage":{"input":2,"cache_read":3,"cache_write":4,"output":5}}));
+    let args = |extra: &[&str]| {
+        let mut a: Vec<String> = extra.iter().map(|s| (*s).into()).collect();
+        a.extend(["--mux-home".into(), home.display().to_string(), "--since".into(), "30d".into()]);
+        a
+    };
+    let text = usage::run(&args(&["export", "--json", "--person", "user_alice"])).unwrap();
+    let row: Value = serde_json::from_str(text.trim()).unwrap();
+    assert_eq!(row["stack_user_id"], "user_alice");
+    assert_eq!(row["team_id"], "team_one");
+    assert_eq!(row["provider"], "anthropic");
+    assert_eq!(row["agent"], "claude");
+    assert_eq!(row["cached_input_tokens"], 3);
+    assert_eq!(row["input_tokens"], 6);
+    assert_eq!(row["output_tokens"], 5);
+    assert_eq!(row["total_tokens"], 14);
+    assert_eq!(row["api_equivalent_usd"], 0.1);
+    assert_eq!(row["request_id"], "chief:chief_one:turn:k");
+    assert!(chrono::DateTime::parse_from_rfc3339(row["event_time"].as_str().unwrap()).is_ok());
+    assert_eq!(usage::run(&args(&["export", "--json"])).unwrap(), text);
+    assert!(usage::run(&args(&["export", "--person", "user_bob"])).unwrap().is_empty());
+    let summary: Value = serde_json::from_str(&usage::run(&args(&["--by", "person", "--json"])).unwrap()).unwrap();
+    assert_eq!(summary["by_kind"], "person");
+    assert_eq!(summary["by"][0]["key"], "user_alice");
+}
+
+#[test]
+fn credit_meter_old_v1_and_secrets_do_not_leak() {
+    let old: Line = serde_json::from_str(r#"{"v":1,"ts":1,"kind":"turn","key":"old","input":1}"#).unwrap();
+    assert!(serde_json::to_value(old).unwrap()["person"].is_null());
+    let tmp = tempfile::tempdir().unwrap();
+    let trace = Trace::open(&tmp.path().join("traces"), false).unwrap();
+    let secret = "sk-secret-do-not-record";
+    trace.emit("turn.end", json!({"turn":"t", "harness":"native", "base_url":format!("https://user:{secret}@coderouter.dev/v1?key={secret}"), "api_key":secret, "token":secret, "usage":{"input":1}}));
+    let lines = usage::read(&usage::dir(tmp.path()), 0, u64::MAX).unwrap();
+    assert_eq!(lines.len(), 1);
+    let written = std::fs::read_dir(usage::dir(tmp.path())).unwrap().flatten().find(|e| e.path().extension().is_some_and(|s| s == "jsonl")).unwrap();
+    let text = std::fs::read_to_string(written.path()).unwrap();
+    assert!(!text.contains(secret));
+    assert!(!text.contains("base_url"));
+    assert!(!text.contains("api_key"));
+    assert!(!text.contains("\"token\""));
+}
+
+#[test]
+fn credit_meter_payer_uses_harness_and_parsed_host() {
+    for (harness, base, payer, provider) in [
+        ("claude", "", "own", "anthropic"),
+        ("codex", "", "own", "openai"),
+        ("cmux", "", "platform", "cmux-router"),
+        ("native", "https://coderouter.dev/v1", "platform", "cmux-router"),
+        ("native", "https://api.anthropic.com", "own", "anthropic"),
+        ("native", "https://api.deepinfra.com/v1/openai", "own", "deepinfra"),
+        ("native", "https://coderouter.dev.evil.test/v1", "own", "unknown"),
+        ("claude", "https://coderouter.dev", "platform", "cmux-router"),
+    ] {
+        let line = fold_all(&[json!({"ev":"turn.end","turn":"t","harness":harness,"base_url":base})]).pop().unwrap();
+        let row = serde_json::to_value(line).unwrap();
+        assert_eq!(row["payer"], payer, "{harness} {base}");
+        assert_eq!(row["provider"], provider, "{harness} {base}");
+    }
+}
+
+#[test]
+fn credit_backfill_only_fills_missing_people() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path();
+    let root = home.join("optchat");
+    let trace = Trace::open(&root.join("traces"), false).unwrap();
+    trace.emit("usage.identity", json!({"person":"user_owner", "chief":"chief_one"}));
+    trace.emit("turn.end", json!({"turn":"old", "harness":"claude"}));
+    trace.emit("turn.end", json!({"turn":"other", "person":"user_other", "harness":"claude"}));
+    // Simulate a pre-identity line in a private month file.
+    let file = std::fs::read_dir(usage::dir(&root)).unwrap().flatten().find(|e| e.path().extension().is_some_and(|s| s == "jsonl")).unwrap().path();
+    let text = std::fs::read_to_string(&file).unwrap();
+    let mut rows: Vec<Value> = text.lines().map(|s| serde_json::from_str(s).unwrap()).collect();
+    rows[0].as_object_mut().unwrap().remove("person");
+    std::fs::write(&file, rows.iter().map(|r| format!("{r}\n")).collect::<String>()).unwrap();
+    usage::run(&["backfill".into(), "--mux-home".into(), home.display().to_string()]).unwrap();
+    let rows = usage::read(&usage::dir(&root), 0, u64::MAX).unwrap();
+    assert_eq!(serde_json::to_value(&rows[0]).unwrap()["person"], "user_owner");
+    assert_eq!(serde_json::to_value(&rows[1]).unwrap()["person"], "user_other");
+}
