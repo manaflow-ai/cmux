@@ -745,6 +745,35 @@ test("Claude, no paste: Paste a code instead opens the code page; the pasted cod
   expect(sent).toHaveLength(1);
 });
 
+test("Claude, no paste: the approve's wait ending after a pasted code sent again changes nothing", async () => {
+  let approve: (value: unknown) => void = () => undefined;
+  const { client, sent } = mockClient({
+    start: autoStart,
+    finish: (...args: unknown[]) =>
+      args[2] === undefined
+        ? new Promise((resolve) => (approve = resolve))
+        : { signedIn: true, restarted: false },
+  });
+  const { signIn } = signInFor(client, { opened: [], machine: true });
+  await render({ route: cloudRoute, cloudSignIn: signIn });
+  await act(async () => button("Sign in to Claude")!.click());
+  await flush();
+  await flush();
+  await act(async () => button("Paste a code instead")!.click());
+  await typeInto(host.querySelector<HTMLInputElement>(".cv-turn-signin__input")!, "abc#def");
+  await act(async () => button("Continue")!.click());
+  await flush();
+  await flush();
+  expect(sent).toHaveLength(1);
+  const after = host.textContent;
+  await act(async () => approve({ signedIn: true, restarted: false }));
+  await flush();
+  await flush();
+  expect(host.textContent).toBe(after);
+  expect(button("Send again")).toBeUndefined();
+  expect(sent).toHaveLength(1);
+});
+
 test("an automatic page whose port acpmux did not name is not used", async () => {
   const opened: string[] = [];
   const onMachine: string[] = [];

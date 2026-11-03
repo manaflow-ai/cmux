@@ -29,13 +29,22 @@ enum ChatMachineSignInTab {
             guard pane != nil else { return false }
             // task-owner: one page made and one tab asked for; ends once the tab is asked for.
             Task { @MainActor [weak pane] in
-                let configuration = BrowserTabConfiguration(initialURL: url, navigationGuard: .noLoopback)
+                guard let source = pane else { return }
+                // The page is made in the store the new tab gets: the profile a new browser tab
+                // in this workspace takes (its own, the room's or `default`), or the incognito one
+                // in an incognito window. The tab is asked for with that same profile, so the
+                // adopted page never crosses profiles.
+                let browserTabs = services.cache.browserTabs
+                let incognito = browserTabs.isIncognitoPane(source.pane)
+                let wire = incognito ? nil : browserTabs.resolveProfile(source.pane, nil)
+                let profile = incognito ? services.windows.incognitoProfile() : services.browserProfiles.book.engineProfile(for: wire)
+                let configuration = BrowserTabConfiguration(profile: profile, initialURL: url, navigationGuard: .noLoopback)
                 guard let page = try? await services.cache.makeCEFTab(configuration) else { return }
                 guard let pane else { return page.close() }
                 services.remoteLocalhost.expectPage(page, machine: machine)
                 services.linkOpener.open(from: pane, kind: .browser) { target, placed in
                     target.newBrowserTab(url: nil, engine: BrowserEngineTag.cef.rawValue, adopting: page,
-                                         background: placed != nil, placementOwner: placed != nil, then: placed)
+                                         background: placed != nil, profile: wire, placementOwner: placed != nil, then: placed)
                 }
             }
             return true
