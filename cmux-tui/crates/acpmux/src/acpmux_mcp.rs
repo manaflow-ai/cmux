@@ -450,7 +450,9 @@ fn ls_result(all: &Value, args: &Value) -> Value {
         })
         .collect();
     if more > 0 {
-        lines.push(format!("… {more} more; narrow with query or status, or raise limit."));
+        lines.push(format!(
+            "… {more} more: raise limit (up to {LS_MAX_LIMIT}), narrow with query, or pass status (closed lists the closed ones)."
+        ));
     }
     let slim: Vec<Value> = rows
         .iter()

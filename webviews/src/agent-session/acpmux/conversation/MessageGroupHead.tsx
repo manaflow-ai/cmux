@@ -71,6 +71,10 @@ export function MessageGroupHead({
       aria-controls={open ? bodyId : undefined}
       aria-label={ariaLabel}
       title={hint || senders || undefined}
+      // The row is as wide as the pane (a tool row): its hover shows at its words, as a tool row's
+      // label tooltip does, never under the row's middle (Leo, 2026-11-03: "this hover preview is in
+      // the wrong place!").
+      data-tooltip-anchor=".cv-tool__text"
       onClick={onToggle}
     >
       <span className={`cv-tool__icon${iconClassName ? ` ${iconClassName}` : ""}`} aria-hidden="true">

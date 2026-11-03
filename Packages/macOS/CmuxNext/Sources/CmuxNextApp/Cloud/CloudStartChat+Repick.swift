@@ -41,7 +41,7 @@ extension CloudStartChat {
         // The machine it is on already: nothing moves.
         guard target != started.machineID else { return AgentPaneReply.success(["machine": services.machines.session(target)?.machine.title ?? ""]) }
         let toastID = "cloud-start-" + tab.id
-        CloudMove.toast(services, toastID, CloudMoveStrings.moving, duration: .seconds(600))
+        CloudMove.toast(services, toastID, CloudMoveStrings.moving, duration: CloudMove.working)
         do {
             // Only under the account the send began in (+Machine).
             try Self.checkAccount(started.account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)

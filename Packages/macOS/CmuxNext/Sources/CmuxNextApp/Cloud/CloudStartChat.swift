@@ -43,7 +43,7 @@ struct CloudStartChat {
             return AgentPaneReply.failure(code: refusal, message: Self.refusalMessage(refusal))
         }
         let toastID = "cloud-start-" + tab.id
-        CloudMove.toast(services, toastID, CloudMoveStrings.moving, duration: .seconds(600))
+        CloudMove.toast(services, toastID, CloudMoveStrings.moving, duration: CloudMove.working)
         do {
             let account = services.cloud.account
             let origin = Origin(tab: tab, chat: start.cwd ?? tab.cwd, workspace: services.workspaceID(ofTab: tab.id), account: account) { [services] in
@@ -58,7 +58,7 @@ struct CloudStartChat {
             CloudMove.toast(services, toastID, CloudMoveStrings.moved(machine), duration: .seconds(6))
             return AgentPaneReply.success(["machine": machine])
         } catch is CloudMachineCap.RunHere { // the cap card's Run on This Mac: the page sends it here (cloudRun.ts)
-            if let window = services.windows.active?.window { _ = CmuxToastCenter.shared.close(id: toastID, in: window) }
+            CmuxToastCenter.shared.close(id: toastID) // every window: the start may have begun in one no longer in front
             return AgentPaneReply.failure(code: CloudMachineCap.runHereCode, message: CloudMachineCap.runHereCode)
         } catch {
             let message = (error as? CloudMove.Failure)?.message ?? (error as? ActionFailure)?.message
