@@ -214,6 +214,21 @@ acpmux run --on-permission deny|fail …       # never hang a script on a prompt
 open ask instead of restating it; cmux draws it as a chip that opens the ask in
 its Needs you list.
 
+A multiple-choice question for the user at the end of a reply, one that should
+not hold the turn the way AskUserQuestion does, goes in an `ask` fence: any
+context lines, then the question line, then 2 to 6 options as `- ` items. cmux
+draws it as a card of buttons, and a click sends the chosen option as the
+user's next message.
+
+````
+```ask
+Three PRs are stale.
+Close them?
+- Yes, close all
+- Not now
+```
+````
+
 Show UI instead of describing it. A reply in cmux draws `![alt](/abs/path.png)`,
 a bare image path (`.png`, `.jpg`, `.gif`, `.webp`), a `file://` URL or an
 https image address (a PR's `pr-media` link) as a thumbnail that opens full
