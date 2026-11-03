@@ -600,7 +600,9 @@ pub enum Command {
         #[arg(long)]
         show_token: bool,
         /// Set a daemon host-wide setting as KEY=VALUE (for example,
-        /// `session.memory_mb=6144`, `session.swap_mb=2048`,
+        /// `permissions.default=yolo` (yolo, standard, ask or default) for the
+        /// permission mode every new chat starts in, `permissions.codex=ask` for
+        /// one harness, `session.memory_mb=6144`, `session.swap_mb=2048`,
         /// `session.tasks_max=8192`, `session.sessions_tasks_max=131072` or
         /// `session.cpu_class=normal`).
         #[arg(long, value_name = "KEY=VALUE")]
