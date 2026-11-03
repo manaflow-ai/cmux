@@ -10,7 +10,11 @@
 //!    not part of the journal. A segment whose records all lie at or before `from` is not read.
 //! 4. The last segment is read up to its first record that does not check out: a torn write that
 //!    never completed, so it was never acknowledged. Those bytes stay in the file; the journal
-//!    goes on in a new segment whose header names the last good LSN.
+//!    goes on in a new segment whose header names the last good LSN. A record of the last segment
+//!    that media damage changed also ends the journal there (SQLite's WAL and RocksDB's
+//!    point-in-time recovery do the same): no rule tells damage from a torn write in bytes that
+//!    were never synced. The cut is reported (`torn_tail_bytes`), and its bytes stay for a
+//!    salvage.
 //! 5. Damage that is not a torn tail (a bad header, or records missing before the next segment)
 //!    keeps the valid prefix. That segment's successors move to `quarantine/` (never deleted), the
 //!    report names them and the LSNs they may hold, and new records take LSNs after all of them,
@@ -57,7 +61,9 @@ pub enum Damage {
     /// `segment` could not be read past `offset` (media damage or a bug, never a crash). The
     /// segments in `moved` (every later one, and this one too when its header was bad) are in
     /// `quarantine/` now. The records after `lost_after` through `lost_through` are not in the
-    /// journal; new records take LSNs after `lost_through`.
+    /// journal; new records take LSNs after `lost_through`. When a moved segment's own header is
+    /// unreadable, the LSNs it held are unknown: `lost_through` is then the highest LSN that the
+    /// other moved segments and the headers name, a lower bound.
     Corrupt {
         segment: String,
         offset: u64,
