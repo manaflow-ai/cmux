@@ -56,4 +56,10 @@ import Testing
         let fourCharacters = ceil(("Help" as NSString).size(withAttributes: [.font: cell.titleFont]).width)
         #expect(cell.titleLayer.bounds.width >= fourCharacters, "title area \(cell.titleLayer.bounds.width) pt < four characters \(fourCharacters) pt")
     }
+
+    @Test func middleTruncationNeedsTextOnBothSidesOfTheEllipsis() {
+        #expect(TabCell.titleTruncation(textWidth: 200, visibleWidth: 120, middleMinimum: 40) == .middle)
+        #expect(TabCell.titleTruncation(textWidth: 200, visibleWidth: 20, middleMinimum: 40) == .none)
+        #expect(TabCell.titleTruncation(textWidth: 60, visibleWidth: 120, middleMinimum: 40) == .middle)
+    }
 }
