@@ -18,10 +18,11 @@ const words = (html: string) =>
 const liveLine = (rows: AcpmuxRow[]) =>
   turnView(rows, new Set(), { working: true, liveRuns: true, lineBelow: true }).at(-1)!;
 const drawn = (line: AcpmuxRow, now: number) =>
-  renderToStaticMarkup(<Thinking since={line.at} now={() => now} turnTotal={line.turnTotal} retry={line.retry} below />);
+  renderToStaticMarkup(
+    <Thinking since={line.at} now={() => now} turnTotal={line.turnTotal} retry={line.retry} below />,
+  );
 
-const snapshotRows = (name: string) =>
-  (retryEntry.variants[name] as { snapshot: { rows: AcpmuxRow[] } }).snapshot.rows;
+const snapshotRows = (name: string) => (retryEntry.variants[name] as { snapshot: { rows: AcpmuxRow[] } }).snapshot.rows;
 
 test("a turn whose model the harness cannot reach says so, with its count and error and no clock", () => {
   const line = liveLine(snapshotRows("retrying-with-error"));
