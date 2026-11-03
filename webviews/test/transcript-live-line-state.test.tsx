@@ -107,6 +107,26 @@ test("with the running tray the line still says it waits on the subagents the tr
   expect(line.doing).toBeUndefined();
 });
 
+// A shell call's agent keeps its card in the rows the tray draws, where the line counts it: the
+// tray's count leaves it out, so it is counted once. A prompt still waiting to send opens no turn.
+test("with the tray a shell call's agent counts once, and a queued prompt keeps the wait", () => {
+  const rows = [
+    row("u", "user"),
+    row("g", SUBAGENTS, { subagents: [agent("review-a", "running")] }),
+    row("run", SUBAGENTS, { subagents: [agent("shell-agent", "running", { command: "acpmux new" })] }),
+    row("r", "activity", { items: [call("cat app.ts")] }),
+    row("q", "user", { pending: true }),
+  ];
+  expect(trayWaitAgents(rows)).toBe(1);
+  const line = turnView(withSubagentLines(rows) as AcpmuxRow[], new Set(), {
+    working: true,
+    liveRuns: true,
+    lineBelow: true,
+    trayAgents: trayWaitAgents(rows),
+  }).find((shaped) => shaped.kind === THINKING)!;
+  expect(line).toMatchObject({ liveState: "subagents", liveAgents: 2 });
+});
+
 test("background and finished subagents are no wait", () => {
   const line = codex([
     row("u", "user"),

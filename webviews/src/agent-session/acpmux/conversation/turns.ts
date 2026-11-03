@@ -14,7 +14,7 @@ import { findRowIndex } from "./chatFind";
 import { turnPreviewCardsOn, turnPreviewUrl } from "./previewUrl";
 import { renderCall } from "./renderCall";
 import { showsTimestamp, type TurnTimes } from "./timestamps";
-import { isSubagentGroup, WORKFLOW_CARD } from "../subagents/subagentRows";
+import { isRunGroup, isSubagentGroup, WORKFLOW_CARD } from "../subagents/subagentRows";
 import { STARTED_SESSIONS } from "../started/startedSessions";
 import { QUESTION_RECORD } from "../question/record";
 import { chosenAnswer, nextStepAsk } from "./nextStepAsk";
@@ -1360,11 +1360,13 @@ function thoughtTime(rows: readonly AcpmuxRow[]): number | undefined {
 /// agent waits on. One running in the background (`background`) outlives the turn, so it is no wait.
 /// The foreground subagents still running in the latest prompt's turn, read from the rows before the
 /// running tray takes their groups out (App.tsx passes it to ``turnViewFrom`` as `trayAgents`).
-/// Agents in groups before that prompt are an earlier turn's, which a cancel may have left running.
+/// Agents in groups before that prompt are an earlier turn's, which a cancel may have left running;
+/// a prompt still waiting to send opens no turn yet. A shell call's agent keeps its card in the rows
+/// (runningTray.ts), where the line counts it already.
 export function trayWaitAgents(rows: readonly AcpmuxRow[]): number {
   let from = rows.length;
-  while (from > 0 && !opensTurn(rows[from - 1]!)) from -= 1;
-  return from === 0 ? 0 : foregroundAgents(rows.slice(from));
+  while (from > 0 && !(opensTurn(rows[from - 1]!) && !isUnsent(rows[from - 1]!))) from -= 1;
+  return from === 0 ? 0 : foregroundAgents(rows.slice(from).filter((row) => !isRunGroup(row)));
 }
 function foregroundAgents(rows: readonly AcpmuxRow[]): number {
   let count = 0;
