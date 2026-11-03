@@ -178,6 +178,33 @@ fn write_file(dir: &std::path::Path, id: &str, value: &str) -> Result<(), &'stat
     Ok(())
 }
 
+/// A connection's stored secret, read for one call: a sign-in's access token, refresh token and
+/// expiry, or a key. Its strings are wiped when it drops; unknown fields are ignored.
+#[derive(Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub(crate) struct StoredSecret {
+    pub(crate) access_token: Option<String>,
+    pub(crate) refresh_token: Option<String>,
+    pub(crate) key: Option<String>,
+    pub(crate) expires_at: Option<u64>,
+}
+
+impl StoredSecret {
+    /// The stored JSON's fields; empty when it does not parse.
+    pub(crate) fn parse(secret: &str) -> Self {
+        serde_json::from_str(secret).unwrap_or_default()
+    }
+}
+
+impl Drop for StoredSecret {
+    fn drop(&mut self) {
+        use zeroize::Zeroize as _;
+        self.access_token.zeroize();
+        self.refresh_token.zeroize();
+        self.key.zeroize();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
