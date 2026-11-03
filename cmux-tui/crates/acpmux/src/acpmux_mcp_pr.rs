@@ -161,10 +161,8 @@ async fn run_gh(args: &[String], cwd: Option<PathBuf>) -> Result<Vec<u8>, String
     }
     let stderr = String::from_utf8_lossy(&out.stderr);
     let stderr = stderr.trim();
-    let tail: String = {
-        let chars: Vec<char> = stderr.chars().collect();
-        chars[chars.len().saturating_sub(600)..].iter().collect()
-    };
+    let skip = stderr.chars().count().saturating_sub(600);
+    let tail: String = stderr.chars().skip(skip).collect();
     let code = out.status.code().map_or("a signal".to_owned(), |c| format!("exit {c}"));
     Err(format!("gh pr view failed ({code}): {tail}"))
 }
