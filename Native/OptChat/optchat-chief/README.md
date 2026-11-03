@@ -1557,6 +1557,11 @@ pinned binaries (optchat-chief, cmux-tui, acpmux and the Rust `cmux` CLI, all fr
 build; the CLI beside optchat-chief is what the Chief's and its subagents' `cmux` calls run);
 `deploy/brain/rollback.sh` removes them and keeps the memory and key.
 
+On a shared Linux box (a fleet VM, a cmux Cloud machine), `deploy/linux-box/install.sh` installs
+the same three processes as hardened systemd units under their own user, with one CPU and
+memory cap over the Chief and its agents, and the `chief-box` command for pairing, the rights
+table and the audit log (`deploy/linux-box/README.md`).
+
 ## Link previews
 
 The Chief sends iMessage-style link cards, made by the sender as Messages
