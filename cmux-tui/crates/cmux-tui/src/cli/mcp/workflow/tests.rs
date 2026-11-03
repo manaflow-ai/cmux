@@ -7,6 +7,7 @@ struct Fake {
     effects: Cell<usize>,
     fenced: Cell<bool>,
     allowed: RefCell<Value>,
+    upstream_names: RefCell<Option<Value>>,
 }
 
 impl Backend for Fake {
@@ -26,7 +27,11 @@ impl Backend for Fake {
             ));
         }
         if method == METHOD {
-            return Ok(json!({"running":true,"allowedTools":self.allowed.borrow().clone()}));
+            let mut answer = json!({"running":true,"allowedTools":self.allowed.borrow().clone()});
+            if let Some(names) = self.upstream_names.borrow().as_ref() {
+                answer["upstreamNames"] = names.clone();
+            }
+            return Ok(answer);
         }
         assert_eq!(method, ACTIVITY_METHOD);
         if params["action"] == "start" {
@@ -266,4 +271,44 @@ fn native_workflow_host_drops_a_disabled_upstream_before_another_call() {
     })));
     refresh_tools(&mut server, &json!({"allowedTools":null,"upstreamNames":[]})).unwrap();
     assert!(server.upstreams.is_empty());
+}
+
+#[test]
+fn native_workflow_host_refuses_saved_results_from_a_revoked_upstream() {
+    let directory = tempfile::tempdir().unwrap();
+    let name = "turned_off_tool";
+    {
+        let mut journal = Journal::open(directory.path(), "source", 1).unwrap();
+        let Activity::Work { id, .. } = journal.begin("call", name, &json!({})).unwrap() else {
+            panic!("new call")
+        };
+        journal.complete(&id, Ok(json!({"ok":true,"value":"saved private result"}))).unwrap();
+    }
+    let mut server = Server::new(Fake::default(), None);
+    let mut proxied = upstream::Proxied::new(upstream::Upstream::new(upstream::Spec {
+        name: "turned-off-server".into(),
+        command: "/unused".into(),
+        args: Vec::new(),
+        env: Vec::new(),
+        call_timeout: Duration::from_secs(1),
+    }));
+    proxied.listed.push(json!({"name":name}));
+    server.upstreams.push(proxied);
+    *server.backend.upstream_names.borrow_mut() = Some(json!([]));
+    let mut journal = Journal::open(directory.path(), "source", 0).unwrap();
+    let mut tools = Some(vec![json!({"name":name})]);
+    let result = handle(
+        &mut server,
+        &proof(),
+        &mut journal,
+        &mut BTreeMap::new(),
+        &mut tools,
+        &mut Vec::new(),
+        code_mode::Request::Call { name: name.into(), arguments: Map::new() },
+    )
+    .unwrap();
+    assert_eq!(result["ok"], false, "revoked upstream replayed: {result}");
+    assert!(server.upstreams.is_empty());
+    assert!(journal.last_id().is_none(), "denied replay advanced the journal");
+    assert_eq!(server.backend.effects.get(), 0);
 }
