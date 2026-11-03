@@ -146,6 +146,10 @@ def usage_delta(kinds, before, after, mib):
 
 # -- app -----------------------------------------------------------------------------------------------------
 
+def row_of(rows, pane, tab):
+    return rows.get(tab) or rows.get(pane) or {}
+
+
 class Flood:
     def __init__(self, app):
         self.app = app
@@ -240,8 +244,11 @@ class Flood:
         rows = {}
         for window in reply.get("windows") or []:
             for pane in window.get("panes") or []:
-                if isinstance(pane, dict) and pane.get("pane"):
-                    rows[pane.get("pane")] = pane
+                if isinstance(pane, dict):
+                    # By pane id and by the shown tab's id: a row is found by either.
+                    for key in (pane.get("pane"), pane.get("shown_tab"), pane.get("selected_tab")):
+                        if key:
+                            rows.setdefault(key, pane)
         return rows
 
 
@@ -252,7 +259,7 @@ def shell_ready(flood, tabs, nonce):
 
     def ready():
         rows = flood.surfaces(text=True)
-        return all(f"READY-{nonce}" in (rows.get(pane, {}).get("text") or "") for pane, _ in tabs)
+        return all(f"READY-{nonce}" in (row_of(rows, pane, tab).get("text") or "") for pane, tab in tabs)
     return bool(flood.wait(ready, 60, 0.25))
 
 
@@ -271,7 +278,8 @@ def run_round(flood, app, tabs, workload, file_path, round_index):
         producer = f"cat '{file_path}'"
     else:
         producer = f"yes | head -c {BYTES}"
-    snapshots_before = {pane: (row.get("snapshots") or 0) for pane, row in flood.surfaces().items()}
+    rows_before = flood.surfaces()
+    snapshots_before = {pane: (row_of(rows_before, pane, tab).get("snapshots") or 0) for pane, tab in tabs}
     kinds = processes(app)
     flood.rpc("debug.hangs", {"clear": True})
     flood.rpc("debug.frames", {"action": "start"})
@@ -290,14 +298,16 @@ def run_round(flood, app, tabs, workload, file_path, round_index):
 
     def shown():
         rows = flood.surfaces(text=True)
-        return all(f"END-{nonce}" in (rows.get(pane, {}).get("text") or "") for pane, _ in tabs)
+        return all(f"END-{nonce}" in (row_of(rows, pane, tab).get("text") or "") for pane, tab in tabs)
     ok = bool(flood.wait(shown, max(5.0, deadline - time.monotonic()), 0.05))
     shown_s = time.monotonic() - start
     after = sample_usage(kinds)
     cpu = flood.rpc("debug.main_cpu", {"action": "stop"}) or {}
     frames = flood.rpc("debug.frames", {"action": "stop"}) or {}
     hangs = flood.rpc("debug.hangs") or {}
-    snapshots_after = {pane: (row.get("snapshots") or 0) for pane, row in flood.surfaces().items()}
+    rows_after = flood.surfaces()
+    snapshots_after = {pane: (row_of(rows_after, pane, tab).get("snapshots") or 0) for pane, tab in tabs}
+    render = render_delta(tabs, rows_before, rows_after)
     producer_s = []
     for t in times:
         try:
@@ -323,15 +333,36 @@ def run_round(flood, app, tabs, workload, file_path, round_index):
         "main_ms_max": cpu.get("main_ms_max", frames.get("main_ms_max")),
         "hangs": len(hang_list) if isinstance(hang_list, list) else (hangs.get("count") if isinstance(hangs, dict) else None),
         "resyncs": sum(max(0, snapshots_after.get(p, 0) - snapshots_before.get(p, 0)) for p, _ in tabs),
+        # Ghostty's renderer counters summed over the round's panes: frame updates (updateFrame runs) against
+        # frames drawn, and full rebuilds (every row) that are not a resize, swap, palette, font or config.
+        "render": render,
+        "frame_updates_per_frame": round(render["frame_updates"] / render["frames"], 2) if render.get("frames") else None,
+        "full_rebuilds_per_update": round(render["full_other"] / render["frame_updates"], 2) if render.get("frame_updates") else None,
+        "frame_updates_per_s_per_pane": round(render["frame_updates"] / shown_s / len(tabs), 1) if shown_s else None,
     }
     REPORT["rounds"].append(row)
     per = row["processes"]
     print(f"terminal-flood: {MODEL['name']:<7} {workload:<3} P={len(tabs):<2} r{round_index} shown {row['shown_s']:.2f}s "
           f"({row['mib_per_s']} MiB/s; producer max {row['producer_s_max']}s; lag {row['app_lag_s']}s) cpu ms/MiB "
           + " ".join(f"{k} {v['cpu_ms_per_mib']}" for k, v in sorted(per.items()))
-          + f" | dropped {row['dropped']} main p95 {row['main_ms_p95']} hangs {row['hangs']} resyncs {row['resyncs']}",
+          + f" | dropped {row['dropped']} main p95 {row['main_ms_p95']} hangs {row['hangs']} resyncs {row['resyncs']}"
+          + f" | updates/frame {row['frame_updates_per_frame']} full/update {row['full_rebuilds_per_update']}",
           flush=True)
     return row
+
+
+RENDER_KEYS = ("frames", "frame_updates", "cell_rebuilds", "full_other", "full_resize", "full_swap", "full_palette")
+
+
+def render_delta(tabs, before, after):
+    total = {k: 0 for k in RENDER_KEYS}
+    for pane, tab in tabs:
+        a = (row_of(after, pane, tab).get("surface") or {}).get("render_counters") or {}
+        b = (row_of(before, pane, tab).get("surface") or {}).get("render_counters") or {}
+        for k in RENDER_KEYS:
+            if k in a:
+                total[k] += int(a[k]) - int(b.get(k, 0))
+    return total
 
 
 def profile_round(flood, app, tabs, file_path):
