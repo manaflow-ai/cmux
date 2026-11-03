@@ -235,7 +235,12 @@ impl Meter {
 /// `input_tokens` includes cache reads and writes; cached reads are also
 /// reported as its subset, as in the router. A legacy subagent's timestamp disambiguates repeated prompts.
 pub fn export_row(chief: &Chief, line: &Line) -> Value {
-    let id = line.chief.as_deref().unwrap_or(&chief.id);
+    let legacy_scope = if chief.id == "default" {
+        crate::paths::home_id(Path::new(&chief.home))
+    } else {
+        chief.id.clone()
+    };
+    let id = line.chief.as_deref().unwrap_or(&legacy_scope);
     let (payer, provider) = payer_provider(line.harness.as_deref().unwrap_or(""), None);
     let key = if line.kind == "subagent" && line.agent.as_deref() == Some(line.key.as_str()) {
         format!("{}:{}", line.key, line.ts)
