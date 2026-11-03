@@ -558,6 +558,36 @@ def profile_summary(profile: dict, top: int = 25) -> dict:
     return {"total_ms": round(total / 1000, 1), "self_ms": [[key, round(micros / 1000, 1)] for key, micros in busiest]}
 
 
+def native_sample(pid: int, role: str, seconds: int) -> dict:
+    """`sample PID seconds` (macOS): the main thread's call tree, its first 200 lines, and the
+    heaviest frames of the whole process (the tool's "Sort by top of stack" section)."""
+    out_path = os.path.join(tempfile.gettempdir(), f"idle-sample-{pid}.txt")
+    try:
+        subprocess.run(["/usr/bin/sample", str(pid), str(seconds), "1", "-mayDie", "-file", out_path],
+                       capture_output=True, timeout=seconds + 60, check=False)
+        text = open(out_path, errors="replace").read()
+    except (OSError, subprocess.SubprocessError) as error:
+        return {"pid": pid, "role": role, "error": str(error)}
+    finally:
+        if os.path.exists(out_path):
+            os.remove(out_path)
+    lines = text.splitlines()
+    main, inside = [], False
+    for line in lines:
+        if "Thread_" in line and ("main-thread" in line or "DispatchQueue_1" in line or "CrRendererMain" in line):
+            inside = True
+        elif inside and re.match(r"\s*\d+ Thread_", line):
+            break
+        if inside:
+            main.append(line[:220])
+        if len(main) >= 200:
+            break
+    top = []
+    if "Sort by top of stack" in text:
+        top = text.split("Sort by top of stack", 1)[1].splitlines()[1:40]
+    return {"pid": pid, "role": role, "seconds": seconds, "main": "\n".join(main), "top": "\n".join(line[:200] for line in top)}
+
+
 def idle_profile(sock: str, pages: list[dict], seconds: float) -> list[dict]:
     """What each shown cmux page's renderer main thread runs while nobody touches it, all in one
     window of `seconds`: Chromium's page metrics (task, script, style and layout time, counts) per
@@ -637,6 +667,12 @@ def run_loaded(args):
             result["pages"] = pages_now
             result["idle_profile"] = idle_profile(sock, pages_now, 10)
             print(f"PERF-IDLE-PROFILE {json.dumps(result['idle_profile'])[:20000]}", flush=True)
+            # A page's script and tasks can read 0 while its renderer's main thread still burns: a native
+            # sample of each renderer over 1% names that work.
+            busy = [row for row in result["processes"] if row["kind"] == "cef-renderer" and row["cpu_pct"] > 1][:3]
+            result["native_samples"] = [native_sample(row["pid"], row["role"], 8) for row in busy]
+            for entry in result["native_samples"]:
+                print(f"PERF-IDLE-SAMPLE pid={entry['pid']} role={entry['role']!r}\n{entry.get('main', entry.get('error'))}", flush=True)
         result["renderer_roles"] = "debug.cef_pages" if pages is not None else "none (a build without debug.* methods)"
         sha = subprocess.run(["git", "rev-parse", "--short=12", "HEAD"], capture_output=True, text=True).stdout.strip()
         model = subprocess.run(["sysctl", "-n", "hw.model"], capture_output=True, text=True).stdout.strip()
