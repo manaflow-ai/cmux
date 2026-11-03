@@ -75,8 +75,15 @@ final class AgentPaneSessionInfoPanel: NSView {
         return path
     }
 
-    /// Whether a point in the panel's coordinates is in a popup's hole.
-    func yields(at point: CGPoint) -> Bool { holes.contains { $0.rect.contains(point) } }
+    /// Whether a point in the panel's coordinates is in a popup's hole (its rounded shape, as the mask).
+    func yields(at point: CGPoint) -> Bool {
+        holes.contains { hole in
+            guard hole.rect.contains(point) else { return false }
+            let radius = max(0, min(hole.radius, hole.rect.width / 2, hole.rect.height / 2))
+            return CGPath(roundedRect: hole.rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
+                .contains(point)
+        }
+    }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         // A click or hover in a popup's hole goes on to the page under the panel.
