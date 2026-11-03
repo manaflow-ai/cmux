@@ -404,6 +404,7 @@ import {
   headerChangesInPlace,
   repositoryRoot,
   viewChangesBeside,
+  viewChangesFiles,
   viewChangesPatch,
   viewChangesTurn,
 } from "./turnChanges/viewChanges";
@@ -12214,7 +12215,10 @@ function AcpmuxPane() {
       const turn = viewChangesTurn(rows, rowId, path, root, chatCwd);
       target = turn ? { turn } : {};
     } else {
-      const patch = viewChangesPatch(rows, rowId, path, chatCwd);
+      // The turn's checkpoint diff with its edits outside the repository, as the page's own view
+      // shows a mixed turn, so a repository change no tool call made still shows.
+      const files = await viewChangesFiles(rows, rowId, checkpointDiff);
+      const patch = viewChangesPatch(rows, rowId, path, chatCwd, files);
       if (!patch) return false;
       target = { patch };
     }
@@ -14493,8 +14497,8 @@ function AcpmuxPane() {
                       onTerminal={(mode) => runSplitAction(HEADER_ACTIONS.terminal, localCwd, mode)}
                       onSplitDown={(mode) => runSplitAction(HEADER_ACTIONS.splitDown, localCwd, mode)}
                       onBrowser={(mode) => runSplitAction(HEADER_ACTIONS.browser, undefined, mode)}
-                      // Changes owns the diff of the chat's folder; a remote chat's folder is not on this Mac.
-                      hasChanges={lastEditTurn !== undefined && localCwd !== undefined}
+                      // Changes owns the diff of the chat's folder, read on the chat's machine (a Cloud chat's too).
+                      hasChanges={lastEditTurn !== undefined && chatCwd !== undefined}
                       onChanges={toggleChanges}
                       onFiles={localCwd ? (mode) => runSplitAction(HEADER_ACTIONS.files, localCwd, mode) : undefined}
                       previewUrl={previewUrl}

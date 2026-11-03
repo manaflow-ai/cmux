@@ -9,7 +9,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { parsePatchFiles } from "@pierre/diffs";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { patchName, viewChangesPatch } from "../src/agent-session/acpmux/turnChanges/viewChanges";
+import { patchName, viewChangesFiles, viewChangesPatch } from "../src/agent-session/acpmux/turnChanges/viewChanges";
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow =>
@@ -70,14 +70,46 @@ test("a patch names a file from the chat folder only when it is under it", () =>
 
 test("the chat opens Changes as a tab for remote chats and non-repository turns, in the page only with no tab", () => {
   const app = readFileSync(new URL("../src/agent-session/acpmux/App.tsx", import.meta.url), "utf8");
-  const beside = app.slice(app.indexOf("diffBeside.current = async"), app.indexOf("diffBeside.current = async") + 1800);
+  const beside = app.slice(app.indexOf("diffBeside.current = async"), app.indexOf("diffBeside.current = async") + 2400);
   // A remote or Cloud chat's folder is read on its machine; only Quick Chat has no tab.
   expect(beside).toContain("if (quick || !chatCwd) return false;");
   expect(beside).not.toContain("localCwd");
   // Outside a repository, or a file outside it: the turn's own patch for the tab.
-  expect(beside).toMatch(/viewChangesPatch\(rows, rowId, path, chatCwd\)[\s\S]*target = \{ patch \}/);
+  expect(beside).toMatch(/viewChangesPatch\(rows, rowId, path, chatCwd, files\)[\s\S]*target = \{ patch \}/);
   // The header's Changes in a folder outside a repository asks for the tab first.
   const header = app.slice(app.indexOf("const toggleChanges = "), app.indexOf("const toggleChanges = ") + 900);
   expect(header).toContain("headerChangesInPlace(chatCwd");
   expect(header).toMatch(/diffBeside\.current\(turn\.rowId, undefined, mode\)/);
+});
+
+test("a mixed turn keeps the checkpoint's repository changes beside its edit outside the repository", async () => {
+  // The turn edited /repo/src/main.ts and wrote /tmp/setup.txt; a formatter also changed
+  // /repo/src/fmt.ts, which only the checkpoint holds.
+  const rows: AcpmuxRow[] = [
+    row("mu", "user", { text: "Go" }),
+    row("ma", "activity", {
+      items: [edit("m1", "/repo/src/main.ts", "a\n", "b\n", 1), edit("m2", "/tmp/setup.txt", null, "x\n")],
+    } as Partial<AcpmuxRow>),
+    row("ms", "turnSummary", { status: "completed", checkpoint: { from: "cp-1", to: "cp-2" } }),
+  ];
+  const diff = async () => ({
+    checkpoint_id: "cp-1..cp-2",
+    complete: true,
+    diff: {
+      root: "/repo",
+      complete: true,
+      files: [
+        { path: "src/main.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-a\n+b\n" },
+        { path: "src/fmt.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-c\n+d\n" },
+      ],
+    },
+  });
+  const files = await viewChangesFiles(rows, "ma", diff);
+  const patch = viewChangesPatch(rows, "ma", undefined, "/repo", files);
+  expect(new Set(parsePatchFiles(patch!.text).flatMap((p) => p.files ?? []).map((file) => file.name))).toEqual(
+    new Set(["src/main.ts", "src/fmt.ts", "/tmp/setup.txt"]),
+  );
+  // With no checkpoint read, the tool calls' edits still make the patch.
+  const fallback = await viewChangesFiles(rows, "ma", () => Promise.reject(new Error("offline")));
+  expect(viewChangesPatch(rows, "ma", undefined, "/repo", fallback)?.text).toContain("/tmp/setup.txt");
 });

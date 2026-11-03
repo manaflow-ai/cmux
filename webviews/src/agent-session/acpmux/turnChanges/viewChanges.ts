@@ -5,9 +5,11 @@
 // built from the tool calls (`viewChangesPatch`), which shows any file. Either way it is a tab on the
 // chat's right, never a view over the chat (Leo, 2026-11-03: "the diff thing/changes viewer still
 // doesn't open up on the right pane? why? just put it in a tab???").
-import { editPatch, turnFiles, turnRows } from "../diff";
+import { editPatch, turnFiles, turnPathsOnly, turnRows, type TurnFile } from "../diff";
 import type { AcpmuxRow } from "../model";
-import { turnCheckpointPair } from "../changes/turnCheckpointSource";
+import { readTurnCheckpoint, turnDisplay } from "../changes/turnCheckpoint";
+import { readTurnFromRows, turnCheckpointPair, type CheckpointDiff } from "../changes/turnCheckpointSource";
+import { currentLanguage, translatorFor } from "../i18n";
 
 /// The top level of the repository holding `folder`, from the host's `git.status` for it
 /// (GitStatusResult `root`); undefined when the folder is not in one or the read fails.
@@ -96,18 +98,29 @@ export type DiffTabPatch = { text: string; file?: string };
 /// The longest patch the app takes (AgentPaneDiffPatch.maximumBytes); a longer one shows in the page.
 const MAX_PATCH_BYTES = 16 << 20;
 
-/// The turn holding `rowId` as a `DiffTabPatch`: every edit its tool calls made, at the file `path`
-/// names (an edited-files row). A file under the chat's folder `cwd` is named from it, any other by
-/// its full path. Each edit is its own file section, as the page's own changes view lists them: two
-/// edits' line numbers count from different versions of the file, so one section could not hold
-/// both. Undefined when the tool calls changed nothing the patch can show, or it is too long.
+/// The files the turn holding `rowId` changed, as the page's own Last turn view shows them: its
+/// checkpoint pair's diff when the session host has one (which also holds what no tool call made, a
+/// shell command or a formatter), with the tool calls' edits to files outside the repository beside
+/// it; else the tool calls' edits alone (turnCheckpoint.ts `turnDisplay`).
+export async function viewChangesFiles(rows: readonly AcpmuxRow[], rowId: string, diff: CheckpointDiff): Promise<TurnFile[]> {
+  const turn = turnRows([...rows], rowId);
+  const tools = turnFiles(turn);
+  const load = await readTurnFromRows(rows, rowId, diff).then(readTurnCheckpoint, () => ({ state: "error" as const }));
+  return turnDisplay(translatorFor(currentLanguage()), tools, load, false, turnPathsOnly(turn)).files;
+}
+
+/// `files` (``viewChangesFiles``, else the turn's tool-call edits) as a `DiffTabPatch`, at the file
+/// `path` names (an edited-files row). A file under the chat's folder `cwd` is named from it, any
+/// other by its full path. Each edit is its own file section, as the page's own changes view lists
+/// them: two edits' line numbers count from different versions of the file, so one section could
+/// not hold both. Undefined when nothing changed the patch can show, or it is too long.
 export function viewChangesPatch(
   rows: readonly AcpmuxRow[],
   rowId: string,
   path: string | undefined,
   cwd: string | undefined,
+  files: readonly TurnFile[] = turnFiles(turnRows([...rows], rowId)),
 ): DiffTabPatch | undefined {
-  const files = turnFiles(turnRows([...rows], rowId));
   let text = "";
   let file: string | undefined;
   for (const changed of files) {
