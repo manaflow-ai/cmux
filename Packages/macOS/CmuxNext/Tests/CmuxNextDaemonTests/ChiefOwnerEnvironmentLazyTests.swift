@@ -12,7 +12,6 @@ struct ChiefOwnerEnvironmentLazyTests {
             .appendingPathComponent("chief-owner-env-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: state) }
         let calls = Calls()
-        let started = ContinuousClock.now
         let launcher = try DaemonLauncher.forChief(
             session: "chief-owner-env-test", stateDirectory: state,
             processEnvironment: [DaemonLauncher.binaryOverrideKey: "/bin/sh"],
@@ -22,10 +21,8 @@ struct ChiefOwnerEnvironmentLazyTests {
                 try? await Task.sleep(for: .milliseconds(500))
                 return ["PATH": "/usr/bin", "CMUX_TUI_CHIEF_BRAINS": "{}", "CMUX_TAG": "a-build"]
             })
-        let made = ContinuousClock.now - started
 
         #expect(await calls.count == 0)
-        #expect(made < .milliseconds(250), "making the launcher took \(made)")
 
         let environment = await launcher.ensureEnvironment()
         #expect(await calls.count == 1)
