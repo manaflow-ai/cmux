@@ -37,6 +37,13 @@ export type FindMatchesResult = {
 /** The highlight names conversation.css styles. */
 export const FIND_HIGHLIGHT = "acpmux-find";
 export const FIND_ACTIVE_HIGHLIGHT = "acpmux-find-active";
+/// Dispatched on the pane's shell when Find in Chat's bar opens (ChatFindBar.tsx): where the chat has
+/// no room for the bar beside Session Info, the panel steps aside (session-info/SessionInfo.tsx
+/// findBarCramped) instead of covering it.
+export const FIND_OPEN_EVENT = "acpmux-find-open";
+/// Dispatched on the pane's shell to close Find in Chat's bar: the person opened Session Info over it
+/// where the chat has no room for both.
+export const FIND_HIDE_EVENT = "acpmux-find-hide";
 
 /// Prompts, replies, and another agent's message waiting in the queue (QUEUED_MESSAGE, its text),
 /// which the transcript draws in the group of waiting messages (pendingMessages.ts).
@@ -337,6 +344,16 @@ export function clearFindHighlights() {
  * the active match's range when its row is mounted (its last match when the drawn text has fewer
  * than the row's text, such as a link's hidden address).
  */
+/// Whether text in `element` is outside Find: under a `data-find-skip`, unless a `data-find-keep`
+/// nearer to it brings it back (a tool's notice's title on its line, whose line is a summary that
+/// Find skips: IncomingMessageCard.tsx).
+export function findSkipped(element: Element | null | undefined): boolean {
+  const skip = element?.closest("[data-find-skip]");
+  if (!skip) return false;
+  const keep = element?.closest("[data-find-keep]");
+  return !keep || !skip.contains(keep);
+}
+
 export function paintFindHighlights(
   root: HTMLElement,
   query: string,
@@ -363,7 +380,7 @@ export function paintFindHighlights(
     const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT, {
       // A member row drawn inside this one (`data-find-member`) counts its own matches, never twice.
       acceptNode: (node) =>
-        node.parentElement?.closest("[data-find-skip]") ||
+        findSkipped(node.parentElement) ||
         node.parentElement
           ?.closest("[data-find-member][data-row-id]")
           ?.closest("[data-row-id]:not([data-find-member])") === row

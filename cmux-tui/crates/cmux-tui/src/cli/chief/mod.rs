@@ -22,6 +22,7 @@ mod launch;
 mod link;
 mod messages;
 mod pipe;
+mod primary;
 pub(in crate::cli) mod registry;
 mod relocate;
 mod render;
@@ -219,6 +220,9 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
     let m = messages();
     if args.first().is_some_and(|word| registry::WORDS.contains(&word.as_str())) {
         return registry::run(&global, args);
+    }
+    if args.first().is_some_and(|word| word == "primary") {
+        return primary::run(&global, &args[1..]);
     }
     if args.first().is_some_and(|word| word == "move") {
         return relocate::run(&global, &args[1..]);

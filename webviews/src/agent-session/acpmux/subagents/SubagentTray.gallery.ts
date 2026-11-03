@@ -103,12 +103,13 @@ const described = activity(
   1.4,
 );
 
-/** A chat this chat's agent started (`acpmux new`), its turn running or ended. */
+/** A chat this chat's agent started with its `start_session` tool, its turn running or ended. */
 const child = (id: string, title: string, minutes: number, running: boolean, doing?: string, doingTool?: string) =>
   session({
     sessionId: id,
     title,
     spawnedBy: SESSION_ID,
+    startedBy: SESSION_ID,
     indicator: running ? "working" : "done",
     status: running ? "running" : "idle",
     createdAt: minutesAgo(minutes),
@@ -625,6 +626,7 @@ export default agentPaneEntry({
               sessionId: "child-1",
               title: "Migrate the settings store to SQLite",
               spawnedBy: SESSION_ID,
+              startedBy: SESSION_ID,
               indicator: "working",
               status: "running",
               createdAt: minutesAgo(5.5),
@@ -633,9 +635,49 @@ export default agentPaneEntry({
               sessionId: "child-2",
               title: "Port the history page to React Aria",
               spawnedBy: SESSION_ID,
+              startedBy: SESSION_ID,
               indicator: "working",
               status: "running",
               createdAt: minutesAgo(5.4),
+            }),
+          ],
+        };
+      })(),
+    },
+    "dispatched-lane": {
+      note: 'Leo, 2026-11-03, on a lane a coordinator dispatched showing as a running line: "like why is this even in the "running" in the first place?" The tray lists only the chat\'s own work: its subagent\'s line, never the lane (started with sessions new, tagged mux.parent, no startedBy), which is its own chat in the sidebar.',
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line"));
+        const lines = ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line");
+        if (lines.length !== 1) throw new Error(`one line, the chat's own subagent; got ${lines.length}`);
+        if ((ctx.document.querySelector(".acpmux-running-tray")?.textContent ?? "").includes("mac-studio-ultras"))
+          throw new Error("a dispatched lane is never a running line");
+      },
+      snapshot: (() => {
+        const base = chat(
+          [
+            user("Audit the stack, and place a lane for the Mac Studio work", 3),
+            group(
+              [agent("Audit the bottom stack", 2.5, "running", { kind: "Explore", action: "Read bottomStack.css" })],
+              2.5,
+            ),
+            assistant("An auditor is on the stack; the Mac Studio lane is placed.", 2),
+          ],
+          { isWorking: true },
+        );
+        return {
+          ...base,
+          sessions: [
+            ...base.sessions,
+            session({
+              sessionId: "lane-mac-studio",
+              title: "mac-studio-ultras",
+              name: "mac-studio-ultras",
+              spawnedBy: SESSION_ID,
+              indicator: "working",
+              status: "running",
+              lane: "working",
+              createdAt: minutesAgo(2),
             }),
           ],
         };
