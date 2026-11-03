@@ -185,7 +185,8 @@ import { NewChatPrewarm, type PrewarmTarget } from "./newChatPrewarm";
 import { harnessProfiles } from "./harnessProfiles";
 import { setStartModeSource } from "./startMode";
 import { setPromptSurfaces } from "./surfaces/promptSurface";
-import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
+import type { MockScript } from "./mock";
+import { preparedMockTransport } from "./mockTransport";
 import { BridgeSocket } from "./bridgeSocket";
 import { useComposerKeyboard } from "./composerFocus";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
@@ -561,6 +562,7 @@ import {
   cloudStartToasted,
   newTabProjectPick,
   oneCloudStart,
+  cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
@@ -1593,6 +1595,7 @@ const ThinkingRow = memo(
         turnTotal={row.turnTotal}
         untimed={row.untimed}
         quietKey={row.quietKey}
+        quietAt={row.quietAt}
         below={row.below}
         command={row.doingCommand}
       />
@@ -1617,6 +1620,7 @@ const ThinkingRow = memo(
     a.row.turnTotal === b.row.turnTotal &&
     a.row.untimed === b.row.untimed &&
     a.row.quietKey === b.row.quietKey &&
+    a.row.quietAt === b.row.quietAt &&
     a.row.below === b.row.below &&
     a.row.doingCommand === b.row.doingCommand,
 );
@@ -8602,6 +8606,7 @@ function AcpmuxPane() {
   const cloudPicked = sandbox.mode === "cloud" && !snapshot.sessionId;
   const cloudPickedNotOffered = cloudPicked && !sandboxOffered;
   const [startCloud] = useState(() => oneCloudStart(callNative));
+  const [cloudStartKeys] = useState(() => makeCloudStartKeys());
   const [cloudStart, setCloudStart] = useState<CloudStartProgress>();
   /// A Cloud start is out: the composer takes no edits until it ends (#28686 review). On success the
   /// host closes this tab with only the sent prompt, so text or files added meanwhile would be lost;
@@ -8610,13 +8615,18 @@ function AcpmuxPane() {
   /// The same, for dictation's field getter (below), which is made once.
   const cloudStartingNow = useRef(false);
   cloudStartingNow.current = cloudStarting;
-  const sendToCloud = (text: string, attachmentCount: number, start: Omit<CloudStart, "task">): string | false => {
-    const refused = cloudPageRefusal(sandboxOffered, attachmentCount);
+  const sendToCloud = (
+    text: string,
+    attachments: ComposerAttachment[],
+    start: Omit<CloudStart, "task" | "attachments">,
+  ): string | false => {
+    const refused = cloudPageRefusal(sandboxOffered);
     if (refused === "cloud_not_now")
       return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
-    if (refused) return translate("composer.cloudAttachments");
-    const key = crypto.randomUUID();
-    const started = startCloud({ task: text, ...start }, key);
+    const request: CloudStart = { task: text, attachments, ...start };
+    // A retry of the same start reuses its first key, so the host reaches the machine it made (#33493).
+    const key = cloudStartKeys.keyFor(request);
+    const started = startCloud(request, key);
     // Another Return while a start waits starts nothing, and the card keeps that start.
     if (!started) return false;
     cloudStartPending.current = true;
@@ -8624,6 +8634,7 @@ function AcpmuxPane() {
       cloudStartBegun(key, text, start.cwd, start.harness ? harnessLabel(start.harness) : undefined, start.home),
     );
     void started.then((answer) => {
+      cloudStartKeys.ended(request, answer);
       cloudStartPending.current = false;
       setCloudStartsEnded((count) => count + 1);
       if (cloudRunsHere(answer)) {
@@ -10738,6 +10749,7 @@ function AcpmuxPane() {
     // A seeded first prompt (onboarding's first task). Swift hands it out once, so it is kept
     // here until a connect succeeds: a first connect that fails retries without it.
     let pendingPrompt: string | undefined;
+    let pendingAttachments: ComposerAttachment[] | undefined;
     let pendingTicket: { promptId: string; ticket: string } | undefined;
     // The harness that seeded prompt starts on (`newTab.submit --agent`), kept with it.
     let pendingHarness: string | undefined;
@@ -10792,6 +10804,7 @@ function AcpmuxPane() {
           cwd?: string;
           draft?: string;
           prompt?: string;
+          promptAttachments?: ComposerAttachment[];
           promptTicket?: { promptId?: unknown; ticket?: unknown };
           harness?: string;
           peer?: string;
@@ -10920,10 +10933,11 @@ function AcpmuxPane() {
         // Integrate a Harness… from the palette or the menu opened this tab (cx-uj5g8).
         if (host.harnesses === true) setHarnessesOpen(true);
         pendingPrompt = composerDraft(host.prompt) ?? pendingPrompt;
+        pendingAttachments = host.promptAttachments ?? pendingAttachments;
         // A prompt a person's action seeded has a single-use host ticket bound to its promptId
         // (cx-k21v gap 4); a CLI, MCP or script seed has none and the host refuses its send.
         if (
-          host.prompt &&
+          (host.prompt || host.promptAttachments?.length) &&
           typeof host.promptTicket?.promptId === "string" &&
           typeof host.promptTicket.ticket === "string"
         )
@@ -10952,13 +10966,19 @@ function AcpmuxPane() {
           setHostErrorShown(false);
           return;
         }
+        // Native chats never load the in-page daemon or its fixture transcripts. Keep this
+        // await in the mock branch so the native handshake still starts in the same turn.
+        const mockModule = mock ? (preparedMockTransport() ?? (await import("./mock"))) : undefined;
+        if (cancelled) return;
         // A new chat in mock mode starts without a session too, as against a real daemon.
-        const mockConfig: AcpmuxHostConfig = host.newSession
-          ? { ...mockHost, sessionId: undefined, newSession: true }
-          : mockHost;
+        const config: AcpmuxHostConfig = mockModule
+          ? host.newSession
+            ? { ...mockModule.mockHost, sessionId: undefined, newSession: true }
+            : mockModule.mockHost
+          : (host as AcpmuxHostConfig);
         let connectingClient: AcpmuxDirectClient | undefined;
         const client = await AcpmuxDirectClient.connect(
-          mock ? mockConfig : (host as AcpmuxHostConfig),
+          config,
           (next) => {
             harnessSwitch.reconcile(next);
             rowsRef.current = next.rows;
@@ -11015,8 +11035,8 @@ function AcpmuxPane() {
             retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
             retryDelay = nextRetryDelay(retryDelay, true);
           },
-          mock
-            ? () => new MockAcpmuxSocket(undefined, window.cmuxAcpmuxMockScript) as unknown as WebSocket
+          mockModule
+            ? () => new mockModule.MockAcpmuxSocket(undefined, window.cmuxAcpmuxMockScript) as unknown as WebSocket
             : bridge
               ? () => new BridgeSocket() as unknown as WebSocket
               : undefined,
@@ -12056,15 +12076,18 @@ function AcpmuxPane() {
         // Onboarding's first task runs without a Send press, once. If the chat cannot start,
         // the prompt waits in the composer instead of vanishing.
         const prompt = pendingPrompt;
+        const attachments = pendingAttachments ?? [];
+        const hasPrompt = Boolean(prompt || attachments.length);
         const harness = pendingHarness;
         const model = pendingModel;
         const ticket = pendingTicket;
         pendingPrompt = undefined;
+        pendingAttachments = undefined;
         pendingHarness = undefined;
         pendingModel = undefined;
         pendingTicket = undefined;
         // The seeded prompt goes with its ticket, under the ticket's promptId.
-        if (prompt && ticket) heldPrompt.keep(ticket);
+        if (hasPrompt && ticket) heldPrompt.keep(ticket);
         // A chat seeded with an agent starts on it, the prompt queued on the switch; a switch
         // that fails hands it back to the composer.
         if (host.peer && !host.sessionId && !client.attachedSession() && !client.adopted) {
@@ -12077,11 +12100,17 @@ function AcpmuxPane() {
               if (!cancelled && directClient.current === client) client.notice(errorMessage(error) || String(error));
             },
           );
-        } else if (harness && prompt) {
+        } else if (harness && hasPrompt) {
           void harnessSwitch.switchTo(harness, host.cwd, { model });
-          void send(prompt, [], undefined, false, ticket?.promptId, undefined, true).catch(() => undefined);
-        } else if (prompt)
-          void send(prompt, [], undefined, false, ticket?.promptId, undefined, true).catch(() => setDraft(prompt));
+          void send(prompt ?? "", attachments, undefined, false, ticket?.promptId, undefined, true).catch(
+            () => undefined,
+          );
+        } else if (hasPrompt)
+          void send(prompt ?? "", attachments, undefined, false, ticket?.promptId, undefined, true).catch(
+            (error: unknown) => {
+              if (!isTrustRefusal(error)) restorePrompt(prompt ?? "", attachments);
+            },
+          );
         // A new chat seeded with the harness/model starts on them with the first Send; no session opens before that.
         // A model-only seed stays sessionless until the first Send; AcpmuxDirectClient retains
         // it in its host config and ensureSession() carries it into session/new.
@@ -13950,10 +13979,14 @@ function AcpmuxPane() {
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
               if (cloudPicked) {
                 // The chat's project, copied to the machine; none: the machine's own folder (cloudStartFolder).
-                const refused = sendToCloud(text, chips?.length ?? 0, {
-                  ...cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd),
-                  ...heldPick(composerSnapshot),
-                });
+                const refused = sendToCloud(
+                  text,
+                  shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
+                  {
+                    ...cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd),
+                    ...heldPick(composerSnapshot),
+                  },
+                );
                 if (refused) directClient.current?.notice(refused);
                 return false;
               }
@@ -14641,7 +14674,7 @@ function AcpmuxPane() {
                           model: string | undefined,
                           attachments: ComposerAttachment[],
                         ) =>
-                          sendToCloud(text, attachments.length, {
+                          sendToCloud(text, attachments, {
                             harness,
                             ...cloudStartFolder(cwd),
                             ...(model ? { model } : {}),
