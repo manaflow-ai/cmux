@@ -75,6 +75,10 @@ jobs:
           # about 280 s here and ran into this job's 5-minute timeout).
           fetch-depth: 0
           filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
           persist-credentials: false
 
       # The pull request's changed paths from the commit graph this job already
@@ -194,6 +198,10 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           filter: blob:none # the commit graph without historical blobs, as action-areas
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
           persist-credentials: false
           submodules: false
 
@@ -391,6 +399,10 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           filter: blob:none # the commit graph without historical blobs, as action-areas
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
           persist-credentials: false
 
       # The pull request's changed paths from the commit graph this job already
