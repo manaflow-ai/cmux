@@ -12,16 +12,17 @@ import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { setChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
+import { transcriptColumn } from "../src/agent-session/acpmux/model";
 import { ChatHeaderTools } from "../src/agent-session/acpmux/header/ChatHeaderTools";
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import {
   FLOAT_MARGIN,
-  PUSH_MIN_CHAT,
   SessionInfoPanel,
   pushedWidth,
   pushedRoom,
   sessionInfoFits,
   sessionInfoShown,
+  sessionInfoStage,
   paneRoom,
   useSessionInfo,
 } from "../src/agent-session/acpmux/session-info/SessionInfo";
@@ -418,21 +419,35 @@ for (const width of [370, 528]) {
   });
 }
 
-test("in a 740px pane a saved open state opens it, pushing the chat beside a readable column", async () => {
+test("in a 740px pane a saved open state opens it over the chat: a push would narrow the column", async () => {
+  // Leo, 2026-11-03: "the agent chat's horizontal width shouldn't be shifted its position sure but it
+  // itself and its text shouldn't be affected by the session info if it would need to be then session
+  // info should be an overlay".
   const opened: string[] = [];
   const container = await mountFolderPane(740, opened, 960);
   expect(sessionInfoFits(740)).toBe(true);
   const card = panel(container) as HTMLElement | null;
+  expect(card?.dataset.placement).toBe("overlay");
+  expect(card?.hasAttribute("data-over-chat")).toBe(true);
+  expect(card?.style.width).toBe("320px");
+});
+
+test("in a 1100px pane a saved open state opens it, pushing the column left at its own width", async () => {
+  const opened: string[] = [];
+  const container = await mountFolderPane(1100, opened, 960);
+  const card = panel(container) as HTMLElement | null;
   expect(card?.dataset.placement).toBe("push");
-  expect(card?.style.width).toBe(`${pushedWidth(740, 320)}px`);
-  expect(740 - pushedWidth(740, 320) - FLOAT_MARGIN).toBe(PUSH_MIN_CHAT);
+  expect(card?.style.width).toBe(`${pushedWidth(1100, 320)}px`);
+  const room = pushedRoom(1100, pushedWidth(1100, 320));
+  expect(transcriptColumn(1100 - room).width).toBe(transcriptColumn(1100).width);
 });
 
 // The App draws the panel natively (#32159) over the page at the page's width and margin from the
 // pane's right edge (AgentPaneView+SessionInfo.swift sessionInfoFrame). Pushing, the page keeps the
-// room the panel takes (pushedRoom) in the shell's row, so the chat narrows beside the native panel
-// instead of lying under it. Over a narrow chat the native panel lies over it too: the page keeps none.
-for (const width of [370, 528, 740, 1200]) {
+// room the panel takes (pushedRoom) in the shell's row, so the chat's column moves left beside the
+// native panel instead of lying under it. Where a push would narrow the column, the native panel lies
+// over the chat: the page keeps none.
+for (const width of [370, 528, 740, 1100, 1420]) {
   test(`native, in a ${width}px pane the page keeps the room the native panel takes`, async () => {
     const posted: { open: boolean; width: number; side: number }[] = [];
     setNativeHost(async (method, params) => {
@@ -446,7 +461,7 @@ for (const width of [370, 528, 740, 1200]) {
       if (!sessionInfoFits(width)) await act(async () => toggle(container).click());
       await act(async () => new Promise((resolve) => dom!.window.requestAnimationFrame(() => resolve(undefined))));
       const room = container.querySelector<HTMLElement>(".acpmux-session-info-room");
-      if (!sessionInfoFits(width)) {
+      if (sessionInfoStage("overlay", { width, height: 960 }, 320) !== "push") {
         expect(room).toBeNull();
         expect(posted.at(-1)).toMatchObject({ open: true, width: 320, side: 0 });
         return;
@@ -456,10 +471,9 @@ for (const width of [370, 528, 740, 1200]) {
       expect(taken).toBeGreaterThan(0);
       expect(parseFloat(room!.style.width) + parseFloat(room!.style.marginRight)).toBe(taken);
       expect(posted.at(-1)).toMatchObject({ open: true, width: expected, side: 0 });
-      // The chat keeps a readable width, and at 740px its right edge is the panel's left margin.
-      expect(width - taken).toBeGreaterThanOrEqual(PUSH_MIN_CHAT);
-      if (width === 740) expect(taken).toBe(expected + FLOAT_MARGIN);
-      if (width === 1200) expect(taken).toBeLessThan(expected + FLOAT_MARGIN);
+      // The column keeps its width: it only moves left.
+      expect(transcriptColumn(width - taken).width).toBe(transcriptColumn(width).width);
+      if (width === 1420) expect(taken).toBeLessThan(expected + FLOAT_MARGIN);
     } finally {
       setNativeSessionInfoHost(false);
       setNativeHost(undefined);

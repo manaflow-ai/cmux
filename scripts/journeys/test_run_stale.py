@@ -98,7 +98,7 @@ class Stale(unittest.TestCase):
                 if self.cut_tar:
                     return Done(tar_of(self.mini_files(cmd))[:700])
                 return Done(tar_of(self.mini_files(cmd)))
-            if "cmux-ci artifact" in script:
+            if "build_cache" in script:  # the set-up's cache fill (build_cache.py) prints the .app
                 return Done(b"/tmp/x/build/cmux DEV t.app")
             return Done()
         run.remote = remote
