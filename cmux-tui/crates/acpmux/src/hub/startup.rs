@@ -73,6 +73,9 @@ impl Hub {
                 });
             }
         }
+        // The person's vault (`crate::vault`): a joined machine pulls it now and
+        // every 15 minutes; its env goes to every local agent.
+        crate::vault::start_worker();
         self.catalog_ready.send_replace(true);
         self.verify_launchers().await;
         self.startup_ready.send_replace(true);

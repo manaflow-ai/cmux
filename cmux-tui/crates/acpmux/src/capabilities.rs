@@ -85,6 +85,8 @@ pub const CAPABILITIES: &[Capability] = &[
     // list's pace (the app's dialog list). Older daemons would answer the whole list.
     Capability { id: "session-list-pending-v1", wire: &[method::MUX_SESSIONS] },
     Capability { id: "machine.join.stdin.v1", wire: &[] },
+    // `acpmux machine vault pull|status|forget` (crate::vault): CLI-only, no wire method.
+    Capability { id: crate::vault::CAPABILITY, wire: &[] },
     Capability {
         id: "machine-consent-v1",
         wire: &[method::MUX_MACHINE_CONSENT_SET, method::MUX_MACHINE_CONSENT_GET],
@@ -306,7 +308,8 @@ mod tests {
             crate::protocol::registry().iter().map(|decl| decl.name).collect();
         for capability in CAPABILITIES {
             // Machine onboarding is CLI-only and has no daemon wire method.
-            if capability.id == "machine.join.stdin.v1" {
+            if capability.id == "machine.join.stdin.v1" || capability.id == crate::vault::CAPABILITY
+            {
                 assert!(capability.wire.is_empty());
                 continue;
             }

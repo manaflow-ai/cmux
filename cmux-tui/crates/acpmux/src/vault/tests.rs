@@ -1,0 +1,338 @@
+use std::collections::BTreeMap;
+
+use base64::Engine as _;
+use serde_json::json;
+use zeroize::Zeroizing;
+
+use super::plan::{self, State};
+use super::pull;
+use super::store::{MemoryStore, SecretStore, UNAVAILABLE};
+use super::wire::{self, Answer, EnvItem};
+
+const SECRET_A: &str = "sk-synthetic-AAAA-1111";
+const SECRET_B: &str = "multi\nline 'quoted' \"value\" $HOME";
+
+fn b64(value: &str) -> String {
+    base64::engine::general_purpose::STANDARD.encode(value)
+}
+
+fn body(value: serde_json::Value) -> Vec<u8> {
+    serde_json::to_vec(&value).unwrap()
+}
+
+fn active(name: &str, revision: u64, value: &str) -> EnvItem {
+    EnvItem { name: name.into(), revision, value: Some(Zeroizing::new(value.into())) }
+}
+
+fn salted() -> State {
+    let mut state = State::parse(None);
+    state.ensure_salt(|| [7; 16]);
+    state
+}
+
+fn granted(answer: Answer) -> Vec<EnvItem> {
+    match answer {
+        Answer::Granted { env, .. } => env,
+        other => panic!("not granted: {other:?}"),
+    }
+}
+
+/// Every text a person or a log can see.
+fn assert_no_value(text: &str) {
+    for secret in [SECRET_A, SECRET_B, &b64(SECRET_A), &b64(SECRET_B)] {
+        assert!(!text.contains(secret), "a value leaked into: {text}");
+    }
+}
+
+#[test]
+fn a_granted_answer_reads_env_only_and_refuses_unsafe_names() {
+    let answer = wire::parse(
+        200,
+        &body(json!({
+            "harnessCredentials": [{"harness": "claude", "state": "active", "revision": 1,
+                "fingerprint": "x", "contentBase64": b64("{\"claudeAiOauth\":{}}")}],
+            "env": [
+                {"name": "OPENAI_API_KEY", "revision": 2, "state": "active", "valueBase64": b64(SECRET_A)},
+                {"name": "OPENAI_API_KEY", "revision": 1, "state": "active", "valueBase64": b64("old")},
+                {"name": "MULTI", "revision": 3, "state": "active", "valueBase64": b64(SECRET_B)},
+                {"name": "GONE", "revision": 4, "state": "revoked"},
+                {"name": "PATH", "revision": 1, "state": "active", "valueBase64": b64("/evil")},
+                {"name": "LD_PRELOAD", "revision": 1, "state": "active", "valueBase64": b64("x")},
+                {"name": "CLAUDE_CODE_OAUTH_TOKEN", "revision": 1, "state": "active", "valueBase64": b64("x")},
+                {"name": "NO_VALUE", "revision": 1, "state": "active"},
+                {"name": "BAD_B64", "revision": 1, "state": "active", "valueBase64": "!!!"},
+                {"name": "NO_REVISION", "state": "active", "valueBase64": b64("x")},
+            ],
+        })),
+    );
+    assert_no_value(&format!("{answer:?}"));
+    let Answer::Granted { env, refused } = answer else { panic!() };
+    assert_eq!(refused, 6);
+    let names: Vec<_> = env.iter().map(|e| (e.name.as_str(), e.revision)).collect();
+    assert_eq!(names, [("GONE", 4), ("MULTI", 3), ("OPENAI_API_KEY", 2)]);
+    assert!(env[0].value.is_none());
+    assert_eq!(env[1].value.as_deref().map(String::as_str), Some(SECRET_B));
+    assert_eq!(env[2].value.as_deref().map(String::as_str), Some(SECRET_A));
+}
+
+#[test]
+fn hub_statuses_map_to_results() {
+    let not_granted = body(json!({"error": {"code": "vault.not_granted"}}));
+    assert!(matches!(wire::parse(403, &not_granted), Answer::NotGranted));
+    let flat = body(json!({"code": "vault.not_granted"}));
+    assert!(matches!(wire::parse(403, &flat), Answer::NotGranted));
+    let other = body(json!({"code": "team.forbidden"}));
+    assert!(matches!(wire::parse(403, &other), Answer::Refused(c) if c == "team.forbidden"));
+    assert!(matches!(wire::parse(401, b"{}"), Answer::Revoked));
+    assert!(matches!(wire::parse(404, b""), Answer::Off));
+    assert!(matches!(wire::parse(503, b""), Answer::Retry(c) if c == "http.503"));
+    assert!(matches!(wire::parse(200, b"{}"), Answer::Refused(c) if c == "vault.malformed"));
+    // A free-text "code" is never echoed.
+    let prose = body(json!({"code": "here is sk-synthetic text"}));
+    assert!(matches!(wire::parse(400, &prose), Answer::Refused(c) if c == "http.400"));
+}
+
+#[test]
+fn plan_stores_new_and_changed_keeps_current_and_deletes_revoked_and_gone() {
+    let mut state = salted();
+    let fp = state.fingerprint("KEEP", "same");
+    state.env.insert("KEEP".into(), plan::EnvRecord { revision: 1, fingerprint: fp });
+    let fp = state.fingerprint("CHANGED", "before");
+    state.env.insert("CHANGED".into(), plan::EnvRecord { revision: 1, fingerprint: fp });
+    state.env.insert("REVOKED".into(), plan::EnvRecord { revision: 1, fingerprint: "f".into() });
+    state.env.insert("GONE".into(), plan::EnvRecord { revision: 1, fingerprint: "f".into() });
+    let steps = plan::plan(
+        &state,
+        vec![
+            active("KEEP", 1, "same"),
+            active("CHANGED", 1, "after"),
+            active("NEW", 5, SECRET_A),
+            EnvItem { name: "REVOKED".into(), revision: 2, value: None },
+            EnvItem { name: "NEVER_HAD".into(), revision: 2, value: None },
+        ],
+    );
+    let text = format!("{steps:?}");
+    assert_no_value(&text);
+    assert_eq!(
+        text,
+        "[Keep(KEEP), Store(CHANGED r1), Store(NEW r5), Delete(REVOKED), Delete(GONE)]"
+    );
+    let wiped = format!("{:?}", plan::wipe(&state));
+    assert_eq!(wiped, "[Delete(CHANGED), Delete(GONE), Delete(KEEP), Delete(REVOKED)]");
+}
+
+#[test]
+fn fingerprints_are_salted_per_machine() {
+    let a = salted();
+    let mut b = State::parse(None);
+    b.ensure_salt(|| [9; 16]);
+    assert_ne!(a.fingerprint("K", SECRET_A), b.fingerprint("K", SECRET_A));
+    assert_eq!(a.fingerprint("K", SECRET_A), a.fingerprint("K", SECRET_A));
+    let mut kept = a.clone();
+    kept.ensure_salt(|| [1; 16]);
+    assert_eq!(kept.salt, a.salt, "the salt is made once");
+}
+
+#[test]
+#[cfg(unix)]
+fn settle_stores_values_and_the_state_file_is_private_and_holds_no_value() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let home = tempfile::tempdir().unwrap();
+    let store = MemoryStore::default();
+    let answer = Answer::Granted {
+        env: vec![active("OPENAI_API_KEY", 2, SECRET_A), active("MULTI", 1, SECRET_B)],
+        refused: 0,
+    };
+    let outcome = pull::settle(home.path(), "https://hub.test", answer, &store, 42).unwrap();
+    assert_eq!(outcome.state, "ok");
+    assert_eq!(outcome.env, ["MULTI", "OPENAI_API_KEY"]);
+    assert_eq!(outcome.stored, ["OPENAI_API_KEY", "MULTI"]);
+    assert_eq!(store.get("MULTI").unwrap().as_deref().map(String::as_str), Some(SECRET_B));
+
+    let path = pull::state_path(home.path());
+    let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600);
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert_no_value(&text);
+    let saved: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(saved["hub"], "https://hub.test");
+    assert_eq!(saved["pulledAt"], 42);
+    assert_eq!(saved["lastResult"], "ok");
+    assert_eq!(saved["env"]["OPENAI_API_KEY"]["revision"], 2);
+
+    let json = crate::cli::host_vault::outcome_json(&outcome).to_string();
+    assert_no_value(&json);
+    let state = pull::read_state(home.path());
+    let status = crate::cli::host_vault::status_json(
+        true,
+        &state,
+        "memory",
+        crate::cli::host_vault::SignedIn::No,
+        crate::cli::host_vault::SignedIn::Yes,
+    );
+    assert_no_value(&status.to_string());
+    assert_eq!(status["harnesses"][0]["signedIn"], "no");
+    assert_eq!(status["harnesses"][1]["signedIn"], "yes");
+
+    // A second pull with the same answer writes nothing; a revoked entry goes.
+    let again = Answer::Granted {
+        env: vec![
+            active("OPENAI_API_KEY", 2, SECRET_A),
+            EnvItem { name: "MULTI".into(), revision: 2, value: None },
+        ],
+        refused: 0,
+    };
+    let outcome = pull::settle(home.path(), "https://hub.test", again, &store, 43).unwrap();
+    assert!(outcome.stored.is_empty());
+    assert_eq!(outcome.deleted, ["MULTI"]);
+    assert_eq!(outcome.env, ["OPENAI_API_KEY"]);
+    assert!(store.get("MULTI").unwrap().is_none());
+
+    // Not granted any more: every entry goes, and that is not an error.
+    let outcome =
+        pull::settle(home.path(), "https://hub.test", Answer::NotGranted, &store, 44).unwrap();
+    assert_eq!(outcome.state, "not_granted");
+    assert!(outcome.env.is_empty());
+    assert!(store.items.lock().unwrap().is_empty());
+}
+
+#[test]
+#[cfg(unix)]
+fn no_secret_store_refuses_env_storage_and_writes_no_file_value() {
+    let home = tempfile::tempdir().unwrap();
+    let store = MemoryStore { unavailable: true, ..MemoryStore::default() };
+    let answer = Answer::Granted { env: vec![active("API_TOKEN", 1, SECRET_A)], refused: 0 };
+    let error = pull::settle(home.path(), "https://hub.test", answer, &store, 1).unwrap_err();
+    assert_eq!(error.code, UNAVAILABLE);
+    let text = std::fs::read_to_string(pull::state_path(home.path())).unwrap();
+    assert_no_value(&text);
+    assert!(pull::read_state(home.path()).env.is_empty());
+    let shown = format!("{:#}", crate::cli::host_vault::failure_for_test(error));
+    assert_no_value(&shown);
+}
+
+#[test]
+#[cfg(unix)]
+fn a_revoked_credential_removes_the_entries_and_forget_clears_state() {
+    let home = tempfile::tempdir().unwrap();
+    let store = MemoryStore::default();
+    let answer = Answer::Granted { env: vec![active("API_TOKEN", 1, SECRET_A)], refused: 0 };
+    pull::settle(home.path(), "https://hub.test", answer, &store, 1).unwrap();
+    let error =
+        pull::settle(home.path(), "https://hub.test", Answer::Revoked, &store, 2).unwrap_err();
+    assert_eq!(error.code, "vault.revoked");
+    assert_eq!(error.deleted, ["API_TOKEN"]);
+    assert!(store.items.lock().unwrap().is_empty());
+
+    let answer = Answer::Granted { env: vec![active("API_TOKEN", 3, SECRET_A)], refused: 0 };
+    pull::settle(home.path(), "https://hub.test", answer, &store, 3).unwrap();
+    let outcome = pull::forget(home.path(), &store).unwrap();
+    assert_eq!(outcome.deleted, ["API_TOKEN"]);
+    assert!(store.items.lock().unwrap().is_empty());
+    assert!(!pull::state_path(home.path()).exists());
+}
+
+#[test]
+fn the_daemon_loads_only_values_that_match_their_fingerprints() {
+    let store = MemoryStore::default();
+    let mut state = salted();
+    for (name, value) in [("GOOD", SECRET_A), ("EDITED", "original"), ("MISSING", "x")] {
+        let fingerprint = state.fingerprint(name, value);
+        state.env.insert(name.into(), plan::EnvRecord { revision: 1, fingerprint });
+    }
+    store.put("GOOD", SECRET_A).unwrap();
+    store.put("EDITED", "changed by hand").unwrap();
+    let (vars, skipped) = super::load_values(&state, &store);
+    let names: Vec<_> = vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    assert_eq!(names, [("GOOD", SECRET_A)]);
+    assert_eq!(
+        skipped,
+        [("EDITED".to_owned(), "vault.env_changed"), ("MISSING".to_owned(), "vault.env_missing")]
+    );
+}
+
+#[test]
+fn precedence_is_profile_then_machine_then_vault_then_daemon_then_login() {
+    let pairs = |list: &[(&str, &str)]| -> Vec<(String, String)> {
+        list.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect()
+    };
+    let login: BTreeMap<String, String> =
+        pairs(&[("ONLY_LOGIN", "login"), ("KEY", "login")]).into_iter().collect();
+    let machine: BTreeMap<String, String> =
+        pairs(&[("MACHINE_KEY", "machine")]).into_iter().collect();
+    let vault = pairs(&[("KEY", "vault"), ("MACHINE_KEY", "vault"), ("PROFILE_KEY", "vault")]);
+    let local = crate::login_env::overlay(login, vault, machine);
+    let daemon = pairs(&[("KEY", "daemon"), ("DAEMON_ONLY", "daemon")]);
+    let profile: BTreeMap<String, String> =
+        pairs(&[("PROFILE_KEY", "profile")]).into_iter().collect();
+    let env = crate::login_env::layered(daemon, false, local, Vec::new(), &profile);
+    assert_eq!(env["KEY"], "vault", "the vault beats the daemon and the login shell");
+    assert_eq!(env["MACHINE_KEY"], "machine", "a machine's own declaration beats the vault");
+    assert_eq!(env["PROFILE_KEY"], "profile", "profile, preset and session env beat the vault");
+    assert_eq!(env["DAEMON_ONLY"], "daemon");
+    assert_eq!(env["ONLY_LOGIN"], "login");
+}
+
+#[test]
+fn outside_a_daemon_no_vault_env_is_given() {
+    // The worker never starts in unit tests: a CLI process gives agents nothing.
+    assert!(super::env_for_children().is_empty());
+}
+
+#[test]
+fn backoff_doubles_up_to_the_pull_interval() {
+    assert_eq!(super::backoff(1).as_secs(), 30);
+    assert_eq!(super::backoff(2).as_secs(), 60);
+    assert_eq!(super::backoff(3).as_secs(), 120);
+    assert_eq!(super::backoff(40), super::EVERY);
+}
+
+/// One HTTP answer from a loopback "hub", and the request it saw.
+async fn fake_hub(status: u16, reply: Vec<u8>) -> (String, tokio::task::JoinHandle<String>) {
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+    let task = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut seen = Vec::new();
+        let mut buf = [0u8; 4096];
+        while !seen.windows(4).any(|w| w == b"\r\n\r\n") {
+            let n = socket.read(&mut buf).await.unwrap();
+            if n == 0 {
+                break;
+            }
+            seen.extend_from_slice(&buf[..n]);
+        }
+        let head = format!(
+            "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+            reply.len()
+        );
+        socket.write_all(head.as_bytes()).await.unwrap();
+        socket.write_all(&reply).await.unwrap();
+        socket.shutdown().await.unwrap();
+        String::from_utf8_lossy(&seen).into_owned()
+    });
+    (origin, task)
+}
+
+#[tokio::test]
+async fn a_fake_hub_answers_200_403_and_401() {
+    let credential = "cmm_synthetic-credential";
+    let ok = body(json!({"env": [
+        {"name": "API_TOKEN", "revision": 7, "state": "active", "valueBase64": b64(SECRET_A)},
+    ]}));
+    let (hub, seen) = fake_hub(200, ok).await;
+    let env = granted(pull::fetch(&hub, credential).await);
+    assert_eq!(env.len(), 1);
+    assert_eq!(env[0].revision, 7);
+    assert_eq!(env[0].value.as_deref().map(String::as_str), Some(SECRET_A));
+    let request = seen.await.unwrap();
+    assert!(request.starts_with("GET /v1/vault/machine HTTP/1.1\r\n"), "{request}");
+    assert!(request.to_ascii_lowercase().contains(&format!("authorization: bearer {credential}")));
+
+    let (hub, _) = fake_hub(403, body(json!({"error": {"code": "vault.not_granted"}}))).await;
+    assert!(matches!(pull::fetch(&hub, credential).await, Answer::NotGranted));
+
+    let (hub, _) = fake_hub(401, body(json!({"code": "machine.revoked"}))).await;
+    assert!(matches!(pull::fetch(&hub, credential).await, Answer::Revoked));
+}

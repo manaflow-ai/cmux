@@ -35,6 +35,7 @@ pub mod host_enroll;
 pub mod host_join_doctor;
 pub mod host_peering;
 pub mod host_steps;
+pub mod host_vault;
 pub mod hosts;
 pub mod join_input;
 pub mod ls_table;

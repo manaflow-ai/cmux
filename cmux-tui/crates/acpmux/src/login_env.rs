@@ -749,6 +749,11 @@ pub(crate) fn reference_var(key: &str) -> Option<String> {
 /// value or expose this overlay to remote-origin launches.
 pub(crate) fn restore_machine_tokio(cmd: &mut tokio::process::Command) {
     cmd.envs(
+        crate::vault::env_for_children()
+            .into_iter()
+            .filter(|(key, _)| crate::config::is_nested_claude_key(key)),
+    );
+    cmd.envs(
         machine::read().into_iter().filter(|(key, _)| crate::config::is_nested_claude_key(key)),
     );
 }
@@ -762,7 +767,7 @@ fn pairs_for(
     // agents. Remote-origin launches never call this (`apply_remote_tokio`).
     let machine = machine::read();
     let names = machine::names();
-    let mut values: BTreeMap<_, _> = pairs()
+    let values: BTreeMap<_, _> = pairs()
         .into_iter()
         .filter(|(k, v)| {
             !names.contains(k) && (allowed_with(k, v, family, profile) || delivered(k))
@@ -771,8 +776,27 @@ fn pairs_for(
     // Read literals at the local spawn boundary; never expose them through
     // var/allowed_var/nested_overrides or persist them in login-env.json.
     // Explicit profile/preset/session env is applied after this overlay.
+    overlay(values, crate::vault::env_for_children(), machine)
+}
+
+/// The local overlay over the allow-listed login values: the person's vault
+/// (`crate::vault`), then this machine's delivered `machine.env`, which is
+/// specific to it. Profile, preset and session env go on after it.
+pub(crate) fn overlay(
+    login: BTreeMap<String, String>,
+    vault: Vec<(String, String)>,
+    machine: BTreeMap<String, String>,
+) -> Vec<(String, String)> {
+    let mut values = login;
+    values.extend(vault);
     values.extend(machine);
     values.into_iter().collect()
+}
+
+/// Whether an env name may come from a person's or machine's declarations:
+/// never a loader, shell bootstrap, PATH/HOME or `CMUX_`/`ACPMUX_` name.
+pub(crate) fn machine_env_name_allowed(name: &str) -> bool {
+    machine::allowed_name(name)
 }
 
 /// Login values of the keys `config::scrub_nested_claude_env` removes (a
