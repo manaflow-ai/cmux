@@ -187,26 +187,28 @@ public nonisolated struct LinkHintPendingKeys<Key> {
 }
 
 /// Key-downs the app already dispatched (review of #32537). Chromium sends a key the page left unhandled through the app
-/// again (the same event); such a key the page already had is never a link-hint session's.
-public nonisolated struct LinkHintSeenKeys<Key: AnyObject> {
-    /// A key-down's identity across a copy: its own time, key code and characters (a synthetic key has no time).
-    public struct Signature: Equatable, Sendable {
-        public var time: TimeInterval
-        public var code: UInt16
-        public var characters: String?
-        public init(time: TimeInterval, code: UInt16, characters: String?) { (self.time, self.code, self.characters) = (time, code, characters) }
+/// again (the same event); such a key the page already had is never a link-hint session's. It runs for every key-down of
+/// the process, so it allocates nothing (KeyRouterBench: 0 allocations per plain key): a fixed ring of plain values.
+public nonisolated struct LinkHintSeenKeys {
+    /// A key-down's identity: its own time and key code (a HID event's time is nanoseconds since boot, so two identical
+    /// keys in one display refresh differ); a synthetic key (time 0) is known by its object only.
+    private struct Entry: Equatable {
+        var time: TimeInterval
+        var code: UInt16
+        var object: ObjectIdentifier?
     }
+
+    private var ring = ContiguousArray(repeating: Entry(time: -1, code: 0, object: nil), count: 32)
+    private var next = 0
 
     public init() {}
 
-    /// The last key-downs (Chromium sends one back soon after it, a few keys later at most).
-    private var recent: [(key: Key, signature: Signature)] = []
-
-    /// Notes `key`: whether the app dispatched it before (the same event, or a copy with its time, code and characters).
-    public mutating func note(_ key: Key, _ signature: Signature) -> Bool {
-        if recent.contains(where: { $0.key === key || (signature.time != 0 && $0.signature == signature) }) { return true }
-        recent.append((key, signature))
-        if recent.count > 32 { recent.removeFirst() }
+    /// Notes the key-down `object` with its event `time` and key `code`: whether the app dispatched it before.
+    public mutating func note(_ object: AnyObject, time: TimeInterval, code: UInt16) -> Bool {
+        let entry = Entry(time: time, code: code, object: time == 0 ? ObjectIdentifier(object) : nil)
+        if ring.contains(entry) { return true }
+        ring[next] = entry
+        next = next == ring.count - 1 ? 0 : next + 1
         return false
     }
 }

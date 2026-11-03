@@ -127,17 +127,17 @@ struct LinkHintTypingTests {
     /// sends a key the page left unhandled through the app again (v6 doubled "fiel"): the same event, or a copy with the
     /// same time, code and characters. A synthetic key (no time) is known by its identity only.
     @Test func aKeyIsTheSessionsUnlessTheAppAlreadyDispatchedIt() {
-        var seen = LinkHintSeenKeys<Key>()
-        let f = Key("f"), i = Key("i")
-        let sig = { (time: TimeInterval, key: Key) in LinkHintSeenKeys<Key>.Signature(time: time, code: key.code, characters: key.text) }
-        let firstF = seen.note(f, sig(9.00, f)), firstI = seen.note(i, sig(9.01, i))
-        let backF = seen.note(f, sig(9.00, f)), copyI = seen.note(Key("i"), sig(9.01, i)), queuedE = seen.note(Key("e"), sig(9.02, Key("e")))
+        var seen = LinkHintSeenKeys()
+        let f = Key("f", code: 3), i = Key("i", code: 34)
+        func note(_ key: Key, _ time: TimeInterval) -> Bool { seen.note(key, time: time, code: key.code) }
+        let firstF = note(f, 9.00), firstI = note(i, 9.01)
+        let backF = note(f, 9.00), copyI = note(Key("i", code: 34), 9.01), queuedE = note(Key("e", code: 14), 9.02)
         #expect(!firstF && !firstI, "a key the app never dispatched counts as seen")
         #expect(backF, "Chromium's send-back of the `f` the page had was not known")
-        #expect(copyI, "a copy of a key the page had (same time, code, characters) was not known")
+        #expect(copyI, "a copy of a key the page had (same time and key code) was not known")
         #expect(!queuedE, "a hint letter still queued at the session start was taken as the page's")
         let synthetic = Key("a")
-        let firstA = seen.note(synthetic, sig(0, synthetic)), otherA = seen.note(Key("a"), sig(0, Key("a"))), backA = seen.note(synthetic, sig(0, synthetic))
+        let firstA = note(synthetic, 0), otherA = note(Key("a"), 0), backA = note(synthetic, 0)
         #expect(!firstA && !otherA, "two synthetic keys were one")
         #expect(backA)
     }
@@ -146,12 +146,11 @@ struct LinkHintTypingTests {
     /// characters. Their event times differ (the HID event's own time, nanoseconds since boot, as seconds: a Double
     /// holds 0.1 ns at a 5-day uptime), so neither is taken as the other's copy. Chromium's send-back of each is known.
     @Test func twoIdenticalKeysInOneRefreshAreTwoKeys() {
-        var seen = LinkHintSeenKeys<Key>()
+        var seen = LinkHintSeenKeys()
         let uptime: TimeInterval = 432_000.123_456_789
         let first = Key("l", code: 37), second = Key("l", code: 37)
-        let sig = { (time: TimeInterval) in LinkHintSeenKeys<Key>.Signature(time: time, code: 37, characters: "l") }
-        let l1 = seen.note(first, sig(uptime)), l2 = seen.note(second, sig(uptime + 0.004)), l3 = seen.note(Key("l", code: 37), sig(uptime + 0.004_001))
-        let back1 = seen.note(Key("l", code: 37), sig(uptime)), back2 = seen.note(Key("l", code: 37), sig(uptime + 0.004))
+        let l1 = seen.note(first, time: uptime, code: 37), l2 = seen.note(second, time: uptime + 0.004, code: 37), l3 = seen.note(Key("l", code: 37), time: uptime + 0.004_001, code: 37)
+        let back1 = seen.note(Key("l", code: 37), time: uptime, code: 37), back2 = seen.note(Key("l", code: 37), time: uptime + 0.004, code: 37)
         #expect(!l1, "the first l counts as seen")
         #expect(!l2, "the second l, 4 ms later, was taken as the first one's copy")
         #expect(!l3, "an l 1 µs after the second was taken as its copy")
