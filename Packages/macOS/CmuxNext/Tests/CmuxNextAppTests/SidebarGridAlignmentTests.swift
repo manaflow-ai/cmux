@@ -393,7 +393,7 @@ extension SidebarGridAlignmentTests {
 extension SidebarGridAlignmentTests {
     /// grid.md 3: a leading icon's box is 16 (compact) or 20 (comfortable) and the text starts one 8 pt gap after
     /// it, so the icon-to-text gap is 8 at both densities; the glyph's ink starts at the box's leading edge (Lawrence msg
-    /// 19643) and keeps its size
+    /// 19643) and fills the box (Leo 2026-11-03, a workspace icon grows with the density)
     /// (Astra's c8a8b25e follow-up 2: comfortable reserved a 20 column around a 16 frame, a 12 pt gap).
     @Test(arguments: [false, true])
     func leadingIconBoxEndsOneGapBeforeTheText(comfortable: Bool) throws {
@@ -407,10 +407,10 @@ extension SidebarGridAlignmentTests {
             #expect(abs(workspace.icon.frame.width - box) <= 0.5)
             #expect(abs(origin + workspace.icon.frame.minX - Self.lead(comfortable)) <= 0.5)
             #expect(abs(workspace.title.frame.minX - workspace.icon.frame.maxX - 8) <= 0.5)
-            // The emoji keeps its 16 pt square, at the column box's leading edge (Lawrence msg 19643).
+            // The emoji fills the column box (16 compact, 20 comfortable), at its leading edge (Lawrence msg 19643).
             workspace.icon.layout()
             for glyph in workspace.icon.subviews where !glyph.isHidden {
-                #expect(glyph.frame.width <= 16.5)
+                #expect(glyph.frame.width <= box + 0.5)
                 #expect(abs(glyph.frame.minX) <= 0.5)
             }
 

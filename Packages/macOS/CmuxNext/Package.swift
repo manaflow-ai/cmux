@@ -46,7 +46,7 @@ import PackageDescription
 //     vendored code over the shared HomeStore; no daemon; plans/cmux-next/home-mac.md),
 //     MessagesLabSidebar (MessagesLab's conversation list, the v1 sidebar seam)
 //   CmuxNextHomeEngine -> AgentPane, Actions, Cloud, Compat, Daemon, Design, Home, Icons, Wakeups,
-//     CmuxHomeCore, CmuxAgentQuestion (Home sources, Chief host and migration, Home strings; the App
+//     CmuxHomeCore, CmuxHomeRender, CmuxAgentQuestion (Home sources, Chief host and migration, Home strings; the App
 //     supplies HomeService over AppServices)
 //   CmuxNextDaemonService -> Daemon, Actions, AgentPane, Apps, Compat, Control, Layout, Wakeups
 //     (DaemonService: one machine's daemon connection, command funnels, launch snapshot; FrameBatcher;
@@ -76,9 +76,9 @@ import PackageDescription
 //   CmuxNextAgentPane -> Design, Actions, Dictation (WKWebView host for the React agent pane and the acpmux
 //     handshake; the page talks to acpmux itself; no daemon)
 //   CmuxNextAgentCursor -> CmuxAgentCursor (vendored; agent cursor commands from input events and the layout)
-//   CmuxNextAgentCursorVisibility -> AgentCursor, Focus (visibility of a cursor target: snapshot in, visible /
-//     hidden anchor / not drawn out, from cmux-focus-core's rules over the app FFI; no AppKit; the App builds
-//     the snapshot from the live models)
+//   CmuxNextAgentCursorVisibility -> CCmuxAppFFI, AgentCursor (visibility of a cursor target: snapshot in,
+//     visible / hidden anchor / not drawn out, from cmux-focus-core's rules through the typed app FFI call;
+//     no AppKit; the App builds the snapshot from the live models)
 //   CmuxNextWorkspaceNaming -> Bridge, Compat, Daemon, DesignTokens (hq#1957: the name a workspace takes from a moved
 //     tab or its front tab, and the one-time rename; pure rules; the App supplies its pages and the rename command)
 //   CmuxNextAgentActivity -> Design (Agent activity pane: computer use sessions, timeline, prototype layouts;
@@ -175,8 +175,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-62c09dc65b5d2d78aa2cc67d8cd8d19491bdbf86/CCmuxAppFFI.xcframework.zip",
-    checksum: "46a5fefa22de28bcbe5cd42aa4f218c5ccf322130e14a225daf5cb8417faa1b1"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-d3d3f420820ff448d4f0b85e75fedc39369a56e5/CCmuxAppFFI.xcframework.zip",
+    checksum: "267fc1ede0e107fcc57be43e33cf1308b25803da1512ab32ea27486188f54742"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
@@ -592,6 +592,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextHome",
             dependencies: [
                 "CmuxNextCompat", "CmuxNextDesign", "CmuxNextDictation", "CmuxNextIcons", "CmuxNextWakeups",
+                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                 .product(name: "MessagesLabHome", package: "CmuxMessagesLab"),
@@ -612,6 +613,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextHome", "CmuxNextIcons", "CmuxNextWakeups",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
             ],
             resources: [
                 .process("Resources"),
@@ -775,11 +777,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         // Agent cursor visibility (agent-cursor.md section 3, decisions
         // CURSOR-HIDDEN/SHOW/SCREENS): a value snapshot sent to the Rust rules
-        // (cmux-focus-core `agent_cursor_visibility`, through CmuxNextFocus's
-        // JSON call), replayed from schemas/agent-cursor-visibility/vectors.json.
+        // (cmux-focus-core, the typed `cmux_agent_cursor_visibility` of the app
+        // FFI), replayed from schemas/agent-cursor-visibility/vectors.json.
         .target(
             name: "CmuxNextAgentCursorVisibility",
-            dependencies: ["CmuxNextAgentCursor", "CmuxNextFocus"],
+            dependencies: ["CCmuxAppFFI", "CmuxNextAgentCursor"],
             swiftSettings: uiSwiftSettings
         ),
         // Workspace naming (hq#1957): the name a workspace made from a moved tab
@@ -1549,6 +1551,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // The pinned FFI has the sidebar document mirror (cmux_sidebar_mirror_*, sidebar-doc-v1).
             swiftSettings: uiSwiftSettings + [.define("CMUX_SIDEBAR_MIRROR_FFI")]
         ),
+        .testTarget(
+            name: "CmuxNextSidebarTests",
+            dependencies: ["CmuxNextSidebar"],
+            exclude: ["Fixtures"],
+            swiftSettings: uiSwiftSettings
+        ),
         .target(
             name: "CmuxNextPalette",
             dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextActions", "CmuxNextSignposts", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CCmuxAppFFI"],
@@ -1711,6 +1719,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextAppTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextActions",
                 "CmuxNextAgentCursor",
                 "CmuxNextAgentCursorVisibility",

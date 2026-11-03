@@ -110,6 +110,7 @@ export interface AcpmuxRequests {
   "_acpmux/team/read": { params: unknown; result: unknown };
   "_acpmux/team/ack": { params: unknown; result: unknown };
   "_acpmux/history": { params: unknown; result: unknown };
+  "_acpmux/session_search": { params: unknown; result: unknown };
   "_acpmux/complete": { params: unknown; result: unknown };
   "_acpmux/wait": { params: unknown; result: unknown };
   "_acpmux/watch_add": { params: unknown; result: unknown };
@@ -171,6 +172,8 @@ export interface AcpmuxRequests {
   "_acpmux/secret_request": { params: unknown; result: unknown };
   "_acpmux/secret_submit": { params: unknown; result: unknown };
   "_acpmux/secret_run": { params: unknown; result: unknown };
+  "_acpmux/mcp_connect_request": { params: unknown; result: unknown };
+  "_acpmux/mcp_connect_answer": { params: unknown; result: unknown };
   "_acpmux/chats": { params: unknown; result: unknown };
   "_acpmux/chats_watch": { params: unknown; result: unknown };
   "_acpmux/chat_open": { params: unknown; result: unknown };
@@ -414,6 +417,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/team/read", kind: "request", acp: false, typed: false },
   { name: "_acpmux/team/ack", kind: "request", acp: false, typed: false },
   { name: "_acpmux/history", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/session_search", kind: "request", acp: false, typed: false },
   { name: "_acpmux/complete", kind: "request", acp: false, typed: false },
   { name: "_acpmux/wait", kind: "request", acp: false, typed: false },
   { name: "_acpmux/watch_add", kind: "request", acp: false, typed: false },
@@ -475,6 +479,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/secret_request", kind: "request", acp: false, typed: false },
   { name: "_acpmux/secret_submit", kind: "request", acp: false, typed: false },
   { name: "_acpmux/secret_run", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/mcp_connect_request", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/mcp_connect_answer", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chats", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chats_watch", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chat_open", kind: "request", acp: false, typed: false },

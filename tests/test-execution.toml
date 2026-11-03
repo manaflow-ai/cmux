@@ -530,6 +530,10 @@ path = "tests/test_machine_join_e2e_workflow.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_machine_vault_e2e_workflow.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_workload_profiles.py"
 lane = "linux-guard"
 
@@ -1603,6 +1607,10 @@ path = "tests/test_base_red_excuse.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_web_coalesce.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_test_reds.py"
 lane = "linux-guard"
 
@@ -2491,6 +2499,11 @@ lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI gates. The file says so itself: run python3 tests/test_cmux_next_guardrails_qos.py yourself after changing guardrails.py's task-priority rule (about 2 s, no build)."
 
 [[test]]
+path = "tests/test_scroll_measurement_metrics.py"
+lane = "manual"
+reason = "Run through cmux-ci after changing native scroll receipt validation; isolated Python checks launch no app. No new CI gate."
+
+[[test]]
 path = "tests/test_cmux_next_perf_budgets.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Checks scripts/cmux-next/perf-budgets.py's table and gate; run python3 tests/test_cmux_next_perf_budgets.py yourself after changing it (under 1 s, no build)."
@@ -2511,4 +2524,13 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_publish_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_chat_probe_args.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Pins that scripts/ci/chat-probe.sh passes its prompt to acpmux after -- (a prompt like --cwd=/etc stays text); run python3 tests/test_ci_chat_probe_args.py after changing that script (under 1 s, no build)."
+
+[[test]]
+path = "tests/test_nightly_next_rolling_dmg_identity.py"
 lane = "linux-guard"

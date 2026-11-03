@@ -363,6 +363,7 @@ final class GroupHeaderRowView: SidebarRowView {
 
     override func layout() {
         super.layout()
+        activity.dotDiameter = SidebarStyle.statusDotSize // a roll-up's dot, as every row's (Lawrence msg 19696)
         let b = layoutBounds
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -420,7 +421,8 @@ final class GroupHeaderRowView: SidebarRowView {
         trailing = layoutMachineTrailing(trailing, height: b.height, showsActions: showsActions)
         if badge.state.isUnread {
             badge.isHidden = false
-            let w = badge.preferredWidth, h = SidebarStyle.badgeHeight
+            // A dot is round, the status dot's diameter; a count is the badge's height.
+            let w = badge.preferredWidth, h = badge.state == .dot ? SidebarStyle.statusDotSize : SidebarStyle.badgeHeight
             badge.frame = columns.trailingFrame(before: trailing, centerY: b.midY, size: CGSize(width: w, height: h))
             trailing = columns.trailingEdge(before: badge.frame)
         } else {
