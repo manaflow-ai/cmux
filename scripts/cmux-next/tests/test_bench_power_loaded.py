@@ -152,6 +152,19 @@ class IdleChatsTests(unittest.TestCase):
         self.assertIn("Verdict: **PASS** (budget 5% CPU per process; busiest app at 4.5%)", markdown)
         self.assertIn("| total: CPU % (avg) | 101 |  |  | h |", markdown)
 
+    def test_no_process_measured_is_not_a_pass(self):
+        result = self.result()
+        result["processes"] = []
+        _rows, verdict = bp.process_rows(result, 5.0)
+        self.assertEqual(verdict["verdict"], "UNMEASURED")
+
+    def test_renderer_flags_survive_a_truncated_command(self):
+        result = self.result()
+        result["processes"] = [{**result["processes"][2], "command": "/" + "x" * 200,
+                                "flags": "--type=renderer --renderer-client-id=9"}]
+        rows, _verdict = bp.process_rows(result, 5.0)
+        self.assertIn("`--type=renderer --renderer-client-id=9`", rows[2])
+
     def test_compare_reads_an_idle_chats_run(self):
         folder = tempfile.mkdtemp()
         try:

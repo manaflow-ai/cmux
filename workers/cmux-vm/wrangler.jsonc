@@ -76,7 +76,9 @@
         "UPSTREAM_API_URL": "https://api.freestyle.sh",
         // Immutable development images approved for the Cloud backend services (cloud-native: the root Native receiver, bake run 41315172830;
         // cloud-platform-dev is cmux-platform development's key, cloud-platform-staging cmux-platform staging's).
-        "VM_BOOT_IMAGES": "[{\"id\":\"cloud-standard\",\"revision\":\"ci-41026036265-1\",\"displayName\":\"Cloud development\",\"snapshotId\":\"sh-0afbb63e9a6046b4a58068dfe30a5bc7\",\"services\":[\"cloud-driver\"]},{\"id\":\"cloud-native\",\"revision\":\"ci-41315172830-1\",\"displayName\":\"Cloud Native\",\"snapshotId\":\"sh-b601e8b3084a4876911688c8b464fb5e\",\"services\":[\"cloud-platform-dev\",\"cloud-platform-staging\"]}]",
+        // cloud-native-dev: the same Native receiver image with cmux-tui 8ac30a41 (acpmux clone boot, cmux#33140), bake run
+        // 41613000089, for cmux-platform development only (sign-in-once seeding, cmux-platform#627).
+        "VM_BOOT_IMAGES": "[{\"id\":\"cloud-standard\",\"revision\":\"ci-41026036265-1\",\"displayName\":\"Cloud development\",\"snapshotId\":\"sh-0afbb63e9a6046b4a58068dfe30a5bc7\",\"services\":[\"cloud-driver\"]},{\"id\":\"cloud-native\",\"revision\":\"ci-41315172830-1\",\"displayName\":\"Cloud Native\",\"snapshotId\":\"sh-b601e8b3084a4876911688c8b464fb5e\",\"services\":[\"cloud-platform-dev\",\"cloud-platform-staging\"]},{\"id\":\"cloud-native-dev\",\"revision\":\"ci-41613000089-1\",\"displayName\":\"Cloud Native (development)\",\"snapshotId\":\"sh-85749fec238a4dbd8d6a3216752c1625\",\"services\":[\"cloud-platform-dev\"]}]",
         // The Cloud guest's coderouter.cmux.internal proxy targets this exact origin.
         "VM_HTTPS_PROXY_ORIGINS": "[\"https://cmux-staging.vercel.app\"]",
         // Mesh experiment (cx-0op): on for internal manaflow dogfood teams only (coordinator, 2026-10-07),

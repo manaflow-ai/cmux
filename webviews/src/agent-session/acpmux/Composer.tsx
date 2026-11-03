@@ -2523,6 +2523,7 @@ export function Composer({
               used={usage?.used}
               size={usage?.size}
               setup={usage?.setup}
+              cacheExpiresAt={usage?.cacheExpiresAt}
               breakdown={snapshot.summary?.contextBreakdown}
               onOpenDetails={onOpenContext}
             />
