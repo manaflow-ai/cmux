@@ -90,7 +90,7 @@ class FakeApp:
             self.motion[params.get("action")] = params.get("value")
             return {"reduce_motion": bool(self.motion.get("reduce")), "speed": self.motion.get("speed", "fast")}
         if method == "debug.pane_chrome":
-            return {"windows": [{"id": "w1", "scale": 2.0, "panes": [
+            return {"windows": [{"id": "w1", "scale": 2.0, "main_pane": [0, 40, 1200, 760], "panes": [
                 {"pane": "pane-a", "cell": [0, 40, 600, 760], "border": [4, 70, 592, 726], "strip": [4, 40, 592, 28],
                  "pill": [10, 44, 200, 20], "strip_hidden": False},
                 {"pane": "pane-b", "cell": [601, 40, 599, 760], "border": [605, 70, 591, 726], "strip": [605, 40, 591, 28],
@@ -241,6 +241,7 @@ class ExtPixelTests(unittest.TestCase):
         self.assertEqual(note["lines"]["strip_rows"], {"pane-a": 108, "pane-b": 108})
         self.assertEqual(note["chrome"][1]["pill"], [611, 44, 200, 20])
         self.assertEqual(note["window_frame"], [100.0, 50.0, 1200.0, 800.0])
+        self.assertEqual(note["main_pane"], [0, 40, 1200, 760])  # debug.pane_chrome's main pane: the panes' visible area
         # The recorder's frame: from the window's top-left (132 pt below the screen's top) to the screen's right and bottom.
         self.assertEqual(note["frame"], [2824, 1700])
         self.assertEqual(out["dropped_lines"], 0)

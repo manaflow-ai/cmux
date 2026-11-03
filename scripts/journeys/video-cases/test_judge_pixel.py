@@ -73,6 +73,10 @@ def touching(variant):
     return variant == "strip-touch"
 
 
+SIDEBAR_PX = 40            # strip-scrolled: the sidebar's width (device px), the main pane area's left edge
+SCROLL_PX = 256            # strip-scrolled: pane A starts this far left of the window (under the sidebar)
+
+
 def draw_strip(img, x0, x1, pill_x0):
     """A tab strip over [x0, x1) x [0, STRIP_PX): black ground, the selected pill [pill_x0 + 16, + 200) in gray 22 with a
     1 px white glyph column every 7 px inside its title."""
@@ -176,12 +180,16 @@ def frame(k, variant):
         img[:, int(round(b_x)):int(round(b_x)) + 6] = CUE  # the drag cue over B's rings 1 and 2
     if has_strip(variant):
         late = a_width(max(k - 2, 0), variant) + DIV_PX if 11 <= k <= 30 else b_x
-        draw_strip(img, 0, aw, 0)
+        draw_strip(img, -SCROLL_PX if variant == "strip-scrolled" else 0, aw, 0)
         strip_x = late if variant == "strip-lag" else b_x
         draw_strip(img, strip_x, W, late if variant in ("strip-lag", "pill-lag") else b_x)
         if touching(variant):
             # The divider band on the strip row is the neighbour's strip ground, not the shell: the strips touch.
             img[:STRIP_PX, int(round(aw)):int(round(b_x))] = BLACK
+    if variant == "strip-scrolled":
+        # The sidebar covers A's left part: the shell color, and a white blob (the window's buttons) on the strip row.
+        img[:, :SIDEBAR_PX] = MAGENTA
+        img[4:20, 12:28] = WHITE
     if variant == "backdrop" and 15 <= k <= 18:
         # B grows and its page is one frame late, with its backdrop: B's own green from its pane edge to its late rings.
         late = a_width(max(k - 2, 0), variant) + DIV_PX
@@ -212,6 +220,9 @@ def build(root, name, variant):
     for k in range(N):
         aw = a_width(k, variant) / SCALE
         a = ["pa", 0, 0, aw, 150, 1, 0, 0, 0, aw, 150, aw, 150 - cy, 0, 0, cy, aw, 150 - cy]
+        if variant == "strip-scrolled":
+            ax = -SCROLL_PX / SCALE  # A's column scrolled left: its rect starts under the sidebar, off the window
+            a = ["pa", ax, 0, aw - ax, 150, 1, 0, ax, 0, aw - ax, 150, aw - ax, 150 - cy, 0, ax, cy, aw - ax, 150 - cy]
         bx = aw + DIV_PX / SCALE
         bw = 300 - bx
         b = ["pb", bx, 0, bw, 150, 1, 1, bx, 0, bw, 150, bw, 150 - cy, 0, bx, cy, bw, 150 - cy]
@@ -238,6 +249,8 @@ def build(root, name, variant):
     if variant == "reduce-keys":
         journal = [{"seq": 1, "uptimeNanos": int((T0 + 9.5 * P) * 1e9), "kind": {"key": {"_0": {"phase": "down", "keyCode": 37, "isRepeat": False}}}}]
     Path(f"{base}.events.json").write_text(json.dumps({"hid": [], "journal": journal}))
+    if variant == "strip-scrolled":
+        note["main_pane"] = [SIDEBAR_PX / SCALE, 0, (W - SIDEBAR_PX) / SCALE, 150]
     if has_strip(variant):
         a0, b0 = A_REST / SCALE, (A_REST + DIV_PX) / SCALE
         note["lines"] = {"strip_rows": {"pa": STRIP_ROW, "pb": STRIP_ROW}}
@@ -278,7 +291,7 @@ class JudgePixelTests(unittest.TestCase):
         cls.reports = {v: jp.judge(build(cls.tmp, v, v)) for v in ("clean", "lag1", "gap2", "hidden", "spring", "spring-slow", "cut",
                                                                     "backdrop", "strip", "strip-lag", "pill-lag", "d4-cover", "glyph",
                                                                     "samefill", "cue", "held", "reduce-drag", "reduce-keys",
-                                                                    "strip-touch")}
+                                                                    "strip-touch", "strip-scrolled")}
 
     @classmethod
     def tearDownClass(cls):
@@ -422,6 +435,21 @@ class JudgePixelTests(unittest.TestCase):
         self.assertNotIn("tab strip edge off", [f["check"] for f in r["findings"]])
         # The strip still moves with its pane (B's left edge travels 40 px).
         self.assertEqual([m["travel_px"] for m in side(r, "strip p1", "row@12", "lo")["motions"]], [40.0])
+
+    def test_a_pane_partly_under_the_sidebar(self):
+        """A's column is scrolled left: its rect starts 128 pt off the window, under the sidebar (cmux22 base03f6
+        px-new-column-c2: the strip walk started at the middle of p0's rect, in the sidebar, on the window's buttons:
+        -969..-1083 px). Only the part of a pane inside the main pane area (the note's main_pane) is read: A's right edge
+        is judged, its left edge (hidden) is not."""
+        r = self.reports["strip-scrolled"]
+        hi = side(r, "strip p0", "row@12", "hi")
+        self.assertEqual(hi["frames"], 60)
+        self.assertLessEqual(abs(hi["max_edge_dev_px"]), 1.0, hi["dev_top"])
+        self.assertFalse([s for s in r["summary"].values() if s["label"] == "strip p0" and s["side"] == "lo" and s["frames"]])
+        self.assertFalse([s for s in r["summary"].values() if s["label"] == "p0" and s["side"] == "lo" and s["frames"]])
+        self.assertEqual(side(r, "p0", "row@110", "hi")["max_edge_dev_px"], 0.0)
+        self.assertNotIn("tab strip edge off", [f["check"] for f in r["findings"]])
+        self.assertNotIn("shell inside the pane", [f["check"] for f in r["findings"]])
 
     def test_tab_strip_lag_found(self):
         r = self.reports["strip-lag"]
