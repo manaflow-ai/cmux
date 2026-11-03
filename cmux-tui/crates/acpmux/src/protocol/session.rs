@@ -75,6 +75,14 @@ pub struct SessionSummary {
     pub created_at: u64,
     pub updated_at: u64,
     pub last_seq: u64,
+    /// The seq of its newest transcript record (`hub/paging.rs` `is_transcript`): unlike
+    /// `updatedAt` and `lastSeq`, bookkeeping (an agent start's `agent_start_waiting`, usage,
+    /// git, process counts) never moves it, so a client that keeps a chat's newest page reads it
+    /// again only when this passes the value it read at. An upper bound after a hard stop.
+    /// Absent from a peer on an older acpmux.
+    #[serde(default)]
+    #[schemars(default)]
+    pub transcript_seq: u64,
     pub event_count: u64,
     pub turn_count: u64,
     pub parent_id: Option<String>,

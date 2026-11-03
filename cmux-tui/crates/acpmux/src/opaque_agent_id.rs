@@ -35,7 +35,8 @@ pub fn find(text: &str) -> Option<String> {
 
 fn is_id(v: &str) -> bool {
     v.strip_prefix(PREFIX).is_some_and(|hex| {
-        hex.len() == HEX_LEN && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        hex.len() == HEX_LEN
+            && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
     })
 }
 
@@ -78,7 +79,8 @@ impl Key {
         let msg = format!("{}\0{harness}\0{session}", host.to_ascii_lowercase());
         let mac = cmux_local_auth::frontend_proof::hmac_sha256(&self.0, msg.as_bytes());
         let hex = cmux_local_auth::frontend_proof::hex(&mac);
-        format!("{PREFIX}{}", &hex[..HEX_LEN])
+        // `hex` is 64 ASCII digits, so the prefix always exists; `get` keeps the panic ratchet at zero.
+        format!("{PREFIX}{}", hex.get(..HEX_LEN).unwrap_or(&hex))
     }
 }
 
@@ -92,8 +94,14 @@ mod tests {
     fn an_opaque_id_is_found_bare_or_in_its_web_link() {
         assert_eq!(find(ID).as_deref(), Some(ID));
         assert_eq!(find(&format!("https://cmux.com/deeplink/agent?id={ID}")).as_deref(), Some(ID));
-        assert_eq!(find(&format!("https://www.cmux.com/zh-CN/deeplink/agent/?id={ID}")).as_deref(), Some(ID));
-        assert_eq!(find(&format!("[big-red](https://cmux.com/deeplink/agent?id={ID})")).as_deref(), Some(ID));
+        assert_eq!(
+            find(&format!("https://www.cmux.com/zh-CN/deeplink/agent/?id={ID}")).as_deref(),
+            Some(ID)
+        );
+        assert_eq!(
+            find(&format!("[big-red](https://cmux.com/deeplink/agent?id={ID})")).as_deref(),
+            Some(ID)
+        );
         assert_eq!(find("aid-0123"), None);
         assert_eq!(find(&format!("https://example.com/deeplink/agent?id={ID}")), None);
         assert_eq!(find(&format!("https://cmux.com/deeplink/agent?id={ID}&id={ID}")), None);

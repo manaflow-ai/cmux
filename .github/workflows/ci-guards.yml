@@ -590,6 +590,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
         run: bun test scripts/cmux-next/machine-join-e2e.test.ts
 
+      # The machine vault E2E harness: cleanup, refusal, skip and leak paths (fake fetch and
+      # fake CLIs; no network, no secret).
+      - name: Validate the machine vault E2E harness
+        if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
+        run: bun test scripts/cmux-next/machine-vault-e2e.test.ts
+
       - name: Set up Python 3.9 for nightly prune compatibility
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6

@@ -189,6 +189,11 @@ pub struct SessionMeta {
     pub updated_at: u64,
     #[serde(default)]
     pub last_seq: u64,
+    /// The seq of the newest record `hub/paging.rs` `is_transcript` keeps (the summary's
+    /// `transcriptSeq`). 0 from an older daemon's `session.json`: no client compares across
+    /// that, since one bump past the value it read is all a client asks of it.
+    #[serde(default)]
+    pub transcript_seq: u64,
     #[serde(default)]
     pub parent_id: Option<String>,
     #[serde(default)]

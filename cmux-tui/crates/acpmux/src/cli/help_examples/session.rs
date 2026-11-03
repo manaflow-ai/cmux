@@ -134,6 +134,14 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "Move every idle chat to the placement's pick",
                 "acpmux session move --all-idle --machine auto",
             ),
+            (
+                "Move coord from mini-3 to a cloud VM that mini-3 cannot reach",
+                "acpmux session move coord --from mini-3 --machine cloud-vm",
+            ),
+            (
+                "Bring coord back to this machine from the cloud VM",
+                "acpmux session move coord --from cloud-vm --machine local",
+            ),
         ],
     ),
     (
