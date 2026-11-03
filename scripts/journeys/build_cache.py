@@ -39,7 +39,58 @@ TAKEOVER_PROBE_SECONDS = float(os.environ.get("JOURNEYS_TAKEOVER_PROBE_SECONDS")
 
 
 def say(message):
-    print(f"journeys: {message}", file=sys.stderr, flush=True)
+    # A set-up whose ssh went away (run.py's timeout) keeps filling the cache for the next round: a closed stderr
+    # must not stop it halfway (review of #33108, finding 6).
+    try:
+        print(f"journeys: {message}", file=sys.stderr, flush=True)
+    except OSError:
+        pass
+
+
+def remove_dead_temporaries(builds):
+    """Remove the <job>.tmp.<pid> folders whose process is gone (a fill that was killed). Under the job's lock, and
+    never the folder of a live process: a slow download by an older harness copy keeps its folder (before, a
+    60-minute find removed it under that download; review of #33108, finding 7)."""
+    for name in os.listdir(builds):
+        stem, sep, pid = name.rpartition(".tmp.")
+        if sep and pid.isdigit() and int(pid) != os.getpid() and not alive(int(pid)):
+            shutil.rmtree(os.path.join(builds, name), ignore_errors=True)
+
+
+def clear(cache):
+    """Remove CACHE, a folder or (an older copy's `touch "$c"` after its folder went away) a plain file."""
+    if os.path.isdir(cache) and not os.path.islink(cache):
+        shutil.rmtree(cache, ignore_errors=True)
+    else:
+        try:
+            os.unlink(cache)
+        except OSError:
+            pass
+
+
+def install(temporary, cache):
+    """Move the filled TEMPORARY to CACHE. The `ok` marker is written first, inside TEMPORARY, so CACHE appears
+    complete or not at all. An older harness copy (no lock) may move its own copy to CACHE at the same moment
+    (`rm -rf "$c"; mv "$t" "$c"; touch "$c/ok"`): then the rename fails or CACHE is replaced; whichever copy is in
+    place once it is filled is kept (review of #33108, finding 1)."""
+    open(os.path.join(temporary, "ok"), "w").close()
+    for _ in range(3):
+        if filled(cache):
+            shutil.rmtree(temporary, ignore_errors=True)
+            return
+        if app_in(cache):  # an older copy moved its build in and has yet to touch its ok: give it a moment
+            time.sleep(1)
+            if filled(cache):
+                continue
+        clear(cache)
+        try:
+            os.rename(temporary, cache)
+            return
+        except OSError:  # another copy came in between (ENOTEMPTY, EEXIST): give its ok a moment
+            time.sleep(1)
+    if not filled(cache):
+        raise RuntimeError(f"{cache}: another fill keeps replacing it")
+    shutil.rmtree(temporary, ignore_errors=True)
 
 
 def cache_root():
@@ -124,7 +175,13 @@ def fetch_direct(url, zip_path, want):
 
 def fetch_cmux_ci(job, zip_path):
     tool = os.environ.get("JOURNEYS_CMUX_CI") or shutil.which("cmux-ci") or os.path.expanduser("~/.local/bin/cmux-ci")
-    return subprocess.run([tool, "artifact", job, zip_path], stdout=sys.stderr).returncode == 0
+    # Its output goes through say(), never straight to fd 2: when the caller's ssh is gone, a write to that closed pipe
+    # would fail the client's exit (Python ignores SIGPIPE) after a whole good download (review of #33170).
+    proc = subprocess.Popen([tool, "artifact", job, zip_path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            stdin=subprocess.DEVNULL)
+    for line in proc.stdout:
+        say(line.decode(errors="replace").rstrip())
+    return proc.wait() == 0
 
 
 def unpack(zip_path, into):
@@ -162,6 +219,7 @@ def fill(job, want, keep, url):
     except BlockingIOError:
         say(f"another set-up on this mini downloads build {job}: waiting for it")
         fcntl.flock(lock, fcntl.LOCK_EX)
+    remove_dead_temporaries(builds)
     if filled(cache):
         say("build cache hit")
         os.utime(cache)
@@ -192,12 +250,7 @@ def fill(job, want, keep, url):
         shutil.rmtree(temporary, ignore_errors=True)
         raise RuntimeError(f"build {job}: the zip did not unpack")
     os.unlink(zip_path)
-    if filled(cache):  # an older harness copy's download finished meanwhile: keep its copy
-        shutil.rmtree(temporary, ignore_errors=True)
-    else:
-        shutil.rmtree(cache, ignore_errors=True)
-        os.rename(temporary, cache)
-        open(os.path.join(cache, "ok"), "w").close()
+    install(temporary, cache)
     os.utime(cache)
     trim(builds, keep)
     say(f"build {job}: {size / 1e6:.0f} MB in {spent:.0f}s ({size / spent / 1e6:.1f} MB/s, {route})")
@@ -223,7 +276,10 @@ def main(argv):
         # The commit the build job names, beside the bundle: capture-host launch --commit checks it.
         with open(os.path.join(os.path.dirname(app), "capture-commit"), "w") as f:
             f.write(commit + "\n")
-    print(app)
+    try:
+        print(app)
+    except OSError:  # the caller is gone; the cache is filled for the next round
+        pass
     return 0
 
 

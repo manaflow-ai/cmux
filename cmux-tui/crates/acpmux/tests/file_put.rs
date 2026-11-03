@@ -127,8 +127,8 @@ async fn a_dropped_file_is_saved_owner_only_and_named_by_its_path() {
     let second = assert_saved(&second, &session, "state.sqlite", b"b");
     assert_ne!(first, second);
     assert_eq!(std::fs::read(&first).unwrap(), binary);
-    // The largest file there is.
-    let largest = vec![7u8; MAX];
+    // A legacy caller can send beyond the old cap without a second full decoded buffer.
+    let largest = vec![7u8; 2 * MAX + 1];
     let reply = c.call(method::MUX_FILE_PUT, put(&session, "big.bin", &largest)).await;
     assert_saved(&reply, &session, "big.bin", &largest);
     // The app's pane connection saves one too.
@@ -138,7 +138,7 @@ async fn a_dropped_file_is_saved_owner_only_and_named_by_its_path() {
 }
 
 #[tokio::test]
-async fn a_bad_name_an_oversize_file_an_unknown_chat_and_the_web_are_refused() {
+async fn a_bad_name_malformed_data_an_unknown_chat_and_the_web_are_refused() {
     let hub = hub();
     let mut c = client(&hub, Origin::Local);
     let session = c.new_session("refusals").await;
@@ -146,8 +146,15 @@ async fn a_bad_name_an_oversize_file_an_unknown_chat_and_the_web_are_refused() {
         let reply = c.call(method::MUX_FILE_PUT, put(&session, name, b"x")).await;
         assert_eq!(reply["error"]["data"]["reason"], "filePut.name", "{name:?}: {reply}");
     }
-    let reply = c.call(method::MUX_FILE_PUT, put(&session, "big.bin", &vec![0u8; MAX + 1])).await;
-    assert_eq!(reply["error"]["data"]["reason"], "filePut.tooLarge", "{reply}");
+    for data in ["a", "!!!!", "eA==eA==", "eA=", "eA==!"] {
+        let reply = c
+            .call(
+                method::MUX_FILE_PUT,
+                json!({"sessionId": session, "fileName": "bad.bin", "data": data}),
+            )
+            .await;
+        assert!(reply.get("error").is_some(), "{reply}");
+    }
     let reply = c.call(method::MUX_FILE_PUT, put("no-such-chat", "a.txt", b"x")).await;
     assert!(reply.get("error").is_some(), "{reply}");
     let mut web = client(&hub, Origin::Web);
@@ -279,9 +286,10 @@ async fn a_file_for_a_peers_chat_lands_on_the_peer() {
     let largest = vec![9u8; MAX];
     let reply = ca.call(method::MUX_FILE_PUT, put(&remote, "big.bin", &largest)).await;
     assert_saved(&reply, &remote, "big.bin", &largest);
-    // One past it is refused by A, never sent: the link and its chats stay up.
-    let reply = ca.call(method::MUX_FILE_PUT, put(&remote, "big.bin", &vec![0u8; MAX + 1])).await;
-    assert_eq!(reply["error"]["data"]["reason"], "filePut.tooLarge", "{reply}");
+    // More than an older peer's frame can carry is automatically split into chunks.
+    let bytes = vec![0x81u8; 2 * MAX + 1];
+    let reply = ca.call(method::MUX_FILE_PUT, put(&remote, "chunked.bin", &bytes)).await;
+    assert_saved(&reply, &remote, "chunked.bin", &bytes);
     let reply = ca.call(method::MUX_FILE_PUT, put(&remote, "after.txt", b"ok")).await;
     assert_saved(&reply, &remote, "after.txt", b"ok");
     assert_eq!(a.peers()[0]["connected"], true, "{:?}", a.peers());
