@@ -124,19 +124,32 @@ test("an open panel's toggle reads as on by the filled rounded square and its li
     );
     expect(filled ? host : `${host}: no pressed fill`).toBe(host);
   }
-  // The hover pill never paints over an on toggle's square (it would lighten it): a hover fill excludes it.
-  const hoverFills = all.flatMap(({ selector, body }) =>
+  // The hover pill never paints over an on toggle's square (it would lighten it): each hover fill either
+  // excludes a pressed tool, or a pressed fill for the same host comes after it and is at least as specific
+  // (#32703's form: `:not(:disabled):is([aria-pressed=true],...)` after `:not(:disabled):hover`).
+  const fills = all.flatMap(({ selector, body }, index) =>
     [...body].some(([property, value]) => isFill(property, value))
-      ? parts(selector).filter(
-          (part) =>
-            HEADER_TOOL.test(part) &&
-            /:hover/.test(part) &&
-            !/\[aria-pressed=true\]/.test(part.replace(/:not\((?:[^()]|\([^()]*\))*\)/g, "")),
-        )
+      ? parts(selector).map((part) => ({ part, index }))
       : [],
   );
+  const hoverFills = fills.filter(
+    ({ part }) =>
+      HEADER_TOOL.test(part) &&
+      /:hover/.test(part) &&
+      !/\[aria-pressed=true\]/.test(part.replace(/:not\((?:[^()]|\([^()]*\))*\)/g, "")),
+  );
   expect(hoverFills.length).toBeGreaterThan(0);
-  expect(hoverFills.filter((part) => !/:not\([^)]*\[aria-pressed=true\]/.test(part))).toEqual([]);
+  const hostOf = (part: string) => part.split(" .acpmux-header-tool")[0];
+  const pressedWins = ({ part, index }: { part: string; index: number }) =>
+    /:not\([^)]*\[aria-pressed=true\]/.test(part) ||
+    fills.some(
+      (fill) =>
+        fill.index > index &&
+        hostOf(fill.part) === hostOf(part) &&
+        /\[aria-pressed=true\]/.test(fill.part) &&
+        (!/:not\(:disabled\)/.test(part) || /:not\(:disabled\)/.test(fill.part)),
+    );
+  expect(hoverFills.filter((fill) => !pressedWins(fill)).map(({ part }) => part)).toEqual([]);
   const focus = all.find(({ selector }) => selector === ".acpmux-header-tool:focus-visible")?.body.get("outline");
   expect(focus).toMatch(/solid/);
 });
