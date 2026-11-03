@@ -18,6 +18,8 @@ await requireBrowserLane("menu-scroll-edge-fade.browser.test.ts", async () => {
     ["agent-pane.project-chooser", "long-no-actions", ".ui-combobox-list", 320],
     ["agent-pane.composer-context", "folder-long-list", ".ui-combobox-viewport", 320],
     ["agent-pane.composer-context", "folder-long-list", ".ui-combobox-pinned", 240],
+    ["agent-pane.composer-context", "environment-picker-fleet", ".acpmux-env-popover .ui-combobox-list", 320],
+    ["agent-pane.add-project-panel", "long-directory", ".acpmux-add-project-list", 320],
     ["new-tab.quick-model-menu", "short-more-models", ".acpmux-quick-body", 320],
   ] as const;
   beforeAll(async () => {
@@ -75,7 +77,10 @@ await requireBrowserLane("menu-scroll-edge-fade.browser.test.ts", async () => {
         expect(await list.getAttribute("data-fade-bottom")).not.toBeNull();
         if (process.env.FAST_CHECKS_OUT) {
           await page.screenshot({
-            path: path.join(process.env.FAST_CHECKS_OUT, `${entry}-${selector.slice(1)}-overflow.png`),
+            path: path.join(
+              process.env.FAST_CHECKS_OUT,
+              `${entry}-${variant}-${selector.replace(/[^a-z0-9-]/gi, "_")}-overflow.png`,
+            ),
           });
         }
         await list.evaluate((node) => {
