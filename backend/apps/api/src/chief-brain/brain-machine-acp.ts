@@ -53,7 +53,12 @@ export const startMachineAgent = async (rpc: MachineRpc, args: Start): Promise<{
       }, 90_000)
     } catch (error) {
       // A concurrent create or lost create reply can already have published the stable name.
-      try { info = await rpc("_acpmux/info", { sessionId: expected.name }, 30_000) } catch { throw error }
+      try { info = await rpc("_acpmux/info", { sessionId: expected.name }, 30_000) } catch (lookup) {
+        // Only a definitive create refusal followed by a definitive missing name proves the
+        // prompt was never submitted. An uncertain create or enqueue remains retryable.
+        if (typeof codeOf(error) === "number" && codeOf(lookup) === -32002) throw Object.assign(new Error("chief.machine.start_refused"), { code: codeOf(error), beforePrompt: true })
+        throw error
+      }
     }
     info ??= await rpc("_acpmux/info", { sessionId: expected.name }, 30_000)
   }

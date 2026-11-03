@@ -103,6 +103,22 @@ describe("durable default-machine ACP adapter", () => {
     expect(f.queued()).toBe(1)
   })
 
+  it("marks only a definitive refused create as safe for a fresh auth check", async () => {
+    const f = fixture()
+    const refused: MachineRpc = async (method, params, ms, feature) => {
+      if (method === "session/new") throw Object.assign(new Error("auth required"), { code: -32000 })
+      return f.rpc(method, params, ms, feature)
+    }
+    await expect(startMachineAgent(refused, args)).rejects.toMatchObject({ beforePrompt: true, code: -32000 })
+    expect(f.queued()).toBe(0)
+    const uncertain: MachineRpc = async (method, params, ms, feature) => {
+      if (method === "session/new") throw new Error("chief.machine.transport_unavailable")
+      return f.rpc(method, params, ms, feature)
+    }
+    await expect(startMachineAgent(uncertain, args)).rejects.not.toHaveProperty("beforePrompt")
+    expect(f.queued()).toBe(0)
+  })
+
   it("rejects a returned alias, changed policy, or replacement journal before reading output", async () => {
     for (const mutation of [{ sessionId: "replacement-id" }, { createdAt: 99 }, { policy: "ask" }, { harness: "codex" }]) {
       const f = fixture()

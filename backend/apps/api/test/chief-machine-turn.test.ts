@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { authorizeMachineHand, machineAuthState, machineHarness, machineLogin, machineSignInURL, readMachineState, runMachineAgent, type MachineAgentPorts, type MachineState } from "../src/chief-brain/brain-machine.ts"
+import { authorizeMachineHand, machineAuthState, machineHarness, machineLogin, machinePrompt, machineSignInURL, readMachineState, runMachineAgent, type MachineAgentPorts, type MachineState } from "../src/chief-brain/brain-machine.ts"
 import type { StoredEvent } from "../src/hand-wire.ts"
 import { env } from "cloudflare:workers"
 import { runInDurableObject } from "cloudflare:test"
@@ -42,6 +42,16 @@ describe("default Chief machine turn", () => {
     expect(await runMachineAgent(f.ports, "hand_a", "/home/cmux/proj", "codex", "build me X", "scoped-run", 1000)).toEqual({ pending: "auth" })
     expect(f.ports.start).not.toHaveBeenCalled()
     expect(f.state()).toMatchObject({ phase: "waiting_auth", after: 0 })
+  })
+
+  it("keeps the original request for sign-in when a definitive session refusal clarifies unknown auth", async () => {
+    const f = fixture()
+    f.ports.auth = vi.fn<MachineAgentPorts["auth"]>().mockResolvedValueOnce("unknown").mockResolvedValueOnce("signed_out")
+    f.ports.start = vi.fn(async () => ({ ok: false as const, error: { code: "agent.start_failed", message: "Session refused before prompt dispatch" } }))
+    expect(await runMachineAgent(f.ports, "hand_a", "/home/cmux/proj", "claude", "build me original X", "scoped-run", 1000)).toEqual({ pending: "auth" })
+    expect(f.state()).toMatchObject({ operation: "scoped-run", phase: "waiting_auth" })
+    expect(f.ports.start).toHaveBeenCalledOnce()
+    expect(f.ports.events).not.toHaveBeenCalled()
   })
 
   it("reconciles the same durable operation when a start response was lost", async () => {
@@ -125,6 +135,17 @@ describe("default Chief machine turn", () => {
     expect(machineHarness("codex")).toBe("codex")
     expect(machineHarness("claude-sr")).toBeNull()
     expect(machineHarness("opencode")).toBeNull()
+  })
+
+  it("gives the machine its configured Chief identity and a verifiable preview workflow", () => {
+    const prompt = machinePrompt({ display_name: "Builder", role: "Build useful apps", personality: "Concise", instructions: "Use accessible controls" }, { workspace: "workspace_a", team: "team_a", machine: "machine_a", provider: "freestyle", connection_machine: "vm_abcdefghijklmnopqrst", install: "inst_a" }, "/home/cmux/proj", ["build me a hello page"])
+    expect(prompt).toContain('"name":"Builder","role":"Build useful apps","personality":"Concise"')
+    expect(prompt).toContain("Use accessible controls")
+    expect(prompt).toContain("build me a hello page")
+    expect(prompt).toContain("0.0.0.0")
+    expect(prompt).toContain("Fetch the returned URL and read the response")
+    expect(prompt).toContain("never guess a hostname")
+    expect(prompt).not.toContain("spawn(tasks) starts subagents")
   })
 })
 

@@ -9,6 +9,7 @@ import { chiefRecord, chiefPrincipal, postText, typing } from "./brain-io.ts"
 import { writeConfig } from "./brain-store.ts"
 import { clip, upsertStep } from "./brain-runs.ts"
 import { OWNER_APPROVAL_REQUIRED } from "./effect-policy.ts"
+import type { ChiefProfile } from "./prompts.ts"
 import { startMachineAgent, machineAgentEvents, stopMachineAgent } from "./brain-machine-acp.ts"
 
 export type MachineHarness = "claude" | "codex"
@@ -50,6 +51,18 @@ export const machineSignInURL = (raw: unknown, harness: MachineHarness): string 
 }
 
 export const machineHarness = (harness: string | null): MachineHarness | null => harness === null || harness === "claude" ? "claude" : harness === "codex" ? "codex" : null
+/** Machine agents have the harness's real tools, rather than the hosted brain's Pi tools. */
+export const machinePrompt = (profile: ChiefProfile, binding: DefaultChiefMachine, cwd: string, blocks: Array<string>): string => [
+  `You are the Chief, working for your owner on their persistent cmux Cloud machine. Carry out the newest request directly using your harness's available filesystem, terminal and other tools. Earlier messages below are context. Return the result as a message to the person, without adding a conversation header. Do not ask them to create, pair, enable or connect a machine: this machine is already provisioned. Provider sign-in is handled by the product when required.
+
+Work in the current project directory. For a request to build a web page or app, create it, start its server listening on 0.0.0.0, and verify the response. Discover this machine's preview and sharing support from its installed tools' help, environment and existing /etc/cmux metadata. Use only a URL returned by that support; never guess a hostname from an ID or present a localhost URL as a remotely accessible link. Fetch the returned URL and read the response before reporting that it works. Return a Markdown link to the running page. Do not change authentication or sharing permissions unless the owner's request authorizes it.
+
+Use only tools actually available in this harness. The hosted brain's zoom, spawn and hub APIs are not provided by this adapter. Report any concrete failure accurately instead of claiming the build or URL works.`,
+  `Machine context: ${JSON.stringify({ workspace: binding.workspace, machine: binding.machine, provider: binding.provider, cwd })}`,
+  `Chief identity: ${JSON.stringify({ name: profile.display_name, role: profile.role, personality: profile.personality })}`,
+  ...(profile.instructions.trim() ? [`Additional instructions from the Chief's configuration:\n${profile.instructions}`] : []),
+  `Conversation input:\n${blocks.join("\n\n")}`,
+].join("\n\n")
 export const readMachineRoute = (sql: SqlStorage): MachineRoute | null => {
   const value = sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = 'machine_route'`).toArray()[0]?.value
   if (!value) return null
@@ -310,6 +323,12 @@ export const machineTurn = async (b: ChiefBrainDO, id: string, route: MachineRou
     await authorizeHand()
     return rpc(b.doEnv, scope, method, params, timeout, feature)
   }
+  // Freeze the full request before dispatch. Profile edits during provisioning, sign-in or a
+  // lost reply cannot change the guest's request digest or turn a retry into different work.
+  const promptKey = `machine-prompt:${id}`
+  const storedPrompt = b.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, promptKey).toArray()[0]?.value
+  const prompt = storedPrompt ?? machinePrompt(cfg, record.cloud_machine, ready.cwd, blocks)
+  if (storedPrompt === undefined) writeConfig(b.sql, { [promptKey]: prompt })
   const result = await runMachineAgent({
     load: () => readMachineState(b.sql, id), save: (s) => save(b, id, s),
     authorize: async () => {
@@ -321,7 +340,10 @@ export const machineTurn = async (b: ChiefBrainDO, id: string, route: MachineRou
     auth: () => machineAuth(b.doEnv, scope, route.harness, ready.cwd),
     start: async (params) => {
       b.sql.exec(`UPDATE cb_turn SET submitted = 1, model = ? WHERE id = ?`, `machine:${route.harness}`, id)
-      return { ok: true as const, value: await startMachineAgent(direct, params) }
+      try { return { ok: true as const, value: await startMachineAgent(direct, params) } } catch (error) {
+        if ((error as { beforePrompt?: unknown })?.beforePrompt === true) return { ok: false as const, error: { code: "agent.start_failed", message: "The machine refused to create the agent session." } }
+        throw error
+      }
     },
     events: async (session, after, wait) => ({ ok: true as const, value: await machineAgentEvents(direct, session, after, wait) }),
     stop: (session) => stopMachineAgent(direct, session),
@@ -331,7 +353,7 @@ export const machineTurn = async (b: ChiefBrainDO, id: string, route: MachineRou
       b.announce(id, [upsertStep(b.sql, id, { id: `machine:${event.id ?? stored.seq}`, kind: "tool", status: event.status === "completed" ? "done" : "running", text: event.title ?? "Working on your machine" }, stored.at)])
     },
     now: Date.now,
-  }, ready.hand, ready.cwd, route.harness, blocks.join("\n\n"), `${owner}/${agent}/${b.turnConversation}/${id}`, startedAt + 10 * 60_000)
+  }, ready.hand, ready.cwd, route.harness, prompt, `${owner}/${agent}/${b.turnConversation}/${id}`, startedAt + 10 * 60_000)
   if ("pending" in result && result.pending === "auth") {
     // A notice is not a completed turn: retain the original input/inbox/run until sign-in finishes.
     await postText(b.doEnv, chiefPrincipal(agent, owner), b.turnConversation!, `Sign in to ${route.harness === "claude" ? "Claude" : "Codex"} to continue.`, `chief-machine-auth:${agent}:${id}`)
