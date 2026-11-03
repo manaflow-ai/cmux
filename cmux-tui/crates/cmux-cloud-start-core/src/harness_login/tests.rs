@@ -539,9 +539,10 @@ fn a_codex_start_runs_the_broker_before_the_first_prompt() {
     assert!(d.reads_machine && d.guest_takes_login);
     // A cached Claude login, or none, does not matter: the broker asks for a sign-in only when needed.
     assert_eq!(decide(&cached(codex.clone())).step, Step::Install);
-    // The creator's team guest takes it too.
+    // A team guest keeps its team login: acpmux's Codex bridge refuses broker access there.
     let team = Inputs { guest_kind: Some("team".into()), ..codex.clone() };
-    assert_eq!(decide(&team).step, Step::Install);
+    assert_eq!((decide(&team).step, decide(&team).reason), (Step::Skip, Reason::GuestNotOwner));
+    assert!(!decide(&team).guest_takes_login);
     // The same checks before it as Claude's.
     let skips = [
         (Inputs { gate: false, ..codex.clone() }, Reason::BuildGateOff),

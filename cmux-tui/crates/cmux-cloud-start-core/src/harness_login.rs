@@ -281,9 +281,14 @@ pub struct Decision {
 }
 
 /// Whether a guest of this kind takes the caller's login. A Release copy goes only to an `owner`
-/// guest: "never on team machines, never shared" (Leo, 2026-11-02).
-fn guest_takes_login(kind: Option<&str>, release: bool) -> bool {
-    if release { kind == Some("owner") } else { matches!(kind, Some("owner" | "team")) }
+/// guest: "never on team machines, never shared" (Leo, 2026-11-02). So does Codex's broker access:
+/// acpmux's Codex bridge refuses it on a team guest (`codex_auth_file`), where the team login stays.
+fn guest_takes_login(kind: Option<&str>, release: bool, provider: Option<Provider>) -> bool {
+    if release || provider == Some(Provider::Codex) {
+        kind == Some("owner")
+    } else {
+        matches!(kind, Some("owner" | "team"))
+    }
 }
 
 /// Whether the start passes this provider's login: Claude always (its gate decides), Codex only
@@ -329,7 +334,7 @@ fn step_and_reason(d: &Inputs) -> (Step, Reason) {
     };
     // The caller created the machine: an owner or team guest takes the login
     // (the transfer runs its creator allowance on a team guest).
-    if !guest_takes_login(Some(kind), d.release) {
+    if !guest_takes_login(Some(kind), d.release, d.provider) {
         return (Step::Skip, Reason::GuestNotOwner);
     }
     if d.provider == Some(Provider::Codex) {
@@ -489,7 +494,7 @@ pub fn decide(d: &Inputs) -> Decision {
             && d.signed_in
             && d.caller_owns == Some(true)
             && choice(d) != Some(Choice::None),
-        guest_takes_login: guest_takes_login(kind, d.release),
+        guest_takes_login: guest_takes_login(kind, d.release, d.provider),
         skipped_team_machine: reason == Reason::GuestNotOwner && kind == Some("team"),
         summary: summary(d, step, reason),
     }
