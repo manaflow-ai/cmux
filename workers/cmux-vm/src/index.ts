@@ -60,6 +60,8 @@ export interface Env {
   readonly STACK_WEBHOOK_SECRET?: string;
   /** Service keys (cx-b4h.13): JSON array of { id, sha256, scopes, labels, teams? }; hashes only. See src/auth/service-keys.ts. */
   readonly CMUX_VM_SERVICE_KEYS?: string;
+  /** JSON object of service key id to extra scopes, limited to acl:read and acl:write. See src/auth/service-keys.ts. */
+  readonly CMUX_VM_SERVICE_KEY_SCOPE_GRANTS?: string;
 }
 
 const liveServices = (env: Env) => {
@@ -78,7 +80,7 @@ const liveServices = (env: Env) => {
     ),
     policy,
     vmImagesLayer(env.VM_BOOT_IMAGES),
-    serviceKeysLayer(env.CMUX_VM_SERVICE_KEYS),
+    serviceKeysLayer(env.CMUX_VM_SERVICE_KEYS, env.CMUX_VM_SERVICE_KEY_SCOPE_GRANTS),
     // TODO(cx-b4h, owner: Lawrence Chen): the real billing source; see Entitlements.
     entitlementsFromPolicyLayer.pipe(Layer.provide(policy)),
     durableObjectLimitsLayer(env.TENANT_LIMITS),

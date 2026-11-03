@@ -88,7 +88,11 @@
         // they act for: cmux Cloud's dev and staging platforms make each team's mesh in that team's personal tenant, which
         // no hand-kept tenant list would know in advance. Only those services' own requests pass; the
         // tenant's other callers still get 404.
-        "CMUX_VM_MESH_SERVICE_IDS": "cloud-platform-dev,cloud-platform-staging"
+        "CMUX_VM_MESH_SERVICE_IDS": "cloud-platform-dev,cloud-platform-staging",
+        // Mesh ACL scopes added to those service keys (their entries are write-only secrets minted with mesh read/write
+        // only): cmux-platform writes each team Cloud mesh's first ACL, devices to VMs on ssh and the daemon. Only
+        // acl:read and acl:write may be granted here (src/auth/service-keys.ts).
+        "CMUX_VM_SERVICE_KEY_SCOPE_GRANTS": "{\"cloud-platform-dev\":[\"acl:read\",\"acl:write\"],\"cloud-platform-staging\":[\"acl:read\",\"acl:write\"]}"
       }
     },
     // Workers custom domain in the cmux.dev zone; attached by the first
