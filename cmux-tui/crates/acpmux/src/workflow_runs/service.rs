@@ -1,7 +1,7 @@
 //! Live launch proofs and operation serialization. No proof is written to the run record.
 
 use super::{RunRecord, Store};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Result, ensure};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -58,7 +58,8 @@ impl Service {
             return Ok(None);
         }
         let mut bytes = [0u8; 32];
-        getrandom::fill(&mut bytes).context("create workflow runner proof")?;
+        getrandom::fill(&mut bytes)
+            .map_err(|error| anyhow::anyhow!("create workflow runner proof: {error}"))?;
         let token = bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
         proofs.retain(|(id, _), _| id != &run.id);
         proofs.insert(key, token.clone());
