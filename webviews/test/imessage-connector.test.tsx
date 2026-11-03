@@ -92,6 +92,11 @@ test("Connect is one Show more reveal away without MCP; permission steps precede
     node.textContent?.startsWith(translate("sessionInfo.changes.showMore")),
   )!;
   await act(async () => more.click());
+  // Connectors stays folded until the person opens it; its meta says Connect iMessage.
+  const header = [...container.querySelectorAll('[data-section="connectors"] button')].find((node) =>
+    node.textContent?.startsWith(translate("rail.connectors")),
+  ) as HTMLButtonElement;
+  await act(async () => header.click());
   await act(async () => button(container, translate("imessage.connect")).click());
   expect(calls).toEqual(["imessage.status", "imessage.connect"]);
   await act(async () => button(container, translate("imessage.grantDisk")).click());
@@ -188,7 +193,7 @@ for (const stale of ["threads", "status"] as const) {
   });
 }
 
-test("native rows retain Connect without MCP and connected contacts in reader order", () => {
+test("native rows retain Connect without MCP and connected contacts in reader order", async () => {
   const actions = new NativeInfoActions();
   const performed: string[] = [];
   const view = {
@@ -201,9 +206,13 @@ test("native rows retain Connect without MCP and connected contacts in reader or
     },
   };
   const section = connectorsSection({ servers: [], open: false, imessage: view }, actions, translate)!;
-  expect(section.open).toBe(true);
+  // The person's fold holds: an unconnected iMessage row never forces Connectors open.
+  expect(section.open).toBe(false);
+  expect(section.meta).toBe(translate("imessage.connect"));
   expect(section.rows[0]!.title).toBe("iMessage");
   actions.run(section.rows[0]!.buttons![0]!.action);
+  await Promise.resolve();
+  await Promise.resolve();
   expect(performed).toEqual(["connect"]);
   const connected = connectorsSection(
     {

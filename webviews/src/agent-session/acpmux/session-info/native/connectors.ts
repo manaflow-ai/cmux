@@ -167,14 +167,14 @@ export function connectorsSection(
     meta:
       reconnect > 0
         ? t("sessionInfo.connectors.reconnect", { count: reconnect })
-        : imessage && imessage.data.status !== "connected"
+        : imessage && imessage.data.status !== "connected" && servers.length === 0
           ? t("imessage.connect")
           : t("rail.connected", {
               count:
                 servers.filter((server) => server.status === "connected").length +
                 (imessage?.data.status === "connected" ? 1 : 0),
             }),
-    open: input.open || (!!imessage && imessage.data.status !== "connected"),
+    open: input.open,
     foldable: true,
     reorderable: true,
     rows,

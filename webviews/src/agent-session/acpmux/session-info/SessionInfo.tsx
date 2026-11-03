@@ -1819,13 +1819,13 @@ export function SessionInfo({
       id="connectors"
       title={t("rail.connectors")}
       icon={rowIcon("extension")}
-      open={state.connectors || (!!imessage && imessage.data.status !== "connected")}
+      open={state.connectors}
       onOpenChange={fold("connectors")}
       // As Claude Code desktop's: the servers to reconnect when any failed, else the connected ones.
       meta={value(
         reconnect > 0
           ? t("sessionInfo.connectors.reconnect", { count: reconnect })
-          : imessage && imessage.data.status !== "connected"
+          : imessage && imessage.data.status !== "connected" && mcp.length === 0
             ? t("imessage.connect")
             : t("rail.connected", {
                 count:
