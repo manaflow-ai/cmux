@@ -840,7 +840,14 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   // reading while pushed, and starts again at 0 each time the panel opens.
   const [overflow, setOverflow] = useState(0);
   // Its three places by the pane's width: in the gutter, pushing into the chat, over the chat.
-  const stage = sessionInfoStage(display.sessionInfo, { width: paneWidth, height: paneHeight }, width, column, wide, overflow);
+  const stage = sessionInfoStage(
+    display.sessionInfo,
+    { width: paneWidth, height: paneHeight },
+    width,
+    column,
+    wide,
+    overflow,
+  );
   const push = stage === "push";
   const overChat = stage === "overlay";
   // Pushing, its width (narrowed to keep a readable chat) and the room it takes from the chat's right
