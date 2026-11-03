@@ -41,4 +41,9 @@ for (const [name, body] of [["admin", { x: ["admin"] }], ["empty", { x: [] }], [
 const notList = apply("cmuxvm_sk_leak");
 assert.notEqual(notList.exitCode, 0, "a JSON string was accepted as the key list");
 assert.ok(!notList.stderr.toString().includes("leak"), "the key list leaked into stderr");
+for (const raw of ["[] []", '[{"id":"a"}] garbage']) {
+  const r = Bun.spawnSync(["bash", script], { stdin: new TextEncoder().encode(raw), stdout: "pipe", stderr: "pipe" });
+  assert.notEqual(r.exitCode, 0, `${raw} was accepted`);
+  assert.equal(r.stdout.toString(), "", `${raw} printed partial output`);
+}
 console.log("service key grants: ok");

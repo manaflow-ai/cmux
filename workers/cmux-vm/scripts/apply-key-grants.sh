@@ -11,7 +11,9 @@ if ! jq -e 'type == "object" and all(.[]; type == "array" and length > 0 and all
   exit 1
 fi
 # jq's own errors can quote part of its input, a secret here, so they never reach the log.
-if ! jq -c --slurpfile grants "$grants_file" 'if type == "array" then map(.id as $id | if $grants[0][$id] then .scopes = ((.scopes + $grants[0][$id]) | unique) else . end) else error("not an array") end' 2>/dev/null; then
-  echo "::error::the service key list is not a JSON array of entries; refusing to deploy it" >&2
+# Exactly one JSON array in; output is printed only once all of it merged.
+if ! merged="$(jq -cn --slurpfile grants "$grants_file" '[inputs] | if length == 1 and (.[0] | type) == "array" then .[0] | map(.id as $id | if $grants[0][$id] then .scopes = ((.scopes + $grants[0][$id]) | unique) else . end) else error("not one array") end' 2>/dev/null)"; then
+  echo "::error::the service key list is not one JSON array of entries; refusing to deploy it" >&2
   exit 1
 fi
+printf '%s\n' "$merged"
