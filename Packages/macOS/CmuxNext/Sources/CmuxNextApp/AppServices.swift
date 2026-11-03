@@ -760,7 +760,6 @@ final class AppServices {
         // Builds with the detector (Nightly, bench, Debug) log each new main-thread blocking site once
         // (kind + image UUID + offset frames only); Release compiles the detector out and this does nothing.
         blocking.install(sink: BlockingLogSink())
-        (NSApp as? CmuxApplication)?.mouseDownWillDispatch = { [weak self] in self?.keyRouter.creationInputCoordinator.clickWillDispatch(in: $0.window) }
         (NSApp as? CmuxApplication)?.mouseDownObserver = { [weak self] event in
             let app = NSApp as? CmuxApplication
             self?.notifications.noteMouseDown(in: event.window, at: event.locationInWindow, left: event.type == .leftMouseDown,

@@ -205,19 +205,4 @@ import Testing
         #expect(page.map(\.characters) == typed.map(\.characters), "the page got \(page.compactMap(\.characters).joined()), not abcdef")
         #expect(Set(page.map(ObjectIdentifier.init)).count == typed.count, "a held key went to the page twice")
     }
-
-    /// Review of #32633 (6594624994 finding 1): a person types into a restored page that is not ready yet, then clicks
-    /// the address bar. The keys typed before the click were for the page: they go first, before AppKit dispatches the
-    /// click (which moves the keyboard), never after it into the address bar. Only a page hold with keys does this.
-    @Test func aPageHoldWithKeysGivesThemUpBeforeAClick() {
-        let page = CreationInputBuffer(began: .now)
-        page.awaitContent(AwaitedContent(tab: "b", kind: .browser), machine: nil)
-        #expect(!page.keysGoBeforeClick, "an empty page hold acted on a click")
-        page.capture(letter, focusedTab: "b")
-        #expect(page.keysGoBeforeClick, "a page hold's keys stayed held across a click and went to where the person clicked")
-        let terminal = CreationInputBuffer(began: .now)
-        terminal.awaitContent(AwaitedContent(tab: "t", kind: .terminal), machine: nil)
-        terminal.capture(letter, focusedTab: "t")
-        #expect(!terminal.keysGoBeforeClick, "a terminal's hold has its own lane: a click does not change where its keys go")
-    }
 }
