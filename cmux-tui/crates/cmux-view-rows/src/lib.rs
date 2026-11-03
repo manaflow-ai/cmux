@@ -23,12 +23,16 @@
 //!   revision it starts from, and refuses a gap or an edit that does not fit its rows (the receiver
 //!   asks its producer for a reset); a refused edit leaves its rows as they were.
 //!
-//! Index semantics are those of a batch update (NSCollectionView, UICollectionView): removed rows
-//! and move sources are base indices, inserted rows, move targets and changed rows are new indices.
-//! To apply: put the moved and inserted rows at their new indices, fill every other new index with
-//! the base rows that neither left nor moved, in base order, then replace the changed values. A
-//! view that animates knows each moved row's old and new place from the edit itself. An edit with
-//! no removed, moved or inserted row only replaces values: O(changed rows).
+//! Indices: removed rows and move sources are base indices; inserted rows and move targets are new
+//! indices, as in a batch update (NSCollectionView, UICollectionView). Changed rows are new indices
+//! and apply after the structure: unlike a batch update's reloads, which name base indices, so a
+//! view that hands an edit to a collection view reconfigures the changed rows after the batch. To
+//! apply: put the moved and inserted rows at their new indices, fill every other new index with the
+//! base rows that neither left nor moved, in base order, then replace the changed values. A move's
+//! base and new index can be equal: the row still changes places against the rows around it
+//! (`[a, b, c]` to `[c, b, a]` moves `a` and `b`, and `b` stays at index 1). A view that animates
+//! knows each moved row's old and new place from the edit itself. An edit with no removed, moved or
+//! inserted row only replaces values: O(changed rows).
 //!
 //! Revisions compare by equality only (a receiver applies an edit whose `base` equals the revision
 //! it holds), never by order: they count up by one per message with wrapping arithmetic.
@@ -351,9 +355,9 @@ pub enum Malformed {
     BaseRowTwice,
     /// A new index gets two rows.
     NewIndexTwice,
-    /// The base rows that stay do not fill the free new indices.
+    /// The base rows that stay and the inserted rows are fewer than the new count.
     TooFewRows,
-    /// Base rows that stay are left over after every new index is filled.
+    /// The base rows that stay and the inserted rows are more than the new count.
     TooManyRows,
     /// A changed row's key is not the key at its new index.
     KeyMismatch,
@@ -471,6 +475,18 @@ fn rebuilt<K: Eq + Hash + Clone, R: Clone>(
     };
     for &from in &removed {
         leave(from)?;
+    }
+    // The new list holds the base rows that stay and the inserted ones: a `count` that differs is
+    // refused here, before anything is allocated for it (a huge count would abort the process).
+    match base
+        .keys
+        .len()
+        .checked_sub(removed.len())
+        .and_then(|kept| kept.checked_add(inserted.len()))
+    {
+        Some(expected) if count == expected => {}
+        Some(expected) if count > expected => return Err(Malformed::TooFewRows),
+        _ => return Err(Malformed::TooManyRows),
     }
     let mut slots: Vec<Option<(K, R)>> = std::iter::repeat_with(|| None).take(count).collect();
     let mut put = |at: usize, key: K, row: R| -> Result<(), Malformed> {
