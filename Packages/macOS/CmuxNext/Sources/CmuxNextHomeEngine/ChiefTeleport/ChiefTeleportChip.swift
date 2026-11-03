@@ -222,7 +222,7 @@ public final class ChiefTeleportChip: NSView {
 
     private static func symbol(_ name: String, scale: NSImage.SymbolScale) -> NSImage? {
         NSImage(systemSymbolName: name, accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: TypeScale.caption, weight: .medium, scale: scale))
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: TypeScale.caption, weight: TypeScale.regular, scale: scale))
     }
 }
 

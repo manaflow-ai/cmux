@@ -27,7 +27,7 @@ public nonisolated struct ChiefLocationReader: Sendable {
     public func whereabouts(home: URL) async -> ChiefWhereabouts {
         let file = home.appendingPathComponent(Self.movedFile)
         // One small file read, at the person's priority, never on the main actor.
-        let data = await Task.detached(priority: .userInitiated) { try? Data(contentsOf: file) }.value
+        let data = await Task.detached(priority: .userInitiated) { try? Data(blockingContentsOf: file) }.value
         return ChiefWhereabouts(movedJSON: data)
     }
 }

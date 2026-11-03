@@ -28,7 +28,7 @@ final class HomeHostView: NSView {
     /// The Chief's settings, a popover under the header's name pill, which
     /// toggles it (Chief conversation only).
     private let settings: HomeChiefSettingsPopover
-    var settingsView: HomeChiefSettingsView { settings.content }
+    private var settingsView: HomeChiefSettingsView { settings.content }
     /// The Chief pet's rows in the popover's Appearance section.
     private let petRows: ChiefPetSettingsRows
     private(set) var isChief = false { didSet { if isChief != oldValue { watchHeaderPanels(); watchNeedsYou() } } }
@@ -60,9 +60,8 @@ final class HomeHostView: NSView {
     lazy var turnActions = HomeChiefTurnActions(transcript: transcript)
     /// Where this Chief runs and its other host, for the settings card (no floating switch over the chat).
     private var hostWatch: Task<Void, Never>?
-    /// Chief teleport (HomeHostView+Teleport): the header's location chip and the card's Runs On row,
-    /// shown while this conversation is the Chief that `cmux chief move` moves.
-    var teleportShown: Task<Void, Never>?
+    /// The header's location chip and the card's Runs On row, on the Chief that `cmux chief move` moves.
+    private var teleportChips: ChiefTeleportChips?
     /// Where attachments open and their right-click menu (the transcript holds it weakly).
     private var fileActions: HomeFileActions?
 
@@ -155,7 +154,11 @@ final class HomeHostView: NSView {
             await service?.renameChief(conversation: conversation, to: name) ?? .noConnection
         }
         settingsView.bindPrimary(directory: service.directory, conversation: conversation)  // the Primary Chief row
-        installTeleport(services: services, conversation: conversation)  // the location chip and Runs On row
+        teleportChips = ChiefTeleportChips(model: services.chiefTeleport)
+        teleportChips?.follow(for: self, { [weak service] in service?.showsTeleport(conversation: conversation) ?? false }) { [weak self] in
+            self?.transcript.headerPillAccessory = $0
+            self?.settingsView.showTeleport($1)
+        }
         // The stop button (HomeHostView+StopAll): a click, Esc and Cmd-. stop the Chief; Option-click stops all agents.
         let registry = services.registry
         wireStopButton(registry)

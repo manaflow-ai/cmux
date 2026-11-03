@@ -159,7 +159,7 @@ extension HomeService {
         // The local Chief is looked up (never created) while a cloud Chief has the tab.
         let localChief = if shown == nil, let owner { try await chiefConversation(owner) } else { listed?.id }
         let localHasHistory = shown == nil || (listed?.lastSeq ?? 0) > 0
-        // A teleported Chief's tab is the conversation where it answers now (HomeService+Teleport).
+        // A teleported Chief's tab is the conversation where it answers now (HomeService+ChiefRoster).
         let followed = chiefFollow.conversation
         if let followed { followedChiefConversations.insert(followed) }
         guard let chief = followed ?? cloud.chiefTab(local: localChief, localHasHistory: localHasHistory, choice: hostedChief.choice,

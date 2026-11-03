@@ -1,5 +1,4 @@
-@testable import CmuxNextApp
-import CmuxNextHomeEngine
+@testable import CmuxNextHomeEngine
 import Testing
 
 /// "Move Chief To…" targets (remote-groups-DESIGN.md slice 6, chief-migration-DESIGN.md 8a): This Mac,

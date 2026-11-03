@@ -17,6 +17,7 @@ import Foundation
 @MainActor
 enum ChiefMoveHandlers {
     static let actionID: ActionID = "chief.moveTo"
+    static let rollbackID: ActionID = "chief.moveRollback"
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         // The handler cannot wait: it reads what is known now, and this read answers before a person opens the menu.
@@ -85,69 +86,55 @@ enum ChiefMoveHandlers {
                               context: AppActionContext) throws {
         if let reason = target.disabledReason { throw ActionFailure.invalidTarget(target.title.isEmpty ? "\(reason)" : target.title) }
         guard let to = target.to else { throw ActionFailure.invalidTarget(target.title) }
-        let teleport = context.services.chiefTeleport
-        guard !teleport.phase.isRunning else { throw ActionFailure(message: ChiefMoveStrings.running) }
-        let sourceHome = teleport.home.path
-        let targetHome = ChiefMovePlan.targetHome(home: sourceHome, userHome: FileManager.default.homeDirectoryForCurrentUser.path)
+        guard !context.services.chiefTeleport.phase.isRunning else { throw ActionFailure(message: ChiefMoveStrings.running) }
+        registry.track(runner(cli: cli, interactive: interactive, context: context).move(target, to: to))
+    }
+
+    /// The move and rollback steps with the app's dialogs and the Cloud session token.
+    private static func runner(cli: URL, interactive: Bool, context: AppActionContext) -> ChiefTeleportRunner {
         let window = CloudHandlers.window(context)
         let cloud = context.services.cloud
-        let title = target.displayName
-        // The chip shows the dry run on this turn; the steps below move it on.
-        teleport.phase = .checking(title)
-        let work: ActionWork = Task {
-            var tokenDir: URL?
-            defer { if let tokenDir { try? FileManager.default.removeItem(at: tokenDir) } }
-            var tokenFile: String?
-            if case .cloud = target.kind {
-                do {
-                    let (dir, file) = try await writeToken(cloud)
-                    (tokenDir, tokenFile) = (dir, file.path)
-                } catch {
-                    teleport.phase = .failed(title, reason: String(describing: error))
-                    return ActionWorkFailure(ChiefMoveStrings.failedTitle(title) + ": " + String(describing: error))
-                }
-            }
-            let plan = ChiefMovePlan(to: to, kind: target.kind, sourceHome: sourceHome, targetHome: targetHome, tokenFile: tokenFile)
-            let report = await run(cli, plan.dryRun, timeout: .seconds(180))
-            guard report.ok else {
-                teleport.phase = .failed(title, reason: report.text)
-                if interactive { CloudPresenter.show(ChiefMoveStrings.failedTitle(title), report.text, copyable: true, in: window) }
-                return ActionWorkFailure(report.text)
-            }
-            if interactive {
-                let go = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
-                    CloudPresenter.confirm(ChiefMoveStrings.confirmTitle(title), report.text, button: ChiefMoveStrings.move,
-                                           identifier: "cmux.dialog.chief.move", in: window) { done.resume(returning: $0) }
-                }
-                guard go else {
-                    teleport.phase = .idle
-                    return nil
-                }
-            }
-            teleport.phase = .moving(title)
-            let moved = await run(cli, plan.move, timeout: .seconds(1800))
-            teleport.refresh()  // a failed move may still have marked the home moved
-            guard moved.ok else {
-                teleport.phase = .failed(title, reason: moved.text)
-                if interactive { CloudPresenter.show(ChiefMoveStrings.failedTitle(title), moved.text, copyable: true, in: window) }
-                return ActionWorkFailure(moved.text, mayHaveApplied: true)
-            }
-            var summary = moved.text
-            if plan.reach != ChiefMovePlan.Reach.none { teleport.phase = .verifying(title) }
-            switch plan.reach {
-            case .cli(let arguments): summary += "\n\n" + (await run(cli, arguments, timeout: .seconds(120))).text
-            case .remote(let command): summary += "\n\n" + (await run(URL(fileURLWithPath: "/usr/bin/env"), command, timeout: .seconds(120))).text
-            case .none: break
-            }
-            teleport.phase = .done(title)
-            if interactive { CloudPresenter.show(ChiefMoveStrings.doneTitle(title), summary, copyable: true, in: window) }
-            return nil
+        return ChiefTeleportRunner(model: context.services.chiefTeleport, cli: cli, interactive: interactive,
+                                   writeToken: { try await writeToken(cloud) },
+                                   confirm: { title, body, button, identifier in
+                                       await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+                                           CloudPresenter.confirm(title, body, button: button, identifier: identifier, in: window) {
+                                               done.resume(returning: $0)
+                                           }
+                                       }
+                                   },
+                                   show: { CloudPresenter.show($0, $1, copyable: true, in: window) })
+    }
+
+    /// Roll Back Chief Move (`chief.moveRollback`): `cmux chief move rollback` on the app's Chief home.
+    private static func bindRollback(into registry: ActionRegistry, context: AppActionContext) {
+        let bundled = context.services.bundledCLI
+        let teleport = context.services.chiefTeleport
+        func refusal() -> String? {
+            if bundled.known == nil { return ChiefMoveStrings.noCLI }
+            if teleport.location == .thisMac { return ChiefMoveStrings.notMoved }
+            return teleport.phase.isRunning ? ChiefMoveStrings.running : nil
         }
-        registry.track(work)
+        registry.bindEffect(rollbackID, unavailable: refusal, effect: { _ in
+            guard let cli = bundled.known, refusal() == nil else { return .refused(refusal() ?? ChiefMoveStrings.noCLI) }
+            return .applied(result: runner(cli: cli, interactive: !registry.isCapturingRefusal, context: context).rollback())
+        })
+    }
+
+    /// The Teleport menu's picks run `chief.moveTo` and `chief.moveRollback`, never a second path.
+    private static func bindTeleport(_ teleport: ChiefTeleportModel, registry: ActionRegistry, context: AppActionContext) {
+        teleport.destinations = { targets(context).map(\.teleportDestination) }
+        teleport.onMove = { [weak registry] id in
+            _ = registry?.perform(actionID, invocation: ActionInvocation(arguments: ["target": .string(id)], origin: .user))
+        }
+        teleport.onRollback = { [weak registry] in _ = registry?.perform(rollbackID, invocation: ActionInvocation(origin: .user)) }
+        // The engine's `move watch` carries out a moved Chief's requests; after a restart nobody else starts it.
+        teleport.onMoved = { _ in ChiefMoveWatchLauncher().start(home: teleport.home) }
+        teleport.refresh()
     }
 
     /// The Cloud session token in a 0600 file inside a 0700 folder of its own.
-    static func writeToken(_ cloud: CloudService) async throws -> (URL, URL) {
+    static func writeToken(_ cloud: CloudService) async throws -> (folder: URL, file: URL) {
         let token = try await cloud.auth.tokens().access
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-chief-move-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
@@ -156,19 +143,5 @@ enum ChiefMoveHandlers {
             throw CocoaError(.fileWriteUnknown)
         }
         return (dir, file)
-    }
-
-    struct Output { var ok: Bool; var text: String }
-
-    static func run(_ executable: URL, _ arguments: [String], timeout: Duration) async -> Output {
-        do {
-            let result = try await ProcessRunner.run(executable: executable, arguments: arguments, environment: nil,
-                                                     timeout: timeout, clock: ContinuousClock())
-            let text = [result.stdout, result.stderr].map { String(decoding: $0, as: UTF8.self) }
-                .filter { !$0.isEmpty }.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-            return Output(ok: result.status == 0, text: text)
-        } catch {
-            return Output(ok: false, text: String(describing: error))
-        }
     }
 }

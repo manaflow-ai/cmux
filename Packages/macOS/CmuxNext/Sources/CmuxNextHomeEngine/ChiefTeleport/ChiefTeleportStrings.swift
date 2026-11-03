@@ -21,6 +21,23 @@ nonisolated enum ChiefTeleportStrings {
     /// VoiceOver: "Chief location: cmux Cloud".
     static func label(_ place: String) -> String { format("home.teleport.label", "Chief location: %@", place) }
 
+    // Move Chief To… (the keys moved here from the app's Remote table with the move's code).
+    static func offline(_ name: String) -> String { format("chiefMove.offline", "%@ (offline)", name) }
+    static func noSSHRoute(_ name: String) -> String { format("chiefMove.noSSHRoute", "%@ (no SSH route)", name) }
+    static func signIn(_ name: String) -> String { format("chiefMove.signIn", "%@ (sign in first)", name) }
+    static var move: String { text("chiefMove.move", "Move") }
+    static func confirmTitle(_ name: String) -> String { format("chiefMove.confirmTitle", "Move Chief to %@?", name) }
+    static func doneTitle(_ name: String) -> String { format("chiefMove.doneTitle", "Chief moved to %@", name) }
+    static func failedTitle(_ name: String) -> String { format("chiefMove.failedTitle", "Chief did not move to %@", name) }
+    static var rollbackConfirmTitle: String { text("chiefMove.rollbackConfirmTitle", "Roll back the Chief's last move?") }
+    static var rollbackConfirmBody: String {
+        text("chiefMove.rollbackConfirmBody",
+             "The Chief answers from this Mac again, as it was before the move. What it learned at the other place since then stays there.")
+    }
+    static var rollbackButton: String { text("chiefMove.rollbackButton", "Roll Back") }
+    static var rolledBackTitle: String { text("chiefMove.rolledBackTitle", "Chief rolled back to this Mac") }
+    static var rollbackFailedTitle: String { text("chiefMove.rollbackFailedTitle", "Chief did not roll back") }
+
     private static func format(_ key: StaticString, _ value: String.LocalizationValue, _ argument: String) -> String {
         String(format: text(key, value), argument)
     }

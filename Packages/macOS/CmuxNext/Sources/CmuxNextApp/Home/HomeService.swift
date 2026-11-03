@@ -99,7 +99,7 @@ final class HomeService {
     #endif
     /// The cloud Chief whose main conversation is the Chief tab, or nil (the local Chief, also
     /// whenever it is the default Chief: ``prefersLocalChief``). After a teleport to cmux Cloud, the
-    /// Chief it moved into when the tab's two cloud Chiefs include it (HomeService+Teleport).
+    /// Chief it moved into when the tab's two cloud Chiefs include it (HomeService+ChiefRoster).
     var cloudChief: CloudChief? {
         guard !prefersLocalChief else { return nil }
         if let followed = chiefFollow.conversation, let chief = tabChiefs.chief(for: followed) { return chief }
@@ -117,10 +117,10 @@ final class HomeService {
     /// The one-time copy of this Mac's Chief into the Hosted Chief and its brain check (HomeService+HostedChief).
     @ObservationIgnored let hostedChief = HostedChiefMigration()
     @ObservationIgnored private var homeObservation: Task<Void, Never>?
-    /// Re-runs the Chief tab check when this Mac's Chief teleports or comes back (HomeService+Teleport).
+    /// Re-runs the Chief tab check when this Mac's Chief teleports or comes back (HomeService+ChiefRoster).
     @ObservationIgnored var chiefTeleportObservation: Task<Void, Never>?
     /// The Chief conversations Home followed a teleported Chief to this launch, whose tabs give way
-    /// to the Chief's next place (HomeService+Teleport).
+    /// to the Chief's next place (HomeService+ChiefRoster).
     @ObservationIgnored var followedChiefConversations: Set<String> = []
     /// Re-runs the Chief tab check when Settings > Chief's Engine changes (HomeService+ChiefDefault).
     @ObservationIgnored var chiefEngineObservation: Task<Void, Never>?
