@@ -9,8 +9,9 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import { createStrings } from "../src/pages/shared/i18n";
 import table from "../src/pages/changelog/generated/strings.json";
+import { AREAS } from "../src/pages/changelog/areas";
 import { mergedView, titleKey } from "../src/pages/changelog/model";
-import { placeholderRows, sheetRows } from "../src/pages/changelog/SheetPage";
+import { placeholderAreas, placeholderRows, sheetRows } from "../src/pages/changelog/SheetPage";
 import { parseSheetLayout } from "../src/pages/changelog/store";
 import { dayOfNightlies } from "../src/pages/changelog/whatsNewFixtures";
 
@@ -86,6 +87,15 @@ test("a loading day holds about the rows its index promises, three when it promi
   expect(placeholderRows([build(2), build(3)])).toBe(5);
   expect(placeholderRows([build(0)])).toBe(3);
   expect(placeholderRows([build(500)])).toBe(60);
+});
+
+test("a loading day also holds the area headers its rows will sit under (#32744 grouped by area)", () => {
+  // Real nightly days: 1 change in 1 area, 3 in 3, 10 in 6, 26 in 9.
+  expect([1, 3, 10, 26].map(placeholderAreas)).toEqual([1, 3, 6, 9]);
+  expect(placeholderAreas(0)).toBe(1);
+  expect(placeholderAreas(60)).toBe(13);
+  // Never more headers than areas (and Other).
+  expect(placeholderAreas(10_000)).toBe(AREAS.length + 1);
 });
 
 test("titles compare without case, repeated spaces, curly quotes or a closing period", () => {
