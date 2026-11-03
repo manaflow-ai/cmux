@@ -97,10 +97,12 @@ export function HarnessStatusCard({
   const source = info(summary);
   const auth = authSourceLabel(summary, t);
   const settings = source.settingsSources ?? summary.settingsSources;
-  const usageLimits =
-    usageLimitsLabel(source.usageLimits, t, locale) ??
-    usageLimitsLabel(summary.usageLimits, t, locale) ??
-    t("status.notReported");
+  const reportedLimits =
+    usageLimitsLabel(source.usageLimits, t, locale) ?? usageLimitsLabel(summary.usageLimits, t, locale);
+  // acpmux says when the sign-in has no plan limits at all (an API key, a cloud provider): the row
+  // does not apply. Otherwise a chat with none yet says so plainly.
+  const limitsApply = reportedLimits !== undefined || summary.usageLimitsApply !== false;
+  const usageLimits = reportedLimits ?? t("status.noLimitYet");
   const fields: readonly StatusField[] = [
     [t("status.field.version"), version(rows, summary, t)],
     [t("status.field.session"), display(summary.sessionId, t)],
@@ -112,8 +114,8 @@ export function HarnessStatusCard({
     [t("status.field.routing"), routeLabel(summary, t)],
     [t("status.field.settings"), listLabel(settings, t)],
     [t("status.field.context"), usageLabel(summary, t)],
-    [t("status.field.usageLimits"), usageLimits],
-  ] as const;
+    ...(limitsApply ? [[t("status.field.usageLimits"), usageLimits] as const] : []),
+  ];
   const copyField = async (label: string, value: string, target: HTMLElement) => {
     const selection = window.getSelection();
     if (

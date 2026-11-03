@@ -6344,6 +6344,7 @@ export class AcpmuxDirectClient {
             route: text(summary.route),
             settingsSources: summary.settingsSources,
             usageLimits: usageLimitsOf(summary.usageLimits) ?? text(summary.usageLimits),
+            ...(summary.usageLimitsApply === false ? { usageLimitsApply: false } : {}),
             // acpmux reports `model: null` for a harness with no model (one known only from its config).
             model: text(summary.model),
             effort: effort?.currentValue,
