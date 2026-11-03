@@ -18,6 +18,7 @@ mod atomic_json;
 mod build;
 pub use build::{build, install_build, version_line};
 pub(crate) mod auto_resume;
+mod bg_notify;
 mod bg_tasks;
 mod bounded;
 mod btw;
@@ -969,6 +970,7 @@ impl Hub {
             if !loading {
                 hub.watch_transfers();
                 hub.watch_orphans();
+                hub.bg_notify_resume();
             }
             hub.watch_titles();
             for (name, pc) in peers_cfg {
