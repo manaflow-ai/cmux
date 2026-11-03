@@ -86,6 +86,15 @@ struct CloudAskDialogsTests {
         await #expect(throws: ActionFailure(message: CloudStartSessionStrings.declined(Asks.asked))) { _ = try await task.value }
     }
 
+    /// A listed label in any language is its option; the rules read only the ids.
+    @Test func aShownLabelIsItsOption() {
+        let dialog = CloudAskDialog(id: "cloud-start-x")
+        #expect(dialog.selection(" Démarrer ", start: "Démarrer", notNow: "Pas maintenant") == "start")
+        #expect(dialog.selection("開始しない", start: "開始", notNow: "開始しない") == "notNow")
+        #expect(dialog.selection("start", start: "Démarrer", notNow: "Pas maintenant") == "start")
+        #expect(CloudAskDialog.owns("cloud-start-x") && !CloudAskDialog.owns("perm-1"))
+    }
+
     @Test func aDelegatedAgentMayStart() async throws {
         let asks = CloudStartSessionAsks(), cards = Asks.Cards()
         cards.install(asks)

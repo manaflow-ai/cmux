@@ -23,7 +23,7 @@ final class CloudAskDialogs: AgentDialogAppAsks {
         })
     }
 
-    func owns(_ id: String) -> Bool { id.hasPrefix(CloudAskDialog.prefix) }
+    func owns(_ id: String) -> Bool { CloudAskDialog.owns(id) }
 
     func items() -> [JSONValue] {
         let delegated = delegated()
@@ -31,16 +31,19 @@ final class CloudAskDialogs: AgentDialogAppAsks {
     }
 
     static func item(_ ask: CloudStartSessionAsks.Waiting, delegated: Bool) -> JSONValue {
-        CloudAskDialog.item(dialog: ask.dialog, tab: ask.tab, text: ask.text, caller: ask.caller, machine: ask.asked.machine, agent: ask.asked.agent,
-                            command: ask.asked.command, start: CloudStartSessionStrings.start, notNow: CloudMoveAskStrings.notNow, delegated: delegated)
+        CloudAskDialog(id: ask.dialog).item(tab: ask.tab, text: ask.text, caller: ask.caller, machine: ask.asked.machine, agent: ask.asked.agent,
+                                            command: ask.asked.command, start: CloudStartSessionStrings.start, notNow: CloudMoveAskStrings.notNow, delegated: delegated)
     }
 
     func reply(_ id: String, selection: String, params: [String: JSONValue]) throws -> JSONValue {
         guard let asks = asks(), asks.waiting.contains(where: { $0.dialog == id }) else {
             throw ControlError(code: "not_found", message: CloudStartSessionStrings.dialogGone(id), data: ["request_id": .string(id)])
         }
-        let answer = CloudStartCore().askAnswer(origin: params["origin"]?.stringValue, agentSession: CloudAskDialog.callerSession(params),
-                                                delegated: delegated(), selection: selection)
+        let dialog = CloudAskDialog(id: id)
+        // A listed label (in the app's language) is its option: the rules read only the ids.
+        let picked = dialog.selection(selection, start: CloudStartSessionStrings.start, notNow: CloudMoveAskStrings.notNow)
+        let answer = CloudStartCore().askAnswer(origin: params["origin"]?.stringValue, agentSession: params.cloudAskCallerSession,
+                                                delegated: delegated(), selection: picked)
         guard let choice = answer.choice else {
             throw ControlError.invalidParams(CloudStartSessionStrings.unknownChoice(id), data: ["request_id": .string(id)])
         }
@@ -50,6 +53,6 @@ final class CloudAskDialogs: AgentDialogAppAsks {
         guard asks.answer(dialog: id, start: choice == .start) else {
             throw ControlError(code: "not_found", message: CloudStartSessionStrings.dialogGone(id), data: ["request_id": .string(id)])
         }
-        return CloudAskDialog.answered(id, choice: choice.rawValue, start: choice == .start)
+        return dialog.answered(choice: choice.rawValue, start: choice == .start)
     }
 }

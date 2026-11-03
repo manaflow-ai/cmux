@@ -160,8 +160,8 @@ struct CloudStartSession {
     }
 
     static func askPending(_ request: Request, machine: String, dialog: String) -> [String: ActionResultValue] {
-        CloudAskDialog.pending(agent: request.agent, dialog: dialog, text: CloudStartSessionStrings.askPending(request.asked(machine: machine), dialog: dialog),
-                               machineID: request.machineID, machineName: request.name)
+        CloudAskDialog(id: dialog).pending(agent: request.agent, text: CloudStartSessionStrings.askPending(request.asked(machine: machine), dialog: dialog),
+                                           machineID: request.machineID, machineName: request.name)
     }
 
     /// The chat tab of agent session `session` on any machine: a chat on this Mac, or one on a
