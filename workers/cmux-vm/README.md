@@ -418,6 +418,15 @@ rows, or returned in errors and VM responses. A retry with changed network
 intent or credentials under the same Idempotency-Key is 409. Forks do not
 inherit network intent.
 
+`GET /v1/vms/{vmId}/public-egress` reads, and `PUT` turns on, an existing
+VM's public egress: `{ "id": "vm_...", "publicEgress": true }`. Both require
+`vm:network` and ownership of the VM. It counts only a rule that allows the
+public Internet on every port and whose source is exactly this VM (a create's
+`initialNetwork.publicEgress` rule is one). `PUT` adds that rule, deleted with
+the VM, only when none is there; it never turns egress off or touches other
+rules. A VM created private can join the Internet later this way (cmux Cloud
+keeps a copy that resumes another VM's memory private until it cold boots).
+
 `PUT /v1/vms/{vmId}/https-proxies/{hostname}` replaces an existing HTTP
 proxy with `{ "destination": "https://api.example.com", "headers": { ... } }`.
 It requires `vm:network` and ownership of that VM, including any key resource

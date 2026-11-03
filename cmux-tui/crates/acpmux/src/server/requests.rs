@@ -1797,6 +1797,15 @@ async fn dispatch_request(
                 .await
                 .map_err(|e| RpcError::internal(e.to_string()))?
         }
+        "_acpmux/peer_snapshots_clear" if conn.origin != Origin::Local => Err(
+            RpcError::invalid_params("peer snapshots clear requires this machine's unix socket"),
+        ),
+        "_acpmux/peer_snapshots_clear" => {
+            let hub = hub.clone();
+            tokio::task::spawn_blocking(move || hub.clear_peer_snapshots())
+                .await
+                .map_err(|e| RpcError::internal(e.to_string()))?
+        }
         // Names every machine and its numbers: this machine's own clients only.
         "_acpmux/place" if conn.origin != Origin::Local => Err(RpcError::invalid_params(
             "_acpmux/place answers on this machine's unix socket only",

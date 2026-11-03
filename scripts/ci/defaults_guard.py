@@ -530,7 +530,16 @@ def tunable_source_defaults(sources: Mapping[str, str]) -> dict[str, object]:
     # declares plus the superclasses and protocols they name, so a subclass reaches its base's helper and a
     # conforming type a protocol extension's. A token that only shares the name (`model.toggle()`, a closure
     # named `make`, `JSONValue.number`) is not a call of it: that matched every `static func bind` in the app
-    # (#32983, #32979). Still not resolved: a helper reached through a generic parameter (`T.points`).
+    # (#32983, #32979). Not resolved (the guard before #33161 caught them by name; no Tunable helper in the tree
+    # is called this way, 2026-11-03; a Tunable that uses one changes its default with no review):
+    # - a conformance or superclass declared in another file than the caller (`extension C: HasPoints {}`
+    #   elsewhere, or `extension Sub` in another file than `class Sub: Base`): inheritance is read per file
+    # - inheritance more than one level deep (`Leaf: Mid`, `Mid: Base`; `protocol Q: HasPoints`)
+    # - a nested generic clause before the colon (`struct G<T: Collection<Int>>: HasPoints`)
+    # - a typealias of the helper's type (`typealias CT = ChromeTunables`, then `CT.points`), or a local
+    #   `let T = ChromeTunables.self`
+    # - a helper reached through a generic parameter (`T.points`)
+    # A `class func` helper is no node at all (static_declarations reads `static` only).
     helper_files: dict[str, set[str]] = {}
     for key, (path, kind, name, _) in nodes.items():
         if key in selected and kind == "func":
