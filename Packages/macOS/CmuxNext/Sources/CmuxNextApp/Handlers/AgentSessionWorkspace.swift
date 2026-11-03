@@ -17,15 +17,7 @@ import Foundation
 /// Closing the tab or the workspace only detaches from the session; the
 /// session ends only when someone ends it.
 ///
-/// Arguments: `session` (required, the acpmux session id), `name` (the
-/// workspace name), `defaultName` (the name a workspace with no `name` takes in place of
-/// `workspace-N`: an unnamed `acpmux new --group` launch's session name; it never reuses a
-/// predecessor row, so two sessions of the same generated name never share one), `key` (a caller-chosen workspace key, a lowercase UUID,
-/// so the caller can rename the workspace later), `cwd` (unused: the session keeps its own), `host`
-/// (`chief:<home id>`: the session runs in this app's Chief home's acpmux),
-/// `group` (the name of the sidebar group it goes in: any group of that name
-/// that can hold the row, made only when none can; `acpmux new --group` sends
-/// it), `placement` (`top`: first below Home over `workspaces.newPlacement`, `agents chat new --top`).
+/// Arguments: ``AgentSessionWorkspaceRequest``.
 /// A `key` that names a listed workspace opens nothing: a launcher run again finds its row.
 /// A `name` that already has a row in that group (a lane
 /// re-homed to another machine, whose new session has a new key) gets the
@@ -46,31 +38,15 @@ enum AgentSessionWorkspace {
     }
 
     private static func open(_ invocation: ActionInvocation, context: AppActionContext) throws {
-        let session = (invocation["session"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !session.isEmpty else { throw ActionFailure(message: MiscHandlerStrings.sessionRequired) }
-        let name = invocation["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-        let defaultName = invocation["defaultName"]?.stringValue.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
-        let given = invocation["key"]?.stringValue?.lowercased()
-        let key = given.flatMap { UUID(uuidString: $0) == nil ? nil : WorkspaceKey(rawValue: $0) } ?? .generate()
-        let cwd = invocation["cwd"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-        // The Chief host's own acpmux runs the session (`chief:<home id>`); absent: this Mac's.
-        let host = invocation["host"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-        let givenGroup = invocation["group"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-        if let givenGroup, !SidebarEdits.validGroupName(givenGroup) {
-            throw ActionFailure(message: "agent.openSessionWorkspace: group must be a non-empty human label, not a cmux id; omit group or use a label such as \"GUI push\"")
-        }
-        let placement = invocation["placement"]?.stringValue ?? ""
-        if !["", "top"].contains(placement) { throw ActionFailure(message: "agent.openSessionWorkspace: placement must be top; omit it for the workspaces.newPlacement setting") }
-        // Looked up as given, so a group whose name has outer spaces is still found exactly; a new group gets
-        // the trimmed name (`join`).
-        let group = givenGroup
+        let request = try AgentSessionWorkspaceRequest(invocation, sessionRequired: MiscHandlerStrings.sessionRequired)
         let parent = invocation.callerAgentSession.flatMap { caller in
             AgentSessionParents.callerIdentity(caller, in: context.services.agentTabs.listTabs().map {
                 AgentSessionRef(host: $0.record.host, session: $0.record.session)
             })
         }
-        let task = try open(session: session, name: name, defaultName: defaultName, key: key, cwd: cwd, host: host, group: group,
-                            top: placement == "top", focus: invocation.allowsViewChange, parent: parent, services: context.services)
+        let task = try open(session: request.session, name: request.name, defaultName: request.defaultName, key: request.key, cwd: request.cwd,
+                            host: request.host, group: request.group, top: request.top, focus: invocation.allowsViewChange, parent: parent,
+                            services: context.services)
         context.services.registry.track(task)
     }
 

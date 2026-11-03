@@ -21,7 +21,7 @@ package enum NativeCloudExecutableRefusal: Error, Equatable, CustomStringConvert
         switch self {
         case .ownSigning(let status): "native executable refused: the app's own signature is unreadable (OSStatus \(status))"
         case .noResources: "native executable refused: the bundle has no Resources"
-        case .binaryMoved: "native executable refused: bin/cmux-tui resolves outside the bundle"
+        case .binaryMoved: "native executable refused: bin/cmux resolves outside the bundle"
         case .signing(let what, let status): "native executable refused: \(what) signature check failed (OSStatus \(status))"
         case .noCodeHash: "native executable refused: cmux-tui has no code hash"
         case .publisher(let expected, let app, let binary):
@@ -54,8 +54,11 @@ package struct NativeCloudExecutable: Sendable {
     init(bundle: Bundle, publisher: Publisher) throws {
         guard let resources = bundle.resourceURL else { throw NativeCloudExecutableRefusal.noResources }
         let root = resources.resolvingSymlinksInPath()
-        binary = root.appendingPathComponent("bin/cmux-tui").resolvingSymlinksInPath()
-        guard binary.path == root.appendingPathComponent("bin/cmux-tui").path else { throw NativeCloudExecutableRefusal.binaryMoved }
+        // bin/cmux is the cmux-tui binary itself; bin/cmux-tui is a relative symlink to it in every bundle
+        // (scripts/install-cmux-tui-client.sh), and only argv[0] "acpmux" picks another program. So the child is
+        // pinned to the real file, and any symlink there is refused.
+        binary = root.appendingPathComponent("bin/cmux").resolvingSymlinksInPath()
+        guard binary.path == root.appendingPathComponent("bin/cmux").path else { throw NativeCloudExecutableRefusal.binaryMoved }
         let bundleInformation = try Self.signing(bundle.bundleURL, what: "app")
         let information = try Self.signing(binary, what: "cmux-tui")
         guard let hash = information[kSecCodeInfoUnique as String] as? Data, (20...32).contains(hash.count) else { throw NativeCloudExecutableRefusal.noCodeHash }

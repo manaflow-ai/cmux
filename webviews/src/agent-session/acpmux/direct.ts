@@ -128,6 +128,7 @@ import {
   markTranscriptSummaryVersion,
   pullRequestRowKey,
 } from "./summary/transcriptPullRequests";
+import { RowUpdates } from "./rowUpdates";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIcons";
 import { handoffPromptId, namesHandoffTurn } from "./cloudHandoffTurn";
 import { STALL_CHECK_MS, stallLine } from "./stallLog";
@@ -1353,6 +1354,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   private pullRequestActivityVersion = Symbol();
   private pullRequestCommandVersion = Symbol();
   private transcriptSummaryVersion = {};
+  private readonly artifactUpdates = new RowUpdates((id) => this.get(id));
   /// The turns the agent ran on its own (acpmux `background_turn`): each one's started record's
   /// sequence number and its ended record's, once heard. A row an event between them made is that
   /// turn's (`inBackground`). An ended record heard first (an older page's started record comes
@@ -1446,7 +1448,9 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       if (turn !== undefined && row.inBackground !== turn) row = { ...row, inBackground: turn };
     }
     if (this.ordered && !unchanged) this.keepOrdered(id, row, known);
-    return super.set(id, row);
+    const result = super.set(id, row);
+    if (!unchanged) this.artifactUpdates.note(row, this.current ?? this.order.get(id) ?? row.at);
+    return result;
   }
 
   /// Updates the kept order for `row`: in its slot when only its content changed, at the end when it
@@ -1564,6 +1568,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     }
     if (!this.snapshot) {
       this.snapshot = this.ordered.slice();
+      this.artifactUpdates.publish(this.snapshot);
       markPullRequestActivityVersion(this.snapshot, this.pullRequestActivityVersion);
       markPullRequestCommandVersion(this.snapshot, this.pullRequestCommandVersion);
       markTranscriptSummaryVersion(this.snapshot, this.transcriptSummaryVersion);
@@ -5399,6 +5404,10 @@ export class AcpmuxDirectClient {
       }
       if (Number.isFinite(used) && Number.isFinite(size) && size > 0) {
         const setup = usageSetup(update, used);
+        // A new model window (a model switch) makes the last /context's window stale until the
+        // next one arrives: the meter reads the model's own until then (compactingUsage).
+        if (this.usage && this.usage.size !== size && this.summary?.contextBreakdown)
+          this.summary = { ...this.summary, contextBreakdown: undefined };
         this.usage = setup === undefined ? { used, size } : { used, size, setup };
       }
       return;
@@ -7415,6 +7424,13 @@ export class AcpmuxDirectClient {
     const sessionId = this.actingSessionId;
     if (!sessionId) return Promise.reject(new Error(translate("error.notOpen")));
     return this.request("_acpmux/agent_pair_resume", { sessionId, peerSessionId: peer });
+  }
+  /// Take over (`held`) or Hand back the shown chat its manager runs (acpmux `hub/agent_hold.rs`):
+  /// while held, acpmux holds the manager's messages to it; Hand back delivers them in order.
+  agentHold(held: boolean): Promise<{ held?: boolean; delivered?: number }> {
+    const sessionId = this.actingSessionId;
+    if (!sessionId) return Promise.reject(new Error(translate("error.notOpen")));
+    return this.request("_acpmux/agent_hold", { sessionId, held });
   }
   /// Archive has acpmux tag the selected chat `archived` (the lists hide it; acpmux values it with
   /// when); Unarchive removes the tag. The page sends it on its own connection (cx-jlzsf).

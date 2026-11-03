@@ -540,15 +540,21 @@ button.cv-subagent > :last-child {
   overflow: hidden;
   white-space: nowrap;
 }
-/* The time keeps its own fixed box, its digits against the state word: a tick never changes its
-   width or moves the word. */
+/* The time ends the cluster, after the state word and its dot ("Done · 36s"): it sizes to its
+   tabular digits and its right edge never moves, so a tick moves nothing but a new digit. It never
+   cuts; the state word gives way first. */
 .acpmux-running-tray .acpmux-agent-line__time {
   box-sizing: border-box;
   flex: none;
-  width: var(--acpmux-tray-time-width);
+  max-width: var(--acpmux-tray-time-width);
   overflow: hidden;
   text-align: right;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-running-tray .acpmux-agent-line__sep {
+  flex: none;
+  color: var(--agent-muted);
 }
 .acpmux-running-tray .acpmux-agent-line__meta {
   flex: 0 1 auto;
@@ -605,10 +611,40 @@ button.cv-subagent > :last-child {
   box-shadow: none;
 }
 .acpmux-running-tray[data-settled][data-card][data-surface="tint"] {
-  background: color-mix(in srgb, var(--agent-text) 5%, transparent);
+  --acpmux-tray-fill: color-mix(in srgb, var(--agent-text) 5%, transparent);
 }
 .acpmux-running-tray[data-settled][data-card][data-surface="rim"] {
-  background: color-mix(in srgb, var(--agent-text) 2%, transparent);
+  --acpmux-tray-fill: color-mix(in srgb, var(--agent-text) 2%, transparent);
+}
+/* A card over the composer is the composer's own glass (composerStates.css: the composer surface at
+   70%, or 50% over a see-through window, frosted) with the tray's tint over it, so the transcript
+   never shows through its lines: the reply's footer icons read through a settled line that drew no
+   surface (Leo, 2026-11-02: "this running thing now looks mildly awkward"). It stays glass, never
+   opaque; Reduce Transparency gives it the composer's solid fill, as the card. */
+.acpmux-running-tray[data-card] {
+  --acpmux-tray-glass: color-mix(in srgb, var(--acpmux-composer-solid) 70%, transparent);
+  --acpmux-tray-frost: blur(24px) saturate(1.25);
+  background:
+    linear-gradient(var(--acpmux-tray-fill, color-mix(in srgb, var(--agent-text) 8%, transparent)), var(--acpmux-tray-fill, color-mix(in srgb, var(--agent-text) 8%, transparent))),
+    var(--acpmux-tray-glass);
+  -webkit-backdrop-filter: var(--acpmux-tray-frost);
+  backdrop-filter: var(--acpmux-tray-frost);
+}
+:root[data-cmux-see-through] .acpmux-running-tray[data-card] {
+  --acpmux-tray-glass: color-mix(in srgb, var(--acpmux-composer-solid) 50%, transparent);
+  --acpmux-tray-frost: var(--surface-blur);
+}
+:root[data-reduce-transparency] .acpmux-running-tray[data-card] {
+  /* glass-opaque-allow: the Reduce Transparency fill only, as the composer card's */
+  --acpmux-tray-glass: var(--acpmux-composer-solid);
+  --acpmux-tray-frost: none;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-running-tray[data-card] {
+    /* glass-opaque-allow: the Reduce Transparency fill only, as the composer card's */
+    --acpmux-tray-glass: var(--acpmux-composer-solid);
+    --acpmux-tray-frost: none;
+  }
 }
 /* The header's mark is off by default (trayHead.experiment.ts `bare`, Leo, 2026-11-01: "why did you
    guys not remove the 3/4"): its slot stays, unseen, so the counts keep the text column. */

@@ -7,7 +7,15 @@ import { Icon } from "../icons/Icon";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { FindReveal } from "./chatFind";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
+import { messageRunSummary } from "./messageRuns";
 import "./LaneNoticeBatch.css";
+
+/// A received message waits for the agent (in the waiting group, PendingMessagesCard.tsx).
+const isWaiting = (row: AcpmuxRow) => row.kind === "queuedMessage" || row.steer === "waiting";
+
+/// A sender's short name for the row's hover: its name after the last `/` ("gcp-agent-lane-1/ux-owner"
+/// reads "ux-owner").
+const senderShortName = (name: string) => (name.split("/").at(-1) ?? "").trim();
 
 /// Reports that arrived together keep their own message controls behind one disclosure.
 export function LaneNoticeBatch({ row, renderMessage }: { row: AcpmuxRow; renderMessage(row: AcpmuxRow): ReactNode }) {
@@ -33,8 +41,13 @@ export function LaneNoticeBatch({ row, renderMessage }: { row: AcpmuxRow; render
     .map(([verdict, n]) => `${n} ${verdict}`)
     .join(", ");
   const names = [...new Set(batch.threads.map(({ sender }) => sender).filter(Boolean))].join(", ");
-  const count =
-    batch.kind === "report"
+  // Delivered messages read "Received N messages", N the messages, with no session names at rest:
+  // the senders' short names are its hover (Leo, 2026-11-02: "can't we simply just display most of
+  // these as recieved x messages and all of them get revealed then we can expand the messages").
+  const received = batch.kind === "inbox" && !batch.rows.some(isWaiting);
+  const count = received
+    ? messageRunSummary(t, { sent: 0, received: batch.rows.length, work: [], failed: 0, running: false, rows: [] })
+    : batch.kind === "report"
       ? t(
           Object.values(batch.verdicts).reduce((n, count) => n + (count ?? 0), 0) === batch.rows.length
             ? "message.reviewsEnded"
@@ -43,6 +56,9 @@ export function LaneNoticeBatch({ row, renderMessage }: { row: AcpmuxRow; render
         )
       : t("message.inboxThreads", { n: batch.threads.length || batch.rows.length });
   const detail = batch.kind === "report" ? verdicts : names && t("message.inboxFrom", { names });
+  const shortNames = received
+    ? [...new Set(batch.threads.map(({ sender }) => senderShortName(sender)).filter(Boolean))].join(", ")
+    : "";
   return (
     <div className="cv-lane-batch" data-kind={batch.kind} data-open={open || undefined}>
       {batch.kind === "inbox" ? (
@@ -52,12 +68,13 @@ export function LaneNoticeBatch({ row, renderMessage }: { row: AcpmuxRow; render
             batch.rows.map((member) => (member.incoming?.kind === "message" ? member.incoming.message : undefined)),
           )}
           count={count}
-          senders={names}
+          senders={received ? undefined : names}
+          hint={received ? shortNames : undefined}
           open={open}
           bodyId={bodyId}
           onToggle={() => show(!open)}
           className="cv-lane-batch__toggle"
-          ariaLabel={[count, detail].filter(Boolean).join(". ")}
+          ariaLabel={[count, received ? shortNames : detail].filter(Boolean).join(". ")}
         />
       ) : (
         <TranscriptActivityRow

@@ -55,7 +55,7 @@ function version(rows: readonly AcpmuxRow[], summary: Summary, t: Translate): st
 }
 
 function usageLabel(summary: Summary, t: Translate): string {
-  const usage = compactingUsage(summary.usage, summary.usageStats);
+  const usage = compactingUsage(summary.usage, summary.usageStats, summary.contextBreakdown);
   if (!usage || usage.size <= 0 || usage.used < 0) return t("status.notReported");
   const percent = Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100);
   return t("status.usage", { percent, used: usage.used.toLocaleString(), size: usage.size.toLocaleString() });
