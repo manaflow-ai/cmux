@@ -169,7 +169,23 @@ await requireBrowserLane("thread-rail-pending-load.test.ts", async () => {
       const before = await tops(page);
       const at = await tickAt(page, 4);
       await page.mouse.click(at.x, at.y);
-      await page.waitForSelector('.acpmux-row[data-row-id="user-5"]', { timeout: 5_000 });
+      const state = () =>
+        page.evaluate(() => {
+          const w = window as unknown as { __indexReads: number; __loads: number[] };
+          return JSON.stringify({
+            indexReads: w.__indexReads,
+            loads: w.__loads,
+            rows: Array.from(document.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id^='user-']"))
+              .map((row) => row.dataset.rowId)
+              .slice(0, 3),
+            ticks: document.querySelectorAll("[data-tick]").length,
+          });
+        });
+      await page
+        .waitForSelector('.acpmux-row[data-row-id="user-5"]', { timeout: 5_000 })
+        .catch(async (error: unknown) => {
+          throw new Error(`${String(error)}; state ${await state()}`);
+        });
       await page.waitForFunction(() => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!.getBoundingClientRect();
         const row = document.querySelector<HTMLElement>('.acpmux-row[data-row-id="user-5"]')?.getBoundingClientRect();
