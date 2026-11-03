@@ -541,12 +541,13 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         return state.withLock { state in state.session != nil && (name == state.session || name == state.resolved) }
     }
 
-    /// The text of a prompt made only of text blocks; nil for any other block.
+    /// Legacy text-only prompts. Metadata-bearing text uses content so pasted chips keep it.
     static func text(_ value: Any?) -> String? {
         guard let blocks = value as? [[String: Any]], !blocks.isEmpty else { return nil }
         var parts: [String] = []
         for block in blocks {
-            guard block["type"] as? String == "text", let text = block["text"] as? String else { return nil }
+            guard Set(block.keys) == ["type", "text"], block["type"] as? String == "text",
+                  let text = block["text"] as? String else { return nil }
             parts.append(text)
         }
         return parts.joined(separator: "\n\n")

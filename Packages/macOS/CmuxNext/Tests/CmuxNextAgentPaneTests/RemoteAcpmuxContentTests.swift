@@ -38,4 +38,21 @@ import Testing
         #expect(blocks[1]["data"] == "YWJj")
         #expect(blocks[2]["uri"] == "file:///home/cmux/work/local/uploads/one/screen.png")
     }
+
+    @MainActor @Test func aPastedTextOnlyPromptKeepsItsMetadataThroughTheWire() async throws {
+        let client = Client()
+        let inbox = AgentPaneRelayedAllowTests.PageInbox()
+        let wire = RemoteAcpmuxWire(client: client, session: "s")
+        try await wire.open(onFrame: { inbox.deliver([$0]) }, onClose: { _, _ in })
+        defer { wire.cancel(code: 1000, reason: "done") }
+        wire.send(#"{"id":1,"method":"_acpmux/attach","params":{"sessionId":"s"}}"#) { _ in }
+        _ = await inbox.frame(containing: "\"lastSeq\"")
+        wire.send(#"{"id":2,"method":"session/prompt","params":{"sessionId":"s","prompt":[{"type":"text","text":"notes","_meta":{"cmux":{"pasted":true}}}]}}"#) { _ in }
+        _ = await inbox.frame(containing: "turn-one")
+        let content = try #require(await client.contents)
+        let blocks = try #require(JSONSerialization.jsonObject(with: content) as? [[String: Any]])
+        let meta = try #require(blocks[0]["_meta"] as? [String: [String: Bool]])
+        #expect(meta == ["cmux": ["pasted": true]])
+        #expect(RemoteAcpmuxWire.text([["type": "text", "text": "legacy"]]) == "legacy")
+    }
 }
