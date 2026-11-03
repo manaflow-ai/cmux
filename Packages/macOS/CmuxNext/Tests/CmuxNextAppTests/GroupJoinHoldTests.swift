@@ -69,6 +69,17 @@ import Testing
         #expect(hold.hiding(in: Self.created, now: start + .seconds(5)) == ["n"], "not listed yet: no time spent")
     }
 
+    /// A grouped open whose create failed lists nothing: its hold goes once the create budget is past, so passes stop walking rows for it.
+    @Test func aCreateThatNeverListsIsDroppedPastTheCreateLimit() {
+        var hold = GroupJoinHold()
+        let start = ContinuousClock.now
+        hold.hold("gone", now: start)
+        #expect(hold.hiding(in: Self.joined, now: start + GroupJoinHold.createLimit - .seconds(1)).isEmpty)
+        #expect(!hold.isEmpty, "a slow create keeps its hold")
+        #expect(hold.hiding(in: Self.joined, now: start + GroupJoinHold.createLimit).isEmpty)
+        #expect(hold.isEmpty)
+    }
+
     @Test func aReleasedCreateIsNotHeld() {
         var hold = GroupJoinHold()
         hold.hold("n")

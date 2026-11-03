@@ -9,13 +9,16 @@ import Observation
 /// While a held workspace lists outside every group, the sidebar leaves its row out; it shows from the pass that
 /// lists it in a group. A join that never lands cannot hide a workspace: once it has listed loose for `limit`, it
 /// shows where it lists.
-public struct GroupJoinHold: Sendable, Equatable {
+public struct GroupJoinHold: Sendable {
     /// How long a held workspace may list loose before it shows there anyway: a sidebar-document move lands well
     /// within it.
     public static let limit: Duration = .seconds(2)
+    /// How long a held workspace may go unlisted: past the app's create budget (two minutes), its create failed or
+    /// was undone, so nothing is left to hold.
+    public static let createLimit: Duration = .seconds(180)
 
-    /// Each held workspace, with when it first listed loose (nil: not listed loose yet; its create may be slow).
-    private var held: [String: ContinuousClock.Instant?] = [:]
+    /// Each held workspace: when it was held, and when it first listed loose (nil: not yet; its create may be slow).
+    private var held: [String: (at: ContinuousClock.Instant, loose: ContinuousClock.Instant?)] = [:]
 
     public init() {}
 
@@ -24,7 +27,7 @@ public struct GroupJoinHold: Sendable, Equatable {
     public func holds(_ id: String) -> Bool { held[id] != nil }
 
     /// Holds new workspace `id` until it lists in a group.
-    public mutating func hold(_ id: String) { held[id] = .some(nil) }
+    public mutating func hold(_ id: String, now: ContinuousClock.Instant = .now) { held[id] = (now, nil) }
 
     /// Its create ended without the workspace (or was taken back): nothing to hold.
     public mutating func release(_ id: String) { held[id] = nil }
@@ -34,18 +37,19 @@ public struct GroupJoinHold: Sendable, Equatable {
     /// `limit`: the caller asks again once `limit` has passed while it leaves one out.
     public mutating func hiding(in sections: [SidebarSection], now: ContinuousClock.Instant) -> Set<String> {
         guard !held.isEmpty else { return [] }
+        held = held.filter { $0.value.loose != nil || now - $0.value.at < Self.createLimit }
         var hidden: Set<String> = []
         for section in sections {
             for node in section.nodes {
                 switch node {
                 case let .workspace(workspace):
                     let id = workspace.id.rawValue
-                    guard let since = held[id] else { continue }
-                    let first = since ?? now
+                    guard let entry = held[id] else { continue }
+                    let first = entry.loose ?? now
                     if now - first >= Self.limit {
                         held[id] = nil
                     } else {
-                        held[id] = .some(first)
+                        held[id]?.loose = first
                         hidden.insert(id)
                     }
                 case let .group(group):
