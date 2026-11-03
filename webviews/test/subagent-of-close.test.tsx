@@ -122,6 +122,17 @@ test("Escape closes the subagent's view unless a text field, a modifier or an op
   doc.body.append(menu);
   expect(escapeClosesSubagent(escape() as unknown as KeyboardEvent, doc)).toBe(false);
   menu.remove();
+  // Session Info takes Escape while the keyboard is in it or on its toggle.
+  const aside = doc.createElement("aside");
+  aside.className = "acpmux-session-info";
+  const inside = doc.createElement("button");
+  aside.append(inside);
+  doc.body.append(aside);
+  inside.focus();
+  expect(escapeClosesSubagent(escape() as unknown as KeyboardEvent, doc)).toBe(false);
+  inside.blur();
+  expect(escapeClosesSubagent(escape() as unknown as KeyboardEvent, doc)).toBe(true);
+  aside.remove();
 });
 
 test("the hook closes on an unclaimed Escape and claims it, and does nothing while off", async () => {
