@@ -717,11 +717,47 @@ fn a_removal_that_cannot_be_saved_stays_held_and_delivers_nothing() {
     assert!(pull::held(home.path()));
     assert!(super::delivered(live(), pull::held(home.path())).is_empty());
 
+    // A failed request or a hub without a vault re-authorizes nothing: the
+    // hold stays and nothing is delivered.
+    for answer in [Answer::Retry("vault.hub_unreachable".into()), Answer::Off] {
+        let _ = pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 3);
+        assert!(pull::held(home.path()));
+        assert!(super::delivered(live(), pull::held(home.path())).is_empty());
+    }
+
     // The next pull saves; the hold is lifted with nothing left to give.
-    pull::settle(home.path(), "https://hub.test", CRED, Answer::NotGranted, &store, &live, 3)
+    pull::settle(home.path(), "https://hub.test", CRED, Answer::NotGranted, &store, &live, 4)
         .unwrap();
     assert!(!pull::held(home.path()));
     assert!(pull::read_state(home.path()).env.is_empty());
+}
+
+#[test]
+#[cfg(unix)]
+fn a_missing_or_changed_store_item_is_rewritten_at_the_same_revision() {
+    let home = tempfile::tempdir().unwrap();
+    let store = MemoryStore::default();
+    let answer = || Answer::Granted {
+        env: vec![active("A_KEY", 1, SECRET_A), active("B_KEY", 1, SECRET_B)],
+        refused: 0,
+    };
+    pull::settle(home.path(), "https://hub.test", CRED, answer(), &store, &live, 1).unwrap();
+
+    // Someone deletes one item and overwrites the other outside acpmux.
+    store.delete("A_KEY").unwrap();
+    store.put("B_KEY", "tampered").unwrap();
+    let outcome =
+        pull::settle(home.path(), "https://hub.test", CRED, answer(), &store, &live, 2).unwrap();
+    let mut stored = outcome.stored.clone();
+    stored.sort();
+    assert_eq!(stored, ["A_KEY", "B_KEY"]);
+    assert_eq!(store.get("A_KEY").unwrap().as_deref().map(String::as_str), Some(SECRET_A));
+    assert_eq!(store.get("B_KEY").unwrap().as_deref().map(String::as_str), Some(SECRET_B));
+
+    // With both items intact, the same answer writes nothing.
+    let outcome =
+        pull::settle(home.path(), "https://hub.test", CRED, answer(), &store, &live, 3).unwrap();
+    assert!(outcome.stored.is_empty());
 }
 
 #[test]

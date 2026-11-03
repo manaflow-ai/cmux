@@ -139,8 +139,10 @@ pub enum Step {
     /// Remove this entry: revoked, gone from the vault, or the vault is no
     /// longer shared with this machine.
     Delete { name: String },
-    /// Already stored at this revision with this value.
-    Keep { name: String },
+    /// Already stored at this revision with this value, as far as the state
+    /// says; the pull checks the item and stores it again when it is missing
+    /// or differs (`pull::verify_kept`).
+    Keep { name: String, revision: u64, value: Zeroizing<String> },
 }
 
 impl std::fmt::Debug for Step {
@@ -149,7 +151,7 @@ impl std::fmt::Debug for Step {
         match self {
             Step::Store { name, revision, .. } => write!(f, "Store({name} r{revision})"),
             Step::Delete { name } => write!(f, "Delete({name})"),
-            Step::Keep { name } => write!(f, "Keep({name})"),
+            Step::Keep { name, .. } => write!(f, "Keep({name})"),
         }
     }
 }
@@ -169,7 +171,7 @@ pub fn plan(state: &State, env: Vec<EnvItem>) -> Vec<Step> {
                         && r.fingerprint == state.fingerprint(&item.name, &value)
                 });
                 if same {
-                    steps.push(Step::Keep { name: item.name });
+                    steps.push(Step::Keep { name: item.name, revision: item.revision, value });
                 } else {
                     steps.push(Step::Store { name: item.name, revision: item.revision, value });
                 }

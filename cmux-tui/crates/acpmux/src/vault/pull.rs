@@ -89,14 +89,37 @@ fn release(home: &Path) {
     let _ = std::fs::remove_file(hold_path(home));
 }
 
-/// Save `state`; a removal in it is held first and released only once saved.
-fn save(home: &Path, state: &State, removing: bool) -> Result<(), &'static str> {
-    if removing {
-        hold(home)?;
-    }
+/// Save `state`. The one rule for the hold: it is lifted only by a durable
+/// state that delivers nothing, or whose entries a grant answered just now
+/// (`fresh_grant`). A save after a failed request or a hub without a vault
+/// carries entries no answer re-authorized (perhaps ones a withdrawal whose
+/// save failed had removed), so it leaves the hold down.
+fn save(home: &Path, state: &State, fresh_grant: bool) -> Result<(), &'static str> {
     write_state(home, state)?;
-    release(home);
+    if fresh_grant || state.env.is_empty() {
+        release(home);
+    }
     Ok(())
+}
+
+/// A `Keep` trusts the state; check the item itself. One that is missing or
+/// holds another value (removed or edited by hand, or a load that failed) is
+/// stored again at the same revision. A store that cannot be read now (a
+/// locked keychain) keeps it as it is.
+pub fn verify_kept(steps: Vec<Step>, store: &dyn SecretStore) -> Vec<Step> {
+    steps
+        .into_iter()
+        .map(|step| match step {
+            Step::Keep { name, revision, value } => match store.get(&name) {
+                Ok(Some(have)) if have.as_str() == value.as_str() => {
+                    Step::Keep { name, revision, value }
+                }
+                Err(_) => Step::Keep { name, revision, value },
+                Ok(_) => Step::Store { name, revision, value },
+            },
+            other => other,
+        })
+        .collect()
 }
 
 pub fn state_path(home: &Path) -> PathBuf {
@@ -306,6 +329,9 @@ pub fn settle(
     let (steps, result, refused) = match answer {
         Answer::Granted { env, refused } => {
             let mut steps = plan::plan(&state, env);
+            if store.available() {
+                steps = verify_kept(steps, store);
+            }
             if !store.available() && steps.iter().any(|s| matches!(s, Step::Store { .. })) {
                 // No file fallback: nothing is stored. Removals still leave the
                 // delivered set now, kept as cleanup records.
@@ -323,7 +349,7 @@ pub fn settle(
             let (_, deleted, _) = apply(&mut state, steps, store, "");
             state.last_result = Some("vault.revoked".to_owned());
             state.hub = hub.to_owned();
-            save(home, &state, false).map_err(Failure::code)?;
+            save(home, &state, true).map_err(Failure::code)?;
             return Err(Failure { code: "vault.revoked".to_owned(), deleted, outcome: None });
         }
         // No vault on this hub: only the cleanup records are worked off.
@@ -332,6 +358,7 @@ pub fn settle(
             hold_if_removing(&state)?;
             state.last_result = Some(code.clone());
             save(home, &state, false).map_err(Failure::code)?;
+            // A hold from an earlier removal stays: this answer authorizes nothing.
             return Err(Failure::code(code));
         }
     };
@@ -348,13 +375,13 @@ pub fn settle(
         hold(home).map_err(Failure::code)?;
         state.unbind_all();
         state.last_result = Some(CREDENTIAL_CHANGED.to_owned());
-        save(home, &state, false).map_err(Failure::code)?;
+        save(home, &state, true).map_err(Failure::code)?;
         return Err(Failure::code(CREDENTIAL_CHANGED));
     }
     state.hub = hub.to_owned();
     if unavailable {
         state.last_result = Some(UNAVAILABLE.to_owned());
-        save(home, &state, false).map_err(Failure::code)?;
+        save(home, &state, true).map_err(Failure::code)?;
         return Err(Failure { code: UNAVAILABLE.to_owned(), deleted, outcome: None });
     }
     // A pull that could not store or delete everything fails, keeping what it did.
@@ -362,7 +389,8 @@ pub fn settle(
     state.pulled_at = Some(now_ms);
     state.last_result =
         Some(if failed.is_empty() { result.to_owned() } else { PARTIAL.to_owned() });
-    save(home, &state, false).map_err(Failure::code)?;
+    // A hub without a vault (`off`) re-authorizes nothing kept here.
+    save(home, &state, matches!(result, "ok" | "partial")).map_err(Failure::code)?;
     let outcome = Outcome {
         state: result,
         hub: hub.to_owned(),
@@ -470,7 +498,7 @@ pub fn forget(home: &Path, store: &dyn SecretStore) -> Result<Outcome, Failure> 
         }
     } else {
         // Keep the cleanup records of items still in the store, so a retry finds them.
-        save(home, &state, false).map_err(Failure::code)?;
+        save(home, &state, true).map_err(Failure::code)?;
         outcome.state = "partial";
         Err(Failure { code: PARTIAL.to_owned(), deleted: Vec::new(), outcome: Some(outcome) })
     }
