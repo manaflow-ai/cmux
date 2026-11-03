@@ -8,7 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		CE7A00000000000000000015 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5001101 /* Assets.xcassets */; };
-		CT7A00000000000000000003 /* cmux-cloud-tunnel.systemextension in Embed System Extensions */ = {isa = PBXBuildFile; fileRef = CT7A00000000000000000004 /* cmux-cloud-tunnel.systemextension */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		CE7A00000000000000000012 /* CmuxNextApp in Frameworks */ = {isa = PBXBuildFile; productRef = CE7A00000000000000000014 /* CmuxNextApp */; };
 		CT7A00000000000000000001 /* CmuxNextCloudTunnel in Frameworks */ = {isa = PBXBuildFile; productRef = CT7A00000000000000000002 /* CmuxNextCloudTunnel */; };
 		CE7A00000000000000000019 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000002 /* InfoPlist.xcstrings */; };
@@ -33,19 +32,6 @@
 		};
 /* End PBXContainerItemProxy section */
 
-/* Begin PBXCopyFilesBuildPhase section */
-		CT7A00000000000000000006 /* Embed System Extensions */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "$(CONTENTS_FOLDER_PATH)/Library/SystemExtensions";
-			dstSubfolderSpec = 16;
-			files = (
-				CT7A00000000000000000003 /* cmux-cloud-tunnel.systemextension in Embed System Extensions */,
-			);
-			name = "Embed System Extensions";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		IC000002 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder; path = AppIcon.icon; sourceTree = "<group>"; };
@@ -217,8 +203,7 @@
 				CE7A00000000000000000042 /* Embed Computer Use helper (dev) */,
 				CE7A00000000000000000018 /* Bundle Ghostty resources */,
 				CE7A00000000000000000031 /* Bundle server helper */,
-				CT7A00000000000000000006 /* Embed System Extensions */,
-				CT7A00000000000000000018 /* Stamp and check Cloud Tunnel */,
+				CT7A00000000000000000018 /* Embed, stamp and check Cloud Tunnel */,
 				CE7A00000000000000000043 /* Bundle MediaRemote adapter */,
 			);
 			buildRules = (
@@ -931,7 +916,7 @@
 			shellPath = /bin/sh;
 			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/build-wg-tun.sh\" \"${TARGET_TEMP_DIR}/wg-tun\"\n";
 		};
-		CT7A00000000000000000018 /* Stamp and check Cloud Tunnel */ = {
+		CT7A00000000000000000018 /* Embed, stamp and check Cloud Tunnel */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -940,11 +925,12 @@
 			inputFileListPaths = (
 			);
 			inputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/cmux-cloud-tunnel.systemextension",
 				"$(SRCROOT)/scripts/cmux-next/embed-cloud-tunnel.sh",
 				"$(SRCROOT)/scripts/cmux-next/stamp-cloud-tunnel-identity.sh",
 				"$(SRCROOT)/scripts/cmux-next/check-cloud-tunnel-bundle.sh",
 			);
-			name = "Stamp and check Cloud Tunnel";
+			name = "Embed, stamp and check Cloud Tunnel";
 			outputFileListPaths = (
 			);
 			outputPaths = (

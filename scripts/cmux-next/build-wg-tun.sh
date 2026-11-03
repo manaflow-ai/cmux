@@ -8,7 +8,7 @@
 # Debug build with none gets a stub whose start fails with "engine not built",
 # so the app still builds and the tunnel reports why it cannot start. A Release
 # build that ships the tunnel (CMUX_CLOUD_TUNNEL=YES) refuses the stub; any
-# other Release build gets the stub too, since embed-cloud-tunnel.sh removes
+# other Release build gets the stub too, since embed-cloud-tunnel.sh never embeds
 # the extension from it, so it never spends a cargo build on boringtun.
 #
 # Usage: build-wg-tun.sh OUTPUT_DIR
