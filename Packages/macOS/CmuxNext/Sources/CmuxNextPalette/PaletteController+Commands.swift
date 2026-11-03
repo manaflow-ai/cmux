@@ -61,25 +61,28 @@ extension PaletteController {
 @MainActor
 public final class PaletteCommandListing {
     private let pass: RegistryPaletteProvider.ItemsPass
+    private var allRead = false
 
     init(_ pass: RegistryPaletteProvider.ItemsPass) {
         self.pass = pass
     }
 
-    // Released with its driver's work, which can end off the main actor.
-    nonisolated deinit {}
-
-    /// Reads catalog actions until `deadline` (at least one per call).
+    /// Reads catalog actions until `deadline` (at least one per call); the call after the last read arranges them.
+    /// Each action's state is read when its slice comes, so a list read over several frames can mix the states of
+    /// those frames (the focused object can change meanwhile); the next listing reads them again.
     ///
     /// - Parameter deadline: When to stop reading.
-    /// - Returns: The entries, as ``PaletteController/commandEntries()`` lists them, once every action is read;
-    ///   nil while some are left (call again on a later frame).
+    /// - Returns: The entries, as ``PaletteController/commandEntries()`` lists them, once every action is read and
+    ///   arranged; nil while some work is left (call again on a later frame).
     public func step(until deadline: ContinuousClock.Instant) -> [PaletteCommandEntry]? {
-        var read = 0
-        guard pass.read(while: {
-            read += 1
-            return read == 1 || ContinuousClock.now < deadline
-        }) else { return nil }
+        guard allRead else {
+            var read = 0
+            allRead = pass.read(while: {
+                read += 1
+                return read == 1 || ContinuousClock.now < deadline
+            })
+            return nil
+        }
         return Self.entries(pass.finish())
     }
 

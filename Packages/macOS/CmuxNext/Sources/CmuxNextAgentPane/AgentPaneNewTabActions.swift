@@ -14,7 +14,7 @@ public import CmuxNextWakeups
 ///
 /// ```swift
 /// let actions = AgentPaneNewTabActions(on: mainWork) { palette.commandListing() }
-/// actions.list { listed in pages.forEach { $0.refreshNewTabActions(listed) } }
+/// actions.list(wanted: { !pages.isEmpty }) { listed in pages.forEach { $0.refreshNewTabActions(listed) } }
 /// ```
 @MainActor
 public final class AgentPaneNewTabActions {
@@ -49,13 +49,28 @@ public final class AgentPaneNewTabActions {
     }
 
     /// Lists the actions in background tasks from the next frame on and gives them to `deliver` once read (their
-    /// JSON is encoded off the main thread). A call while a list is read joins it: its `deliver` replaces the earlier one.
-    public func list(_ deliver: @escaping @MainActor (Listed) -> Void) {
-        self.deliver = deliver
-        guard running == nil else { return }
-        // The palette's context (the focused object) is read now; the rows from the next frame on.
+    /// JSON is encoded off the main thread), when `wanted` still holds at the first task: the key's turn only queues
+    /// it. A call while a list is read joins it: its `wanted` and `deliver` replace the earlier ones.
+    public func list(wanted: @escaping @MainActor () -> Bool, _ deliver: @escaping @MainActor (Listed) -> Void) {
+        (self.wanted, self.deliver) = (wanted, deliver)
+        encoding &+= 1 // a list being encoded is older than this request
+        guard !queued, running == nil else { return }
+        queued = true
+        queue.enqueue { [weak self] in self?.start() }
+    }
+
+    private var wanted: (@MainActor () -> Bool)?
+    private var queued = false
+
+    /// The first task: the palette's context (the focused object) and catalog are read here, not in the key's turn.
+    private func start() {
+        queued = false
+        guard wanted?() == true else {
+            (deliver, wanted) = (nil, nil)
+            return
+        }
         running = listing()
-        queue.enqueue { [weak self] in self?.step() }
+        step()
     }
 
     private func step() {
@@ -65,24 +80,28 @@ public final class AgentPaneNewTabActions {
         guard let entries else { return queue.enqueue { [weak self] in self?.step() } }
         running = nil
         let actions = entries.map(AgentPaneOmnibar.Action.init(paletteEntry:))
-        if let last, last.actions == actions { return hand(last) }
         encoding &+= 1
         let generation = encoding
+        if let last, last.actions == actions { return hand(last) }
         // Best effort: only a person typing in the bar reads the list, and it takes the last one until this one comes.
         let json = Task.detached(priority: WorkPriority.bestEffort.taskPriority) { Self.encode(actions) }
-        // task-owner: one hand-over per list; a newer list (generation) drops it.
+        // task-owner: one hand-over per list; a newer list or request (generation) drops it.
         Task { @MainActor [weak self] in
             let encoded = await json.value
             guard let self, generation == self.encoding else { return }
             let listed = Listed(actions: actions, json: encoded)
             last = listed
-            hand(listed)
+            // The pages take it as background work too (P5): each one's event is a JSON encode and a script call.
+            queue.enqueue { [weak self] in
+                guard let self, generation == self.encoding else { return }
+                hand(listed)
+            }
         }
     }
 
     private func hand(_ listed: Listed) {
         let deliver = deliver
-        self.deliver = nil
+        (self.deliver, wanted) = (nil, nil)
         deliver?(listed)
     }
 

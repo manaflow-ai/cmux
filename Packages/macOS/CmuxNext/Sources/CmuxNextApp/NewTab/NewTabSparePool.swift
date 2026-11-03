@@ -12,8 +12,8 @@ import CmuxNextWakeups
 /// window becomes key the parked page moves there (a reparent, no reload).
 /// Opening the new tab page in any window adopts it in the same main-actor
 /// turn (no load, no React mount on the open path); the next spare starts
-/// once input has been quiet for ``openSettle`` after a handout (else ``idleInput``),
-/// so making a web view never lands in the user's typing or the open's frames. The spare waits at the size of the pane
+/// ``openSettle`` after a handout (else once input is quiet for ``idleInput``),
+/// so making a web view never lands in an open's frames (nor, when idle, in typing). The spare waits at the size of the pane
 /// content Cmd-T fills (the target window's focused pane), refitted when a
 /// pane there changes size or focus, so the adoption changes no size: WebKit
 /// shows it at once at its final layout (hqacp-v2: a page parked at the
@@ -364,16 +364,17 @@ final class NewTabSparePool {
 
     // MARK: Warming
 
-    /// Arms the quiet-input deadline; each key or click pushes it back. `afterOpen`: a spare was handed out, and
-    /// its replacement waits only for that open to settle (``openSettle``), so the next New Tab finds a page loaded or
-    /// loading; never in the open's turn or frames, where making it (a web view and a Chromium browser, its setup
-    /// calls and load: 10-40 ms of main-thread tasks in the next 100 ms) dropped 4-17 refreshes per Cmd-T (PACING
-    /// TRIAGE #32910). Chrome makes its spare renderer so, as best-effort work after the navigation, not in the click.
+    /// Arms the quiet-input deadline; each key or click pushes it back. `afterOpen` (a handout): ``openSettle`` after it,
+    /// unmoved by input, never in the open's frames, where a web view and a Chromium browser (10-40 ms of main-thread
+    /// tasks) dropped 4-17 refreshes per Cmd-T (#32910). Chrome makes its spare renderer after the navigation too.
     private func scheduleWarm(afterOpen: Bool = false) {
         let web = services.agentTabs.canHostChat && (slot.shouldWarm || unparked != nil)
         guard target != nil, web || (wantsNative && nativeSpare == nil) else { return }
         watchMemoryPressure()
-        refillAfterOpen = refillAfterOpen || afterOpen
+        if afterOpen, !refillAfterOpen {
+            refillAfterOpen = true
+            return warmTimer.schedule(after: Self.openSettle) { @MainActor [weak self] in self?.warmNow() }
+        }
         if inputMonitor == nil {
             inputMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .scrollWheel]) {
                 [weak self] event in
@@ -384,7 +385,7 @@ final class NewTabSparePool {
         armWarmTimer()
     }
 
-    /// The quiet input after a handout (and at launch) before the next spare is made.
+    /// From a handout to its replacement (and the launch warm's quiet input).
     static let openSettle: Duration = .milliseconds(250)
     private var refillAfterOpen = false
 
@@ -393,11 +394,12 @@ final class NewTabSparePool {
     private var warmedOnce = false
 
     private func armWarmTimer() {
+        guard !refillAfterOpen else { return } // the handout's replacement keeps its time (`scheduleWarm(afterOpen:)`)
         // Only the launch warm comes early, after the first frame: a `take()` that found nothing
         // (it set `usedThisSession`) must not make a web view in the person's keystroke.
         let launch = !warmedOnce && !usedThisSession
         warmedOnce = warmedOnce || launch
-        warmTimer.schedule(after: launch || refillAfterOpen ? Self.openSettle : Self.idleInput) { @MainActor [weak self] in self?.warmNow() }
+        warmTimer.schedule(after: launch ? Self.openSettle : Self.idleInput) { @MainActor [weak self] in self?.warmNow() }
     }
 
     /// A recycled spare not yet back in the window.
