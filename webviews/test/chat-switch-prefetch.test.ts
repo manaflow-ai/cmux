@@ -86,6 +86,7 @@ await requireBrowserLane("chat-switch-prefetch.test.ts", async () => {
   const longChat = chats[CHAT_COUNT - 1]!;
   longChat.listed.family = "codex";
   longChat.listed.harness = "codex";
+  longChat.listed.turnCount = 1;
   longChat.events.length = 0;
   const longEvent = (dir: string, kind: string, msg: Record<string, unknown>) => {
     const seq = longChat.events.length + 1;
@@ -289,7 +290,7 @@ await requireBrowserLane("chat-switch-prefetch.test.ts", async () => {
     // What the daemon read ahead belongs to the page that asked: each test opens its own.
     readAhead.clear();
     currentPage += 1;
-    const page = await browser!.newPage({ viewport: { width: 1000, height: 760 } });
+    const page = await browser!.newPage({ viewport: { width: 1000, height: 760 }, deviceScaleFactor: 2 });
     await installPaintedFrames(page);
     await page.goto(url(first.sessionId));
     await page.getByText(first.marker).waitFor({ timeout: 30_000 });
@@ -459,6 +460,15 @@ await requireBrowserLane("chat-switch-prefetch.test.ts", async () => {
         `window.cmuxAcpmuxActions["chat.select"](${JSON.stringify({ sessionId: chats[0]!.sessionId })})`,
       );
       const warm = await measure();
+      const out = process.env.FAST_CHECKS_OUT;
+      if (out) {
+        await Bun.write(path.join(out, "chat-switch-one-render.json"), JSON.stringify({ cold, warm }, null, 2));
+        for (const theme of ["light", "dark"]) {
+          await page.evaluate((theme) => (document.documentElement.dataset.theme = theme), theme);
+          await page.evaluate(() => window.cmuxPaintFrame().then(() => window.cmuxPaintFrame()));
+          await page.locator(".acpmux-scroll").screenshot({ path: path.join(out, `completed-turn-${theme}.png`) });
+        }
+      }
       for (const [mode, frames] of [
         ["cold-prefetched", cold],
         ["warm", warm],

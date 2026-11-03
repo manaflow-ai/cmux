@@ -247,6 +247,7 @@ test("a warm capped tail has its final completed-turn structure before the uncha
     await client.select(`${sessionId}-other`);
     const asked = daemon.holdNextAttach(400);
     const first = snapshots.length;
+    const firstRequest = daemon.requests.length;
     const back = client.select(sessionId);
     await asked;
     const cached = snapshots.slice(first).find((snapshot) => snapshot.sessionId === sessionId)!;
@@ -264,8 +265,17 @@ test("a warm capped tail has its final completed-turn structure before the uncha
     daemon.releaseAttach();
     await back;
     expect(shape(snapshots.at(-1)!)).toEqual(before);
-    // The click did not add a prompt read: cache preparation retained it before truncation.
-    expect(daemon.requests.some((request) => request.params?.kinds?.includes("user_message"))).toBe(false);
+    // The click did not fetch the turn opener: cache preparation retained it before truncation.
+    // The rail independently reads its older-prompt index when the capped tail first draws.
+    const promptReads = daemon.requests
+      .slice(firstRequest)
+      .filter(
+        (request) =>
+          request.method === "_acpmux/events" &&
+          request.params?.sessionId === sessionId &&
+          request.params?.kinds?.includes("user_message"),
+      );
+    expect(promptReads.filter((request) => request.params?.promptIndex !== true)).toEqual([]);
   } finally {
     daemon.releaseAttach();
     client.close();
