@@ -102,7 +102,10 @@ impl OpRouter for MuxRouter {
 /// The app streams a daemon event invalidates (`cmux.live` re-reads on them).
 fn streams(event: &MuxEvent) -> &'static [&'static str] {
     match event {
-        MuxEvent::TreeChanged | MuxEvent::TreeSelectionChanged | MuxEvent::TreeDelta(_) => &[
+        MuxEvent::TreeChanged
+        | MuxEvent::TreeSelectionChanged(_)
+        | MuxEvent::WorkspacePresentationChanged(_)
+        | MuxEvent::TreeDelta(_) => &[
             "workspace.changed",
             "screen.changed",
             "pane.changed",

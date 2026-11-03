@@ -330,7 +330,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
-    timeout-minutes: 150
+    timeout-minutes: 240
     permissions:
       contents: read
     env:
@@ -351,6 +351,9 @@ jobs:
       - name: Every CmuxNext suite of shard ${{ matrix.shard }}
         env:
           FILTERS: ${{ matrix.filters }}
+          # CmuxNextAppTests runs about 15 min on a GUI mini; the lane's 900 s per-suite watchdog cut it
+          # off as "stalled/timeout" every night (908 s, run 41419773317).
+          CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS: "2400"
         run: |
           set -uo pipefail
           # One retry: one flaky suite does not lose the night; a suite red twice is red.
@@ -386,6 +389,10 @@ jobs:
           persist-credentials: false
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
+      # The perf build makes the web bundles (scripts/cmux-next/build-web-bundles.sh needs bun 1.4.4).
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
       - name: Perf budgets gate
         run: CI_SHARED_CACHE_DIR="$RUNNER_TEMP/stable-perf-cache" bash scripts/measure/split-spring.sh --suite=budgets --gate --vdisplay=120
       - name: Upload the perf report
@@ -674,17 +681,17 @@ jobs:
           persist-credentials: false
           sparse-checkout: scripts/ci/stable_next.py
           sparse-checkout-cone-mode: false
-      - name: The build is still on the cmux NEXT feed and was never pulled
+      # Not "still on the feed": the feed keeps 2 builds, so newer nightlies drop the picked one long
+      # before the gates finish (run 41419773317: build 4141347814401 refused for that alone).
+      - name: The build was never pulled and has no fail verdict
         env:
           BUILD: ${{ needs.plan.outputs.build }}
         run: |
           set -euo pipefail
-          curl -fsS --retry 3 -A cmux-stable-next/1 -o "$RUNNER_TEMP/next.xml" "$NEXT_FEED_BASE/appcast-arm64.xml"
-          curl -fsS --retry 3 -A cmux-stable-next/1 -o "$RUNNER_TEMP/pulled.json" "$NEXT_FEED_BASE/pulled.json" \
-            || echo '[]' > "$RUNNER_TEMP/pulled.json"
-          python3 -I scripts/ci/stable_next.py pick --feed "$RUNNER_TEMP/next.xml" --pulled "$RUNNER_TEMP/pulled.json" \
-            --verdicts "$NEXT_FEED_BASE/verdicts" --build "$BUILD" > /dev/null
-          echo "build $BUILD: on the feed, not pulled, no fail verdict"
+          # Fail closed: with the feed check gone, an unreadable pulled.json must never read as "nothing pulled".
+          curl -fsS --retry 5 --retry-all-errors -A cmux-stable-next/1 -o "$RUNNER_TEMP/pulled.json" "$NEXT_FEED_BASE/pulled.json"
+          python3 -I scripts/ci/stable_next.py soak --build "$BUILD" --pulled "$RUNNER_TEMP/pulled.json" \
+            --verdicts "$NEXT_FEED_BASE/verdicts"
       - name: No new unhandled Sentry issue first seen in this release
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
@@ -745,6 +752,13 @@ jobs:
             [ "$tested" = "$actual" ] || { echo "smoked $tested, publishing $actual: refused" >&2; exit 1; }
           done
           [ "$actual" = "$DMG_SHA256" ] || { echo "the DMG is not the one the sign job made" >&2; exit 1; }
+      # Again right before the feed write: a rollback may have pulled the build while the gates ran.
+      - name: The build is still not pulled and has no fail verdict
+        run: |
+          set -euo pipefail
+          curl -fsS --retry 5 --retry-all-errors -A cmux-stable-next/1 -o "$RUNNER_TEMP/pulled.json" "$NEXT_FEED_BASE/pulled.json"
+          python3 -I scripts/ci/stable_next.py soak --build "$BUILD" --pulled "$RUNNER_TEMP/pulled.json" \
+            --verdicts "$NEXT_FEED_BASE/verdicts"
       - name: Dry run - compose the feed the publish would write
         if: env.PUBLISH != 'true'
         run: |

@@ -61,8 +61,8 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
         calls,
         items.map((item) => item.tool!),
         names,
-      ) ?? mcpLabel(t, calls, names),
-    [t, calls, items, names],
+      ) ?? mcpLabel(t, calls, names, running),
+    [t, calls, items, names, running],
   );
   const failures = items.filter((item) => isFailed(item.tool!)).length;
   return (
@@ -124,16 +124,16 @@ function McpCallRow({ item }: { item: AcpmuxActivity; grouped?: boolean }) {
   // A look at a video's frames reads as one ("Looked at 8 video frames") over its filmstrip, which
   // names the video (videoFrames.ts); opened, the call's response is the tool's note without the frames.
   const video = useMemo(() => videoFrames(tool), [tool]);
+  const running = isRunning(tool);
   const label = useMemo(
     () =>
       video
         ? t("tools.videoFrames", { n: video.count })
-        : (cmuxTitle(t, [call], [tool], names) ?? mcpLabel(t, [call], names)),
-    [t, video, call, tool, names],
+        : (cmuxTitle(t, [call], [tool], names) ?? mcpLabel(t, [call], names, running)),
+    [t, video, call, tool, names, running],
   );
   const exec = isCmuxExec(call);
   const images = useMemo(() => (video ? [] : toolImages(tool)), [video, tool]);
-  const running = isRunning(tool);
   // An MCP server's error is often JSON: its message, in one line (toolFailure.ts).
   const failure = useMemo(() => (tool.status === "failed" ? toolFailure(tool) : undefined), [tool]);
   return (

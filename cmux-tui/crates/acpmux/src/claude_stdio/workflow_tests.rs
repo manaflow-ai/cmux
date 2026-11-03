@@ -433,7 +433,7 @@ fn workflow_agents_reach_clients_in_the_subagent_model() {
     tree.annotate(&mut progress);
     assert_eq!(
         progress["_meta"]["acpmux"]["subagents"],
-        json!([{"id": "acp-1/toolu_w", "parent": null, "state": "running", "runId": "wf_4fe",
+        json!([{"id": "acp-1/toolu_w", "parent": null, "state": "running", "name": "Workflow", "runId": "wf_4fe",
             "phases": [{"index": 1, "title": "Review"}],
             "workflowAgents": [{"index": 1, "state": "running", "label": "review:#1"}]}])
     );
