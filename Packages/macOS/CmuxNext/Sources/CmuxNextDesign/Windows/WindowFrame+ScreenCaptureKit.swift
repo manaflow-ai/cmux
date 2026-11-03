@@ -1,69 +1,139 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import CoreGraphics
 import CmuxNextCompat
+import CmuxNextWakeups
 import CoreMedia
 import CoreVideo
 import Darwin
 import Foundation
 import ScreenCaptureKit
 
-/// How ``WindowFrame/recordScreen(_:bounds:scale:from:until:)`` read the frames.
+/// How a frame strip read its frames (``FrameStripRecording``).
 public nonisolated enum WindowFrameCapture: String, Sendable {
     /// ScreenCaptureKit with this process's own shareable content: no Screen Recording grant needed, and the
     /// Chromium pages (drawn by the GPU process) are in the frames.
     case screenCaptureKit = "screencapturekit"
-    /// `CGWindowListCreateImage` back to back (``WindowFrame/recordAbove(_:bounds:scale:from:until:)``). Without the
-    /// Screen Recording grant the window server leaves out what another process draws: a Chromium page comes out as
-    /// its background.
+    /// `CGWindowListCreateImage` back to back (``WindowFrame/recordAbove(_:bounds:scale:from:until:)``,
+    /// ``WindowFrame/record(_:scale:crop:from:until:)``). Without the Screen Recording grant the window server leaves
+    /// out what another process draws: a Chromium page comes out as its background.
     case windowList = "window_list"
 }
 
-nonisolated extension WindowFrame {
-    /// The window and this app's windows over it in `bounds` (global display coordinates, top-left origin), frame
-    /// after frame until `until` ms after `start`, and how they were read.
-    ///
-    /// Where the process lacks the Screen Recording grant (a fleet step's app answers to the build worker, which has
-    /// none, and macOS keeps SIP on), `CGWindowListCreateImage` leaves the Chromium page out of every frame, so a
-    /// strip over a chat measures a blank pane (cmuxterm-hq#6338). There it reads ScreenCaptureKit's current-process
-    /// content (macOS 14.4+, no grant): the display showing only this app's windows, cut to `bounds`, every frame the
-    /// window server composites. With the grant (or when ScreenCaptureKit fails, `error`) it reads the window list as
-    /// before. `method: .windowList` asks for the window list alone. `ready` runs once, on any thread, when the first
-    /// frame is in (or the window list starts): a key sent after it has a frame from before it. A first frame later than
-    /// `lead` ms moves the end by as much (ScreenCaptureKit takes a moment to start), so `until - lead` ms after the
-    /// key stay recorded; a stream with no frame 3 s past `until` ends.
-    @concurrent public static func recordScreen(_ window: CGWindowID, bounds: CGRect, scale: Double, from start: ContinuousClock.Instant,
-                                               lead: Double = 0, until: Double, method: WindowFrameCapture? = nil,
-                                               ready: @escaping @Sendable () -> Void = {})
-        async -> (frames: [WindowFrame], capture: WindowFrameCapture, error: String?) {
-        let wanted = method ?? (CGPreflightScreenCaptureAccess() ? .windowList : .screenCaptureKit)
-        var failure: String?
-        if wanted == .screenCaptureKit {
-            if #available(macOS 14.4, *) {
-                do {
-                    let stream = ScreenFrameStream(window: window, bounds: bounds, scale: scale, start: start, ready: ready)
-                    let frames = try await stream.run(lead: lead, until: until)
-                    if !frames.isEmpty { return (frames, .screenCaptureKit, nil) }
-                    failure = "ScreenCaptureKit gave no frame"
-                } catch {
-                    failure = "\(error)"
-                }
-            } else {
-                failure = "own-window ScreenCaptureKit needs macOS 14.4"
+/// One frame strip's recording (`debug.new_tab {action: "frame_strip"}`), started at `start`: the window's composited
+/// image (`crop`), or with `above` the screen in that rect, this app's windows over the window (its Chromium pages)
+/// included.
+///
+/// `above` without the Screen Recording grant (a fleet step's app answers to the build worker, which has none, and
+/// macOS keeps SIP on) reads ScreenCaptureKit's current-process content (macOS 14.4+, no grant): the display showing
+/// only this app's windows, cut to `above`, every frame the window server composites. The window list there leaves
+/// the Chromium page out of every frame, so a strip over a chat measured a blank pane (cmuxterm-hq#6338). With the
+/// grant, with `capture: "window_list"`, or when ScreenCaptureKit fails (`capture_error`), the window list as before.
+///
+/// ScreenCaptureKit takes a moment to give its first frame: ``waitForLead()`` waits for it as well as the `lead`, and
+/// the recording ends as much later, so `duration` ms after the key stay recorded.
+public nonisolated final class FrameStripRecording: Sendable {
+    public typealias Recorded = (frames: [WindowFrame], capture: WindowFrameCapture, error: String?)
+    private let lead: Double
+    private let firstFrame = FrameSignal()
+    private let task: Task<Recorded, Never>
+
+    public init(_ window: CGWindowID, above: CGRect?, crop: CGRect?, scale: Double, from start: ContinuousClock.Instant,
+                lead: Double, duration: Double, capture: String?) {
+        self.lead = lead
+        let first = firstFrame
+        let until = lead + duration
+        let asked = capture.flatMap(WindowFrameCapture.init(rawValue:))
+        task = Task.detached(priority: .userInitiated) {
+            defer { first.fire() }
+            guard let above else {
+                first.fire()
+                return (await WindowFrame.record(window, scale: scale, crop: crop, from: start, until: until), .windowList, nil)
             }
+            var failure: String?
+            if (asked ?? (CGPreflightScreenCaptureAccess() ? .windowList : .screenCaptureKit)) == .screenCaptureKit {
+                if #available(macOS 14.4, *) {
+                    do {
+                        let stream = ScreenFrameStream(window: window, bounds: above, scale: scale, start: start, first: first)
+                        let frames = try await stream.run(lead: lead, until: until)
+                        if !frames.isEmpty { return (frames, .screenCaptureKit, nil) }
+                        failure = "ScreenCaptureKit gave no frame"
+                    } catch {
+                        failure = "\(error)"
+                    }
+                } else {
+                    failure = "own-window ScreenCaptureKit needs macOS 14.4"
+                }
+            }
+            // A failed stream took time: the window list still records `duration` ms after the key that follows.
+            let end = max(until, WindowFrame.elapsed(since: start) + duration)
+            first.fire()
+            return (await WindowFrame.recordAbove(window, bounds: above, scale: scale, from: start, until: end), .windowList, failure)
         }
-        // A failed stream took time: the window list still records `until - lead` ms after the key that follows `ready`.
-        let end = max(until, elapsed(since: start) + until - lead)
-        ready()
-        return (await recordAbove(window, bounds: bounds, scale: scale, from: start, until: end), .windowList, failure)
+    }
+
+    /// Returns `lead` ms after the start, or once the first frame is in when that is later: a key sent then has a
+    /// frame from before it.
+    public func waitForLead() async {
+        await FrameSignal.pause(milliseconds: lead, owner: "debug.frame_strip.lead")
+        await firstFrame.wait()
+    }
+
+    /// The frames, and the report's fields about them: `capture`, `capture_error`, and `lead_ms` (`sentAt`, when the
+    /// key went in, ms after the start).
+    public func result(sentAt: Double) async -> (frames: [WindowFrame], fields: [String: any Sendable]) {
+        let result = await task.value
+        var fields: [String: any Sendable] = ["capture": result.capture.rawValue, "lead_ms": sentAt.rounded()]
+        if let error = result.error { fields["capture_error"] = error }
+        return (result.frames, fields)
+    }
+}
+
+/// Fires once; ``wait()`` returns at once after that. Any thread.
+nonisolated final class FrameSignal: Sendable {
+    // concurrency-allow: held only to read or set the flag and take the waiters; resuming them happens after the unlock.
+    private let state = Mutex<(fired: Bool, waiters: [CheckedContinuation<Void, Never>])>((false, []))
+
+    func fire() {
+        let waiters = state.withLock { state -> [CheckedContinuation<Void, Never>] in
+            guard !state.fired else { return [] }
+            state.fired = true
+            defer { state.waiters = [] }
+            return state.waiters
+        }
+        waiters.forEach { $0.resume() }
+    }
+
+    func wait() async {
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            let now = state.withLock { state -> Bool in
+                if state.fired { return true }
+                state.waiters.append(done)
+                return false
+            }
+            if now { done.resume() }
+        }
+    }
+
+    /// Returns when this fires or after `milliseconds`, whichever comes first.
+    func wait(atMost milliseconds: Double, owner: String) async {
+        let timer = DemandTimer(owner: owner)
+        defer { timer.cancel() }
+        timer.schedule(after: .milliseconds(Int(max(0, milliseconds).rounded(.up)))) { [self] in fire() }
+        await wait()
+    }
+
+    /// Returns after `milliseconds` (a demand timer; at once for none).
+    static func pause(milliseconds: Double, owner: String) async {
+        guard milliseconds > 0 else { return }
+        await FrameSignal().wait(atMost: milliseconds, owner: owner)
     }
 }
 
 /// One ScreenCaptureKit stream of this app's windows in a rect, collected as ``WindowFrame``s on its own queue (no
 /// main-thread work per frame). An idle frame (nothing changed on screen) repeats the last picture at its time, so
 /// a still picture keeps counting frames as the window list's back-to-back reads did.
-// crash-allow: `frames` and `last` are touched only on `queue` (the sample handler) and read after the stream stopped.
 @available(macOS 14.4, *)
-nonisolated final class ScreenFrameStream: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
+nonisolated final class ScreenFrameStream: NSObject, SCStreamOutput, SCStreamDelegate, Sendable {
     nonisolated struct Failure: Error, CustomStringConvertible {
         let description: String
     }
@@ -72,13 +142,20 @@ nonisolated final class ScreenFrameStream: NSObject, SCStreamOutput, SCStreamDel
     private let bounds: CGRect
     private let scale: Double
     private let start: ContinuousClock.Instant
-    /// Run at the first frame; nil after (touched on `queue` only).
-    private var ready: (@Sendable () -> Void)?
-    // concurrency-allow: held only to set or read the first frame's arrival (ms after `start`); no call out runs under it.
-    private let firstAt = Mutex<Double?>(nil)
+    /// Fired at the first frame (the strip's key waits for it).
+    private let first: FrameSignal
+    /// Fired at the first frame or a stop: the end waits for it, at most 3 s past `until`.
+    private let started = FrameSignal()
     private let queue = DispatchQueue(label: "debug.frame_strip.screen", qos: .userInitiated)
-    private var frames: [WindowFrame] = []
-    private var last: WindowFrame?
+    nonisolated struct Collected: Sendable {
+        var frames: [WindowFrame] = []
+        var last: WindowFrame?
+        /// When the first frame came, ms after `start`.
+        var firstAt: Double?
+    }
+
+    // concurrency-allow: written by the sample handler on `queue`, read after a hop onto it; held only to append or copy.
+    private let collected = Mutex(Collected())
     // concurrency-allow: held only to set or read the stop error; no call out runs under it.
     private let stopped = Mutex<String?>(nil)
 
@@ -88,12 +165,12 @@ nonisolated final class ScreenFrameStream: NSObject, SCStreamOutput, SCStreamDel
         return Double(info.numer) / Double(info.denom) / 1e9
     }()
 
-    init(window: CGWindowID, bounds: CGRect, scale: Double, start: ContinuousClock.Instant, ready: @escaping @Sendable () -> Void) {
+    init(window: CGWindowID, bounds: CGRect, scale: Double, start: ContinuousClock.Instant, first: FrameSignal) {
         self.window = window
         self.bounds = bounds
         self.scale = scale
         self.start = start
-        self.ready = ready
+        self.first = first
     }
 
     /// Starts the stream, keeps it until `until` ms after `start` (later by as much as the first frame came after
@@ -124,21 +201,16 @@ nonisolated final class ScreenFrameStream: NSObject, SCStreamOutput, SCStreamDel
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
         try await stream.startCapture()
-        while true {
-            let first = firstAt.withLock { $0 }
-            let end = first.map { until + max(0, $0 - lead) } ?? until + 3_000
-            let remaining = end - WindowFrame.elapsed(since: start)
-            if remaining <= 0 { break }
-            // Before the first frame, look again soon: its time sets the end.
-            try? await Task.sleep(for: .milliseconds(first == nil ? min(remaining, 20) : remaining))
-        }
+        await started.wait(atMost: until + 3_000 - WindowFrame.elapsed(since: start), owner: "debug.frame_strip.first")
+        let firstMs = collected.withLock { $0.firstAt }
+        let end = firstMs.map { until + max(0, $0 - lead) } ?? until + 3_000
+        await FrameSignal.pause(milliseconds: end - WindowFrame.elapsed(since: start), owner: "debug.frame_strip.end")
         try? await stream.stopCapture()
         // The handler runs on `queue`: one hop after the stop has every frame it delivered.
-        let collected: [WindowFrame] = await withCheckedContinuation { done in
-            queue.async { [self] in done.resume(returning: frames) }
-        }
-        if collected.isEmpty, let reason = stopped.withLock({ $0 }) { throw Failure(description: reason) }
-        return collected
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in queue.async { done.resume() } }
+        let frames = collected.withLock { $0.frames }
+        if frames.isEmpty, let reason = stopped.withLock({ $0 }) { throw Failure(description: reason) }
+        return frames
     }
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
@@ -146,24 +218,31 @@ nonisolated final class ScreenFrameStream: NSObject, SCStreamOutput, SCStreamDel
               let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
               let info = attachments.first, let raw = info[.status] as? Int, let status = SCFrameStatus(rawValue: raw) else { return }
         // The frame's display time, as ms after `start`: its age now, taken from the elapsed time now.
-        let shown = (info[.displayTime] as? NSNumber)?.uint64Value ?? mach_absolute_time()
-        let age = Double(mach_absolute_time() &- min(shown, mach_absolute_time())) * Self.secondsPerTick * 1000
-        let at = WindowFrame.elapsed(since: start) - age
+        let now = mach_absolute_time()
+        let shown = min((info[.displayTime] as? NSNumber)?.uint64Value ?? now, now)
+        let at = WindowFrame.elapsed(since: start) - Double(now - shown) * Self.secondsPerTick * 1000
         switch status {
         case .complete:
             guard let buffer = CMSampleBufferGetImageBuffer(sampleBuffer), let image = Self.image(of: buffer),
                   let frame = WindowFrame(image, scale: scale, at: at) else { return }
-            frames.append(frame)
-            last = frame
-            if let ready {
-                self.ready = nil
-                firstAt.withLock { $0 = WindowFrame.elapsed(since: start) }
-                ready()
+            let arrived = WindowFrame.elapsed(since: start)
+            let isFirst = collected.withLock { state -> Bool in
+                state.frames.append(frame)
+                state.last = frame
+                guard state.firstAt == nil else { return false }
+                state.firstAt = arrived
+                return true
+            }
+            if isFirst {
+                first.fire()
+                started.fire()
             }
         case .idle:
-            guard var again = last else { return }
-            again.milliseconds = at
-            frames.append(again)
+            collected.withLock { state in
+                guard var again = state.last else { return }
+                again.milliseconds = at
+                state.frames.append(again)
+            }
         default:
             return
         }
@@ -171,6 +250,7 @@ nonisolated final class ScreenFrameStream: NSObject, SCStreamOutput, SCStreamDel
 
     func stream(_ stream: SCStream, didStopWithError error: any Error) {
         stopped.withLock { $0 = String(describing: error) }
+        started.fire()
     }
 
     /// A copy of a BGRA pixel buffer as an image.
