@@ -952,6 +952,49 @@ mod codex_tests {
         assert_eq!(end[0]["task"], "Watch CI");
     }
 
+    /// A subagent's completed or cancelled end, which its harness sends with no agent id, still
+    /// says the agentId an earlier event gave it, beside its name and task: a page holding only
+    /// that end names the agent (cmux#33292, cmux#33336).
+    #[test]
+    fn an_end_repeats_the_agent_id_an_earlier_event_gave() {
+        for state in ["completed", "cancelled"] {
+            let mut tree = SubagentTree::default();
+            subagents(
+                &mut tree,
+                json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "s1/t1",
+                       "name": "Watch CI", "task": "Watch CI"}),
+            );
+            subagents(
+                &mut tree,
+                json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "s1/t1", "agentId": "a6ab"}),
+            );
+            let end = subagents(
+                &mut tree,
+                json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": "s1/t1", "state": state}),
+            );
+            assert_eq!(end[0]["state"], state);
+            assert_eq!(end[0]["name"], "Watch CI");
+            assert_eq!(end[0]["task"], "Watch CI");
+            assert_eq!(end[0]["agentId"], "a6ab", "{state}: {end:?}");
+        }
+        // One whose resume named it (a SendMessage) keeps that id for its later end too.
+        let mut tree = SubagentTree::default();
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "s1/t2", "task": "Fix it"}),
+        );
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": "s1/t2", "state": "running", "agentId": "a8e1"}),
+        );
+        let end = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": "s1/t2", "state": "completed"}),
+        );
+        assert_eq!(end[0]["agentId"], "a8e1", "{end:?}");
+        assert_eq!(end[0]["task"], "Fix it");
+    }
+
     /// Codex runs a `spawnAgent` child in its own thread: it outlives the turn
     /// that spawned it (the model may end its turn without a `wait`), so it is
     /// background work, and a client never ends it at the turn's end.
