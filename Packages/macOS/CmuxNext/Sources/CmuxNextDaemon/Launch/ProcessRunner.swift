@@ -35,6 +35,10 @@ public struct ProcessRunner {
         // Each stderr line as the child writes it (a CLI's progress lines), on a queue of its own;
         // the last one once the child exits. Nil reads stderr only after exit, as before.
         stderrLine: (@Sendable (String) -> Void)? = nil,
+        // Each stdout line as the child writes it (`server ensure --restore-progress` lines), on a queue of its own;
+        // the last one once the child exits. With `progressIdle`, a whole line is then the progress unit: the idle
+        // window ends only after a line was handed over, so a caller that saw a line knows the window restarted.
+        stdoutLine: (@Sendable (String) -> Void)? = nil,
         clock: any Clock<Duration>
     ) async throws -> ProcessResult {
         guard timeout != nil || progressIdle != nil else { throw DaemonError.launchFailed("process requires an elapsed or idle deadline") }
@@ -69,8 +73,12 @@ public struct ProcessRunner {
         process.standardError = stderrFile.handle
         // Each stdout write is a progress event (a vnode event on the temp
         // file; the child's writes land on the same file).
-        let progress = progressIdle.map { _ in StdoutProgress(watching: stdoutFile.handle.fileDescriptor) }
+        let outLines = stdoutLine.map { handler in LineProgress(watching: stdoutFile.handle.fileDescriptor, onLine: handler) }
+        defer { outLines?.cancel() }
+        let progress = progressIdle != nil && outLines == nil ? StdoutProgress(watching: stdoutFile.handle.fileDescriptor) : nil
         defer { progress?.cancel() }
+        let progressCount: (@Sendable () -> Int)? = progressIdle == nil ? nil
+            : outLines.map { lines in { @Sendable in lines.count } } ?? progress.map { counter in { @Sendable in counter.count } }
         // Stops at the child's exit (`finish`, below) or when this throws (`cancel`).
         let lines = stderrLine.map { StderrLines(watching: stderrFile.handle.fileDescriptor, onLine: $0) }
         defer { lines?.cancel() }
@@ -101,7 +109,7 @@ public struct ProcessRunner {
                 }
                 group.addTask {
                     try await waitForDeadline(timeout: timeout, progressIdle: progressIdle, clock: clock,
-                                              progress: progress.map { counter in { @Sendable in counter.count } })
+                                              progress: progressCount)
                     return Int32.min
                 }
                 defer { group.cancelAll() }
@@ -122,6 +130,7 @@ public struct ProcessRunner {
             box.cancel()
         }
         lines?.finish()
+        outLines?.finish()
         return ProcessResult(status: status, stdout: stdoutFile.contents(tailBytes: outputTailBytes), stderr: stderrFile.contents(tailBytes: outputTailBytes))
     }
 
@@ -215,4 +224,33 @@ final class StdoutProgress: Sendable {
     var count: Int { writes.withLock { $0 } }
 
     func cancel() { source.withLock { $0?.cancel() } }
+}
+
+/// Stdout lines handed to the caller as the child writes them, counted (``ProcessRunner/run``'s
+/// `stdoutLine`). The count goes up before the line is handed over, so the idle watchdog never
+/// misses a line its caller already saw.
+final class LineProgress: Sendable {
+    private let counter: LineCounter
+    private let reader: StderrLines
+
+    init(watching fd: Int32, onLine: @escaping @Sendable (String) -> Void) {
+        let counter = LineCounter()
+        self.counter = counter
+        reader = StderrLines(watching: fd) { line in
+            counter.add()
+            onLine(line)
+        }
+    }
+
+    var count: Int { counter.value }
+
+    func finish() { reader.finish() }
+
+    func cancel() { reader.cancel() }
+}
+
+private final class LineCounter: Sendable {
+    private let lines = Mutex<Int>(0)
+    func add() { lines.withLock { $0 += 1 } }
+    var value: Int { lines.withLock { $0 } }
 }

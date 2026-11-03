@@ -38,8 +38,9 @@ extension DaemonLauncher {
             arguments: arguments,
             environment: environment,
             stdin: configuration.installKey?.payload,
-            timeout: Self.ensureRestoreCap + Self.replaceSilence,
+            timeout: progress ? nil : Self.ensureRestoreCap + Self.replaceSilence,
             progressIdle: progress ? Self.replaceSilence : nil,
+            stdoutLine: progress ? restoreLines() : nil,
             clock: clock
         )
         if result.status != 0, let failure = Self.ensureFailure(result), failure.code.hasPrefix("server.replace_") {

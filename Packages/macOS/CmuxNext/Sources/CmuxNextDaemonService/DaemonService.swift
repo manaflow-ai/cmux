@@ -128,7 +128,7 @@ public final class DaemonService {
     /// How the first connection is going (window connecting state, control
     /// errors). Becomes `.unavailable` after `startupDeadline` or on an
     /// incompatible daemon; retrying continues in the background.
-    public private(set) var startup: DaemonStartupState = .connecting
+    public internal(set) var startup: DaemonStartupState = .connecting
     @ObservationIgnored var startupDeadline: Duration = DaemonStartup.shared.defaultDeadline
     @ObservationIgnored var startupClock: any Clock<Duration> = ContinuousClock()
     /// Times the wait for a reopened workspace to reach the mirror
@@ -142,6 +142,21 @@ public final class DaemonService {
     /// its socket open and never answers, not a deadline for a busy one. Tests shorten it.
     @ObservationIgnored public var createReplyBound: Duration = DaemonConnection.closeReplyBound
     @ObservationIgnored private var startupDeadlineTimer: DemandTimer?
+    /// The startup deadline fired since the last attempt began (a restoring owner kept the window off "unavailable").
+    private(set) var startupDeadlinePassed = false
+    /// What the local owner said about its restore (its launcher's progress), nil for a remote machine.
+    @ObservationIgnored var restoreProgress: OwnerRestoreProgress?
+    /// This machine's daemon jobs once connected (`jobs-list`, then `jobs-changed`; `long_jobs`). Empty
+    /// for a daemon without the capability: it shows no jobs, never a dead end.
+    public internal(set) var connectedJobs: [LongJob] = []
+    @ObservationIgnored var longJobsSubscription: UInt64?
+    /// Follows the store's connection: each connect lists the jobs again, each drop clears them.
+    @ObservationIgnored var longJobsConnection: Task<Void, Never>?
+    /// The last restore report a failure already judged: an older one (a hop queued before it) changes nothing.
+    @ObservationIgnored var restoreReportsJudged: UInt64 = 0
+    /// After `server.restore_timeout` (the owner's jobs stalled): the newest job update seen then. A report moves
+    /// startup back to `.restoring` only once a job moved past it; with no job named, only a connect ends it.
+    @ObservationIgnored var restoreStallMark: Int64?
     /// The last failed connect attempt until a connection succeeds (`notConnectedReason`).
     @ObservationIgnored public private(set) var lastStartupError: DaemonError?
     /// Events that may let a failed connect succeed: the daemon socket
@@ -195,6 +210,7 @@ public final class DaemonService {
         }
         endpointProvider = launcher.endpointProvider
         recovery.attach(launcher, wake: retryWake)
+        followRestoreProgress(launcher.restoreProgress)
         // Before the first connection the retry loop has no socket watch of its own (the connection installs one
         // after its first handshake): watch the socket the last launch used and its ready marker, so a daemon
         // that finishes a long restore or handoff wakes a loop past its timed budget (cx-4bd8m).
@@ -210,7 +226,7 @@ public final class DaemonService {
         requestLatency.set(latency)
         // An owner the handshake refuses (an older protocol, a missing capability) is handed off to
         // the bundled build like one of another build; only a failed handoff shows the refusal.
-        let configuration = launcher.handingOffIncompatibleOwners(Self.localConfiguration(
+        let configuration = launcher.localOwnerHooks(Self.localConfiguration(
             terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
             installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift, retryWake: retryWake,
             requestLatency: latency))
@@ -415,14 +431,38 @@ public final class DaemonService {
         startupDeadlineTimer = nil
         lastStartupError = nil
         startup = .connected
+        restoreStallMark = nil
+        followLongJobs()
         pushTerminalDefaultColors()
         relaunchKeptLayoutIfNeeded(connection)
     }
 
     /// Records a failed connect attempt (`DaemonStartupState.showsFailure`): unavailable after the deadline, or at once when no retry can help.
+    /// A parked `identify` on the live local owner (``DaemonError/ownerRestoring(_:)``) moves startup to `.restoring` with
+    /// the owner's jobs and shows no failure. Any other failure while restoring ends it (`.unavailable` once the deadline
+    /// passed). `server.restore_timeout` is such a failure: the owner's jobs made no progress for its stall bound, so the
+    /// window offers Retry Now and Restart cmux-tui with "still restoring" (the next progress line restores `.restoring`).
     func noteStartupFailure(_ error: DaemonError, retries: Bool = true) {
+        let permanent = DaemonStartup.shared.isPermanent(error)
+        // After a stall (`server.restore_timeout`), a parked identify counts only once a job moved past it.
+        let movedPastStall = restoreStallMark.map { mark in (restoreProgress?.current?.lastJobUpdateMs ?? .min) > mark } ?? true
+        if retries, !permanent, case .ownerRestoring = error, startup != .connected, movedPastStall {
+            restoreStallMark = nil
+            logger.info("cmux-tui owner is restoring: \(error.description, privacy: .public)")
+            lastStartupError = error
+            startup = .restoring(restoreProgress?.current?.jobs ?? startup.restoringJobs)
+            store.clearFailure()
+            return
+        }
         logger.error("cmux-tui daemon unavailable: \(error.description, privacy: .public)")
         lastStartupError = error
+        // Reports from before this failure no longer prove the owner is restoring; after a stall only new job
+        // progress does (else the stall's Retry Now / Restart flashed away at the next ensure's first line).
+        restoreReportsJudged = restoreProgress?.current?.sequence ?? restoreReportsJudged
+        if case .sessionRestoreTimedOut = error { restoreStallMark = restoreProgress?.current?.lastJobUpdateMs ?? .max }
+        if startup.isRestoring {
+            startup = startupDeadlinePassed || !retries || permanent ? .unavailable(error) : .connecting
+        }
         if startup.showsFailure(error, retries: retries) { store.markFailed(error.description) }
         if startup.isUnavailable || DaemonStartup.shared.isPermanent(error) || !retries {
             startup = .unavailable(error)
@@ -446,10 +486,14 @@ public final class DaemonService {
 
     func armStartupDeadline() {
         startupDeadlineTimer?.cancel()
+        startupDeadlinePassed = false
         let timer = DemandTimer(owner: "DaemonService.startupDeadline", clock: startupClock)
         startupDeadlineTimer = timer
         timer.schedule(after: startupDeadline) { @MainActor [weak self] in
-            guard let self, self.startup == .connecting else { return }
+            guard let self else { return }
+            self.startupDeadlinePassed = true
+            // A restoring owner is alive and busy: its jobs show, not a failure.
+            guard self.startup == .connecting else { return }
             if let error = self.lastStartupError { self.store.markFailed(error.description) }
             self.startup = .unavailable(self.lastStartupError ?? .timedOut("first connection to cmux-tui"))
             self.resumeConnectionWaiters()
@@ -614,6 +658,8 @@ public final class DaemonService {
         runTask = nil
         keptLayoutRelaunch?.cancel()
         keptLayoutRelaunch = nil
+        longJobsConnection?.cancel()
+        longJobsConnection = nil
         let connected = connection
         connection = nil
         return connected

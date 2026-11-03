@@ -175,6 +175,7 @@ extension SettingsSchema {
         "focusRing.width",
         "focusRing.showWhenSinglePane",
         "appearance.statusIndicator.style",
+        "ui.activityIndicator",
         "appearance.statusIndicator.animation",
         "appearance.statusIndicator.size",
         "appearance.statusIndicator.thickness",

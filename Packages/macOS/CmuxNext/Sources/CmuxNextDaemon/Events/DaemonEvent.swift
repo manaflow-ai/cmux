@@ -1,4 +1,5 @@
 import Foundation
+public import CmuxNextWakeups
 
 public enum DaemonEvent: Sendable, Hashable {
     // Connection lifecycle, synthesized by `DaemonConnection`.
@@ -65,6 +66,8 @@ public enum DaemonEvent: Sendable, Hashable {
     case historyChanged(revision: UInt64, kinds: [String])
     /// keybindings.json changed (`keybindings-v1`): a hand edit or a write.
     case keybindingsChanged(revision: UInt64)
+    /// The owner's long jobs changed (`long_jobs`, event `jobs-changed`): the whole list.
+    case longJobsChanged([LongJob])
     /// One committed op on a local conversation (`local-conversations-v1`).
     case conversationChanged(ConversationEvent)
     /// A participant started or stopped typing (ephemeral).
@@ -108,6 +111,8 @@ extension DaemonEvent {
         // change resyncs; dropping its `agent-changed` behind that snapshot left the row on
         // "working" (cx-ag5.6.8). Each event carries the whole state of one surface.
         case .agentChanged, .agentPresenceChanged: true
+        // The job list is not in the tree snapshot; each event carries the whole list.
+        case .longJobsChanged: true
         // A notification's text is in its event alone; the snapshot has only the tab's unread
         // marker. The daemon follows each notification with `tree-changed`, so a second one often
         // lands while that resync's snapshot is in flight, under its barrier.

@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextWakeups
 
 extension DaemonEvent {
     /// Client transaction id this event echoes, if any.
@@ -74,6 +75,8 @@ extension DaemonEvent {
             case "history-changed":
                 let e = try d(EventPayload.HistoryChanged.self)
                 return .historyChanged(revision: e.revision, kinds: e.kinds ?? [])
+            // `long_jobs`: the whole job list on every change.
+            case "jobs-changed": return .longJobsChanged(try d(LongJobList.self).jobs)
             case "keybindings-changed":
                 return .keybindingsChanged(revision: try d(EventPayload.KeybindingsChanged.self).revision)
             case "conversation-changed": return .conversationChanged(try d(ConversationEvent.self))

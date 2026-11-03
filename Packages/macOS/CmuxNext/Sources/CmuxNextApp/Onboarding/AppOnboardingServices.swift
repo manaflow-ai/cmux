@@ -6,6 +6,7 @@ import CmuxNextBrowserImport
 import CmuxNextCookieImport
 import CmuxNextDesign
 import CmuxNextImportCards
+import CmuxNextWakeups
 import CmuxNextOnboarding
 import CmuxNextSettings
 import LocalAuthentication
@@ -67,9 +68,15 @@ final class AppOnboardingServices: OnboardingServices {
         let summary: ImportSummary
         let endAccess = folderAccess.access(plan)
         defer { endAccess() }
+        // A long job while it runs (plans/cmux-next/long-jobs-DESIGN.md): the Activity indicator shows it.
+        let job = services.longJobs.begin(kind: LongJob.browserImportKind)
+        defer { job.end() }
         do {
             summary = try await importer.run(plan, into: destination) { step in
-                Task { @MainActor in progress(step) }
+                Task { @MainActor in
+                    job.progress(fraction: step.fraction)
+                    progress(step)
+                }
             }
         } catch {
             hold?.release()

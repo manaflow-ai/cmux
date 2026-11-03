@@ -88,6 +88,9 @@ final class CloudUploads {
             return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed)
         }
         let answer: CloudAccessCLI.Answer
+        // A long job while the files travel (plans/cmux-next/long-jobs-DESIGN.md).
+        let job = services.longJobs.begin(kind: LongJob.cloudUploadKind)
+        defer { job.end() }
         do {
             answer = try await CloudAccessCLI(binary: target.binary).upload(socket: socket, remoteRoot: target.remoteRoot, files: paths)
         } catch {
@@ -148,6 +151,8 @@ final class CloudUploads {
             return AgentPaneReply.success(["offset": received])
         case .finish(let token):
             guard current() != nil else { return failed }
+            let job = services.longJobs.begin(kind: LongJob.cloudUploadKind)
+            defer { job.end() }
             let done = await stages.finish(token, owns: owns, work: services.work, transfer: { staged -> Delivery in
                 let target = staged.target
                 guard let socket = await target.machine.daemon.connection?.endpoint?.socketPath else {

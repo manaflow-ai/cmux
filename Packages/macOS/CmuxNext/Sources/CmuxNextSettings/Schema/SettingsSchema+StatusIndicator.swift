@@ -24,6 +24,19 @@ nonisolated enum StatusIndicatorSettingsSchema {
                 default: .string(defaults.style.rawValue), keywords: ["spinner", "progress", "loading", "busy"]
             ),
             SettingDescriptor(
+                ActivityIndicatorSetting.configPath, section: .appearance, group: group,
+                title: SettingsText.keyed("settings.ui.activityIndicator", "Activity Indicator"),
+                help: SettingsText.keyed("settings.ui.activityIndicator.help",
+                                        "How slow background work shows in the window's top row while it runs, such as a cleanup, an update download or an import."),
+                kind: .choice([
+                    SettingChoice(ActivityIndicatorStyle.icon.rawValue, SettingsText.keyed("settings.choice.activityIcon", "Icon")),
+                    SettingChoice(ActivityIndicatorStyle.labeled.rawValue,
+                                  SettingsText.keyed("settings.choice.activityLabeled", "Icon and Progress")),
+                ]),
+                default: .string(ActivityIndicatorSetting.fallback.rawValue),
+                keywords: ["activity", "jobs", "background", "progress", "cleanup", "busy", "indicator"]
+            ),
+            SettingDescriptor(
                 path + ["animation"], section: .appearance, group: group,
                 title: SettingsText.keyed("settings.statusIndicator.animation", "Status Indicators"),
                 help: SettingsText.keyed("settings.statusIndicator.animation.help",

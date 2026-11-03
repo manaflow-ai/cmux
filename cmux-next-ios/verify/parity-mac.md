@@ -619,3 +619,9 @@ a file read's timeout racing its last chunk, a written-then-failed-edit file lab
 | --- | --- | --- | --- |
 | Diff: Next Hunk / Previous Hunk (⌃N / ⌃P) | file diff bottom bar: double chevrons | works (menu-rows batch; live) | Each run of changed lines; a folded hunk unfolds. Next / Previous file keep the single chevrons. |
 | Diff: Search (/) | file diff toolbar **Search in File**: a find bar, "N of M", previous / next | works (menu-rows batch; live) | Ignores case and diacritics; matches are highlighted, the current one has a bar at the leading edge; folded context with a match unfolds. |
+
+## Long jobs (plans/cmux-next/long-jobs-DESIGN.md, 2026-11-02)
+
+| Mac surface | Mac reads | Phone | State | Notes |
+| --- | --- | --- | --- | --- |
+| Daemon long jobs: the launch window's restoring state (job, percent, progress bar, "Don't quit"), the top-row Activity indicator and its popover, refusals that name the job | `server ensure --restore-progress` lines and the owner's `long-jobs.json` while it restores; after connect `jobs.list` and the `jobs.changed` event (capability `long_jobs`) | nothing: a Mac whose owner restores reads as not reachable, and its jobs do not show | missing | The phone reaches the Mac's daemon through the relay, whose policy denies any method it does not list. Showing the jobs needs `jobs.list` (read-only, no params) and the `jobs.changed` event on that list, which is a relay policy change: it goes to https://github.com/manaflow-ai/cmux/issues/13742 with a recommendation first (CLAUDE.md "macOS and iOS parity"). Recommendation: allow both, read-only; the job list names no path, command or terminal content (kind, title, counts, `blocks`). The app's own jobs (update download and install, browser import, Cloud uploads) are Mac work: not from a phone. |

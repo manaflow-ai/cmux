@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDaemonRecovery
 import CmuxNextDesign
 import CmuxNextHistory
 
@@ -28,12 +29,13 @@ extension WindowRootView {
     /// indicator after it.
     var titlebarAccessoryFrame: CGRect {
         let band = toolbarBand.convert(toolbarBand.bounds, to: nil)
-        let shown = [titlebarBadgeFrame, hostPressureIndicator.flatMap { $0.isHidden ? nil : $0.convert($0.bounds, to: nil) }]
+        let shown = [titlebarBadgeFrame, hostPressureIndicator.flatMap { $0.isHidden ? nil : $0.convert($0.bounds, to: nil) },
+                     activityIndicator.flatMap { $0.isHidden ? nil : $0.convert($0.bounds, to: nil) }]
         return shown.compactMap(\.self).reduce(band) { $0.union($1) }
     }
 
     /// After the band, the badge while `showsTitlebarBadge`, then the host
-    /// pressure indicator while it shows, `space2` apart, centered on `midY`.
+    /// pressure indicator and the Activity indicator while they show, `space2` apart, centered on `midY`.
     func layoutTitlebarAccessories(midY: CGFloat) {
         var x = toolbarBand.frame.maxX + Metrics.space2
         if let badge = titlebarBadge {
@@ -44,9 +46,16 @@ extension WindowRootView {
                 x = badge.frame.maxX + Metrics.space2
             }
         }
-        guard let indicator = hostPressureIndicator, !indicator.isHidden else { return }
         let side = TitlebarBandButton.side
-        let width = (indicator as? HostPressureIndicatorView)?.width ?? side
-        indicator.frame = CGRect(x: x, y: (midY - side / 2).rounded(), width: width, height: side)
+        if let indicator = hostPressureIndicator, !indicator.isHidden {
+            let width = (indicator as? HostPressureIndicatorView)?.width ?? side
+            indicator.frame = CGRect(x: x, y: (midY - side / 2).rounded(), width: width, height: side)
+            x = indicator.frame.maxX + Metrics.space2
+        }
+        // The Activity indicator last, while long jobs run (plans/cmux-next/long-jobs-DESIGN.md).
+        if let activity = activityIndicator, !activity.isHidden {
+            let width = (activity as? ActivityIndicatorView)?.width ?? side
+            activity.frame = CGRect(x: x, y: (midY - side / 2).rounded(), width: width, height: side)
+        }
     }
 }

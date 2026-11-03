@@ -116,7 +116,7 @@ final class EventInbox: Sendable {
                 if case .agentPresenceChanged(let held) = $0.event { held.surface == presence.surface } else { false }
             }
             state.append(envelope)
-        case .bookmarksChanged, .historyChanged, .keybindingsChanged, .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged, .cloudConversations,
+        case .bookmarksChanged, .historyChanged, .keybindingsChanged, .longJobsChanged, .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged, .cloudConversations,
              .terminalClipboardRead, .terminalClipboardReadCancelled, .unknown:
             // Not part of the tree snapshot a resync refetches (.unknown: the `apps-*` events of apps-v1).
             state.append(envelope)

@@ -130,3 +130,29 @@ something the person can do is a **long job**. A long job:
 - Palette, CLI (`cmux jobs` lists them) and MCP read the same list.
 - iOS: a row in `cmux-next-ios/verify/parity-mac.md` (the phone shows the same
   daemon jobs).
+
+## App side as built (2026-11-02, branch feat-cmux-next-long-jobs-app)
+
+- Model and registry: `LongJob`, `LongJobList`, `LongJobs` and `LongJobHandle` live in
+  CmuxNextWakeups (core), so any package can register work without a new edge. Titles by
+  `kind` are localized in CmuxNextDaemonService (`LongJob.displayTitle`, `LongJobs.xcstrings`).
+- Launcher: `server ensure --restore-progress` has no total cap (idle bound `ensureTimeout`,
+  20 s, per stdout line); each progress line's jobs reach `DaemonLauncher.restoreProgress`.
+  An unanswered `identify` (only that reply) on the local owner's socket asks
+  `DaemonLauncher.parkedOwner`: a `long-jobs.json` whose pid is alive and that changed within the
+  120 s stall bound makes it `DaemonError.ownerRestoring`. A socket that merely accepts is no proof
+  (a wedged owner's listener accepts too), so without a fresh file it stays a timeout.
+- Startup: `DaemonStartupState.restoring([LongJob])`; a parked owner and every progress line
+  move there, the startup deadline never turns it into `.unavailable`, and the store is not
+  marked failed. `server.restore_timeout` (a stall) still shows "still restoring" with
+  Retry Now / Restart cmux-tui; after it, only a report whose jobs moved past the stall goes
+  back to `.restoring` (each report carries a sequence, so a hop queued before a failure never
+  undoes it). Callers of `DaemonService.endpoint()` keep waiting while it restores (the owner
+  will answer), as they wait while connecting.
+- Connected: `jobs-list` on every connect (a reconnect after a drop too), `jobs-changed`
+  replaces the list, a drop clears it.
+- Surfaces: the launch window's connecting state (title, detail, percent bar, "Don't quit"),
+  the top-row Activity indicator (setting `ui.activityIndicator`: `icon`, default, or
+  `labeled`) with a popover, refusals naming the job (`RefusalStrings.restoring`).
+- App jobs registered: update download and install (UpdaterService), browser import,
+  Cloud uploads.

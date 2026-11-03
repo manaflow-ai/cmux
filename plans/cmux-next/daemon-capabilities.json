@@ -80,6 +80,7 @@
     "link-preview-v1",
     "local-attachments-v1",
     "local-conversations-v1",
+    "long_jobs",
     "loopback-forward-v1",
     "machine-identity-v1",
     "notification-ack-v1",

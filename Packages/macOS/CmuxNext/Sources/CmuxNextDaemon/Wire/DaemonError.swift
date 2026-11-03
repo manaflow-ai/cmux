@@ -33,6 +33,11 @@ public enum DaemonError: Error, Sendable, Equatable, CustomStringConvertible {
     /// terminals after the daemon's restore bound (`server.restore_timeout`).
     /// Carries the daemon's message. Retrying waits for the same owner.
     case sessionRestoreTimedOut(String)
+    /// The local session owner is alive but answered nothing in time: its socket accepted the
+    /// connection and parked it, as an owner does while it restores or runs a long startup job
+    /// (`long-jobs.json` names it). Not a failure: the next attempt waits for the same owner
+    /// (plans/cmux-next/long-jobs-DESIGN.md). Carries what the connection saw.
+    case ownerRestoring(String)
 
     public var description: String {
         switch self {
@@ -53,6 +58,7 @@ public enum DaemonError: Error, Sendable, Equatable, CustomStringConvertible {
         case .invalidSessionName(let name): "invalid cmux-tui session name: \(name)"
         case .endpointBlocked(let reason): reason
         case .sessionRestoreTimedOut(let message): "cmux-tui session restore timed out: \(message)"
+        case .ownerRestoring(let detail): "cmux-tui session owner is restoring: \(detail)"
         }
     }
 }
@@ -66,7 +72,7 @@ extension DaemonError {
     /// A lost or restarting connection (retry), as opposed to the daemon's own refusal.
     public var isLostConnection: Bool {
         switch self {
-        case .notConnected, .connectionClosed, .daemonShutdown, .connectFailed, .timedOut: true
+        case .notConnected, .connectionClosed, .daemonShutdown, .connectFailed, .timedOut, .ownerRestoring: true
         default: false
         }
     }

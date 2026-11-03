@@ -29,6 +29,7 @@ extension DaemonService {
     /// daemon serves the capability (the running one is older), else the
     /// feature is not in this build.
     public func missingCapabilityMessage(_ capability: String) -> String {
+        if isLocal, startup.isRestoring { return RefusalStrings.restoring(startup.restoringJobs) }
         if isLocal, startup.isUnavailable { return RefusalStrings.daemonUnavailable }
         if identity == nil { return isLocal ? RefusalStrings.daemonConnecting : CloudStrings.notConnected }
         return isLocal ? RefusalStrings.needsDaemonCapability(capability) : RefusalStrings.updateCloudMachine

@@ -10,7 +10,9 @@ extension DaemonService {
     /// (still restoring, the launch or handshake error), the drop's reason,
     /// or that the service is still starting.
     public var notConnectedReason: String? {
-        switch store.connectionState {
+        // The owner is alive and restoring: name its job, never a failure.
+        if startup.isRestoring, connection == nil { return RefusalStrings.restoring(startup.restoringJobs) }
+        return switch store.connectionState {
         case .connected: nil
         case .connecting: lastStartupError.map { RefusalStrings.describe($0) } ?? RefusalStrings.daemonConnecting
         case .disconnected(let why), .failed(let why): lastStartupError.map { RefusalStrings.describe($0) } ?? why

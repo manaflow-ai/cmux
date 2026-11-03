@@ -295,10 +295,14 @@ public actor DaemonConnection {
         phase = .connecting
         serial += 1
         let serial = serial
+        // The endpoint whose socket accepted this attempt's connection (an unanswered identify then
+        // asks `parkedOwner` whether a live owner parked it).
+        var reached: DaemonEndpoint?
         do {
             let endpoint = try await endpointProvider()
             DaemonLaunchTimings.shared.mark("daemon.endpoint_resolved")
             let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge, latency: configuration.requestLatency)
+            reached = endpoint
             DaemonLaunchTimings.shared.mark("daemon.socket_connected")
             let gate = EventGate()
             let continuation = continuation
@@ -344,6 +348,15 @@ public actor DaemonConnection {
             return identity
         } catch {
             if case .connecting = phase { phase = .waiting }
+            // The local owner accepted the connection and answered nothing in time: alive and busy (a restore or a
+            // long startup job parks every connection unread), not a failure (incident 2026-11-02).
+            if let unanswered = error as? IdentifyUnanswered {
+                if let reached, reached.bridge == nil, let parkedOwner = configuration.parkedOwner, await parkedOwner(reached) {
+                    logger.info("cmux-tui owner parked identify (\(unanswered.what, privacy: .public)): restoring")
+                    throw DaemonError.ownerRestoring(unanswered.what)
+                }
+                throw DaemonError.timedOut(unanswered.what)
+            }
             throw error
         }
     }

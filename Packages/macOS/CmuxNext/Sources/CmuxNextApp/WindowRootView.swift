@@ -243,6 +243,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     }
     /// The host pressure indicator after the band and the badge (`layoutTitlebarAccessories`).
     var hostPressureIndicator: NSView? { didSet { oldValue?.removeFromSuperview(); hostPressureIndicator.map { addSubview($0, positioned: .above, relativeTo: nil) }; needsLayout = true } }
+    /// The Activity indicator after the host pressure indicator, while long jobs run (`layoutTitlebarAccessories`).
+    var activityIndicator: NSView? { didSet { oldValue?.removeFromSuperview(); activityIndicator.map { addSubview($0, positioned: .above, relativeTo: nil) }; needsLayout = true } }
 
     var onHintGeometryChange: (() -> Void)?
     /// Called from layout when the band's presence changed, so strips under

@@ -1,6 +1,399 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "activity.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activity"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "النشاط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktivnost"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktivitet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktivität"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actividad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activité"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attività"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクティビティ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សកម្មភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "활동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktivitet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktywność"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atividade"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Активность"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กิจกรรม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etkinlik"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Активність"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hoạt động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "活动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "活動"
+          }
+        }
+      }
+    },
+    "activity.quitRestarts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quitting cmux now restarts this."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الخروج من cmux الآن يعيد هذا من البداية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ako sada zatvorite cmux, ovo počinje ispočetka."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afslutter du cmux nu, starter dette forfra."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn du cmux jetzt beendest, beginnt dies von vorn."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si sales de cmux ahora, esto vuelve a empezar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quitter cmux maintenant fait recommencer ceci."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se esci da cmux ora, questo ricomincia da capo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今 cmux を終了すると、これは最初からやり直しになります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចាកចេញពី cmux ឥឡូវនេះនឹងចាប់ផ្ដើមការងារនេះឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금 cmux를 종료하면 이 작업이 처음부터 다시 시작됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avslutter du cmux nå, starter dette på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zamknięcie cmux teraz zacznie to od nowa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sair do cmux agora faz isto recomeçar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Если выйти из cmux сейчас, это начнётся заново."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หากออกจาก cmux ตอนนี้ งานนี้จะเริ่มใหม่ตั้งแต่ต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux’tan şimdi çıkarsanız bu baştan başlar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Якщо вийти з cmux зараз, це почнеться спочатку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thoát cmux lúc này sẽ khiến việc này chạy lại từ đầu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "现在退出 cmux 会让这项工作重新开始。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在結束 cmux 會讓這項工作重新開始。"
+          }
+        }
+      }
+    },
+    "daemon.restoring.dontQuit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don’t quit cmux. Your workspaces open when this finishes; quitting now starts it over."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تُغلق cmux. ستُفتح مساحات العمل عند انتهاء هذا؛ الخروج الآن يعيده من البداية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nemojte zatvarati cmux. Vaši radni prostori se otvaraju kada ovo završi; zatvaranje sada pokreće sve ispočetka."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afslut ikke cmux. Dine arbejdsområder åbner, når dette er færdigt; afslutter du nu, starter det forfra."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beende cmux nicht. Deine Workspaces öffnen sich, wenn dies fertig ist; beendest du jetzt, beginnt es von vorn."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No salgas de cmux. Tus espacios de trabajo se abrirán cuando esto termine; si sales ahora, vuelve a empezar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ne quittez pas cmux. Vos espaces de travail s’ouvrent à la fin ; quitter maintenant fait tout recommencer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non uscire da cmux. Le aree di lavoro si aprono quando finisce; se esci ora, ricomincia da capo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux を終了しないでください。これが終わるとワークスペースが開きます。今終了すると最初からやり直しになります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កុំចាកចេញពី cmux។ កន្លែងធ្វើការរបស់អ្នកនឹងបើកនៅពេលការងារនេះបញ្ចប់; ការចាកចេញឥឡូវនេះនឹងចាប់ផ្ដើមវាឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux를 종료하지 마세요. 이 작업이 끝나면 워크스페이스가 열립니다. 지금 종료하면 처음부터 다시 시작합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke avslutt cmux. Arbeidsområdene dine åpnes når dette er ferdig; avslutter du nå, starter det på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie zamykaj cmux. Obszary robocze otworzą się, gdy to się skończy; zamknięcie teraz zacznie wszystko od nowa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não saia do cmux. Seus espaços de trabalho abrem quando isto terminar; sair agora faz recomeçar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не выходите из cmux. Рабочие пространства откроются, когда это закончится; если выйти сейчас, всё начнётся заново."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อย่าออกจาก cmux พื้นที่ทำงานของคุณจะเปิดเมื่อเสร็จ หากออกตอนนี้จะเริ่มใหม่ตั้งแต่ต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux’tan çıkmayın. Bu bittiğinde çalışma alanlarınız açılır; şimdi çıkarsanız baştan başlar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не виходьте з cmux. Робочі простори відкриються, коли це завершиться; якщо вийти зараз, усе почнеться спочатку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đừng thoát cmux. Các không gian làm việc sẽ mở khi việc này xong; thoát lúc này sẽ khiến nó chạy lại từ đầu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请不要退出 cmux。完成后你的工作区会打开；现在退出会让它重新开始。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請不要結束 cmux。完成後你的工作區會開啟；現在結束會讓它重新開始。"
+          }
+        }
+      }
+    },
     "daemon.connecting": {
       "extractionState": "manual",
       "localizations": {
