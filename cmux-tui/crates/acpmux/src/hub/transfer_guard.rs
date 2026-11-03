@@ -342,6 +342,17 @@ impl Hub {
         meta.spawn_argv = None;
         meta.launch_digest = None;
         meta.tags.clear();
+        // The folders beside its own: each one under the move's roots, as its `cwd` is; any
+        // other is dropped (`additional_dirs.rs`), so a bundle never widens what it can see.
+        let mut dirs = Vec::new();
+        for d in std::mem::take(&mut meta.additional_directories) {
+            if let Some(c) = guard.folder(&d.to_string_lossy()).await
+                && !dirs.contains(&c)
+            {
+                dirs.push(c);
+            }
+        }
+        meta.additional_directories = super::additional_dirs::without_cwd(dirs, &meta.cwd);
         meta.remote_origin = true;
         if let Some(sid) = meta.agent_session_id.as_deref()
             && !plain_agent_session(sid)

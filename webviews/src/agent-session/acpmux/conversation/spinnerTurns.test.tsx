@@ -85,7 +85,9 @@ test("agent work draws ChatGPT's gap ring: a 0.72 arc at stroke 2 over a faint t
 // the start, so the arc left the track and bulged up and right of it).
 test("the working arc runs along its ring and ends at its share of the turn", () => {
   for (const share of [0.25, 0.5, 0.72]) {
-    const match = workingArcPath(share).match(/^M([\d.]+) ([\d.]+)([aA])([\d.]+) [\d.]+ 0 [01] 1 (-?[\d.]+) (-?[\d.]+)$/);
+    const match = workingArcPath(share).match(
+      /^M([\d.]+) ([\d.]+)([aA])([\d.]+) [\d.]+ 0 [01] 1 (-?[\d.]+) (-?[\d.]+)$/,
+    );
     expect(match).not.toBeNull();
     const [, sx, sy, command, radius, ex, ey] = match!;
     const end = command === "a" ? [Number(sx) + Number(ex), Number(sy) + Number(ey)] : [Number(ex), Number(ey)];
