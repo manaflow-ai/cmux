@@ -82,7 +82,7 @@ test("normalization preserves knockout clearance and the animated spinner", () =
 });
 
 test("media play and stop retain their filled silhouette", () => {
-  for (const glyph of [<PlayTriangle />, <StopSquare />]) {
+  for (const [index, glyph] of [<PlayTriangle key="play" />, <StopSquare key="stop" />].entries()) {
     const html = renderToStaticMarkup(glyph);
     expect(html).toMatch(/<path d="[^"]+" fill="currentColor"/);
   }
