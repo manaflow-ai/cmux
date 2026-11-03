@@ -46,6 +46,12 @@ impl Mux {
     /// Takes the terminal the input was written to, not its id: a key's turn never looks it up through the session
     /// lock, which automation's lists, snapshots and durable mutations hold (TYPING UNDER LOAD F4).
     pub(crate) fn note_terminal_input(&self, surface: &Surface, client: u64) {
+        // The key's view is the terminal's settled newest: the note would change nothing, so the key takes no sizing
+        // lock (R-DAEMON-STATE stage S1, mux/sizing_fast_path.rs).
+        if self.control_clients.input_lane.on() && surface.skips_sizing_note(client) {
+            self.activity.note_user_input();
+            return;
+        }
         if self.note_terminal_activity_of(surface, client, None).is_some() {
             self.activity.note_user_input();
         }
@@ -370,9 +376,17 @@ impl Mux {
             let resolved = mux.resolved_size_policy(sizing, runtime, surface);
             let entry = mux.terminal_sizing_entry(sizing, runtime, surface);
             let changed = entry.engine.set_policy(resolved);
+            let state = entry.engine.state().clone();
             sizing.note_size_state(runtime, changed);
-            sizing.terminal_sizing[&runtime].engine.state().clone()
+            state
         }))
+    }
+
+    /// Runs `hold` while this thread holds the client sizing lock (tests: a person's key must not wait for it).
+    #[cfg(test)]
+    pub(crate) fn hold_client_sizing_for_test(&self, hold: &dyn Fn()) {
+        let _held = self.client_sizing.lock().unwrap_or_else(PoisonError::into_inner);
+        hold();
     }
 
     /// Pins the `latest` policy on the workspace that shows `surface`, for
@@ -520,10 +534,10 @@ impl Mux {
         placement: SurfaceId,
     ) -> &'a mut TerminalSizingEntry {
         if !sizing.terminal_sizing.contains_key(&runtime) {
-            let (cols, rows) = self
-                .surface(placement)
-                .or_else(|| self.surface(runtime))
-                .map_or((80, 24), |surface| surface.size());
+            let surface = self.surface(placement).or_else(|| self.surface(runtime));
+            let (cols, rows) = surface.as_ref().map_or((80, 24), |surface| surface.size());
+            let fast_path_slot =
+                surface.as_ref().and_then(|surface| surface.sizing_fast_path_slot());
             let policy = self.resolved_size_policy(sizing, runtime, placement);
             sizing.terminal_sizing.insert(
                 runtime,
@@ -534,6 +548,7 @@ impl Mux {
                     applied: std::cell::Cell::new(None),
                     applied_participants: std::cell::RefCell::new(std::collections::BTreeMap::new()),
                     hold: std::cell::Cell::new(None),
+                    fast_path_slot,
                 },
             );
         }

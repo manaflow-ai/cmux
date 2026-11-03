@@ -168,6 +168,14 @@ fn hold_creating_inputs(mux: &Arc<Mux>, hold: &dyn Fn()) {
     mux.hold_creating_inputs_for_test(hold);
 }
 
+fn hold_client_sizing(mux: &Arc<Mux>, hold: &dyn Fn()) {
+    mux.hold_client_sizing_for_test(hold);
+}
+
+fn hold_activity(mux: &Arc<Mux>, hold: &dyn Fn()) {
+    mux.activity.hold_for_test(hold);
+}
+
 /// A terminal another creation names, still being created (`terminal-input-while-creating-v1`).
 const CREATING_TERMINAL: &str = "000000000000000000000000c4ea7e01";
 /// A terminal nobody creates: a reader asks about it under the creating-input lock.
@@ -270,6 +278,10 @@ fn assert_old_path_waits_for(name: &str, holder: Holder) {
     connection.close();
     eprintln!("SHARED-LOCKS control (lane off) key wait while {name} is held {HOLD:?}: {waited:?}");
     assert!(
+        waited != Duration::MAX,
+        "control: with stage S1 off a key never reached its terminal while {name} was held"
+    );
+    assert!(
         waited >= BUDGET,
         "control: with stage S1 off the key took {waited:?} while {name} was held {HOLD:?}; the hold does not reach \
          the old path, so the lane's test proves nothing"
@@ -325,6 +337,59 @@ fn a_key_waits_for_no_creating_input_lock() {
         (creating, hold_creating_inputs as Holder),
         (behind, hold_session_behind_a_creating_input_reader as Holder),
     ]);
+}
+
+/// Stage S1 step 5: after a key, the terminal's sizing notes activity (the newest view sets the grid under the
+/// default policy) and the VM activity stream notes a person's input. When the key's view is already the newest and
+/// the grid is settled, the note changes nothing, so the key reads that from the terminal with no lock; the input
+/// time is an atomic. Every attach, detach, resize and size report of every terminal holds the sizing lock, and a
+/// PTY resize runs under it.
+#[test]
+fn a_key_waits_for_neither_the_sizing_nor_the_activity_lock() {
+    let sizing = "client sizing (Mux.client_sizing)";
+    let activity = "VM activity stream (ActivityStream)";
+    assert_old_path_waits_for(sizing, hold_client_sizing);
+    assert_old_path_waits_for(activity, hold_activity);
+    assert_keys_wait_for_none(&[
+        (sizing, hold_client_sizing as Holder),
+        (activity, hold_activity as Holder),
+    ]);
+}
+
+/// The skipped note must never keep the grid from a view: under the default policy (the newest view sets the grid),
+/// another view's focus click takes the grid, and the next key from the first view takes it back, on both arms.
+#[test]
+fn after_another_views_click_a_key_takes_the_grid_back() {
+    for lane in [false, true] {
+        let first = TypingConnection::open_with(lane);
+        let mux = first.mux.clone();
+        let surface = first.surface;
+        mux.pin_latest_size_policy_for_test(surface);
+        let (second_writer, _second_outbound) = captured_writer();
+        let second = mux.control_clients.register(ClientTransport::Unix, second_writer.clone());
+        attach_test_view(&mux, second, surface, &second_writer);
+        mux.resize_surface_for_client(surface, first.client, 100, 30).unwrap();
+        mux.resize_surface_for_client(surface, second, 60, 20).unwrap();
+
+        first.submit("first-key", b'a');
+        assert!(first.arrival(b'a').is_some(), "lane {lane}: the first key never arrived");
+        first.settle(&["first-key"]);
+        let grid =
+            |mux: &Mux| mux.terminal_size_state(surface).map(|state| (state.cols, state.rows));
+        assert_eq!(grid(&mux), Some((100, 30)), "lane {lane}: the typing view sets the grid");
+
+        assert_eq!(mux.note_terminal_activity(surface, second, None), Some(true), "lane {lane}");
+        assert_eq!(grid(&mux), Some((60, 20)), "lane {lane}: the clicked view takes the grid");
+
+        first.submit("second-key", b'b');
+        assert!(first.arrival(b'b').is_some(), "lane {lane}: the second key never arrived");
+        first.settle(&["second-key"]);
+        assert_eq!(grid(&mux), Some((100, 30)), "lane {lane}: the key took the grid back");
+        assert!(mux.activity.user_input_ms_for_test().is_some(), "lane {lane}: the input time");
+
+        disconnect_client(&mux, second, false);
+        first.close();
+    }
 }
 
 /// #31940 and TYPING FIX 2 took these two off the key; this keeps them off on the stage's new path.
