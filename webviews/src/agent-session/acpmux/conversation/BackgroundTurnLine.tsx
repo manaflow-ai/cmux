@@ -9,7 +9,7 @@
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { backgroundRunLabel } from "./backgroundRuns";
-import { backgroundTurnLabel } from "./backgroundTurns";
+import { backgroundTurnLabel, foldsBackground } from "./backgroundTurns";
 import { Clock, Spinner } from "./icons";
 import { TranscriptActivityRow } from "./TranscriptActivityRow";
 
@@ -46,7 +46,8 @@ export function BackgroundTurnLine({
   if (!turn) return null;
   const label = backgroundTurnLabel(t, turn);
   // Until a row of its own draws, there is nothing to open: a plain line, no chevron, no button.
-  const opens = turn.hasRows === true;
+  // A failure that said something heads its rows, which already show (headsBackground).
+  const opens = turn.hasRows === true && foldsBackground(row);
   return (
     <TranscriptActivityRow
       icon={turn.running ? <Spinner /> : <Clock />}
@@ -58,7 +59,7 @@ export function BackgroundTurnLine({
       attributes={{
         ...(opens && { "aria-expanded": String(expanded) }),
         "data-find-skip": "",
-        "data-background-turn": turn.running ? "running" : "quiet",
+        "data-background-turn": turn.running ? "running" : opens || turn.quiet ? "quiet" : "failed",
       }}
       onClick={opens ? onToggle : undefined}
     />

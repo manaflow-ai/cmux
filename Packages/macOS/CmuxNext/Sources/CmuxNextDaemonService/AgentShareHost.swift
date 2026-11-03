@@ -58,4 +58,6 @@ public struct AgentShareConsentAsk: Sendable, Hashable {
     public var lines: [String] { [AgentShareStrings.consentDetail, AgentShareStrings.consentTerms(ttlSecs: ttlSecs ?? 86400, uses: uses ?? 1)] }
     public var allowTitle: String { AgentShareStrings.consentAllow }
     public var declineTitle: String { AgentShareStrings.consentDecline }
+    /// The Feed request's button that brings this Mac's sheet forward (it never allows a link).
+    public var showOnMacTitle: String { AgentShareStrings.consentShowOnMac }
 }
