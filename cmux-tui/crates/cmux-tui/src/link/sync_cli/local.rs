@@ -3,7 +3,7 @@
 //!
 //! In a git working copy (its top folder; a subfolder is refused): the
 //! files `git ls-files --cached --others --exclude-standard` names (tracked,
-//! and untracked ones that are not ignored, minus untracked `.env*` files,
+//! and untracked ones that are not ignored, minus untracked secrets (the same rule as git-seed),
 //! which are shared only on purpose), plus the repository itself as
 //! `.git/`, so the branch, HEAD, index, stash and uncommitted changes
 //! arrive exactly. What goes of the repository is allow-listed
@@ -26,8 +26,7 @@
 //! machine ([`skips::heavy`]) and secrets (`.env*`, key files: [`skips::secret`]).
 //! Symlinks, special files and names the machine cannot hold (control
 //! characters, over 255 bytes, not UTF-8) are skipped too. Every skip is
-//! named with why ([`Skips`]), except the git path's untracked `.env*` and
-//! non-UTF-8 paths, which are counted.
+//! named with why ([`Skips`]), except non-UTF-8 git paths, which are counted.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::os::unix::ffi::OsStrExt as _;
@@ -161,8 +160,14 @@ pub(super) fn collect(folder: &Path, rules: Rules) -> anyhow::Result<LocalSet> {
     };
     set.git = true;
     for (path, untracked) in working_files(folder, &mut set.skipped)? {
-        if untracked && path.rsplit('/').next().is_some_and(|name| name.starts_with(".env")) {
-            set.skipped += 1;
+        // Git seeding and fs-v1 fallback must agree on excluded untracked
+        // secrets. Git's object store is copied separately; this check also
+        // prevents a private key or registry token from going as a plain file.
+        if untracked
+            && cmux_tui_core::git_seed::secrets::reason(folder, path.as_bytes()).is_some()
+        {
+            let name = path.rsplit('/').next().unwrap_or(path.as_str());
+            set.skips.note(&path, skips::secret(name).unwrap_or(Why::CredentialFile));
             continue;
         }
         add(&mut set, path.clone(), &folder.join(&path))?;
