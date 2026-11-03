@@ -24,6 +24,9 @@ import { awaitsPermission, groupId, isDraftCall, isFailed as callFailed, isRunni
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
 import { acpmuxSendCalls } from "./acpmuxSends";
 import { subsessionCall } from "./subsessionCalls";
+import { experimentArm } from "../../../experiments/experiment";
+import { finishedTaskLook } from "./taskLine.experiment";
+import { startedTasks, startsTask, TASK_LINE } from "./taskLines";
 import { isWaitingMessage } from "./pendingMessages";
 import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
@@ -721,6 +724,8 @@ function shapeTurn(
   const replies = repliesIn(body);
   const steerDialogue = steerDialogueIn(body);
   let folded = false;
+  // Where the sub-sessions a folded turn started stay in sight (taskLine.experiment.ts).
+  const taskLook = claudeGroups ? undefined : experimentArm(finishedTaskLook);
   // A completed turn gets one fold for its work; personal steers keep their dialogue visible. The
   // row boundary above is still opensTurn/continuesTurn: an unrelated incoming prompt starts a
   // separate turn and is never gathered by adjacency alone.
@@ -737,6 +742,7 @@ function shapeTurn(
     // folded run once the fold opens (TurnRows.tsx `staysInSight`).
     const out = (row: AcpmuxRow) =>
       staysOut(row) ||
+      (!open && taskLook === "card" && startsTask(row)) ||
       (!open &&
         (steerDialogue.has(row.id) ||
           (row.kind === "activity" && (row.items ?? []).some((item) => awaitsPermission(item.tool)))));
@@ -747,6 +753,11 @@ function shapeTurn(
     // it stays drawn as it ran, the steer between the replies (agent-pane-steer-split.test.ts).
     // Reports received from other agents fold like work.
     const dialogue = work.every((row) => (row.kind === "user" && !row.incoming) || isAnswer(row));
+    // The tasks this fold hides, as one line each beside it (TaskLine.tsx).
+    const tasks = !open && taskLook && taskLook !== "card" && work.length && !dialogue ? startedTasks(work) : [];
+    const taskLine: AcpmuxRow | undefined = tasks.length
+      ? { id: `${TASK_LINE}-${segment.anchor.id}`, version, at: segment.anchor.at, kind: TASK_LINE, tasks }
+      : undefined;
     if (work.length && !dialogue) {
       folded = !claudeGroups;
       const from = segment.anchor.at;
@@ -770,6 +781,7 @@ function shapeTurn(
         ...(previous !== undefined && { previous }),
       };
       if (!claudeGroups) shaped.push(worked);
+      if (taskLine && taskLook === "after-fold") shaped.push(taskLine);
       // Open, each run of its work folds into its summary line between the commentary, as in a
       // running turn (codexRuns). A run that edited folds too: its edits stay in sight between the
       // summary lines of the work around them (TurnRows.tsx `runStretches`).
@@ -796,6 +808,7 @@ function shapeTurn(
     shaped.push(...outside(before));
     if (said) shaped.push(said);
     shaped.push(...outside(after));
+    if (taskLine && taskLook === "after-reply") shaped.push(taskLine);
   }
   shaped.push(...editsCard(edits));
   const preview = turnPreviewCardsOn() ? turnPreviewUrl(user, turn) : undefined;

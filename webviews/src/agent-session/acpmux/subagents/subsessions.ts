@@ -21,6 +21,9 @@ export type SubsessionInfo = {
   harness?: string;
   /// Its short name, else its title.
   name: string;
+  /// Its title (what the chat is about), when it has one apart from `name`: a finished task's line
+  /// in its parent's transcript names it by this (conversation/TaskLine.tsx).
+  title?: string;
   state: SubsessionState;
   /// Its last turn ended and nobody has looked at it yet.
   unread?: true;
@@ -137,10 +140,14 @@ export function subsessionState(entry: AcpmuxSessionEntry): SubsessionState {
 
 export function subsessionInfo(entry: AcpmuxSessionEntry): SubsessionInfo {
   const state = subsessionState(entry);
+  const name = entry.shortName || entry.displayTitle || entry.title || entry.sessionId;
+  const title = entry.displayTitle || entry.title;
   return {
     sessionId: entry.sessionId,
     ...(entry.harness ? { harness: entry.harness } : {}),
-    name: entry.shortName || entry.displayTitle || entry.title || entry.sessionId,
+    name,
+    // A title acpmux only filled in from the session's name or id is no title of its own.
+    ...(title && title !== name && title !== entry.name && title !== entry.sessionId ? { title } : {}),
     state,
     ...(state === "done" && entry.unread ? { unread: true as const } : {}),
     ...(entry.queued ? { queued: entry.queued } : {}),
