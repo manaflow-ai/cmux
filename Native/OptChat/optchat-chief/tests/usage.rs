@@ -859,3 +859,21 @@ fn unresolved_accounts_are_unknown_and_never_billable() {
             .unwrap();
     assert_eq!(usage::export_row(&chief, &line)["billable"], true);
 }
+
+#[test]
+fn legacy_export_ids_are_scoped_to_each_chief_home() {
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    let line: Line =
+        serde_json::from_value(json!({"v":1,"kind":"compactor","key":"5236+4"})).unwrap();
+    let chief = |home: &Path| Chief {
+        id: "default".into(),
+        label: "Chief".into(),
+        home: home.display().to_string(),
+    };
+    let first = usage::export_row(&chief(a.path()), &line);
+    let again = usage::export_row(&chief(a.path()), &line);
+    let other = usage::export_row(&chief(b.path()), &line);
+    assert_eq!(first["request_id"], again["request_id"]);
+    assert_ne!(first["request_id"], other["request_id"]);
+}
