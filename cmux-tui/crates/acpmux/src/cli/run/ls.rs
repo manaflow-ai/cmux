@@ -280,7 +280,7 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn parse_duration_ms(text: &str) -> Result<u64> {
+pub(crate) fn parse_duration_ms(text: &str) -> Result<u64> {
     let mut rest = text.trim();
     let mut total = 0u64;
     if rest.is_empty() {

@@ -14,6 +14,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Ensure { .. }
             | Command::Continue(..)
             | Command::History { .. }
+            | Command::SessionSearch(..)
             | Command::TagCmd { .. }
             | Command::RulesCmd { .. }
             | Command::Compare { .. }
@@ -98,6 +99,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         Command::History { session, limit } => {
             orchestrate::history(connect(true).await?, &session, limit, json_out).await
+        }
+        Command::SessionSearch(args) => {
+            crate::cli::session_search::run(connect(true).await?, args, json_out).await
         }
         Command::TagCmd { session, assignments, remove, ttl } => {
             orchestrate::tag(connect(true).await?, &session, assignments, remove, ttl, json_out)

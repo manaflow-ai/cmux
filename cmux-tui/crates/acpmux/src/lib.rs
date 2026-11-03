@@ -132,6 +132,7 @@ pub mod session_env;
 pub mod session_identity;
 pub mod session_liveness;
 pub mod session_name;
+pub mod session_search;
 mod session_scope;
 pub mod sha256;
 pub mod sr2_cost_labels;
