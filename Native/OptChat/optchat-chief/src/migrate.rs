@@ -1188,27 +1188,31 @@ pub fn move_chief(options: &MoveOptions) -> MoveReport {
     }
     // Working subagents go with a Chief moving to another machine (migrate_subagents.rs);
     // a Cloud Chief does not run this Mac's agents, so they stay and the report says so.
-    let handed = timed(&mut report.steps, "subagents", || match &options.target {
-        Target::Ssh { host, .. } => {
-            crate::migrate_subagents::hand_over(&home, host).map(|(h, d)| (h.is_some(), d))
-        }
-        Target::Cloud(_) => {
-            let n = crate::migrate_subagents::working(&home)
-                .map(|w| w.len())
-                .unwrap_or(0);
-            Ok((
-                false,
-                if n == 0 {
-                    "no subagent is working".into()
-                } else {
-                    format!(
-                        "{n} working subagents stay on this Mac: a Cloud Chief does not run them"
-                    )
-                },
-            ))
-        }
-        Target::Local(_) => Ok((false, "same Mac: subagents stay in place".into())),
-    });
+    let handed = if matches!(options.target, Target::Local(_)) {
+        // Same Mac: the subagents stay where they run.
+        Ok(false)
+    } else {
+        timed(&mut report.steps, "subagents", || match &options.target {
+            Target::Ssh { host, .. } => {
+                crate::migrate_subagents::hand_over(&home, host).map(|(h, d)| (h.is_some(), d))
+            }
+            _ => {
+                let n = crate::migrate_subagents::working(&home)
+                    .map(|w| w.len())
+                    .unwrap_or(0);
+                Ok((
+                    false,
+                    if n == 0 {
+                        "no subagent is working".into()
+                    } else {
+                        format!(
+                            "{n} working subagents stay on this Mac: a Cloud Chief does not run them"
+                        )
+                    },
+                ))
+            }
+        })
+    };
     let handed = match handed {
         Ok(h) => h,
         Err(e) => {
