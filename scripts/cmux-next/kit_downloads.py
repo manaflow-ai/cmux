@@ -33,6 +33,14 @@ def reported_folder(reply) -> str | None:
 
 def require(reply, expected: str) -> str:
     """`expected` when the app reports it as its downloads folder; otherwise FolderMismatch with the reason."""
+    folder = reported_folder(reply)
+    if folder is None:
+        raise FolderMismatch(
+            f"the app reports no downloads folder (debug.downloads gave {str(reply)[:200]!r}): it is a Release build or "
+            f"older than {KEY}, so a 'nothing was downloaded' check cannot be made; no verdict")
+    if os.path.realpath(folder) != os.path.realpath(expected):
+        raise FolderMismatch(f"the app saves downloads to {folder!r}, not the kit's {expected!r} ({KEY} did not reach "
+                             f"it); a 'nothing was downloaded' check cannot be made; no verdict")
     return expected
 
 

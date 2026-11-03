@@ -28,7 +28,7 @@ extension DebugDownloads {
         if let item = row("resume") { item.setPaused(false) }
         if let item = row("retry") { list.retry(item) }
         if let item = row("cancel") { item.cancel() }
-        return .object(["downloads": .array(list.items.map(report))])
+        return .object(["downloads": .array(list.items.map(report)), "folder": .string(folder.path(percentEncoded: false))])
     }
 
     private static func report(_ item: BrowserDownload) -> JSONValue {
