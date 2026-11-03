@@ -183,6 +183,56 @@ import Testing
         #expect(creates.made.count == 2)
     }
 
+    /// Leo 2026-11-03: "the new tab at the top opening first in the main pane THEN in the right split ... that top
+    /// tab animation". Split Browser Right (its key, menus, link hints' `F`, an agent's browser beside it) made the
+    /// tab in the source pane and then moved it with `split {tab}`, so the strip's new-tab animation played there
+    /// first. Now the split shows with its stand-in in the action's turn and one create carries `split`.
+    @Test(.timeLimit(.minutes(1))) func splitBrowserRightIsMadeInItsSplitNeverInTheSource() async throws {
+        let (services, pane, creates) = try Self.pane(capabilities: Self.served)
+        defer { pane.teardown() }
+        let store = services.daemon.store
+
+        _ = try BrowserHandlers.splitBrowser(from: pane, direction: .right, byPerson: true, context: AppActionContext(services: services))
+
+        let intent = try #require(store.pendingIntents.first, "no split showed in the action's turn")
+        guard case .splitPane(let target, let direction, _, let provisional) = intent else {
+            Issue.record("Split Browser did not open as a split intent: \(intent)")
+            return
+        }
+        #expect(target == PaneID(rawValue: 1))
+        #expect(direction == .right)
+        #expect(provisional.tab?.kind == .browser)
+        #expect(store.pane(PaneID(rawValue: 1))?.tabs.map(\.surface) == [SurfaceID(rawValue: 1)], "the new tab showed in the source pane")
+
+        if creates.made.isEmpty { for await _ in creates.heard { break } }
+        try #require(creates.made.count == 1, "one new-frontend-browser-tab, not a create and a move")
+        #expect(creates.made[0].pane == PaneID(rawValue: 1))
+        #expect(creates.made[0].split == ConversationTabSplit(direction: .right, paneID: provisional.paneID, splitID: provisional.splitID))
+    }
+
+    /// The chat header's Browser opens the New Tab page on the chat's right through ``LinkOpener/browserSplit(_:profile:returningTo:)``
+    /// with no address: its split shows with the page's stand-in now, and its one create carries `split`.
+    @Test(.timeLimit(.minutes(1))) func theHeadersBrowserIsMadeInItsSplit() async throws {
+        let (services, pane, creates) = try Self.pane(capabilities: Self.served)
+        defer { pane.teardown() }
+        services.linkOpener.placement = { .splitRight }
+        var moved = false
+        #expect(services.linkOpener.open(from: pane, focusing: .addressBar, split: services.linkOpener.browserSplit(nil)) { _, placed in
+            moved = placed != nil
+            return true
+        })
+        #expect(!moved, "the New Tab page was made in the source pane to be moved")
+        let intent = try #require(services.daemon.store.pendingIntents.first)
+        guard case .splitPane(_, .right, _, let provisional) = intent else {
+            Issue.record("the header's Browser did not open as a split intent: \(intent)")
+            return
+        }
+        #expect(provisional.tab?.kind == .browser)
+        if creates.made.isEmpty { for await _ in creates.heard { break } }
+        try #require(creates.made.count == 1)
+        #expect(creates.made[0].split?.paneID == provisional.paneID)
+    }
+
     /// An incognito pane keeps make-and-move: its daemon record holds about:blank until the reply
     /// registers the URL, so a pane that arrived first would mount a blank page (review of #32900).
     @Test func anIncognitoPaneKeepsTheMove() throws {

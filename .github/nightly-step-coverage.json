@@ -4,6 +4,7 @@
     "nightly.yml": {
       "decide": {
         "Mint the routing token for early nightly controls": {"plumbing": true},
+        "Read hosted Ubuntu's start wait": {"nightly_only": "reads how long hosted Ubuntu took to start this nightly-next push run's own job, which only that run has; tests/test_hosted_queue_wait.py covers the read and the signer route"},
         "Place the light jobs on the all-nightly reservation while it has idle runners": {"pr": "cmux-next-guards.yml:ci-guard-group:Run the ci guard group and the routed groups", "note": "guards-local.sh runs test_ci_portable_job_placement.py and test_nightly_dedicated_mini.py, which cover the reservation placement, its bounded wait and the runs-on fallbacks"},
         "Place credentialed early picker on owned minis": {"pr": "cmux-next-guards.yml:ci-guard-group:Run the ci guard group and the routed groups", "note": "Existing portable placement tests cover unknown API capacity and owned-only eligibility"},
         "Start early Linux admission beside the Mac picker": {"pr": "cmux-next-guards.yml:ci-guard-group:Run the ci guard group and the routed groups", "note": "guards-local.sh runs test_ci_portable_job_placement.py and test_nightly_linux_admission.py from the ci group; the reusable workflow excludes that matrix row because this job already runs it"},
@@ -196,6 +197,7 @@
         "Probe the cmux NEXT App ID and profile (read-only)": {"nightly_only": "reads App Store Connect API"},
         "Import signing cert": {"nightly_only": "imports Developer ID signing certificate"},
         "Embed channel provisioning profile": {"nightly_only": "embeds secret provisioning profile"},
+        "Prepare the Cloud Tunnel extension": {"nightly_only": "checks the secret tunnel provisioning profile and writes signing entitlements for the signed app"},
         "Start the Computer Use helper notarization": {"nightly_only": "submits helper to Apple notary"},
         "Codesign apps": {"nightly_only": "codesigns with Developer ID identity"},
         "Verify the Computer Use helper signature": {"nightly_only": "verifies Developer ID signed helper"},
@@ -347,6 +349,7 @@
         "Mint the glaeda read token": {"nightly_only": "mints a glaeda-route GitHub App token with actions read only, for the pool snapshot reads, on nightly-next push and dispatch runs with owned pools on; its scope and the GITHUB_TOKEN fallback are checked by tests/test_nightly_sign_runner.py"},
         "Write the owned-pool watch marker": {"nightly_only": "writes the owned-pool rescue's watch marker only when a nightly-next dispatch or re-run picked an owned Mac; its guard is checked by tests/test_nightly_build_runner.py"}},
       "pick-nightly-sign-runner": {
+        "Read hosted Ubuntu's start wait": {"nightly_only": "reads how long hosted Ubuntu took to start this nightly-next push run's own job, which only that run has; tests/test_hosted_queue_wait.py covers the read and the signer route"},
         "Mint the glaeda read token": {"nightly_only": "mints a glaeda-route GitHub App token with actions read only, for the pool snapshot and signing-job reads, on nightly-next push and dispatch runs with owned pools on; its scope and the GITHUB_TOKEN fallback are checked by tests/test_nightly_sign_runner.py"},
         "Pick the Blacksmith macOS label with a moving queue": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly signing jobs take a Blacksmith label with a moving queue"},
         "Pick the Blacksmith Linux label for release-pool signing": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly signing jobs take a Blacksmith label with a moving queue"},

@@ -1853,6 +1853,7 @@ jobs:
           python3 tests/test_release_signer_nightly.py
           python3 tests/test_dev_app_linux.py
           python3 tests/test_nightly_signer_jobs.py
+          python3 tests/test_hosted_queue_wait.py
           python3 tests/test_fetch_run_artifact.py
           python3 tests/test_signer_parity_compare.py
 

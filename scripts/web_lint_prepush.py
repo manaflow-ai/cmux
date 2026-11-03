@@ -16,8 +16,16 @@ What runs, per area touched by the change:
   that reads files outside its package's triggers declares them next to its own path constants, as a
   module-level `INPUTS` tuple (read with `ast`, never run; see declared_inputs()). A change that touches one
   of them, and none of the package's triggers, runs only those pieces: a Swift-only push runs webviews'
-  check:text-focus on the CmuxNext sources it reads (385cb09a747 and c0230efd501 went red on feat-cmux-next
-  that way), not the whole webviews check, and installs nothing.
+  check:text-focus on the CmuxNext sources it reads (385cb09a747 went red on feat-cmux-next that way), not
+  the whole webviews check, and installs nothing. A check that cannot fail (one that only warns, such as
+  check:system-blue and check:attachment-caps) declares no INPUTS: running it alone could only cost time.
+* A package whose check code the push changes is not linted with that check (the trust boundary, below). When
+  every reason is a change under scripts/cmux-next/, the hook holds a reviewed copy of that folder
+  (--trusted-scripts-dir, refreshed from feat-cmux-next), so it still runs the declared source checks the
+  change's files feed, from that copy, on the pushed tree (trusted_pieces(), trusted_check_argv()):
+  c0230efd501 changed scripts/cmux-next/media/states/*.json and a CmuxNext Swift file, and its push now
+  runs check:text-focus. A piece whose own script the push changes is never run there: the copy would judge
+  the push by the rules it replaces.
 * cmux-tui/frontends/web/ imports `cmux` from cmux-tui/bindings/typescript, whose exports
   point at a tsc-built dist/. That package is installed and built first, as CI does (npm ci,
   npm run build; bun when npm is missing), and only when its inputs changed since the last
@@ -27,8 +35,9 @@ What runs, per area touched by the change:
 
 The trust boundary (docs/contributor-verification.md): the hook runs only check code the push did not change; a
 push that changes it is not linted here, and CI's sandboxed `web lint` job is the check for it. "Changed" is
-measured from where the pushed commit meets the reviewed branches (<remote>/feat-cmux-next, the remote's HEAD),
-not from the branch's last pushed head, so an earlier push of the same branch that changed check code keeps every
+measured from where the pushed commit meets a reviewed branch (feat-cmux-next, else the remote's HEAD) of a reviewed
+remote (manaflow-ai/cmux, or one cmux.reviewedRemote names), never from the branch's last pushed head nor from the
+pushed remote's own branches, so an earlier push of the same branch that changed check code keeps every
 later push of it out too (trust_base()). It counts deletes and type changes, and a change to a parent folder of
 check code (a folder turned into a symlink). Check code may hold no symlink in the pushed commit, at its paths or
 any parent folder (executed_symlinks()). A file directly in a folder above a package, or in a node_modules there,
@@ -36,8 +45,8 @@ is check code too: tools search upward for their config (above_package()); and s
 programs and modules tools run (in_node_modules()), and a build or lint tool's config module found by name anywhere in
 a package, which the tool may run though nothing imports it (tool_config_in()), and a lint tool's config found by name
 anywhere in a package, src/ included, which the tool may load code from (lint_config_in()), whatever the tools' own
-lookup rules are. Before anything runs every executed folder and every script a check
-names must resolve, symlinks followed, to that same path in the tree being linted (escaping_paths()).
+lookup rules are. Before anything runs, every executed folder and every script a check names must resolve, symlinks
+followed, to that same path in the tree being linted (escaping_paths()).
 
 Which files: a push's own range (scripts/cmux-next/push_range.py, the definition the
 cmux-next gate, guardrails and arch ratchet share), so a branch rebased onto
@@ -225,6 +234,11 @@ class Plan:
     script_pieces: dict[str, list[str]] = field(default_factory=dict)
     eslint_files: dict[str, list[str]] = field(default_factory=dict)
     untrusted: list[tuple[str, list[str]]] = field(default_factory=list)
+    # Per untrusted package: the declared source-check pieces run from the hook's reviewed copy of
+    # scripts/cmux-next instead (trusted_pieces()), and the pieces left out because the push changes their script.
+    trusted_pieces: dict[str, list[str]] = field(default_factory=dict)
+    trusted_skipped: dict[str, list[str]] = field(default_factory=dict)
+    trusted: Path | None = None  # the reviewed copy trusted_pieces run from
 
 
 def git(repo: Path, *args: str, check: bool = True) -> str:
@@ -702,6 +716,15 @@ def snapshot(repo: Path, sha: str | None):
 INPUTS_NAME = "INPUTS"
 
 
+def module_binding(statement) -> str | None:
+    """The name a module-level `NAME = value` or `NAME: type = value` binds, or None."""
+    if isinstance(statement, ast.Assign) and len(statement.targets) == 1 and isinstance(statement.targets[0], ast.Name):
+        return statement.targets[0].id
+    if isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name):
+        return statement.target.id
+    return None
+
+
 def declared_inputs(source: str) -> tuple[str, ...]:
     """The paths a check script declares it reads: its module-level `INPUTS` tuple, read with `ast`, never run.
     An entry is a string literal, a module-level string constant's name, an f-string or `+` of those, or `*NAME`
@@ -743,10 +766,10 @@ def declared_inputs(source: str) -> tuple[str, ...]:
         return tuple(entries)
 
     for statement in module.body:
-        if not (isinstance(statement, ast.Assign) and len(statement.targets) == 1
-                and isinstance(statement.targets[0], ast.Name)):
+        target = module_binding(statement)
+        if target is None or statement.value is None:
             continue
-        name = statement.targets[0].id
+        name = target
         if name == INPUTS_NAME:
             return strings(statement.value) or ()
         found = text(statement.value)
@@ -813,15 +836,129 @@ def untrusted_check_code(repo: Path, package: ScriptPackage, trusted_files: list
     return risky
 
 
+# The folder the hook holds a reviewed copy of (--trusted-scripts-dir): the source-check scripts live here.
+TRUSTED_FOLDER = "scripts/cmux-next/"
+
+
+def piece_script(package: ScriptPackage, piece: str) -> str:
+    """The repository path of a `python3 [-I] SCRIPT.py ARGS` piece's script."""
+    argv = light_argv(piece) or []
+    script = next((word for word in argv[1:] if not word.startswith("-")), "")
+    return posixpath.normpath(posixpath.join(package.directory, script))
+
+
+def trusted_reader(trusted: Path, read):
+    """READ, with scripts/cmux-next/ paths read from the reviewed copy TRUSTED instead of the pushed commit."""
+    def reader(rel: str) -> str:
+        if rel.startswith(TRUSTED_FOLDER):
+            return (trusted / rel[len(TRUSTED_FOLDER):]).read_text(encoding="utf-8")
+        return read(rel)
+    return reader
+
+
+def trusted_pieces(repo: Path, package: ScriptPackage, files: list[str], risky: list[str], trusted: Path | None,
+                   read) -> tuple[list[str], list[str]]:
+    """(the declared source-check pieces the hook runs from its reviewed copy TRUSTED for a package it can't lint,
+    the ones left out: the push changes their script, or the copy has none). Only when every executed file the push
+    changes (RISKY) is under scripts/cmux-next/, the one folder the copy holds; their INPUTS are the copy's, and
+    only pieces whose script is in that folder qualify."""
+    if trusted is None or not trusted.is_dir() or not all(path.startswith(TRUSTED_FOLDER) for path in risky):
+        return [], []
+    run, skipped = [], []
+    for piece in input_pieces(repo, package, files, trusted_reader(trusted, read)):
+        script = piece_script(package, piece)
+        if not script.startswith(TRUSTED_FOLDER):
+            continue  # input_pieces read no INPUTS for it from the copy: trusted_reader reads other paths as pushed
+        if script in risky or not (trusted / script[len(TRUSTED_FOLDER):]).is_file():
+            skipped.append(piece)
+        else:
+            run.append(piece)
+    return run, skipped
+
+
+# Runs a reviewed check script (argv[2]) as if it sat at its own path (argv[3]) in the tree argv[1], so it reads
+# that tree (each check finds its repository from __file__). No module or code file in the tree is imported or opened
+# as code, and no program in the tree is started:
+# * -I keeps the environment and the user site out; '' and the working directory (the pushed package) leave sys.path
+#   before anything is imported, so no pushed module can stand in for the stdlib;
+# * a finder first on sys.meta_path refuses any module whose file is in the tree (the import statement,
+#   __import__ and importlib.import_module all ask it), and the `import` audit event refuses one while sys.path
+#   names the tree or a folder in it;
+# * the `open` audit event refuses to open a code file in the tree (.py, .pyc, .so, .zip, .pth ...), which is how
+#   runpy, spec_from_file_location/exec_module and zipimport read one; `ctypes.dlopen` of a tree path is refused;
+# * subprocess, os.exec* and os.posix_spawn are refused when the program they start is in the tree (judged by the
+#   program, never its arguments: check-xcstrings-keys runs `git -C <tree>`).
+# Out of reach for any in-process guard: a reviewed check that execs text it reads (open() and io.open_code() raise
+# the same audit event). That is a review rule: a check never executes what it reads.
+# The reviewed script is read and compiled before the guards go in: the hook's copy lives in the checkout's git
+# directory, which is inside the tree when the lint runs in place. A refusal is an ImportError that fails the check
+# loudly; a check reads data files in the tree (not files with a code suffix) as it likes.
+TRUSTED_RUNNER = (
+    "import sys\n"
+    "sys.path[:] = [p for p in sys.path if p not in ('', '.')]\n"
+    "import os\n"
+    "sys.path[:] = [p for p in sys.path if os.path.abspath(p) != os.getcwd()]\n"
+    "import importlib.machinery\n"
+    "root, script, path, *args = sys.argv[1:]\n"
+    "with open(script, encoding='utf-8') as handle:\n"
+    "    code = compile(handle.read(), path, 'exec')\n"
+    "inside = os.path.realpath(root)\n"
+    "CODE = ('.py', '.pyc', '.pyo', '.pyw', '.so', '.pyd', '.dylib', '.zip', '.egg', '.whl', '.pth')\n"
+    "def in_tree(entry):\n"
+    "    real = os.path.realpath(os.fsdecode(entry) or '.')\n"
+    "    return real == inside or real.startswith(inside + os.sep)\n"
+    "def no(what):\n"
+    "    raise ImportError(f'web lint: {what} is in the pushed tree; the hook runs only its reviewed copy of the '\n"
+    "                      'check, so it must load no code from the tree')\n"
+    "class TreeFinder:\n"
+    "    @staticmethod\n"
+    "    def find_spec(name, search=None, target=None):\n"
+    "        spec = importlib.machinery.PathFinder.find_spec(name, search)\n"
+    "        if spec is not None and spec.origin and spec.has_location and in_tree(spec.origin):\n"
+    "            no(spec.origin)\n"
+    "        return None\n"
+    "def refuse(event, details):\n"
+    "    if event == 'import' and any(in_tree(str(entry)) for entry in (details[2] or ())):\n"
+    "        no(f'a sys.path entry for {details[0]}')\n"
+    "    elif event == 'open' and isinstance(details[0], (str, bytes, os.PathLike)):\n"
+    "        name = os.fsdecode(details[0])\n"
+    "        if name.lower().endswith(CODE) and in_tree(name):\n"
+    "            no(name)\n"
+    "    elif event == 'ctypes.dlopen' and details[0] and in_tree(details[0]):\n"
+    "        no(details[0])\n"
+    "    elif event in ('subprocess.Popen', 'os.exec', 'os.posix_spawn', 'os.spawn'):\n"
+    "        program = details[0] if event != 'os.spawn' else details[1]\n"
+    "        if isinstance(program, (str, bytes, os.PathLike)) and os.sep in os.fsdecode(program) and in_tree(program):\n"
+    "            no(os.fsdecode(program))\n"
+    "sys.meta_path.insert(0, TreeFinder)\n"
+    "sys.addaudithook(refuse)\n"
+    "sys.argv = [path, *args]\n"
+    "exec(code, {'__name__': '__main__', '__file__': path, '__builtins__': __builtins__})\n"
+)
+
+
+def trusted_check_argv(tree: Path, trusted: Path, package: ScriptPackage, piece: str) -> list[str]:
+    """The argument list that runs PIECE's script from the reviewed copy TRUSTED on TREE, with PIECE's own
+    arguments, under this interpreter (never a `python3` found on the package's PATH)."""
+    argv = light_argv(piece)
+    script = piece_script(package, piece)
+    args = argv[argv.index(next(word for word in argv[1:] if not word.startswith("-"))) + 1:]
+    return [sys.executable, "-I", "-c", TRUSTED_RUNNER, str(tree), str(trusted / script[len(TRUSTED_FOLDER):]),
+            str(tree / script), *args]
+
+
 def make_plan(repo: Path, files: list[str], guard_executed: bool, exists=None, trusted_files: list[str] | None = None,
-              sha: str | None = None, read=None) -> Plan:
-    """What to lint for FILES. With GUARD_EXECUTED (the hook), a package whose check code TRUSTED_FILES (default:
-    FILES; the hook passes every path changed since trust_base()) changes, or whose check code commit SHA holds a
-    symlink at, is not linted: the hook never runs code a push controls."""
+              sha: str | None = None, read=None, trusted: Path | None = None) -> Plan:
+    """What to lint for FILES. With GUARD_EXECUTED (the hook), a package whose check code is not the reviewed code
+    (untrusted_check_code(): TRUSTED_FILES, default FILES, the hook passes every path changed since trust_base(),
+    change it, or commit SHA holds a symlink or a node_modules at it, or it loads such a module) is not linted: the
+    hook never runs code a push controls. TRUSTED: the hook's reviewed copy of scripts/cmux-next, which still runs
+    such a package's declared source checks, from that copy, when every reason is a change under scripts/cmux-next/
+    (trusted_pieces())."""
     exists = exists or (lambda rel: (repo / rel).is_file())
     read = read or (lambda rel: (repo / rel).read_text(encoding="utf-8"))
     trusted_files = files if trusted_files is None else trusted_files
-    plan = Plan()
+    plan = Plan(trusted=trusted)
     for package in SCRIPT_PACKAGES:
         if not exists(f"{package.directory}/package.json"):
             continue
@@ -835,6 +972,11 @@ def make_plan(repo: Path, files: list[str], guard_executed: bool, exists=None, t
         risky = untrusted_check_code(repo, package, trusted_files, sha, read) if guard_executed else []
         if risky:
             plan.untrusted.append((package.directory, risky))
+            run, skipped = trusted_pieces(repo, package, files, risky, trusted, read)
+            if run:
+                plan.trusted_pieces[package.directory] = run
+            if skipped:
+                plan.trusted_skipped[package.directory] = skipped
         elif pieces:
             plan.script_pieces[package.directory] = pieces
         else:
@@ -1218,7 +1360,9 @@ def light_plan(repo: Path, plan: Plan, mode: str, has_modules=None) -> Plan:
     (HAS_MODULES(directory), default: in REPO) is dropped with a note (CI checks it), and a package's local builds
     are skipped, said once."""
     has_modules = has_modules or (lambda directory: (repo / directory / "node_modules").is_dir())
-    kept = Plan(untrusted=plan.untrusted, script_pieces=plan.script_pieces)  # source checks need no node_modules
+    # Source checks need no node_modules.
+    kept = Plan(untrusted=plan.untrusted, script_pieces=plan.script_pieces, trusted_pieces=plan.trusted_pieces,
+                trusted_skipped=plan.trusted_skipped, trusted=plan.trusted)
     ci = f"CI's `web lint` job and the pull request's fast gates check it ({LOCAL_HEAVY_ENV}=0: no install or build here)"
     for package in plan.script_packages:
         if not has_modules(package.directory):
@@ -1251,6 +1395,11 @@ def check_jobs(repo: Path, plan: Plan, script: str, fix: bool, cache: bool, heav
         for directory, pieces in plan.script_pieces.items():
             for piece in pieces:
                 jobs.append((directory, light_argv(piece), repo / directory, package_env(repo, directory)))
+        packages = {package.directory: package for package in SCRIPT_PACKAGES}
+        for directory, pieces in plan.trusted_pieces.items():
+            for piece in pieces:  # 5th: how it reads (the runner's argv carries its code)
+                jobs.append((directory, trusted_check_argv(repo, plan.trusted, packages[directory], piece),
+                             repo / directory, package_env(repo, directory), f"{piece} (the hook's reviewed copy)"))
     for directory, files in plan.eslint_files.items():
         jobs.append((directory, eslint_command(repo, directory, files, fix, cache), repo / directory,
                      package_env(repo, directory)))
@@ -1275,7 +1424,10 @@ def plan_steps(repo: Path, plan: Plan, fix: bool, cache: bool, heavy: bool, mode
 
 
 def shown(job: tuple) -> str:
-    """How a check_jobs() job reads in a --dry-run and in a report: `<area>: <command>`."""
+    """How a check_jobs() job reads in a --dry-run and in a report: `<area>: <command>` (a job's own 5th element
+    when it has one)."""
+    if len(job) > 4:
+        return f"{job[0]}: {job[4]}"
     command = job[1] if isinstance(job[1], str) else shlex.join(job[1])
     return f"{job[0]}: {command}"
 
@@ -1320,7 +1472,7 @@ def refuse_escapes(tree: Path, plan: Plan, mode: str, read=None) -> bool:
             plan.script_pieces[directory] = kept_pieces
         else:
             del plan.script_pieces[directory]
-    return bool(plan.script_packages or plan.script_pieces or plan.eslint_files)
+    return bool(plan.script_packages or plan.script_pieces or plan.trusted_pieces or plan.eslint_files)
 
 
 def run_plan(repo: Path, plan: Plan, fix: bool, cache: bool = True, heavy: bool = True,
@@ -1540,6 +1692,7 @@ def main(argv: list[str] | None = None) -> int:
             files = [f"{package.directory}/package.json" for package in SCRIPT_PACKAGES]
         # Planned from the commit's objects: a full lint tree is written only when something needs linting.
         exists, read = snapshot(repo, head)
+        trusted = args.trusted_scripts_dir.resolve() if args.pre_push and args.trusted_scripts_dir else None
         trusted_files = None
         if args.pre_push and head is not None:
             # Check code is measured from where the commit meets the reviewed branches, never from the branch's last
@@ -1549,13 +1702,20 @@ def main(argv: list[str] | None = None) -> int:
             trusted_files = (trust_files(repo, base, head) if base else
                              git(repo, "ls-tree", "-r", "--name-only", head).splitlines())
         plan = make_plan(repo, files, guard_executed=args.pre_push, exists=exists, trusted_files=trusted_files,
-                         sha=head if args.pre_push else None, read=read)
+                         sha=head if args.pre_push else None, read=read, trusted=trusted)
         for directory, risky in plan.untrusted:
             print(f"{mode}: {directory}: not linted here: this push changes, or reaches through a symlink, code the "
-                  f"lint runs "
-                  f"({', '.join(risky[:5])}{' …' if len(risky) > 5 else ''}). The `web lint` CI job checks it; "
-                  f"run `{FIX_COMMAND}` yourself if you trust this branch.", file=sys.stderr)
-        if not plan.script_packages and not plan.script_pieces and not plan.eslint_files:
+                  f"lint runs ({', '.join(risky[:5])}{' …' if len(risky) > 5 else ''}), and the hook never runs code a "
+                  f"push changes. The `web lint` CI job checks it; run `{FIX_COMMAND}` yourself if you trust this "
+                  "branch.", file=sys.stderr)
+            if plan.trusted_pieces.get(directory):
+                print(f"{mode}: {directory}: still run, from the hook's reviewed copy of {TRUSTED_FOLDER} on the "
+                      f"pushed files: {', '.join(plan.trusted_pieces[directory])}.", file=sys.stderr)
+            if plan.trusted_skipped.get(directory):
+                print(f"{mode}: {directory}: not run, because this push changes its script or the hook's copy has "
+                      "none: "
+                      f"{', '.join(plan.trusted_skipped[directory])}.", file=sys.stderr)
+        if not (plan.script_packages or plan.script_pieces or plan.trusted_pieces or plan.eslint_files):
             if args.dry_run:
                 print("nothing to lint")
             continue
