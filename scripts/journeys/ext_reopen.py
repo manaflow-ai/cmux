@@ -1670,6 +1670,52 @@ def step_app_keys(j, step):
     return out
 
 
+def _key_state(j, budget=True):
+    """The front app, debug.focus (key window, each window's is_key, resolved kind and sidebar_hidden) and, when
+    BUDGET, debug.action_budget's recent rows (limit 64)."""
+    out = {"front_is_app": front_pid() == j.app.pid}
+    try:
+        focus = j.app.rpc("debug.focus", timeout=10) or {}
+    except (D.StepError, OSError, ValueError) as error:
+        focus = {"error": str(error)[:200]}
+    out["key_window"] = focus.get("key_window")
+    out["windows"] = [{"id": w.get("id"), "is_key": w.get("is_key"), "resolved": (w.get("model") or {}).get("resolved"),
+                       "sidebar_hidden": (w.get("model") or {}).get("sidebar_hidden")}
+                      for w in focus.get("windows") or [] if isinstance(w, dict)]
+    if budget:
+        try:
+            rep = j.app.rpc("debug.action_budget", {"limit": 64}, timeout=15) or {}
+            out["action_budget_recent"] = rep.get("recent")
+        except (D.StepError, OSError, ValueError) as error:
+            out["action_budget_recent"] = {"error": str(error)[:200]}
+    return out
+
+
+def step_key_state(j, step):
+    """Evidence: _key_state saved as NAME (for sidebar_changed) and to probe-NAME.json. No check."""
+    name = re.sub(r"[^a-z0-9-]", "-", step["name"].lower())
+    out = _key_state(j, budget=step.get("budget", True))
+    if not hasattr(j, "key_states"):
+        j.key_states = {}
+    j.key_states[name] = out
+    (Path(j.out) / f"probe-{name}.json").write_text(json.dumps(out, indent=1, default=str) + "\n")
+    rows = out.get("action_budget_recent") if isinstance(out.get("action_budget_recent"), list) else []
+    return {"front_is_app": out["front_is_app"], "key_window": out["key_window"], "windows": out["windows"],
+            "action_budget_last": rows[-6:]}
+
+
+def cond_sidebar_changed(j, want, cache):
+    """The single window's sidebar_hidden now differs from the key_state named FROM (a toggle ran)."""
+    before = (getattr(j, "key_states", {}) or {}).get(want["from"])
+    if not before or len(before.get("windows") or []) != 1:
+        return False, {"why": f"no single-window key_state {want['from']!r}"}
+    now = _key_state(j, budget=False)
+    if len(now["windows"]) != 1:
+        return False, {"why": f"{len(now['windows'])} windows"}
+    a, b = before["windows"][0].get("sidebar_hidden"), now["windows"][0].get("sidebar_hidden")
+    return a is not None and b is not None and a != b, {"before": a, "now": b}
+
+
 def step_focus_probe(j, step):
     """Records focus_probe (no check): evidence for a key check that follows."""
     return focus_probe(j)
@@ -1774,8 +1820,8 @@ def cond_terminal_in_other_workspace(j, want, cache):
     return wa != wb, {"workspace": pa[0].get("name"), "other_workspace": pb[0].get("name")}
 
 
-STEPS = {"app_keys": step_app_keys, "cua_page_input": step_cua_page_input, "rpc_try": step_rpc_try, "cua_schema": step_cua_schema, "textedit_control": step_textedit_control, "window_probe": step_window_probe, "focus_probe": step_focus_probe, "hid_click": step_hid_click, "page_server": step_page_server, "hid_key": step_hid_key, "reopen_browser_keys": step_reopen_browser_keys, "focus_browser_pane": step_focus_browser_pane, "require_visible_terminals": step_require_visible_terminals, "hid_line": step_hid_line, "input_journal": step_input_journal, "reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
-CONDITIONS = {"key_window_focus": ("app", cond_key_window_focus),
+STEPS = {"key_state": step_key_state, "app_keys": step_app_keys, "cua_page_input": step_cua_page_input, "rpc_try": step_rpc_try, "cua_schema": step_cua_schema, "textedit_control": step_textedit_control, "window_probe": step_window_probe, "focus_probe": step_focus_probe, "hid_click": step_hid_click, "page_server": step_page_server, "hid_key": step_hid_key, "reopen_browser_keys": step_reopen_browser_keys, "focus_browser_pane": step_focus_browser_pane, "require_visible_terminals": step_require_visible_terminals, "hid_line": step_hid_line, "input_journal": step_input_journal, "reopen_video": step_reopen_video, "kill_all_relaunch": step_kill_all_relaunch, "heavy_profile": step_heavy_profile, "heavy_teardown": step_heavy_teardown}
+CONDITIONS = {"sidebar_changed": ("app", cond_sidebar_changed), "key_window_focus": ("app", cond_key_window_focus),
               "terminal_in_other_workspace": ("app", cond_terminal_in_other_workspace),
               "reopen_window_frame_within": ("app", cond_reopen_window_frame_within),
               "reopen_frames_in_first_window_frame": ("app", cond_reopen_frames_in_first_window_frame),
