@@ -122,7 +122,10 @@ import Testing
             .workspace(SidebarWorkspace(id: id, title: "project-\(index)", directory: "~/p\(index)"))
         })])
         model.activeWorkspaceID = ids[Self.active]
-        sidebar.renderNow()
+        // The launch shows the restored rows with no motion: profile 10 (cmux21, 100 workspaces) has them reach the list
+        // through SidebarView.switchSpace, which calls reload(animated: false). A user's change in a shown list takes
+        // the animated path, which this change does not touch.
+        sidebar.list.reload(animated: false)
         sidebar.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
         let made = SidebarPerfCounters.report(reset: true)["row_views_made"] ?? 0
