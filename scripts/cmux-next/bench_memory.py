@@ -296,9 +296,11 @@ class FakeChats:
     chat, as one is after its reply. Its sessions stay in that acpmux's
     store (the app's tag under ~/.acpmux)."""
 
-    def __init__(self, app: App, bundle: str, script: str, app_pid: int):
+    def __init__(self, app: App, bundle: str, script: str, app_pid: int | None = None,
+                 expected_engine: str = "default"):
         self.app = app
         self.app_pid = app_pid
+        self.expected_engine = expected_engine
         self.sessions: dict[str, str] = {}
         self.pages: dict[str, dict] = {}
         # The app splits `args` into words like a shell: a fleet step's checkout is under
@@ -361,6 +363,9 @@ class FakeChats:
         engine = self.app.rpc("debug.agent_pane", {"action": "engine", "pane": pane}).get("engine")
         if not engine:
             raise RuntimeError(f"bench-memory: chat {session} has no measured engine")
+        actual_engine = "webkit" if engine.startswith("webkit:") else "chromium" if engine == "cef" else engine
+        if self.expected_engine != "default" and actual_engine != self.expected_engine:
+            raise RuntimeError(f"bench-memory: chat {session} expected {self.expected_engine}, rendered {engine}")
         page = {"workspace": workspace, "session": session, "pane": pane, "engine": engine,
                 "rows": state.get("rows"), "last_assistant": state["lastAssistant"]}
         if engine.startswith("webkit:"):
@@ -370,7 +375,8 @@ class FakeChats:
             born = process_started(pid) if isinstance(pid, int) and pid > 0 else ""
             if not born or "com.apple.WebKit.WebContent" not in table.get(pid, ""):
                 raise RuntimeError(f"bench-memory: chat {session} has no live WebKit renderer: {response}")
-            _observed_webkit.setdefault(self.app_pid, {})[pid] = born
+            if self.app_pid is not None:
+                _observed_webkit.setdefault(self.app_pid, {})[pid] = born
             page["renderer_pid"] = pid
         self.pages[workspace] = page
 
@@ -736,6 +742,8 @@ def main():
     parser.add_argument("--config", type=config_object, default="{}",
                         help='launch: cmux.json settings as JSON, e.g. \'{"browser": {"hibernation": 1}}\'')
     parser.add_argument("--run-label", default="", help="comparison variant recorded in the JSON artifact")
+    parser.add_argument("--expect-agent-engine", choices=["default", "webkit", "chromium"], default="default",
+                        help="--fake-agent: fail if any chat renders in an engine other than this")
     parser.add_argument("--fake-agent", metavar="SCRIPT",
                         help="an ACP agent script (cmux-tui/crates/acpmux/tests/fake_agent.py) the chats use: "
                              "its turns end, as a chat's do after its reply")
@@ -765,6 +773,7 @@ def main():
     counts = sorted(int(n) for n in args.workspaces.split(",") if n)
     report = {"app": bundle, "mix": recipes, "settle_s": args.settle, "samples": [], "cef_switches": args.cef_switches,
               "run_label": args.run_label, "config": args.config if launched is not None else None,
+              "expected_agent_engine": args.expect_agent_engine,
               "webkit_attributed": _responsible is not None,
               "webkit_attribution": "responsibility plus live-page PID and birth date"}
     opened = []
@@ -780,7 +789,7 @@ def main():
 
     try:
         if args.fake_agent:
-            chats = FakeChats(app, bundle, args.fake_agent, app_pid)
+            chats = FakeChats(app, bundle, args.fake_agent, app_pid, args.expect_agent_engine)
         settle_and_sample("idle-launch")
         if args.tabs:
             tab_counts = sorted(int(n) for n in args.tabs.split(",") if n)

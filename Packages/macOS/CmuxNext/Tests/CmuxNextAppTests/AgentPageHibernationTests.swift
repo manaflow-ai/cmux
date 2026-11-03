@@ -11,11 +11,9 @@ import CmuxNextTestSupport
 import Foundation
 import Testing
 
-/// cx-x15rz: each agent chat tab's page is a web view with its own web content process (about
-/// 75 MB). A chat hidden past the browser hibernation threshold lets its page go and keeps its
-/// tab: showing the tab again builds a new page on the same session, which acpmux replays. A
-/// chat whose turn runs (acpmux's turn state), a New Tab page, and every chat with hibernation
-/// off keep their page.
+/// Idle hidden local WebKit chat pages release on the default deadline and keep their tab,
+/// session, draft and wake state. Busy chats and edited New Tabs retain their pages; only
+/// excess untouched New Tabs use the shared warm cap. Explicit browser settings still apply.
 @MainActor @Suite(.serialized, .closesItsWindows)
 struct AgentPageHibernationTests {
     static let thisMac = "install:agent-page-hibernation-test"

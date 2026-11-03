@@ -21,6 +21,7 @@ class ChatMeasurements(unittest.TestCase):
         self.chats = bm.FakeChats.__new__(bm.FakeChats)
         self.chats.app = MagicMock()
         self.chats.app_pid = 50
+        self.chats.expected_engine = "default"
         self.chats.sessions = {"ws_chat": "session_expected"}
         self.chats.pages = {}
 
@@ -45,6 +46,25 @@ class ChatMeasurements(unittest.TestCase):
                 patch.object(bm, "process_started", return_value="birth"):
             self.assertIn(70, bm.owned(50, "/app"))
             self.assertNotIn(70, bm.owned(51, "/app"))
+
+    def test_explicit_webkit_run_rejects_a_real_chromium_page(self):
+        self.chats.expected_engine = "webkit"
+        self.chats.app.rpc.side_effect = [
+            {"pane": "pane_chat", "sessionId": "session_expected", "lastAssistant": {"text": "answer"}},
+            {"pane": "pane_chat", "engine": "cef"},
+        ]
+        with self.assertRaisesRegex(RuntimeError, "expected webkit, rendered cef"):
+            self.chats.observe("ws_chat")
+        self.assertEqual(self.chats.pages, {})
+
+    def test_chromium_is_verified_from_the_rendered_page(self):
+        self.chats.expected_engine = "chromium"
+        self.chats.app.rpc.side_effect = [
+            {"pane": "pane_chat", "sessionId": "session_expected", "lastAssistant": {"text": "answer"}},
+            {"pane": "pane_chat", "engine": "cef"},
+        ]
+        self.chats.observe("ws_chat")
+        self.assertEqual(self.chats.pages["ws_chat"]["engine"], "cef")
 
     def test_reused_pid_is_excluded(self):
         bm._observed_webkit[50] = {70: "birth"}
@@ -102,6 +122,21 @@ class MatchedConfiguration(unittest.TestCase):
         result = self.preflight()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.splitlines(), ["20", "{}", "agents"])
+
+    def test_explicit_engine_composes_with_both_policy_variants(self):
+        for engine in ["webkit", "chromium"]:
+            for policy, enabled in [("off", False), ("on", True)]:
+                result = self.preflight(f"agents_hibernation={policy}", f"agents_engine={engine}")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                _, config, name = result.stdout.splitlines()
+                self.assertEqual(json.loads(config), {"agents": {"chatPages": {"enabled": enabled}},
+                                                      "browser": {"defaultEngine": engine}})
+                self.assertEqual(name, f"agents-{policy}-{engine}")
+
+    def test_invalid_engine_fails_before_build_or_filesystem_changes(self):
+        result = self.preflight("agents_engine=guess")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("agents_engine must be default, webkit or chromium", result.stderr)
 
     def test_invalid_variant_fails_before_build_or_filesystem_changes(self):
         result = self.preflight("agents_hibernation=maybe")

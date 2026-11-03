@@ -118,13 +118,13 @@ final class AgentPageHibernation: HiddenChatPagesHost {
     func setFrozen(_ control: any BrowserFreezing, _ frozen: Bool) -> Bool { control.setFrozen(frozen) }
     func setPageWork(_ page: AgentPaneView, _ work: (@MainActor () -> Void)?) { page.model.transport.beforePageWork = work }
     func dropReleasedFrame(_ key: String) { store()?.launchImages.drop(key) }
-    func pageMayReleaseByDefault(_ key: String) -> Bool { store()?.existingView(key).map { !$0.pageDrawsOverCovers } ?? false }
+    func pageMayReleaseByDefault(_ key: String) -> Bool { pageIsUntouchedNewTab(key) || (store()?.existingView(key).map { !$0.pageDrawsOverCovers } ?? false) }
 
     func pageIsUntouchedNewTab(_ key: String) -> Bool {
         guard pages.chatSetting.enabled, let tabs = store(), let view = tabs.existingView(key),
               let page = view.model.newTab, !view.model.userTouched, !view.model.remoteChat,
               page.draft?.isEmpty != false, view.model.sessionId == nil, tabs.sessions[key] == nil,
-              !view.model.shell.hasRuns, !view.showsCrashNotice, !view.pageDrawsOverCovers,
+              !view.model.shell.hasRuns, !view.showsCrashNotice,
               let (record, _) = tabs.lookup(key), record.session == nil,
               AgentPaneHostKind(record, localHost: tabs.localHost, chiefHost: tabs.chiefHost, listedHere: true) == .local,
               tabs.daemonForTab(key)?.isLocal != false else { return false }

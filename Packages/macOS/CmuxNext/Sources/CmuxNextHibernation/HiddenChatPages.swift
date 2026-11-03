@@ -1,5 +1,5 @@
 package import CmuxNextCompat
-import CmuxNextBridge
+package import CmuxNextBridge
 package import CmuxNextSettings
 import os
 
@@ -29,7 +29,7 @@ package protocol HiddenChatPagesHost: AnyObject {
     /// The App's own reasons a hidden page may be let go (this Mac's chat with a session, no New Tab page,
     /// no shell command run in it, a page that shows no crash notice); `onScreen` also asks it is out of its window.
     func pageMayRelease(_ key: String, onScreen: Bool) -> Bool
-    /// The local WebKit page can use the chat-specific default (other engines keep their existing policy).
+    /// A local WebKit chat or untouched local New Tab can use the chat-specific default.
     func pageMayReleaseByDefault(_ key: String) -> Bool
     /// A local untouched New Tab page whose context lives in the native tab store.
     func pageIsUntouchedNewTab(_ key: String) -> Bool

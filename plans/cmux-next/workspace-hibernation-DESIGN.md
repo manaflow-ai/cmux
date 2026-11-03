@@ -74,7 +74,8 @@ Warning: the idle time drops to 10 minutes. Critical: every eligible workspace h
 Idle local WebKit chat pages release after five minutes hidden by default, independently of
 workspace hibernation. `agents.chatPages.enabled` opts out; `hiddenMinutes` changes the timeout.
 An explicit `browser.hibernation` retains its existing timeout or off behavior. Websites, Chief
-pages and Chromium chat defaults retain their existing policy.
+pages and Chromium chat defaults retain their existing policy. The untouched New Tab cap applies
+to both engines, subject to successful wake-state and frame capture.
 
 The existing `HiddenChatPages` deadline and pressure planner execute defaults from the shared
 `schemas/settings/source/chat-page-hibernation.json`; the existing `SurfaceRetention` reducer
