@@ -130,7 +130,8 @@ fn the_terminal_error_code_decides_not_codes_quoted_earlier() {
 fn system_runner_reads_stderr_past_the_pipe_buffer_without_stalling() {
     use cmux_imessage::send::SystemRunner;
     let started = std::time::Instant::now();
-    let args = vec!["-c".to_string(), "head -c 300000 /dev/zero | tr '\\0' x >&2; exit 3".to_string()];
+    let args =
+        vec!["-c".to_string(), "head -c 300000 /dev/zero | tr '\\0' x >&2; exit 3".to_string()];
     let output = SystemRunner.run("sh", &args).expect("sh runs");
     assert!(!output.success);
     assert_eq!(output.stderr.len(), 300_000);
