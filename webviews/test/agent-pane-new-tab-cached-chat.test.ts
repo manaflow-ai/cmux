@@ -93,6 +93,12 @@ class Daemon {
     this.onopen?.();
   }
 
+  /// The socket never opens: acpmux is down or refused the connection.
+  refuse(): void {
+    this.readyState = 3;
+    this.onerror?.();
+  }
+
   send(raw: string): void {
     const message = JSON.parse(raw) as Message;
     if (message.id === undefined) return;
@@ -358,6 +364,61 @@ test("a tail drawn while connecting goes when the chat's attach fails", async ()
   await flush();
   expect(text(tab.last())).not.toContain("Retry added.");
   expect(chat.host.tails.has(chat.a)).toBe(false);
+});
+
+/// #32735: a tail drawn while connecting is the chat's past, not what it is doing now. A chat that
+/// was running when another tab kept it does not draw as working before acpmux says it is.
+test("a tail drawn while connecting does not say the chat is working", async () => {
+  const chat = new Fixture("slow-socket-status");
+  chat.pages.set(chat.a, { events: [prompt("Look at the retry path"), reply(chat.a, "Retry added.")] });
+  chat.pages.set(chat.b, { events: [prompt("Docs"), reply(chat.b, "Docs updated.")] });
+  await chat.readInATab();
+  const kept = chat.host.tails.get(chat.a);
+  kept.summary = { ...kept.summary, status: "running" };
+
+  const tab = chat.tab(chat.a, { holdConnect: true });
+  await flush();
+  expect(text(tab.last())).toContain("Retry added.");
+  expect(tab.last()!.isWorking).toBe(false);
+  tab.daemon.connect();
+  live.push(await tab.client);
+});
+
+/// #32735: a connect that fails before the attach leaves no rows behind as if the page had read
+/// the chat, and the page's retry while acpmux stays down draws nothing early (no rows that come
+/// and go with each retry). The host keeps its tail: the chat itself was not refused.
+test("a tail drawn while connecting goes when the connect fails, and a retry does not redraw it", async () => {
+  const chat = new Fixture("slow-socket-refused");
+  chat.pages.set(chat.a, { events: [prompt("Look at the retry path"), reply(chat.a, "Retry added.")] });
+  chat.pages.set(chat.b, { events: [prompt("Docs"), reply(chat.b, "Docs updated.")] });
+  await chat.readInATab();
+
+  const first = chat.tab(chat.a, { holdConnect: true });
+  await flush();
+  expect(text(first.last())).toContain("Retry added.");
+  first.daemon.refuse();
+  await first.client.then(
+    () => undefined,
+    () => undefined,
+  );
+  await flush();
+  expect(text(first.last())).not.toContain("Retry added.");
+  expect(first.last()!.chatRead).not.toBe(true);
+  expect(chat.host.tails.has(chat.a)).toBe(true);
+
+  const retry = chat.tab(chat.a, { holdConnect: true, samePage: true });
+  await flush();
+  expect(text(retry.last())).not.toContain("Retry added.");
+  retry.daemon.connect();
+  live.push(await retry.client);
+  expect(text(retry.last())).toContain("Retry added.");
+
+  // That connect worked: the next cold open draws early again.
+  const later = chat.tab(chat.a, { holdConnect: true });
+  await flush();
+  expect(text(later.last())).toContain("Retry added.");
+  later.daemon.connect();
+  live.push(await later.client);
 });
 
 /// The flow this cache is named for, which every other test here reaches the long way round: the
