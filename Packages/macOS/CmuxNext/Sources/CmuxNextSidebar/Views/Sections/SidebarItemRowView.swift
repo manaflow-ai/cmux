@@ -78,6 +78,9 @@ class SidebarItemRowView: NSView {
         }
     }
     private let pin = DecorativeImageView() // a pinned row's leading pin; Pinned's header names it
+    /// The leading icon column's box of the row's first glyph (the pin on a pinned row, else its own icon), in row
+    /// coordinates; `.zero` for a text-only row or a look without a leading column (tests).
+    private(set) var leadingColumnFrame: CGRect = .zero
     let title = ChromeLabel(labelWithString: "")
     let badge = UnreadBadgeView()
     /// The blue unread dot of a workspace row (`info.unreadDot`, Home's unread): a row draws it on
@@ -279,6 +282,10 @@ class SidebarItemRowView: NSView {
             ? NSRect(x: (b.width - side) / 2, y: (b.height - side) / 2, width: side, height: side)
             : NSRect(x: lead, y: (b.height - columnSide) / 2, width: columnSide, height: columnSide)
         let wellFrame = NSRect(x: iconFrame.midX - side / 2, y: iconFrame.midY - side / 2, width: side, height: side)
+        let hasLeadingColumn = (style == .list || style == .builtIn) && !isRailButton
+        leadingColumnFrame = !hasLeadingColumn ? .zero
+            : info.leadingPin ? NSRect(x: columns.lead, y: (b.height - columns.iconBox) / 2, width: columns.iconBox, height: columns.iconBox)
+            : bare && !showsSwatchDot ? .zero : iconFrame
         pin.isHidden = !info.leadingPin
         pin.frame = pinFrame
         // Icon-only items keep their pill around the glyph (a full-width fill reads
