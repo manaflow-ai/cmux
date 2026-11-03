@@ -255,8 +255,23 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
 
     // MARK: Lifetime (called by CEFPaneHost / CEFRuntime)
 
+    /// The page can take keys from now on: Chromium created its browser and stopped loading with a real document loaded
+    /// (or an error page). Before that a key reached the empty document a restore then replaced, a page whose script
+    /// had not run, or a document the next navigation of the same load replaced. Once per browser.
+    @ObservationIgnored public var onReadyForKeys: (@MainActor () -> Void)?
+    /// The document the tab was asked to show is blank (a New Tab page): its blank document counts as loaded.
+    @ObservationIgnored var blankIsDocument = false
+    /// ``onReadyForKeys`` was reported for this browser.
+    @ObservationIgnored var hasDocument = false
+    /// The current document is a real page that finished loading, or an error page (not an aborted load).
+    @ObservationIgnored var documentLoaded = false
+
     func attach(browser: Int32) {
         browserID = browser
+        // A page asked to show something (an address, a saved navigation, an agent's load) waits for that document; a
+        // page with nothing to load takes keys now (lead on STATUS 7916: a reopen by address is no saved navigation).
+        let navigates = pendingURL != nil || pendingRestore != nil || loadAfterAttach != nil
+        (hasDocument, documentLoaded, blankIsDocument) = (false, false, pendingURL.map { !PageBackground.isRealPage($0) } ?? false)
         isCreationPending = false
         // A spare's renderer-less placeholder never loads or shows: no page to set up, no DevTools call.
         if isRendererlessPlaceholder { return }
@@ -299,6 +314,15 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
             host.lifecycleTrace.record(id, "restore-navigation sent")
         }
         refreshExtensionActions()
+        if !navigates { documentArrived() }
+    }
+
+    /// The page takes keys now: Chromium created it, and (a page asked to show something) stopped loading on that document.
+    func documentArrived() {
+        guard !hasDocument else { return }
+        hasDocument = true
+        host.lifecycleTrace.record(id, "ready-for-keys")
+        onReadyForKeys?()
     }
 
     // What the page area shows, and when the document takes it over, are in

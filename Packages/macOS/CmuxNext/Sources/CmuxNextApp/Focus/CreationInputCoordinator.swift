@@ -259,7 +259,7 @@ final class CreationInputCoordinator {
         let shell = controller?.window ?? window
         // The focused terminal or page does not show yet (a reopen, a workspace shown cold): keys wait, at most `holdLimit` (REOPEN-F4).
         if buffers[shell.windowNumber]?.awaitedTab == nil, buffers[shell.windowNumber].map({ !$0.holdsCreation }) ?? true, kind == .content,
-           let controller, ActionRunScope.viewChangeAllowed(), let awaited = Self.awaitedContent(controller) {
+           let controller, ActionRunScope.viewChangeAllowed(), let awaited = Self.awaitedContent(controller), awaited.hasTerminalLane || !holdEnds.pageExpired.contains(awaited.tab) {
             buffer(in: shell).awaitedTab = awaited.tab
             buffers[shell.windowNumber]?.awaitsPage = !awaited.hasTerminalLane
         }
@@ -283,7 +283,7 @@ final class CreationInputCoordinator {
         // A surface hold keeps a chord no app shortcut takes (Ctrl-C, Ctrl-L), also as its first key.
         let terminalChord = !closes && buffer.awaitedTab != nil && KeyRouter.isChord(event.modifierFlags) && controller.map { router.resolve(event, context: router.keyContext(for: $0.focus.currentState(), facts: router.facts(in: shell, controller: $0))) == nil } == true
         // A page hold keeps a page action, a plain key and a chord the page takes, until its bound (REOPEN-F4 browser case).
-        let pageKey = !closes && buffer.awaitsPage && ContinuousClock.now - buffer.began < holdLimit && controller.map { AwaitedContent.pageHoldKeeps(isChord: KeyRouter.isChord(event.modifierFlags), holdIsEmpty: buffer.isEmpty, command: router.resolve(event, context: router.keyContext(for: $0.focus.currentState(), facts: router.facts(in: shell, controller: $0)))?.command.rawValue) } == true
+        let pageKey = !closes && buffer.awaitsPage && ContinuousClock.now - buffer.began < holdLimit && controller.map { AwaitedContent.pageHoldKeeps(isChord: KeyRouter.isChord(event.modifierFlags), holdIsEmpty: buffer.isEmpty, command: router.resolve(event, context: router.keyContext(for: $0.focus.currentState(), facts: router.facts(in: shell, controller: $0)))?.command.rawValue, pageCreated: router.focusedBrowserTab(in: $0)?.pageCreated ?? false) } == true
         guard kind == .content, controller != nil, pageKey || terminalChord || buffer.holds(event, limit: holdLimit, expiring: true, closes: closes) else {
             flush(in: shell, force: true, end: .focusLeft)
             guard let next = buffers[shell.windowNumber], next.holds(event, limit: holdLimit, expiring: false, closes: closes) else { return false }
@@ -402,6 +402,9 @@ final class CreationInputCoordinator {
         return services.windows.owner(of: window)?.state.id
     }
 
+    /// `key`'s page is ready for keys: a hold that awaited it ends now (reopen-browser-plain-keys cycle B).
+    func pageArrived(_ key: String) { holdEnds.pageArrived(key); router?.services?.windows.controllers.compactMap(\.window).filter { buffers[$0.windowNumber]?.awaitedTab == key }.forEach(scheduleFlush) }
+
     /// A focus settle in `window`: the keys may go on (in a new turn, after the focus queue).
     func focusDidSettle(in window: NSWindow?) {
         giveBack()
@@ -454,7 +457,7 @@ final class CreationInputCoordinator {
         // A forced end (its limit, focus left the content) drops the keys of a new workspace the window does not show.
         let unshown = buffer.waitsForWorkspace(other: shown)
         let pending = buffer.take(shown: shown)
-        let end = holdEnds.end(in: window.windowNumber, forced: force ? forcedEnd : nil)
+        let end = holdEnds.end(in: window.windowNumber, forced: force ? forcedEnd : nil, pageTab: buffer.awaitsPage ? buffer.awaitedTab : nil)
         if end == .limitReached {
             // The person's keys for a new terminal waited the whole bound and go on now, into whatever has the focus.
             Self.logger.notice("creation hold of window \(window.windowNumber, privacy: .public) ended at its limit, not on focus: \(pending.count, privacy: .public) held key(s) go on now; last action \(router.lastInterception?.action.rawValue ?? "-", privacy: .public)")
@@ -480,7 +483,7 @@ extension CreationInputCoordinator {
         let state = controller.focus.currentState()
         guard let focused = state.awaitableContent, let content = controller.content, content.workspace.id == state.topology.workspace else { return nil }
         let shown = content.paneController(key: focused.pane).map { shown in
-            AwaitedContent.Pane(selectedTab: shown.stripModel.selectedID?.rawValue, shownTab: shown.currentTabKey, shownKind: shown.currentContent.flatMap { if case .terminal = $0 { .terminal } else if case .browser = $0 { .browser } else { nil } }, selectedIsLiveTerminal: shown.showsLiveTerminal)
+            AwaitedContent.Pane(selectedTab: shown.stripModel.selectedID?.rawValue, shownTab: shown.currentTabKey, shownKind: shown.currentContent.flatMap { if case .terminal = $0 { .terminal } else if case .browser = $0 { .browser } else { nil } }, selectedIsLiveTerminal: shown.showsLiveTerminal, shownPageReady: shown.currentContent.flatMap { if case .browser(let entry) = $0 { entry.tab.pageReady } else { nil } } ?? true)
         }
         return AwaitedContent.awaited(focused.isPage ? .browser : .terminal, tab: focused.tab, pane: shown, paneInTopology: state.topology.panes.contains { $0.id == focused.pane })
     }

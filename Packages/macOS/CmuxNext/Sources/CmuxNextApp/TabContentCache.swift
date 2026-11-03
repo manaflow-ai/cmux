@@ -402,9 +402,7 @@ final class TabContentCache {
         // By id, not the captured TabModel: a tab moved while its page
         // started (`cmux browser open` then split) has a new model.
         browserTabs.track(page, tabID: key)
-        if let tab = browserTabs.tabModel(key), let notice = browserTabs.takeNotice(for: tab) {
-            entry.chrome.showNotice(notice)
-        }
+        if let tab = browserTabs.tabModel(key), let notice = browserTabs.takeNotice(for: tab) { entry.chrome.showNotice(notice) }
         onBrowserReady?(key)
     }
 
@@ -528,6 +526,7 @@ final class TabContentCache {
         pageRequests.proxiedTabs.adopt(store: (page as? CEFTab)?.machineStore, key: key)
         if page.engineKind == .cef { chromium.built?.mergeEvents(of: page, following: node(for: key)) } // page events by its node
         browsers[key] = entry
+        (page as? CEFTab)?.onReadyForKeys = { [weak self] in self?.onBrowserReady?(key) } // Chromium stopped loading on its document: the page takes keys now
         (page as? CEFTab)?.publishRenderers(as: key, into: tabRenderers) { [weak self] in self?.browsers[key]?.tab === $0 }
         hibernation?.pageDidMount(key, page)
         pageInstalls.bump()
@@ -590,9 +589,7 @@ final class TabContentCache {
         browsers.removeValue(forKey: key)?.close()
         installReplacement(page, for: key)
         if let asleep { browsers[key]?.chrome.holdAddress(whileWaking: asleep) }
-        if !(page is HibernatedBrowserTab) {
-            browserTabs.track(page, tabID: key)
-        }
+        if !(page is HibernatedBrowserTab) { browserTabs.track(page, tabID: key) }
         onBrowserReady?(key)
     }
 

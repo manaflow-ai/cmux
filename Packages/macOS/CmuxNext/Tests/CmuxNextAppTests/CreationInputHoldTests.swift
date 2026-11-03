@@ -127,4 +127,27 @@ import Testing
         #expect(buffer.cancel(tab: "daemon"))
         #expect(buffer.take().isEmpty, "a key typed for the closed terminal waited to run into another view")
     }
+
+    /// Lead on STATUS 7828: a second ready-for-keys for a restored page never sends held keys twice or out of order. A
+    /// page hold's keys are taken once at the ready signal (the coordinator's flush, which then drops the hold); keys
+    /// typed after it are held only by a new hold, and go on at the next ready signal, after the first ones.
+    @Test func twoReadySignalsWithKeysHeldBetweenThemDeliverEachKeyOnceInOrder() {
+        let typed = "abcdef".map { Self.key(String($0), code: 0) }
+        var page: [NSEvent] = []
+        func pageHold() -> CreationInputBuffer {
+            let buffer = CreationInputBuffer(began: .now)
+            (buffer.awaitedTab, buffer.awaitsPage) = ("b", true)
+            return buffer
+        }
+        let first = pageHold()
+        typed[0..<3].forEach { first.capture($0) }
+        page += first.take() // the first ready signal
+        let second = pageHold() // the page is awaited again (attached again)
+        typed[3...].forEach { second.capture($0) }
+        page += first.take() // a second signal for a hold already flushed: nothing again
+        page += second.take()
+        page += second.take()
+        #expect(page.map(\.characters) == typed.map(\.characters), "the page got \(page.compactMap(\.characters).joined()), not abcdef")
+        #expect(Set(page.map(ObjectIdentifier.init)).count == typed.count, "a held key went to the page twice")
+    }
 }

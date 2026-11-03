@@ -42,6 +42,7 @@ extension CEFTab {
                 machine.apply(.finished(navigation))
             }
             if !loading {
+                if documentLoaded { documentArrived() } // CEF reports this after every load end and error of the load
                 clearTitleBeforeCommit()
                 // A load that ends without OnLoadEnd (stopped, aborted) also
                 // leaves the page area to its document.
@@ -60,6 +61,7 @@ extension CEFTab {
             if let title = titleBeforeCommit { machine.apply(.titleChanged(title)) }
             clearTitleBeforeCommit()
             committedURL = URL(string: url)
+            documentLoaded = false // a new document: the one that loaded before is gone
             isDiscardedInPlace = false
             pageInfoDocumentCommitted(URL(string: url))
             resetPageBackdrop()
@@ -71,6 +73,7 @@ extension CEFTab {
             if PageBackground.isRealPage(URL(string: url)) { reachedFirstRealPage() }
             pageEvents?.committed?(URL(string: url))
         case .loadEnd:
+            if PageBackground.isRealPage(committedURL) || blankIsDocument { documentLoaded = true } // its script ran: a focused field and listeners exist
             if let navigation { machine.apply(.finished(navigation)) }
             documentDidSettle()
             // A document with no contentful paint (an empty body) shows as it is now.
@@ -86,8 +89,9 @@ extension CEFTab {
         case .loadError(_, let code, let text, let url, let chromiumInterstitial):
             clearTitleBeforeCommit()
             isDiscardedInPlace = false
-            guard let navigation else { return }
             let error = Self.loadError(code: code, text: text, url: url, chromiumInterstitial: chromiumInterstitial)
+            if !error.isBenignInterruption { documentLoaded = true } // an error page; an aborted load (replaced) is none
+            guard let navigation else { return }
             machine.apply(.failed(navigation, error))
             if !error.isBenignInterruption { firstContentFrame.contentShown() } // the error page or the base shows now
             if !error.isBenignInterruption, let failing = error.failingURL, PageBackground.isRealPage(failing) {

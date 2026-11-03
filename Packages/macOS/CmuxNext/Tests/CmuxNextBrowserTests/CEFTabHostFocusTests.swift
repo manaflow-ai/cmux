@@ -181,6 +181,91 @@ import Testing
     private static let firstBrowser: Int32 = 1
 
     /// A runtime that outlives the test (a pane's scheduled work reads it through an unowned reference).
+    /// reopen-browser-plain-keys cycle B (REOPEN VIDEO 7660, 7710, 7801): keys sent on when the browser existed reached
+    /// the empty document the restore replaced; at the restored document's commit they reached a page whose script had
+    /// not run; at a load end or any load error they reached a document the same load then replaced (an aborted load, a
+    /// load end with the next navigation on its way). The page is ready for keys once Chromium stopped loading on a real
+    /// document, or on an error page. Events in CEF's order.
+    @Test func aTabIsReadyForKeysOnlyOnceLoadingStoppedOnARealDocument() throws {
+        let runtime = try Self.runtime(hostMode: false)
+        let tab = try Self.restoredLivePane(runtime, url: "https://example.com/")
+        var reported = 0
+        tab.onReadyForKeys = { reported += 1 }
+        let browser = Self.firstBrowser
+        #expect(!tab.pageReady, "keys sent on when the browser exists reach the empty document the restore replaces")
+        Self.load(runtime, browser, "about:blank")
+        #expect(!tab.pageReady, "a blank document's load is not the restored page")
+        runtime.handle(.loadingState(browser: browser, loading: true, canGoBack: false, canGoForward: false))
+        runtime.handle(.loadError(browser: browser, code: -3, text: "net::ERR_ABORTED", url: "https://example.com/", chromiumInterstitial: false))
+        #expect(!tab.pageReady, "an aborted load (a navigation the next one replaced) is no page")
+        runtime.handle(.loadStart(browser: browser, url: "https://example.com/", fromPost: false))
+        #expect(!tab.pageReady, "keys sent on at the commit reach a page whose script has not run")
+        runtime.handle(.loadEnd(browser: browser, httpStatus: 200))
+        #expect(!tab.pageReady, "a load end while Chromium still loads: the next navigation replaces this document")
+        runtime.handle(.loadingState(browser: browser, loading: false, canGoBack: false, canGoForward: false))
+        #expect(tab.pageReady, "loading stopped on a real document, and the page is not ready")
+        Self.load(runtime, browser, "https://example.com/next")
+        #expect(reported == 1, "one browser reported ready \(reported) times")
+        tab.attach(browser: browser)
+        #expect(!tab.pageReady && reported == 1, "a browser attached again was ready before its page loaded")
+        runtime.handle(.loadingState(browser: browser, loading: true, canGoBack: false, canGoForward: false))
+        runtime.handle(.loadError(browser: browser, code: -105, text: "net::ERR_NAME_NOT_RESOLVED", url: "https://nowhere.invalid/", chromiumInterstitial: false))
+        runtime.handle(.loadingState(browser: browser, loading: false, canGoBack: false, canGoForward: false))
+        #expect(tab.pageReady && reported == 2, "an error page takes keys: the hold must not wait for its bound")
+    }
+
+    /// Review of #32633: a Chromium New Tab page (a blank document) never counted as ready, so Cmd-L after Escape waited
+    /// the whole bound. A page with nothing to load takes keys once Chromium created it; a page asked to show a blank
+    /// document is ready once that blank document loaded.
+    @Test func aPageWithNothingToLoadIsReadyAtOnceAndABlankTargetCountsItsBlankDocument() throws {
+        let runtime = try Self.runtime(hostMode: false)
+        let (_, fresh) = try Self.livePane(runtime)
+        #expect(fresh.pageReady, "a page with nothing to load was not ready once Chromium created it")
+        let blank = try Self.restoredLivePane(runtime, url: "about:blank", browser: Self.firstBrowser + 1)
+        #expect(!blank.pageReady)
+        Self.load(runtime, Self.firstBrowser + 1, "about:blank")
+        #expect(blank.pageReady, "a tab asked to show a blank page never got ready: its keys waited the whole bound")
+    }
+
+    /// Lead on STATUS 7916 (v6 of #32633, cycle B 0 of 3): a reopened tab that loads its page by address (no saved
+    /// navigation state) counted as ready at its attach, so the held keys went to the empty document before its restore
+    /// navigation began. Journal order: the browser exists, an empty document loads, then the page's navigation starts
+    /// and its document loads. The keys wait for that document.
+    @Test func aReopenedTabLoadingByAddressWaitsForItsPageNotTheEmptyDocumentBeforeIt() throws {
+        let runtime = try Self.runtime(hostMode: false)
+        let browser = Self.firstBrowser + 2
+        let tab = try Self.restoredLivePane(runtime, url: "http://127.0.0.1:8080/?c=1", browser: browser)
+        var reported = 0
+        tab.onReadyForKeys = { reported += 1 }
+        #expect(!tab.pageReady, "a reopened tab was ready at its attach, before its page's navigation began")
+        Self.load(runtime, browser, "about:blank")
+        #expect(!tab.pageReady, "the empty document before the restore navigation counted as the page")
+        runtime.handle(.loadingState(browser: browser, loading: true, canGoBack: false, canGoForward: false))
+        runtime.handle(.loadStart(browser: browser, url: "http://127.0.0.1:8080/?c=1", fromPost: false))
+        #expect(!tab.pageReady, "ready at the commit, before the page's script ran")
+        runtime.handle(.loadEnd(browser: browser, httpStatus: 200))
+        runtime.handle(.loadingState(browser: browser, loading: false, canGoBack: false, canGoForward: false))
+        #expect(tab.pageReady && reported == 1)
+    }
+
+    /// A tab asked to show `url` before Chromium made it (a reopen by address), whose browser Chromium created.
+    private static func restoredLivePane(_ runtime: CEFRuntime, url: String, browser: Int32 = firstBrowser) throws -> CEFTab {
+        let (host, tab) = pane(runtime)
+        if let url = URL(string: url) { tab.load(url) } // as the app asks for it before Chromium made the page
+        host.ensureCreated(tab)
+        let request = try #require(runtime.pendingWindows.keys.first { runtime.pendingWindows[$0] === host })
+        runtime.handle(.afterCreated(browser: browser, request: request, window: 1))
+        return tab
+    }
+
+    /// One whole load of `url` in CEF's order.
+    private static func load(_ runtime: CEFRuntime, _ browser: Int32, _ url: String) {
+        runtime.handle(.loadingState(browser: browser, loading: true, canGoBack: false, canGoForward: false))
+        runtime.handle(.loadStart(browser: browser, url: url, fromPost: false))
+        runtime.handle(.loadEnd(browser: browser, httpStatus: 200))
+        runtime.handle(.loadingState(browser: browser, loading: false, canGoBack: false, canGoForward: false))
+    }
+
     private static func runtime(hostMode: Bool) throws -> CEFRuntime {
         FocusSpy.reset()
         let root = FileManager.default.temporaryDirectory.appending(path: "cef-tab-focus-\(UUID().uuidString)", directoryHint: .isDirectory)
