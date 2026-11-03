@@ -531,6 +531,7 @@ public actor CloudCodexBroker {
         let token = UUID()
         let task = Task { [weak self] in
             var failures = 0
+            // wakeup-allow: each pass sleeps a backoff first and the loop ends at the machine's access expiry.
             while !Task.isCancelled {
                 failures += 1
                 guard let delay = await self?.catchUpDelay(failures, until: expiry) else { break }
