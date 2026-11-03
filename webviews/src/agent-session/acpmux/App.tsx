@@ -186,6 +186,7 @@ import { harnessProfiles } from "./harnessProfiles";
 import { setStartModeSource } from "./startMode";
 import { setPromptSurfaces } from "./surfaces/promptSurface";
 import type { MockScript } from "./mock";
+import { preparedMockTransport } from "./mockTransport";
 import { BridgeSocket } from "./bridgeSocket";
 import { useComposerKeyboard } from "./composerFocus";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
@@ -10904,7 +10905,7 @@ function AcpmuxPane() {
         }
         // Native chats never load the in-page daemon or its fixture transcripts. Keep this
         // await in the mock branch so the native handshake still starts in the same turn.
-        const mockModule = mock ? await import("./mock") : undefined;
+        const mockModule = mock ? (preparedMockTransport() ?? (await import("./mock"))) : undefined;
         if (cancelled) return;
         // A new chat in mock mode starts without a session too, as against a real daemon.
         const config: AcpmuxHostConfig = mockModule
