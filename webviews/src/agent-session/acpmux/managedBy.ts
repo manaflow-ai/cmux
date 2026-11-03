@@ -39,7 +39,9 @@ export function managedBy(sessionId: string | undefined, sessions: readonly Entr
   const name = parent?.displayTitle?.trim() || parent?.name?.trim();
   if (!name) return undefined;
   // The names its messages sign with (incomingMessage.ts reads the sender by its chat's name).
-  const signs = [parent?.name, parent?.shortName].map((value) => value?.trim()).filter((value): value is string => !!value);
+  const signs = [parent?.name, parent?.shortName]
+    .map((value) => value?.trim())
+    .filter((value): value is string => !!value);
   return { kind: "agent", name, sessionId: parentId, ...(signs.length ? { signs } : {}) };
 }
 

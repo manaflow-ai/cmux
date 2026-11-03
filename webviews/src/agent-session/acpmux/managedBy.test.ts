@@ -71,7 +71,10 @@ test("a corrupt store reads as nothing taken over", () => {
 const now = Date.UTC(2026, 10, 3, 0, 5);
 const ago = (minutes: number) => now - minutes * 60_000;
 const coord = { kind: "agent", name: "claude-sr2-coord", sessionId: "coord", signs: ["claude-sr2-coord"] } as const;
-const fromCoord = { kind: "message", message: { name: "claude-sr2-coord", sessionId: "coord", text: "go", raw: "go" } } as const;
+const fromCoord = {
+  kind: "message",
+  message: { name: "claude-sr2-coord", sessionId: "coord", text: "go", raw: "go" },
+} as const;
 const person = (at: number): PromptRow => ({ kind: "user", at });
 const coordSays = (at: number): PromptRow => ({ kind: "user", at, incoming: fromCoord });
 const reply = (at: number): PromptRow => ({ kind: "assistant", at });
@@ -100,7 +103,11 @@ test("a manager's follow-up in the last ten minutes shows the line; past the win
 
 test("the person's own newest prompt, or another agent's, hides the line", () => {
   expect(shown(coord, [coordSays(ago(30)), coordSays(ago(3)), person(ago(2))])).toBe(false);
-  const other: PromptRow = { kind: "user", at: ago(1), incoming: { kind: "message", message: { name: "reviewer", sessionId: "rev", text: "", raw: "" } } };
+  const other: PromptRow = {
+    kind: "user",
+    at: ago(1),
+    incoming: { kind: "message", message: { name: "reviewer", sessionId: "rev", text: "", raw: "" } },
+  };
   expect(shown(coord, [coordSays(ago(30)), other])).toBe(false);
 });
 
@@ -122,12 +129,19 @@ test("a Chief's message is never taken for an agent manager's, even marked paren
   const chiefSays: PromptRow = {
     kind: "user",
     at: ago(1),
-    incoming: { kind: "message", message: { name: "Chief", chief: "agent_mux", relation: "parent", text: "", raw: "" } },
+    incoming: {
+      kind: "message",
+      message: { name: "Chief", chief: "agent_mux", relation: "parent", text: "", raw: "" },
+    },
   };
   expect(shown(coord, [coordSays(ago(30)), chiefSays])).toBe(false);
 });
 
 test("a sender named only by its chat's name still counts as the manager", () => {
-  const named: PromptRow = { kind: "user", at: ago(1), incoming: { kind: "message", message: { name: "claude-sr2-coord", text: "", raw: "" } } };
+  const named: PromptRow = {
+    kind: "user",
+    at: ago(1),
+    incoming: { kind: "message", message: { name: "claude-sr2-coord", text: "", raw: "" } },
+  };
   expect(shown(coord, [coordSays(ago(30)), named])).toBe(true);
 });

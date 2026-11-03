@@ -42,7 +42,10 @@ export function ManagedBannerDesigns({ design, manager, rows, now = Date.now() }
     );
   return (
     <div className="acpmux-composer" data-design="placeholder">
-      <div className="acpmux-composer-box" style={{ padding: "12px 16px", color: "var(--acpmux-composer-placeholder)" }}>
+      <div
+        className="acpmux-composer-box"
+        style={{ padding: "12px 16px", color: "var(--acpmux-composer-placeholder)" }}
+      >
         {name} is sending messages here. Type to reply as you
       </div>
     </div>

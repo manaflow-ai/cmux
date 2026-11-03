@@ -58,7 +58,9 @@ test("the line says the agent is sending messages here, and Hide is a button wit
       />,
     ),
   );
-  expect(container.textContent).toContain("claude-sr2-coord is sending messages here. What you type still sends as you.");
+  expect(container.textContent).toContain(
+    "claude-sr2-coord is sending messages here. What you type still sends as you.",
+  );
   expect(container.textContent).not.toContain("managing this chat");
   expect(container.textContent).not.toContain("Take over");
   const button = container.querySelector<HTMLButtonElement>("button.acpmux-managed-take-over");
