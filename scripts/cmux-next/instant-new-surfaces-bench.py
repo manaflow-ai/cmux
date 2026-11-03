@@ -12,8 +12,8 @@ tag's CLI against its daemon). With `--budget-frames N` (which times the warm ar
 display frame of visibility (1 = the first frame drawn after the key) is above N or a key's main-thread time is above `--budget-key-ms`.
 
 `--commands` picks the commands (default all; `link_right`, a web link opened to the right as a new split,
-`link_home`, the same link from Home's dock alone (a new column beside it), and `split_browser`, Split Browser Right,
-run only when named, warm arm); `--workspaces 10,100` runs every phase again at
+`link_home`, the same link from Home's dock alone (a new column beside it), `split_browser`, Split Browser Right,
+and `dock_respawn`, the lone tab docked left with a fresh terminal left in its pane, run only when named, warm arm); `--workspaces 10,100` runs every phase again at
 each workspace count (the app holds that many terminal workspaces; the bench's is the shown one).
 
 Three arms of each command (`--arms`, default all; bench_arms.py), each reported with p50/p95/p99/max of
@@ -160,7 +160,7 @@ def stop_load():
 
 def undo(command, window, before_panes):
     """Back to one terminal pane in the bench workspace."""
-    if command == "new_workspace":
+    if command in ("new_workspace", "dock_respawn"):  # a dock leaves two panes: the workspace goes, the next run gets a fresh one
         rpc("action.run", {"action": "closeWorkspace"})
         wait(lambda: (focused() or {}).get("kind") == "terminal", 10)
         return

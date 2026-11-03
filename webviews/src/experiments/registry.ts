@@ -25,12 +25,14 @@ import { finishedTaskLook } from "../agent-session/acpmux/conversation/taskLine.
 import { turnErrorCard } from "../agent-session/acpmux/conversation/turnErrorCard.experiment";
 import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.experiment";
 import { codeRouterOffer } from "../agent-session/acpmux/conversation/codeRouterOffer.experiment";
+import { stoppedTurnLook } from "../agent-session/acpmux/conversation/stoppedTurn.experiment";
 import { chromiumGlassUnderlay } from "../ui/glass/chromiumUnderlay.experiment";
 import { questionPreviewLayout } from "../agent-session/acpmux/question/previewLayout.experiment";
 import { trayPanelLook, trayRowLook, trayStopLook } from "../agent-session/acpmux/subagents/trayPanel.experiment";
 import { trayMotionLook } from "../agent-session/acpmux/subagents/trayMotion.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
 import { trayFoldHeadLook } from "../agent-session/acpmux/subagents/trayFoldHead.experiment";
+import { trayOpenLook } from "../agent-session/acpmux/subagents/trayOpen.experiment";
 import { traySurfaceLook } from "../agent-session/acpmux/subagents/traySurface.experiment";
 import { chatSwitchMotion } from "../agent-session/acpmux/chatSwitch.experiment";
 import { liveBackground } from "../ui/liveBackground/liveBackground.experiment";
@@ -61,6 +63,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   turnErrorCard,
   pausedMachineResume,
   codeRouterOffer,
+  stoppedTurnLook,
   chromiumGlassUnderlay,
   questionPreviewLayout,
   toolErrorLook,
@@ -74,6 +77,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   trayMotionLook,
   trayHeadLook,
   trayFoldHeadLook,
+  trayOpenLook,
   traySurfaceLook,
   chatSwitchMotion,
   liveBackground,

@@ -3,8 +3,10 @@
 // errors map to what the page shows.
 import { expect, test } from "bun:test";
 import {
+  acceptOverFetch,
   attemptId,
   joinedAs,
+  joinedRole,
   joinName,
   redeemOverFetch,
   rememberJoined,
@@ -122,4 +124,49 @@ test("redeem posts once, same origin with credentials, and maps the room's error
   expect(await answer(429, { error: "rate_limited" })(SHARE, request)).toEqual({ ok: false, error: "failed" });
   const offline = redeemOverFetch(() => Promise.reject(new TypeError("offline")));
   expect(await offline(SHARE, request)).toEqual({ ok: false, error: "failed" });
+});
+
+test("an invite link /i/<id> names the share and is an invite; it carries no secret", () => {
+  const kept = storage();
+  const open = page(`https://room.test/i/${SHARE}#${SECRET}`);
+  expect(takeGuestLink(open.location, open.history, kept)).toEqual({ shareId: SHARE, invite: true });
+  // Nothing of a fragment is kept: an invite's only credential is the account's sign-in.
+  expect(kept.getItem(`cmux.guest.${SHARE}.secret`)).toBeNull();
+  expect(open.replaced).toEqual([`/i/${SHARE}`]);
+  const plain = page(`https://room.test/i/${SHARE}`);
+  expect(takeGuestLink(plain.location, plain.history, kept)).toEqual({ shareId: SHARE, invite: true });
+  expect(plain.replaced).toEqual([]);
+});
+
+test("a join remembers the invite's role for a reload", () => {
+  const kept = storage();
+  expect(joinedRole(SHARE, kept)).toBeUndefined();
+  rememberJoined(SHARE, "g1", kept, undefined, "view");
+  expect(joinedAs(SHARE, kept)).toBe("g1");
+  expect(joinedRole(SHARE, kept)).toBe("view");
+  rememberJoined(SHARE, "g1", kept, "Ana");
+  expect(joinedRole(SHARE, kept)).toBeUndefined();
+});
+
+test("accept posts only the attempt, same origin with credentials, and maps the room's role and errors", async () => {
+  const calls: [string, RequestInit][] = [];
+  const answer = (status: number, body: unknown) =>
+    acceptOverFetch(async (url, init) => {
+      calls.push([String(url), init!]);
+      return new Response(JSON.stringify(body), { status });
+    });
+  const request = { attempt_id: "a".repeat(32) };
+  expect(await answer(200, { guest_id: "g1", role: "view" })(SHARE, request)).toEqual({
+    ok: true,
+    guestId: "g1",
+    role: "view",
+  });
+  expect(calls[0]![0]).toBe(`/v1/chat-shares/${SHARE}/accept`);
+  expect(calls[0]![1].method).toBe("POST");
+  expect(calls[0]![1].credentials).toBe("include");
+  // No account or name: the room takes both from the sign-in.
+  expect(JSON.parse(String(calls[0]![1].body))).toEqual(request);
+  expect(await answer(200, { guest_id: "g1", role: "admin" })(SHARE, request)).toEqual({ ok: true, guestId: "g1" });
+  for (const code of ["share.not_invited", "share.unauthorized", "share.unverified", "share.kicked"] as const)
+    expect(await answer(403, { code })(SHARE, request)).toEqual({ ok: false, error: code });
 });
