@@ -1289,6 +1289,21 @@ there is no approval card, and an `allow` or `deny` message is only a message.
 - The native engine refuses its bash and editor tools in such a turn and says
   so to the model.
 
+Hidden local owner subagents can show an Allow once / Deny card in Home by
+default. This is another view of an existing harness permission, not a new
+Chief approval gate (#22747): it changes no turn or spawn policy. Only the
+local native app can answer, using its person proof and a fresh click bound
+to the exact pending request. Phone answers, cloud peers, turn sessions and
+other-person `ask` children cannot use this path.
+
+Home delivery never proves that Home is open. Hidden requests retain the
+120-second no-answer deadline from #22941 even after their card is delivered;
+replayed events do not reset it. The Chief can still deny or steer the
+subagent, and opening its local workspace retains the existing answer path.
+A timeout or completed/replaced request closes its card, including a late
+delivery acknowledgement. No Preview Features setting is required, and there
+is no rollout polling timer.
+
 Policy analysis (the relay rules of this repository's CLAUDE.md):
 
 - Local command or content execution. No relay command, allowlist entry or
