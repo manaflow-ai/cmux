@@ -66,7 +66,7 @@ final class CloseUndoToasts {
     let hiddenPages = HiddenPageCloses<PaneController>(
         hidden: { pane in pane.apply(pane.snapshot()); return pane.stripModel.tabs.isEmpty ? pane.showPaneClose() : nil },
         lifted: { pane, close in pane.workspace?.layoutModel.cancelPaneClose(close) },
-        restored: { held, close, id in held.finishPaneClose(close, failed: true); let pane = held.services.paneController(for: held.pane) ?? held; pane.apply(pane.snapshot()); pane.select(StripTabID(id)) },
+        restored: { held, _, id in if let workspace = held.workspace, workspace.layoutModel.withdrawPaneClose(held.layoutPaneID) { workspace.applyCurrent() }; let pane = held.services.paneController(for: held.pane) ?? held; pane.apply(pane.snapshot()); pane.select(StripTabID(id)) }, // whichever close hid the pane
         timedOut: { pane, id in pane.services.closedTabs?.undoToasts.pageClosing.end(id); pane.close([StripTabID(id)]) }) // the daemon's close: never asks
     /// Closes of several tabs waiting for their pages, so each stays one Reopen Closed step.
     let pageDecidedCloses = PageDecidedCloses<PaneController, PreparedTabClose>(
