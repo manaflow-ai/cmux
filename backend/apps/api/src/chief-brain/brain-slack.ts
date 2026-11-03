@@ -29,11 +29,11 @@ export async function slackInbound(b: ChiefBrainDO, w: SlackWake) {
   const res = await conversation.slackMessage(w.conversation, { owner: i.ownerUserId, agent: w.agent, root, inbound: i })
   const frame = res.frames.find((f) => f.t === "result" || f.t === "reject")
   if (!frame || frame.t === "reject") return { ok: false as const, code: frame?.t === "reject" ? frame.code : "owner.unreachable" }
-  const value = (frame as { value: { message_id: string; seq: number; change: { message: homeConversation.Message & { slack: { isOwner: boolean } } } } }).value
+  const value = (frame as { value: { message_id: string; seq: number; change: { message: homeConversation.Message & { slack: { isOwner: boolean; displayName: string } } } } }).value
   const committed = value.change.message
   const committedRoot = committed.thread_root ?? committed.id
   const authorized = committed.slack.isOwner
-  const text = `[${committed.author}${authorized ? " (your owner)" : ""}] ${committed.parts.filter((p) => p.type === "text").map((p) => p.text).join("\n")}`
+  const text = `[${committed.author} · ${committed.slack.displayName}${authorized ? " (your owner)" : ""}] ${committed.parts.filter((p) => p.type === "text").map((p) => p.text).join("\n")}`
   // Preserve provenance even if an ordinary wake already loaded this message as context.
   const fresh = b.sql.exec(`INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, text, effect_authorized, woke) VALUES (?, ?, ?, 'slack', ?, ?, ?, 1) ON CONFLICT (message) DO NOTHING RETURNING n`, value.message_id, w.conversation, value.seq, committedRoot, text, authorized ? 1 : 0).toArray()
   b.sql.exec(`UPDATE cb_inbox SET woke = 1, kind = 'slack', thread_root = ?, effect_authorized = ? WHERE message = ? AND state = 'queued'`, committedRoot, authorized ? 1 : 0, value.message_id)

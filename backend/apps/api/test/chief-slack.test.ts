@@ -64,7 +64,7 @@ describe("Chief Slack bridge", () => {
         expect(concurrent.filter((result) => result.ok && result.queued)).toHaveLength(1)
         expect(await b.slackInbound({ agent: chief.id, conversation: chief.main_conversation, inbound })).toMatchObject({ ok: true, queued: false })
         expect(await b.slackInbound({ agent: chief.id, conversation: chief.main_conversation, inbound: { ...inbound, slackUserName: "New display name", text: "Changed redelivery", isOwner: true } })).toMatchObject({ ok: true, queued: false })
-        expect(b.sql.exec("SELECT text, effect_authorized FROM cb_inbox WHERE seq = 1").one()).toMatchObject({ effect_authorized: 0, text: expect.stringContaining(inbound.text) })
+        expect(b.sql.exec("SELECT text, effect_authorized FROM cb_inbox WHERE seq = 1").one()).toMatchObject({ effect_authorized: 0, text: `[slack:T123:U123 · Sam] ${inbound.text}` })
         expect(await b.slackInbound({ agent: chief.id, conversation: chief.main_conversation, inbound: { ...inbound, ts: "123.002", isOwner: true, slackUserId: "UOWNER", text: "I approve" } })).toMatchObject({ ok: true })
         expect(b.sql.exec("SELECT * FROM cb_slack_threads").toArray()).toHaveLength(1)
         // A normal cmux wake wins the race between conversation commit and bridge inbox injection.

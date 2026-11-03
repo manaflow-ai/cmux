@@ -21,7 +21,7 @@ export interface SlackMessageInput {
   readonly inbound: SlackInbound
 }
 type Head = conversation.ConversationState
-type SlackMessage = conversation.Message & { readonly slack?: { readonly isOwner: boolean } }
+type SlackMessage = conversation.Message & { readonly slack?: { readonly isOwner: boolean; readonly displayName: string } }
 const fail = (code: string): ReduceResult<Head> => ({ ok: false, code, message: code })
 export const slackDeliveryKey = (input: SlackMessageInput): string => `slack-delivery:${createHash("sha256").update(JSON.stringify(input)).digest("hex")}`
 export const slackMessageKey = (w: SlackInbound): string => `slack:${createHash("sha256").update(JSON.stringify([w.slackTeamId, w.channelId, w.ts])).digest("hex")}`
@@ -66,7 +66,7 @@ const receive = (state: Head, raw: unknown, ctx: ReduceContext): ReduceResult<He
   const applied = conversation.apply(head, request)
   if (!applied.ok) return fail(applied.code)
   const metadata: SlackThread = { source: "slack", slackTeamId: w.slackTeamId, channelId: w.channelId, threadTs: w.threadTs, channelName: w.channelName || w.channelId, permalink: w.permalink, chief: input.agent!, ownerUserId: input.owner! }
-  const message: SlackMessage = { ...applied.commit.message!, slack: { isOwner: w.isOwner }, ...(!root ? { thread: { title: `Slack · #${metadata.channelName.replace(/^#/, "")}`, ...metadata } } : {}) }
+  const message: SlackMessage = { ...applied.commit.message!, slack: { isOwner: w.isOwner, displayName: participant.display_name! }, ...(!root ? { thread: { title: `Slack · #${metadata.channelName.replace(/^#/, "")}`, ...metadata } } : {}) }
   const commit: conversation.Commit = { ...applied.commit, message, change: { kind: "message", message } }
   const outbox = conversation.commitOutbox(state, request, commit).filter((item) => item.kind !== "mux.wake" && realRecipient(item))
   return {
