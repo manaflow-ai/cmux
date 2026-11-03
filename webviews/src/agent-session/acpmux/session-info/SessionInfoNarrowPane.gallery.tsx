@@ -3,7 +3,8 @@
 // 528px one cannot hold a readable chat beside the panel, so a saved open state leaves the chat alone;
 // the toggle opens it over the chat, its foot above the composer (SessionInfo.tsx sessionInfoStage
 // `overlay`; Leo, 2026-11-03: "but you should still be able to have it be an overlay"). A 740px pane
-// opens it unasked, pushing the chat left down to its readable floor (PUSH_MIN_CHAT). The wider stages
+// opens it unasked, over the chat too: a push would narrow the transcript's column (Leo, 2026-11-03: "if
+// it would need to be then session info should be an overlay"). The wider stages
 // are agent-pane.session-info-stages (SessionInfoStages.gallery.tsx).
 import { componentEntry } from "../../../gallery/format";
 import { setHeaderState } from "../header/headerState";
@@ -32,7 +33,7 @@ export default componentEntry<{ surface: "transcript" }>({
       props: { surface: "transcript" },
     },
     opened: {
-      note: "The toggle opened it: at 370 and 528px it lies over the chat and stops above the composer, which stays whole; at 740px it pushes the chat left to 440px and narrows to fit.",
+      note: "At 370 and 528px the toggle opened it, at 740px it opened unasked: it lies over the chat and stops above the composer, which stays whole, since a push would narrow the transcript's column.",
       props: { surface: "transcript" },
       play: async (ctx) => {
         // A pane too narrow for a readable chat beside it waits for the toggle; a wider one has it open.

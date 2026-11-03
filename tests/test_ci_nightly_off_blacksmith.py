@@ -55,6 +55,9 @@ BLACKSMITH_LINUX_ONLY_DEBT = frozenset({
     "signer-dmg", "legacy-identity-target", "sentry-dsyms-nightly", "legacy-signer-app", "legacy-signer-dmg", "keep-published-dsyms",
     "publish-nightly-identity-legacy", "republish-nightly-deltas",
     "published-in", "sign-release-notes", "publish-release-notes", "publish-nightly-reel",
+    # GitHub-hosted Ubuntu first, Linux 4 vCPU on a re-run: the all-nightly reservation queued it
+    # 7-12 min behind the builds (runs 41561996502, 41563477649).
+    "pick-nightly-sign-runner",
 })
 
 # Secret-free late bookkeeping and advisory verdicts have no fresh fleet lease.

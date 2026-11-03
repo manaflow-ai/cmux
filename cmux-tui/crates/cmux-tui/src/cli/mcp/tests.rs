@@ -1356,7 +1356,10 @@ fn agents_action_tools_send_the_cli_requests_and_move_focus_only_by_purpose() {
     assert_eq!(result["structuredContent"]["action"], "dialog.answer", "{result}");
     let reply = &sent_of(&server, "app")[0];
     assert_eq!(reply["method"], "feed.question.reply");
-    assert_eq!(reply["params"], json!({"request_id": "request_a", "selections": ["one", "two"]}));
+    // The tool names who answers (origin, and the caller when it is an agent session).
+    assert_eq!(reply["params"]["request_id"], "request_a");
+    assert_eq!(reply["params"]["selections"], json!(["one", "two"]));
+    assert_eq!(reply["params"]["origin"], "mcp");
 }
 
 #[test]
@@ -1427,7 +1430,9 @@ fn agents_dialog_answer_only_denies_permissions_over_mcp() {
     assert_eq!(result["isError"], false, "{result}");
     let reply = &sent_of(&server, "app")[0];
     assert_eq!(reply["method"], "feed.permission.reply");
-    assert_eq!(reply["params"], json!({"request_id": "request_a", "mode": "deny"}));
+    assert_eq!(reply["params"]["request_id"], "request_a");
+    assert_eq!(reply["params"]["mode"], "deny");
+    assert_eq!(reply["params"]["origin"], "mcp");
 
     let listed =
         server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();

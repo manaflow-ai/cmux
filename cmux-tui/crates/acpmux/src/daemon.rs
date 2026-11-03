@@ -397,6 +397,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     };
     // Serve before reading session metadata or logs. Exact-id chat reads load on demand.
     let hub = Hub::new_loading_with_wireguard(config, store, mailbox, wireguard.clone());
+    // A copied machine's first start settles what the logs left open as stopped
+    // (`hub/clone_boot.rs`); read before any log is.
+    let cloned = hub.take_clone_marker(&home()).is_some();
     // The forum log (`forum.rs`): on disk unless the store is in memory; a
     // log that cannot open leaves the posts in memory.
     if !memory_store && let Err(e) = hub.open_forum(&home().join("forum")) {
@@ -405,8 +408,22 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // Messages `send --no-wait` handed over (`hub/outbox.rs`): saved beside the sessions, and
     // what a restart left undelivered goes on.
     if !memory_store {
+        // A copy's first start delivers none of them: the machine it was copied from does. Its
+        // outbox is set aside (kept for a look, never read again) and this one starts empty.
+        if cloned {
+            let path = home().join("outbox.json");
+            if let Err(e) = std::fs::rename(&path, home().join("outbox.json.clone-boot"))
+                && e.kind() != std::io::ErrorKind::NotFound
+            {
+                tracing::warn!("copied machine's outbox not set aside: {e}");
+            }
+        }
         let pending = hub.outbox.open(&home().join("outbox.json"));
-        crate::server::outbox::resume(&hub, pending);
+        // Whatever the rename did: a rename that failed leaves the copied outbox in place, and
+        // none of it is this machine's to deliver.
+        if !cloned {
+            crate::server::outbox::resume(&hub, pending);
+        }
         hub.watches.open(&home().join("watches.json"));
     }
     crate::hub::watches::Watches::start(&hub);
@@ -650,6 +667,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 let hub = hub.clone();
                 tokio::spawn(async move {
                     hub.load_logs_async().await;
+                    hub.finish_clone_boot(&home());
                     // Once every log is read: a pass reads only chats whose log is loaded.
                     let _worker = hub.retention_worker();
                 });
