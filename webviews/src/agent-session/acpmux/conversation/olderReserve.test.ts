@@ -9,9 +9,14 @@ const turn = (n: number): AcpmuxRow[] =>
     { id: `u${n}`, kind: "user", text: `prompt ${n}` },
     { id: `a${n}`, kind: "assistant", text: `reply ${n}` },
   ] as unknown as AcpmuxRow[];
-const turns = (from: number, to: number) => Array.from({ length: to - from }, (_, i) => turn(from + i)).flat();
+const turns = (from: number, to: number) =>
+  Array.from({ length: to - from }, (_, i) => turn(from + i)).flat();
 
-const pass = (state: OlderReserve | undefined, rows: AcpmuxRow[], more: { canLoadOlder?: boolean; earlier?: number; promptCount?: number }) =>
+const pass = (
+  state: OlderReserve | undefined,
+  rows: AcpmuxRow[],
+  more: { canLoadOlder?: boolean; earlier?: number; promptCount?: number },
+) =>
   olderReserve(state, {
     sessionId: "s",
     rows,
@@ -98,14 +103,15 @@ describe("olderReserve", () => {
     const first = pass(undefined, turns(40, 50), { promptCount: 50 });
     const page = pass(first.state, turns(30, 50), { earlier: 30 });
     expect(page.reserve).toBe(6000);
-    const resized = (state: OlderReserve | undefined, top: number) => olderReserve(state, {
-      sessionId: "s",
-      rows: turns(30, 50),
-      rowTop: (index) => index < 20 ? index * top / 20 : top + (index - 20) * 100,
-      rowsHeight: top + 2000,
-      canLoadOlder: true,
-      promptCount: 50,
-    });
+    const resized = (state: OlderReserve | undefined, top: number) =>
+      olderReserve(state, {
+        sessionId: "s",
+        rows: turns(30, 50),
+        rowTop: (index) => (index < 20 ? (index * top) / 20 : top + (index - 20) * 100),
+        rowsHeight: top + 2000,
+        canLoadOlder: true,
+        promptCount: 50,
+      });
     const collapsed = resized(page.state, 1000);
     expect(collapsed.reserve).toBe(6000);
     expect(resized(collapsed.state, 2000).reserve).toBe(5000);
