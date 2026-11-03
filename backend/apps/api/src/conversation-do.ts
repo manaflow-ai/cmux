@@ -13,7 +13,7 @@ import { dmLinkOf, type DmLink } from "./conversation-dm-link.ts"
 import { firstName } from "./invite-first-name.ts"
 import { MAX_THREAD_PAGE, threadReplies, threadsOf, threadSummary } from "./conversation-threads.ts"
 import { LIVE_CAPABILITY, liveBuffer, liveSocketFrame } from "./conversation-live.ts"
-import { withSlack, slackMessageKey, slackOutbound, type SlackMessageInput } from "./conversation-slack.ts"
+import { withSlack, slackDeliveryKey, slackOutbound, type SlackMessageInput } from "./conversation-slack.ts"
 
 type Head = conversation.ConversationState
 /** A conversation socket remembers whether its sender last broadcast `typing on` (for close). */
@@ -102,8 +102,8 @@ export class ConversationDO extends OwnerDO<Head> {
   /** The platform bridge's verified Slack event, never a public op or socket principal. */
   async slackMessage(entity: string, input: SlackMessageInput): Promise<SubmitResult> {
     this.bind(entity)
-    const w = input.inbound
-    return this.submitSystem("slack.message", input, slackMessageKey(w), "system:slack")
+    // The engine receipts an exact delivery; the reducer dedupes the Slack message tuple.
+    return this.submitSystem("slack.message", input, slackDeliveryKey(input), "system:slack")
   }
 
   private member(state: Head, principal: Principal) {

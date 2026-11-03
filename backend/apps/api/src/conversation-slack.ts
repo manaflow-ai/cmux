@@ -23,6 +23,7 @@ export interface SlackMessageInput {
 type Head = conversation.ConversationState
 type SlackMessage = conversation.Message & { readonly slack?: { readonly isOwner: boolean } }
 const fail = (code: string): ReduceResult<Head> => ({ ok: false, code, message: code })
+export const slackDeliveryKey = (input: SlackMessageInput): string => `slack-delivery:${createHash("sha256").update(JSON.stringify(input)).digest("hex")}`
 export const slackMessageKey = (w: SlackInbound): string => `slack:${createHash("sha256").update(JSON.stringify([w.slackTeamId, w.channelId, w.ts])).digest("hex")}`
 
 export const slackThread = (message: conversation.Message | undefined): SlackThread | undefined => {
@@ -46,7 +47,7 @@ const receive = (state: Head, raw: unknown, ctx: ReduceContext): ReduceResult<He
   const priorId = ctx.rows?.get<{ message_id: string }>(conversation.TABLE_MSGKEY, messageKey)?.row.message_id
   if (priorId) {
     const prior = ctx.rows?.get<conversation.Message>(conversation.TABLE_MSG, priorId)?.row
-    return { ok: true, state, value: { message_id: priorId, seq: prior?.seq }, changed: false }
+    return { ok: true, state, value: { message_id: priorId, seq: prior?.seq, change: { kind: "message", message: prior } }, changed: false }
   }
   const root = ctx.rows?.get<conversation.Message>(conversation.TABLE_MSG, input.root)?.row
   const link = slackThread(root)
