@@ -25,6 +25,8 @@ public import AppKit
 public final class ChildPageFocus {
     /// The page this window gave focus to (blurred when focus leaves it), held weakly.
     public weak var page: AnyObject?
+    /// A grant is running (``focus(_:)``).
+    private var granting = false
     private let keys: any KeyWindowSwitching
     /// Gives (true) or takes (false) a page's focus; giving a Chromium page focus makes its window key.
     private let setFocus: (AnyObject, Bool) -> Void
@@ -50,6 +52,8 @@ public final class ChildPageFocus {
         guard page !== next else { return }
         blurPage()
         page = next
+        granting = true
+        defer { granting = false }
         setFocus(next, true)
     }
 
@@ -81,13 +85,16 @@ public final class ChildPageFocus {
 
     /// `window` takes the keys back from another key window that `shouldReclaim` accepts.
     ///
-    /// No change when `window` is key already or no window is key (an inactive app).
+    /// No change when `window` is key already, no window is key (an inactive app), or inside the grant
+    /// of a page that still has focus: its page window took the keys from that grant (AppKit's
+    /// didBecomeKey), and taking them back would leave the page focused with no keys. Once the page
+    /// blurred (focus moved on inside the grant), the keys come back.
     ///
     /// - Parameters:
     ///   - window: The cmux window.
     ///   - shouldReclaim: Whether `window` takes the keys from this key window.
     public func reclaim(into window: NSWindow, when shouldReclaim: (NSWindow) -> Bool) {
-        guard !keys.isKey(window), let key = keys.keyWindow, key !== window, shouldReclaim(key) else { return }
+        guard !(granting && page != nil), !keys.isKey(window), let key = keys.keyWindow, key !== window, shouldReclaim(key) else { return }
         keys.makeKey(window)
     }
 }
