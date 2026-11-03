@@ -1056,18 +1056,32 @@ impl Images {
 pub(super) fn script_answer(result: Result<Value, (i64, String)>, images: &mut Images) -> Value {
     let result =
         result.map(|result| {
-            if result.get("structuredContent").is_some() {
-                return result;
-            }
+            let structured = result.get("structuredContent").is_some();
             let mut result = result;
             let failed = result["isError"] == true;
             // Move the provider's full result. The script receives only small placeholders
             // and references; the already-parsed base64 is never copied for overflow images.
             let content = result.get_mut("content").map(Value::take).unwrap_or(Value::Null);
-            match from_content(content, images, failed) {
-                Ok(value) => {
+            let converted = if structured {
+                // MCP permits images beside a structured value. Keep that script-facing value
+                // intact while moving every image into the outer tool result.
+                let blocks = match content {
+                    Value::Array(blocks) => blocks,
+                    _ => Vec::new(),
+                };
+                blocks
+                    .into_iter()
+                    .filter(|block| block["type"] == "image")
+                    .try_for_each(|block| images.push(block).map(|_| ()))
+                    .map(|()| None)
+            } else {
+                from_content(content, images, failed).map(Some)
+            };
+            match converted {
+                Ok(Some(value)) => {
                     result.set("structuredContent", value);
                 }
+                Ok(None) => {}
                 Err(message) => {
                     result.set("isError", json!(true));
                     result.set("structuredContent", json!({
