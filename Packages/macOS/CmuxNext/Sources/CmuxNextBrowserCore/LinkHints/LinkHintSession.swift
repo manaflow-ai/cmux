@@ -155,10 +155,6 @@ public nonisolated struct LinkHintPendingKeys<Key> {
         return entries.map(\.key)
     }
 
-    /// The page answered. `editing` (a text field has the keyboard): every held key is the page's, in order. Otherwise
-    /// they run through `session` as typed once its labels show: hint letters and Backspace narrow and pick; a pick,
-    /// Escape or a key that is no hint key ends it, and that key (not Escape) and every key after it are the page's.
-    /// With nothing to label, the hint letters before such a key are the session's.
     /// The page said no text field has the keyboard, before its labels come: the held keys run through `session` as typed
     /// now (review 6597001821), so later keys are handled live and nothing waits for the targets. Escape ends it and is its
     /// own; a key that is no hint key ends it, and it and every key after it are the page's.
@@ -183,6 +179,10 @@ public nonisolated struct LinkHintPendingKeys<Key> {
         return (page, ended)
     }
 
+    /// The page answered. `editing` (a text field has the keyboard): every held key is the page's, in order. Otherwise
+    /// they run through `session` as typed once its labels show: hint letters and Backspace narrow and pick; a pick,
+    /// Escape or a key that is no hint key ends it, and that key (not Escape) and every key after it are the page's.
+    /// With nothing to label, the hint letters before such a key are the session's.
     public mutating func resolve(_ session: inout LinkHintSession, targets: [LinkHintTarget], editing: Bool) -> Resolution {
         guard !editing else { return Resolution(page: releaseAll(), outcome: .passThrough, noLinks: false) }
         defer { (entries, downs) = ([], []) }

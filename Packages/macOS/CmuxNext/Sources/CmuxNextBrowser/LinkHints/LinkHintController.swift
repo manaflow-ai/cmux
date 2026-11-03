@@ -62,8 +62,9 @@ public final class LinkHintController {
             let early = current.pending.resolveNoField(&current.keys) // the held keys are hint keys now, handled live after
             current.noField = true
             session = current
+            // The session ends before its keys go to the page: a delivered key may start link hints again (review 6599335161).
+            if early.ended { cancel(); return deliver(early.page) } // noField: cancel() sends no held key
             deliver(early.page)
-            if early.ended { return cancel() }
             let targets = await targetsAnswer(tab)
             guard !Task.isCancelled else { return }
             collected((false, targets ?? []), from: tab)
