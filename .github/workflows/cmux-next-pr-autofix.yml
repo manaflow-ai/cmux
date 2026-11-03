@@ -56,7 +56,9 @@ jobs:
   action-areas:
     name: action export areas
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }}
-    timeout-minutes: 5
+    # The checkout below fetches every branch's commit graph and trees (no blobs): 4-5 minutes on the 2 vCPU pool on
+    # 2026-11-03, so a 5-minute limit cancelled 27 of the last 40 runs inside actions/checkout.
+    timeout-minutes: 15
     permissions:
       contents: read
       pull-requests: read

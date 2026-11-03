@@ -9,6 +9,22 @@ nonisolated struct BrowserFirstPaintScript {
     static let channel = "cmuxFirstPaint"
     static let world = "cmuxFirstPaint"
 
+    /// Asked once of a page (an evaluation that awaits its promise): true once the main frame's document has its first
+    /// contentful paint, at once when it had it already (a buffered observer). False: the page has no Paint Timing.
+    static let query = """
+    new Promise((resolve) => {
+      if (typeof PerformanceObserver !== 'function') return resolve(false);
+      try {
+        const observer = new PerformanceObserver((list) => {
+          if (!list.getEntriesByName('first-contentful-paint').length) return;
+          observer.disconnect();
+          resolve(true);
+        });
+        observer.observe({ type: 'paint', buffered: true });
+      } catch (_) { resolve(false); }
+    })
+    """
+
     /// The script, with `post` the statement that reports (it may use `report`, always `true`) and
     /// `ready` the expression that says the report channel exists.
     static func source(post: String, ready: String) -> String {

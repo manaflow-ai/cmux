@@ -43,15 +43,15 @@ createRoot(root).render(
     <GuestPage
       shareId={shareId}
       secret={link?.secret}
-      guestId={link ? joinedAs(shareId, storage) : undefined}
+      guestId={link ? joinedAs(shareId, storage, link.invite === true) : undefined}
       name={link ? joinedName(shareId, storage) : undefined}
-      role={link ? joinedRole(shareId, storage) : undefined}
+      role={link ? joinedRole(shareId, storage, link.invite === true) : undefined}
       storage={storage}
       redeem={redeemOverFetch()}
       invite={link?.invite === true}
       accept={acceptOverFetch()}
       attempt={() => attemptId(shareId, storage)}
-      onJoined={(guestId, name, role) => rememberJoined(shareId, guestId, storage, name, role)}
+      onJoined={(guestId, name, role, via) => rememberJoined(shareId, guestId, storage, name, role, via)}
       socketUrl={socketUrl}
     />
   </UiProvider>,

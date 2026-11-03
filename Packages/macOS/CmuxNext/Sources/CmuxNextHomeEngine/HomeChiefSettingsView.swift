@@ -101,6 +101,8 @@ public final class HomeChiefSettingsView: NSView {
     /// The Primary Chief checkbox and its note; hidden for a Chief with no account record (``setPrimary(_:)``).
     let primaryBox = NSButton(checkboxWithTitle: HomeEngineStrings.primaryRow, target: nil, action: nil)
     let primaryNote = HomeChiefSettingsView.footnote(HomeEngineStrings.primaryNote)
+    /// Runs On: where this Mac's Chief runs, whose chip opens the Teleport menu (``showTeleport(_:)``); hidden for other Chiefs.
+    let teleportRow = NSStackView()
     /// Follows the shown Chief's default flag (``bindPrimary(directory:conversation:)``).
     var primaryWatch: Task<Void, Never>?
     /// Where Choose Picture… and Use Default Picture write, and for which Chief: the daemon's
@@ -176,6 +178,7 @@ public final class HomeChiefSettingsView: NSView {
         failure.isHidden = true
         addFullWidth(failure)
         addPrimaryRow()
+        addTeleportRow()
         addFullWidth(Self.sectionHeader(HomeEngineStrings.agentSection))
         for (button, label) in [(harness, HomeEngineStrings.harness), (model, HomeEngineStrings.model), (effort, HomeEngineStrings.effort),
                                 (speed, HomeEngineStrings.speed)] {
