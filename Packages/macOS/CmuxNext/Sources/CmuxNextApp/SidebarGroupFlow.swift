@@ -184,9 +184,9 @@ struct SidebarGroupFlow {
             bridge.map { SidebarGroupFlow(bridge: $0).editorItems(group) } ?? SidebarContainerView.standardGroupEditorItems()
         }
         container.onGroupEditorItem = { [weak bridge = self.bridge] group, item in
-            guard let bridge else { return }
-            SidebarGroupFlow(bridge: bridge).performEditorItem(group, item)
+            if let bridge { SidebarGroupFlow(bridge: bridge).performEditorItem(group, item) }
         }
+        container.onGroupSort = { [weak bridge = self.bridge] group, sort in bridge?.services.sidebarDoc.store?.setGroupSort(group, sort) }
     }
 
     /// The standard rows with each action's current shortcut; the pin row reads as the change it makes.
