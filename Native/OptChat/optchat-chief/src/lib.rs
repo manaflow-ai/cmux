@@ -28,6 +28,7 @@ pub mod cloud_workspace;
 pub mod cmux_env;
 pub mod code_signature;
 pub mod codex_home;
+pub mod codex_sessions_import;
 pub mod compactor;
 pub mod daemon;
 pub mod draft;

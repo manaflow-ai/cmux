@@ -270,6 +270,14 @@ pub fn items_from_claude_code(projects: &Path) -> Result<Vec<Item>, String> {
         .collect())
 }
 
+/// Codex chat transcripts (`codex_sessions_import`).
+pub fn items_from_codex_sessions(dir: &Path) -> Vec<Item> {
+    crate::codex_sessions_import::convert_sessions(dir)
+        .into_iter()
+        .map(|i| item(i.kind, &i.text, &i.date, "codex-sessions"))
+        .collect()
+}
+
 /// A claude.ai or ChatGPT export (`conversations.json` text).
 pub fn items_from_export_json(json_text: &str, source: &str) -> Result<Vec<Item>, String> {
     let v: Value = serde_json::from_str(json_text).map_err(|e| format!("{source}: {e}"))?;
@@ -363,6 +371,12 @@ pub fn read_source(source: &str, user_home: &Path, chief_db: &Path) -> Result<Ve
             user_home,
             std::env::var("CLAUDE_CONFIG_DIR").ok(),
         )),
+        "codex-sessions" => Ok(items_from_codex_sessions(
+            &crate::codex_sessions_import::default_sessions_dir(
+                user_home,
+                std::env::var("CODEX_HOME").ok(),
+            ),
+        )),
         "chief" => items_from_chief(chief_db),
         s => {
             if let Some(z) = s.strip_prefix("zip:") {
@@ -371,7 +385,7 @@ pub fn read_source(source: &str, user_home: &Path, chief_db: &Path) -> Result<Ve
                 items_from_chief(&Paths::new(Path::new(d)).memory_db)
             } else {
                 Err(format!(
-                    "unknown source {s}: chief, chief:MUX_HOME, claude-memory, claude-code, codex or zip:FILE"
+                    "unknown source {s}: chief, chief:MUX_HOME, claude-memory, claude-code, codex, codex-sessions or zip:FILE"
                 ))
             }
         }
@@ -452,7 +466,7 @@ pub const USAGE: &str = "optchat-chief memory import-from detect [--exports] [--
 optchat-chief memory import-from undo [--to local|cloud[:staging|:URL]] [--chief agent_ID] [--batch ID]   take the last write back
 optchat-chief memory import-from SOURCE dry-run|write [--to local|cloud[:staging|:URL]] [--chief agent_ID]
     [--stop-host] [--max-cost USD] [--max-items N] [--price-in USD --price-out USD] [--session-token-file F] [--mux-home DIR] [--json]
-  SOURCE: chief (this home's memory), chief:MUX_HOME, claude-memory, claude-code, codex, zip:FILE (claude.ai / ChatGPT export)
+  SOURCE: chief (this home's memory), chief:MUX_HOME, claude-memory, claude-code, codex (memories), codex-sessions (chat transcripts), zip:FILE (claude.ai / ChatGPT export)
   --to local (default) merges into this home's memory (host stopped); --to cloud appends to the Cloud Chief --chief names.
   Incremental: a key per item, so a re-run brings only what is new. Secrets are dropped. A write backs up first.";
 
@@ -731,6 +745,30 @@ mod tests {
         let (plan, fresh) = make_plan("t", list, &HashSet::new());
         assert_eq!((plan.secrets, plan.new), (1, 1));
         assert!(fresh.iter().all(|i| !i.text.contains("ghp_")));
+    }
+
+    #[test]
+    fn codex_sessions_become_items_with_stable_keys() {
+        let dir = std::env::temp_dir().join(format!("a-codex-items-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("2026/11/02")).unwrap();
+        std::fs::write(
+            dir.join("2026/11/02/rollout-a.jsonl"),
+            concat!(
+                r#"{"timestamp":"2026-11-02T10:00:00.000Z","type":"session_meta","payload":{"id":"s","cwd":"/w","source":"cli"}}"#,
+                "\n",
+                r#"{"timestamp":"2026-11-02T10:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}}"#,
+                "\n",
+            ),
+        )
+        .unwrap();
+        let first = items_from_codex_sessions(&dir);
+        assert_eq!(first.len(), 2);
+        assert!(first.iter().all(|i| i.source == "codex-sessions"));
+        let known: HashSet<String> = first.iter().map(|i| i.key.clone()).collect();
+        let (plan, fresh) = make_plan("codex-sessions", items_from_codex_sessions(&dir), &known);
+        assert_eq!((plan.new, fresh.len()), (0, 0));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -13,9 +13,9 @@ use crate::paths::Paths;
 pub struct Detected {
     /// The `import-from` source name: `claude-code`, `claude-memory`, `codex`, `zip:/path`.
     pub source: String,
-    /// `claude-code`, `claude-memory`, `codex`, `chatgpt-export`, `claude-ai-export`, `export`.
+    /// `claude-code`, `claude-memory`, `codex`, `codex-sessions`, `chatgpt-export`, `claude-ai-export`, `export`.
     pub kind: String,
-    /// Conversations (claude-code), notes (memory kinds) or 1 (a zip).
+    /// Conversations (claude-code, codex-sessions), notes (memory kinds) or 1 (a zip).
     pub count: usize,
     pub bytes: u64,
     /// The folder or file it was found in.
@@ -39,6 +39,20 @@ pub fn detect(user_home: &Path, claude_config_dir: Option<String>) -> Vec<Detect
             count: sessions,
             bytes,
             path: projects.display().to_string(),
+        });
+    }
+    let codex_sessions = crate::codex_sessions_import::default_sessions_dir(
+        user_home,
+        std::env::var("CODEX_HOME").ok(),
+    );
+    let (sessions, bytes) = crate::codex_sessions_import::count_sessions(&codex_sessions);
+    if sessions > 0 {
+        found.push(Detected {
+            source: "codex-sessions".into(),
+            kind: "codex-sessions".into(),
+            count: sessions,
+            bytes,
+            path: codex_sessions.display().to_string(),
         });
     }
     for (codex, kind, dir) in [
@@ -420,6 +434,10 @@ mod tests {
             "I like Rust",
         );
         write(&home.join(".codex/memories/MEMORY.md"), "codex note");
+        write(
+            &home.join(".codex/sessions/2026/11/02/rollout-a.jsonl"),
+            "{\"type\":\"session_meta\"}\n",
+        );
         let stage = temp("stage");
         write(&stage.join("conversations.json"), "[]");
         write(&stage.join("chat.html"), "<html>");
@@ -437,6 +455,10 @@ mod tests {
         assert!(kinds.contains(&"claude-code"), "{kinds:?}");
         assert!(kinds.contains(&"claude-memory"), "{kinds:?}");
         assert!(kinds.contains(&"codex"), "{kinds:?}");
+        if std::env::var("CODEX_HOME").is_err() {
+            let codex = found.iter().find(|d| d.kind == "codex-sessions").unwrap();
+            assert_eq!(codex.count, 1);
+        }
         assert!(kinds.contains(&"chatgpt-export"), "{kinds:?}");
         assert_eq!(found.len(), 4, "photos.zip is not an export: {found:?}");
         let code = found.iter().find(|d| d.kind == "claude-code").unwrap();
