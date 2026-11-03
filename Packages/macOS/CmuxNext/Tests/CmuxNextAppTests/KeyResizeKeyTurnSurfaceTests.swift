@@ -1,34 +1,45 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextBridge
+import CmuxNextDesign
 @testable import CmuxNextLayout
+import CmuxNextTabs
 @testable import CmuxNextTerminal
 import CmuxNextTerminalGeometry
 import CmuxNextTestSupport
 import Testing
 
-/// FRAME OWNER REFACTOR S1B, for S4 (terminals ready-or-keep). In the 120 Hz films the first frame of a key resize
-/// shows nothing new: the whole window's commit of the first frame tick after the key misses its display (base and S1
-/// builds alike; px-keys-single-3k-s1r frames 240/241, px-keys-held-2-s1r frames 193/416/423/448: 0 changed pixels on
-/// every scan line, the next frame on time). The key's own turn is 5-8 ms to its commit (debug.action_budget,
-/// resizePane* commit_ms 5.35-8.24 on FEAT DOGFOOD BUILD e0e34bd6, cmux18), and the first press of a film blocks a whole
-/// display frame (a 16.7 ms tick gap). The main-thread sample of the held-key film puts that turn's work under
-/// `PaneResize.press` -> `syncWithModel` -> `applyPresentation` -> `PaneHostView.announceRest` ->
-/// `TerminalSurfaceView.restAt`: each terminal surface takes its rest size in the key's turn (`setFrameSize` ->
-/// `updateSurfaceSize` -> `ghostty_surface_set_size`, a reflow on the main thread), beside its final grid to the PTY.
+/// FRAME OWNER REFACTOR S1B: the key's own turn of a keyboard pane resize (`PaneResize.press`).
 ///
-/// The rule (S4): the key's turn changes the model and sends each PTY its final grid (one SIGWINCH per press, RESIZE
-/// KEYS); it resizes no terminal surface. A surface takes its new size in a frame tick, ready-or-keep, so no input turn
-/// holds the frame after it.
+/// In the 120 Hz films the first frame of a column key (Ctrl-Shift-H, L) shows nothing new: the first frame tick after
+/// the key comes one vsync late (round s1b-keyturn2-18, FEAT DOGFOOD BUILD e0e34bd6, cmux18, 2x: key turn 7.7 / 8.2 ms
+/// to its commit, then the first tick 7.3 / 8.9 ms of main time). The key's turn synced the layout and presented it
+/// (`PaneResize.press` -> `syncWithModel` -> `syncScroll` -> `applyPresentation`): every pane host's rest size, the
+/// content's rest announcement (`PaneHostView.announceRest`: each terminal surface took its rest size,
+/// `ghostty_surface_set_size`, and sent its final grid), clips, dividers, the overlay sync and a Core Animation commit,
+/// then the first tick presented again.
+///
+/// The rule (the refactor owner's decision, 2026-11-03): a resize press changes the model and asks for a frame. It lays
+/// nothing out, presents nothing, announces no rest and sizes no surface in its own turn, and nothing between it and
+/// the next frame tick does (the layout's observation turn included). The first tick syncs the model and presents
+/// once: the panes move in that tick, and each terminal sends its one final grid there (RESIZE KEYS: one grid per
+/// press, now no later than the first tick instead of in the key's turn).
 @MainActor
 @Suite(.serialized, .closesItsWindows)
 struct KeyResizeKeyTurnSurfaceTests {
     typealias OneGrid = KeyboardResizeOneGridReportTests
 
-    /// Ctrl-Shift-H, L, K or J on p2: one terminal grows, the other shrinks. In the key's turn no surface takes a new size,
-    /// and each PTY gets its final grid; after the landing each surface is at its rest size and sent no other grid.
+    /// Lets the main actor run what the key's turn left queued (the layout's observation of the model), without a
+    /// display frame and without waiting on a clock.
+    static func drainTurns() async {
+        for _ in 0..<20 { await Task.yield() }
+    }
+
+    /// Ctrl-Shift-H, L, K or J on p2 with a terminal in each pane: the key's turn and the turns after it up to the next
+    /// frame resize no terminal surface and send no grid; the first frame tick sends each terminal's final grid, once;
+    /// after the landing each surface rests at its host's size and sent no other grid.
     @Test(arguments: [LayoutDirection.left, .right, .up, .down])
-    func aKeyPressResizesNoTerminalSurfaceInItsOwnTurn(direction: LayoutDirection) async throws {
+    func aKeyPressResizesNoTerminalSurfaceBeforeItsFirstFrame(direction: LayoutDirection) async throws {
         let rig = try OneGrid.Rig(direction == .left || direction == .right ? OneGrid.pair : OneGrid.stack)
         defer { rig.close() }
         // The launch's grids (the first layout) are not this press's.
@@ -36,28 +47,104 @@ struct KeyResizeKeyTurnSurfaceTests {
         var logs: [PaneID: OneGrid.SizeLog] = [:]
         for pane in rig.panes { logs[pane] = OneGrid.SizeLog(try rig.terminal(pane).surface) }
 
-        // The key's turn (`PaneResize.press` syncs the layout itself, as the key handler does).
+        // The key's turn, and the main turns after it before any display frame.
         #expect(PaneResize.press("p2", direction, model: rig.model, view: rig.root))
-        var inTurn: [String] = []
+        await Self.drainTurns()
+        var beforeFrame: [String] = []
         for pane in rig.panes {
             let sizes = try #require(logs[pane]).sizes
-            if !sizes.isEmpty { inTurn.append("\(pane.rawValue): \(sizes)") }
+            if !sizes.isEmpty { beforeFrame.append("\(pane.rawValue) surface \(sizes)") }
+            let grids = try await rig.grids(pane)
+            if !grids.isEmpty { beforeFrame.append("\(pane.rawValue) grids \(grids)") }
         }
-        #expect(inTurn.isEmpty, "the key's turn resized terminal surfaces: \(inTurn)")
-        var atPress: [PaneID: [TerminalGridSize]] = [:]
-        for pane in rig.panes { atPress[pane] = try await rig.grids(pane) }
+        #expect(beforeFrame.isEmpty, "the key's turn sized terminal surfaces or sent grids before the first frame: \(beforeFrame)")
 
-        // The spring to its landing, and the landing's commit.
-        #expect(rig.settle() > 3, "the press did not spring")
+        // The first frame tick: each terminal hears its rest size and sends its final grid.
+        try #require(rig.root.advanceFrame(1.0 / 120), "the press did not spring")
+        rig.root.layoutSubtreeIfNeeded()
+        var atFirstFrame: [PaneID: [TerminalGridSize]] = [:]
+        for pane in rig.panes { atFirstFrame[pane] = try await rig.grids(pane) }
+
+        // The rest of the spring, the landing and its commit.
+        rig.settle()
         rig.commit()
         for pane in rig.panes {
             let terminal = try rig.terminal(pane)
             let final = try #require(terminal.surface.fittedGrid, "\(pane.rawValue)'s terminal fits no grid")
-            #expect(atPress[pane] == [final], "\(pane.rawValue): the key's turn asked the PTY for \(atPress[pane] ?? []), not the final grid \(final)")
-            #expect(try await rig.grids(pane).isEmpty, "\(pane.rawValue): the landing asked the PTY for another grid")
+            #expect(atFirstFrame[pane] == [final],
+                    "\(pane.rawValue): the first frame asked the PTY for \(atFirstFrame[pane] ?? []), not the final grid \(final) once")
+            #expect(try await rig.grids(pane).isEmpty, "\(pane.rawValue): after the first frame the PTY was asked for another grid")
             let host = terminal.session.view
             #expect(terminal.surface.frame.size == host.surfaceSize(forHostSize: host.bounds.size),
                     "\(pane.rawValue)'s surface rests at \(terminal.surface.frame.size) in a \(host.bounds.size) host")
         }
+    }
+
+    /// The app's pane content (a tab strip over a content view that counts its layouts) in p1 | p2 and p1 over p2.
+    final class Panes: LayoutPaneContentProvider {
+        final class Content: NSView {
+            var layouts = 0
+            override func layout() {
+                layouts += 1
+                super.layout()
+            }
+        }
+
+        let reveal: LaunchReveal = {
+            let reveal = LaunchReveal()
+            reveal.markAllReady()
+            return reveal
+        }()
+        var views: [PaneID: PaneContentView] = [:]
+        var contents: [PaneID: Content] = [:]
+
+        func makeContentView(for pane: PaneID) -> NSView {
+            let tabs = (0..<2).map { TabItem(id: TabID("\(pane.rawValue)-tab\($0)"), title: "python3 /tmp/sigwinch.py --seed 100\($0)") }
+            let view = PaneContentView(stripModel: TabStripModel(tabs: tabs, selectedID: tabs[0].id), reveal: reveal)
+            let content = Content()
+            view.show(content)
+            views[pane] = view
+            contents[pane] = content
+            return view
+        }
+    }
+
+    /// Ctrl-Shift-H, L, K or J on p2: the key's turn and the turns after it up to the next frame present nothing (no
+    /// presentation pass, no pane host frame, no layout of any pane content); the first frame tick presents once and the
+    /// panes move in it.
+    @Test(arguments: [LayoutDirection.left, .right, .up, .down])
+    func aKeyPressPresentsNothingUntilItsFirstFrameWhichMovesThePanes(direction: LayoutDirection) async throws {
+        _ = NSApplication.shared
+        let axis: SplitAxis = direction == .left || direction == .right ? .horizontal : .vertical
+        let provider = Panes()
+        let columns = [LayoutColumn(id: "c0", width: 1, root: .split("x", axis: axis, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")))]
+        let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(columns))], activeScreenID: "s", focusedPane: "p2")
+        let root = LayoutRootView(model: model, contentProvider: provider)
+        root.context.reduceMotionOverride = false
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = root
+        defer { window.closeAfterTest() }
+        root.layoutSubtreeIfNeeded()
+        root.layoutSubtreeIfNeeded()
+        root.driver.isManual = true
+        root.context.afterCommit = { _ in } // the landing is not part of this test
+        let screen = try #require(root.screenViews["s"])
+        let hosts = [try #require(root.context.hosts["p1"]), try #require(root.context.hosts["p2"])]
+        let frames = hosts.map(\.frame)
+        let passes = screen.presentationPasses
+        for content in provider.contents.values { content.layouts = 0 }
+
+        #expect(PaneResize.press("p2", direction, model: model, view: root))
+        await Self.drainTurns()
+        #expect(screen.presentationPasses == passes, "the key's turn presented the layout \(screen.presentationPasses - passes) times")
+        #expect(hosts.map(\.frame) == frames, "the key's turn moved pane hosts: \(hosts.map(\.frame)) from \(frames)")
+        let laidOut = provider.contents.filter { $0.value.layouts > 0 }.map { "\($0.key.rawValue) \($0.value.layouts)" }.sorted()
+        #expect(laidOut.isEmpty, "the key's turn laid pane content out: \(laidOut)")
+
+        // The first frame tick: one presentation, and the panes move.
+        try #require(root.advanceFrame(1.0 / 120), "the press did not spring")
+        #expect(screen.presentationPasses == passes + 1, "the first frame presented \(screen.presentationPasses - passes) times, not once")
+        #expect(hosts.map(\.frame) != frames, "the first frame after the key did not move the panes")
     }
 }
