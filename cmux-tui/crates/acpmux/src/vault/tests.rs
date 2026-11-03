@@ -102,11 +102,23 @@ fn hub_statuses_map_to_results() {
 fn plan_stores_new_and_changed_keeps_current_and_deletes_revoked_and_gone() {
     let mut state = salted();
     let fp = state.fingerprint("KEEP", "same");
-    state.env.insert("KEEP".into(), plan::EnvRecord { revision: 1, fingerprint: fp });
+    state.env.insert(
+        "KEEP".into(),
+        plan::EnvRecord { revision: 1, fingerprint: fp, ..Default::default() },
+    );
     let fp = state.fingerprint("CHANGED", "before");
-    state.env.insert("CHANGED".into(), plan::EnvRecord { revision: 1, fingerprint: fp });
-    state.env.insert("REVOKED".into(), plan::EnvRecord { revision: 1, fingerprint: "f".into() });
-    state.env.insert("GONE".into(), plan::EnvRecord { revision: 1, fingerprint: "f".into() });
+    state.env.insert(
+        "CHANGED".into(),
+        plan::EnvRecord { revision: 1, fingerprint: fp, ..Default::default() },
+    );
+    state.env.insert(
+        "REVOKED".into(),
+        plan::EnvRecord { revision: 1, fingerprint: "f".into(), ..Default::default() },
+    );
+    state.env.insert(
+        "GONE".into(),
+        plan::EnvRecord { revision: 1, fingerprint: "f".into(), ..Default::default() },
+    );
     let steps = plan::plan(
         &state,
         vec![
@@ -249,7 +261,10 @@ fn the_daemon_loads_only_values_that_match_their_fingerprints() {
     let mut state = salted();
     for (name, value) in [("GOOD", SECRET_A), ("EDITED", "original"), ("MISSING", "x")] {
         let fingerprint = state.fingerprint(name, value);
-        state.env.insert(name.into(), plan::EnvRecord { revision: 1, fingerprint });
+        state.env.insert(
+            name.into(),
+            plan::EnvRecord { revision: 1, fingerprint, ..Default::default() },
+        );
     }
     store.put("GOOD", SECRET_A).unwrap();
     store.put("EDITED", "changed by hand").unwrap();
