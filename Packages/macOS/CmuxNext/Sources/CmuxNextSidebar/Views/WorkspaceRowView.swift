@@ -344,7 +344,8 @@ final class WorkspaceRowView: SidebarRowView {
             button.setAccessibilityIdentifier("cmux.sidebar.workspace.\(ws.id.rawValue).\(control)")
         }
         setAccessibilityLabel(accessibilityText(ws, content: shown,
-                                                title: ws.spokenRowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat)))
+                                                title: shown.subagentOf.map(Strings.subagentOf)
+                                                    ?? ws.spokenRowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat)))
         needsLayout = true
         needsDisplay = true
     }
