@@ -1,5 +1,4 @@
 @testable import CmuxNextApp
-import CmuxNextChiefMemory
 import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextFocusUI
@@ -12,7 +11,7 @@ import Testing
 @MainActor
 @Suite struct SignInOfferTests {
     /// A Cloud refusal while signed out offers Sign In, and its click runs the sign-in once.
-    @Test(arguments: [CloudStrings.signInFirst, CloudStrings.signInToContinue, ChiefMemoryImportStrings.signInFirst])
+    @Test(arguments: [CloudStrings.signInFirst, CloudStrings.signInToContinue])
     func signInReasonOffersSignIn(_ reason: String) throws {
         var signIns = 0
         let offer = CmuxSignInOffer(isSignedIn: { false }) { signIns += 1 }
