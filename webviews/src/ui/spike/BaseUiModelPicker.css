@@ -1,0 +1,196 @@
+/* SPIKE: the Base UI model picker composition (BaseUiModelPicker.tsx). Existing tokens only. The
+   settled picker metrics (design/model-picker.md): 32px rail cells, a search row one menu row tall,
+   28px rows, 13px body text, inset 15 / icon 14 / gap 6, popup radius 10, row radius 5, Fast 28x16. */
+.spike-mp-trigger {
+  height: var(--ui-row-height, 28px);
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--cmux-menu-highlight-radius);
+  background: transparent;
+  color: var(--ui-fg-2, inherit);
+  font: inherit;
+  font-size: 13px;
+}
+/* Hover reveals it; it stays lit while its popup is open (Base UI sets data-popup-open natively). */
+.spike-mp-trigger:hover,
+.spike-mp-trigger[data-popup-open] {
+  background: var(--ui-hover);
+  color: var(--ui-fg, inherit);
+}
+
+.spike-mp.ui-popup {
+  --ui-popup-radius: 10px;
+  width: 320px;
+  padding: 0;
+  font-size: 13px;
+  overflow: hidden;
+}
+.spike-mp-body {
+  display: flex;
+  max-height: min(420px, var(--available-height, 420px));
+}
+.spike-mp-rail {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: 32px;
+  padding-block: var(--cmux-menu-highlight-inset);
+  border-inline-end: var(--cmux-hairline, 0.5px) solid var(--ui-line);
+  overflow-y: auto;
+  scroll-snap-type: y mandatory;
+}
+.spike-mp-rail-tab {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ui-fg-2, inherit);
+  font: inherit;
+  font-size: 11px;
+  scroll-snap-align: start;
+}
+.spike-mp-rail-tab:hover {
+  color: var(--ui-fg, inherit);
+}
+.spike-mp-rail-tab[data-active] {
+  color: var(--ui-fg, inherit);
+  box-shadow: inset 2px 0 0 currentColor;
+}
+
+.spike-mp-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.spike-mp-search {
+  box-sizing: border-box;
+  height: var(--ui-row-height, 28px);
+  margin: var(--cmux-menu-highlight-inset) var(--cmux-menu-highlight-inset) 0;
+  padding: 0 calc(var(--cmux-menu-icon-x) - var(--cmux-menu-highlight-inset));
+  border: 0;
+  border-radius: var(--cmux-menu-highlight-radius);
+  background: var(--ui-hover);
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+.spike-mp-list {
+  flex: 1;
+  margin: 0;
+  padding: var(--cmux-menu-highlight-inset);
+  overflow-y: auto;
+  list-style: none;
+}
+.spike-mp-group-label {
+  height: 24px;
+  padding-inline: calc(var(--cmux-menu-icon-x) - var(--cmux-menu-highlight-inset));
+  color: var(--ui-fg-2, inherit);
+  font-size: 11px;
+  line-height: 24px;
+}
+.spike-mp-row {
+  display: flex;
+  align-items: center;
+  height: var(--ui-row-height, 28px);
+  padding-inline: calc(var(--cmux-menu-text-x) - var(--cmux-menu-highlight-inset))
+    calc(var(--cmux-menu-trailing) - var(--cmux-menu-highlight-inset));
+  border-radius: var(--cmux-menu-highlight-radius);
+  cursor: default;
+  user-select: none;
+}
+/* The highlight covers only the row itself. */
+.spike-mp-row[data-highlighted] {
+  background: var(--ui-row, var(--ui-selected));
+}
+.spike-mp-row[aria-current="true"]::after {
+  margin-inline-start: auto;
+  content: "✓";
+}
+.spike-mp-row-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.spike-mp-status {
+  display: flex;
+  gap: var(--cmux-menu-icon-gap);
+  align-items: center;
+  height: var(--ui-row-height, 28px);
+  padding: var(--cmux-menu-highlight-inset) var(--cmux-menu-icon-x);
+  color: var(--ui-fg-2, inherit);
+}
+.spike-mp-status:empty {
+  display: none;
+}
+.spike-mp-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+}
+
+.spike-mp-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--ui-row-height, 28px);
+  padding: var(--cmux-menu-highlight-inset) var(--cmux-menu-icon-x);
+  border-top: var(--cmux-hairline, 0.5px) solid var(--ui-line);
+}
+.spike-mp-effort {
+  display: flex;
+  gap: 2px;
+}
+.spike-mp-effort-seg {
+  height: 20px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--cmux-menu-highlight-radius);
+  background: transparent;
+  color: var(--ui-fg-2, inherit);
+  font: inherit;
+  font-size: 11px;
+}
+.spike-mp-effort-seg[data-pressed] {
+  background: var(--ui-selected);
+  color: var(--ui-fg, inherit);
+}
+.spike-mp-fast {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 11px;
+}
+.spike-mp-switch {
+  position: relative;
+  width: 28px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: var(--ui-selected);
+}
+.spike-mp-switch[data-checked] {
+  background: var(--cmux-accent, var(--ui-ring));
+}
+.spike-mp-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 6px;
+  background: var(--ui-fg, white);
+}
+.spike-mp-switch-thumb[data-checked] {
+  left: 14px;
+}
