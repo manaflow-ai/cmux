@@ -1,0 +1,571 @@
+{
+ "id": "bcpp-browser-pane-keys-warm-idle-dark-anim-off",
+ "priority": "P0",
+ "title": "BROWSER OPEN FRAMES step B: browser pane keys (Ctrl-Tab between 2 browser tabs, Shift-Cmd-L into a browser pane, Opt-Cmd-D split browser into a new pane), real HID keys",
+ "why": "Lead 2026-11-03 (step B films): Cmd-T/openBrowser in a browser pane, tab switch, and a browser in a new pane; commit_ms p50/p95/max within one start tier.",
+ "source": "handoff/resize-videos/SHORTCUT-FRAMES.md (SHORTCUT FRAMES P0)",
+ "budget_seconds": 120,
+ "options": {
+  "key_path": "real"
+ },
+ "cases": [
+  {
+   "name": "nextSurface[ctrl+tab]/browser-pane",
+   "stroke": "ctrl+tab",
+   "action": "nextSurface",
+   "effect": "switch",
+   "context": "browser",
+   "arm": "warm",
+   "load": "idle",
+   "theme": "dark",
+   "animations": "off",
+   "build": "pr"
+  },
+  {
+   "name": "openBrowser[shift+cmd+l]/browser-pane",
+   "stroke": "shift+cmd+l",
+   "action": "openBrowser",
+   "effect": "new-tab",
+   "context": "browser",
+   "arm": "warm",
+   "load": "idle",
+   "theme": "dark",
+   "animations": "off",
+   "build": "pr"
+  },
+  {
+   "name": "splitBrowserRight[opt+cmd+d]/new-pane",
+   "stroke": "option+cmd+d",
+   "action": "splitBrowserRight",
+   "effect": "new-pane",
+   "context": "browser",
+   "arm": "warm",
+   "load": "idle",
+   "theme": "dark",
+   "animations": "off",
+   "build": "pr"
+  }
+ ],
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "new_terminal",
+   "via": "socket",
+   "name": "p0"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "settings_file",
+   "title": "set-up: theme Builtin Dark, animations off, no close warning",
+   "set": {
+    "appearance": {
+     "theme": "Builtin Dark",
+     "appTheme": "followTerminal"
+    },
+    "app": {
+     "warnBeforeClosingTab": false
+    },
+    "ui": {
+     "animations": {
+      "enabled": false
+     }
+    }
+   }
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "openBrowser"
+   },
+   "title": "set-up or undo by the socket: openBrowser"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5,
+   "title": "the first browser tab loads"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "openBrowser"
+   },
+   "title": "set-up or undo by the socket: openBrowser"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5,
+   "title": "the second browser tab loads"
+  },
+  {
+   "do": "video_start",
+   "name": "bcpp-browser-pane-keys-warm-idle-dark-anim-off",
+   "seconds": 34.0,
+   "lead": 1.5,
+   "title": "start the recording: 6 Ctrl-Tab, 4 Cmd-T in a browser pane, 4 Opt-Cmd-D into a new pane, inside the frame trace"
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "ctrl"
+   ],
+   "mark": "nextSurface[ctrl+tab]/browser-pane/1",
+   "title": "the measured press ctrl+tab (nextSurface[ctrl+tab]/browser-pane/1)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the switch settles"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run (commit_ms, start_uptime_ns)"
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "ctrl"
+   ],
+   "mark": "nextSurface[ctrl+tab]/browser-pane/2",
+   "title": "the measured press ctrl+tab (nextSurface[ctrl+tab]/browser-pane/2)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the switch settles"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run (commit_ms, start_uptime_ns)"
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "ctrl"
+   ],
+   "mark": "nextSurface[ctrl+tab]/browser-pane/3",
+   "title": "the measured press ctrl+tab (nextSurface[ctrl+tab]/browser-pane/3)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the switch settles"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run (commit_ms, start_uptime_ns)"
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "ctrl"
+   ],
+   "mark": "nextSurface[ctrl+tab]/browser-pane/4",
+   "title": "the measured press ctrl+tab (nextSurface[ctrl+tab]/browser-pane/4)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the switch settles"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run (commit_ms, start_uptime_ns)"
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "ctrl"
+   ],
+   "mark": "nextSurface[ctrl+tab]/browser-pane/5",
+   "title": "the measured press ctrl+tab (nextSurface[ctrl+tab]/browser-pane/5)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the switch settles"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run (commit_ms, start_uptime_ns)"
+  },
+  {
+   "do": "hid_key",
+   "key": "tab",
+   "modifiers": [
+    "ctrl"
+   ],
+   "mark": "nextSurface[ctrl+tab]/browser-pane/6",
+   "title": "the measured press ctrl+tab (nextSurface[ctrl+tab]/browser-pane/6)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the switch settles"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run (commit_ms, start_uptime_ns)"
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "shift",
+    "cmd"
+   ],
+   "mark": "openBrowser[shift+cmd+l]/browser-pane/1",
+   "title": "the measured press shift+cmd+l (openBrowser[shift+cmd+l]/browser-pane/1)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run (commit_ms, start_uptime_ns)"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8,
+   "title": "the undo settles"
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "shift",
+    "cmd"
+   ],
+   "mark": "openBrowser[shift+cmd+l]/browser-pane/2",
+   "title": "the measured press shift+cmd+l (openBrowser[shift+cmd+l]/browser-pane/2)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run (commit_ms, start_uptime_ns)"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8,
+   "title": "the undo settles"
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "shift",
+    "cmd"
+   ],
+   "mark": "openBrowser[shift+cmd+l]/browser-pane/3",
+   "title": "the measured press shift+cmd+l (openBrowser[shift+cmd+l]/browser-pane/3)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run (commit_ms, start_uptime_ns)"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8,
+   "title": "the undo settles"
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "shift",
+    "cmd"
+   ],
+   "mark": "openBrowser[shift+cmd+l]/browser-pane/4",
+   "title": "the measured press shift+cmd+l (openBrowser[shift+cmd+l]/browser-pane/4)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run (commit_ms, start_uptime_ns)"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8,
+   "title": "the undo settles"
+  },
+  {
+   "do": "hid_key",
+   "key": "d",
+   "modifiers": [
+    "option",
+    "cmd"
+   ],
+   "mark": "splitBrowserRight[opt+cmd+d]/new-pane/1",
+   "title": "the measured press option+cmd+d (splitBrowserRight[opt+cmd+d]/new-pane/1)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run (commit_ms, start_uptime_ns)"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closePane"
+   },
+   "title": "set-up or undo by the socket: closePane"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8,
+   "title": "the undo settles"
+  },
+  {
+   "do": "hid_key",
+   "key": "d",
+   "modifiers": [
+    "option",
+    "cmd"
+   ],
+   "mark": "splitBrowserRight[opt+cmd+d]/new-pane/2",
+   "title": "the measured press option+cmd+d (splitBrowserRight[opt+cmd+d]/new-pane/2)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run (commit_ms, start_uptime_ns)"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closePane"
+   },
+   "title": "set-up or undo by the socket: closePane"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8,
+   "title": "the undo settles"
+  },
+  {
+   "do": "hid_key",
+   "key": "d",
+   "modifiers": [
+    "option",
+    "cmd"
+   ],
+   "mark": "splitBrowserRight[opt+cmd+d]/new-pane/3",
+   "title": "the measured press option+cmd+d (splitBrowserRight[opt+cmd+d]/new-pane/3)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run (commit_ms, start_uptime_ns)"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closePane"
+   },
+   "title": "set-up or undo by the socket: closePane"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8,
+   "title": "the undo settles"
+  },
+  {
+   "do": "hid_key",
+   "key": "d",
+   "modifiers": [
+    "option",
+    "cmd"
+   ],
+   "mark": "splitBrowserRight[opt+cmd+d]/new-pane/4",
+   "title": "the measured press option+cmd+d (splitBrowserRight[opt+cmd+d]/new-pane/4)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run (commit_ms, start_uptime_ns)"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closePane"
+   },
+   "title": "set-up or undo by the socket: closePane"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8,
+   "title": "the undo settles"
+  },
+  {
+   "do": "video_stop",
+   "name": "bcpp-browser-pane-keys-warm-idle-dark-anim-off",
+   "tail": 0.6,
+   "title": "stop the recording (sf-newtab-default-openbrowser-warm-idle-dark-anim-off); its files go to the result"
+  },
+  {
+   "do": "type",
+   "text": "echo sf-done-${nonce}",
+   "enter": true,
+   "mark": "done"
+  },
+  {
+   "do": "expect",
+   "since": "done",
+   "timeout": 15,
+   "title": "after the presses the app still answers: the line shows in the app, the daemon and the frame",
+   "all": [
+    {
+     "app_text_contains": "sf-done-${nonce}"
+    },
+    {
+     "daemon_prompt": true
+    },
+    {
+     "pane_frame_text": "sf-done-${nonce}"
+    }
+   ]
+  }
+ ]
+}
