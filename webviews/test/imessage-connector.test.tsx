@@ -130,6 +130,10 @@ test("permission events refresh status and a closed connected list reads no thre
   data = { ...data, status: "needs_full_disk_access", sends_enabled: false };
   await act(async () => dom!.window.dispatchEvent(new dom!.window.Event("cmux-imessage-changed")));
   expect(calls).toEqual(["imessage.status", "imessage.status"]);
+  const header = [...container.querySelectorAll('[data-section="connectors"] button')].find((node) =>
+    node.textContent?.startsWith(translate("rail.connectors")),
+  ) as HTMLButtonElement;
+  await act(async () => header.click());
   expect(container.textContent).toContain(translate("imessage.grantDisk"));
   await act(async () => root!.unmount());
   root = undefined;
