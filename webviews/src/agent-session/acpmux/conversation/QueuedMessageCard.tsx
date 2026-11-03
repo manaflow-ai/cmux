@@ -131,7 +131,8 @@ export function QueuedMessageCard({
               ? () => void act.steer(promptId).then((ok) => ok && setSentAt(row.version), fail)
               : undefined
           }
-          dismiss={act ? () => void act.remove(promptId).catch(fail) : undefined}
+          // An inbox notice's message (`inboxDelivery`) has no Dismiss (App.tsx InboxQueueActions).
+          dismiss={act && !row.inboxDelivery ? () => void act.remove(promptId).catch(fail) : undefined}
         />
       </MessageFooterRow>
     </span>

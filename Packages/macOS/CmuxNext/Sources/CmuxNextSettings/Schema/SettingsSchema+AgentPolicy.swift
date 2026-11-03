@@ -249,6 +249,9 @@ extension SettingsSchema {
         "home.chiefPetMascot",
         // Needs you in the agent chat header (an App Store item): a display the person can hide again.
         "agentPane.needsYou.enabled",
+        // Start New Chats In (This Mac or Cloud): the person asks an agent to set it (Leo, 2026-10-31);
+        // a new chat's composer can still change it for that chat.
+        "agentPane.newChatsIn",
         "updates.notify",
         "updates.showWhatsNew",
         // Feature tips: a display the person can turn on again.
@@ -340,8 +343,6 @@ extension SettingsSchema {
         // A reply's file link outside the project, and a reply's web image (D4, D5).
         "agentPane.links.outsideRoots": .privacy,
         "agentPane.images.remote": .network,
-        // Whether a new chat starts on a Cloud machine, its project copied there: what leaves the machine.
-        "agentPane.newChatsIn": .privacy,
         "app.quitBehavior": .destructive,
         // Voice Room records mic and screen text and posts it to the configured room.
         "labs.voiceRoom": .privacy,

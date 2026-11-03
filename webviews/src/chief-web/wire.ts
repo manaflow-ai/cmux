@@ -30,6 +30,8 @@ type Callbacks = {
   rows(committed: AcpmuxRow[], live: AcpmuxRow[]): void;
   connection(state: ChiefConnection): void;
   accepted?(clientId: string): void;
+  /** A run requiring the owner's machine sign-in; status is always confirmed over HTTP. */
+  machineLogin?(run: string): void;
 };
 type Json = Record<string, unknown>;
 type Message = {
@@ -107,6 +109,7 @@ export class ChiefWire {
   private committed: AcpmuxRow[] = [];
   private readonly runs = new Map<string, LiveRun>();
   private readonly ended: string[] = [];
+  private loginRun = -1;
 
   constructor(
     private readonly options: Options,
@@ -405,10 +408,22 @@ export class ChiefWire {
     };
   }
 
+  private loginNeeded(author: string, run: unknown): void {
+    if (author !== this.options.identity.chiefId || typeof run !== "string" || !/^run_[0-9]{1,15}$/.test(run)) return;
+    const order = Number(run.slice(4));
+    if (order <= this.loginRun) return;
+    this.loginRun = order;
+    this.callbacks.machineLogin?.(run);
+  }
+
   private put(message: Message): void {
     const previous = this.messages.get(message.id);
     if (!previous && (message.author === this.user || message.author === `user_${this.user}`)) {
       this.callbacks.accepted?.(message.clientId);
+    }
+    if (!message.retracted) {
+      const prefix = `chief-machine-auth:${this.options.identity.chiefId}:`;
+      if (message.clientId.startsWith(prefix)) this.loginNeeded(message.author, message.clientId.slice(prefix.length));
     }
     if (message.retracted) this.messages.delete(message.id);
     else this.messages.set(message.id, message);
@@ -592,6 +607,11 @@ export class ChiefWire {
       return;
     const author = this.author(frame.run.author ?? frame.run.agent);
     if (!author) return;
+    if (
+      Array.isArray(frame.steps) &&
+      frame.steps.some((step) => object(step) && step.id === "machine:sign-in" && step.kind === "note")
+    )
+      this.loginNeeded(text(frame.run.author ?? frame.run.agent) ?? "", frame.run.id);
     const run = this.run(author, frame.run.id as string);
     if (!run) return;
     run.turn = text(frame.run.turn) ?? run.turn;
@@ -622,7 +642,15 @@ export class ChiefWire {
             value.id as string,
             held
               ? { ...old, place, revision }
-              : { seq: 0, text: value.text, talk: true, final: complete, fromRow: true, place, revision },
+              : {
+                  seq: 0,
+                  text: value.text,
+                  talk: true,
+                  final: complete,
+                  fromRow: true,
+                  place,
+                  revision,
+                },
           );
         }
       run.done = run.done || status === "done";
