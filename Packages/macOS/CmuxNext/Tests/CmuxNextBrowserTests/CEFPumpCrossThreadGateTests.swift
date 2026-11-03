@@ -70,6 +70,22 @@ import Testing
         #expect(Self.crossThreadWakes(rig.ledger) == 3)
     }
 
+    /// DEBUG and bench builds name the requesting thread and immediate/delayed (the pump-wakes bench groups by it).
+    @Test func aDebugWakeNamesItsThreadAndKind() async {
+        let rig = Self.rig()
+        let (gate, nanos) = (rig.gate, rig.clock.nanos)
+        await Thread.detachNewThreadAndWait(name: "PumpGateTestThread") {
+            _ = gate.admit(delayMilliseconds: 0, nowNanos: nanos)
+            _ = gate.admit(delayMilliseconds: 5, nowNanos: nanos)  // before the armed +10 ms fire: admitted
+        }
+        let reasons = Set(rig.ledger.snapshot().filter { $0.owner == "CEFMessagePump" && $0.reason.hasPrefix("cross-thread request") }.map(\.reason))
+        #if DEBUG || CMUX_BENCH_HOOKS
+        #expect(reasons == ["cross-thread request (PumpGateTestThread, immediate)", "cross-thread request (PumpGateTestThread, delayed)"])
+        #else
+        #expect(reasons == ["cross-thread request"])
+        #endif
+    }
+
     /// A kept request still runs when the armed pass reports nothing new (CEF need not report it
     /// again): after the +10 ms pass the timer is armed for the kept +50 ms.
     @Test func aKeptRequestIsArmedAfterThePass() {
@@ -113,5 +129,19 @@ import Testing
         let rig = Self.rig()
         rig.pump.stop()
         #expect(rig.gate.admit(delayMilliseconds: 50, nowNanos: rig.clock.nanos))
+    }
+}
+
+private extension Thread {
+    /// Runs `body` on a new thread named `name` and returns when it ends.
+    static func detachNewThreadAndWait(name: String, _ body: @escaping @Sendable () -> Void) async {
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            let thread = Thread {
+                body()
+                done.resume()
+            }
+            thread.name = name
+            thread.start()
+        }
     }
 }

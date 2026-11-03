@@ -90,9 +90,10 @@ nonisolated final class CEFPumpCrossThreadGate: Sendable {
     #if DEBUG || CMUX_BENCH_HOOKS
     /// The calling thread's name (Chromium names its threads: `ThreadPoolBackgroundWorker`, `Chrome_IOThread`...).
     private static func threadName() -> String {
-        var buffer = [CChar](repeating: 0, count: 64)
-        guard pthread_getname_np(pthread_self(), &buffer, buffer.count) == 0, buffer[0] != 0 else { return "unnamed" }
-        return String(cString: buffer)
+        withUnsafeTemporaryAllocation(of: CChar.self, capacity: 64) { buffer in  // 64: MAXTHREADNAMESIZE, on the stack
+            guard let base = buffer.baseAddress, pthread_getname_np(pthread_self(), base, buffer.count) == 0, base[0] != 0 else { return "unnamed" }
+            return String(cString: base)
+        }
     }
     #endif
 

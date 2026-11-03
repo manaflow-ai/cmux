@@ -14,10 +14,10 @@ quiet workspace shown, then a `--window` s measurement with no calls into the ap
 rows (`debug.wakeups`; bench and DEBUG builds name the requesting Chromium thread and immediate/delayed) and the pump's
 counters (`debug.cef` pump: passes, work ms, requests).
 
-`--trace`: the `both` launch also records a Chromium trace (`--trace-startup`, categories toplevel,ipc,mojom) and
+`--trace`: the `both` launch (else the last kind's) also records a Chromium trace (`--trace-startup`, categories toplevel,ipc,mojom) and
 prints, per window, the tasks run on Chromium's UI thread (cmux's main thread) by the code location that posted them.
 
-Prints CEF-PUMP-WAKES lines and writes --json. Measures only: no gate. A DEBUG development build (reload.sh), because
+Prints CEF-PUMP-WAKES lines and writes --json; exits 1 when no window was measured. Measures only: no gate. A DEBUG development build (reload.sh), because
 extra Chromium switches are accepted only there.
 
   cef-pump-wakes-bench.py --app "<cmux DEV tag.app>" --out DIR [--kinds print,spawn,both] [--counts 0,8,24] [--trace]
@@ -64,8 +64,19 @@ def pump_rows(ledger):
     return cross, timer
 
 
+class ReplyError(RuntimeError):
+    """A control call of a measured window failed: its numbers would read as a measurement, so the kind ends."""
+
+
+def checked(reply, method, key):
+    """`reply` when it has `key` and no error (BenchApp.rpc returns {"error": ..., "unreachable": True} on a failure)."""
+    if not isinstance(reply, dict) or reply.get("error") or key not in reply:
+        raise ReplyError("%s: %s" % (method, reply.get("error") if isinstance(reply, dict) else reply))
+    return reply
+
+
 def pump_counters(app):
-    return ((app.rpc("debug.cef") or {}).get("pump") or {})
+    return checked(app.rpc("debug.cef"), "debug.cef", "pump")["pump"]
 
 
 def new_workspace(app, name, command, focus):
@@ -77,7 +88,7 @@ def new_workspace(app, name, command, focus):
 def run_kind(kind):
     env = {}
     trace_file = None
-    if opts.trace and kind == "both":
+    if opts.trace and kind == TRACE_KIND:
         trace_file = os.path.join(opts.out, "chromium-trace.json")
         counts = [int(c) for c in opts.counts.split(",")]
         duration = int(30 + len(counts) * (opts.settle + opts.window + 2 + max(counts) * 0.7))
@@ -106,17 +117,19 @@ def run_kind(kind):
                 time.sleep(0.5)  # test harness: the loop starts while its workspace shows
             new_workspace(app, "quiet-%s-%d" % (kind, count), "/bin/sh -c 'exec sleep 3600'", True)
             time.sleep(opts.settle)  # test harness: the switch settles before the window
-            app.rpc("debug.wakeups", {"reset": True})
+            checked(app.rpc("debug.wakeups", {"reset": True}), "debug.wakeups reset", "ledger")
             before, start = pump_counters(app), uptime_us()
             time.sleep(opts.window)  # the measured window: no calls into the app
-            end = uptime_us()
-            after, ledger = pump_counters(app), app.rpc("debug.wakeups", {}) or {}
+            after = pump_counters(app)
+            ledger = checked(app.rpc("debug.wakeups", {}), "debug.wakeups", "ledger")
+            end = uptime_us()  # the ledger counts from its reset to this read
+            span = max((end - start) / 1e6, 1e-3)
             cross, timer = pump_rows(ledger)
-            row = {"kind": kind, "busy_hidden": count, "build": "debug",
-                   "cross_thread_wakes_per_s": round(sum(cross.values()) / opts.window, 1),
-                   "by_thread": {reason: round(n / opts.window, 1) for reason, n in sorted(cross.items(), key=lambda kv: -kv[1])},
-                   "timer_fires_per_s": {reason: round(n / opts.window, 1) for reason, n in sorted(timer.items(), key=lambda kv: -kv[1])},
-                   "pump_per_s": {k: round(((after.get(k) or 0) - (before.get(k) or 0)) / opts.window, 2)
+            row = {"kind": kind, "busy_hidden": count, "build": "debug", "window_s": round(span, 2),
+                   "cross_thread_wakes_per_s": round(sum(cross.values()) / span, 1),
+                   "by_thread": {reason: round(n / span, 1) for reason, n in sorted(cross.items(), key=lambda kv: -kv[1])},
+                   "timer_fires_per_s": {reason: round(n / span, 1) for reason, n in sorted(timer.items(), key=lambda kv: -kv[1])},
+                   "pump_per_s": {k: round(((after.get(k) or 0) - (before.get(k) or 0)) / span, 2)
                                   for k in ("work_runs", "work_ms", "immediate_requests", "delayed_requests")}}
             rows.append(row)
             windows.append((count, start, end))
@@ -133,8 +146,9 @@ def run_kind(kind):
             RESULT.setdefault("trace", summarize_trace(trace_file, windows))
     except LaunchError as error:
         rows.append({"kind": kind, "error": error.reason})
-    except (RuntimeError, OSError) as error:  # a refused newTab, a lost socket: this kind ends, the report is still written
+    except (RuntimeError, OSError) as error:  # a refused newTab, a failed control reply: this kind ends, the report is still written
         rows.append({"kind": kind, "error": "%s: %s" % (type(error).__name__, error)})
+        print("CEF-PUMP-WAKES " + json.dumps(rows[-1]), flush=True)
     finally:
         app.stop()
     RESULT["kinds"][kind] = rows
@@ -177,10 +191,14 @@ def summarize_trace(path, windows):
     return out
 
 
-for kind in [k for k in opts.kinds.split(",") if k]:
+KINDS = [k for k in opts.kinds.split(",") if k]
+TRACE_KIND = "both" if "both" in KINDS else (KINDS[-1] if KINDS else None)  # --trace records the SWITCH FRAMES loop's launch
+for kind in KINDS:
     run_kind(kind)
 for path in filter(None, [os.path.join(opts.out, "cef-pump-wakes.json"), opts.json]):
     with open(path, "w") as handle:
         json.dump(RESULT, handle, indent=1)
 print("CEF-PUMP-WAKES-REPORT " + json.dumps({k: [{x: r.get(x) for x in ("busy_hidden", "cross_thread_wakes_per_s", "error")} for r in v]
                                             for k, v in RESULT["kinds"].items()}), flush=True)
+measured = [r for v in RESULT["kinds"].values() for r in v if "error" not in r]
+sys.exit(0 if measured else 1)  # no window measured at all: a failed step, never a green one with no data
