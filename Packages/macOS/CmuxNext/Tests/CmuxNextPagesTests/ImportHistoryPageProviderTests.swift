@@ -103,7 +103,8 @@ import Testing
             commands.append(args)
             return [:]
         }
-        let router = PageRouter(descriptor: .importHistory, routes: [PageRoute(prefix: "cmux.importHistory.", provider: provider)])
+        let descriptor = PageDescriptor(id: "cmux.import-history", resource: "import-history", namespaces: ["cmux.importHistory."])
+        let router = PageRouter(descriptor: descriptor, routes: [PageRoute(prefix: "cmux.importHistory.", provider: provider)])
         defer { router.close() }
         router.userGestureEvent = { 1 }
         let begun = await router.handle(["t": "call", "id": 1, "op": "cmux.importHistory.begin", "params": ["batch": "b1"]])
