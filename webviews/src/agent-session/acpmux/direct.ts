@@ -4623,9 +4623,10 @@ export class AcpmuxDirectClient {
     // Another chat's summary sent again unchanged (a busy acpmux re-sends them) changes nothing on
     // this page: no snapshot, no read-ahead. Each one drew the whole pane, so an idle pane rebuilt its
     // transcript and list many times a second (Leo, 2026-11-03: "im at 100% cpu rn"). The pane's own
-    // chat and the chats it started still take every change.
+    // chat, the chat it is waiting to reopen and the chats it started still take every change.
     if (
       session.sessionId !== this.selectedSessionId &&
+      session.sessionId !== this.missingSession &&
       this.sessions.some((item) => item.sessionId === session.sessionId && sameJson(item, session)) &&
       !this.offerChildIds().includes(session.sessionId) &&
       !this.isStartedChild(session)
