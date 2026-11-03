@@ -343,3 +343,19 @@ fn output_flags_are_lifted_but_a_flag_value_stays() {
     assert_eq!(output, OutputMode::Json);
     assert_eq!(request(&["--prompt", "--json", "--wait"]).prompt, "--json");
 }
+
+#[test]
+fn a_session_that_stops_answering_fails_at_once() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
+        exec_out("@@wait 4\n@@history\nno such session\n@@last\n\n@@lastexit 1\n"),
+    ]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--prompt", "x", "--wait"]))
+    else {
+        panic!()
+    };
+    assert_eq!(error["code"], "chat.lost");
+    assert_eq!(fake.ran.len(), 4);
+}

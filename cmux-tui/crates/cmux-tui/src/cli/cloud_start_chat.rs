@@ -540,7 +540,23 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
             }
             return Outcome::Done(answer);
         }
-        if polled.get("wait").map(|code| code.trim()) == Some("2") {
+        // `acp wait` exits 0 (ended), 2 (a permission) or 3 (its own timeout); anything else
+        // (the session gone, acpmux down) with no readable turn is not work still running.
+        let waited = polled.get("wait").map(|code| code.trim().to_owned()).unwrap_or_default();
+        if turn.is_none()
+            && !matches!(waited.as_str(), "0" | "2" | "3")
+            && last_turn(polled.get("history")).is_none()
+        {
+            return failed(
+                "chat.lost",
+                format!(
+                    "the chat's session on the machine does not answer (acp wait exit {waited})"
+                ),
+                json!({"answer": answer, "history": polled.get("history")}),
+                1,
+            );
+        }
+        if waited == "2" {
             return failed(
                 "chat.permission_waiting",
                 "the agent asks for a permission: answer it in the chat's tab in the cmux app, \
@@ -697,7 +713,8 @@ fn report(outcome: &Outcome, output: OutputMode) -> i32 {
         Outcome::Failed { error, exit } => super::wire::print_local_error(error, output, *exit),
         Outcome::Done(answer) if output == OutputMode::Human => {
             match at(answer, "reply").as_str() {
-                Some(reply) => println!("{reply}"),
+                // Text from the machine: no terminal controls reach this terminal.
+                Some(reply) => println!("{}", super::wire::sanitize_remote_text(reply)),
                 None => println!(
                     "Sent to {} on {} (machine:{}).",
                     at(answer, "session_id").as_str().unwrap_or_default(),
