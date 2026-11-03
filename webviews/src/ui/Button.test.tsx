@@ -39,9 +39,7 @@ afterEach(() => {
 
 test("buttonClass defaults to a medium secondary button", () => {
   expect(buttonClass()).toBe("ui-btn ui-btn-secondary ui-btn-md");
-  expect(buttonClass({ variant: "primary", size: "lg", className: "x" })).toBe(
-    "ui-btn ui-btn-primary ui-btn-lg x",
-  );
+  expect(buttonClass({ variant: "primary", size: "lg", className: "x" })).toBe("ui-btn ui-btn-primary ui-btn-lg x");
 });
 
 test("Button is a native button that never submits by accident", () => {
