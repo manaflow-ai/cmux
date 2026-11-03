@@ -111,6 +111,11 @@ export interface NativePopupRow {
   slider?: NativePopupSlider;
   completion?: string;
   editSequence?: number;
+  /**
+   * The trailing item of a row whose `children` open beside it (a model's effort column: its
+   * level, then a chevron), or a submenu's current value before its chevron.
+   */
+  sideLabel?: string;
   /** A rail tab's agent mark (a brand, agent or provider id the native brand catalog knows). */
   mark?: string;
   /** A rail tab's text mark when it has no `mark` (its name's initial, or an emoji icon). */

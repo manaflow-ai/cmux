@@ -21,8 +21,8 @@ extension NativePopupContent {
         if key == 123 || key == 124, model?.rail?.isEmpty == false {
             // Right opens a highlighted row's side dropdown; otherwise Left and Right step the rail,
             // and the page picks the tab (its tabs are not rows: Up and Down stay in the list).
-            if key == 124, let (row, view) = enabled.first(where: { $0.0.id == selected }), row.kind == .submenu {
-                activate(row, view: view)
+            if key == 124, let (row, view) = enabled.first(where: { $0.0.id == selected }), row.opensChildren {
+                openSubmenu(row, view)
                 return true
             }
             emit(.navigate, nil, key == 124 ? "next" : "previous")
@@ -41,7 +41,8 @@ extension NativePopupContent {
             return true
         }
         if [36, 76, 49, 124].contains(key), let (row, view) = (enabled + enabledRailRows).first(where: { $0.0.id == selected }) {
-            if key != 124 || row.kind == .submenu { activate(row, view: view); return true }
+            if key == 124, row.opensChildren { openSubmenu(row, view); return true }
+            if key != 124 { activate(row, view: view); return true }
         }
         return false
     }

@@ -206,8 +206,8 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
             editableControls[row.id] = view.slider
             return view
         }
+        // One right-hand column: controls, the side item, accessory actions, then the key.
         var trailing: [NSView] = []
-        if let shortcut = row.shortcut { trailing.append(PopupRowView.shortcut(shortcut)) }
         if row.kind == .toggle {
             let control = NSSwitch()
             control.state = row.checked == true ? .on : .off
@@ -255,6 +255,9 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
             editableControls[row.id] = slider
             trailing.append(slider)
         }
+        if row.kind == .action, row.opensChildren {
+            trailing.append(sideItem(for: row))
+        }
         for action in row.actions ?? [] {
             let button = NSButton(title: action.label, target: nil, action: nil)
             button.isBordered = false
@@ -265,8 +268,9 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
             editableControls[action.id] = button
             trailing.append(button)
         }
+        if let shortcut = row.shortcut { trailing.append(PopupRowView.shortcut(shortcut)) }
         if row.kind == .submenu {
-            trailing.append(PopupRowView.shortcut("›"))
+            trailing.append(PopupRowView.shortcut([row.sideLabel, "›"].compactMap(\.self).joined(separator: " ")))
         }
         let accessory = trailing.isEmpty ? nil : NSStackView(views: trailing)
         accessory?.orientation = .horizontal

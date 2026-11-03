@@ -11,6 +11,21 @@ extension NativePopupContent {
         control.action = #selector(NativePopupControlTarget.controlChanged(_:))
     }
 
+    /// A row's side item (a model's effort column): its label and a chevron; a click opens the
+    /// row's children beside it, without picking the row.
+    func sideItem(for row: NativePopupRow) -> NSButton {
+        let button = NSButton(title: [row.sideLabel, "›"].compactMap(\.self).joined(separator: " "), target: nil, action: nil)
+        button.isBordered = false
+        button.font = Typography.body
+        button.isEnabled = row.disabled != true
+        button.setAccessibilityLabel([row.label, row.sideLabel].compactMap(\.self).joined(separator: ", "))
+        bind(button) { [weak self] _ in
+            guard let self, let view = rowView(id: row.id) else { return }
+            openSubmenu(row, view)
+        }
+        return button
+    }
+
     func activate(_ row: NativePopupRow, view: NSView) {
         guard row.disabled != true, owns(view) else { return }
         if let slider = view as? NativePopupSliderView { slider.slider.commitValue(true) }

@@ -162,6 +162,34 @@ import Testing
         #expect(content.rowView(id: "effort") !== dragged)
     }
 
+    /// A model row with its effort levels: Return picks the model, Right or its side item opens the
+    /// levels beside it, and its trailing column reads effort, star, then the key.
+    @Test func actionRowWithLevelsOpensThemBesideIt() throws {
+        let content = NativePopupContent(frame: NSRect(x: 0, y: 0, width: 320, height: 10))
+        var model = Self.model(.symbols)
+        model.rows[0].sideLabel = "Medium"
+        model.rows[0].actions = [NativePopupAction(id: "star", label: "☆", keepOpen: true)]
+        model.rows[0].children = [NativePopupRow(id: "low", kind: .action, label: "Low"),
+                                  NativePopupRow(id: "medium", kind: .action, label: "Medium", checked: true)]
+        #expect(model.isValid)
+        var picked: [String?] = []
+        var opened: [String] = []
+        content.emit = { type, id, _ in if type == .pick { picked.append(id) } }
+        content.openSubmenu = { row, _ in opened.append(row.id) }
+        content.update(model)
+        #expect(content.handleKey(124) && opened == ["model"] && picked.isEmpty)
+        #expect(content.handleKey(36) && picked == ["model"])
+        let row = try #require(content.rowView(id: "model") as? PopupRowView)
+        let stack = try #require(row.trailingView as? NSStackView)
+        let titles = stack.arrangedSubviews.map { ($0 as? NSButton)?.title ?? ($0 as? ThemedLabel)?.stringValue }
+        #expect(titles == ["Medium ›", "☆", "⌘1"])
+        (stack.arrangedSubviews.first as? NSButton)?.performClick(nil)
+        #expect(opened == ["model", "model"] && picked == ["model"])
+        var bad = model
+        bad.rows[0].children = nil
+        #expect(!bad.isValid, "a side label belongs to a row that opens children")
+    }
+
     private static func tabs(_ content: NSView) -> [NativePopupRailTab] {
         content.subviews.flatMap { view -> [NativePopupRailTab] in
             (view as? NativePopupRailTab).map { [$0] } ?? tabs(view)

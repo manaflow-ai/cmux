@@ -36,7 +36,10 @@ mark of a harness with no symbol. The page chooses the placement, the tabs, thei
 and the checked one; native only lays them out. Up and Down stay in the list; Left and
 Right (on the list, or on an empty search field) send `navigate` with `next` or
 `previous`, and the page picks the tab, except that Right on a highlighted submenu row
-opens it. An update that would rebuild the rows while AppKit tracks a slider waits for
+opens it. An action row with `children` is a model row with its effort side dropdown:
+a click or Return picks it, while its trailing item (`sideLabel` and a chevron) or Right
+opens the levels beside it; a row's trailing column reads controls, that item,
+accessory actions, then its key. An update that would rebuild the rows while AppKit tracks a slider waits for
 the release, so a drag never loses its control.
 
 The shared `Glass.makeOverlayPanel` owns the material. A popup's transparent child
