@@ -184,7 +184,12 @@ import Testing
 
         private func pass() async {
             await Task.yield()
-            // One main run-loop pass, with its before-waiting observers (the frame commit's stage).
+            Self.runLoopPass()
+        }
+
+        /// One main run-loop pass, with its before-waiting observers (the frame commit's stage). Synchronous: the
+        /// run loop cannot be run from an async context directly.
+        private static func runLoopPass() {
             _ = CFRunLoopRunInMode(.defaultMode, 0.001, false)
         }
 
