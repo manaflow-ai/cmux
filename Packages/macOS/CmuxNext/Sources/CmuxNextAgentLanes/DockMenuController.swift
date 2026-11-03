@@ -188,10 +188,11 @@ public nonisolated struct DockMenuChoices: Equatable, Sendable {
 
     public static let empty = DockMenuChoices()
 
-    /// Harnesses with no known problem, by id; machines that are ready, listed only when there
+    /// Chat harnesses (not `terminal`) with no known problem, by id; machines that are ready, listed only when there
     /// is one besides this Mac.
     @MainActor public static func make(harnesses: [AcpmuxHarnessRow], machines: [AgentChatDestinations.Destination]) -> DockMenuChoices {
-        let usable = harnesses.filter { $0.problem == nil }.sorted { $0.id < $1.id }
+        // A terminal harness opens a terminal, not a chat (#33727).
+        let usable = harnesses.filter { $0.problem == nil && $0.kind != "terminal" }.sorted { $0.id < $1.id }
             .map { Choice(id: $0.id, title: $0.name ?? harnessTitle($0.id)) }
         let ready = machines.filter { $0.isReady && $0.route != .pending }.map { Choice(id: $0.id, title: $0.title) }
         return DockMenuChoices(harnesses: usable, machines: ready.count > 1 ? ready : [])
