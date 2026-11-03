@@ -6,6 +6,7 @@
 // sender's harness mark, or the messages glyph when several sessions sent), the count as the
 // summary, the senders muted and cut after it, then the chevron, shown and lit only while the row is
 // hovered, focused or open. design/chat-transcript.md "One icon column".
+import type { ReactNode } from "react";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { ChevronRight } from "./icons";
@@ -45,6 +46,7 @@ export function MessageGroupHead({
   className,
   iconClassName,
   ariaLabel,
+  mark,
 }: {
   /// The group's one sender; none when several sessions sent.
   sender?: IncomingMessage;
@@ -59,6 +61,9 @@ export function MessageGroupHead({
   className?: string;
   iconClassName?: string;
   ariaLabel?: string;
+  /// The glyph in place of the sender's: a fold of tools' notices shows its strongest severity's
+  /// (LaneNoticeBatch.tsx), so a fire is never folded out of sight.
+  mark?: ReactNode;
 }) {
   const look = useInboxNoticeLook();
   return (
@@ -78,7 +83,7 @@ export function MessageGroupHead({
       onClick={onToggle}
     >
       <span className={`cv-tool__icon${iconClassName ? ` ${iconClassName}` : ""}`} aria-hidden="true">
-        {sender ? <SenderMark message={sender} /> : <Icon name="agent.chat" size={ROW_ICON} row />}
+        {mark ?? (sender ? <SenderMark message={sender} /> : <Icon name="agent.chat" size={ROW_ICON} row />)}
       </span>
       <span className="cv-tool__text">
         <span className="cv-message-group__count">{count}</span>

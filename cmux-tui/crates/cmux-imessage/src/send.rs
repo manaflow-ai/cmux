@@ -118,20 +118,30 @@ impl CommandRunner for SystemRunner {
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()?;
+        // Drain stderr while the child runs: a child that fills the pipe buffer would otherwise
+        // block before it exits. The reader thread ends when the pipe closes (the child exits
+        // or is killed below).
+        let reader = child.stderr.take().map(|mut pipe| {
+            std::thread::spawn(move || {
+                use std::io::Read;
+                let mut bytes = Vec::new();
+                let _ = pipe.read_to_end(&mut bytes);
+                String::from_utf8_lossy(&bytes).into_owned()
+            })
+        });
+        let collect = |reader: Option<std::thread::JoinHandle<String>>| {
+            reader.and_then(|handle| handle.join().ok()).unwrap_or_default()
+        };
         let deadline = Instant::now() + SEND_TIMEOUT;
         loop {
             if let Some(status) = child.try_wait()? {
-                let mut stderr = String::new();
-                if let Some(mut pipe) = child.stderr.take() {
-                    use std::io::Read;
-                    let _ = pipe.read_to_string(&mut stderr);
-                }
-                return Ok(CommandOutput { success: status.success(), stderr });
+                return Ok(CommandOutput { success: status.success(), stderr: collect(reader) });
             }
             if Instant::now() >= deadline {
                 // Our own child: stop it and reap it so nothing is left behind.
                 let _ = child.kill();
                 let _ = child.wait();
+                let _ = collect(reader);
                 return Err(std::io::Error::new(ErrorKind::TimedOut, "osascript timed out"));
             }
             std::thread::sleep(Duration::from_millis(50));
@@ -182,13 +192,25 @@ pub fn send(request: &SendRequest, runner: &dyn CommandRunner) -> Result<(), Sen
         return Ok(());
     }
     let detail = output.stderr.trim().to_string();
-    Err(if detail.contains(ERR_NOT_AUTHORIZED) {
-        SendError::NotPermitted(detail)
-    } else if detail.contains(ERR_NO_SUCH_OBJECT) {
-        SendError::InvalidChat(detail)
-    } else {
-        SendError::Failed(detail)
+    let code = terminal_error_code(&detail).map(str::to_owned);
+    Err(match code.as_deref() {
+        Some(ERR_NOT_AUTHORIZED) => SendError::NotPermitted(detail),
+        Some(ERR_NO_SUCH_OBJECT) => SendError::InvalidChat(detail),
+        _ => SendError::Failed(detail),
     })
+}
+
+/// The AppleScript error code osascript ends its diagnostic with (`... (-1743)`), so a code
+/// quoted earlier in the message (inside a chat id, say) never decides the mapping.
+fn terminal_error_code(detail: &str) -> Option<&str> {
+    let trimmed = detail.trim_end();
+    let inner = trimmed.strip_suffix(')')?;
+    let open = inner.rfind('(')?;
+    let digits = inner.get(open..)?.strip_prefix("(-")?;
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    trimmed.get(open..=inner.len())
 }
 
 /// `service;-;handle` (1:1) or `service;+;room` (group), with no control characters, and not
