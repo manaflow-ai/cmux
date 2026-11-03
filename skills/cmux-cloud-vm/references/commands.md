@@ -231,8 +231,8 @@ cmux cloud start-session --name dev --agent codex --cwd /home/cmux/work     # ta
 ```
 
 `start-chat` is `start-session` plus the prompt and, with `--wait`, the reply: it
-answers `reply` (with `--wait`), `machine_id`, `session_id`, `workspace_id`, `tab_id`,
-`surface_id` and `follow_up`, the `cloud exec` commands that send, wait and read on
+answers `reply` (with `--wait`), `machine_id`, `session_id`, `workspace_id`, `tab_id`
+and `follow_up`, the `cloud exec` commands that send, wait and read on
 that chat in the machine's own acpmux (`cmux-tui acp send|wait|last SESSION_ID`).
 
 `start-session` answers `machine_id`, `session_id` and `host` (the machine's

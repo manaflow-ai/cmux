@@ -25,8 +25,8 @@ cmux cloud start-chat --prompt 'Summarize README.md' --wait --json
 
 It starts an agent chat (`--agent claude` by default, or `codex`, ...) on a Cloud
 machine, sends the prompt and, with `--wait`, waits for the turn to end and answers
-`reply` with `machine_id`, `machine_name`, `session_id`, `workspace_id`, `tab_id`
-and `surface_id`. The chat opens as a tab in the machine's workspace in the app, so
+`reply` with `machine_id`, `machine_name`, `session_id`, `workspace_id` and
+`tab_id`. The chat opens as a tab in the machine's workspace in the app, so
 the person can read it. Without `--wait` it answers once the prompt is sent.
 
 - Which machine: `--name NAME` takes the machine with that name, or creates it;
