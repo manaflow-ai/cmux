@@ -16,6 +16,7 @@ fn call(command: AppCommand) -> (&'static str, Value) {
         | AppCommand::DebugCall { .. }
         | AppCommand::Screenshot { .. }
         | AppCommand::Right { .. }
+        | AppCommand::Renderers { .. }
         | AppCommand::Settings(_)
         | AppCommand::Nightly(_)
         | AppCommand::Version => {
@@ -1130,6 +1131,7 @@ fn only_a_confirmed_settings_write_waits_without_a_deadline() {
         | AppCommand::DebugCall { .. }
         | AppCommand::Screenshot { .. }
         | AppCommand::Right { .. }
+        | AppCommand::Renderers { .. }
         | AppCommand::Settings(_)
         | AppCommand::Nightly(_)
         | AppCommand::Version => {

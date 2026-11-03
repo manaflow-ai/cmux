@@ -16,6 +16,7 @@ import { SessionCwdContext } from "../turnChanges/sessionRows";
 import { EditDiff } from "./EditDiff";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
+import { ApprovedMark } from "./ApprovedMark";
 import { RowShimmer } from "./ShimmerText";
 import { toolDuration } from "./toolGroups";
 import { cleanText } from "./mcpCalls";
@@ -27,7 +28,7 @@ import { WriteLabel, writeCall } from "./WriteLabel";
 import { ToolLabel } from "./ToolVerb";
 import { callOutput, rowFailed, toolFailure } from "./toolFailure";
 import { RepoRecoveryCard, repoRecoveryFor } from "./RepoRecoveryCard";
-import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
+import { failureWord, InlineFailureCause, ToolFailureCause, useInStep } from "./ToolFailureCause";
 import { Check, ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
 
 /// ACP tool kinds (`ToolKind`) to row glyphs.
@@ -58,6 +59,7 @@ export function toolIcon(kind?: string): ReactNode {
 // context changes (Find, language, cwd) still reach this component through React's subscriptions.
 export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity }) {
   const t = useT();
+  const step = useInStep();
   // Closed, or open in the Verbose transcript view.
   const [open, setOpen] = useRowDisclosure(item.tool?.id);
   // Find in Chat counts matches in the whole output, so a call it reveals shows all of it.
@@ -147,20 +149,22 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
         {failure && (
           <span className="cv-tool__failed" data-find-skip>
             {" "}
-            {failureWord(t, failure)}
+            {failureWord(t, failure, step)}
           </span>
         )}
         <InlineFailureCause failure={failure} />
       </span>
       {background ? (
         <span className="cv-command__meta cv-tool__meta">
+          {tool.approved && <ApprovedMark />}
           <BackgroundMark background={background} />
           {duration && <span className="cv-command__time">{duration}</span>}
         </span>
       ) : (
-        !foreground && (
+        (!foreground || tool.approved) && (
           <span className="cv-command__meta">
-            {!failed && <Check size={14} className="cv-command__ok" />}
+            {tool.approved && <ApprovedMark />}
+            {!foreground && !failed && <Check size={14} className="cv-command__ok" />}
             {duration && <span className="cv-command__time">{duration}</span>}
           </span>
         )
