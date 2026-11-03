@@ -4,8 +4,9 @@ import CoreServices
 import Foundation
 
 /// The shared platform calls used by the existing permission probe and opener.
-public nonisolated enum SystemPermissionAccess {
-    public static func capture(_ status: AVAuthorizationStatus) -> PermissionStatus {
+public nonisolated struct SystemPermissionAccess: Sendable {
+    public init() {}
+    public func capture(_ status: AVAuthorizationStatus) -> PermissionStatus {
         switch status {
         case .authorized: .granted
         case .denied, .restricted: .denied
@@ -16,7 +17,7 @@ public nonisolated enum SystemPermissionAccess {
 
     /// Opens the user's TCC database for reading: only a process with Full
     /// Disk Access may. A missing file says nothing.
-    @concurrent nonisolated public static func fullDiskAccess() async -> PermissionStatus {
+    @concurrent nonisolated public func fullDiskAccess() async -> PermissionStatus {
         let path = FileManager.default.homeDirectoryForCurrentUser
             .appending(path: "Library/Application Support/com.apple.TCC/TCC.db").path
         let fd = open(path, O_RDONLY)
@@ -28,7 +29,7 @@ public nonisolated enum SystemPermissionAccess {
     }
 
     /// Automation of `bundleID`; with `ask` macOS shows its one prompt (only after Continue).
-    @concurrent nonisolated public static func automation(of bundleID: String, ask: Bool) async -> PermissionStatus {
+    @concurrent nonisolated public func automation(of bundleID: String, ask: Bool) async -> PermissionStatus {
         let target = NSAppleEventDescriptor(bundleIdentifier: bundleID)
         guard let desc = target.aeDesc else { return .unknown }
         let status = AEDeterminePermissionToAutomateTarget(desc, typeWildCard, typeWildCard, ask)

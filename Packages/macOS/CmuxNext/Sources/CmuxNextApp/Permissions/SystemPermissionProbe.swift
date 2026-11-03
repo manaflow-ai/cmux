@@ -35,14 +35,14 @@ final class SystemPermissionProbe: PermissionProbe {
             let granted = kind.grants.allSatisfy { $0 == .accessibility ? held.accessibility : held.screenRecording }
             return granted ? .granted : .denied
         case .fullDiskAccess:
-            return await SystemPermissionAccess.fullDiskAccess()
+            return await SystemPermissionAccess().fullDiskAccess()
         case .camera:
-            return SystemPermissionAccess.capture(AVCaptureDevice.authorizationStatus(for: .video))
+            return SystemPermissionAccess().capture(AVCaptureDevice.authorizationStatus(for: .video))
         case .microphone:
-            return SystemPermissionAccess.capture(AVCaptureDevice.authorizationStatus(for: .audio))
+            return SystemPermissionAccess().capture(AVCaptureDevice.authorizationStatus(for: .audio))
         case .automation:
             guard let target else { return .unknown }
-            return await SystemPermissionAccess.automation(of: target, ask: false)
+            return await SystemPermissionAccess().automation(of: target, ask: false)
         }
     }
 
