@@ -51,17 +51,20 @@ def a_width(k, variant):
             return float(A_REST)
         g = float(jp.spring_g(t, SPRING["response"], SPRING["damping"]))
         return A_REST + 40 * (1 - g)
-    return float(A_REST + 2 * min(max(k - MOVE[0] + 1, 0), MOVE[1] - MOVE[0]))
+    sign = -1 if variant in ("cut", "backdrop") else 1  # pane A shrinks, pane B grows
+    return float(A_REST + sign * 2 * min(max(k - MOVE[0] + 1, 0), MOVE[1] - MOVE[0]))
 
 
-def draw_tui(img, x0, w):
-    """tui_border.py's picture in a terminal view [x0, x0 + w) x [0, H) (device px)."""
+def draw_tui(img, x0, w, picture_w=None):
+    """tui_border.py's picture in a terminal view [x0, x0 + w) x [0, H) (device px). picture_w: the view width the
+    program last drew for (a grid that shrank before the redraw: the picture is cut at the new grid's edge)."""
     x0, w = int(round(x0)), int(round(w))
     img[:, x0:x0 + w] = CYAN
-    cols, rows = (w - 2 * PAD) // CW, (H - 2 * PAD) // CH
+    cols, rows = (int(round(picture_w or w)) - 2 * PAD) // CW, (H - 2 * PAD) // CH
+    shown = (w - 2 * PAD) // CW
     ring = [RED, WHITE, BLACK]
     for r in range(rows):
-        for c in range(cols):
+        for c in range(min(cols, shown)):
             k = min(r, c, rows - 1 - r, cols - 1 - c)
             color = ring[k] if k < 3 else YELLOW
             img[PAD + r * CH:PAD + (r + 1) * CH, x0 + PAD + c * CW:x0 + PAD + (c + 1) * CW] = color
@@ -92,7 +95,7 @@ def frame(k, variant):
     a_view = aw
     if variant == "gap2" and 20 <= k <= 25:
         a_view = aw - 2  # A's content stops 2 px short: the shell shows
-    draw_tui(img, 0, a_view)
+    draw_tui(img, 0, a_view, picture_w=a_width(max(s - 3, 0), variant) if variant == "cut" else None)
     b_x = aw + DIV_PX
     if variant == "lag1":
         b_x = a_width(max(k - 2, 0), variant) + DIV_PX  # B's page one frame late
@@ -101,6 +104,11 @@ def frame(k, variant):
         cols = (int(round(aw)) - 2 * PAD) // CW
         b_x = PAD + (cols - 1) * CW
     draw_page(img, b_x, W - b_x)
+    if variant == "backdrop" and 15 <= k <= 18:
+        # B grows and its page is one frame late, with its backdrop: B's own green from its pane edge to its late rings.
+        late = a_width(max(k - 2, 0), variant) + DIV_PX
+        draw_page(img, late, W - late)
+        img[:, int(round(b_x)):int(round(late))] = GREEN
     return img
 
 
@@ -155,11 +163,19 @@ def entries(report, label, line, which):
             if e["label"] == label and e["line"] == line and e["side"] == which}
 
 
+def divider(report, line):
+    for s in report["summary"].values():
+        if s["what"] == "divider" and s["line"] == line:
+            return s
+    raise AssertionError(f"no divider on {line} in {sorted(report['summary'])}")
+
+
 class JudgePixelTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.mkdtemp(prefix="judge-pixel-")
-        cls.reports = {v: jp.judge(build(cls.tmp, v, v)) for v in ("clean", "lag1", "gap2", "hidden", "spring", "spring-slow")}
+        cls.reports = {v: jp.judge(build(cls.tmp, v, v)) for v in ("clean", "lag1", "gap2", "hidden", "spring", "spring-slow", "cut",
+                                                                    "backdrop")}
 
     @classmethod
     def tearDownClass(cls):
@@ -239,6 +255,46 @@ class JudgePixelTests(unittest.TestCase):
         self.assertGreater(slow["spring_trace"]["max_px"], 3.0)
         self.assertIn("off the spring curve", [f["check"] for f in self.reports["spring-slow"]["findings"]])
 
+    def test_divider_follows_the_trace(self):
+        clean = divider(self.reports["clean"], "row@110")
+        self.assertEqual(clean["label"], "divider p0|p1")
+        self.assertEqual(clean["max_edge_dev_px"], 0.0)
+        self.assertEqual(clean["max_lag_frames"], 0)
+        self.assertEqual([m["travel_px"] for m in clean["motions"]], [40.0])
+        # B over A's ring 1: A's edge shows at B's ring 1 (-26 px), B's 32 px left of its pane edge: the middle, -29 px.
+        self.assertEqual(divider(self.reports["hidden"], "row@110")["max_edge_dev_px"], -29.0)
+        self.assertIn("divider off", [f["check"] for f in self.reports["hidden"]["findings"]])
+        good = divider(self.reports["spring"], "row@110")["motions"][0]
+        self.assertLessEqual(good["spring_trace"]["max_px"], 0.05)
+        self.assertLessEqual(good["spring_film"]["max_px"], 0.75)
+
+    def test_rings_found_past_a_page_backdrop(self):
+        r = self.reports["backdrop"]
+        hits = entries(r, "p1", "row@110", "lo")
+        late = sorted(f for f, e in hits.items() if e.get("beyond") == "fill")
+        self.assertEqual(late, [15, 16, 17, 18])
+        self.assertEqual({hits[f]["edge_dev"] for f in late}, {2.0})
+        self.assertEqual({hits[f]["beyond_px"] for f in late}, {2.0})
+        self.assertFalse(any(hits[f].get("hidden") for f in late))
+        self.assertEqual(side(r, "p1", "row@110", "lo")["hidden_ring_frames"], 0)
+
+    def test_rings_cut_when_the_grid_shrank_first(self):
+        r = self.reports["cut"]
+        a_hi = side(r, "p0", "row@110", "hi")
+        self.assertGreater(a_hi["cut_ring_frames"], 0)
+        self.assertEqual(a_hi["hidden_ring_frames"], 0)
+        self.assertEqual(a_hi["max_edge_dev_px"], 0.0)  # the terminal view itself keeps up
+        self.assertIn("rings cut", [f["check"] for f in r["findings"]])
+        hits = entries(r, "p0", "row@110", "hi")
+        cut = [e for e in hits.values() if e.get("cut")]
+        self.assertTrue(all(e["rings"][0] == 0 and e["strip"] > 0 for e in cut), cut[:2])
+
+    def test_whole_cell_remainder(self):
+        r = self.reports["clean"]
+        a_hi = side(r, "p0", "row@110", "hi")
+        self.assertEqual(a_hi["remainder_max_px"], 14.0)  # 16 px cells: the remainder runs 0..14 px as the pane grows 2 px a sample
+        self.assertEqual(side(r, "p0", "row@110", "lo")["rest"]["strip"], 4.0)
+
     def test_markdown_and_cli(self):
         base = Path(self.tmp) / "gap2"
         out, md = Path(self.tmp) / "gap2.json", Path(self.tmp) / "gap2.md"
@@ -248,7 +304,7 @@ class JudgePixelTests(unittest.TestCase):
         self.assertIn("gap", done.stdout)
         self.assertEqual(json.loads(out.read_text())["case"], "gap2")
         lines = md.read_text().splitlines()
-        self.assertTrue(lines[0].startswith("| case | pane | side | line |"))
+        self.assertTrue(lines[0].startswith("| case | what | side | line |"))
         self.assertTrue(any(l.startswith("| gap2 | p0 (tui) | hi | row@180 |") and "| 2 |" in l for l in lines), lines)
 
 
