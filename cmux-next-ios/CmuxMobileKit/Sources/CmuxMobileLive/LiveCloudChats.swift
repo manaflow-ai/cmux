@@ -156,7 +156,10 @@ public final class CloudChatRelay {
             cwd: session.cwd, workspaceTitle: machine.name, macName: machine.name,
             status: session.summaryStatus, macID: macID
         )
-        let store = AgentChatStore(source: hub.source(sessionID: sessionID, summary: summary))
+        // This Cloud carrier intentionally has no permission_respond or question-answer method.
+        // Keep the shared chat screen's actionable controls reserved for local Mac chats.
+        let store = AgentChatStore(source: hub.source(sessionID: sessionID, summary: summary),
+                                   canAnswerPendingRequests: false)
         stores[sessionID] = store
         return store
     }
