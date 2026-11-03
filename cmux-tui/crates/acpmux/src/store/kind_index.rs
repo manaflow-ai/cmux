@@ -64,6 +64,7 @@ pub const INDEXED_KINDS: &[&str] = &[
     // A log load's restored inbox (`hub/inbox.rs` `restore_inbox`).
     "inbox",
     "inbox_noticed",
+    "inbox_returned",
     "inbox_answered",
     "inbox_read",
     "inbox_removed",
