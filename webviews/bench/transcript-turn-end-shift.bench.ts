@@ -315,8 +315,8 @@ async function round(browser: Browser, url: string): Promise<Round> {
     await page.locator(LIVE).waitFor({ timeout: 60_000 });
     await page.mouse.move(0, 0);
     await rest(page);
-    const SCEN = process.env.SCENARIO ?? "mine";
-    if (SCEN !== "mine") {
+    const SCEN = process.env.SCENARIO ?? "live";
+    if (SCEN === "end") {
       for (const part of REPLY) emit("in", "agent_message_chunk", chunk(part));
       await page.getByText("Final reply marker.").waitFor();
       await rest(page);
@@ -360,7 +360,7 @@ async function round(browser: Browser, url: string): Promise<Round> {
     if (SCEN !== "end")
       emit("mux", "user_message", fromAgent("m-1", "The reviewer found one more retry loop in the upload queue."));
     await paint(page, 8);
-    for (const part of SCEN === "mine" ? REPLY : []) {
+    for (const part of SCEN === "end" ? [] : REPLY) {
       emit("in", "agent_message_chunk", chunk(part));
       await paint(page, 3);
     }
