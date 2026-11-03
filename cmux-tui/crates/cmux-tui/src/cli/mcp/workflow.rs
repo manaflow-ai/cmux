@@ -92,6 +92,9 @@ pub(super) fn run(global: GlobalArgs, run_id: String, generation: u64) -> i32 {
             claim["args"].clone(),
             server.script_limits,
             &mut |request| {
+                if let Some(message) = &fatal {
+                    return refused("workflow.host", message);
+                }
                 let answer = handle(
                     &mut server,
                     &proof,
