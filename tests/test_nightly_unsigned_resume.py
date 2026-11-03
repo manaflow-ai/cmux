@@ -78,6 +78,18 @@ class ResumeTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.receipt()
 
+    def test_a_daemon_from_its_own_build_job_is_accepted(self):
+        daemon = next(a for a in self.artifacts if a["name"] == "cmux-nightly-remote-daemon")
+        daemon["created_at"] = "2026-10-16T00:00:30Z"
+        with self.assertRaises(SystemExit):
+            self.receipt()
+        self.jobs.append({"name": resume.DAEMON_BUILDER, "run_attempt": 1, "conclusion": "success",
+                          "started_at": "2026-10-16T00:00:00Z", "completed_at": "2026-10-16T00:00:45Z"})
+        self.assertEqual(self.receipt()["artifacts"]["cmux-nightly-remote-daemon"], daemon)
+        self.jobs[-1]["conclusion"] = "failure"
+        with self.assertRaises(SystemExit):
+            self.receipt()
+
     def test_each_untrusted_or_incomplete_source_is_rejected(self):
         for field, value in (("event", "pull_request"), ("head_branch", "feature"), ("run_attempt", 2),
                              ("path", ".github/workflows/evil.yml"), ("status", "in_progress"),

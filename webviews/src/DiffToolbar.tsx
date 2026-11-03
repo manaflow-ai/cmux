@@ -1,8 +1,10 @@
 // Diff toolbar controls: the source menu pill, the jump-to-file palette, the
 // floating toolbar pill and its "..." options menu. State lives in App; the
 // models (what each control shows and does) are in toolbar-model.ts.
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useScrollEdges } from "./ui/scrollEdges";
+import "./ui/popupSurface.css";
 import type { DiffItem } from "./diff-stream";
 import { Icon, type IconName } from "./icons";
 import type { DiffViewerLabelResolver } from "./labels";
@@ -122,6 +124,14 @@ export function SourceMenu({
 }) {
   const [open, setOpen] = useState(false);
   const [committedOpen, setCommittedOpen] = useState(false);
+  const submenuEdges = useScrollEdges();
+  const submenuRef = useCallback(
+    (node: HTMLElement | null) => {
+      submenuEdges(node);
+      focusFirstMenuItem(node);
+    },
+    [submenuEdges],
+  );
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const menuId = useId();
@@ -214,8 +224,8 @@ export function SourceMenu({
                         </button>
                         {committedOpen ? (
                           <div
-                            ref={focusFirstMenuItem}
-                            className="toolbar-menu toolbar-submenu"
+                            ref={submenuRef}
+                            className="toolbar-menu toolbar-submenu ui-scroll-edge-fade"
                             role="menu"
                             tabIndex={-1}
                             aria-label={entryText(entry)}
@@ -325,6 +335,7 @@ export function JumpToFilePalette({
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const paletteRef = useRef<HTMLDivElement | null>(null);
   const listboxId = useId();
+  const listEdges = useScrollEdges();
   const style = useAnchoredPopover(open, buttonRef, 440);
   useDismissOnOutsidePress(open, [buttonRef, paletteRef], () => setOpen(false));
   if (items.length === 0) {
@@ -414,8 +425,14 @@ export function JumpToFilePalette({
                   }}
                 />
               </div>
-              {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-              <div id={listboxId} className="jump-palette-list" role="listbox" aria-label={label("jumpToFile")}>
+              <div
+                ref={listEdges}
+                id={listboxId}
+                className="jump-palette-list ui-scroll-edge-fade"
+                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                role="listbox"
+                aria-label={label("jumpToFile")}
+              >
                 {rows.length === 0 ? (
                   <div className="jump-palette-status">{label("jumpToFileNoMatches")}</div>
                 ) : (

@@ -511,6 +511,26 @@ export type AccountsTeamList = {
   empty: string | null;
   create: AccountsTeamForm | null;
   notice: { kind: "success" | "neutral" | "danger" | "attention"; text: string } | null;
+  /** Invitations to the person; null when there are none. */
+  received: AccountsReceivedInvitations | null;
+};
+
+/** One invitation addressed to the person: `accept` runs `team.accept`, `decline` runs
+ * `team.decline`, each with the invitation's id as `team`. */
+export type AccountsReceivedInvitation = {
+  id: string;
+  team: string;
+  detail: string;
+  expires: string | null;
+  accept: AccountsButton;
+  decline: AccountsButton;
+};
+
+/** Invitations to You: the teams that invited one of the person's verified emails. */
+export type AccountsReceivedInvitations = {
+  title: string;
+  rows: AccountsReceivedInvitation[];
+  error: string | null;
 };
 
 /** The Accounts part as the host draws it (texts already localized by the app). */

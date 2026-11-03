@@ -460,6 +460,8 @@ pub enum Command {
     #[command(hide = true)]
     TagCmd { session: String, assignments: Vec<String>, remove: Vec<String>, ttl: Option<u64> },
     #[command(hide = true)]
+    SessionSearch(crate::cli::session_search::SearchArgs),
+    #[command(hide = true)]
     RulesCmd { session: String, rules: Option<String>, clear: bool },
     #[command(hide = true)]
     LimitsCmd { session: String, max: Option<u32>, clear: bool },
@@ -551,6 +553,7 @@ pub enum Command {
         leave_dirty: bool,
         cwd: Option<String>,
         dry_run: bool,
+        from: Option<String>,
     },
     #[command(hide = true)]
     Transfer {
@@ -600,7 +603,9 @@ pub enum Command {
         #[arg(long)]
         show_token: bool,
         /// Set a daemon host-wide setting as KEY=VALUE (for example,
-        /// `session.memory_mb=6144`, `session.swap_mb=2048`,
+        /// `permissions.default=yolo` (yolo, standard, ask or default) for the
+        /// permission mode every new chat starts in, `permissions.codex=ask` for
+        /// one harness, `session.memory_mb=6144`, `session.swap_mb=2048`,
         /// `session.tasks_max=8192`, `session.sessions_tasks_max=131072` or
         /// `session.cpu_class=normal`).
         #[arg(long, value_name = "KEY=VALUE")]
@@ -958,6 +963,11 @@ pub enum SessionCmd {
         /// Say where each chat would go and change nothing.
         #[arg(long)]
         dry_run: bool,
+        /// The machine the chats are on, when not this one: this machine drives the move over
+        /// ssh to it and to the target, so two machines that cannot reach each other trade
+        /// chats. With it, `--machine local` brings them here.
+        #[arg(long, value_name = "MACHINE")]
+        from: Option<String>,
     },
     /// Move a chat, with its history, queue and draft, to the daemon at another socket.
     Transfer {
@@ -1048,6 +1058,8 @@ pub enum SessionCmd {
         #[arg(long, short = 'n', default_value_t = 20)]
         limit: usize,
     },
+    /// Find the session's messages that hold every word of TEXT, newest first.
+    Search(crate::cli::session_search::SearchArgs),
     /// The prompts waiting for the running turn: list, remove PROMPT_ID..., clear --from-agents.
     #[command(subcommand)]
     Queue(crate::cli::session_queue::QueueCmd),
@@ -1316,17 +1328,25 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Transfer { session, to, cwd, name, interrupt } => {
                 Command::Transfer { session, to, cwd, name, interrupt }
             }
-            SessionCmd::Move { sessions, host, all_idle, interrupt, leave_dirty, cwd, dry_run } => {
-                Command::MoveSessions {
-                    sessions,
-                    host,
-                    all_idle,
-                    interrupt,
-                    leave_dirty,
-                    cwd,
-                    dry_run,
-                }
-            }
+            SessionCmd::Move {
+                sessions,
+                host,
+                all_idle,
+                interrupt,
+                leave_dirty,
+                cwd,
+                dry_run,
+                from,
+            } => Command::MoveSessions {
+                sessions,
+                host,
+                all_idle,
+                interrupt,
+                leave_dirty,
+                cwd,
+                dry_run,
+                from,
+            },
             SessionCmd::Tail { session, last, follow, since } => {
                 Command::Tail { session, last, follow, since }
             }
@@ -1348,6 +1368,7 @@ pub fn flatten(c: Command) -> Command {
                 Command::RulesCmd { session, rules, clear }
             }
             SessionCmd::History { session, limit } => Command::History { session, limit },
+            SessionCmd::Search(args) => Command::SessionSearch(args),
             SessionCmd::Queue(q) => Command::QueueCmd(q),
         },
         Command::Daemon(dc) => match dc {
