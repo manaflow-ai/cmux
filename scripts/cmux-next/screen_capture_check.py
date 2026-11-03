@@ -17,6 +17,7 @@ two whole-display captures are kept there, to compare a granted capture with thi
 from __future__ import annotations
 
 import argparse
+import base64
 import ctypes
 import ctypes.util
 import json
@@ -84,6 +85,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--json")
     parser.add_argument("--png-dir")
+    parser.add_argument("--embed-png", action="store_true",
+                        help="put the two captures in the JSON (base64, at most 1600 px wide): a fleet step returns one file")
     args = parser.parse_args()
     png_dir = Path(args.png_dir) if args.png_dir else Path(os.environ.get("TMPDIR", "/tmp"))
     png_dir.mkdir(parents=True, exist_ok=True)
@@ -117,6 +120,13 @@ def main() -> int:
         report["cua_desktop_shot"] = answer
     else:
         report["cua_permissions"] = "CuaDriver not installed"
+    if args.embed_png:
+        for key, png in (("screencapture", shot), ("cua_desktop_shot", png_dir / "capture-check-cua.png")):
+            if png.exists() and isinstance(report.get(key), dict):
+                small = png.with_suffix(".small.png")
+                run(["sips", "-Z", "1600", str(png), "--out", str(small)])
+                source = small if small.exists() else png
+                report[key]["png_base64"] = base64.b64encode(source.read_bytes()).decode()
     tcc_user = Path.home() / "Library/Application Support/com.apple.TCC/TCC.db"
     query = "select client, client_type, auth_value, auth_reason from access where service='kTCCServiceScreenCapture'"
     report["tcc_user_db"] = run(["sqlite3", str(tcc_user), query])

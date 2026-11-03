@@ -19,8 +19,6 @@
 #   --derived-data=PATH  reload.sh's DerivedData (a measurement step's default is the checkout's warm
 #                    .build/DerivedData/cmux-measure, so a build at a new commit is incremental)
 #   --config=NAME    reload.sh's build configuration (default bench)
-#   --capture-check  only say whether this step may read the screen (screen_capture_check.py): no build, no
-#                    bench; artifacts/capture-check.json plus the screencapture and CuaDriver PNGs
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 tag="chatopen"
@@ -31,9 +29,6 @@ for arg in "$@"; do
     --config=*) reload_config=(--config "${arg#--config=}") ;;
     --app=*) app="${arg#--app=}" ;;
     --skip-build) skip_build=1 ;;
-    --capture-check)
-      mkdir -p artifacts
-      exec python3 scripts/cmux-next/screen_capture_check.py --json artifacts/capture-check.json --png-dir artifacts ;;
     --native-arch) reload_args+=(--native-arch) ;;
     --universal) export CMUX_RELOAD_NATIVE_ARCH=0 ;;
     --derived-data=*) reload_args+=(--derived-data "${arg#--derived-data=}") ;;

@@ -116,9 +116,16 @@ parser.add_argument("--backdrop", choices=["opaque", "frosted", "glass", "glass-
 parser.add_argument("--tag", default="chatopen", help="the tag the app was built with (its state folder)")
 parser.add_argument("--no-seed-cache", action="store_true",
                     help="seed every template on the daemon again, neither reading nor writing the worker's seed cache")
+parser.add_argument("--capture-check", action="store_true",
+                    help="only say whether this process (and so the app it launches) may read the screen "
+                         "(screen_capture_check.py) into --json, then exit: nothing is launched (scripts/measure/chat-open.sh "
+                         "with --app=PATH builds nothing)")
 parser.add_argument("--json")
 parser.add_argument("--md")
 opts = parser.parse_args()
+if opts.capture_check:
+    sys.exit(subprocess.run([sys.executable, os.path.join(HERE, "screen_capture_check.py"), "--embed-png",
+                             *(["--json", opts.json] if opts.json else [])]).returncode)
 APP = os.path.realpath(opts.app.rstrip("/"))
 CONDITIONS = [c.strip() for c in opts.conditions.split(",") if c.strip()]
 CASES = [c.strip() for c in opts.cases.split(",") if c.strip()]
