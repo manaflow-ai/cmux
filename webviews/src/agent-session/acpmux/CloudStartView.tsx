@@ -275,10 +275,14 @@ export function CloudStartView({
   start,
   bubble = true,
   onOpenEnvironment,
+  onRunHere,
+  onDismiss,
 }: {
   start: CloudStartProgress;
   bubble?: boolean;
   onOpenEnvironment?: (options: { environmentId?: string; repository?: string; section: "script" }) => void;
+  onRunHere?: () => void;
+  onDismiss?: () => void;
 }) {
   const t = useT();
   const arm = experimentArm(cloudStartLook);
@@ -372,6 +376,23 @@ export function CloudStartView({
         <output className="acpmux-cloud-start__status" role="alert">
           {start.message ?? t("sandbox.failed")}
         </output>
+      )}
+      {failed && start.refusal === "cloud_plan_required" && (
+        <div className="acpmux-cloud-start__actions">
+          <a className="acpmux-cloud-start__link" href="https://cmux.com/pricing" target="_blank" rel="noreferrer">
+            {t("cloudStart.upgrade")}
+          </a>
+          {onRunHere && (
+            <button type="button" className="acpmux-cloud-start__link" onClick={onRunHere}>
+              {t("cloudStart.runHere")}
+            </button>
+          )}
+          {onDismiss && (
+            <button type="button" className="acpmux-cloud-start__link" onClick={onDismiss}>
+              {t("harness.notNow")}
+            </button>
+          )}
+        </div>
       )}
       {known.length > 0 && (
         <ul className="acpmux-cloud-start__chips" data-look={arm}>
