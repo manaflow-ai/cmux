@@ -76,7 +76,7 @@ fn a_stop_cuts_the_live_row_count_short() {
     // The count reads the whole live journal in one statement; a stop must
     // not wait for it, or the owner's shutdown waits too.
     let (source, staging) = live_rows(200_000);
-    let job = crate::long_jobs::LongJobs::start("test.stage", "test", &[]);
+    let job = LongJobs::start("test.stage", "test", &[]);
     stop_reads_on(&source, std::sync::Arc::new(|| true), job.heartbeat_handle()).unwrap();
     let error = count_live_rows(&source, &staging).unwrap_err();
     let interrupted = error.chain().any(|cause| {
@@ -88,7 +88,7 @@ fn a_stop_cuts_the_live_row_count_short() {
 
     // Not stopping, the same count finishes.
     let (source, staging) = live_rows(200_000);
-    let job = crate::long_jobs::LongJobs::start("test.stage", "test", &[]);
+    let job = LongJobs::start("test.stage", "test", &[]);
     stop_reads_on(&source, std::sync::Arc::new(|| false), job.heartbeat_handle()).unwrap();
     count_live_rows(&source, &staging).unwrap();
     assert_eq!(state(&staging, "live_head").unwrap(), "200000");
