@@ -102,10 +102,11 @@ impl Hub {
             .map_err(|error| anyhow::anyhow!(error))?;
             (profile, config.defaults_for(&meta.harness))
         };
-        let profile = self
+        let mut profile = self
             .spawn_profile_for(meta, &profile, &defaults.env)
             .await
             .map_err(|error| anyhow::anyhow!(error.message))?;
+        profile.env = crate::agent::resolved_profile_env(&profile)?;
         Ok(profile)
     }
 
