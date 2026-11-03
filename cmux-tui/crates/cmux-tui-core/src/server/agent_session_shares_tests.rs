@@ -702,3 +702,59 @@ fn invitees_survive_a_restart_and_an_old_file_without_them_loads() {
     assert!(joined.is_ok(), "{joined:?}");
     let _ = std::fs::remove_dir_all(&directory);
 }
+
+/// However many accounts and devices join, every change the daemon acknowledges is one a restart
+/// reads back: a change that would pass the state file's bound is refused (`share.limit`) instead
+/// of written, so a restart never finds an unreadable file and starts empty.
+#[test]
+fn every_acknowledged_change_reloads_however_many_invitees_join() {
+    let directory = std::env::temp_dir().join(format!("cmux-invites-fill-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let dir = Some(directory.as_path());
+    let shares = LinkShares::default();
+    let terms = || ShareTerms { ttl_secs: 3600, uses: 1, create_id: None };
+    let mut refused = false;
+    'fill: for index in 0..MAX_SHARES {
+        let created = match shares.insert(dir, format!("acp_{index}"), 1, terms(), false) {
+            Ok(created) => created,
+            Err(code) => {
+                assert_eq!(code, "share.limit");
+                refused = true;
+                break;
+            }
+        };
+        let share_id = created["share_id"].as_str().unwrap().to_owned();
+        for a in 0..MAX_INVITEES {
+            let account = format!("{a}-{}@example.com", "x".repeat(280));
+            let invite =
+                Invite { share_id: share_id.clone(), account: account.clone(), role: None };
+            if let Err(code) = shares.invite(dir, &invite) {
+                assert_eq!(code, "share.limit");
+                refused = true;
+                break 'fill;
+            }
+            for g in 0..MAX_GUESTS_PER_ACCOUNT {
+                let redeem = Redeem {
+                    share_id: share_id.clone(),
+                    secret: String::new(),
+                    name: "n".repeat(64),
+                    attempt_id: format!("{a}-{g}-{}", "y".repeat(100)),
+                    account: Some(account.clone()),
+                };
+                if let Err(code) = shares.redeem(dir, redeem) {
+                    assert_eq!(code, "share.limit");
+                    refused = true;
+                    break 'fill;
+                }
+            }
+        }
+    }
+    assert!(refused, "the per-share limits alone keep the file within its bound");
+    let size = std::fs::metadata(directory.join(FILE)).unwrap().len();
+    assert!(size <= 64 * 1024, "the file passed the state file's 64 KiB bound: {size}");
+    let read = |s: &LinkShares| s.with(dir, |all, _| Ok((all.clone(), false))).unwrap();
+    let reloaded = read(&LinkShares::default());
+    assert!(!reloaded.is_empty());
+    assert_eq!(reloaded, read(&shares), "a restart reads every acknowledged change");
+    let _ = std::fs::remove_dir_all(&directory);
+}
