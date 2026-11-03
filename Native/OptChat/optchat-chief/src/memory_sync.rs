@@ -825,6 +825,29 @@ mod tests {
         );
     }
 
+    /// A write cut off after the items reached the memory but before their keys
+    /// reached import-keys.txt (a crash, a quit, a restart) resumes without
+    /// copying them twice: the imported notes themselves carry their keys.
+    #[test]
+    fn interrupted_write_resumes_without_duplicates() {
+        let paths = temp_paths("resume");
+        let list = items(&[("user", "first"), ("ai", "second"), ("user", "third")]);
+        // The first two reached the memory; the keys file never got them.
+        let done: Vec<Imported> = list[..2]
+            .iter()
+            .map(|i| Imported {
+                kind: optchat_core::Kind::Note,
+                text: side_text(i),
+                date: Some(i.date.clone()),
+            })
+            .collect();
+        crate::browse::import(&paths.chat, &paths.memory_db, &done).unwrap();
+        assert!(!keys_file(&paths).exists());
+        let (plan, fresh) = make_plan("t", list, &local_known(&paths).unwrap());
+        assert_eq!((plan.duplicate, plan.new), (2, 1));
+        assert_eq!(fresh[0].text, "third");
+    }
+
     #[test]
     fn export_json_claude_ai_and_chatgpt() {
         let claude = r#"[{"name":"Plan","chat_messages":[{"sender":"human","text":"hi","created_at":"2026-10-01T00:00:00Z"},{"sender":"assistant","text":"hello","created_at":"2026-10-01T00:00:05Z"}]}]"#;

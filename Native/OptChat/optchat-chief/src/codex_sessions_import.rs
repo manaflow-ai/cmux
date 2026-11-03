@@ -238,6 +238,38 @@ mod tests {
     }
 
     #[test]
+    fn subagent_sessions_are_skipped() {
+        let t = [
+            line(
+                serde_json::json!({"timestamp":"2026-11-01T10:00:00.000Z","type":"session_meta",
+                "payload":{"id":"s2","cwd":"/w","originator":"acpmux",
+                    "source":{"subagent":{"thread_spawn":{"parent":"s1"}}}}}),
+            ),
+            msg(
+                "2026-11-01T10:00:03.000Z",
+                "user",
+                "input_text",
+                "parent's brief",
+            ),
+        ]
+        .concat();
+        assert!(convert_session(&t, &mut HashSet::new()).is_empty());
+    }
+
+    #[test]
+    fn only_the_first_header_counts() {
+        let t = [
+            interactive(),
+            meta("exec", "codex_exec"),
+            msg("2026-11-01T10:02:00.000Z", "user", "input_text", "later"),
+        ]
+        .concat();
+        let items = convert_session(&t, &mut HashSet::new());
+        assert_eq!(items.iter().filter(|i| i.kind == "note").count(), 1);
+        assert_eq!(items.last().unwrap().text, "later");
+    }
+
+    #[test]
     fn exec_sessions_are_skipped() {
         let t = [
             meta("exec", "codex_exec"),

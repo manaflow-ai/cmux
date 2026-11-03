@@ -460,7 +460,11 @@ mod tests {
             assert_eq!(codex.count, 1);
         }
         assert!(kinds.contains(&"chatgpt-export"), "{kinds:?}");
-        assert_eq!(found.len(), 4, "photos.zip is not an export: {found:?}");
+        assert_eq!(
+            found.iter().filter(|d| d.kind != "codex-sessions").count(),
+            4,
+            "photos.zip is not an export: {found:?}"
+        );
         let code = found.iter().find(|d| d.kind == "claude-code").unwrap();
         assert_eq!(code.count, 2);
         assert!(
