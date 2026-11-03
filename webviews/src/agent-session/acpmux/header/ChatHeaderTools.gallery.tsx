@@ -14,7 +14,8 @@ import type { NativeRowToolsHost } from "./useNativeRowTools";
 import { NeedsYouButton } from "../needsYou/NeedsYou";
 
 type HeaderToolsProps = {
-  treatment?: { size: number; gap: number };
+  /// `more`: the chat menu ⋮'s box width; the rest of the tool size stays at its trailing side.
+  treatment?: { size: number; gap: number; more?: number };
   onTerminal: (mode: "toggle" | "open") => void;
   onSplitDown?: (mode: "toggle" | "open") => void;
   onBrowser: (mode: "toggle" | "open") => void;
@@ -146,11 +147,30 @@ const groupTreatment =
     const tools = ctx.document.querySelector<HTMLElement>(".acpmux-header-tools")!;
     if (ctx.document.defaultView!.getComputedStyle(tools).gap !== `${gap}px`)
       throw new Error("the group must render at its selected spacing");
-    for (const button of tools.querySelectorAll<HTMLElement>(".acpmux-header-tool")) {
+    for (const button of tools.querySelectorAll<HTMLElement>(".acpmux-header-tool:not(.acpmux-header-more)")) {
       const box = button.getBoundingClientRect();
       if (box.width !== size || box.height !== size) throw new Error("the buttons must render at their selected size");
     }
     await ctx.hover({ role: "button", name: "Terminal" });
+  };
+
+// The chat menu's ⋮ beside the other tools (Leo 2026-11-03: "i don't like how this vertical ellipsis looks spaced
+// next to everything else"). Its thin glyph in a full 24px box leaves much more empty space before it than the other
+// glyphs have. Each treatment narrows only its box and keeps the rest at its trailing side, so the row keeps its width;
+// the play checks the ⋮'s centre sits `pitch` px after the tool before it.
+const moreTreatment =
+  (pitch: number): Play =>
+  async (ctx) => {
+    const more = ctx.find({ role: "button", name: "Chat actions" });
+    const last = Array.from(ctx.document.querySelectorAll<HTMLElement>("[data-quick-action]")).at(-1);
+    if (!last) throw new Error("the chat menu must follow the other tools");
+    const center = (element: Element) => {
+      const box = element.getBoundingClientRect();
+      return box.left + box.width / 2;
+    };
+    const measured = Math.round(center(more) - center(last));
+    if (measured !== pitch) throw new Error(`the ⋮ must sit ${pitch}px after the last tool, not ${measured}px`);
+    await ctx.hover({ role: "button", name: "Chat actions" });
   };
 
 // Plain icons (Leo 2026-10-25: "why do the icons have their own background border situation instead of
@@ -460,7 +480,10 @@ export default componentEntry<HeaderToolsProps>({
               ? createElement(
                   "style",
                   null,
-                  `.acpmux-header-tools,.acpmux-header-tool-group{gap:${treatment.gap}px}.acpmux-header-tools .acpmux-header-tool{width:${treatment.size}px;height:${treatment.size}px}`,
+                  `.acpmux-header-tools,.acpmux-header-tool-group{gap:${treatment.gap}px}.acpmux-header-tools .acpmux-header-tool:not(.acpmux-header-more){width:${treatment.size}px;height:${treatment.size}px}` +
+                    (treatment.more === undefined
+                      ? ""
+                      : `.acpmux-header-tools .acpmux-header-tool.acpmux-header-more{width:${treatment.more}px;height:${treatment.size}px;margin-inline-end:${treatment.size - treatment.more}px}`),
                 )
               : null,
             createElement(module.ChatHeaderTools, props),
@@ -539,6 +562,26 @@ export default componentEntry<HeaderToolsProps>({
         treatment: { size: 24, gap: 0 },
       },
       play: groupTreatment(24, 0),
+    },
+    "more-even-box": {
+      note: "Before: the ⋮ in the same 24px box as every tool, on the 26px pitch. Its thin glyph leaves about 18px of empty space before it where the others leave about 13px, so it reads as set apart and pushed to the edge (Leo 2026-11-03).",
+      props: { ...base, summary: panelToggle(false), treatment: { size: 24, gap: 2, more: 24 } },
+      play: moreTreatment(26),
+    },
+    "more-optical": {
+      note: "Chosen (header.css): the ⋮'s box is its 16px glyph box, 24px tall, with the 8px it gives up at its trailing side. The space before its dots matches the space between the other glyphs, it sits 4px further from the edge, and the row keeps its width.",
+      props: { ...base, summary: panelToggle(false) },
+      play: moreTreatment(22),
+    },
+    "more-optical-20": {
+      note: "Alternative: a 20px box. Closer than before, but the dots still sit about 3px further from the globe than the globe from Terminal.",
+      props: { ...base, summary: panelToggle(false), treatment: { size: 24, gap: 2, more: 20 } },
+      play: moreTreatment(24),
+    },
+    "more-tight-12": {
+      note: "Alternative: a 12px box. The dots crowd the globe, and its hover and open fill is a sliver narrower than the glyph's own box.",
+      props: { ...base, summary: panelToggle(false), treatment: { size: 24, gap: 2, more: 12 } },
+      play: moreTreatment(20),
     },
     idle: {
       note: "The complete tab header: Terminal, Browser, summary, and chat actions (New tab, Files and Split Down are in it).",

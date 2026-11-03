@@ -11,11 +11,10 @@ extension CloudCredentialTransfer {
 
     /// The one switch for every Mac-to-machine login transfer: `cloud.startChat`'s pass, the turn
     /// card's recovery and the new-workspace setup, Claude's `setup-token` and the Codex broker alike.
-    /// DEV and dogfood only (Leo: "IN THE ACTUAL PRODUCTION APP IT MAY BE AGAINST TOS"). The
-    /// `cmux.cloud.passHarnessLogin` default wins when set (`-bool NO` makes a DEV build behave as
-    /// production); unset, it is on in a dogfood build (the app passes `DevTools.isEnabled`: a Debug
-    /// compile or a NIGHTLY bundle, the NEXT nightly included) and off in release, where the machine
-    /// signs in on its own instead. The precedence is Rust's (cmux-cloud-start-core
+    /// DEV and dogfood only (Leo: "IN THE ACTUAL PRODUCTION APP IT MAY BE AGAINST TOS"): on in a
+    /// dogfood build (the app passes `DevTools.isEnabled`: a Debug compile or a NIGHTLY bundle, the
+    /// NEXT nightly included) unless `cmux.cloud.passHarnessLogin` is `NO`, and always off in
+    /// release, whatever the default says, where the machine signs in on its own instead. The precedence is Rust's (cmux-cloud-start-core
     /// `passes_harness_login`); an FFI that does not answer passes no login.
     public nonisolated static func passesHarnessLogin(isDogfoodBuild: Bool, defaults: UserDefaults) -> Bool {
         CloudHarnessLoginDecision(dogfood: isDogfoodBuild, setting: passHarnessLoginSetting(defaults), harness: nil, signedIn: false).gate

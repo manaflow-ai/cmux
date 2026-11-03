@@ -13,9 +13,6 @@ use crate::prompt::{
     ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
 };
 
-/// Most attachments one `send` takes.
-pub const MAX_SEND_ATTACHMENTS: usize = 10;
-
 /// Shortest `sleep` (a turn costs more than a shorter wait saves).
 pub const SLEEP_MIN_SECONDS: u64 = 30;
 /// Longest `sleep`: a day.
@@ -193,7 +190,7 @@ pub fn tool_list(subagent: bool, allows: &dyn Fn(&str) -> bool) -> Value {
         list.push(json!({"name": "send", "description": SEND_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {
             "text": {"type": "string", "description": "The message, in Markdown."},
-            "attachments": {"type": "array", "items": text, "maxItems": MAX_SEND_ATTACHMENTS, "description": "Files to attach: local paths (/abs, ~/rel, file://; images and videos show inline, any other file as a file, up to 50 MB each) or http(s) URLs (a link card)."},
+            "attachments": {"type": "array", "items": text, "description": "Files to attach: local paths (/abs, ~/rel, file://; images and videos show inline, any other file as a file) or http(s) URLs (a link card)."},
             "reply_to": {"type": "integer", "minimum": 0, "description": "A user message's line id: the message goes into its thread. Without it: the top level."}},
           "additionalProperties": false}}));
         list.push(json!({"name": "transcript", "description": TRANSCRIPT_DESCRIPTION,

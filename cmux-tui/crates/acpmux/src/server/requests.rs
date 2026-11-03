@@ -776,10 +776,12 @@ pub(super) async fn handle_request(
     match m {
         method::SESSION_PROMPT => {
             crate::prompt_class::declared(&params)?;
+            crate::prompt_provenance::notice_checked(&params)?;
         }
         method::MUX_SEND_QUEUE => {
             if let Some(request) = params.get("request") {
                 crate::prompt_class::declared(request)?;
+                crate::prompt_provenance::notice_checked(request)?;
             }
         }
         _ => {}
@@ -1395,7 +1397,21 @@ async fn dispatch_request(
             let given_provenance = provenance.is_some();
             // A person's prompt (`author.rs`): the hub stamps who sent it, also for a peer's.
             let author = crate::author::of_prompt(&params)?;
-            let provenance = provenance.or_else(|| author.as_ref().map(|a| a.provenance()));
+            // A tool's notice (`prompt_provenance::notice_of`): never a Web client's, and a named
+            // sender's message, never the person's, whatever else the prompt says.
+            let notice = crate::prompt_provenance::notice_checked(&params)?;
+            if notice.is_some() && web {
+                return Err(crate::prompt_provenance::notice_origin_refused());
+            }
+            let notice_sender = notice
+                .as_ref()
+                .and_then(|n| n.get("sender"))
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            let provenance = match &notice {
+                Some(n) => Some(crate::prompt_provenance::notice(n, &s.id)),
+                None => provenance.or_else(|| author.as_ref().map(|a| a.provenance())),
+            };
             let person_message = crate::author::of_provenance(provenance.as_ref()).is_some();
             // Sent from inside another session (its proven caller token) with none of its own:
             // that session's message, so the receiver's transcript does not show it as the person's.
@@ -1434,7 +1450,8 @@ async fn dispatch_request(
             });
             // Another agent's message with no provenance (`hub/digest.rs`): one that names its
             // sender, or one from a connection that proved it runs in an acpmux session.
-            let agent = declared
+            let agent = notice_sender
+                .or(declared)
                 .or_else(|| conn.caller().map(|id| hub.session_name(id)))
                 .filter(|_| !person_message);
             let flag = |k| mux_meta(&params).and_then(|m| m.get(k)).and_then(Value::as_bool);
@@ -1826,6 +1843,15 @@ async fn dispatch_request(
         "_acpmux/peer_snapshot" => {
             let (hub, params) = (hub.clone(), params.clone());
             tokio::task::spawn_blocking(move || hub.peer_snapshot(&params))
+                .await
+                .map_err(|e| RpcError::internal(e.to_string()))?
+        }
+        "_acpmux/peer_snapshots_clear" if conn.origin != Origin::Local => Err(
+            RpcError::invalid_params("peer snapshots clear requires this machine's unix socket"),
+        ),
+        "_acpmux/peer_snapshots_clear" => {
+            let hub = hub.clone();
+            tokio::task::spawn_blocking(move || hub.clear_peer_snapshots())
                 .await
                 .map_err(|e| RpcError::internal(e.to_string()))?
         }
