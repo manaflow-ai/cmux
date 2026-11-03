@@ -1,7 +1,8 @@
-// A click on a subagent (a group line, a card row, the agents pill) opened a split right of the
-// chat even with the summary card's switch off, so subagents kept landing in splits (Austin
-// 2026-10-21, nightly 3955ea8). With the switch off a click shows the subagent in the chat's own
-// pane; only with it on does a click ask the app for a pane (subagents/subagentPanes.ts).
+// A subagent the person opens (a Session Info or card row, a group line, the agents pill) opens in
+// its pane right of the chat, whatever the summary card's switch says (Leo, 2026-11-02: "WHEN I OPEN
+// A SUBAGENT IT SHOULD GO TO THE RIGHT SPLIT AREA"): the chat's own pane, and so its Session Info,
+// stay on the chat. The switch (off by default, Austin 2026-10-21) still governs the panes nobody
+// asked for, the ones new subagents open by themselves (subagents/subagentPanes.ts).
 import { expect, test } from "bun:test";
 import { showSubagent } from "../src/agent-session/acpmux/subagents/subagentPanes";
 
@@ -26,8 +27,15 @@ async function show(options: { panes: boolean; inSubagentPane?: boolean; focus?:
   return { calls, here };
 }
 
-test("with the switch off, a click shows the subagent in the chat and opens no pane", async () => {
-  expect(await show({ panes: false })).toEqual({ calls: [], here: ["reviewer"] });
+test("with the switch off, a click opens the subagent's pane and leaves the chat's view alone", async () => {
+  expect(await show({ panes: false })).toEqual({ calls: ["tail.handover", "chat.subagentPane"], here: [] });
+});
+
+test("with the switch off and a host that opens none, a click shows it in the chat", async () => {
+  expect(await show({ panes: false, opened: false })).toEqual({
+    calls: ["tail.handover", "chat.subagentPane"],
+    here: ["reviewer"],
+  });
 });
 
 test("with the switch on, a click asks the app for the subagent's pane", async () => {
