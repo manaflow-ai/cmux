@@ -129,6 +129,8 @@ mod tab_capabilities;
 mod terminal_talk;
 mod topology_help;
 mod wire;
+#[cfg(unix)]
+mod workflow;
 use surface::MACHINE_CATALOG_HELP;
 pub(super) use surface::{BIN, Surface};
 
@@ -166,6 +168,7 @@ const PUBLIC_SCOPES: &[&str] = &[
     "settings",
     "config",
     "raw",
+    "workflow",
 ];
 
 /// Scopes only the `cmux-tui` name accepts. Cloud VM guest scripts
@@ -401,7 +404,7 @@ pub(crate) fn rewrite_deprecated_server_lifecycle(args: &mut Vec<String>) {
 /// agents` answered "unknown resource scope".
 pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "agents", "chats", "harness", "remote", "script", "host", "github", "avatar", "chief", "setup",
-    "device",
+    "device", "workflow",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
@@ -494,8 +497,23 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => args,
     };
+    // `chat send` from a coding agent is the agent's message, not the owner's
+    // (chief/chat_scope.rs): a Chief's chat is sent here, any other chat runs
+    // the app action with its text labelled.
+    #[cfg(unix)]
+    let chat_args;
+    #[cfg(unix)]
+    let args = match chief::chat_scope::run_if_requested(args) {
+        Some(chief::chat_scope::Chat::Exit(code)) => return code,
+        Some(chief::chat_scope::Chat::Rewritten(rewritten)) => {
+            chat_args = rewritten;
+            chat_args.as_slice()
+        }
+        None => args,
+    };
     #[cfg(unix)]
     if let Some(code) = mcp::run_if_requested(args)
+        .or_else(|| workflow::run_if_requested(args))
         .or_else(|| agents::run_if_requested(args))
         .or_else(|| chief::run_if_requested(args))
         .or_else(|| chief::run_avatar_if_requested(args))

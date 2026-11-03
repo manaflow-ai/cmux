@@ -38,6 +38,7 @@ cmux-chat-index.workspace = true
 cmux-palette-ranker.workspace = true
 cmux-coderouter.workspace = true
 cmux-local-auth.workspace = true
+cmux-mcp-connect.workspace = true
 cmux-link.workspace = true
 cmux-git.workspace = true
 cmux-worktree-care.workspace = true
@@ -60,6 +61,7 @@ ratatui = "0.30"
 serde = { version = "1", features = ["derive"] }
 # raw_value: an OpenCode config keeps its keys as written (src/opencode_ask.rs).
 serde_json = { version = "1", features = ["raw_value"] }
+jsonschema.workspace = true
 sha2.workspace = true
 # P-256 signatures of the person's phones (src/hub/approvers.rs); ring is
 # already in the graph through rustls.

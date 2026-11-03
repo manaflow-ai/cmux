@@ -10,7 +10,8 @@
 //! on every client. The agent's own bookkeeping is no answer: Codex reports its
 //! turn and its usage as soon as the prompt goes out, whatever its model does.
 //! Only silence from the prompt counts: an agent that answered and then works
-//! quietly (a long command) is not silent.
+//! quietly (a long command) is not silent. Time this machine did not run (a paused VM, a
+//! stopped daemon: `resume.rs`) is not silence either: the wait starts again from the resume.
 
 use super::*;
 
@@ -23,7 +24,17 @@ impl Hub {
         let session = session.clone();
         let turn_id = turn_id.to_owned();
         tokio::spawn(async move {
-            tokio::time::sleep(after).await;
+            // A gap while it waits (`resume.rs`) is no silence: the wait starts again from it.
+            let mut resumes = hub.resume_count();
+            loop {
+                tokio::time::sleep(after).await;
+                hub.check_resume();
+                let now = hub.resume_count();
+                if now == resumes || session.turn().is_none_or(|t| t.turn_id != turn_id) {
+                    break;
+                }
+                resumes = now;
+            }
             // Held while it logs, so a sign the tap counts meanwhile finds the silence to end.
             let mut silent = session.silent_turn.lock().unwrap_or_else(|e| e.into_inner());
             if session.turn().is_some_and(|t| t.turn_id == turn_id)

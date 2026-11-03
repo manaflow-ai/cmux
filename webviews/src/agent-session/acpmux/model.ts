@@ -33,6 +33,7 @@ import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
 import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
 import type { IncomingMessage, IncomingPrompt } from "./conversation/incomingMessage";
+import type { InboxNotice } from "./conversation/inboxNotice";
 import type { TurnCopyPart } from "./conversation/turnCopy";
 import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
@@ -90,7 +91,8 @@ export type AcpmuxBackgroundTask = {
   reason?: string;
   /// Claude Code's own words on how it ended (its task notification's summary).
   summary?: string;
-  /// The exit code, when the harness reports one (Codex does; Claude Code does not).
+  /// The exit code, when the harness reports one (Codex does; acpmux reads Claude Code's from its
+  /// summary).
   exitCode?: number;
 };
 
@@ -101,6 +103,8 @@ export type AcpmuxBackgroundTask = {
 export type AcpmuxBackgroundState = {
   state: "running" | AcpmuxBackgroundTask["state"];
   reason?: string;
+  /// The exit code its end reported (Codex's, and Claude Code's from its summary).
+  exitCode?: number;
   endedAt?: number;
 };
 
@@ -120,6 +124,11 @@ export type AcpmuxCompaction = {
 /// acpmux moved the chat onto its fallback harness after a usage limit (a `failover` record).
 export type AcpmuxFailover = { from: string; to: string };
 
+/// A session recap (acpmux `recap` record, `hub/away_recap.rs`): where the chat stands, shown when
+/// the person comes back after 5+ minutes away. Never a prompt; the daemon decides when.
+/// `key`: the chat and the record's seq, which the dismissal remembers (conversation/recapDismissed.ts).
+export type AcpmuxRecap = { key: string; text: string; awayMs?: number };
+
 /// A turn the agent ran on its own, which nobody prompted (acpmux `background_turn` records): a
 /// background task or subagent finished (`task_notification`), a scheduled wakeup or /loop tick
 /// (`scheduled`), or a hook (`system`). `running` until its ended record; then `quiet` is acpmux's
@@ -134,6 +143,39 @@ export type AcpmuxBackgroundTurn = {
   /// A row of its own draws something, so its line opens to it. A turn whose events only update
   /// rows that are not its own (a call an earlier turn started, a subagent's work) has none.
   hasRows?: true;
+  /// What started it, when acpmux knows: the background task that ended and whether that is worth
+  /// a response (acpmux hub/background_cause.rs). A log from before acpmux said so has none.
+  cause?: AcpmuxBackgroundCause;
+  /// Its reply went onto the call that started the task (`AcpmuxBackgroundReaction`), so the
+  /// transcript draws no line for it.
+  attached?: true;
+};
+
+/// How much a background task's end is worth (Leo, 2026-11-03: "there's like... background tasks
+/// worth responding to and not worth responding to"), decided by acpmux from the task's own event
+/// in one table keyed by the task's kind and status: `silent` (an interim stop, a subagent's step,
+/// a stop, a monitor tick), `result` (a final report, a command that exited), `failure`.
+export type AcpmuxBackgroundWeight = "silent" | "result" | "failure";
+
+/// The task a background turn answered: its kind (`subagent`, `subagent_step`, `monitor`,
+/// `shell`, `unknown`), the notification's status, its weight, the tool call that started it
+/// (`origin`) and the notification's own summary.
+export type AcpmuxBackgroundCause = {
+  kind: string;
+  status: string;
+  weight: AcpmuxBackgroundWeight;
+  origin?: string;
+  summary?: string;
+};
+
+/// What a background turn left on the call that started its task: the agent's reply, which the
+/// opened call shows under its output, and `fresh` for a final result the person has not seen
+/// (a small mark at the row's edge until their next prompt).
+export type AcpmuxBackgroundReaction = {
+  turn: string;
+  weight: AcpmuxBackgroundWeight;
+  text?: string;
+  fresh?: true;
 };
 
 /// What a run of background-task notifications' line counts (conversation/backgroundRuns.ts): quiet
@@ -231,6 +273,10 @@ export type QueuedPrompt = {
   /// Another agent's message waiting here (direct.ts `queuedMessage`): it draws in the transcript
   /// as the message's received card (conversation/queuedMessages.ts), never as a queue row.
   message?: IncomingMessage;
+  /// acpmux's inbox notice waiting here (provenance `inbox_notice`, hub/inbox.rs): other agents'
+  /// messages, not the person's prompt. Like `message`, it draws in the transcript's one group of
+  /// waiting messages as its threads (conversation/queuedMessages.ts), never as a queue row.
+  inbox?: InboxNotice;
   /// A teammate's prompt in a shared chat (its `person_message` provenance): its row names them,
   /// and only they may change it (acpmux refuses another author's edit with `queue.not_author`).
   author?: Participant;
@@ -332,10 +378,15 @@ export type AcpmuxRow = {
   compaction?: AcpmuxCompaction;
   /// A failover row's harnesses.
   failover?: AcpmuxFailover;
+  /// A recap row's recap.
+  recap?: AcpmuxRecap;
   /// A background turn's line (conversation/backgroundTurns.ts): the turn it stands for.
   background?: AcpmuxBackgroundTurn;
   /// A row a background turn made: that turn's id, so its line can fold it (backgroundTurns.ts).
   inBackground?: string;
+  /// An agent reply to the person's own prompt (conversation/turns.ts answeringPerson): its text
+  /// draws even when it is only punctuation (visibleMessage.ts).
+  answersPerson?: true;
   /// A run of background-task notifications folded under one line (conversation/backgroundRuns.ts):
   /// drawn as a background turn's line, with what it counts and the rows it folds.
   backgroundRun?: AcpmuxBackgroundRun;
@@ -480,6 +531,21 @@ export type AcpmuxRow = {
   /// `doing` names the latest step, finished, which the live line holds until the next step
   /// (conversation/turns.ts `liftedStep`): "Ran grep …".
   doingDone?: boolean;
+  /// How long that finished step took, its own start to its own end (conversation/turns.ts
+  /// `liftedStep`): the live line says it beside the step, never the turn's time.
+  doingForMs?: number;
+  /// What the Codex-style live line says when it names no call (conversation/turns.ts
+  /// `codexLiveTurn`): the agent waits on its foreground subagents (`liveAgents` of them still
+  /// running), or writes its reply. Neither reads "Thinking" (Leo, 2026-11-03: "i think the
+  /// "thinking" accounting is also off pretty frequently").
+  liveState?: "subagents" | "writing";
+  liveAgents?: number;
+  /// With the line reading "Thinking" past the first step: how long the turn's thoughts streamed,
+  /// summed (conversation/turns.ts `thoughtTime`), the time it shows beside the word.
+  thoughtMs?: number;
+  /// The live line's clock is the turn's whole time, past its first step: it reads "4m total", so
+  /// the time never reads as what the line names (conversation/Thinking.tsx).
+  turnTotal?: boolean;
   /// The call in flight sends another agent a message (conversation/turns.ts `sendingTo`: a shell
   /// `acpmux send`, a sub-session's `send_message`): the line reads "Sending message to
   /// <doingSendTo>", and the sub-session `doingSendSession` by its name once the list has it.
@@ -488,6 +554,8 @@ export type AcpmuxRow = {
   doingDraft?: boolean;
   untimed?: boolean;
   quietKey?: string;
+  /// When the reply `quietKey` names was written, on this page's clock (conversation/turns.ts).
+  quietAt?: number;
   /// The call in flight is a command: the line offers "⌃B to run in background" (BackgroundHint.tsx;
   /// never on the command's own row), and leads with the terminal glyph when it names it
   /// (WorkingFor.tsx).
@@ -511,6 +579,12 @@ export type AcpmuxRow = {
   /// The summary of a turn a prompt sent now ended, not Stop or Esc (direct.ts): the turn goes on
   /// under that prompt, so it draws no "You stopped after" (conversation/turns.ts).
   continued?: boolean;
+  /// A stopped turn's summary that acpmux ended itself because the agent never answered Stop
+  /// (`cancelForced`, hub/cancel.rs). It draws as any stop; only the footer's tooltip says so.
+  stopForced?: true;
+  /// A steer logged after its turn's Stop and never read: drawn as a plain message below the stop
+  /// (direct.ts `deferLateSteers`), until acpmux runs it again as the next prompt.
+  afterStop?: true;
   /// A waiting steer's promptId, which its Send now names (conversation/PendingSteer.tsx).
   steerPromptId?: string;
   /// A prompt's promptId as acpmux recorded it (its `user_message` record's): the thread rail keys
@@ -601,6 +675,8 @@ export type AcpmuxActivity = {
     images?: string[];
     /// A shell that went on in the background: running there, then how it ended.
     background?: AcpmuxBackgroundState;
+    /// The agent's reaction to its background task ending (`AcpmuxBackgroundReaction`).
+    reaction?: AcpmuxBackgroundReaction;
     /// The person approved this call's permission ask (Allow, Always allow, or a switch to the
     /// harness's highest mode while its card was open): the row says "Approved" at its edge
     /// instead of a receipt line of its own (direct.ts `markApproved`).
@@ -1207,6 +1283,12 @@ const TOOL_RUN_BOTTOM = 0;
 /// grid the run adds no frame of its own (the stack's gap is the spacing), so the frame is 0.
 const LINE_FRAME = TOOL_RUN_TOP + TOOL_RUN_BOTTOM;
 const lineRow = () => LINE_FRAME + toolRowHeight();
+/// A message row (a send, SentMessageLine.tsx and AgentMessageRow.tsx; another agent's received line;
+/// a folded group's head): one tool row, and in the stacked look (conversation/messageLineLook.ts,
+/// the default) its first line's own line under it while it is shut and has one.
+const messagePreviewLine = (shown: boolean) =>
+  shown && messageLineLook() === "stacked" ? MESSAGE_PREVIEW_LINE_PT * chromeScale : 0;
+const messageRowHeight = (preview: boolean) => toolRowHeight() + messagePreviewLine(preview);
 
 /// Ordinary tool rows use the compact rhythm. Notes and specialized MCP cards keep a conservative
 /// estimate until their renderer reports its measured height (a wait can contain several three-line replies).
@@ -1232,7 +1314,8 @@ function activityStepHeight(item: AcpmuxActivity, width: number): number {
   if (!tool) return item.kind === "note" ? noteHeight(item.text, width) : 26;
   // A message to another agent (SendMessage, `acpmux send`, a sub-session's `send_message`) is one
   // line on the tool rows' line (AgentMessageRow.tsx), as every one-line row is.
-  if (agentMessage(tool)) return toolRowHeight();
+  const message = agentMessage(tool);
+  if (message) return messageRowHeight(Boolean(message.text.trim()));
   const mcp = mcpCall(tool);
   if (mcp) {
     const subsession = subsessionCall(tool, mcp);
@@ -1254,7 +1337,7 @@ function activityStepHeight(item: AcpmuxActivity, width: number): number {
       return cardHeight("working") + replyHeight(subsession.prompt) + toolRowHeight();
     // A message sent to a sub-session is the sent-message row a shell `acpmux send` draws
     // (SubsessionCallCard.tsx SentLine, SentMessageLine.tsx): one tool row.
-    if (subsession.tool === "send") return toolRowHeight();
+    if (subsession.tool === "send") return messageRowHeight(Boolean(subsession.text.trim()));
     return 40;
   }
   switch (tool.kind) {
@@ -1294,7 +1377,9 @@ function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[], width: num
 /// An entry a folded run keeps on its own line: a group starts closed there (ToolGroupRow.tsx
 /// `folded`), one line, as a sent message's row is (SentMessageLine.tsx); anything else is its calls.
 function foldedGroupHeight(group: ToolGroup, width: number): number {
-  if (group.type === "group" || group.type === "send") return toolRowHeight();
+  if (group.type === "send")
+    return messageRowHeight(group.send.state !== "failed" && Boolean(group.send.text?.trim() || group.send.file));
+  if (group.type === "group") return toolRowHeight();
   // `.cv-tool-group` lists its calls flush too.
   const items = "items" in group ? group.items : [group.item];
   return items.reduce((sum, item) => sum + activityStepHeight(item, width), 0);
@@ -1365,9 +1450,13 @@ const FALLBACK_CHAR_WIDTH = 8;
 /// column's right (the computer use live preview, `--cv-inset-end`): the column's end moves in to
 /// leave it, its start stays.
 const PAGE_EDGE = gridLength("icon-box");
-export function transcriptColumn(paneWidth: number, { min, max, share }: ChatColumn = chatColumn(), endReserve = 0) {
-  const column = Math.min(max, Math.max(min, paneWidth * share));
-  const inset = Math.max(PAGE_EDGE * gridScale(), Math.round((paneWidth - column) / 2));
+/// The column's own width (`--cv-column`), before the 4 grid's 0-7 px leftover joins it.
+export const transcriptColumnSpan = (paneWidth: number, { min, max, share }: ChatColumn = chatColumn()) =>
+  Math.min(max, Math.max(min, paneWidth * share));
+export function transcriptColumn(paneWidth: number, chat: ChatColumn = chatColumn(), endReserve = 0) {
+  const column = transcriptColumnSpan(paneWidth, chat);
+  // On the 4 grid (design/grid.md 5.5), as `round(down, ..., 4px)` in conversation.css.
+  const inset = Math.max(PAGE_EDGE * gridScale(), 4 * Math.floor((paneWidth - column) / 8));
   const insetEnd = Math.max(inset, endReserve);
   return { inset, insetEnd, width: paneWidth - inset - insetEnd };
 }
@@ -1730,8 +1819,8 @@ function fallbackRowHeight(
         : 16 + 2 + (lines(ask.question) + lines(answer)) * 20 + 4,
     );
   }
-  // The render card: its 36px head over the frame before it reports a height, and 6px below.
-  if (row.kind === RENDER) return finish(36 + RENDER_FRAME_MIN_HEIGHT + 6);
+  // The render card: its 36px head over the frame before it reports a height, and 8px below.
+  if (row.kind === RENDER) return finish(36 + RENDER_FRAME_MIN_HEIGHT + 8);
   // Card padding and border, title, button row.
   if (row.kind === "permission") return finish(87);
   // A suggested tasks card (offer/SuggestedTasks.tsx): its 28px heading, about 84px per open task
@@ -1751,6 +1840,13 @@ function fallbackRowHeight(
   if (row.kind === TASK_LINE && row.tasks) return finish(row.tasks.length * toolRowHeight());
   // A paused agent pair: its sentence over the held count and Resume; resumed, one line.
   if (row.kind === "agentPair") return finish(row.agentPair?.resumed ? 37 : 37 + 24);
+  // A session recap (conversation/RecapNote.tsx): its card, a line per 70 characters of recap.
+  if (row.kind === "recap")
+    return finish(
+      24 +
+        Math.max(1, Math.ceil((row.recap?.text.length ?? 0) / Math.max(24, Math.floor(width / 8) - 6))) *
+          metrics().lineHeight,
+    );
   // A session start: its facts line (conversation/SessionStartNote.tsx); the full facts open
   // below when asked.
   if (row.kind === "sessionStart") return finish(toolRowHeight());
@@ -2011,8 +2107,15 @@ function measuredRowHeight(
   // one-line row; opened, each sender's 22px head, then each of its messages as its own row draws
   // it, 24px in, less the frame the row gives a row, which the group has once.
   if (row.kind === LANE_NOTICE_BATCH && row.laneNoticeBatch) {
+    // Shut, a waiting inbox batch's head draws its senders under its count (stacked look); a
+    // delivered one names them only in its hover (LaneNoticeBatch.tsx `received`).
+    if (!messageOpened(sessionId, row.id)) {
+      const waiting = row.laneNoticeBatch.rows.some(
+        (member) => member.kind === "queuedMessage" || member.steer === "waiting",
+      );
+      return finish(lineRow() + messagePreviewLine(row.laneNoticeBatch.kind === "inbox" && waiting));
+    }
     const head = finish(lineRow());
-    if (!messageOpened(sessionId, row.id)) return head;
     // An inbox batch's messages sit on its own columns, with no indent (LaneNoticeBatch.css).
     const inner = row.laneNoticeBatch.kind === "inbox" ? width : width - 24;
     return (
@@ -2025,8 +2128,13 @@ function measuredRowHeight(
     );
   }
   if (row.kind === PENDING_MESSAGES && row.pendingMessages) {
+    // One message waiting draws as its own line, with no group head (PendingMessagesCard.tsx).
+    const shown = row.pendingMessages.displayRows ?? row.pendingMessages.rows;
+    if (shown.length === 1 && shown[0]!.incoming?.kind === "message")
+      return measuredRowHeight(shown[0]!, width, cache, beforeFooter, lastTurn, sessionId);
+    // Shut, its head draws the senders under the count (stacked look).
+    if (!messageOpened(sessionId, row.id)) return finish(lineRow() + messagePreviewLine(true));
     const head = finish(lineRow());
-    if (!messageOpened(sessionId, row.id)) return head;
     const senders = new Set<string>();
     let height = head;
     for (const member of row.pendingMessages.displayRows ?? row.pendingMessages.rows) {
@@ -2054,7 +2162,9 @@ function measuredRowHeight(
     // from the icon column and 10px padding across): the whole text
     // (conversation/IncomingMessageCard.tsx), its images' 128px, and Details' 24px line.
     const line = lineRow();
-    if (!messageOpened(sessionId, row.id)) return finish(line);
+    // Shut, its first line sits under the sender (stacked look); a tool's notice keeps its title
+    // on the line (IncomingMessageCard.tsx).
+    if (!messageOpened(sessionId, row.id)) return finish(line + messagePreviewLine(!row.incoming.message.notice));
     const { lineHeight } = metrics();
     const text = row.incoming.message.text;
     if (receivedPrepared.size > 256) receivedPrepared.clear();
@@ -2072,13 +2182,18 @@ function measuredRowHeight(
     // The group's head is a tool row (MessageGroupHead.tsx) on the one-line rows' line.
     const head = toolRowHeight();
     const grouped = threads.length > 1 && foldsThreads(inboxNoticeLook());
-    if (grouped && !messageOpened(sessionId, row.id)) return finish(head + LINE_FRAME);
+    if (grouped && !messageOpened(sessionId, row.id))
+      return finish(head + LINE_FRAME + messagePreviewLine(inboxNoticeLook() !== "group-count"));
     const { lineHeight } = metrics();
     if (receivedPrepared.size > 256) receivedPrepared.clear();
     let height = (grouped ? head : 0) + (threads.length > 1 && inboxNoticeLook() === "card" ? 6 : 0);
     for (const thread of threads) {
       height += line;
-      if (!messageOpened(sessionId, inboxThreadKey(row.id, thread.threadId))) continue;
+      // Shut, its preview sits under the sender (stacked look).
+      if (!messageOpened(sessionId, inboxThreadKey(row.id, thread.threadId))) {
+        height += messagePreviewLine(true);
+        continue;
+      }
       const text = thread.messages?.map((m) => m.text).join("\n\n") ?? thread.preview;
       const inset = grouped ? 24 : 0;
       height += 2 + 4 + 16 + (text ? textHeight(text, Math.max(80, width - 44 - inset), receivedPrepared) : lineHeight);
@@ -2588,6 +2703,7 @@ import { currentChatMetrics } from "./chatDisplay";
 import { messageOpened } from "./conversation/incomingOpened";
 import { inboxThreadKey } from "./conversation/inboxNotice";
 import { foldsThreads, inboxNoticeLook } from "./conversation/inboxNoticeLook";
+import { MESSAGE_PREVIEW_LINE_PT, messageLineLook } from "./conversation/messageLineLook";
 import { isDiagram, isUnlabeledLang } from "./conversation/codeShape";
 
 /// The pane's fallback accessible name and problem-only header status. A handshake that is

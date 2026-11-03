@@ -48,8 +48,8 @@ public final class OmniboxSuggestionEngine {
     public var sources: [OmniboxSource] = OmniboxSource.defaultOrder + [.calculator]
     /// `browser.omnibar.inlineAutocomplete`.
     public var inlineAutocomplete = true
-    /// Open tabs of the profile, read on every query (Switch to Tab rows).
-    public var openTabs: () -> [OmniboxTabRow] = { [] }
+    /// The last open-tab change sent to the index; each waits for the one before it, so they apply in order.
+    private var openTabTask: Task<Void, Never>?
     /// Reveals the tab of a chosen Switch to Tab row (the App's tab search path).
     public var revealTab: (String) -> Void = { _ in }
     /// Phase B: remote search suggestions (off until the App gives a fetcher).
@@ -99,6 +99,30 @@ public final class OmniboxSuggestionEngine {
         }
     }
 
+    /// Tab `row.key` of the profile is open on `row.url` (Switch to Tab rows). The App calls it when a tab opens,
+    /// navigates or is retitled, never per key (Chrome's open-tab provider follows tab events the same way).
+    public func setOpenTab(_ row: OmniboxTabRow) {
+        let local = self.local, now = self.now(), previous = openTabTask
+        openTabTask = Task {
+            await previous?.value
+            await local.setOpenTab(row, now: now)
+        }
+    }
+
+    /// Tab `key` closed or no longer shows a page a Switch to Tab row can name.
+    public func removeOpenTab(_ key: String) {
+        let local = self.local, now = self.now(), previous = openTabTask
+        openTabTask = Task {
+            await previous?.value
+            await local.removeOpenTab(key, now: now)
+        }
+    }
+
+    /// Returns once every open-tab change sent so far is in the index (tests).
+    public func openTabsSettled() async {
+        await openTabTask?.value
+    }
+
     /// Every bookmark of the profile (the App's bookmark feed). Each set
     /// waits for the one before it, so the newest wins.
     public func setBookmarks(_ rows: [OmniboxHistoryRow]) {
@@ -118,8 +142,7 @@ public final class OmniboxSuggestionEngine {
         resolver.urlResolver.allowsChromiumSchemes = request.allowsChromiumSchemes
         let query = OmniboxLocalQuery(
             generation: request.generation, gate: request.gate, text: text, resolver: resolver, maxRows: maxResults,
-            sources: sources, inlineAutocomplete: inlineAutocomplete,
-            tabs: sources.contains(.tabs) ? openTabs().filter { $0.key != request.tabKey } : [], now: now()
+            sources: sources, inlineAutocomplete: inlineAutocomplete, excludedTab: request.tabKey, now: now()
         )
         let local = self.local, providers = self.providers, maxRows = maxResults
         let remote = sources.contains(.search) && self.remote.enabled && OmniboxRemoteSuggestions.allows(text, resolver: resolver)

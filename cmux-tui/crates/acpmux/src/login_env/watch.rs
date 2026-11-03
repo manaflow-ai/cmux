@@ -12,6 +12,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
+#[cfg(not(target_os = "linux"))]
 use notify::Watcher as _;
 
 /// Editors save in bursts (write, rename, chmod): read once after this quiet...
@@ -222,14 +223,14 @@ fn run(
     }
 }
 
-#[cfg(test)]
+// The one test reads Linux's inotify source: off Linux the module is empty, and its import unused.
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
 
     /// A program that only opens and reads a file in a watched folder sends nothing: the shell's
     /// folder (`/usr/bin`) and `/etc` are opened by every program that starts, and each open
     /// woke the daemon (about 1,300 a second on a busy agent VM). A write still arrives.
-    #[cfg(target_os = "linux")]
     #[test]
     fn a_read_in_a_watched_folder_sends_nothing_and_a_write_arrives() {
         let dir = tempfile::tempdir().unwrap();

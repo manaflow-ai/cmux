@@ -280,6 +280,9 @@ pub mod prompt_suggestions;
 #[cfg(test)]
 mod prompt_suggestions_tests;
 pub mod prompt_cache;
+pub mod prompt_suggestions;
+#[cfg(test)]
+mod prompt_suggestions_tests;
 // A tool result's images as ACP image blocks (`result_images.rs`).
 mod result_images;
 pub(crate) use result_images::result_images;

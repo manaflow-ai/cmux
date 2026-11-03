@@ -249,6 +249,9 @@ extension SettingsSchema {
         "home.chiefPetMascot",
         // Needs you in the agent chat header (an App Store item): a display the person can hide again.
         "agentPane.needsYou.enabled",
+        // Start New Chats In (This Mac or Cloud): the person asks an agent to set it (Leo, 2026-10-31);
+        // a new chat's composer can still change it for that chat.
+        "agentPane.newChatsIn",
         "updates.notify",
         "updates.showWhatsNew",
         // Feature tips: a display the person can turn on again.
@@ -269,6 +272,8 @@ extension SettingsSchema {
         "freeModel.enabled": .privacy,
         // The Cloud toggle copies the person's folder off this Mac to a paid machine: theirs to set.
         "cloud.newWorkspacesInCloud": .privacy, "cloud.newWorkspaceFolder": .privacy,
+        // Whether an agent starts Cloud machines and sessions with no Start card: only the person delegates it.
+        "cloud.agentsStartWithoutAsking": .userOnly,
         // The person's consent to copy their own Claude login to their own Cloud machines: only theirs to give.
         "cloud.useMyClaudeLoginOnMyCloudMachines": .privacy,
         "agents.chats.roots": .privacy,
@@ -295,6 +300,8 @@ extension SettingsSchema {
         "feed.mirrorNotifications.terminal": .privacy,
         // An agent must not turn on sending its own prompts to the phone (cx-aocz).
         "feed.agentPermissionPrompts": .privacy,
+        // Whether Chief Home pins the Feed's requests over the person's chat is theirs to turn on.
+        "feed.needsYouInChief": .userOnly,
         "feed.github.enabled": .network,
         "feed.github.pollIntervalSeconds": .network,
         "browser.remoteLocalhost": .network,
@@ -318,6 +325,10 @@ extension SettingsSchema {
         "browser.enabled": .userOnly,
         // On, agents can ask to read another browser's cookies and data again (`browser.importCookies`, `import.suggest`).
         "browser.import.enabled": .privacy,
+        // Only the person's Connect click opts in to reading Messages.
+        "imessage.enabled": .privacy,
+        // A walkthrough choice, never permission to read Messages or send a reply.
+        "imessage.automationSkipped": .userOnly,
         "browser.openTerminalLinksInCmuxBrowser": .privacy,
         // The app that opens your files from a menu: an agent must not pick what runs them.
         "files.textEditor": .userOnly,
@@ -340,8 +351,6 @@ extension SettingsSchema {
         // A reply's file link outside the project, and a reply's web image (D4, D5).
         "agentPane.links.outsideRoots": .privacy,
         "agentPane.images.remote": .network,
-        // Whether a new chat starts on a Cloud machine, its project copied there: what leaves the machine.
-        "agentPane.newChatsIn": .privacy,
         "app.quitBehavior": .destructive,
         // Voice Room records mic and screen text and posts it to the configured room.
         "labs.voiceRoom": .privacy,

@@ -45,9 +45,10 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
 
-      # The push base is not in a depth-2 clone; fetch it alone (an unknown one runs everything).
+      # The push base is not in a depth-2 clone; fetch it alone (an unknown one runs everything). `all` runs every
+      # subarea with nothing to fetch (web_subareas.EVERY_SUBAREA).
       - name: Fetch the push base
-        if: ${{ inputs.push_base != '' }}
+        if: ${{ inputs.push_base != '' && inputs.push_base != 'all' }}
         env:
           PUSH_BASE: ${{ inputs.push_base }}
         run: git fetch --no-tags --depth=1 origin "$PUSH_BASE" || echo "::warning title=web routing::push base $PUSH_BASE is not fetchable; every web subarea runs"
@@ -457,7 +458,7 @@ jobs:
             exit "$status"
           fi
           python3 ../scripts/ci/fast_gate_webviews_checks.py --no-install --repo .. --base "$BASE_REF" || status=1
-          for check in check:design-tokens check:menu-gutters check:layers check:type-scale check:motion-scale check:surface-roles check:layout-grid check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps; do
+          for check in check:design-tokens check:menu-gutters check:layers check:type-scale check:motion-scale check:surface-roles check:layout-grid check:design-scale check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps; do
             bun run "$check" || echo "::warning title=webviews $check (warn-only)::see the step log"
           done
           # Format and lint apart: `vp check` stops at its first red, so a format red hid every lint finding.
