@@ -122,7 +122,8 @@ jobs:
             *) echo "::error::unsupported machine $(uname -m)"; exit 1 ;;
           esac
           dir="$RUNNER_TEMP/cmux-cli"
-          mkdir -m 0700 -p "$dir"
+          mkdir -p "$dir"
+          chmod 0700 "$dir"
           found=""
           for commit in $(git rev-list --first-parent -n 30 HEAD); do
             if curl --proto '=https' --tlsv1.2 -fsSL "https://files.cmux.com/cmux-tui/$commit/manifest.json" -o "$dir/manifest.json" 2>/dev/null \

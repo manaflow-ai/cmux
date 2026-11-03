@@ -292,8 +292,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var hasDocument = false
     /// The current document is a real page that finished loading, or an error page (not an aborted load).
     @ObservationIgnored var documentLoaded = false
-    /// The current document painted content (its first contentful paint, `CEFFirstPaintBridge`). Chromium drops input to
-    /// a new document before its first paint (lead on STATUS 8055: 11 keys sent 4 ms after loading stopped were lost).
+    /// The current document presented its first frame, with or without content (Chromium's `firstPaint` or
+    /// `firstContentfulPaint`, `CEFFirstPaintBridge`, or the page's own answer). Chromium drops input to a new document
+    /// before its first paint (lead on STATUS 8055: 11 keys sent 4 ms after loading stopped were lost).
     @ObservationIgnored var documentPainted = false
     /// Chromium stopped loading (its last `.loadingState`).
     @ObservationIgnored var loadingStopped = false
@@ -306,13 +307,44 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var committedThisLoad = false
     /// Chromium is loading (its last `.loadingState`).
     @ObservationIgnored var chromiumLoading = false
+    /// Whether the current document painted content, asked of the page (``BrowserFirstPaintScript/query``): it waits
+    /// for the first contentful paint, and its observer is buffered, so a paint before it asked still counts. Nil: the
+    /// call failed or timed out. A test answers instead.
+    @ObservationIgnored var paintQuery: @MainActor (CEFTab) async -> Bool? = CEFTab.askPagePainted
 
-    /// The main frame's document painted content (`CEFFirstPaintBridge`).
-    func documentDidFirstPaint() {
+    /// The pending ``paintQuery`` of the current document; a commit or the browser's end cancels it.
+    @ObservationIgnored var paintAsk: Task<Void, Never>?
+
+    /// The current document loaded and no paint report came: ask the page once whether it painted. Readiness then never
+    /// waits on one pushed event that can be lost (#33940: 1 in 43 restores never got Chromium's first contentful paint
+    /// event, and the keys waited the whole 2 s bound). A blank target or an error page needs no paint.
+    func askPaintIfLoaded() {
+        guard !hasDocument, documentLoaded, !documentPainted, !blankIsDocument, !committedIsErrorPage, paintAsk == nil else { return }
+        paintAsk = Task { [weak self] in
+            guard let self else { return }
+            let painted = await paintQuery(self)
+            guard !Task.isCancelled else { return } // a later document committed, or the browser ended
+            paintAsk = nil
+            guard painted == true, !hasDocument else { return }
+            host.lifecycleTrace.record(id, "paint-query painted")
+            documentPainted = true
+            documentMayTakeKeys()
+        }
+    }
+
+    /// The page's answer to ``BrowserFirstPaintScript/query``.
+    private static func askPagePainted(_ tab: CEFTab) async -> Bool? {
+        guard let value = try? await tab.evaluate(BrowserFirstPaintScript.query, world: .isolated, gesture: .cmux) else { return nil }
+        return value == .bool(true) ? true : nil
+    }
+
+    /// The main frame's document presented its first frame (`CEFFirstPaintBridge`): `contentful` for Chromium's
+    /// `firstContentfulPaint`, else its `firstPaint` (a frame with no content: an empty field). Either takes keys.
+    func documentDidFirstPaint(contentful: Bool = true) {
         // Chromium's own load (its `.loadingState(true)`), not the app's: a load the app asked for before Chromium began
         // it is no load yet, and a paint then is the document before it.
         if !committedThisLoad { paintBeforeCommit = chromiumLoading } else { documentPainted = true }
-        if !hasDocument { host.lifecycleTrace.record(id, "cef-first-paint committed=\(committedThisLoad) loading=\(chromiumLoading)") }
+        if !hasDocument { host.lifecycleTrace.record(id, "cef-first-paint\(contentful ? "" : " frame-only") committed=\(committedThisLoad) loading=\(chromiumLoading)") }
         documentMayTakeKeys()
     }
     /// The document the tab was asked to show is blank (a New Tab page): its blank document counts as loaded.
@@ -326,6 +358,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         host.lifecycleTrace.record(id, "ready-wait navigates=\(navigates) url=\(pendingURL != nil) restore=\(pendingRestore != nil) agent=\(loadAfterAttach != nil)")
         (hasDocument, documentLoaded, documentPainted, loadingStopped) = (false, false, false, false)
         (paintBeforeCommit, committedThisLoad, chromiumLoading) = (false, false, false)
+        paintAsk?.cancel()
+        paintAsk = nil
         blankIsDocument = pendingURL.map { !PageBackground.isRealPage($0) } ?? false
         isCreationPending = false
         CEFAgentURLGuard.applyShimGuard(self)
@@ -408,6 +442,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// the daemon and reopens at relaunch.
     func browserDidClose(closesTab: Bool = true) {
         browserID = nil
+        paintAsk?.cancel()
+        paintAsk = nil
         agentRelay.browserEnded()
         findRequests.cancel()
         dismissPrompts()

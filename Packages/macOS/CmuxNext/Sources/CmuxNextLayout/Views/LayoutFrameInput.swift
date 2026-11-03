@@ -1,6 +1,6 @@
 import AppKit
 
-/// The input of one display frame (FRAME OWNER REFACTOR S2, `motion.frameOwner.timing`), applied first in the
+/// The input of one display frame (FRAME OWNER REFACTOR S2), applied first in the
 /// window's frame tick, before its springs step: each screen's divider, column-edge or row-edge drag writes its newest
 /// pointer once (`DividerDrag.applyWaiting`), and the model syncs in the same turn (no observation hop). The
 /// presentation and the overlay sync that sync asks for wait for the frame's one pass

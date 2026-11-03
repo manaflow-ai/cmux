@@ -121,7 +121,7 @@ export type EffortLook = "list" | "plain" | "slider";
 
 /// Whether a rail tab draws its harness's own symbol: a mark the AgentMark set has, never a
 /// monogram (a machine or session initial says nothing about the harness).
-function symbolOf(family: { mark?: string }): boolean {
+export function symbolOf(family: { mark?: string }): boolean {
   const mark = family.mark;
   if (!mark || !hasAgentMark(mark)) return false;
   // As AgentMark picks: a harness's own icon wins over its brand, but a glyph draws the brand's
@@ -133,7 +133,7 @@ function symbolOf(family: { mark?: string }): boolean {
 
 /// A harness with no symbol of its own draws its name's first letter as a mark in the symbols row,
 /// so every tab there is a mark and none is text.
-function initialOf(name: string): string {
+export function initialOf(name: string): string {
   return (name.match(/\p{L}|\p{N}/u)?.[0] ?? "?").toLocaleUpperCase();
 }
 
@@ -194,6 +194,8 @@ export type QuickFamily = {
   unavailable?: boolean;
   /// A started chat's other harness: offer Fork to it in place of models.
   fork?: boolean;
+  /// The acpmux family an account added from this tab serves ("claude", "codex", "opencode").
+  accountFamily?: string;
   /// The model family the entry runs ("claude", "openai"): entries of one family share one tab,
   /// and each is a route of it (its transport, login or launch setup) the Account row chooses
   /// (Leo 2026-10-31: "FUCKING HELL WHY DO YOU GUYS STILLLLLLLLLLLLLLLLLLLLLL SHOW THESE AS
@@ -232,7 +234,7 @@ export function familyTabs(list: readonly QuickFamily[]): QuickTab[] {
 
 /// The route a family's tab opens on: the chat's own when it runs this family, else the first
 /// that lists models, else the first.
-function leadRoute(tab: QuickTab, running: string | undefined): QuickFamily {
+export function leadRoute(tab: QuickTab, running: string | undefined): QuickFamily {
   const listsModels = (route: QuickFamily) =>
     !route.launch && !route.note && [...route.models, ...route.more].some((model) => !model.disabled);
   return (
@@ -318,7 +320,7 @@ export function twinRows(groups: readonly QuickSearchGroup[]): Set<QuickModel> {
 }
 /// The running model's row when several providers serve it: the running offer may be another
 /// provider's than the row lands, when the running one is unavailable.
-const runsOffers = (model: Pick<QuickModel, "id" | "offers">, current: string | undefined) =>
+export const runsOffers = (model: Pick<QuickModel, "id" | "offers">, current: string | undefined) =>
   !!model.offers?.some((offer) => offer.id === current);
 
 /// What the composer hands the model picker for its compact menu; the picker adds the models.
@@ -1469,9 +1471,9 @@ export function QuickModelMenu({
 }
 
 /// The rail's Starred tab: an outline star.
-function StarIcon({ filled = false }: { filled?: boolean }) {
+export function StarIcon({ filled = false }: { filled?: boolean }) {
   return (
-    <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
       <path
         d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z"
         fill={filled ? "currentColor" : "none"}
@@ -1590,7 +1592,7 @@ function AccountRows({
 /// The chat's accounts, read each time the menu opens (acpmux holds them; nothing polls), and a
 /// pick that switches the chat. A refused switch (acpmux's route.unavailable, a route of another
 /// family) stays named on the Account row until a switch succeeds or the chat changes.
-function useAccountList(open: boolean, account: QuickMenu["account"]) {
+export function useAccountList(open: boolean, account: QuickMenu["account"]) {
   const [list, setList] = useState<ChatAccountList>();
   const [failed, setFailed] = useState(false);
   const [switchFailed, setSwitchFailed] = useState(false);
