@@ -437,7 +437,6 @@ impl CloudPlacement {
             },
             fleet = crate::fleet_wait::NOTE,
             peer = self.peer,
-            dir,
         )
     }
 }
