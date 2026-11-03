@@ -565,9 +565,7 @@
    "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6.5 8v8M6.5 8c0 2.75 2.5 4 8.75 4' fill='none' stroke-width='2'/><circle cx='6.5' cy='5.5' r='2.5' stroke='none'/><circle cx='6.5' cy='18.5' r='2.5' stroke='none'/><circle cx='17.5' cy='12' r='2.5' stroke='none'/></svg>",
    "alts": [],
    "note": "git.pullrequest's base stem and nodes; the head joins it in a curve (GitHub's merge).",
-   "replaces": [
-    "arrow.triangle.merge"
-   ]
+   "replaces": []
   },
   {
    "name": "git.pullrequest.draft",

@@ -1005,7 +1005,7 @@
   {
    "name": "git.pullrequest.merged",
    "meaning": "Merged pull request (Session Info Changes).",
-   "sf": "arrow.triangle.merge",
+   "sf": "questionmark.square.dashed",
    "family": "git.pullrequest"
   },
   {

@@ -177,7 +177,7 @@ const glyphsDrawn =
     const states = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-session-info-pr")].map(
       (row) => row.dataset.state,
     );
-    if (states.join() !== "open,draft,conflicting,merged,closed") throw new Error(`Changes rows are ${states.join()}`);
+    if (states.join() !== "conflicting,draft,open,closed,merged") throw new Error(`Changes rows are ${states.join()}`);
   };
 
 export default componentEntry({
