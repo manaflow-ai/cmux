@@ -94,6 +94,8 @@ final class ScreenContentView: NSView {
     /// Pane strip clips computed and presentation passes run, cumulative (PaneMotionWorkTests: per frame the clips
     /// are the panes that moved or whose covers changed; `LayoutWorkProbe`), and a structural change's next pass re-places all.
     var stripClipsComputed = 0, presentationPasses = 0, forcesPresentation = false
+    /// Whole-screen geometry computes a tab drop's hit test made (room check and edge preview; HOT PATH AUDIT drag-frame).
+    var dropGeometryComputes = 0
     init(screenID: ScreenID, layout: ScreenLayout, context: LayoutViewContext,
          paneMotionVariant: @escaping () -> PaneMotionVariant = { LayoutTunables.paneMotionVariant.value }) {
         self.screenID = screenID

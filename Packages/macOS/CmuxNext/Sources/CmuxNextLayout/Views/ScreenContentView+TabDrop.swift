@@ -96,6 +96,7 @@ extension ScreenContentView {
             return nil
         }
         let style = context.style
+        dropGeometryComputes &+= 1
         let after = ScreenGeometry.compute(predicted.layout, viewport: bounds.size, style: style, scale: window?.backingScaleFactor ?? 2)
         let offset = scroll.value
         func shown(_ cell: CGRect, _ pane: PaneID, in geometry: ScreenGeometry) -> CGRect {
@@ -122,6 +123,7 @@ extension ScreenContentView {
     func splitPlacement(splitting pane: PaneID, axis: SplitAxis, removing: PaneID?) -> SplitPlacement {
         // A canvas places a split's new pane beside the old one at its size: there is always room.
         if isCanvas { return .split }
+        if case .columns = layout { dropGeometryComputes &+= 1 } // SplitRoom computes the screen's geometry for columns
         return SplitRoom.placement(splitting: pane, axis: axis, in: layout, viewport: bounds.size, style: context.style, removing: removing)
     }
 
