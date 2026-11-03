@@ -284,6 +284,20 @@ class DragFollowUpTests(unittest.TestCase):
         report = self.jt.judge(two_pane_trace(xs), None, 2.0, [])
         self.assertEqual(report["notes"], [])
 
+    def test_drag_after_the_trace_ends_with_frames(self):
+        """A drag that starts after the last trace sample makes an empty part at the trace's end; with film frames the
+        judge must not read a sample past the end (third review of #32976: IndexError). Expected as at 21acf4ed454:
+        parts [0, 1], no defects, every film frame in the motion counted once."""
+        xs = [100.0] * 5 + [100.0 + 4 * k for k in range(1, 10)] + [136.0] * 5
+        trace = two_pane_trace(xs)
+        frames = self.frames_of(trace)
+        hid = [{"kind": "drag", "t_sent": trace["t0_s"] + 0.020, "t_returned": trace["t0_s"] + 0.1, "host_offset_s": 0.0},
+               {"kind": "drag", "t_sent": trace["t0_s"] + 0.163, "t_returned": trace["t0_s"] + 0.2, "host_offset_s": 0.0}]
+        report = self.jt.judge(trace, frames, 2.0, {"hid": hid, "journal": []})
+        self.assertEqual([m["input"]["drag"] for m in report["motions"]], [0, 1], report["motions"])
+        self.assertEqual(report["defects"], [])
+        self.assertEqual(report["movie"], {"frames_in_motion": 13, "complete": 13})
+
     def test_drag_labels_name_the_drag_that_starts_the_part(self):
         """Two mouse-downs before the trace starts (-2000 and -1000 ms) both cut at sample 0, then drags at 34 ms and
         at 300 ms. Each part is labelled with the last drag that starts it: drags 1, 2, 3, at -1000, 34, 300 ms."""
