@@ -1,15 +1,15 @@
 //! A copied home mints its own ids. VMs made from one image (or a disk
 //! restored onto another machine) carry the state root's `machine-id` and
-//! every session registry's `registry_id` and `session_public_id`, so those
-//! machines answer with one id and overwrite each other's records in every
-//! store that keys on it: the app's session registrar rewrote one record
-//! about 50 times a second for nine such VMs. Each of these ids is stamped
-//! with a hash of the operating system's machine identity (the cmux Cloud
-//! instance id, else `/etc/machine-id`; the macOS host UUID); one stamped on
-//! another machine is replaced by a fresh id at the next open. An id with no stamp (written before this, or
-//! on a machine with no OS identity) is kept and stamped: a machine that was
-//! not copied never changes its ids. Without an OS identity (a container
-//! with no machine-id) nothing is stamped or replaced.
+//! every session registry's `registry_id`, so those machines answer with one
+//! id and overwrite each other's records in every store that keys on it: the
+//! app's session registrar rewrote one record about 50 times a second for
+//! nine such VMs. Both ids are stamped with a hash of the operating system's
+//! machine identity (the cmux Cloud instance id, else `/etc/machine-id`; the
+//! macOS host UUID); one stamped on another machine is replaced by a fresh id
+//! at the next open. An id with no stamp (written before this, or on a
+//! machine with no OS identity) is kept and stamped: a machine that was not
+//! copied never changes its ids. Without an OS identity (a container with no
+//! machine-id) nothing is stamped or replaced.
 
 use super::*;
 
@@ -112,14 +112,18 @@ pub(super) fn machine_id_for_this_host(
     Ok(id)
 }
 
-/// Gives a registry copied from another machine its own `registry_id` and
-/// `session_public_id`. A registry with no stamp is stamped as it is.
+/// Gives a registry copied from another machine its own `registry_id`, the
+/// id other stores key this machine's session on. A registry with no stamp
+/// is stamped as it is.
 ///
-/// Every stored text that names a copied id (this daemon's personal session
-/// row and its follows, pins and workspace rows, the sidebar document's
-/// workspace refs, `meta` itself) is rewritten to the new one. Both ids are
-/// random (a UUID and 128 random bits), so a text holding one names that id
-/// and nothing else. Records other stores hold under the copied id (the
+/// Every mutable text that names the copied id (`meta`, this daemon's own
+/// personal session row and its follows, pins and workspace rows, the
+/// sidebar document's workspace refs) is rewritten to the new one. The id is
+/// a random UUID, so a text holding it names that id and nothing else.
+/// Append-only history (tables whose triggers refuse an update: the session
+/// journal, journal segments) keeps what it recorded. `session_public_id`
+/// stays: the journal records it, and it names the session only within this
+/// daemon's resource API. Records other stores hold under the copied id (the
 /// app's, other machines') are no longer written by this machine; their
 /// owners age them out as they do for a machine that went away.
 pub(super) fn rehome_registry(connection: &Connection) -> anyhow::Result<()> {
@@ -130,36 +134,14 @@ pub(super) fn rehome_registry(connection: &Connection) -> anyhow::Result<()> {
     if stored.as_deref() == Some(current.as_str()) {
         return Ok(());
     }
-    if stored.is_none() {
-        stamp(connection, &current)?;
-        return Ok(());
+    let tx = connection.unchecked_transaction()?;
+    if stored.is_some() {
+        let copied = required_meta(&tx, "registry_id")?;
+        rewrite_text_everywhere(&tx, &copied, &try_new_uuid_v4()?)?;
     }
-    // Ids that are keys of other rows change together, so foreign keys hold
-    // after the transaction; they are off while it rewrites them.
-    let foreign_keys: bool = connection.query_row("PRAGMA foreign_keys", [], |row| row.get(0))?;
-    connection.execute_batch("PRAGMA foreign_keys=OFF;")?;
-    let result = (|| -> anyhow::Result<()> {
-        let tx = connection.unchecked_transaction()?;
-        let renames = [
-            (required_meta(&tx, "registry_id")?, try_new_uuid_v4()?),
-            (
-                required_meta(&tx, "session_public_id")?,
-                SessionPublicId::random()?.as_str().to_string(),
-            ),
-        ];
-        rewrite_text_everywhere(&tx, &renames)?;
-        tx.execute(
-            "INSERT INTO meta(key, value) VALUES(?1, ?2)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![HOST_STAMP_META_KEY, current],
-        )?;
-        tx.commit()?;
-        Ok(())
-    })();
-    if foreign_keys {
-        connection.execute_batch("PRAGMA foreign_keys=ON;")?;
-    }
-    result
+    stamp(&tx, &current)?;
+    tx.commit()?;
+    Ok(())
 }
 
 fn stamp(connection: &Connection, current: &str) -> anyhow::Result<()> {
@@ -171,33 +153,54 @@ fn stamp(connection: &Connection, current: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Replaces each `(old, new)` in every text value of every table. Runs once
-/// per copied registry.
-fn rewrite_text_everywhere(
-    tx: &Transaction<'_>,
-    renames: &[(String, String)],
-) -> anyhow::Result<()> {
-    let tables: Vec<String> = tx
+/// Tables whose triggers refuse an update: append-only history.
+fn immutable_tables(connection: &Connection) -> anyhow::Result<HashSet<String>> {
+    Ok(connection
+        .prepare(
+            "SELECT tbl_name FROM sqlite_master WHERE type = 'trigger'
+             AND upper(sql) LIKE '%BEFORE UPDATE%' AND upper(sql) LIKE '%RAISE(%'",
+        )?
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<_, _>>()?)
+}
+
+/// Every mutable table and its columns.
+fn mutable_columns(connection: &Connection) -> anyhow::Result<Vec<(String, Vec<String>)>> {
+    let immutable = immutable_tables(connection)?;
+    let tables: Vec<String> = connection
         .prepare(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
         )?
         .query_map([], |row| row.get(0))?
         .collect::<Result<_, _>>()?;
-    for table in tables {
-        let columns: Vec<String> = tx
+    let mut out = Vec::new();
+    for table in tables.into_iter().filter(|table| !immutable.contains(table)) {
+        let columns: Vec<String> = connection
             .prepare("SELECT name FROM pragma_table_info(?1)")?
             .query_map([&table], |row| row.get(0))?
             .collect::<Result<_, _>>()?;
+        out.push((table, columns));
+    }
+    Ok(out)
+}
+
+/// Replaces `old` with `new` in every text value of every mutable table.
+/// Runs once per copied registry. Rows that key on the id and rows that
+/// refer to them change in one transaction, so foreign keys are checked at
+/// its commit, not after each statement.
+fn rewrite_text_everywhere(tx: &Transaction<'_>, old: &str, new: &str) -> anyhow::Result<()> {
+    tx.execute_batch("PRAGMA defer_foreign_keys=ON;")?;
+    for (table, columns) in mutable_columns(tx)? {
         for column in columns {
-            let sql = format!(
-                "UPDATE {table} SET {column} = replace({column}, ?1, ?2)
-                 WHERE typeof({column}) = 'text' AND instr({column}, ?1) > 0",
-                table = quote_identifier(&table),
-                column = quote_identifier(&column),
-            );
-            for (old, new) in renames {
-                tx.execute(&sql, params![old, new])?;
-            }
+            tx.execute(
+                &format!(
+                    "UPDATE {table} SET {column} = replace({column}, ?1, ?2)
+                     WHERE typeof({column}) = 'text' AND instr({column}, ?1) > 0",
+                    table = quote_identifier(&table),
+                    column = quote_identifier(&column),
+                ),
+                params![old, new],
+            )?;
         }
     }
     Ok(())
@@ -212,6 +215,7 @@ mod tests {
     use super::*;
 
     const SESSION: &str = "clone-check";
+    const TERMINAL: &str = "00000000000040008000000000000001";
 
     fn temp_root(label: &str) -> PathBuf {
         std::env::temp_dir().join(format!("cmux-host-identity-{label}-{}", new_uuid_v4()))
@@ -250,27 +254,12 @@ mod tests {
         persistent_session_state_dir(root, SESSION).join(WORKSPACE_REGISTRY_FILE)
     }
 
-    /// Every text value in the registry that contains `needle`, as table.column.
+    /// Every mutable text value in the registry that contains `needle`, as
+    /// table.column (append-only history keeps what it recorded).
     fn texts_naming(root: &Path, needle: &str) -> Vec<String> {
         let connection = Connection::open(registry_file(root)).unwrap();
-        let tables: Vec<String> = connection
-            .prepare(
-                "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
-            )
-            .unwrap()
-            .query_map([], |row| row.get(0))
-            .unwrap()
-            .map(Result::unwrap)
-            .collect();
         let mut found = Vec::new();
-        for table in tables {
-            let columns: Vec<String> = connection
-                .prepare("SELECT name FROM pragma_table_info(?1)")
-                .unwrap()
-                .query_map([&table], |row| row.get(0))
-                .unwrap()
-                .map(Result::unwrap)
-                .collect();
+        for (table, columns) in mutable_columns(&connection).unwrap() {
             for column in columns {
                 let hits: i64 = connection
                     .query_row(
@@ -291,6 +280,15 @@ mod tests {
         found
     }
 
+    /// A registry in use: a workspace and a terminal, so the session journal
+    /// and its append-only triggers hold rows naming the session.
+    fn seed(root: &Path) {
+        let mut registry = WorkspaceRegistry::open(root, SESSION).unwrap();
+        super::super::tests::seed_workspace(&mut registry, "one");
+        super::super::tests::reserve_terminal(&mut registry, TERMINAL, 0);
+        drop(registry);
+    }
+
     fn own_session_row(root: &Path, registry_id: &str) -> bool {
         Connection::open(registry_file(root))
             .unwrap()
@@ -301,11 +299,13 @@ mod tests {
     }
 
     #[test]
-    fn a_home_copied_to_another_machine_mints_new_ids_and_the_same_machine_keeps_them() {
+    fn a_home_copied_to_another_machine_mints_new_registry_and_machine_ids_and_the_same_machine_keeps_them()
+     {
         let first = "0123456789abcdef0123456789abcdef";
         let second = "fedcba9876543210fedcba9876543210";
         let original = temp_root("original");
         as_machine(Some(first));
+        seed(&original);
         let made = ids(&original);
         assert_eq!(ids(&original), made, "the same machine keeps its ids");
 
@@ -315,10 +315,12 @@ mod tests {
         as_machine(Some(second));
         let cloned = ids(&clone);
         assert_ne!(cloned.0, made.0, "registry id");
-        assert_ne!(cloned.1, made.1, "session public id");
+        assert_eq!(cloned.1, made.1, "the session public id stays: the journal records it");
         assert_ne!(cloned.2, made.2, "machine id");
         assert!(texts_naming(&clone, &made.0).is_empty(), "{:?}", texts_naming(&clone, &made.0));
-        assert!(texts_naming(&clone, &made.1).is_empty(), "{:?}", texts_naming(&clone, &made.1));
+        let reopened = WorkspaceRegistry::open(&clone, SESSION).unwrap();
+        assert_eq!(reopened.snapshot().unwrap().workspaces[0].key, "one", "the workspaces stay");
+        drop(reopened);
         assert!(own_session_row(&clone, &cloned.0), "the own personal session moved to the new id");
         assert_eq!(ids(&clone), cloned, "minted once: the clone keeps its new ids");
 
