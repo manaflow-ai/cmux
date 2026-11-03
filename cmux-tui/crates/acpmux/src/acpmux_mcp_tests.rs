@@ -71,6 +71,7 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "team_send",
             "team_inbox",
             "team_ack",
+            "github_status",
             "bg_start",
             "bg_list",
             "bg_output",
@@ -875,4 +876,20 @@ fn an_allowlist_keeps_only_the_acpmux_tools_it_names() {
     let chief = allowed(all.clone(), Some(crate::agent_tools::CHIEF_TURN_TOOLS));
     assert_eq!(names(&chief), ["send", "inbox_read", "inbox_reply", "ls", "last", "info"]);
     assert!(names(&allowed(all, Some("render,agents_wait"))).is_empty());
+}
+
+/// Every chat's `acpmux` server lists `github_status` and tells the agent when to call it, and a
+/// Chief turn's allowlist (which does not name it) leaves it out like any other tool.
+#[test]
+fn github_status_is_listed_with_its_instruction() {
+    let all = tools_with_artifacts(false);
+    assert!(crate::mcp_hint::names(&all).any(|n| n == crate::github_status::TOOL));
+    let text = instructions(&all).unwrap();
+    assert!(text.contains("call github_status"), "{text}");
+    assert!(text.contains("bg_start"), "{text}");
+    let scoped = allowed(all.clone(), Some("acpmux_github_status"));
+    assert_eq!(crate::mcp_hint::names(&scoped).collect::<Vec<_>>(), ["github_status"]);
+    assert_eq!(instructions(&scoped).unwrap(), crate::github_status::STEER);
+    let chief = allowed(all, Some(crate::agent_tools::CHIEF_TURN_TOOLS));
+    assert!(!crate::mcp_hint::names(&chief).any(|n| n == crate::github_status::TOOL));
 }

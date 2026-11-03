@@ -23,6 +23,10 @@ public final class TabStripModel {
     public var holdsOneTab: Bool { tabs.count == 1 }
     /// Groups of this strip. Members reference them through `TabItem.groupID`.
     public var groups: [TabGroupItem]
+    /// One tab and no group. A chat alone in its pane then draws no tab beside its tools in the tab
+    /// row: the page shows through the rest of the row (Leo 2026-11-03, "isn't it kinda arbitrary
+    /// anyway if you literally only have one tab there?"; `PaneTabRowSharing.tabRowTakesLoneTab`).
+    public var hasLoneTab: Bool { tabs.count == 1 && groups.isEmpty }
     /// The active tab. One outside `multiSelection` ends that selection.
     public var selectedID: TabID? { didSet { if selectedID != oldValue { followActive() } } }
     /// Cmd- and Shift-click's selection (`TabMultiSelection`); empty while only `selectedID` is selected.

@@ -71,6 +71,58 @@ done
         _ = await broker.shutdown()
     }
 
+    /// The holder refreshes fine but the machine's VM API is away for the renewal's delivery tries: the next
+    /// renewal comes after the backoff, not at the refreshed grant's expiry, and delivers (cmux#33387).
+    @Test func aDeliveryThatFailsAfterAGoodRefreshTriesAgainLater() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("broker-delivery-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let fake = root.appendingPathComponent("broker.sh")
+        // Every access answers; the first grant expires at once, the rest are long.
+        try #"""
+#!/bin/sh
+count=0
+while IFS= read -r line; do
+  id=$(printf '%s' "$line" | sed -E 's/.*"id":([0-9]+).*/\1/')
+  if printf '%s' "$line" | grep -q '"method":"access"'; then
+    count=$((count + 1)); expiry=$(($(date +%s) + 121)); if [ "$count" -gt 1 ]; then expiry=2147483647; fi
+    echo "{\"id\":$id,\"result\":{\"accessToken\":\"access-$count\",\"chatgptAccountId\":\"acct-1\",\"expiresAt\":$expiry}}"
+  fi
+done
+"""#.write(to: fake, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fake.path)
+        let files = Files()
+        let away = Away(failures: 4)
+        let scope = CloudCodexBrokerScope(userID: "user-1", teamID: nil)
+        let broker = CloudCodexBroker(scope: scope, currentScope: { scope }, executable: fake,
+                                      codexExecutable: URL(fileURLWithPath: "/bin/false"), home: root.appendingPathComponent("holder"),
+                                      renewalRetryBase: .milliseconds(200))
+        let target = CloudCodexBrokerTarget(machineID: "vm-away", capability: {
+            .init(ownerVM: true, protocolVersion: 1, codexExternalAccessToken: true)
+        }, makeDirectory: { _ in }, readFile: { await files.read($0) }, writeFile: { path, data, _ in await files.write(path, data) },
+                                            commitFiles: { a, b, c, d in
+                                                if await files.commits > 0, await away.fails() { throw CloudCodexBrokerError.remoteDeliveryFailed }
+                                                await files.commit((a, b, c, d))
+                                            }, removeFile: { await files.remove($0) })
+        _ = try await broker.transfer(target: target, confirmed: true)
+        await files.awaitCommits(2)
+        #expect(await away.left == 0)
+        let delivered = try #require(await files.read(CloudCodexBroker.accessPath))
+        #expect(!String(decoding: delivered, as: UTF8.self).contains("access-1\""), "the machine kept its first, expired access")
+        _ = await broker.shutdown()
+    }
+
+    /// The VM API refuses the next `failures` deliveries.
+    actor Away {
+        var left: Int
+        init(failures: Int) { left = failures }
+        func fails() -> Bool {
+            guard left > 0 else { return false }
+            left -= 1
+            return true
+        }
+    }
+
     /// The backoff doubles from its base and stops at the cap.
     @Test func theBackoffDoublesUpToItsCap() async {
         let scope = CloudCodexBrokerScope(userID: "user-1", teamID: nil)
