@@ -323,7 +323,15 @@ fn control_cloud_sets_the_default_peer_at_run_time() {
     let specs = subs(&h);
     let cloud_one = &specs[specs.len() - 2];
     assert_eq!(cloud_one.0.peer.as_deref(), Some("cloud2"));
-    assert_eq!(cloud_one.0.cwd, PathBuf::from("/home/agent/work"));
+    assert!(
+        cloud_one.0.cwd.as_os_str().is_empty(),
+        "the peer chooses a scratch folder inside its webRoots"
+    );
+    assert!(
+        cloud_one.1.contains("worktree add \\\"$PWD\\\"/"),
+        "{}",
+        cloud_one.1
+    );
     assert!(
         cloud_one.1.contains("SUBAGENT SYSTEM TEXT"),
         "{}",

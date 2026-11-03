@@ -2352,6 +2352,35 @@ mod tests {
     use optchat_core::Kind;
 
     #[test]
+    fn peer_directory_defaults_to_daemon_scratch_and_keeps_an_explicit_folder() {
+        for asked in [None, Some(""), Some("relative"), Some("/srv/projects")] {
+            let placement = CloudPlacement::from_env(
+                |key| match key {
+                    PEER_ENV => Some("cloud1".into()),
+                    "OPTCHAT_SUBAGENT_PEER_DIR" => asked.map(str::to_owned),
+                    _ => None,
+                },
+                "subagent instructions".into(),
+            )
+            .unwrap();
+            assert_eq!(
+                placement.dir,
+                PathBuf::from(asked.filter(|p| p.starts_with('/')).unwrap_or(""))
+            );
+            let task = placement.task("a7", Some("~/fun/cmux"), "build the web page");
+            if placement.dir.as_os_str().is_empty() {
+                assert!(task.contains("worktree add \"$PWD\"/a7"), "{task}");
+                assert!(
+                    task.contains("git -C \"$PWD\"/a7 config cmux.land"),
+                    "{task}"
+                );
+            } else {
+                assert!(task.contains("worktree add /srv/projects/a7"), "{task}");
+            }
+        }
+    }
+
+    #[test]
     fn no_cap_unless_one_is_set() {
         assert_eq!(live_limit(None), None);
         assert_eq!(live_limit(Some("")), None);
