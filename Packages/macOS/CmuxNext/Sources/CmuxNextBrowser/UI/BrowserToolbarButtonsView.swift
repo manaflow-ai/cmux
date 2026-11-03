@@ -28,6 +28,8 @@ public final class BrowserToolbarButtonsView: NSStackView {
     weak var configuredFor: AnyObject?
     private var batching = false
     private var batchedChange = false
+    /// Renders so far (tests: a tab switch renders the toolbar once).
+    private(set) var renders = 0
 
     /// Sets several sources (`shortcutHint`, `downloads`, `media`, `pins`) with one re-observation and render.
     func batchSources(_ set: () -> Void) {
@@ -228,6 +230,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
     }
 
     private func render() {
+        renders += 1
         if let pins {
             let next = Set(pins().compactMap(BrowserToolbarButton.init(rawValue:)))
             if next != pinned { pinned = next }
