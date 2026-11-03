@@ -247,9 +247,11 @@ class VirtualDisplay(Harness):
         self.assertEqual((facts["asked"], facts["main_interval_ms"], facts["pixels"]),
                          ({"hz": 120, "scale": 2}, 8.334, "3024x1964"))
         self.assertTrue(any("driver.py" in s for s in self.scripts))
-        stop = [s for s in self.scripts if "pkill" in s]
-        self.assertTrue(stop and all("/tmp/fake-root/journeys/VD\\.app/" in s for s in stop), stop)
+        # The display runs under the lease's root, so capture-host's release stops it with every process there.
+        made = next(s for s in self.scripts if "vdisplay120.m" in s)
+        self.assertIn("cd '/tmp/fake-root/journeys'", made)
         self.assertIn("release slot-cmux99-abc", self.calls())
+        self.assertFalse(any("kill" in s for s in self.scripts), "run.py signals nothing by name or pattern")
 
     def test_a_virtual_display_that_is_not_the_main_display_is_not_run(self):
         answer = b"ready 7 8.333\nmain 1 mode 1920x1080 pixels 1920x1080 refresh 60.00 interval 16.667 displays 2\n"
@@ -294,6 +296,12 @@ class VirtualDisplay(Harness):
         self.refused("120x1", b"ready 7 8.333\nmain 7 foo 1920x1080 bar 1920x1080 baz 120.00 qux 8.334 quux 2\n",
                      "no main line")
 
+    def test_a_line_with_a_word_after_its_form_is_no_measurement(self):
+        self.refused("120x1", b"ready 7 8.333\nmain 7 mode 1920x1080 pixels 1920x1080 refresh 120.00 interval 8.334 "
+                              b"displays 1 extra\n", "no main line")
+        self.refused("120x1", b"ready 7 8.333 extra\nmain 7 mode 1920x1080 pixels 1920x1080 refresh 120.00 interval "
+                              b"8.334 displays 1\n", "no ready line")
+
     def test_the_helpers_error_is_its_own_reason(self):
         self.refused("120x1", b"error: CGVirtualDisplay unavailable\nmain 1 mode 1920x1080 pixels 1920x1080 refresh 60.00 "
                               b"interval 16.667 displays 1\n", "the display helper failed: error: CGVirtualDisplay unavailable")
@@ -303,21 +311,24 @@ class VirtualDisplay(Harness):
                      "no ready line")
 
     def test_the_tolerance_is_0_35_ms(self):
+        # 1000/120 = 8.333 ms: 8.680 is 0.347 ms off (runs), 8.690 is 0.357 ms off (refused).
         near = b"ready 7 %s\nmain 7 mode 1920x1080 pixels 1920x1080 refresh 120.00 interval %s displays 1\n"
-        self.lease("120x1", near % (b"8.600", b"8.600"))
-        self.assertTrue(any("driver.py" in s for s in self.scripts), "8.600 ms on 120 Hz is within 0.35 ms: it runs")
+        self.lease("120x1", near % (b"8.680", b"8.680"))
+        self.assertTrue(any("driver.py" in s for s in self.scripts), "8.680 ms on 120 Hz is within 0.35 ms: it runs")
         self.scripts.clear()
-        self.refused("120x1", near % (b"8.700", b"8.700"), "8.7 ms")
+        self.refused("120x1", near % (b"8.690", b"8.690"), "8.69 ms")
 
-    def test_a_display_start_that_times_out_is_stopped_before_the_release(self):
+    def test_a_display_start_that_times_out_still_releases_the_lease_which_stops_it(self):
         self.vd_raises = subprocess.TimeoutExpired("ssh", 90)
         result, out = self.lease("120x1")
         self.assertEqual(result["status"], "not run")
-        log = self.calls()
-        self.assertIn("remote pkill", log)
-        self.assertLess(log.index("remote pkill"), log.index("release slot-cmux99-abc"), log)
-        stop = next(s for s in self.scripts if "pkill" in s)
-        self.assertIn("/tmp/fake-root/journeys/VD\\.app/", stop)  # the lease's own path, as an exact pattern
+        self.assertIn("release slot-cmux99-abc", self.calls())
+        self.assertFalse(any("kill" in s for s in self.scripts), "run.py signals nothing by name or pattern")
+
+    def test_run_py_has_no_kill_by_name_or_pattern(self):
+        # The fleet rule (tests/test_ci_fleet_rule_lints.py, rule pkill): signal only processes you started.
+        text = (HERE / "run.py").read_text()
+        self.assertNotRegex(text, r"(?<![\w-])(?:pkill|killall)(?![\w-])")
 
     def test_the_display_is_held_no_longer_than_the_lease(self):
         self.lease("120x1")
