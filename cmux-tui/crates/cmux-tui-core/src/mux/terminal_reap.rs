@@ -54,6 +54,10 @@ pub(crate) enum ReapOutcome {
 #[derive(Debug, Default)]
 pub(crate) struct ReapSchedule {
     deadlines: HashMap<String, Instant>,
+    /// Terminals an attempt left running (`Retained`) or still listed
+    /// (`Reaped`): the earliest the next attempt may come, kept while each
+    /// stays reapable.
+    retry_floors: HashMap<String, Instant>,
     /// Consecutive failed reapable-set scans (retry spacing).
     scan_failures: u32,
     /// The registry holds no unplaced time (the last pass removed or found
@@ -92,10 +96,13 @@ impl ReapSchedule {
     ) {
         self.scan_failures = 0;
         self.deadlines.retain(|terminal_id, _| reapable.contains_key(terminal_id));
+        self.retry_floors.retain(|terminal_id, _| reapable.contains_key(terminal_id));
         for (terminal_id, unplaced_for) in reapable {
-            self.deadlines
-                .entry(terminal_id.clone())
-                .or_insert_with(|| deadline_after(now, grace.saturating_sub(*unplaced_for)));
+            let floor = self.retry_floors.get(terminal_id).copied();
+            self.deadlines.entry(terminal_id.clone()).or_insert_with(|| {
+                let deadline = deadline_after(now, grace.saturating_sub(*unplaced_for));
+                floor.map_or(deadline, |floor| deadline.max(floor))
+            });
         }
     }
 
@@ -128,18 +135,31 @@ impl ReapSchedule {
         self.deadlines.remove(terminal_id);
     }
 
-    /// A reap of a due terminal was attempted at `now`, whatever it came to.
-    pub(crate) fn tried(&mut self, terminal_id: &str, now: Instant, grace: Duration) {
-        // Every outcome waits a full grace (at least MIN_RETRY) before the
-        // terminal is tried again; a scan that no longer lists it (closed,
-        // placed again or kept) drops the deadline (`observe_unplaced`).
-        // A forget here let the next scan re-add a terminal the attempt left
-        // reapable at its durable unplaced time, already past the grace:
-        // due at once, so the reaper thread waited zero and ran pass after
-        // pass (the app's headless owner at 150% CPU). An attached client
-        // likewise keeps the terminal for another grace; its detach does not
-        // emit a topology event.
-        self.postpone(terminal_id, deadline_after(now, grace.max(MIN_RETRY)));
+    /// A reap of a due terminal was attempted at `now`; `outcome` is `None`
+    /// when the attempt failed.
+    pub(crate) fn tried(
+        &mut self,
+        terminal_id: &str,
+        outcome: Option<ReapOutcome>,
+        now: Instant,
+        grace: Duration,
+    ) {
+        let retry = deadline_after(now, grace.max(MIN_RETRY));
+        match outcome {
+            // The deadline goes, so a terminal placed again and closed
+            // again gets a fresh grace from its new unplaced time. The floor
+            // stays: a terminal the attempt left reapable is otherwise
+            // re-added at its durable unplaced time, already past the grace,
+            // due at once, and the reaper thread waited zero and ran pass
+            // after pass (the app's headless owner at 150% CPU).
+            Some(ReapOutcome::Reaped | ReapOutcome::Retained) => {
+                self.forget(terminal_id);
+                self.retry_floors.insert(terminal_id.to_string(), retry);
+            }
+            // An attached client keeps the terminal for another full grace
+            // period; its detach does not emit a topology event.
+            Some(ReapOutcome::Attached) | None => self.postpone(terminal_id, retry),
+        }
     }
 
     pub(crate) fn next_deadline(&self) -> Option<Instant> {
@@ -380,13 +400,16 @@ impl Mux {
         };
         let mut reaped = Vec::new();
         for (terminal_id, outcome) in due.into_iter().zip(outcomes) {
-            schedule.tried(&terminal_id, now, grace);
-            match outcome {
-                Ok(ReapOutcome::Reaped) => reaped.push(terminal_id),
-                Ok(ReapOutcome::Retained | ReapOutcome::Attached) => {}
-                Err(error) => self.report_internal_diagnostic(format!(
-                    "reap of unplaced terminal {terminal_id} failed: {error}"
-                )),
+            let outcome = outcome
+                .inspect_err(|error| {
+                    self.report_internal_diagnostic(format!(
+                        "reap of unplaced terminal {terminal_id} failed: {error}"
+                    ));
+                })
+                .ok();
+            schedule.tried(&terminal_id, outcome, now, grace);
+            if outcome == Some(ReapOutcome::Reaped) {
+                reaped.push(terminal_id);
             }
         }
         reaped

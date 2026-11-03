@@ -81,7 +81,7 @@ fn reaper_wait(schedule: &ReapSchedule, now: Instant) -> Option<Duration> {
 /// at 150% CPU.
 #[test]
 fn terminal_reap_schedule_waits_after_an_attempt_that_left_the_terminal_reapable() {
-    {
+    for outcome in [ReapOutcome::Retained, ReapOutcome::Reaped] {
         let start = Instant::now();
         let reapable: HashMap<String, Duration> = [("stuck".to_string(), 3 * GRACE)].into();
         let mut schedule = ReapSchedule::default();
@@ -94,13 +94,13 @@ fn terminal_reap_schedule_waits_after_an_attempt_that_left_the_terminal_reapable
         while now < start + Duration::from_secs(1) && passes < 1000 {
             schedule.observe_unplaced(now, GRACE, &reapable);
             for terminal_id in schedule.due(now) {
-                schedule.tried(&terminal_id, now, GRACE);
+                schedule.tried(&terminal_id, Some(outcome), now, GRACE);
             }
             passes += 1;
             now += reaper_wait(&schedule, now).expect("still reapable, so still scheduled");
         }
-        assert_eq!(passes, 1, "the reaper ran {passes} passes within a second");
-        assert_eq!(reaper_wait(&schedule, start), Some(GRACE));
+        assert_eq!(passes, 1, "{outcome:?}: the reaper ran {passes} passes within a second");
+        assert_eq!(reaper_wait(&schedule, start), Some(GRACE), "{outcome:?}");
     }
 }
 
@@ -112,9 +112,24 @@ fn terminal_reap_schedule_drops_a_settled_terminal_once_it_is_no_longer_reapable
     let reapable: HashMap<String, Duration> = [("gone".to_string(), GRACE)].into();
     let mut schedule = ReapSchedule::default();
     schedule.observe_unplaced(start, GRACE, &reapable);
-    schedule.tried("gone", start, GRACE);
+    schedule.tried("gone", Some(ReapOutcome::Reaped), start, GRACE);
     schedule.observe_unplaced(start, GRACE, &HashMap::new());
     assert_eq!(schedule.next_deadline(), None);
+}
+
+/// A terminal placed again during its attempt (`Retained`) and closed again
+/// before the next scan gets a full grace from its new unplaced time, not the
+/// retry deadline of the attempt.
+#[test]
+fn terminal_reap_schedule_gives_a_terminal_closed_again_after_a_retained_attempt_a_fresh_grace() {
+    let start = Instant::now();
+    let mut schedule = ReapSchedule::default();
+    schedule.observe_unplaced(start, GRACE, &[("undo".to_string(), GRACE)].into());
+    schedule.tried("undo", Some(ReapOutcome::Retained), start, GRACE);
+    // Closed again 5 s later; the placement cleared its unplaced time.
+    let closed_again = start + Duration::from_secs(5);
+    schedule.observe_unplaced(closed_again, GRACE, &[("undo".to_string(), Duration::ZERO)].into());
+    assert_eq!(schedule.deadline("undo"), Some(closed_again + GRACE));
 }
 
 fn host_id(mux: &Arc<Mux>, surface: &Arc<Surface>) -> String {
