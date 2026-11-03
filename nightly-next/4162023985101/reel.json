@@ -1,0 +1,209 @@
+{
+  "version": 1,
+  "build": "4162023985101",
+  "notes": "notes/4162023985101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 33569,
+      "title": "base red: acpmux github_status, cmux-host's repositories and the away recap read and write JSON without an index (panic ratchet after #33154, #33116)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33313,
+      "title": "perf(next agent cursor): the visibility resolver calls the typed C ABI, no JSON per resolve (B9b step B)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 29866,
+      "title": "Key set A: New Column Ctrl-Cmd-X, New Row Ctrl-Shift-Cmd-X, browser splits Opt-Cmd-X (macOS takes Ctrl-Cmd-D, Opt-Cmd-D)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33130,
+      "title": "feat(sidebar): show app panels in the bottom band",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33545,
+      "title": "base red: the no-flicker test type-checks (unused Box, shadowed Event; from #33526)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33582,
+      "title": "Cloud VM image: pin cmux-tui 772323f0 (the Native receiver journals each bootstrap failure, #33424)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32894,
+      "title": "Prompt rail: full length from the chat's prompt count; no tick moves as history loads",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33575,
+      "title": "cmux-vm staging: approve the clone-boot Cloud Native image for platform development",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33148,
+      "title": "perf(webviews): wake timestamp labels only when their text changes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33406,
+      "title": "acpmux: the login-env watcher wakes only on changes, not on every open (Linux)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32754,
+      "title": "One spinner: every working and loading mark draws the shared arc",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33464,
+      "title": "reload: fleet measurement steps build this Mac's arch only, into a DerivedData the checkout keeps",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33549,
+      "title": "ci(stable-next): a real login keychain for the UI tests; suites back on the fleet; node for perf",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33014,
+      "title": "Cloud sign-in: one Sign in to Claude click starts the login and opens its page",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33155,
+      "title": "perf: read persisted remote tails before the web connection",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33265,
+      "title": "perf(chat): skip fade timers for the hidden prompt rail scrollbar",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33333,
+      "title": "Agent chat: pin a waiting steer's Send now, × and Copy to the bubble's edge",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33358,
+      "title": "fix(perf): measure transcript scroll coverage and missed refresh slots",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33428,
+      "title": "Session Info: a chat waiting for a free slot is queued in the Subagents head, not done",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33003,
+      "title": "Chief: per-person rights, hash-chained audit, spend caps, login-kind rule, gated Chief-to-Chief",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33084,
+      "title": "acpmux: show how long a Claude chat's prompt cache stays warm in the context card",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33465,
+      "title": "Chief prompt: import suggest cards live on Settings' Import page",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33541,
+      "title": "ci(guards): universal nightly check accepts the prepare job's Linux pool (base red from #33340)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33020,
+      "title": "acpmux: pull the person's vault env onto a joined machine",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33172,
+      "title": "cmux NEXT: Split Browser Right shows its split and browser tab on the key press",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33231,
+      "title": "perf(next): no acpmux signature check on the main thread at launch (2.86 s hang)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33481,
+      "title": "Cloud: a CLI's or agent's create refused at the plan cap fails at once, no card (#32725)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33458,
+      "title": "cmux-vm: read and allow an existing VM's public egress",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33025,
+      "title": "fix(acpmux): stage artifact saves and stream complete reads",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33219,
+      "title": "cmux-imessage: review follow-ups (date-ordered previews, NULL rows, stderr drain, terminal error code)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33169,
+      "title": "fix(rail): paint initial history ticks at final geometry",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26701,
+      "title": "cmux NEXT: stream large cloud attachment originals through multipart",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33526,
+      "title": "test(web): a streamed turn never flickers Session Info or the chat header",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
