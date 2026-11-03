@@ -142,7 +142,8 @@ pub(super) fn run_with(
     let mut read_value = |_: &str| -> Result<zeroize::Zeroizing<String>, String> {
         Err("no value in this test".into())
     };
-    let mut ssh = |_: &bootstrap::SshPlan| -> std::io::Result<i32> { panic!("no ssh in this test") };
+    let mut ssh =
+        |_: &bootstrap::SshPlan| -> std::io::Result<i32> { panic!("no ssh in this test") };
     let mut hooks = Hooks { confirm: &mut confirm, read_value: &mut read_value, ssh: &mut ssh };
     let options = RunOptions { interactive, every: Duration::from_millis(20) };
     let code = run(&command, &platform, output, options, &mut out, &mut hooks, interrupt);

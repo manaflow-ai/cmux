@@ -51,7 +51,9 @@ pub(super) fn valid_host(host: &str) -> bool {
 /// An origin that is safe unquoted in a remote shell command.
 fn shell_safe_origin(origin: &str) -> bool {
     !origin.is_empty()
-        && origin.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b':' | b'/' | b'.' | b'-' | b'_'))
+        && origin
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b':' | b'/' | b'.' | b'-' | b'_'))
 }
 
 /// What to run for ssh: its argv (never a token) and what goes to its stdin.
@@ -268,8 +270,8 @@ pub(super) fn add_usb(
     let minted = mint_for(platform, &add)?;
     let expires = expiry_date_words(minted.expires_at_ms);
     let script = Zeroizing::new(usb_script(&platform.origin, &minted.token, &expires));
-    let (script_path, readme_path) =
-        write_usb(dir, &script, &usb_readme(&expires, args.vault)).map_err(|e| {
+    let (script_path, readme_path) = write_usb(dir, &script, &usb_readme(&expires, args.vault))
+        .map_err(|e| {
             Failure::new(
                 "machine_join.usb",
                 format!(
@@ -399,7 +401,9 @@ pub(super) fn add_over_ssh(
                 WaitEnd::Joined(machine) => {
                     format!("{} joined (machine {}).", machine.name, machine.machine_id)
                 }
-                _ => format!("{host} ran the join; it shows in `cmux machine list` once it reports in."),
+                _ => format!(
+                    "{host} ran the join; it shows in `cmux machine list` once it reports in."
+                ),
             };
             writeln!(out, "{text}").map_err(io)?;
         }
@@ -424,12 +428,8 @@ pub(super) fn add_over_ssh(
         } else {
             // The sign-in step finds the agents where they are installed on that Mac (the
             // managed Codex is not on PATH), so the hint runs it rather than naming a binary.
-            writeln!(
-                out,
-                "To sign in its agents there: {}",
-                signin_hint(&platform.origin, host)
-            )
-            .map_err(io)?;
+            writeln!(out, "To sign in its agents there: {}", signin_hint(&platform.origin, host))
+                .map_err(io)?;
         }
     }
     Ok(0)
