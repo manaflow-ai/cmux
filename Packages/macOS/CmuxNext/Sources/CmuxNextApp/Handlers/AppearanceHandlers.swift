@@ -8,9 +8,9 @@ import CmuxNextSettings
 /// (border, padding). Applied to `DesignSettings` at once, then
 /// written to cmux.json through the validated `setSetting` path
 /// (`AppActionContext.writeSetting`), which owns settings; the watcher
-/// reapplies the same value.
+/// reapplies the same value. Tests pass their own `tunables` (Debug choices).
 enum AppearanceHandlers {
-    static func bind(into registry: ActionRegistry, context: AppActionContext) {
+    static func bind(into registry: ActionRegistry, context: AppActionContext, tunables: TunableStore = .shared) {
         let uiScale = UIScaleSetting()
         // Customize Appearance… opens Settings on Appearance (R82: the studio panel went with the Swift Settings UI).
         registry.bind("appearance.customize", run: { invocation in
@@ -62,7 +62,7 @@ enum AppearanceHandlers {
         for style in TitlebarStyle.allCases {
             registry.bind(ActionID(rawValue: "appearance.titlebar.\(style.rawValue)"), run: { _ in try setTitlebar(style, context) })
         }
-        registry.bind("appearance.glass.lens.toggle", run: { _ in GlassLensMode.choose(GlassLensMode.tunable.value.lensToggled) })
+        registry.bind("appearance.glass.lens.toggle", run: { _ in GlassLensMode.choose(GlassLensMode.tunable.value(in: tunables).lensToggled, in: tunables) })
         registry.bind("appearance.interfaceSize.reset", run: { _ in
             let path = context.design.interfaceSizePath; try requireUnmanaged(path, context); context.design.resetInterfaceSize()
             context.writeSetting("reset interface size", path, nil, reloadOnFailure: true)
