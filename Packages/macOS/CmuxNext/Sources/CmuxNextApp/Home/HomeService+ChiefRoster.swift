@@ -66,14 +66,17 @@ extension HomeService {
     // else the Hosted (cloud) Chief. Settings > Chief's Engine row (`home.chiefEngine`) forces
     // either one. The Chief tab, the page's first conversation and the list's Main all follow it.
 
-    /// The default Chief is this Mac's (``HomeChiefDefault/prefersLocal(localRunning:)``).
+    /// The default Chief is this Mac's (``HomeChiefDefault/prefersLocal(localRunning:)``), unless this
+    /// Mac's Chief teleported: then where it went decides (``HomeChiefFollow/prefersLocal(_:)``).
     var prefersLocalChief: Bool {
-        HomeChiefDefault(setting: services.settings?.snapshot.homeChiefEngine).prefersLocal(localRunning: localChiefRunning)
+        chiefFollow.prefersLocal(HomeChiefDefault(setting: services.settings?.snapshot.homeChiefEngine).prefersLocal(localRunning: localChiefRunning))
     }
 
     /// The Chief's conversation the Chief tab and Home's page show first: the default Chief's
     /// (``HomeCloudChiefs/chiefTab(local:localHasHistory:choice:prefersLocal:)``).
     var defaultChiefConversation: String? {
+        // A teleported Chief: the conversation where it answers now (HomeService+Teleport).
+        if let followed = chiefFollow.conversation { return followed }
         let local = HomeChiefName.select(from: conversations)
         return tabChiefs.chiefTab(local: local?.id, localHasHistory: (local?.lastSeq ?? 0) > 0, choice: hostedChief.choice,
                                   prefersLocal: prefersLocalChief)

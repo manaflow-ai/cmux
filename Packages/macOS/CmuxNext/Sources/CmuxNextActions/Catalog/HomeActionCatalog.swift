@@ -494,7 +494,7 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 keywords: ["home", "chief", "teleport", "move", "location", "cloud", "mac mini", "playground", "variants", "debug"],
                 category: .window, symbol: "location.circle", surfaces: [.palette, .menu],
                 arguments: [
-                    ActionArgument(name: "state", title: t("argument.home.teleportPlaygroundState", "Menu State"), kind: .int(0...6), isRequired: false),
+                    ActionArgument(name: "state", title: t("argument.home.teleportPlaygroundState", "Menu State"), kind: .int(0...7), isRequired: false),
                 ],
                 mainMenu: .debug, isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)

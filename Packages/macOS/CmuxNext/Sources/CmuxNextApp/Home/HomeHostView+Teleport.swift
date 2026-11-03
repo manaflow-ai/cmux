@@ -12,6 +12,7 @@ extension HomeHostView {
         let model = services.chiefTeleport
         let header = ChiefTeleportChip(model: model)
         header.setAccessibilityIdentifier("cmux.home.chief.teleport.header")
+        header.saysAway = true  // on a host Home cannot open, this conversation says where the Chief went
         let card = ChiefTeleportChip(model: model)
         card.setAccessibilityIdentifier("cmux.home.chief.teleport.card")
         let service = services.home

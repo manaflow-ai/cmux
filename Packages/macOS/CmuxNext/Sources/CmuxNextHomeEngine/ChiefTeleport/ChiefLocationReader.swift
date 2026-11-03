@@ -18,9 +18,16 @@ public nonisolated struct ChiefLocationReader: Sendable {
     /// - Parameter home: A Chief home (`ChiefHome.root`).
     /// - Returns: Where that Chief runs now.
     public func read(home: URL) async -> ChiefLocation {
+        await whereabouts(home: home).location
+    }
+
+    /// Where `home`'s marker says the Chief went, with the hosted Chief's agent id for cmux Cloud.
+    ///
+    /// - Parameter home: A Chief home (`ChiefHome.root`).
+    public func whereabouts(home: URL) async -> ChiefWhereabouts {
         let file = home.appendingPathComponent(Self.movedFile)
         // One small file read, at the person's priority, never on the main actor.
         let data = await Task.detached(priority: .userInitiated) { try? Data(contentsOf: file) }.value
-        return ChiefLocation(movedJSON: data)
+        return ChiefWhereabouts(movedJSON: data)
     }
 }

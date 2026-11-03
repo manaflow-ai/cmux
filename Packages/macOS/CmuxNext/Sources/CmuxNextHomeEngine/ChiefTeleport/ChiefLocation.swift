@@ -38,11 +38,7 @@ public nonisolated enum ChiefLocation: Equatable, Sendable {
     ///
     /// - Parameter movedJSON: The file's bytes, nil when there is none.
     public init(movedJSON: Data?) {
-        guard let movedJSON, let marker = try? JSONDecoder().decode(Marker.self, from: movedJSON) else {
-            self = .thisMac
-            return
-        }
-        self.init(movedTo: marker.to)
+        self = ChiefWhereabouts(movedJSON: movedJSON).location
     }
 
     /// `host[:dir]` or `user@host[:dir]` as a host name.
@@ -56,10 +52,5 @@ public nonisolated enum ChiefLocation: Equatable, Sendable {
         let withoutDir = destination.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? ""
         let host = withoutDir.split(separator: "@").last.map(String.init) ?? withoutDir
         return host.lowercased()
-    }
-
-    /// The engine's `state/moved.json` (optchat-chief migrate.rs `Moved`); only `to` matters here.
-    private struct Marker: Decodable {
-        var to: String
     }
 }

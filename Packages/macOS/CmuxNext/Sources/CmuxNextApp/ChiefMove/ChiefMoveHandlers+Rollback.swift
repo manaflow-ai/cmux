@@ -76,6 +76,9 @@ extension ChiefMoveHandlers {
         teleport.onRollback = { [weak registry] in
             _ = registry?.perform(rollbackID, invocation: ActionInvocation(origin: .user))
         }
+        // A moved Chief's teleport requests are carried out by the engine's `move watch` while the home is
+        // marked moved; after a Mac restart nobody else starts it (the marker's file watch calls this).
+        teleport.onMoved = { _ in ChiefMoveWatchLauncher.start(home: teleport.home) }
         teleport.refresh()
     }
 }
