@@ -1,12 +1,15 @@
 // l10n-allow-file: synthetic gallery labels and pull requests, not shipped UI.
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import { Dialog } from "../../../ui/Dialog";
 import { ChangesSection } from "./ChangesSection";
+import { CloudRepositoryPicker } from "./CloudRepositoryPicker";
 import { SessionInfoPanel } from "./SessionInfo";
 
 function SessionInfoDismiss({ inDialog = false }: { inDialog?: boolean }) {
   const [open, setOpen] = useState(true);
+  const [repositoryOpen, setRepositoryOpen] = useState(false);
+  const repositoryAnchor = useRef<HTMLButtonElement>(null);
   const content = (
     <section className="acpmux-shell" style={{ height: "100%", minHeight: 240 }}>
       <button className="ui-button" data-outside-panel type="button" onClick={() => undefined}>
@@ -27,6 +30,25 @@ function SessionInfoDismiss({ inDialog = false }: { inDialog?: boolean }) {
                   state: "open",
                 },
               ]}
+            />
+            <button
+              ref={repositoryAnchor}
+              className="ui-button"
+              data-repository-trigger
+              type="button"
+              aria-haspopup="dialog"
+              aria-expanded={repositoryOpen}
+              onClick={() => setRepositoryOpen(!repositoryOpen)}
+            >
+              Add repository
+            </button>
+            <CloudRepositoryPicker
+              session="gallery"
+              anchor={repositoryAnchor}
+              open={repositoryOpen}
+              onOpenChange={setRepositoryOpen}
+              onAttached={() => undefined}
+              request={async <T,>() => ({ repos: [{ fullName: "example/project", source: "installation" }] }) as T}
             />
             <button className="ui-button" data-inside-panel type="button" onClick={() => undefined}>
               Inside Session Info
@@ -59,6 +81,14 @@ export default componentEntry<{ inDialog?: boolean }>({
     "dialog-panel": {
       note: "An ancestor dialog does not count as a child popup or prevent Session Info from dismissing.",
       props: { inDialog: true },
+    },
+    "repository-picker": {
+      note: "The child repository picker is a dialog popup, and consumes its own outside press.",
+      props: {},
+      play: async (ctx) => {
+        await ctx.click({ selector: "[data-repository-trigger]" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cloud-repository-picker"));
+      },
     },
     "menu-open": {
       note: "The PR menu is portalled outside Session Info. Dismissing it leaves Session Info open.",

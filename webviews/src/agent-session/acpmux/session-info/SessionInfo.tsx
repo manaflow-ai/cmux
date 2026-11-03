@@ -1188,13 +1188,9 @@ export function SessionInfoPanel({
       const layer = target.closest(DISMISS_KEEPERS);
       // A containing dialog is below this panel, so pressing its content can dismiss the panel.
       if (layer && !layer.contains(frame.current)) return;
-      // Capture precedes the child menu's outside-press handler. Let that menu consume this
+      // Capture precedes a child popup's outside-press handler. Let that popup consume this
       // dismissal even though its popup is portalled; only triggers owned by this panel count.
-      if (
-        frame.current?.querySelector(
-          '[aria-haspopup="menu"][data-popup-open], [aria-haspopup="menu"][aria-expanded="true"]',
-        )
-      )
+      if (frame.current?.querySelector('[aria-haspopup][data-popup-open], [aria-haspopup][aria-expanded="true"]'))
         return;
       onDismiss();
     };
