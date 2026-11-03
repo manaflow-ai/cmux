@@ -66,6 +66,9 @@ const TARGETLESS: &[&str] = &[
     "tunnel-attach",
     "tunnel-detach",
     "tunnel-rotate-key",
+    "tunnel on",
+    "tunnel off",
+    "tunnel status",
     "firewall-list",
     "firewall-get",
     "firewall-create",
@@ -250,5 +253,14 @@ fn start_chat_help_is_its_usage_and_its_examples_parse() {
             ),
             "{example}"
         );
+    }
+}
+
+#[test]
+fn two_word_verbs_have_their_own_help() {
+    for (verb, words) in [("tunnel on", "tunnel on"), ("tunnel status", "tunnel status")] {
+        let help = verb_help(verb, false).expect("tunnel help");
+        assert!(help.starts_with(&format!("usage: cmux cloud {words}")), "{help}");
+        assert!(help.contains(&format!("cmux action describe cloud {words} --json")), "{help}");
     }
 }

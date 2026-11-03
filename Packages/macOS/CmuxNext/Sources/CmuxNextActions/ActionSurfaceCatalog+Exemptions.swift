@@ -114,6 +114,7 @@ nonisolated extension ActionSurfaceCatalog {
         "palette.cloud.handoff", "cloudMove", "cloudBringBack", "cloudSSH", "cloudExec", "cloudSetupGitHub", "cloudEnrollMachine", "cloudApplyMachineConfig", "cloudDeliverSecrets", "cloudFilesList", "cloudFileRead", "cloudFileWrite",
         "cloudFileMkdir", "cloudFileRemove", "cloudFileStat", "cloudPrepareSCP",
         "cloudTunnelAttach", "cloudTunnelDetach", "cloudTunnelRotateKey", "cloudNetworkList",
+        "cloudSystemTunnelOn", "cloudSystemTunnelOff", "cloudSystemTunnelStatus",
         "cloudFirewallList", "cloudFirewallGet", "cloudFirewallCreate", "cloudFirewallDelete", "cloudNewTerminal", "cloudRenameMachine", "cloudShareMachine", "cloudKillMachine", "cloudResizeMachine",
         "cloudDiagnostics", "cloudPauseMachine", "cloudResumeMachine", "cloudSetIdlePause", "cloudSetNetworkAccess", "cloudOpenDesktop", "cloudDomainList", "cloudPublicationList", "cloudProvisionAPI", "cloudAPIKeyList", "cloudAPIKeyRevoke", "cloudListMachines", "palette.cloud.deleteSnapshot", "palette.auth.signIn", "palette.auth.signOut", "accounts.show", "palette.mobileConnect", "accounts.refresh",
         "accounts.reauthenticate", "accounts.connect", "accounts.remove", "accounts.githubConnect", "accounts.slackConnect", "remote.connect", "remote.newGroup", "remote.removeGroup", "machine.reconnect", "remote.newWorkspace",

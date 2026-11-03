@@ -15,13 +15,19 @@ extension PageWebView {
     /// Runs `body` as the body of an async function in the page's main frame, with `arguments` as
     /// its named parameters, in whichever engine shows the page: WebKit's `callAsyncJavaScript`, or
     /// Chromium's `Runtime.evaluate` awaiting the promise. Returns the function's result as a
-    /// Foundation value (strings, numbers, Bools, arrays, dictionaries).
+    /// Foundation value (strings, numbers, Bools, arrays, dictionaries). A call made while the Chromium
+    /// page is still starting waits for it (or for its fallback to WebKit).
     ///
     /// - Parameters:
     ///   - body: A function body that may `await` and `return`.
     ///   - arguments: Its parameters by name; each must be a JSON value (NSNull for null).
     /// - Returns: The returned value; nil for `undefined` or `null`.
     public func callPageScript(_ body: String, arguments: [String: Any] = [:]) async throws -> Any? {
+        // While the Chromium page is still being made, no engine shows the page: the WebKit view is
+        // hidden and never loads the document, so a call there waited on a page that never came (the
+        // chat-open bench's `layout_watch` answered ~6 s after a cold click, cmuxterm-hq#6338). Wait
+        // for the start to attach Chromium or fall back to WebKit, then run in whichever shows it.
+        if chromiumSession == nil, let start = chromiumStart { await start.value }
         guard let page = chromiumSession?.page else {
             return try await webView.callAsyncJavaScript(body, arguments: arguments, in: nil, contentWorld: .page)
         }

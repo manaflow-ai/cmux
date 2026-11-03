@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1286,
+    "entries": 1290,
     "shortcuts": 189
   },
   "sections": [
@@ -5746,6 +5746,12 @@
           "command": null
         },
         {
+          "id": "chief.importMemories",
+          "title": "Bring Your History",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "agentChat.subagentLimit",
           "title": "Chat Subagent Limit…",
           "shortcut": null,
@@ -6018,12 +6024,6 @@
         {
           "id": "palette.computerUse.screenRecording",
           "title": "Grant Screen Recording Access",
-          "shortcut": null,
-          "command": null
-        },
-        {
-          "id": "chief.importMemories",
-          "title": "Import Memories…",
           "shortcut": null,
           "command": null
         },
@@ -6478,6 +6478,12 @@
           "command": null
         },
         {
+          "id": "cloudSystemTunnelStatus",
+          "title": "Cloud Tunnel Status",
+          "shortcut": null,
+          "command": "cmux cloud tunnel status"
+        },
+        {
           "id": "accounts.connect",
           "title": "Connect Account to CodeRouter…",
           "shortcut": null,
@@ -6842,6 +6848,18 @@
           "title": "Switch Active Team…",
           "shortcut": "⌥⇧⌘T",
           "command": null
+        },
+        {
+          "id": "cloudSystemTunnelOff",
+          "title": "Turn Off Cloud Tunnel",
+          "shortcut": null,
+          "command": "cmux cloud tunnel off"
+        },
+        {
+          "id": "cloudSystemTunnelOn",
+          "title": "Turn On Cloud Tunnel",
+          "shortcut": null,
+          "command": "cmux cloud tunnel on"
         },
         {
           "id": "cloudFileWrite",
@@ -7448,6 +7466,12 @@
           "title": "Show Media Card",
           "shortcut": null,
           "command": "cmux media show-card"
+        },
+        {
+          "id": "debug.sidebarStatesPlayground",
+          "title": "Sidebar States Playground",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "links.signInPagesByLinkSettings",

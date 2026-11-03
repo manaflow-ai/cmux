@@ -97,7 +97,7 @@ nonisolated final class VideoJob: @unchecked Sendable {
                 // The requester may call once more after the input is marked finished; resume once.
                 guard !finished else { return }
                 // A writer that failed (its encoder went away, say) takes no more frames and will
-                // not ask again: stop feeding it, so no frame comes from its torn-down pool.
+                // not ask again: stop feeding a failed encoder.
                 while writer.status == .writing, input.isReadyForMoreMediaData, next < frames {
                     if let buffer = frame(next),
                        !adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(next), timescale: 30)) { break }

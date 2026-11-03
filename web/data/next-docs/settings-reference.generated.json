@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 563,
+  "count": 564,
   "sections": [
     {
       "id": "general",
@@ -6009,6 +6009,14 @@
           "kind": "toggle",
           "default": false,
           "group": "Cloud Workspaces"
+        },
+        {
+          "key": "cloud.tunnel.enabled",
+          "title": "Cloud Tunnel",
+          "help": "Lets every app on this Mac reach your Cloud machines' private addresses, like a VPN for your Cloud network only. macOS asks you to allow the cmux network extension once. cmux itself does not need it.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Cloud Tunnel"
         },
         {
           "key": "cloud.useMyClaudeLoginOnMyCloudMachines",
