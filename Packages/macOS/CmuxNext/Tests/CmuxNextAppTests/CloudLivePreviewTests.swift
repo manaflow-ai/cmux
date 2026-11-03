@@ -75,6 +75,9 @@ struct CloudLivePreviewTests {
         configuration.isDebugBuild = true
         configuration.linkSource = .legacy
         #expect(configuration.platformPreviewAPIBaseURL(environment: [:]) == nil)
+
+        let signedDev = CloudConfiguration.resolve(bundleID: "com.cmuxterm.app.debug.next", bundled: [:], process: [:], isDebugBuild: false)
+        #expect(signedDev.platformPreviewAPIBaseURL()?.absoluteString == "https://cmux-platform-development.debussy.workers.dev")
     }
 
     @Test func artifactsOriginFollowsCloudEnvironmentAndDebugOverrides() {
@@ -116,7 +119,7 @@ struct CloudLivePreviewTests {
     }
 
     @Test func pickerShowsDetectedOriginsAndOpensTheSelectedPort() throws {
-        let spec = CloudHandlers.previewPicker(try inventory(), machineName: "My machine")
+        let spec = CloudPreviewUI.previewPicker(try inventory(), machineName: "My machine")
         let view = CmuxDialogView(spec: spec)
         #expect(view.setValue(.text("3000"), for: "port"))
         #expect(view.values["port"] == .text("3000"))
@@ -129,6 +132,25 @@ struct CloudLivePreviewTests {
         }
         #expect(options.map(\.label) == ["3000 · https://preview.standin.invalid"])
         #expect(!options.contains { $0.label.contains("temporary") }, "bootstrap credentials are not picker labels")
+    }
+
+    @Test func pickerOffersShareAndSharePickerDefaultsToPrivateLink() throws {
+        let spec = CloudPreviewUI.previewPicker(try inventory(), machineName: "My machine")
+        #expect(spec.buttons.map(\.id) == ["cancel", "share", "open"])
+        #expect(spec.defaultButton?.id == "open")
+        let share = CloudPreviewUI.sharePicker(machineName: "My machine")
+        #expect(share.defaultButton?.id == "share")
+        #expect(share.identifier == "cmux.dialog.cloud.sharePreview")
+        guard case .choice(_, _, let options, let selected) = try #require(share.fields.first) else {
+            Issue.record("no audience chooser")
+            return
+        }
+        #expect(options.map(\.value) == ["link", "team", "user"])
+        #expect(selected == "link")
+        #expect(share.fields.contains { field in
+            if case .text(let id, _, _, _, _) = field { return id == "user_id" }
+            return false
+        })
     }
 
     @Test func cliAndMCPReceiveTheDetectedPortsAndPrivateURLs() throws {

@@ -207,6 +207,16 @@ impl Store for FileStore {
 pub struct PosterHttp(pub JsonPoster);
 
 impl Http for PosterHttp {
+    fn send(
+        &self,
+        method: &str,
+        url: &str,
+        body: &Value,
+        bearer: Option<&str>,
+    ) -> Result<(u16, Value), String> {
+        self.0.send(method, url, Some(body), bearer)
+    }
+
     fn get(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Value), String> {
         self.0.get(url, bearer)
     }
@@ -1152,6 +1162,9 @@ fn agent_ask(line: &str) -> Option<Ask> {
     }
     if let Some(ask) = msg.get(super::github_repos::REQUEST_KEY) {
         return Some(super::github_repos::ReposAsk::from_json(ask).into());
+    }
+    if let Some(ask) = msg.get(super::preview::REQUEST_KEY) {
+        return Some(Ask::Preview(super::preview::PreviewAsk::from_json(ask)));
     }
     let report = msg.get(handoff::REQUEST_KEY)?;
     Some(HandoffReport::from_json(report).into())

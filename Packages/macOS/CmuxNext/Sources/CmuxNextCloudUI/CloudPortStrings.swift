@@ -115,6 +115,42 @@ public struct CloudPortStrings {
         String(localized: "cloud.ports.openPreview", defaultValue: "Open in Browser", table: "CloudPorts", bundle: .module)
     }
 
+    public static var share: String {
+        String(localized: "cloud.ports.share", defaultValue: "Share…", table: "CloudPorts", bundle: .module)
+    }
+
+    public static var shareTitle: String {
+        String(localized: "cloud.ports.shareTitle", defaultValue: "Share Preview", table: "CloudPorts", bundle: .module)
+    }
+
+    public static var shareDescription: String {
+        String(localized: "cloud.ports.shareDescription", defaultValue: "Choose who can open this preview.", table: "CloudPorts", bundle: .module)
+    }
+
+    public static var shareLink: String {
+        String(localized: "cloud.ports.shareLink", defaultValue: "Anyone with the link", table: "CloudPorts", bundle: .module)
+    }
+
+    public static var shareTeam: String {
+        String(localized: "cloud.ports.shareTeam", defaultValue: "Team", table: "CloudPorts", bundle: .module)
+    }
+
+    public static var sharePerson: String {
+        String(localized: "cloud.ports.sharePerson", defaultValue: "One person", table: "CloudPorts", bundle: .module)
+    }
+
+    public static var sharePersonID: String {
+        String(localized: "cloud.ports.sharePersonID", defaultValue: "Person ID", table: "CloudPorts", bundle: .module)
+    }
+
+    public static var sharePersonIDPlaceholder: String {
+        String(localized: "cloud.ports.sharePersonIDPlaceholder", defaultValue: "user_…", table: "CloudPorts", bundle: .module)
+    }
+
+    public static var shareInvalid: String {
+        String(localized: "cloud.ports.shareInvalid", defaultValue: "Choose a sharing audience and enter a person ID when needed.", table: "CloudPorts", bundle: .module)
+    }
+
     public static var noPreviews: String {
         String(localized: "cloud.ports.noPreviews", defaultValue: "No live previews are available yet. Try again when the machine's web server is ready.", table: "CloudPorts", bundle: .module)
     }

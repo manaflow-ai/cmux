@@ -4,7 +4,10 @@ extension CloudConfiguration {
     /// Preview ingress is served directly by cmux-platform. Until production ingress is ready,
     /// only the staging and development Cloud owners have a default preview API; other builds keep their browser route.
     public func platformPreviewAPIBaseURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL? {
-        guard linkSource == .appServer, isDebugBuild, !isProductionAuth else { return nil }
+        // The signed NEXT DEV bundle is a Release compile with staging auth;
+        // it must keep the same platform preview route as a Debug build.
+        let isDevBundle = bundleID == "com.cmuxterm.app.debug.next" && !isProductionAuth
+        guard linkSource == .appServer, (isDebugBuild || isDevBundle), !isProductionAuth else { return nil }
         if let raw = environment["CMUX_NEXT_PLATFORM_PREVIEW_API_URL"] {
             guard let url = URL(string: raw), url.scheme == "https", let host = url.host, !host.isEmpty,
                   url.user == nil, url.password == nil, url.query == nil, url.fragment == nil,
