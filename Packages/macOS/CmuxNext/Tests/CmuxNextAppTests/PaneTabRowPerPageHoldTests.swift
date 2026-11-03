@@ -80,10 +80,10 @@ struct PaneTabRowPerPageHoldTests {
         let window: NSWindow
         var afterCommit: [@MainActor () -> Void] = []
 
-        init(p1 content: NSView) {
+        init(p1 content: NSView, axis: SplitAxis = .horizontal) {
             _ = NSApplication.shared
             provider.first["p1"] = content
-            let columns = [LayoutColumn(id: "c0", width: 1, root: .split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")))]
+            let columns = [LayoutColumn(id: "c0", width: 1, root: .split("x", axis: axis, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")))]
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(columns))], activeScreenID: "s", focusedPane: "p1")
             root = LayoutRootView(model: model, contentProvider: provider)
             root.context.reduceMotionOverride = false
@@ -153,24 +153,46 @@ struct PaneTabRowPerPageHoldTests {
         #expect(Self.rowOffStrip(page, in: pane, "after the landing") == nil, "\(Self.rowOffStrip(page, in: pane, "after the landing") ?? "")")
     }
 
-    /// (b) A terminal shows; a chat whose tools share the row is parked in the pane; Ctrl-Shift-L; two frames into the
-    /// spring the chat's tab is selected. Until the landing the chat hears no row change and keeps the frame it was parked
-    /// at (it lays out only once, at the landing), never draws its row off the strip's row, and at the landing its tools
-    /// are in the row with the page under the strip.
-    @Test func aChatShownDuringAKeyResizeKeepsItsRowAndItsFrameUntilTheLanding() throws {
+    /// (b) A terminal shows; a chat whose tools share the row is parked in the pane; a key press grows p1; two frames into
+    /// the spring the chat's tab is selected. In no frame does the chat draw its row anywhere but in the strip's row, and at
+    /// the landing its tools are in the row with the page under the strip. Held on the top edge (the row stays above the
+    /// area), the chat hears no row change and keeps its parked frame: it lays out once, at the landing. Held on the bottom
+    /// edge (a terminal whose prompt is on its last row; Codex's review of #34247), the area grows above the held content
+    /// and would show the chat's row inside it: the chat shows without the row, once, at the held rect, and gets the row
+    /// and its rest frame once at the landing.
+    /// The presses (b) runs: a horizontal grow, and a vertical grow of p1 over p2 whose held area rides the bottom edge
+    /// (a terminal with its prompt on its last row): the row-sharing chat's top, above the area, would show under the strip.
+    nonisolated static let shownPresses: [Press] = [Press(axis: .horizontal, direction: .right, ridesBottom: false),
+                                                    Press(axis: .vertical, direction: .down, ridesBottom: true)]
+
+    /// One press for (b): the split's axis, the arrow on p1, and whether the held content rides the bottom edge.
+    nonisolated struct Press: Sendable, CustomTestStringConvertible {
+        let axis: SplitAxis
+        let direction: LayoutDirection
+        let ridesBottom: Bool
+        var testDescription: String { "\(axis.rawValue) split, \(direction)\(ridesBottom ? ", held on the bottom edge" : "")" }
+    }
+
+    /// A terminal-like content that asks its held area to ride the bottom edge (its prompt on its last row).
+    final class BottomContent: NSView, PaneMotionTargeting {
+        func paneMotionWillRest(sizeChange: CGSize) -> PaneMotionAnchor { .bottom }
+    }
+
+    @Test(arguments: shownPresses)
+    func aChatShownDuringAKeyResizeKeepsItsRowAndItsFrameUntilTheLanding(_ press: Press) throws {
         let page = RowPage()
-        let rig = Rig(p1: page)
+        let rig = Rig(p1: page, axis: press.axis)
         defer { rig.window.closeAfterTest() }
         let pane = try #require(rig.provider.views["p1"])
         page.report(60)
         rig.root.layoutSubtreeIfNeeded()
         try #require(page.drawnRow > 0 && pane.contentHost.frame == pane.bounds, "the chat does not share the row at rest: \(page.offered.suffix(2))")
-        let terminal = NSView()
+        let terminal: NSView = press.ridesBottom ? BottomContent() : NSView()
         pane.show(terminal)
         rig.root.layoutSubtreeIfNeeded()
         try #require(page.isHidden && page.superview === pane.contentHost, "the chat is not parked in its pane")
 
-        #expect(PaneResize.press("p1", .right, model: rig.model, view: rig.root))
+        #expect(PaneResize.press("p1", press.direction, model: rig.model, view: rig.root))
         var off: [String] = [], frames = 0
         var shown: (offers: Int, sizes: Int)?
         while frames < 240, rig.root.advanceFrame(1.0 / 120) {
@@ -188,9 +210,14 @@ struct PaneTabRowPerPageHoldTests {
         rig.root.layoutSubtreeIfNeeded()
         rig.release()
         if let stray = Self.rowOffStrip(page, in: pane, "after the landing") { off.append(stray) }
-        #expect(duringHold.isEmpty, "the chat heard tab-row changes during the spring: \(duringHold)")
         let resized = Array(page.sizes.dropFirst(atShow.sizes))
-        #expect(resized.count <= 1, "the chat laid out \(resized.count) times from its switch to the landing: \(resized)")
+        if press.ridesBottom {
+            #expect(duringHold == [0], "the bottom-held chat heard \(duringHold) during the spring, not one \"no row\"")
+            #expect(resized.count <= 2, "the chat laid out \(resized.count) times from its switch to the landing: \(resized)")
+        } else {
+            #expect(duringHold.isEmpty, "the chat heard tab-row changes during the spring: \(duringHold)")
+            #expect(resized.count <= 1, "the chat laid out \(resized.count) times from its switch to the landing: \(resized)")
+        }
         #expect(off.isEmpty, "\(off.count) frames drew the chat's tools off the tab row: \(off.prefix(4))")
         #expect(page.drawnRow > 0 && pane.contentHost.frame == pane.bounds,
                 "after the landing the chat does not share the row: offered \(page.offered.suffix(3)), area \(pane.contentHost.frame) in \(pane.bounds)")
