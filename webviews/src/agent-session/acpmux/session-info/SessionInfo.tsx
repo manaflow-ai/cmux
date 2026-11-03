@@ -1184,7 +1184,10 @@ export function SessionInfoPanel({
       const target = event.target as Element | null;
       if (!target || typeof target.closest !== "function") return;
       if (frame.current?.contains(target)) return;
-      if (target.closest(`${SESSION_INFO_TOGGLE}, ${DISMISS_KEEPERS}`)) return;
+      if (target.closest(SESSION_INFO_TOGGLE)) return;
+      const layer = target.closest(DISMISS_KEEPERS);
+      // A containing dialog is below this panel, so pressing its content can dismiss the panel.
+      if (layer && !layer.contains(frame.current)) return;
       // Capture precedes the child menu's outside-press handler. Let that menu consume this
       // dismissal even though its popup is portalled; only triggers owned by this panel count.
       if (

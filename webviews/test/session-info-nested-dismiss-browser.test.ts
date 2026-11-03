@@ -31,7 +31,7 @@ await requireBrowserLane("session-info-nested-dismiss-browser.test.ts", async ()
     for (const outside of [false, true]) {
       test(`${inDialog ? "in a dialog: " : ""}a press ${outside ? "outside" : "inside"} Session Info dismisses only its nested PR menu`, async () => {
         const port = (vite!.httpServer!.address() as { port: number }).port;
-        const page = await browser!.newPage({ viewport: { width: 900, height: 420 } });
+        const page = await browser!.newPage({ viewport: { width: 900, height: 420 }, deviceScaleFactor: 2 });
         try {
           await page.goto(
             `http://127.0.0.1:${port}${galleryFrame(entry, { variant: inDialog ? "dialog-panel" : "panel" })}`,
@@ -40,6 +40,11 @@ await requireBrowserLane("session-info-nested-dismiss-browser.test.ts", async ()
           await panel.waitFor();
           await page.locator(".acpmux-session-info-pr__more").click();
           await page.locator('[role="menu"]').waitFor();
+          if (process.env.FAST_CHECKS_OUT) {
+            await page.screenshot({
+              path: path.join(process.env.FAST_CHECKS_OUT, `session-info-nested-${inDialog ? "dialog" : "panel"}.png`),
+            });
+          }
           // Exercise the real portal, rather than a menu rendered inside the parent's DOM.
           expect(await panel.locator('[role="menu"]').count()).toBe(0);
           await page.locator(outside ? "[data-outside-panel]" : "[data-inside-panel]").click();
