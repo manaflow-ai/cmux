@@ -234,6 +234,9 @@ pub struct TurnStats {
     pub start_ms: Option<u64>,
     /// The first request's time to first token (`fold::Request::ttft_ms`).
     pub ttft_ms: Option<u64>,
+    /// The first request's time to its `message_start`
+    /// (`fold::Request::headers_ms`): the model route's share of `ttft_ms`.
+    pub headers_ms: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -885,6 +888,7 @@ pub fn run_with_drafts(
             tool_errors,
             start_ms,
             ttft_ms: requests.first().and_then(|r| r.ttft_ms),
+            headers_ms: requests.first().and_then(|r| r.headers_ms),
         },
     }
 }

@@ -264,6 +264,8 @@ impl Brain {
             if let Some(target) = crate::membership::thread_target(summary, &message) {
                 self.reply_threads.insert(message.id.clone(), target);
             }
+            self.posted
+                .insert(message.id.clone(), message.created_at.clone());
             self.queue_in(
                 Some(conversation.to_owned()),
                 logged,

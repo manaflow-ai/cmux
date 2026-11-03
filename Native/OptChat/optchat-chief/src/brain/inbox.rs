@@ -356,6 +356,8 @@ impl Brain {
             let framed = agent_framed(sender.as_ref(), &text);
             let logged =
                 super::files::logged_text(&super::images::logged_text(&framed, &images), &files);
+            self.posted
+                .insert(message.id.clone(), message.created_at.clone());
             self.queue_with_images(
                 logged,
                 images,
