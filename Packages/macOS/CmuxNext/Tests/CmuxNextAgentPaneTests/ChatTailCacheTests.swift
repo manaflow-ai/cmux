@@ -13,6 +13,39 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct ChatTailCacheTests {
+    private actor SnapshotHost: AgentPaneHostProviding {
+        let snapshot: Data
+        var reads = 0
+        init(_ snapshot: Data) { self.snapshot = snapshot }
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { .mock }
+        func peerSnapshot(sessionId: String) async -> Data? {
+            reads += 1
+            return snapshot
+        }
+    }
+
+    @Test func bothHostsForwardColdMissesBeforeHandshakeAndPreferMemory() async throws {
+        AgentPaneTailCache.shared.clear()
+        defer { AgentPaneTailCache.shared.clear() }
+        let snapshot: [String: Any] = ["peer": "vm", "sessionId": "s-1", "generation": 42,
+                                      "capturedAt": 123, "stale": true, "events": Self.tail(3)["events"]!]
+        let host = SnapshotHost(try JSONSerialization.data(withJSONObject: snapshot))
+        let legacy = await AgentPaneTailCache.reply(to: "chat.tail.get", params: ["sessionId": "s-1"], host: host)
+        let value = try #require(Self.value(legacy) as? [String: Any])
+        #expect(value["stale"] as? Bool == true)
+        #expect(value["generation"] as? Int == 42)
+        let provider = AgentPageProvider { _ in nil }
+        provider.tailHost = host
+        let page = try await provider.call(AgentPageOps.namespace + "chat.tail.get",
+                                          params: .object(["sessionId": .string("s-1")]), context: Self.context)
+        #expect(page == JSONValue(foundation: snapshot))
+        #expect(await host.reads == 2)
+        _ = Self.bridge("chat.tail", ["sessionId": "s-1", "tail": Self.tail(5)])
+        let warm = await AgentPaneTailCache.reply(to: "chat.tail.get", params: ["sessionId": "s-1"], host: host)
+        #expect(Self.seqs(Self.value(warm)) == [1, 2, 3, 4, 5])
+        #expect(await host.reads == 2)
+    }
+
     static let context = PageCallContext(page: PageDescriptor.agent.id)
 
     /// A page tail of `count` records, as the page's own shape.

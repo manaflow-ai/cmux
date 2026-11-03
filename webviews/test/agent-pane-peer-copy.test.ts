@@ -137,8 +137,8 @@ class Daemon {
   private listed = false;
   readonly asked: Message[] = [];
 
-  constructor() {
-    queueMicrotask(() => {
+  constructor(connects = true) {
+    if (connects) queueMicrotask(() => {
       this.readyState = 1;
       this.onopen?.();
     });
@@ -421,6 +421,7 @@ afterEach(() => {
   for (const client of live) client.close();
   live = [];
   resetKeptTailsForTests();
+  delete (dom.window as any).cmuxAcpmuxActions;
 });
 
 function open(daemon: Daemon, seed?: () => void, sessionId = SESSION) {
@@ -1661,4 +1662,56 @@ test("a select while a reconnect reads the Mac's copy keeps its attach, though t
   await flush();
   expect(next.asked.filter((m) => m.method === "_acpmux/attach").length).toBe(1);
   expect(text(tab.last())).toContain("read 5.");
+});
+
+
+test("a cold page draws its disk snapshot before the remote handshake and reconciles each seq once", async () => {
+  const daemon = new Daemon(false);
+  daemon.down = false;
+  daemon.copy = { events: turn(1, 4, "disk"), generation: 100, lastSeq: 4 };
+  daemon.log = turn(1, 4, "disk");
+  (dom.window as any).cmuxAcpmuxActions = {
+    "chat.tail.get": async () => ({
+      sessionId: SESSION, qualifiedSessionId: `huge-blue/${SESSION}`, peer: "huge-blue",
+      ...daemon.copy, capturedAt: START, stale: true, hasMore: false,
+    }),
+    "chat.tail": async () => null,
+  };
+  const tab = open(daemon);
+  await flush();
+  // No socket connection, initialize, session list, or attach has happened.
+  expect(daemon.asked).toEqual([]);
+  expect(text(tab.last())).toContain("disk 4.");
+  expect(tab.last()?.peerCopy).toEqual({ peer: "huge-blue", capturedAt: START, offline: false });
+  expect(keptTail(SESSION)?.summary?.createdAt).toBe(100);
+  daemon.readyState = 1;
+  daemon.onopen?.();
+  live.push(await tab.client);
+  await flush();
+  expect(tab.last()?.peerCopy).toBeUndefined();
+  expect(count(text(tab.last()), "disk 4.")).toBe(1);
+});
+
+test("an early disk snapshot from a replaced generation never joins the new log", async () => {
+  const daemon = new Daemon(false);
+  daemon.down = false;
+  daemon.createdAt = 200;
+  daemon.log = turn(1, 2, "new session");
+  (dom.window as any).cmuxAcpmuxActions = {
+    "chat.tail.get": async () => ({
+      sessionId: SESSION, peer: "huge-blue", events: turn(1, 4, "old disk"),
+      generation: 100, capturedAt: START, stale: true, hasMore: false,
+    }),
+    "chat.tail": async () => null,
+  };
+  const tab = open(daemon);
+  await flush();
+  expect(text(tab.last())).toContain("old disk 4.");
+  daemon.readyState = 1;
+  daemon.onopen?.();
+  live.push(await tab.client);
+  await flush();
+  expect(text(tab.last())).toContain("new session 2.");
+  expect(text(tab.last())).not.toContain("old disk");
+  expect(tab.last()?.peerCopy).toBeUndefined();
 });

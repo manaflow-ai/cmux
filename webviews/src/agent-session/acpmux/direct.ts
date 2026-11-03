@@ -3166,6 +3166,7 @@ export class AcpmuxDirectClient {
   private dropTailDrawnWhileConnecting(): void {
     const early = this.earlyTail;
     if (!early || early.sessionId !== this.selectedSessionId) return;
+    if (this.peerCopy?.sessionId === early.sessionId) return;
     connectFailedAfterEarlyTail = early.sessionId;
     this.earlyTail = undefined;
     this.events = [];
@@ -3178,6 +3179,7 @@ export class AcpmuxDirectClient {
 
   private drawKeptTail(sessionId: string, kept = keptTail(sessionId)): number {
     if (!kept) return 0;
+    if (kept.peerCopy) this.peerCopy = { ...kept.peerCopy, attaching: true };
     this.drawnGeneration = typeof kept.summary?.createdAt === "number" ? kept.summary.createdAt : undefined;
     this.rowsGeneration = this.drawnGeneration;
     const keptPeer = (kept.summary as { peer?: unknown } | undefined)?.peer;

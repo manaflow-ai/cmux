@@ -9,6 +9,8 @@ public nonisolated protocol AgentPaneHostProviding: Sendable {
     func handshake(sessionId: String?) async throws -> AgentPaneHandshake
     /// Starts the daemon before a page is visible. Callers may treat this as
     /// best effort because the normal page handshake still reports failures.
+    /// Reads this Mac's persisted peer tail without waiting for the page handshake.
+    func peerSnapshot(sessionId: String) async -> Data?
     func prewarm() async throws
     /// The peers listed by the same daemon the composer Environment picker reads.
     func chatPeers() async throws -> [AgentChatPeer]
@@ -46,6 +48,8 @@ extension AgentPaneHostProviding {
     public func reconnectHandshake(sessionId: String?) async throws -> AgentPaneHandshake {
         try await handshake(sessionId: sessionId)
     }
+
+    public func peerSnapshot(sessionId: String) async -> Data? { nil }
 
     public func prewarm() async throws {}
 
@@ -282,6 +286,16 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         _ = try await endpoint(startsDaemon: false)
         guard let environment else { throw AgentPaneHostError.acpmuxNotFound }
         return try await AcpmuxStatusClient.chatPeers(socketPath: environment.socketPath)
+    }
+
+    public func peerSnapshot(sessionId: String) async -> Data? {
+        if environment == nil { environment = resolveEnvironment() }
+        guard let environment,
+              let reply = try? await AcpmuxStatusClient.call(
+                socketPath: environment.socketPath, method: "_acpmux/peer_snapshot",
+                params: ["sessionId": sessionId, "limit": 400, "maxBytes": 256 * 1024],
+                deadline: .milliseconds(200)) else { return nil }
+        return try? JSONSerialization.data(withJSONObject: reply)
     }
 
     public func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder? {
