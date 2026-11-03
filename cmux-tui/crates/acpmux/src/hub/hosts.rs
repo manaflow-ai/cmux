@@ -570,7 +570,7 @@ impl Hub {
         };
         child.all_tools.store(all, std::sync::atomic::Ordering::Relaxed);
         // What the daemon that started it kept of its MCP servers (`hub/idle_census.rs`).
-        self.restore_launch(session, &child, &incarnation);
+        self.restore_launch(session, &child, &incarnation, kind).await;
         *session.child.lock().await = Some(child.clone());
         self.wake_idle_reaper();
         if let Some(rx) = session.inbound_rx.lock().await.take() {
