@@ -78,6 +78,19 @@
    "title": "the pool keeps one spare (A/B of the spare count on one build)"
   },
   {
+   "do": "rpc",
+   "method": "debug.new_tab",
+   "params": {
+    "action": "drop_spare"
+   },
+   "title": "drop the spares parked before; the pool makes one again"
+  },
+  {
+   "do": "wait",
+   "seconds": 3.0,
+   "title": "the one spare loads and parks (quiet input)"
+  },
+  {
    "do": "wait",
    "seconds": 1.0,
    "title": "the layout and the load settle (nothing observable to wait on)"
