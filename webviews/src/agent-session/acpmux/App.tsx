@@ -477,6 +477,7 @@ import {
   turnFooterFrom,
   WORKING,
   type TurnView,
+  trayWaitAgents,
   turnViewFrom,
 } from "./conversation/turns";
 import { ArrowDown, ChevronRight } from "./conversation/icons";
@@ -7286,6 +7287,8 @@ function AcpmuxPane() {
     const startedRows = withStartedSessions(sourceRows, started, startedCache.current);
     // Labs: a Claude workflow is a card where it started (summary/WorkflowCard.tsx), not a tray line.
     const rows = subagentTray ? withSubagentLines(startedRows, doneLines.current, workflowLabsEnabled) : startedRows;
+    // The tray takes the running groups out of the rows, so the live line's wait is counted first.
+    const trayAgents = subagentTray ? trayWaitAgents(startedRows) : 0;
     return acpmuxPerf.timed("app.rows", () => {
       const last = lastTurns.current;
       if (heldCalls.current.session !== shownSessionId)
@@ -7310,6 +7313,7 @@ function AcpmuxPane() {
             // Other sessions' messages among them, two or more in a run, draw as one card.
             waitingSteers: snapshot.waitingSteers,
             messageBreaks,
+            trayAgents,
           },
           last?.turns,
         );
