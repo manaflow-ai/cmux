@@ -35,6 +35,7 @@ mod classic;
 mod events;
 mod group_create;
 mod keybinding;
+mod nightly;
 mod open;
 mod open_link;
 mod page;
@@ -166,6 +167,8 @@ pub(super) enum AppCommand {
     /// `cmux version`: the CLI, the app behind the socket, its updater and
     /// bundled helpers in one report (app/version.rs).
     Version,
+    /// `cmux nightly list|install`: another recent nightly build (app/nightly.rs).
+    Nightly(nightly::Command),
 }
 
 /// Parses an app scope. `Ok(None)` when `args` does not start with one.
@@ -200,6 +203,9 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             return Err(UsageError::new(messages.unexpected_argument.replace("{value}", extra)));
         }
         return Ok(Some(AppCommand::Version));
+    }
+    if scope == "nightly" {
+        return nightly::parse(args.get(1..).unwrap_or_default()).map(|command| Some(AppCommand::Nightly(command)));
     }
     if !APP_SCOPES.contains(&scope.as_str()) {
         return Ok(None);
@@ -674,6 +680,9 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
     if matches!(command, AppCommand::Version) {
         return Ran::Done(version::run(global));
     }
+    if let AppCommand::Nightly(command) = &command {
+        return Ran::Done(nightly::run(global, command));
+    }
     let mut stream = match connect_command(global) {
         Ok(stream) => stream,
         Err(error) => return Ran::Done(super::wire::print_local_error(&error, global.output, 3)),
@@ -766,6 +775,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::Settings(command) => return Ran::Done(command.run_on(global, stream)),
         AppCommand::Right { params, then } => return right::run(global, stream, params, *then),
         AppCommand::Version => return Ran::Done(version::run(global)),
+        AppCommand::Nightly(command) => return Ran::Done(nightly::run(global, &command)),
         AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
             for request in requests {

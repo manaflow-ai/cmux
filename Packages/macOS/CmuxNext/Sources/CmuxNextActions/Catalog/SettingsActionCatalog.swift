@@ -177,6 +177,16 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 category: .settings, symbol: "arrow.uturn.backward.circle", surfaces: [.palette, .menu],
                 cliName: "settings rollback-update", mainMenu: .app, destructive: true
             ),
+            // Any recent nightly, older or newer, not only the kept one (Leo 2026-11-02: "idk if i should go without a
+            // way to revert nightlies to an older version convieniently"): opens Settings > Updates at its Channels
+            // card, whose Switch installs the build and skips the one left behind. `cmux nightly install` is its CLI.
+            ActionDescriptor(
+                id: "updates.installEarlierBuild",
+                title: String(localized: "action.updates.installEarlierBuild", defaultValue: "Install an Earlier Nightly…", bundle: .module),
+                keywords: ["rollback", "roll back", "downgrade", "older", "earlier", "previous", "revert", "nightly", "build", "version"],
+                category: .settings, symbol: "clock.arrow.circlepath", surfaces: [.palette, .menu],
+                cliName: "settings install-earlier-nightly", mainMenu: .app
+            ),
             ActionDescriptor(
                 id: "palette.pro.upgrade",
                 title: String(localized: "action.palette.pro.upgrade", defaultValue: "Upgrade to cmux Pro", bundle: .module),
