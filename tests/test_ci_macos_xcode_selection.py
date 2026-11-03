@@ -51,6 +51,7 @@ EXEMPT = {
     ("nightly-next-launch-smoke.yml", "smoke"):
         "launches the published nightly-next DMG; builds nothing, no Xcode",
     ("cmux-tui.yml", "lint"): "Rust only; no Xcode",
+    ("machine-vault-e2e.yml", "e2e"): "Rust only (the cmux CLI) and a disposable user's join; no Xcode",
     ("cmux-tui.yml", "test"): "Rust only; no Xcode",
     ("cmux-next-daemon-macos-shadow.yml", "cmux-next-daemon-macos-shadow"):
         "Rust only; no Xcode (the macOS-only daemon tests, a non-blocking shadow "

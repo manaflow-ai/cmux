@@ -256,6 +256,9 @@ jobs:
           if id "$VAULT_USER" >/dev/null 2>&1; then
             sudo -n -u "$VAULT_USER" -- /bin/kill -KILL -1 2>/dev/null || true
             sleep 1
+            # The user's login keychain (its vault items) first, then the user and its home.
+            sudo -n -u "$VAULT_USER" -- /usr/bin/env -i HOME="$VAULT_HOME" /usr/bin/security delete-keychain \
+              "$VAULT_HOME/Library/Keychains/login.keychain-db" 2>/dev/null || true
             if [ -n "$VAULT_UID" ]; then sudo -n launchctl bootout "user/$VAULT_UID" 2>/dev/null || true; fi
             sudo -n dseditgroup -o edit -d "$VAULT_USER" -t user com.apple.access_ssh 2>/dev/null || true
             sudo -n sysadminctl -deleteUser "$VAULT_USER" >/dev/null 2>&1 || true
