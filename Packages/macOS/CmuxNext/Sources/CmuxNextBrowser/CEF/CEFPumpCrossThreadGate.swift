@@ -24,7 +24,8 @@ import Darwin
 /// The decision and the main thread's ``take()`` hold one lock, so a request is either merged by
 /// the next take or decided against the deadline that take publishes; none falls between them.
 /// A request that goes through is one main wake, recorded in the wakeup ledger (owner
-/// `CEFMessagePump`, reason `cross-thread request`); a kept one is a counter (``kept``).
+/// `CEFMessagePump`, reason `cross-thread request`, in DEBUG and bench builds followed by the
+/// requesting thread's name and immediate or delayed); a kept one is a counter (``kept``).
 nonisolated final class CEFPumpCrossThreadGate: Sendable {
     private struct State {
         /// The armed fire's deadline, `CLOCK_UPTIME_RAW` nanoseconds; nil when none may be trusted.

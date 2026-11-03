@@ -54,11 +54,14 @@ def uptime_us():
 
 
 def pump_rows(ledger):
-    rows = {}
+    """CEFMessagePump ledger rows by reason: the cross-thread requests (each one main wake, by requesting thread) and
+    the pump timer's own fires, kept apart (an admitted request is a wake and later also a timer fire)."""
+    cross, timer = {}, {}
     for entry in (ledger or {}).get("ledger") or []:
         if isinstance(entry, dict) and entry.get("owner") == "CEFMessagePump":
-            rows[entry.get("reason", "?")] = entry.get("count", 0)
-    return rows
+            reason = entry.get("reason", "?")
+            (cross if reason.startswith("cross-thread request") else timer)[reason] = entry.get("count", 0)
+    return cross, timer
 
 
 def pump_counters(app):
@@ -79,8 +82,9 @@ def run_kind(kind):
         counts = [int(c) for c in opts.counts.split(",")]
         duration = int(30 + len(counts) * (opts.settle + opts.window + 2 + max(counts) * 0.7))
         env["CMUX_NEXT_CEF_EXTRA_SWITCHES"] = ":".join([
-            "trace-startup=toplevel,ipc,mojom", "trace-startup-file=" + trace_file,
-            "trace-startup-duration=%d" % duration, "trace-startup-record-mode=record-continuously"])
+            "trace-startup=toplevel,ipc,mojom", "trace-startup-file=" + trace_file, "trace-startup-format=json",
+            "trace-startup-duration=%d" % duration, "trace-startup-record-mode=record-until-full",
+            "trace-buffer-size-in-kb=400000"])
     app = BenchApp(opts.app, out=os.path.join(opts.out, kind), env=env)
     rows, windows = [], []
     try:
@@ -88,6 +92,12 @@ def run_kind(kind):
         deadline = time.time() + 60
         while time.time() < deadline and (app.rpc("debug.cef") or {}).get("state") != "ready":
             time.sleep(0.5)  # test harness: Chromium starts once (its cmux pages)
+        cef = app.rpc("debug.cef") or {}
+        if cef.get("state") != "ready":
+            # Without Chromium there is no pump: every window would read 0 wakes, which is not a finding.
+            rows.append({"kind": kind, "error": "Chromium is not running (debug.cef state %r, trigger %r)" % (cef.get("state"), cef.get("trigger"))})
+            print("CEF-PUMP-WAKES " + json.dumps(rows[-1]), flush=True)
+            return
         made = 0
         for count in sorted({int(c) for c in opts.counts.split(",")}):
             while made < count:
@@ -101,22 +111,30 @@ def run_kind(kind):
             time.sleep(opts.window)  # the measured window: no calls into the app
             end = uptime_us()
             after, ledger = pump_counters(app), app.rpc("debug.wakeups", {}) or {}
-            wakes = pump_rows(ledger)
-            row = {"kind": kind, "busy_hidden": count,
-                   "pump_wakes_per_s": round(sum(wakes.values()) / opts.window, 1),
-                   "by_thread": {reason: round(n / opts.window, 1) for reason, n in sorted(wakes.items(), key=lambda kv: -kv[1])},
+            cross, timer = pump_rows(ledger)
+            row = {"kind": kind, "busy_hidden": count, "build": "debug",
+                   "cross_thread_wakes_per_s": round(sum(cross.values()) / opts.window, 1),
+                   "by_thread": {reason: round(n / opts.window, 1) for reason, n in sorted(cross.items(), key=lambda kv: -kv[1])},
+                   "timer_fires_per_s": {reason: round(n / opts.window, 1) for reason, n in sorted(timer.items(), key=lambda kv: -kv[1])},
                    "pump_per_s": {k: round(((after.get(k) or 0) - (before.get(k) or 0)) / opts.window, 2)
                                   for k in ("work_runs", "work_ms", "immediate_requests", "delayed_requests")}}
             rows.append(row)
             windows.append((count, start, end))
             print("CEF-PUMP-WAKES " + json.dumps(row), flush=True)
         if trace_file:
-            wait = time.time() + 240
-            while time.time() < wait and not (os.path.exists(trace_file) and os.path.getsize(trace_file) > 0):
-                time.sleep(2)  # test harness: Chromium writes the trace when its duration ends
+            # Chromium writes the trace when its duration ends; take it once its size holds across two looks.
+            wait, last = time.time() + 300, -1
+            while time.time() < wait:
+                size = os.path.getsize(trace_file) if os.path.exists(trace_file) else 0
+                if size > 0 and size == last:
+                    break
+                last = size
+                time.sleep(3)  # test harness: waiting for Chromium's file
             RESULT.setdefault("trace", summarize_trace(trace_file, windows))
     except LaunchError as error:
         rows.append({"kind": kind, "error": error.reason})
+    except (RuntimeError, OSError) as error:  # a refused newTab, a lost socket: this kind ends, the report is still written
+        rows.append({"kind": kind, "error": "%s: %s" % (type(error).__name__, error)})
     finally:
         app.stop()
     RESULT["kinds"][kind] = rows
@@ -132,6 +150,12 @@ def summarize_trace(path, windows):
     names = {(e.get("pid"), e.get("tid")): (e.get("args") or {}).get("name") for e in events
              if e.get("ph") == "M" and e.get("name") == "thread_name"}
     out = {}
+    main_ts = [e.get("ts") for e in events if isinstance(e.get("ts"), (int, float))
+               and names.get((e.get("pid"), e.get("tid"))) == "CrBrowserMain"]
+    if windows and main_ts and not any(windows[0][1] <= ts <= windows[-1][2] for ts in main_ts):
+        # The trace's clock is not CLOCK_UPTIME_RAW microseconds: every window would read empty, which is not a finding.
+        return {"error": "clock mismatch: no CrBrowserMain event inside the windows (trace %.0f..%.0f, windows %.0f..%.0f)"
+                         % (min(main_ts), max(main_ts), windows[0][1], windows[-1][2])}
     for count, start, end in windows:
         seen = collections.Counter()
         for e in events:
@@ -141,8 +165,11 @@ def summarize_trace(path, windows):
             if names.get((e.get("pid"), e.get("tid"))) != "CrBrowserMain":
                 continue
             args = e.get("args") or {}
-            src = args.get("src_func") or args.get("src") or (args.get("task") or {}).get("posted_from") or ""
-            src_file = args.get("src_file") or ""
+            posted = (args.get("task") or {}).get("posted_from") or {}
+            if isinstance(posted, dict):  # Perfetto's JSON export: {file_name, function_name}
+                src_file, src = posted.get("file_name") or "", posted.get("function_name") or ""
+            else:  # the legacy JSON exporter
+                src_file, src = args.get("src_file") or "", args.get("src_func") or args.get("src") or str(posted or "")
             seen["%s %s %s" % (e.get("name"), src_file, src)] += 1
         span = max((end - start) / 1e6, 1e-3)
         out[str(count)] = [{"task": key, "per_s": round(n / span, 2)} for key, n in seen.most_common(15)]
@@ -155,5 +182,5 @@ for kind in [k for k in opts.kinds.split(",") if k]:
 for path in filter(None, [os.path.join(opts.out, "cef-pump-wakes.json"), opts.json]):
     with open(path, "w") as handle:
         json.dump(RESULT, handle, indent=1)
-print("CEF-PUMP-WAKES-REPORT " + json.dumps({k: [{x: r.get(x) for x in ("busy_hidden", "pump_wakes_per_s")} for r in v]
+print("CEF-PUMP-WAKES-REPORT " + json.dumps({k: [{x: r.get(x) for x in ("busy_hidden", "cross_thread_wakes_per_s", "error")} for r in v]
                                             for k, v in RESULT["kinds"].items()}), flush=True)

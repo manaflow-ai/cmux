@@ -47,8 +47,10 @@ import Testing
         return Rig(pump: pump, timer: timer, gate: gate, clock: clock, ledger: ledger)
     }
 
+    /// Every cross-thread wake, whatever thread asked: DEBUG and bench builds name the thread and immediate/delayed in
+    /// the reason (`cross-thread request (<thread>, <immediate|delayed>)`), one row each.
     static func crossThreadWakes(_ ledger: WakeupLedger) -> UInt64 {
-        ledger.snapshot().first { $0.owner == "CEFMessagePump" && $0.reason == "cross-thread request" }?.count ?? 0
+        ledger.snapshot().filter { $0.owner == "CEFMessagePump" && $0.reason.hasPrefix("cross-thread request") }.reduce(0) { $0 + $1.count }
     }
 
     @Test func aDelayedRequestAfterTheArmedFireWakesNothing() {
