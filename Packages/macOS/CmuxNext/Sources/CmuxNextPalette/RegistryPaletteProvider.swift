@@ -60,46 +60,85 @@ public final class RegistryPaletteProvider: PaletteProvider {
     /// the one `rows` kept is not built again, and when no listed row changed the last arrangement is listed as it
     /// was (`RegistryPaletteRows`).
     public func makeItems() -> [PaletteItem] {
-        let kept = rows
-        kept.context.update(from: self)
-        var items: [PaletteItem] = []
-        var tiers: [PaletteTier] = []
-        var listed: [RegistryPaletteRows.Listed] = []
-        var eligible = Set<ActionID>()
-        // Localized once per open, not once per action (hundreds of rows).
-        let unbound = PaletteStrings.unbound
-        var labels: RowLabels?
-        var sections: [ActionCategory: PaletteSection] = [:]
-        for entry in registry.entries {
+        let pass = ItemsPass(self)
+        _ = pass.read { true }
+        return pass.finish()
+    }
+
+    /// One ``makeItems()`` that can run in pieces: ``read(while:)`` reads catalog actions while its condition
+    /// holds, ``finish()`` arranges what was read. The palette's own open reads them all at once; a list no one
+    /// sees this frame (the New Tab page's bar, ``PaletteCommandListing``) reads a few per display frame, so the
+    /// main thread never holds every catalog action's state read in one task (PACING TRIAGE #32910: 7-10 ms).
+    final class ItemsPass {
+        private let provider: RegistryPaletteProvider
+        private let kept: RegistryPaletteRows
+        /// The catalog as the pass started; each action's state is read when its turn comes.
+        private let entries: [ActionEntry]
+        private var next = 0
+        private var items: [PaletteItem] = []
+        private var tiers: [PaletteTier] = []
+        private var listed: [RegistryPaletteRows.Listed] = []
+        private var eligible = Set<ActionID>()
+        // Localized once per pass, not once per action (hundreds of rows).
+        private let unbound = PaletteStrings.unbound
+        private var labels: RowLabels?
+        private var sections: [ActionCategory: PaletteSection] = [:]
+
+        init(_ provider: RegistryPaletteProvider) {
+            self.provider = provider
+            kept = provider.rows
+            kept.context.update(from: provider)
+            entries = provider.registry.entries
+        }
+
+        // Released with a listing, which a task can release off the main actor.
+        nonisolated deinit {}
+
+        /// Reads the next actions while `more()` holds (it is asked before each one). Returns whether every action is read.
+        func read(while more: () -> Bool) -> Bool {
+            while next < entries.count, more() {
+                readEntry(entries[next])
+                next += 1
+            }
+            return next == entries.count
+        }
+
+        private func readEntry(_ entry: ActionEntry) {
+            let registry = provider.registry
             let descriptor = entry.descriptor
             let actionID = descriptor.id
-            guard descriptor.isPaletteVisible, !hiddenIDs.contains(actionID), registry.isAvailable(actionID) else { continue }
+            guard descriptor.isPaletteVisible, !provider.hiddenIDs.contains(actionID), registry.isAvailable(actionID) else { return }
             // An override is decided when its row runs (`PaletteEffect.deferred`), never on open:
             // Rename Tab and Rename Workspace read every tab and workspace, an action page builds
             // its page. Declining there (nothing to rename) falls back to the action itself.
-            let overridden = effectOverrides[actionID] != nil
-            guard entry.isBound || overridden || includeUnbound else { continue }
-            let face = face(of: entry, overridden: overridden, unbound: unbound)
+            let overridden = provider.effectOverrides[actionID] != nil
+            guard entry.isBound || overridden || provider.includeUnbound else { return }
+            let face = provider.face(of: entry, overridden: overridden, unbound: unbound)
             if !descriptor.isDebugOnly && (entry.isBound || overridden) { eligible.insert(actionID) }
             listed.append(RegistryPaletteRows.Listed(id: actionID, face: face))
             tiers.append(descriptor.paletteTier)
             if let row = kept.rows[actionID], row.face == face {
                 items.append(row.item)
-                continue
+                return
             }
             if labels == nil { labels = RowLabels() }
-            let section = sections[descriptor.category] ?? Self.section(for: descriptor.category)
+            let section = sections[descriptor.category] ?? RegistryPaletteProvider.section(for: descriptor.category)
             sections[descriptor.category] = section
-            let item = makeRow(descriptor, face: face, section: section, labels: labels ?? RowLabels(), context: kept.context)
+            let item = provider.makeRow(descriptor, face: face, section: section, labels: labels ?? RowLabels(), context: kept.context)
             kept.rows[actionID] = (face, item)
-            builtRows += 1
+            provider.builtRows += 1
             items.append(item)
         }
-        if let last = kept.arranged[curatesEmptyRoot], last.listed == listed { return last.items }
-        let arranged = Self.arranged(items, tierList: tiers)
-        let result = curatesEmptyRoot ? curatedRootItems(arranged, eligible: eligible) : arranged
-        kept.arranged[curatesEmptyRoot] = (listed, result)
-        return result
+
+        /// The rows read, in the palette's order (the last arrangement when the same rows list with the same faces).
+        func finish() -> [PaletteItem] {
+            let curates = provider.curatesEmptyRoot
+            if let last = kept.arranged[curates], last.listed == listed { return last.items }
+            let arranged = RegistryPaletteProvider.arranged(items, tierList: tiers)
+            let result = curates ? provider.curatedRootItems(arranged, eligible: eligible) : arranged
+            kept.arranged[curates] = (listed, result)
+            return result
+        }
     }
 
     /// What `entry`'s row shows now: its title, why it cannot run, its shortcut.
