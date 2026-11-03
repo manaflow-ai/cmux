@@ -9,7 +9,7 @@ import Testing
 import UniformTypeIdentifiers
 @testable import CmuxMobileLive
 
-@Suite struct PushReplyAttachmentTests {
+@Suite(.serialized) struct PushReplyAttachmentTests {
     /// Receiver retains a digest and counters, never the uploaded original.
     actor Receiver: LinkChannel {
         nonisolated let id: UInt32 = 1
@@ -22,6 +22,7 @@ import UniformTypeIdentifiers
             bytes += data.count
             largestWrite = max(largestWrite, data.count)
             hash.update(data: data)
+            await Task.yield()
         }
 
         func receive() async throws -> Data? {
@@ -61,7 +62,7 @@ import UniformTypeIdentifiers
     }
 
     /// Patterned bytes, including the final partial chunk, exercise content as well as length.
-    func writeOriginal(_ url: URL) throws -> (size: Int, digest: Data) {
+    func writeOriginal(_ url: URL) async throws -> (size: Int, digest: Data) {
         #expect(FileManager.default.createFile(atPath: url.path, contents: nil))
         let handle = try FileHandle(forWritingTo: url)
         defer { try? handle.close() }
@@ -70,6 +71,9 @@ import UniformTypeIdentifiers
             let bytes = Data(repeating: UInt8(index), count: 1 << 20)
             try handle.write(contentsOf: bytes)
             hash.update(data: bytes)
+            // Let concurrently running link-readiness tests make progress while
+            // this fixture writes and hashes an original larger than the old cap.
+            await Task.yield()
         }
         let tail = Data(repeating: 0xAF, count: 17)
         try handle.write(contentsOf: tail)
@@ -82,7 +86,7 @@ import UniformTypeIdentifiers
         let root = try directory()
         defer { try? FileManager.default.removeItem(at: root) }
         let source = root.appendingPathComponent(originalName)
-        let expected = try writeOriginal(source)
+        let expected = try await writeOriginal(source)
         let outbox = PushOutbox(directory: root.appendingPathComponent("outbox"))
         let picked = try PushPickedFile(source, outbox: outbox)
         #expect(!FileManager.default.fileExists(atPath: source.path))
