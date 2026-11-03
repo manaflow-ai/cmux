@@ -1757,7 +1757,7 @@ export class AcpmuxDirectClient {
   /// receipt (`permissionRecord`, permissions/record.ts).
   private askedPermissions = new Map<string, AcpmuxPermission>();
   private commands: SlashCommand[] = [];
-  private usage: { used: number; size: number; setup?: number } | undefined;
+  private usage: { used: number; size: number; setup?: number; cacheExpiresAt?: number } | undefined;
   /// The running turn's output tokens: its model calls' generated usage added up from
   /// `turn_started`, the running line's count (conversation/WorkingFor.tsx). Unset outside a
   /// turn, and for a turn whose start this client did not see (it missed calls before it attached).
@@ -5551,7 +5551,15 @@ export class AcpmuxDirectClient {
         // next one arrives: the meter reads the model's own until then (compactingUsage).
         if (this.usage && this.usage.size !== size && this.summary?.contextBreakdown)
           this.summary = { ...this.summary, contextBreakdown: undefined };
-        this.usage = setup === undefined ? { used, size } : { used, size, setup };
+        // When the chat's prompt cache lapses (unix ms), as acpmux computed it from the last
+        // model request and the harness's TTL; a report without one has no warm cache to show.
+        const cacheExpiresAt = Number(update._meta?.acpmux?.cacheExpiresAt);
+        this.usage = {
+          used,
+          size,
+          ...(setup === undefined ? {} : { setup }),
+          ...(Number.isFinite(cacheExpiresAt) && cacheExpiresAt > 0 ? { cacheExpiresAt } : {}),
+        };
       }
       return;
     }
@@ -6154,6 +6162,12 @@ export class AcpmuxDirectClient {
       // Keep unscoped boundaries from claiming completion; the turn's terminal result settles
       // any running row with the existing inferred outcome.
       if (this.compactionFenceSeq !== undefined && compaction.state !== "running") return;
+      // A finished compaction replaced the context: its prompt cache is gone until the next call
+      // writes one (acpmux sends that call's expiry), so the card stops counting down.
+      if (compaction.state === "completed" && this.usage?.cacheExpiresAt !== undefined) {
+        const { cacheExpiresAt: _gone, ...rest } = this.usage;
+        this.usage = rest;
+      }
       // A note between messages: the text and tool fold before it close.
       this.endAssistantSegment();
       this.streamingActivity = undefined;
