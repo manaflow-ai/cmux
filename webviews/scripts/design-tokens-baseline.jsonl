@@ -171,13 +171,13 @@
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"spacing","property":"bottom","values":{"6px":1,"2px":1}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"spacing","property":"gap","values":{"6px":12,"2px":9,"10px":6,"2px 8px":1,"calc(var(--ds-space-1) + 2px)":1,"7px":1,"5px":1}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"spacing","property":"left","values":{"7px":1,"var(--cv-bullet-left, 10px)":1,"0.5px":1}}
-{"file":"agent-session/acpmux/conversation/conversation.css","kind":"spacing","property":"margin","values":{"0 0 var(--cv-para-after, 14px)":1,"20px 0 12px":1,"15px 0 3.5px":1,"15px 0 5px":1,"var(--cv-gh-icon-margin, 0 4px 0 0.5px)":1,"24.5px 0 25px":1,"0 0 var(--cv-list-after, 6.5px)":1,"0 0 21.5px":1,"var(--cv-table-before, 6.5px) 0 14px":1,"0 0 19px":1,"0 1px 13px 13px":1,"4px 0 6px":1,"0 0 13.5px":1,"6px 0":2,"6px 0 0":4,"2px 0 6px":1,"-3px 0 3px":1,"0 0 6px var(--cv-tool-text-inset)":2,"2px 0 0":2,"2px 0 8px":1,"0 0 4px 2px":1,"0 0 2px 2px":1,"0 0 0 2px":1,"4px 6px 0 0":1,"0 0 6px 20px":1,"0 0 6px":1,"2px 0 4px":1,"0 0 8px 13px":1,"2px 4px":2,"2px 0 8px 28px":1}}
+{"file":"agent-session/acpmux/conversation/conversation.css","kind":"spacing","property":"margin","values":{"0 0 var(--cv-para-after, 14px)":1,"20px 0 12px":1,"15px 0 3.5px":1,"15px 0 5px":1,"var(--cv-gh-icon-margin, 0 4px 0 0.5px)":1,"24.5px 0 25px":1,"0 0 var(--cv-list-after, 6.5px)":1,"0 0 21.5px":1,"var(--cv-table-before, 6.5px) 0 14px":1,"0 0 19px":1,"0 1px 13px 13px":1,"4px 0 6px":2,"0 0 13.5px":1,"6px 0":2,"6px 0 0":4,"2px 0 6px":1,"-3px 0 3px":1,"0 0 6px var(--cv-tool-text-inset)":2,"2px 0 0":2,"2px 0 8px":1,"0 0 4px 2px":1,"0 0 2px 2px":1,"0 0 0 2px":1,"4px 6px 0 0":1,"0 0 6px 20px":1,"0 0 6px":1,"2px 0 4px":1,"0 0 8px 13px":1,"2px 4px":2,"2px 0 8px 28px":1}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"spacing","property":"margin-block","values":{"2px 6px":1}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"spacing","property":"margin-bottom","values":{"6px":2,"2px":1}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"spacing","property":"margin-inline-end","values":{"6px":1}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"spacing","property":"margin-inline-start","values":{"calc(var(--cv-disclosure-gap) - var(--cv-worked-gap, 2px))":1,"6px":2,"calc( var(--cv-chevron-gap) - var(--grid-gap) - (20px - var(--cv-chevron-glyph)) / 2 - var(--cv-chevron-ink) )":1,"-2px":1}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"spacing","property":"margin-left","values":{"2px":1,"6px":1,"-3px":1}}
-{"file":"agent-session/acpmux/conversation/conversation.css","kind":"spacing","property":"margin-right","values":{"-6px":1}}
+{"file":"agent-session/acpmux/conversation/conversation.css","kind":"spacing","property":"margin-right","values":{"-6px":1,"6px":1}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"spacing","property":"margin-top","values":{"2px":5,"var(--cv-list-before, 3.5px)":1,"13px":1,"calc(12px - var(--cv-para-after, 14px))":1,"-1px":1,"10px":1,"6px":2,"calc((18px - var(--grid-icon-box)) / 2)":1}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"spacing","property":"padding","values":{"0 10px":4,"0 8px 0 14px":1,"2px":1,"4px 20px 20px":1,"10px 12px 8px":1,"var(--cv-code-padding, 0.75px 5px)":1,"var(--cv-td-pad-y, 8.5px) 22px var(--cv-td-pad-y, 8.5px) 0":1,"0 18px 0 21px":1,"0 6px 0 12px":1,"4px 12px 6px":1,"6px 12px":2,"2px 0":1,"8px 12px 10px":1,"5px 10px":1,"6px 10px":1,"3px 9px":1,"0 1px":1,"0 10px 0 16px":1,"16px 56px":1,"0 6px 0 10px":2,"0 6px":3,"2px 12px 8px 26px":1,"6px 8px 6px 12px":1,"4px 6px 4px 12px":1,"2px 6px":1,"8px 10px":1,"2px 8px":1,"2px 0 2px 8px":1,"1px 8px":1}}
 {"file":"agent-session/acpmux/conversation/conversation.css","kind":"spacing","property":"padding-block","values":{"3px":1,"2px 6px":1,"2px 4px":1}}
@@ -196,6 +196,8 @@
 {"file":"agent-session/acpmux/conversation/InboxNoticeCard.css","kind":"spacing","property":"margin","values":{"2px 0":1}}
 {"file":"agent-session/acpmux/conversation/LongCommandRows.gallery.css","kind":"font-weight","property":"font-weight","values":{"650":3}}
 {"file":"agent-session/acpmux/conversation/LongCommandRows.gallery.css","kind":"radius","property":"border-radius","values":{"9px":1}}
+{"file":"agent-session/acpmux/conversation/NextStepCard.css","kind":"spacing","property":"margin","values":{"0 -4px 0 2px":1}}
+{"file":"agent-session/acpmux/conversation/NextStepCard.gallery.css","kind":"radius","property":"border-radius","values":{"7px":1}}
 {"file":"agent-session/acpmux/conversation/SessionLinkChip.gallery.css","kind":"spacing","property":"margin","values":{"0 0 6px":1}}
 {"file":"agent-session/acpmux/conversation/TranscriptType.gallery.tsx","kind":"spacing","property":"padding","values":{"18px":2}}
 {"file":"agent-session/acpmux/dictation.css","kind":"height","property":"height","values":{"18px":1,"2px":1,"calc(2px + var(--level, 0) * 16px)":1}}
@@ -763,7 +765,7 @@
 {"file":"pages/settings/styles.css","kind":"font-weight","property":"font-weight","values":{"500":2}}
 {"file":"pages/settings/styles.css","kind":"height","property":"height","values":{"22px":2,"18px":1,"1px":1,"16px":2,"14px":1,"68px":1,"26px":1,"6px":1,"12px":1}}
 {"file":"pages/settings/styles.css","kind":"height","property":"min-height","values":{"72px":1}}
-{"file":"pages/settings/styles.css","kind":"radius","property":"border-radius","values":{"2px":1,"10px":3,"5px":5,"7px":2,"9px":3,"3px":1}}
+{"file":"pages/settings/styles.css","kind":"radius","property":"border-radius","values":{"2px":4,"10px":3,"5px":5,"7px":2,"9px":3,"3px":1}}
 {"file":"pages/settings/styles.css","kind":"spacing","property":"bottom","values":{"6px":1,"calc(var(--content-fade-bottom, 28px) + 4px - var(--content-pad-end, 0px))":1}}
 {"file":"pages/settings/styles.css","kind":"spacing","property":"gap","values":{"10px":4,"1px":2,"6px":12,"2px":2,"3px":1}}
 {"file":"pages/settings/styles.css","kind":"spacing","property":"left","values":{"2px":1}}
