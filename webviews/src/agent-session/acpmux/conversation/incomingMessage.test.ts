@@ -941,3 +941,23 @@ test("Claude Code's SendMessage ([from NAME]) draws as that session's message, s
   expect(incomingPrompt("[from lane-a]", adopted)).toBeUndefined();
   expect(unsigned("[from lane-a] From lane-a: done", "lane-a")).toBe("done");
 });
+
+// u20190: a sender that names its app and persona (`cmux chat send --from "Grok bot › Ada"`) is
+// shown as both, with no label left in its words; one with no persona names its app alone.
+test("a sender's [from APP › PERSONA] label names the app and the persona", () => {
+  const cli = incomingPrompt("[from Grok bot › Ada] Muse, can you take the review?", {
+    client: "acpmux-cli#01a2f3",
+  });
+  expect(cli?.kind === "message" && cli.message).toMatchObject({
+    name: "Grok bot › Ada",
+    app: "Grok bot",
+    persona: "Ada",
+    text: "Muse, can you take the review?",
+  });
+  const relayed = incomingPrompt(rendered("[from Muse] Yes, on it."), { _meta: { provenance } });
+  expect(relayed?.kind === "message" && relayed.message).toMatchObject({
+    name: "Muse",
+    app: "Muse",
+    text: "Yes, on it.",
+  });
+});
