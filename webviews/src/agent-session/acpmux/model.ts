@@ -513,6 +513,21 @@ export type AcpmuxRow = {
   /// `doing` names the latest step, finished, which the live line holds until the next step
   /// (conversation/turns.ts `liftedStep`): "Ran grep …".
   doingDone?: boolean;
+  /// How long that finished step took, its own start to its own end (conversation/turns.ts
+  /// `liftedStep`): the live line says it beside the step, never the turn's time.
+  doingForMs?: number;
+  /// What the Codex-style live line says when it names no call (conversation/turns.ts
+  /// `codexLiveTurn`): the agent waits on its foreground subagents (`liveAgents` of them still
+  /// running), or writes its reply. Neither reads "Thinking" (Leo, 2026-11-03: "i think the
+  /// "thinking" accounting is also off pretty frequently").
+  liveState?: "subagents" | "writing";
+  liveAgents?: number;
+  /// With the line reading "Thinking" past the first step: how long the turn's thoughts streamed,
+  /// summed (conversation/turns.ts `thoughtTime`), the time it shows beside the word.
+  thoughtMs?: number;
+  /// The live line's clock is the turn's whole time, past its first step: it reads "4m total", so
+  /// the time never reads as what the line names (conversation/Thinking.tsx).
+  turnTotal?: boolean;
   /// The call in flight sends another agent a message (conversation/turns.ts `sendingTo`: a shell
   /// `acpmux send`, a sub-session's `send_message`): the line reads "Sending message to
   /// <doingSendTo>", and the sub-session `doingSendSession` by its name once the list has it.
