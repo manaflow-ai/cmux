@@ -19,6 +19,15 @@ What runs, per area touched by the change:
 * web/: ESLint, errors only, on the changed files, with a cache. web/ as a whole
   is not lint-clean, so only the files a change touches are held to it.
 
+The trust boundary (docs/contributor-verification.md): the hook runs only check code the push did not change; a
+push that changes it is not linted here, and CI's sandboxed `web lint` job is the check for it. "Changed" is
+measured from where the pushed commit meets the reviewed branches (<remote>/feat-cmux-next, the remote's HEAD),
+not from the branch's last pushed head, so an earlier push of the same branch that changed check code keeps every
+later push of it out too (trust_base()). It counts deletes and type changes, and a change to a parent folder of
+check code (a folder turned into a symlink). Check code may hold no symlink in the pushed commit, at its paths or
+any parent folder (executed_symlinks()), and before anything runs every executed folder and every script a check
+names must resolve, symlinks followed, to that same path in the tree being linted (escaping_paths()).
+
 Which files: a push's own range (scripts/cmux-next/push_range.py, the definition the
 cmux-next gate, guardrails and arch ratchet share), so a branch rebased onto
 origin/feat-cmux-next and force pushed lints its own commits' files, never the
@@ -251,13 +260,120 @@ def under(path: str, prefixes: tuple[str, ...]) -> bool:
     return any(path == p.rstrip("/") or path.startswith(p) for p in prefixes)
 
 
+def above(path: str, prefixes: tuple[str, ...]) -> bool:
+    """PATH is a parent folder of one of PREFIXES: changing it (a folder turned into a symlink) changes them."""
+    return any(p.startswith(f"{path.rstrip('/')}/") and p.rstrip("/") != path.rstrip("/") for p in prefixes)
+
+
 def executed_changes(package: ScriptPackage, files: list[str]) -> list[str]:
     hits = []
     sources = tuple(f"{package.directory}/{d}" for d in SOURCE_DIRS)
     for path in files:
-        if under(path, package.executed) and not under(path, sources):
+        if (under(path, package.executed) and not under(path, sources)) or above(path, package.executed):
             hits.append(path)
     return hits
+
+
+def eslint_executed_changes(package: EslintPackage, files: list[str]) -> list[str]:
+    return [f for f in files if f in package.executed or above(f, package.executed)]
+
+
+# The branches whose history is reviewed: check code that matches where a pushed commit meets one of them is
+# reviewed code. The remote's HEAD (main) counts too, for a main-based branch.
+REVIEWED_BRANCHES = ("feat-cmux-next", "HEAD")
+
+
+# A branch more commits than this past where it meets feat-cmux-next is not based on it (a main-based branch): the
+# remote's HEAD may then meet it nearer. Counted with a cap, so a feat-based push pays for its own commits only.
+FAR = 2000
+
+
+def trust_base(repo: Path, head: str, remote: str) -> str | None:
+    """Where HEAD meets a reviewed branch of REMOTE, or None when this clone has none of them. The hook measures
+    check-code changes from here, never from the branch's own last pushed head. Any such merge base holds only
+    reviewed code, so the choice changes how much the hook lints, never what it trusts: feat-cmux-next's first (one
+    cheap merge base), the remote's HEAD's only for a branch far past it or a clone without it."""
+    found = []
+    for branch in REVIEWED_BRANCHES:
+        ref = f"refs/remotes/{remote}/{branch}"
+        if subprocess.run(["git", "-C", str(repo), "rev-parse", "-q", "--verify", f"{ref}^{{commit}}"],
+                          capture_output=True).returncode != 0:
+            continue
+        base = git(repo, "merge-base", head, ref, check=False).strip()
+        if not base:
+            continue
+        distance = len(git(repo, "rev-list", f"--max-count={FAR}", f"{base}..{head}").split())
+        if distance < FAR:
+            return base
+        found.append((distance, base))
+    return min(found)[1] if found else None
+
+
+def trust_files(repo: Path, base: str, head: str) -> list[str]:
+    """Every path that differs between BASE and HEAD: added, changed, deleted or changed in type (a file or folder
+    turned into a symlink), so no change to check code hides from executed_changes()."""
+    return sorted(set(n for n in git(repo, "diff", "--name-only", "--no-renames", base, head).splitlines() if n))
+
+
+SYMLINK_MODE = "120000"
+
+
+def executed_symlinks(repo: Path, sha: str, executed: tuple[str, ...], sources: tuple[str, ...] = ()) -> list[str]:
+    """The symlinks commit SHA holds at check code: at an EXECUTED path, inside one (outside SOURCES, which the
+    check never runs), or at a parent folder of one. One `git ls-tree` over their top-level folders."""
+    tops = sorted({p.split("/", 1)[0] for p in executed})
+    out = subprocess.run(["git", "-C", str(repo), "ls-tree", "-r", "-t", "-z", sha, "--", *tops],
+                         capture_output=True).stdout.decode("utf-8", "surrogateescape")
+    found = []
+    for entry in filter(None, out.split("\0")):
+        meta, _, path = entry.partition("\t")
+        if meta.split(" ", 1)[0] != SYMLINK_MODE:
+            continue
+        if (under(path, executed) and not under(path, sources)) or above(path, executed):
+            found.append(path)
+    return sorted(found)
+
+
+def escaping_paths(tree: Path, paths: list[str]) -> list[str]:
+    """The PATHS (relative to TREE) that do not resolve, symlinks followed, to that same path in TREE: run from
+    there, they would run something other than the tree's own reviewed file. A path the tree lacks is skipped."""
+    root = Path(os.path.realpath(tree))
+    escaped = []
+    for rel in paths:
+        lexical = Path(os.path.normpath(tree / rel))
+        if not os.path.lexists(lexical):
+            continue
+        if Path(os.path.realpath(lexical)) != root / os.path.normpath(rel):
+            escaped.append(rel)
+    return escaped
+
+
+def named_scripts(package: ScriptPackage, scripts: dict, script: str = "check") -> list[str]:
+    """The repository paths of the files SCRIPT's pieces name (each `bun run NAME` resolved, as light_leaves()
+    does), for escaping_paths(): every word of a piece that names a file of the package or above it."""
+    found, seen, todo = [], set(), [script]
+    while todo:
+        name = todo.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        body = scripts.get(f"{name}:pieces") or scripts.get(name)
+        if not isinstance(body, str):
+            continue
+        for piece in (p.strip() for p in body.split("&&") if p.strip()):
+            try:
+                words = shlex.split(piece)
+            except ValueError:
+                words = piece.split()
+            if tuple(words[:2]) == SCRIPT_RUNNER and len(words) == 3:
+                todo.append(words[2])
+                continue
+            for word in words[1:]:
+                if "/" in word or word.endswith((".py", ".ts", ".mjs", ".js", ".sh", ".json")):
+                    path = posixpath.normpath(posixpath.join(package.directory, word))
+                    if not path.startswith("../") and not path.startswith("/"):
+                        found.append(path)
+    return sorted(set(found))
 
 
 def snapshot(repo: Path, sha: str | None):
@@ -270,15 +386,23 @@ def snapshot(repo: Path, sha: str | None):
     return names.__contains__, (lambda rel: git(repo, "show", f"{sha}:{rel}"))
 
 
-def make_plan(repo: Path, files: list[str], guard_executed: bool, exists=None) -> Plan:
+def make_plan(repo: Path, files: list[str], guard_executed: bool, exists=None, trusted_files: list[str] | None = None,
+              sha: str | None = None) -> Plan:
+    """What to lint for FILES. With GUARD_EXECUTED (the hook), a package whose check code TRUSTED_FILES (default:
+    FILES; the hook passes every path changed since trust_base()) changes, or whose check code commit SHA holds a
+    symlink at, is not linted: the hook never runs code a push controls."""
     exists = exists or (lambda rel: (repo / rel).is_file())
+    trusted_files = files if trusted_files is None else trusted_files
     plan = Plan()
     for package in SCRIPT_PACKAGES:
         if not exists(f"{package.directory}/package.json"):
             continue
         if not any(under(f, package.triggers) for f in files):
             continue
-        risky = executed_changes(package, files) if guard_executed else []
+        risky = executed_changes(package, trusted_files) if guard_executed else []
+        if guard_executed and sha:
+            sources = tuple(f"{package.directory}/{d}" for d in SOURCE_DIRS)
+            risky += [f"{path} (a symlink)" for path in executed_symlinks(repo, sha, package.executed, sources)]
         if risky:
             plan.untrusted.append((package.directory, risky))
         else:
@@ -290,7 +414,9 @@ def make_plan(repo: Path, files: list[str], guard_executed: bool, exists=None) -
                    and exists(f)]
         if not targets:
             continue
-        risky = [f for f in files if f in package.executed] if guard_executed else []
+        risky = eslint_executed_changes(package, trusted_files) if guard_executed else []
+        if guard_executed and sha:
+            risky += [f"{path} (a symlink)" for path in executed_symlinks(repo, sha, package.executed)]
         if risky:
             plan.untrusted.append((package.directory, risky))
         else:
@@ -711,6 +837,31 @@ def shown(job: tuple) -> str:
     return f"{job[0]}: {command}"
 
 
+def refuse_escapes(tree: Path, plan: Plan, mode: str, read=None) -> bool:
+    """Drop from PLAN, saying so, each package whose check code does not resolve to itself in TREE (escaping_paths():
+    its executed folders and every file its check names). False when nothing is left to run."""
+    kept = []
+    for package in plan.script_packages:
+        scripts = package_scripts(tree, package, read)
+        escaped = escaping_paths(tree, [p.rstrip("/") for p in package.executed]
+                                 + named_scripts(package, scripts) + named_scripts(package, scripts, "check:fix"))
+        if escaped:
+            print(f"{mode}: {package.directory}: not linted here: its check code resolves outside itself in the "
+                  f"tree ({', '.join(escaped[:5])}); the hook runs only the tree's own reviewed files. The `web lint` "
+                  "CI job checks it.", file=sys.stderr)
+        else:
+            kept.append(package)
+    plan.script_packages = kept
+    for directory in list(plan.eslint_files):
+        package = next(p for p in ESLINT_PACKAGES if p.directory == directory)
+        escaped = escaping_paths(tree, list(package.executed))
+        if escaped:
+            print(f"{mode}: {directory}: not linted here: its check code resolves outside itself in the tree "
+                  f"({', '.join(escaped)}). The `web lint` CI job checks it.", file=sys.stderr)
+            del plan.eslint_files[directory]
+    return bool(plan.script_packages or plan.eslint_files)
+
+
 def run_plan(repo: Path, plan: Plan, fix: bool, cache: bool = True, heavy: bool = True,
              mode: str = "web-lint") -> list[Result]:
     # With heavy checks off: no install or build (the bindings build is `npm ci` plus tsc), only the allowlist,
@@ -921,9 +1072,19 @@ def main(argv: list[str] | None = None) -> int:
             files = [f"{package.directory}/package.json" for package in SCRIPT_PACKAGES]
         # Planned from the commit's objects: a full lint tree is written only when something needs linting.
         exists, read = snapshot(repo, head)
-        plan = make_plan(repo, files, guard_executed=args.pre_push, exists=exists)
+        trusted_files = None
+        if args.pre_push and head is not None:
+            # Check code is measured from where the commit meets the reviewed branches, never from the branch's last
+            # pushed head: an earlier push that changed it keeps this one out too. No reviewed branch in the clone:
+            # every own file and, failing closed, every path the commit has.
+            base = trust_base(repo, head, args.remote)
+            trusted_files = (trust_files(repo, base, head) if base else
+                             git(repo, "ls-tree", "-r", "--name-only", head).splitlines())
+        plan = make_plan(repo, files, guard_executed=args.pre_push, exists=exists, trusted_files=trusted_files,
+                         sha=head if args.pre_push else None)
         for directory, risky in plan.untrusted:
-            print(f"{mode}: {directory}: not linted here: this push changes code the lint runs "
+            print(f"{mode}: {directory}: not linted here: this push changes, or reaches through a symlink, code the "
+                  f"lint runs "
                   f"({', '.join(risky[:5])}{' …' if len(risky) > 5 else ''}). The `web lint` CI job checks it; "
                   f"run `{FIX_COMMAND}` yourself if you trust this branch.", file=sys.stderr)
         if not plan.script_packages and not plan.eslint_files:
@@ -946,6 +1107,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(shown(job))
             continue
         with tree_of(repo, head, directories) as tree:
+            if args.pre_push and not refuse_escapes(tree, plan, mode, read):
+                continue
             found = run_plan(tree, plan, args.fix, cache=tree == repo, heavy=heavy, mode=mode)
             if args.new_only:
                 charge_new_only(repo, args.base, plan, tree, found, heavy)
