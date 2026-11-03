@@ -35,6 +35,9 @@ public final class LinkHintController {
     private var noted: (event: NSEvent, seen: Bool)?
     /// The pending page call (collect, draw, narrow); a newer one replaces it.
     private var work: Task<Void, Never>?
+    /// A decided pick (remove the labels, then click or open): the session has ended, so nothing cancels it, neither a
+    /// click nor a new start (review 6603845634: a click during the labels' draw dropped the pick and left the labels).
+    private var picking: Task<Void, Never>?
     /// The bound of the page's answer: a page that never answers (a hung renderer) never keeps the keys typed meanwhile.
     private let bound = DemandTimer(owner: "LinkHintController.answer")
 
@@ -212,12 +215,18 @@ public final class LinkHintController {
         guard resolved.outcome != .passThrough, resolved.outcome != .cancel else { session = nil; return }
         let draw = LinkHintSession.drawScript(current.keys.hints ?? [])
         // A label typed in full before the labels came is picked now: the keys after it are the page's at once, never
-        // the session's while the labels draw (LinkHintControllerFuzzTests).
-        if case .pick = resolved.outcome { session = nil }
+        // the session's while the labels draw (LinkHintControllerFuzzTests), and the pick acts after the draw.
+        if case .pick(let target) = resolved.outcome {
+            session = nil
+            picking = Task { [weak self, script] in
+                _ = await script(tab, draw)
+                await self?.pick(target, of: current, in: tab)
+            }
+            return
+        }
         work = Task { [weak self, script] in
             _ = await script(tab, draw)
             guard !Task.isCancelled, let self else { return }
-            if case .pick(let target) = resolved.outcome { return await pick(target, of: current, in: tab) }
             apply(resolved.outcome, on: tab)
         }
     }
@@ -255,7 +264,8 @@ public final class LinkHintController {
         case .pick(let target):
             session = nil
             work?.cancel()
-            work = Task { [weak self] in await self?.pick(target, of: current, in: tab) }
+            work = nil
+            picking = Task { [weak self] in await self?.pick(target, of: current, in: tab) }
         }
     }
 

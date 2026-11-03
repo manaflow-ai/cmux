@@ -26,7 +26,8 @@
   min-width: 0;
   margin-top: var(--acpmux-bg-top);
   max-height: calc(100% - var(--acpmux-bg-top));
-  box-shadow: inset 1px 0 0 var(--agent-border);
+  /* No drawn edge (Leo, 2026-11-03: "background tasks why is there this white border it's weird"):
+     the column is a surface of its own, never a ruled box. */
   background: var(--agent-page-bg);
 }
 .acpmux-shell[data-tab-row]:has(> .acpmux-bg) {
@@ -42,9 +43,8 @@
   max-height: none;
   margin: 0;
   z-index: var(--layer-raised);
-  box-shadow:
-    inset 1px 0 0 var(--agent-border),
-    inset 0 1px 0 var(--agent-border);
+  /* Docked under the side panel, the one rule that parts the two. */
+  box-shadow: inset 0 1px 0 var(--agent-border);
 }
 .acpmux-shell:has(> .acpmux-bg) > .acpmux-artifact {
   height: calc((100% - var(--acpmux-bg-top)) * (1 - var(--acpmux-bg-share)));
@@ -60,7 +60,6 @@
     inset: var(--acpmux-bg-top) 0 0 0;
     width: auto;
     z-index: var(--layer-overlay);
-    box-shadow: none;
   }
   .acpmux-shell:has(> .acpmux-artifact) > .acpmux-bg {
     inset: auto 0 0 0;
@@ -94,7 +93,8 @@
   gap: 8px;
   padding: 0 8px 0 16px;
   box-sizing: border-box;
-  box-shadow: inset 0 -1px 0 var(--cmux-hairline, var(--agent-border));
+  /* No rule under the header. It drew `inset 0 -1px 0 var(--cmux-hairline)`, and --cmux-hairline is
+     a length (desktop.css), not a colour: a 1px spread in currentColor, the white line Leo saw. */
 }
 .acpmux-bg__head > .cv-iconbtn:first-child {
   margin-left: -6px;

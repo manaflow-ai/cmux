@@ -454,6 +454,7 @@
     "nightly.yml#find-nightly-next-recovery": {"class": "portable-checks"},
     "nightly.yml#check-nightly-webviews": {"class": "portable-checks"},
     "nightly.yml#route-visual-gate-nightly": {"class": "portable-checks"},
+    "nightly.yml#attest-nightly-remote-daemon": {"class": "portable-checks"},
     "nightly.yml#prepare-nightly-variant-primary": {"class": "portable-checks"},
     "nightly.yml#prepare-nightly-variant": {"class": "portable-checks"},
     "nightly.yml#build-nightly-remote-daemon": "portable-checks",
