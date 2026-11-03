@@ -1,5 +1,7 @@
 /* BUTTON (ui/Button.tsx): one look for every web button, by variant and size, on the shared tokens.
    Its own file, as the agent pane does not load ui.css; the fallbacks keep it right without it.
+   It carries its own reset and no `ui-button` class, so ui.css's `.ui-button` reset (same weight)
+   cannot clear a variant's fill whatever the load order.
    - Heights come from the control scale (--ds-control-*), the radius from --ds-radius-control.
    - Colors are the theme's: the accent (the text color by default, never the system blue) fills
      `primary`, the text at a low mix fills `secondary`, and `destructive` takes the app's danger.
@@ -68,7 +70,7 @@
   --ui-btn-ring: var(--cmux-separator, color-mix(in srgb, var(--ui-btn-fg) 18%, transparent));
 }
 .ui-btn-destructive {
-  --ui-btn-fg: var(--cmux-app-danger, var(--agent-danger, var(--cmux-text, CanvasText)));
+  --ui-btn-fg: var(--cmux-app-danger, var(--agent-danger, #e5484d));
   --ui-btn-fill: color-mix(in srgb, var(--ui-btn-fg) 12%, transparent);
   --ui-btn-hover: color-mix(in srgb, var(--ui-btn-fg) 18%, transparent);
   --ui-btn-press: color-mix(in srgb, var(--ui-btn-fg) 24%, transparent);

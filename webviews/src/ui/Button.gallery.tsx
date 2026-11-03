@@ -72,7 +72,7 @@ export default componentEntry<{ disabled?: boolean }>({
     anchorMovePx: { value: 0, reason: "Pressing a button must not move the receipt." },
     settleMaxMs: { value: 250, reason: "A press is a local interaction." },
   },
-  covers: ["ui/Button.tsx"],
+  covers: ["ui/Button.tsx#Button", "ui/Button.tsx#buttonClass"],
   load: async () => ButtonGallery,
   styles: () => Promise.all([import("./ui.css"), import("./button.css"), import("./Button.gallery.css")]),
   variants: {

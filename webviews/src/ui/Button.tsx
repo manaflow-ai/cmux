@@ -21,7 +21,7 @@ export interface ButtonClassOptions {
 
 /** The class names of a button of this variant and size, for an element that is not a `Button`. */
 export function buttonClass({ variant = "secondary", size = "md", className }: ButtonClassOptions = {}): string {
-  return cx("ui-button", "ui-btn", `ui-btn-${variant}`, `ui-btn-${size}`, className);
+  return cx("ui-btn", `ui-btn-${variant}`, `ui-btn-${size}`, className);
 }
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {

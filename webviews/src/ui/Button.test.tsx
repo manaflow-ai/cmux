@@ -38,9 +38,9 @@ afterEach(() => {
 });
 
 test("buttonClass defaults to a medium secondary button", () => {
-  expect(buttonClass()).toBe("ui-button ui-btn ui-btn-secondary ui-btn-md");
+  expect(buttonClass()).toBe("ui-btn ui-btn-secondary ui-btn-md");
   expect(buttonClass({ variant: "primary", size: "lg", className: "x" })).toBe(
-    "ui-button ui-btn ui-btn-primary ui-btn-lg x",
+    "ui-btn ui-btn-primary ui-btn-lg x",
   );
 });
 
@@ -57,7 +57,7 @@ test("Button is a native button that never submits by accident", () => {
   const [remove, save] = host.querySelectorAll("button");
   expect(ref.current).toBe(remove);
   expect(remove.type).toBe("button");
-  expect(remove.className).toBe("ui-button ui-btn ui-btn-destructive ui-btn-sm");
+  expect(remove.className).toBe("ui-btn ui-btn-destructive ui-btn-sm");
   expect(remove.disabled).toBe(true);
   expect(remove.getAttribute("aria-label")).toBe("Delete");
   expect(save.type).toBe("submit");
