@@ -85,10 +85,10 @@
   display: inline-grid;
   place-items: center;
   border-radius: 999px;
-  color: #fff;
+  color: var(--agent-accent-text, white);
   font-weight: 600;
   line-height: 1;
-  box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.15);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, black 15%, transparent);
 }
 .acpmux-cols-avatar[data-empty] {
   color: var(--agent-muted);
@@ -96,8 +96,10 @@
 }
 .acpmux-cols-avatar-badge {
   position: absolute;
-  right: -3px;
-  bottom: -3px;
+  /* Past the avatar's corner by 3 px, off the spacing scale on purpose: a nudge, not a gap. */
+  right: 0;
+  bottom: 0;
+  translate: 3px 3px;
   display: grid;
   place-items: center;
   border-radius: 999px;
@@ -111,11 +113,11 @@
 .acpmux-cols-card {
   position: absolute;
   top: calc(100% + 4px);
-  left: 6px;
+  left: var(--ds-space-1);
   z-index: var(--layer-raised);
   width: 250px;
   overflow: hidden;
-  border-radius: var(--ui-popup-radius, 10px);
+  border-radius: var(--ui-popup-radius, var(--ds-radius-popup));
   background: color-mix(in srgb, var(--agent-text) 5%, var(--surface-popup, var(--cmux-surface-solid, #1e1e1e)));
   box-shadow: var(--ui-popup-shadow);
 }
@@ -306,13 +308,14 @@
 .acpmux-cols-switch::after {
   content: "";
   position: absolute;
-  top: 2px;
+  /* The knob sits 2 px inside the track's edge. */
+  top: 0;
   width: var(--ds-space-3);
   height: var(--ds-space-3);
   border-radius: 50%;
 }
-.acpmux-cols-switch::before { left: 2px; background: var(--agent-text); }
-.acpmux-cols-switch::after { right: 2px; background: var(--agent-accent-text, var(--agent-page-bg)); opacity: 0; }
+.acpmux-cols-switch::before { left: 0; translate: 2px 2px; background: var(--agent-text); }
+.acpmux-cols-switch::after { right: 0; translate: -2px 2px; background: var(--agent-accent-text, var(--agent-page-bg)); opacity: 0; }
 .acpmux-cols-switch[data-on] { background: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text))); }
 .acpmux-cols-switch[data-on]::before { opacity: 0; }
 .acpmux-cols-switch[data-on]::after { opacity: 1; }
