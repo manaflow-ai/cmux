@@ -738,25 +738,38 @@ impl Spawner {
         default: &str,
         peer: Option<&str>,
     ) -> Result<(SubagentSettings, String), String> {
-        let catalog = self.agents.harness_catalog_on(peer).ok();
+        // Old peers may not support scoped catalogs at all. An actual
+        // catalog, including an empty one, must pass admission before launch.
+        let catalog = self
+            .agents
+            .harness_catalog_on(peer)
+            .ok()
+            .filter(|answer| answer["harnesses"].is_object());
         let health = self.agents.harness_health_on(peer).unwrap_or_default();
+        let admit = |catalog: &Value, harness: &str| {
+            if peer.is_some() {
+                crate::harness_gate::admit_peer(catalog, harness)
+            } else {
+                crate::harness_gate::admit(catalog, harness)
+            }
+        };
         // Peer auth is cached and may be stale. It can suggest another harness,
         // but only session creation can establish a current login failure.
-        let unavailable = |harness: &str| {
-            let profile = catalog
-                .as_ref()
-                .and_then(|catalog| crate::harness_gate::admit(catalog, harness).ok())
-                .map_or_else(|| harness.to_owned(), |admitted| admitted.profile);
-            health["harnesses"]
+        let unavailable = |harness: &str| -> Result<Option<&str>, String> {
+            let profile = match catalog.as_ref() {
+                Some(catalog) => admit(catalog, harness)?.profile,
+                None => harness.to_owned(),
+            };
+            Ok(health["harnesses"]
                 .as_array()
                 .and_then(|rows| rows.iter().find(|row| row["id"] == profile))
                 .and_then(|row| row["auth"].as_str())
                 .filter(|auth| matches!(*auth, "signedOut" | "expired"))
-                .map(|_| "its login is unavailable on this machine")
+                .map(|_| "its login is unavailable on this machine"))
         };
         let mut note = String::new();
         if launch.harness != default
-            && let Some(why) = unavailable(&launch.harness)
+            && let Some(why) = unavailable(&launch.harness)?
         {
             note = format!(
                 " ({} unavailable: {why}; using default {default})",
@@ -797,11 +810,9 @@ impl Spawner {
         // Launch the exact remote profile whose login we checked. The grant
         // above covers the requested route; a missing catalog keeps it intact.
         if peer.is_some()
-            && let Some(admitted) = catalog
-                .as_ref()
-                .and_then(|c| crate::harness_gate::admit(c, &launch.harness).ok())
+            && let Some(catalog) = catalog.as_ref()
         {
-            launch.harness = admitted.profile;
+            launch.harness = admit(catalog, &launch.harness)?.profile;
         }
         Ok((launch, note))
     }
@@ -1914,7 +1925,14 @@ impl Orchestrator for Spawner {
                         .or_else(|| self.cloud.as_ref().map(|c| c.instructions.as_str()))
                         .or(self.settings.claude_md.as_deref())
                         .unwrap_or(crate::prompt::SUBAGENT);
-                    format!("{}\n\n{task}", instructions.trim_end())
+                    let repo = cloud_repo(cwd.as_deref());
+                    let folder = match (cwd.as_deref(), repo) {
+                        (Some(asked), Some(repo)) => format!(
+                            "\n\n# Where you run\n\nThe requested folder `{asked}` names repo `{repo}` on the Chief's machine. You start in this paired machine's scratch folder; locate its checkout of that repo before working."
+                        ),
+                        _ => String::new(),
+                    };
+                    format!("{}{folder}\n\n{task}", instructions.trim_end())
                 }
                 None => task.clone(),
             };

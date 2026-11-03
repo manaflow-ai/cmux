@@ -8,7 +8,7 @@ use serde_json::Value;
 pub fn unavailable(catalog: &Value, health: &Value, harness: &str) -> Option<String> {
     // Reserved Claude route names may resolve to a custom profile. Use the
     // same admission as session launch, then read that profile's auth row.
-    let admitted = match crate::harness_gate::admit(catalog, harness) {
+    let admitted = match crate::harness_gate::admit_peer(catalog, harness) {
         Ok(admitted) => admitted,
         Err(why) => return Some(why),
     };

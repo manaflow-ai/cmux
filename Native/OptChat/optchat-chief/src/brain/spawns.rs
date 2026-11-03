@@ -638,12 +638,14 @@ impl Brain {
             .live_cap()
             .map_or(usize::MAX, |n| n.saturating_sub(self.live_subs()));
         use crate::place_route::{Kind, Machine, Placement, Target};
-        // A saved peer explicitly reported disconnected cannot take work.
-        // The per-agent pool can provision its next VM regardless of the snapshot.
+        // Paused Cloud VMs are disconnected until the pool resumes them.
+        // Only discard a disconnected saved peer we have no way to resume.
         let peers: Vec<String> = peers
             .iter()
             .filter(|peer| {
                 per_agent
+                    || self.cloud_paused.contains(*peer)
+                    || self.cloud_vms.as_ref().is_some_and(|vms| vms.available())
                     || machines
                         .iter()
                         .find(|m| m.kind == Kind::Paired && m.name == **peer)
