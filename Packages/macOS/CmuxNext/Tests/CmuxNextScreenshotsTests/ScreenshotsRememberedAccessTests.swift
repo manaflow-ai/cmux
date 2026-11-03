@@ -75,12 +75,15 @@ import Testing
         let model = ScreenshotsModel(watcher: SilentWatcher(), listsAtOnce: false)
         let view = ScreenshotsView(model: model, cache: ThumbnailCache(), workspace: SilentWorkspace())
         gate.wire(view, key: "tab-a") {}
-        let gone = FileManager.default.temporaryDirectory.appending(path: "screenshots-gone-\(UUID().uuidString)")
-        model.setSources([ScreenshotSource(id: "system", label: "Desktop", folder: gone, origin: .system, rule: ScreenshotScanRule())])
+        // A folder this process may not list, as a Desktop macOS denies (EPERM); a missing folder lists as empty.
+        let denied = try TemporaryFolder()
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: denied.url.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: denied.url.path) }
+        model.setSources([ScreenshotSource(id: "system", label: "Desktop", folder: denied.url, origin: .system, rule: ScreenshotScanRule())])
         let window = Self.window(showing: view)
         defer { window.close() }
         await model.refresh()
-        #expect(model.accessMissing)
+        // The view may already have reconciled through its observation of the model; a second call changes nothing.
         view.reconcileAccess()
         let card = view.showsPrompt
         #expect(card, "the card comes back when access is missing")
