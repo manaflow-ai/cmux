@@ -2268,6 +2268,7 @@ impl Hub {
                     host_seq: None,
                 }),
                 remote: None,
+                update_line: Default::default(),
             });
             drop(sessions);
         }

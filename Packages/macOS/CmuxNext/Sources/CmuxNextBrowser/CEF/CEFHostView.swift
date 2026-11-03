@@ -371,8 +371,11 @@ final class CEFHostView: NSView {
 final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFollowing {
     weak var tab: CEFTab?
     private let snapshotView = NSImageView()
-    /// The page's size through a person's resize drag (`paneResizeGestureDidChange`); nil otherwise.
+    /// The page's size through a person's resize drag (`paneResizeGestureDidChange`) or a key resize's hold
+    /// (``holdPage(for:)``); nil otherwise.
     private(set) var heldPageSize: CGSize?
+    /// The edges a key resize's hold keeps the page on (FRAME OWNER S3); nil: a drag's top-leading corner.
+    var pageMotionHold: PaneMotionHold?
     /// The page windows told of a resize-sync drag (`BrowserDragResize.resizeSync`), to tell its end wherever the
     /// page is by then; empty otherwise.
     private(set) var syncedDragHostings: [CEFLayerHosting] = []
@@ -423,7 +426,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     /// shared host view go, as when it leaves the window, at no window move.
     override func viewDidHide() {
         super.viewDidHide()
-        dropHold()
+        dropHold(keepingKeyHold: true)
         refreshSyncedDrag()
         tab?.contentDidDisappear()
     }
@@ -435,6 +438,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
         refreshSyncedDrag()
         tab.pageThemeDidChange()
         tab.contentDidAppear(in: self)
+        resumePageHold()
     }
 
     override func layout() {
@@ -483,9 +487,9 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
             } else if subview is CEFDevToolsDivider {
                 frame = frames.grab
             } else if fitPage == nil, let held = heldPageSize, subview === tab?.host.hostView {
-                // A resize drag: the page keeps its size at the page frame's top-left corner, and the
-                // pane clips it (`CEFClipShape` and the fork's visible rect read the held host).
-                frame = CGRect(x: frames.page.minX, y: frames.page.maxY - held.height, width: held.width, height: held.height)
+                // A resize drag: the page keeps its size at the page frame's top-left corner (a key hold: on its
+                // edges), and the pane clips it (`CEFClipShape` and the fork's visible rect read the held host).
+                frame = (pageMotionHold ?? PaneMotionHold(trailing: false, bottom: false)).producerFrame(held, in: frames.page)
             } else {
                 frame = fitPage ?? frames.page
             }
@@ -519,7 +523,8 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     func paneResizeGestureDidChange(active: Bool) {
         guard active else {
             endSyncedDrag()
-            guard heldPageSize != nil else { return }
+            // A key resize's page hold (FRAME OWNER S3) is its pane's to end, not the drag's.
+            guard heldPageSize != nil, pageMotionHold == nil else { return }
             dropHold()
             layoutContent()
             return
@@ -528,16 +533,21 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
             startSyncedDrag()
             return
         }
-        guard BrowserResizeTunables.dragResize.value == .hold, heldPageSize == nil, window != nil, pageCanHold,
-              let tab else { return }
-        let size = tab.host.hostView.frame.size
-        guard size.width > 0, size.height > 0 else { return }
-        heldPageSize = size
+        guard BrowserResizeTunables.dragResize.value == .hold else { return }
+        startPageHold()
+    }
+
+    /// The page keeps the size it has now; false when it cannot (not a plain page here, no size, out of a window).
+    @discardableResult
+    func startPageHold() -> Bool {
+        guard canStartPageHold, let tab else { return false }
+        heldPageSize = tab.host.hostView.frame.size
         // The held page is cut at this view's edges: its layer here, and the page window by the
         // fork's visible rect, which follows every ancestor whose layer masks to its bounds.
         layer?.masksToBounds = true
         // A see-through page (a cmux page) shows the pane under it, so its gap does too.
         layer?.backgroundColor = tab.host.hostView.pageSeeThrough ? nil : tab.pageBackdropColor
+        return true
     }
 
     /// Every page window over this pane waits for its frame at each size of the drag: the pane's shared one from
@@ -574,17 +584,25 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
         for hosting in hostings { hosting.paneResizeDrag(active: false) }
     }
 
+    /// A page hold can begin now: none yet, in a window, a plain page with a size.
+    var canStartPageHold: Bool {
+        guard heldPageSize == nil, window != nil, pageCanHold, let size = tab?.host.hostView.frame.size else { return false }
+        return size.width > 0 && size.height > 0
+    }
+
     /// A plain page shown here: no docked DevTools taking room, side panel or device fit, which place the page
     /// themselves. Views kept hidden after an unreported DevTools open take no room (#32253): the page still holds.
-    private var pageCanHold: Bool {
+    var pageCanHold: Bool {
         guard let tab else { return false }
         return tab.host.hostView.superview === self && !tab.devToolsController.reservesRoom
             && !(tab.devToolsController.deviceModeOn && tab.devToolsController.views != nil)
             && tab.sidePanel.state == nil && tab.deviceEmulation == nil
     }
 
-    /// Lets go of a held page size; the next layout gives the page its frame.
-    private func dropHold() {
+    /// Lets go of a held page size; the next layout gives the page its frame. `keepingKeyHold`: a key resize's hold stays
+    /// asked for, and the page holds again when it shows (`resumePageHold`).
+    func dropHold(keepingKeyHold: Bool = false) {
+        if !keepingKeyHold { pageMotionHold = nil }
         guard heldPageSize != nil else { return }
         heldPageSize = nil
         layer?.masksToBounds = false

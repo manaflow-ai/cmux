@@ -364,6 +364,27 @@ class NightlyOnlyBuilderRoute(unittest.TestCase):
                 self.assertEqual(picker.nightly_only_builder_route(label, plain, runners)[0], plain)
 
 
+    def test_the_idle_xl_builder_comes_first_and_never_waits(self) -> None:
+        builder, plain, xl = (picker.NIGHTLY_ONLY_BUILDER_LABEL, picker.NIGHTLY_ONLY_LABEL,
+                              picker.NIGHTLY_ONLY_XL_BUILDER_LABEL)
+
+        def runner(label: str, status: str = "online", busy: bool = False) -> dict:
+            return {"status": status, "busy": busy, "labels": [{"name": label}]}
+        self.assertEqual(picker.nightly_only_builder_route(builder, plain, [runner(builder), runner(xl)])[0], xl)
+        self.assertEqual(picker.nightly_only_builder_route(builder, plain, [runner(xl, busy=True), runner(xl)])[0], xl)
+        # Busy or offline xl builders fall to the M4 Pro builders, then the plain label, with no wait.
+        for xl_runner in (runner(xl, busy=True), runner(xl, "offline")):
+            with self.subTest(xl=xl_runner):
+                self.assertEqual(picker.nightly_only_builder_route(builder, plain, [xl_runner, runner(builder)])[0],
+                                 builder)
+                self.assertEqual(picker.nightly_only_builder_route(
+                    builder, plain, [xl_runner, runner(builder, busy=True)])[0], plain)
+        # The xl builder is offered only while the M4 Pro builder variable is the enrolled label (the switch).
+        for label in ("", "glaeda-unregistered"):
+            self.assertEqual(picker.nightly_only_builder_route(label, plain, [runner(xl)])[0], plain)
+        self.assertEqual(picker.nightly_only_builder_route(builder, plain, None)[0], plain)
+
+
 class BlacksmithRoute(unittest.TestCase):
     def test_the_moving_label_is_picked(self) -> None:
         self.assertEqual(picker.blacksmith_route(LARGE, snapshot({LARGE: 90}), NOW)[0], SMALL)

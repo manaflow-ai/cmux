@@ -504,11 +504,10 @@ public final class TabStripView: NSView {
         let viewport = max(0, bounds.width - 2 * padding - windowControlsInset - (model.showsNewTabButton ? newTabControlsWidth : 0))
         tabsClip.frame = CGRect(x: padding + windowControlsInset, y: 0, width: viewport, height: bounds.height)
         if viewport != lastViewportWidth {
-            // Tabs resize with the window instantly; a close in flight keeps its spring (cx-y2uf5); a narrower strip (a split) keeps the selected tab in view.
-            // FRAME OWNER S1: the width is the pane's of this frame tick, so the tabs take it at once, with no move of their own; a close keeps its own.
-            let followsPane = DesignTunables.frameOwnerTabStrip.value
-            relayout(animated: !followsPane && !dying.isEmpty && !Motion.isLiveResizing(window) && !reduceMotion, keepsSelectedInView: viewport < lastViewportWidth,
-                     keepsClosing: followsPane)
+            // FRAME OWNER S1: the width is the pane's of this frame tick (a window resize, a split, a pane spring), so the tabs
+            // take it at once, with no move of their own; a close in flight keeps its own move and its closing tab (cx-y2uf5).
+            // A narrower strip (a split) keeps the selected tab in view.
+            relayout(animated: false, keepsSelectedInView: viewport < lastViewportWidth, keepsClosing: true)
             lastViewportWidth = viewport
         } else {
             applyFrames()

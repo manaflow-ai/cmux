@@ -211,8 +211,16 @@ pub(super) async fn handle(
                 "needsCode": s.needs_code,
                 "expiresAtMs": s.expires_at_ms,
             });
-            if let (Some(code), Some(obj)) = (s.user_code, reply.as_object_mut()) {
-                obj.insert("userCode".into(), json!(code));
+            if let Some(obj) = reply.as_object_mut() {
+                if let Some(code) = s.user_code {
+                    obj.insert("userCode".into(), json!(code));
+                }
+                // Claude's automatic link: its approve reaches Claude's own
+                // listener on this machine, with no code to paste.
+                if let (Some(url), Some(port)) = (s.auto_url, s.callback_port) {
+                    obj.insert("autoUrl".into(), json!(url));
+                    obj.insert("callbackPort".into(), json!(port));
+                }
             }
             Ok(reply)
         }
@@ -220,10 +228,14 @@ pub(super) async fn handle(
             let id = text(params, "loginId").ok_or_else(|| {
                 error(LoginError::new(reason::UNKNOWN_LOGIN, "loginId is required"))
             })?;
+            // No code: Codex's device flow, or Claude after an automatic link.
             let code = params.get("code").and_then(Value::as_str);
             let done = login::finish(id, code).await.map_err(error)?;
-            let restarted =
-                done.signed_in && signed_in(hub, done.agent, params, &done.store).await?;
+            // A paste that raced the wait for the approve reads the same end;
+            // only the first finish takes the after-sign-in steps.
+            let restarted = done.signed_in
+                && done.fresh
+                && signed_in(hub, done.agent, params, &done.store).await?;
             Ok(json!({"signedIn": done.signed_in, "restarted": restarted}))
         }
         method::MUX_AGENT_LOGIN_CANCEL => {

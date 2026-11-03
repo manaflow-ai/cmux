@@ -24,16 +24,24 @@ public struct FeedNeedsYouPin {
     public var reveal: (FeedContext) -> Bool
     /// The Feed's own page.
     public var showFeed: () -> Void
+    /// Whether the person turned the pinned section on (Settings > Notifications > Feed > Pin Needs You
+    /// in Chief, `feed.needsYouInChief`, off by default), read inside the observation so it switches live.
+    /// Leo 2026-11-03: "I just wanted to see permission things, period, not a pinned thing by default.
+    /// Toggle-on, yes, but I haven't verified the looks of that yet".
+    public var isEnabled: () -> Bool
 
-    public init(model: FeedModel, prepare: @escaping () -> Void, reveal: @escaping (FeedContext) -> Bool, showFeed: @escaping () -> Void) {
+    public init(model: FeedModel, isEnabled: @escaping () -> Bool, prepare: @escaping () -> Void,
+                reveal: @escaping (FeedContext) -> Bool, showFeed: @escaping () -> Void) {
         self.model = model
+        self.isEnabled = isEnabled
         self.prepare = prepare
         self.reveal = reveal
         self.showFeed = showFeed
     }
 
-    /// A Chief's conversation shows the section while anything waits; any other conversation never.
-    public static func shows(isChief: Bool, waiting: Int) -> Bool { isChief && waiting > 0 }
+    /// A Chief's conversation shows the section while it is turned on and anything waits; any other
+    /// conversation never, and nothing shows while it is off (the default).
+    public static func shows(isChief: Bool, enabled: Bool, waiting: Int) -> Bool { isChief && enabled && waiting > 0 }
 
     /// The section, wired to open what a click names.
     public func makeSection() -> FeedNeedsYouView {
@@ -52,14 +60,17 @@ public struct FeedNeedsYouPin {
         if !reveal(item.context) { showFeed() }
     }
 
-    /// While a Chief's conversation shows, one observation of whether the Feed has open requests puts the
+    /// While a Chief's conversation shows, one observation of whether the section is on and the Feed has open requests puts the
     /// section under `host`'s header or takes it away; the section observes its own rows. No polling, no
     /// timer: it wakes only on a Feed change. The caller cancels the task when the conversation changes.
     public func watch(host: FeedPinnedSectionHost) -> Task<Void, Never> {
-        let model = model, pin = self
+        let model = model, isEnabled = isEnabled, pin = self
         // task-owner: the caller's (HomeHostView.needsYouWatch), cancelled on the next change and in its deinit; event-driven (Observation)
         return Task { [weak host] in
-            for await shows in ObservationStream({ FeedNeedsYouPin.shows(isChief: true, waiting: model.needsYou.count) }) {
+            for await shows in ObservationStream({
+                // Off reads no Feed state, so the Feed's changes never wake it.
+                isEnabled() && FeedNeedsYouPin.shows(isChief: true, enabled: true, waiting: model.needsYou.count)
+            }) {
                 guard let host else { return }
                 if !shows {
                     host.setPinnedSection(nil)
