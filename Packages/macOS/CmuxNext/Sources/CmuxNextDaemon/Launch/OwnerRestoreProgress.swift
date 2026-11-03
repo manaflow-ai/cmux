@@ -28,13 +28,13 @@ public final class OwnerRestoreProgress: Sendable {
         public var lastJobUpdateMs: Int64? { jobs.map(\.updatedMs).max() }
     }
 
-    private struct State {
+    private struct Reports {
         var current: Report?
         var sequence: UInt64 = 0
         var observers: [@Sendable (Report) -> Void] = []
     }
 
-    private let state = Mutex(State())
+    private let state = Mutex(Reports())
 
     public init() {}
 
@@ -119,7 +119,7 @@ struct OwnerJobsFile {
         guard let data = try? Data(blockingContentsOf: url), let list = try? JSONDecoder().decode(LongJobList.self, from: data),
               let pid = list.pid, pid > 0, isAlive(pid) else { return nil }
         let report = OwnerRestoreProgress.Report(pid: pid, jobs: list.jobs)
-        guard let latest = [list.updatedMs, report.lastJobUpdateMs].compactMap(\.self).max(), nowMs - latest <= stall else {
+        guard let newest = [list.updatedMs, report.lastJobUpdateMs].compactMap(\.self).max(), nowMs - newest <= stall else {
             return nil
         }
         return report

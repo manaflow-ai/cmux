@@ -444,7 +444,10 @@ public final class DaemonService {
     /// window offers Retry Now and Restart cmux-tui with "still restoring" (the next progress line restores `.restoring`).
     func noteStartupFailure(_ error: DaemonError, retries: Bool = true) {
         let permanent = DaemonStartup.shared.isPermanent(error)
-        if retries, !permanent, case .ownerRestoring = error, startup != .connected {
+        // After a stall (`server.restore_timeout`), a parked identify counts only once a job moved past it.
+        let movedPastStall = restoreStallMark.map { mark in (restoreProgress?.current?.lastJobUpdateMs ?? .min) > mark } ?? true
+        if retries, !permanent, case .ownerRestoring = error, startup != .connected, movedPastStall {
+            restoreStallMark = nil
             logger.info("cmux-tui owner is restoring: \(error.description, privacy: .public)")
             lastStartupError = error
             startup = .restoring(restoreProgress?.current?.jobs ?? startup.restoringJobs)
@@ -655,6 +658,8 @@ public final class DaemonService {
         runTask = nil
         keptLayoutRelaunch?.cancel()
         keptLayoutRelaunch = nil
+        longJobsConnection?.cancel()
+        longJobsConnection = nil
         let connected = connection
         connection = nil
         return connected

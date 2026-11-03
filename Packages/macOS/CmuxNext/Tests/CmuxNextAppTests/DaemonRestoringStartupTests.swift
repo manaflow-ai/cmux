@@ -102,11 +102,12 @@ struct DaemonRestoringStartupTests {
             await Task.yield()
         }
         for await passed in ObservationStream({ daemon.startupDeadlinePassed }) where passed { break }
-        // Then the retry's `server ensure` reports the job at 60%.
-        for await startup in ObservationStream({ daemon.startup }) {
-            #expect(!startup.isUnavailable, "past the deadline the restoring owner read as unavailable: \(startup)")
-            if startup.restoringJobs.first?.percent == 60 { break }
+        // Then the retry's `server ensure` reports the job at 60%: time moves only while the retry waits.
+        while daemon.startup.restoringJobs.first?.percent != 60 {
+            #expect(!daemon.startup.isUnavailable, "past the deadline the restoring owner read as unavailable: \(daemon.startup)")
             if clock.sleeperCount > 0 { clock.advance(by: .seconds(1)) }
+            // The next step is a sleeper, a progress line or a state change; each comes from another task.
+            try await Task.sleep(for: .milliseconds(20))
         }
         #expect(daemon.startup.isRestoring)
         #expect(daemon.startup.restoringJobs.map(\.kind) == [LongJob.outputCleanupKind])
