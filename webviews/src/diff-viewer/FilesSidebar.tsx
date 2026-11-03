@@ -2,13 +2,14 @@
 // its selection and filter focus, and the tree row decorations.
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { preparePresortedFileTreeInput } from "@pierre/trees";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type SidebarCommentEntry } from "../comments/annotations";
 import { CommentsSidebarSection } from "../comments/CommentsSection";
 import { type DiffCommentLabels } from "../comments/labels";
 import { type DiffItem, type FileTreeSource } from "../diff-stream";
 import { treeFileRowPath } from "../file-activation";
-import { nativeMenu, pickedId } from "../ui/nativeMenu";
+import { Menu, MenuButton, MenuItem, MenuPopup } from "../ui/Menu";
+import type { NativePopupDescription, NativePopupEvent } from "../ui/nativePopup";
 import { defaultDiffFileFilter, isDiffFileFilterActive, type DiffFileFilter } from "../file-filter";
 import { planPierreFileTreeRefresh, selectPierreFileTreePath } from "../file-tree-refresh";
 import {
@@ -134,7 +135,10 @@ export function FilesSidebar({
     }
     const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
     const maximumWidth = Math.max(220, Math.min(520, Math.floor(viewportWidth * 0.55)));
-    const nextWidth = Math.max(180, Math.min(maximumWidth, Math.round(start.startWidth - (clientX - start.startX))));
+    const nextWidth = Math.max(
+      180,
+      Math.min(maximumWidth, Math.round(start.startWidth - (clientX - start.startX))),
+    );
     dispatch({ type: "set-files-width", width: nextWidth });
   };
   return (
@@ -170,7 +174,10 @@ export function FilesSidebar({
           }
           event.preventDefault();
           const delta = event.key === "ArrowLeft" ? 20 : -20;
-          dispatch({ type: "set-files-width", width: Math.max(180, Math.min(520, state.filesWidth + delta)) });
+          dispatch({
+            type: "set-files-width",
+            width: Math.max(180, Math.min(520, state.filesWidth + delta)),
+          });
         }}
       />
       {/* The sidebar is the filter field and the tree, nothing else (Lawrence,
@@ -185,7 +192,9 @@ export function FilesSidebar({
           aria-label={label("filterFiles")}
           autoComplete="off"
           spellCheck={false}
-          onChange={(event) => dispatch({ type: "set-file-filter", filter: { query: event.currentTarget.value } })}
+          onChange={(event) =>
+            dispatch({ type: "set-file-filter", filter: { query: event.currentTarget.value } })
+          }
         />
         {filterActive ? (
           <button
@@ -341,6 +350,39 @@ function PierreFileTree({
   usePierreFileTreeSource(model, source, measureStats);
   usePierreFileTreeSelection(model, selectedPath, syncingSelection);
 
+  const [contextMenu, setContextMenu] = useState<{ path: string; x: number; y: number } | null>(
+    null,
+  );
+  const contextModel = useMemo<NativePopupDescription>(() => {
+    const path = contextMenu?.path;
+    const viewed = path ? viewedStateByPath.get(path) === "viewed" : false;
+    return {
+      side: "bottom",
+      align: "start",
+      width: 220,
+      rows: [
+        {
+          id: "toggleViewed",
+          kind: "action",
+          label: viewed ? label("markNotViewed") : label("markViewed"),
+          icon: viewed ? "eye" : "checkmark",
+        },
+      ],
+    };
+  }, [contextMenu?.path, label, viewedStateByPath]);
+  const contextNative = useMemo(
+    () => ({
+      model: contextModel,
+      onEvent: (event: NativePopupEvent) => {
+        if (event.type !== "pick" || event.id !== "toggleViewed" || !contextMenu) return;
+        onToggleViewedPath(contextMenu.path);
+        setContextMenu(null);
+      },
+      onDismiss: () => setContextMenu(null),
+    }),
+    [contextMenu, contextModel, onToggleViewedPath],
+  );
+
   return (
     // A file row click acts on the file like its header bar (file-activation.ts).
     // The capture phase sees the row before the tree's own click handler
@@ -348,54 +390,51 @@ function PierreFileTree({
     <div
       className="file-tree-activation"
       ref={treeActivationRef}
-      // In the app a file row's right-click opens the app's standard macOS menu (ui/nativeMenu.ts)
-      // before the tree draws its own.
       onContextMenuCapture={(event) => {
-        const native = nativeMenu();
-        const path = native && treeFileRowPath({ composedPath: () => event.nativeEvent.composedPath() });
-        if (!native || !path) return;
+        const path = treeFileRowPath({ composedPath: () => event.nativeEvent.composedPath() });
+        if (!path || !source.pathToItemId.has(path)) return;
         event.preventDefault();
         event.stopPropagation();
-        const viewed = viewedStateByPath.get(path) === "viewed";
-        const row = {
-          id: "toggleViewed",
-          label: viewed ? label("markNotViewed") : label("markViewed"),
-          symbol: viewed ? "eye" : "checkmark",
-        };
-        native({ items: [row], point: { x: event.clientX, y: event.clientY } }).then(
-          (reply) => {
-            if (pickedId(reply) === row.id) onToggleViewedPath(path);
-          },
-          () => undefined,
-        );
+        setContextMenu({ path, x: event.clientX, y: event.clientY });
       }}
     >
-      <FileTree
-        model={model}
-        style={{ height: "100%" }}
-        renderContextMenu={(item, context) => {
-          if (item.kind !== "file") {
-            return null;
-          }
-          const viewed = viewedStateByPath.get(item.path) === "viewed";
-          return (
-            <div className="file-tree-context-menu" role="menu">
-              <button
-                type="button"
-                role="menuitem"
-                className="menu-item"
-                onClick={() => {
-                  onToggleViewedPath(item.path);
-                  context.close();
-                }}
-              >
-                <Icon name={viewed ? "eye" : "check"} />
-                <span className="menu-label">{viewed ? label("markNotViewed") : label("markViewed")}</span>
-              </button>
-            </div>
-          );
+      <Menu
+        open={contextMenu !== null}
+        native={contextNative}
+        onOpenChange={(open) => {
+          if (!open) setContextMenu(null);
         }}
-      />
+      >
+        {contextMenu ? (
+          <span
+            className="file-tree-context-anchor"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+            aria-hidden="true"
+          >
+            <MenuButton label="" />
+          </span>
+        ) : null}
+        <FileTree model={model} style={{ height: "100%" }} renderContextMenu={() => null} />
+        <MenuPopup className="file-tree-context-menu" label={label("markViewed")}>
+          <MenuItem
+            onSelect={() => {
+              if (contextMenu) onToggleViewedPath(contextMenu.path);
+              setContextMenu(null);
+            }}
+          >
+            <Icon
+              name={
+                contextMenu && viewedStateByPath.get(contextMenu.path) === "viewed"
+                  ? "eye"
+                  : "check"
+              }
+            />
+            {contextMenu && viewedStateByPath.get(contextMenu.path) === "viewed"
+              ? label("markNotViewed")
+              : label("markViewed")}
+          </MenuItem>
+        </MenuPopup>
+      </Menu>
     </div>
   );
 }
@@ -429,7 +468,12 @@ function usePierreFileTreeSource(
     }
     // Setting the icons re-renders the rows, so new counts show, and adds the
     // count symbols of new files (file-tree-stats.ts).
-    if (useFullGitStatus || plan.kind !== "append" || plan.addedPaths.length > 0 || source.statsChanged === true) {
+    if (
+      useFullGitStatus ||
+      plan.kind !== "append" ||
+      plan.addedPaths.length > 0 ||
+      source.statsChanged === true
+    ) {
       model.setGitStatus(nameColoredGitStatus(source.gitStatus, source.paths));
       model.setIcons(fileTreeIcons(source, measureStats));
     }
@@ -496,7 +540,11 @@ export function fileTreeRowDecoration(
   return fileTreeChangeDecoration(
     change,
     stats,
-    { additions: label("additions"), deletions: label("deletions"), change: label(CHANGE_TITLE_KEYS[change]) },
+    {
+      additions: label("additions"),
+      deletions: label("deletions"),
+      change: label(CHANGE_TITLE_KEYS[change]),
+    },
     measure,
   );
 }
@@ -527,7 +575,14 @@ function fileTreeIcons(source: FileTreeSource, measure: MeasureText) {
   }));
   return {
     set: "complete" as const,
-    remap: { "file-tree-icon-chevron": { name: FILE_TREE_CARET_SYMBOL, width: 16, height: 16, viewBox: "0 0 16 16" } },
+    remap: {
+      "file-tree-icon-chevron": {
+        name: FILE_TREE_CARET_SYMBOL,
+        width: 16,
+        height: 16,
+        viewBox: "0 0 16 16",
+      },
+    },
     spriteSheet: diffChangeSpriteSheet(files, measure, FILE_TREE_CARET_SPRITE),
   };
 }

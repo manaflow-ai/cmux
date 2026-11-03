@@ -1521,11 +1521,14 @@ body[data-loading="true"] #status::before {
 }
 .file-tree-context-menu {
   min-width: 180px;
-  padding: 4px;
-  border: 1px solid var(--cmux-diff-border);
-  border-radius: 7px;
-  background: var(--cmux-diff-solid-bg);
-  box-shadow: var(--elevation-2);
+}
+.file-tree-context-anchor {
+  position: fixed;
+  z-index: -1;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+  opacity: 0;
 }
 .file-review-controls {
   display: inline-flex;
