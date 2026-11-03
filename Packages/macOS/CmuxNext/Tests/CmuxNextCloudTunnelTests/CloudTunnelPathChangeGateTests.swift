@@ -5,14 +5,14 @@ import Testing
 @Suite struct CloudTunnelPathChangeGateTests {
     @Test func theFirstPathIsNotAChange() {
         var gate = CloudTunnelPathChangeGate<String>()
-        #expect(!gate.admit("wifi"))
+        let first = gate.admit("wifi")
+        #expect(!first)
     }
 
     @Test func aRepeatedPathIsNotAChange() {
         var gate = CloudTunnelPathChangeGate<String>()
-        _ = gate.admit("wifi")
-        #expect(!gate.admit("wifi"))
-        #expect(!gate.admit("wifi"))
+        let changes = ["wifi", "wifi", "wifi"].map { gate.admit($0) }
+        #expect(changes == [false, false, false])
     }
 
     @Test func eachRealChangePassesOnce() {
