@@ -31,7 +31,8 @@ extension CloudService {
 extension CloudStartChat {
     /// The person's answer to the one-time consent in cmux.json; nil when never asked.
     @MainActor static func loginCopyConsent(_ services: AppServices) -> Bool? {
-        CloudLoginCopyConsentSetting().consent(in: services.settings?.snapshot.root ?? .object([:]))
+        guard let settings = services.settings else { return nil }
+        return CloudLoginCopyConsentSetting().consent(file: settings.fileRoot, effective: settings.snapshot.root)
     }
 
     /// Asks the one-time consent and keeps the answer as the person's (yes or no; no window shown
