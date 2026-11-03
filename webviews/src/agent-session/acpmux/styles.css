@@ -928,7 +928,7 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-mcp-card-arguments{display:block;max-height:8em;overflow:auto;white-space:pre-wrap}
 .acpmux-mcp-card-verified,.acpmux-mcp-card-status{font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-mcp-card-unverified{font-size:var(--text-detail);color:var(--agent-warning,#c93)}
-.acpmux-mcp-card-scope{flex:1;min-width:0;height:26px;border:0;border-radius:6px;background:var(--agent-page-bg,var(--acpmux-base));box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);color:var(--agent-text);font:inherit}
+.acpmux-mcp-card-scope{flex:1;min-width:0;height:var(--cmux-control-height,24px);border:0;border-radius:6px;background:var(--agent-page-bg,var(--acpmux-base));box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);color:var(--agent-text);font:inherit}
 .acpmux-mcp-card-status{flex:1}
 .acpmux-secret-card-action:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 
