@@ -32,8 +32,10 @@ extension TabStripView {
     /// outside a gesture); otherwise they are there at once at full width (nx-cmdt-fix). `token` is the
     /// tween the tabs move on (open when tabs grow in, else this, else `tabMove`): Chrome moves every
     /// tab from where it is to its slot on one 200 ms ease-out, restarted only by a new target.
-    /// `keepsSelectedInView`: the strip scrolls to the selected tab.
-    func relayout(animated: Bool, added: Set<TabID> = [], growsAdded: Bool = false, token: MotionTween? = nil, keepsSelectedInView: Bool = false) {
+    /// `keepsSelectedInView`: the strip scrolls to the selected tab. `keepsClosing`: with no move, a closing tab still
+    /// goes when its own move ends (its pane's width changed while it closed).
+    func relayout(animated: Bool, added: Set<TabID> = [], growsAdded: Bool = false, token: MotionTween? = nil, keepsSelectedInView: Bool = false,
+                  keepsClosing: Bool = false) {
         let grows = growsAdded
         result = TabLayoutEngine.layout(
             items: layoutItems(),
@@ -94,7 +96,7 @@ extension TabStripView {
         }
         // No motion (not animated, a tab there at once, a window with no screen): a closing tab's room is
         // already given away, so it goes now too, one consistent frame.
-        if move == nil { for id in dying { removeTab(id) } }
+        if move == nil, !keepsClosing { for id in dying { removeTab(id) } }
         TabSeparatorVisibility.apply(to: self)
         // An opening tab first shows where it opens from; the move takes it to its slot.
         if !starts.isEmpty { place(starts, mapping: mappingBefore) }
@@ -138,7 +140,8 @@ extension TabStripView {
     func stripMove(_ token: MotionTween) -> TabStripMove? {
         guard let motion = MotionMove.tween(token, in: Motion.tabs), Motion.canAnimate(in: self) else { return nil }
         moveGeneration += 1
-        return TabStripMove(generation: moveGeneration, motion: motion, closing: token == .tabClose ? nil : MotionMove.tween(.tabClose, in: Motion.tabs))
+        return TabStripMove(generation: moveGeneration, motion: motion, closing: token == .tabClose ? nil : MotionMove.tween(.tabClose, in: Motion.tabs),
+                            begin: TabStripMove.begin(in: self))
     }
 
     /// Every move of `generation` ended: a closing tab or chip it carried goes, and the masks and
@@ -187,7 +190,7 @@ extension TabStripView {
         var move: TabStripMove?
         if animated, !reduceMotion, Motion.canAnimate(in: self), let motion = MotionMove.spring(.scroll, in: Motion.tabs) {
             moveGeneration += 1
-            move = TabStripMove(generation: moveGeneration, motion: motion, closing: nil, isScroll: true)
+            move = TabStripMove(generation: moveGeneration, motion: motion, closing: nil, isScroll: true, begin: TabStripMove.begin(in: self))
         }
         applyFrames(move: move, scrollFrom: from)
     }
