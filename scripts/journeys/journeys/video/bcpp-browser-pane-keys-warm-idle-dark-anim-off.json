@@ -60,6 +60,11 @@
    "name": "p0"
   },
   {
+   "do": "name_pane",
+   "as": "main",
+   "title": "the pane the browser tabs open in"
+  },
+  {
    "do": "neutral_prompt"
   },
   {
@@ -426,6 +431,12 @@
    "title": "set-up or undo by the socket: closePane"
   },
   {
+   "do": "use_pane",
+   "pane": "main",
+   "click": true,
+   "title": "focus back on the browser pane (closePane leaves focus on a neighbor, a pinned dock refuses the next close)"
+  },
+  {
    "do": "wait",
    "seconds": 0.8,
    "title": "the undo settles"
@@ -460,6 +471,12 @@
     "action": "closePane"
    },
    "title": "set-up or undo by the socket: closePane"
+  },
+  {
+   "do": "use_pane",
+   "pane": "main",
+   "click": true,
+   "title": "focus back on the browser pane (closePane leaves focus on a neighbor, a pinned dock refuses the next close)"
   },
   {
    "do": "wait",
@@ -498,6 +515,12 @@
    "title": "set-up or undo by the socket: closePane"
   },
   {
+   "do": "use_pane",
+   "pane": "main",
+   "click": true,
+   "title": "focus back on the browser pane (closePane leaves focus on a neighbor, a pinned dock refuses the next close)"
+  },
+  {
    "do": "wait",
    "seconds": 0.8,
    "title": "the undo settles"
@@ -532,6 +555,12 @@
     "action": "closePane"
    },
    "title": "set-up or undo by the socket: closePane"
+  },
+  {
+   "do": "use_pane",
+   "pane": "main",
+   "click": true,
+   "title": "focus back on the browser pane (closePane leaves focus on a neighbor, a pinned dock refuses the next close)"
   },
   {
    "do": "wait",
