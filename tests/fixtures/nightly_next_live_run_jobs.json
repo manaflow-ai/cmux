@@ -1,0 +1,80 @@
+{
+ "source": "Recorded from GET /repos/manaflow-ai/cmux/actions/runs/40802211271 and its /jobs at 2026-10-29T02:16Z (build-nightly-app from run 40778774768), trimmed to the fields the watch reads; runner names generalized.",
+ "run": {
+  "id": 40802211271,
+  "name": "Nightly macOS build",
+  "head_branch": "nightly-next",
+  "head_sha": "a63986a44b0d90f12831d94adcaeeff502f29424",
+  "event": "push",
+  "status": "queued",
+  "conclusion": null,
+  "workflow_id": 234270400,
+  "run_attempt": 1,
+  "created_at": "2026-10-29T01:44:20Z",
+  "updated_at": "2026-10-29T02:13:52Z",
+  "run_started_at": "2026-10-29T01:44:20Z",
+  "display_title": "test(home): an unanswered group start says the cloud did not answer, \u2026"
+ },
+ "jobs": {
+  "queued_deltas": {
+   "id": 123221771881,
+   "run_id": 40802211271,
+   "workflow_name": "Nightly macOS build",
+   "head_branch": "nightly-next",
+   "run_attempt": 1,
+   "status": "queued",
+   "conclusion": null,
+   "created_at": "2026-10-29T02:12:54Z",
+   "started_at": "2026-10-29T02:12:54Z",
+   "completed_at": null,
+   "name": "generate-nightly-deltas (arm64)",
+   "labels": [
+    "blacksmith-6vcpu-macos-26"
+   ],
+   "runner_id": 0,
+   "runner_name": "",
+   "runner_group_id": 0,
+   "runner_group_name": ""
+  },
+  "publish_done": {
+   "id": 123221445712,
+   "run_id": 40802211271,
+   "workflow_name": "Nightly macOS build",
+   "head_branch": "nightly-next",
+   "run_attempt": 1,
+   "status": "completed",
+   "conclusion": "success",
+   "created_at": "2026-10-29T02:11:54Z",
+   "started_at": "2026-10-29T02:11:57Z",
+   "completed_at": "2026-10-29T02:12:54Z",
+   "name": "publish-nightly",
+   "labels": [
+    "blacksmith-4vcpu-ubuntu-2404"
+   ],
+   "runner_id": 4633034,
+   "runner_name": "owned-or-blacksmith-runner",
+   "runner_group_id": 7,
+   "runner_group_name": "blacksmith scale sets - blacksmith-4vcpu-ubuntu-2404"
+  },
+  "mac_build_done": {
+   "id": 123140260085,
+   "run_id": 40778774768,
+   "workflow_name": "Nightly macOS build",
+   "head_branch": "nightly-next",
+   "run_attempt": 1,
+   "status": "completed",
+   "conclusion": "success",
+   "created_at": "2026-10-28T22:29:38Z",
+   "started_at": "2026-10-28T22:29:41Z",
+   "completed_at": "2026-10-28T22:53:38Z",
+   "name": "build-nightly-app",
+   "labels": [
+    "glaeda-nightly-std-xcode-26.6"
+   ],
+   "runner_id": 4052827,
+   "runner_name": "owned-or-blacksmith-runner",
+   "runner_group_id": 23,
+   "runner_group_name": "glaeda-minis"
+  }
+ }
+}

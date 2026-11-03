@@ -598,7 +598,7 @@ graphql_workflow_response() {
   if [ -z "$text" ]; then
     return 1
   fi
-  workflow_response=$(jq -n --arg text "$text" '{content:($text|@base64),encoding:"base64"}') || return 2
+  workflow_response=$(printf '%s' "$text" | jq -Rs '{content:(.|@base64),encoding:"base64"}') || return 2
   echo "note: used GraphQL fallback to inspect $base:.github/workflows/$file" >&2
   fallback_answered
   return 0

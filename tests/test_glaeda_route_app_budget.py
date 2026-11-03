@@ -9,10 +9,10 @@ Every mint of an installation token costs that budget a call even when nothing
 reads with it: actions/create-github-app-token's post step revokes the token with
 DELETE /installation/token, authenticated as the installation. So:
 
-- a glaeda-route token minted read-only on contents, pull requests or actions (data a
-  public repository shows anyway) is not revoked; it expires within the hour on an
-  ephemeral runner: skip-token-revoke: true. Any other scope (issues, administration,
-  the org's runners) or any write permission keeps the revoke;
+- a glaeda-route token minted read-only on contents, pull requests, actions or issues
+  (data a public repository shows anyway) is not revoked; it expires within the hour on
+  an ephemeral runner: skip-token-revoke: true. Any other scope (administration, the
+  org's runners) or any write permission keeps the revoke;
 - a job mints the token only when it will read with it: backend-migrations after
   git shows the migration tree changed, CI failure attribution only when the
   cmux-bot mint (its preferred read token) gave nothing;
@@ -63,7 +63,7 @@ def step(document: dict, job: str, step_id: str) -> tuple[int, dict]:
 
 
 # Scopes a leftover token may hold: data a public repository shows anyway.
-UNREVOKED_SCOPES = {"permission-contents", "permission-pull-requests", "permission-actions"}
+UNREVOKED_SCOPES = {"permission-contents", "permission-pull-requests", "permission-actions", "permission-issues"}
 
 
 def leftover_ok(mint: dict) -> bool:
@@ -80,8 +80,38 @@ class OnlyNarrowReadTokensAreLeftUnrevoked(unittest.TestCase):
             checked += 1
             with self.subTest(workflow=name, job=job, step=mint.get("id")):
                 self.assertIs(mint["with"].get("skip-token-revoke"), True)
-        # backend-migrations, pr-media (plan and tour), CI's admitted-build read, the rescues, UI tests.
-        self.assertGreaterEqual(checked, 7)
+        # backend-migrations, pr-media (plan and tour), CI's admitted-build read, the rescues, UI tests,
+        # risk tier, the freeze check, and the failure, compile and guard attribution readers.
+        self.assertGreaterEqual(checked, 13)
+        for name, job in (("risk-tier.yml", "evidence"), ("merge-freeze.yml", "check")):
+            with self.subTest(workflow=name, job=job):
+                _, mint = step(load(name), job, "glaeda-token")
+                self.assertEqual(mint["with"]["permission-issues"], "read")
+                self.assertIs(mint["with"]["skip-token-revoke"], True)
+
+    def test_the_bound_itself(self) -> None:
+        def mint(**permissions: str) -> dict:
+            return {"with": {f"permission-{k.replace('_', '-')}": v for k, v in permissions.items()}}
+        self.assertTrue(leftover_ok(mint(issues="read")))
+        self.assertTrue(leftover_ok(mint(issues="read", pull_requests="read", contents="read")))
+        # issues:read beside any write, or beside administration or the org's runners, keeps the revoke.
+        self.assertFalse(leftover_ok(mint(issues="read", pull_requests="write")))
+        self.assertFalse(leftover_ok(mint(issues="read", actions="write")))
+        self.assertFalse(leftover_ok(mint(issues="write")))
+        self.assertFalse(leftover_ok(mint(issues="read", administration="read")))
+        self.assertFalse(leftover_ok(mint(administration="read", organization_self_hosted_runners="read")))
+        self.assertFalse(leftover_ok(mint()))
+
+    def test_write_and_routing_tokens_keep_the_revoke(self) -> None:
+        # The freeze expire job writes issues; CI and ci-macos route with administration read.
+        _, expire = step(load("merge-freeze.yml"), "expire", "glaeda-token")
+        self.assertEqual(expire["with"]["permission-issues"], "write")
+        self.assertNotIn("skip-token-revoke", expire["with"])
+        for name, job in (("ci.yml", "changes"), ("ci-macos.yml", "admission-placement")):
+            for step_id in ("route-token", "route-token-repo"):
+                with self.subTest(workflow=name, step=step_id):
+                    _, routing = step(load(name), job, step_id)
+                    self.assertNotIn("skip-token-revoke", routing["with"])
 
     def test_every_other_mint_is_still_revoked(self) -> None:
         for name, job, mint in glaeda_mints():
@@ -171,6 +201,44 @@ class TheBudgetIsMeasured(unittest.TestCase):
         self.assertEqual(log["env"]["GH_TOKEN"], "${{ steps.glaeda-token.outputs.token }}")
         self.assertIs(log["continue-on-error"], True)
         self.assertIn("gh api rate_limit", log["run"])
+
+    # (workflow, job, probe label, first step bracketed, last step bracketed)
+    PROBED = [
+        ("pr-media.yml", "plan", "plan", "Pick the tours for the changed files", None),
+        ("pr-media.yml", "tour", "tour", "Run the tour on the pull request's build", None),
+        ("risk-tier.yml", "evidence", "evidence", "Grade the pull request", "Set the risk label"),
+        ("ci.yml", "changes", "changes-route", "Choose the pull request macOS pool", None),
+        ("ci.yml", "changes", "changes-admitted", "Look for an earlier run that compiled these inputs", None),
+        ("merge-freeze.yml", "check", "check", "Check the pull request against open freezes", None),
+        ("ci-hosted-queue-rescue.yml", "rescue", "rescue", "Rerun only a no-runner hosted queue timeout", None),
+        ("ci-failure-attribution.yml", "attribute", "attribute",
+         "Attribute failures and re-run machine failures", None),
+        ("ci-guard-attribution.yml", "analyze", "analyze", "Analyze", None),
+        ("ci-guard-attribution.yml", "report", "report",
+         "Comment, and open, update or close the tracking issue", None),
+        ("ci-compile-attribution.yml", "analyze", "analyze", "Analyze", None),
+    ]
+
+    def test_the_top_app_readers_log_the_budget_before_and_after(self) -> None:
+        # The probes read only the free rate_limit endpoint (it does not count against the
+        # budget), never fail their job, and never change a token or a permission.
+        for workflow, job, label, first, last in self.PROBED:
+            with self.subTest(workflow=workflow, probe=label):
+                steps = load(workflow)["jobs"][job]["steps"]
+                names = [s.get("name") for s in steps]
+                begin, end = names.index(first), names.index(last or first)
+                before, after = steps[begin - 1], steps[end + 1]
+                for probe, when in ((before, "before"), (after, "after")):
+                    self.assertEqual(probe["name"], f"Log the glaeda-route App budget {when}")
+                    self.assertEqual(probe["env"]["PROBE"], f"${{{{ github.workflow }}}}/{label}/{when}")
+                    self.assertIs(probe["continue-on-error"], True)
+                    self.assertEqual(probe["timeout-minutes"], 1)
+                    self.assertEqual(set(probe), {"name", "if", "continue-on-error", "timeout-minutes", "env", "run"})
+                    self.assertTrue(probe["run"].startswith("gh api rate_limit --jq "), probe["run"])
+                    self.assertNotIn("\n", probe["run"])
+                    token = probe["env"]["GH_TOKEN"].removeprefix("${{ ").removesuffix(" }}")
+                    self.assertIn(f"({token}) != ''", probe["if"])
+                self.assertIn("!cancelled()", after["if"])
 
 
 if __name__ == "__main__":

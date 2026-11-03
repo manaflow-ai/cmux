@@ -75,6 +75,63 @@ def code_lines(path: Path):
 
 
 class NightlyPooledRoutingTests(unittest.TestCase):
+    def test_decide_bootstrap_stays_on_owned_pool_even_without_routing_metadata(self) -> None:
+        # Evaluate the real selector, including missing/stale paid overrides.
+        from test_ci_fork_runner_routing import parse_expression, evaluate_runner_condition
+        text = (WORKFLOWS / "nightly.yml").read_text(encoding="utf-8")
+        body = text.split("\n  decide:\n", 1)[1].split("\n  promote-nightly-next:\n", 1)[0]
+        expression = re.search(r"^    runs-on: (.+)$", body, re.MULTILINE).group(1)
+        node = parse_expression(expression.removeprefix("${{").removesuffix("}}"))
+
+        def select(node, context):
+            if node[0] in ("and", "or"):
+                result = None
+                for child in node[1]:
+                    result = select(child, context)
+                    if bool(result) == (node[0] == "or"):
+                        return result
+                return result
+            return evaluate_runner_condition(node, context)
+
+        for attempt in ("1", "2"):
+            for configured in ("", "blacksmith-2vcpu-ubuntu-2404", "ubuntu-24.04",
+                               "glaeda-runner-one-mini", "glaeda-nightly-light-xcode-26.6"):
+                with self.subTest(attempt=attempt, configured=configured):
+                    label = select(node, {"github.repository_owner": "manaflow-ai",
+                                          "github.run_attempt": attempt,
+                                          "github.ref": "refs/heads/main",
+                                          "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": configured})
+                    self.assertTrue(label.startswith("glaeda-nightly-"), label)
+                    self.assertEqual(label, configured if configured.startswith("glaeda-nightly-")
+                                     else "glaeda-nightly-std-xcode-26.6")
+        # Main uses the shared nightly slot; its admission hook does not
+        # accept RC or branch dogfood refs. Preserve their existing route.
+        for ref in ("refs/heads/rc/1.0", "refs/heads/lane/dogfood"):
+            for event in ("push", "workflow_dispatch"):
+                with self.subTest(ref=ref, event=event):
+                    self.assertEqual(select(node, {"github.repository_owner": "manaflow-ai",
+                                                  "github.ref": ref, "github.event_name": event,
+                                                  "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": ""}),
+                                     "blacksmith-2vcpu-ubuntu-2404")
+        # NEXT's push bootstrap uses the owned nightly control runner only on
+        # its first attempt; retries keep the paid fallback route.
+        for attempt in ("1", "2"):
+            for configured in ("", "blacksmith-2vcpu-ubuntu-2404", "glaeda-nightly-light-xcode-26.6"):
+                with self.subTest(next_attempt=attempt, configured=configured):
+                    label = select(node, {"github.repository_owner": "manaflow-ai",
+                                          "github.run_attempt": attempt,
+                                          "github.ref": "refs/heads/nightly-next",
+                                          "github.event_name": "push",
+                                          "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": configured})
+                    if attempt == "1":
+                        self.assertTrue(label.startswith("glaeda-nightly-"), label)
+                        self.assertEqual(label, configured if configured.startswith("glaeda-nightly-")
+                                         else "glaeda-nightly-std-xcode-26.6")
+                    else:
+                        self.assertEqual(label, "blacksmith-2vcpu-ubuntu-2404")
+        self.assertNotIn("secrets.", body)
+        self.assertNotRegex(body, r"(?m)^    environment:")
+
     def test_nightly_workflows_are_discovered(self) -> None:
         names = {path.name for path in nightly_workflows()}
         for required in ("nightly.yml", "auto-resume-nightly-notarization.yml"):
@@ -150,25 +207,51 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                 self.assertNotRegex(runs_on, SHARED_RUNNER_VARIABLES)
 
     @unittest.skipUnless((WORKFLOWS / "cmux-next.yml").exists(), "no cmux-next on this branch")
-    def test_the_thirty_minute_tick_is_the_nightly_next_cadence(self) -> None:
-        """nightly-next is promoted on a 30-minute tick, not on every landing.
+    def test_the_tick_runs_at_landing_under_the_rolling_rule(self) -> None:
+        """nightly-next is asked for at landing, but promoted under the rolling rule.
 
-        Until 2026-10-28 the tick also ran whenever a cmux-next or cmux-tui
-        artifacts push run on feat-cmux-next completed (workflow_run), so each
-        landing promoted and started a full nightly build: six ran at once.
-        Leo: "every 30 mins or so you do it / within 30min you replace". It
-        runs on its cron and by hand only. A schedule runs only from the
-        default branch, so the file must exist on main.
+        Until 2026-10-28 the tick promoted whenever a cmux-next or cmux-tui
+        artifacts push run on feat-cmux-next completed, so each landing
+        started a full nightly build: six ran at once. Leo: "every 30 mins or
+        so you do it / within 30min you replace". A 30-minute cron alone then
+        kept the feed 45-50 minutes behind. The landing events now run the
+        rolling rule (scripts/ci/nightly_next_rolling.py) before the request,
+        with a 5-minute backstop cron. A schedule runs only from the default
+        branch, so the file must exist on main.
         """
         path = WORKFLOWS / "nightly-next-tick.yml"
         self.assertTrue(path.exists(), "nightly-next-tick.yml must exist")
         text = path.read_text(encoding="utf-8")
         self.assertRegex(text, r"(?m)^\s+schedule:\s*$")
-        self.assertRegex(text, r'(?m)^\s+- cron: "7,37 \* \* \* \*"$')
-        self.assertNotIn("workflow_run:", text)
+        self.assertRegex(text, r'(?m)^\s+- cron: "4-59/5 \* \* \* \*"$')
+        self.assertIn("workflow_run:", text)
+        self.assertIn("scripts/ci/nightly_next_rolling.py", text)
         self.assertIn("workflow_dispatch:", text)
         self.assertIn("scripts/cmux-next/request-nightly-next.sh --tree-ready", text)
         self.assertIn("cancel-in-progress: false", text)
+
+    def test_control_jobs_can_leave_blacksmith_linux_with_one_variable(self) -> None:
+        """CI_CONTROL_RUNNER moves the tick and the feed watch off Blacksmith Linux.
+
+        2026-10-28: every Blacksmith Linux size stopped starting jobs for over an
+        hour while Blacksmith macOS served; these light jobs had nowhere else to go.
+        Unset, they keep their Blacksmith Linux default.
+        """
+        for name, job in (("nightly-next-tick.yml", "request"), ("nightly-next-feed-watch.yml", "watch")):
+            text = (WORKFLOWS / name).read_text(encoding="utf-8")
+            body = text[text.index(f"\n  {job}:\n"):]
+            runs_on = re.search(r"^    runs-on: (.+)$", body, re.MULTILINE).group(1)
+            with self.subTest(workflow=name):
+                self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                                          "vars.CI_CONTROL_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}")
+
+    def test_the_tick_hashes_without_gnu_coreutils(self) -> None:
+        """The tick may run on macOS (CI_CONTROL_RUNNER), where sha256sum is not guaranteed."""
+        text = (WORKFLOWS / "nightly-next-tick.yml").read_text(encoding="utf-8")
+        for line in text.splitlines():
+            if "sha256sum" in line and not line.lstrip().startswith("#"):
+                with self.subTest(line=line.strip()):
+                    self.assertIn("shasum -a 256", line)
 
     def test_no_workflow_reads_the_retired_decide_runner_variable(self) -> None:
         """CI_NIGHTLY_DECIDE_RUNNER named a Blacksmith pool and is deleted."""

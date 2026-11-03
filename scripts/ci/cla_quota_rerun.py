@@ -34,6 +34,14 @@ late or not at all (12:35Z to 14:19Z on 2026-10-26, while #25466 sat blocked for
    (the budget is the repository's, shared by both). None of these needs the response's
    x-ratelimit headers or a particular 403 wording. A reject with none of them is never
    re-run: it is reported as a possible real policy rejection.
+5. On main the guard reads on the glaeda-route App's token, the one this janitor reads and
+   re-runs with (GH_TOKEN). When a call on it is refused for a spent budget, the pass says
+   so ("the glaeda-route App budget is spent"), waits for that budget's reset like any spent
+   budget, and, when the refusal said none is left (X-RateLimit-Remaining 0) and named its
+   reset, counts a guard reject ("rejected the
+   proposed policy") that finished in the hour ending at that reset as evidence: the guard
+   could not read, whatever the pull request changes. Other guard failures in that hour are not. (On 2026-10-28 from 06:44Z that budget
+   ran out and the guard rejected every pull request into main until the reset.)
 
 A re-run changes no policy: the same trusted workflow runs again on the same head. Reads and re-runs use
 GH_TOKEN (the janitor's App token, its own budget); RATE_TOKEN is the workflow token
@@ -65,6 +73,9 @@ INSTALLATION_LIMITED = re.compile(r"API rate limit exceeded for installation", r
 # What a failed GitHub API read looks like in a log. "403" alone matches hashes and ids.
 API_FAILURE = re.compile(r"rate limit|\bHTTP 403\b|\b403 Forbidden\b|\(HTTP 403\)", re.IGNORECASE)
 GUARD_REJECT = "rejected the proposed policy"
+# The budget GH_TOKEN draws on, and CLA policy guard's reads on main (cla-policy-guard.yml).
+APP_BUDGET = "the glaeda-route App budget"
+APP_HOUR = dt.timedelta(hours=1)  # an installation budget's window, ending at its reset
 # Every path validate-cla-policy.rb reads as policy (CLA_POLICY_PATHS and GUARD_PATHS there;
 # tests/test_cla_quota_rerun.py keeps the two lists equal). A pull request that changes none
 # of them proposes no policy: the guard passes it unless a GitHub read fails.
@@ -108,6 +119,13 @@ class SpentBudget(Exception):
     def __init__(self, status: int, path: str, retry_after: float | None, reset: dt.datetime | None) -> None:
         super().__init__(f"HTTP {status} on {path.split('?')[0]}")
         self.status, self.retry_after, self.reset = status, retry_after, reset
+        # Set by one_pass when the refused call was on GH_TOKEN, the glaeda-route App's budget.
+        self.app = False
+        # X-RateLimit-Remaining said 0: the hourly primary budget, not a secondary limit or a refusal.
+        self.exhausted = False
+
+    def budget_name(self) -> str:
+        return APP_BUDGET if self.app else "the budget"
 
     def resume_at(self, now: dt.datetime) -> dt.datetime:
         """Retry-After when given, else just after X-RateLimit-Reset, else SPENT_FALLBACK."""
@@ -139,7 +157,9 @@ def spent_headers(status: int, headers: Any, path: str, refused: bool = False) -
         reset = dt.datetime.fromtimestamp(int(headers.get("X-RateLimit-Reset")), dt.timezone.utc)
     except (TypeError, ValueError, OverflowError, OSError):
         pass
-    return SpentBudget(status, path, retry_after, reset)
+    spent = SpentBudget(status, path, retry_after, reset)
+    spent.exhausted = str(headers.get("X-RateLimit-Remaining", "")).strip() == "0"
+    return spent
 
 
 class Clock:
@@ -327,11 +347,13 @@ def rotated(runs: list[dict[str, Any]], now: dt.datetime) -> list[dict[str, Any]
 
 
 def plan(gh: GitHub, now: dt.datetime, log: Callable[[str], None], limit: int = MAX_RERUNS,
-         skip: frozenset[int] | set[int] = frozenset()) -> list[dict[str, Any]]:
+         skip: frozenset[int] | set[int] = frozenset(),
+         app_spent: list[dt.datetime] | None = None) -> list[dict[str, Any]]:
     """The runs to re-run: CLA Assistant failures whose log shows the rate limit, and CLA
-    policy guard failures with evidence of an API failure (guard_api_failure, a pull request
-    that proposes no policy, or a rate-limited CLA Assistant job within GUARD_WINDOW). Log
-    and file reads are bounded by
+    policy guard failures with evidence of an API failure (guard_api_failure, a reject that
+    finished in an hour the glaeda-route App budget was spent, ending at a reset in
+    `app_spent`, a pull request that proposes no policy, or a rate-limited CLA Assistant job
+    within GUARD_WINDOW). Log and file reads are bounded by
     MAX_LOG_READS and MAX_GUARD_READS and rotate, so genuine failures cannot hold the read budget."""
     heads = open_heads(gh, log)
     assistant_runs = workflow_runs(gh, "cla.yml")
@@ -369,7 +391,9 @@ def plan(gh: GitHub, now: dt.datetime, log: Callable[[str], None], limit: int = 
         reads += 1
         text, finished = failed_job(gh, run)
         near = lambda stamp: finished is not None and abs(stamp - finished) <= GUARD_WINDOW  # noqa: E731
-        evidence = guard_api_failure(text) or any(near(stamp) for stamp in limited_at)
+        evidence = (guard_api_failure(text) or any(near(stamp) for stamp in limited_at)
+                    or (GUARD_REJECT in text and finished is not None
+                        and any(reset - APP_HOUR < finished <= reset for reset in app_spent or ())))
         if not evidence and int(run.get("run_attempt") or 1) < NO_POLICY_MAX_ATTEMPT and reads < MAX_GUARD_READS:
             reads += 1
             evidence = proposes_no_policy(gh, run["number"])
@@ -397,9 +421,11 @@ def plan(gh: GitHub, now: dt.datetime, log: Callable[[str], None], limit: int = 
 
 
 def one_pass(dry_run: bool, repo: str, token: str, rate_token: str, clock: Clock,
-             deadline: dt.datetime, done: set[int]) -> int:
-    """One sweep, 0 when it ends. Raises SpentBudget or PastDeadline. `done` holds the runs this
-    job has re-run already, so a pass run again never re-runs them twice."""
+             deadline: dt.datetime, done: set[int], app_spent: list[dt.datetime] | None = None) -> int:
+    """One sweep, 0 when it ends. Raises SpentBudget (its `app` set when the refused call was
+    on GH_TOKEN, the glaeda-route App's budget) or PastDeadline. `done` holds the runs this job
+    has re-run already, so a pass run again never re-runs them twice; `app_spent` the resets
+    of the App hours this job found spent."""
     rate_gh = GitHub(rate_token, repo)
     rate_gh.deadline = deadline if clock.real else None
     rate = rate_gh.request("GET", "/rate_limit")
@@ -422,14 +448,18 @@ def one_pass(dry_run: bool, repo: str, token: str, rate_token: str, clock: Clock
         return 0
     gh = GitHub(token, repo)
     gh.deadline = deadline if clock.real else None
-    runs = plan(gh, clock.now(), print, limit, skip=done)
-    for run in runs:
-        name = run.get("name") or "CLA"
-        print(f"cla-quota-rerun: {'would re-run' if dry_run else 're-running'} {name} run {run['id']} "
-              f"for #{run['number']} at {run['head_sha'][:12]} (attempt {run.get('run_attempt')})")
-        if not dry_run:
-            gh.request("POST", f"/repos/{repo}/actions/runs/{run['id']}/rerun-failed-jobs")
-            done.add(run["id"])
+    try:
+        runs = plan(gh, clock.now(), print, limit, skip=done, app_spent=app_spent)
+        for run in runs:
+            name = run.get("name") or "CLA"
+            print(f"cla-quota-rerun: {'would re-run' if dry_run else 're-running'} {name} run {run['id']} "
+                  f"for #{run['number']} at {run['head_sha'][:12]} (attempt {run.get('run_attempt')})")
+            if not dry_run:
+                gh.request("POST", f"/repos/{repo}/actions/runs/{run['id']}/rerun-failed-jobs")
+                done.add(run["id"])
+    except SpentBudget as spent:
+        spent.app = True
+        raise
     print(f"cla-quota-rerun: budget {text}; {len(runs)} re-run(s), {gh.calls} App call(s)")
     return 0
 
@@ -446,9 +476,10 @@ def main(argv: list[str] | None = None, now: dt.datetime | None = None,
         return 0
     clock = Clock(now, sleep)
     deadline, done = clock.now() + PASS_DEADLINE, set()
+    app_spent: list[dt.datetime] = []
     for attempt in range(SPENT_RETRIES + 1):
         try:
-            return one_pass(args.dry_run, repo, token, rate_token, clock, deadline, done)
+            return one_pass(args.dry_run, repo, token, rate_token, clock, deadline, done, app_spent)
         except PastDeadline as error:
             print(f"::error title=CLA quota re-run::{error} before this pass's deadline "
                   f"{deadline:%H:%M:%SZ}; failed CLA checks are left for the next pass")
@@ -456,14 +487,28 @@ def main(argv: list[str] | None = None, now: dt.datetime | None = None,
         except SpentBudget as spent:
             now = clock.now()
             resume = spent.resume_at(now)
+            if spent.app and spent.exhausted and spent.reset is not None:
+                # Said plainly: on main CLA policy guard reads on this budget too, so its rejects
+                # until the reset are the spent budget, not a policy (validate-cla-policy.rb hides why).
+                # Only an exhausted primary budget (X-RateLimit-Remaining 0) with its known
+                # X-RateLimit-Reset bounds the App hour.
+                print(f"::warning title=glaeda-route App budget spent::{APP_BUDGET} is spent until "
+                      f"{resume:%H:%M:%SZ} ({spent}); CLA policy guard reads on it, so its rejects in "
+                      "this hour are the spent budget, not a policy. They are re-run after the reset.")
+                app_spent.append(spent.reset)
+            elif spent.app:
+                # A secondary limit, a refusal, or no X-RateLimit-Remaining 0 with a reset: no claim
+                # about the hour.
+                print(f"cla-quota-rerun: {spent} on the glaeda-route App token is not a spent hourly "
+                      "budget (a secondary limit or a refusal); the pass waits and tries again")
             late = resume > deadline - PASS_TIME
             if late or attempt == SPENT_RETRIES:
                 why = "past this pass's deadline" if late else f"after {SPENT_RETRIES} retries"
-                print(f"::error title=CLA quota re-run::{spent}: the budget is spent until {resume:%H:%M:%SZ}, "
-                      f"{why}; failed CLA checks are left for the next pass")
+                print(f"::error title=CLA quota re-run::{spent}: {spent.budget_name()} is spent until "
+                      f"{resume:%H:%M:%SZ}, {why}; failed CLA checks are left for the next pass")
                 return 1
             wait = resume - now
-            print(f"cla-quota-rerun: {spent}: the budget is spent; the pass runs again in "
+            print(f"cla-quota-rerun: {spent}: {spent.budget_name()} is spent; the pass runs again in "
                   f"{int(wait.total_seconds())} s ({resume:%H:%M:%SZ})")
             clock.sleep(wait.total_seconds())
         except (urllib.error.URLError, OSError, ValueError, KeyError) as error:

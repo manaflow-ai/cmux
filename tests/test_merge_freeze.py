@@ -218,8 +218,6 @@ class FakeGh:
             raise subprocess.CalledProcessError(1, args, "", "gh: API rate limit exceeded for installation (HTTP 403)")
         for prefix, value in self.responses.items():
             if endpoint.startswith(prefix):
-                if "--jq" in args:  # gh_items: one JSON object per line
-                    return subprocess.CompletedProcess(args, 0, "".join(json.dumps(v) + "\n" for v in value), "")
                 return subprocess.CompletedProcess(args, 0, json.dumps(value), "")
         raise AssertionError(f"unexpected gh call {args}")
 
@@ -240,7 +238,7 @@ class CheckApiCalls(unittest.TestCase):
         fake = FakeGh({self.ISSUES: []})
         status, _, calls = self.run_check(fake, "--changed-files", "3")
         self.assertEqual(status, 0)
-        self.assertEqual(calls, [f"{self.ISSUES}&per_page=100"])  # was: + pulls/42/files and pulls/42
+        self.assertEqual(calls, [f"{self.ISSUES}&per_page=100&page=1"])  # was: + pulls/42/files and pulls/42
 
     def test_a_freeze_on_another_branch_reads_no_pull_request(self):
         frozen = {**issue(body=body(extra="branch: main")), "state": "open"}
@@ -251,13 +249,13 @@ class CheckApiCalls(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertFalse([c for c in calls if "/pulls/" in c or "/issues/42/" in c], calls)
         # A freeze that cannot apply to this base costs no authority reads either (GITHUB_TOKEN budget).
-        self.assertEqual(calls, [f"{self.ISSUES}&per_page=100"])
+        self.assertEqual(calls, [f"{self.ISSUES}&per_page=100&page=1"])
 
     def test_a_lapsed_freeze_reads_only_the_freeze_list(self):
         lapsed = {**issue(body=body(expires="2020-01-01T00:00Z")), "state": "open"}
         status, _, calls = self.run_check(FakeGh({self.ISSUES: [lapsed]}))
         self.assertEqual(status, 0)
-        self.assertEqual(calls, [f"{self.ISSUES}&per_page=100"])
+        self.assertEqual(calls, [f"{self.ISSUES}&per_page=100&page=1"])
 
     def applicable(self, files):
         return FakeGh({
@@ -275,7 +273,7 @@ class CheckApiCalls(unittest.TestCase):
         status, out, calls = self.run_check(fake, "--changed-files", "1")
         self.assertEqual(status, 1)
         self.assertIn("#7", out)
-        self.assertIn(f"repos/{self.REPO}/pulls/42/files?per_page=100", calls)
+        self.assertIn(f"repos/{self.REPO}/pulls/42/files?per_page=100&page=1", calls)
         self.assertNotIn(f"repos/{self.REPO}/pulls/42", calls)  # the count came from the event
 
     def test_a_cut_short_file_list_is_still_status_2(self):
@@ -328,7 +326,7 @@ class CheckApiCalls(unittest.TestCase):
             calls.append(args)
             if len(calls) <= failures:
                 raise freeze.subprocess.CalledProcessError(1, ["gh", *args], stderr=error)
-            return ""
+            return "[]"
 
         original_gh, original_sleep = freeze.gh, freeze.time.sleep
         freeze.gh, freeze.time.sleep = gh, sleeps.append
@@ -367,6 +365,51 @@ class CheckApiCalls(unittest.TestCase):
     def test_without_a_retry_a_rate_limited_read_is_status_3_at_once(self):
         status, sleeps, _ = self.rate_limited_check(failures=1, retry="0")
         self.assertEqual((status, sleeps), (3, []))
+
+class PaginationTests(unittest.TestCase):
+    """The gh quota shim refuses `gh api --paginate` (it can't be charged), so lists are read one
+    page per call, with an explicit per_page and a page cap that fails closed."""
+
+    def fake_gh(self, total):
+        calls = []
+
+        def gh(*args):
+            calls.append(args)
+            self.assertNotIn("--paginate", args)
+            query = dict(part.split("=", 1) for part in args[-1].split("?", 1)[1].split("&"))
+            self.assertEqual(query["per_page"], str(freeze.PER_PAGE))
+            start = (int(query["page"]) - 1) * freeze.PER_PAGE
+            return json.dumps([{"filename": f"f{i}"} for i in range(start, min(total, start + freeze.PER_PAGE))])
+        return gh, calls
+
+    def with_gh(self, gh):
+        original = freeze.gh
+        freeze.gh = gh
+        self.addCleanup(setattr, freeze, "gh", original)
+
+    def test_each_page_is_one_bounded_call_and_a_short_page_ends_the_list(self):
+        gh, calls = self.fake_gh(250)
+        self.with_gh(gh)
+        items = freeze.gh_items("repos/x/y/pulls/1/files")
+        self.assertEqual(len(items), 250)
+        self.assertEqual([c[1] for c in calls], [f"repos/x/y/pulls/1/files?per_page=100&page={n}" for n in (1, 2, 3)])
+        gh, calls = self.fake_gh(3)
+        self.with_gh(gh)
+        freeze.gh_items("repos/x/y/issues?state=open&labels=merge-freeze")
+        self.assertEqual(calls[0][1], "repos/x/y/issues?state=open&labels=merge-freeze&per_page=100&page=1")
+
+    def test_a_list_past_the_page_cap_fails_closed(self):
+        gh, calls = self.fake_gh(freeze.PER_PAGE * freeze.MAX_PAGES)
+        self.with_gh(gh)
+        with self.assertRaisesRegex(ValueError, "more than 30 pages"):
+            freeze.gh_items("repos/x/y/pulls/1/files")
+        self.assertEqual(len(calls), freeze.MAX_PAGES)
+
+    def test_the_script_never_asks_gh_to_paginate(self):
+        source = (ROOT / "scripts/ci/merge_freeze.py").read_text()
+        self.assertNotIn('"--paginate"', source)
+
+
 
 if __name__ == "__main__":
     unittest.main()

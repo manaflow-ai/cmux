@@ -4019,7 +4019,7 @@
     "class": "brand"
   },
   "pricing.native.plan.go": {
-    "source": "Go",
+    "source": "Plus",
     "class": "brand"
   },
   "pricing.native.max.price": {
@@ -4027,7 +4027,7 @@
     "class": "format"
   },
   "pricing.native.go.price": {
-    "source": "$10",
+    "source": "$15",
     "class": "format"
   },
   "cloud.ports.title": {
@@ -5093,54 +5093,54 @@
     }
   },
   "sidebar.account.teamWithGoPlan": {
-    "source": "%1$@ · Go",
+    "source": "%1$@ · Plus",
     "identityLocales": {
       "de": {
-        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "reason": "The Plus product name, account placeholder, and punctuation are invariant across locales.",
         "values": [
-          "%1$@ · Go"
+          "%1$@ · Plus"
         ]
       },
       "fr": {
-        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "reason": "The Plus product name, account placeholder, and punctuation are invariant across locales.",
         "values": [
-          "%1$@ · Go"
+          "%1$@ · Plus"
         ]
       },
       "ar": {
-        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "reason": "The Plus product name, account placeholder, and punctuation are invariant across locales.",
         "values": [
-          "%1$@ · Go"
+          "%1$@ · Plus"
         ]
       },
       "es": {
-        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "reason": "The Plus product name, account placeholder, and punctuation are invariant across locales.",
         "values": [
-          "%1$@ · Go"
+          "%1$@ · Plus"
         ]
       },
       "zh-Hant": {
-        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "reason": "The Plus product name, account placeholder, and punctuation are invariant across locales.",
         "values": [
-          "%1$@ · Go"
+          "%1$@ · Plus"
         ]
       },
       "zh-Hans": {
-        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "reason": "The Plus product name, account placeholder, and punctuation are invariant across locales.",
         "values": [
-          "%1$@ · Go"
+          "%1$@ · Plus"
         ]
       },
       "ko": {
-        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "reason": "The Plus product name, account placeholder, and punctuation are invariant across locales.",
         "values": [
-          "%1$@ · Go"
+          "%1$@ · Plus"
         ]
       },
       "ja": {
-        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "reason": "The Plus product name, account placeholder, and punctuation are invariant across locales.",
         "values": [
-          "%1$@ · Go"
+          "%1$@ · Plus"
         ]
       }
     }
