@@ -230,6 +230,23 @@ function CommitForm({
             </label>
           ))}
         </ChoiceGroup>
+        <button type="button" className="acpmux-git-secondary" disabled={busy} onClick={onCloseForm}>
+          {t("git.cancel")}
+        </button>
+        <button type="submit" className="acpmux-git-primary" disabled={!ready}>
+          {t("git.commit.submit")}
+        </button>
+      </div>
+      {/* Keep the scope hint and Include new files below the scope and action buttons. Reserve both
+          translations and the checkbox so switching scope never moves or wraps either row. */}
+      <div className="acpmux-git-form-row acpmux-git-scope-line">
+        <span className="acpmux-git-scope-hint">
+          {options.map(({ value }) => (
+            <span key={value} data-visible={scope === value} aria-hidden={scope !== value}>
+              {t(value === "staged" ? "git.commit.stagedHint" : "git.commit.allHint")}
+            </span>
+          ))}
+        </span>
         <label className="acpmux-git-include-new" data-visible={scope === "all"}>
           <input
             type="checkbox"
@@ -240,21 +257,6 @@ function CommitForm({
           />
           <span id={`${scopeName}-new`}>{t("git.commit.includeNew")}</span>
         </label>
-      </div>
-      <div className="acpmux-git-form-row acpmux-git-submit-row">
-        <span className="acpmux-git-scope-hint">
-          {options.map(({ value }) => (
-            <span key={value} data-visible={scope === value} aria-hidden={scope !== value}>
-              {t(value === "staged" ? "git.commit.stagedHint" : "git.commit.allHint")}
-            </span>
-          ))}
-        </span>
-        <button type="button" className="acpmux-git-secondary" disabled={busy} onClick={onCloseForm}>
-          {t("git.cancel")}
-        </button>
-        <button type="submit" className="acpmux-git-primary" disabled={!ready}>
-          {t("git.commit.submit")}
-        </button>
       </div>
       {withNew && listChanged && (
         <span className="acpmux-git-form-note" role="alert">

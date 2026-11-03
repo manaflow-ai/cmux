@@ -3,7 +3,7 @@
 
 Four base reds landed on 2026-10-21 through checks that only warn on a pull request or run only
 on push: webviews lint/format and switch-fetches (ci-web's react-apps-check is warn-only on a PR;
-cmux-next-web.yml's `web lint (fast)` fails only on push), a self-merge past its own red
+cmux-next-web-lint.yml's `web lint (fast)` fails only on push), a self-merge past its own red
 `defaults-snapshot`, and direct pushes that tripped the crash ratchet. feat-cmux-next has no
 required checks. cmux-next-fast-gates.yml runs those gates on BASE..merge for every pull request
 into feat-cmux-next (and on dispatch, against the current tip) and posts `cmux-next/fast-gates`
