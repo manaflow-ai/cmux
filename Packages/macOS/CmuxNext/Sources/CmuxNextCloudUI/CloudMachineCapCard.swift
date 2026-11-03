@@ -7,7 +7,8 @@ public import Foundation
 /// leo-workspace design/cloud.md "At the machine cap"): a Pause button for each of the person's busy machines (the
 /// newest few, each with its last activity on a line), Upgrade, and Run on This Mac. A free plan: Upgrade and Run on
 /// This Mac. Its text is in Resources/Cloud.xcstrings with every app locale.
-public nonisolated enum CloudMachineCapCard {
+public nonisolated struct CloudMachineCapCard {
+    public nonisolated init() {}
     public static let identifier = "cmux.dialog.cloud.atCap"
     /// At most this many Pause buttons; the card lists no more machines than it offers to pause.
     public static let pauseButtons = 3
