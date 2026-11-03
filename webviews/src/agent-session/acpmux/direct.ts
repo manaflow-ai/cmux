@@ -7066,7 +7066,7 @@ export class AcpmuxDirectClient {
       // The connection went before acpmux took it, on a chat of this Mac's acpmux: the host's prompt
       // journal sends it again, under its promptId, on the pane's next connection (lostPrompt.ts),
       // so its sender waits for it to show there instead of saying "Not sent" at once.
-      if (!taken && isLostConnection(error) && this.journalsPrompts(blocks))
+      if (!taken && isLostConnection(error) && this.journalsPrompts())
         Object.assign(error as object, { lostPrompt: { sessionId, promptId } satisfies LostPrompt });
       // The folder's trust question (the one route); the pane's sender adds the re-send.
       if (here && trustCancellation === this.trustCancellation) this.routeTrustRefusal(error);
@@ -8693,7 +8693,7 @@ export class AcpmuxDirectClient {
   }
   /// Whether the host's prompt journal keeps a prompt of these blocks that this connection lost
   /// (Swift `AgentPanePromptRelay`): only on a connection to this Mac's acpmux.
-  private journalsPrompts(blocks: unknown): boolean {
+  private journalsPrompts(): boolean {
     return this.localOrigin;
   }
   /// The `awaitResent` waits, with their chat: each settles false once this connection closes or

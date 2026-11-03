@@ -33,7 +33,6 @@ pub(crate) struct DraftAdmission<'a> {
     pub participant: &'a str,
     pub turn: &'a str,
     pub seq: u64,
-    pub fresh: bool,
 }
 
 #[derive(Debug)]
@@ -58,7 +57,7 @@ impl DraftGate {
         draft: DraftAdmission<'_>,
         now: Instant,
     ) -> Result<bool, DraftRefusal> {
-        let DraftAdmission { conversation, participant, turn, seq, .. } = draft;
+        let DraftAdmission { conversation, participant, turn, seq } = draft;
         let key = (conversation.to_owned(), participant.to_owned(), turn.to_owned());
         if !self.turns.contains_key(&key) && self.turns.len() >= MAX_TURNS {
             self.evict_oldest();

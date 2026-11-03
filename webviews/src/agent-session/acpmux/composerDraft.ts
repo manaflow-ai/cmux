@@ -74,10 +74,18 @@ export function hydratedDraft(input: {
   const { current, restored, read, edited, pendingWrite } = input;
   const sent = input.sent;
   // The prompt as it is; it goes to acpmux when acpmux holds something else and nothing is on its way.
-  const keep = () => ({ text: current, shown: false, write: !pendingWrite && current !== (restored ?? "") });
+  const keep = () => ({
+    text: current,
+    shown: false,
+    write: !pendingWrite && current !== (restored ?? ""),
+  });
   const merge = () => {
     const text = mergedDraft(current, restored);
-    return { text, shown: text !== current, write: text !== (restored ?? "") && Boolean(text.trim()) };
+    return {
+      text,
+      shown: text !== current,
+      write: text !== (restored ?? "") && Boolean(text.trim()),
+    };
   };
   if (edited || sent || pendingWrite) {
     if (sent || pendingWrite || read || !restored) return keep();
@@ -356,15 +364,11 @@ export async function readDurableDraft(sessionId: string | undefined): Promise<s
 // How many of the page's writes acpmux answered, by session (`readDurableDraftState`); one entry per
 // chat the page wrote a draft for.
 const draftSettles = new Map<string, number>();
-const chatDrafts = new Map<
-  string,
-  { read: boolean; edited: boolean; sent: boolean; generation: number }
->();
+const chatDrafts = new Map<string, { read: boolean; edited: boolean; sent: boolean; generation: number }>();
 
 function chatDraft(sessionId: string) {
   let entry = chatDrafts.get(sessionId);
-  if (!entry)
-    chatDrafts.set(sessionId, (entry = { read: false, edited: false, sent: false, generation: 0 }));
+  if (!entry) chatDrafts.set(sessionId, (entry = { read: false, edited: false, sent: false, generation: 0 }));
   return entry;
 }
 

@@ -35,7 +35,10 @@ let root: Root | undefined;
 let host: HTMLElement;
 
 beforeAll(() => {
-  dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "https://cmux.test/" });
+  dom = new JSDOM("<!doctype html><div id=root></div>", {
+    pretendToBeVisual: true,
+    url: "https://cmux.test/",
+  });
   const { window } = dom;
   Object.assign(scope, {
     ResizeObserver: class {
@@ -57,7 +60,17 @@ beforeAll(() => {
     localStorage: window.localStorage,
   });
   // jsdom lays nothing out and its Range has no rects: ProseMirror measures one to scroll.
-  const box = () => ({ left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}) });
+  const box = () => ({
+    left: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    width: 0,
+    height: 0,
+    x: 0,
+    y: 0,
+    toJSON: () => ({}),
+  });
   Object.assign(window.Range.prototype, {
     getClientRects: () => Object.assign([box()], { item: () => box() }),
     getBoundingClientRect: box,
@@ -94,7 +107,12 @@ async function render(
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
   const snapshot = noChat(
     [],
-    sessionId ? { sessionId, summary: { sessionId, harness: "claude", cwd: "/Users/you/src/app", turnCount: 0 } } : {},
+    sessionId
+      ? {
+          sessionId,
+          summary: { sessionId, harness: "claude", cwd: "/Users/you/src/app", turnCount: 0 },
+        }
+      : {},
   );
   root ??= createRoot(host);
   await act(async () =>
@@ -407,7 +425,14 @@ for (const row of rows) {
 }
 
 test("hydratedDraft: the one rule", () => {
-  const base = { current: "", restored: undefined, read: false, edited: false, sent: false, pendingWrite: false };
+  const base = {
+    current: "",
+    restored: undefined,
+    read: false,
+    edited: false,
+    sent: false,
+    pendingWrite: false,
+  };
   // Untouched, read before: acpmux's draft fills the prompt.
   expect(hydratedDraft({ ...base, current: "old", restored: "new", read: true })).toEqual({
     text: "new",
@@ -476,7 +501,6 @@ test("a multi-megabyte saved draft merges and is written whole", () => {
   });
   expect(merged.text).toBe(`${saved}\n\n${typed}`);
   expect(merged.write).toBe(true);
-  expect(merged.overflow).toBeUndefined();
 });
 
 test("a large saved draft and text typed before the read are merged and written", async () => {

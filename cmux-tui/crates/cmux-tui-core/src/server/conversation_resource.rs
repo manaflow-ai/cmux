@@ -256,7 +256,6 @@ pub(super) fn publish_draft(
         participant: principal,
         turn,
         seq,
-        fresh,
     };
     let published = mux
         .admit_conversation_draft(draft, Instant::now())
