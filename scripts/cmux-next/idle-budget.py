@@ -21,6 +21,7 @@ Sessions (--sessions):
   light         the launch window with its terminal (Home's pages run in Chromium by default)
   light-webkit  the same with browser.defaultEngine webkit: no Chromium at all
   light-hidden  the light session with the app hidden (Show/Hide All Windows hidden=true)
+  sleepy        the light session covered by Sleepy Mode
   Each session starts from an empty saved session (`fresh_session`).
   stress-static  STRESS with its pages served without their rAF spinner (STRESS's own pages animate: not idle)
   stress   STRESS (scripts/cmux-next/perf-stress-session.py: 60 workspaces, a 12-pane grid of 6 tabs each,
@@ -463,6 +464,7 @@ SESSIONS = {
     "light": {},
     "light-webkit": {"config": {**BASE_CONFIG, "browser": {"defaultEngine": "webkit"}}},
     "light-hidden": {"hide": True},
+    "sleepy": {"sleepy": True},
     "stress": {},
     "stress-static": {},
 }
@@ -538,6 +540,9 @@ def main():
             if SESSIONS[session].get("hide"):
                 entry["hide"] = app.rpc("action.run", {"action": "showHideAllWindows", "args": {"hidden": True},
                                                        "focus": False, "origin": "script"}, timeout=30)
+            if SESSIONS[session].get("sleepy"):
+                entry["sleepy"] = app.rpc("action.run", {"action": "palette.sleepyMode", "args": {},
+                                                         "focus": False, "origin": "script"}, timeout=30)
             time.sleep(opts.settle)  # bench: the session settles (page loads, Chromium's post-load work) before the window
             instance = procs.Instance(app.app, app.process.pid)
             window_before = window_state(app)
