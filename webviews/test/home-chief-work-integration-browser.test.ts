@@ -50,6 +50,11 @@ await requireBrowserLane("home-chief-work-integration-browser.test.ts", async ()
         if (await chief.isVisible()) await chief.click();
         const toggle = page.getByRole("button", { name: "Work", exact: true });
         await toggle.waitFor();
+        if (width === 390) {
+          const target = (await toggle.boundingBox())!;
+          expect(target.width).toBeGreaterThanOrEqual(44);
+          expect(target.height).toBeGreaterThanOrEqual(44);
+        }
         await toggle.click();
         const panel = page.getByRole("complementary", { name: "Work", exact: true });
         await panel.getByText("Build a hello page", { exact: true }).waitFor();

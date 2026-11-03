@@ -8,8 +8,21 @@
     margin-inline-end: var(--lg-sheet);
   }
 }
+.hc-chief-work-toggle,
 .lg-sheet.hc-chief-work {
   --chief-work-touch: 44px;
+}
+.hc-chief-work-toggle[aria-pressed="true"] {
+  background: var(--page-hover);
+  color: var(--page-text);
+}
+@container lg-main (max-width: 720px) {
+  .hc-chief-work-toggle {
+    min-width: var(--chief-work-touch);
+    min-height: var(--chief-work-touch);
+  }
+}
+.lg-sheet.hc-chief-work {
   --chief-work-spinner: 10px;
   animation: none;
 }
@@ -106,8 +119,11 @@
   min-width: 0;
 }
 .hc-chief-work__name {
+  display: block;
   font-weight: 500;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .hc-chief-work__text p {
   margin: 4px 0 0;
@@ -115,6 +131,8 @@
   overflow-wrap: anywhere;
 }
 .hc-chief-work__text summary {
+  display: list-item;
+  list-style-position: inside;
   cursor: pointer;
 }
 .hc-chief-work__text pre {

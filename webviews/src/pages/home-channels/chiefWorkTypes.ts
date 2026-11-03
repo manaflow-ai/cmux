@@ -4,9 +4,9 @@ export interface HomeChiefWork {
     id: string;
     name: string;
     state: "working" | "waiting" | "idle" | "failed";
-    task?: string;
-    startedAt?: number;
-    updatedAt?: number;
+    task?: string | null;
+    startedAt?: number | null;
+    updatedAt?: number | null;
   }[];
   tasks: {
     id: string;
@@ -14,9 +14,9 @@ export interface HomeChiefWork {
     title: string;
     status: "running" | "done" | "failed" | "cancelled" | "unknown";
     command?: string;
-    startedAt?: number;
-    endedAt?: number;
-    detail?: string;
+    startedAt?: number | null;
+    endedAt?: number | null;
+    detail?: string | null;
   }[];
   truncated: boolean;
   /** A snapshot must say when only harness background commands are available. */

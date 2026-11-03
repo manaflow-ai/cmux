@@ -78,7 +78,9 @@ export function ChiefWorkPanel({ snapshot, loading, error, onRefresh, onClose, s
                       <li key={agent.id} className="hc-chief-work__row" data-state={agent.state}>
                         <Mark state={agent.state} />
                         <div className="hc-chief-work__text">
-                          <span className="hc-chief-work__name">{agent.name}</span>
+                          <span className="hc-chief-work__name" title={agent.name}>
+                            {agent.name}
+                          </span>
                           {agent.task && <p>{agent.task}</p>}
                         </div>
                         <span className="hc-chief-work__state">
@@ -137,12 +139,16 @@ function TaskRow({ task, strings }: { task: HomeChiefWork["tasks"][number]; stri
       <div className="hc-chief-work__text">
         {task.command || task.detail ? (
           <details>
-            <summary className="hc-chief-work__name">{task.title}</summary>
+            <summary className="hc-chief-work__name" title={task.title}>
+              {task.title}
+            </summary>
             {task.command && <pre>{task.command}</pre>}
             {task.detail && <p className="hc-chief-work__detail">{task.detail}</p>}
           </details>
         ) : (
-          <span className="hc-chief-work__name">{task.title}</span>
+          <span className="hc-chief-work__name" title={task.title}>
+            {task.title}
+          </span>
         )}
       </div>
       <span className="hc-chief-work__state">

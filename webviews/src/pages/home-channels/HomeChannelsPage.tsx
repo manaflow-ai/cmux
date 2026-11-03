@@ -600,7 +600,7 @@ export function HomeChannelsPage({
                       {caps.chiefWork && openChief && open.owner === "local" && (
                         <button
                           type="button"
-                          className="hc-icon-button"
+                          className="hc-icon-button hc-chief-work-toggle"
                           aria-label={t("work.open")}
                           title={t("work.open")}
                           aria-pressed={workOpen}

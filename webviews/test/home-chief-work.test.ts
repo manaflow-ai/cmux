@@ -94,7 +94,7 @@ test("the adapter sends a scoped read to the local conversation owner, never the
     },
   };
   const home = new DaemonHomeClient(cloud as never, local as never);
-  expect(await home.call(HomeOps.chiefWork, { chief: "chief-2" })).toEqual(work("owned-agent"));
+  expect(await home.call<HomeChiefWork>(HomeOps.chiefWork, { chief: "chief-2" })).toEqual(work("owned-agent"));
   expect(calls).toEqual([
     { cmd: "identify", params: undefined },
     { cmd: "chief-work", params: { chief: "chief-2" } },
