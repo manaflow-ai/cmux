@@ -33,6 +33,9 @@ use crate::state::kept_tab_store::{KeptTab, kept_title};
 /// Default reap grace period for a terminal with no placement.
 pub const DEFAULT_TERMINAL_REAP_GRACE: Duration = Duration::from_secs(30);
 
+/// The most closed terminals that wait out the reap grace with their PTY at once (STATUS 7998).
+/// Past it, the reaper ends the longest-closed at once (its screen archived as at any reap).
+pub(crate) const MAX_TERMINALS_IN_REAP_GRACE: usize = 16;
 /// Largest accepted reap grace period: one week.
 pub const MAX_TERMINAL_REAP_GRACE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
