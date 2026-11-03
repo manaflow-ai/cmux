@@ -15,6 +15,13 @@
 //! that notices the expiry first) closes its bound connections in the same step (`settle`);
 //! expiry is one one-shot timer to the next `expires_at` (no polling).
 //!
+//! An invite (`agent-session-share-invite {share_id, account, role}`) names a cmux account on a
+//! share. The room admits that account after its sign-in and forwards a redeem with `account`
+//! instead of the secret; the daemon admits it only while the account is invited and not removed.
+//! An invitee is a guest like any other (same `guest:` author, same hold on every prompt), whose
+//! author also names its `account` and `role`: `view` watches only, `talk` may also prompt and
+//! type. An invite spends no link use. `-uninvite` removes the account and kicks its guests.
+//!
 //! With a hosted room configured (`agent_session_share_room.rs`), create provisions the share in
 //! the room first (`provisioning` until it answers) and answers the guest link; a revoke or kick
 //! also goes to the room (`pending_room_ops`, retried until acknowledged). Without one a share is
@@ -78,6 +85,11 @@ struct Guest {
     state: GuestState,
     /// SHA-256 of the redeem's `attempt_id`: a retry of that redeem gets this guest again.
     attempt_id_sha256: String,
+    /// The invited account this guest joined as (`None`: a link guest).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    account: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    role: Option<Role>,
 }
 
 /// What a create asks of its share: how long it lasts, how many guests it lets in, and the
@@ -87,6 +99,58 @@ pub(super) struct ShareTerms {
     pub(super) ttl_secs: u64,
     pub(super) uses: u32,
     pub(super) create_id: Option<String>,
+}
+
+/// Accounts invited to one share at once.
+const MAX_INVITEES: usize = 16;
+/// An invited account's live guests at once (its browsers and devices).
+const MAX_GUESTS_PER_ACCOUNT: usize = 4;
+/// An account (an email address or a cmux `@handle`), in bytes.
+const MAX_ACCOUNT_BYTES: usize = 320;
+
+/// What an invited account may do: `view` watches, `talk` also prompts (held) and types.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(super) enum Role {
+    View,
+    Talk,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum InviteState {
+    Invited,
+    Removed,
+}
+
+/// An account the owner invited to a share.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+struct Invitee {
+    /// Trimmed and lowercased (`normal_account`).
+    account: String,
+    role: Role,
+    invited_at: u64,
+    state: InviteState,
+}
+
+/// An account as the daemon keeps and compares it: trimmed, lowercased, one token (no
+/// whitespace or control characters), 3 to 320 bytes, an email address or an `@handle`.
+fn normal_account(account: &str) -> Result<String, &'static str> {
+    let account = account.trim().to_lowercase();
+    let token = !account.chars().any(|c| c.is_whitespace() || c.is_control());
+    let shaped = account.strip_prefix('@').map_or_else(
+        || {
+            account
+                .split_once('@')
+                .is_some_and(|(user, host)| !user.is_empty() && host.contains('.'))
+        },
+        |handle| !handle.is_empty() && !handle.contains('@'),
+    );
+    if token && shaped && (3..=MAX_ACCOUNT_BYTES).contains(&account.len()) {
+        Ok(account)
+    } else {
+        Err("share.bad_request")
+    }
 }
 
 /// A client's `create_id`, in bytes.
@@ -115,6 +179,8 @@ struct LinkShare {
     #[serde(default)]
     pending_room_ops: Vec<Value>,
     guests: Vec<Guest>,
+    #[serde(default)]
+    invitees: Vec<Invitee>,
 }
 
 impl LinkShare {
@@ -144,8 +210,21 @@ impl LinkShare {
             .guests
             .iter()
             .map(|g| {
-                json!({"guest_id": g.guest_id, "name": g.name, "joined_at": g.joined_at,
-                    "state": g.state})
+                let mut shown = json!({"guest_id": g.guest_id, "name": g.name,
+                    "joined_at": g.joined_at, "state": g.state});
+                if let Some(account) = &g.account {
+                    shown["account"] = json!(account);
+                    shown["role"] = json!(g.role);
+                }
+                shown
+            })
+            .collect();
+        let invitees: Vec<Value> = self
+            .invitees
+            .iter()
+            .map(|i| {
+                json!({"account": i.account, "role": i.role, "invited_at": i.invited_at,
+                    "state": i.state})
             })
             .collect();
         json!({"share_id": self.share_id, "session": self.session, "surface": self.surface,
@@ -154,7 +233,7 @@ impl LinkShare {
             "uses_left": self.uses_left, "state": self.state, "url": null,
             "create_id": self.create_id,
             "room": self.room.as_ref().map(|room| room.get("url").cloned().unwrap_or(Value::Null)),
-            "guests": guests})
+            "guests": guests, "invitees": invitees})
     }
 }
 
@@ -256,10 +335,20 @@ fn load(directory: Option<&Path>) -> Vec<LinkShare> {
         .unwrap_or_default()
 }
 
-/// The author a guest binds as.
+/// The author a guest binds as; an invitee's also names its account and role.
 fn author_of(share: &LinkShare, guest: &Guest) -> Value {
-    json!({"id": format!("{GUEST_PREFIX}{}.{}", share.share_id, guest.guest_id),
-        "name": guest.name, "approval": "owner"})
+    let mut author = json!({"id": format!("{GUEST_PREFIX}{}.{}", share.share_id, guest.guest_id),
+        "name": guest.name, "approval": "owner"});
+    if let Some(account) = &guest.account {
+        author["account"] = json!(account);
+        author["role"] = json!(guest.role.unwrap_or(Role::View));
+    }
+    author
+}
+
+/// Whether a bound guest's author may only watch (an invitee with the `view` role).
+pub(super) fn view_only(author: &Value) -> bool {
+    author["account"].is_string() && author["role"] != json!(Role::Talk)
 }
 
 #[derive(Deserialize)]
@@ -299,11 +388,32 @@ struct Named {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+pub(super) struct Invite {
+    pub(super) share_id: String,
+    pub(super) account: String,
+    #[serde(default)]
+    pub(super) role: Option<Role>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Uninvite {
+    share_id: String,
+    account: String,
+}
+
+/// A redeem: a link guest's (`secret`) or an invited account's (`account`, attested by the room
+/// after its sign-in, never with the secret).
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct Redeem {
     pub(super) share_id: String,
+    #[serde(default)]
     pub(super) secret: String,
     pub(super) name: String,
     pub(super) attempt_id: String,
+    #[serde(default)]
+    pub(super) account: Option<String>,
 }
 
 impl LinkShares {
@@ -465,6 +575,7 @@ impl LinkShares {
                 room: None,
                 pending_room_ops: Vec::new(),
                 guests: Vec::new(),
+                invitees: Vec::new(),
             });
             let reply = json!({"share_id": share_id, "secret": secret, "url": null,
                 "expires_at": expires_at, "session": session, "surface": surface,
@@ -486,38 +597,153 @@ impl LinkShares {
         if !valid_id(&p.attempt_id) {
             return Err("share.bad_request");
         }
+        let account = p.account.as_deref().map(normal_account).transpose()?;
         let guest_id = token::<8>()?;
         let attempt = hex(&digest(&[&p.attempt_id]));
         self.with(directory, |shares, now| {
             let share = find(shares, &p.share_id)?;
-            if !same(&hex(&digest(&[&p.secret])), &share.secret_sha256) {
-                return Err("share.secret");
-            }
+            let role = match &account {
+                None if !same(&hex(&digest(&[&p.secret])), &share.secret_sha256) => {
+                    return Err("share.secret");
+                }
+                None => None,
+                Some(account) => {
+                    // A retry of a removed account's earlier join says it was removed.
+                    let earlier = share.guests.iter().find(|g| {
+                        g.account.as_ref() == Some(account) && same(&g.attempt_id_sha256, &attempt)
+                    });
+                    let invitee = share
+                        .invitees
+                        .iter()
+                        .find(|i| i.account == *account && i.state == InviteState::Invited);
+                    match (invitee, earlier) {
+                        (Some(invitee), _) => Some(invitee.role),
+                        (None, Some(_)) => return Err("share.kicked"),
+                        (None, None) => return Err("share.not_invited"),
+                    }
+                }
+            };
             share.live()?;
             let reply =
                 |g: &Guest| json!({"share_id": p.share_id, "guest_id": g.guest_id, "name": g.name});
             if let Some(guest) = share.guests.iter().find(|g| same(&g.attempt_id_sha256, &attempt))
             {
+                // An attempt is one account's: another account (or a link guest) never gets it.
+                if guest.account != account {
+                    return Err(if account.is_some() {
+                        "share.not_invited"
+                    } else {
+                        "share.secret"
+                    });
+                }
                 return match guest.state {
                     GuestState::Active => Ok((reply(guest), false)),
                     GuestState::Kicked => Err("share.kicked"),
                     GuestState::Left => Err("share.left"),
                 };
             }
-            if share.uses_left == 0 {
-                return Err("share.used");
+            match &account {
+                // An invite spends no link use; it bounds the account's live guests instead.
+                Some(account) => {
+                    let live = share
+                        .guests
+                        .iter()
+                        .filter(|g| g.account.as_ref() == Some(account))
+                        .filter(|g| g.state == GuestState::Active)
+                        .count();
+                    if live >= MAX_GUESTS_PER_ACCOUNT {
+                        return Err("share.used");
+                    }
+                }
+                None if share.uses_left == 0 => return Err("share.used"),
+                None => share.uses_left -= 1,
             }
-            share.uses_left -= 1;
             let guest = Guest {
                 guest_id,
                 name: p.name.clone(),
                 joined_at: now,
                 state: GuestState::Active,
                 attempt_id_sha256: attempt,
+                account,
+                role,
             };
             let answer = reply(&guest);
             share.guests.push(guest);
             Ok((answer, true))
+        })
+    }
+
+    /// Invites an account to a share (`talk` unless named `view`). Inviting it again with the
+    /// same role changes nothing; with another role it is refused (`share.invited`: uninvite
+    /// first, so no bound guest keeps an author its role no longer matches). A removed account
+    /// invited again joins anew; its earlier guests stay removed.
+    pub(super) fn invite(
+        &self,
+        directory: Option<&Path>,
+        p: &Invite,
+    ) -> Result<Value, &'static str> {
+        let account = normal_account(&p.account)?;
+        let role = p.role.unwrap_or(Role::Talk);
+        self.with(directory, |shares, now| {
+            let share = find(shares, &p.share_id)?;
+            if share.state != ShareState::Provisioning {
+                share.live()?;
+            }
+            let answer = json!({"share_id": share.share_id, "account": account, "role": role,
+                "state": InviteState::Invited});
+            if let Some(invitee) = share.invitees.iter_mut().find(|i| i.account == account) {
+                if invitee.state == InviteState::Invited {
+                    return if invitee.role == role {
+                        Ok((answer, false))
+                    } else {
+                        Err("share.invited")
+                    };
+                }
+                *invitee = Invitee { account, role, invited_at: now, state: InviteState::Invited };
+                return Ok((answer, true));
+            }
+            if share.invitees.len() >= MAX_INVITEES {
+                // A removed account goes first, when room is needed.
+                share.invitees.retain(|i| i.state == InviteState::Invited);
+            }
+            if share.invitees.len() >= MAX_INVITEES {
+                return Err("share.limit");
+            }
+            share.invitees.push(Invitee {
+                account,
+                role,
+                invited_at: now,
+                state: InviteState::Invited,
+            });
+            Ok((answer, true))
+        })
+    }
+
+    /// Removes an invited account: it joins no more, and every guest it joined as is kicked (its
+    /// connections close at the next `settle`, and the room hears each kick).
+    fn uninvite(&self, directory: Option<&Path>, p: &Uninvite) -> Result<Value, &'static str> {
+        let account = normal_account(&p.account)?;
+        self.with(directory, |shares, _| {
+            let share = find(shares, &p.share_id)?;
+            let room_hears = share.room.is_some() && share.live().is_ok();
+            let invitee =
+                share.invitees.iter_mut().find(|i| i.account == account).ok_or("share.unknown")?;
+            let mut changed = invitee.state != InviteState::Removed;
+            invitee.state = InviteState::Removed;
+            let mut kicks = Vec::new();
+            for guest in share.guests.iter_mut().filter(|g| g.account.as_ref() == Some(&account)) {
+                if guest.state == GuestState::Active {
+                    guest.state = GuestState::Kicked;
+                    changed = true;
+                    if room_hears {
+                        kicks.push(json!({"op": "kick", "guest_id": guest.guest_id}));
+                    }
+                }
+            }
+            share.pending_room_ops.extend(kicks);
+            let answer = json!({"share_id": share.share_id, "account": account,
+                "state": InviteState::Removed});
+            Ok((answer, changed))
         })
     }
 
@@ -885,6 +1111,12 @@ pub(super) fn handle(
             let api = url.and_then(crate::cloud_conversations::platform::share_owner_api);
             Ok(json!({"room": url, "owner_api": api}))
         }
+        "agent-session-share-invite" => {
+            parse(params).and_then(|p: Invite| shares.invite(directory, &p))
+        }
+        "agent-session-share-uninvite" => {
+            parse(params).and_then(|p: Uninvite| shares.uninvite(directory, &p))
+        }
         "agent-session-share-redeem" => {
             parse(params).and_then(|p: Redeem| shares.redeem(directory, p))
         }
@@ -910,6 +1142,8 @@ fn fail(writer: &MessageWriter, id: Option<Value>, code: &str) -> bool {
         "share.expired" => "the share expired",
         "share.provisioning" | "share.closed" => "the share is not open",
         "share.used" => "the link was already used",
+        "share.not_invited" => "this account is not invited to the share",
+        "share.invited" => "the account is already invited with another role; uninvite it first",
         "share.kicked" => "the owner removed this guest",
         "share.left" => "this guest left the share",
         "share.name" => "a name is 1 to 64 characters on one line",
