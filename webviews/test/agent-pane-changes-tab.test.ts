@@ -131,7 +131,9 @@ test("a binary or empty file the turn changed still lists, by its git header", a
   });
   const files = await viewChangesFiles(rows, "ba", diff);
   const patch = viewChangesPatch(rows, "ba", "/repo/logo.png", "/repo", files);
-  const names = parsePatchFiles(patch!.text).flatMap((p) => p.files ?? []).map((file) => file.name);
+  const names = parsePatchFiles(patch!.text)
+    .flatMap((p) => p.files ?? [])
+    .map((file) => file.name);
   expect(new Set(names)).toEqual(new Set(["logo.png", "empty.txt", "/tmp/setup.txt"]));
   expect(patch?.text).toContain("Binary files a/logo.png and b/logo.png differ");
   expect(patch?.file).toBe("logo.png");
