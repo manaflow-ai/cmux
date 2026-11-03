@@ -467,8 +467,6 @@ public final class TerminalSession {
         }
     }
 
-    /// Handles one event on the main actor. Returns the lane later output may go to off the main
-    /// actor (``consume(_:for:)``).
     /// The first content is queued on the surface's lane: a held frame waits for it to be drawn, and a saved frame on
     /// the surface's own layer stays until it is parsed, then the surface draws (``TerminalSurfaceView/showSaved(_:)``).
     private func contentQueued() {
@@ -481,6 +479,8 @@ public final class TerminalSession {
         }
     }
 
+    /// Handles one event on the main actor. Returns the lane later output may go to off the main
+    /// actor (``consume(_:for:)``).
     private func handle(_ event: TerminalIOEvent) async -> TerminalOutputLane? {
         await apply(event)
         return surfaceHasContent ? surfaceView.lane : nil

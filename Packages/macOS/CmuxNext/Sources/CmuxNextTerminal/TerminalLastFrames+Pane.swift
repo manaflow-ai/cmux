@@ -9,7 +9,8 @@ extension TerminalLastFrames {
     /// frame shown ahead of another tab goes now: no frame mixes two tabs (L4).
     public mutating func paneWaits(_ key: String?, in content: NSView, launch: TerminalLaunchFrames) { // perf-hot: 1ms workspace-switch (each waiting pane)
         guard let key else { return withdrawAhead(in: content) }
-        if !showAhead(key, in: content) { launch.showAhead(key, in: content) }
+        // One frame ahead per pane: an evicted terminal's last frame replaces a launch frame of another tab shown before.
+        if showAhead(key, in: content) { launch.withdrawAhead(in: content) } else { launch.showAhead(key, in: content) }
     }
 
     /// The pane shows `shown`, tab `key`'s view, in `content`. A frame shown ahead goes in this turn (the revealed

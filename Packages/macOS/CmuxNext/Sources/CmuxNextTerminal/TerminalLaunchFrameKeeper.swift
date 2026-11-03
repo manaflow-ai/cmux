@@ -177,7 +177,7 @@ final class TerminalLaunchFrameKeeper {
     private func save(_ key: String, _ session: TerminalSession?) async {
         guard let session, Self.isOnScreen(session), session.surfaceView.bounds.width > 0 else { return }
         // Its own content drawn: never a blank surface over the saved frame, nor the held frame of the last quit.
-        guard session.surfaceHasContent, !session.frameHold.isHolding else {
+        guard session.surfaceHasContent, !session.showsHeldFrame else {
             kept[key]?.lastSave = nil
             // A hold ends up to 500 ms after its content is queued: look again a few times, then wait for the
             // terminal's next change (an attach that never draws costs no wakeups).
