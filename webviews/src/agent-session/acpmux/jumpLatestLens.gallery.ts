@@ -1,7 +1,8 @@
 // l10n-allow-file: sample transcript and comparison labels, not shipped UI.
 // Jump to latest as a fisheye lens (ui/glass/Fisheye.tsx, glass.css FISHEYE). Leo, 2026-10-21:
 // "I want, like glassier stuff. I want it to be like a fucking glass, like a lens thing, like a
-// fisheye. I want more fisheye!" Each variant parks the reader mid-chat, lifts the button into the
+// fisheye. I want more fisheye!" Then, 2026-11-03: "this is a little too transparent maybe don't we
+// inherit off the macos glass levels?" (the level-* variants). Each variant parks the reader mid-chat, lifts the button into the
 // prose so words sit under it, then sets one strength; medium is the one that ships.
 import { agentPaneEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
@@ -43,8 +44,12 @@ const LEVELS = {
     tint: "color-mix(in srgb, var(--glass-surface) var(--ds-glass-lens-tint), transparent)",
     frost: "var(--ds-glass-lens-blur)",
   },
-  /** A stronger frost that keeps the bend: the surface at 50% over a 2.5px blur. */
-  frost: { tint: "color-mix(in srgb, var(--glass-surface) 50%, transparent)", frost: "blur(2.5px) saturate(1.15)" },
+  /** A stronger frost that keeps the bend: the surface at 50% over a 2.5px blur. Ships (desktop.css
+   * --ds-glass-fisheye-*): the words under the disc frost to soft magnified shapes, the bend shows. */
+  frost: {
+    tint: "color-mix(in srgb, var(--glass-surface) var(--ds-glass-fisheye-tint), transparent)",
+    frost: "var(--ds-glass-fisheye-frost)",
+  },
 } satisfies Record<string, Level>;
 
 const park =
@@ -79,7 +84,7 @@ export default agentPaneEntry({
       play: park("soft"),
     },
     medium: {
-      note: "Selected (ships): 1.8x in the middle; the most fisheye strength whose arrow and words still read.",
+      note: "Selected strength (ships): 1.8x in the middle, at the shipped glass level (level-frost).",
       snapshot,
       play: park(),
     },
@@ -104,7 +109,7 @@ export default agentPaneEntry({
       play: park(undefined, LEVELS.lens),
     },
     "level-frost": {
-      note: "A stronger frost that keeps the bend: the surface at 50% under a 2.5px blur.",
+      note: "Selected (ships): a stronger frost that keeps the bend, the surface at 50% under a 2.5px blur.",
       snapshot,
       play: park(undefined, LEVELS.frost),
     },
