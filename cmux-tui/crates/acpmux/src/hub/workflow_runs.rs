@@ -141,10 +141,12 @@ impl Hub {
             let result: Result<()> = async {
                 match &activity.child {
                     Child::Agent { session_id, prompt_id, host } => {
-                        anyhow::ensure!(
-                            host.as_deref().is_none_or(|host| host == "local"),
-                            "remote workflow agent cancellation is not supported on this route"
-                        );
+                        if host.as_deref().is_some_and(|host| host != "local") {
+                            self.workflow_cancel_remote(run, activity)
+                                .await
+                                .map_err(|e| anyhow::anyhow!(e.message))?;
+                            return Ok(());
+                        }
                         let session = match self.resolve(session_id) {
                             Ok(session) => session,
                             Err(error) if error.code == RpcError::not_found("").code => {

@@ -49,9 +49,12 @@ discoverable through `cmux.docs('cmux_workflow')` and callable through `cmux.cal
 - `machine(command, options)` runs a daemon-owned background command and returns its
   recorded output and exit status. A nonzero exit rejects the call. An interrupted launch
   whose outcome cannot be proved fails as uncertain instead of executing twice.
-  Commands run locally by default. `on: "ci"` requires the controller placement adapter
-  tracked in [#33778](https://github.com/manaflow-ai/cmux/issues/33778); until it is
-  available the request fails without running the command locally.
+  Commands run locally by default. `on: "ci"` requires the installed authenticated
+  `cmux-ci` placement adapter. It pins the repository, full source commit and relative
+  working directory before submission, accepts an optional `targetWorker`, and reuses
+  one keyed receipt when reconciling retries. Without that adapter, CI placement fails;
+  it never falls back to running the command locally. See
+  [#33778](https://github.com/manaflow-ai/cmux/issues/33778).
 - `phase(title, fn)` runs a named phase. `parallel(tasks)` starts its callbacks together;
   each ready branch can continue independently. `pipeline(items, fn)` maps sequentially.
 - `cmux.call`, `cmux.docs` and `console` retain the code-mode contract. Scripts have no

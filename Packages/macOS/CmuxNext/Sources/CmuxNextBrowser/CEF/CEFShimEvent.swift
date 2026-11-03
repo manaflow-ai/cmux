@@ -109,6 +109,14 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case statusMessage(browser: Int32, text: String)
     case unknown(kind: Int32)
 
+    /// A load event of a tab's main frame (``CEFTab/handle(_:)``).
+    var isLoadEvent: Bool {
+        switch self {
+        case .loadingState, .loadStart, .loadEnd, .loadError: true
+        default: false
+        }
+    }
+
     init(kind: Int32, browser: Int32, request: Int32, a: Int64, b: Int64, s1: String, s2: String) {
         switch kind {
         case 1: self = .contextInitialized
