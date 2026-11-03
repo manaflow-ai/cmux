@@ -541,6 +541,8 @@ export type AcpmuxRow = {
   doingDraft?: boolean;
   untimed?: boolean;
   quietKey?: string;
+  /// When the reply `quietKey` names was written, on this page's clock (conversation/turns.ts).
+  quietAt?: number;
   /// The call in flight is a command: the line offers "⌃B to run in background" (BackgroundHint.tsx;
   /// never on the command's own row), and leads with the terminal glyph when it names it
   /// (WorkingFor.tsx).

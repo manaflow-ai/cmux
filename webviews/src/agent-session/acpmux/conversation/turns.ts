@@ -1243,6 +1243,9 @@ function codexLiveTurn(
     line.doingAt = (call.startedAt ?? named.at) + clockOffset;
   } else if (last.kind === "assistant") {
     line.quietKey = `${last.id}:${last.version}`;
+    // When that reply was written, so a chat opened long after it paused reads "Thinking" at once
+    // rather than "Writing" for WRITING_MS from the open (Thinking.tsx).
+    line.quietAt = last.at + clockOffset;
     // Past the streaming text's pause the line says the agent writes, never "Thinking".
     line.liveState = "writing";
   }
