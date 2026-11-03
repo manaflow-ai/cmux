@@ -1,8 +1,8 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
 // A background subagent whose Agent call is on a page not loaded is named, never "Subagent" or a
 // bare id (Leo, 2026-11-03: "why is the spacing like this it's weird"; his capture read "Subagent
-// finished: Subagent" and "Sent to a6ab68f9"). acpmux repeats the subagent's name, task and agentId
-// on its progress and end (cmux-tui/crates/acpmux/src/subagents.rs): its end line reads its Agent
+// finished: Subagent" and "Sent to a6ab68f9"). acpmux repeats the subagent's name and task on its
+// progress and end, and its progress says its agentId (cmux-tui/crates/acpmux): its end line reads its Agent
 // call's description, and a SendMessage to its agentId reads "Sent to <that description>". The mock
 // chat `mock-subagent-names` (mockFixture.ts) draws the same scene.
 import { afterEach, expect, test } from "bun:test";

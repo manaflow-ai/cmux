@@ -470,8 +470,8 @@ export const mockSessions: MockSession[] = [
   {
     // A background subagent whose Agent call is on a page not loaded (Leo, 2026-11-03: "why is the
     // spacing like this it's weird", his capture reading "Subagent finished: Subagent" and "Sent to
-    // a6ab68f9"). acpmux repeats its name, task and agentId on its progress and end
-    // (subagents.rs), so its end line names its description and a SendMessage to its agentId reads
+    // a6ab68f9"). acpmux repeats its name and task on its progress and end, and its progress says
+    // its agentId (cmux-tui/crates/acpmux), so its end line names its description and a SendMessage to its agentId reads
     // "Sent to <description>".
     sessionId: SUBAGENT_NAMES_SESSION,
     title: "Watch CI for the subagent names fix",
@@ -485,7 +485,7 @@ export const mockSessions: MockSession[] = [
     reply: "CI is green.",
     history: (at) => {
       const id = `${SUBAGENT_NAMES_SESSION}/toolu_ci_watch`;
-      const named = { name: "ci-watcher", task: SUBAGENT_NAMES_TASK, agentId: SUBAGENT_NAMES_AGENT_ID };
+      const named = { name: "ci-watcher", task: SUBAGENT_NAMES_TASK };
       const send = "mock-subagent-names-send";
       return [
         { ago: at + 4_400_000, mux: "user_message", msg: { text: "Keep watching CI and tell me when it is green." } },
@@ -496,7 +496,15 @@ export const mockSessions: MockSession[] = [
           meta: {
             acpmux: {
               subagents: [
-                { id, parent: null, state: "running", background: true, action: "Reading the run log", ...named },
+                {
+                  id,
+                  parent: null,
+                  state: "running",
+                  background: true,
+                  action: "Reading the run log",
+                  agentId: SUBAGENT_NAMES_AGENT_ID,
+                  ...named,
+                },
               ],
             },
           },

@@ -1123,11 +1123,6 @@ impl Translator {
         if status == "paused" {
             update.set("reason", json!("paused"));
         }
-        // The agent id a SendMessage names it by, so a "Sent to" row whose Agent call is on an
-        // older page still finds it (a workflow names no agent).
-        if !workflow && !task.is_empty() {
-            update.set("agentId", json!(task));
-        }
         if state == "failed" {
             // A workflow resumes by its run id, never by SendMessage: it names no agent.
             let agent = (!workflow && !task.is_empty()).then(|| task.to_owned());
