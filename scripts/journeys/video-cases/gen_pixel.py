@@ -315,9 +315,12 @@ def window_play(speed):
 
 def cases():
     out = []
-    for layout, divider in ((T2, 0), (T4, 1)):
+    # T4: divider 0 is the column edge between the stacked column and the 3-pane column (a column-edge drag that
+    # pushes the strip). Divider 1 sat between two panes at their minimum width: it could not move (S2 A/B 13:4xZ).
+    for layout, divider in ((T2, 0), (T4, 0)):
         play, secs = col_drag_play(divider)
-        out.append(Case(f"px-col-drag-{layout.key}", f"divider {divider} dragged 150 pt right slowly and back fast ({layout.text})",
+        what = "the column edge" if layout is T4 else f"divider {divider}"
+        out.append(Case(f"px-col-drag-{layout.key}", f"{what} dragged 150 pt right slowly and back fast ({layout.text})",
                         layout, play, None, "drag", play_seconds=secs))
     out.append(Case(f"px-row-drag-{T3R.key}", f"the row divider dragged 120 pt down slowly and back fast ({T3R.text})", T3R,
                     row_drag_play, None, "drag", play_seconds=lambda s: 1.3 + 2 * land(s)))

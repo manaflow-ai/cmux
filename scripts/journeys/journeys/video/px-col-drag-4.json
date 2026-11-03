@@ -1,7 +1,7 @@
 {
  "id": "px-col-drag-4",
  "priority": "P1",
- "title": "PIXEL: divider 1 dragged 150 pt right slowly and back fast (p0 T | p1 P | (p2 A / p3 T)), at x0.25, x0.5, x1, x2, x4, Reduce Motion",
+ "title": "PIXEL: the column edge dragged 150 pt right slowly and back fast (p0 T | p1 P | (p2 A / p3 T)), at x0.25, x0.5, x1, x2, x4, Reduce Motion",
  "why": "Lawrence 2026-11-03: resizing columns and splits is not pixel perfect when animated. Loud fixture colors (shell #FF00FF, terminal ground #00FFFF, tab strips #000000, rings #FF0000/#FFFFFF/#000000) make any gap, overlap or lag visible; judge_pixel.py reads every pane edge, tab strip and divider per film frame from the exact scan lines.",
  "source": "PIXEL PERFECT kit (video-cases/gen_pixel.py)",
  "budget_seconds": 143,
@@ -254,7 +254,7 @@
     {
      "do": "hid_drag",
      "target": {
-      "divider": 1
+      "divider": 0
      },
      "by": [
       150,
@@ -272,7 +272,7 @@
     {
      "do": "hid_drag",
      "target": {
-      "divider": 1
+      "divider": 0
      },
      "by": [
       -150,
@@ -338,7 +338,7 @@
     {
      "do": "hid_drag",
      "target": {
-      "divider": 1
+      "divider": 0
      },
      "by": [
       150,
@@ -356,7 +356,7 @@
     {
      "do": "hid_drag",
      "target": {
-      "divider": 1
+      "divider": 0
      },
      "by": [
       -150,
@@ -422,7 +422,7 @@
     {
      "do": "hid_drag",
      "target": {
-      "divider": 1
+      "divider": 0
      },
      "by": [
       150,
@@ -440,7 +440,7 @@
     {
      "do": "hid_drag",
      "target": {
-      "divider": 1
+      "divider": 0
      },
      "by": [
       -150,
@@ -506,7 +506,7 @@
     {
      "do": "hid_drag",
      "target": {
-      "divider": 1
+      "divider": 0
      },
      "by": [
       150,
@@ -524,7 +524,7 @@
     {
      "do": "hid_drag",
      "target": {
-      "divider": 1
+      "divider": 0
      },
      "by": [
       -150,
@@ -590,7 +590,7 @@
     {
      "do": "hid_drag",
      "target": {
-      "divider": 1
+      "divider": 0
      },
      "by": [
       150,
@@ -608,7 +608,7 @@
     {
      "do": "hid_drag",
      "target": {
-      "divider": 1
+      "divider": 0
      },
      "by": [
       -150,
@@ -674,7 +674,7 @@
     {
      "do": "hid_drag",
      "target": {
-      "divider": 1
+      "divider": 0
      },
      "by": [
       150,
@@ -692,7 +692,7 @@
     {
      "do": "hid_drag",
      "target": {
-      "divider": 1
+      "divider": 0
      },
      "by": [
       -150,
