@@ -3568,16 +3568,13 @@ button.cv-video-frames__frame:focus-visible {
   user-select: text;
   -webkit-user-select: text;
 }
-/* Pointing at the sender's open chip lights the chip alone: the line keeps its tone. */
-.cv-received:is(:hover, :active, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) {
-  color: var(--cv-text);
-}
-.cv-received:is(:hover, :active, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus)))
-  :is(.cv-received__from:not(.is-open), .cv-received__text) {
-  color: var(--cv-text);
-}
+/* One steady tone: pointing at or focusing a received line, its opened card or its sender changes
+   no text's colour, opacity or filter; hover only reveals the line's controls and its plate (Leo,
+   2026-11-03: "i dont think this should light up/dim based off if ur hovered onit or otherwise").
+   The line, its sender and its card keep the activity tone the tool rows rest at (#27074), the
+   preview its dim one (received-message-steady-tone-browser.test.ts). */
 /* Markdown and headings set the primary tone themselves (.cv-md, .cv-h): inside a message from or
-   to another agent they take the container's tone instead, and with it the hover and focus lift. */
+   to another agent they take the container's tone instead. */
 .cv-received__text :is(.cv-md, .cv-h),
 .cv-agentmsg__card :is(.cv-md, .cv-h) {
   color: inherit;
