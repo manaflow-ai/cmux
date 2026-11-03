@@ -206,12 +206,12 @@ function MachineMenu({ host, onOpen }: { host: string; onOpen(sessionId: string)
       <MenuButton className="cv-received__host" data-menu="sender-machine" title={title} aria-haspopup="menu">
         <span className="cv-received__host-name">{host}</span>
       </MenuButton>
-      <MenuPopup side="bottom" align="start" className="cv-machine-menu" label={title}>
+      <MenuPopup side="bottom" align="start" className="acpmux-quick-menu cv-machine-menu" label={title}>
         {chats.length > 0 && (
           <>
             <MenuGroup label={title}>
               {chats.map((chat) => (
-                <MenuItem key={chat.sessionId} onSelect={() => onOpen(chat.sessionId)}>
+                <MenuItem key={chat.sessionId} className="acpmux-quick-item" onSelect={() => onOpen(chat.sessionId)}>
                   {chat.name}
                 </MenuItem>
               ))}
@@ -219,7 +219,9 @@ function MachineMenu({ host, onOpen }: { host: string; onOpen(sessionId: string)
             <MenuSeparator />
           </>
         )}
-        <MenuItem onSelect={() => void copyTextResult(host)}>{t("machineMenu.copyName")}</MenuItem>
+        <MenuItem className="acpmux-quick-item" onSelect={() => void copyTextResult(host)}>
+          {t("machineMenu.copyName")}
+        </MenuItem>
       </MenuPopup>
     </Menu>
   );

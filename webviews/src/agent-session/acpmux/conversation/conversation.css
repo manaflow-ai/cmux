@@ -3547,7 +3547,12 @@ button.cv-video-frames__frame:focus-visible {
 }
 /* A machine with a menu (IncomingMessageCard.tsx MachineMenu) keeps the label's look; its name alone
    lights on hover and while its menu is open, never the dot before it or the line around it. */
+/* The pane does not load ui.css, so the button resets itself (no border, background or own font). */
 button.cv-received__host {
+  appearance: none;
+  border: 0;
+  background: none;
+  font: inherit;
   padding: 0;
   cursor: default;
   text-align: start;
