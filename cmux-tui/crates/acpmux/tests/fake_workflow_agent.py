@@ -36,7 +36,10 @@ for line in sys.stdin:
         count += 1
         text = "".join(block.get("text", "") for block in params.get("prompt", []))
         first = first or text
-        if pending and text.startswith("Please continue"):
+        if first in ("route-failure", "route-failure-schema") and "alternate" not in sys.argv:
+            send({"id": rid, "error": {"code": -32000, "message": "workflow route unavailable",
+                "data": {"reason": "route.unavailable"}}})
+        elif pending and text.startswith("Please continue"):
             send({"method": "session/update", "params": {"sessionId": params["sessionId"],
                 "update": {"sessionUpdate": "agent_message_chunk", "content": {
                     "type": "text", "text": "nudge accepted"}}}})
