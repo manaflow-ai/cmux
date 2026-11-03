@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures (prompts, subagent names), not shipped UI.
 // One tray line's anatomy (design/chat-transcript.md "Subagent row anatomy"; Leo, 2026-10-31: "why
 // is this still so ass in latest nightly", and earlier "eg a lot of these subtitles are bad"): one
-// leading glyph (the spinner while it works), the title a gap after it, one muted trailing meta and
+// leading glyph (its own mark; no spinner on a running line with its time), the title a gap after it, one muted trailing meta and
 // the time, the chevron. No agent-type subtitle; the state word then the time ("Done · 36s"), muted,
 // beside the chevron; the title is the subagent's task. Settled or running, the tray sits on the
 // composer's glass, joined to it, so the transcript never shows through. The arms (trayPanel.experiment.ts `trayRowLook`) place a running
@@ -141,7 +141,7 @@ export default agentPaneEntry({
       ),
     },
     "running-one": {
-      note: "One subagent running: the shared spinner as its glyph, its task as the title, Running · its elapsed time beside Stop and the chevron.",
+      note: "One subagent running: its own mark as its glyph, its task as the title, its elapsed time alone (no spinner, no Running word; Leo, 2026-11-03) beside Stop and the chevron.",
       play: play(false),
       snapshot: chat(
         [
@@ -179,7 +179,7 @@ export default agentPaneEntry({
       ),
     },
     "running-stats": {
-      note: "A running workflow: the spinner is its one glyph, its agent counts sit muted before its time (no tokens or tool uses), and the finished one under it lines its time up with it.",
+      note: "A running workflow: its own mark is its one glyph (no spinner), its agent counts sit muted before its time (no tokens or tool uses), and the finished one under it lines its time up with it.",
       play: play(false),
       snapshot: chat(
         [

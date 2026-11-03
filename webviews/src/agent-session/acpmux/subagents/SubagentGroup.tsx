@@ -217,7 +217,16 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
 /// A running subagent's stop button. It stays off while Claude has the request (and after Claude
 /// takes it, until the subagent ends); when acpmux or Claude refuses, it says so and can be tried
 /// again.
-export function StopButton({ agent, stop }: { agent: Subagent; stop: (id: string) => Promise<unknown> }) {
+export function StopButton({
+  agent,
+  stop,
+  solid = false,
+}: {
+  agent: Subagent;
+  stop: (id: string) => Promise<unknown>;
+  /// A filled square, as Claude Desktop's running rows draw it (the running tray's lines).
+  solid?: boolean;
+}) {
   const t = useT();
   const [state, setState] = useState<"idle" | "stopping" | "failed">("idle");
   const label = t(state === "failed" ? "subagents.stopFailed" : "subagents.stop", {
@@ -236,7 +245,7 @@ export function StopButton({ agent, stop }: { agent: Subagent; stop: (id: string
         stop(agent.id).catch(() => setState("failed"));
       }}
     >
-      <Icon name="action.stop" size={12} />
+      <Icon name="action.stop" size={12} selected={solid} />
     </button>
   );
 }

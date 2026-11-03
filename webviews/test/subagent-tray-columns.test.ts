@@ -582,10 +582,17 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           ["open", "stop"],
         );
 
-        // Running lines keep their visible state word in the fixed status track, alongside ended rows.
-        expect(await page.locator(".acpmux-running-tray__list .acpmux-summary-agent__state").count()).toBeGreaterThan(
+        // A running line with its time shows no Running word: its time and Stop say it runs (Leo,
+        // 2026-11-03: "do we really need a running symbol vs just having the time and a square stop
+        // button?"). Screen readers still hear the word.
+        expect(await page.locator(".acpmux-running-tray__list .acpmux-agent-line[data-timed]").count()).toBeGreaterThan(
           0,
         );
+        expect(
+          await page
+            .locator(".acpmux-running-tray__list .acpmux-agent-line[data-timed] .acpmux-summary-agent__state")
+            .count(),
+        ).toBe(0);
       } finally {
         await page.close();
       }
@@ -668,6 +675,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
                   words: visibleText,
                   stats: row.querySelector(".acpmux-summary-text > .acpmux-agent-line__stats")?.textContent ?? null,
                   state: row.querySelector(".acpmux-summary-agent__state")?.textContent ?? null,
+                  timed: row.hasAttribute("data-timed"),
                   statsBelow: Boolean(row.querySelector(".acpmux-summary-text > .acpmux-agent-line__progress")),
                   timeLeft,
                   metaRight: meta?.right,
@@ -683,8 +691,12 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
             expect(row.subtitle).toBe(false);
             expect(row.words).not.toContain("general-purpose");
             expect(row.words).not.toContain("Explore");
-            expect(row.state).not.toBeNull();
-            expect(row.words).toContain(row.state!);
+            // A running line with its time shows no state word (Leo, 2026-11-03); every other says it.
+            if (row.timed) expect(row.state).toBeNull();
+            else {
+              expect(row.state).not.toBeNull();
+              expect(row.words).toContain(row.state!);
+            }
             // The state word, then the time ("Done · 36s").
             if (row.metaRight !== undefined && row.timeLeft !== undefined)
               expect(row.metaRight).toBeLessThanOrEqual(row.timeLeft + 0.5);
