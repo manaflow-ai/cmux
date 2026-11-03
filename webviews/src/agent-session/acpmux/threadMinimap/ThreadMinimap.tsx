@@ -203,7 +203,7 @@ export function ThreadMinimap({
   const read = useMemo(() => {
     const prior = lastTurns.current;
     if (earlierRows.length || !promptCount) return minimapTurns(rows, sessionId, prior, change, earlierRows);
-    const guess = prior?.sessionId === sessionId ? (prior.loadedTurns ?? prior.turns).length : 0;
+    const guess = prior && prior.sessionId === (sessionId ?? "") ? (prior.loadedTurns ?? prior.turns).length : 0;
     const first = minimapTurns(rows, sessionId, prior, change, unheldRows(promptCount - guess));
     const held = (first.loadedTurns ?? first.turns).length;
     return held === guess ? first : minimapTurns(rows, sessionId, prior, change, unheldRows(promptCount - held));
