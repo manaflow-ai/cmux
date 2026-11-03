@@ -62,6 +62,8 @@ struct Fake {
     computer_use: Option<Value>,
     /// The card's answer to `permissions.request`; `granted` when unset.
     setup_outcome: Option<Value>,
+    /// The app's `cloud.machines` answer; an app without it answers `{ran: true}`.
+    cloud_machines: Option<Value>,
     /// `{method, params, thread}` of each request the app caller got.
     app_calls: std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
     sent: RefCell<Vec<Value>>,
@@ -306,6 +308,9 @@ impl Backend for Fake {
                     .topology
                     .clone()
                     .unwrap_or_else(|| json!({"topology": {"windows": [{"id": "win_a"}]}})))
+            }
+            "cloud.machines" if self.cloud_machines.is_some() => {
+                Ok(self.cloud_machines.clone().unwrap_or_default())
             }
             "feed.list" => {
                 let mut live = self.live.borrow_mut();
@@ -1527,6 +1532,7 @@ mod agent_wait;
 
 mod caller_scope;
 mod catalog;
+mod cloud_workspace_list;
 mod machine_catalog;
 mod retained;
 mod settings;
