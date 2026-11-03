@@ -116,6 +116,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
             // Not installed yet: its daemon tab is still being created.
             return pageClosedBeforeAdoption(page)
         }
+        // A page whose tab left its strip while it decided a person's close closes it (no handler, or Leave): through the held pane (HiddenPageCloses).
+        if case .close = intent, let key = services?.cache.key(of: page), let undo = services?.closedTabs?.undoToasts, let held = undo.hiddenPages.pageClosed(key, keepsHidden: undo.pageDecidedCloses.isWaiting) { return CloseUndoToasts.close(in: held, [StripTabID(key)]) }
         guard let services, let key = services.cache.key(of: page) ?? services.popups.openerKey(of: page),
               let (openerTab, pane) = services.locateTabOnAnyMachine(key) else {
             // The opener is gone: nowhere to show a new page.

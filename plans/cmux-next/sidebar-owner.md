@@ -1,5 +1,32 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-03: a workspace icon follows the sidebar density. Leo, verbatim: "generally we can have stuff more dynamically
+  sized for compact/etc rn i think it's just a one size for these workspace icons". The icon's glyph was clamped to the
+  compact 16 pt square at every density, so comfortable only widened an empty slot. It now fills the density's icon
+  column (`SidebarStyle.workspaceGlyphSide` = `iconColumnBox`: 16 compact, 20 comfortable, wider with the text size),
+  with its symbol and favicon drawn at the matching size; a group's own icon shares it. Compact, expanded (title-line
+  icon on the compact column), text, rows and the column itself are unchanged. Regression:
+  `SidebarWorkspaceIconDensityTests`.
+
+- 2026-11-03: app panels can occupy the existing band below the workspace list. Leo (2026-11-02):
+  "let’s do all these" — "A sidebar panel slot plus ’an agent writes the app, it hot-reloads’. This covers his PR view,
+  makes Session Info extensible, and is mostly built." Only app sections draw there; cx-n0i9 still keeps ordinary
+  item sections hidden and the footer separate. Existing band caps, scrolling and scene mounts apply. A header
+  drag forwards the document move within bottom or between top and bottom. Regression: `SidebarAppBottomBandTests`.
+
+- 2026-11-03: a row's working spinner draws at the row's status glyph size, not the warning's. Leo, verbatim: "i think
+  the spinners are maybe a bit too big in this situation" (the compact sidebar). Since #30236's follow-up (Leo
+  2026-11-01, "every icon is still f***ing small") every non-dot row badge drew in a 14 pt box, so at compact the
+  spinner outweighed the 8 pt unread dot and the 10 pt status marks of badge-less rows. A working or loading badge now
+  takes `RowBadgeView.spinnerSide` (`SidebarStyle.statusGlyphSize`: 10 pt compact, 12 comfortable) on the same cell
+  center; the red warning and needs-you marks keep 14 pt. Regression: `RowBadgeSpinnerDensityTests` (every density and
+  minimal mode), `RowBadgeMarkSizeTests.theSpinnerIsSmallerThanTheWarning`.
+- 2026-11-03: a download shows no sidebar card; the staged update is the one Restart to Update card. Leo, verbatim, on
+  the Downloading Update card: "also idk chatgpt's seems to be just like a one step "ok it's already downloaded you click
+  this button to accept the button and restart" idk if we wanna follow that too". `UpdateFlow.card` returns nil while
+  downloading, asked for or not; the progress, its Cancel and a failure's Try Again moved to Settings > Updates' App
+  Update card (`UpdaterService.settingsStatus`, `AppUpdatePageProvider`). The ready card itself is unchanged.
+  Regression: `UpdateOneStepTests`.
 - 2026-11-03: the update and notice cards take the theme. Leo, verbatim, on the Downloading Update card: "will this
   be themeed properly?". The download bar was the fixed secondary-text gray (`Palette.textSecondary`) and the Update
   Ready and notice cards' veil the neutral gray; the bar is now the theme's accent (`Palette.accentFill`, the primary
@@ -398,7 +425,8 @@ A workspace close removes only the workspace. The daemon close path and remote-c
 | Workspace hover card | One grid: the header's icon, every tab row's icon and the Show details chevron center on one icon column; the name, each tab's title and detail line and "Show details" start on one text column; tab rows keep one pitch (the list scrolls as the row above says). Each tab row is two lines: its icon (favicon, agent mark or kind), its title, and one muted detail line, the folder or page host · the status word (none when idle) · the time since its last activity, its kind when it has none (a blank page reads "New Tab"); only the place shortens, from its middle, keeping its last path component or host, never the status or the time; its spinner, needs-you or error mark, or unread dot on the trailing column. The card sizes to its rows up to 320 pt, or the sidebar's width plus 120 when less, and no narrower than 180 pt. The card lays a frosted veil (the theme's window background at 0.55) over its glass, so it reads over a busy terminal and stays glass (Leo 2026-10-21's overlay rule caps a body tint under 0.6). Variants V1..V12: `AAWorkspaceHoverCardVariantsGalleryTests` (V1 is this). | Lawrence msg 19245 ("alignment here looks bad. design not very good either, not showing enough details per each. make many variations and show me") |
 | Row close (X) | The original close: a small x at the row's trailing end, shown on hover, in its rounded box. Not the top-right "dog-ear" fold. | Lawrence 11405 ("revert styling back to original, for the X button") |
 | Group rail | The rail's left edge is the group header pill's left edge, at every depth, every density, light and dark. | Lawrence 11240, 11371, 11405 |
-| Group rail shape | Chrome's line on that edge: 2 pt, flat ends, the header bar's own color, a 6 pt cut below the header, down to the last member's bottom. Debug `sidebar.groupLineLayout`: `edge` (default, the row above), `joined` (no cut, the bar's bottom-left corner square: one L, band header only), `inside` (the header reaches the corner inset further left, 4 pt compact and 5 pt comfortable, capped at the list's edge: the line under its corner). Members never move. | Leo 2026-10-23 ("WTF HAPPENED TO FOLLOWING CHROME"; asks ask-5b16be6ee9, ask-40133bf821, ask-7e10ebd553), #24513 |
+| Group rail shape | Chrome's line on that edge: 2 pt, one capsule (see Left bar), the header bar's own color, a 6 pt cut below the header, down to the last member's bottom. Debug `sidebar.groupLineLayout`: `edge` (default, the row above), `joined` (no cut, the bar's bottom-left corner square: one L, band header only), `inside` (the header reaches the corner inset further left, 4 pt compact and 5 pt comfortable, capped at the list's edge: the line under its corner). Members never move. | Leo 2026-10-23 ("WTF HAPPENED TO FOLLOWING CHROME"; asks ask-5b16be6ee9, ask-40133bf821, ask-7e10ebd553), #24513 |
+| Left bar: capsule, equal top/bottom rounding | The group rail beside member rows (`GroupLineView`, every place it draws: the list's lines and a lifted group's card) is one capsule: the layer's corner clip rounds all four corners by half the bar's width (`SidebarGroupLineShape`), so the top and bottom caps match, in light and dark, at every density and text size, in the line look and the connected (Chrome-Style Groups) look. Neither cap is clipped by the row, the scroll edge or a neighbour row. | Lawrence msg 19775 ("roundness of left bar needs to be better, like rounded on both top and bottom"); SidebarGroupRailCapsuleTests |
 | Row text | As far left as it originally was. A row with no icon starts its title at the row inset; no empty icon slot pushes it right. A top-level group's rows keep the ungrouped rows' left edge. Only nested groups step in. | Lawrence 11405 ("text needs to be as left as possible (how it originally was)"); #23975 |
 | Home unread | A blue dot, the same dot as other unread rows. No count badge. | Lawrence 11384 |
 | Hover card usage | A workspace whose agent chat reports acpmux `usageStats` gets one row after the agent row: the context each call carries and the last 24 hours' cost ("312K context · $1,421 in 24h"), with the context-window ring. No usage, no row. | Leo 2026-10-30 ("that visibility into [one agent host's] guys was (and is?) pretty bad i feel like we can make more improvements to acpmux/cmux-next") |
@@ -456,6 +484,7 @@ some undid each other:
 
 | Commit | Date | Who | Change |
 | --- | --- | --- | --- |
+| sb-left-bar fix (after the red commit "the sidebar's left bar is one capsule") | 11-02 | sidebar owner a590 helper (lawrencecchen) | cmux NEXT sidebar: the group rail is one capsule, equal top and bottom rounding (Lawrence msg 19775) |
 | [83c8d5b6104](https://github.com/manaflow-ai/cmux/commit/83c8d5b61040b6c8e2f39fd3c5f53b375c7b40d6) | 10-23 | Chief subagent (Home unread dot) | Home's unread is the workspace rows' blue dot on the trailing column, no count (Lawrence 11384) |
 | [cd84bc62d13](https://github.com/manaflow-ai/cmux/commit/cd84bc62d13f501d0b80eae7b65a6164c7d60acc) | 10-22 | Leo (#23783) | Rows run full length; hover close becomes a top-right dog-ear |
 | [6c315dd4b83](https://github.com/manaflow-ai/cmux/commit/6c315dd4b83c2dc546f5de9e9df525b267043d2d) | 10-23 | a577 | Indent stops at six steps; a label keeps 150 pt |
@@ -631,6 +660,7 @@ the gap, no row left out of place after drop or cancel).
 | [fc4ad465bae](https://github.com/manaflow-ai/cmux/commit/fc4ad465bae) | Direct commit: the Updated card follows the sidebar's density: padding, text, button and corner (`SidebarDensityTokens`, `SidebarUpdatedCardHost`). Visual change to the Updated card. Reached feat-cmux-next without this note's record; reviewed and logged for the Sidebar-Look sweep (2026-11-02). |
 | [fc77da95056](https://github.com/manaflow-ai/cmux/commit/fc77da95056) | PR [#31416](https://github.com/manaflow-ai/cmux/pull/31416): every row status mark draws at the red warning's size (`Views/RowBadgeView.swift`). Visual change: one status-mark size. Reached feat-cmux-next without this note's record; reviewed and logged for the Sidebar-Look sweep (2026-11-02). |
 | sb-leading-column: the "(red)" test commit (fleet step c32aed243a46701a16b321f0, failed as expected: Home's glyph 2.25 pt, pins 5 pt, the favicon 2 pt, emoji and symbol 1 pt right of the inset), then this fix (green step 0a5d70848894b9691a0e5b49: every test of the 13 suites passes but `SidebarLookContractTests.theHoverCloseIsTheRowsTrailingX` at comfortable, the hover close this range does not touch, failing as logged under sb-pinned-noclose; the step reports 11 suites "failed (exit 1)" because the runner's XCTest pass ended on signal 6 after each Swift Testing pass; gallery step 22247da6fc22379c43e1499d) | Every row's first ink at the row inset, icons in one column (Lawrence msg 19643: "left alignment here is bad"). Root cause: every leading glyph was centered in the 16 pt (compact) icon column whose box already started at the inset, so each glyph started half its spare width in: the pin (6 pt of ink in its 12 pt square) about 5 pt, Home's house (12 pt of ink) about 2 pt, a favicon or emoji drawn in a 14 to 16 pt square 1 to 2 pt, while text-only titles start at the inset itself. One rule now, `SidebarStyle.iconColumnGlyphX(leading:ink:)`: the pin (`SidebarItemRowView.pinGlyphFrame`), a band row's bare glyph (Home), its list-look well and color dot, and a workspace or list item row's icon (`SidebarIconView.leadsWithInk`: symbol and favicon ink measured by `SidebarGlyphInk`, a bare emoji's by `SidebarEmojiGlyphView`, a chip and a dot are their own ink) start their ink at the column's leading edge. Box x and width, the text column and text-only titles are unchanged. Group and section header glyphs, Priority rows and chat history rows keep their centered glyphs. Debug `sidebar.leadingColumn` keeps `centered` (before) and `slotted` (the Chief's empty-slot alternative) for comparison. Tests: `SidebarLeadingEdgeTests`; `SidebarIconColumnTests.leadingGlyphsShareOneLeadingX`, `SidebarGridAlignmentTests.leadingIconBoxEndsOneGapBeforeTheText` and `SidebarUniformRowSpacingTests.thePinStartsOnAnUnpinnedRowsIconColumn` moved from the center rule. Gallery `AALeadingColumnGalleryTests` (`leading-column-gallery.tar`), crops in `~/fun/cmux-galleries/leading-column/`. |
+| sb-left-bar: the "(red)" test commit (SidebarGroupRailCapsuleTests, fleet step 8c0b3eb930d97c99b494e622, failed as expected), then this fix | Lawrence msg 19775: the left bar (group rail, `GroupLineView`) is one capsule. Cause: 51897bafba35 (#24712, "match Chrome rail end caps") rounded only the rail's right corners, and 7c08b2980032 (#27865) gave the connected look a cut top-right shoulder over a round bottom. Now `SidebarGroupLineShape` (radius = width / 2, all four corners) is the one shape; crops in ~/fun/cmux-galleries/left-bar/ (AALeftBarGalleryTests). |
 
 ## Daemon hand-off: new groups first below Home (for the next PL-daemon owner)
 
@@ -1184,6 +1214,16 @@ An empty group now keeps only its header at rest. The header's existing + appear
   unchanged. Gallery: `ProfileBarVariantGalleryTests` (sidebar-space-variants): one space, four spaces, overflow with
   the + pinned (chosen) and overflow with the + riding the end of the dots, each at rest, pointer in the row and over
   the +, light/dark at 2x. Test: `ProfileBarPlusPlacementTests`.
+
+## A new row appears once, in its final place (2026-11-03)
+
+- Leo 2026-11-03 06:19Z: "i hate it when you guys make new worksapces or whatever and they appear for a split second
+  and it's just bloop and then it goes into presumably whichever group... it's just weird how it flickers into some
+  top level group or whatever then goes away"
+- A workspace opened into a named group (`acpmux new --group`, `cmux agent open --group`) draws first in that group.
+  The daemon's create lists it loose and its join is a document move a hop later, so the sidebar leaves the row out
+  while it lists loose (`GroupJoinHold`, at most 2 s from its first loose listing, then it shows where it lists). No
+  other row moves. #30583 removed the current-group stop; this removes the loose one. Test: `GroupJoinHoldTests`.
 
 ## Reviewed behavior-only commits
 

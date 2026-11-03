@@ -35,7 +35,7 @@ final class SidebarSectionHeaderView: NSView {
 
     /// A drag from a press (window points): true once the region drags.
     var onDragged: ((NSPoint, NSEvent) -> Bool)?
-    var onDragEnded: (() -> Void)?
+    var onDragEnded: ((NSPoint) -> Void)?
     private var pressLocation: NSPoint?
     private var didDrag = false
 
@@ -109,7 +109,7 @@ final class SidebarSectionHeaderView: NSView {
     override func mouseUp(with event: NSEvent) {
         defer { pressLocation = nil; didDrag = false }
         guard pressLocation != nil else { return }
-        if didDrag { onDragEnded?() } else { onPress?() }
+        if didDrag { onDragEnded?(event.locationInWindow) } else { onPress?() }
     }
 
     override func rightMouseDown(with event: NSEvent) {

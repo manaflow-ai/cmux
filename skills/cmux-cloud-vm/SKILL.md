@@ -65,7 +65,7 @@ cmux app capabilities
 `action describe` prints the action's targets and arguments. Actions drive the app
 the same way its palette and sidebar do. Run from the CLI or MCP, read actions answer
 in the action result (`--json` prints it): `cloud exec` returns `exit_code`, `stdout`
-and `stderr`, `cloud new-machine` the new `machine_id`, `machine-status` and the file
+and `stderr`, `cmux machine new` (the `cloud new-machine` action) the new `machine_id`, `machine-status` and the file
 and listing actions their facts. They need the app, sign-in and its private tunnel.
 
 ## Machine lifecycle from the Mac

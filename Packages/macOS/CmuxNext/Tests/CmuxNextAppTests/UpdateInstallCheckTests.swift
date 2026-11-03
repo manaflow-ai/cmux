@@ -17,8 +17,13 @@ import Testing
         let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.debug.install-check", shortVersion: "1.0.0",
                                            build: build, minimumSystemVersion: nil,
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: false)
-        return UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, defaults: defaults,
-                              enableSparkle: false, recordsUpdates: false, now: { time })
+        let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, defaults: defaults,
+                                     enableSparkle: false, recordsUpdates: false, now: { time })
+        // The relaunch reads the frontmost app (``UpdaterService/frontmost``); AppKit's answer needs
+        // an NSApplication, which a test process that made none lacks (`NSApp` is nil and the read
+        // traps). This app is frontmost, as when a person clicks Restart to Update.
+        updater.frontmost = { UpdateFrontmostApp(isThisApp: true, pid: 1, bundleID: "com.cmuxterm.app.debug.install-check") }
+        return updater
     }
 
     @Test func aLaunchOnTheOldBuildIsAFailedInstall() {

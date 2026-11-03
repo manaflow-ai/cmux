@@ -14,7 +14,8 @@ name: cmux NEXT Stable
 # Gates, all on the candidate's exact nightly-next commit or on the signed stable DMG itself:
 #   crash-class   the cmux-next-crash-class.yml rules on the whole tree (Linux)
 #   swift-suites  every CmuxNext test target, package-test-lane.sh suite, as build-fleet steps on
-#                 macOS 27 M4 Pro workers (labels macos-27 + ram48; no M6 mini has ram48)
+#                 macOS 27 workers (labels macos-27 + ram48: no M6 mini has ram48; two 16 GB M4
+#                 minis keep ram48 for old clients, which is fine for tests)
 #   perf-budgets  scripts/cmux-next/perf-budgets.py --gate (split-spring.sh --suite=budgets) on an
 #                 exclusive macOS 27 M4 Pro measure worker, against apple-m4-pro-macos27's baseline
 #   smoke-27      UI tests of the signed stable app on an owned M4 Pro mini, macOS 27: fresh-home
@@ -318,10 +319,9 @@ jobs:
           echo "stable serves $served ($base); candidate $COMMIT"
           python3 -I .stable-tooling/scripts/ci/stable_next.py crash-delta --base-tree "$RUNNER_TEMP/base-tree" --head-tree "$RUNNER_TEMP/head-tree"
 
-  # Every CmuxNext test target, four shards, each on an owned M4 Pro GUI mini (macOS 27, a console
-  # session: the suites that need a display run). The same runs-on as cmux-next.yml's swift test:
-  # the gui pool on attempt 1, Blacksmith macOS on a re-run. package-test-lane.sh suite runs the same
-  # way under Actions as in a fleet step (it fetches GhosttyKit, the web bundles and the cmux-tui tree).
+  # Every CmuxNext test target, four shards, each a build-fleet step (package-test-lane.sh suite) on a
+  # macOS 27 worker (never an M6), submitted from an owned GUI-pool runner (a fleet client); a re-run lands on
+  # Blacksmith, where cmux-ci is missing, and fails closed.
   swift-suites:
     needs: plan
     if: needs.plan.outputs.go == 'true'
@@ -330,7 +330,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
-    timeout-minutes: 240
+    timeout-minutes: 330
     permissions:
       contents: read
     env:
@@ -342,67 +342,102 @@ jobs:
           chip="$(sysctl -n machdep.cpu.brand_string)"
           echo "runner $RUNNER_NAME: $chip, macOS $(sw_vers -productVersion)"
           case "$chip" in *M6*) echo "::error::stable-next never uses an M6 mini ($RUNNER_NAME)"; exit 1 ;; esac
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ needs.plan.outputs.commit }}
-          persist-credentials: false
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
-      - name: Every CmuxNext suite of shard ${{ matrix.shard }}
+      # The shard runs as a build-fleet step (package-test-lane.sh suite), not on this runner: run on a
+      # GUI runner directly, each suite's XCTest pass hung ~10 min on the runner account's own Contacts
+      # store after its Swift tests passed (run 41582798853: every suite "failed" at ~659 s). The fleet
+      # routes display suites to its console workers itself. macos-27 + ram48: never an M6 (no M6 has ram48).
+      - name: Every CmuxNext suite of shard ${{ matrix.shard }} (build fleet, macOS 27)
         env:
+          COMMIT: ${{ needs.plan.outputs.commit }}
           FILTERS: ${{ matrix.filters }}
-          # CmuxNextAppTests runs about 15 min on a GUI mini; the lane's 900 s per-suite watchdog cut it
-          # off as "stalled/timeout" every night (908 s, run 41419773317).
-          CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS: "2400"
+          KEY: stable-next-${{ needs.plan.outputs.build }}-suites-${{ matrix.shard }}-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::error::$client is not installed on $RUNNER_NAME"
+            exit 1
+          fi
           # One retry: one flaky suite does not lose the night; a suite red twice is red.
+          # CmuxNextAppTests runs about 15 min, so each suite gets 2400 s (the lane's default is 900).
           for attempt in 1 2; do
             status=0
-            ./scripts/ci/package-test-lane.sh suite Packages/macOS/CmuxNext "$FILTERS" || status=$?
+            "$client" run --class light --script scripts/ci/package-test-lane.sh --ref "$COMMIT" \
+              --label macos-27 --label ram48 --key "$KEY-$attempt" \
+              --arg=suite --arg=Packages/macOS/CmuxNext --arg="$FILTERS" \
+              --env "CMUX_CI_XCODE_APP=$STABLE_XCODE_APP" --env CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=26 \
+              --env CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS=2400 \
+              --timeout 6000 --queue-timeout 3600 || status=$?
             [ "$status" = 0 ] && exit 0
+            # 75: the step is still queued and keeps its place; a new key would queue a duplicate that
+            # nobody waits on (fleet rule: never resubmit). Only a finished red or a timeout retries.
+            if [ "$status" = 75 ]; then
+              echo "::error title=stable swift suites::shard ${{ matrix.shard }} still queued after 60 min (step kept; not resubmitted)"
+              exit 75
+            fi
             echo "::warning title=stable swift suites::shard ${{ matrix.shard }} attempt $attempt exited $status"
           done
           exit "$status"
 
-  # scripts/cmux-next/perf-budgets.py --gate through split-spring.sh on an owned M4 Pro GUI mini
-  # (macOS 27): fails when a row's p95 is over 10 % above the apple-m4-pro-macos27 baseline.
+  # scripts/cmux-next/perf-budgets.py --gate through split-spring.sh, as a build-fleet measurement: an
+  # exclusive step on an idle macOS 27 M4 Pro measure worker (measure + macos-27 + ram48 + cmux: ram48 rules
+  # out every M6, and cmux the two 16 GB M4 lent minis, which have no perf baseline for their chip),
+  # the same host class and quiet the apple-m4-pro-macos27 baseline was taken in. Fails when a row's p95
+  # is over 10 % above that baseline. Measured on a busy GUI runner instead (run 41613684939), 9 benches
+  # gave no numbers and the rest regressed against an idle baseline, so the numbers judged nothing.
   perf-budgets:
     needs: plan
     if: needs.plan.outputs.go == 'true'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
-    timeout-minutes: 120
-    permissions:
-      contents: read
-    env:
-      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+    timeout-minutes: 600
+    permissions: {}
     steps:
       - name: This runner is not an M6 mini
         run: |
           chip="$(sysctl -n machdep.cpu.brand_string)"
           echo "runner $RUNNER_NAME: $chip, macOS $(sw_vers -productVersion)"
           case "$chip" in *M6*) echo "::error::stable-next never uses an M6 mini ($RUNNER_NAME)"; exit 1 ;; esac
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ needs.plan.outputs.commit }}
-          persist-credentials: false
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
-      # The perf build makes the web bundles (scripts/cmux-next/build-web-bundles.sh needs bun 1.4.4).
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: "1.4.4"
-      - name: Perf budgets gate
-        run: CI_SHARED_CACHE_DIR="$RUNNER_TEMP/stable-perf-cache" bash scripts/measure/split-spring.sh --suite=budgets --gate --vdisplay=120
-      - name: Upload the perf report
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: stable-next-perf
-          path: artifacts/split-spring
-          if-no-files-found: ignore
-          retention-days: 3
+      - name: Perf budgets gate (exclusive macOS 27 M4 Pro measure worker)
+        env:
+          COMMIT: ${{ needs.plan.outputs.commit }}
+          # Keys per build, numbered: a later run or re-run walks the same keys and re-attaches to each
+          # step (queued, running or done) instead of queuing a second whole-host measurement. A step that
+          # ended with no verdict (cancelled, timed out, killed by a host fault) moves on to the next key,
+          # so one fault never leaves the build's gate red; a finished gate verdict (0 or 1) is final.
+          KEY: stable-next-${{ needs.plan.outputs.build }}-perf
+        run: |
+          set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::error::$client is not installed on $RUNNER_NAME"
+            exit 1
+          fi
+          log="$RUNNER_TEMP/perf-step.log"
+          # Attempt 1 may wait 3 h for an idle M4 Pro; a retry after a fault gets 1 h (fits the job's 600 min).
+          for n in 1 2 3; do
+            status=0
+            queue=$([ "$n" = 1 ] && echo 10800 || echo 3600)
+            "$client" run --class exclusive --measurement --script scripts/measure/split-spring.sh --ref "$COMMIT" \
+              --label measure --label macos-27 --label ram48 --label cmux --key "$KEY-$n" \
+              --artifact artifacts/split-spring/report.json \
+              --arg=--suite=budgets --arg=--gate --arg=--vdisplay=120 \
+              --timeout 7200 --queue-timeout "$queue" 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
+            case "$status" in
+              0) exit 0 ;;
+              # Still queued: the step keeps its place; never resubmit it.
+              75) echo "::error title=stable perf::step $KEY-$n still queued after 3 h (kept; not resubmitted)"; exit 75 ;;
+              124) echo "::warning title=stable perf::step $KEY-$n ran past its time limit; measuring again" ;;
+              *)
+                # A gate verdict printed its PERF-BUDGETS lines; a step that never measured did not.
+                if grep -q -E 'cmux-ci: step [0-9a-f]+ (cancelled|failed)' "$log" && ! grep -q 'PERF-BUDGETS rows=' "$log"; then
+                  echo "::warning title=stable perf::step $KEY-$n ended without a verdict; measuring again"
+                else
+                  exit "$status"
+                fi ;;
+            esac
+          done
+          echo "::error title=stable perf::three perf steps for this build ended without a verdict"
+          exit 1
 
   sign:
     needs: plan
