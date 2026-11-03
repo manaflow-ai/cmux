@@ -1,6 +1,6 @@
 // The replay bench's logs line up with acpmux's: seq 1, 2, 3... per session, and its pure judging.
 import { describe, expect, test } from "bun:test";
-import { checkSeq, longLog, mockLogs, recordedLog, rowsIn, slope, toRecord } from "./replayLogs";
+import { checkSeq, longLog, mockLogs, parseLog, recordedLog, rowsIn, slope, toRecord } from "./replayLogs";
 import { judge, movedPx } from "./transcript-replay.bench";
 
 describe("replay logs", () => {
@@ -19,7 +19,7 @@ describe("replay logs", () => {
   });
 
   test("the long log's bursts are seq ranges of tokens and tool output, rows growing", () => {
-    const log = longLog({ turns: 200, checkpoints: [2, 100, 199], tokenCount: 10, outputUpdates: 5 });
+    const log = longLog({ turns: 300, checkpoints: [2, 150, 299], tokenCount: 10, outputUpdates: 5 });
     const tokens = log.bursts.filter((burst) => burst.kind === "token");
     expect(tokens.map((burst) => burst.toSeq - burst.fromSeq + 1)).toEqual([10, 10, 10]);
     expect(tokens[0]!.rows).toBeLessThan(tokens[1]!.rows);
@@ -27,6 +27,16 @@ describe("replay logs", () => {
     for (const burst of log.bursts)
       for (const event of log.events.slice(burst.fromSeq - 1, burst.toSeq))
         expect(event.kind).toBe(burst.kind === "token" ? "agent_message_chunk" : "tool_call_update");
+  });
+
+  test("a recorded daemon log reads as JSON lines or an events page, in seq order", () => {
+    const events = [toRecord("d", 2, 20, { mux: "turn_started" }), toRecord("d", 1, 10, { mux: "user_message" })];
+    for (const text of [events.map((event) => JSON.stringify(event)).join("\n"), JSON.stringify({ events })]) {
+      const log = parseLog("daemon.jsonl", text);
+      expect(log.sessionId).toBe("d");
+      expect(log.events.map((event) => event.seq)).toEqual([1, 2]);
+      expect(() => checkSeq(log)).not.toThrow();
+    }
   });
 
   test("rows count prompts, calls and runs of reply chunks", () => {

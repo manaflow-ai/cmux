@@ -217,3 +217,26 @@ export function slope(points: readonly { x: number; y: number }[]): number {
   if (sxx === 0) return 0;
   return points.reduce((sum, p) => sum + (p.x - mx) * (p.y - my), 0) / sxx;
 }
+
+/// A recorded acpmux session log (pure): JSON lines of SessionEvents, or `_acpmux/events`' / `_acpmux/attach`'s
+/// answer ({events: [...]}), as a daemon or a simulated agent writes it. Its seq keys are kept as recorded, so
+/// checkSeq refuses a log with a gap (a page of it, say) instead of replaying something the daemon never sent.
+export function parseLog(name: string, text: string): ReplayLog {
+  const trimmed = text.trim();
+  const parsed: unknown = trimmed.startsWith("{") && !trimmed.includes("\n{") ? JSON.parse(trimmed) : undefined;
+  const events = (
+    parsed && typeof parsed === "object" && Array.isArray((parsed as { events?: unknown }).events)
+      ? (parsed as { events: EventRecord[] }).events
+      : trimmed.startsWith("[")
+        ? (JSON.parse(trimmed) as EventRecord[])
+        : trimmed.split("\n").filter(Boolean).map((line) => JSON.parse(line) as EventRecord)
+  ).sort((a, b) => a.seq - b.seq);
+  const sessionId = events[0]?.sessionId ?? name;
+  return {
+    name,
+    sessionId,
+    summary: { sessionId, cwd: "/replay", title: name, harness: "claude", name: "claude" },
+    events,
+    bursts: [],
+  };
+}

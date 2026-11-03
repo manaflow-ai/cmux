@@ -25,7 +25,10 @@
 // A row over its budget prints a `BUDGET MISS` line that says what broke; with --strict the bench then exits 1. The
 // suite (web-ui-suite.ts) runs it without --strict: the perf cron's advisory issue is where a regression shows.
 // Every sampler stops when its page closes; finally closes the servers, the browser and the build directory.
-//   bun bench/transcript-replay.bench.ts [--turns 600] [--only long,recorded,mock] [--strict]
+// PROFILE=1 builds the pane unminified, takes a CPU profile of every burst and prints, per kind, the functions whose self
+// time per record grew most from the first checkpoint to the last: where the O(rows) work is.
+// --log FILE (repeatable) plays a recorded acpmux log too: JSON lines of SessionEvents or {events: [...]}, seq-keyed.
+//   bun bench/transcript-replay.bench.ts [--turns 600] [--only long,recorded,mock] [--log FILE]... [--strict]
 /// <reference types="bun" />
 import fs from "node:fs";
 import os from "node:os";
@@ -34,7 +37,7 @@ import { chromium, type Browser, type CDPSession, type Page } from "playwright";
 import type { EventRecord } from "../src/agent-session/acpmux/direct";
 import { installPaintedFrames } from "../test/support/paintedFrames";
 import { perfRow, TARGET_MS, type PerfRow } from "./perfRow";
-import { checkSeq, longLog, mockLogs, recordedLog, rowsIn, slope, type ReplayLog } from "./replayLogs";
+import { checkSeq, longLog, mockLogs, parseLog, recordedLog, rowsIn, slope, type ReplayLog } from "./replayLogs";
 
 const argv = process.argv.slice(2);
 const flag = (name: string) => {
@@ -44,6 +47,8 @@ const flag = (name: string) => {
 const TURNS = Number(flag("--turns") ?? 600);
 const ONLY = (flag("--only") ?? "long,recorded,mock").split(",");
 const STRICT = argv.includes("--strict");
+const PROFILE = process.env.PROFILE === "1";
+const LOG_FILES = argv.flatMap((arg, index) => (argv[index - 1] === "--log" ? [arg] : []));
 if (!Number.isInteger(TURNS) || TURNS < 8 || ONLY.some((name) => !["long", "recorded", "mock"].includes(name))) {
   console.error("usage: bun bench/transcript-replay.bench.ts [--turns 600] [--only long,recorded,mock] [--strict]");
   process.exit(2);
@@ -238,7 +243,20 @@ async function openPage(ctx: Ctx, log: ReplayLog, served: number, status: string
   await installPaintedFrames(page);
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("Performance.enable");
+  if (PROFILE) await cdp.send("Profiler.enable");
   return { page, cdp };
+}
+
+/// The elements that shifted most, by the layout-shift value they took part in, summed (pure).
+export function shiftSources(shifts: readonly Shift[], top = 3): string[] {
+  const sum = new Map<string, number>();
+  for (const shift of shifts)
+    for (const source of shift.sources.length ? shift.sources : ["?"])
+      sum.set(source, (sum.get(source) ?? 0) + shift.value);
+  return [...sum.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, top)
+    .map(([source, value]) => `${source} ${value.toFixed(4)} in ${shifts.filter((s) => s.sources.includes(source)).length} shifts`);
 }
 
 type Open = { log: string; cls: number; moved: number; movedRow: string; shiftNotes: string[] };
@@ -280,14 +298,39 @@ async function openRound(ctx: Ctx, log: ReplayLog): Promise<Open> {
       cls: Math.round(result.shifts.reduce((sum, shift) => sum + shift.value, 0) * 1e4) / 1e4,
       moved: moved.px,
       movedRow: moved.row,
-      shiftNotes: result.shifts.slice(0, 4).map((shift) => `${shift.value.toFixed(4)} ${shift.sources.join(", ")}`),
+      shiftNotes: shiftSources(result.shifts),
     };
   } finally {
     await page.close();
   }
 }
 
-type BurstResult = { kind: string; rows: number; msPerRecord: number };
+type BurstResult = { kind: string; rows: number; msPerRecord: number; selfMs?: Map<string, number> };
+type CpuProfile = {
+  nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number } }[];
+  samples: number[];
+  timeDeltas: number[];
+};
+/// Self time per function (ms) in a profile, each divided by `records` (pure).
+export function selfTimes(profile: CpuProfile, records: number): Map<string, number> {
+  const byId = new Map(profile.nodes.map((node) => [node.id, node]));
+  const self = new Map<string, number>();
+  profile.samples.forEach((id, index) => {
+    const frame = byId.get(id)?.callFrame;
+    if (!frame || frame.functionName === "(idle)" || frame.functionName === "(program)") return;
+    const file = frame.url.split("/").pop() ?? "";
+    const key = `${frame.functionName || "(anon)"}${file ? ` ${file}:${frame.lineNumber + 1}` : ""}`;
+    self.set(key, (self.get(key) ?? 0) + (profile.timeDeltas[index] ?? 0) / 1000 / records);
+  });
+  return self;
+}
+/// The functions whose self time per record grew most from `first` to `last` (pure).
+export function grew(first: Map<string, number>, last: Map<string, number>, top = 12): [string, number, number][] {
+  return [...last.entries()]
+    .map(([key, ms]) => [key, first.get(key) ?? 0, ms] as [string, number, number])
+    .sort((a, b) => b[2] - b[1] - (a[2] - a[1]))
+    .slice(0, top);
+}
 type Live = {
   log: string;
   cls: number;
@@ -300,7 +343,7 @@ type Live = {
   shiftNotes: string[];
 };
 /// The live phase: an empty session, then every record as a live event at the page's top speed.
-async function liveRound(ctx: Ctx, log: ReplayLog): Promise<Live> {
+async function liveRound(ctx: Ctx, log: ReplayLog, measureIdle: boolean): Promise<Live> {
   const first = log.events[0]?.at ?? Date.now();
   const { page, cdp } = await openPage(ctx, log, 0, "running", first);
   const started = performance.now();
@@ -321,6 +364,7 @@ async function liveRound(ctx: Ctx, log: ReplayLog): Promise<Live> {
       const burst = inBurst.get(log.events[index]!.seq);
       if (burst) {
         await paint(page, 2);
+        if (PROFILE) await cdp.send("Profiler.start");
         const taskBefore = await metric(cdp, "TaskDuration");
         const windowStart = await page.evaluate(() => performance.now());
         for (; index < log.events.length && log.events[index]!.seq <= burst.toSeq; index++) {
@@ -332,11 +376,14 @@ async function liveRound(ctx: Ctx, log: ReplayLog): Promise<Live> {
         }
         await paint(page, 2);
         const taskMs = ((await metric(cdp, "TaskDuration")) - taskBefore) * 1000;
+        const records = burst.toSeq - burst.fromSeq + 1;
+        const profiled = PROFILE ? ((await cdp.send("Profiler.stop")) as { profile: CpuProfile }).profile : undefined;
         burstWindows.push([windowStart, await page.evaluate(() => performance.now())]);
         bursts.push({
           kind: burst.kind,
           rows: burst.rows,
-          msPerRecord: Math.round((taskMs / (burst.toSeq - burst.fromSeq + 1)) * 1000) / 1000,
+          msPerRecord: Math.round((taskMs / records) * 1000) / 1000,
+          ...(profiled ? { selfMs: selfTimes(profiled, records) } : {}),
         });
         continue;
       }
@@ -353,11 +400,14 @@ async function liveRound(ctx: Ctx, log: ReplayLog): Promise<Live> {
     play!.status = "idle";
     changed(play!);
     await rest(page);
-    await page.waitForTimeout(500);
-    await rest(page);
-    const idleBefore = await metric(cdp, "TaskDuration");
-    await page.waitForTimeout(2000);
-    const idleMsPerS = (((await metric(cdp, "TaskDuration")) - idleBefore) * 1000) / 2;
+    let idleMsPerS = 0;
+    if (measureIdle) {
+      // Two seconds more first: a chat's own settling (fold timers, deferred measurement) is not idle work.
+      await page.waitForTimeout(2000);
+      const idleBefore = await metric(cdp, "TaskDuration");
+      await page.waitForTimeout(3000);
+      idleMsPerS = (((await metric(cdp, "TaskDuration")) - idleBefore) * 1000) / 3;
+    }
     const heapAfter = await heapMb(cdp);
     const { shifts, long } = await page.evaluate(
       (since) => {
@@ -376,7 +426,7 @@ async function liveRound(ctx: Ctx, log: ReplayLog): Promise<Live> {
       heapMb: Math.round((heapAfter - heapBefore) * 10) / 10,
       idleMsPerS: Math.round(idleMsPerS * 100) / 100,
       seconds: Math.round((performance.now() - started) / 100) / 10,
-      shiftNotes: shifts.slice(0, 4).map((shift) => `${shift.value.toFixed(4)} ${shift.sources.join(", ")}`),
+      shiftNotes: shiftSources(shifts),
     };
   } finally {
     await page.close();
@@ -469,6 +519,7 @@ if (import.meta.main) {
     if (ONLY.includes("long")) logs.push(longLog({ turns: TURNS }));
     if (ONLY.includes("recorded")) logs.push(recordedLog());
     if (ONLY.includes("mock")) logs.push(...mockLogs(now));
+    for (const file of LOG_FILES) logs.push(parseLog(path.basename(file), fs.readFileSync(file, "utf8")));
     for (const log of logs) checkSeq(log);
     const daemon = Bun.serve({
       port: 0,
@@ -492,7 +543,7 @@ if (import.meta.main) {
     const { build } = await import("vite");
     await build({
       configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-      build: { outDir: out, emptyOutDir: true },
+      build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
       logLevel: "error",
     });
     console.log(`transcript-replay: pane built in ${((performance.now() - builtAt) / 1000).toFixed(0)} s`);
@@ -525,18 +576,33 @@ if (import.meta.main) {
       try {
         const open = await openRound(ctx, log);
         opens.push(open);
-        const live = log.name.startsWith("mock:") && log.events.length < 4 ? undefined : await liveRound(ctx, log);
+        // A seeded chat of a prompt and its reply streams in too few records to say anything live; the open covers it.
+        const live =
+          log.name.startsWith("mock:") && log.events.length < 8
+            ? undefined
+            : await liveRound(ctx, log, log.name === "long");
         if (live) lives.push(live);
         console.log(
           `transcript-replay: ${log.name} (${log.events.length} records, ${rowsIn(log.events)} rows) open cls ${open.cls} ` +
             `moved ${open.moved} px (${open.movedRow})` +
             (live
               ? ` | live ${live.seconds} s cls ${live.cls} long tasks ${live.longTasks} (longest ${live.longestTaskMs} ms) ` +
-                `heap +${live.heapMb} MB idle ${live.idleMsPerS} ms/s`
+                `heap +${live.heapMb} MB` +
+                (log.name === "long" ? ` idle ${live.idleMsPerS} ms/s` : "")
               : ""),
         );
+        for (const note of [...open.shiftNotes.map((n) => `open shift: ${n}`), ...(live?.shiftNotes ?? []).map((n) => `live shift: ${n}`)])
+          if (!note.includes(" 0.0000 ")) console.log(`  ${note}`);
         for (const burst of live?.bursts ?? [])
           console.log(`  ${burst.kind} at ${burst.rows} rows: ${burst.msPerRecord} ms per record`);
+        for (const kind of ["token", "tool_output"]) {
+          const profiled = (live?.bursts ?? []).filter((burst) => burst.kind === kind && burst.selfMs);
+          if (profiled.length < 2) continue;
+          const [first, last] = [profiled[0]!, profiled.at(-1)!];
+          console.log(`  ${kind}: self ms per record that grew from ${first.rows} rows to ${last.rows} rows`);
+          for (const [fn, before, after] of grew(first.selfMs!, last.selfMs!))
+            console.log(`    ${before.toFixed(3)} -> ${after.toFixed(3)}  ${fn}`);
+        }
       } catch (error) {
         failed += 1;
         console.log(`transcript-replay: ${log.name} FAILED: ${error instanceof Error ? error.message : String(error)}`);
