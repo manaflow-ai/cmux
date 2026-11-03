@@ -230,8 +230,8 @@ describe("complete machine replies through durable attachments", { timeout: 120_
       expect(result(await conv.submit(conversation, owner.principal, {
         t: "op", op: "participants.remove", params: { participant: "agent_reply_removed" }, idempotency_key: "remove"
       }))).toMatchObject({ t: "result" })
-      expect(await b.post(run)).toBeGreaterThan(Date.now())
-      expect(posted(b, run)).toMatchObject({ post: "pending", reply: longReply })
+      expect(await b.post(run)).toBeNull()
+      expect(posted(b, run)).toMatchObject({ post: "refused", reply: longReply })
       expect(f.quotaCalls).toBe(0)
       expect(f.putCalls).toBe(0)
       expect(f.messageSubmits).toHaveLength(0)
