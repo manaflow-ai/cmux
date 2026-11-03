@@ -94,6 +94,9 @@ pub(super) struct Meter {
 impl Meter {
     pub fn seed(&mut self, line: &Line) {
         if let Some(id) = &line.agent {
+            if self.contexts.contains_key(&format!("sub:{id}")) {
+                return;
+            }
             self.remember(
                 format!("sub:{id}"),
                 Attribution {

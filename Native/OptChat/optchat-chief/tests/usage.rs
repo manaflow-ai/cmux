@@ -758,3 +758,69 @@ fn credit_meter_cli_backfill_never_copies_credential_environment() {
         }
     }
 }
+
+#[test]
+fn credit_meter_resumed_subagent_keeps_the_original_person_and_route() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("traces");
+    {
+        let trace = Trace::open(&path, false).unwrap();
+        trace.emit("usage.identity", json!({"person":"user_owner"}));
+        trace.emit(
+            "subagent.start",
+            json!({"id":"a1","session":"s1","person":"user_guest","harness":"cmux","peer":"vm1"}),
+        );
+        trace.emit(
+            "subagent.answer",
+            json!({"id":"a1","cost_usd":1.0,"usage":{"input":1}}),
+        );
+    }
+    let trace = Trace::open(&path, false).unwrap();
+    trace.emit("usage.identity", json!({"person":"user_owner"}));
+    trace.emit(
+        "subagent.answer",
+        json!({"id":"a1","cost_usd":2.0,"usage":{"input":1}}),
+    );
+    let rows = usage::read(&usage::dir(tmp.path()), 0, u64::MAX).unwrap();
+    let row = serde_json::to_value(&rows[1]).unwrap();
+    assert_eq!(row["person"], "user_guest");
+    assert_eq!(row["harness"], "cmux");
+    assert_eq!(row["payer"], "platform");
+    assert_eq!(row["machine"], "vm1");
+    assert_eq!(row["usd"], 1.0);
+}
+
+#[test]
+fn credit_backfill_history_does_not_lock_out_live_turns() {
+    let tmp = tempfile::tempdir().unwrap();
+    let traces = tmp.path().join("traces");
+    let trace = Trace::open(&traces, false).unwrap();
+    let fifo = traces.join("2026-11-03.jsonl");
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let root = tmp.path().to_owned();
+    let backfill = std::thread::spawn(move || usage::backfill(&root, false));
+    // Opening the writer proves backfill is now blocked reading history.
+    let writer = std::fs::OpenOptions::new().write(true).open(&fifo).unwrap();
+    let (sent, received) = std::sync::mpsc::channel();
+    // Use a separate trace date file, so the test's live event cannot write
+    // into the historical FIFO itself.
+    let live = usage::Ledger::open(&usage::dir(tmp.path())).unwrap();
+    let thread = std::thread::spawn(move || {
+        live.observe(&json!({"ev":"turn.end","ts":T0,"turn":"live","usage":{"input":1}}));
+        sent.send(()).unwrap();
+    });
+    let responsive = received
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .is_ok();
+    drop(writer);
+    backfill.join().unwrap().unwrap();
+    thread.join().unwrap();
+    drop(trace);
+    assert!(responsive, "historical scanning blocked a live Chief event");
+}
