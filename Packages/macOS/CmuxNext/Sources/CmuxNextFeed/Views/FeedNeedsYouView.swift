@@ -45,7 +45,7 @@ public final class FeedNeedsYouView: NSView {
     public var onShowAll: () -> Void = {}
     /// The section's height changed (a request came or went, an answer form opened).
     public var onHeightChange: () -> Void = {}
-    private let appearance = FeedAppearance()
+    private let palette = FeedAppearance()
     private var hosting: FeedNeedsYouHost?
 
     public init(model: FeedModel, style: FeedNeedsYouStyle? = nil, limit: Int = 3) {
@@ -56,7 +56,7 @@ public final class FeedNeedsYouView: NSView {
         wantsLayer = true
         setAccessibilityElement(false)
         setAccessibilityIdentifier("cmux.home.needsYou")
-        let root = FeedNeedsYouSection(model: model, style: style, limit: self.limit, appearance: appearance,
+        let root = FeedNeedsYouSection(model: model, style: style, limit: self.limit, appearance: palette,
                                        open: { [weak self] item in self?.onOpen(item) }, showAll: { [weak self] in self?.onShowAll() })
         let hosting = FeedNeedsYouHost(rootView: root)
         hosting.sizingOptions = [.intrinsicContentSize]
@@ -107,7 +107,7 @@ public final class FeedNeedsYouView: NSView {
 
     private func resolveColors() {
         let colors = performWithTheme { FeedColors.resolved(background: Palette.elevatedBackground) }
-        if appearance.colors != colors { appearance.colors = colors }
+        if palette.colors != colors { palette.colors = colors }
     }
 }
 
