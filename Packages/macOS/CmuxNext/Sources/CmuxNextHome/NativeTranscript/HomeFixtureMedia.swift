@@ -113,10 +113,10 @@ nonisolated final class VideoJob: @unchecked Sendable {
     }
 
     private func frame(_ i: Int) -> CVPixelBuffer? {
-        guard let pool = adaptor.pixelBufferPool else { return nil }
         var buffer: CVPixelBuffer?
-        CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer)
-        guard let buffer else { return nil }
+        guard CVPixelBufferCreate(nil, width, height, kCVPixelFormatType_32BGRA, nil, &buffer) == kCVReturnSuccess,
+              let buffer
+        else { return nil }
         CVPixelBufferLockBaseAddress(buffer, [])
         defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
