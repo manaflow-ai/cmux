@@ -397,7 +397,7 @@ impl CloudPlacement {
             peer,
             dir: env("OPTCHAT_SUBAGENT_PEER_DIR")
                 .filter(|d| d.starts_with('/'))
-                .map_or_else(|| PathBuf::from("/home/agent/work"), PathBuf::from),
+                .map_or_else(PathBuf::new, PathBuf::from),
             harness: env("OPTCHAT_SUBAGENT_PEER_HARNESS")
                 .filter(|h| !h.trim().is_empty())
                 .unwrap_or_else(|| "claude".to_owned()),
@@ -580,7 +580,7 @@ impl Spawner {
     }
 
     /// The placement on `peer`: the env's folder and harness when it set
-    /// one, else the defaults (`/home/agent/work`, `claude`).
+    /// one, else the defaults (daemon-selected scratch folder, `claude`).
     fn placement(&self, peer: &str) -> CloudPlacement {
         match &self.cloud {
             Some(c) => CloudPlacement {
@@ -589,7 +589,7 @@ impl Spawner {
             },
             None => CloudPlacement {
                 peer: peer.to_owned(),
-                dir: PathBuf::from("/home/agent/work"),
+                dir: PathBuf::new(),
                 harness: "claude".to_owned(),
                 instructions: self.cloud_text.clone().unwrap_or_default(),
             },
