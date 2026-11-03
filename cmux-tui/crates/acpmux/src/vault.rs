@@ -36,7 +36,7 @@ pub mod wire;
 mod tests;
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use zeroize::Zeroizing;
