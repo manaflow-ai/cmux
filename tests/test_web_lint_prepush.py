@@ -444,6 +444,82 @@ class WebLintPrePushTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("::warning title=web lint (base)::webviews: sh check-lanes.sh", result.stderr)
 
+    # The trust boundary (docs/contributor-verification.md): the hook runs only check code the push did not change.
+    # Each test below plants a marker-writing script that only pushed content can reach, and the hook must never run
+    # it, on a build host or a host that runs no heavy checks.
+    SEEDED_CHECK = '"python3 ../scripts/cmux-next/check_x.py && sh check-format.sh"'
+
+    def seed_reviewed_check(self):
+        """webviews' check runs a reviewed scripts/cmux-next/check_x.py, seeded on origin."""
+        self.write("webviews/package.json", WEBVIEWS_PACKAGE.replace(
+            '"sh check-lanes.sh && sh check-format.sh"', self.SEEDED_CHECK))
+        self.write("scripts/cmux-next/check_x.py", "print('reviewed check')\n")
+        self.commit("a reviewed source check")
+        seeded = self.push(CMUX_WEB_LINT_SKIP_REASON="fixture: seed the reviewed check on origin first")
+        self.assertEqual(seeded.returncode, 0, seeded.stderr)
+
+    def push_branch(self, branch, **env):
+        return subprocess.run(["git", "-C", str(self.repo), "push", "origin", branch],
+                              env={**self.env, **env}, text=True, capture_output=True)
+
+    def test_a_push_that_turns_a_parent_of_executed_code_into_a_symlink_runs_none_of_it(self):
+        self.seed_reviewed_check()
+        marker = self.root / "pushed-code-ran"
+        # The whole scripts/ folder becomes a symlink into webviews/src/, which a push may change and still be linted.
+        shutil.rmtree(self.repo / "scripts")
+        self.write("webviews/src/evil/cmux-next/check_x.py", f"open({str(marker)!r}, 'w').close()\n")
+        (self.repo / "scripts").symlink_to("webviews/src/evil")
+        self.commit("scripts/ is now a symlink")
+
+        for number, env in enumerate(({}, LIGHT_HOST)):
+            with self.subTest(env=env):
+                self.write("webviews/src/app.ts", f"export const app = {20 + number};\n")
+                self.commit("a source change")  # each sub-test pushes a new head
+                result = self.push(**env)
+
+                self.assertFalse(marker.exists(), "the hook ran code the push put behind a symlink")
+                self.assertIn("not linted here", result.stderr)
+
+    def test_a_later_push_of_a_branch_never_runs_check_code_an_earlier_push_changed(self):
+        self.seed_reviewed_check()
+        marker = self.root / "pushed-code-ran"
+        self.git("checkout", "--quiet", "-b", "topic")
+        self.write("scripts/cmux-next/check_x.py", f"open({str(marker)!r}, 'w').close()\n")
+        self.commit("change the check")
+        first = self.push_branch("topic")
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertIn("not linted here", first.stderr)
+        self.assertFalse(marker.exists())
+
+        for number, env in enumerate(({}, LIGHT_HOST)):
+            with self.subTest(env=env):
+                self.write("webviews/src/app.ts", f"export const app = {30 + number};\n")
+                self.commit("a source change")  # each sub-test pushes a new head
+                result = self.push_branch("topic", **env)
+
+                self.assertFalse(marker.exists(), "a later push ran the check code the first push changed")
+                self.assertIn("not linted here", result.stderr)
+                self.assertIn("scripts/cmux-next/check_x.py", result.stderr)
+
+    def test_a_symlink_in_executed_code_is_never_followed(self):
+        # A symlink already on the base points executed code at a source file, which a push may change.
+        self.seed_reviewed_check()
+        self.write("webviews/src/check.sh", "echo ok\n")
+        (self.repo / "webviews/check-format.sh").unlink()
+        (self.repo / "webviews/check-format.sh").symlink_to("src/check.sh")
+        self.commit("a symlink in executed code")
+        seeded = self.push(CMUX_WEB_LINT_SKIP_REASON="fixture: a symlink already on origin")
+        self.assertEqual(seeded.returncode, 0, seeded.stderr)
+        marker = self.root / "pushed-code-ran"
+        self.write("webviews/src/check.sh", f"touch {marker}\n")
+        self.commit("change the source the symlink reaches")
+
+        result = self.push()
+
+        self.assertFalse(marker.exists(), "the hook followed a symlink in executed code to pushed content")
+        self.assertIn("webviews/check-format.sh", result.stderr)
+        self.assertIn("symlink", result.stderr)
+
     def test_hook_does_not_run_check_code_the_push_changes(self):
         # A pushed branch could carry any check script; the hook must not run it.
         marker = self.root / "ran"
@@ -1255,6 +1331,70 @@ class CheckPiecesTests(unittest.TestCase):
         self.assertEqual(lint.check_pieces(SOURCE, package, "check", lambda rel: manifest), ["a", "b"])
         manifest = json.dumps({"scripts": {"check": "a && b"}})
         self.assertEqual(lint.check_pieces(SOURCE, package, "check", lambda rel: manifest), ["a", "b"])
+
+
+class TrustBoundaryTests(unittest.TestCase):
+    """The pieces of the trust boundary on their own: which changes reach check code, and which paths escape."""
+
+    def test_a_change_to_a_parent_folder_of_check_code_is_a_change_to_it(self):
+        lint = load_lint(SOURCE)
+        webviews = next(p for p in lint.SCRIPT_PACKAGES if p.directory == "webviews")
+        for path in ("scripts", "config", "scripts/cmux-next", "webviews/check.sh"):
+            with self.subTest(path=path):
+                self.assertEqual(lint.executed_changes(webviews, [path]), [path])
+        for path in ("scripts2", "webviews/src/a.ts", "README.md", "configs"):
+            with self.subTest(path=path):
+                self.assertEqual(lint.executed_changes(webviews, [path]), [])
+        web = lint.ESLINT_PACKAGES[0]
+        self.assertEqual(lint.eslint_executed_changes(web, ["web", "web/app/page.tsx", "web/package.json"]),
+                         ["web", "web/package.json"])
+
+    def test_a_path_that_resolves_elsewhere_in_the_tree_escapes(self):
+        lint = load_lint(SOURCE)
+        with tempfile.TemporaryDirectory(prefix="cmux-escape-") as temporary:
+            tree = Path(temporary) / "tree"
+            (tree / "webviews/src/evil").mkdir(parents=True)
+            (tree / "webviews/src/evil/x.py").write_text("")
+            (tree / "webviews/real.py").write_text("")
+            (tree / "scripts").symlink_to("webviews/src/evil")
+            (tree / "webviews/link.py").symlink_to("src/evil/x.py")
+            self.assertEqual(lint.escaping_paths(tree, ["webviews/real.py", "scripts/x.py", "webviews/link.py",
+                                                        "webviews/missing.py", "webviews"]),
+                             ["scripts/x.py", "webviews/link.py"])
+
+    def test_a_package_whose_named_script_escapes_is_not_run(self):
+        # The run-time half of the boundary: an untracked symlink (the tracked ones are refused from git) that a
+        # check names is never followed.
+        lint = load_lint(SOURCE)
+        webviews = next(p for p in lint.SCRIPT_PACKAGES if p.directory == "webviews")
+        with tempfile.TemporaryDirectory(prefix="cmux-escape-") as temporary:
+            tree = Path(temporary) / "tree"
+            (tree / "webviews/src").mkdir(parents=True)
+            (tree / "webviews/src/x.py").write_text("")
+            (tree / "webviews/package.json").write_text(json.dumps(
+                {"scripts": {"check": "bun run check:a && vp fmt --check", "check:a": "python3 tools/a.py"}}))
+            (tree / "webviews/tools").mkdir()
+            (tree / "webviews/tools/a.py").symlink_to("../src/x.py")
+            self.assertIn("webviews/tools/a.py", lint.named_scripts(webviews, lint.package_scripts(tree, webviews)))
+            plan = lint.Plan(script_packages=[webviews])
+            with mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+                self.assertFalse(lint.refuse_escapes(tree, plan, "pre-push"))
+            self.assertIn("webviews/tools/a.py", err.getvalue())
+            self.assertEqual(plan.script_packages, [])
+
+    def test_the_real_check_code_has_no_symlink_and_resolves_to_itself(self):
+        # The boundary must not refuse the real tree: no tracked symlink at check code, and every named file is its own.
+        lint = load_lint(SOURCE)
+        head = subprocess.run(["git", "-C", str(SOURCE), "rev-parse", "HEAD"], text=True, capture_output=True,
+                              check=True).stdout.strip()
+        for package in lint.SCRIPT_PACKAGES:
+            with self.subTest(package=package.directory):
+                sources = tuple(f"{package.directory}/{d}" for d in lint.SOURCE_DIRS)
+                self.assertEqual(lint.executed_symlinks(SOURCE, head, package.executed, sources), [])
+                scripts = lint.package_scripts(SOURCE, package)
+                self.assertEqual(lint.escaping_paths(SOURCE, lint.named_scripts(package, scripts)), [])
+        for package in lint.ESLINT_PACKAGES:
+            self.assertEqual(lint.executed_symlinks(SOURCE, head, package.executed), [])
 
 
 if __name__ == "__main__":
