@@ -9,6 +9,7 @@
 // the numbers are in model.ts.
 import React, { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
+import { HIDDEN_SCROLLER_ATTRIBUTE } from "../../../scrollers";
 import { layoutGeometry, type AcpmuxRow, type TranscriptLayout } from "../model";
 import { useT } from "../i18n";
 import { layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
@@ -1095,6 +1096,7 @@ export function ThreadMinimap({
           <ol
             ref={list}
             className="acpmux-minimap__list"
+            {...{ [HIDDEN_SCROLLER_ATTRIBUTE]: "" }}
             // The edge fades: 2.5rem, a quarter of a short rail, and never over the band (railFades).
             data-fade-top={fades.top || undefined}
             data-fade-bottom={(overflow && fades.bottom) || undefined}
