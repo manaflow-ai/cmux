@@ -1027,7 +1027,8 @@ async fn session_info_names_host_sign_in_route_settings_and_limits() {
         .filter_map(Value::as_str)
         .collect();
     let has = |suffix: &str| settings.iter().any(|s| s.ends_with(suffix));
-    assert!(has("home/.claude/settings.json"), "{settings:?}");
+    // The fake HOME is the daemon's home, so its Claude home reads as `~`.
+    assert!(settings.contains(&"~/.claude/settings.json"), "{settings:?}");
     assert!(has(".claude/settings.local.json"), "{settings:?}");
     assert!(settings.contains(&"autocompact at 400K"), "{settings:?}");
     assert!(info["usageLimits"]["windows"].as_array().is_some_and(|w| !w.is_empty()), "{info}");
