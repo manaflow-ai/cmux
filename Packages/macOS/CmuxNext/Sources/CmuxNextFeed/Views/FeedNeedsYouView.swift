@@ -195,7 +195,7 @@ struct FeedNeedsYouRow: View {
                     FeedGlyph(item: item)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(content.headline)
-                            .font(.system(size: TypeScale.body, weight: .medium))
+                            .font(.system(size: TypeScale.body, weight: .semibold))
                             .foregroundStyle(colors.primary)
                             .lineLimit(1)
                         HStack(spacing: 5) {
@@ -203,7 +203,7 @@ struct FeedNeedsYouRow: View {
                             Text(verbatim: "·")
                             Text(FeedRelativeTime.string(item.createdAt, now: model.now)).monospacedDigit()
                         }
-                        .font(.system(size: 11))
+                        .font(.system(size: TypeScale.caption))
                         .foregroundStyle(colors.tertiary)
                     }
                     Spacer(minLength: 0)
