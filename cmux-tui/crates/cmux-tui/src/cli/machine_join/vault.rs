@@ -101,10 +101,24 @@ pub(super) fn parse(rest: &[String]) -> Result<super::Command, UsageError> {
     Ok(super::Command { verb: super::Verb::Vault(verb), auth })
 }
 
-/// An env var name: `[A-Za-z_][A-Za-z0-9_]*`, at most 128, and not one the machine's shell or
-/// cmux owns (the Cloud secrets' own rules, so a vault var can always be set on a machine).
+/// API keys the vault exists to carry, which Cloud secrets keep for the model plane: a joined
+/// Mac of the person's own has no model plane to collide with.
+const PROVIDER_KEYS: [&str; 5] = [
+    "OPENAI_API_KEY",
+    "OPENAI_BASE_URL",
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_AUTH_TOKEN",
+];
+
+/// Whether `name` is a vault var name: [`PROVIDER_KEYS`], else the Cloud secrets' rules
+/// (`[A-Za-z_][A-Za-z0-9_]*`, at most 128, not one the machine's shell or cmux owns).
+pub(super) fn vault_name_ok(name: &str) -> bool {
+    PROVIDER_KEYS.contains(&name) || crate::cli::cloud_secret::check_name(name).is_ok()
+}
+
 fn checked_name(name: &str) -> Result<String, UsageError> {
-    crate::cli::cloud_secret::check_name(name).map(|()| name.to_owned()).map_err(|_| {
+    Some(name).filter(|n| vault_name_ok(n)).map(str::to_owned).ok_or_else(|| {
         UsageError::new(format!(
             "{:?} is not an env var name: [A-Za-z_][A-Za-z0-9_]*, and not PATH, HOME, LD_*, CMUX_* or another the machine owns",
             clean(name)
@@ -142,7 +156,7 @@ pub(super) fn entries(body: &Value) -> Option<Vec<Entry>> {
         rows.iter()
             .filter_map(|row| {
                 let name = row.get("name")?.as_str()?;
-                crate::cli::cloud_secret::check_name(name).ok()?;
+                vault_name_ok(name).then_some(())?;
                 let updated_at = match row.get("updatedAt") {
                     Some(Value::String(text)) => Value::String(clean(text)),
                     Some(Value::Number(n)) => Value::Number(n.clone()),

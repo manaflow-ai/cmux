@@ -47,7 +47,7 @@ fn run_add(
         asked.push(question.to_owned());
         true
     };
-    let mut read_value = |_: &str| -> Result<zeroize::Zeroizing<String>, String> {
+    let mut read_value = |_: &str| -> Result<Zeroizing<String>, String> {
         Err("none".into())
     };
     let mut ssh = |plan: &SshPlan| -> std::io::Result<i32> {
@@ -55,7 +55,7 @@ fn run_add(
         Ok(if codes.is_empty() { 0 } else { codes.remove(0) })
     };
     let mut hooks = Hooks { confirm: &mut confirm, read_value: &mut read_value, ssh: &mut ssh };
-    let options = RunOptions { interactive, every: std::time::Duration::from_millis(20) };
+    let options = RunOptions { interactive, every: Duration::from_millis(20) };
     let code = run(&command, &platform, output, options, &mut out, &mut hooks, never());
     Ran { code, out: String::from_utf8(out).unwrap(), plans, asked }
 }
@@ -137,7 +137,7 @@ fn usb_with_vault_asks_first_and_a_bad_path_spends_no_token() {
 }
 
 /// A fake `curl` that serves `script`, on a PATH dir of its own.
-fn fake_curl(dir: &std::path::Path, script: &str) -> std::path::PathBuf {
+fn fake_curl(dir: &Path, script: &str) -> PathBuf {
     let bin = dir.join("bin");
     std::fs::create_dir_all(&bin).unwrap();
     let curl = bin.join("curl");

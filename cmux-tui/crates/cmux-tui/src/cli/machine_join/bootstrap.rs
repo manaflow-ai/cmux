@@ -16,6 +16,7 @@
 //!   (`ssh -t`, the join script's sign-in step): the person signs in through
 //!   Claude's and Codex's own flows; no login is read or copied from here.
 
+use std::future::Future;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -251,7 +252,7 @@ pub(super) fn add_usb(
         "joinTokenId": minted.join_token_id,
         "expiresAt": minted.expires_at,
         "teamId": minted.team_id,
-        "name": minted.label.clone().or_else(|| args.name.clone()),
+        "name": minted.label.or_else(|| args.name.clone()),
         "vault": args.vault,
     });
     match output {
@@ -284,7 +285,7 @@ pub(super) fn add_over_ssh(
     out: &mut dyn Write,
     options: RunOptions,
     hooks: &mut Hooks<'_>,
-    interrupt: impl std::future::Future<Output = ()>,
+    interrupt: impl Future<Output = ()>,
 ) -> Result<i32, Failure> {
     if !shell_safe_origin(&platform.origin) {
         return Err(Failure::usage(
