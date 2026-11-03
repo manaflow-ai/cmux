@@ -233,6 +233,57 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
     });
   }
 
+  // The transcript's top edge under the row is a fade (a gradient mask), never an opaque band: black rows
+  // scrolled under the row read as the page's color at the edge, half-faded inside the fade, full ink below it.
+  test("the transcript's top edge under the tab row is a soft fade, not a band", async () => {
+    const shellCss = [
+      read("styles.css"),
+      read("agent-session/shared/styles.css"),
+      read("agent-session/acpmux/styles.css"),
+      read("agent-session/acpmux/header/header.css"),
+      read("agent-session/acpmux/conversation/conversation.css"),
+    ].join("\n");
+    const page = await browser.newPage({ viewport: { width: 320, height: 200 } });
+    try {
+      await page.setContent(`<!doctype html><html><head><style>
+        ${shellCss}
+        :root { --agent-page-bg: rgb(255, 0, 0); }
+        html, html:has(.acpmux-shell[data-tab-row]) { background: rgb(255, 0, 0) !important; }
+        body { margin: 0; height: 200px; }
+      </style></head><body>
+        <section class="acpmux-shell" data-tab-row style="--acpmux-tab-row-height:40px;height:200px">
+          <div class="acpmux-stage" style="flex:1;display:flex;flex-direction:column;min-height:0">
+            <header class="acpmux-header" data-tab-row></header>
+            <div class="acpmux-scroll" data-fade-top style="flex:1;min-height:0;overflow:hidden">
+              <div style="height:400px;background:rgb(0,0,0)"></div>
+            </div>
+          </div>
+        </section>
+      </body></html>`);
+      const top = await page.locator(".acpmux-scroll").evaluate((node) => Math.round(node.getBoundingClientRect().top));
+      const mask = await page
+        .locator(".acpmux-scroll")
+        .evaluate(
+          (node) => getComputedStyle(node).getPropertyValue("mask-image") || getComputedStyle(node).webkitMaskImage,
+        );
+      expect(mask).toContain("linear-gradient");
+      const shot = await page.screenshot({ type: "png" });
+      const { PNG } = await import("pngjs");
+      const png = PNG.sync.read(shot);
+      const red = (x: number, y: number) => png.data[(png.width * y + x) * 4]!;
+      // Above the scroller (the row) and at its very edge: the page's color, no dark band.
+      expect(red(150, top - 4)).toBe(255);
+      expect(red(150, top)).toBeGreaterThan(200);
+      // Inside the 18px fade: between the two. Below it: full ink.
+      const mid = red(150, top + 9);
+      expect(mid).toBeGreaterThan(40);
+      expect(mid).toBeLessThan(220);
+      expect(red(150, top + 40)).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
   test("the loading shell carries the offered row state before the handshake", () => {
     const app = read("agent-session/acpmux/App.tsx");
     const loading = app.match(/const pane = !knowsWhatItIs \? \(([\s\S]*?)\) : \(/)?.[1] ?? "";

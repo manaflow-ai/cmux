@@ -33,6 +33,8 @@ mod agent_inbox;
 mod agent_pairs;
 #[path = "hub_integration/auto_resume.rs"]
 mod auto_resume;
+#[path = "hub_integration/away_recap.rs"]
+mod away_recap;
 #[path = "hub_integration/carried_turns.rs"]
 mod carried_turns;
 #[cfg(unix)]

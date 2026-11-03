@@ -161,7 +161,11 @@ struct HomeAgentMessagesTests {
         let group = HomeAgentMessageRow.groupID(author: chief, anchor: IdempotencyKey("question"))
         let rows = book.inserting(into: [question()], summary: nil, expanded: [group])
         #expect(rows.count == 5)
-        #expect(rows[1].agentMessage == HomeAgentMessageRow(group: group, kind: .fold(count: 3, peers: ["a1", "a2"], expanded: true)))
+        var expectedFold = HomeAgentMessageRow(group: group, kind: .fold(count: 3, peers: ["a1", "a2"], expanded: true))
+        // a1's newest message is its report, a2 has only the Chief's message; the newest words are the report.
+        expectedFold.peerStates = [.reported, .told]
+        expectedFold.latest = "checked"
+        #expect(rows[1].agentMessage == expectedFold)
         #expect(rows[2].agentMessage?.kind == .message(from: "agent_mux", to: "a1", outgoing: true, text: "please check"))
         #expect(rows[3].agentMessage?.kind == .message(from: "agent_mux", to: "a2", outgoing: true, text: "please build"))
         #expect(rows[4].agentMessage?.kind == .message(from: "a1", to: "agent_mux", outgoing: false, text: "checked"))
@@ -264,8 +268,11 @@ struct HomeAgentMessagesTests {
         #expect(notesGroup != group)
         let folded = book.inserting(into: [question()], summary: nil)
         #expect(folded.count == 2)
-        #expect(folded[1].agentMessage == HomeAgentMessageRow(group: notesGroup, kind: .notes(
-            count: 3, peers: ["a1", "a2", "a3"], reason: .stopped(session: "Disconnected"), expanded: false)))
+        var expectedNotes = HomeAgentMessageRow(group: notesGroup, kind: .notes(
+            count: 3, peers: ["a1", "a2", "a3"], reason: .stopped(session: "Disconnected"), expanded: false))
+        expectedNotes.peerStates = [.stopped, .stopped, .stopped]
+        expectedNotes.latest = "stopped without a report: its session is Disconnected"
+        #expect(folded[1].agentMessage == expectedNotes)
         let open = book.inserting(into: [question()], summary: nil, expanded: [notesGroup])
         #expect(open.count == 5)
         #expect(open[1].key == folded[1].key)

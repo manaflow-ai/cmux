@@ -638,7 +638,7 @@ impl Hub {
     /// Claude Code's callback currently returns `{response, synthetic}`. Keep the
     /// extraction tolerant of the SDK's documented response object and of a
     /// future plain string/text payload, but never manufacture an answer.
-    fn side_question_text(value: &Value) -> Option<String> {
+    pub(super) fn side_question_text(value: &Value) -> Option<String> {
         let value = value.get("response").unwrap_or(value);
         value
             .as_str()

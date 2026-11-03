@@ -48,6 +48,8 @@ public final class BrowserToolbarButtonsView: NSStackView {
         BrowserToolbarButton.pinnable.filter { !pinned.contains($0) || $0.isCollapsed(at: collapse) }
     }
 
+    /// The buttons made so far: each is made the first time it shows (a new pane shows More
+    /// alone by default; making all nine was a fifth of Shift-Cmd-L's key turn, #32909).
     private var buttons: [BrowserToolbarButton: ChromeIconButton] = [:]
     private var states: [BrowserToolbarButton: BrowserToolbarButtonState] = [:]
     private weak var tab: (any BrowserTab)?
@@ -61,16 +63,24 @@ public final class BrowserToolbarButtonsView: NSStackView {
         orientation = .horizontal
         translatesAutoresizingMaskIntoConstraints = false
         setHuggingPriority(.required, for: .horizontal)
-        for button in BrowserToolbarButton.allCases {
-            let view = ChromeIconButton(icon: .placeholder, label: "", action: #selector(pressed(_:)), target: self, toolbar: true)
-            view.setAccessibilityIdentifier(button.identifier)
-            view.rightClickPresses = button.opensMenu
-            view.tag = BrowserToolbarButton.allCases.firstIndex(of: button) ?? 0
-            buttons[button] = view
-            addArrangedSubview(view)
-        }
         render()
         applyVisibility()
+    }
+
+    /// `button`'s view, made and put in its place in the row (the catalog's order) on first use.
+    private func makeButton(_ button: BrowserToolbarButton) -> ChromeIconButton {
+        if let view = buttons[button] { return view }
+        let view = ChromeIconButton(icon: .placeholder, label: "", action: #selector(pressed(_:)), target: self, toolbar: true)
+        view.setAccessibilityIdentifier(button.identifier)
+        view.rightClickPresses = button.opensMenu
+        // One ⋮ in the pane: More draws the tab bar's glyph size (Lawrence msg 19627).
+        if button == .overflow { view.iconSide = { OverflowButton.glyphSize } }
+        let order = BrowserToolbarButton.allCases
+        view.tag = order.firstIndex(of: button) ?? 0
+        buttons[button] = view
+        insertArrangedSubview(view, at: order.prefix(view.tag).filter { buttons[$0] != nil }.count)
+        if let state = states[button] { apply(state, to: view) }
+        return view
     }
 
     @available(*, unavailable)
@@ -177,7 +187,10 @@ public final class BrowserToolbarButtonsView: NSStackView {
     }
 
     private func applyVisibility() {
-        for (button, view) in buttons { view.isHidden = !button.isShown(at: collapse, facts, pinned: pinned) }
+        for button in BrowserToolbarButton.allCases {
+            let shown = button.isShown(at: collapse, facts, pinned: pinned)
+            if shown { makeButton(button).isHidden = false } else { buttons[button]?.isHidden = true }
+        }
     }
 
     /// Width of the buttons shown at collapse `level`.
@@ -210,13 +223,16 @@ public final class BrowserToolbarButtonsView: NSStackView {
             // button: leave those buttons untouched.
             guard states[button] != state else { continue }
             states[button] = state
-            guard let view = buttons[button] else { continue }
-            view.showsToolTip = state.showsToolTip
-            view.setIcon(state.icon, label: state.label)
-            view.isEnabled = state.isEnabled
-            view.isOn = state.isActive
-            view.progress = state.progress
+            if let view = buttons[button] { apply(state, to: view) }
         }
+    }
+
+    private func apply(_ state: BrowserToolbarButtonState, to view: ChromeIconButton) {
+        view.showsToolTip = state.showsToolTip
+        view.setIcon(state.icon, label: state.label)
+        view.isEnabled = state.isEnabled
+        view.isOn = state.isActive
+        view.progress = state.progress
     }
 
     /// The zoom or Downloads button appeared or went, or the pins changed: the

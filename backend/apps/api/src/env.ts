@@ -431,6 +431,12 @@ export interface Env {
   readonly SENDBLUE_WEBHOOK_SECRET?: string
   /** Header that carries the SendBlue webhook secret (default sb-signing-secret; UNVERIFIED until the first staging webhook). */
   readonly SENDBLUE_WEBHOOK_HEADER?: string
+  /** Texting Chief switch, fail-closed: only "on" routes inbound texts to Chiefs and texts their replies (text-chief.ts). */
+  readonly TEXT_CHIEF?: string
+  /** Secret, JSON `{"+1555…": "user_…" | "email"}`: senders allowed to text Chief before an in-app phone link exists. */
+  readonly TEXT_CHIEF_PEOPLE?: string
+  /** JSON `{"+1555…": {"owner"?: "user_…|email", "chief"?: "agent_…"}}`: more SendBlue lines; the shared SENDBLUE_FROM_NUMBER is always one. */
+  readonly TEXT_CHIEF_LINES?: string
   /** Staging, development and previews only: comma-separated recipients invites may reach; missing = none. */
   readonly HOME_INVITE_ALLOWLIST_EMAILS?: string
   readonly HOME_INVITE_ALLOWLIST_PHONES?: string
