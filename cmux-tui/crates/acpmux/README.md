@@ -359,10 +359,10 @@ acpmux session queue remove NAME PROMPT_ID...                 # take those out; 
 acpmux session queue clear NAME --from-agents [--dry-run]     # take out every other agent's message; your own prompts stay
 acpmux session tag NAME task=review --ttl 3600; acpmux ls --tag task=review
 acpmux ls --all --wide                                        # every session, every column (with usage)
-acpmux ls --live --machine cosmic-gray                           # filters, text and --json alike (--machine local: this machine)
+acpmux ls --live --machine my-linux                              # filters, text and --json alike (--machine local: this machine)
 acpmux ls --status running | --pending                        # filters; --json for the full records
 acpmux ls --limit 20 --fields name,harness,model,status,cwd   # newest sessions, selected fields
-acpmux ls 'review-27*' [huge-blue/*] --fields name,status    # sessions whose name matches a glob (`host/glob` for one peer), on any host
+acpmux ls 'review-27*' [my-linux/*] --fields name,status     # sessions whose name matches a glob (`host/glob` for one peer), on any host
 acpmux ls --tag area=acpmux --fields name,turn.activity       # a dotted field reads a nested value (tags.lane.reportsTo too)
 acpmux session info NAME --fields sessionId                   # one field prints its bare value; several print field<TAB>value; --json an object
 acpmux send --tag area=acpmux [--dry-run] "base is green"     # one --no-wait message to every non-closed session with the tag, on every host; skips your own
@@ -477,11 +477,11 @@ last hour. A number acpmux could not read is null, never zero, and an unknown ca
 chat it adopted or revived without seeing its launch) or count never raises a warning. A peer's
 row names the peer's session (`<peer>/<name>`) in its commands. Each warning names the step that answers it (`actions`: `[{label, command, pending}]`, the one
 to try first first; nothing is done automatically): no cap, rotate onto a capped profile
-(`lane-place rotate NAME --harness claude-sr2`, a dry run until `--yes`, which rotates); a large context, compact it (`acpmux send NAME
-/compact`) or rotate to a fresh session (`lane-place rotate NAME`); many subagents, open
+(`sessions rotate NAME --harness claude-sr2`, a dry run until `--yes`, which rotates); a large context, compact it (`acpmux send NAME
+/compact`) or rotate to a fresh session (`sessions rotate NAME`); many subagents, open
 the session and, to stop it, `acpmux session cancel NAME`. `acpmux ls` marks such a row `warn`
 in a WARN column, shown only while some row has one; `acpmux ls --wide` names each rule with its
-number and commands (`ctx 412k: acpmux send NAME /compact | lane-place rotate NAME`), and `--json` rows carry the whole list. The cmux NEXT
+number and commands (`ctx 412k: acpmux send NAME /compact | sessions rotate NAME`), and `--json` rows carry the whole list. The cmux NEXT
 sidebar draws a warning triangle on the row whose tooltip is each `text`.
 
 A chat whose harness never titles it (Claude Code's `-p` stream-json has no title
