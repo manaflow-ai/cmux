@@ -34,7 +34,7 @@ try {
           await page.evaluate(() => document.fonts.ready);
           const result = await page.evaluate(
             async ({ file, variant, selector }) => {
-              const base = "/src/agent-session/acpmux/";
+              const base = new URL("src/agent-session/acpmux/", window.location.href).pathname;
               const [{ default: entry }, { permissionCardHeight }] = await Promise.all([
                 import(base + file),
                 import(base + "permissions/cardHeight.ts"),
