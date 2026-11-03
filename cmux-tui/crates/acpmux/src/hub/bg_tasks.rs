@@ -216,6 +216,11 @@ impl Hub {
         json!({"tasks": tasks})
     }
 
+    pub(crate) fn workflow_bg_uncertain(&self, session: &Session, id: &str) -> bool {
+        let dir = self.bg_dir(session);
+        dir.join(format!("{id}.claim")).exists() && bg_run::read_record(&dir, id).is_none()
+    }
+
     /// Wait on the runner's liveness lock, including a runner adopted after daemon restart.
     /// No sampling timer; dropping the workflow's agent does not terminate this owned task.
     pub(crate) async fn workflow_bg_wait(
