@@ -46,6 +46,12 @@ interface Knobs {
   /** A child prints this text (a leak). */
   leak?: string
   homeBody?: string
+  /** install.revoke answers this status. */
+  installRevokeStatus?: number
+  /** `vault set NAME` waits for this promise before it answers (a write in flight). */
+  holdSet?: Record<string, Promise<void>>
+  /** `vault rm` leaves the entry (a failed removal). */
+  rmFails?: boolean
 }
 
 /** A tar archive of one regular file, as bsdtar's gnutar format writes it (enough for tarEntries). */
@@ -66,6 +72,7 @@ function fakes(k: Knobs = {}) {
   const removed: string[] = []
   const revoked: string[] = []
   const lines: string[] = []
+  const vault = new Set<string>(k.existingKey ? [KEY_VAR] : [])
   const ok = (stdout = ""): ChildResult => ({ code: 0, stdout, stderr: k.leak ?? "" })
   const deps: Deps = {
     fetch: async (url, init) => {
@@ -75,7 +82,7 @@ function fakes(k: Knobs = {}) {
       if (url === `${DEV_API}/v1/ops`) {
         if (body.op === "user.ensure") return json(200, { ok: true, value: { id: "user_1" } })
         if (body.op === "install.register") return json(200, { ok: true, value: { id: "install_1" } })
-        if (body.op === "install.revoke") return json(200, { ok: true, value: {} })
+        if (body.op === "install.revoke") return k.installRevokeStatus && k.installRevokeStatus !== 200 ? json(k.installRevokeStatus, { ok: false }) : json(200, { ok: true, value: {} })
       }
       if (url.endsWith("/v1/auth/challenge")) return json(200, { nonce: "n1", message_prefix: "p:" })
       if (url.endsWith("/v1/auth/token")) return json(200, { access_token: ACCESS, expires_at: Date.now() + 600_000 })
@@ -102,9 +109,16 @@ function fakes(k: Knobs = {}) {
       if (argv[0] === opts.cmux) {
         expect(argv.slice(-2)).toEqual(["--cloud-token-file", `${opts.work}/cloud-token`])
         expect(text).not.toContain(ACCESS)
-        if (text.includes("vault ls")) return ok(JSON.stringify({ entries: k.existingKey ? [{ name: KEY_VAR, revision: 1 }] : [] }))
-        if (text.includes("vault set") || text.includes("vault rm")) {
-          if (stdin !== undefined) stdins[argv[argv.indexOf("set") + 1]!] = stdin
+        if (text.includes("vault ls")) return ok(JSON.stringify({ entries: [...vault].map((name) => ({ name, revision: 1 })) }))
+        if (text.includes("vault set")) {
+          const name = argv[argv.indexOf("set") + 1]!
+          await k.holdSet?.[name]
+          stdins[name] = stdin ?? ""
+          vault.add(name)
+          return ok("")
+        }
+        if (text.includes("vault rm")) {
+          if (!k.rmFails) vault.delete(argv[argv.indexOf("rm") + 1]!)
           return ok("")
         }
         if (text.includes("machine add")) {
@@ -128,7 +142,7 @@ function fakes(k: Knobs = {}) {
     now: () => Date.now(),
     random: () => NONCE
   }
-  return { deps, calls, stdins, files, removed, revoked, lines }
+  return { deps, calls, stdins, files, removed, revoked, lines, vault }
 }
 
 const env = (apiKey = API_KEY) => ({ CMUX_UITEST_STACK_EMAIL: EMAIL, CMUX_UITEST_STACK_PASSWORD: PASSWORD, CMUX_E2E_ANTHROPIC_API_KEY: apiKey })
@@ -234,6 +248,38 @@ describe("machine-vault-e2e", () => {
     expect(refusal({ ...opts, work: "relative" })).toContain("work")
     expect(refusal(opts)).toBeUndefined()
     await expect(runE2E(opts, { CMUX_UITEST_STACK_EMAIL: EMAIL }, fakes().deps)).rejects.toThrow("must be set")
+  })
+
+  test("a cancel while a vault write is in flight waits for it, then removes it", async () => {
+    let release: () => void = () => undefined
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    const f = fakes({ holdSet: { [KEY_VAR]: gate } })
+    let cancel: () => Promise<void> = async () => undefined
+    const running = runE2E(opts, env(), f.deps, (c) => (cancel = c))
+    // Let the flow reach the held ANTHROPIC_API_KEY write.
+    for (let i = 0; i < 200 && f.stdins[NONCE_VAR] === undefined; i++) await Bun.sleep(1)
+    await Bun.sleep(5)
+    const cleaning = cancel()
+    await Bun.sleep(5)
+    release()
+    await cleaning
+    const e = await running
+    expect(e.result).toBe("fail")
+    expect(f.vault.has(KEY_VAR)).toBe(false)
+    expect(f.vault.has(NONCE_VAR)).toBe(false)
+    expect(e.cleanup.vaultRemoved).toEqual([NONCE_VAR, KEY_VAR])
+    // Nothing the main flow would have done next ran: no join.
+    expect(f.calls.some((a) => a.includes("add"))).toBe(false)
+  })
+
+  test("a failed required cleanup fails the run", async () => {
+    const install = await runE2E(opts, env(), fakes({ installRevokeStatus: 500 }).deps)
+    expect(install.result).toBe("fail")
+    expect(install.cleanup.installRevoked).toBe(false)
+    expect(install.reason).toContain("could not revoke the run's cmux install")
+    const rm = await runE2E(opts, env(), fakes({ rmFails: true }).deps)
+    expect(rm.result).toBe("fail")
+    expect(rm.reason).toContain("is still in the vault after cleanup")
   })
 
   test("reads the CLIs' JSON", () => {

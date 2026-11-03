@@ -57,6 +57,8 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          # The published CLI step looks back along feat-cmux-next for the newest published tree.
+          fetch-depth: 30
 
       # The channel join.sh installs acpmux from must be at or after the vault's merge (cmux#33020,
       # 4cfaaa8d), or the join would succeed and pull nothing. The run checks the installed binary's
@@ -88,9 +90,6 @@ jobs:
           echo "channel $channel is at $commit, which contains the vault"
           echo "channel=$channel" >> "$GITHUB_OUTPUT"
 
-      - name: Set up pinned Rust
-        uses: ./.github/actions/setup-cmux-tui-rust
-
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -100,10 +99,56 @@ jobs:
       - name: Test the harness
         run: bun test scripts/cmux-next/machine-vault-e2e.test.ts
 
-      # The cmux CLI from the run's own commit (no ref input: no other code builds where the secrets go).
-      - name: Build the cmux CLI
-        working-directory: cmux-tui
-        run: cargo build --locked -p cmux-tui --bin cmux-tui
+      # The cmux CLI as people get it: the build files.cmux.com published for the run's commit, or for the
+      # newest first-parent ancestor that has one (a tree publishes a few minutes after its merge), checked
+      # against its manifest's sha256 and required to contain `cmux machine add --vault` (cmux#33031).
+      # Nothing compiles here: no toolchain, no submodules, no cache in a job that holds secrets.
+      - name: Download the published cmux CLI
+        id: cli
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MACHINE_ADD_MERGE: 657906ec79ebd3704cdf6be709e3a206be438754
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            arm64) target=aarch64-apple-darwin ;;
+            x86_64) target=x86_64-apple-darwin ;;
+            *) echo "::error::unsupported machine $(uname -m)"; exit 1 ;;
+          esac
+          dir="$RUNNER_TEMP/cmux-cli"
+          mkdir -m 0700 -p "$dir"
+          found=""
+          for commit in $(git rev-list --first-parent -n 30 HEAD); do
+            if curl --proto '=https' --tlsv1.2 -fsSL "https://files.cmux.com/cmux-tui/$commit/manifest.json" -o "$dir/manifest.json" 2>/dev/null \
+              && [ "$(jq -r '.commit // empty' "$dir/manifest.json")" = "$commit" ]; then
+              found="$commit"
+              break
+            fi
+          done
+          if [ -z "$found" ]; then
+            echo "::error::no cmux-tui tree is published for the last 30 commits of feat-cmux-next"
+            exit 1
+          fi
+          status="$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/compare/$MACHINE_ADD_MERGE...$found" | jq -r '.status // empty' | tr -cd 'a-z')"
+          if [ "$status" != ahead ] && [ "$status" != identical ]; then
+            echo "::error::the published CLI at $found does not contain cmux machine add --vault ($MACHINE_ADD_MERGE): compare says '$status'"
+            exit 1
+          fi
+          want="$(jq -r --arg k "cmux-tui-$target" '.binaries[$k] // empty' "$dir/manifest.json" | tr -cd '0-9a-f')"
+          if [ "${#want}" -ne 64 ]; then
+            echo "::error::the manifest for $found has no cmux-tui-$target"
+            exit 1
+          fi
+          curl --proto '=https' --tlsv1.2 -fsSL "https://files.cmux.com/cmux-tui/$found/cmux-tui-$target" -o "$dir/cmux"
+          got="$(shasum -a 256 "$dir/cmux" | awk '{print $1}')"
+          if [ "$got" != "$want" ]; then
+            echo "::error::checksum mismatch for cmux-tui-$target at $found ($got, the manifest says $want)"
+            exit 1
+          fi
+          chmod 0700 "$dir/cmux"
+          echo "path=$dir/cmux" >> "$GITHUB_OUTPUT"
+          echo "the cmux CLI published for $found (sha256 $got)"
 
       # The user, its home, a login keychain made the way a GUI login makes one (random password, set
       # as default, unlocked, no auto-lock), and an ephemeral ssh key, all before any secret is in reach.
@@ -112,6 +157,7 @@ jobs:
         id: user
         env:
           CHANNEL: ${{ steps.channel.outputs.channel }}
+          CLI: ${{ steps.cli.outputs.path }}
         run: |
           set -euo pipefail
           user="cmuxvault${GITHUB_RUN_ID}${GITHUB_RUN_ATTEMPT}"
@@ -175,7 +221,7 @@ jobs:
             -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$work/known_hosts" "\$@"
           EOF
           chmod 0700 "$work/bin/ssh"
-          install -m 0700 cmux-tui/target/debug/cmux-tui "$work/bin/cmux"
+          install -m 0700 "$CLI" "$work/bin/cmux"
           # Remote Login: on where it is off (an ephemeral VM), then proved with the user's own key.
           if ! nc -z -w 3 127.0.0.1 22 >/dev/null 2>&1; then
             sudo -n launchctl enable system/com.openssh.sshd || true

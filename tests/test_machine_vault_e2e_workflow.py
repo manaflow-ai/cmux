@@ -27,6 +27,7 @@ DEV = "https://cmux-platform-development.debussy.workers.dev"
 RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}"
 RUN_STEP = "Vault, join, agent and cleanup"
 VAULT_MERGE = "4cfaaa8d3891d43b3e237c70b0dbf701feb92de2"
+MACHINE_ADD_MERGE = "657906ec79ebd3704cdf6be709e3a206be438754"
 
 
 def load() -> dict:
@@ -61,14 +62,21 @@ class MachineVaultE2EWorkflow(unittest.TestCase):
         self.assertIn("refs/heads/feat-cmux-next", steps()[0]["run"])
         self.assertIn("exit 1", steps()[0]["run"])
 
-    def test_only_the_runs_own_commit_builds(self) -> None:
+    def test_the_published_cli_checked_and_nothing_compiled(self) -> None:
         checkouts = [s for s in steps() if "actions/checkout" in s.get("uses", "")]
         self.assertEqual(len(checkouts), 1)
         self.assertNotIn("ref", checkouts[0].get("with", {}))
         self.assertEqual(checkouts[0]["with"]["persist-credentials"], "false")
-        build = step("Build the cmux CLI")
-        self.assertEqual(build["working-directory"], "cmux-tui")
-        self.assertIn("cargo build --locked -p cmux-tui --bin cmux-tui", build["run"])
+        cli = step("Download the published cmux CLI")
+        self.assertNotIn("secrets", str(cli))
+        self.assertEqual(cli["env"]["MACHINE_ADD_MERGE"], MACHINE_ADD_MERGE)
+        self.assertIn("git rev-list --first-parent -n 30 HEAD", cli["run"])
+        self.assertIn('"$got" != "$want"', cli["run"])
+        self.assertIn("ahead", cli["run"])
+        self.assertLess(names().index("Download the published cmux CLI"), names().index(RUN_STEP))
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertNotIn("cargo build", text)
+        self.assertNotIn("setup-cmux-tui-rust", text)
 
     def test_read_only_token(self) -> None:
         document = load()
@@ -168,6 +176,11 @@ class MachineVaultE2EWorkflow(unittest.TestCase):
             'op("install.revoke"',
             "deps.removeFile(tokenFile)",
             "await cleanup()",
+            # Cleanup waits for everything the main flow had in flight, and its failures fail the run.
+            "await settlePending()",
+            "stopChildren.abort()",
+            'problems.push("could not revoke the run\'s cmux install")',
+            "is still in the vault after cleanup",
         ):
             self.assertIn(needle, script)
 
