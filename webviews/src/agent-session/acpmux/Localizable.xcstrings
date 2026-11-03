@@ -55944,6 +55944,18 @@
         "bs": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Čeka podagente: {n}"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Čeka podagente: {n}"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -56136,6 +56148,24 @@
         "pl": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Czeka na podagentów: {n}"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Czeka na podagentów: {n}"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Czeka na podagentów: {n}"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -56172,6 +56202,24 @@
         "ru": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Ожидание субагентов: {n}"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Ожидание субагентов: {n}"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Ожидание субагентов: {n}"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -56196,6 +56244,12 @@
         "tr": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "{n} alt ajan bekleniyor"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -56208,6 +56262,24 @@
         "uk": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Очікування субагентів: {n}"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Очікування субагентів: {n}"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Очікування субагентів: {n}"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
