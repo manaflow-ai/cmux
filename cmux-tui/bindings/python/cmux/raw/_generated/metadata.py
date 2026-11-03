@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '440934d902c97a5d430e2f5c26ae15e96ab11f89fa383c70cf209c01f3abd2cb'
+IR_SHA256 = 'cc21760f2943f674c9ddfc3acf0b238c0388afbe9a4e3245bc24d9aa17a2208c'
 
 
 @dataclass(frozen=True)
@@ -673,6 +673,20 @@ COMMANDS = {
         None,
         {
             'conversation': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-environment': CommandMetadata(
+        'cloud-environment',
+        'local-admin',
+        12,
+        'cloud-environments-v1',
+        ('local-admin',),
+        None,
+        {
+            'access_token': CommandFieldMetadata(None, None),
+            'action': CommandFieldMetadata(None, None),
+            'params': CommandFieldMetadata(None, None),
+            'platform_origin': CommandFieldMetadata(None, None),
         },
     ),
     'cloud-host-replica-clear': CommandMetadata(
@@ -3007,6 +3021,18 @@ COMMANDS = {
         None,
         {
             'include': CommandFieldMetadata(None, None),
+        },
+    ),
+    'set-attach-visibility': CommandMetadata(
+        'set-attach-visibility',
+        'frontend',
+        12,
+        'attach-visibility-v1',
+        ('frontend',),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
+            'visible': CommandFieldMetadata(None, None),
         },
     ),
     'set-cell-pixels': CommandMetadata(

@@ -2700,6 +2700,15 @@ class CloudConversationUnsubscribeRequest:
 
 
 @dataclass(frozen=True)
+class CloudEnvironmentRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-environment/request'
+    access_token: str
+    action: str
+    params: Union[JsonValue, None]
+    platform_origin: str
+
+
+@dataclass(frozen=True)
 class CloudHostReplicaClearRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/cloud-host-replica-clear/request'
     purge: Union[bool, MissingType] = field(default=MISSING)
@@ -4478,6 +4487,19 @@ class SendKeyRequest:
 class ServerStatsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/server-stats/request'
     include: Union[List[str], None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class SetAttachVisibilityRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-attach-visibility/request'
+    surface: Id
+    visible: bool
+
+
+@dataclass(frozen=True)
+class SetAttachVisibilityResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-attach-visibility/result'
+    viewers: int
 
 
 @dataclass(frozen=True)
@@ -6311,6 +6333,7 @@ __all__ = [
     'CloudConversationThreadRequest',
     'CloudConversationTypingRequest',
     'CloudConversationUnsubscribeRequest',
+    'CloudEnvironmentRequest',
     'CloudHostReplicaClearRequest',
     'CloudHostReplicaSetRequest',
     'CloudHostReplicaStatusRequest',
@@ -6524,6 +6547,8 @@ __all__ = [
     'SendResult',
     'SendKeyRequest',
     'ServerStatsRequest',
+    'SetAttachVisibilityRequest',
+    'SetAttachVisibilityResult',
     'SetCellPixelsRequest',
     'SetClientInfoRequest',
     'SetClientSizingRequest',

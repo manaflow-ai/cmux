@@ -18,13 +18,13 @@ export type KeptAttachments = {
 export const KEPT_ATTACHMENTS_SETTLE_MS = 300;
 
 /// The chips a chat keeps: a shell run's chip stays with its page (its output fills when the prompt goes).
-/// A video's poster and frames stay too: the host reads them again when the chip comes back
-/// (composer/videoAttachments.ts), so a draft write never carries them.
+/// A video's poster, frames and transcript stay too: the host reads them again when the chip comes
+/// back (composer/videoAttachments.ts), so a draft write never carries them.
 export function keptChips(attachments: readonly ComposerAttachment[]): ComposerAttachment[] {
   return attachments.flatMap((chip) => {
     if (chip.shellRun) return [];
-    if (!chip.video) return [chip];
-    const { video: _video, ...kept } = chip;
+    if (!chip.video && !chip.transcript) return [chip];
+    const { video: _video, transcript: _transcript, ...kept } = chip;
     return [kept];
   });
 }
@@ -236,7 +236,9 @@ export function useKeptAttachments(
   }, []);
 }
 
-/// What a write would change: each chip's id, and its source, which the host may say a moment after
-/// the chip appears (composer/attachmentSources.ts).
+/// What a write would change: each chip's id; its source, which the host may say a moment after
+/// the chip appears (composer/attachmentSources.ts); and its paths, since a file's full-resolution
+/// original may finish uploading after the preview chip was already saved (SW-00). Only short
+/// metadata: image data and long pasted text still travel once, never on every render.
 const signature = (chips: readonly ComposerAttachment[]) =>
-  chips.map((chip) => (chip.source ? `${chip.id}\t${JSON.stringify(chip.source)}` : chip.id)).join("\n");
+  JSON.stringify(chips.map((chip) => [chip.id, chip.source ?? null, chip.path, chip.originalPath, chip.originalName]));

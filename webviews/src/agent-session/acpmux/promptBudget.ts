@@ -4,6 +4,7 @@
 /// MAX_AUDIO_BYTES) caps nothing about their sum: ten screenshots' previews passed it (Leo,
 /// 2026-10-31: "this is completely hardlocked bc of message size").
 import { promptBlocks, type ComposerAttachment, type InlineReadOptions, type PromptBlock } from "./attachments";
+import { withoutFrames } from "./composer/videoPrompt";
 
 /// The bytes a prompt's blocks may carry: under acpmux's 31 MiB, with room for the message's
 /// envelope (its ids, `_meta`, the bubble's display parts).
@@ -70,7 +71,13 @@ export function fitPromptBudget(
       total -= copy.data!.length + copy.mimeType.length + jsonBytes(copy.name) + BLOCK_OVERHEAD;
     }
   }
-  return attachments.map((chip) => linked.get(chip.id) ?? chip);
+  const fitted = attachments.map((chip) => linked.get(chip.id) ?? chip);
+  // Still too large: the videos' frames stay out, each video going as its link (composer/videoPrompt.ts).
+  if (total > budget && fitted.some((chip) => chip.video?.frames.length)) {
+    const bare = withoutFrames(fitted);
+    if (inlineBytes(promptBlocks(input, bare, options)) < total) return bare;
+  }
+  return fitted;
 }
 
 /// Whether a send must wait for originals still uploading (`uploading`, by chip id) before it goes:

@@ -68,7 +68,7 @@ function percent(value: number, locale?: string): string {
 
 /// The Session status card's Usage limits value: a harness's own text as it is, or each window
 /// acpmux reported with its share used and, only when it was reported, its reset time. Unset when
-/// there is nothing to show (the card says Not reported).
+/// there is nothing to show (the card says No limit reported yet, or hides the row).
 export function usageLimitsLabel(value: unknown, t: Translate, locale?: string): string | undefined {
   if (typeof value === "string") return value.trim() || undefined;
   const limits = usageLimitsOf(value);

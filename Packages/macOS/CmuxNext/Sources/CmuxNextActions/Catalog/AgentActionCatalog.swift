@@ -129,7 +129,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "agentPane.showSubagents",
                 title: String(localized: "action.agentPane.showSubagents", defaultValue: "Show Subagents in Session Info", bundle: .module),
-                keywords: ["agent", "chat", "subagents", "agents", "session info", "inspector", "children"],
+                keywords: ["agent", "chat", "subagents", "agents", "session info", "children"],
                 category: .agents, symbol: "person.2", surfaces: [.palette],
                 requires: [.agentPaneFocused], targets: [.pane], cliName: "agent show-subagents",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
@@ -137,7 +137,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "agentPane.showBackgroundTasks",
                 title: String(localized: "action.agentPane.showBackgroundTasks", defaultValue: "Show Background Tasks in Session Info", bundle: .module),
-                keywords: ["agent", "chat", "background", "tasks", "commands", "servers", "session info", "inspector"],
+                keywords: ["agent", "chat", "background", "tasks", "commands", "servers", "session info"],
                 category: .agents, symbol: "gearshape", surfaces: [.palette],
                 requires: [.agentPaneFocused], targets: [.pane], cliName: "agent show-background-tasks",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
@@ -425,7 +425,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "palette.forkAgentConversationNewColumnLeft",
                 title: String(localized: "action.palette.forkAgentConversationNewColumnLeft", defaultValue: "Fork Conversation to New Column Left", bundle: .module),
-                keywords: ["agent", "fork", "column", "left"], category: .agents, symbol: "rectangle.lefthalf.inset.filled",
+                keywords: ["agent", "fork", "column", "left"], category: .agents, symbol: "rectangle.leftthird.inset.filled",
                 surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-to-new-column-left"
             ),
@@ -494,6 +494,9 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                                    kind: .string),
                     ActionArgument(name: "name", title: String(localized: "argument.agent.workspaceName", defaultValue: "Workspace Name", bundle: .module),
                                    kind: .string, isRequired: false),
+                    // The name a workspace with no `name` takes (an unnamed launch's session name); never a predecessor's.
+                    ActionArgument(name: "defaultName", title: String(localized: "argument.agent.workspaceDefaultName", defaultValue: "Default Workspace Name", bundle: .module),
+                                   kind: .string, isRequired: false),
                     ActionArgument(name: "key", title: String(localized: "argument.agent.workspaceKey", defaultValue: "Workspace Key", bundle: .module),
                                    kind: .string, isRequired: false),
                     ActionArgument(name: "cwd", title: String(localized: "argument.agent.cwd", defaultValue: "Folder", bundle: .module),
@@ -502,6 +505,9 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                                    kind: .string, isRequired: false),
                     // A group's name (made when missing), not a target: a launcher names it.
                     ActionArgument(name: "group", title: String(localized: "argument.group", defaultValue: "Group", bundle: .module),
+                                   kind: .string, isRequired: false),
+                    // `top`: first in the sidebar (below Home), over workspaces.newPlacement (#29875).
+                    ActionArgument(name: "placement", title: String(localized: "argument.agent.placement", defaultValue: "Placement", bundle: .module),
                                    kind: .string, isRequired: false),
                 ],
                 cliName: "agent open",

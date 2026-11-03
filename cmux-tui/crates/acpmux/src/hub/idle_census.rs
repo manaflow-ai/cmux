@@ -14,8 +14,11 @@
 //! this folder's project entry) and the folder's `.mcp.json`; for Codex its `config.toml`. The
 //! `mcpServers` acpmux gave an ACP harness are added. A config edited later never changes them. A
 //! file that is missing or does not parse adds nothing, so a server only it names keeps the
-//! harness up. For a harness another daemon started none are known: it ends only when nothing
-//! runs under it.
+//! harness up. A hosted harness's servers are kept in its session's meta with its host's
+//! incarnation (`StoredLaunch`, `SessionMeta::idle_launch`), so a next daemon that adopts the host
+//! after a restart, an update or a crash judges it by the same servers. For a harness another
+//! daemon started with none kept (a build before this one), none are known: it ends only when
+//! nothing runs under it.
 //!
 //! Only a child of the harness can be a server, and only when its argv is exactly the server's:
 //! its program (as configured, or what `PATH` runs for a name), or an interpreter running that
@@ -200,7 +203,14 @@ impl LaunchServers {
     /// its configs name, bounded by [`CENSUS_BUDGET`]; each start site awaits it before its
     /// spawn, so the census judges by what the harness could read at its start, never by a
     /// config edited after it.
-    pub(crate) async fn read(launch: &crate::agent::Launch, family: String) -> Self {
+    /// `kind` decides which configs: Claude Code reads its own whatever family the profile
+    /// names (`claude-sr2`).
+    pub(crate) async fn read(
+        launch: &crate::agent::Launch,
+        family: String,
+        kind: crate::config::HarnessKind,
+    ) -> Self {
+        let family = config_family(family, kind);
         let path = launch.env.get("PATH").cloned().unwrap_or_default();
         let (at, cwd, launch) = (path.clone(), launch.cwd.clone(), launch.clone());
         let read = tokio::task::spawn_blocking(move || {
@@ -218,6 +228,78 @@ impl ChildAgent {
     pub(crate) fn record_launch(&self, servers: LaunchServers) {
         *self.launch.lock().unwrap_or_else(|e| e.into_inner()) = Some(servers);
     }
+}
+
+/// The family whose configs a harness reads: Claude Code's stream-json kind is Claude Code under
+/// any family name a profile gives it (`claude-sr2`, a wrapper that runs `claude`).
+fn config_family(family: String, kind: crate::config::HarnessKind) -> String {
+    if kind == crate::config::HarnessKind::ClaudeStdio { "claude".to_owned() } else { family }
+}
+
+/// A hosted harness's servers as the census knew them, kept in its session's meta
+/// (`SessionMeta::idle_launch`) for the next daemon that adopts its host: the host outlives the
+/// daemon, but what `LaunchServers::read` found and the ACP `mcpServers` acpmux gave it do not.
+/// Only the host of `incarnation` is judged by them.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoredLaunch {
+    pub incarnation: String,
+    pub servers: Vec<Sidecar>,
+    pub path: String,
+    pub cwd: PathBuf,
+    /// Only each given server's `command` and `args` (`launch_only`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub given: Option<Value>,
+}
+
+impl Hub {
+    /// Keeps what the census knows of `child`'s servers in `session`'s meta (saved by the
+    /// caller), or clears it: a direct child or one whose configs were not read leaves nothing
+    /// for a next daemon.
+    pub(super) fn note_launch(&self, session: &Session, child: &ChildAgent) {
+        let launch = child.launch.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let stored = match (child.host_record(), launch) {
+            (Some(record), Some(LaunchServers::Known { servers, path, cwd })) => {
+                Some(StoredLaunch {
+                    incarnation: record.incarnation,
+                    servers,
+                    path,
+                    cwd,
+                    given: launch_only(
+                        child.given_servers.lock().unwrap_or_else(|e| e.into_inner()).as_ref(),
+                    ),
+                })
+            }
+            _ => None,
+        };
+        session.meta.lock().unwrap_or_else(|e| e.into_inner()).idle_launch = stored;
+    }
+
+    /// An adopted host's servers, from its session's meta when they were kept for this
+    /// `incarnation`: the idle census then judges it as the daemon that started it did.
+    pub(super) fn restore_launch(&self, session: &Session, child: &ChildAgent, incarnation: &str) {
+        let Some(stored) = session.meta().idle_launch.filter(|l| l.incarnation == incarnation)
+        else {
+            return;
+        };
+        child.record_launch(LaunchServers::Known {
+            servers: stored.servers,
+            path: stored.path,
+            cwd: stored.cwd,
+        });
+        *child.given_servers.lock().unwrap_or_else(|e| e.into_inner()) = stored.given;
+    }
+}
+
+/// The `command` and `args` of each stdio server in `given`, all the census reads of it: a server's
+/// `env` carries its session's caller token (`agent_tools::for_session`), which a session's meta
+/// (saved, and sent whole in a chat move) must not.
+fn launch_only(given: Option<&Value>) -> Option<Value> {
+    let list: Vec<Value> = from_json(given)
+        .into_iter()
+        .map(|s| serde_json::json!({"command": s.command, "args": s.args}))
+        .collect();
+    (!list.is_empty()).then_some(Value::Array(list))
 }
 
 /// `servers` with each one given by name resolved on `path`, each relative path in `cwd` (the

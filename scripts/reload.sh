@@ -21,6 +21,9 @@ BASE_APP_NAME="cmux DEV"
 BUILD_CONFIGURATION="Debug"
 # --config bench: Release optimization with the debug control surface compiled in (BENCH_HOOKS=1).
 BENCH_HOOKS=0
+# 1 when the last configuration flag was --release (the fleet's `cmux-ci build cmux --release`), not --config: a dogfood
+# tag then builds bench (scripts/cmux-next/cmux-next.dogfood.conf).
+RELEASE_FLAG=0
 PRODUCT_APP_NAME="$BASE_APP_NAME"
 DERIVED_DATA=""
 NAME_SET=0
@@ -734,7 +737,10 @@ Options:
                          CMUX_DEV_BACKEND_MODE=local to use http://localhost:<port>.
   --release              Build the Release configuration (optimized, no DEBUG) of
                          this tagged app, for dogfooding real performance. The
-                         debug.* socket commands are compiled out.
+                         debug.* socket commands are compiled out, except for a
+                         tag that scripts/cmux-next/cmux-next.dogfood.conf names
+                         (release_bench_tags, chrome-parity-*): that tag builds
+                         --config bench. The last configuration flag counts.
   --config <debug|release|bench>
                          debug (default) and release as above. bench: the Release
                          configuration (-O, whole module, the shipped flags) plus
@@ -1140,7 +1146,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --release)
-      BUILD_CONFIGURATION="Release"
+      BUILD_CONFIGURATION="Release" BENCH_HOOKS=0 RELEASE_FLAG=1
       shift
       ;;
     --config|--config=*)
@@ -1151,6 +1157,7 @@ while [[ $# -gt 0 ]]; do
         bench) BUILD_CONFIGURATION="Release" BENCH_HOOKS=1 ;;
         *) echo "error: --config takes debug, release or bench (got '${config_name}')" >&2; exit 1 ;;
       esac
+      RELEASE_FLAG=0
       ;;
     --credentials-file)
       AUTH_CREDENTIALS_FILE="${2:-}"
@@ -1220,6 +1227,19 @@ if [[ -z "$TAG" ]]; then
   echo "error: --tag is required (example: ./scripts/reload.sh --tag fix-sidebar-theme)" >&2
   usage
   exit 1
+fi
+
+# A dogfood tag's --release is the bench configuration: optimized as Release (-O, whole module, no DEBUG) with the
+# debug.* socket commands that the dogfood gate, the smoke, the journeys and the benches drive. The fleet recipe
+# passes only --release, so the checked-in scripts/cmux-next/cmux-next.dogfood.conf names the tags. `--config release`
+# stays the plain Release build for any tag; the bench marker check below proves the flags reached the app.
+if [[ "$RELEASE_FLAG" -eq 1 ]]; then
+  # shellcheck source=cmux-next/lib/dogfood-bench-tags.sh
+  source "$SCRIPT_DIR/cmux-next/lib/dogfood-bench-tags.sh"
+  if release_bench_glob="$(dogfood_bench_glob "$TAG")"; then
+    BUILD_CONFIGURATION="Release" BENCH_HOOKS=1
+    echo "==> --release of dogfood tag '$TAG' (release_bench_tags '$release_bench_glob' in scripts/cmux-next/cmux-next.dogfood.conf): the bench configuration"
+  fi
 fi
 
 # Per-build isolation (cx-is1kf.4): a shipped build owns these names (its
@@ -1372,11 +1392,13 @@ fi
 if [[ -n "${CMUX_NEXT_TUI_BIN:-}" ]]; then
   echo "==> cmux-next: bundling cmux-tui from CMUX_NEXT_TUI_BIN=$CMUX_NEXT_TUI_BIN"
 else
-  # An nx-remote build of a tree no artifacts run published (a newer push
-  # replaces a pending run on a busy branch, and uncommitted edits are never
-  # published) builds the client set here instead of waiting up to 45 min; the
-  # bundle then takes it as CMUX_TUI_CLIENT_LOCAL. Fleet builds already pass it.
-  if [[ -n "${NX_JOB_ID:-}" && -z "${CMUX_TUI_CLIENT_LOCAL:-}" && -x "$PWD/scripts/cmux-next/build-cmux-tui-client.sh" ]] &&
+  # An nx-remote build or a cmux-ci fleet step (CMUX_CI_PHASE_FILE: a
+  # scripts/measure/ bench) of a tree no artifacts run published (a newer push
+  # replaces a pending run on a busy branch, a bench commit on a side branch and
+  # uncommitted edits are never published) builds the client set here instead of
+  # waiting up to 45 min; the bundle then takes it as CMUX_TUI_CLIENT_LOCAL.
+  # Fleet cmux builds already pass it.
+  if [[ -n "${NX_JOB_ID:-}${CMUX_CI_PHASE_FILE:-}" && -z "${CMUX_TUI_CLIENT_LOCAL:-}" && -x "$PWD/scripts/cmux-next/build-cmux-tui-client.sh" ]] &&
     ! "$PWD/scripts/cmux-next/pin-cmux-tui.sh" probe 2>/dev/null | grep -q ': ready ('; then
     CMUX_TUI_CLIENT_LOCAL="$("$PWD/scripts/cmux-next/build-cmux-tui-client.sh" --print-path)" || exit 1
     export CMUX_TUI_CLIENT_LOCAL

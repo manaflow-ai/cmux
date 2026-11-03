@@ -48,13 +48,12 @@ is that gate's record of each build's verdict:
       prints {"<build sha>": "pass" | "fail"} (the newest entry per build) as
       one JSON line; {} when the issue cannot be read.
   admit --mode MODE --build-sha SHA --verdicts JSON [--gate NAME]
-      exit 0 to publish the build, 1 to refuse it: only `enforce` with a
-      `fail` verdict refuses. A build with no verdict is published (with a
-      warning in enforce): a gate that could not judge never blocks.
+      classify a recorded verdict for callers that need an advisory message.
+      Visual coverage never controls nightly publication or recovery: signing,
+      notarization, provenance and feed-order checks are the publication gates.
 
 The visual gate runs on an owned Mac, and a self-hosted job that queues can
-wait a day. publish-nightly therefore waits on a Linux job that waits on the
-gate for a bounded time:
+wait a day. The advisory verdict job reads the gate for a bounded time:
 
   await-gate --repo R --run-id ID --attempt N --job visual-gate-nightly
              [--queue-budget-minutes 15] [--gate-timeout-minutes 75]
@@ -243,8 +242,8 @@ def github_entries(repo: str, token: str, issue_title: str = ISSUE_TITLE, author
     return read
 
 
-# The step of visual-gate-nightly that runs only when the gate holds this run's
-# build (enforce mode, failing verdict); its conclusion is what await-gate reads.
+# The step of visual-gate-nightly that marks an enforce-mode failing verdict;
+# its conclusion is what await-gate reads for advisory reporting.
 GATE_MARKER = "Hold publication"
 # A job not listed yet right after both jobs were queued is given this long to appear.
 MISSING_GRACE_S = 300

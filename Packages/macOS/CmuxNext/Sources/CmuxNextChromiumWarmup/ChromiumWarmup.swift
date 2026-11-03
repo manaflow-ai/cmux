@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextWakeups
 public import Foundation
 
@@ -63,7 +64,7 @@ public final class ChromiumWarmup {
     private let idleTimer: DemandTimer
     private let giveUpTimer: DemandTimer
     private var waiting = false
-    private var menuObserver: (any NSObjectProtocol)?
+    private var menuObserver: MenuTracking?
     private var inputMonitor: Any?
     private var lastInput: TimeInterval = 0
     public private(set) var reason: Reason?
@@ -203,14 +204,14 @@ public final class ChromiumWarmup {
         guard waiting else { return }
         if isTrackingMenu() {
             guard menuObserver == nil else { return }
-            menuObserver = NotificationCenter.default.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil,
-                                                                  queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                    guard let self else { return }
-                    self.removeMenuObserver()
-                    self.armIdle(after: self.policy.idleInput)
-                }
+            // The tracking menu's end (MenuTracking, in AppKit's own post) arms the idle wait again.
+            let menus = MenuTracking()
+            menus.subscribe { [weak self] change in
+                guard case .ended = change, let self else { return }
+                self.removeMenuObserver()
+                self.armIdle(after: self.policy.idleInput)
             }
+            menuObserver = menus
             return
         }
         let quiet = now() - lastInput
@@ -253,7 +254,6 @@ public final class ChromiumWarmup {
     }
 
     private func removeMenuObserver() {
-        if let menuObserver { NotificationCenter.default.removeObserver(menuObserver) }
         menuObserver = nil
     }
 }

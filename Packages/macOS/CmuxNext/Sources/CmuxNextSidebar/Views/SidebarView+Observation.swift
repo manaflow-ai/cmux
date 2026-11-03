@@ -20,7 +20,6 @@ extension SidebarViewComponents {
         var filter: String
         var layout: SidebarLayoutDocument
         var itemInfo: [LayoutItemID: SidebarItemInfo]
-        var newWorkspaceShortcut: String?
         var transientTopItems: [SidebarTransientItem]
         var collapsedSections: Set<LayoutSectionID>
         var look: SectionsLookVariant
@@ -57,13 +56,12 @@ extension SidebarViewComponents {
             sectionsRevision = model.observedStructureRevision
             selection = model.selection
             selected = model.selectedItem
-            onScreen = SidebarTunables.multiView.value ? model.onScreen : []
+            onScreen = SidebarTunables.multiViewOn ? model.onScreen : []
             profiles = model.profiles
             activeProfile = model.activeProfileID
             filter = model.filterText
             layout = model.layout
             itemInfo = model.resolvedItemInfo
-            newWorkspaceShortcut = model.newWorkspaceShortcut
             transientTopItems = model.transientTopItems
             collapsedSections = model.collapsedLayoutSections
             look = SidebarSectionTunables.currentLook
@@ -77,7 +75,7 @@ extension SidebarViewComponents {
             tree = SidebarSessionTree.shared.drawn
             pullRequests = SidebarSessionTree.shared.pullRequests
             history = SidebarChatHistory.shared.state
-            workspacesAsTabs = SidebarTunables.workspacesAsTabs.value
+            workspacesAsTabs = SidebarTunables.workspacesAsTabsOn
             groupsByStatus = SidebarTunables.groupByStatus.value
             foldsDone = SidebarTunables.doneFold.value
             rowLimit = SidebarTunables.rowLimit
@@ -117,7 +115,6 @@ extension SidebarViewComponents {
         let rowsChanged = lastState?.sectionsRevision != state.sectionsRevision || lastState?.filter != state.filter || chromeChanged || profileChanged
             || state.preferences.changesList(from: lastState?.preferences) || lastState?.tree != state.tree
             || lastState?.history != state.history
-            || lastState?.newWorkspaceShortcut != state.newWorkspaceShortcut
             || lastState?.workspacesAsTabs != state.workspacesAsTabs || lastState?.foldsDone != state.foldsDone
             || lastState?.groupsByStatus != state.groupsByStatus
             || lastState?.rowLimit != state.rowLimit || lastState?.groupLineLayout != state.groupLineLayout

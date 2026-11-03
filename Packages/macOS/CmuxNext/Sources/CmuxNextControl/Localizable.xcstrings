@@ -1180,6 +1180,268 @@
         }
       }
     },
+    "control.error.noBrowserNearCaller": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No browser in workspace %@ or its window; list every tab with `cmux browser page tabs --all` and name one (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد متصفح في مساحة العمل %@ أو نافذتها؛ اعرض كل علامات التبويب باستخدام `cmux browser page tabs --all` وسمِّ واحدة (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nema preglednika u radnom prostoru %@ ni u njegovom prozoru; izlistajte sve kartice sa `cmux browser page tabs --all` i navedite jednu (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen browser i arbejdsområdet %@ eller dets vindue; vis alle faner med `cmux browser page tabs --all` og angiv én (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Browser im Arbeitsbereich %@ oder seinem Fenster; liste alle Tabs mit `cmux browser page tabs --all` auf und nenne einen (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay navegador en el espacio de trabajo %@ ni en su ventana; lista todas las pestañas con `cmux browser page tabs --all` y nombra una (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun navigateur dans l’espace de travail %@ ni dans sa fenêtre ; listez tous les onglets avec `cmux browser page tabs --all` et nommez-en un (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun browser nell’area di lavoro %@ o nella sua finestra; elenca tutte le schede con `cmux browser page tabs --all` e indicane una (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース %@ とそのウインドウにブラウザがありません。`cmux browser page tabs --all` ですべてのタブを一覧表示し、1 つを指定してください (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានកម្មវិធីរុករកក្នុងកន្លែងធ្វើការ %@ ឬបង្អួចរបស់វាទេ; បង្ហាញផ្ទាំងទាំងអស់ដោយ `cmux browser page tabs --all` ហើយដាក់ឈ្មោះមួយ (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스 %@ 또는 그 창에 브라우저가 없습니다. `cmux browser page tabs --all`로 모든 탭을 나열하고 하나를 지정하세요 (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen nettleser i arbeidsområdet %@ eller vinduet; list alle faner med `cmux browser page tabs --all` og angi én (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brak przeglądarki w obszarze roboczym %@ ani w jego oknie; wypisz wszystkie karty poleceniem `cmux browser page tabs --all` i wskaż jedną (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum navegador no espaço de trabalho %@ ou na janela dele; liste todas as abas com `cmux browser page tabs --all` e indique uma (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В рабочем пространстве %@ и его окне нет браузера; выведите все вкладки командой `cmux browser page tabs --all` и укажите одну (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีเบราว์เซอร์ในพื้นที่ทำงาน %@ หรือหน้าต่างของมัน แสดงแท็บทั้งหมดด้วย `cmux browser page tabs --all` แล้วระบุหนึ่งแท็บ (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ çalışma alanında veya penceresinde tarayıcı yok; tüm sekmeleri `cmux browser page tabs --all` ile listeleyin ve birini belirtin (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У робочому просторі %@ і його вікні немає браузера; виведіть усі вкладки командою `cmux browser page tabs --all` і вкажіть одну (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có trình duyệt trong không gian làm việc %@ hoặc cửa sổ của nó; liệt kê mọi tab bằng `cmux browser page tabs --all` và chỉ định một tab (`cmux browser tab_… <verb>`)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区 %@ 及其窗口中没有浏览器；用 `cmux browser page tabs --all` 列出所有标签页并指定一个（`cmux browser tab_… <verb>`）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區 %@ 及其視窗中沒有瀏覽器；用 `cmux browser page tabs --all` 列出所有分頁並指定一個（`cmux browser tab_… <verb>`）"
+          }
+        }
+      }
+    },
+    "control.error.callerBrowserNotShown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ cannot reach your browser %2$@: no pane shows it, or it is not the focused tab; use a page verb on it: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن لـ %1$@ الوصول إلى متصفحك %2$@: لا يعرضه أي جزء، أو ليس علامة التبويب النشطة؛ استخدم أمر صفحة عليه: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ne može doći do vašeg preglednika %2$@: nijedno okno ga ne prikazuje ili nije fokusirana kartica; koristite naredbu stranice na njemu: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ kan ikke nå din browser %2$@: ingen rude viser den, eller den er ikke den fokuserede fane; brug en sidekommando på den: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ erreicht deinen Browser %2$@ nicht: kein Bereich zeigt ihn, oder er ist nicht der fokussierte Tab; nutze einen Seitenbefehl darauf: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ no puede llegar a tu navegador %2$@: ningún panel lo muestra o no es la pestaña enfocada; usa un comando de página en él: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ne peut pas atteindre votre navigateur %2$@ : aucun panneau ne l’affiche, ou ce n’est pas l’onglet actif ; utilisez une commande de page dessus : `cmux browser %2$@ <verb>`"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ non raggiunge il tuo browser %2$@: nessun riquadro lo mostra o non è la scheda attiva; usa un comando di pagina su di esso: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ はあなたのブラウザ %2$@ を操作できません。どのペインにも表示されていないか、フォーカス中のタブではありません。ページコマンドを使ってください: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ មិនអាចទៅដល់កម្មវិធីរុករក %2$@ របស់អ្នកទេ៖ គ្មានផ្ទាំងណាបង្ហាញវា ឬវាមិនមែនជាផ្ទាំងដែលកំពុងផ្ដោត; ប្រើពាក្យបញ្ជាទំព័រលើវា៖ `cmux browser %2$@ <verb>`"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@이(가) 브라우저 %2$@에 접근할 수 없습니다. 표시하는 패널이 없거나 포커스된 탭이 아닙니다. 페이지 명령을 사용하세요: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ når ikke nettleseren din %2$@: ingen rute viser den, eller den er ikke den fokuserte fanen; bruk en sidekommando på den: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ nie może sięgnąć do Twojej przeglądarki %2$@: żaden panel jej nie pokazuje lub nie jest aktywną kartą; użyj na niej polecenia strony: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ não alcança seu navegador %2$@: nenhum painel o mostra ou não é a aba em foco; use um comando de página nele: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ не может достать ваш браузер %2$@: ни одна панель его не показывает или это не вкладка в фокусе; используйте команду страницы: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ เข้าถึงเบราว์เซอร์ %2$@ ของคุณไม่ได้: ไม่มีบานหน้าต่างใดแสดง หรือไม่ใช่แท็บที่โฟกัสอยู่ ใช้คำสั่งหน้ากับมัน: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ tarayıcınıza (%2$@) ulaşamıyor: hiçbir bölme onu göstermiyor veya odaktaki sekme değil; üzerinde bir sayfa komutu kullanın: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ не може дістатися вашого браузера %2$@: жодна панель його не показує або це не вкладка у фокусі; використайте команду сторінки: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ không tới được trình duyệt %2$@ của bạn: không ngăn nào hiển thị nó hoặc nó không phải tab đang chọn; dùng lệnh trang trên nó: `cmux browser %2$@ <verb>`"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 无法访问你的浏览器 %2$@：没有窗格显示它，或它不是聚焦的标签页；请对它使用页面命令：`cmux browser %2$@ <verb>`"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 無法存取你的瀏覽器 %2$@：沒有窗格顯示它，或它不是聚焦的分頁；請對它使用頁面命令：`cmux browser %2$@ <verb>`"
+          }
+        }
+      }
+    },
     "control.error.createdNoSurface": {
       "extractionState": "manual",
       "localizations": {

@@ -37,6 +37,8 @@ public nonisolated protocol AgentPaneHostProviding: Sendable {
     /// The acpmux whose socket is `socket`, for an answer the host gives itself on the person's
     /// behalf (``AgentPaneAskAnswer``): nil when this host's daemon listens elsewhere, or it has none.
     func answerEnvironment(socket: String) async -> AcpmuxEnvironment?
+    /// Forwards a Cloud repository action on this host's authenticated daemon connection.
+    func cloudRepository(method: String, params: [String: any Sendable], timeout: Duration?) async throws -> Data
 }
 
 extension AgentPaneHostProviding {
@@ -60,6 +62,10 @@ extension AgentPaneHostProviding {
 
     /// Hosts without a daemon answer nothing themselves.
     public func answerEnvironment(socket: String) async -> AcpmuxEnvironment? { nil }
+
+    public func cloudRepository(method: String, params: [String: any Sendable], timeout: Duration?) async throws -> Data {
+        throw AgentSessionRemoteError(code: "cloud_repo.unavailable", message: "Cloud repository service unavailable.")
+    }
 
     /// Hosts without a daemon take no files.
     public func putFile(sessionId: String, name: String, data: Data) async throws -> String {

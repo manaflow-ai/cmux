@@ -9,6 +9,7 @@ import class CmuxNextDaemon.DaemonLaunchTimings
 import Darwin
 import os
 import CmuxNextCompat
+import struct CmuxNextControl.LaunchMarkSink
 
 /// `debug.timings`: main-thread spans of the paths the stall bench measures
 /// (scripts/cmux-next/bench-stalls.py): launch phases, each palette and icon
@@ -131,7 +132,9 @@ enum DebugTimings {
         func round(_ ms: Double) -> JSONValue { .number((ms * 10).rounded() / 10) }
         var launch: [String: JSONValue] = [:]
         for mark in launchMarks.withLock({ $0 }) { launch[mark.name] = round(mark.ms) }
+        let terminals = TerminalLaunchFrames.launchReport { millisecondsSinceProcessStart(at: $0) }.flatMap { try? JSONValue.parse($0) }
         return [
+            "launch_terminals": terminals?["panes"] ?? .object([:]), "launch_terminals_frame_shown_max_ms": terminals?["max_ms"] ?? .null,
             "launch_ms_since_process_start": .object(launch),
             "palette_opens": .array(paletteOpens.map { open in
                 ["ms": round(milliseconds(open.total)), "input_ms": round(milliseconds(open.input)),

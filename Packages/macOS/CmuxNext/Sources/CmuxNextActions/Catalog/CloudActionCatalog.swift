@@ -268,9 +268,9 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "cloudResizeMachine",
                 title: String(localized: "action.cloudResizeMachine", defaultValue: "Resize Machine…", bundle: .module),
-                keywords: ["vm", "cloud tree", "cpu", "memory"], category: .cloud,
+                keywords: ["vm", "cloud tree", "cpu", "memory", "disk", "storage"], category: .cloud,
                 symbol: "arrow.up.left.and.arrow.down.right", surfaces: [.contextMenu],
-                arguments: [CatalogArgument.sizeChoice], targets: [.machine], cliName: "cloud resize-machine"
+                arguments: [CatalogArgument.sizeChoice.optional, CatalogArgument.diskGiBInt], targets: [.machine], cliName: "cloud resize-machine"
             ),
             // `cmux cloud enroll-machine --target machine:<id> --name lane-vm-1`: ssh from this Mac
             // through the app's tunnel, and an acpmux peer (CloudMachineEnrollment).

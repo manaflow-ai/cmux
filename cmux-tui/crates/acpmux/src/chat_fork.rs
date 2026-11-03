@@ -69,6 +69,8 @@ async fn run(
     for k in crate::config::inherited_caller_scoped_keys() {
         cmd.env_remove(k);
     }
+    // The app the daemon follows is not the harness's (`daemon/owner_exit.rs`).
+    cmd.env_remove(crate::daemon::owner_exit::OWNER_APP_PID_ENV);
     let env: &BTreeMap<String, String> = &profile.env;
     // As `agent.rs` spawns: never on stale or revoked delivered secrets.
     if !crate::login_env::machine_env_fresh_before_spawn().await {

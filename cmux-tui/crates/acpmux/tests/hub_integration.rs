@@ -58,6 +58,8 @@ mod permission_display;
 mod permission_groups;
 #[path = "hub_integration/presence.rs"]
 mod presence;
+#[path = "hub_integration/prompt_approval.rs"]
+mod prompt_approval;
 #[path = "hub_integration/prompt_class.rs"]
 mod prompt_class;
 #[path = "hub_integration/prompt_context.rs"]
@@ -78,6 +80,8 @@ mod protocol_serve;
 mod purged_stays_purged;
 #[path = "hub_integration/questions.rs"]
 mod questions;
+#[path = "hub_integration/queue_admission.rs"]
+mod queue_admission;
 #[path = "hub_integration/restart.rs"]
 mod restart;
 #[path = "hub_integration/run_parent.rs"]
@@ -1222,6 +1226,7 @@ async fn catalog_reload_preserves_pending_turn_and_rejects_invalid_config() {
         allowed_origins: Vec::new(),
         allowed_hosts: Vec::new(),
         token_rotated: 0,
+        allow_insecure_network: false,
     });
     next.defaults.insert(
         "deepseek".into(),

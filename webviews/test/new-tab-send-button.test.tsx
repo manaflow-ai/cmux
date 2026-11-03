@@ -6,8 +6,11 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
+import { CMUX_PASS_THROUGH } from "../src/agent-session/acpmux/cmuxCommands";
 import { parseImportedSession } from "../src/agent-session/acpmux/importSession";
-import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
+import { inlineToken, inlineTokenIds, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import type { NewTabCommandActions } from "../src/agent-session/acpmux/newtab/useNewTabCommand";
 
 const scope = globalThis as Record<string, unknown>;
@@ -44,6 +47,7 @@ beforeAll(() => {
     navigator: window.navigator,
     HTMLElement: window.HTMLElement,
     IS_REACT_ACT_ENVIRONMENT: true,
+    ...proseMirrorGlobals(window as unknown as Window & typeof globalThis),
     // The suggestions' Popover (Base UI and Floating UI) reads these.
     Node: window.Node,
     Element: window.Element,
@@ -84,6 +88,13 @@ afterAll(() => {
 });
 
 const noop = () => {};
+async function writeScreenPrompt(host: HTMLElement, text: string) {
+  const field = host.querySelector<MarkdownFieldElement>(".nt-field")!;
+  for (let turn = 0; turn < 200 && !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")); turn++)
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  await act(async () => field.acpmuxMarkdownField!.writeText(text, text.length, text.length));
+  return field;
+}
 const PNG = Uint8Array.from([
   0x89,
   0x50,
@@ -133,12 +144,7 @@ test("a click on the field's Send button asks the agent, as Return does", async 
       />,
     ),
   );
-  const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
-  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
-  await act(async () => {
-    setValue.call(field, "fix the flaky upload test");
-    field.dispatchEvent(new window.Event("input", { bubbles: true }));
-  });
+  await writeScreenPrompt(host, "fix the flaky upload test");
 
   const send = host.querySelector<HTMLButtonElement>('button[aria-label="Send"]');
   expect(send).not.toBeNull();
@@ -172,12 +178,7 @@ test("New Tab /import opens the transcript flow and never sends the slash token 
       />,
     ),
   );
-  const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
-  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
-  await act(async () => {
-    setValue.call(field, "/import");
-    field.dispatchEvent(new window.Event("input", { bubbles: true }));
-  });
+  await writeScreenPrompt(host, "/import");
   const input = host.querySelector<HTMLInputElement>('input[aria-label="/import"]')!;
   let opened = false;
   input.click = () => {
@@ -214,11 +215,12 @@ test("classic New Tab intercepts /import before its omnibar can treat it as a pa
       />,
     ),
   );
-  const field = host.querySelector<HTMLInputElement>("input:not([type=file])")!;
-  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+  // The page's field is the chat composer's prompt editor (MarkdownField).
+  const field = host.querySelector<MarkdownFieldElement>(".acpmux-newtab-field")!;
+  for (let turn = 0; turn < 200 && !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")); turn++)
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   await act(async () => {
-    setValue.call(field, "/import");
-    field.dispatchEvent(new window.Event("input", { bubbles: true }));
+    field.acpmuxMarkdownField!.type("/import");
   });
   const input = host.querySelector<HTMLInputElement>('input[aria-label="/import"]')!;
   let opened = false;
@@ -256,7 +258,12 @@ async function commandPage(
     ...(onImportFile ? { onImportFile } : {}),
     ...(importError ? { importError } : {}),
     ...(template === "screen"
-      ? { runMode: { mode: sandboxed ? ("sandboxed" as const) : ("persistent" as const), onMode: noop } }
+      ? {
+          runMode: {
+            mode: sandboxed ? ("sandboxed" as const) : ("persistent" as const),
+            onMode: noop,
+          },
+        }
       : { importSandboxed: sandboxed }),
     onOpenSession: noop,
     onShowAll: noop,
@@ -291,14 +298,18 @@ async function commandPage(
     else common.importSandboxed = value;
     await act(async () => renderPage());
   };
-  const field = host.querySelector<HTMLInputElement | HTMLTextAreaElement>(
-    template === "screen" ? ".nt-field" : ".acpmux-newtab-field",
-  )!;
+  // Both templates' fields are the chat composer's prompt editor (MarkdownField).
+  const field = host.querySelector<MarkdownFieldElement>(template === "screen" ? ".nt-field" : ".acpmux-newtab-field")!;
+  for (let turn = 0; turn < 200 && !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")); turn++)
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const value = () => (field.acpmuxMarkdownField?.plainText() ?? "").replace(/\n$/, "");
   const edit = async (text: string) => {
-    const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
     await act(async () => {
-      setValue.call(field, text);
-      field.dispatchEvent(new window.Event("input", { bubbles: true }));
+      const handle = field.acpmuxMarkdownField!;
+      // Keep inline attachment atoms in this synthetic whole-prompt edit.
+      const tokens = inlineTokenIds(handle.value()).map(inlineToken).join("");
+      handle.type(`${text}${tokens}`);
+      handle.setCaret(text.length);
     });
   };
   const send = async (afterDispatch?: () => void) =>
@@ -316,17 +327,42 @@ async function commandPage(
         getData: () => "",
       },
     });
-    await act(async () => field.dispatchEvent(event));
-    expect(
-      host.querySelector(
-        pending
-          ? ".acpmux-attachment-pending"
-          : ".acpmux-attachment-image:not(.acpmux-attachment-pending):not(.acpmux-attachment-failed)",
-      ),
-    ).not.toBeNull();
+    const target = field.querySelector<HTMLElement>("[contenteditable]")!;
+    await act(async () => target.dispatchEvent(event));
+    const pendingSelector = ".acpmux-attachment-pending, .acpmux-md-inline-chip[data-state='loading']";
+    const readySelector =
+      ".acpmux-attachment-image:not(.acpmux-attachment-pending):not(.acpmux-attachment-failed), .acpmux-md-inline-chip[data-state='ready']";
+    expect(host.querySelector(pending ? pendingSelector : readySelector)).not.toBeNull();
   };
-  return { field, edit, send, paste, prompts, setSandboxed };
+  const waitForAttachment = async () => {
+    const pendingSelector = ".acpmux-attachment-pending, .acpmux-md-inline-chip[data-state='loading']";
+    for (let turn = 0; turn < 200 && host.querySelector(pendingSelector); turn++)
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  };
+  return {
+    field: {
+      get value() {
+        return value();
+      },
+    },
+    edit,
+    send,
+    paste,
+    waitForAttachment,
+    prompts,
+    setSandboxed,
+  };
 }
+
+test("screen: a ready inline attachment survives /model passthrough", async () => {
+  const page = await commandPage("screen", undefined, undefined, false, () => CMUX_PASS_THROUGH);
+  await page.paste();
+  await page.edit("/model opus");
+  await page.send();
+  expect(page.prompts).toHaveLength(1);
+  expect(page.prompts[0]!.text).toBe("/model opus");
+  expect(page.prompts[0]!.attachments.map((attachment) => attachment.name)).toEqual(["private.png"]);
+});
 
 for (const template of ["screen", "classic"] as const) {
   test(`${template}: /import supersedes an earlier send held for a pending image`, async () => {
@@ -409,13 +445,13 @@ for (const template of ["screen", "classic"] as const) {
         }),
     });
     await page.paste(file, true);
-    await page.edit("/login");
+    await page.edit("/logout");
     await page.send();
     expect(page.prompts).toEqual([]);
     expect(host.querySelector(".acpmux-attachment-note")).toBeNull();
     await act(async () => resolve(bytes));
     expect(page.prompts).toHaveLength(1);
-    expect(page.prompts[0]!.text).toBe("/login");
+    expect(page.prompts[0]!.text).toBe("/logout");
     expect(page.prompts[0]!.attachments.map((attachment) => attachment.name)).toEqual(["pending.png"]);
   });
 
@@ -441,11 +477,14 @@ for (const template of ["screen", "classic"] as const) {
         expect(opened).toBe(accepted);
       });
       expect(page.field.value).toBe(accepted ? "" : "/import");
-      expect(Boolean(host.querySelector(".acpmux-attachment-pending"))).toBe(!accepted);
+      expect(
+        Boolean(host.querySelector(".acpmux-attachment-pending, .acpmux-md-inline-chip[data-state='loading']")),
+      ).toBe(!accepted);
       expect(page.prompts).toEqual([]);
       await act(async () => {
         resolve(bytes);
       });
+      await page.waitForAttachment();
       await page.edit("Explain this file");
       await page.send();
       expect(page.prompts).toHaveLength(1);
@@ -502,7 +541,10 @@ for (const template of ["screen", "classic"] as const) {
       "Transcript import is unavailable in Sandboxed mode",
     );
     // A late picker result must obey the current mode too.
-    Object.defineProperty(input, "files", { configurable: true, value: [new File(["{}"], "transcript.json")] });
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: [new File(["{}"], "transcript.json")],
+    });
     await act(async () => input.dispatchEvent(new window.Event("change", { bubbles: true })));
     expect(imported).toEqual([]);
     expect(page.prompts).toEqual([]);
@@ -522,7 +564,10 @@ for (const template of ["screen", "classic"] as const) {
     await page.send();
     expect(opened).toBe(true);
     await page.setSandboxed(true);
-    Object.defineProperty(input, "files", { configurable: true, value: [new File(["{}"], "transcript.json")] });
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: [new File(["{}"], "transcript.json")],
+    });
     await act(async () => input.dispatchEvent(new window.Event("change", { bubbles: true })));
     expect(imported).toEqual([]);
     expect(page.prompts).toEqual([]);
@@ -538,7 +583,10 @@ for (const template of ["screen", "classic"] as const) {
     await page.edit("/import");
     await page.send();
     const input = host.querySelector<HTMLInputElement>('input[aria-label="/import"]')!;
-    Object.defineProperty(input, "files", { configurable: true, value: [new File(["{}"], "transcript.json")] });
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: [new File(["{}"], "transcript.json")],
+    });
     await act(async () => input.dispatchEvent(new window.Event("change", { bubbles: true })));
     expect(page.prompts).toEqual([]);
     expect(host.querySelector(".acpmux-attachment-note")?.textContent).toContain("Transcript could not be imported");
@@ -604,10 +652,10 @@ for (const template of ["screen", "classic"] as const) {
 
   test(`${template}: a Claude terminal-only refusal preserves its draft`, async () => {
     const page = await commandPage(template, async () => {});
-    await page.edit("/login");
+    await page.edit("/logout");
     await page.send();
     expect(page.prompts).toEqual([]);
-    expect(page.field.value).toBe("/login");
+    expect(page.field.value).toBe("/logout");
     expect(host.querySelector(".acpmux-attachment-note")).not.toBeNull();
   });
 }

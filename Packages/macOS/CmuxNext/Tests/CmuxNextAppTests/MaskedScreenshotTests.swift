@@ -425,19 +425,19 @@ import WebKit
     @Test func onlyAPersonsRunInTheAppIsRaw() {
         var claimed = ActionInvocation(origin: .user)
         claimed.viaControlSocket = true
-        #expect(!ScreenshotHandlers.isPersonsRun(claimed))
-        #expect(ScreenshotHandlers.isPersonsRun(ActionInvocation()))
+        #expect(!claimed.isPersonsOwnRun)
+        #expect(ActionInvocation().isPersonsOwnRun)
         for origin in ActionOrigin.allCases where origin != .user {
-            #expect(!ScreenshotHandlers.isPersonsRun(ActionInvocation(origin: origin)), "\(origin)")
+            #expect(!ActionInvocation(origin: origin).isPersonsOwnRun, "\(origin)")
         }
         var app = ActionInvocation(origin: .user)
         app.callerApp = "com.example.sidebar-app"
-        #expect(!ScreenshotHandlers.isPersonsRun(app))
+        #expect(!app.isPersonsOwnRun)
         var chat = ActionInvocation(origin: .user)
         chat.callerAgentSession = "agent-1"
-        #expect(!ScreenshotHandlers.isPersonsRun(chat))
+        #expect(!chat.isPersonsOwnRun)
         var terminal = ActionInvocation(origin: .user)
         terminal.callerTerminal = "term_1"
-        #expect(!ScreenshotHandlers.isPersonsRun(terminal))
+        #expect(!terminal.isPersonsOwnRun)
     }
 }

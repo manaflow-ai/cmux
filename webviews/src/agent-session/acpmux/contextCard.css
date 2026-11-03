@@ -1,13 +1,18 @@
 /* The context ring's hover card (ContextCard.tsx; Leo 2026-10-21). It is a glass hover card
    (.ui-card.ui-glass, pages/shared/desktop.css), as a session's hover card is: its fill, frost, rim
    and Reduce Transparency fallback are the liquid glass's (ui/glass/glass.css). This sheet sets only
-   its size and type. The bar's colors are the Inspector Context meter's (inspector/inspector.css):
-   the theme accent over a faint text-color track. */
+   its size and type. The bar's colors are Session Info Context meter's (session-info/sessionInfo.css):
+   the theme accent over a faint text-color track.
+   Its glass is the menus' beside it (the mode and model menus, .ui-popup.ui-glass): the popup's
+   hairline edge and drop, as the Summary popover takes them (summary/summary.css). It renders in
+   the page's portal, never inside the composer box, so its blur sees the page and not a backdrop
+   root. No border: the rim is the one edge, so Details reaches it. */
 .acpmux-context-card.ui-card {
   width: 260px;
   max-width: min(260px, calc(100vw - 24px));
   box-sizing: border-box;
-  padding: var(--ui-popup-padding);
+  padding: 0;
+  border-width: 0;
   border-radius: var(--ui-popup-radius, 10px);
   color: var(--agent-text);
   font-family: var(--font-ui);
@@ -16,13 +21,23 @@
   pointer-events: auto;
   letter-spacing: var(--text-body--letter-spacing);
 }
+.acpmux-context-card.ui-card.ui-glass {
+  --glass-elevation: var(--ui-popup-drop);
+  --glass-edge: var(--ui-popup-edge, color-mix(in srgb, currentColor 12%, transparent));
+}
+
+/* The summary on one text column: the menus' text inset (a row's 8 px from the popup's edge), the
+   same on every side, so the title, the line, the bar and the parts share one left and one right
+   edge. */
+.acpmux-context-card-body {
+  padding: var(--ds-space-2);
+}
 
 /* The composer popover stays compact in both states. It uses the same glass material supplied by
    AnchoredCard (.ui-card.ui-glass), while this sheet only controls its content rhythm. */
 .acpmux-context-pop--compact.ui-card {
   width: 230px;
   max-width: min(230px, calc(100vw - 24px));
-  padding: var(--ui-popup-padding);
   text-align: left;
 }
 .acpmux-context-pop--compact .acpmux-context-card-title {
@@ -47,6 +62,7 @@
 
 .acpmux-context-card-title {
   font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
   color: var(--agent-muted);
   letter-spacing: var(--text-detail--letter-spacing);
 }
@@ -65,7 +81,7 @@
   display: block;
   width: 100%;
   height: var(--cmux-hairline);
-  margin-top: var(--ds-space-1);
+  margin-top: var(--ds-space-2);
   border: 0;
   border-radius: 999px;
   background: color-mix(in srgb, var(--agent-text) 14%, transparent);
@@ -92,17 +108,20 @@
 .acpmux-context-card-parts {
   display: grid;
   gap: var(--ds-space-1);
-  margin: var(--ds-space-1) 0 0;
+  margin: var(--ds-space-2) 0 0;
   padding: 0;
   font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
   list-style: none;
   letter-spacing: var(--text-detail--letter-spacing);
 }
 
+/* Swatch, name and tokens on one grid: the swatch's column is its own width, the names start on one
+   line, and the tokens end on the summary's right edge. */
 .acpmux-context-card-part {
   display: grid;
-  grid-template-columns: 8px minmax(0, 1fr) auto;
-  column-gap: var(--ds-space-1);
+  grid-template-columns: var(--ds-space-1) minmax(0, 1fr) auto;
+  column-gap: var(--ds-space-2);
   align-items: center;
 }
 
@@ -119,48 +138,56 @@
 .acpmux-context-card-part-tokens {
   color: var(--agent-muted);
   font-variant-numeric: tabular-nums;
+  text-align: end;
 }
 
+/* Details › is the card's last row and runs edge to edge (full bleed): no inset at the sides or
+   the bottom, a hairline over it, and its lower corners on the card's radius, so its hover fill
+   meets the rim. The label keeps the summary's text inset; the chevron ends on its right edge,
+   centred on the label. The hover fill is translucent, so the glass shows through it. */
 .acpmux-context-card-foot {
   display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: var(--ds-space-1);
-  margin-top: var(--ds-space-1);
 }
 
 .acpmux-context-card-details {
-  height: var(--cmux-control-height);
-  padding: 0 var(--ds-space-1);
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-height: var(--ui-row-height, var(--ds-control-row));
+  margin: 0;
+  padding: 0 var(--ds-space-2);
   border: 0;
-  border-radius: 6px;
+  border-radius: 0;
+  border-end-start-radius: var(--ui-popup-radius, 10px);
+  border-end-end-radius: var(--ui-popup-radius, 10px);
   background: none;
+  /* The hairline over the row is a shadow, not a border, so it takes no height and the label and
+     the chevron centre on the row itself. */
+  box-shadow: inset 0 var(--cmux-hairline) 0 0 color-mix(in srgb, var(--agent-text) 12%, transparent);
   color: var(--agent-muted);
   font: inherit;
   font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
   letter-spacing: var(--text-detail--letter-spacing);
+  text-align: start;
 }
 
-.acpmux-context-card-details {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  margin: var(--ds-space-1) 0 0;
-  padding-inline: 0;
-  border-top: 1px solid color-mix(in srgb, var(--agent-text) 12%, transparent);
-  border-radius: 0;
-  text-align: left;
-  padding-top: var(--ds-space-1);
+.acpmux-context-card-details-chevron {
+  flex: none;
+  margin-inline-start: auto;
 }
-
-.acpmux-context-card-details span { margin-inline-start: auto; }
+/* It points the way the row reads, as the › glyph mirrors in a right-to-left pane. */
+.acpmux-context-card-details-chevron:dir(rtl) {
+  transform: scaleX(-1);
+}
 
 .acpmux-context-card-details:hover {
-  background: var(--acpmux-menu-hover);
+  background: var(--acpmux-pill-hover);
   color: var(--agent-text);
 }
 
 .acpmux-context-card-details:focus-visible {
   outline: 1.5px solid var(--agent-text);
-  outline-offset: 1px;
+  outline-offset: -1.5px;
 }

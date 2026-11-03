@@ -51,6 +51,11 @@ public nonisolated protocol TerminalIO: Sendable {
     /// owner announces grids.
     @MainActor func appliesViewGrid(reporting: Bool) -> Bool
 
+    /// The grids this IO's link to the PTY owner holds (the size invariant, ``TerminalSizeInvariant``):
+    /// the grid it last sent to the PTY and the grid the owner last announced. Nil (the default) for an
+    /// IO that keeps no link, a bare local PTY.
+    @MainActor var linkGrids: TerminalLinkGrids? { get }
+
     /// The surface gained keyboard focus. Ordered with `write` and `resize`.
     /// A daemon IO takes canonical geometry back if another client took it
     /// (the latest active client holds geometry).
@@ -79,6 +84,7 @@ public nonisolated protocol TerminalIO: Sendable {
 public extension TerminalIO {
     var answersTerminalQueries: Bool { true }
     @MainActor func appliesViewGrid(reporting: Bool) -> Bool { false }
+    @MainActor var linkGrids: TerminalLinkGrids? { nil }
     @MainActor func resizeOnMain(cols: Int, rows: Int, final: Bool, window: NSWindow?) -> Bool { false }
     func focusGained() async {}
     func takeOverSize(setLatest: Bool) async {}

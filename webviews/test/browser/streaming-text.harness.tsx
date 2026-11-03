@@ -119,6 +119,37 @@ FileRenderer.prototype.initializeHighlighter = function (this: FileRenderer) {
 const overlap = (windows: [number, number][], from: number, to: number) =>
   windows.reduce((sum, [start, end]) => sum + Math.max(0, Math.min(end, to) - Math.max(start, from)), 0);
 
+/// The followed view's glide (followGlide.ts) as the page drives it: each time it draws the thread
+/// back (`animate` from `translate: 0 Npx`, +N) and each time it lets go of what it still held (a
+/// glide cancelled, -what it still held). Their sum over a frame is how much of that frame's rise the
+/// glide took; the rest of the rise moved the reply at once. Cancel runs before the next `animate`
+/// (`rise`), and `stop` cancels alone, so a glide stopped mid-way counts as the jump it is.
+const glideEvents: { at: number; px: number }[] = [];
+const glideFrom = new WeakMap<Animation, number>();
+const animate = Element.prototype.animate;
+Element.prototype.animate = function (this: Element, ...args: Parameters<typeof animate>) {
+  const animation = animate.apply(this, args);
+  const first = Array.isArray(args[0]) ? (args[0][0] as { translate?: string } | undefined) : undefined;
+  if (this.classList.contains("acpmux-thread") && typeof first?.translate === "string") {
+    const px = Number.parseFloat(first.translate.split(" ")[1] ?? "");
+    if (Number.isFinite(px)) {
+      glideFrom.set(animation, px);
+      glideEvents.push({ at: performance.now(), px });
+    }
+  }
+  return animation;
+};
+const cancel = Animation.prototype.cancel;
+Animation.prototype.cancel = function (this: Animation) {
+  const from = glideFrom.get(this);
+  if (from !== undefined) {
+    const progress = this.effect?.getComputedTiming().progress;
+    if (typeof progress === "number") glideEvents.push({ at: performance.now(), px: -from * (1 - progress) });
+    glideFrom.delete(this);
+  }
+  cancel.call(this);
+};
+
 /// The first task span no sample has counted.
 let nextSpan = 0;
 
@@ -172,6 +203,8 @@ createRoot(root).render(<Pane />);
 /// One sampled display frame.
 type Frame = {
   t: number;
+  /// When the sample was read (performance.now()), after the frame's timestamp `t`.
+  at: number;
   /// The stream has started and not ended.
   live: boolean;
   /// Characters of the reply drawn (its Markdown root's textContent).
@@ -183,6 +216,8 @@ type Frame = {
   blocks: { tag: string; top: number; height: number; text: string }[];
   /// The reply row's top on screen (transforms included): followed, it only moves up.
   rowTop?: number;
+  /// How far the followed view's glide draws the thread down (its animated `translate`, followGlide.ts).
+  glide?: number;
   /// How far the view rests from its end, when it can scroll.
   fromEnd?: number;
   /// Room between the reply's last drawn line and the top of the bottom stack.
@@ -231,6 +266,7 @@ function sampleFrame(t: number, live: boolean): Frame {
   const dock = document.querySelector<HTMLElement>(".acpmux-dock");
   const frame: Frame = {
     t,
+    at: performance.now(),
     live,
     length: 0,
     shown: reveal.shown,
@@ -245,6 +281,8 @@ function sampleFrame(t: number, live: boolean): Frame {
   if (!row || !markdown) return frame;
   frame.length = markdown.textContent?.length ?? 0;
   frame.rowTop = row.getBoundingClientRect().top;
+  const thread = document.querySelector<HTMLElement>(".acpmux-thread");
+  if (thread) frame.glide = Number.parseFloat(getComputedStyle(thread).translate.split(" ")[1] ?? "") || 0;
   const origin = layoutTop(markdown);
   frame.blocks = [...markdown.children].map((child) => {
     const block = child as HTMLElement;
@@ -275,6 +313,8 @@ const JUMP_CHARS = 40;
 /// A settle step larger than this in one frame reads as a snap: an eased 180 ms move over a line
 /// (22.75 px) steps at most about 4 px a frame at 60 Hz.
 const SNAP_PX = 8;
+/// A display frame at 60 Hz, the rate SNAP_PX is set for.
+const FRAME_MS = 1000 / 60;
 
 function analyze(
   cadence: Cadence,
@@ -379,12 +419,50 @@ function analyze(
   }
   // Follow steps: how far the reply's row moves on screen from one frame to the next while it
   // streams. A followed view that takes each new line at once moves it a whole line in one frame.
+  // A frame's move has two parts. What moved at once: the rows' rise in layout less what the glide
+  // took of it (glideEvents), counted whole however long the frame was. And the glide's own slide
+  // toward rest, which runs on the animation clock, so a frame twice as long draws twice the slide:
+  // that part counts at what a 60 Hz frame draws of it, so a starved host's long frames (WebKit on a
+  // loaded runner: 20 ms median, 38-45 ms worst) are not read as jumps the page never made. A
+  // stepped view has no glide, and every move it makes counts whole.
   const steps: number[] = [];
+  const snapEvents: { t: number; px: number; ms: number; atOnce: number; slide: number; tail: string }[] = [];
+  const starvedFrames: { t: number; intervalMs: number; pageWorkMs: number }[] = [];
+  let nextGlide = 0;
   for (let index = 1; index < live.length; index += 1) {
-    const before = live[index - 1]!.rowTop;
-    const now = live[index]!.rowTop;
+    const previous = live[index - 1]!;
+    const frame = live[index]!;
+    // Use the same monotonic clock as the animation and the work spans. The rAF timestamp is the
+    // display timestamp, which can stay on the nominal cadence while this callback waits in a
+    // loaded runner; using it would charge that scheduler gap to the glide's 60 Hz step.
+    const ms = frame.at - previous.at;
+    const pageWorkMs = frame.scriptMs + frame.layoutMs;
+    // Keep delayed frames in the motion metric. A low-work, long interval is useful evidence of
+    // runner starvation, but dropping it could hide a real jump from an unmeasured callback. The
+    // glide contribution below is the only part adjusted for the scheduler gap; layout movement
+    // remains a semantic one-frame jump. The work/long-task checks still inspect the same frame.
+    if (ms > FRAME_MS && pageWorkMs < FRAME_MS)
+      starvedFrames.push({ t: at(frame.t), intervalMs: round2(ms), pageWorkMs: round2(pageWorkMs) });
+    let took = 0;
+    for (; nextGlide < glideEvents.length && glideEvents[nextGlide]!.at <= frame.at; nextGlide += 1)
+      if (glideEvents[nextGlide]!.at > previous.at) took += glideEvents[nextGlide]!.px;
+    const before = previous.rowTop;
+    const now = frame.rowTop;
     if (before === undefined || now === undefined || Math.abs(now - before) <= 0.5) continue;
-    steps.push(Math.abs(now - before));
+    const glided = (frame.glide ?? 0) - (previous.glide ?? 0);
+    const atOnce = now - before - glided + took;
+    const slide = glided - took;
+    const step = Math.abs(atOnce + slide * Math.min(1, FRAME_MS / Math.max(ms, 1)));
+    steps.push(step);
+    if (step > SNAP_PX)
+      snapEvents.push({
+        t: at(frame.t),
+        px: round2(step),
+        ms: round2(ms),
+        atOnce: round2(atOnce),
+        slide: round2(slide),
+        tail: tailOf(frame),
+      });
   }
   // Bottom-edge reversals over the whole run: the reply's top, which a followed view only lifts,
   // coming back down by more than half a pixel in one frame.
@@ -468,6 +546,9 @@ function analyze(
       moving: steps.length,
       ...stats(steps),
       overSnap: steps.filter((px) => px > SNAP_PX).length,
+      snapEvents: snapEvents.slice(0, 40),
+      starvedFrames: starvedFrames.length,
+      starved: starvedFrames.slice(0, 40),
     },
     settle: {
       moves: settleMoves.length,
@@ -547,6 +628,7 @@ async function run({
   };
 
   const frames: Frame[] = [];
+  glideEvents.length = 0;
   let live = false;
   let sampling = true;
   const longTasks: { t: number; ms: number }[] | null = PerformanceObserver.supportedEntryTypes?.includes("longtask")
