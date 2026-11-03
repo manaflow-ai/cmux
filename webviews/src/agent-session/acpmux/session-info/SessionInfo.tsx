@@ -1277,7 +1277,14 @@ export function SessionInfoPanel({
       const target = event.target as Element | null;
       if (!target || typeof target.closest !== "function") return;
       if (frame.current?.contains(target)) return;
-      if (target.closest(`${SESSION_INFO_TOGGLE}, ${DISMISS_KEEPERS}`)) return;
+      if (target.closest(SESSION_INFO_TOGGLE)) return;
+      const layer = target.closest(DISMISS_KEEPERS);
+      // A containing dialog is below this panel, so pressing its content can dismiss the panel.
+      if (layer && !layer.contains(frame.current)) return;
+      // Capture precedes a child popup's outside-press handler. Let that popup consume this
+      // dismissal even though its popup is portalled; only triggers owned by this panel count.
+      if (frame.current?.querySelector('[aria-haspopup][data-popup-open], [aria-haspopup][aria-expanded="true"]'))
+        return;
       onDismiss();
     };
     doc.addEventListener("pointerdown", away, true);
@@ -1699,7 +1706,9 @@ export function SessionInfo({
       meta={value(
         reconnect > 0
           ? t("sessionInfo.connectors.reconnect", { count: reconnect })
-          : t("rail.connected", { count: mcp.filter((server) => server.status === "connected").length }),
+          : t("rail.connected", {
+              count: mcp.filter((server) => server.status === "connected").length,
+            }),
       )}
     >
       <ConnectorsSection servers={mcp} onReconnect={onReconnectMcp} />

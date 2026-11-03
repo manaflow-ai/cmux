@@ -41,7 +41,9 @@ import { Bot, ChevronRight, TerminalSquare } from "./icons";
 import { Markdown } from "./Markdown";
 import { CardCopy } from "./CardCopy";
 import { knownMark } from "../../shared/AgentMark";
-import { useSenderChat, useSenderPlace } from "../subagents/subsessions";
+import { useMachineChats, useSenderChat, useSenderPlace } from "../subagents/subsessions";
+import { Menu, MenuButton, MenuGroup, MenuItem, MenuPopup, MenuSeparator } from "../../../ui/Menu";
+import { copyTextResult } from "./clipboard";
 import { harnessLabel, runModel } from "../subagents/agentRuns";
 import { AgentIdentity } from "../subagents/AgentIdentity";
 import { agentTone } from "../subagents/agentTones";
@@ -180,8 +182,48 @@ export function SenderName({ message, onOpen }: { message: IncomingMessage; onOp
       {/* The other machine the sender's chat runs on, on the line itself, not only in the name's
           tooltip (Leo, 2026-10-27, on a lane's message: "Is this, like, from another machine? But
           even if they're from another machine, what's going on here?"). This Mac's chats name none. */}
-      {sender.host && <span className="cv-received__host">{sender.host}</span>}
+      {sender.host &&
+        (readOnly ? (
+          <span className="cv-received__host">{sender.host}</span>
+        ) : (
+          <MachineMenu host={sender.host} onOpen={onOpen} />
+        ))}
     </span>
+  );
+}
+
+/// The machine a sender runs on, as a control (Leo, 2026-11-03, on the line's machine: "so what's
+/// this depicting? session name, then machine? hm i wonder if there's anything interesting we can
+/// click around wrt machines"): it opens a menu of the chats listed on that machine, each opening
+/// beside this one as the sender's name does, and Copy machine name. Moving a chat between machines
+/// comes next (cmuxterm-hq#763). The label keeps its muted look; only it highlights, never the line.
+function MachineMenu({ host, onOpen }: { host: string; onOpen(sessionId: string): void }) {
+  const t = useT();
+  const chats = useMachineChats(host);
+  const title = t("machineMenu.chats", { machine: host });
+  return (
+    <Menu>
+      <MenuButton className="cv-received__host" data-menu="sender-machine" title={title} aria-haspopup="menu">
+        <span className="cv-received__host-name">{host}</span>
+      </MenuButton>
+      <MenuPopup side="bottom" align="start" className="acpmux-quick-menu cv-machine-menu" label={title}>
+        {chats.length > 0 && (
+          <>
+            <MenuGroup label={title}>
+              {chats.map((chat) => (
+                <MenuItem key={chat.sessionId} className="acpmux-quick-item" onSelect={() => onOpen(chat.sessionId)}>
+                  {chat.name}
+                </MenuItem>
+              ))}
+            </MenuGroup>
+            <MenuSeparator />
+          </>
+        )}
+        <MenuItem className="acpmux-quick-item" onSelect={() => void copyTextResult(host)}>
+          {t("machineMenu.copyName")}
+        </MenuItem>
+      </MenuPopup>
+    </Menu>
   );
 }
 

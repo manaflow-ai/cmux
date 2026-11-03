@@ -103,14 +103,15 @@ test("each state is the glyph's shape and the row's color, and no row says Merge
   const states = rows(container).map((row) => [
     row.querySelector(".acpmux-session-info-pr__ref")?.textContent,
     row.dataset.state,
-    row.querySelector("svg.acpmux-session-info-pr__glyph")?.getAttribute("data-glyph"),
+    row.querySelector("svg.acpmux-session-info-pr__glyph")?.getAttribute("data-icon"),
   ]);
   expect(states).toEqual([
-    ["cmuxterm-hq #2681", "open", "open"],
-    ["cmux #20560", "conflicting", "conflicting"],
-    ["leo-workspace #636", "draft", "draft"],
-    ["cmux #23377", "merged", "merged"],
-    ["glaeda #1546", "closed", "closed"],
+    // Each state is a pack icon (the Sources and Environment rows' family), not a hand-drawn glyph.
+    ["cmuxterm-hq #2681", "open", "git.pullrequest"],
+    ["cmux #20560", "conflicting", "git.pullrequest.closed"],
+    ["leo-workspace #636", "draft", "git.pullrequest.draft"],
+    ["cmux #23377", "merged", "git.pullrequest.merged"],
+    ["glaeda #1546", "closed", "git.pullrequest.closed"],
   ]);
   // The words are for screen readers only, inside the glyph's label; the line shows none.
   for (const row of rows(container)) {
