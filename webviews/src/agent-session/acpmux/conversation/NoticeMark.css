@@ -1,0 +1,51 @@
+/* A notice's severity mark (NoticeMark.tsx): the severity's colour, steady (no motion at all). */
+.cv-notice-mark {
+  display: block;
+  flex: none;
+  color: var(--cv-text-muted);
+}
+.cv-notice-mark[data-severity="fire"] {
+  color: var(--agent-status-failure);
+}
+.cv-notice-mark[data-severity="warn"] {
+  color: var(--agent-status-warning);
+}
+.cv-notice-mark__ink {
+  stroke: white;
+}
+.cv-notice-mark__dot {
+  fill: white;
+}
+
+/* The notice's line (IncomingMessageCard.tsx, `.cv-notice`): the title reads in the rows' tone, not
+   the dim of a message's first line, since it is what the notice says. */
+.cv-received.cv-notice .cv-notice__title {
+  color: var(--cv-activity-text);
+}
+/* `tint` look: a fire's or warning's title in its colour. */
+.cv-received.cv-notice.look-tint.is-fire .cv-notice__title {
+  color: var(--agent-status-failure);
+}
+.cv-received.cv-notice.look-tint.is-warn .cv-notice__title {
+  color: var(--agent-status-warning);
+}
+/* `tag` look: the severity as a small word before the title, a quiet pill in its colour. */
+.cv-notice__tag {
+  display: inline-block;
+  margin-inline-end: var(--ds-space-1);
+  padding: 0 4px;
+  border-radius: 4px;
+  font-size: 0.8em;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  vertical-align: 1px;
+}
+.cv-notice__tag[data-severity="fire"] {
+  color: var(--agent-status-failure);
+  background: color-mix(in srgb, var(--agent-status-failure) 14%, transparent);
+}
+.cv-notice__tag[data-severity="warn"] {
+  color: var(--agent-status-warning);
+  background: color-mix(in srgb, var(--agent-status-warning) 16%, transparent);
+}

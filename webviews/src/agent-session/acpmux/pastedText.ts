@@ -1,17 +1,18 @@
-// A huge paste is a chip, as in Claude (Leo 2026-10-21): text of more than PASTE_CHIP_LINES lines
+// A huge paste is a chip, as in Claude (Leo 2026-10-21): text of more than PASTE_CHIP_WORDS words
 // or PASTE_CHIP_CHARS characters pasted into the composer becomes a "Pasted text" attachment (its
 // first words and line count) instead of pages of prompt. A click puts it back in the prompt to
 // edit; Paste as Plain Text keeps a raw paste. It goes to the agent as text: its own ACP text block
 // after the prompt's, marked `_meta.cmux.pasted` so the transcript can tell it from what was typed.
 import type { ComposerAttachment, PromptBlock } from "./attachments";
-import { pasteLines, pasteName, type PasteRange } from "./conversation/promptCollapse";
+import { pasteName, type PasteRange } from "./conversation/promptCollapse";
 
-/// A paste of more lines than this is a chip.
-export const PASTE_CHIP_LINES = 20;
-/// A paste of more characters than this is a chip.
-export const PASTE_CHIP_CHARS = 2000;
+/// A paste of more words than this is a chip: a page or two of prose stays in the prompt.
+export const PASTE_CHIP_WORDS = 750;
+/// A paste of more characters than this is a chip, for text with few spaces to count words by
+/// (minified code, base64, CJK). It is well past what 750 words of prose take (~4,500).
+export const PASTE_CHIP_CHARS = 10_000;
 /// A paste longer than this goes as a file, never as text in the prompt or a chip that holds it:
-/// past it a prompt's text block is more than an agent's message carries (acpmux's 15 MiB) and the
+/// past it a prompt's text block is more than an agent's message carries (acpmux's 31 MiB) and the
 /// field could not lay it out (Leo, 2026-10-25: "arbitarrily large file sizes the composer should
 /// never ever freeze").
 export const PASTE_FILE_CHARS = 1024 * 1024;
@@ -39,10 +40,14 @@ export async function pastedTextFile(text: string): Promise<File> {
   return new File(parts, PASTED_TEXT_NAME, { type: "text/plain" });
 }
 
-/// Whether a paste of `text` is a chip rather than prompt text. Its lines and name are counted as
-/// the transcript's paste chip counts them (promptCollapse.ts), so the two chips read the same.
+/// Whether a paste of `text` is a chip rather than prompt text. Words are runs of non-space
+/// characters; the count stops at the limit, so a long paste is not walked to its end.
 export function isLargePaste(text: string): boolean {
-  return text.length > PASTE_CHIP_CHARS || pasteLines(text) > PASTE_CHIP_LINES;
+  if (text.length > PASTE_CHIP_CHARS) return true;
+  const words = /\S+/g;
+  let count = 0;
+  while (words.exec(text)) if (++count > PASTE_CHIP_WORDS) return true;
+  return false;
 }
 
 /// The chip a large paste of `text` makes.

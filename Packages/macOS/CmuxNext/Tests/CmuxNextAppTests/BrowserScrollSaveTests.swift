@@ -32,4 +32,24 @@ struct BrowserScrollSaveTests {
         }
         #expect(sent.histories.last?.entries.compactMap(\.scrollY).last == 640, "the scroll position waited for quit")
     }
+
+    /// The person never leaves the app and it crashes: the page's own report of where its scrolling
+    /// settled is already saved (restore journey, crash variant: 1500 -> 0 before).
+    @Test func aSettledScrollIsSavedWhileThePersonStaysInTheApp() async throws {
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/tall")))
+        // Measuring the page answers nothing: only the page's own report may carry the position.
+        tab.scrollPosition = { nil }
+        let sent = Sent()
+        let writer = BrowserHistoryWriter(page: tab, recorded: nil, delay: .milliseconds(10),
+                                          sleep: { try await Task.sleep(for: $0) }, center: NotificationCenter(),
+                                          send: { history in sent.histories.append(history); return true })
+        defer { writer.cancel() }
+
+        tab.simulate(.pageScrolled(1500))
+        let deadline = ContinuousClock.now + .seconds(5)
+        while sent.histories.last?.entries.compactMap(\.scrollY).last != 1500, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(sent.histories.last?.entries.compactMap(\.scrollY).last == 1500, "the scroll waited for the person to leave the app or quit")
+    }
 }

@@ -2,6 +2,12 @@
 # nightly.yml sign-nightly-identity-legacy: "Prepare current NEXT DMG for the parallel identity".
 # Moved out of the workflow verbatim to keep nightly.yml under GitHub's
 # workflow file size limit; the step's env: still sets every input.
+#
+# The step's notes, moved from nightly.yml:
+# A current run has a prepared app before the main identity enters
+# Apple's queue. Sign and package that exact app as a temporary NEXT DMG
+# so the compatibility identity can submit in parallel. The published
+# DMG path below remains the continuation path for older runs.
 set -euo pipefail
 archive="$(find prepared-in -type f -name 'cmux-prepared-app.tar.gz' -print -quit)"
 mkdir -p prepared-app next-in

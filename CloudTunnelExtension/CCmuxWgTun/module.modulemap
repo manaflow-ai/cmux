@@ -1,0 +1,5 @@
+module CCmuxWgTun {
+    header "../../cmux-tui/crates/cmux-wg-tun/include/cmux_wg_tun.h"
+    link "cmux_wg_tun"
+    export *
+}

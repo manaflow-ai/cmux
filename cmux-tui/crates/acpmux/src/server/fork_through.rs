@@ -19,7 +19,8 @@ use crate::no_panic::JsonExt;
 use crate::store::SessionStatus;
 
 /// Advertised in `initialize` as `_meta.acpmux.operations`.
-pub const FORK_OPERATIONS: [&str; 1] = [method::ACP_SESSION_FORK];
+pub const FORK_OPERATIONS: [&str; 2] =
+    [method::ACP_SESSION_FORK, "acp.session.fork.beforePromptId"];
 
 /// `acp.session.fork` as the `session/fork` it becomes. Any other method
 /// stays as it is, less a `throughSeq`: only `acp.session.fork` names one.
@@ -34,8 +35,17 @@ pub(super) async fn as_session_fork<'m>(
     }
     if let Some(meta) = params.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
         meta.remove("throughSeq");
+        meta.remove("beforePromptId");
+        meta.remove("requestId");
+        meta.remove("startLater");
     }
     Ok(m)
+}
+
+/// Whether a `session/fork` came from `acp.session.fork` (Fork Conversation), which answers once
+/// the fork's chat is made and starts its agent after (`Hub::fork`'s `start_later`).
+pub(super) fn starts_later(params: &Value) -> bool {
+    params.pointer("/_meta/acpmux/startLater").and_then(Value::as_bool).unwrap_or(false)
 }
 
 /// The earlier turn a `session/fork` from `acp.session.fork` forks through.
@@ -43,23 +53,63 @@ pub(super) fn through(params: &Value) -> Option<u64> {
     params.pointer("/_meta/acpmux/throughSeq").and_then(Value::as_u64)
 }
 
+/// Why a chat on another computer (a peer's) cannot be forked here: a `live`
+/// fork names no turn. Daemon error text, in English as acpmux's other
+/// errors; the pane never sends a fork of a peer's chat (webviews
+/// `messageMenu.ts` `forkServed`), so only a raw client reads it.
+fn remote_refusal(live: bool) -> &'static str {
+    if live {
+        "forking a chat on another computer is not supported yet"
+    } else {
+        "forking a chat on another computer through a turn is not supported yet"
+    }
+}
+
 /// The `session/fork` params for an `acp.session.fork` request, or why the
 /// fork cannot happen at that turn.
 async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     let key = session_key(params)?;
+    // `live`: the whole chat as it is now (Fork Conversation), its running turn cut off
+    // there (`hub/fork.rs`).
+    let live = params.get("live").and_then(Value::as_bool).unwrap_or(false);
     let session = hub.resolve(key).map_err(|e| {
         if hub.resolve_remote(key).is_some() {
-            RpcError::invalid_params(
-                "forking a chat on another computer through a turn is not supported yet",
-            )
+            RpcError::invalid_params(remote_refusal(live))
         } else {
             e
         }
     })?;
+    if params.get("beforePromptId").is_some() {
+        use crate::hub::fork_before::refused;
+        if params.get("throughSeq").is_some() || params.get("live").is_some() {
+            return Err(refused(
+                "fork.invalid_boundary",
+                "beforePromptId excludes throughSeq and live",
+            ));
+        }
+        let field = |key| {
+            params.get(key).and_then(Value::as_str)
+            .filter(|s| !s.trim().is_empty() && s.len() <= 512)
+            .ok_or_else(|| refused("fork.invalid_boundary", "beforePromptId and requestId must be nonempty strings of at most 512 bytes"))
+        };
+        let prompt = field("beforePromptId")?;
+        let request = field("requestId")?;
+        let mut mux = json!({"beforePromptId": prompt, "requestId": request});
+        for key in ["via", "requireFullAccess"] {
+            if let Some(value) = params.pointer(&format!("/_meta/acpmux/{key}")) {
+                mux.set(key, value.clone());
+            }
+        }
+        // Only this canonical operation may mint the internal boundary. All guards still run.
+        return Ok(json!({"sessionId": session.id, "_meta": {"acpmux": mux}}));
+    }
+    if params.get("requestId").is_some() {
+        return Err(crate::hub::fork_before::refused(
+            "fork.invalid_boundary",
+            "requestId requires beforePromptId",
+        ));
+    }
     let working = matches!(session.meta().status, SessionStatus::Running | SessionStatus::Waiting);
-    // `live`: the whole chat as it is now (Fork Conversation), its running turn cut off
-    // there (`hub/fork.rs`).
-    let live = params.get("live").and_then(Value::as_bool).unwrap_or(false);
     let can_cut = {
         let harness = session.meta().harness;
         let cfg = hub.config.read().await;
@@ -68,9 +118,14 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     // A working chat of an agent that forks only at its end forks as it is now.
     if live || (working && !can_cut) {
         let mut out = json!({"sessionId": session.id});
-        if let Some(via) = params.pointer("/_meta/acpmux/via") {
-            out.set("_meta", json!({"acpmux": {"via": via}}));
+        let mut mux = serde_json::Map::new();
+        for key in ["via", "requireFullAccess"] {
+            if let Some(value) = params.pointer(&format!("/_meta/acpmux/{key}")) {
+                mux.insert(key.into(), value.clone());
+            }
         }
+        mux.insert("startLater".into(), json!(true));
+        out.set("_meta", json!({"acpmux": mux}));
         return Ok(out);
     }
     let through = params
@@ -109,15 +164,71 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     // A working chat moved past its latest finished turn: a fork through it cuts there too.
     let earlier = earlier || working;
     let mut mux = serde_json::Map::new();
-    if let Some(via) = params.pointer("/_meta/acpmux/via") {
-        mux.insert("via".into(), via.clone());
+    for key in ["via", "requireFullAccess"] {
+        if let Some(value) = params.pointer(&format!("/_meta/acpmux/{key}")) {
+            mux.insert(key.into(), value.clone());
+        }
     }
     if earlier {
         mux.insert("throughSeq".into(), json!(through));
     }
+    mux.insert("startLater".into(), json!(true));
     let mut out = json!({"sessionId": session.id});
-    if !mux.is_empty() {
-        out.set("_meta", json!({"acpmux": mux}));
-    }
+    out.set("_meta", json!({"acpmux": mux}));
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{Config, StoreMode};
+    use crate::session_identity::SessionReceipt;
+
+    /// A hub with no chat of its own, and peer hb (listed, never run) listing a working chat:
+    /// `Hub::resolve_remote` needs the peer as well as its row (`hub/own_host.rs` `add_peer`).
+    fn hub_with_a_peer_chat() -> Arc<Hub> {
+        let mut config: Config = serde_json::from_value(json!({})).unwrap();
+        config.store.mode = StoreMode::Memory;
+        let store =
+            crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(config, store);
+        let row = crate::hub::RemoteSession {
+            peer: "hb".into(),
+            summary: json!({"sessionId": "peer-chat-1", "name": "hb/chat", "status": "running"}),
+            receipt: SessionReceipt {
+                host_id: "hb".into(),
+                mux_session_id: "peer-chat-1".into(),
+                agent_session_id: None,
+                generation: 1,
+            },
+        };
+        hub.remote_sessions.lock().unwrap().insert("hb/peer-chat-1".into(), row);
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let peer = crate::peer::Peer::new("hb", "ws://127.0.0.1:9", None, None, tx);
+        hub.peers.lock().unwrap().insert("hb".to_owned(), peer);
+        hub
+    }
+
+    /// Review of #28332: a `live` fork (Fork Conversation of a working chat) names no turn, so
+    /// its refusal for a peer's chat does not say "through a turn"; a fork through a turn does.
+    #[tokio::test]
+    async fn a_peer_chats_fork_is_refused_with_what_it_asked_for() {
+        let hub = hub_with_a_peer_chat();
+        assert!(
+            hub.resolve_remote("hb/peer-chat-1").is_some(),
+            "the fixture lists the peer's chat"
+        );
+        let live = to_session_fork(&hub, &json!({"sessionId": "hb/peer-chat-1", "live": true}))
+            .await
+            .unwrap_err();
+        assert_eq!(live.message, "forking a chat on another computer is not supported yet");
+        let through =
+            to_session_fork(&hub, &json!({"sessionId": "hb/peer-chat-1", "throughSeq": 3}))
+                .await
+                .unwrap_err();
+        assert_eq!(
+            through.message,
+            "forking a chat on another computer through a turn is not supported yet"
+        );
+    }
 }

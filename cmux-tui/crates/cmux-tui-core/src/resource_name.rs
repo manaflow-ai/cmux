@@ -6,6 +6,7 @@ use serde_json::{Map, Value, json};
 
 use crate::resource::ResourceError;
 use crate::workspace_registry::{RegistryTab, RegistryWorkspace};
+use cmux_json::JsonSet as _;
 
 /// Missing provenance in an older registry is conservatively user-owned.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -174,7 +175,7 @@ impl NameUpdate {
                 "expected_name_revision": self.name_revision.map(|revision| revision.to_string()),
             });
             if self.release {
-                fingerprint["release"] = json!(true);
+                fingerprint.set("release", json!(true));
             }
             fingerprint
         })
@@ -263,8 +264,11 @@ impl NameUpdate {
             )
             .into());
         }
+        // A default name never renamed is still unnamed, whatever its recorded source: daemons
+        // before `for_requested_workspace_name` recorded the default name Cmd-N sends as the user's.
         let current = CurrentName {
-            unnamed: workspace.name.trim().is_empty(),
+            unnamed: workspace.name.trim().is_empty()
+                || (workspace.name_revision == 0 && is_default_workspace_name(&workspace.name)),
             source: workspace.name_source,
             revision: workspace.name_revision,
         };
@@ -306,7 +310,7 @@ pub(crate) fn name_refusal(
     } else {
         "automatic names cannot clear a title"
     };
-    resource["reason_code"] = json!(reason_code);
+    resource.set("reason_code", json!(reason_code));
     ResourceError::operation_failed(operation, reason, resource)
 }
 

@@ -39,7 +39,8 @@ extension DaemonService {
         let daemonError = error as? DaemonError
         let terminal = daemonError?.isTerminalStartTimeout == true
         var timedOut = terminal
-        if case .timedOut = daemonError { timedOut = true }
+        // A close past its bound with no answer (`CloseUnanswered`) may still apply, as a timeout may.
+        if case .timedOut = daemonError { timedOut = true } else if error is CloseUnanswered { timedOut = true }
         return DaemonCommandScope.Failure(label: label, message: "\(label): \(error)", mayHaveApplied: timedOut, terminalMayAppear: terminal)
     }
 }

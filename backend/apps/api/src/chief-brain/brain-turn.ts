@@ -1,3 +1,5 @@
+import { slackEnabled } from "../chief-slack.ts"
+import { finishJobDestinations } from "../chief-brain-cc/job-destination.ts"
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context"
 import { ackWake, chiefPrincipal, postReply, readConversation, typing } from "./brain-io.ts"
 import { flushMarks, lastTalk, markPending, runError, type Run, type Step, upsertStep } from "./brain-runs.ts"
@@ -7,13 +9,15 @@ import { AUTH_FAILED, claudeAuthFor } from "./claude-auth.ts"
 import { prunePiEntries } from "./pi-prune.ts"
 import { RETRY_MS } from "./memory.ts"
 import { creditsCanStart, creditsNotice, turnFailedNotice, isClaude, isMetered, liveOf, pickTurnModel } from "./models.ts"
-import { clipReply, formatMessage, inboxKind, isNoReply, linkIds, replyTarget } from "./brain-text.ts"
+import { clipReply, formatMessage, inboxKind, isNoReply, linkIds, ownsRoot, replyTarget, threadOf } from "./brain-text.ts"
 import { turnThread } from "./brain-spawn.ts"
 import { ccRoute } from "../chief-brain-cc/vm.ts"
 import { ccTurn } from "../chief-brain-cc/turn.ts"
 import { OPUS } from "../model-gateway/routes.ts"
 import { messageEffectAuthorized } from "./effect-policy.ts"
 import { type ChiefBrainDO, POST_RETRY_MS, retryPost, HOST, msOr, SETTLE_MS, TURN_MS, handsContinueText, type Admission } from "./brain-do.ts"
+import { machineRetryable, machineTurn, readMachineState } from "./brain-machine.ts"
+import { prepareMachineReply } from "./brain-machine-reply.ts"
 
 /**
  * The turn loop of a ChiefBrainDO (brain-do.ts): a wake queues messages, the drain admits and opens one
@@ -39,7 +43,7 @@ export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; c
   if (!a.ok) return skip(b, w, a.reason, unread)
   // While the wake reads the conversation and the turn is admitted: the owner's turns object, the route's auth and the team's meter warm up.
   // (Not on the Claude Code route, chief-brain-cc/: its turns use none of them.)
-  if (!ccRoute(b.doEnv, w.owner)) {
+  if (!a.machine && !ccRoute(b.doEnv, w.owner)) {
     if (isMetered(a.config.model)) b.doCtx.waitUntil(b.turns(w.owner).warm().catch(() => undefined))
     if (isClaude(a.config.model)) b.doCtx.waitUntil(claudeAuthFor(b.doEnv, b.holder).catch(() => undefined))
     b.doCtx.waitUntil(b.harness.pi().catch(() => undefined))
@@ -60,7 +64,7 @@ export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; c
     const text = formatMessage(view.head, m, { files, owner: w.owner })
     if (!text) continue
     const fresh = b.sql
-      .exec(`INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, text, effect_authorized) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (message) DO NOTHING RETURNING n`, m.id, w.conversation, m.seq, inboxKind(view.head), m.thread_root ?? null, text, messageEffectAuthorized(view.head, m, view.messages, w.owner, w.agent) ? 1 : 0)
+      .exec(`INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, own_root, text, effect_authorized) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (message) DO NOTHING RETURNING n`, m.id, w.conversation, m.seq, m.author.startsWith("slack:") ? "slack" : inboxKind(view.head), m.author.startsWith("slack:") ? (m.thread_root ?? m.id) : threadOf(m, view.messages), ownsRoot(m) ? 1 : 0, text, messageEffectAuthorized(view.head, m, view.messages, w.owner, w.agent) ? 1 : 0)
       .toArray()
     queued += fresh.length
   }
@@ -118,8 +122,8 @@ const OTHER_BRAIN = new Set(["disabled", "other_chief", "chief_placed"])
  * background delivery). A memory copy under way only keeps the floor: an abandoned import must not hold
  * the conversation's wakes for hours.
  */
-const FLOOR_SKIPS: ReadonlySet<string> = new Set(["owner.unreachable", "memory_importing"])
-const retries = (reason: string, unread: boolean) => reason === "owner.unreachable" || (reason === "unknown_conversation" && unread)
+const FLOOR_SKIPS: ReadonlySet<string> = new Set(["owner.unreachable", "memory_importing", "provisioning_pending"])
+const retries = (reason: string, unread: boolean) => reason === "owner.unreachable" || reason === "provisioning_pending" || (reason === "unknown_conversation" && unread)
 const skip = (b: ChiefBrainDO, w: { agent: string; conversation: string; seq: number }, reason: string, unread = false): { skipped: string; retry?: true } => {
   if (FLOOR_SKIPS.has(reason)) b.sql.exec(`INSERT INTO cb_cursor (conversation, seq) VALUES (?, ?) ON CONFLICT (conversation) DO NOTHING`, w.conversation, w.seq - 1)
   // A turn that runs, messages that wait for one, or a reply that waits to post in this conversation keep their indicator.
@@ -141,7 +145,9 @@ export async function steerQueued(b: ChiefBrainDO, conversation: string): Promis
   const t = b.sql.exec<{ m: string; k: string; r: string | null }>(`SELECT trigger_message AS m, trigger_kind AS k, trigger_thread_root AS r FROM cb_turn WHERE id = ?`, turn).toArray()[0]
   const root = t?.r ?? null
   // Only the turn's own thread joins it (its reply goes there; a subagent report names that thread); other threads wait for their own turn.
-  const rows = b.sql.exec<{ n: number; message: string; seq: number; text: string; effect_authorized: number }>(`SELECT n, message, seq, text, effect_authorized FROM cb_inbox WHERE state = 'queued' AND conversation = ? AND (thread_root IS ? OR thread_root IS ?) ORDER BY n`, conversation, root, t ? turnThread(t.k, t.m, root) : root).toArray()
+  // A destination job's final answer leaves the chat: unrelated input never joins that turn.
+  if (b.sql.exec(`SELECT 1 FROM cb_job_destinations d JOIN cb_turn t ON t.trigger_message = d.message WHERE t.id = ?`, turn).toArray().length) return
+  const rows = b.sql.exec<{ n: number; message: string; seq: number; text: string; effect_authorized: number }>(`SELECT n, message, seq, text, effect_authorized FROM cb_inbox WHERE state = 'queued' AND conversation = ? AND (thread_root IS ? OR thread_root IS ?) AND message NOT IN (SELECT message FROM cb_job_destinations) ORDER BY n`, conversation, root, t ? turnThread(t.k, t.m, root) : root).toArray()
   if (rows.length === 0) return
   const op = `${turn}:steer:${rows[0]!.n}`
   const text = rows.map((r) => r.text).join("\n\n")
@@ -183,6 +189,9 @@ export function kick(b: ChiefBrainDO): void {
     .catch((e: unknown) => void (failed = true, console.error(JSON.stringify({ msg: "chief_brain.drain_failed", error: String(e).slice(0, 300) }))))
     .finally(() => {
       b.draining = undefined
+      const running = b.sql.exec<{ turn: string }>(`SELECT turn FROM cb_inbox WHERE state = 'running' ORDER BY n LIMIT 1`).toArray()[0]
+      if (running && readMachineState(b.sql, running.turn)?.phase === "waiting_auth") return
+      if (running && b.sql.exec(`SELECT 1 FROM cb_config WHERE name = ?`, `machine-retry:${running.turn}`).toArray().length) return
       // A wake that queued rows while the drain was ending saw it still running: look again (after a failure, later).
       if (b.sql.exec(`SELECT 1 FROM cb_inbox WHERE state = 'queued' AND woke = 1 LIMIT 1`).toArray().length === 0) return
       if (failed) void b.schedule("drain", "drain", Date.now() + RETRY_MS)
@@ -203,23 +212,34 @@ export async function drain(b: ChiefBrainDO): Promise<void> {
       if (refused) return b.childEnd(r.id, false, refused)
       writeConfig(b.sql, { "spawn.admitted": "1" })
     }
-    return b.runTurn(r.id)
+    await b.runTurn(r.id)
+    return
   }
   for (;;) {
     const running = b.sql.exec<{ turn: string }>(`SELECT turn FROM cb_inbox WHERE state = 'running' ORDER BY n LIMIT 1`).toArray()[0]
     if (running) {
-      await b.runTurn(running.turn)
+      if (await b.runTurn(running.turn) === "pending") return
       continue
     }
     // Only a woken message starts a turn; the messages before it ride along as context.
-    const woken = b.sql.exec<{ conversation: string }>(`SELECT conversation FROM cb_inbox WHERE state = 'queued' AND woke = 1 ORDER BY n LIMIT 1`).toArray()[0]
+    const woken = b.sql.exec<{ conversation: string; thread_root: string | null; kind: string; message: string }>(`SELECT conversation, thread_root, kind, message FROM cb_inbox WHERE state = 'queued' AND woke = 1 ORDER BY n LIMIT 1`).toArray()[0]
     if (!woken) return
+    // Only Slack traffic needs transport-thread isolation. Ordinary Chief batches retain base behavior.
+    const slack = slackEnabled(b.doEnv)
+    const linked = slack && (woken.kind === "slack" || (woken.thread_root !== null && b.sql.exec(`SELECT 1 FROM cb_slack_threads WHERE root = ?`, woken.thread_root).toArray().length > 0))
+    const threadFilter = !slack ? "" : linked
+      ? " AND thread_root IS ?"
+      : " AND kind != 'slack' AND NOT EXISTS (SELECT 1 FROM cb_slack_threads s WHERE s.root = cb_inbox.thread_root)"
+    const threadArgs = linked ? [woken.thread_root] : []
+    const destinationJob = slack && b.sql.exec(`SELECT 1 FROM cb_job_destinations WHERE message = ?`, woken.message).toArray().length > 0
+    const jobFilter = !slack ? "" : destinationJob ? " AND message = ?" : " AND message NOT IN (SELECT message FROM cb_job_destinations)"
+    const jobArgs = destinationJob ? [woken.message] : []
     const cfg = b.config()
     const a = cfg.agent && cfg.owner ? await b.admitted(cfg.agent, cfg.owner, true).catch((): Admission => ({ ok: false, reason: "owner.unreachable" })) : ({ ok: false, reason: "unbound" } as Admission)
     const rows = b.sql
-      .exec<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number; effect_authorized: number }>(`SELECT n, message, seq, kind, thread_root, text, woke, effect_authorized FROM cb_inbox WHERE state = 'queued' AND conversation = ? ORDER BY n`, woken.conversation)
+      .exec<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; own_root: number; text: string; woke: number; effect_authorized: number }>(`SELECT n, message, seq, kind, thread_root, own_root, text, woke, effect_authorized FROM cb_inbox WHERE state = 'queued' AND conversation = ?${threadFilter}${jobFilter} ORDER BY n`, woken.conversation, ...threadArgs, ...jobArgs)
       .toArray()
-    if (!a.ok && a.reason === "owner.unreachable") return void (await b.schedule("drain", "drain", Date.now() + RETRY_MS))
+    if (!a.ok && (a.reason === "owner.unreachable" || a.reason === "provisioning_pending")) return void (await b.schedule("drain", "drain", Date.now() + RETRY_MS))
     if (!a.ok) {
       // Not answered (off, archived, placed, over the limit): the wakes are acked so the queue stays bounded.
       b.sql.exec(`UPDATE cb_inbox SET state = 'skipped' WHERE state = 'queued' AND conversation = ?`, woken.conversation)
@@ -235,15 +255,15 @@ export async function drain(b: ChiefBrainDO): Promise<void> {
     // which the turn runs on the last rendered view plus the unsummarized messages whole.
     // A failing or rate-limited compactor costs no wait (the turn goes at once on the last view plus the whole messages).
     markPending(b.sql, "admitted")
-    const healthy = !b.compactor.off() && b.compactor.failures().length === 0 && b.compactor.cooling() === 0
+    const healthy = !a.machine && !b.compactor.off() && b.compactor.failures().length === 0 && b.compactor.cooling() === 0
     const settleMs = msOr(b.doEnv.CHIEF_BRAIN_SETTLE_MS, SETTLE_MS)
-    const fresh = healthy && settleMs > 0 ? await b.compactor.settleTo(b.memory.len(), AbortSignal.timeout(settleMs)) : b.memory.first() >= b.memory.len()
+    const fresh = healthy && settleMs > 0 ? await b.compactor.settleTo(b.memory.len(), AbortSignal.timeout(settleMs)) : !a.machine && b.memory.first() >= b.memory.len()
     markPending(b.sql, "settled")
     // Messages that came during the wait ride along (the same conversation's queue, read again).
     const all = b.sql
-      .exec<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number; effect_authorized: number }>(`SELECT n, message, seq, kind, thread_root, text, woke, effect_authorized FROM cb_inbox WHERE state = 'queued' AND conversation = ? ORDER BY n`, woken.conversation)
+      .exec<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; own_root: number; text: string; woke: number; effect_authorized: number }>(`SELECT n, message, seq, kind, thread_root, own_root, text, woke, effect_authorized FROM cb_inbox WHERE state = 'queued' AND conversation = ?${threadFilter}${jobFilter} ORDER BY n`, woken.conversation, ...threadArgs, ...jobArgs)
       .toArray()
-    if (!fresh) console.warn(JSON.stringify({ msg: "chief_brain.settle_timeout", first: b.memory.first(), len: b.memory.len(), failures: b.compactor.failures().length }))
+    if (!fresh && !a.machine) console.warn(JSON.stringify({ msg: "chief_brain.settle_timeout", first: b.memory.first(), len: b.memory.len(), failures: b.compactor.failures().length }))
     if (all.length > 0) b.openTurn(woken.conversation, all, fresh)
   }
 }
@@ -253,7 +273,7 @@ export async function drain(b: ChiefBrainDO): Promise<void> {
  * plus the unsummarized messages) and its cache marks (cache-prefix.ts) with the turn row in one transaction (a restart
  * resubmits the same bytes).
  */
-export function openTurn(b: ChiefBrainDO, conversation: string, rows: ReadonlyArray<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number; effect_authorized: number }>, fresh = false): void {
+export function openTurn(b: ChiefBrainDO, conversation: string, rows: ReadonlyArray<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; own_root?: number; text: string; woke: number; effect_authorized: number }>, fresh = false): void {
   const id = `run_${rows[0]!.n}`
   let input = "[]"
   const trigger = [...rows].reverse().find((r) => r.woke === 1) ?? rows[rows.length - 1]!
@@ -269,15 +289,15 @@ export function openTurn(b: ChiefBrainDO, conversation: string, rows: ReadonlyAr
     // Where this turn's first request reads (an earlier turn's entry) and writes (the view's last whole block).
     writeConfig(b.sql, { [`marks:${id}`]: marksHeader(turnPlan(b.sql, b.config().model, blocks, ttlMs(b.doEnv.CHIEF_BRAIN_CACHE_TTL))) })
     b.sql.exec(
-      `INSERT INTO cb_turn (id, conversation, trigger_message, trigger_kind, trigger_thread_root, last_seq, effect_authorized, status, model, started, input) VALUES (?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)`,
-      id, conversation, trigger.message, trigger.kind, trigger.thread_root, Math.max(...rows.map((r) => r.seq)), rows.every((r) => r.effect_authorized === 1) ? 1 : 0, b.config().model, Date.now(), input
+      `INSERT INTO cb_turn (id, conversation, trigger_message, trigger_kind, trigger_thread_root, trigger_own_root, last_seq, effect_authorized, status, model, started, input) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)`,
+      id, conversation, trigger.message, trigger.kind, trigger.thread_root, trigger.own_root ?? 1, Math.max(...rows.map((r) => r.seq)), rows.every((r) => r.effect_authorized === 1) ? 1 : 0, b.config().model, Date.now(), input
     )
   })
   b.compactor.pump()
   b.announce(id, (flushMarks(b.sql, id), []))
 }
 
-export async function runTurn(b: ChiefBrainDO, id: string): Promise<void> {
+export async function runTurn(b: ChiefBrainDO, id: string): Promise<"pending" | void> {
   const row = b.sql.exec<{ submitted: number; input: string | null; model: string; conversation: string }>(`SELECT submitted, input, model, conversation FROM cb_turn WHERE id = ?`, id).toArray()[0]
   if (!row) throw new Error(`run ${id} has no row`)
   const agent = b.config().agent
@@ -288,12 +308,20 @@ export async function runTurn(b: ChiefBrainDO, id: string): Promise<void> {
   let ok = false
   let reason: string | null = null
   let timer: ReturnType<typeof setTimeout> | undefined
+  let pending: "auth" | "provisioning" | undefined
+  let machineReply: string | undefined
   // The Claude Code route (chief-brain-cc/): the turn runs as Claude Code in its own VM; everything else here is the same.
   // Claude Code creates a VM and runs with bypass permissions. A participant-authored turn must
   // stay on the Pi path, where effectful tools return an owner-approval request.
   const cc = !child && b.effectsAuthorized() && ccRoute(b.doEnv, b.config().owner)
+  const machine = !child ? b.machineRoute() : null
   try {
-    if (cc) {
+    if (machine) {
+      b.sql.exec(`DELETE FROM cb_config WHERE name = ?`, `machine-retry:${id}`)
+      const result = await machineTurn(b, id, machine, JSON.parse(row.input ?? "[]") as Array<string>).catch((error: unknown) => { if (!machineRetryable(error)) throw error; return { pending: "provisioning" as const } })
+      if ("pending" in result) pending = result.pending
+      else { ok = result.ok; reason = result.ok ? null : result.reason; if (result.ok) machineReply = result.text }
+    } else if (cc) {
       const model = isClaude(row.model) ? row.model : OPUS
       if (model !== row.model) b.sql.exec(`UPDATE cb_turn SET model = ? WHERE id = ?`, model, id)
       // The owner's daily paid-turn cap counts these turns too (once, at the first start).
@@ -392,16 +420,25 @@ export async function runTurn(b: ChiefBrainDO, id: string): Promise<void> {
     b.turnId = undefined
     b.turnConversation = undefined
   }
+  if (pending) {
+    if (pending === "provisioning") {
+      writeConfig(b.sql, { [`machine-retry:${id}`]: "1" })
+      await b.schedule("drain", "drain", Date.now() + RETRY_MS)
+    }
+    return "pending"
+  }
   if (child) return b.childEnd(id, ok, reason)
-  const reply = ok ? lastTalk(b.sql, id) : ""
+  // The trajectory's talk preview is clipped. The machine result keeps the complete reply,
+  // including a build URL after a long response; recovery reads it from its durable state.
+  const reply = ok ? machineReply ?? lastTalk(b.sql, id) : ""
   const post = !ok ? "none" : reply === "" || isNoReply(reply) ? "no_reply" : "pending"
-  b.sql.exec(`UPDATE cb_turn SET status = ?, reason = ?, ended = ?, input = NULL, reply = ?, post = ? WHERE id = ?`, ok ? "done" : "failed", reason, Date.now(), post === "pending" ? clipReply(linkIds(reply)) : null, post, id)
+  b.sql.exec(`UPDATE cb_turn SET status = ?, reason = ?, ended = ?, input = NULL, reply = ?, post = ? WHERE id = ?`, ok ? "done" : "failed", reason, Date.now(), post === "pending" ? machineReply !== undefined ? linkIds(reply) : clipReply(linkIds(reply)) : null, post, id)
   b.sql.exec(`UPDATE cb_inbox SET state = ? WHERE turn = ?`, ok ? "done" : "failed", id)
   if (!ok) [console.warn(JSON.stringify({ msg: "chief_brain.turn_failed", run: id, reason: String(reason).slice(0, 300), error: runError(b.sql, id)?.slice(0, 300) })), await turnFailedNotice(b.doEnv, b.sql, b.config(), row.conversation, id, String(reason), runError(b.sql, id))]
   b.announce(id, [])
   if (post === "pending") await b.postAndSchedule(id)
   else await b.finish(id)
-  if (!b.memory.settled()) await b.schedule("compact", "compact", Date.now() + RETRY_MS)
+  if (!b.machineRoute() && !b.memory.settled()) await b.schedule("compact", "compact", Date.now() + RETRY_MS)
 }
 
 export async function postAndSchedule(b: ChiefBrainDO, id: string): Promise<void> {
@@ -423,7 +460,7 @@ export async function post(b: ChiefBrainDO, id: string, admission?: Promise<Admi
   b.posting.add(id)
   try {
     if (b.childOf()) return await b.childReport(id)
-    const t = b.sql.exec<{ conversation: string; trigger_message: string; trigger_kind: string; trigger_thread_root: string | null; reply: string | null; post: string; post_tries: number; post_key: number; ended: number | null }>(`SELECT conversation, trigger_message, trigger_kind, trigger_thread_root, reply, post, post_tries, post_key, ended FROM cb_turn WHERE id = ?`, id).toArray()[0]
+    const t = b.sql.exec<{ conversation: string; trigger_message: string; trigger_kind: string; trigger_thread_root: string | null; trigger_own_root: number; model: string; reply: string | null; post: string; post_tries: number; post_key: number; ended: number | null }>(`SELECT conversation, trigger_message, trigger_kind, trigger_thread_root, trigger_own_root, model, reply, post, post_tries, post_key, ended FROM cb_turn WHERE id = ?`, id).toArray()[0]
     const cfg = b.config()
     if (!t || t.post !== "pending" || !t.reply || !cfg.agent || !cfg.owner) return null
     // The chief may have been archived or placed on a server since the turn began.
@@ -431,10 +468,22 @@ export async function post(b: ChiefBrainDO, id: string, admission?: Promise<Admi
     const steps = Number(b.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM cb_step WHERE turn = ?`, id).one().n)
     // The ledger replays a refusal under the same key, so a refused try's retry needs a new key (the
     // key is also the client message id); an unknown outcome (no answer) retries under the same key.
+    const principal = chiefPrincipal(cfg.agent, cfg.owner)
+    let message = { text: t.reply } as Awaited<ReturnType<typeof prepareMachineReply>>
+    let attachmentRefusal: string | undefined
+    if (a.ok && t.model.startsWith("machine:")) {
+      try { message = await prepareMachineReply(b, id, t.conversation, t.reply, principal) }
+      catch (error) {
+        const failed = error as { refusal?: string; retryAfterMs?: number } | null
+        attachmentRefusal = failed?.refusal
+        if (!attachmentRefusal) return Date.now() + Math.max(POST_RETRY_MS, typeof failed?.retryAfterMs === "number" && Number.isFinite(failed.retryAfterMs) && failed.retryAfterMs > 0 ? failed.retryAfterMs : 60_000)
+      }
+    }
     const key = `chief-reply:${cfg.agent}:${id}:${t.post_key}`
     const res = !a.ok
       ? { ok: false as const, code: a.reason, message: a.reason }
-      : await postReply(b.doEnv, chiefPrincipal(cfg.agent, cfg.owner), { conversation: t.conversation, text: t.reply, run: { id, host: `${HOST}:${cfg.agent}`, steps }, ...replyTarget(t.trigger_kind, t.trigger_message, t.trigger_thread_root), key }).catch(
+      : attachmentRefusal ? { ok: false as const, code: attachmentRefusal, message: attachmentRefusal }
+      : await postReply(b.doEnv, principal, { conversation: t.conversation, text: message.text, run: { id, host: `${HOST}:${cfg.agent}`, steps }, ...(message.attachment ? { attachments: [message.attachment] } : {}), ...replyTarget(t.trigger_kind, t.trigger_message, t.trigger_thread_root, t.trigger_own_root !== 0), key }).catch(
           (e: unknown) => ({ ok: false as const, code: "owner.unreachable", message: String(e) })
         )
     if (!res.ok && retryPost(res.code, t.post_tries, t.ended, Date.now())) {
@@ -453,6 +502,7 @@ export async function post(b: ChiefBrainDO, id: string, admission?: Promise<Admi
 
 /** Typing off and the wake cursor moved past the run's messages. */
 export async function finish(b: ChiefBrainDO, id: string): Promise<void> {
+  finishJobDestinations(b, id)
   const t = b.sql.exec<{ conversation: string; last_seq: number }>(`SELECT conversation, last_seq FROM cb_turn WHERE id = ?`, id).toArray()[0]
   const cfg = b.config()
   if (!t || !cfg.agent || !cfg.owner) return

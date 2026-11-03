@@ -9,7 +9,8 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
-git_q() { git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=main "$@" >/dev/null 2>&1; }
+# git_q, and no background git maintenance in the scratch repositories.
+source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"
 
 # origin: a repo whose feat-cmux-next tip changes cmux-tui.
 git_q init "$TMP/src"
@@ -88,7 +89,9 @@ grep -q 'on no remote branch' <<<"$out" || { printf 'an unpushed commit was not 
 # fetched from the public repository to compare its tree, and that fetch keeps a
 # full clone full (it once passed --depth=1, which made the clone shallow and so
 # skipped the refusal above). A stub curl answers the runs list with one active
-# run on that commit; its tree differs, so it never extends the wait.
+# run on that commit; its tree differs, so it never extends the wait. The run check
+# runs only for a caller that waits (a wait of 0 looks once and reads no runs), so
+# this case waits 1 s.
 git_q clone --bare "$TMP/origin.git" "$TMP/public.git"
 git_q clone "$TMP/public.git" "$TMP/public-work"
 echo elsewhere > "$TMP/public-work/cmux-tui/a"
@@ -111,6 +114,7 @@ esac
 STUB
 chmod +x "$TMP/bin/curl"
 out=$(cd "$TMP/full" && PATH="$TMP/bin:$PATH" STUB_RUN_SHA="$public_only" "${offline[@]}" \
+  CMUX_TUI_TREE_WAIT_SECONDS=1 CMUX_TUI_TREE_POLL_SECONDS=1 \
   CMUX_TUI_PUBLIC_GIT_URL="file://$TMP/public.git" bash scripts/cmux-next/pin-cmux-tui.sh fetch 2>&1) || true
 grep -q 'is not published' <<<"$out" || { printf 'the public-fallback fetch did not reach the published-tree check:\n%s\n' "$out" >&2; exit 1; }
 git -C "$TMP/full" cat-file -e "$public_only^{commit}" 2>/dev/null \

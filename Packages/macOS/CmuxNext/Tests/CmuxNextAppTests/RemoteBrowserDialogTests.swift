@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextRemoteBrowser
+import CmuxNextTestSupport
 import Testing
 
 #if DEBUG
@@ -8,7 +9,7 @@ import Testing
 /// beforeunload) were an `NSAlert` sheet, whose chrome can't take the room's theme. They are the
 /// cmux dialog, the themed overlay every other page question uses, with the same keys: Return
 /// accepts (a prompt answers its text), Escape declines, and the reducer's `close_dialog` withdraws it.
-@MainActor @Suite(.serialized) struct RemoteBrowserDialogTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct RemoteBrowserDialogTests {
     private final class Answers {
         var all: [(token: UInt64, accept: Bool, text: String?)] = []
     }

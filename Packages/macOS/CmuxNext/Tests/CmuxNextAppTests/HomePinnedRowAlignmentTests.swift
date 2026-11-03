@@ -1,24 +1,31 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-28 ("home and pinned are not aligned", screenshot): Home's house glyph and label
 /// started at other x positions than the pinned rows' pins and titles, and neither lined up with the
-/// workspace rows below. Every row's first ink (Home's glyph, a pin, a text-only row's title) starts at
-/// one leading inset, and a title after a leading glyph (Home's, a pinned row's, a workspace row with
+/// workspace rows below. Every row's leading glyph (Home's, a pin) sits in the one icon slot that starts
+/// where a text-only row's title does, and a title after a leading glyph (Home's, a pinned row's, a workspace row with
 /// an icon) starts at one text column: `SidebarStyle.leadingTextX`, the rule workspace rows already used.
-@MainActor @Suite(.serialized) struct HomePinnedRowAlignmentTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct HomePinnedRowAlignmentTests {
     nonisolated struct Case: CustomTestStringConvertible, Sendable {
         var density: SidebarDensity
         var minimal: SidebarMinimalMode
         var width: CGFloat
-        var testDescription: String { "\(density.rawValue)/minimal-\(minimal.rawValue)/\(Int(width))pt" }
+        /// `sidebar.textSize` (Lawrence msg 17752): Home and pinned rows stay on one column at every text size.
+        var textSize: SidebarTextSize = .standard
+        var testDescription: String { "\(density.rawValue)/minimal-\(minimal.rawValue)/\(Int(width))pt/text-\(textSize.rawValue)" }
     }
 
-    nonisolated static let cases: [Case] = SidebarDensity.allCases.flatMap { density in
-        [SidebarMinimalMode.off, .both].flatMap { minimal in [200, 260].map { Case(density: density, minimal: minimal, width: $0) } }
-    }
+    nonisolated static let cases: [Case] = SidebarTextSize.allCases.flatMap { textSize in
+        SidebarDensity.allCases.flatMap { density in
+            [SidebarMinimalMode.off, .both].flatMap { minimal in
+                [200, 260].map { Case(density: density, minimal: minimal, width: $0, textSize: textSize) }
+            }
+        }
+    } + [Case(density: .compact, minimal: .off, width: 181, textSize: .larger)]
 
     static let home = LayoutItem(id: LayoutItemID("itm_align_home"), ref: .builtIn(.home))
     static let pinned = LayoutItem(id: LayoutItemID("itm_align_pin"), ref: .workspace("local:ws-align-pin"))
@@ -77,27 +84,30 @@ import Testing
         list.convert(NSPoint(x: value, y: 0), from: view).x
     }
 
-    /// Home's glyph, the pin and a text-only row's title start at one leading inset.
+    /// Home's glyph and the pin sit in the one icon slot that starts where a text-only row's title starts, centered
+    /// on its column (`SidebarIconColumnTests` checks the centers; Leo 2026-10-28: "the alignment").
     @Test(arguments: cases)
-    func everyRowsFirstInkStartsAtOneInset(_ c: Case) throws {
-        try SidebarGroupRailAlignmentTests.with(c.density, c.minimal) {
+    func everyRowsLeadingGlyphSitsInTheIconSlot(_ c: Case) throws {
+        try SidebarGroupRailAlignmentTests.with(c.density, c.minimal, textSize: c.textSize) {
             let (list, window) = Self.list(width: c.width)
             defer { window.close() }
             let home = try Self.item(list, Self.home.id), pin = try Self.item(list, Self.pinned.id)
             let loose = try Self.row(list, Self.loose)
             let textX = Self.x(list, loose.title.frame.minX, in: loose)
-            let homeInk = Self.x(list, try #require(home.glyphInkFrame, "Home drew no glyph").minX, in: home)
-            let pinInk = Self.x(list, try #require(pin.pinInkFrame, "the pinned row drew no pin").minX, in: pin)
-            #expect(abs(homeInk - textX) <= Self.tolerance, "\(c.testDescription): Home's glyph at \(homeInk), a row's text at \(textX)")
-            #expect(abs(pinInk - textX) <= Self.tolerance, "\(c.testDescription): the pin at \(pinInk), a row's text at \(textX)")
-            #expect(abs(homeInk - pinInk) <= Self.tolerance, "\(c.testDescription): Home's glyph at \(homeInk), the pin at \(pinInk)")
+            let slot = textX...(textX + SidebarStyle.iconBox)
+            let homeInk = try #require(home.glyphInkFrame, "Home drew no glyph"), pinInk = try #require(pin.pinInkFrame, "the pinned row drew no pin")
+            for (name, ink, row) in [("Home's glyph", homeInk, home), ("the pin", pinInk, pin)] {
+                let minX = Self.x(list, ink.minX, in: row), maxX = Self.x(list, ink.maxX, in: row)
+                #expect(minX >= slot.lowerBound - Self.tolerance && maxX <= slot.upperBound + Self.tolerance,
+                        "\(c.testDescription): \(name) spans \(minX)...\(maxX), the icon slot \(slot)")
+            }
         }
     }
 
     /// Home's label, a pinned row's title and the title of a workspace row with an icon start at one text column.
     @Test(arguments: cases)
     func titlesAfterALeadingGlyphStartAtOneColumn(_ c: Case) throws {
-        try SidebarGroupRailAlignmentTests.with(c.density, c.minimal) {
+        try SidebarGroupRailAlignmentTests.with(c.density, c.minimal, textSize: c.textSize) {
             let (list, window) = Self.list(width: c.width)
             defer { window.close() }
             let home = try Self.item(list, Self.home.id), pin = try Self.item(list, Self.pinned.id)

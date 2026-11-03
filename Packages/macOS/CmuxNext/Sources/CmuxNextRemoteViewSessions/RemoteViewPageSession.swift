@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextCompat
 public import CmuxNextRemoteView
 public import CmuxNextSettings
 public import CmuxVNC
@@ -136,6 +137,13 @@ public final class RemoteViewPageSession {
         }
     }
 
+    /// Gives a VNC session the app's one guard of the Keychain UI switch, which reads and saves its
+    /// sign-in. The page tab calls it once, right after ``make(record:closeTab:cloudTransport:cloudRd:displayName:)``
+    /// and before the first connect; a session without it reads no saved sign-in.
+    public func useLoginKeychain(_ loginKeychain: LoginKeychain) {
+        vnc?.loginKeychain = loginKeychain
+    }
+
     /// Reconnect on an ended session: a new transport, a new subscription.
     private func reconnect() {
         rdStopped = false
@@ -252,6 +260,7 @@ public final class RemoteViewPageSession {
     public func resume() {}
     public func pause() {}
     public func end() {}
+    public func useLoginKeychain(_ loginKeychain: LoginKeychain) {}
     #endif
 
     /// A session for `record`, or nil when this build cannot show it. `cloudTransport` makes the

@@ -87,6 +87,7 @@ function fakeApp(start: CloudMachine[]) {
 async function mount(
   peer: string | undefined,
   call: (method: string, params?: Record<string, unknown>) => Promise<unknown>,
+  onReconnect?: (peer: string) => Promise<unknown>,
 ) {
   const { createRoot } = await import("react-dom/client");
   const { PeerCopyBanner } = await import("../src/agent-session/acpmux/PeerCopyBanner");
@@ -94,7 +95,12 @@ async function mount(
   function Host({ peer }: { peer: string | undefined }) {
     const machine = usePeerCloudMachine(peer, call);
     return peer ? (
-      <PeerCopyBanner copy={{ peer, offline: true }} machine={machine.state} onResume={machine.resume} />
+      <PeerCopyBanner
+        copy={{ peer, offline: true }}
+        machine={machine.state}
+        onResume={machine.resume}
+        onReconnect={onReconnect}
+      />
     ) : null;
   }
   root ??= createRoot(host);
@@ -230,6 +236,28 @@ test("a name two of the account's machines share reads offline, with no Resume",
   const { peerCloudMachine } = await import("../src/agent-session/acpmux/peerCloudMachine");
   expect(peerCloudMachine([paused], PEER)?.id).toBe("vm_paused");
   expect(peerCloudMachine([paused, { ...paused, id: "vm_twin" }], PEER)).toBeUndefined();
+});
+
+test("offline peer Reconnect invokes doctor and shows its refusal", async () => {
+  const app = fakeApp([]);
+  const calls: string[] = [];
+  await mount(PEER, app.call, async (peer) => {
+    calls.push(peer);
+    throw new Error("peer_unreachable: refused by doctor");
+  });
+  const reconnect = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+    (button) => button.textContent === t("sessionInfo.connectors.reconnectAction"),
+  );
+  expect(reconnect).toBeTruthy();
+  await act(async () => {
+    reconnect!.click();
+    await new Promise((resolve) => setImmediate(resolve));
+  });
+  expect(calls).toEqual([PEER]);
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain("peer_unreachable: refused by doctor");
+  expect(host.querySelector<HTMLButtonElement>('button[data-state="failed"]')?.textContent).toBe(
+    t("sessionInfo.connectors.retry"),
+  );
 });
 
 test("a machine the account does not list, or one that is ready, reads offline as before", async () => {

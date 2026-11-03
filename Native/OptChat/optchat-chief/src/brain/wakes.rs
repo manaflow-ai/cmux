@@ -174,7 +174,7 @@ impl Brain {
 }
 
 /// `90 s`, `5 min`, `2 h 5 min`.
-fn human(seconds: u64) -> String {
+pub(super) fn human(seconds: u64) -> String {
     match seconds {
         s if s < 120 => format!("{s} s"),
         s if s < 3600 => format!("{} min", s / 60),

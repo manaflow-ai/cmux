@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-27 ("dialog sides has weird bg"): the browser's save-password bar showed
@@ -7,7 +8,7 @@ import Testing
 /// view, and the bar's content paints a veil (`OverlayBackingView`) edge to edge, so the veil
 /// drew a square card behind the rounded glass. The surface clips its content to its shape on
 /// every material, so a content background never shows past the corners.
-@MainActor @Suite(.serialized) struct OverlaySurfaceCornerTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct OverlaySurfaceCornerTests {
     /// The content view of a surface of `material`, its content painting opaque red edge to
     /// edge, rendered to RGBA. The surface is hosted in an offscreen window (a view outside a
     /// window never draws its layers). The content view's own layer is rendered, not the

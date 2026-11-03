@@ -5,6 +5,7 @@ import { afterAll, expect, jest, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { layoutScrollTop } from "../src/agent-session/acpmux/conversation/scrollCoordinates";
 import { installJsdomScroller, scrollerEnd } from "./support/jsdomScroller";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -118,12 +119,14 @@ test("a scrolled-up chat reports where it rests and reopens there, not at the la
     // The reader scrolls up and stops: one report, a row and how far into it.
     const resting = Math.round(latest / 3);
     await scrollAndRest(scroller(), resting, anchors);
+    const logicalResting = layoutScrollTop(scroller());
     const anchor = anchors.at(-1);
     expect(anchor).toBeTruthy();
     expect(rows.some((row) => row.id === anchor!.rowId)).toBe(true);
     expect(anchor!.offset).toBeGreaterThanOrEqual(0);
 
-    // A relaunch: a new transcript opened at that place shows the same offset.
+    // A relaunch preserves the logical row position. The browser can round the physical
+    // offset differently; the retained CSS origin must keep the same painted coordinate.
     await act(async () => root.unmount());
     root = createRoot(dom.window.document.getElementById("root")!);
     await act(async () =>
@@ -137,7 +140,11 @@ test("a scrolled-up chat reports where it rests and reopens there, not at the la
         />,
       ),
     );
-    expect(scroller().scrollTop).toBe(resting);
+    expect(layoutScrollTop(scroller())).toBe(logicalResting);
+    expect(Math.abs(scroller().scrollTop - logicalResting)).toBeLessThanOrEqual(1);
+    // The DOM correction, not just the coordinate bookkeeping, must preserve the rendered place.
+    const cssOrigin = Number.parseFloat(scroller().style.getPropertyValue("--acpmux-scroll-origin")) || 0;
+    expect(scroller().scrollTop - cssOrigin).toBe(logicalResting);
 
     // Back at the latest message: the place is forgotten, so the next open follows the reply.
     await scrollAndRest(scroller(), latest, anchors);

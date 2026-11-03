@@ -3,6 +3,8 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextAppCore
 import CmuxNextDaemon
+import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -14,7 +16,7 @@ import Testing
 /// the front window still in front, and no shown pane stays "Restoring…" or blank. The boundary:
 /// the app's services on a real same-tree daemon, the window records in its `personal`
 /// projection, and a second set of services that connects to that daemon as a relaunch does.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(6)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(6)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct MultiWindowRestoreTests {
     /// What one window showed before the quit.
     private struct Saved {
@@ -27,7 +29,13 @@ struct MultiWindowRestoreTests {
         var tabKinds: [String]
     }
 
-    @Test func threeWindowsComeBackAsTheyWere() async throws {
+    /// `noActivate`: launched with `CMUX_NEXT_NO_ACTIVATE=1` (agents, capture slots): no window takes
+    /// key, and the front window must still come back in front (the restore journey saw it ordered
+    /// behind the other two, last in the saved order).
+    @Test(arguments: [false, true]) func threeWindowsComeBackAsTheyWere(noActivate: Bool) async throws {
+        let wasNoActivate = WindowPlacement.noActivate
+        WindowPlacement.noActivate = noActivate
+        defer { WindowPlacement.noActivate = wasNoActivate }
         try await Self.withDaemon { launcher in
             let before = try await Self.launch(launcher)
             var saved: [Saved] = []
@@ -114,6 +122,49 @@ struct MultiWindowRestoreTests {
         }
     }
 
+    /// "Closed workspaces reappear after relaunch" (#31514): the person closes the last window (Close
+    /// Window), then quits keeping sessions and relaunches. A relaunch restores only what was open at
+    /// quit: that window and its workspaces stay closed (still registered, so Reopen Closed Window
+    /// brings them back), and the app opens one new window on a new workspace instead.
+    @Test func closedLastWindowStaysClosedAfterRelaunch() async throws {
+        try await Self.withDaemon { launcher in
+            let before = try await Self.launch(launcher)
+            var closedID = ""
+            var closedWorkspaces: Set<String> = []
+            let seeded = await Self.capture {
+                let window = try #require(before.windows.active)
+                closedID = window.state.id
+                _ = try #require(await before.windows.createWorkspace(into: closedID))
+                try await Self.until({ (before.windows.registry.value.window(closedID)?.workspaceIDs.count ?? 0) >= 2 },
+                                     report: { Self.report(before, [closedID]) })
+                closedWorkspaces = Set(try #require(before.windows.registry.value.window(closedID)).workspaceIDs)
+                // The person's Close Window (Cmd-Shift-W's window close, the red button).
+                #expect(before.registry.perform("closeWindow", invocation: ActionInvocation(origin: .user)))
+                try await Self.until({ before.windows.registry.value.window(closedID)?.isOpen == false },
+                                     report: { Self.report(before, [closedID]) })
+                await before.windows.prepareForTermination()
+                let records = await before.daemon.windowState?.document.windows ?? []
+                #expect(records.contains { $0.id == closedID && $0.isClosed }, "no closed record for \(closedID): \(records.map(\.id))")
+            }
+            await Self.quit(before, endingDaemon: (try? seeded.get()) == nil)
+            try seeded.get()
+
+            let after = try await Self.launch(launcher)
+            let restored = await Self.capture {
+                let registry = after.windows.registry.value
+                let open = registry.windows.filter(\.isOpen)
+                #expect(registry.window(closedID)?.isOpen == false, "the closed window came back: \(Self.report(after, [closedID]))")
+                #expect(after.windows.controller(for: closedID) == nil, "the closed window has a controller: \(Self.report(after, [closedID]))")
+                #expect(open.count == 1, "open windows \(open.map(\.id))")
+                let shown = Set(open.flatMap(\.workspaceIDs))
+                #expect(shown.isDisjoint(with: closedWorkspaces), "closed workspaces shown again: \(shown.intersection(closedWorkspaces))")
+                #expect(Set(registry.window(closedID)?.workspaceIDs ?? []) == closedWorkspaces, "the closed window lost its workspaces")
+            }
+            await Self.quit(after, endingDaemon: true)
+            try restored.get()
+        }
+    }
+
     /// Shown panes still "Restoring…", disconnected or blank, as `window: pane state`.
     private static func unsettledPanes(_ services: AppServices) -> [String] {
         SurfaceDiagnosticsReport.statuses(services).compactMap { row in
@@ -188,7 +239,7 @@ struct MultiWindowRestoreTests {
     /// Ends this launch: its windows and connection, and when `endingDaemon` the daemon with its
     /// terminals (else the next launch reconnects to it, as after Quit and Keep Sessions).
     private static func quit(_ services: AppServices, endingDaemon: Bool) async {
-        for controller in services.windows.controllers { controller.window?.close() }
+        services.closeWindowsForTest()
         guard let connection = services.daemon.connection else { return }
         services.daemon.shutdownConnection()
         await connection.close()

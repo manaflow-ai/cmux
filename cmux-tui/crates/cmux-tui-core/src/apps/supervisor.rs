@@ -22,6 +22,7 @@ use super::mirror::{self, Effect, Mirror, Op, Origin, Record, SetOp};
 use super::storage::Storage;
 use super::timer::{TimerId, Timers};
 use crate::backoff::Backoff;
+use cmux_json::JsonSet as _;
 
 /// Writes one event or response to a control client; false when it is gone.
 pub type Sink = Arc<dyn Fn(&Value) -> bool + Send + Sync>;
@@ -70,6 +71,24 @@ pub trait OpRouter: Send + Sync {
         idempotency_key: Option<String>,
         origin: Origin,
     ) -> Result<Value, Value>;
+    /// Places installed app sections through the sidebar document's transaction.
+    /// Automatic placement preserves every previous placement decision.
+    fn place_sidebar_sections(
+        &self,
+        sections: &[cmux_layout_reducer::sidebar_doc::Section],
+        automatic: bool,
+    ) -> Result<Value, ApiError> {
+        let _ = (sections, automatic);
+        Err(ApiError::new("apps.sidebar.unavailable", "no sidebar document"))
+    }
+    /// On upgrade, receipt existing installs without changing the layout.
+    fn initialize_sidebar_placements(
+        &self,
+        sections: &[cmux_layout_reducer::sidebar_doc::Section],
+    ) -> Result<(), ApiError> {
+        let _ = sections;
+        Err(ApiError::new("apps.sidebar.unavailable", "no sidebar document"))
+    }
     /// Starts delivering daemon change events as stream names
     /// (`workspace.changed`, `agent.changed`, …). Called once, on the first
     /// app subscription.
@@ -237,6 +256,8 @@ pub struct Supervisor {
     transactions: AtomicU64,
     /// `apps-link-changed` coalescing: (one runs, another came meanwhile).
     pub(super) link_changed: Mutex<(bool, bool)>,
+    /// Deployed instances of apps with a `deploy` block (`deploy.rs`).
+    pub(super) deployments: super::deploy::Deployments,
 }
 
 pub(super) fn now_ms() -> u64 {
@@ -245,8 +266,31 @@ pub(super) fn now_ms() -> u64 {
 
 impl Supervisor {
     pub fn new(config: Config, router: Box<dyn OpRouter>, fetcher: Box<dyn Fetcher>) -> Arc<Self> {
+        let config_state_dir = config.state_dir.clone();
+        // Taken before the read (see `PrintsBefore`): a local app saved
+        // during it is read again once the watch starts.
+        let local_before = super::local_reload::PrintsBefore::take(&config.sources);
         let catalog = catalog::load(&config.sources);
+        let local_prints = local_before.of(&config.sources, &catalog);
         let mut mirror = load_mirror(config.state_dir.as_deref());
+        // Snapshot before startup seeds: an existing install must not change the
+        // person's layout on upgrade, but a newly appearing customize app may.
+        let existing_sections = catalog
+            .packages
+            .values()
+            .filter(|package| {
+                // If initialization failed on an earlier start, installs
+                // created since then still need their first placement.
+                !mirror.sidebar_auto_place.contains(&package.id)
+                    && mirror.apps.get(&package.id).is_some_and(|record| record.installed)
+            })
+            .flat_map(super::sidebar::sections)
+            .collect::<Vec<_>>();
+        if let Err(error) = router.initialize_sidebar_placements(&existing_sections) {
+            // Automatic placement refuses to run without the durable migration
+            // marker, so a failed initialization cannot mutate the old layout.
+            eprintln!("cmux-tui: initialize app sidebar placement: {}", error.message);
+        }
         let mut logs: HashMap<String, VecDeque<LogLine>> = HashMap::new();
         for (dir, issue) in &catalog.rejected {
             logs.entry("cmux/supervisor".into()).or_default().push_back(LogLine {
@@ -317,12 +361,14 @@ impl Supervisor {
             terminals: Default::default(),
             transactions: AtomicU64::new(1),
             link_changed: Mutex::new((false, false)),
+            deployments: super::deploy::Deployments::load(config_state_dir.as_deref()),
         });
         if seeded {
             let _ = supervisor.persist(&supervisor.inner.lock().unwrap().mirror);
         }
+        supervisor.reconcile_sidebar();
         supervisor.start_always_servers();
-        supervisor.start_local_watch();
+        supervisor.start_local_watch(local_prints);
         supervisor
     }
 
@@ -366,7 +412,11 @@ impl Supervisor {
         ids.extend(inner.mirror.apps.iter().filter(|(_, r)| r.installed).map(|(id, _)| id));
         let apps: Vec<Value> = ids
             .into_iter()
-            .map(|id| entry(id, inner.catalog.packages.get(id), inner.mirror.apps.get(id)))
+            .map(|id| {
+                let mut row = entry(id, inner.catalog.packages.get(id), inner.mirror.apps.get(id));
+                row.set("instance", self.instance_json(id));
+                row
+            })
             .collect();
         json!({ "revision": inner.mirror.revision, "apps": apps })
     }
@@ -384,7 +434,7 @@ impl Supervisor {
                 let mut record =
                     entry(&app, inner.catalog.packages.get(&app), inner.mirror.apps.get(&app));
                 // Lets a client drop list replies older than this commit.
-                record["revision"] = json!(inner.mirror.revision);
+                record.set("revision", json!(inner.mirror.revision));
                 record
             });
             outs.push(Out::Client(client, json!({ "event": "request-settled", "transaction": transaction, "sequence": inner.mirror.revision })));
@@ -496,6 +546,12 @@ impl Supervisor {
         };
         if outs.is_empty() {
             return;
+        }
+        if outs
+            .iter()
+            .any(|out| matches!(out, Out::Broadcast(value) if value["event"] == "apps-changed"))
+        {
+            self.reconcile_sidebar();
         }
         for out in outs {
             match out {

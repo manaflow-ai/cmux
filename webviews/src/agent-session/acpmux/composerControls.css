@@ -132,12 +132,14 @@
 }
 .acpmux-effort-fill {
   position: absolute;
-  inset: 0 auto 0 0;
-  width: calc(var(--acpmux-effort-inset) + (100% - 2 * var(--acpmux-effort-inset)) * var(--acpmux-effort));
+  inset: 0 var(--acpmux-effort-inset) 0 var(--acpmux-effort-inset);
+  width: auto;
   border-radius: 12px;
   background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 58%, transparent);
-  transition: width var(--cmux-motion-standard) cubic-bezier(0.22, 1, 0.36, 1), background-color var(--cmux-motion-standard) ease-out;
-  will-change: width;
+  transition: transform var(--cmux-motion-standard) var(--cmux-ease-out), background-color var(--cmux-motion-standard) var(--cmux-ease-out);
+  transform-origin: left center;
+  transform: scaleX(var(--acpmux-effort));
+  will-change: transform;
 }
 .acpmux-effort-stop {
   position: absolute;
@@ -173,9 +175,7 @@
   background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 16%, var(--surface-popup));
   box-shadow: var(--elevation-1), 0 0 0 1px color-mix(in srgb, var(--agent-accent, var(--agent-text)) 22%, transparent);
   pointer-events: none;
-  transition: left var(--cmux-motion-standard) cubic-bezier(0.22, 1, 0.36, 1), background-color var(--cmux-motion-standard) ease-out;
-  will-change: left;
-  transform: translateZ(0);
+  transition: background-color var(--cmux-motion-standard) var(--cmux-ease-out);
 }
 /* Debug Settings agent.reasoningSliderStyle=minimal: a quieter comparison treatment that keeps
    the same stops and interaction while reducing the thumb's visual weight. */

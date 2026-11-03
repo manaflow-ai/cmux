@@ -52,8 +52,8 @@ await requireBrowserLane("transcript-parked-stream.test.ts", async () => {
                 'globalThis.__geometry?.("anchor-base", {live, stored: scrolledTo.current.top, top, readerLeft});',
               ],
               [
-                "anchorTop: top,\n        });",
-                'globalThis.__geometry?.("anchor-correction", {top, nextTop, live: node.scrollTop});',
+                "anchorTop: logicalTop,\n        });",
+                'globalThis.__geometry?.("anchor-correction", {top, logicalTop, nextTop, live: node.scrollTop});',
               ],
               ["followingRef.current = next;", 'globalThis.__probe?.("follow", next);'],
               [

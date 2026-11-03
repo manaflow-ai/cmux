@@ -29,7 +29,7 @@ extension AgentPaneTransport {
             }
             answers = digest
         }
-        guard let decision = await AcpmuxMacApprover.shared.decision(
+        guard let decision = await peerApprover?.key.decision(
             instance: context.instance, session: session, permission: permission, toolCall: context.toolCall,
             option: option, nonce: context.nonce, answers: answers) else { return }
         guard decisions.context(session: session, permission: permission) == context else { return }
@@ -60,7 +60,7 @@ extension AgentPaneTransport {
         }
         var signed: [String: [String: any Sendable]] = [:]
         for (permission, option, context) in members {
-            guard let proof = await AcpmuxMacApprover.shared.decision(
+            guard let proof = await peerApprover?.key.decision(
                 instance: context.instance, session: session, permission: permission, toolCall: context.toolCall,
                 option: option, nonce: context.nonce, answers: "") else { return }
             signed[permission] = ["decisionNonce": context.nonce, "approverDecision": proof]

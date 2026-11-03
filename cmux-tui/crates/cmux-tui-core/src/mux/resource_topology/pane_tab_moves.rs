@@ -320,6 +320,16 @@ impl Mux {
                         .cloned();
                     target_record.active_tab = Some(tab_id.clone());
                 }
+                // The tab order rewrites the position of every tab after the
+                // move in both panes: those tabs are restated below, so the
+                // journal states their new index (a scoped projection later
+                // trusts it and does not restate an unchanged row).
+                let reordered = source_order
+                    .iter()
+                    .enumerate()
+                    .chain(target_order.iter().enumerate())
+                    .map(|(position, id)| (id.clone(), position))
+                    .collect::<Vec<_>>();
                 let mut changes = vec![
                     ResourceChange::UpsertTab(moved_tab.clone()),
                     ResourceChange::UpsertPane(source_record.clone()),
@@ -353,6 +363,14 @@ impl Mux {
                 }
                 let mut after = topology.clone();
                 *topology_tab_mut(&mut after, &tab_id)? = moved_tab;
+                let mut shifted = Vec::new();
+                for (id, position) in &reordered {
+                    let tab = topology_tab_mut(&mut after, id)?;
+                    if tab.position != *position {
+                        tab.position = *position;
+                        shifted.push(id.clone());
+                    }
+                }
                 *topology_pane_mut(&mut after, &source_pane_id)? = source_record.clone();
                 *topology_pane_mut(&mut after, &target_pane_id)? = target_record.clone();
                 if source_pane != target_pane {
@@ -397,6 +415,7 @@ impl Mux {
                     Vec::new()
                 };
                 let mut changed_tabs = vec![tab_id.clone()];
+                changed_tabs.extend(shifted);
                 changed_tabs.extend(
                     [
                         topology_pane(&topology, &source_pane_id)?.active_tab.clone(),

@@ -27,6 +27,9 @@ KEY = "a" * 40
 SHA = "b" * 40
 HEAD = "c" * 40
 NEWER = "d" * 40
+EARLIER = "2026-11-02T03:00:42Z"  # the run that uploaded the marker
+UPLOADED = "2026-11-02T03:01:10Z"  # the marker artifact
+LATER = "2026-11-02T03:30:02Z"
 
 
 def marker_zip(marker: dict) -> bytes:
@@ -53,9 +56,11 @@ def pr_marker(**extra) -> dict:
 
 class FakeApi:
     def __init__(self, markers: list[dict], *, branch_head: str = SHA, pr: dict | None = None,
-                 refuse_refs: tuple[str, ...] = ()):
+                 refuse_refs: tuple[str, ...] = (), runs: list[dict] | None = None,
+                 history_error: bool = False):
         self.artifacts = [
             {"id": 100 + index, "name": f"cmux-next-tree-wait-{KEY}", "expired": False,
+             "created_at": UPLOADED,
              "archive_download_url": f"zip/{100 + index}", "workflow_run": {"id": marker.get("run_id")}}
             for index, marker in enumerate(markers)
         ]
@@ -65,6 +70,10 @@ class FakeApi:
         self.refuse_refs = refuse_refs
         self.dispatched: list[dict] = []
         self.deleted: list[int] = []
+        # cmux-next.yml's dispatch runs; each accepted dispatch adds one, as GitHub does.
+        self.runs = list(runs or [])
+        self.history_error = history_error
+        self.history_reads: list[str] = []
 
     def get(self, path: str):
         if path.startswith(f"repos/o/r/actions/artifacts?name=cmux-next-tree-wait-{KEY}"):
@@ -73,6 +82,12 @@ class FakeApi:
             return {"object": {"sha": self.branch_head}}
         if path == "repos/o/r/pulls/7":
             return self.pr
+        if path.startswith("repos/o/r/actions/workflows/cmux-next.yml/runs?event=workflow_dispatch&created=%3E%3D"):
+            self.history_reads.append(path)
+            if self.history_error:
+                raise RuntimeError("HTTP 403")
+            since = path.split("created=%3E%3D", 1)[1].split("&", 1)[0]
+            return {"workflow_runs": [run for run in self.runs if run["created_at"] >= since]}
         raise AssertionError(f"unexpected GET {path}")
 
     def download(self, url: str) -> bytes:
@@ -83,6 +98,16 @@ class FakeApi:
         if body["ref"] in self.refuse_refs:
             return 422
         self.dispatched.append(body)
+        inputs = body["inputs"]
+        sha = inputs["same_tree_sha"]
+        name = (f"cmux NEXT DEV daily · {inputs['dev_daily_sha']}" if inputs.get("dev_daily") == "true"
+                else f"cmux-next tip daemon suite · {sha}" if inputs.get("tip_daemon_suite") == "true"
+                else f"cmux-next base tier · {sha}" if inputs.get("base_tier") == "true"
+                else f"cmux-next · {sha}")
+        # GitHub's clock moves on: each dispatch is created after everything before it.
+        # As the REST API lists it: the evaluated run-name in display_title (and here a static `name`).
+        self.runs.append({"name": "cmux-next", "display_title": name,
+                          "created_at": f"2026-11-02T05:{len(self.runs):02d}:00Z"})
         return 204
 
     def delete(self, path: str) -> int:
@@ -124,6 +149,64 @@ class Notify(unittest.TestCase):
         moved = FakeApi([push_marker(origin="dispatch", branch="lane/x")], branch_head=NEWER)
         self.assertEqual(run(moved), 0)
         self.assertEqual(moved.dispatched, [])
+
+    def test_a_tip_daemon_suite_runs_its_exact_commit_after_the_tip_moves(self):
+        """2026-10-30 (#27692): in a landing burst the tip moves before its tree publishes, so a
+        dispatch marker was always superseded and the base never got a daemon-test verdict. The tip
+        daemon suite's marker names its commit, like the DEV daily, and its run keeps the suite's name."""
+        marker = push_marker(origin="dispatch", tiers=["daemon"], tip_suite="daemon")
+        api = FakeApi([marker], branch_head=NEWER)
+        self.assertEqual(run(api), 1)
+        [body] = api.dispatched
+        self.assertEqual(body["ref"], "feat-cmux-next")
+        self.assertEqual(body["inputs"]["same_tree_sha"], SHA)
+        self.assertEqual(body["inputs"]["same_tree_origin"], "dispatch")
+        self.assertEqual(body["inputs"]["same_tree_tiers"], "daemon")
+        self.assertEqual(body["inputs"]["tip_daemon_suite"], "true")
+        self.assertEqual(api.deleted, [100])
+        plain = FakeApi([push_marker(origin="dispatch", tiers=["daemon"])])
+        run(plain)
+        self.assertNotIn("tip_daemon_suite", plain.dispatched[0]["inputs"])
+
+    def test_only_a_daemon_dispatch_on_feat_cmux_next_is_a_tip_suite(self):
+        for bad in (push_marker(origin="dispatch", tiers=["daemon"], tip_suite="swift"),
+                    push_marker(origin="push", tiers=["daemon"], tip_suite="daemon"),
+                    push_marker(origin="dispatch", branch="lane/x", tiers=["daemon"], tip_suite="daemon"),
+                    push_marker(origin="dispatch", tiers=["daemon", "scheme"], tip_suite="daemon"),
+                    push_marker(origin="dispatch", branch="feat-cmux-next", ref_kind="tags", tiers=["daemon"],
+                                tip_suite="daemon")):
+            with self.subTest(marker=bad):
+                api = FakeApi([bad], branch_head=NEWER)
+                self.assertEqual(run(api), 0)
+                self.assertEqual(api.dispatched, [])
+
+    def test_a_base_tier_runs_its_exact_commit_after_the_tip_moves(self):
+        """cmuxterm-hq#5424: a feat-cmux-next push leaves its base Mac tier to one `cmux-next base tier`
+        run every 15 minutes. Its same-tree run tests the commit that run named (the tip moves on
+        within minutes) and keeps the name push attribution and base_red_excuse.py look up."""
+        marker = push_marker(origin="dispatch", tiers=["daemon", "scheme"], tip_suite="base")
+        api = FakeApi([marker], branch_head=NEWER)
+        self.assertEqual(run(api), 1)
+        [body] = api.dispatched
+        self.assertEqual(body["ref"], "feat-cmux-next")
+        self.assertEqual(body["inputs"]["same_tree_sha"], SHA)
+        self.assertEqual(body["inputs"]["same_tree_tiers"], "daemon,scheme")
+        self.assertEqual(body["inputs"]["base_tier"], "true")
+        self.assertNotIn("tip_daemon_suite", body["inputs"])
+        scheme_only = FakeApi([push_marker(origin="dispatch", tiers=["scheme"], tip_suite="base")], branch_head=NEWER)
+        self.assertEqual(run(scheme_only), 1)
+        self.assertEqual(scheme_only.dispatched[0]["inputs"]["base_tier"], "true")
+
+    def test_only_a_dispatch_on_feat_cmux_next_is_a_base_tier(self):
+        for bad in (push_marker(origin="push", tip_suite="base"),
+                    push_marker(origin="dispatch", branch="lane/x", tip_suite="base"),
+                    push_marker(origin="dispatch", ref_kind="tags", tip_suite="base"),
+                    push_marker(origin="dispatch", tip_suite=["base"]),
+                    push_marker(origin="dispatch", dev_daily=True, dev_daily_sha=SHA, tip_suite="base")):
+            with self.subTest(marker=bad):
+                api = FakeApi([bad], branch_head=NEWER)
+                self.assertEqual(run(api), 0)
+                self.assertEqual(api.dispatched, [])
 
     def test_a_tag_dispatch_runs_again_on_its_tag(self):
         """A tag has no branch head to move: its marker is current, like the DEV daily's SHA.
@@ -263,6 +346,81 @@ class Notify(unittest.TestCase):
             self.assertIsNone(notify.fetch_completion("truncated"))
         finally:
             notify.urllib.request.urlopen = original
+
+    def test_a_failed_tree_is_reported_once_per_marker(self):
+        """2026-11-02: tree 4e172926 could not build (a stale Cargo.lock on the base its commits came
+        from), and every branch push cut from that base failed it again. Each failed notify
+        re-dispatched the three `cmux-next base tier` markers it kept, about every 2 minutes for hours
+        (runs 41383430152, 41384506675, 41389933894, ...). The run history is the record: a marker
+        already reported after its upload is not dispatched again; a publication still starts it."""
+        base = push_marker(origin="dispatch", tip_suite="base")
+        api = FakeApi([base], branch_head=NEWER, runs=[{"name": "cmux-next",
+                                                        "display_title": f"cmux-next base tier · {SHA}",
+                                                        "created_at": EARLIER}])
+        self.assertEqual(run(api, state="failed"), 1)
+        self.assertEqual(api.dispatched[0]["inputs"]["same_tree_state"], "failed")
+        for _ in range(5):
+            self.assertEqual(run(api, state="failed"), 0)
+        self.assertEqual(len(api.dispatched), 1)
+        self.assertEqual(api.deleted, [])
+        self.assertEqual(run(api, state="ready"), 1)
+        self.assertEqual(api.dispatched[-1]["inputs"]["same_tree_state"], "ready")
+        self.assertEqual(api.deleted, [100])
+
+    def test_each_kind_of_marker_is_capped_by_its_own_run_name(self):
+        for marker in (push_marker(), push_marker(origin="dispatch", tiers=["daemon"], tip_suite="daemon"),
+                       push_marker(origin="dispatch", tip_suite="base"),
+                       push_marker(dev_daily=True, dev_daily_sha=SHA),
+                       push_marker(origin="dispatch", branch="v1.2.3", ref_kind="tags")):
+            with self.subTest(marker=marker):
+                api = FakeApi([marker])
+                self.assertEqual(run(api, state="failed"), 1)
+                self.assertEqual(run(api, state="failed"), 0)
+                # Another commit's run of the same kind does not cap this one.
+                other = FakeApi([marker], runs=[{"name": "cmux-next", "display_title": notify.run_name(dict(marker, sha=NEWER,
+                                                                              dev_daily_sha=NEWER)),
+                                                 "created_at": LATER}])
+                self.assertEqual(run(other, state="failed"), 1)
+
+    def test_a_marker_uploaded_again_is_reported_again(self):
+        """A re-run of the deferring run uploads the marker anew (overwrite: true): one more report."""
+        api = FakeApi([push_marker(origin="dispatch", tip_suite="base")], branch_head=NEWER)
+        self.assertEqual(run(api, state="failed"), 1)
+        api.artifacts[0]["created_at"] = "2026-11-02T05:00:30Z"  # after the first report
+        self.assertEqual(run(api, state="failed"), 1)
+        self.assertEqual(run(api, state="failed"), 0)
+
+    def test_the_run_history_is_read_once_per_failed_notify_and_never_for_ready(self):
+        markers = [push_marker(origin="dispatch", tip_suite="base", sha=sha, status_sha=sha)
+                   for sha in ("1" * 40, "2" * 40, "3" * 40)]
+        api = FakeApi(markers, branch_head=NEWER)
+        self.assertEqual(run(api, state="failed"), 3)
+        self.assertEqual(len(api.history_reads), 1)
+        self.assertIn(f"created=%3E%3D{UPLOADED}&", api.history_reads[0])
+        self.assertEqual(run(api, state="failed"), 0)
+        self.assertEqual(len(api.history_reads), 2)
+        self.assertEqual(run(api, state="ready"), 3)
+        self.assertEqual(len(api.history_reads), 2)
+
+    def test_the_run_name_is_read_from_display_title_or_name(self):
+        """REST lists the evaluated run-name as display_title (and, with run-name set, as name)."""
+        for run_record in ({"name": "cmux-next", "display_title": f"cmux-next base tier · {SHA}"},
+                           {"name": f"cmux-next base tier · {SHA}"}):
+            with self.subTest(run=run_record):
+                api = FakeApi([push_marker(origin="dispatch", tip_suite="base")], branch_head=NEWER,
+                              runs=[dict(run_record, created_at=LATER)])
+                self.assertEqual(run(api, state="failed"), 0)
+                self.assertEqual(api.dispatched, [])
+
+    def test_an_unreadable_run_history_reports_as_before(self):
+        """Without the record the red is still reported: a missing report hides a failure."""
+        api = FakeApi([push_marker(origin="dispatch", tip_suite="base")], branch_head=NEWER, history_error=True)
+        messages: list[str] = []
+        for _ in range(2):
+            notify.notify(api, repo="o/r", key=KEY, state="failed", reason="x", log=messages.append,
+                          fetch_completion=lambda _key: None)
+        self.assertEqual(len(api.dispatched), 2)
+        self.assertTrue(any("could not read cmux-next.yml's run history" in line for line in messages))
 
     def test_a_malformed_marker_is_ignored(self):
         for bad in (push_marker(sha="not-a-sha"), push_marker(key="e" * 40), push_marker(tiers=["rm -rf"]),

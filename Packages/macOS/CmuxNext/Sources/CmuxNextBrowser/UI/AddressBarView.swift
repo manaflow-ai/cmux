@@ -33,7 +33,7 @@ public final class AddressBarView: NSView {
 
     let pill = OmnibarPillView()
     private let backdrop = OmnibarCardTopView()
-    private let chip = PageInfoChipButton()
+    let chip = PageInfoChipButton()
     let field = AddressField()
     private let machineBadgeView = MachineBadgeView()
     private let profileBadgeView = ProfileBadgeView()
@@ -166,6 +166,7 @@ public final class AddressBarView: NSView {
                   !BrowserNewTabPage.isNewTabPage(url) else { return nil }
             return BrowserURLDragItem(url: url, title: pageTitle?())
         }
+        registerForDraggedTypes(Self.dropTypes)
         field.setPlaceholder(Strings.omnibarPlaceholder)
         field.delegate = self
         field.sink = self
@@ -356,6 +357,16 @@ public final class AddressBarView: NSView {
             return
         }
         pendingFocusSource = .keyboard
+        defer { pendingFocusSource = nil }
+        window?.makeFirstResponder(field)
+    }
+
+    /// The focus coordinator's return to a tab left from its address bar
+    /// (Chromium `OmniboxViewViews::OnTabChanged`): focuses the field with
+    /// the selection it had when focus left, not all selected.
+    public func restoreFocus() {
+        guard field.currentEditor() == nil else { return }
+        pendingFocusSource = .programmatic
         defer { pendingFocusSource = nil }
         window?.makeFirstResponder(field)
     }

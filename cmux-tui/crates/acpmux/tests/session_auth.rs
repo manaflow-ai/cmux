@@ -37,7 +37,10 @@ fn hub(root: &Path) -> Arc<Hub> {
     let defaulted = root.join("claude-defaulted");
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
+            "claude": {"kind": "claude-stdio", "argv": ["claude"], "env": {"CLAUDE_CONFIG_DIR": root.join("canonical")}},
             "fake": {"argv": ["python3", FAKE], "family": "claude"},
+            "file": {"argv": [root.join("claude")], "family": "claude", "env": {"CLAUDE_CONFIG_DIR": root.join("file-account"), "HOME": root.join("home")}},
+            "file-endpoint": {"argv": [root.join("claude")], "family": "claude", "env": {"CLAUDE_CONFIG_DIR": root.join("file-account"), "HOME": root.join("home"), "ANTHROPIC_BASE_URL": "https://custom.example.invalid/api"}},
             // A harness whose own check passes only in the env its preset `checked-two` or the
             // chat's own env sets.
             "checked": {"argv": ["python3", FAKE], "family": "plain"},
@@ -53,6 +56,7 @@ fn hub(root: &Path) -> Arc<Hub> {
         "permissionPolicy": "approve-all",
         "presets": {
             "two": {"harness": "fake", "env": {"CLAUDE_CONFIG_DIR": two}},
+            "canonical": {"harness": "fake", "env": {"CLAUDE_CONFIG_DIR": root.join("canonical")}},
             "checked-two": {"harness": "checked", "env": {"WHO": "two"}},
         },
         // No automatic continuation runs behind a failed turn (`auto_resume.rs`).
@@ -70,6 +74,268 @@ fn hub(root: &Path) -> Arc<Hub> {
     cfg.store.mode = StoreMode::Memory;
     let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
     Hub::new(cfg, store)
+}
+
+/// Saving a key for an alternate-account chat changes that account only. The old failed
+/// turn remains history, but cannot prevent the first prompt using the replacement credential.
+#[tokio::test]
+async fn agent_login_uses_the_chats_account_and_invalidates_only_its_old_evidence() {
+    let root = scratch("login-account");
+    let hub = hub(&root);
+    let mut c = client(&hub);
+    let other = c.new_session(None).await;
+    let id = c.new_session(Some("two")).await;
+    let same_account = c.new_session(Some("two")).await;
+    for session in [&id, &other, &same_account] {
+        c.prompt(session, &format!("fail-streamed: {NOT_SIGNED_IN}")).await;
+    }
+    let before = hub.resolve(&id).unwrap().meta().last_turn;
+    // Merely refreshing the same failed account must not clear its failure.
+    let unchanged = c.auth(json!({"sessionId": id, "refresh": true})).await;
+    assert_eq!(state(&unchanged), ("signedOut", "turn"));
+    let saved = c
+        .call(
+            method::MUX_AGENT_LOGIN_API_KEY,
+            json!({"agent": "claude", "sessionId": id, "key": "sk-ant-test-replacement"}),
+        )
+        .await;
+    assert!(saved.get("error").is_none(), "{saved}");
+    assert!(root.join("claude-two/settings.json").is_file(), "the chat's account receives the key");
+    assert!(!root.join("canonical/settings.json").exists(), "the default account is untouched");
+    assert_eq!(hub.resolve(&id).unwrap().meta().last_turn, before, "history is preserved");
+    let changed = c.auth(json!({"sessionId": id, "refresh": true})).await;
+    assert_eq!(
+        changed["state"], "unknown",
+        "saving a key permits retry, not proof it works: {changed}"
+    );
+    let untouched = c.auth(json!({"sessionId": other, "refresh": true})).await;
+    assert_eq!(state(&untouched), ("signedOut", "turn"), "{untouched}");
+    let sibling = c.auth(json!({"sessionId": same_account, "refresh": true})).await;
+    assert_eq!(
+        sibling["state"], "unknown",
+        "the same account's old refusal is obsolete: {sibling}"
+    );
+    let ok = c.prompt(&id, "hello").await;
+    assert!(ok.get("error").is_none(), "{ok}");
+    let after = c.auth(json!({"sessionId": id})).await;
+    assert_eq!(state(&after), ("ready", "turn"), "{after}");
+    c.prompt(&id, "fail-streamed: API Error: 401 OAuth token has expired.").await;
+    let expired_again = c.auth(json!({"sessionId": id, "refresh": true})).await;
+    assert_eq!(
+        state(&expired_again),
+        ("expired", "turn"),
+        "new auth failures still block: {expired_again}"
+    );
+}
+
+#[tokio::test]
+async fn agent_login_without_a_chat_invalidates_only_the_default_accounts_failures() {
+    let root = scratch("login-without-chat");
+    let hub = hub(&root);
+    let mut c = client(&hub);
+    let same = c.new_session(Some("canonical")).await;
+    let other = c.new_session(Some("two")).await;
+    for id in [&same, &other] {
+        c.prompt(id, &format!("fail-streamed: {NOT_SIGNED_IN}")).await;
+    }
+    let saved = c
+        .call(
+            method::MUX_AGENT_LOGIN_API_KEY,
+            json!({"agent": "claude", "key": "sk-ant-test-default"}),
+        )
+        .await;
+    assert!(saved.get("error").is_none(), "{saved}");
+    let changed = c.auth(json!({"sessionId": same})).await;
+    assert_eq!(
+        state(&changed),
+        ("unknown", "none"),
+        "default account failure is obsolete: {changed}"
+    );
+    let untouched = c.auth(json!({"sessionId": other})).await;
+    assert_eq!(state(&untouched), ("signedOut", "turn"), "{untouched}");
+}
+
+#[tokio::test]
+async fn agent_login_respects_default_and_route_account_homes() {
+    let root = scratch("login-default-route");
+    let hub = hub(&root);
+    let mut c = client(&hub);
+    let route_home = root.join("route-account");
+    let added = c
+        .call(
+            "_acpmux/route/add",
+            json!({"id": "acct", "kind": "direct-subscription",
+        "families": ["claude"], "accountHome": route_home}),
+        )
+        .await;
+    assert!(added.get("error").is_none(), "{added}");
+    for (harness, home) in [("deflt", root.join("claude-defaulted")), ("acct", route_home)] {
+        let id = c.new_session_of(harness).await;
+        c.prompt(&id, &format!("fail-streamed: {NOT_SIGNED_IN}")).await;
+        let saved = c
+            .call(
+                method::MUX_AGENT_LOGIN_API_KEY,
+                json!({"agent": "claude", "sessionId": id, "key": "sk-ant-test-account"}),
+            )
+            .await;
+        assert!(saved.get("error").is_none(), "{saved}");
+        assert!(home.join("settings.json").is_file(), "{harness} saves into its own account");
+        let auth = c.auth(json!({"sessionId": id, "refresh": true})).await;
+        assert_eq!(auth["state"], "unknown", "{auth}");
+        let target = c.auth(json!({"target": {"harness": harness, "cwd": std::env::temp_dir()}, "refresh": true})).await;
+        assert_eq!(target["state"], "unknown", "new chats share the invalidation: {target}");
+    }
+    assert!(!root.join("canonical/settings.json").exists());
+}
+
+#[tokio::test]
+async fn session_auth_refresh_recognizes_a_terminal_login_in_only_its_account() {
+    let root = scratch("terminal-login");
+    std::fs::create_dir_all(root.join("claude-two")).unwrap();
+    let credential = root.join("claude-two/.credentials.json");
+    std::fs::write(&credential, "old credential").unwrap();
+    let hub = hub(&root);
+    let mut c = client(&hub);
+    let id = c.new_session(Some("two")).await;
+    let other = c.new_session(None).await;
+    for session in [&id, &other] {
+        c.prompt(session, &format!("fail-streamed: {NOT_SIGNED_IN}")).await;
+    }
+    let before = hub.resolve(&id).unwrap().meta().last_turn;
+    let unchanged = c.auth(json!({"sessionId": id, "refresh": true})).await;
+    assert_eq!(state(&unchanged), ("signedOut", "turn"), "an unchanged file proves nothing");
+    // The credential-file timestamp must be strictly newer than the failed turn's millisecond.
+    tokio::time::sleep(Duration::from_millis(2)).await;
+    std::fs::write(&credential, "replacement credential").unwrap();
+    let changed = c.auth(json!({"sessionId": id, "refresh": true})).await;
+    assert_eq!(changed["state"], "unknown", "a changed file permits retry: {changed}");
+    let cached = c.auth(json!({"sessionId": id})).await;
+    assert_eq!(cached["state"], "unknown", "a non-refresh must not revive the failure");
+    assert!(cached["evidenceAt"].is_null());
+    assert!(cached.get("fromSessionId").is_none());
+    let untouched = c.auth(json!({"sessionId": other, "refresh": true})).await;
+    assert_eq!(state(&untouched), ("signedOut", "turn"), "{untouched}");
+    assert_eq!(hub.resolve(&id).unwrap().meta().last_turn, before);
+}
+
+/// A past successful turn is not proof an unrefreshable file token remains usable.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn session_auth_rechecks_expiry_in_the_selected_project_after_a_successful_turn() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = scratch("project-expiry");
+    let command = root.join("claude");
+    std::fs::copy(FAKE, &command).unwrap();
+    std::fs::set_permissions(&command, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let account = root.join("file-account");
+    let project = root.join("project");
+    let other = root.join("other-project");
+    std::fs::create_dir_all(&account).unwrap();
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::create_dir_all(other.join(".claude")).unwrap();
+    std::fs::write(
+        other.join(".claude/settings.json"),
+        r#"{"env":{"ANTHROPIC_API_KEY":"synthetic-project-key"}}"#,
+    )
+    .unwrap();
+    let credential = account.join(".credentials.json");
+    std::fs::write(
+        &credential,
+        r#"{"claudeAiOauth":{"accessToken":"synthetic-access","expiresAt":9000000000000}}"#,
+    )
+    .unwrap();
+    let hub = hub(&root);
+    let mut c = client(&hub);
+    let created = c
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": project, "mcpServers": [], "_meta": {"acpmux": {"harness": "file"}}}),
+        )
+        .await;
+    let id = created["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{created}"));
+    let reply = c.prompt(id, "hello").await;
+    assert!(reply.get("error").is_none(), "{reply}");
+    let ready = c.auth(json!({"sessionId": id})).await;
+    assert_eq!(state(&ready), ("ready", "turn"));
+    std::fs::write(
+        &credential,
+        r#"{"claudeAiOauth":{"accessToken":"synthetic-access","expiresAt":1}}"#,
+    )
+    .unwrap();
+    let expired = c.auth(json!({"sessionId": id, "refresh": true})).await;
+    assert_eq!(state(&expired), ("expired", "authCheck"), "{expired}");
+    let expired_target =
+        c.auth(json!({"target": {"harness": "file", "cwd": project}, "refresh": true})).await;
+    assert_eq!(state(&expired_target), ("expired", "authCheck"), "{expired_target}");
+    // Even after a failed turn, another project can have its own usable credential.
+    c.prompt(id, "fail-streamed: API Error: 401 OAuth token has expired.").await;
+    let valid_project =
+        c.auth(json!({"target": {"harness": "file", "cwd": other}, "refresh": true})).await;
+    assert_eq!(state(&valid_project), ("ready", "authCheck"), "{valid_project}");
+    let unscoped = c.auth(json!({"target": {"harness": "file"}, "refresh": true})).await;
+    assert_eq!(unscoped["state"], "unknown", "omitted cwd cannot exclude project auth: {unscoped}");
+    // A healthy API-provider route does not use this expired subscription login.
+    let healthy = endpoint(Arc::new(std::sync::Mutex::new("200 OK"))).await;
+    let added = c
+        .call(
+            "_acpmux/route/add",
+            json!({"id": "project-api", "kind": "custom-anthropic",
+        "anthropicBaseUrl": healthy, "healthUrl": healthy}),
+        )
+        .await;
+    assert!(added.get("error").is_none(), "{added}");
+    let routed = c
+        .auth(json!({"target": {"harness": "file", "cwd": project,
+        "routeId": "project-api"}, "refresh": true}))
+        .await;
+    assert_eq!(
+        state(&routed),
+        ("unknown", "none"),
+        "subscription expiry leaked to route: {routed}"
+    );
+}
+
+/// A custom endpoint can provide its own auth or require none. A local subscription's
+/// expired token cannot prove that endpoint is signed out, even with full project context.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn session_auth_does_not_apply_subscription_expiry_to_custom_endpoint_settings() {
+    for source in ["env", "user", "project", "local"] {
+        let root = scratch(&format!("custom-endpoint-{source}"));
+        let account = root.join("file-account");
+        let project = root.join("project");
+        std::fs::create_dir_all(&account).unwrap();
+        std::fs::create_dir_all(project.join(".claude")).unwrap();
+        std::fs::write(
+            account.join(".credentials.json"),
+            r#"{"claudeAiOauth":{"accessToken":"synthetic-access","expiresAt":1}}"#,
+        )
+        .unwrap();
+        let file = match source {
+            "user" => Some(account.join("settings.json")),
+            "project" => Some(project.join(".claude/settings.json")),
+            "local" => Some(project.join(".claude/settings.local.json")),
+            _ => None,
+        };
+        if let Some(file) = file {
+            std::fs::write(
+                file,
+                r#"{"env":{"ANTHROPIC_BASE_URL":"https://custom.example.invalid/api"}}"#,
+            )
+            .unwrap();
+        }
+        let hub = hub(&root);
+        let mut c = client(&hub);
+        let harness = if source == "env" { "file-endpoint" } else { "file" };
+        let out =
+            c.auth(json!({"target": {"harness": harness, "cwd": project}, "refresh": true})).await;
+        assert_eq!(
+            state(&out),
+            ("unknown", "none"),
+            "{source}: unrelated subscription expiry must not block a custom endpoint: {out}"
+        );
+        assert!(!out.to_string().contains("synthetic-access"));
+    }
 }
 
 struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
@@ -261,7 +527,7 @@ async fn session_auth_for_a_target_reads_only_its_own_account() {
     let root = scratch("target");
     let hub = hub(&root);
     let mut c = client(&hub);
-    let target = json!({"target": {"harness": "fake"}});
+    let target = json!({"target": {"harness": "fake", "cwd": std::env::temp_dir()}});
     let none = c.auth(target.clone()).await;
     assert_eq!(state(&none), ("unknown", "none"), "{none}");
 
@@ -277,6 +543,24 @@ async fn session_auth_for_a_target_reads_only_its_own_account() {
     let out = c.auth(target.clone()).await;
     assert_eq!(state(&out), ("signedOut", "turn"), "{out}");
     assert_eq!(out["fromSessionId"], json!(sibling), "{out}");
+
+    // An unrelated project or omitted cwd must not inherit this project's failed sign-in.
+    for other in [
+        json!({"target": {"harness": "fake", "cwd": root}}),
+        json!({"target": {"harness": "fake"}}),
+    ] {
+        let out = c.auth(other).await;
+        assert_eq!(state(&out), ("unknown", "none"), "project evidence leaked: {out}");
+    }
+    for cwd in [PathBuf::from("relative"), root.join("missing"), root.join("file")] {
+        if cwd == root.join("file") {
+            std::fs::write(&cwd, "not a directory").unwrap();
+        }
+        let out = c
+            .call(method::MUX_SESSION_AUTH, json!({"target": {"harness": "fake", "cwd": cwd}}))
+            .await;
+        assert_eq!(out["error"]["code"], -32602, "{out}");
+    }
 
     let unknown = c.call(method::MUX_SESSION_AUTH, json!({"target": {"harness": "nope"}})).await;
     assert_eq!(unknown["error"]["code"], -32602, "{unknown}");
@@ -296,7 +580,7 @@ async fn session_auth_reads_the_home_the_defaults_pin() {
     let out = c.auth(json!({"sessionId": chat})).await;
     assert_eq!(state(&out), ("signedOut", "turn"), "{out}");
     assert_eq!(out["login"]["command"], login, "{out}");
-    let out = c.auth(json!({"target": {"harness": "deflt"}})).await;
+    let out = c.auth(json!({"target": {"harness": "deflt", "cwd": std::env::temp_dir()}})).await;
     assert_eq!(state(&out), ("signedOut", "turn"), "{out}");
     assert_eq!(out["fromSessionId"], json!(chat), "{out}");
     assert_eq!(out["login"]["command"], login, "{out}");
@@ -395,7 +679,7 @@ async fn fake_peer(features: Value, session: &'static str, close_after: usize) -
         let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { return };
         let mut asked = 0;
         while let Some(Ok(Ws::Text(text))) = ws.next().await {
-            let Ok(Message::Request { id, method: m, .. }) = Message::parse(&text) else {
+            let Ok(Message::Request { id, method: m, params }) = Message::parse(&text) else {
                 continue;
             };
             let result = match m.as_str() {
@@ -411,7 +695,7 @@ async fn fake_peer(features: Value, session: &'static str, close_after: usize) -
                 method::MUX_SESSION_AUTH => {
                     asked += 1;
                     json!({"state": "signedOut", "source": "turn", "evidenceAt": 5,
-                           "detail": "its last turn failed", "harness": "fake", "host": null,
+                           "detail": params.as_ref().and_then(|p| p.pointer("/target/cwd")).and_then(Value::as_str).unwrap_or("its last turn failed"), "harness": "fake", "host": null,
                            "routeId": null, "fromSessionId": session,
                            "login": {"kind": "terminal", "command": "claude auth login"}})
                 }
@@ -428,6 +712,23 @@ async fn fake_peer(features: Value, session: &'static str, close_after: usize) -
         }
     });
     port
+}
+
+/// A remote path is passed intact; only the destination daemon knows whether it exists.
+#[tokio::test]
+async fn session_auth_forwards_target_cwd_to_the_destination() {
+    let root = scratch("peer-cwd");
+    let hub = hub(&root);
+    let port = fake_peer(json!(["sessionAuth"]), "cwd-1", 1).await;
+    hub.add_peer("cwd-peer", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    let mut c = client(&hub);
+    let out = c
+        .auth(json!({"target": {"harness": "fake", "host": "cwd-peer",
+        "cwd": "/only-on-destination/project"}}))
+        .await;
+    assert_eq!(out["detail"], "/only-on-destination/project", "{out}");
 }
 
 /// A peer's chat or target is the peer's answer, naming the peer; a peer whose link is down is

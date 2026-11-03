@@ -25,8 +25,8 @@ public final class MacScreenTab {
         }
     }
 
-    /// The tab's title: the Mac's name, or "Mac Screen".
-    var title: String { pane?.model.name ?? L.t("macScreen.tab.homeTitle", "Mac Screen") }
+    /// The tab's title: the Mac's name, or "Screen Sharing".
+    var title: String { pane?.model.name ?? L.t("macScreen.tab.homeTitle", "Screen Sharing") }
 
     /// Shows the home page `home`, ending any screen.
     func showHome(_ home: NSView) {

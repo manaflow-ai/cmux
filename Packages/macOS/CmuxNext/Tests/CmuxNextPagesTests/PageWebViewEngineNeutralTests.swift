@@ -28,6 +28,30 @@ struct PageWebViewEngineNeutralTests {
         return (view, page)
     }
 
+    /// A script called while the Chromium page is still being made runs in Chromium once it is there,
+    /// never in the hidden WebKit view that never loads the document (a cold chat's first
+    /// `debug.agent_pane` call waited 5 s there for a hook that never came, cmuxterm-hq#6338).
+    @Test func aScriptCalledWhileChromiumStartsRunsInChromium() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        hosting.onMade = { page in
+            page.answer = { method, params in
+                guard method == "Runtime.evaluate", (params["expression"] as? String)?.contains("return 7;") == true else { return nil }
+                return #"{"result":{"type":"number","value":7}}"#
+            }
+        }
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting))
+        view.chromiumClock = PageTestClock.never
+        #expect(!view.showsChromium, "the Chromium page was there before the call: nothing to wait for")
+        let value = try await view.callPageScript("return 7;")
+        let page = try #require(hosting.made.first)
+        #expect(view.showsChromium)
+        #expect(page.calls.contains { $0.method == "Runtime.evaluate" && (($0.params["expression"] as? String)?.contains("return 7;") ?? false) },
+                "the call ran in the hidden WebKit view instead of the Chromium page")
+        #expect((value as? NSNumber)?.intValue == 7)
+        view.close()
+    }
+
     @Test func aPictureOfTheChromiumPageIsItsScreenshot() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
@@ -77,14 +101,22 @@ struct PageWebViewEngineNeutralTests {
         }
         var waitedBeforeBuilding = false
         view.chromiumMenuWait = { waitedBeforeBuilding = built == 0 }
-        let shown: [String]? = await PageTestWait.value("menu") { done in
-            view.chromiumMenuPresenter = { menu, _, _ in done(menu.items.map(\.title)) }
-            page.onEvent?(.contextMenu(PageChromiumContextMenu(location: .zero, selection: "", isEditable: false) {}))
-            // The menu waits first: nothing is built in the click's own turn.
-            #expect(built == 0)
+        var shown: [String]?
+        var finished = false
+        view.chromiumMenuPresenter = { menu, _, _ in
+            // After the wait (a main-actor Task) the menu still tracks from a run-loop callout: a
+            // menu tracking inside that Task's job held the main queue until it closed, and the
+            // click that closed it waited on everything queued meanwhile (Leo, 2026-10-29).
+            #expect(PageMenuCallout.isRunLoopBlock, "the menu tracked inside a main-queue job")
+            shown = menu.items.map(\.title)
         }
+        page.onEvent?(.contextMenu(PageChromiumContextMenu(location: .zero, selection: "", isEditable: false) { finished = true }))
+        // The menu waits first: nothing is built in the click's own turn.
+        #expect(built == 0)
+        await PageMenuCallout.drain { finished }
         #expect(waitedBeforeBuilding)
         #expect(shown == ["Row 1"])
+        #expect(finished, "Chromium never heard the menu closed")
         view.close()
     }
 }

@@ -16,7 +16,13 @@ public enum OnboardingSurface: String, CaseIterable, Sendable {
 public protocol OnboardingScreenVariant {
     static var step: OnboardingModel.Step { get }
     static var surface: OnboardingSurface { get }
+    /// The window's fixed content size.
+    static var size: NSSize { get }
     /// The whole window content for the step (title, control, footer),
-    /// sized by the window (`OnboardingMetrics.windowSize`).
+    /// sized by the window (`size`).
     static func makeContent(_ context: OnboardingStepContext) -> NSView
+}
+
+public extension OnboardingScreenVariant {
+    static var size: NSSize { OnboardingMetrics.windowSize }
 }

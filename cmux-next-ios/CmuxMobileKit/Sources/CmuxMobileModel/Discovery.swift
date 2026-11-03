@@ -161,6 +161,7 @@ extension AppStore {
         activeTeamID = ""
         workspaces = []
         macLinkStatus = [:]
+        macLinkDiagnostics = [:]
         macData = [:]
         macConnection = [:]
         accountMacCount = nil

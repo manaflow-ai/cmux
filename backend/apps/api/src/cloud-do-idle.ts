@@ -6,6 +6,9 @@ import { TABLE_MACHINE, type MachineRow } from "./domains/cloud.ts"
  * The idle rules of CloudDO (split from cloud-do-core.ts at the 500-line limit): the short idle pause
  * from capable VM reports (team policy cloud.idlePause), the 24 h idle backstop, and the no_report cost
  * backstop with its per-machine backoff. All pauses go through the internal cloud.machine.idle_pause.
+ * Every one of them is off unless CLOUD_IDLE_PAUSE is "on" (auto-pause.ts; Leo, 2026-10-30: "we're saying
+ * no auto pausing of the freestyle vms for now"), whatever a team's cloud.idlePause or a machine's idle
+ * policy says.
  */
 export abstract class CloudIdle extends CloudCore {
   /** The team's Cloud policy from its TeamDO (fail closed: a failed RPC fails the caller). */
@@ -20,6 +23,7 @@ export abstract class CloudIdle extends CloudCore {
    * per-team limit, the ledger (cloud.machine.idle_pause), the guarded provider call.
    */
   protected async considerIdlePause(entity: string, machine: string, report: unknown, now: number): Promise<void> {
+    if (!this.autoPause()) return
     const engine = this.boundEngine
     const row = engine?.rows.get<MachineRow>(TABLE_MACHINE, machine)?.row
     // Only a daemon that can see sessions (capability "activity") reports idleness; any other report is unknown (coordinator, 2026-10-05).
@@ -52,7 +56,7 @@ export abstract class CloudIdle extends CloudCore {
   /** The cost backstop pass (alarm): pause each silent machine on the money-op path, pause_reason no_report. */
   protected async pauseSilent(now: number): Promise<void> {
     const engine = this.boundEngine
-    if (!engine) return
+    if (!engine || !this.autoPause()) return
     for (const machine of this.silentMachines(now)) {
       // A pause the provider keeps refusing backs off: 60 s, 2 min, 4 min ... at most 1 h (coordinator, 2026-10-05).
       if ((this.silentRetryAt(machine) ?? 0) > now) continue
@@ -74,7 +78,8 @@ export abstract class CloudIdle extends CloudCore {
    */
   protected alertStale(now: number): void {
     const engine = this.boundEngine
-    if (!engine) return
+    // No backstop runs with automatic pause off, so a machine left running is expected, not stale.
+    if (!engine || !this.autoPause()) return
     const stale = this.silentMachines(now)
     for (const machine of this.staleAlerts.due(stale, now)) {
       const row = engine.rows.get<MachineRow>(TABLE_MACHINE, machine)?.row

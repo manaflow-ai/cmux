@@ -38,7 +38,8 @@ pub(super) async fn send_latest(
         let value = snapshots.borrow_and_update().wire();
         match Message::notification(method::MUX_HARNESS_INVENTORY, value).bounded_line() {
             Ok(line) => permit.send(line),
-            Err(bytes) => tracing::warn!(bytes, "left out an inventory too large to send"),
+            // `bounded_line` counted it and warned, at most once a minute (`wire_size.rs`).
+            Err(bytes) => tracing::debug!(bytes, "left out an inventory too large to send"),
         }
         return;
     }
