@@ -338,7 +338,10 @@ struct NewWorkspacePositionTests {
         await launched.stop()
     }
 
-    @Test func aRefusedSpacePinReleasesItsPlacementRegistration() async throws {
+    /// A `createAndShow` whose first terminal fails (`WorkspaceSpawner`'s catch) leaves no placement behind. A pin to a
+    /// missing space no longer fails the create: the spawner creates it in the window's own space.
+    @Test func aFailedCreateAndShowReleasesItsPlacementRegistration() async throws {
+        enum FirstTerminalFailure: Error { case expected }
         let launched = try await Self.launch("top")
         let windows = launched.services.windows
         let anchors = windows.newPlacements.groupAnchors
@@ -346,7 +349,7 @@ struct NewWorkspacePositionTests {
         let scope = DaemonCommandScope()
         defer { scope.close() }
         DaemonCommandScope.$current.withValue(scope) {
-            WorkspaceHandlers.createAndShow(services: launched.services, room: ProfileID(rawValue: "missing-space"))
+            WorkspaceHandlers.createAndShow(services: launched.services) { _, _ in throw FirstTerminalFailure.expected }
         }
         await Self.wait(within: .seconds(10)) { scope.isIdle }
         #expect(scope.isIdle)
