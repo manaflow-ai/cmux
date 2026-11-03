@@ -43,8 +43,10 @@ check code (a folder turned into a symlink). Check code may hold no symlink in t
 any parent folder (executed_symlinks()). A file directly in a folder above a package, or in a node_modules there,
 is check code too: tools search upward for their config (above_package()); and so is a node_modules anywhere, whose
 programs and modules tools run (in_node_modules()), and a build or lint tool's config module found by name anywhere in
-a package, which the tool may run though nothing imports it (tool_config_in()). Before anything runs, every executed
-folder and every script a check names must resolve, symlinks followed, to that same path in the tree being linted (escaping_paths()).
+a package, which the tool may run though nothing imports it (tool_config_in()), and a lint tool's config found by name
+anywhere in a package, src/ included, which the tool may load code from (lint_config_in()), whatever the tools' own
+lookup rules are. Before anything runs, every executed folder and every script a check names must resolve, symlinks
+followed, to that same path in the tree being linted (escaping_paths()).
 
 Which files: a push's own range (scripts/cmux-next/push_range.py, the definition the
 cmux-next gate, guardrails and arch ratchet share), so a branch rebased onto
@@ -351,6 +353,19 @@ def in_node_modules(path: str) -> bool:
 TOOL_CONFIG = re.compile(r"^(?:(?:vite|vitest|vite-plus|prettier)\.config\..+|\.prettierrc(?:\..*)?)$")
 
 
+# Config files the lint tools find by name in any folder they lint, and load code from (oxlint's jsPlugins, an
+# eslint.config.* module): oxlint and oxfmt rc files and config modules, and ESLint's flat and legacy configs. vite-plus
+# 1.3's `vp lint` ignores a nested .oxlintrc.json, but plain oxlint loads one; the hook does not rely on the tool.
+LINT_CONFIG = re.compile(r"^(?:\.?(?:oxlintrc|oxfmtrc)(?:\..*)?|(?:oxlint|oxfmt|eslint)\.config\..+|\.eslintrc(?:\..*)?)$")
+
+
+def lint_config_in(path: str, directories: tuple[str, ...]) -> bool:
+    """PATH, folded, is a lint tool's config by name (LINT_CONFIG) anywhere in one of DIRECTORIES, src/ included."""
+    folded_path = fold(path)
+    return (LINT_CONFIG.match(folded_path.rsplit("/", 1)[-1]) is not None
+            and any(folded_path.startswith(f"{fold(d)}/") for d in directories))
+
+
 def tool_config_in(path: str, directories: tuple[str, ...]) -> bool:
     """PATH, folded, is a build or lint tool's config module by name (TOOL_CONFIG) anywhere in one of DIRECTORIES."""
     folded_path = fold(path)
@@ -364,7 +379,8 @@ def is_check_code(path: str, executed: tuple[str, ...], sources: tuple[str, ...]
     EXECUTED path, or directly in a folder above one of DIRECTORIES (the package and its local builds;
     above_package())."""
     if in_node_modules(path) or (directories and (above_package(path, directories)
-                                                   or tool_config_in(path, directories))):
+                                                   or tool_config_in(path, directories)
+                                                   or lint_config_in(path, directories))):
         return True
     path, executed, sources = fold(path), folded(executed), folded(sources)
     return (under(path, executed) and not under(path, sources)) or above(path, executed)
@@ -383,7 +399,8 @@ def executed_changes(package: ScriptPackage, files: list[str]) -> list[str]:
 def eslint_executed_changes(package: EslintPackage, files: list[str]) -> list[str]:
     executed = folded(package.executed)
     return [f for f in files if fold(f) in executed or above(fold(f), executed) or in_node_modules(f)
-            or above_package(f, package_directories(package)) or tool_config_in(f, package_directories(package))]
+            or above_package(f, package_directories(package)) or tool_config_in(f, package_directories(package))
+            or lint_config_in(f, package_directories(package))]
 
 
 # The branches whose history is reviewed: check code that matches where a pushed commit meets one of them is
@@ -845,7 +862,10 @@ def trusted_pieces(repo: Path, package: ScriptPackage, files: list[str], risky: 
     the ones left out: the push changes their script, or the copy has none). Only when every executed file the push
     changes (RISKY) is under scripts/cmux-next/, the one folder the copy holds; their INPUTS are the copy's, and
     only pieces whose script is in that folder qualify."""
-    if trusted is None or not trusted.is_dir() or not all(path.startswith(TRUSTED_FOLDER) for path in risky):
+    # Every reason a change under scripts/cmux-next/, and none a symlink: a link there could walk a reviewed check
+    # that reads that folder outside the tree.
+    if (trusted is None or not trusted.is_dir() or not all(path.startswith(TRUSTED_FOLDER) for path in risky)
+            or any(path.endswith(" (a symlink)") for path in risky)):
         return [], []
     run, skipped = [], []
     for piece in input_pieces(repo, package, files, trusted_reader(trusted, read)):
