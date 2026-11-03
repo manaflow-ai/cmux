@@ -1,0 +1,573 @@
+{
+ "id": "bcpp-sfl-browser-pane-warm-idle-dark-anim-off",
+ "priority": "P0",
+ "title": "BROWSER OPEN FRAMES #34062 A/B: Shift-Cmd-L alone in a browser pane (2 browser tabs), 13 real HID presses, each undone by closeTab",
+ "why": "Lead 2026-11-03: Shift-Cmd-L p50 with an efficiency-core start rose 11.8 -> 14.7 ms in the bcpp films (4 presses per film); an A/B of this press alone, 3 interleaved rounds per arm, says whether #34062 causes it.",
+ "source": "handoff/resize-videos/SHORTCUT-FRAMES.md (SHORTCUT FRAMES P0)",
+ "budget_seconds": 120,
+ "options": {
+  "key_path": "real"
+ },
+ "cases": [
+  {
+   "name": "openBrowser[shift+cmd+l]/browser-pane",
+   "stroke": "shift+cmd+l",
+   "action": "openBrowser",
+   "effect": "new-tab",
+   "context": "browser",
+   "arm": "warm",
+   "load": "idle",
+   "theme": "dark",
+   "animations": "off",
+   "build": "pr"
+  }
+ ],
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "p0",
+   "title": "set-up: New Terminal Tab by key (a socket newTab does not take the keyboard from Home's composer, which failed 3 head rounds and 3 base ones)"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "settings_file",
+   "title": "set-up: theme Builtin Dark, animations off, no close warning",
+   "set": {
+    "appearance": {
+     "theme": "Builtin Dark",
+     "appTheme": "followTerminal"
+    },
+    "app": {
+     "warnBeforeClosingTab": false
+    },
+    "ui": {
+     "animations": {
+      "enabled": false
+     }
+    }
+   }
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "openBrowser"
+   },
+   "title": "set-up or undo by the socket: openBrowser"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5,
+   "title": "the first browser tab loads"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "openBrowser"
+   },
+   "title": "set-up or undo by the socket: openBrowser"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5,
+   "title": "the second browser tab loads"
+  },
+  {
+   "do": "video_start",
+   "name": "bcpp-sfl-browser-pane-warm-idle-dark-anim-off",
+   "seconds": 34.0,
+   "lead": 1.5,
+   "title": "start the recording: 13 Shift-Cmd-L presses in a browser pane that has 2 browser tabs, inside the frame trace"
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "shift",
+    "cmd"
+   ],
+   "mark": "openBrowser[shift+cmd+l]/browser-pane/1",
+   "title": "the measured press shift+cmd+l (openBrowser[shift+cmd+l]/browser-pane/1)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "shift",
+    "cmd"
+   ],
+   "mark": "openBrowser[shift+cmd+l]/browser-pane/2",
+   "title": "the measured press shift+cmd+l (openBrowser[shift+cmd+l]/browser-pane/2)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "shift",
+    "cmd"
+   ],
+   "mark": "openBrowser[shift+cmd+l]/browser-pane/3",
+   "title": "the measured press shift+cmd+l (openBrowser[shift+cmd+l]/browser-pane/3)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "shift",
+    "cmd"
+   ],
+   "mark": "openBrowser[shift+cmd+l]/browser-pane/4",
+   "title": "the measured press shift+cmd+l (openBrowser[shift+cmd+l]/browser-pane/4)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "shift",
+    "cmd"
+   ],
+   "mark": "openBrowser[shift+cmd+l]/browser-pane/5",
+   "title": "the measured press shift+cmd+l (openBrowser[shift+cmd+l]/browser-pane/5)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "shift",
+    "cmd"
+   ],
+   "mark": "openBrowser[shift+cmd+l]/browser-pane/6",
+   "title": "the measured press shift+cmd+l (openBrowser[shift+cmd+l]/browser-pane/6)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "shift",
+    "cmd"
+   ],
+   "mark": "openBrowser[shift+cmd+l]/browser-pane/7",
+   "title": "the measured press shift+cmd+l (openBrowser[shift+cmd+l]/browser-pane/7)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "shift",
+    "cmd"
+   ],
+   "mark": "openBrowser[shift+cmd+l]/browser-pane/8",
+   "title": "the measured press shift+cmd+l (openBrowser[shift+cmd+l]/browser-pane/8)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "shift",
+    "cmd"
+   ],
+   "mark": "openBrowser[shift+cmd+l]/browser-pane/9",
+   "title": "the measured press shift+cmd+l (openBrowser[shift+cmd+l]/browser-pane/9)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "shift",
+    "cmd"
+   ],
+   "mark": "openBrowser[shift+cmd+l]/browser-pane/10",
+   "title": "the measured press shift+cmd+l (openBrowser[shift+cmd+l]/browser-pane/10)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "shift",
+    "cmd"
+   ],
+   "mark": "openBrowser[shift+cmd+l]/browser-pane/11",
+   "title": "the measured press shift+cmd+l (openBrowser[shift+cmd+l]/browser-pane/11)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "shift",
+    "cmd"
+   ],
+   "mark": "openBrowser[shift+cmd+l]/browser-pane/12",
+   "title": "the measured press shift+cmd+l (openBrowser[shift+cmd+l]/browser-pane/12)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "hid_key",
+   "key": "l",
+   "modifiers": [
+    "shift",
+    "cmd"
+   ],
+   "mark": "openBrowser[shift+cmd+l]/browser-pane/13",
+   "title": "the measured press shift+cmd+l (openBrowser[shift+cmd+l]/browser-pane/13)"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "settle: content that loads later fills in"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 16
+   },
+   "title": "the press's action run: start_uptime_ns and input_age_ms give its key-down time"
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "closeTab"
+   },
+   "title": "set-up or undo by the socket: closeTab"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0,
+   "title": "the undo settles before the next press"
+  },
+  {
+   "do": "video_stop",
+   "name": "bcpp-sfl-browser-pane-warm-idle-dark-anim-off",
+   "tail": 0.6,
+   "title": "stop the recording (sf-newtab-default-openbrowser-warm-idle-dark-anim-off); its files go to the result"
+  }
+ ]
+}
