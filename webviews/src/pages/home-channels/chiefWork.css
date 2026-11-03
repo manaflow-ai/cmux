@@ -119,7 +119,6 @@
 }
 .hc-chief-work__name {
   display: block;
-  font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
