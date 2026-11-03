@@ -39,10 +39,7 @@ const rows = [
   ...middle,
   user("Run the fetch tests and show me the log", 6),
   activity(
-    [
-      command("Run the fetch tests", "bun test fetch", log),
-      command("Show the test log", "tail -n 12 fetch.log", log),
-    ],
+    [command("Run the fetch tests", "bun test fetch", log), command("Show the test log", "tail -n 12 fetch.log", log)],
     5,
     { id: "expand-at-bottom-run" },
   ),

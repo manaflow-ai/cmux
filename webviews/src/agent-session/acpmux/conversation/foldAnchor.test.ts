@@ -271,7 +271,9 @@ describe("opensBody", () => {
   test("a header toggle reads its own button, not a menu's", () => {
     expect(
       opensBody(
-        dom('<div data-t data-header-toggle><button aria-haspopup="menu" aria-expanded="false"></button><button aria-expanded="false"></button></div>'),
+        dom(
+          '<div data-t data-header-toggle><button aria-haspopup="menu" aria-expanded="false"></button><button aria-expanded="false"></button></div>',
+        ),
       ),
     ).toBe(true);
     expect(opensBody(dom('<div data-t data-header-toggle><button aria-expanded="true"></button></div>'))).toBe(false);
