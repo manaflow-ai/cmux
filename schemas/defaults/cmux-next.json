@@ -7058,7 +7058,7 @@
     "tunable.agent.reasoningSlider": false,
     "tunable.agent.reasoningSliderStyle": "accent",
     "tunable.agent.sessionInfo": true,
-    "tunable.agent.sessionInfo.native": true,
+    "tunable.agent.sessionInfo.native": false,
     "tunable.agent.sessionStatus": false,
     "tunable.agent.suggestedTasks": false,
     "tunable.agent.systemDictation": false,

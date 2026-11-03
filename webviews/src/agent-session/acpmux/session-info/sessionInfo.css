@@ -261,8 +261,10 @@
 /* The six-dot handle that moves a section (SessionInfoGroup.tsx): in the body's right padding, at the
    right end of the section's head past its trailing column, as Claude Code draws it (Leo, 2026-10-31:
    "ok we can click and drag but my screenshots were literally claude code having it on the fucking
-   right"), so the title keeps the text column it has with no handle, and seen only on hover, keyboard focus or while it drags, so before a drag the
-   panel draws as it did. It takes no room in the section, and a drag lights only the handle. */
+   right"), so the title keeps the text column it has with no handle. It shows only while its head (a
+   bare section's first row) or the handle itself is hovered, on keyboard focus, or while it drags, as
+   the native panel's grip does (#32674): no glyph at rest, and not for a pointer over the section's
+   other rows. It takes no room in the section, and a drag lights only the handle. */
 .acpmux-session-info-section {
   position: relative;
 }
@@ -290,7 +292,12 @@
   touch-action: none;
   appearance: none;
 }
-.acpmux-session-info-section:hover > .acpmux-session-info-section__handle,
+.acpmux-session-info-section:has(> .acpmux-session-info-section__disclosure > .ui-disclosure-trigger:hover)
+  > .acpmux-session-info-section__handle,
+.acpmux-session-info-section:has(> .acpmux-session-info-section__head:hover) > .acpmux-session-info-section__handle,
+.acpmux-session-info-section[data-bare]:has(> :not(.acpmux-session-info-section__handle) > :first-child:hover)
+  > .acpmux-session-info-section__handle,
+.acpmux-session-info-section__handle:hover,
 .acpmux-session-info-section__handle:focus-visible,
 .acpmux-session-info-section[data-dragging] > .acpmux-session-info-section__handle {
   opacity: 1;
@@ -535,18 +542,22 @@ button.acpmux-session-info-port:hover,
   text-overflow: ellipsis;
   font-weight: 500;
 }
+/* The fold chevron sits one grid gap after the title, as the native panel draws it (#32674), and shows
+   only while the head is hovered or has keyboard focus. At rest it keeps its room (hidden, not gone),
+   so the title never moves when it shows (cmux#32765; Leo, 2026-11-02: "WE FUCKING HAD THESE"). */
 .acpmux-session-info-section__fold {
   flex: none;
-  order: 1;
   width: var(--grid-icon-box);
   height: var(--grid-icon-box);
   color: var(--agent-muted);
+  visibility: hidden;
+}
+.acpmux-session-info-section .ui-disclosure-trigger:hover > .acpmux-session-info-section__fold,
+.acpmux-session-info-section .ui-disclosure-trigger:focus-visible > .acpmux-session-info-section__fold {
+  visibility: visible;
 }
 .acpmux-session-info-section :is(.ui-disclosure-trigger, .acpmux-session-info-section__head):not(:has(> .acpmux-session-info-section__icon)) > .acpmux-session-info-section__title {
   margin-left: calc(var(--grid-icon-box) + var(--grid-gap));
-}
-.acpmux-session-info-section__fold:not(:has(~ .acpmux-session-info-section__meta)) {
-  margin-left: auto;
 }
 .acpmux-session-info-section__meta {
   /* Counts yield to the section name before either reaches the trailing control. */

@@ -1155,11 +1155,15 @@ export function SessionInfoPanel({
   const t = useT();
   const frame = useRef<HTMLElement | null>(null);
   const drag = useRef<{ right: number } | undefined>(undefined);
+  // Glass only where the chat runs under it: floating over the chat's column (a foot) or as a popover.
+  // Pushed beside the chat, or in the empty gutter, its sections sit on the pane with no card behind
+  // them, as the native panel draws it (#32661; Leo, 2026-11-02: "we still HAVE AN ASININE BACKGROUND").
+  const glass = placement === "overlay" && (foot !== undefined || onDismiss !== undefined);
   // Floating over the chat (the narrow pane's Summary popover), the chat under it blurs itself there in
   // a see-through Chromium page (ui/glass/seeThroughBlur.ts), as WebKit's backdrop draws it, so its
   // text never reads through the glass (Leo 2026-10-30: "I don't like the non-glassness"). Pushing,
-  // it sits beside the chat and covers nothing.
-  useSeeThroughBlur(frame, placement === "overlay", chatUnderGlass, chatGlass);
+  // or in the gutter, it covers nothing.
+  useSeeThroughBlur(frame, glass, chatUnderGlass, chatGlass);
   // The foot animates only once it has been drawn at its first measure: the open draws it at once.
   const footKnown = foot !== undefined && foot > 0;
   const [footSettled, setFootSettled] = useState(false);
@@ -1193,7 +1197,7 @@ export function SessionInfoPanel({
         presence?.props.ref(node);
       }}
       inert={presence?.leaving}
-      className="ui-glass ui-glass-floats acpmux-session-info"
+      className={glass ? "ui-glass ui-glass-floats acpmux-session-info" : "acpmux-session-info"}
       data-placement={placement}
       data-chrome={title ? "title" : onClose ? chrome : "none"}
       data-over-chat={foot !== undefined ? "" : undefined}
