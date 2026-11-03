@@ -107,7 +107,8 @@ import Testing
             placeholderWindowId: placeholder, cmuxOwnedWindowIds: [a, b, c])
         #expect(adoptions.count == 3)
         let commands = tmux.directory.appendingPathComponent("adopt.conf")
-        try RemoteTmuxViewOnlyWindows.linkCommands(adoptions).joined(separator: "\n")
+        try RemoteTmuxViewOnlyWindows.linkCommands(adoptions).map { $0.joined(separator: " ; ") }
+            .joined(separator: "\n")
             .write(to: commands, atomically: true, encoding: .utf8)
         try tmux.run(["source-file", commands.path])
 
@@ -132,7 +133,7 @@ import Testing
             .init(windowId: x, sessionName: "gone", afterWindowId: "@999"),
         ]).first)
         let file = tmux.directory.appendingPathComponent("refused.conf")
-        try command.write(to: file, atomically: true, encoding: .utf8)
+        try command.joined(separator: " ; ").write(to: file, atomically: true, encoding: .utf8)
         tmux.runIgnoringFailure(["source-file", file.path])
 
         #expect(try tmux.windowMark(x) == "")
@@ -165,7 +166,7 @@ import Testing
     /// Owning an adopted window waits for tmux's answer to its link, not for the write to queue.
     @Test @MainActor func anAdoptedWindowIsOwnedOnlyOnceTmuxAcceptsItsLink() {
         var completions: [(Bool) -> Void] = []
-        var sent: [String] = []
+        var sent: [[String]] = []
         var owned: [String] = []
         RemoteTmuxViewConnection.adopt(
             [

@@ -564,14 +564,14 @@ final class RemoteTmuxViewConnection {
     ) -> Bool {
         let settle = windowIds.map { RemoteTmuxViewSession.linkedMarkCommand(windowId: $0) }
             + ["set-option -t \(RemoteTmuxHost.shellSingleQuoted(viewSessionName)) \(RemoteTmuxViewSession.optMarksSettled) 1"]
-        return connection.send(settle.joined(separator: " ; "))
+        return connection.sendSequence(settle)
     }
 
     /// Links `windowId` into the view and marks it as cmux's.
     static func linkIntoView(
         _ windowId: String, viewSessionName: String, on connection: RemoteTmuxControlConnection
     ) -> Bool {
-        connection.send(RemoteTmuxViewSession.linkAndMark(
+        connection.sendSequence(RemoteTmuxViewSession.linkAndMark(
             "link-window -s \(windowId) -t \(RemoteTmuxHost.shellSingleQuoted(viewSessionName))", windowId: windowId))
     }
 

@@ -50,11 +50,12 @@ struct RemoteTmuxViewSession: Equatable, Sendable {
         "set-option -w -t \(windowId) \(optLinked) 1"
     }
 
-    /// `link` followed by the mark for `windowId`, as one tmux command sequence. tmux runs no
+    /// `link` followed by the mark for `windowId`, to send as one tmux command sequence
+    /// (``RemoteTmuxControlConnection/sendSequence(_:firstCommandResolved:)``). tmux runs no
     /// later command of a sequence once one fails, and one write is accepted or refused whole,
     /// so the mark lands exactly when the link does.
-    static func linkAndMark(_ link: String, windowId: String) -> String {
-        "\(link) ; \(linkedMarkCommand(windowId: windowId))"
+    static func linkAndMark(_ link: String, windowId: String) -> [String] {
+        [link, linkedMarkCommand(windowId: windowId)]
     }
 
     /// Prefix all view sessions share, for a cheap first-pass filter and so a
