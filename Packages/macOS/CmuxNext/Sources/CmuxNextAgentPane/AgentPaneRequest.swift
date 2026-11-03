@@ -9,6 +9,8 @@ public import Foundation
 public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The page loaded and wants the handshake.
     case ready
+    /// This Mac's opt-in iMessage connector. No daemon, peer or send operation.
+    case imessage(AgentPaneIMessageAction)
     /// The page lost its daemon and wants a fresh handshake (a restarted
     /// daemon has a new port and token), without starting one.
     case reconnect
@@ -198,6 +200,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// "openDiffViewer", cwd, mode, turn}`): the diff beside the chat, with that turn as its Last
     /// turn (``AgentPaneDiffTurn``).
     case diffTurn(AgentPaneDiffTurn, cwd: String?, toggle: Bool)
+    /// The header's Changes or an edited-files card carrying the turn's own patch (`pane.action {id:
+    /// "openDiffViewer", cwd, mode, patch}`): a folder in no repository, or a turn that wrote a file
+    /// outside it. The diff tab beside the chat shows that patch (``AgentPaneDiffPatch``).
+    case diffPatch(AgentPaneDiffPatch, cwd: String?, toggle: Bool)
     /// The header's Preview (`pane.action {id: "preview", url, mode}`): toggles or opens a browser tab
     /// beside the chat on `url`, the local page its last turn started or mentioned. A loopback
     /// address only; a click that closes the open preview may name none.
@@ -213,6 +219,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case tabRowTools(width: Double)
     /// The current page-owned Session Info model, or its withdrawal.
     case sessionInfo(AgentPaneSessionInfoModel?)
+    /// `pane.sessionInfo.overlays {rects}`: the page's open popups (viewport CSS pixels), which the
+    /// natively drawn Session Info steps behind; empty when none shows.
+    case sessionInfoOverlays([AgentPaneSessionInfoOverlay])
     /// Copies a native Session Info menu item through the platform clipboard.
     case copyText(String)
     /// `pane.tabRowTools.set {tools}`: declarative native controls for the shared tab row.

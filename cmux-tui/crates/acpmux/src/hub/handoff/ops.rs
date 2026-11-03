@@ -293,6 +293,8 @@ impl Hub {
                             || !crate::web_modes::mode_of(&sm).is_some_and(|m| {
                                 crate::hub::start_mode::FULL_ACCESS_MODES.contains(&m.as_str())
                             }),
+                        // The target sees what the source saw (`additional_dirs.rs`).
+                        additional_directories: sm.additional_directories.clone(),
                         ..Default::default()
                     })
                     .await?;

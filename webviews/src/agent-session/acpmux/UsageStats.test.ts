@@ -23,15 +23,17 @@ test("no smaller cap keeps the model's window, the same object", () => {
   expect(compactingUsage(undefined, stats({}))).toBeUndefined();
 });
 
-test("Claude Code's own /context window comes first (Leo, 2026-11-02: '/ 400K', not '/ 1M')", () => {
+test("the smaller of Claude Code's /context window and acpmux's cap (Leo, 2026-11-02: '/ 400K', not '/ 1M')", () => {
   const usage = { used: 310_600, size: 1_000_000 };
   // No usageStats from acpmux at all: the breakdown alone sets the window.
   expect(compactingUsage(usage, undefined, { maxTokens: 400_000 })).toEqual({ used: 310_600, size: 400_000 });
-  // It wins over acpmux's cap, which only says what the harness was started with.
+  // The smaller of the two wins, whichever names it.
   expect(compactingUsage(usage, stats({ autocompactCap: 411_150 }), { maxTokens: 400_000 })).toEqual({
     used: 310_600,
     size: 400_000,
   });
+  // A /context window a little under the model's never hides a 400K cap.
+  expect(compactingUsage(usage, stats({}), { maxTokens: 980_000 })).toEqual({ used: 310_600, size: 400_000 });
   // A breakdown at the model's window (no setting) falls back to the cap.
   expect(compactingUsage(usage, stats({}), { maxTokens: 1_000_000 })).toEqual({ used: 310_600, size: 400_000 });
   // Nothing smaller: the model's window, the same object.

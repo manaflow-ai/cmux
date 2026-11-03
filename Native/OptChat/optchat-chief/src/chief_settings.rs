@@ -57,6 +57,14 @@ pub struct ChiefSettings {
     /// before the host deletes it (`cloud.deleteAfterPausedDays`,
     /// cloud-subagents-DESIGN.md v2).
     pub cloud_delete_after_paused_days: u64,
+    /// Whether a message from a trusted agent session (`relay.trustAgents`)
+    /// may drive `tell` and `spawn` to the Chief's own subagents. Default
+    /// true; false gives every agent session's message the whole ask floor.
+    pub trust_agents: bool,
+    /// The acpmux sessions whose messages the owner trusts
+    /// (`relay.trustedAgents`): exact names or one `*` glob each. Default
+    /// [`DEFAULT_TRUSTED_AGENTS`]; the `contact` session is trusted too.
+    pub trusted_agents: Vec<String>,
 }
 
 /// `replies.thread`: when a Chief reply in its DM is threaded under the user
@@ -106,9 +114,27 @@ impl Default for ChiefSettings {
             cloud_auto_pause: false,
             cloud_auto_pause_idle_secs: 60,
             cloud_delete_after_paused_days: 7,
+            trust_agents: true,
+            trusted_agents: default_trusted_agents(),
         }
     }
 }
+
+/// The owner's coordinator sessions, by the fleet's naming (`<name>-coord`).
+pub const DEFAULT_TRUSTED_AGENTS: [&str; 1] = ["*-coord"];
+
+fn default_trusted_agents() -> Vec<String> {
+    DEFAULT_TRUSTED_AGENTS
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect()
+}
+
+/// The key of `ChiefSettings::trust_agents`.
+pub const TRUST_AGENTS: &str = "relay.trustAgents";
+
+/// The key of `ChiefSettings::trusted_agents`.
+pub const TRUSTED_AGENTS: &str = "relay.trustedAgents";
 
 /// The key of `ChiefSettings::cache_ttl`.
 pub const CACHE_TTL: &str = "cache.ttl";
@@ -169,7 +195,44 @@ impl ChiefSettings {
             cloud_delete_after_paused_days: value["cloud"]["deleteAfterPausedDays"]
                 .as_u64()
                 .unwrap_or(7),
+            trust_agents: value["relay"]["trustAgents"].as_bool().unwrap_or(true),
+            trusted_agents: value["relay"]["trustedAgents"]
+                .as_array()
+                .map(|names| {
+                    names
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .filter_map(clean_agent_pattern)
+                        .collect()
+                })
+                .unwrap_or_else(default_trusted_agents),
         }
+    }
+
+    /// Whether a message the acpmux session `name` sent through the owner's
+    /// CLI may drive `tell` and `spawn` to the Chief's own subagents: the
+    /// setting is on and the name (or, for a peer's `host/name`, its last
+    /// part) matches `relay.trustedAgents` or is the `contact` session.
+    pub fn trusts_agent(&self, name: &str) -> bool {
+        if !self.trust_agents {
+            return false;
+        }
+        let name = name.trim();
+        let short = name.rsplit('/').next().unwrap_or(name);
+        if short.is_empty() {
+            return false;
+        }
+        let contact = self
+            .contact
+            .as_deref()
+            .and_then(|c| c.split_once('/'))
+            .map(|(_, session)| session);
+        if contact == Some(short) {
+            return true;
+        }
+        self.trusted_agents
+            .iter()
+            .any(|p| glob_matches(p, name) || glob_matches(p, short))
     }
 
     pub fn to_json(&self) -> Value {
@@ -191,6 +254,10 @@ impl ChiefSettings {
             "autoPause": self.cloud_auto_pause,
             "autoPauseIdleSeconds": self.cloud_auto_pause_idle_secs,
             "deleteAfterPausedDays": self.cloud_delete_after_paused_days,
+        });
+        value["relay"] = json!({
+            "trustAgents": self.trust_agents,
+            "trustedAgents": self.trusted_agents,
         });
         value
     }
@@ -280,5 +347,95 @@ pub fn parse_bool(value: &str) -> Result<bool, String> {
         "true" => Ok(true),
         "false" => Ok(false),
         other => Err(format!("expected true or false, not {other:?}")),
+    }
+}
+
+/// One `relay.trustedAgents` entry: trimmed, with at most one `*` and no
+/// whitespace; None for an empty or a bare `*` one (that would trust every
+/// agent, which is what turning the guard off is for).
+fn clean_agent_pattern(value: &str) -> Option<String> {
+    let value = value.trim();
+    let ok = !value.is_empty()
+        && value != "*"
+        && value.matches('*').count() <= 1
+        && !value.chars().any(|c| c.is_whitespace() || c.is_control());
+    ok.then(|| value.to_owned())
+}
+
+/// Whether `name` matches `pattern`: equal, or with its one `*` standing for
+/// any run of characters.
+fn glob_matches(pattern: &str, name: &str) -> bool {
+    match pattern.split_once('*') {
+        None => pattern == name,
+        Some((head, tail)) => {
+            name.len() >= head.len() + tail.len() && name.starts_with(head) && name.ends_with(tail)
+        }
+    }
+}
+
+/// A `relay.trustedAgents` value: session names or `*` globs, separated by
+/// commas or spaces; empty clears the list (only the `contact` stays trusted).
+pub fn parse_trusted_agents(value: &str) -> Result<Vec<String>, String> {
+    let mut out = Vec::new();
+    for part in value.split(|c: char| c == ',' || c.is_whitespace()) {
+        if part.is_empty() {
+            continue;
+        }
+        let Some(pattern) = clean_agent_pattern(part) else {
+            return Err(format!(
+                "{TRUSTED_AGENTS}: {part:?} is not a session name or a pattern with one `*` (a bare `*` is refused: set {TRUST_AGENTS} instead)"
+            ));
+        };
+        if !out.contains(&pattern) {
+            out.push(pattern);
+        }
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+mod trusted_agent_tests {
+    use super::*;
+
+    #[test]
+    fn coordinator_sessions_are_trusted_by_default_and_others_are_not() {
+        let s = ChiefSettings::default();
+        assert!(s.trusts_agent("claude-sr2-coord"));
+        assert!(s.trusts_agent("big-red/claude-sr2-coord"));
+        assert!(!s.trusts_agent("lane-a"));
+        assert!(!s.trusts_agent("coord-lane"));
+        assert!(!s.trusts_agent(""));
+    }
+
+    #[test]
+    fn the_contact_is_trusted_and_the_switch_turns_all_of_it_off() {
+        let mut s = ChiefSettings {
+            contact: Some("air-blue/lead".into()),
+            trusted_agents: Vec::new(),
+            ..ChiefSettings::default()
+        };
+        assert!(s.trusts_agent("lead"));
+        assert!(!s.trusts_agent("fleet-coord"));
+        s.trust_agents = false;
+        assert!(!s.trusts_agent("lead"));
+    }
+
+    #[test]
+    fn the_list_round_trips_and_refuses_a_bare_star() {
+        let list = parse_trusted_agents("ops-coord, lead-*  lead-*").unwrap();
+        assert_eq!(list, vec!["ops-coord".to_owned(), "lead-*".to_owned()]);
+        assert!(parse_trusted_agents("*").is_err());
+        assert!(parse_trusted_agents("a*b*").is_err());
+        assert_eq!(parse_trusted_agents("").unwrap(), Vec::<String>::new());
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("settings.json");
+        let s = ChiefSettings {
+            trust_agents: false,
+            trusted_agents: list.clone(),
+            ..ChiefSettings::default()
+        };
+        s.save(&file).unwrap();
+        assert_eq!(ChiefSettings::load(&file), s);
+        assert!(ChiefSettings::load(&dir.path().join("none.json")).trust_agents);
     }
 }

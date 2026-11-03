@@ -318,14 +318,14 @@ fn registry_active_workspace_changes_emit_resync_barriers() {
         events.recv().unwrap(),
         MuxEvent::TreeDelta(TreeDelta { kind: TreeDeltaKind::WorkspaceAdded, .. })
     ));
-    assert!(matches!(events.recv().unwrap(), MuxEvent::TreeSelectionChanged));
+    assert!(matches!(events.recv().unwrap(), MuxEvent::TreeSelectionChanged(_)));
 
     mux.close_workspace_at_revision(second.workspace, Some(2)).unwrap();
     assert!(matches!(
         events.recv().unwrap(),
         MuxEvent::TreeDelta(TreeDelta { kind: TreeDeltaKind::WorkspaceClosed, .. })
     ));
-    assert!(matches!(events.recv().unwrap(), MuxEvent::TreeSelectionChanged));
+    assert!(matches!(events.recv().unwrap(), MuxEvent::TreeSelectionChanged(_)));
     mux.with_state(|state| {
         assert_eq!(state.workspaces[state.active_workspace].id, first.workspace);
     });

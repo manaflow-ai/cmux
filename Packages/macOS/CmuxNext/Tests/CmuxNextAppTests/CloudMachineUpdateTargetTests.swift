@@ -179,8 +179,13 @@ struct CloudMachineUpdateTargetTests {
         #expect(CloudMachineUpdateStrings.unsupported("Leo VM").contains("keep working"))
         #expect(!CloudMachineUpdateStrings.unsupported("Leo VM").contains("new Cloud machine"))
         #expect(outcome("machine_update_rolled_back") == .rolledBack(reason: "why"))
-        #expect(outcome("machine_update_pending") == .failed(reason: "why"))
+        #expect(outcome("machine_update_pending") == .busy, "installed, the old daemon still runs: asked again, no toast")
         #expect(outcome("machine_update_unresolved") == .busy, "the CLI lost the machine before the outcome: asked again")
+        // A daemon on someone's own build: left as it is, no toast, not recorded (Leo, 2026-11-02,
+        // on "Couldn't update leo-cloud: the daemon does not run the installed binary").
+        #expect(outcome("machine_update_foreign_daemon") == .held(reason: "why"))
+        #expect(DaemonUpdatePolicy.recorded(outcome("machine_update_foreign_daemon")) == nil)
+        #expect(!CloudMachineUpdateTarget.mayHaveRestarted(CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_foreign_daemon", error: "why")))
         #expect(outcome(CloudMoveCLI.badAnswer, error: nil) == .failed(reason: CloudMoveCLI.badAnswer))
         // Not final: nothing recorded, so a later connect or launch asks again.
         #expect(DaemonUpdatePolicy.recorded(outcome("machine_update_unavailable")) == nil)

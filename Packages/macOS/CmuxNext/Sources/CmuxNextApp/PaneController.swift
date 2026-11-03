@@ -167,7 +167,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// One tab's strip item changed (`tabItems`): apply it with the list as it is now (untracked).
     /// Suspended: `resume` maps the strip anyway.
     private func tabItemChanged() {
-        guard !isSuspended else { return }
+        guard !isSuspended, layoutFirst() else { return }
         apply(compose(structure()))
     }
 
@@ -424,7 +424,15 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// Pushes the store's current tabs into the strip now (no reset of
     /// optimistic strip state), ahead of the next observation step.
     func syncStripFromStore() {
-        apply(snapshot())
+        if layoutFirst() { apply(snapshot()) }
+    }
+
+    /// The layout first when the record's tabs changed since the strip took them, as `observe` takes it: a tab that moved
+    /// away (a lone chat docking left) leaves here in the turn its new pane shows, not a turn ahead (Leo 2026-11-03: "the
+    /// browser/tab opening animation still plays on the main pane before going"). False when that apply removed this pane.
+    private func layoutFirst() -> Bool {
+        if stripIsStale { workspace?.applyLayoutIfChanged() }
+        return observation?.isCancelled != true // teardown cancels it
     }
 
     // MARK: Content

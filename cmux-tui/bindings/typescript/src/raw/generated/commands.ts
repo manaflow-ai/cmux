@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR cc21760f2943f674c9ddfc3acf0b238c0388afbe9a4e3245bc24d9aa17a2208c. */
+/* cmux-tui mux protocol 12, IR dbb6d5bcff30c1db703c0ff175acb28f75d2bfe02a82ba6de26191fc52ec0976. */
 
 
 import type * as T from "./types.js";
@@ -1620,6 +1620,7 @@ export interface MoveTabToColumnRequest extends CmuxRequestBase {
   "dock"?: (T.ColumnPin) | null;
   "keep_focus"?: boolean;
   "pane"?: (T.Id) | null;
+  "pane_id"?: (string) | null;
   "respawn"?: (T.SplitRespawn) | null;
   "screen"?: (T.Id) | null;
   "surface": T.Id;
@@ -1760,6 +1761,8 @@ export interface NewFrontendBrowserTabRequest extends CmuxRequestBase {
   "pane"?: (T.Id) | null;
   "profile_id"?: (string) | null;
   "rows"?: (number) | null;
+  /** With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab; pane never lists it. Refused with after. */
+  "split"?: (T.ConversationTabSplit) | null;
   "title"?: (string) | null;
   "url": string;
 }

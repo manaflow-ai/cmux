@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR cc21760f2943f674c9ddfc3acf0b238c0388afbe9a4e3245bc24d9aa17a2208c.
+// cmux-tui mux protocol 12, IR dbb6d5bcff30c1db703c0ff175acb28f75d2bfe02a82ba6de26191fc52ec0976.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2307,6 +2307,8 @@ pub struct MoveTabToColumnRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub pane: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pane_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub respawn: Optional<T::SplitRespawn>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub screen: Optional<T::Id>,
@@ -2524,6 +2526,9 @@ pub struct NewFrontendBrowserTabRequest {
     pub profile_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
+    /// With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab; pane never lists it. Refused with after.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub split: Optional<T::ConversationTabSplit>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub title: Optional<String>,
     pub url: String,
@@ -4922,6 +4927,10 @@ impl CmuxClient {
             self.require_protocol_field("move-tab-to-column", 12)?;
             self.require_capability_field("move-tab-to-column", "tab-split-keep-focus-v1")?;
         }
+        if !request.pane_id.is_missing() {
+            self.require_protocol_field("move-tab-to-column", 12)?;
+            self.require_capability_field("move-tab-to-column", "tab-column-client-pane-v1")?;
+        }
         if !request.respawn.is_missing() {
             self.require_protocol_field("move-tab-to-column", 12)?;
             self.require_capability_field("move-tab-to-column", "tab-column-respawn-v1")?;
@@ -5012,6 +5021,9 @@ impl CmuxClient {
     }
 
     pub fn new_frontend_browser_tab(&mut self, request: NewFrontendBrowserTabRequest) -> Result<NewFrontendBrowserTabResult> {
+        if !request.split.is_missing() {
+            self.require_capability_field("new-frontend-browser-tab", "frontend-browser-tab-split-v1")?;
+        }
         self.execute(&NEW_FRONTEND_BROWSER_TAB_METADATA, &request)
     }
 

@@ -20,7 +20,7 @@
   object-fit: cover;
 }
 
-/* The author over a prompt: the bubble's trailing edge, the size of "From the Chief". */
+/* The author over a prompt: the bubble's trailing edge, the size of "Sent from <Chief>". */
 .cv-author {
   display: flex;
   align-items: center;

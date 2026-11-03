@@ -293,7 +293,20 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
         };
       };
       const card = document.querySelector(".nt-box") ?? document.querySelector(".acpmux-composer-box");
-      const box = shown(card);
+      // Codex's look draws the quiet row inside the chat's box, under the prompt (composerLook.css):
+      // +, the prompt, the mic and Send keep Claude's grid over it, so they are measured against the
+      // box down to that row's top.
+      const innerFoot = shown(card?.querySelector(":scope > .acpmux-chrome-area > .acpmux-composer-foot"));
+      const cardRect = shown(card);
+      const box =
+        cardRect && innerFoot
+          ? DOMRect.fromRect({
+              x: cardRect.left,
+              y: cardRect.top,
+              width: cardRect.width,
+              height: innerFoot.top - cardRect.top,
+            })
+          : cardRect;
       const control = (selector: string): Control | null => {
         const buttons = [...(card?.querySelectorAll(selector) ?? [])].filter((element) => shown(element));
         const button = buttons[0];

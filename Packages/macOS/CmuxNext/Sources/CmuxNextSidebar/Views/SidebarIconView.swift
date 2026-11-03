@@ -13,12 +13,24 @@ final class SidebarIconView: NSView {
     private let swatch = CALayer()
     private let emoji = SidebarEmojiGlyphView()
     private var icon: WorkspaceIcon?
-    /// What the last `configure` drew from (the glyphs scale with the title font).
+    /// What the last `configure` drew from (the glyphs scale with the title font and the density's icon column).
     private var configured: (icon: WorkspaceIcon?, pointSize: CGFloat)?
     /// One ink for every symbol, tinted or not (the solid group header's
     /// glyph ink, cx-qno.22: a red icon must not vanish on a red bar); nil
     /// keeps a symbol's tint and draws an uncolored one in the secondary text color.
     var symbolInk: NSColor? { didSet { if symbolInk != oldValue { needsDisplay = true } } }
+
+    /// Start the glyph's ink (an emoji, a symbol, a favicon, a dot, or an emoji's chip) at the view's leading edge
+    /// instead of centering it: a workspace row's icon column, whose box starts at the row inset (Lawrence msg 19643,
+    /// `SidebarStyle.iconColumnGlyphX`). Group and section headers keep the glyph centered.
+    var leadsWithInk = false {
+        didSet {
+            guard leadsWithInk != oldValue else { return }
+            needsLayout = true
+        }
+    }
+    /// The cache key of the shown image's ink (`SidebarGlyphInk`): the symbol and size, or the favicon image.
+    private var inkKey = ""
 
     /// Rows reserve room only for a chosen icon or a page's favicon.
     static func showsIcon(_ icon: WorkspaceIcon?) -> Bool { icon != nil }
@@ -52,7 +64,7 @@ final class SidebarIconView: NSView {
     func configure(icon: WorkspaceIcon?) {
         // A row's status tick configures the row again with the same icon: keep the image. A new
         // NSImage redraws (pack icons run their drawing handler) and relays out at the next display.
-        let pointSize = SidebarStyle.titleFont.pointSize
+        let pointSize = SidebarStyle.workspaceSymbolPointSize
         if let configured, configured.icon == icon, configured.pointSize == pointSize { return }
         configured = (icon, pointSize)
         self.icon = icon
@@ -68,9 +80,12 @@ final class SidebarIconView: NSView {
             let config = SidebarStyle.glyphConfig
             imageView.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config)
                 ?? NSImage.icon(.terminal, size: SidebarStyle.kindGlyphSize)
+            inkKey = "symbol|\(name)|\(pointSize)"
             imageView.isHidden = false
         case let .favicon(favicon)?:
-            imageView.image = NSImage(cgImage: favicon.image, size: NSSize(width: SidebarStyle.kindGlyphSize, height: SidebarStyle.kindGlyphSize))
+            let side = SidebarStyle.workspaceFaviconSide
+            imageView.image = NSImage(cgImage: favicon.image, size: NSSize(width: side, height: side))
+            inkKey = "favicon|\(UInt(bitPattern: ObjectIdentifier(favicon.image).hashValue))"
             imageView.isHidden = false
         case .swatch?, nil:
             imageView.image = nil
@@ -108,12 +123,18 @@ final class SidebarIconView: NSView {
 
     override func layout() {
         super.layout()
-        // A row's icon column can be wider than the glyph (the comfortable 20 pt box): the glyph keeps its own
-        // `iconBox` square, centered in the column, so density moves the column and not the glyph's size.
-        let side = min(bounds.width, bounds.height, SidebarStyle.iconBox)
-        let content = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
-        imageView.frame = content
+        // The glyph fills the density's icon column (`SidebarStyle.workspaceGlyphSide`: 16 compact, 20 comfortable), so
+        // a roomier density draws a larger icon, not the compact one in a wider slot.
+        // `leadsWithInk`: each glyph's drawn ink starts at x 0 by `SidebarStyle.iconColumnGlyphX`; the chip, the dot and
+        // the emoji's square are their own ink, a symbol or favicon image is measured (`SidebarGlyphInk`).
+        let side = min(bounds.width, bounds.height, SidebarStyle.workspaceGlyphSide)
+        let square = CGRect(x: 0, y: 0, width: side, height: side)
+        let content = CGRect(x: leadsWithInk ? SidebarStyle.iconColumnGlyphX(leading: 0, ink: square) : (bounds.width - side) / 2,
+                             y: (bounds.height - side) / 2, width: side, height: side)
+        imageView.frame = leadsWithInk ? leadingImageFrame(side: side) ?? content : content
         emoji.frame = content
+        // A bare emoji's ink is narrower than its square: it starts its ink at the edge; on a chip it centers in it.
+        if case .emoji(_, nil)? = icon { emoji.leadsWithInk = leadsWithInk } else { emoji.leadsWithInk = false }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if case .emoji(_, _?)? = icon {
@@ -122,10 +143,26 @@ final class SidebarIconView: NSView {
             swatch.cornerRadius = bounds.height * 0.25
         } else {
             let dot = SidebarStyle.dotSize
-            swatch.frame = CGRect(x: (bounds.width - dot) / 2, y: (bounds.height - dot) / 2, width: dot, height: dot)
+            let x = leadsWithInk ? SidebarStyle.iconColumnGlyphX(leading: 0, ink: CGRect(x: 0, y: 0, width: dot, height: dot))
+                : (bounds.width - dot) / 2
+            swatch.frame = CGRect(x: x, y: (bounds.height - dot) / 2, width: dot, height: dot)
             swatch.cornerRadius = dot / 2
         }
         CATransaction.commit()
         needsDisplay = true
+    }
+
+    /// The image view's frame that draws the shown symbol or favicon whole (scaled down into a `side` square, never
+    /// up) with its measured ink starting at x 0, centered vertically, on the pixel grid. Nil without a measurable image.
+    private func leadingImageFrame(side: CGFloat) -> CGRect? {
+        guard let image = imageView.image, image.size.width > 0, image.size.height > 0,
+              let ink = SidebarGlyphInk.shared.box(of: image, glyph: inkKey) else { return nil }
+        let fit = min(1, side / image.size.width, side / image.size.height)
+        let width = image.size.width * fit, height = image.size.height * fit
+        let drawnInk = CGRect(x: ink.minX * fit, y: ink.minY * fit, width: ink.width * fit, height: ink.height * fit)
+        let scale = window?.backingScaleFactor ?? 2
+        let snap = { (value: CGFloat) in (value * scale).rounded() / scale }
+        return CGRect(x: snap(SidebarStyle.iconColumnGlyphX(leading: 0, ink: drawnInk)), y: snap((bounds.height - height) / 2),
+                      width: width, height: height)
     }
 }

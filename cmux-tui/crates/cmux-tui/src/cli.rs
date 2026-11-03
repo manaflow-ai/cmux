@@ -23,6 +23,8 @@ mod app_focus;
 #[cfg(unix)]
 mod apps_list;
 #[cfg(unix)]
+mod apps_place;
+#[cfg(unix)]
 mod apps_run;
 #[cfg(unix)]
 mod auth_token;
@@ -50,6 +52,10 @@ mod cloud_machines;
 mod cloud_repo;
 #[cfg(unix)]
 mod cloud_secret;
+#[cfg(unix)]
+mod cloud_start_chat;
+#[cfg(unix)]
+mod cloud_workspaces;
 mod code_mode;
 #[cfg(unix)]
 mod coderouter;
@@ -501,12 +507,14 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
+        .or_else(|| cloud_start_chat::run_if_requested(args))
         .or_else(|| cloud_repo::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
         .or_else(|| cloud_machine_io::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))
         .or_else(|| apps_list::run_if_requested(args))
+        .or_else(|| apps_place::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
@@ -1000,6 +1008,7 @@ fn scan_globals(
             _ => {
                 command.push(value.clone());
                 if option_takes_value(value)
+                    && !own_switch(&command, value)
                     && let Some(next) = args.get(index + 1)
                 {
                     command.push(next.clone());
@@ -1010,6 +1019,20 @@ fn scan_globals(
         }
     }
     Ok((global, command))
+}
+
+/// `machine add|vault`'s value-less switches (`machine_join::own_switch`); none on Windows,
+/// where those verbs do not exist.
+fn own_switch(command: &[String], flag: &str) -> bool {
+    #[cfg(unix)]
+    {
+        machine_join::own_switch(command, flag)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (command, flag);
+        false
+    }
 }
 
 /// Option arity is shared with resource tokenization. Values such as --help or

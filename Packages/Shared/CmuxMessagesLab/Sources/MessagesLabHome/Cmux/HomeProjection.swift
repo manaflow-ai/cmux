@@ -23,6 +23,11 @@ import os
 /// the field.
 @MainActor
 final class HomeProjection: @preconcurrency ChatIntents {
+    var approvals: (any HomeApprovalDeciding)?
+    var approvalWrites: [HomeApprovalWriteGate] = []
+    var approvalCards: [String: HomeApprovalDisplay] = [:]
+    var approvalLatestEvent: TimeInterval = -1
+    var isPersonApprovalEvent: (NSEvent) -> Bool = { _ in false }
     let homeStore: HomeStore
     let conversation: ConversationID
     let me: ParticipantID
@@ -156,22 +161,27 @@ final class HomeProjection: @preconcurrency ChatIntents {
     }
 
     func start() {
+        controller.approvalDecision = { [weak self] ref, allow in _ = self?.decideApproval(ref, allow: allow) }
         refresh()
         noteObservedInputs()
         observe()
     }
 
     func stop() {
+        approvalWrites.forEach { $0.cancel() }
+        approvalWrites.removeAll()
         stopped = true
         homeStore.stopTyping(in: conversation)
         liveLine.stop()
         turnPopover?.close()
         controller.intents = nil
+        controller.approvalDecision = nil
     }
 
     // MARK: HomeStore -> projection
 
     func refresh() {
+        defer { refreshApprovalStates() }
         refreshPasses += 1
         if sendWhenConfirmed, homeStore.isConfirmed(conversation) {
             sendWhenConfirmed = false
@@ -323,6 +333,12 @@ final class HomeProjection: @preconcurrency ChatIntents {
         // Rows the store does not list (my local bubbles before HomeStore logs them) only at the end.
         return have.drop(while: { wanted.contains($0) }).allSatisfy { !wanted.contains($0) }
     }
+
+    #if DEBUG
+    /// DEBUG: maps and lays out every shown row again, without animation (the Agent Messages
+    /// Playground registered another fold row style).
+    func debugRebuild() { rebuild() }
+    #endif
 
     /// The whole window again, without animation (MessagesLab has no action
     /// for it): `.replaceWindow`, then the pin or the first visible row's
