@@ -23,6 +23,11 @@ import os
 /// the field.
 @MainActor
 final class HomeProjection: @preconcurrency ChatIntents {
+    var approvals: (any HomeApprovalDeciding)?
+    var approvalWrites: [HomeApprovalWriteGate] = []
+    var approvalCards: [String: HomeApprovalDisplay] = [:]
+    var approvalLatestEvent: TimeInterval = -1
+    var isPersonApprovalEvent: (NSEvent) -> Bool = { _ in false }
     let homeStore: HomeStore
     let conversation: ConversationID
     let me: ParticipantID
@@ -156,22 +161,27 @@ final class HomeProjection: @preconcurrency ChatIntents {
     }
 
     func start() {
+        controller.approvalDecision = { [weak self] ref, allow in _ = self?.decideApproval(ref, allow: allow) }
         refresh()
         noteObservedInputs()
         observe()
     }
 
     func stop() {
+        approvalWrites.forEach { $0.cancel() }
+        approvalWrites.removeAll()
         stopped = true
         homeStore.stopTyping(in: conversation)
         liveLine.stop()
         turnPopover?.close()
         controller.intents = nil
+        controller.approvalDecision = nil
     }
 
     // MARK: HomeStore -> projection
 
     func refresh() {
+        defer { refreshApprovalStates() }
         refreshPasses += 1
         if sendWhenConfirmed, homeStore.isConfirmed(conversation) {
             sendWhenConfirmed = false

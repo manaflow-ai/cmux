@@ -10,6 +10,7 @@ import type { StageContext } from "./context";
 import { installChipHost } from "./chips";
 import { resetSummaryCards } from "../../agent-session/acpmux/summary/cardState";
 import { setChatDisplay } from "../../agent-session/acpmux/chatDisplay";
+import { prepareMockTransport } from "../../agent-session/acpmux/mockTransport";
 
 type Message = { id?: string; method?: string; params?: Record<string, unknown> };
 
@@ -170,6 +171,9 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
   await import("../../pages/shared/desktop");
   await import("virtual:cmux-gallery/agent-pane.css");
   await import("katex/dist/katex.min.css");
+  // Mock pages need their daemon before mounting: the ready reply schedules the fixture
+  // snapshot, which must not paint while the mock transport's chunk is still loading.
+  if (state.ready?.transport === "mock") prepareMockTransport(await import("../../agent-session/acpmux/mock"));
   const { mountAcpmux } = await import("../../agent-session/acpmux/mount");
   // Static chat previews already have their final snapshot. Do not first mount an empty shell
   // and simulate a network delivery of data we hold. Scenes specifying a handshake, New Tab
