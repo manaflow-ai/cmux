@@ -39,3 +39,16 @@ impl<T: ?Sized> RwLockExt<T> for RwLock<T> {
 /// Non-panicking `serde_json::Value` writes: the shared [`cmux_json::JsonSet`]
 /// under the name the daemon already imports.
 pub use cmux_json::JsonSet as JsonExt;
+
+/// `value[key]` without an index: the field, or `Null` for a missing key or a value that is not
+/// an object (what the index gives, with no panic path for the ratchet to count).
+pub trait JsonField {
+    /// The field `key`, or `Null`.
+    fn field(&self, key: &str) -> &serde_json::Value;
+}
+
+impl JsonField for serde_json::Value {
+    fn field(&self, key: &str) -> &serde_json::Value {
+        self.get(key).unwrap_or(&serde_json::Value::Null)
+    }
+}
