@@ -10,7 +10,8 @@ A chat is an acpmux session. Moving it hands the whole chat (acpmux's own
 history, queued prompts, draft) and the agent's own store to the target
 machine's daemon, then closes it here: the source never runs it again, so
 there is one writer. `acpmux resolve` and agent links follow it to its new
-place. This is for agent chats; moving the Chief itself is the `move` tool.
+place. This is for agent chats; moving the Chief itself is the
+`chief-teleport` skill (the `move` tool).
 
 ## What moves, per agent
 
