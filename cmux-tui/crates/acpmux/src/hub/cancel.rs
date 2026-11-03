@@ -43,10 +43,13 @@
 //! Another agent's message is never lost to a Stop (2026-11-02: a coordinator's message sent a
 //! second after Stop was steered into the cancelling turn, answered by its forced end, and the
 //! chat sat idle with it unread). A message that comes while a Stop ends the turn
-//! ([`is_stopping`]) does not go into it, and one that went in but that the turn's end answered
-//! before its agent read it (never written, the forced end, or its process ended by the Stop)
-//! is not answered: it comes back (`steer_returned`, `steer_end.rs`) and starts the next turn,
-//! at once when the chat is idle. An inbox notice's messages are new again and go in as a turn
+//! ([`is_stopping`]) does not go into it, and one the turn's end answered before its agent
+//! answered it is not answered when it never reached the agent (it waited behind the Stop), or
+//! when it did and the agent confirms it dropped it unread (Claude Code's
+//! `cancel_async_message`): it comes back (`steer_returned`, `steer_end.rs`) and starts the
+//! next turn, at once when the chat is idle. One the agent may have read (codex-acp answers
+//! steers only at the turn's end, a batched line stays, a dead process cannot say) ends with
+//! the turn as before: a second copy could repeat its work. An inbox notice's messages are new again and go in as a turn
 //! of their own (`inbox.rs` `notice_done`). After the person's Stop they wait as its hold says.
 //!
 //! A stopped turn always ends as stopped (`cancelled`), so clients offer Continue on it: also one

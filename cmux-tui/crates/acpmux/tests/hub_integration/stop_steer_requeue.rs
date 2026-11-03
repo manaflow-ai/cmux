@@ -42,10 +42,18 @@ fn carries(n: &Value, prompt_id: &str) -> bool {
 /// A chat whose agent (fake Claude Code, steering) runs the coordinator's first work, which never
 /// answers a cancel; its stopped turn's id.
 async fn deaf_turn(step: &std::path::Path) -> (Arc<Hub>, TestClient, String, String) {
-    let env = BTreeMap::from([
+    deaf_turn_with(step, &[]).await
+}
+
+async fn deaf_turn_with(
+    step: &std::path::Path,
+    extra: &[(&str, &str)],
+) -> (Arc<Hub>, TestClient, String, String) {
+    let mut env = BTreeMap::from([
         ("FAKE_CLAUDE_STEER".to_owned(), "1".to_owned()),
         ("FAKE_STEER_STEP".to_owned(), step.display().to_string()),
     ]);
+    env.extend(extra.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())));
     let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
     let id = new_session(&mut c, "lane").await;
     c.send(method::SESSION_PROMPT, from_agent(&id, "w-first", "deaf-to-cancel", false)).await;
@@ -154,5 +162,37 @@ async fn a_message_the_agent_never_read_before_a_forced_stop_starts_the_next_tur
     starts_the_next_turn(&hub, &id, &stopped, "m-1").await;
     let records = hub.events(&id, 0, 1_000_000).unwrap();
     assert!(records.iter().any(|r| r.kind == "steer_returned"), "the log says it came back");
+    let _ = std::fs::remove_file(step);
+}
+
+/// The message went in before the Stop and its agent cannot say it dropped it (codex-acp answers
+/// steers only at the turn's end; a batched line stays queued): it may have been read, so it ends
+/// with the turn as before and is never sent a second time.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_message_its_agent_cannot_take_back_is_not_sent_twice() {
+    let step = fifo();
+    let (hub, mut c, id, stopped) = deaf_turn_with(&step, &[("FAKE_STEER_KEEP", "1")]).await;
+    c.send(method::SESSION_PROMPT, from_agent(&id, "m-1", "please rebase #42", true)).await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    while !notices(&hub, &id).iter().any(|n| n["steer"] == true && carries(n, "m-1")) {
+        assert!(tokio::time::Instant::now() < deadline, "the notice never steered in");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    stop(&mut c, &id).await;
+    forced_end(&mut c).await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        let records = hub.events(&id, 0, 1_000_000).unwrap();
+        if records.iter().any(|r| r.kind == "inbox_answered") {
+            assert!(!records.iter().any(|r| r.kind == "steer_returned"), "it never comes back");
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "the stopped turn never answered it");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let again =
+        notices(&hub, &id).into_iter().any(|n| carries(&n, "m-1") && n["turnId"] != stopped);
+    assert!(!again, "a second copy went in: {:?}", notices(&hub, &id));
     let _ = std::fs::remove_file(step);
 }

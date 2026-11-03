@@ -18,6 +18,9 @@ fn ends_turn(answer: &Value) -> bool {
     answer.get("stopReason").and_then(Value::as_str).is_some_and(|reason| reason != "steered")
 }
 
+/// How long a stopped turn's unread steer waits for its agent to say it dropped it.
+const STEER_TAKE_BACK_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// The refusal [`agent_prompt_hook`] gives a steer a Stop ended the turn of before the agent
 /// read it (its `data.answer` is the turn's answer).
 const STEER_STOPPED_UNREAD: &str = "steer: the turn was stopped before the agent read it";
@@ -28,16 +31,20 @@ fn forced(answer: &Value) -> bool {
     answer.pointer("/_meta/acpmux/cancelForced") == Some(&Value::Bool(true))
 }
 
-fn stopped_unread(answer: Value) -> RpcError {
+/// `sent`: the steer was written to the agent (it may hold it unread, or have read it).
+fn stopped_unread(answer: Value, sent: bool) -> RpcError {
     RpcError::invalid_params(STEER_STOPPED_UNREAD)
-        .with_data(json!({"reason": "stopped_unread", "answer": answer}))
+        .with_data(json!({"reason": "stopped_unread", "answer": answer, "sent": sent}))
 }
 
-/// The turn's answer, if `answer` is [`stopped_unread`]'s refusal.
-fn stopped_unread_answer(answer: &Result<Value, RpcError>) -> Option<Value> {
+/// The turn's answer, and whether the steer was written, if `answer` is [`stopped_unread`]'s
+/// refusal.
+fn stopped_unread_answer(answer: &Result<Value, RpcError>) -> Option<(Value, bool)> {
     match answer {
         Err(e) if e.message.starts_with(STEER_STOPPED_UNREAD) => {
-            Some(e.data.as_ref().and_then(|d| d.get("answer")).cloned().unwrap_or(Value::Null))
+            let data = e.data.as_ref();
+            let turn = data.and_then(|d| d.get("answer")).cloned().unwrap_or(Value::Null);
+            Some((turn, data.and_then(|d| d.get("sent")) != Some(&Value::Bool(false))))
         }
         _ => None,
     }
@@ -96,7 +103,7 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
             // A Stop ended the turn before the agent answered this steer: never written, or
             // written and the agent, which answers a steer as it reads it, never did
             // (`steer_turn` decides what becomes of it).
-            Err(stopped_unread(answer))
+            Err(stopped_unread(answer, sent))
         } else {
             Ok(answer)
         }
@@ -344,21 +351,28 @@ impl Hub {
             },
         )
         .await;
-        // A Stop ended the turn before its agent read another agent's message: never written
-        // (it waited behind the Stop), written and never answered (the turn's forced end), or
-        // failed as the Stop ended the agent's process. It is not answered: it comes back and
-        // starts the next turn (module docs of `cancel.rs`).
+        // A Stop ended the turn before its agent answered another agent's message. Never
+        // written (it waited behind the Stop), it comes back and starts the next turn (module
+        // docs of `cancel.rs`). Written, it comes back only once its agent confirms it dropped it
+        // unread (Claude Code's `cancel_async_message`): an agent that answers steers only at
+        // the turn's end (codex-acp), one whose line went in batched with others, or one that
+        // does not answer may have read it, and a second copy would repeat its work.
+        let stopped = stopped_unread_answer(&answer);
+        let forced_err = super::cancel::forced_turn(session, turn_id)
+            && answer.is_err()
+            && steer_entered_turn(&answer)
+            && stopped.is_none();
         let unread = agent_message
-            && (stopped_unread_answer(&answer).is_some()
-                || (super::cancel::forced_turn(session, turn_id)
-                    && answer.is_err()
-                    && steer_entered_turn(&answer)));
-        let answer = match answer {
-            // Anyone else's (the person's) steer a Stop ended ends with the turn, as before.
-            Err(_) if !unread && stopped_unread_answer(&answer).is_some() => {
-                Ok(stopped_unread_answer(&answer).unwrap_or_default())
-            }
-            answer => answer,
+            && match &stopped {
+                Some((_, false)) => true,
+                Some((_, true)) => self.steer_taken_back(session, &child, &prompt_id).await,
+                None => forced_err && self.steer_taken_back(session, &child, &prompt_id).await,
+            };
+        let answer = match (answer, stopped) {
+            // Anyone else's (the person's) steer a Stop ended, and one its agent may have read,
+            // ends with the turn, as before.
+            (Err(_), Some((turn, _))) if !unread => Ok(turn),
+            (answer, _) => answer,
         };
         // Read in a turn its agent ran on after the one it was steered into ended: it went into
         // that turn, which the turn before named as it ended (`carried_turn.rs`).
@@ -390,13 +404,13 @@ impl Hub {
             if let Some(made) = made {
                 self.requeue_joined(session, &made, !unread);
                 if unread {
-                    self.steer_stopped_unread(session, &child, &prompt_id, turn_id);
+                    self.steer_stopped_unread(session, &prompt_id, turn_id);
                     return Err(stopped_steer_refused());
                 }
             }
         }
         let answer = if unread {
-            self.steer_stopped_unread(session, &child, &prompt_id, turn_id);
+            self.steer_stopped_unread(session, &prompt_id, turn_id);
             if inbox_notice {
                 // Its messages are new again and go in as the next turn (`notice_done`).
                 self.inbox_notice_unwritten(session, &prompt_id);
@@ -461,25 +475,29 @@ impl Hub {
     }
 
     /// Another agent's steer a Stop ended the turn of before its agent read it (`steer_turn`):
-    /// the log says it came back (`steer_returned`), and an agent that still holds it unread
-    /// (Claude Code's command queue) is asked to drop it, so it is not read twice once it
-    /// starts the next turn. The drop is bounded and its answer not awaited: a stopped agent
-    /// may never answer.
-    fn steer_stopped_unread(
+    /// the log says it came back (`steer_returned`) and starts the next turn.
+    fn steer_stopped_unread(&self, session: &Arc<Session>, prompt_id: &str, turn_id: &str) {
+        let msg = json!({"promptId": prompt_id, "turnId": turn_id, "reason": "stopped"});
+        self.append(session, "mux", "steer_returned", msg);
+    }
+
+    /// Whether the agent dropped steer `prompt_id` unread when asked (`MUX_STEER_WITHDRAW`,
+    /// Claude Code's `cancel_async_message`). False when it read it, holds it batched with other
+    /// messages, cannot take one back (codex-acp), or does not answer within
+    /// [`STEER_TAKE_BACK_WAIT`] (a stopped agent may never answer).
+    async fn steer_taken_back(
         &self,
         session: &Arc<Session>,
         child: &Arc<ChildAgent>,
         prompt_id: &str,
-        turn_id: &str,
-    ) {
-        let msg = json!({"promptId": prompt_id, "turnId": turn_id, "reason": "stopped"});
-        self.append(session, "mux", "steer_returned", msg);
-        let Some(sid) = session.meta().agent_session_id else { return };
-        let (child, params) = (child.clone(), json!({"sessionId": sid, "promptId": prompt_id}));
-        tokio::spawn(async move {
-            let ask = child.request(method::MUX_STEER_WITHDRAW, params);
-            let _ = tokio::time::timeout(std::time::Duration::from_secs(5), ask).await;
-        });
+    ) -> bool {
+        let Some(sid) = session.meta().agent_session_id else { return false };
+        let params = json!({"sessionId": sid, "promptId": prompt_id});
+        let ask = child.request(method::MUX_STEER_WITHDRAW, params);
+        matches!(
+            tokio::time::timeout(STEER_TAKE_BACK_WAIT, ask).await,
+            Ok(Ok(v)) if v["withdrawn"] == true
+        )
     }
 }
 
