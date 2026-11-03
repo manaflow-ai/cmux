@@ -207,19 +207,21 @@ fn write_all_at(file: &std::fs::File, mut offset: u64, mut bytes: &[u8]) -> io::
 /// the file system does not support the call (a network, FAT or other volume that answers
 /// ENOTSUP, EOPNOTSUPP, EINVAL or ENOTTY); there no stronger sync exists. Any other error (EIO) is
 /// returned: the data is not known to be on the disk, and the caller must not count it as
-/// durable. std's `sync_data` and `sync_all` are both `F_FULLFSYNC` here, so they are not used.
+/// durable. A call a signal interrupts (EINTR) is made again, as std does. std's `sync_data` and
+/// `sync_all` are both `F_FULLFSYNC` here, so they are not used.
 #[cfg(target_os = "macos")]
 fn sync_file(file: &std::fs::File, level: SyncLevel) -> io::Result<()> {
     use std::os::fd::AsRawFd;
+    let fd = file.as_raw_fd();
     let command = match level {
         SyncLevel::Barrier => libc::F_BARRIERFSYNC,
         SyncLevel::Full => libc::F_FULLFSYNC,
     };
     // SAFETY: fcntl on a descriptor that `file` owns for the whole call.
-    if unsafe { libc::fcntl(file.as_raw_fd(), command) } != -1 {
-        return Ok(());
-    }
-    let error = io::Error::last_os_error();
+    let error = match retry_interrupted(|| unsafe { libc::fcntl(fd, command) }) {
+        Ok(()) => return Ok(()),
+        Err(error) => error,
+    };
     let unsupported = matches!(
         error.raw_os_error(),
         Some(libc::ENOTSUP | libc::EOPNOTSUPP | libc::EINVAL | libc::ENOTTY)
@@ -228,10 +230,21 @@ fn sync_file(file: &std::fs::File, level: SyncLevel) -> io::Result<()> {
         return Err(error);
     }
     // SAFETY: as above.
-    if unsafe { libc::fsync(file.as_raw_fd()) } == 0 {
-        return Ok(());
+    retry_interrupted(|| unsafe { libc::fsync(fd) })
+}
+
+/// Calls `call` until it returns something other than -1 with EINTR.
+#[cfg(target_os = "macos")]
+fn retry_interrupted(call: impl Fn() -> libc::c_int) -> io::Result<()> {
+    loop {
+        if call() != -1 {
+            return Ok(());
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::Interrupted {
+            return Err(error);
+        }
     }
-    Err(io::Error::last_os_error())
 }
 
 /// [`SyncLevel`] elsewhere: `fdatasync` (Linux; it also flushes a volatile drive cache) or `fsync`;
