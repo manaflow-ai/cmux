@@ -4179,7 +4179,6 @@ a.cv-sha:focus-visible {
   display: inline-flex;
   align-items: center;
   height: var(--cv-footer-row);
-  padding-inline: 2px;
   color: var(--cv-footer-ink);
   font-size: var(--text-caption);
   letter-spacing: var(--text-caption--letter-spacing);

@@ -73,5 +73,9 @@ export default agentPaneEntry({
       ]),
     },
   },
-  experiment: { definition: stoppedTurnLook },
+  experiment: {
+    definition: stoppedTurnLook,
+    // The footer at rest: the last stopped turn's row shows without a pointer.
+    script: [{ name: "at rest", run: async () => {} }],
+  },
 });
