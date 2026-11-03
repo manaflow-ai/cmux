@@ -115,6 +115,9 @@ enum SidebarStyle {
     static var railTileCornerRadius: CGFloat { Metrics.itemCornerRadius + Metrics.space1 }
     /// The glyph well of a large sidebar-top tile (the tiles arrangement).
     static var favoriteWell: CGFloat { SidebarDensityTokens.rowHeight + Metrics.space1 }
+    /// The glyph in that well: a rail button's glyph grown by the row's density and text size step
+    /// (``SidebarRowTokens/extraHeight``), as the well itself grows, so the tile keeps its proportions at every density.
+    static var favoriteGlyphSize: CGFloat { railGlyphSize + SidebarRowTokens.current.extraHeight }
     /// As tall as the status glyph beside it (`Metrics.statusMarkSize`).
     static var badgeHeight: CGFloat { Metrics.statusMarkSize }
     static var searchHeight: CGFloat { Metrics.sidebarRowHeight }
