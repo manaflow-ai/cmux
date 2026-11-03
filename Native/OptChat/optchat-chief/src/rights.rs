@@ -1510,12 +1510,11 @@ mod tests {
             pre[0]["hooks"][0]["command"],
             "'/opt/o'\\''c' rights-hook pre --socket '/h/tools.sock'"
         );
-        assert_eq!(
+        assert!(
             settings["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
                 .as_str()
                 .unwrap()
-                .contains("rights-hook post"),
-            true
+                .contains("rights-hook post")
         );
     }
 
