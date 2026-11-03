@@ -27,14 +27,14 @@ mod idle_census;
 
 #[path = "hub_integration/agent_digest.rs"]
 mod agent_digest;
-#[path = "hub_integration/away_recap.rs"]
-mod away_recap;
 #[path = "hub_integration/agent_inbox.rs"]
 mod agent_inbox;
 #[path = "hub_integration/agent_pairs.rs"]
 mod agent_pairs;
 #[path = "hub_integration/auto_resume.rs"]
 mod auto_resume;
+#[path = "hub_integration/away_recap.rs"]
+mod away_recap;
 #[path = "hub_integration/carried_turns.rs"]
 mod carried_turns;
 #[cfg(unix)]

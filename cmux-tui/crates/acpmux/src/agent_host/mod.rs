@@ -260,6 +260,9 @@ pub struct TranslatorSpec {
     /// Claude Code's fast mode at spawn (the session's `fast-mode` option).
     #[serde(default)]
     pub fast: bool,
+    /// The chat's session recap choice at spawn (its `session-recap` option).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recap: Option<String>,
     /// Claude's own session id when it is known at spawn.
     pub claude_session_id: Option<String>,
 }

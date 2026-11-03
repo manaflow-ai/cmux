@@ -24,7 +24,8 @@
 //!
 //! The recap never goes to the model as a prompt and is never in Claude
 //! Code's transcript. `agents.chats.sessionRecap` (the app's chat settings
-//! push, `chats/settings.rs`) turns it off.
+//! push, `chats/settings.rs`) turns it off; a chat's own `session-recap`
+//! option (the composer's Options, `claude_stdio::RECAP_OPTION`) overrides that.
 
 use super::*;
 use std::time::Duration;
@@ -84,20 +85,28 @@ impl Hub {
     pub fn set_session_recap(&self, on: bool) {
         self.session_recap.store(on, Ordering::SeqCst);
         if !on {
-            self.recap_due.lock().unwrap_or_else(|e| e.into_inner()).clear();
-            for session in self.sessions() {
+            for session in self.sessions().into_iter().filter(|s| !self.recap_applies(s)) {
+                self.recap_due.lock().unwrap_or_else(|e| e.into_inner()).remove(&session.id);
                 session.away.lock().unwrap_or_else(|e| e.into_inner()).ready = None;
             }
         }
     }
 
-    /// Whether `session` may get a recap at all: the setting is on and it runs Claude Code
-    /// through `claude_stdio` (the only harness whose recap acpmux can ask for).
+    /// Whether `session` may get a recap at all: it runs Claude Code through `claude_stdio` (the
+    /// only harness whose recap acpmux can ask for), and its own `session-recap` choice is on, or
+    /// is `default` while the app's setting is on.
     fn recap_applies(&self, session: &Session) -> bool {
-        self.session_recap.load(Ordering::SeqCst)
-            && crate::claude_stdio::steers_by_info(
-                session.meta.lock().unwrap_or_else(|e| e.into_inner()).agent_info.as_ref(),
-            )
+        let meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        if !crate::claude_stdio::steers_by_info(meta.agent_info.as_ref()) {
+            return false;
+        }
+        match super::model_options::current_option(&meta, crate::claude_stdio::RECAP_OPTION)
+            .as_deref()
+        {
+            Some("on") => true,
+            Some("off") => false,
+            _ => self.session_recap.load(Ordering::SeqCst),
+        }
     }
 
     /// Whether some client shows `session` changed (`seen.rs`). Leaving it starts the away
@@ -267,7 +276,12 @@ impl Hub {
                         .values()
                         .min()
                         .copied();
-                    next.map(|at| hub.clock.lock().unwrap().sleep_until(Duration::from_nanos(at)))
+                    next.map(|at| {
+                        hub.clock
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .sleep_until(Duration::from_nanos(at))
+                    })
                 };
                 match next {
                     Some(sleep) => {

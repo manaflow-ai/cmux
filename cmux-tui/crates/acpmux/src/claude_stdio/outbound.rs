@@ -236,6 +236,24 @@ impl Translator {
                                     json!({"type": "control_request", "request_id": format!("ctl-{}", id), "request": {"subtype": "apply_flag_settings", "settings": effort_settings(effort)}}),
                                 ])
                             }
+                            super::RECAP_OPTION => {
+                                let Some(choice) =
+                                    ["default", "on", "off"].into_iter().find(|c| *c == val)
+                                else {
+                                    return Outbound::Reply(Message::err(
+                                        id.clone(),
+                                        RpcError::invalid_params(
+                                            "session-recap must be default, on or off",
+                                        ),
+                                    ));
+                                };
+                                // acpmux's own switch: answered here, Claude Code is not asked.
+                                *self.recap.lock().await = choice;
+                                Outbound::Reply(Message::ok(
+                                    id.clone(),
+                                    json!({"configOptions": self.config_options_value().await}),
+                                ))
+                            }
                             other => Outbound::Reply(Message::err(
                                 id.clone(),
                                 RpcError::invalid_params(format!("unknown config option {other}")),

@@ -155,10 +155,11 @@ pub(crate) const FREE_CONFIG_IDS: &[&str] =
 /// (`transfer_guard.rs` `web_guard_modes`), though the Web may not set them:
 /// Claude's `ultracode` (its top effort; its subagents still ask as the chat's
 /// mode says) and `fast-mode` (its output speed, which only trusted pages and
-/// the CLI toggle, `tests/remote_guard.rs`). Neither decides what runs without
-/// asking.
+/// the CLI toggle, `tests/remote_guard.rs`) and `session-recap` (whether the
+/// chat shows a recap when the person comes back). None decides what runs
+/// without asking.
 pub(crate) const CARRIED_CONFIG_IDS: &[&str] =
-    &[crate::claude_stdio::ULTRACODE_OPTION, "fast-mode"];
+    &[crate::claude_stdio::ULTRACODE_OPTION, "fast-mode", crate::claude_stdio::RECAP_OPTION];
 
 fn non_asking(mode: &str) -> bool {
     NON_ASKING_MODES.iter().any(|(_, modes)| modes.contains(&mode))

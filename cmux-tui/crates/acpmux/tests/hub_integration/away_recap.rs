@@ -148,3 +148,66 @@ async fn the_setting_off_asks_for_none() {
     assert_eq!(a.asked(), 0);
     assert!(a.recaps().is_empty());
 }
+
+impl Away {
+    /// Sets this chat's own `session-recap` choice, as the composer's Options does.
+    async fn choose(&mut self, value: &str) -> Value {
+        self.c
+            .request(
+                method::SESSION_SET_CONFIG_OPTION,
+                json!({"sessionId": self.id, "configId": "session-recap", "value": value}),
+            )
+            .await
+            .unwrap()
+    }
+}
+
+#[tokio::test]
+async fn the_chat_off_overrides_the_setting_on() {
+    let mut a = chat(3, &[]).await;
+    let res = a.choose("off").await;
+    let opt = res["configOptions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|o| o["id"] == "session-recap")
+        .cloned()
+        .unwrap();
+    assert_eq!(opt["currentValue"], "off", "{res}");
+    assert!(
+        opt["options"][1]["description"].as_str().unwrap().contains("$0.016"),
+        "each choice names its cost: {opt}"
+    );
+    a.show(false).await;
+    a.advance(Duration::from_secs(6 * 60), 1).await;
+    a.show(true).await;
+    assert_eq!(a.asked(), 0);
+    assert!(a.recaps().is_empty());
+}
+
+#[tokio::test]
+async fn the_chat_on_overrides_the_setting_off() {
+    let mut a = chat(3, &[]).await;
+    a.hub.set_session_recap(false);
+    a.choose("on").await;
+    a.show(false).await;
+    a.advance(Duration::from_secs(3 * 60), 1).await;
+    a.advance(Duration::from_secs(2 * 60), 1).await;
+    a.show(true).await;
+    assert_eq!(a.asked(), 1);
+    assert_eq!(a.recaps().len(), 1);
+}
+
+#[tokio::test]
+async fn a_bad_choice_is_refused() {
+    let mut a = chat(0, &[]).await;
+    let err =
+        a.c.request(
+            method::SESSION_SET_CONFIG_OPTION,
+            json!({"sessionId": a.id, "configId": "session-recap", "value": "sometimes"}),
+        )
+        .await
+        .unwrap_err();
+    assert!(err.contains("default, on or off"), "{err}");
+    a.choose("default").await;
+}
