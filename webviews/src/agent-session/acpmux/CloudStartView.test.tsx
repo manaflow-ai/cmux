@@ -26,23 +26,35 @@ afterEach(() => {
   delete (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments;
 });
 
-test("every arm shows the message, a spinner and the same facts", () => {
+test("every arm shows the message and compact preparing status", () => {
   for (const name of ["chips", "rows", "steps"]) {
     arm(name);
     const html = renderToStaticMarkup(<CloudStartView start={start} />);
     expect(html).toContain(`data-look="${name}"`);
     expect(html).toContain("fix the build");
+    expect(html).toContain("Preparing machine");
     expect(html).toContain("cv-spinner");
-    for (const fact of ["paint", "paint-dev · 4 CPU", ">2<", "Limited"]) expect(html).toContain(fact);
+    expect(html).not.toContain('data-step-id="machine"');
   }
 });
 
-test("the steps arm marks the steps done, current and next", () => {
+test("a failed start opens the details disclosure with the host facts", () => {
+  const html = renderToStaticMarkup(
+    <CloudStartView
+      start={{ ...start, state: "failed", message: "No machine free" }}
+    />,
+  );
+  expect(html).toContain('aria-expanded="true"');
+  expect(html).toContain('data-step-id="machine"');
+  for (const fact of ["paint", "paint-dev · 4 CPU", ">2<", "Limited"]) expect(html).toContain(fact);
+});
+
+test("the steps arm keeps its legacy step list behind the disclosure", () => {
   arm("steps");
   const html = renderToStaticMarkup(<CloudStartView start={start} />);
-  expect(html.match(/data-step="done"/g)).toHaveLength(1);
-  expect(html.match(/data-step="current"/g)).toHaveLength(1);
-  expect(html.match(/data-step="next"/g)).toHaveLength(1);
+  expect(html).not.toContain('data-step="done"');
+  expect(html).not.toContain('data-step="current"');
+  expect(html).not.toContain('data-step="next"');
 });
 
 test("a failure says the host's words with no spinner, and the New Tab page draws no bubble", () => {
@@ -154,7 +166,14 @@ test("a machine failure stops a clone spinner", () => {
 test("a missing setup script is plain text without an environment callback", () => {
   const html = renderToStaticMarkup(
     <CloudStartView
-      start={{ key: "k", task: "hi", state: "starting", home: true, setup: { state: "skipped", hasScript: false } }}
+      start={{
+        key: "k",
+        task: "hi",
+        state: "failed",
+        step: "opening",
+        home: true,
+        setup: { state: "skipped", hasScript: false },
+      }}
     />,
   );
   expect(html).toContain("Add a setup script to install dependencies and configure your environment.");
@@ -166,6 +185,7 @@ test("initialized sessions collapse to one quiet line", () => {
     <CloudStartView start={{ key: "k", task: "hi", state: "starting", initialized: true }} />,
   );
   expect(html).toContain("Initialized session");
+  expect(html).toContain('class="acpmux-cloud-start__status acpmux-cloud-start__status--ready"');
   expect(html).not.toContain('data-step-id="machine"');
 });
 
@@ -177,7 +197,14 @@ test("startup durations use the supplied clock", () => {
 test("setup hint becomes a link when an environment callback is provided", () => {
   const html = renderToStaticMarkup(
     <CloudStartView
-      start={{ key: "k", task: "hi", state: "starting", home: true, setup: { state: "skipped", hasScript: false } }}
+      start={{
+        key: "k",
+        task: "hi",
+        state: "failed",
+        step: "opening",
+        home: true,
+        setup: { state: "skipped", hasScript: false },
+      }}
       onOpenEnvironment={() => undefined}
     />,
   );
