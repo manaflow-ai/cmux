@@ -156,3 +156,35 @@ test("a silence replayed from a turn that already ended is not drawn", async () 
     client.close();
   }
 });
+
+// Leo, 2026-11-03: "and why am i getting this", under a bare "No response from the model yet".
+// acpmux's `reason` says why (hub/silent_turn.rs), and a changed reason replaces the one before.
+test("a silent turn carries acpmux's reason, and a later one replaces it", async () => {
+  const daemon = fakeDaemon(record([["mux", "user_message", { text: "fix the build" }], started]));
+  let snapshot: any;
+  let attached = false;
+  const client = await AcpmuxDirectClient.connect(
+    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
+    (next: any) => {
+      snapshot = next;
+      attached ||= next.connection === "connected";
+    },
+    undefined,
+    daemon.open,
+  );
+  try {
+    await until(() => attached, "the attach");
+    const capacity = { kind: "capacity", attempt: 1, of: 10, detail: "529 overloaded" };
+    daemon.push(record([["mux", "turn_silent", { turnId: "t1", silentMs: 90_000, reason: capacity }]], 3));
+    await until(() => snapshot.silentReason !== undefined, "the reason");
+    expect(snapshot.silentReason).toEqual(capacity);
+    const auth = { kind: "auth", detail: "API Error: 401 authentication_error" };
+    daemon.push(record([["mux", "turn_silent", { turnId: "t1", silentMs: 95_000, reason: auth }]], 4));
+    await until(() => snapshot.silentReason?.kind === "auth", "the new reason");
+    daemon.push(record([heard, word], 5));
+    await until(() => snapshot.silentTurn === undefined, "the model's word");
+    expect(snapshot.silentReason).toBeUndefined();
+  } finally {
+    client.close();
+  }
+});

@@ -1043,6 +1043,25 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "late"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "mute-retry" is "mute" from a Claude Code whose model API is overloaded: it retries it
+    # (`claude.system.api_retry`, attempt 1 then 2) before the model answers.
+    if text == "mute-retry":
+        for attempt in (1, 2):
+            send({"jsonrpc": "2.0", "method": "claude.system.api_retry", "params": {
+                "type": "system", "subtype": "api_retry", "attempt": attempt, "max_retries": 10,
+                "retry_delay_ms": 500, "error_status": 529, "error": "overloaded"}})
+            time.sleep(0.8)
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "late"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "mute-auth" is "mute" from a harness whose sign-in the provider refuses: it says so on stderr.
+    if text == "mute-auth":
+        sys.stderr.write('API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"OAuth token has expired"}}\n')
+        sys.stderr.flush()
+        time.sleep(2)
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "late"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "mute-busy" is "mute" from an agent that reports its turn and its usage at once, as Codex does
     # (a usage update, a command list, a notification of its own): none of it is the model's.
     if text == "mute-busy":
