@@ -173,7 +173,9 @@ struct DaemonRecoveryNoticeTests {
         let starts = Counter()
         let endpoint = launcher.endpointProvider
         let first = DaemonEndpoint(socketPath: socket, bridge: .fakePython(["-c", Self.daemonScript]))
-        let connection = DaemonConnection(configuration: .init(requiredCapabilities: [], terminalEnvironment: nil)) {
+        // Restarts every 20-100 ms for as long as they fail, so the step past the window needs no backoff wait.
+        let retry = RetryPolicy(initial: .milliseconds(20), maximum: .milliseconds(100), timedRetries: 1000, keepsTrying: true)
+        let connection = DaemonConnection(configuration: .init(requiredCapabilities: [], retry: retry, terminalEnvironment: nil)) {
             guard starts.increment() == 0 else { return try await endpoint() }
             return first
         }
