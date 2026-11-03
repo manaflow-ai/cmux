@@ -289,6 +289,8 @@ mod tests {
     use super::*;
 
     const SESSION: &str = "clone-check";
+    /// Columns that hold a session id as their whole value.
+    const SESSION_ID_COLUMNS: [&str; 2] = ["session_id", "default_session_id"];
     const TERMINAL: &str = "00000000000040008000000000000001";
 
     fn temp_root(label: &str) -> PathBuf {
