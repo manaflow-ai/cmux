@@ -10,6 +10,9 @@ public struct AgentPaneHibernationCapture {
     /// The hidden page whose platform state and frame may be retained.
     public init(view: AgentPaneView) { self.view = view }
 
+    /// Whether the page is still mounted where the user can see it.
+    public var isOnScreen: Bool { view.window != nil && !view.isHiddenOrHasHiddenAncestor }
+
     /// A bounded, appearance-tagged frame for hidden-page hibernation. The caller retains the
     /// page if this cannot produce the snapshot that covers its next first frame.
     public func frame() async -> (image: CGImage, size: NSSize, appearance: NSAppearance.Name?)? {
@@ -19,7 +22,6 @@ public struct AgentPaneHibernationCapture {
         }
         return frame.flatMap { $0 }
     }
-
 
     /// Reads restorable state and holds a usable cover when the page's engine can draw it.
     public func capture(

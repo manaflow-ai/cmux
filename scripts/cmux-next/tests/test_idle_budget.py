@@ -9,14 +9,18 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from contextlib import nullcontext
 from pathlib import Path
+from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent / "perf-bench"))
 spec = importlib.util.spec_from_file_location("idle_budget", HERE / "idle-budget.py")
 ib = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(ib)
+# These tests exercise pure bookkeeping and fake socket replies, not libproc.
+with patch("ctypes.CDLL") if sys.platform != "darwin" else nullcontext():
+    spec.loader.exec_module(ib)
 
 APP = "/Users/x/DerivedData/cmux-t/Build/Products/Debug/cmux DEV t.app"
 
@@ -26,6 +30,72 @@ def row(kind, threads, wakeups, cpu=0.0):
 
 
 class IdleBudgetTests(unittest.TestCase):
+    def test_newtab_sessions_build_each_page_before_hiding_without_replacing_it(self):
+        class App:
+            def __init__(self):
+                self.count = 0
+                self.hidden = False
+                self.calls = []
+
+            def rpc(self, method, params=None, **kwargs):
+                self.calls.append((method, params))
+                if method == "action.run":
+                    if params["action"] == "newTab.page":
+                        self.count += 1
+                    elif params["action"] == "nextSurface":
+                        self.hidden = True
+                    else:
+                        raise AssertionError(params)
+                    return {}
+                if method == "debug.agent_pane":
+                    return {"document_ready": True, "body_text_length": 100, "engine": "cef"}
+                key = "terminal" if self.hidden else f"newtab{self.count}"
+                return {"windows": [{"panes": [{"pane": "p", "focused": True,
+                         "kind": "terminal" if self.hidden else "agent", "selected_tab": key,
+                         "shown_tab": key, "content_installed": True, "content_in_window": True}]}],
+                        "hibernation": {"chat_pages": [f"newtab{i}" for i in range(1, self.count + 1)]}}
+
+        for count in (1, 5, 20):
+            app = App()
+            opened = ib.build_newtabs(app, count)
+            self.assertEqual(opened["rendered"], count)
+            self.assertEqual(len(set(opened["keys"])), count)
+            self.assertEqual(opened["engines"], ["cef"] * count)
+            self.assertEqual(sum(method == "debug.agent_pane" and params["action"] == "readiness"
+                                 for method, params in app.calls), count)
+            self.assertEqual([params["action"] for method, params in app.calls if method == "action.run"],
+                             ["newTab.page"] * count + ["nextSurface"])
+            self.assertEqual(ib.newtab_evidence(app, opened)["live_count"], count)
+
+    def test_newtab_measurement_rejects_missing_or_lazy_pages(self):
+        class App:
+            def rpc(self, *args, **kwargs):
+                return {}
+        with self.assertRaisesRegex(RuntimeError, "only built 0 of 5"):
+            ib.build_newtabs(App(), 5, limit=0)
+        with self.assertRaisesRegex(RuntimeError, "lacks hibernation.chat_pages"):
+            ib.newtab_evidence(App(), {"keys": ["a"]})
+
+    def test_newtab_evidence_intersects_measured_keys_and_rejects_visible_page(self):
+        class App:
+            def rpc(self, *args, **kwargs):
+                return {"windows": [{"panes": [{"shown_tab": "terminal"}]}],
+                        "hibernation": {"chat_pages": ["b", "unrelated"]}}
+        evidence = ib.newtab_evidence(App(), {"keys": ["a", "b"], "rendered": 2})
+        self.assertEqual(evidence["live_count"], 1)
+        self.assertEqual(evidence["live_keys"], ["b"])
+        with patch.object(App, "rpc", return_value={"windows": [{"panes": [{"shown_tab": "a"}]}]}):
+            with self.assertRaisesRegex(RuntimeError, "visible during"):
+                ib.newtab_evidence(App(), {"keys": ["a"]})
+
+    def test_memory_summary_counts_renderers_and_sums_all_footprints(self):
+        result = {"processes": [{"pid": 1, "kind": "app", "footprint_mb": 10.1},
+                                {"pid": 2, "kind": "cef-renderer", "footprint_mb": 20.2},
+                                {"pid": 3, "kind": "webkit-webcontent", "footprint_mb": 30.3},
+                                {"pid": 4, "kind": "cef-gpu", "footprint_mb": 40.4}]}
+        self.assertEqual(ib.memory_summary(result), {"total_footprint_mb": 101.0, "renderer_count": 2,
+                                                   "renderer_pids": [2, 3], "renderer_footprint_mb": 50.5})
+
     def test_kinds(self):
         self.assertEqual(ib.kind(f"{APP}/Contents/MacOS/cmux DEV"), "app")
         self.assertEqual(ib.kind(f"{APP}/Contents/Resources/bin/cmux-tui server --socket s"), "daemon")

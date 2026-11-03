@@ -135,10 +135,10 @@ final class AgentPageHibernation: HiddenChatPagesHost {
         guard let tabs = store() else { return false }
         let key = tabs.resolve(key)
         if pages.newTabIsExcess(key), pageIsUntouchedNewTab(key), let view = tabs.views[key] {
-            return !(onScreen && Self.isOnScreen(view))
+            return !(onScreen && AgentPaneHibernationCapture(view: view).isOnScreen)
         }
         // A crashed page keeps its notice: a rebuild would reload it without the person's Reload.
-        guard let view = tabs.views[key], !view.showsCrashNotice, !(onScreen && Self.isOnScreen(view)), view.model.newTab == nil, !view.model.shell.hasRuns,
+        guard let view = tabs.views[key], !view.showsCrashNotice, !(onScreen && AgentPaneHibernationCapture(view: view).isOnScreen), view.model.newTab == nil, !view.model.shell.hasRuns,
               tabs.newTabPages[key] == nil, let (record, _) = tabs.lookup(key),
               AgentPaneHostKind(record, localHost: tabs.localHost, chiefHost: tabs.chiefHost, listedHere: true) == .local,
               tabs.daemonForTab(key)?.isLocal != false else { return false }
@@ -157,11 +157,7 @@ final class AgentPageHibernation: HiddenChatPagesHost {
            AgentPaneHostKind(record, localHost: tabs.localHost, chiefHost: tabs.chiefHost, listedHere: true) == .chief {
             return false
         }
-        return !(onScreen && Self.isOnScreen(view))
-    }
-
-    private static func isOnScreen(_ view: AgentPaneView) -> Bool {
-        view.window != nil && !view.isHiddenOrHasHiddenAncestor
+        return !(onScreen && AgentPaneHibernationCapture(view: view).isOnScreen)
     }
 
     /// Keeps the page's frame and what it holds that acpmux does not, then lets the page go if it
