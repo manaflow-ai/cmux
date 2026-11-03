@@ -64,7 +64,7 @@ test("a '.' after another agent's message steered into the person's turn draws n
 test("the '·' ending a background turn after the person's turn draws nothing", () => {
   at = 0;
   const line = row(backgroundTurnRowId("a"), BACKGROUND_TURN, {
-    background: { id: "a", trigger: "task_notification", running: false, quiet: true, hasRows: false },
+    background: { id: "a", trigger: "task_notification", running: false, quiet: true },
   });
   const rows = [
     row("prompt", "user", { text: "Run the suites in the background" }),
