@@ -1031,11 +1031,23 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   const onStopWorkflow = useStableCallback(workflows?.onStop);
   const onOpenWorkflowAgent = useStableCallback(workflows?.onOpenAgent);
   const setRunningLimit = useStableCallback(onSetRunningLimit);
-  // The rows the sections read for the chat's gallery and the calls a task row shows: the same rows
-  // until one is added or the gallery changes, not each streamed token's copy.
-  const galleryRows = useRef({ rows, length: rows.length, artifacts });
-  if (galleryRows.current.length !== rows.length || galleryRows.current.artifacts !== artifacts)
-    galleryRows.current = { rows, length: rows.length, artifacts };
+  // The tool calls the loaded transcript holds, for a task row's Show call in a chat whose terminal
+  // cannot open here: read here, so a call added to an existing row reaches the sections, and kept while
+  // it is the same set. A chat on this Mac opens the terminal instead and reads none.
+  const readsCalls = !!onShowCall && !opensProcessTerminal(summary);
+  const toolCalls = useSameValue(
+    useMemo(() => (drawn && readsCalls ? toolCallIds(rows) : undefined), [drawn, readsCalls, rows]),
+  );
+  // The rows the sections read for the chat's gallery: the same rows until one is added, the gallery
+  // changes or the panel lists another agent, not each streamed token's copy.
+  const listing = scope?.agent.id;
+  const galleryRows = useRef({ rows, length: rows.length, artifacts, listing });
+  if (
+    galleryRows.current.length !== rows.length ||
+    galleryRows.current.artifacts !== artifacts ||
+    galleryRows.current.listing !== listing
+  )
+    galleryRows.current = { rows, length: rows.length, artifacts, listing };
   const sectionRows = galleryRows.current.rows;
   const banner = useMemo(
     () =>
@@ -1193,6 +1205,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         artifacts={artifacts}
         documents={documents}
         rows={sectionRows}
+        toolCalls={toolCalls}
         agents={agents}
         waiting={waiting}
         onOpenSubagent={onOpenSubagent}
@@ -1424,6 +1437,10 @@ export function SessionInfoPanel({
 export type RailLayout = "glance" | "rules" | "groups";
 export const RAIL_LAYOUT: RailLayout = "glance";
 
+/// The tool calls in `rows`, by id.
+const toolCallIds = (rows: readonly AcpmuxRow[]): ReadonlySet<string> =>
+  new Set(rows.flatMap((row) => (row.items ?? []).flatMap((item) => (item.tool?.id ? [item.tool.id] : []))));
+
 /// The sections for one chat, drawn again only when a prop changes: SessionInfoPresence hands it the
 /// same lists while they hold the same things, so a streamed token, a tool call that makes nothing or a
 /// usage tick draws nothing here.
@@ -1444,6 +1461,7 @@ export function SessionInfo({
   artifacts = 0,
   documents = [],
   rows = [],
+  toolCalls,
   agents = [],
   waiting = new Set(),
   onOpenSubagent,
@@ -1505,6 +1523,9 @@ export function SessionInfo({
   onOpenDocument?: (artifact: Artifact) => void;
   /// The chat's rows, for its gallery.
   rows?: readonly AcpmuxRow[];
+  /// The tool calls the loaded transcript holds (toolCallIds), where the caller reads them; else read
+  /// from `rows`.
+  toolCalls?: ReadonlySet<string>;
   agents?: readonly Subagent[];
   waiting?: ReadonlySet<string>;
   onOpenSubagent?: (id: string) => void;
@@ -1601,11 +1622,8 @@ export function SessionInfo({
   const local = opensProcessTerminal(summary);
   const showsCalls = !local && !!onShowCall && commands.some((command) => command.toolCallId);
   const calls = useMemo(
-    () =>
-      showsCalls
-        ? new Set(rows.flatMap((row) => (row.items ?? []).flatMap((item) => (item.tool?.id ? [item.tool.id] : []))))
-        : undefined,
-    [showsCalls, rows],
+    () => (showsCalls ? (toolCalls ?? toolCallIds(rows)) : undefined),
+    [showsCalls, toolCalls, rows],
   );
   const body = useRef<HTMLDivElement>(null);
   // Rows scrolled past the body's top or bottom fade at that edge (scrollEdges.ts, sessionInfo.css)

@@ -17,9 +17,11 @@ import {
   resetSessionInfoState,
   setSessionInfoMore,
   setSessionInfoOpen,
+  setSessionInfoSection,
 } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import * as outputsSection from "../src/agent-session/acpmux/session-info/OutputsSection";
 import * as environmentSection from "../src/agent-session/acpmux/session-info/EnvironmentSection";
+import type { SessionInfoProcess } from "../src/agent-session/acpmux/session-info/processes";
 import { activity, assistant, chat, tool, user } from "../src/gallery/fixtures/acpmux";
 
 let dom: JSDOM | undefined;
@@ -161,16 +163,20 @@ test(`${UPDATES} streamed tokens, tool calls and usage ticks paint nothing in Se
   const panel = container.querySelector<HTMLElement>("aside.acpmux-session-info");
   expect(panel).not.toBeNull();
   expect(panel!.querySelector('[data-section="outputs"]')).not.toBeNull();
+  // The spies count the sections' renders: they drew at the mount.
+  expect(outputsRenders.mock.calls.length).toBeGreaterThan(0);
+  expect(environmentRenders.mock.calls.length).toBeGreaterThan(0);
 
   const mutations: string[] = [];
-  const observer = new dom!.window.MutationObserver((records) => {
-    for (const record of records) {
-      const target = record.target as Element;
+  const record = (records: MutationRecord[]) => {
+    for (const each of records) {
+      const target = each.target as Element;
       const where =
         target.nodeType === 1 ? target.className || target.tagName : `#text in ${target.parentElement?.className}`;
-      mutations.push(`${record.type}${record.attributeName ? `:${record.attributeName}` : ""} ${String(where)}`);
+      mutations.push(`${each.type}${each.attributeName ? `:${each.attributeName}` : ""} ${String(where)}`);
     }
-  });
+  };
+  const observer = new dom!.window.MutationObserver(record);
   observer.observe(panel!, { subtree: true, childList: true, attributes: true, characterData: true });
   const frame = () => `${panel!.getAttribute("style")}|${panel!.className}`;
   const before = frame();
@@ -186,7 +192,7 @@ test(`${UPDATES} streamed tokens, tool calls and usage ticks paint nothing in Se
   }
   // fixed-wait: timers and frames the updates scheduled run inside the observed window.
   await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
-  observer.takeRecords();
+  record(observer.takeRecords());
   observer.disconnect();
 
   expect(container.querySelector("aside.acpmux-session-info")).toBe(panel);
@@ -202,4 +208,65 @@ test(`${UPDATES} streamed tokens, tool calls and usage ticks paint nothing in Se
   expect(environmentRenders).toHaveBeenCalledTimes(0);
   outputsRenders.mockRestore();
   environmentRenders.mockRestore();
+});
+
+// The sections keep the rows they were drawn with while no row is added, but not the tool calls those
+// rows hold: in a chat on another machine a background task's row shows its call once the transcript
+// holds it, and a call that lands in the turn's existing activity row adds no row.
+test("a call added to an existing row lets a remote chat's background task show it", async () => {
+  const container = installDom();
+  const base = chat([user("Run the tests", 3)]);
+  const remote: AcpmuxSnapshot = { ...base, summary: { ...base.summary!, peer: "mini" } };
+  const server: SessionInfoProcess = {
+    id: "s1/a",
+    command: "pytest -x",
+    startedAt: 1_000,
+    state: "running",
+    toolCallId: "call-test",
+  };
+  const withCalls = (ids: string[]): AcpmuxSnapshot => ({
+    ...remote,
+    rows: [
+      ...remote.rows,
+      {
+        ...activity(
+          ids.map((id) => ({
+            ...tool(`Run ${id}`, "execute", "completed"),
+            tool: { id, title: id, kind: "execute", status: "completed" },
+          })),
+          2,
+        ),
+        id: "turn-activity",
+      },
+    ],
+  });
+  let push: (snapshot: AcpmuxSnapshot) => void = () => {};
+  function Pane() {
+    const [snapshot, setSnapshot] = useState(withCalls(["call-ls"]));
+    push = setSnapshot;
+    const sessionInfo = useSessionInfo({
+      snapshot,
+      shell: null,
+      processes: { processes: [server], listed: true },
+      onShowCall: () => true,
+    });
+    return <section className="acpmux-shell">{sessionInfo.panel}</section>;
+  }
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<Pane />);
+  });
+  await act(async () => {
+    setSessionInfoSection("tasks", true);
+    setSessionInfoOpen(true);
+  });
+  const open = () =>
+    container.querySelector<HTMLButtonElement>(
+      "li.acpmux-session-info-task--command button.acpmux-session-info-task__open",
+    );
+  expect(open()).not.toBeNull();
+  expect(open()!.disabled).toBe(true);
+  // The call lands in the same activity row: no row is added.
+  await act(async () => push(withCalls(["call-ls", "call-test"])));
+  expect(open()!.disabled).toBe(false);
 });
