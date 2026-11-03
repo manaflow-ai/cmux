@@ -228,6 +228,13 @@ impl WorkspaceCommitIntent {
                 "active workspace is absent from the desired registry: {active_workspace}"
             );
         }
+        // What the journal states for each live workspace before this commit (its rows are rewritten next), so the
+        // commit's journal record carries only the workspaces it changes (#32408).
+        let stated = if project_resource && previous_topology.is_some() {
+            Some(stated_workspace_values(tx)?)
+        } else {
+            None
+        };
         let (revision, _) = commit_workspace_registry_in_transaction(
             tx,
             mutation,
@@ -342,6 +349,7 @@ impl WorkspaceCommitIntent {
                 workspaces,
                 active_workspace.map(WorkspacePublicId::as_str),
                 previous_topology,
+                stated.as_ref(),
             )?;
             append_resource_journal_record(
                 tx,

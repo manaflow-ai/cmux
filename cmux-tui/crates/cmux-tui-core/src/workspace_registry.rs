@@ -4504,36 +4504,90 @@ fn upsert_workspace_resource(
     Ok(())
 }
 
+/// One live workspace as the journal states it: its name, its index, its name provenance (the row's
+/// `name_source` and `name_revision`), keyed by public id.
+pub(super) type StatedWorkspaces = HashMap<String, (String, Option<i64>, String, i64)>;
+
+/// Every live workspace's stated value, read before a workspace commit rewrites the rows.
+pub(super) fn stated_workspace_values(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<StatedWorkspaces> {
+    let mut statement = transaction.prepare(
+        "SELECT rw.public_id, w.name, w.position, w.name_source, w.name_revision
+         FROM resource_workspaces rw
+         JOIN workspaces w ON w.workspace_key = rw.workspace_key
+         WHERE rw.deleted_revision IS NULL AND w.tombstoned = 0",
+    )?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                (
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<i64>>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)?,
+                ),
+            ))
+        })?
+        .collect::<Result<StatedWorkspaces, _>>()?;
+    Ok(rows)
+}
+
+/// The journal changes of a workspace commit: an upsert of each workspace whose stated value it changes (a new
+/// one, a rename, a move to another index, the focus moving to or from it) and the deletes of what it removes.
+/// `stated` holds the values before the commit (``stated_workspace_values``); without it every workspace is
+/// stated. A create at the end states only the new workspace (and the two whose focus flag flips), never the
+/// whole list: restating every workspace made each create's journal record, and its WAL bytes, grow with the
+/// session (#32408).
 fn normalized_workspace_resource_deltas(
     session_id: &SessionPublicId,
     workspaces: &[RegistryWorkspace],
     active_workspace: Option<&str>,
     before: &ResourceTopologySnapshot,
+    stated: Option<&StatedWorkspaces>,
 ) -> anyhow::Result<Value> {
-    let mut deltas = workspaces
-        .iter()
-        .enumerate()
-        .map(|(index, workspace)| {
-            Ok(serde_json::json!({
-                "kind":"upsert",
-                "sequence":index,
-                "resource":"workspace",
+    let was_active = before.active_workspace.as_ref().map(WorkspacePublicId::as_str);
+    let mut deltas = Vec::new();
+    for (index, workspace) in workspaces.iter().enumerate() {
+        let id = workspace.public_id.as_str();
+        let focused = active_workspace == Some(id);
+        if let Some(stated) = stated
+            && let Some((name, position, source, revision)) = stated.get(id)
+        {
+            let (new_source, new_revision) = workspace_name_store::sql_name_provenance(
+                workspace.name_source,
+                workspace.name_revision,
+            )?;
+            let unchanged = *name == workspace.name
+                && *position == i64::try_from(index).ok()
+                && source.as_str() == new_source
+                && *revision == new_revision
+                && focused == (was_active == Some(id));
+            if unchanged {
+                continue;
+            }
+        }
+        let sequence = deltas.len();
+        deltas.push(serde_json::json!({
+            "kind":"upsert",
+            "sequence":sequence,
+            "resource":"workspace",
+            "id":workspace.public_id,
+            "value":{
                 "id":workspace.public_id,
-                "value":{
-                    "id":workspace.public_id,
-                    "session_id":session_id,
-                    "name":workspace.name,
-                    "index":u32::try_from(index)
-                        .context("workspace index exceeds public uint32 range")?,
-                    "focused":active_workspace == Some(workspace.public_id.as_str()),
-                    "extra":crate::resource_name::workspace_name_extra(
-                        workspace.name_source,
-                        workspace.name_revision,
-                    ),
-                },
-            }))
-        })
-        .collect::<anyhow::Result<Vec<_>>>()?;
+                "session_id":session_id,
+                "name":workspace.name,
+                "index":u32::try_from(index)
+                    .context("workspace index exceeds public uint32 range")?,
+                "focused":focused,
+                "extra":crate::resource_name::workspace_name_extra(
+                    workspace.name_source,
+                    workspace.name_revision,
+                ),
+            },
+        }));
+    }
     let live_workspaces =
         workspaces.iter().map(|workspace| workspace.public_id.clone()).collect::<HashSet<_>>();
     let removed_workspaces = before
