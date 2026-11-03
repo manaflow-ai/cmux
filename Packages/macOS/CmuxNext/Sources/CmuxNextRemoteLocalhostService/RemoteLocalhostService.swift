@@ -31,13 +31,20 @@ public final class RemoteLocalhostService {
     /// release builds.
     private let debugSocket: String?
 
-    public init(machines: any RemoteLocalhostMachines, environment: [String: String] = ProcessInfo.processInfo.environment) {
+    public init(machines: any RemoteLocalhostMachines, environment: [String: String] = ProcessInfo.processInfo.environment,
+                defaults: UserDefaults = .standard) {
         self.machines = machines
+        self.defaults = defaults
         #if DEBUG
         debugSocket = environment["CMUX_NEXT_REMOTE_LOCALHOST_DEBUG_SOCKET"].flatMap { $0.isEmpty ? nil : $0 }
         #else
         debugSocket = nil
         #endif
+        for entry in defaults.stringArray(forKey: Self.boundDefaultsKey) ?? [] {
+            let parts = entry.split(separator: "\t", maxSplits: 1).map(String.init)
+            guard parts.count == 2, boundTabs.updateValue(parts[1], forKey: parts[0]) == nil else { continue }
+            boundOrder.append(parts[0])
+        }
     }
 
     private static let debugMachineName = "debug-remote"
@@ -172,10 +179,16 @@ public final class RemoteLocalhostService {
     private var expectedPages: [ObjectIdentifier: (machine: String, until: ContinuousClock.Instant)] = [:]
     /// Tabs whose localhost is a chat's machine, by tab id, whatever machine's tree holds them:
     /// a Cloud chat's sign-in page (Claude's automatic page, AgentPaneSignInPage.swift), whose
-    /// approve redirects to `http://localhost:<port>/callback` on the chat's machine. Kept for this
-    /// launch (the sign-in is done well before a relaunch). A binding ends only when its tab is
-    /// gone (closed): a live tab is never unbound, so it never falls back to this Mac's localhost.
+    /// approve redirects to `http://localhost:<port>/callback` on the chat's machine. Kept in
+    /// `UserDefaults` too (as ``ProxiedBrowserTabs`` keeps its tabs), so a restored tab is still
+    /// bound after a relaunch: with its machine gone or remote localhost off, its loopback page
+    /// stays blank, never this Mac's localhost. A live tab is never unbound: past
+    /// ``boundLimit`` only the bindings of closed tabs are dropped.
     private var boundTabs: [String: String] = [:]
+    private var boundOrder: [String] = []
+    private let defaults: UserDefaults
+    public static let boundDefaultsKey = "cmux.next.browser.chatMachineTabs"
+    static let boundLimit = 256
 
     /// `page`, made in the profile's store with a `.noLoopback` guard, is for a tab whose localhost
     /// is the machine of daemon `machine` (a chat's): the tab that adopts it within a minute
@@ -192,9 +205,22 @@ public final class RemoteLocalhostService {
     public func adoptPage(_ page: AnyObject, key: String) {
         guard !expectedPages.isEmpty, let expected = expectedPages.removeValue(forKey: ObjectIdentifier(page)),
               expected.until > .now else { return }
-        // Drop the bindings of tabs that are gone; keep every live one.
-        boundTabs = boundTabs.filter { tab(id: $0.key) != nil }
-        boundTabs[key] = expected.machine
+        bind(key, machine: expected.machine)
+    }
+
+    /// The machine tab `id` is bound to (``adoptPage(_:key:)``), if any.
+    public func boundMachine(ofTab id: String) -> String? { boundTabs[id] }
+
+    /// Tab `key` takes daemon `machine`'s localhost, kept across relaunches.
+    func bind(_ key: String, machine: String) {
+        if boundTabs.updateValue(machine, forKey: key) == nil { boundOrder.append(key) }
+        if boundOrder.count > Self.boundLimit {
+            // Only closed tabs' bindings go (a tab not on any machine now); a live tab keeps its own.
+            let gone = Set(boundOrder.filter { tab(id: $0) == nil }.prefix(boundOrder.count - Self.boundLimit))
+            boundOrder.removeAll { gone.contains($0) }
+            for id in gone { boundTabs.removeValue(forKey: id) }
+        }
+        defaults.set(boundOrder.compactMap { id in boundTabs[id].map { id + "\t" + $0 } }, forKey: Self.boundDefaultsKey)
     }
 
     /// The route of a tab bound to daemon `machine`: that machine's, as for a tab of its own tree
