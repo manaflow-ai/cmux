@@ -1136,7 +1136,9 @@ def seeded_agent(tag):
 
 
 def seed_layout():
-    return SEED_FOCUS if SEED_FOCUS == "agent" or SEED_CHAT_PANE == "last" else f"{SEED_FOCUS}-chat-{SEED_CHAT_PANE}"
+    layout = SEED_FOCUS if SEED_FOCUS == "agent" or SEED_CHAT_PANE == "last" else f"{SEED_FOCUS}-chat-{SEED_CHAT_PANE}"
+    # scratch (REOPEN-F7): a seed of another size is another layout, so a 24-row seed is never reused for --workspaces 100
+    return layout if REALISTIC_WORKSPACES == 24 else f"{layout}-w{REALISTIC_WORKSPACES}"
 
 
 def seeded_focus(tag):
@@ -1436,6 +1438,8 @@ def main():
                              "frontmost, active app as after a Dock click, checked with lsappinfo front at the measured "
                              "point (front_at_measure); inactive: spawned with no activation, behind and not key "
                              "(default: active for --profile stress with restore placement, else inactive)")
+    parser.add_argument("--workspaces", type=int, default=24,
+                        help="scratch (REOPEN-F7): workspaces in the realistic seed (default 24)")
     parser.add_argument("--tiers", action="store_true",
                         help="scratch: record the core tier of the app's main thread from main() to the first frame")
     parser.add_argument("--hangs", type=int, metavar="MS",
@@ -1443,8 +1447,9 @@ def main():
     args = parser.parse_args()
     global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE, WINDOW_PLACEMENT, NEW_SESSION_EACH_RUN, ACTIVATION
     HANG_THRESHOLD_MS = args.hangs
-    global TIERS
+    global TIERS, REALISTIC_WORKSPACES
     TIERS = args.tiers
+    REALISTIC_WORKSPACES = args.workspaces
     # STRESS measures the reopen a person gets: its windows restore where they were (#32493). The STRESS seed sizes
     # its window to 1600 x 1000; under the test placement every relaunch opened at 1100 x 720 instead, so the first
     # relaunch after a seed refused every saved frame for its size.
