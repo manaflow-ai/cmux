@@ -478,6 +478,9 @@ export type AcpmuxRow = {
   /// "thinking" accounting is also off pretty frequently").
   liveState?: "subagents" | "writing";
   liveAgents?: number;
+  /// With the line reading "Thinking" past the first step: how long the turn's thoughts streamed,
+  /// summed (conversation/turns.ts `thoughtTime`), the time it shows beside the word.
+  thoughtMs?: number;
   /// The live line's clock is the turn's whole time, past its first step: it reads "4m total", so
   /// the time never reads as what the line names (conversation/Thinking.tsx).
   turnTotal?: boolean;

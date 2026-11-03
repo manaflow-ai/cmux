@@ -69,6 +69,7 @@ export function Thinking({
   doneMs,
   liveState,
   liveAgents = 0,
+  thoughtMs,
   turnTotal = false,
   untimed = false,
   quietKey,
@@ -95,6 +96,8 @@ export function Thinking({
   /// (turns.ts `codexLiveTurn`). Otherwise it reads "Thinking".
   liveState?: "subagents" | "writing";
   liveAgents?: number;
+  /// "Thinking" past the first step: the turn's summed thinking time, shown beside the word.
+  thoughtMs?: number;
   /// Past the turn's first step the clock reads as the turn's whole time ("· 4m total"), after the
   /// finished step's own time when it has one, so no wait reads as that long a think or call.
   turnTotal?: boolean;
@@ -119,11 +122,13 @@ export function Thinking({
   // thinking before its next step, which reads "Thinking" (Leo, 2026-11-03).
   const stillWriting = !useQuiet(liveState === "writing" ? quietKey : undefined, WRITING_MS);
   const sendName = useSubsessionInfo(sendSession)?.name ?? sendTo;
+  const waitsOnAgents = liveState === "subagents" && liveAgents > 0;
+  const writing = liveState === "writing" && stillWriting;
   const label =
     doing === undefined
-      ? liveState === "subagents" && liveAgents > 0
+      ? waitsOnAgents
         ? t("turn.live.waitingOnSubagents", { n: liveAgents })
-        : liveState === "writing" && stillWriting
+        : writing
           ? t("turn.live.writing")
           : t("thinking")
       : sendName !== undefined
@@ -143,7 +148,9 @@ export function Thinking({
   // The step's own time beside it: a finished step's start to end, a running call's start to now.
   const stepTime =
     doing === undefined
-      ? undefined
+      ? waitsOnAgents || writing
+        ? undefined
+        : thoughtMs
       : done
         ? doneMs
         : doingAt !== undefined && timed

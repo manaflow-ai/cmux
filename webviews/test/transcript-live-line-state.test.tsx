@@ -56,6 +56,7 @@ const drawn = (line: AcpmuxRow, now: number) =>
         doneMs={line.doingForMs}
         liveState={line.liveState}
         liveAgents={line.liveAgents}
+        thoughtMs={line.thoughtMs}
         turnTotal={line.turnTotal}
         untimed={line.untimed}
       />,
@@ -163,4 +164,26 @@ test("waiting on subagents, the line does not count them a second time", () => {
     </WorkingCountsContext.Provider>,
   );
   expect(words(html)).toBe("Waiting on 2 subagents · 1m total · 1 command");
+});
+
+test("Thinking past the first step shows only the thoughts' streamed time, the waits go to the total", () => {
+  // Leo's sample, 2026-11-03: "Thinking 7m 34s · ↓ 4.5K out ↑ 1.4M in", 7.5 min of "thinking" for
+  // 4.5K output tokens. The calls, waits and queue time between thoughts are not thinking.
+  const user = row("u", "user");
+  const t0 = user.at;
+  const line = codex([
+    user,
+    row("t1", "activity", {
+      items: [{ kind: "thought", text: "Read the helper first.", startedAt: t0 + 1_000, endedAt: t0 + 4_000 }],
+    }),
+    row("run", "activity", {
+      items: [call("cargo test", "completed", { startedAt: t0 + 5_000, endedAt: t0 + 400_000 })],
+    }),
+    row("t2", "activity", {
+      items: [{ kind: "thought", text: "The retry path is next.", startedAt: t0 + 449_000, endedAt: t0 + 454_000 }],
+    }),
+  ]).at(-1)!;
+  expect(line).toMatchObject({ kind: THINKING, thoughtMs: 8_000, turnTotal: true });
+  expect(line.doing).toBeUndefined();
+  expect(drawn(line, t0 + 454_000)).toBe("Thinking 8s · 7m 34s total");
 });

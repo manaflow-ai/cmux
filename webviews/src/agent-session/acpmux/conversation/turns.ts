@@ -32,6 +32,7 @@ import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
 import { turnCopyParts } from "./turnCopy";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
+import { isThought, thoughtDuration } from "./thoughts";
 import {
   backgroundTurnRowId,
   collectFoldedBackgroundId,
@@ -1222,6 +1223,10 @@ function codexLiveTurn(
       if (lifted.ms !== undefined) line.doingForMs = lifted.ms;
     }
   }
+  // Still "Thinking" after the first step: the time beside it is only the turn's thinking, the
+  // summed spans its thoughts streamed, never the calls, waits and queue time between them (Leo's
+  // "Thinking 7m 34s · ↓ 4.5K out", 2026-11-03). The turn's whole time is the total after it.
+  if (line.doing === undefined && line.liveState === undefined) line.thoughtMs = thoughtTime(drawn);
   if (!plan) return [...rows, line];
   const work = rows.filter((row) => row !== plan);
   // The answer streams under the list, the line under both.
@@ -1284,6 +1289,19 @@ function liftedStep(
   const ms =
     call.startedAt !== undefined && call.endedAt !== undefined ? Math.max(0, call.endedAt - call.startedAt) : undefined;
   return { rows: next, doing, shell, ms };
+}
+
+/// The time a live turn's thoughts streamed, each from its first chunk to its latest, summed;
+/// undefined when none is dated.
+function thoughtTime(rows: readonly AcpmuxRow[]): number | undefined {
+  let total: number | undefined;
+  for (const row of rows)
+    if (row.kind === "activity")
+      for (const item of row.items ?? []) {
+        const ms = isThought(item) ? thoughtDuration(item) : undefined;
+        if (ms !== undefined) total = (total ?? 0) + ms;
+      }
+  return total;
 }
 
 /// Foreground subagents still running in a live turn's rows (its subagent groups): the ones the
