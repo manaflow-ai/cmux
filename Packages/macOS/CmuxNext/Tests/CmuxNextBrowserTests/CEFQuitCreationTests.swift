@@ -290,8 +290,8 @@ private nonisolated enum SpyShim {
     nonisolated(unsafe) static var storesCommitted = false
     /// The spy's profiles hold cookie writes not yet on disk (the cookie flush tests).
     nonisolated(unsafe) static var hasUncommittedStores = false
-    static let commitCost: Duration = .milliseconds(400)
-    static let commitSeconds = 0.4
+    static let commitCost: Duration = .milliseconds(300)
+    static let commitSeconds = 0.3
 
     static func reset() {
         createWindowCalls = 0
