@@ -11,7 +11,7 @@ import Testing
 /// tab, becomes the column on its right (``MainPaneLayout``). The dock's wait for the moved chat hears
 /// the store before the pane's own observation does, and its strip sync (``OutboundTab/finish(moved:)``)
 /// must not show the tab while the layout still has the pane full width as the main pane: the strip
-/// lists the tab only once the layout has the dock beside it (``StripAfterLayout``).
+/// lists the tab only once the layout has the dock beside it (`PaneController.layoutFirst`).
 @MainActor @Suite(.serialized, .closesItsWindows) struct DockChatStripOrderTests {
     private static let source = PaneID(rawValue: 1), dock = PaneID(rawValue: 2)
     private static let chat = SurfaceID(rawValue: 1), link = SurfaceID(rawValue: 2)
