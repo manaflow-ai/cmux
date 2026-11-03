@@ -42,6 +42,31 @@ public nonisolated extension LinkHintSession {
     })()
     """
 
+    /// The page's own answer to whether a text field has the keyboard, read from the focused element only:
+    /// `{"editing": Bool}`. The browser's editable-focus flag can be stale after an address-bar load (#32573): then a
+    /// letter typed into a field started link hints. A link-hint session asks this first and collects its targets only
+    /// when no field has the keyboard (lead on STATUS 7898: a heavy page's target walk never delays a field's keys).
+    /// A focused same-origin frame is looked into; a focused cross-origin frame (an embedded video, a payment form)
+    /// counts as editing, as its focus cannot be read: hints start again once it loses focus.
+    public static let focusScript = "(() => {\n" + editingCheck + "  return JSON.stringify({ editing });\n})()"
+
+    /// The statements that set `editing` (``focusScript``).
+    private static let editingCheck = """
+      let doc = document, active = document.activeElement, frame = false;
+      for (;;) {
+        while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+        if (active?.tagName !== 'IFRAME' && active?.tagName !== 'FRAME') break;
+        let inner = null;
+        try { inner = active.contentDocument; } catch (e) {}
+        if (!inner) { frame = true; break; }
+        doc = inner;
+        active = inner.activeElement;
+      }
+      const tag = active?.tagName || '';
+      const editing = frame || doc.designMode === 'on' || !!active?.isContentEditable || tag === 'TEXTAREA' || tag === 'SELECT' ||
+        (tag === 'INPUT' && !['button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio', 'range', 'reset', 'submit'].includes(active.type));
+    """
+
     /// Draws `labels` (uppercase, monospace) at each target's top-left
     /// corner, replacing any earlier labels.
     package static func drawScript(_ hints: [(label: String, target: LinkHintTarget)]) -> String {
@@ -112,11 +137,23 @@ public nonisolated extension LinkHintSession {
         return String(array.dropFirst().dropLast())
     }
 
+    /// ``focusScript``'s answer (whether a text field has the keyboard), or targets.
+    private struct Answer: Decodable {
+        var editing: Bool?
+        var targets: [LinkHintTarget]?
+    }
+
+    /// The answer of ``focusScript``, or of ``collectScript`` (targets only: not editing).
+    private static func answer(from value: BrowserJSValue) -> Answer? {
+        guard case .string(let json) = value else { return nil }
+        let data = Data(json.utf8)
+        return (try? JSONDecoder().decode(Answer.self, from: data)) ?? (try? JSONDecoder().decode([LinkHintTarget].self, from: data)).map { Answer(editing: nil, targets: $0) }
+    }
+
+    /// Whether the page said a text field has the keyboard.
+    package static func editing(from value: BrowserJSValue) -> Bool { answer(from: value)?.editing == true }
+
     /// The targets the collect script returned; empty when it returned
     /// anything else.
-    package static func targets(from value: BrowserJSValue) -> [LinkHintTarget] {
-        guard case .string(let json) = value,
-              let targets = try? JSONDecoder().decode([LinkHintTarget].self, from: Data(json.utf8)) else { return [] }
-        return targets
-    }
+    package static func targets(from value: BrowserJSValue) -> [LinkHintTarget] { answer(from: value)?.targets ?? [] }
 }
