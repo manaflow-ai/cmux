@@ -267,17 +267,40 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
         print!("{}", super::ls_leads::render(&sessions));
         return Ok(());
     }
-    let peers = match peers {
-        Some(read) => match read.await {
-            Ok(Ok(status)) => status.get("peers").and_then(Value::as_array).cloned(),
-            _ => None,
-        },
+    let status = match peers {
+        Some(read) => read.await.ok().and_then(Result::ok),
         None => None,
     };
+    let peers = status.as_ref().and_then(|s| s.get("peers")).and_then(Value::as_array).cloned();
     let view = View { all, wide };
     let now = crate::store::now_ms();
     print!("{}", ls_table::render(&sessions, peers.as_deref(), view, filtered, now));
+    if let Some(line) = status.as_ref().and_then(outbox_line) {
+        println!("{line}");
+    }
     Ok(())
+}
+
+/// The line `acpmux ls` ends with while messages wait in this daemon's outbox (`hub/outbox.rs`).
+fn outbox_line(status: &Value) -> Option<String> {
+    let n = status.get("outboxPending").and_then(Value::as_u64).filter(|n| *n > 0)?;
+    let s = if n == 1 { "" } else { "s" };
+    Some(format!("{n} message{s} queued here, not delivered yet (acpmux send --status)"))
+}
+
+#[cfg(test)]
+mod outbox_line_tests {
+    use super::*;
+
+    #[test]
+    fn ls_ends_with_the_messages_still_queued() {
+        assert_eq!(outbox_line(&json!({"outboxPending": 0})), None);
+        assert_eq!(outbox_line(&json!({})), None);
+        assert_eq!(
+            outbox_line(&json!({"outboxPending": 2})).as_deref(),
+            Some("2 messages queued here, not delivered yet (acpmux send --status)")
+        );
+    }
 }
 
 pub(crate) fn parse_duration_ms(text: &str) -> Result<u64> {

@@ -466,6 +466,11 @@ export type AcpmuxRow = {
   /// behind, by id and version, while that text still moves.
   doingAt?: number;
   doingShell?: boolean;
+  /// The Codex-style live line names a command still running in an earlier run, which that run
+  /// draws no row for (conversation/turns.ts `lineCall`, `codexRuns`): its call id. While the reader
+  /// is scrolled up, the call stays out of its run when the line lets go of it
+  /// (conversation/turnEndHold.ts `callsToHold`).
+  linedCall?: string;
   /// `doing` names the latest step, finished, which the live line holds until the next step
   /// (conversation/turns.ts `liftedStep`): "Ran grep …".
   doingDone?: boolean;

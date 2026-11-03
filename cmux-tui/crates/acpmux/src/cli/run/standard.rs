@@ -265,6 +265,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 )
                 .into());
             }
+            // A name that reads as an id gets a one-line hint; it is never refused.
+            if let Some(hint) = launch.name.as_deref().and_then(crate::session_name::naming_hint) {
+                eprintln!("{hint}");
+            }
             let setup_name = launch.name.as_deref().unwrap_or("new");
             let client = before_deadline(deadline, setup_name, connect(true)).await?;
             // A machine a person works at places command-line sessions on a fleet host
@@ -658,6 +662,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             steer,
             no_steer,
             no_wait,
+            wait,
             quiet,
             timeout,
             on_permission,
@@ -671,9 +676,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             attach,
             tag,
             dry_run,
+            notice,
         } => {
             if let Some(delivery) = status {
                 let client = before_deadline(deadline, &delivery, connect(true)).await?;
+                if delivery.is_empty() {
+                    return super::send_async::list(&client, None, json_out).await;
+                }
                 return before_deadline(
                     deadline,
                     &delivery,
@@ -682,15 +691,31 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 .await;
             }
             let mut prompt_id = PromptId::new(prompt_id);
+            // A tool's notice names its sender (`cli/send_notice.rs`), so it is a named sender's
+            // message on any daemon, one that knows no notice too.
+            let notice = crate::cli::send_notice::of_args(*notice, from.as_deref(), |k| {
+                std::env::var(k).ok()
+            })?;
+            let from = from.or_else(|| notice.as_ref().map(|n| n.sender().to_owned()));
             prompt_id.from_agent = from.or_else(crate::cli::sender::of_this_process);
             prompt_id.cli_host = crate::cli::sender::person_host(prompt_id.from_agent.is_some());
             let superseding = supersede.is_some();
             prompt_id.supersede = supersede;
             let classed = class.is_some();
             prompt_id.class = class;
+            prompt_id.notice = notice.as_ref().map(|n| n.0.clone());
             (prompt_id.pr, prompt_id.thread) = (inbox.pr, inbox.thread);
             // An agent's send and a message (--no-wait) steer; the person's waiting send queues.
             let agent = crate::cli::sender::from_an_agent(prompt_id.from_agent.is_some());
+            // An agent's send, or one with --class, goes to this daemon's outbox and returns
+            // once it is on disk there; the daemon delivers it however slow the peer or loaded
+            // the machine (`send_queues`).
+            let no_wait = send_queues(SendWait {
+                no_wait,
+                wait: wait || quiet || timeout.is_some(),
+                classed,
+                agent: agent || crate::cli::sender::in_an_agent_harness(),
+            });
             let mut steer = send_steers(steer, no_steer, no_wait, agent);
             if let Some(tag) = tag {
                 if !attach.is_empty() {
@@ -702,6 +727,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 // No SESSION with --tag: clap read the prompt's first word as one.
                 let words: Vec<String> = session.into_iter().chain(prompt).collect();
                 let text = arg_or_stdin(&words)?;
+                let text = crate::cli::send_notice::text(notice.as_ref(), &text);
                 let steer = send_steers(false, no_steer, true, agent);
                 return super::fanout::send_to_tag(
                     &tag, &text, &prompt_id, steer, dry_run, json_out,
@@ -710,6 +736,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             let session = session.ok_or_else(|| anyhow!("a session is required"))?;
             let text = arg_or_stdin(&prompt)?;
+            let text = crate::cli::send_notice::text(notice.as_ref(), &text);
             // A team address (`@member/agent`, `@team/role`); a bare `@` is the caller's own
             // session (`orchestrate::expand_session_key`), never the team path.
             if session.strip_prefix('@').is_some_and(|rest| !rest.is_empty()) {
@@ -756,11 +783,23 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 }
                 // A sub-session's send to its parent waits for the parent's turn to end, as its
                 // send_message does (`hub/subsession_send.rs`), --steer or not.
-                if steer && before_deadline(deadline, &session, async { Ok(to_parent(&client, &session).await) }).await? {
-                    steer = false;
+                // A queued send asks these of the daemon for at most PRE_QUEUE_WAIT: each may go
+                // to a peer that is slow or down, and the message must be queued regardless.
+                if steer {
+                    let parent = to_parent(&client, &session);
+                    let parent = async {
+                        Ok(if no_wait {
+                            tokio::time::timeout(PRE_QUEUE_WAIT, parent).await.unwrap_or(false)
+                        } else {
+                            parent.await
+                        })
+                    };
+                    if before_deadline(deadline, &session, parent).await? {
+                        steer = false;
+                    }
                 }
                 if no_wait {
-                    before_deadline(deadline, &session, async { announce_machine_wake(&client, &session).await; Ok(()) }).await?;
+                    let _ = tokio::time::timeout(PRE_QUEUE_WAIT, announce_machine_wake(&client, &session)).await;
                     return super::send_async::queue(
                         &client,
                         &session,
@@ -1200,6 +1239,33 @@ async fn briefs(client: Arc<Client>, cmd: BriefsCmd, json_out: bool) -> Result<(
     Ok(())
 }
 
+/// The longest a queued send waits on a question to the daemon before it queues the message:
+/// whether the target is the sender's parent, whether its machine is paused. Either may go to
+/// a peer that is slow or down; on 2026-11-02 sends from a Mac at load 380 hit `timeout 100`
+/// waiting on peers.
+const PRE_QUEUE_WAIT: std::time::Duration = std::time::Duration::from_millis(300);
+
+/// How `acpmux send` was asked to wait.
+#[derive(Clone, Copy, Debug, Default)]
+struct SendWait {
+    /// `--no-wait`.
+    no_wait: bool,
+    /// `--wait`, `--quiet` or `--timeout`: the caller reads the reply.
+    wait: bool,
+    /// `--class`: a message between agents.
+    classed: bool,
+    /// An agent sends it (`--from`, an acpmux session, an agent harness's shell).
+    agent: bool,
+}
+
+/// Whether the send goes to this daemon's outbox and returns once the message is on disk there,
+/// in milliseconds whatever the load or the peer (`send_async.rs`). An agent's message and a
+/// classed one do unless the caller waits for the reply; the person's own send streams the
+/// reply as before. Leo, 2026-11-02: "sends shouldn't time out just bc of load".
+fn send_queues(w: SendWait) -> bool {
+    w.no_wait || (!w.wait && (w.classed || w.agent))
+}
+
 /// Whether `acpmux send` steers: `--steer` always, `--no-steer` never, else an agent's send
 /// (`agent`: `--from`, `ACPMUX_FROM`, or one in an acpmux session) and a message sent with
 /// `--no-wait` do, so inter-session messages land in the running turn instead of waiting
@@ -1282,6 +1348,19 @@ mod tests {
     }
     use super::{new_requires_tty, new_without_prompt_requires_tty, send_steers, started_by};
     use serde_json::json;
+
+    #[test]
+    fn an_agents_or_classed_send_is_queued_unless_it_waits_for_the_reply() {
+        use super::{SendWait, send_queues};
+        let w =
+            |no_wait, wait, classed, agent| send_queues(SendWait { no_wait, wait, classed, agent });
+        assert!(!w(false, false, false, false), "the person's plain send streams the reply");
+        assert!(w(true, false, false, false), "--no-wait queues");
+        assert!(w(false, false, true, false), "--class queues");
+        assert!(w(false, false, false, true), "an agent's send queues");
+        assert!(!w(false, true, true, true), "--wait (or --quiet, --timeout) waits");
+        assert!(w(true, true, false, false), "--no-wait wins where clap lets both through");
+    }
 
     #[test]
     fn send_steers_messages_by_default_and_queues_the_persons_waiting_sends() {

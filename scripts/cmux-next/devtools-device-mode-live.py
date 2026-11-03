@@ -46,6 +46,10 @@ SOCKET = os.environ.get("NX_APP_SOCKET")
 if not opts.app or not SOCKET:
     sys.exit("run inside nx-remote --app-from-fleet (NX_APP, NX_APP_SOCKET)")
 RUN = "dm%05d" % random.randint(0, 99999)
+# Each browser's downloads folder (the DevTools screenshot buttons save there), never the account's ~/Downloads:
+# macOS asks for access to that one in a prompt that covers a fleet Mac's screen. cmux gets it through
+# CMUX_NEXT_DOWNLOADS_DIR (Debug builds), Chrome through its profile's download.default_directory.
+DOWNLOADS = {name: tempfile.mkdtemp(prefix="%s-%s-downloads-" % (RUN, name)) for name in ("cmux", "chrome")}
 LOG = open(os.path.join(opts.out, "transcript.jsonl"), "w")
 RESULTS = {"run": RUN, "checks": []}
 
@@ -310,7 +314,7 @@ def suite(br, page, front):
     base = br.cdp.eval(TIMING, page, 30); fe("net", {"on": True}); fe("cpu", {"rate": 6})
     slow = br.cdp.eval(TIMING, page, 90); fe("net", {"on": False}); fe("cpu", {"rate": 1})
     out["throttle"] = {"base": base, "slow": slow}
-    downloads = os.path.expanduser("~/Downloads"); before = set(os.listdir(downloads))
+    downloads = DOWNLOADS[br.name]; before = set(os.listdir(downloads))
     fe("device", {"title": "iPhone 14 Pro Max"}); fe("shot", {"full": False})
     files = wait_for(lambda: [f for f in set(os.listdir(downloads)) - before if RUN in f and f.endswith(".png")], 15) or []
     out["screenshot"] = []
@@ -425,6 +429,10 @@ def main():
             check("D_chrome_reference", False, why="no Google Chrome at %s (pass --no-chrome to skip the D checks)" % opts.chrome)
         if not opts.no_chrome and os.path.exists(opts.chrome):
             data_dir = os.path.join(tempfile.gettempdir(), "chrome-" + RUN)
+            os.makedirs(os.path.join(data_dir, "Default"), exist_ok=True)
+            with open(os.path.join(data_dir, "Default", "Preferences"), "w") as prefs:
+                json.dump({"download": {"default_directory": DOWNLOADS["chrome"], "prompt_for_download": False},
+                           "savefile": {"default_directory": DOWNLOADS["chrome"]}}, prefs)
             chrome_proc = subprocess.Popen([opts.chrome, "--user-data-dir=" + data_dir, "--remote-debugging-port=0", "--no-first-run",
                                             "--no-default-browser-check", "--auto-open-devtools-for-tabs", "--window-size=1400,1000", URL],
                                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -437,7 +445,7 @@ def main():
             reference = suite(chrome, page, front)
             RESULTS["chrome"] = {"version": chrome.version, "suite": reference}
         port = 9300 + random.randint(0, 600)
-        subprocess.run(["open", "-n", "--env", "CMUX_NEXT_CEF_EXTRA_SWITCHES=remote-debugging-port=%d%s" % (port, (":component-updater=fast-update" if opts.widevine else "") + (":" + os.environ["CMUX_LIVE_EXTRA_SWITCHES"] if os.environ.get("CMUX_LIVE_EXTRA_SWITCHES") else "")), opts.app], check=True)
+        subprocess.run(["open", "-n", "--env", "CMUX_NEXT_DOWNLOADS_DIR=" + DOWNLOADS["cmux"], "--env", "CMUX_NEXT_CEF_EXTRA_SWITCHES=remote-debugging-port=%d%s" % (port, (":component-updater=fast-update" if opts.widevine else "") + (":" + os.environ["CMUX_LIVE_EXTRA_SWITCHES"] if os.environ.get("CMUX_LIVE_EXTRA_SWITCHES") else "")), opts.app], check=True)
         wait_for(lambda: "error" not in (rpc("system.ping") or {"error": 1}), 120, 1)
         ident = rpc("system.identify") or {}; app_cli = ident.get("app_cli_path"); pid = ident.get("pid"); started = time.time()
         rpc("debug.window_frame", {"frame": [40, 60, 1400, 1000]}); rpc("debug.focus")

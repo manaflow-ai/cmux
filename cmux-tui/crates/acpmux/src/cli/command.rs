@@ -225,12 +225,17 @@ pub enum Command {
         no_steer: bool,
         /// Hand the message to this daemon and return at once, for a session here or on a
         /// peer: it prints the delivery id, and the daemon delivers it in the background,
-        /// trying again while the peer is down (`acpmux send --status ID`).
-        #[arg(long)]
+        /// trying again while the peer is down (`acpmux send --status ID`). The default for an
+        /// agent's send and for one with --class; the person's own send waits for the reply.
+        #[arg(long, conflicts_with = "wait")]
         no_wait: bool,
-        /// Print the state of a delivery `--no-wait` printed: queued, delivering, delivered or
-        /// failed.
-        #[arg(long, value_name = "ID", conflicts_with_all = ["session", "no_wait"])]
+        /// Wait for the reply and stream it, even for an agent's send or one with --class,
+        /// which otherwise return once the message is queued here. --quiet and --timeout wait too.
+        #[arg(long)]
+        wait: bool,
+        /// Print the state of a delivery a queued send printed: queued, delivering, delivered,
+        /// held or failed. With no ID, every message this daemon was handed, newest first.
+        #[arg(long, value_name = "ID", num_args = 0..=1, default_missing_value = "", conflicts_with_all = ["session", "no_wait", "wait"])]
         status: Option<String>,
         /// Do not stream; print only the final assistant text.
         #[arg(long, short)]
@@ -271,6 +276,8 @@ pub enum Command {
         /// session's machine, a peer's too. Any size and number: large ones are uploaded first.
         #[arg(long, value_name = "FILE")]
         attach: Vec<PathBuf>,
+        #[command(flatten)]
+        notice: Box<SendNotice>,
     },
     /// Team-scoped durable messages. Needs a team hub (`meshRelay`); on there by default.
     Inbox(InboxArgs),
@@ -1051,6 +1058,34 @@ pub enum SessionCmd {
 // frame. Inline, the derived builder's one frame for every command's flags overflowed libtest's
 // 2 MiB thread in a debug build.
 
+/// `acpmux send --notice`: a tool's or reconciler's notice (`_meta.acpmux.notice`,
+/// `prompt_provenance::notice_of`). The chat draws it as a notice row (severity, sender, title,
+/// links); its agent, and a daemon or page that knows no notice, read the rendered text
+/// `[notice from SENDER on HOST · FIRE] TITLE`, the body, then `Links: …`.
+#[derive(clap::Args, Debug, Default, Clone)]
+pub struct SendNotice {
+    /// Send it as a tool's notice, with --severity and --title (the prompt text is its body).
+    /// It is a named sender's message, never the person's.
+    #[arg(long, requires_all = ["severity", "title"])]
+    pub notice: bool,
+    /// How loud the notice is: info, warn or fire.
+    #[arg(long, value_name = "SEVERITY", value_parser = ["info", "warn", "fire"], requires = "notice")]
+    pub severity: Option<String>,
+    /// The notice's one-line title (at most 200 characters).
+    #[arg(long, value_name = "TITLE", requires = "notice")]
+    pub title: Option<String>,
+    /// Who sends the notice, a tool or role (default: --from, ACPMUX_FROM, else this session's
+    /// name).
+    #[arg(long, value_name = "NAME", requires = "notice")]
+    pub sender: Option<String>,
+    /// The machine it comes from (default: this one).
+    #[arg(long, value_name = "HOST", requires = "notice")]
+    pub host: Option<String>,
+    /// A link the notice carries, `URL` or `URL=LABEL`, https only (repeatable, at most 16).
+    #[arg(long = "link", value_name = "URL[=LABEL]", requires = "notice")]
+    pub links: Vec<String>,
+}
+
 /// `acpmux send --pr N | --thread T`: the receiver's inbox thread.
 #[derive(Args, Default)]
 pub struct SendThread {
@@ -1698,6 +1733,50 @@ mod help_contract_tests {
         assert!(parse(&["acpmux", "send", "c", "x", "--pr", "12"]).is_ok());
         assert!(parse(&["acpmux", "send", "c", "x", "--thread", "rollout"]).is_ok());
         assert!(parse(&["acpmux", "send", "c", "x", "--pr", "12", "--thread", "t"]).is_err());
+    }
+
+    /// `send --notice`: --severity and --title with it, its other flags only with it.
+    #[test]
+    fn send_notice_takes_a_severity_and_a_title_and_its_flags_only_with_it() {
+        use super::{Command, SendNotice, flatten};
+        let parse = |argv: &[&str]| Cli::try_parse_from(argv).map(|c| flatten(c.command.unwrap()));
+        let full = parse(&[
+            "acpmux",
+            "send",
+            "coord",
+            "body",
+            "--notice",
+            "--severity",
+            "fire",
+            "--title",
+            "T",
+            "--sender",
+            "base-red-watch",
+            "--host",
+            "mini-3",
+            "--link",
+            "https://x.dev/pull/1=#1",
+            "--link",
+            "https://x.dev/run/2",
+        ]);
+        let Ok(Command::Send { notice, .. }) = full else { panic!("did not parse") };
+        let SendNotice { notice, severity, title, sender, host, links } = *notice;
+        assert!(notice);
+        assert_eq!(severity.as_deref(), Some("fire"));
+        assert_eq!(title.as_deref(), Some("T"));
+        assert_eq!(sender.as_deref(), Some("base-red-watch"));
+        assert_eq!(host.as_deref(), Some("mini-3"));
+        assert_eq!(links, ["https://x.dev/pull/1=#1", "https://x.dev/run/2"]);
+        for bad in [
+            &["acpmux", "send", "c", "x", "--notice", "--title", "T"][..],
+            &["acpmux", "send", "c", "x", "--notice", "--severity", "fire"][..],
+            &["acpmux", "send", "c", "x", "--notice", "--severity", "loud", "--title", "T"][..],
+            &["acpmux", "send", "c", "x", "--title", "T"][..],
+            &["acpmux", "send", "c", "x", "--link", "https://x.dev"][..],
+        ] {
+            assert!(parse(bad).is_err(), "{bad:?} parsed");
+        }
+        assert!(parse(&["acpmux", "send", "c", "x"]).is_ok());
     }
 
     /// `machine dedicated [NAME] [on|off]` (old spelling `host vm-host`): the state is on or

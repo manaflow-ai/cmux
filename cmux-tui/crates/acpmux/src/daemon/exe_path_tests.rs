@@ -49,10 +49,9 @@ fn temp_folders_are_refused_in_the_default_home() {
 
 #[test]
 fn build_trees_only_warn_even_in_the_default_home() {
-    for exe in ["/Users/leo/cmux/cmux-tui/target/release/acpmux"] {
-        assert_eq!(classify(Path::new(exe), Path::new(TMP)), Some(Unstable::BuildTree), "{exe}");
-        assert!(matches!(v(exe, "/Users/cmux/.acpmux", false), Verdict::Warn(_)), "{exe}");
-    }
+    let exe = "/Users/leo/cmux/cmux-tui/target/release/acpmux";
+    assert_eq!(classify(Path::new(exe), Path::new(TMP)), Some(Unstable::BuildTree), "{exe}");
+    assert!(matches!(v(exe, "/Users/cmux/.acpmux", false), Verdict::Warn(_)), "{exe}");
 }
 
 #[test]
