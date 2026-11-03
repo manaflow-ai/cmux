@@ -334,6 +334,19 @@ public final class MessagesLabHomeView: NSView {
     /// The header views a click on which runs ``onNamePill``: the pill and the avatar.
     public var namePillToggles: [NSView] { [controller.host.paneHeader.pill, controller.host.paneHeader.avatar] }
 
+    /// cmux: room kept clear above the oldest message, in this view's points (Home's pinned Needs you
+    /// section under the header): scrolled to its top, the transcript rests its first row below it.
+    /// 0: none.
+    public var rowsTopClearance: CGFloat {
+        get { controller.host.extraRowsTop }
+        set {
+            let next = newValue.isFinite ? max(0, newValue) : 0
+            guard next != controller.host.extraRowsTop else { return }
+            controller.host.extraRowsTop = next
+            controller.host.needsLayout = true
+        }
+    }
+
     /// cmux: controls at the header's top right (Home's panel toggles), on the avatar's line.
     /// They get their own clicks; the header's empty space still drags the window. Sized by its
     /// `intrinsicContentSize`; hidden in a pane too narrow to keep it clear of the avatar. Nil: none.

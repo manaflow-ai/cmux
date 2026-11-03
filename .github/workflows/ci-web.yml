@@ -45,9 +45,10 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
 
-      # The push base is not in a depth-2 clone; fetch it alone (an unknown one runs everything).
+      # The push base is not in a depth-2 clone; fetch it alone (an unknown one runs everything). `all` runs every
+      # subarea with nothing to fetch (web_subareas.EVERY_SUBAREA).
       - name: Fetch the push base
-        if: ${{ inputs.push_base != '' }}
+        if: ${{ inputs.push_base != '' && inputs.push_base != 'all' }}
         env:
           PUSH_BASE: ${{ inputs.push_base }}
         run: git fetch --no-tags --depth=1 origin "$PUSH_BASE" || echo "::warning title=web routing::push base $PUSH_BASE is not fetchable; every web subarea runs"

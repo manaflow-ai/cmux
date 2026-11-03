@@ -84,9 +84,9 @@ import Testing
     }
 
     @Test func onlyAChiefsConversationShowsItAndOnlyWhileSomethingWaits() {
-        #expect(HomeNeedsYou.shows(isChief: true, waiting: 1))
-        #expect(!HomeNeedsYou.shows(isChief: true, waiting: 0))
-        #expect(!HomeNeedsYou.shows(isChief: false, waiting: 3))
+        #expect(FeedNeedsYouPin.shows(isChief: true, waiting: 1))
+        #expect(!FeedNeedsYouPin.shows(isChief: true, waiting: 0))
+        #expect(!FeedNeedsYouPin.shows(isChief: false, waiting: 3))
     }
 
     @Test func thePinnedSectionSitsUnderTheHeaderAndMovesNoMessage() async throws {
@@ -117,11 +117,14 @@ import Testing
         #expect(section.frame.height > 0)
         #expect(section.frame.maxY < view.transcript.fieldTop, "above the message box")
         #expect(view.transcript.frame == transcriptFrame, "the transcript keeps its frame: nothing shifts")
+        // The oldest message can still scroll out from under the card (Codex review, #33817).
+        #expect(view.transcript.rowsTopClearance >= section.frame.maxY - view.headerHeight)
 
         view.setPinnedSection(nil)
         view.layoutSubtreeIfNeeded()
         #expect(view.pinnedSection == nil)
         #expect(section.superview == nil)
+        #expect(view.transcript.rowsTopClearance == 0)
         #expect(view.transcript.frame == transcriptFrame)
     }
 }
