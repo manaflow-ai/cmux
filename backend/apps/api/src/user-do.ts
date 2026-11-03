@@ -11,7 +11,7 @@ import { isCompanyEmail } from "./domains/cloud-plan.ts"
 import { admit } from "./domains/common.ts"
 import { chiefActive, grantFor, inboxRefusalFor, installActive, liveInstallGrant, grantMigrationsDue, userPathAllowed, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
 import { appIdHashFor, confirmRead } from "./domains/user-confirm.ts"
-import { CHIEF_AGENT_CLASS, chiefList, placedChiefClasses } from "./domains/user-chief.ts"
+import { CHIEF_AGENT_CLASS, HOSTED_DEFAULT_KEY, chiefList, placedChiefClasses } from "./domains/user-chief.ts"
 import { avatarRpc, type AvatarCall } from "./user-avatars.ts"
 import type { Env } from "./env.ts"
 import { HomePushQueue } from "./home-push.ts"
@@ -137,7 +137,15 @@ export class UserDO extends OwnerDO<UserState> {
 
   /** A chief token never changes the owner's account (security review P2): every UserDO mutation from one is refused. */
   override async submit(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
-    if (principal.agent === undefined) return super.submit(entity, principal, frame)
+    if (principal.agent === undefined) {
+      const state = frame.op === "chief.create" && frame.idempotency_key === HOSTED_DEFAULT_KEY && this.isBound(entity) ? this.bind(entity).currentState : undefined
+      const selected = state?.hosted_default ? state.chiefs?.[state.hosted_default] : undefined
+      const adopted = selected?.archived_at === null && !selected.brain_place ? selected.id : undefined
+      const reply = await super.submit(entity, principal, frame)
+      // Signup already decided this fixed selection. A new Mac must adopt it as a replay;
+      // claiming it was created here would let ensureHosted re-enable an owner's disabled Chief.
+      return adopted ? { frames: reply.frames.map((f) => f.t === "result" && (f.value as { id?: unknown } | null)?.id === adopted ? { ...f, replayed: true } : f) } : reply
+    }
     const key = typeof frame.idempotency_key === "string" ? frame.idempotency_key : ""
     return { frames: [{ t: "reject", tx: "", idempotency_key: key, code: "auth.forbidden", message: "a chief token cannot change the owner's account", retryable: false, replayed: false },
       { t: "request-settled", tx: "", idempotency_key: key, stream: `user:${entity}`, sequence: 0, ok: false }] }
