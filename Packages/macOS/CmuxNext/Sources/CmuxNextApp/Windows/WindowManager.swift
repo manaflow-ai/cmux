@@ -239,7 +239,7 @@ final class WindowManager {
             services.notifications.feedDriver?.run()
             restoreClosed.restoreEnded(in: registry.value, applied: services.daemon.store.appliedSequence) { self.services.workspace(id: $0) != nil }
         }
-        registry.provisional = [:]
+        registry.clearProvisional()
         DebugTimings.markLaunch("daemon_snapshot_loaded")
         let saved = await readSavedWindows()
         guard !Task.isCancelled, !isTerminating else { return }

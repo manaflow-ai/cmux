@@ -155,6 +155,34 @@ export type BakeOptions = {
   prodCopy?: boolean;
 };
 
+/**
+ * The agent sign-in files the image carries from the devbox template (images/devbox), at the paths the
+ * devbox bakes use. The Mac app's Cloud sign-in (CloudCredentialInstaller, CloudMachineLogin) sources
+ * agent-auth.sh for `cmux_agent_drop_model_plane_env` and `cmux_agent_has_own_login` and refuses a
+ * machine without it; agent-config.sh calls claude-onboarding.py. The `claude`/`codex`/`opencode`
+ * launchers are not baked: the agents live in the store profile (/opt/cmux/current/bin), which
+ * `cmux host update` swaps, and agent-config.sh already keeps the model-plane Claude key out of the
+ * login environment acpmux starts Claude with, so a delivered own login is what Claude uses.
+ */
+export const AGENT_SIGN_IN_FILES = [
+  { name: "agent-auth.sh", path: "/etc/cmux/agent-auth.sh" },
+  { name: "claude-onboarding.py", path: "/etc/cmux/claude-onboarding.py" },
+] as const;
+
+/** Fails unless the sign-in files parse and agent-auth.sh defines what the Mac app calls. `root` prefixes every path (tests). */
+export function agentSignInCheckCommand(root = ""): string {
+  const auth = sq(`${root}/etc/cmux/agent-auth.sh`);
+  const onboarding = sq(`${root}/etc/cmux/claude-onboarding.py`);
+  return [
+    `test -s ${auth}`,
+    `test -s ${onboarding}`,
+    `sh -n ${auth}`,
+    `python3 -I -c 'import ast, sys; ast.parse(open(sys.argv[1]).read())' ${onboarding}`,
+    `sh -c '. "$1" && for f in cmux_agent_has_own_login cmux_agent_drop_model_plane_env cmux_agent_own_login_allowed; do command -v "$f" >/dev/null || exit 1; done' sh ${auth}`,
+    "echo agent-sign-in-baked",
+  ].join(" && ");
+}
+
 /** The team files root (team-vm-plan.md section 2; backend team-vm-export.ts EXPORT_ROOT). */
 export const TEAM_FILES_ROOT = "/srv/team";
 
@@ -688,6 +716,8 @@ async function writeModelPlane(ctx: Ctx): Promise<void> {
   await writeGuestFile(vm, "/etc/cmux/agent-config.sh", devboxFileBytes("agent-config.sh"), 0o644);
   await writeGuestFile(vm, "/etc/profile.d/cmux-agents.sh", "[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh\n", 0o644);
   await writeGuestFile(vm, VM_GUEST_MODEL_PLANE_ENV_PATH, renderVmGuestModelPlaneEnvFile(vmGuestModelPlaneEnv()), 0o644);
+  for (const file of AGENT_SIGN_IN_FILES) await writeGuestFile(vm, file.path, devboxFileBytes(file.name), 0o644);
+  await L.step(vm, "agent-sign-in", agentSignInCheckCommand());
   await L.step(vm, "model-plane-env", `sh -n ${VM_GUEST_MODEL_PLANE_ENV_PATH} && bash -n /etc/cmux/agent-config.sh && ! grep -q crt_ ${VM_GUEST_MODEL_PLANE_ENV_PATH} && grep -q "^export OPENAI_BASE_URL='https://" ${VM_GUEST_MODEL_PLANE_ENV_PATH} && echo model-plane-env-baked`);
 }
 

@@ -111,6 +111,13 @@ import Observation
         try check(scope)
     }
 
+    /// Whether this scope's broker already delivers (and renews) access on `machineID`. A new chat's
+    /// start leaves such a machine alone: a failed repeat transfer would revoke the access its other
+    /// chats use (cmux#33489).
+    public func delivers(machineID: String, scope: CloudCodexBrokerScope) async -> Bool {
+        await registry.existing(for: scope)?.registeredMachineIDs().contains(machineID) ?? false
+    }
+
     /// Account/team observations call this even when the user remains signed in.
     public func scopeDidChange() async {
         let keep = currentScope()

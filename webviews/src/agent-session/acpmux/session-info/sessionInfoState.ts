@@ -27,8 +27,11 @@ export type SessionInfoSectionId =
   | "servers"
   | "subagents"
   | "tasks"
-  | "outputs";
-export type SessionInfoSections = Readonly<Record<SessionInfoSectionId, boolean>>;
+  | "outputs"
+  | `app:${string}#${string}`;
+export type BuiltInSessionInfoSectionId = Exclude<SessionInfoSectionId, `app:${string}#${string}`>;
+export type SessionInfoSections = Readonly<Record<BuiltInSessionInfoSectionId, boolean>> &
+  Partial<Record<SessionInfoSectionId, boolean>>;
 
 /// The width a drag can give it, in px, and the width it opens at the first time.
 export const SESSION_INFO_WIDTH = { min: 260, max: 560, fallback: 320 } as const;
@@ -54,6 +57,8 @@ export const DEFAULT_SECTIONS: SessionInfoSections = {
 const OPEN_KEY = "cmux.agentPane.inspector.open";
 const WIDTH_KEY = "cmux.agentPane.inspector.width";
 const SECTIONS_KEY = "cmux.agentPane.inspector.sections";
+/// The last Show more / Show less of the panel's less-used sections (sectionOrder.ts `MORE_SECTIONS`).
+const MORE_KEY = "cmux.agentPane.inspector.more";
 /// Each chat's own state, one key per chat (`{ open, width, sections, at }`): a pane writes only its
 /// chat's key, so two panes saving at once never undo each other's change.
 export const SESSION_INFO_PANE_PREFIX = "cmux.agentPane.inspector.pane.";
@@ -79,9 +84,18 @@ export type SessionInfoState = {
   readonly width: number;
   readonly sections: SessionInfoSections;
   readonly sourcesAll: boolean;
+  /// The panel's Show more is open: its less-used sections show (sectionOrder.ts `tuckedSections`).
+  readonly more: boolean;
 };
 type State = SessionInfoState;
-type Stored = { open?: unknown; width?: unknown; sections?: unknown; sourcesAll?: unknown; at?: unknown };
+type Stored = {
+  open?: unknown;
+  width?: unknown;
+  sections?: unknown;
+  sourcesAll?: unknown;
+  more?: unknown;
+  at?: unknown;
+};
 
 const clampWidth = (width: number) =>
   Math.round(Math.min(SESSION_INFO_WIDTH.max, Math.max(SESSION_INFO_WIDTH.min, width)));
@@ -123,6 +137,9 @@ function storedState(raw: string | null): State | undefined {
     width: widthOf(stored.width),
     sections: sectionsOf(stored.sections),
     sourcesAll: stored.sourcesAll === true,
+    // A chat saved before Show more existed starts compact (Leo, 2026-11-03: "a bit too much stuff by
+    // default"); its folds and the order are the person's and stay.
+    more: stored.more === true,
   };
 }
 
@@ -164,6 +181,7 @@ export function createSessionInfoStore(storage: () => Storage | undefined = () =
     width: widthOf(Number(read(WIDTH_KEY))),
     sections: sectionsOf(parse(read(SECTIONS_KEY))),
     sourcesAll: false,
+    more: read(MORE_KEY) === "1",
   });
   const indexOf = (): [string, number][] => {
     const value = parse(read(SESSION_INFO_INDEX_KEY));
@@ -296,9 +314,14 @@ export function createSessionInfoStore(storage: () => Storage | undefined = () =
     setSourcesAll(all: boolean) {
       update({ ...current(), sourcesAll: all }, true);
     },
+    setMore(more: boolean) {
+      write(MORE_KEY, more ? "1" : "0");
+      update({ ...current(), more }, true);
+    },
     /// Forgets every choice, every chat's too (the gallery and tests; it scans the storage).
     reset() {
-      for (const key of [OPEN_KEY, WIDTH_KEY, SECTIONS_KEY, SESSION_INFO_INDEX_KEY, ...paneKeys()]) write(key, null);
+      for (const key of [OPEN_KEY, WIDTH_KEY, SECTIONS_KEY, MORE_KEY, SESSION_INFO_INDEX_KEY, ...paneKeys()])
+        write(key, null);
       swept = false;
       pane = undefined;
       state = undefined;
@@ -329,5 +352,6 @@ export const setSessionInfoOpen = page.setOpen;
 export const setSessionInfoWidth = page.setWidth;
 export const setSessionInfoSection = page.setSection;
 export const setSessionInfoSourcesAll = page.setSourcesAll;
+export const setSessionInfoMore = page.setMore;
 /// Forgets every choice: the gallery and the tests start each case on a clean slate.
 export const resetSessionInfoState = page.reset;

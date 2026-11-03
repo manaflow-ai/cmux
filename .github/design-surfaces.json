@@ -11,6 +11,11 @@
         "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Model/OnboardingModel.swift"
       ]
     },
+    "chief-web": {
+      "spec": "leo-workspace design/chief-web.md",
+      "aliases": ["Chief mobile web", "Chief web address"],
+      "paths": ["webviews/src/chief-web/"]
+    },
     "cloud-environment": {
       "spec": "leo-workspace design/cloud.md",
       "aliases": ["cloud environment", "setup script", "network secrets"],

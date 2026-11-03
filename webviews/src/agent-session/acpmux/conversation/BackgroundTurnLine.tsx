@@ -3,10 +3,13 @@
 // spinner; once it ended quiet it leads with the clock. A click opens the turn's rows under it, which
 // the transcript draws as its own rows (turns.ts), so the open state is the transcript's fold set,
 // kept per chat like a "Worked for" fold, and survives virtualization. One with no row of its own
-// yet has nothing to open, so it has no chevron and is no button.
+// yet has nothing to open, so it has no chevron and is no button. A run of
+// background-task notifications folded under one line (backgroundRuns.ts) draws here too, the same
+// line in the same look: "4 background tasks finished".
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
-import { backgroundTurnLabel } from "./backgroundTurns";
+import { backgroundRunLabel } from "./backgroundRuns";
+import { backgroundTurnLabel, foldsBackground } from "./backgroundTurns";
 import { Clock, Spinner } from "./icons";
 import { TranscriptActivityRow } from "./TranscriptActivityRow";
 
@@ -20,11 +23,31 @@ export function BackgroundTurnLine({
   onToggle: () => void;
 }) {
   const t = useT();
+  const run = row.backgroundRun;
+  if (run) {
+    const label = backgroundRunLabel(t, run);
+    return (
+      <TranscriptActivityRow
+        icon={<Clock />}
+        before={label}
+        className="cv-background-turn"
+        ariaLabel={label}
+        expanded={expanded}
+        attributes={{
+          "aria-expanded": String(expanded),
+          "data-find-skip": "",
+          "data-background-turn": "run",
+        }}
+        onClick={onToggle}
+      />
+    );
+  }
   const turn = row.background;
   if (!turn) return null;
   const label = backgroundTurnLabel(t, turn);
   // Until a row of its own draws, there is nothing to open: a plain line, no chevron, no button.
-  const opens = turn.hasRows === true;
+  // A failure that said something heads its rows, which already show (headsBackground).
+  const opens = turn.hasRows === true && foldsBackground(row);
   return (
     <TranscriptActivityRow
       icon={turn.running ? <Spinner /> : <Clock />}
@@ -36,7 +59,7 @@ export function BackgroundTurnLine({
       attributes={{
         ...(opens && { "aria-expanded": String(expanded) }),
         "data-find-skip": "",
-        "data-background-turn": turn.running ? "running" : "quiet",
+        "data-background-turn": turn.running ? "running" : opens || turn.quiet ? "quiet" : "failed",
       }}
       onClick={opens ? onToggle : undefined}
     />

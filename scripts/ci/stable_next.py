@@ -34,6 +34,9 @@ segment, and only the cmux NEXT classification accepts ring-tagged items. Every 
   rollback --live LIVE.xml --out OUT.xml (--bad-build B | --to-build B) [--allow-empty]
       The live feed without B and every newer item (or every item above B). Refuses to empty it
       unless --allow-empty (pulling the only stable build). Prints the pulled builds as JSON.
+  soak --build B [--pulled PULLED.json] [--verdicts DIR|URL]
+      Refuses (exit 1) a build pulled from the cmux NEXT feed or with a fail verdict. Being off the
+      feed is fine: the feed keeps 2 builds, so a nightly published an hour later drops the picked one.
   record-pulled --pulled PULLED.json --builds B[,B...] --reason R --out OUT.json
       The stable pulled.json with these builds added; pick never takes a build listed there again.
   write-feed --feed OUT --expect-sha256 HEX|absent
@@ -208,6 +211,13 @@ def pick(feed: str, stable: str | None, pulled: set[int], verdict_of, build: int
             result["skip"] = "true"
             result["skip_reason"] = f"the stable feed already serves build {max(served)}"
     return result
+
+
+def soak(build: int, pulled: set[int], verdict_of) -> None:
+    if build in pulled:
+        raise Refused(f"build {build} was pulled from the cmux NEXT feed")
+    if verdict_of(build) == "fail":
+        raise Refused(f"build {build} has a fail verdict from the cmux NEXT canary")
 
 
 def published_tonight(stable: str | None, start: dt.datetime) -> bool:
@@ -424,6 +434,10 @@ def main(argv: list[str]) -> int:
     group.add_argument("--bad-build", type=int)
     group.add_argument("--to-build", type=int)
     r.add_argument("--allow-empty", action="store_true")
+    sk = sub.add_parser("soak")
+    sk.add_argument("--build", type=int, required=True)
+    sk.add_argument("--pulled")
+    sk.add_argument("--verdicts")
     rp = sub.add_parser("record-pulled")
     rp.add_argument("--pulled")
     rp.add_argument("--builds", required=True)
@@ -467,6 +481,9 @@ def main(argv: list[str]) -> int:
             Path(args.out).write_text(text, encoding="utf-8")
             left = [b for _, b in items(text)]
             print(json.dumps({"pulled": dropped, "serves": max(left) if left else None}))
+        elif args.command == "soak":
+            soak(args.build, pulled_builds(args.pulled), lambda b: read_verdict(args.verdicts, b))
+            print(f"build {args.build}: not pulled, no fail verdict")
         elif args.command == "record-pulled":
             when = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             builds = [int(b) for b in args.builds.split(",") if b.strip()]
