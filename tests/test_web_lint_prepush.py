@@ -406,6 +406,23 @@ class WebLintPrePushTests(unittest.TestCase):
         self.assertIn("postcss.config.mjs", result.stderr)
         self.assertNotIn("still run, from the hook's reviewed copy", result.stderr)
 
+    def test_the_reviewed_copy_runs_nothing_when_a_reason_is_a_symlink(self):
+        # A symlink the push adds inside scripts/cmux-next/ could walk a reviewed check that reads that folder outside
+        # the tree. No code runs that way, but the reviewed copy stays out: any symlink reason keeps every piece out.
+        self.trusted_fixture()
+        outside = self.root / "outside"
+        outside.mkdir()
+        (self.repo / "scripts/cmux-next/media").mkdir(parents=True, exist_ok=True)
+        (self.repo / "scripts/cmux-next/media/away").symlink_to(outside)
+        self.write(self.SWIFT_SOURCE, self.RINGED_FIELD)
+        self.commit("a symlink in scripts/cmux-next and a field with a focus ring")
+
+        result = self.push()
+
+        self.assertIn("webviews: not linted here", result.stderr)
+        self.assertIn("scripts/cmux-next/media/away", result.stderr)
+        self.assertNotIn("still run, from the hook's reviewed copy", result.stderr)
+
     def test_the_reviewed_copy_is_what_runs_never_the_pushed_check_code(self):
         # A pushed module that would shadow the stdlib for a script run from scripts/cmux-next must never load.
         self.trusted_fixture()
