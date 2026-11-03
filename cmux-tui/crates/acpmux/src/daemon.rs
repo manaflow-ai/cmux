@@ -21,6 +21,8 @@ use lock::{
 };
 mod running;
 pub use running::connect_running;
+mod snapshot_clear;
+pub(crate) use snapshot_clear::clear_peer_snapshots;
 mod router_owner;
 #[cfg(unix)]
 pub(crate) use router_owner::open_router_owner;
@@ -37,6 +39,10 @@ pub(crate) mod login_session;
 #[cfg(unix)]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod cloud_handoff;
+// Counts this daemon's chats at work toward the Cloud machine's activity (idle pause).
+#[cfg(unix)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+mod cloud_activity;
 mod handover;
 mod home_watch;
 mod notify;
@@ -663,6 +669,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 hub.adopt_agent_hosts().await;
                 hub.settle_unadopted().await;
             }
+            hub.recover_workflows().await;
             {
                 let hub = hub.clone();
                 tokio::spawn(async move {
@@ -686,6 +693,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     tokio::spawn(notify::notify_loop(hub.clone()));
     #[cfg(target_os = "linux")]
     tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));
+    #[cfg(target_os = "linux")]
+    tokio::spawn(cloud_activity::activity_loop(hub.clone()));
 
     #[cfg(all(unix, feature = "tailnet"))]
     let tailnet = crate::tailnet::embedded_service::Service::spawn(hub.clone());

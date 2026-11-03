@@ -6,8 +6,8 @@
 
 // The tool limits the schemas name are the kernel's (chief-kernel tools.rs).
 pub use chief_kernel::tools::{
-    AUTH_KINDS, CONTROL_ACTIONS, EFFORTS, MAX_SEND_ATTACHMENTS, PLACES, SLEEP_MAX_SECONDS,
-    SLEEP_MIN_SECONDS, WATCH_DEFAULT_SECONDS, WATCH_MAX_SECONDS, WATCH_MIN_SECONDS, WATCHES_KEPT,
+    AUTH_KINDS, CONTROL_ACTIONS, EFFORTS, PLACES, SLEEP_MAX_SECONDS, SLEEP_MIN_SECONDS,
+    WATCH_DEFAULT_SECONDS, WATCH_MAX_SECONDS, WATCH_MIN_SECONDS, WATCHES_KEPT,
 };
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -245,6 +245,9 @@ pub struct SendCall {
     pub attachments: Vec<String>,
     /// The view line id of the user message whose thread it goes into.
     pub reply_to: Option<u64>,
+    /// Chief knows the reply is long (a list the person asked for): the
+    /// length gate lets its first send post (chief_kernel::replies).
+    pub long: bool,
 }
 
 impl SendCall {
@@ -270,11 +273,6 @@ impl SendCall {
             Some(Value::String(one)) if !one.trim().is_empty() => vec![one.trim().to_owned()],
             Some(_) => return Err("send: `attachments` must be a list of paths or URLs".into()),
         };
-        if attachments.len() > MAX_SEND_ATTACHMENTS {
-            return Err(format!(
-                "send: at most {MAX_SEND_ATTACHMENTS} attachments per message"
-            ));
-        }
         if text.is_none() && attachments.is_empty() {
             return Err("send: give `text`, `attachments` or both".into());
         }
@@ -286,10 +284,16 @@ impl SendCall {
                     .ok_or("send: `reply_to` must be a message's line id")?,
             ),
         };
+        let long = match args.get("long") {
+            None | Some(Value::Null) => false,
+            Some(Value::Bool(b)) => *b,
+            Some(_) => return Err("send: `long` must be true or false".into()),
+        };
         Ok(SendCall {
             text,
             attachments,
             reply_to,
+            long,
         })
     }
 
@@ -303,6 +307,9 @@ impl SendCall {
         }
         if let Some(id) = self.reply_to {
             v["reply_to"] = json!(id);
+        }
+        if self.long {
+            v["long"] = json!(true);
         }
         v
     }
@@ -911,14 +918,12 @@ impl Call {
                     .filter(|e| !e.is_empty())
                     .map(str::to_owned);
                 if let Some(p) = place.as_deref()
-                    && !PLACES.contains(&p)
-                    && !p
-                        .strip_prefix("cloud:")
-                        .is_some_and(|s| crate::subagents::SIZES.contains(&s))
+                    && let Some(size) = p.strip_prefix("cloud:")
+                    && !crate::subagents::SIZES.contains(&size)
                 {
                     return Err(format!(
-                        "spawn: no place {p}; one of {}, or cloud:small|medium|large",
-                        PLACES.join(", ")
+                        "spawn: no Cloud size {size}; one of {}",
+                        crate::subagents::SIZES.join(", ")
                     ));
                 }
                 let harness = args
@@ -1251,6 +1256,8 @@ pub enum ControlRequest {
     /// chief.stop {restart: [ids]}: those subagents go on (Restart on the
     /// stop-all toast).
     Restart(Vec<String>),
+    /// The turn session's tool hook (rights.rs): answers the hook's JSON.
+    RightsHook { phase: String, payload: Value },
 }
 
 /// What the tools socket serves: the memory, the subagent tools when the
@@ -1373,6 +1380,28 @@ fn connection(conn: UnixStream, served: &Served) {
                     )
                     .is_err()
                     {
+                        return;
+                    }
+                    continue;
+                }
+                // The turn session's tool hook (`optchat-chief rights-hook`):
+                // only a caller under one of this Chief's turn sessions gets
+                // a decision; anyone else gets none (their own policy holds).
+                if tool == "rights_hook" {
+                    let phase = req.get("phase").and_then(Value::as_str).unwrap_or("");
+                    let answer = match (control, role(), phase) {
+                        (Some(control), crate::turn_caller::Role::Turn, "pre" | "post") => {
+                            match control(ControlRequest::RightsHook {
+                                phase: phase.to_owned(),
+                                payload: req.get("payload").cloned().unwrap_or(Value::Null),
+                            }) {
+                                Ok(text) => json!({"text": text}),
+                                Err(e) => json!({"error": e}),
+                            }
+                        }
+                        _ => json!({"text": "{}"}),
+                    };
+                    if writeln!(out, "{answer}").is_err() {
                         return;
                     }
                     continue;
@@ -1809,6 +1838,14 @@ pub fn ask_settings(path: &Path, set: Option<(&str, &str)>) -> Result<String, St
 pub fn ask_spawn_policy(path: &Path) -> Result<Option<String>, String> {
     let text = ask_json(path, &json!({"tool": "spawn_policy"}))?;
     Ok((!text.is_empty()).then_some(text))
+}
+
+/// The turn hook's answer from the live host (the JSON the hook prints).
+pub fn ask_rights_hook(path: &Path, phase: &str, payload: Value) -> Result<String, String> {
+    ask_json(
+        path,
+        &json!({"tool": "rights_hook", "phase": phase, "payload": payload}),
+    )
 }
 
 /// The browse page from the live host; Err when no host answers on `path`.

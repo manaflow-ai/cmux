@@ -27,6 +27,10 @@ final class SidebarRegionView: NSView {
     var onToggleSection: ((LayoutSectionID) -> Void)?
     /// A drag dropped `subject`: the shown sections in their new order (R77).
     var onReorder: ((SidebarRegionDragSubject, [LayoutSection]) -> Void)?
+    /// An app section dropped in another pinned band. The host forwards the
+    /// document's move; nil clears its drop outline.
+    var sectionDropTarget: ((LayoutSectionID, NSPoint?) -> SidebarLayoutOp?)?
+    var onSectionDrop: ((SidebarLayoutOp) -> Void)?
     /// Whether a window point is over the workspace list (a workspace tile
     /// dropped there unpins); nil point ends the drag. The sidebar outlines the list.
     var dropToListProbe: ((NSPoint?) -> Bool)?
@@ -391,7 +395,7 @@ final class SidebarRegionView: NSView {
         let view = SidebarSectionHeaderView()
         view.onPress = { [weak self] in self?.onToggleSection?(id) }
         view.onDragged = { [weak self] start, event in self?.dragMoved(.section(id), from: start, event) ?? false }
-        view.onDragEnded = { [weak self] in self?.finishDrag() }
+        view.onDragEnded = { [weak self] point in self?.finishDrag(at: point) }
         view.onContextMenu = { [weak self] event, view in
             guard let menu = self?.contextMenuProvider?(.layoutSection(id)) else { return }
             NSMenu.popUpContextMenu(menu, with: event, for: view)

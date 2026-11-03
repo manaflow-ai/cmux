@@ -234,6 +234,62 @@ const waveAgents: Subagent[] = Array.from({ length: RUNNING + 2 }, (_, index) =>
   ...(index < RUNNING ? { action: "Reading SessionInfo.tsx" } : { endedAt: started - index * 30_000 }),
 }));
 
+/// Leo's Session Info of 2026-11-02 ("but what's going on with these?"): three subagents at work, two
+/// that stopped two hours ago and wait on background work of their own (Idle, out of the shimmer and
+/// out of "running" in the head too), one met first through its progress and named by its prompt
+/// rather than its id, and the chat-start limit named for what it counts.
+const idleAgents: Subagent[] = [
+  {
+    id: "idle-a",
+    parent: null,
+    name: "Drop server login",
+    state: "running",
+    startedAt: started - 6_900_000,
+    quietSince: started - 6_600_000,
+  },
+  {
+    id: "idle-b",
+    parent: null,
+    name: "Audit Session Info strings",
+    state: "running",
+    startedAt: started - 6_890_000,
+    quietSince: started - 6_500_000,
+  },
+  {
+    id: "busy-a",
+    parent: null,
+    name: "Fix the running tray",
+    state: "running",
+    startedAt: started - 300_000,
+    quietSince: started - 5_000,
+    action: "Reading SubagentTray.tsx",
+  },
+  {
+    id: "busy-b",
+    parent: null,
+    name: "Measure the rail",
+    state: "running",
+    startedAt: started - 200_000,
+    action: "Running bun test",
+  },
+  {
+    id: "acp-1/toolu_c",
+    parent: null,
+    name: "Check the permission receipt",
+    state: "running",
+    startedAt: started - 120_000,
+    quietSince: started - 2_000,
+  },
+  {
+    id: "done-a",
+    parent: null,
+    name: "Read the design spec",
+    state: "completed",
+    startedAt: started - 7_000_000,
+    endedAt: started - 6_800_000,
+  },
+];
+
 /// Where the play holds every wave loop: one point on each loop's own timeline, past its delay (the
 /// delay is never positive, wave.css), so each icon's phase differs only by its index. At 840 ms
 /// the crest (20% of Session Info's 2.4 s period, SubagentsSection.css) is on the third line: the
@@ -311,6 +367,9 @@ const ownUsage = spent({
   subagents24h: 11,
   tokens24h: 38_400_000,
   costUsd24h: 61.2,
+  calls24h: 182,
+  cacheReadShare24h: 0.981,
+  costPerCallUsd24h: 0.3363,
 });
 const summary = {
   ...local.summary!,
@@ -878,10 +937,18 @@ const sharedRows = [
   assistant("fetchWithRetry has three callers: client.ts, upload.ts and the webhook relay.", 7),
 ];
 /// A Claude Code chat with its /context breakdown, Context open and the long sections folded so the
-/// card shows whole.
+/// card shows whole. It compacts at 400k (its acpmux cap and /context agree), so Context reads the
+/// window /context names: the smaller of the two (usageStats.ts `compactingUsage`, #32665), never
+/// the 200k cap of this file's other chat.
+const breakdownUsage: SessionUsageStats = { ...ownUsage, autocompactCap: 400_000 };
 const breakdownProps: Props = {
   ...full,
-  summary: { ...summary, usage: { used: 171_400, size: 400_000 }, contextBreakdown: CONTEXT_BREAKDOWN },
+  summary: {
+    ...summary,
+    usage: { used: 171_400, size: 400_000 },
+    usageStats: breakdownUsage,
+    contextBreakdown: CONTEXT_BREAKDOWN,
+  },
   sections: { ...DEFAULT_SECTIONS, environment: false, context: true, changes: false, subagents: false, tasks: false },
 };
 /// A gallery-only palette for the breakdown's used categories, largest first.
@@ -1086,6 +1153,97 @@ export default componentEntry<Props>({
         },
       },
     },
+    "usage-cache-1h": {
+      note: 'Chosen: the prompt cache\'s numbers as two rows right after the 24h cost they explain. A chat on the hour-long cache: Cache reads 98.1%, Cost per call $0.34. Leo, 2026-11-03, on the 1h cache: "such a big win that cmux-next/acpmux can get"; the coordinator relayed: show the cache-read share and estimated cost per call, so users can see the win.',
+      props: {
+        ...full,
+        summary: { ...summary, usageStats: ownUsage },
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+    },
+    "usage-cache-5m": {
+      note: "The same chat's numbers on the 5-minute cache, gaps between calls letting it go cold: Cache reads 94.3%, Cost per call $0.43. Set beside usage-cache-1h, the win reads at a glance.",
+      props: {
+        ...full,
+        summary: {
+          ...summary,
+          usageStats: { ...ownUsage, cacheReadShare24h: 0.943, costPerCallUsd24h: 0.4313, costUsd24h: 78.5 },
+        },
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+    },
+    "usage-cache-combined": {
+      note: "Alternative: one Prompt cache row reading 98.1% read · $0.34/call. Shorter, but the cost per call hides inside a sentence and no longer lines up with the other dollar values in the value column, so the two rows ship.",
+      props: {
+        ...full,
+        usageCacheLayout: "combined" as const,
+        summary: { ...summary, usageStats: ownUsage },
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+    },
+    "usage-cache-small": {
+      note: "A cheap chat whose calls cost under a cent: the cost keeps two significant digits ($0.0042), never a rounded $0.00.",
+      props: {
+        ...full,
+        summary: {
+          ...summary,
+          usageStats: {
+            ...ownUsage,
+            cacheReadShare24h: 0.72,
+            costPerCallUsd24h: 0.0042,
+            costUsd24h: 0.21,
+            calls24h: 50,
+          },
+        },
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+    },
+    "usage-cache-unknown": {
+      note: "Before acpmux has read the whole day (or a chat with no calls yet): both rows read the em dash, never 0% or $0.00.",
+      props: {
+        ...full,
+        summary: {
+          ...summary,
+          usageStats: { ...ownUsage, calls24h: undefined, cacheReadShare24h: undefined, costPerCallUsd24h: undefined },
+        },
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+    },
     "usage-no-cap": {
       note: "Usage for a chat acpmux says runs with no autocompact cap: Autocompact reads No cap, with Restart with cap beside it, disabled until acpmux can restart a session with a cap. A cap acpmux could not read reads as an em dash and offers nothing.",
       props: {
@@ -1265,7 +1423,12 @@ export default componentEntry<Props>({
       note: "Shipped (Leo, 2026-11-02: \"whatever a user set their compact window to it should be that instead of always showing the defautl (e.g. we should be seieng 400k)\"): a 1M model whose chat compacts at 400K reads 43% with 171.4K / 400K, the window Claude Code's /context names, not the model's 1M.",
       props: {
         ...breakdownProps,
-        summary: { ...summary, contextBreakdown: CONTEXT_BREAKDOWN, usage: { used: 171_400, size: 1_000_000 } },
+        summary: {
+          ...summary,
+          usageStats: breakdownUsage,
+          contextBreakdown: CONTEXT_BREAKDOWN,
+          usage: { used: 171_400, size: 1_000_000 },
+        },
       },
       play: async (ctx) => {
         await ctx.waitFor(() => /171\.4K\s*\/\s*400K/.test(text(ctx)));
@@ -1371,6 +1534,22 @@ export default componentEntry<Props>({
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /Show 12 more/ });
         await ctx.waitFor(() => /Show less/.test(text(ctx)));
+      },
+    },
+    "subagents-idle": {
+      note: 'Subagents that stopped and wait on background work of their own read Idle, not Running for two hours, and the head counts them as idle ("3 running · 2 idle · 1 done"). Every line is named by its task, never its id. The limit line says it caps the chats this one started: "Started chats: 0 of 1000 at once".',
+      props: {
+        ...full,
+        agents: idleAgents,
+        sessions: [],
+        summary: {
+          ...summary,
+          harness: "claude",
+          subsessionLimits: { maxRunning: 1000, maxRunningSource: "settings" },
+        },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => /2 idle/.test(text(ctx)) && /Started chats: 0 of 1000 at once/.test(text(ctx)));
       },
     },
     "subagents-wave": {

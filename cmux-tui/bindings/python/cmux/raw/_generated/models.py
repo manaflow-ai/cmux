@@ -519,6 +519,30 @@ class CellPixelSurface:
 
 
 @dataclass(frozen=True)
+class ChiefWorkAgent:
+    __cmux_schema_path__: ClassVar[str] = 'types/ChiefWorkAgent'
+    id: str
+    name: str
+    startedAt: Union[int, None]
+    state: Literal['working', 'waiting', 'idle', 'failed']
+    task: Union[str, None]
+    updatedAt: Union[int, None]
+
+
+@dataclass(frozen=True)
+class ChiefWorkTask:
+    __cmux_schema_path__: ClassVar[str] = 'types/ChiefWorkTask'
+    command: str
+    detail: Union[str, None]
+    endedAt: Union[int, None]
+    id: str
+    sessionId: str
+    startedAt: Union[int, None]
+    status: Literal['running', 'done', 'failed', 'cancelled', 'unknown']
+    title: str
+
+
+@dataclass(frozen=True)
 class ClientInfo:
     __cmux_schema_path__: ClassVar[str] = 'types/ClientInfo'
     client: int
@@ -1467,6 +1491,23 @@ class Screen:
 
 
 @dataclass(frozen=True)
+class SelectionPane:
+    __cmux_schema_path__: ClassVar[str] = 'types/SelectionPane'
+    active_tab: int
+    focused_at: int
+    id: Id
+
+
+@dataclass(frozen=True)
+class SelectionScreen:
+    __cmux_schema_path__: ClassVar[str] = 'types/SelectionScreen'
+    active: bool
+    active_pane: Id
+    id: Id
+    panes: List[SelectionPane]
+
+
+@dataclass(frozen=True)
 class SendExpectAgent:
     __cmux_schema_path__: ClassVar[str] = 'types/SendExpectAgent'
     session: Union[str, None, MissingType] = field(default=MISSING)
@@ -2406,6 +2447,21 @@ class ChiefInspectResult:
     status: int
     body: Union[JsonValue, None, MissingType] = field(default=MISSING)
     error: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ChiefWorkRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/chief-work/request'
+    chief: str
+
+
+@dataclass(frozen=True)
+class ChiefWorkResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/chief-work/result'
+    agents: List[ChiefWorkAgent]
+    taskSources: List[str]
+    tasks: List[ChiefWorkTask]
+    truncated: bool
 
 
 @dataclass(frozen=True)
@@ -3847,6 +3903,7 @@ class MoveTabToColumnRequest:
     after_column: Union[Id, None, MissingType] = field(default=MISSING)
     dock: Union[ColumnPin, None, MissingType] = field(default=MISSING)
     keep_focus: Union[bool, MissingType] = field(default=MISSING)
+    pane_id: Union[str, None, MissingType] = field(default=MISSING)
     respawn: Union[SplitRespawn, None, MissingType] = field(default=MISSING)
     transaction: Union[str, None, MissingType] = field(default=MISSING)
     width: Union[float, None, MissingType] = field(default=MISSING)
@@ -5737,6 +5794,17 @@ class ScrollChangedEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class SelectionChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/selection-changed/payload'
+    workspace: Id
+    active: bool
+    active_workspace: Union[Id, None]
+    event: Literal['selection-changed']
+    screens: List[SelectionScreen]
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class SettingsChangedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/settings-changed/payload'
     event: Literal['settings-changed']
@@ -6015,6 +6083,15 @@ class WorkspaceMovedEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class WorkspacePresentationChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/workspace-presentation-changed/payload'
+    workspace: Id
+    entity: Workspace
+    event: Literal['workspace-presentation-changed']
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class WorkspaceRenamedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/workspace-renamed/payload'
     workspace: Id
@@ -6043,7 +6120,7 @@ PaneRef = Any
 TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentInventoryChangedEvent, AgentInventoryWatchEndedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationLiveEvent, CloudConversationPresenceEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudConversationTypingEvent, CloudHostReplicaNeededEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationLiveEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SettingsChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentInventoryChangedEvent, AgentInventoryWatchEndedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationLiveEvent, CloudConversationPresenceEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudConversationTypingEvent, CloudHostReplicaNeededEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationLiveEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SelectionChangedEvent, SettingsChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspacePresentationChangedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -6108,6 +6185,8 @@ __all__ = [
     'CellPixelFailure',
     'CellPixelResize',
     'CellPixelSurface',
+    'ChiefWorkAgent',
+    'ChiefWorkTask',
     'ClientInfo',
     'ClientSize',
     'CloseTerminalResult',
@@ -6202,6 +6281,8 @@ __all__ = [
     'SavedTabGroupMember',
     'SavedTabGroupRecord',
     'Screen',
+    'SelectionPane',
+    'SelectionScreen',
     'SendExpectAgent',
     'ServerStatsConnections',
     'ServerStatsHistogram',
@@ -6300,6 +6381,8 @@ __all__ = [
     'BrowserWheelGuardedRequest',
     'ChiefInspectRequest',
     'ChiefInspectResult',
+    'ChiefWorkRequest',
+    'ChiefWorkResult',
     'ClearHistoryRequest',
     'ClearWindowTitleRequest',
     'ClientFocusRequest',
@@ -6678,6 +6761,7 @@ __all__ = [
     'ScreenClosedEvent',
     'ScreenRenamedEvent',
     'ScrollChangedEvent',
+    'SelectionChangedEvent',
     'SettingsChangedEvent',
     'SizeStateEvent',
     'StatusEvent',
@@ -6703,6 +6787,7 @@ __all__ = [
     'WorkspaceChangedEvent',
     'WorkspaceClosedEvent',
     'WorkspaceMovedEvent',
+    'WorkspacePresentationChangedEvent',
     'WorkspaceRenamedEvent',
     'Base64',
     'ColorHex',

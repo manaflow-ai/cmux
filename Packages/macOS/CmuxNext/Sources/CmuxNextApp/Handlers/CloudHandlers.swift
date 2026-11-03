@@ -61,7 +61,7 @@ enum CloudHandlers {
                     CloudHandlers.beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession, chat: chat)
                     return nil
                 }
-                let flow = CloudHandlers.creationFlow(context, startedByPerson: actionOrigin == .user,
+                let flow = CloudHandlers.creationFlow(context, startedByPerson: actionOrigin == .user, capCard: invocation.isPersonsOwnRun,
                                          askedBy: invocation.callerAgentSession, reveals: invocation.allowsViewChange)
                 guard request.isDefault else {
                     CloudHandlers.createRequested(request, flow: flow, window: window, context)

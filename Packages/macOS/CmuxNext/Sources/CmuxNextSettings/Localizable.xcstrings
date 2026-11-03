@@ -1,6 +1,1316 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.imessage.enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect iMessage"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iMessage verbinden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecter iMessage"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توصيل iMessage"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectar iMessage"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連接 iMessage"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接 iMessage"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iMessage 연결"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iMessageに接続"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poveži iMessage"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbind iMessage"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connetti iMessage"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្ជាប់ iMessage"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koble til iMessage"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połącz z iMessage"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectar ao iMessage"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключить iMessage"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เชื่อมต่อ iMessage"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iMessage’a bağlan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Під’єднати iMessage"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết nối iMessage"
+          }
+        }
+      }
+    },
+    "settings.imessage.enabled.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow reading Messages conversations on this Mac after connecting in Session Info. Sending still needs your click."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach dem Verbinden in den Sitzungsinfos dürfen Nachrichtenkonversationen auf diesem Mac gelesen werden. Zum Senden ist weiterhin dein Klick erforderlich."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser la lecture des conversations Messages sur ce Mac après la connexion dans les infos de session. L’envoi nécessite toujours votre clic."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح بقراءة محادثات الرسائل على جهاز Mac هذا بعد الاتصال من معلومات الجلسة. يظل الإرسال بحاجة إلى نقرتك."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite leer conversaciones de Mensajes en este Mac después de conectarse desde la información de la sesión. Para enviar sigue siendo necesario que hagas clic."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在工作階段資訊中連接後，允許讀取這部 Mac 上的「訊息」對話。傳送仍需由你點按。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在会话信息中连接后，允许读取这台 Mac 上的“信息”对话。发送仍需由你点击。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션 정보에서 연결하면 이 Mac의 메시지 대화를 읽을 수 있습니다. 전송하려면 여전히 직접 클릭해야 합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション情報から接続すると、このMacのメッセージの会話を読み取れます。送信には引き続きあなたのクリックが必要です。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dopusti čitanje razgovora iz aplikacije Poruke na ovom Macu nakon povezivanja u informacijama o sesiji. Slanje i dalje zahtijeva tvoj klik."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillad læsning af samtaler i Beskeder på denne Mac efter tilslutning i sessionsoplysninger. Afsendelse kræver stadig dit klik."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consenti la lettura delle conversazioni di Messaggi su questo Mac dopo la connessione dalle informazioni della sessione. Per inviare è comunque necessario un tuo clic."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាតឱ្យអានការសន្ទនាក្នុងកម្មវិធីសារនៅលើ Mac នេះ បន្ទាប់ពីភ្ជាប់ក្នុងព័ត៌មានសម័យ។ ការផ្ញើនៅតែត្រូវការការចុចរបស់អ្នក។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillat lesing av samtaler i Meldinger på denne Macen etter tilkobling i øktinformasjonen. Sending krever fortsatt at du klikker."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zezwalaj na odczytywanie rozmów z Wiadomości na tym Macu po połączeniu w informacjach o sesji. Wysyłanie nadal wymaga Twojego kliknięcia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permita ler conversas do app Mensagens neste Mac após conectar nas informações da sessão. O envio ainda exige seu clique."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешить чтение разговоров в приложении «Сообщения» на этом Mac после подключения в сведениях о сеансе. Для отправки по-прежнему требуется ваш щелчок."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาตให้อ่านการสนทนาในแอปข้อความบน Mac เครื่องนี้หลังจากเชื่อมต่อในข้อมูลเซสชัน การส่งยังคงต้องให้คุณคลิกเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum Bilgileri’nden bağlandıktan sonra bu Mac’teki Mesajlar konuşmalarının okunmasına izin verin. Göndermek için yine sizin tıklamanız gerekir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволити читання розмов у програмі «Повідомлення» на цьому Mac після підключення у відомостях про сеанс. Для надсилання все одно потрібне ваше натискання."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cho phép đọc các cuộc trò chuyện trong Tin nhắn trên máy Mac này sau khi kết nối trong Thông tin phiên. Việc gửi vẫn cần bạn bấm."
+          }
+        }
+      }
+    },
+    "settings.imessage.automationSkipped": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip Messages Automation"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nachrichten-Automation überspringen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ignorer l’automatisation de Messages"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تخطي أتمتة الرسائل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Omitir la automatización de Mensajes"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "略過「訊息」自動化"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跳过“信息”自动化"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지 자동화 건너뛰기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージのオートメーションをスキップ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preskoči automatizaciju aplikacije Poruke"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spring automatisering af Beskeder over"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salta l’automazione di Messaggi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រំលងស្វ័យប្រវត្តិកម្មសារ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hopp over automatisering av Meldinger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pomiń automatyzację Wiadomości"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pular automação do Mensagens"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пропустить автоматизацию «Сообщений»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้ามการทำงานอัตโนมัติของข้อความ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mesajlar otomasyonunu atla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пропустити автоматизацію «Повідомлень»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bỏ qua tự động hóa Tin nhắn"
+          }
+        }
+      }
+    },
+    "settings.imessage.automationSkipped.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remember skipping the Messages Automation step. This does not grant access or authorize sending."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merken, dass der Schritt zur Nachrichten-Automation übersprungen wurde. Dies gewährt weder Zugriff noch eine Sendeberechtigung."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mémoriser le choix d’ignorer l’étape d’automatisation de Messages. Cela n’accorde aucun accès et n’autorise aucun envoi."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تذكّر تخطي خطوة أتمتة الرسائل. لا يمنح هذا حق الوصول أو الإذن بالإرسال."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recuerda que se omitió el paso de automatización de Mensajes. Esto no concede acceso ni autoriza el envío."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記住略過「訊息」自動化步驟的選擇。這不會授予存取權或允許傳送。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "记住跳过“信息”自动化步骤的选择。这不会授予访问权限或允许发送。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지 자동화 단계를 건너뛴 선택을 기억합니다. 이 설정은 접근 권한이나 전송 권한을 부여하지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージのオートメーション手順をスキップした選択を記憶します。アクセス権や送信の許可は付与されません。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zapamti preskakanje koraka automatizacije aplikacije Poruke. To ne daje pristup niti odobrava slanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Husk valget om at springe automatisering af Beskeder over. Dette giver ikke adgang eller tilladelse til at sende."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ricorda la scelta di saltare il passaggio di automazione di Messaggi. Questo non concede l’accesso né autorizza l’invio."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចងចាំការរំលងជំហានស្វ័យប្រវត្តិកម្មសារ។ វាមិនផ្តល់សិទ្ធិចូលប្រើ ឬអនុញ្ញាតឱ្យផ្ញើទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Husk valget om å hoppe over automatisering av Meldinger. Dette gir verken tilgang eller tillatelse til å sende."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zapamiętaj pominięcie kroku automatyzacji Wiadomości. Nie przyznaje to dostępu ani nie upoważnia do wysyłania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lembrar a escolha de pular a etapa de automação do Mensagens. Isso não concede acesso nem autoriza o envio."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запомнить пропуск шага автоматизации «Сообщений». Это не предоставляет доступ и не разрешает отправку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จดจำการข้ามขั้นตอนการทำงานอัตโนมัติของข้อความ การตั้งค่านี้ไม่ให้สิทธิ์เข้าถึงหรืออนุญาตให้ส่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mesajlar otomasyonu adımının atlandığını hatırla. Bu, erişim izni veya gönderme yetkisi vermez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запам’ятати пропуск кроку автоматизації «Повідомлень». Це не надає доступу й не дозволяє надсилання."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghi nhớ việc bỏ qua bước tự động hóa Tin nhắn. Thao tác này không cấp quyền truy cập hoặc cho phép gửi."
+          }
+        }
+      }
+    },
+    "settings.agents.promptCache": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt Cache"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ذاكرة التخزين المؤقت للطلب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keš upita"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt-cache"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt-Cache"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caché de prompts"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cache des prompts"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cache dei prompt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロンプトキャッシュ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឃ្លាំងសម្ងាត់ប្រអប់បញ្ចូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프롬프트 캐시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt-hurtigbuffer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pamięć podręczna promptów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cache de prompts"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кэш промптов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แคชพรอมต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İstem önbelleği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кеш промптів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bộ nhớ đệm lời nhắc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示词缓存"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示詞快取"
+          }
+        }
+      }
+    },
+    "settings.agents.promptCache.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How long Claude Code keeps a chat's prompt cached. One hour keeps replies after a pause cheap; its cache writes cost a little more."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المدة التي يحتفظ فيها Claude Code بطلب المحادثة في ذاكرة التخزين المؤقت. ساعة واحدة تُبقي الردود بعد التوقف رخيصة، لكن كتابة الذاكرة المؤقتة تكلف أكثر قليلًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koliko dugo Claude Code čuva upit razgovora u kešu. Jedan sat čini odgovore nakon pauze jeftinim; upisi u keš koštaju malo više."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor længe Claude Code gemmer en chats prompt i cachen. En time holder svar efter en pause billige; cacheskrivninger koster lidt mere."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie lange Claude Code den Prompt eines Chats im Cache hält. Eine Stunde hält Antworten nach einer Pause günstig; Cache-Schreibvorgänge kosten etwas mehr."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuánto tiempo guarda Claude Code en caché el prompt de un chat. Una hora mantiene baratas las respuestas tras una pausa; sus escrituras en caché cuestan un poco más."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durée pendant laquelle Claude Code garde en cache le prompt d'une discussion. Une heure garde les réponses après une pause bon marché ; ses écritures en cache coûtent un peu plus."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per quanto tempo Claude Code tiene in cache il prompt di una chat. Un'ora mantiene economiche le risposte dopo una pausa; le scritture in cache costano un po' di più."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code がチャットのプロンプトをキャッシュしておく時間です。1 時間にすると休憩後の返信も安く済みますが、キャッシュへの書き込みは少し高くなります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រយៈពេលដែល Claude Code រក្សាប្រអប់បញ្ចូលនៃការជជែកក្នុងឃ្លាំងសម្ងាត់។ មួយម៉ោងធ្វើឱ្យការឆ្លើយតបក្រោយការផ្អាកមានតម្លៃថោក ប៉ុន្តែការសរសេរទៅឃ្លាំងសម្ងាត់ថ្លៃជាងបន្តិច។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code가 채팅의 프롬프트를 캐시에 보관하는 시간입니다. 1시간이면 잠시 쉰 뒤의 답변도 저렴하지만, 캐시 쓰기 비용이 조금 더 듭니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor lenge Claude Code holder promptet til en chat i hurtigbufferen. En time holder svar etter en pause billige; skriving til hurtigbufferen koster litt mer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jak długo Claude Code przechowuje prompt czatu w pamięci podręcznej. Godzina sprawia, że odpowiedzi po przerwie są tanie; zapisy do pamięci podręcznej kosztują nieco więcej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Por quanto tempo o Claude Code mantém o prompt de um chat em cache. Uma hora mantém as respostas após uma pausa baratas; as gravações em cache custam um pouco mais."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сколько Claude Code хранит промпт чата в кэше. Час делает ответы после паузы дешёвыми; запись в кэш стоит немного дороже."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระยะเวลาที่ Claude Code เก็บพรอมต์ของแชทไว้ในแคช หนึ่งชั่วโมงทำให้การตอบหลังพักยังถูกอยู่ แต่การเขียนแคชมีค่าใช้จ่ายสูงขึ้นเล็กน้อย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code'un bir sohbetin istemini önbellekte ne kadar tuttuğu. Bir saat, aradan sonra gelen yanıtları ucuz tutar; önbelleğe yazmak biraz daha pahalıdır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скільки Claude Code тримає промпт чату в кеші. Година робить відповіді після паузи дешевими; запис у кеш коштує трохи більше."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thời gian Claude Code giữ lời nhắc của cuộc trò chuyện trong bộ nhớ đệm. Một giờ giúp các câu trả lời sau khi tạm dừng vẫn rẻ; việc ghi vào bộ nhớ đệm tốn hơn một chút."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code 将聊天提示词保留在缓存中的时长。1 小时可让暂停后的回复依然便宜，但写入缓存的费用稍高。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code 將聊天提示詞保留在快取中的時間。1 小時可讓暫停後的回覆依然便宜，但寫入快取的費用稍高。"
+          }
+        }
+      }
+    },
+    "settings.choice.promptCacheOneHour": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 Hour"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ساعة واحدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 sat"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 time"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 Stunde"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 hora"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 heure"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 ora"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 時間"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 ម៉ោង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1시간"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 time"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 godzina"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 hora"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 час"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 ชั่วโมง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 saat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 година"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 giờ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 小时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 小時"
+          }
+        }
+      }
+    },
+    "settings.choice.promptCacheFiveMinutes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 Minutes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 دقائق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 minuta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 minutter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 Minuten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 minutos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 minutes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 minuti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 分"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 នាទី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5분"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 minutter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 minut"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 minutos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 минут"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 นาที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 dakika"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 хвилин"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 phút"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 分钟"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 分鐘"
+          }
+        }
+      }
+    },
+    "settings.chats.sessionRecap": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session Recap"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ملخص الجلسة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sažetak sesije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessionsopsummering"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzungszusammenfassung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resumen de la sesión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Récapitulatif de session"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riepilogo della sessione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションのまとめ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សេចក្ដីសង្ខេបវគ្គ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션 요약"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Øktsammendrag"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podsumowanie sesji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resumo da sessão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сводка сеанса"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สรุปเซสชัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum özeti"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підсумок сеансу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tóm tắt phiên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话回顾"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作階段回顧"
+          }
+        }
+      }
+    },
+    "settings.chats.sessionRecap.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When you come back to a Claude chat after 5 minutes or more, show a line on where it stands. Each recap is one small extra model call that counts toward your usage."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند عودتك إلى محادثة Claude بعد 5 دقائق أو أكثر، يُعرض سطر يوضح ما وصلت إليه. كل ملخص هو استدعاء إضافي صغير للنموذج يُحتسب ضمن استخدامك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada se vratite u Claude razgovor nakon 5 ili više minuta, prikaži red o tome gdje je stao. Svaki sažetak je jedan mali dodatni poziv modela koji se računa u vašu potrošnju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når du vender tilbage til en Claude-chat efter 5 minutter eller mere, vises en linje om, hvor den står. Hver opsummering er ét lille ekstra modelkald, der tæller med i dit forbrug."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn du nach 5 Minuten oder länger zu einem Claude-Chat zurückkehrst, zeigt eine Zeile den aktuellen Stand. Jede Zusammenfassung ist ein kleiner zusätzlicher Modellaufruf, der auf deine Nutzung angerechnet wird."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando vuelvas a un chat de Claude tras 5 minutos o más, muestra una línea sobre dónde está. Cada resumen es una pequeña llamada adicional al modelo que cuenta para tu uso."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quand vous revenez à un chat Claude après 5 minutes ou plus, affiche une ligne sur son état. Chaque récapitulatif est un petit appel supplémentaire au modèle, compté dans votre utilisation."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando torni a una chat di Claude dopo 5 minuti o più, mostra una riga sul punto in cui si trova. Ogni riepilogo è una piccola chiamata aggiuntiva al modello che conta nel tuo utilizzo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5分以上離れてからClaudeのチャットに戻ると、現在の状況を1行で表示します。まとめごとにモデルを1回追加で呼び出し、使用量に含まれます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលអ្នកត្រឡប់មកការជជែក Claude វិញក្រោយ 5 នាទី ឬលើសនេះ បង្ហាញមួយបន្ទាត់អំពីស្ថានភាពរបស់វា។ សេចក្ដីសង្ខេបនីមួយៗជាការហៅម៉ូដែលបន្ថែមតូចមួយ ដែលរាប់ក្នុងការប្រើប្រាស់របស់អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5분 이상 지난 뒤 Claude 채팅으로 돌아오면 현재 상황을 한 줄로 보여 줍니다. 요약마다 모델을 한 번 더 호출하며 사용량에 포함됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når du kommer tilbake til en Claude-chat etter 5 minutter eller mer, vises en linje om hvor den står. Hvert sammendrag er ett lite ekstra modellkall som teller med i bruken din."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy wrócisz do czatu Claude po 5 minutach lub dłużej, pokaż wiersz o tym, na czym stanął. Każde podsumowanie to jedno małe dodatkowe wywołanie modelu, wliczane do Twojego użycia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ao voltar a um chat do Claude após 5 minutos ou mais, mostra uma linha sobre onde ele está. Cada resumo é uma pequena chamada extra ao modelo que conta no seu uso."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда вы возвращаетесь в чат Claude через 5 минут или позже, показывать строку о том, на чём он остановился. Каждая сводка — один небольшой дополнительный вызов модели, который учитывается в вашем использовании."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อคุณกลับมาที่แชต Claude หลังผ่านไป 5 นาทีขึ้นไป จะแสดงหนึ่งบรรทัดว่าอยู่ตรงไหนแล้ว สรุปแต่ละครั้งคือการเรียกโมเดลเพิ่มเล็กน้อยหนึ่งครั้งซึ่งนับรวมในการใช้งานของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 dakika veya daha uzun süre sonra bir Claude sohbetine döndüğünüzde, nerede kaldığını gösteren bir satır gösterir. Her özet, kullanımınıza sayılan küçük bir ek model çağrısıdır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коли ви повертаєтеся до чату Claude через 5 хвилин або пізніше, показувати рядок про те, на чому він зупинився. Кожен підсумок — один невеликий додатковий виклик моделі, що враховується у вашому використанні."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi bạn quay lại một cuộc trò chuyện Claude sau 5 phút trở lên, hiển thị một dòng về tình trạng hiện tại. Mỗi bản tóm tắt là một lần gọi mô hình nhỏ thêm, được tính vào mức sử dụng của bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "离开 5 分钟或更久后回到 Claude 聊天时，显示一行说明当前进展。每次回顾是一次额外的小型模型调用，计入你的用量。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "離開 5 分鐘或更久後回到 Claude 聊天時，顯示一行說明目前進展。每次回顧是一次額外的小型模型呼叫，計入你的用量。"
+          }
+        }
+      }
+    },
     "settings.agentPane.display.harnessPlacement": {
       "extractionState": "manual",
       "localizations": {
@@ -4601,6 +5911,60 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Mỗi không gian làm việc mới (Cmd-N, nút + ở thanh bên) có máy đám mây mới của riêng nó. Các cuộc trò chuyện với tác tử bạn bắt đầu trong đó sẽ chạy trên máy đó."}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "每个新工作区（Cmd-N、侧边栏的 +）都会获得一台自己的新云端机器。在其中开始的智能体聊天在该机器上运行。"}},
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "每個新工作區（Cmd-N、側邊欄的 +）都會取得一台自己的新雲端機器。在其中開始的代理程式聊天會在該機器上執行。"}}
+      }
+    },
+    "settings.cloud.useMyClaudeLogin": {
+      "comment": "Settings > Machines: title of the toggle that is the person's consent to copy their own Claude login from this Mac to the Cloud machines they own.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Use My Claude Login on My Own Cloud Machines"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "استخدام تسجيل دخول Claude الخاص بي على أجهزة Cloud التي أملكها"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Koristi moju Claude prijavu na mojim Cloud mašinama"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Brug mit Claude-login på mine egne Cloud-maskiner"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Meine Claude-Anmeldung auf meinen eigenen Cloud-Maschinen verwenden"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Usar mi inicio de sesión de Claude en mis propias máquinas Cloud"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Utiliser ma connexion Claude sur mes propres machines Cloud"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Usa il mio accesso a Claude sulle mie macchine Cloud"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "自分の Claude ログインを自分の Cloud マシンで使う"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ប្រើការចូល Claude របស់ខ្ញុំលើម៉ាស៊ីន Cloud ផ្ទាល់ខ្លួនរបស់ខ្ញុំ"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "내 Claude 로그인을 내 Cloud 머신에서 사용"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Bruk min Claude-pålogging på mine egne Cloud-maskiner"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Używaj mojego logowania do Claude na moich maszynach Cloud"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Usar meu login do Claude nas minhas próprias máquinas Cloud"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Использовать мой вход в Claude на моих облачных машинах"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ใช้การลงชื่อเข้าใช้ Claude ของฉันบนเครื่อง Cloud ของฉันเอง"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Claude oturumumu kendi Cloud makinelerimde kullan"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Використовувати мій вхід у Claude на моїх хмарних машинах"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Dùng đăng nhập Claude của tôi trên các máy Cloud của tôi"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在我自己的 Cloud 机器上使用我的 Claude 登录"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在我自己的 Cloud 機器上使用我的 Claude 登入"}}
+      }
+    },
+    "settings.cloud.useMyClaudeLogin.help": {
+      "comment": "Settings > Machines: help under the toggle for copying the person's own Claude login to their own Cloud machines.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "ينسخ تسجيل دخول Claude الخاص بك من هذا الـ Mac إلى أجهزة Cloud التي تملكها، فتبدأ محادثاتها وأنت مسجّل الدخول. لا يُنسخ أبدًا إلى أجهزة الفريق أو المشتركة، ولا يخزّنه cmux أبدًا. عند الإيقاف: يعرض كل جهاز خيار تسجيل الدخول إلى Claude بدلًا من ذلك."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Kopira vašu Claude prijavu s ovog Maca na Cloud mašine koje posjedujete, pa njihovi razgovori počinju prijavljeni. Nikad na timske ili dijeljene mašine, a cmux je nikad ne pohranjuje. Isključeno: svaka mašina nudi Prijava na Claude."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Kopierer dit eget Claude-login fra denne Mac til Cloud-maskiner, du ejer, så deres chats starter logget ind. Aldrig til team- eller delte maskiner, og cmux gemmer det aldrig. Fra: hver maskine tilbyder i stedet Log ind på Claude."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Kopiert deine eigene Claude-Anmeldung von diesem Mac auf Cloud-Maschinen, die dir gehören, damit ihre Chats angemeldet starten. Nie auf Team- oder geteilte Maschinen, und cmux speichert sie nie. Aus: Jede Maschine bietet stattdessen Bei Claude anmelden an."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Copia tu propio inicio de sesión de Claude de este Mac a las máquinas Cloud que tienes, para que sus chats empiecen con la sesión iniciada. Nunca a máquinas de equipo o compartidas, y cmux nunca lo guarda. Desactivado: cada máquina ofrece Iniciar sesión en Claude."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Copie votre propre connexion Claude de ce Mac vers les machines Cloud que vous possédez, afin que leurs conversations démarrent connectées. Jamais vers des machines d’équipe ou partagées, et cmux ne la stocke jamais. Désactivé : chaque machine propose Se connecter à Claude."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Copia il tuo accesso a Claude da questo Mac alle macchine Cloud che possiedi, così le loro chat partono già connesse. Mai su macchine del team o condivise, e cmux non lo salva mai. Disattivato: ogni macchina offre Accedi a Claude."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "あなた自身の Claude ログインをこの Mac からあなたが所有する Cloud マシンにコピーし、チャットがログイン済みで始まるようにします。チームや共有マシンには送られず、cmux が保存することもありません。オフの場合、各マシンに「Claude にサインイン」が表示されます。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ចម្លងការចូល Claude ផ្ទាល់ខ្លួនរបស់អ្នកពី Mac នេះទៅម៉ាស៊ីន Cloud ដែលអ្នកមាន ដើម្បីឱ្យការជជែករបស់វាចាប់ផ្តើមដោយបានចូលរួចហើយ។ មិនដែលទៅម៉ាស៊ីនក្រុម ឬម៉ាស៊ីនចែករំលែកទេ ហើយ cmux មិនដែលរក្សាទុកវាទេ។ បិទ៖ ម៉ាស៊ីននីមួយៗផ្តល់ជូនចូលទៅ Claude ជំនួសវិញ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이 Mac의 내 Claude 로그인을 내가 소유한 Cloud 머신에 복사해 채팅이 로그인된 상태로 시작되게 합니다. 팀 또는 공유 머신에는 절대 복사되지 않으며 cmux는 이를 저장하지 않습니다. 끄면 각 머신에서 Claude에 로그인 옵션이 표시됩니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Kopierer din egen Claude-pålogging fra denne Macen til Cloud-maskiner du eier, slik at chattene starter pålogget. Aldri til team- eller delte maskiner, og cmux lagrer den aldri. Av: hver maskin tilbyr Logg på Claude i stedet."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Kopiuje Twoje logowanie do Claude z tego Maca na należące do Ciebie maszyny Cloud, aby ich czaty startowały zalogowane. Nigdy na maszyny zespołu ani współdzielone, a cmux nigdy go nie przechowuje. Wyłączone: każda maszyna oferuje zamiast tego Zaloguj się do Claude."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Copia seu próprio login do Claude deste Mac para as máquinas Cloud que você possui, para que os chats delas comecem conectados. Nunca para máquinas de equipe ou compartilhadas, e o cmux nunca o armazena. Desativado: cada máquina oferece Entrar no Claude."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Копирует ваш собственный вход в Claude с этого Mac на принадлежащие вам облачные машины, чтобы их чаты начинались с выполненным входом. Никогда не на командные или общие машины, и cmux его не хранит. Выключено: каждая машина предлагает Войти в Claude."}},
+        "th": {"stringUnit": {"state": "translated", "value": "คัดลอกการลงชื่อเข้าใช้ Claude ของคุณเองจาก Mac เครื่องนี้ไปยังเครื่อง Cloud ที่คุณเป็นเจ้าของ เพื่อให้แชตเริ่มต้นโดยลงชื่อเข้าใช้แล้ว จะไม่ส่งไปยังเครื่องของทีมหรือเครื่องที่ใช้ร่วมกัน และ cmux ไม่เก็บไว้ ปิด: แต่ละเครื่องจะแสดงลงชื่อเข้าใช้ Claude แทน"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Kendi Claude oturumunuzu bu Mac’ten sahip olduğunuz Cloud makinelerine kopyalar, böylece sohbetleri oturum açık başlar. Ekip veya paylaşılan makinelere asla gitmez ve cmux onu asla saklamaz. Kapalı: her makine bunun yerine Claude’da oturum aç seçeneğini sunar."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Копіює ваш власний вхід у Claude з цього Mac на хмарні машини, якими ви володієте, щоб їхні чати починалися з виконаним входом. Ніколи не на командні чи спільні машини, і cmux його не зберігає. Вимкнено: кожна машина пропонує Увійти в Claude."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Sao chép đăng nhập Claude của chính bạn từ Mac này sang các máy Cloud bạn sở hữu, để các cuộc trò chuyện bắt đầu khi đã đăng nhập. Không bao giờ sang máy của nhóm hoặc máy dùng chung, và cmux không bao giờ lưu nó. Tắt: mỗi máy sẽ đưa ra Đăng nhập Claude thay thế."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "将你自己的 Claude 登录从这台 Mac 复制到你拥有的 Cloud 机器，使其聊天启动时已登录。绝不会复制到团队或共享机器，cmux 也从不存储它。关闭时：每台机器会提供“登录 Claude”。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "將你自己的 Claude 登入從這台 Mac 複製到你擁有的 Cloud 機器，讓其聊天啟動時已登入。絕不會複製到團隊或共享機器，cmux 也從不儲存它。關閉時：每台機器會提供「登入 Claude」。"}}
       }
     },
     "settings.group.chiefEngine": {
@@ -198818,6 +200182,60 @@
             "value": "對話在停止並等待你之前重試的次數。"
           }
         }
+      }
+    },
+    "settings.cloud.agentsStartWithoutAsking": {
+      "comment": "Settings > Machines: toggle that lets agents start Cloud machines and sessions with no Start card in their chat.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Let Agents Start Cloud Sessions Without Asking"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "السماح للوكلاء ببدء جلسات سحابية دون سؤال"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Dozvoli agentima da pokreću Cloud sesije bez pitanja"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Lad agenter starte Cloud-sessioner uden at spørge"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Agents Cloud-Sitzungen ohne Nachfrage starten lassen"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Permitir que los agentes inicien sesiones en la nube sin preguntar"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Laisser les agents démarrer des sessions Cloud sans demander"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Consenti agli agenti di avviare sessioni Cloud senza chiedere"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "確認なしでエージェントにクラウドセッションを開始させる"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "អនុញ្ញាតឱ្យភ្នាក់ងារចាប់ផ្ដើមវគ្គ Cloud ដោយមិនសួរ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "묻지 않고 에이전트가 클라우드 세션 시작"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "La agenter starte Cloud-økter uten å spørre"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Pozwól agentom uruchamiać sesje w chmurze bez pytania"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Permitir que agentes iniciem sessões na nuvem sem perguntar"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Разрешить агентам запускать облачные сеансы без вопроса"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ให้เอเจนต์เริ่มเซสชันคลาวด์โดยไม่ต้องถาม"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Ajanların sormadan bulut oturumu başlatmasına izin ver"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Дозволити агентам запускати хмарні сеанси без запиту"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Cho phép tác tử khởi động phiên đám mây mà không cần hỏi"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "允许智能体无需询问即启动云端会话"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "允許代理程式不經詢問即啟動雲端工作階段"}}
+      }
+    },
+    "settings.cloud.agentsStartWithoutAsking.help": {
+      "comment": "Settings > Machines: help for the Let Agents Start Cloud Sessions Without Asking toggle (keep the command in backticks).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يُنشئ أمر `cmux cloud start-session` الخاص بالوكيل الجهاز السحابي أو يستأنفه ويبدأ جلسته دون بطاقة بدء في المحادثة. أنت وحدك من يمكنه تفعيل هذا."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Agentov `cmux cloud start-session` kreira ili nastavlja Cloud mašinu i pokreće sesiju bez kartice Pokreni u četu. Samo ti ovo možeš uključiti."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "En agents `cmux cloud start-session` opretter eller genoptager Cloud-maskinen og starter sessionen uden Start-kort i chatten. Kun du kan slå dette til."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "`cmux cloud start-session` eines Agents erstellt oder setzt die Cloud-Maschine fort und startet die Sitzung ohne Starten-Karte im Chat. Nur du kannst das einschalten."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "El `cmux cloud start-session` de un agente crea o reanuda la máquina en la nube e inicia su sesión sin la tarjeta Iniciar en el chat. Solo tú puedes activarlo."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Le `cmux cloud start-session` d'un agent crée ou reprend la machine Cloud et démarre sa session sans carte Démarrer dans le chat. Vous seul pouvez l'activer."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Il `cmux cloud start-session` di un agente crea o riprende la macchina Cloud e avvia la sessione senza la scheda Avvia nella chat. Solo tu puoi attivarlo."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "エージェントの `cmux cloud start-session` が、チャットに 開始 カードを出さずにクラウドマシンを作成または再開してセッションを開始します。これをオンにできるのはあなただけです。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "`cmux cloud start-session` របស់ភ្នាក់ងារ បង្កើត ឬបន្តម៉ាស៊ីន Cloud ហើយចាប់ផ្ដើមវគ្គដោយគ្មានកាត ចាប់ផ្ដើម នៅក្នុងការជជែក។ មានតែអ្នកទេដែលអាចបើកវាបាន។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "에이전트의 `cmux cloud start-session`이 채팅에 시작 카드 없이 클라우드 머신을 만들거나 재개하고 세션을 시작합니다. 이 설정은 본인만 켤 수 있습니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "En agents `cmux cloud start-session` oppretter eller gjenopptar Cloud-maskinen og starter økten uten Start-kort i chatten. Bare du kan slå dette på."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Polecenie `cmux cloud start-session` agenta tworzy lub wznawia maszynę w chmurze i uruchamia sesję bez karty Uruchom w czacie. Tylko Ty możesz to włączyć."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "O `cmux cloud start-session` de um agente cria ou retoma a máquina na nuvem e inicia a sessão sem o cartão Iniciar no chat. Só você pode ativar isso."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Команда `cmux cloud start-session` агента создаёт или возобновляет облачную машину и запускает сеанс без карточки «Запустить» в чате. Включить это можете только вы."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "`cmux cloud start-session` ของเอเจนต์จะสร้างหรือกลับมาใช้เครื่องคลาวด์และเริ่มเซสชันโดยไม่มีการ์ด เริ่ม ในแชท มีเพียงคุณเท่านั้นที่เปิดตัวเลือกนี้ได้"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bir ajanın `cmux cloud start-session` komutu, sohbette Başlat kartı olmadan bulut makinesini oluşturur veya sürdürür ve oturumunu başlatır. Bunu yalnızca siz açabilirsiniz."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Команда `cmux cloud start-session` агента створює або відновлює хмарну машину й запускає сеанс без картки «Запустити» в чаті. Увімкнути це можете лише ви."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Lệnh `cmux cloud start-session` của tác tử sẽ tạo hoặc tiếp tục máy đám mây và khởi động phiên mà không hiện thẻ Bắt đầu trong cuộc trò chuyện. Chỉ bạn mới có thể bật tùy chọn này."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "智能体的 `cmux cloud start-session` 会创建或恢复云端机器并启动会话，聊天中不显示“开始”卡片。只有你可以打开此项。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "代理程式的 `cmux cloud start-session` 會建立或恢復雲端機器並啟動工作階段，聊天中不顯示「開始」卡片。只有你可以開啟此項。"}}
       }
     }
   },

@@ -510,6 +510,17 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
+            // User 2026-11-03 ("we need to make sure every single theme, all the UI elements are colored properly"):
+            // every bundled theme as the App Theme, each element's ink on its grounds with its contrast, failures
+            // ringed red; the same audit EveryThemeElementContrastTests runs (Debug menu, DEV and NIGHTLY).
+            ActionDescriptor(
+                id: "debug.allThemesPlayground",
+                title: String(localized: "action.debug.allThemesPlayground", defaultValue: "All Themes Playground", bundle: .module),
+                keywords: ["themes", "app theme", "contrast", "colors", "playground", "gallery", "audit", "debug"],
+                category: .settings, symbol: "paintpalette", surfaces: [.palette, .menu], mainMenu: .debug,
+                isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
             // The per-action budget's HUD (zero-latency.md, the budget contract): the newest action runs
             // and their perform-to-commit times, over-budget ones in red (Debug menu, DEV and NIGHTLY).
             ActionDescriptor(

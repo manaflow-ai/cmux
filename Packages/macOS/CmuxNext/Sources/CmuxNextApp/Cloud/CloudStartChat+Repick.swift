@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextDaemon
 import Foundation
 
@@ -41,14 +42,14 @@ extension CloudStartChat {
         // The machine it is on already: nothing moves.
         guard target != started.machineID else { return AgentPaneReply.success(["machine": services.machines.session(target)?.machine.title ?? ""]) }
         let toastID = "cloud-start-" + tab.id
-        CloudMove.toast(services, toastID, CloudMoveStrings.moving, duration: .seconds(600))
+        CloudMove.toast(services, toastID, CloudMoveStrings.moving, duration: CloudMove.working)
         do {
             // Only under the account the send began in (+Machine).
             try Self.checkAccount(started.account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
             guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
             let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
             // The pick wins over the send's first machine: the plan now names the picked one.
-            _ = try Self.checked(await cli.startChatPin(key: started.start.key, account: Self.accountText(started.account),
+            _ = try Self.checked(await cli.startChatPin(key: started.start.key, account: CloudStartCore().accountText(started.account),
                                                         machine: target, workspace: started.workspace))
             let old = services.machines.daemon(forTab: tab)
             let origin = Origin(tab: tab, chat: started.chat, workspace: started.workspace, account: started.account) { [services] in

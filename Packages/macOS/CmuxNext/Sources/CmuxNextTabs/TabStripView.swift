@@ -127,10 +127,14 @@ public final class TabStripView: NSView {
     public internal(set) var isCrowded = false
     /// ``isCrowded`` changed; the pane's "…" (``PaneToolbarView/strip``) follows it.
     public var onCrowdedChange: ((Bool) -> Void)?
+    /// ``TabStripModel/holdsOneTab`` at the last sync: its change lays the pane out again (`syncFromModel`).
+    var laidOutOneTab: Bool?
     /// `result` indexed by tab (`slotIndex`), built on first use after each layout.
     var slotIndexCache: TabSlotIndex?
     /// The strip moves whose Core Animation transaction has not completed (`applyFrames`, `moveEnded`).
     var movesInFlight: Set<Int> = []
+    /// Work waiting for every strip move to end (``whenStill(_:)``).
+    var stillWaiters: [@MainActor () -> Void] = []
     /// Passes over every cell, by kind (`occlusion`, `separators`, `frames`): what a change cost, for
     /// the switch work budget (a tab switch at rest runs none, at any tab count).
     var rowPasses = TabStripRowPasses()
@@ -165,6 +169,7 @@ public final class TabStripView: NSView {
     weak var motionClock: MotionClock?
     var observationTask: Task<Void, Never>?
     var tokenObservationTask: Task<Void, Never>?
+    private(set) lazy var frameFixture = TabFrameFixture(strip: self) // the film's tab outline (motion.frameOwner.tabOutline)
 
     // MARK: Pointer state
 
@@ -359,12 +364,14 @@ public final class TabStripView: NSView {
             applyTokens(animated: false)
             startObserving()
             startObservingTokens()
+            frameFixture.start()
             sync(fromModel: true)
         } else {
             observationTask?.cancel()
             observationTask = nil
             tokenObservationTask?.cancel()
             tokenObservationTask = nil
+            frameFixture.stop()
             motionClock?.stop(self)
             motionClock = nil
             endPointerState()
@@ -418,6 +425,7 @@ public final class TabStripView: NSView {
         // What changed while out of sight lands at once in its final place: nobody saw it move.
         if modelChangedWhileHidden {
             modelChangedWhileHidden = false
+            layOutPaneIfOneTabChanged()
             sync(fromModel: true, animating: false)
         }
         hoverCards.register(hoverCard)
@@ -497,7 +505,10 @@ public final class TabStripView: NSView {
         tabsClip.frame = CGRect(x: padding + windowControlsInset, y: 0, width: viewport, height: bounds.height)
         if viewport != lastViewportWidth {
             // Tabs resize with the window instantly; a close in flight keeps its spring (cx-y2uf5); a narrower strip (a split) keeps the selected tab in view.
-            relayout(animated: !dying.isEmpty && !Motion.isLiveResizing(window) && !reduceMotion, keepsSelectedInView: viewport < lastViewportWidth)
+            // FRAME OWNER S1: the width is the pane's of this frame tick, so the tabs take it at once, with no move of their own; a close keeps its own.
+            let followsPane = DesignTunables.frameOwnerTabStrip.value
+            relayout(animated: !followsPane && !dying.isEmpty && !Motion.isLiveResizing(window) && !reduceMotion, keepsSelectedInView: viewport < lastViewportWidth,
+                     keepsClosing: followsPane)
             lastViewportWidth = viewport
         } else {
             applyFrames()

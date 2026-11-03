@@ -18,7 +18,7 @@ use cmux_chat_index::{AdapterKind, RootSpec};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// Effective chat settings. Defaults: on, discovery on, no extra roots.
+/// Effective chat settings. Defaults: on, discovery on, no extra roots, session recap on.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ChatSettings {
@@ -28,11 +28,20 @@ pub struct ChatSettings {
     pub roots: Vec<PathBuf>,
     /// Roots managed config adds; the user cannot remove them.
     pub managed_roots: Vec<PathBuf>,
+    /// Session recap (`agents.chats.sessionRecap`): a Claude chat the person comes back to after
+    /// 5+ minutes away shows a short recap of where it stands (`hub/away_recap.rs`).
+    pub session_recap: bool,
 }
 
 impl Default for ChatSettings {
     fn default() -> Self {
-        Self { enabled: true, discovery: true, roots: Vec::new(), managed_roots: Vec::new() }
+        Self {
+            enabled: true,
+            discovery: true,
+            roots: Vec::new(),
+            managed_roots: Vec::new(),
+            session_recap: true,
+        }
     }
 }
 
@@ -49,7 +58,8 @@ impl ChatSettings {
     /// The most roots one message may carry.
     pub const MAX_ROOTS: usize = 256;
 
-    /// `{enabled?, discovery?, roots?, managedRoots?}`; a missing field keeps its default.
+    /// `{enabled?, discovery?, roots?, managedRoots?, sessionRecap?}`; a missing field keeps its
+    /// default.
     pub fn from_params(params: &Value) -> Result<Self, String> {
         let flag = |key: &str| match params.get(key) {
             None | Some(Value::Null) => Ok(true),
@@ -80,6 +90,7 @@ impl ChatSettings {
             discovery: flag("discovery")?,
             roots: paths("roots")?,
             managed_roots: paths("managedRoots")?,
+            session_recap: flag("sessionRecap")?,
         })
     }
 

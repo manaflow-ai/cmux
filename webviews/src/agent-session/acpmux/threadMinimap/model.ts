@@ -32,6 +32,10 @@ export type MinimapTurn = {
   /// The start of the first reply after the prompt.
   reply: ReplyBlock[];
   metadata?: MinimapTurnMetadata;
+  /// A prompt the chat's count says exists but neither the rows nor the prompt index hold yet
+  /// (pendingTurn): it draws a resting tick in its final row so the rail is full length on its
+  /// first frame. Its jump loads history and its card stays blank until the prompt is known.
+  pending?: true;
   /// A run of other chats' messages folded into this one tick (`foldIncoming`): every message's row
   /// id, the first (this turn's own) first. Absent for a tick of one prompt.
   members?: readonly string[];
@@ -418,6 +422,8 @@ export type MinimapTurns = {
   loadedTicks?: readonly MinimapTick[];
   loadedStart?: number;
   earlierTurns?: readonly MinimapTurn[];
+  /// Historical prompts known only by count. They are not materialized in `turns` or `ticks`.
+  pendingCount?: number;
   /// The list the next changed turns are written into (the one before `turns`), never `turns`.
   spare?: MinimapTurn[];
 };
@@ -453,6 +459,7 @@ export function minimapTurns(
   previous?: MinimapTurns,
   change?: RowsChange,
   earlierRows: readonly AcpmuxRow[] = EMPTY_EARLIER_ROWS,
+  promptCount = 0,
 ): MinimapTurns {
   const prior = previous?.sessionId === sessionId ? previous : undefined;
   const reuse = prior
@@ -568,10 +575,16 @@ export function minimapTurns(
     spare?: MinimapTurn[],
   ): MinimapTurns => {
     const base = { rows, sessionId, loadedTurns, loadedTicks, ...(spare ? { spare } : {}) };
-    if (!earlierRows.length) return { ...base, turns: loadedTurns, ticks: loadedTicks, loadedStart: 0 };
+    // The prompts the count names that neither the rows nor the index hold yet. They draw as resting
+    // ticks above the held ones, so the rail has its final length and every tick its final row on the
+    // first frame; the index or a page then names them in place (Leo, 2026-11-03: "mostly i just
+    // don't like it when the thing shifts and whatnot trying to center itself").
+    const pending = Math.max(0, promptCount - earlierRows.length - loadedTurns.length);
+    if (!earlierRows.length)
+      return { ...base, turns: loadedTurns, ticks: loadedTicks, loadedStart: 0, pendingCount: pending };
     const sameEarlier = prior?.earlierRows === earlierRows && prior.earlierTurns !== undefined;
     if (sameEarlier && prior!.loadedTurns === loadedTurns && prior!.loadedTicks === loadedTicks)
-      return { ...prior!, ...base };
+      return { ...prior!, ...base, pendingCount: pending };
     const earlier = sameEarlier
       ? prior!.earlierTurns!
       : earlierRows.map((row): MinimapTurn => ({
@@ -590,6 +603,7 @@ export function minimapTurns(
       ticks: sameEarlier && prior!.loadedTicks === loadedTicks ? prior!.ticks : ticksOf(turns, prior?.ticks),
       earlierRows,
       earlierTurns: earlier,
+      pendingCount: pending,
       loadedStart: earlier.length,
     };
   };
@@ -692,7 +706,7 @@ export const rowTopsOf =
     index >= 0 && index < geometry.count ? geometry.topAt(index) : undefined;
 
 export function currentTurn(
-  turns: readonly MinimapTurn[],
+  turns: Pick<ReadonlyArray<MinimapTurn>, "length" | "at">,
   tops: RowTops,
   scrollTop: number,
   viewportHeight: number,
@@ -705,7 +719,7 @@ export function currentTurn(
   low = firstLoaded;
   while (low < high) {
     const middle = (low + high) >>> 1;
-    if ((tops(turns[middle].index) ?? 0) <= anchor) low = middle + 1;
+    if ((tops(turns.at(middle)!.index) ?? 0) <= anchor) low = middle + 1;
     else high = middle;
   }
   return Math.max(firstLoaded, low - 1);
@@ -719,7 +733,7 @@ export function currentTurn(
 /// layout top, so that is a layout top at or above `scrollTop + LANDING_OFFSET`. At the bottom a turn
 /// counts once its bubble is on screen: our turns have no block above the bubble to show first.
 export function visibleTurns(
-  turns: readonly MinimapTurn[],
+  turns: Pick<ReadonlyArray<MinimapTurn>, "length" | "at">,
   tops: RowTops,
   totalHeight: number,
   scrollTop: number,
@@ -730,7 +744,7 @@ export function visibleTurns(
   const bottom = scrollTop + viewportHeight - THREAD_PADDING_TOP;
   const first = currentTurn(turns, tops, scrollTop + LANDING_OFFSET, 0, firstLoaded);
   let last = first;
-  while (last + 1 < turns.length && (tops(turns[last + 1].index) ?? totalHeight) < bottom) last += 1;
+  while (last + 1 < turns.length && (tops(turns.at(last + 1)!.index) ?? totalHeight) < bottom) last += 1;
   return { first, last };
 }
 

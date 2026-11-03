@@ -79,7 +79,7 @@ main() {
       if ((moved)) \
         && stamp="$(python3 "$root/scripts/ci/defaults_guard.py" source-stamp --ref "$at" 2>/dev/null)" \
         && [[ -n "$stamp" && "$stamp" == "$(python3 "$root/scripts/ci/defaults_guard.py" source-stamp --ref "$tip" 2>/dev/null)" ]] \
-        && git diff --quiet "$at" "$tip" -- scripts/cmux-next/regenerate-settings-exports.sh 2>/dev/null; then
+        && git diff --quiet "$at" "$tip" -- scripts/cmux-next/regenerate-settings-exports.sh scripts/cmux-next/lib/warm-swiftpm.sh 2>/dev/null; then
         moved=0
       fi
     else
