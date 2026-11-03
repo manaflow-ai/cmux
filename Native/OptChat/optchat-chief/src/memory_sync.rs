@@ -588,8 +588,10 @@ pub fn run(flags: &crate::cli::Flags, home: &Path, json_out: bool) -> Result<Str
         .ok_or("--to cloud needs --chief agent_ID")?
         .to_owned();
     let base = crate::migrate_cloud::api_base(to)?;
-    let token =
-        crate::migrate_cloud::session_token(flags.value("session-token-file").map(Path::new))?;
+    let token = crate::migrate_cloud::session_token(
+        flags.value("session-token-file").map(Path::new),
+        Some(&base),
+    )?;
     let api = crate::migrate_cloud::Api::new(base, token);
     let conversation = crate::migrate_cloud::chief_main_conversation(&chief);
     let (mut plan, fresh) = make_plan(source, items, &HashSet::new());
@@ -677,8 +679,10 @@ fn undo(flags: &crate::cli::Flags, home: &Path, json_out: bool) -> Result<String
         })
         .ok_or("nothing to undo: no earlier import into this Cloud Chief")?;
     let base = crate::migrate_cloud::api_base(to)?;
-    let token =
-        crate::migrate_cloud::session_token(flags.value("session-token-file").map(Path::new))?;
+    let token = crate::migrate_cloud::session_token(
+        flags.value("session-token-file").map(Path::new),
+        Some(&base),
+    )?;
     let api = crate::migrate_cloud::Api::new(base, token);
     let conversation = crate::migrate_cloud::chief_main_conversation(chief);
     let (status, value) = api.put_memory(

@@ -24888,6 +24888,11 @@ Result<Json> Codec<MoveTabToColumnRequest>::encode(const MoveTabToColumnRequest&
         if (!encoded) return std::move(encoded).error();
         object.emplace("pane", std::move(encoded).value());
     }
+    if (!value.pane_id.is_absent()) {
+        auto encoded = encode_value(value.pane_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("pane_id", std::move(encoded).value());
+    }
     if (!value.respawn.is_absent()) {
         auto encoded = encode_value(value.respawn);
         if (!encoded) return std::move(encoded).error();
@@ -24952,6 +24957,16 @@ Result<MoveTabToColumnRequest> Codec<MoveTabToColumnRequest>::decode(const Json&
             auto decoded = decode_value<Id>(*field_pane);
             if (!decoded) return std::move(decoded).error();
             result.pane = Field<Id>(std::move(decoded).value());
+        }
+    }
+    const Json* field_pane_id = value.find("pane_id");
+    if (field_pane_id) {
+        if (field_pane_id->is_null()) {
+            result.pane_id = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_pane_id);
+            if (!decoded) return std::move(decoded).error();
+            result.pane_id = Field<std::string>(std::move(decoded).value());
         }
     }
     const Json* field_respawn = value.find("respawn");
@@ -42685,9 +42700,10 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand125FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand154FieldRequirements{{
     {"transaction", 12U, "tab-drag-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 3> kCommand159FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 4> kCommand159FieldRequirements{{
     {"dock", 12U, "dock-columns-v1"},
     {"keep_focus", 12U, "tab-split-keep-focus-v1"},
+    {"pane_id", 12U, "tab-column-client-pane-v1"},
     {"respawn", 12U, "tab-column-respawn-v1"},
 }};
 constexpr std::array<CommandFieldRequirement, 1> kCommand160FieldRequirements{{

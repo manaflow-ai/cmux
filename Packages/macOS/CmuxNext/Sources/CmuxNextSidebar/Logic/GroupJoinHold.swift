@@ -1,6 +1,6 @@
 import CmuxNextWakeups
 import Foundation
-import Observation
+public import Observation
 
 /// A new workspace that joins a named group (`acpmux new --group`, `cmux agent open --group`) lists once, in that
 /// group. Its join is a sidebar-document move the app sends only once the daemon lists the workspace, and the
