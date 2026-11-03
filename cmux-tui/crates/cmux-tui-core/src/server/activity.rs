@@ -55,6 +55,19 @@ impl ActivityStream {
         self.update(|state| state.agent_action_ms = Some(now_ms()));
     }
 
+    /// Runs `hold` while this thread holds the stream's lock (tests: a person's key must not wait for it).
+    #[cfg(test)]
+    pub(crate) fn hold_for_test(&self, hold: &dyn Fn()) {
+        let _held = self.shared.0.lock().unwrap_or_else(PoisonError::into_inner);
+        hold();
+    }
+
+    /// The last person's input time, in Unix milliseconds (tests).
+    #[cfg(test)]
+    pub(crate) fn user_input_ms_for_test(&self) -> Option<u64> {
+        self.shared.0.lock().unwrap_or_else(PoisonError::into_inner).user_input_ms
+    }
+
     /// Mux events that change the counts or mean an agent acted.
     pub(crate) fn observe(&self, event: &MuxEvent) {
         match event {
