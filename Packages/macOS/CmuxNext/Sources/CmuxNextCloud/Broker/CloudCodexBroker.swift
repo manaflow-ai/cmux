@@ -317,7 +317,10 @@ public actor CloudCodexBroker {
             guard targets[target.machineID] != nil, targetGenerations[target.machineID] == generation,
                   try await target.isLive() else { throw CloudCodexBrokerError.targetOffline }
             if !loadedPreviousMode.contains(target.machineID) {
-                previousModeByMachine[target.machineID] = try await target.readFile(Self.modePath)
+                // An `own` marker is one an earlier run of cmux left when it quit (``detach()``):
+                // it is this broker's own, never the mode to restore on revoke.
+                let mode = try await target.readFile(Self.modePath)
+                previousModeByMachine[target.machineID] = mode == Data("own\n".utf8) ? nil : mode
                 loadedPreviousMode.insert(target.machineID)
             }
             try await ensureScope()
@@ -426,7 +429,32 @@ public actor CloudCodexBroker {
         refreshInFlight?.cancel()
         let endingTargets = Array(targets.merging(revocationTargets) { _, pending in pending }.values)
         if let session { await invalidate(session) }
-        var failed = pendingRevocations
+        let failed = await revokeWithinQuitBudget(endingTargets, failed: pendingRevocations)
+        cached = nil
+        return failed
+    }
+
+    /// Quit and update: stops renewal and the local process like ``shutdown()``, but leaves the
+    /// access delivered to each registered VM in place until the provider expires it, so a Cloud
+    /// Codex run keeps working after cmux quits or updates (#33482). Only revocations asked for
+    /// before the quit (a deleted machine, a failed delivery) still run, within the quit budget.
+    /// Returns the IDs whose pending revocation failed.
+    public func detach() async -> Set<String> {
+        // Snapshot first: a renewal the cancel below cuts short is not an ask to erase.
+        let asked = Array(revocationTargets.values)
+        let pending = pendingRevocations
+        stopped = true
+        refreshTask?.cancel()
+        refreshTask = nil
+        refreshInFlight?.cancel()
+        if let session { await invalidate(session) }
+        let failed = await revokeWithinQuitBudget(asked, failed: pending)
+        cached = nil
+        return failed
+    }
+
+    private func revokeWithinQuitBudget(_ endingTargets: [CloudCodexBrokerTarget], failed initial: Set<String>) async -> Set<String> {
+        var failed = initial
         await withTaskGroup(of: (String, Bool).self) { group in
             for target in endingTargets {
                 group.addTask { [weak self] in
@@ -441,7 +469,6 @@ public actor CloudCodexBroker {
                 if succeeded { failed.remove(machineID) } else { failed.insert(machineID) }
             }
         }
-        cached = nil
         return failed
     }
 

@@ -139,6 +139,36 @@ done
         await restarted.shutdown()
     }
 
+    /// #33482: a quit or an update leaves delivered access on each machine, so an unattended
+    /// Cloud Codex run keeps working; the next run's sign-out still erases it whole.
+    @Test func quitLeavesDeliveredAccessAndTheNextRunsSignOutErasesIt() async throws {
+        let (root, launch) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = Files()
+        let scope = CloudCodexBrokerScope(userID: "user", teamID: nil)
+        let adapter = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
+        try await adapter.run(machineID: "one", scope: scope, confirmed: true) { _ in true }
+        try await adapter.run(machineID: "two", scope: scope, confirmed: true) { _ in true }
+        let delivered = try #require(await files.read("one", CloudCodexBroker.accessPath))
+        let removalsBefore = await files.removals
+        await adapter.detachForQuit()
+        #expect(await files.removals == removalsBefore)
+        #expect(await files.read("one", CloudCodexBroker.accessPath) == delivered)
+        #expect(await files.read("two", CloudCodexBroker.accessPath) != nil)
+        #expect(await files.read("one", CloudCodexBroker.modePath) == Data("own\n".utf8))
+        #expect(adapter.pendingCleanup.isEmpty)
+        await #expect(throws: CloudCodexBrokerError.cancelled) {
+            try await adapter.run(machineID: "one", scope: scope, confirmed: true) { _ in true }
+        }
+        // The relaunched app delivers again over the marker its last run left, then signs out.
+        let relaunched = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
+        try await relaunched.run(machineID: "one", scope: scope, confirmed: true) { _ in true }
+        await relaunched.signOut()
+        #expect(await files.read("one", CloudCodexBroker.accessPath) == nil)
+        #expect(await files.read("one", CloudCodexBroker.modePath) == nil)
+        await relaunched.shutdown()
+    }
+
     @Test func coalescesConcurrentFirstLoginAndDeviceCodePresentation() async throws {
         let (root, launch) = try fixture()
         defer { try? FileManager.default.removeItem(at: root) }
