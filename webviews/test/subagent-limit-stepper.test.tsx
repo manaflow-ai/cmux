@@ -17,7 +17,8 @@ import { resetSessionInfoState } from "../src/agent-session/acpmux/session-info/
 import type { SubsessionLimits } from "../src/agent-session/acpmux/model";
 import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
 import { startedSessions, type StartedSession } from "../src/agent-session/acpmux/started/startedSessions";
-import { slotCounts, subsessionLimits } from "../src/agent-session/acpmux/subsessionLimits";
+import { subsessionLimits } from "../src/agent-session/acpmux/subsessionLimits";
+import { slotCounts, subagentTally } from "../src/agent-session/acpmux/session-info/SubagentsSection";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
@@ -102,15 +103,22 @@ test("acpmux's limits are read only with maxRunning, held in its range", () => {
 test("the counts are the started chats' live states, a chat waiting for a slot queued", () => {
   const limits: SubsessionLimits = { maxRunning: 2, running: 9, queued: 9 };
   // No chat listed yet: acpmux's own counts.
-  expect(slotCounts(limits, [])).toEqual({ running: 9, queued: 9 });
+  expect(slotCounts(subagentTally([], new Set(), [], limits))).toEqual({ running: 9, queued: 9 });
   expect(
-    slotCounts(limits, [
-      child("a", "running"),
-      child("b", "waiting"),
-      child("c", "idle", { waitsForSlot: true }),
-      child("d", "idle"),
-      child("e", "failed"),
-    ]),
+    slotCounts(
+      subagentTally(
+        [],
+        new Set(),
+        [
+          child("a", "running"),
+          child("b", "waiting"),
+          child("c", "idle", { waitsForSlot: true }),
+          child("d", "idle"),
+          child("e", "failed"),
+        ],
+        limits,
+      ),
+    ),
   ).toEqual({ running: 2, queued: 1 });
   // The session list's `waitsForSlot` reaches the started chats.
   const entries = [
