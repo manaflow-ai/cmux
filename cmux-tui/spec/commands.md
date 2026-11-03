@@ -7085,6 +7085,56 @@ Params: `path` (required), `query` (optional map of strings).
 Result: `object{status:uint64, body?:JsonValue, error?:string}` (the brain's
 HTTP-like status, its JSON answer, or its reason).
 
+### chief-work
+
+| Field | Value |
+| --- | --- |
+| name | `chief-work` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `chief-work-v1` |
+
+Reads a bounded snapshot of the named Chief's subagents and harness background
+commands on its configured machine. The capability is advertised when the daemon
+has a configured Chief home or tools socket. `chief` is an existing Chief
+participant id, never a client-supplied home path or acpmux session id. The daemon
+resolves that Chief's home, verifies its ownership identity, and includes its
+tagged sessions and descendants at any depth. Another Chief's explicitly tagged
+sessions and sessions on peer daemons are excluded. Chief turn and compactor
+roots supply command scope but do not appear as subagent rows.
+
+Only the owner's registered Unix connection or authenticated owner WebSocket may
+read it: the principal is `user_local`, no remote or bound agent, and a WebSocket
+has either no page and the daemon credential, or the scoped `home-channels` page
+credential. Other pages, paired devices and unregistered connections are refused
+with `origin.forbidden` before any work is read. This is the same owner-page
+admission as the Chief registry; it is a raw command, not a catalog operation.
+
+Params: `chief` (required string).
+
+Result: `object{agents:array<ChiefWorkAgent>, tasks:array<ChiefWorkTask>,
+truncated:boolean, taskSources:array<string>}`.
+
+- `ChiefWorkAgent = {id:string, name:string,
+  state:"working"|"waiting"|"idle"|"failed", task:string|null,
+  startedAt:uint64|null, updatedAt:uint64|null}`. Working and waiting take
+  precedence over a previous failed turn; failed or lost agents never look idle.
+- `ChiefWorkTask = {id:string, sessionId:string, title:string, command:string,
+  status:"running"|"done"|"failed"|"cancelled"|"unknown",
+  startedAt:uint64|null, endedAt:uint64|null, detail:string|null}`. Timestamps are
+  epoch milliseconds when supplied by acpmux. A lost process has `unknown`
+  status; a successful exit is `done`, a nonzero exit or start failure is
+  `failed`, and a killed process is `cancelled`.
+
+`taskSources` is currently `["harness"]`: only the harness process registry is
+read. Daemon-owned `bg` tasks keep their separate person-proof gate and are not
+included. No task mutation, subscription, or background polling is started.
+All paginated reads share a 15-second deadline; at most 200 owned sessions
+(active first) and 500 commands are returned. `truncated` reports those bounds,
+never a failed read. A failed or malformed source page returns
+`chief.work_unavailable` without a partial or empty success. An unknown Chief
+returns `chief.work_not_found`; an unconfigured machine returns
+`chief.work_not_configured`.
+
 ### conversation-attachment-upload
 
 | Field | Value |

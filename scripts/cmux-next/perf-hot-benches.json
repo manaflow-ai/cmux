@@ -96,6 +96,11 @@
       "bench": "ChatsWindowMainThreadTests (rows touched per change, 3,000-chat index) on the fleet, and the debug hang monitor (debug.hangs) on a many-chat load",
       "owner": "Performance Lead"
     },
+    "acpmux-wait-wake": {
+      "what": "one acpmux hub record seen by an open _acpmux/wait: the session filter and the streamed-chunk skip; a chunk never evaluates the wait's rows",
+      "bench": "cmux-tui-rust-check.sh test a_streamed_token_does_not_evaluate_an_open_wait (WAIT-STREAM line: evaluations per 500 tokens), then scripts/measure/acpmux-overhead.sh bench=daemon (STRESS token to client) on the fleet",
+      "owner": "PL-acpmux (HOT PATH AUDIT area F: hpa-stream)"
+    },
     "acpmux-token-fanout": {
       "what": "one streamed token to one attached acpmux connection: the shared session/update line enqueued (one copy into the connection's queue); the line is built once per record",
       "bench": "cmux-tui-rust-check.sh test a_streamed_tokens_line_is_built_once_for_every_attached_connection (FANOUT-ENCODE line), then scripts/measure/acpmux-overhead.sh bench=daemon (STRESS token to client, 2 clients) on the fleet",

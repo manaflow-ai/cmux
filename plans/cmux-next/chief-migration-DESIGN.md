@@ -147,6 +147,18 @@ signed-in app, used only when its API origin is the target's.
 
 ## 5. Targets
 
+**Subagents (2026-11-03, a963).** A move to an SSH host hands the Chief's working subagents
+(chats of its own daemon run on this Mac, `local/…`, with a turn running or prompts queued) to
+that host with acpmux's `session move ID… --machine PEER --interrupt` (a964's
+agent-session-teleport) after the drain and before the checkpoint, so each takes its agent's
+store, its folder and one writer, and a stopped turn's continuation runs there. Idle and closed
+chats stay: their history is in the checkpoint. The handed chats are recorded in the keeper's
+machine-local `state/subagents-moved.json`; a failed move, `move rollback` and a pull back bring
+them here with `--from PEER --machine local`. A host the Chief's daemon does not know is a
+blocker the dry run names (`acpmux machine add HOST` with the Chief's `ACPMUX_HOME`). A move to
+the cloud leaves working subagents on this Mac (a Cloud Chief does not run this Mac's agents)
+and the report says how many. Code: `migrate_subagents.rs`.
+
 | Target | `--to` | Conversation lives | How |
 | --- | --- | --- | --- |
 | This Mac, another home (test, second account) | `local:/path` | target home | restore directly |
@@ -218,7 +230,7 @@ and ran `hostname; uname -sm` on its own machine.
 | Mac mini to Linux VM (`chief-subagents-1`) | moved 27 memory and 15 conversation messages in 10 s; the turn answered `freestyle-vm Linux x86_64` | the tailnet ACL blocks minis from `tag:agent-cloud`: relayed through the Mac (reverse tunnel). The Chief's own Claude config ignores the VM's `~/.claude/settings.json` env: the route goes in the environment. The VM reaches only the fleet controller and sr2 |
 | Linux VM to the Cloud Chief (`cloud:staging`) | 17 history and 31 memory messages copied, brain on, in 10 s; the turn answered all earlier hosts and ran the shell in a cloud sandbox | staging test account only: production needs a production session token, and production hands are off. Export back from DO memory: 4b. Reactions, attachments and subagent transcripts do not move into the DO |
 | The Chief moving itself (MCP `move`) | covered by tests (`--detach` waits for the turn's end) | a turn from the CLI counts as a paired device, so the `move` call waits for approval in the Mac app (allow from the CLI is refused by design); the chain ran the same moves through the CLI |
-| Any target | | a running subagent is not handed over; Home does not switch to the moved Chief; the Swift "Move Chief to..." sheet and Cmd+Shift+P action are not built |
+| Any target | | a running subagent is handed over to an SSH host (4b, Subagents), not to the cloud; Home does not switch to the moved Chief; the Swift "Move Chief to..." sheet and Cmd+Shift+P action are not built |
 
 ## 7. Home after a move
 
