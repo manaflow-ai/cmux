@@ -106,6 +106,11 @@ import PackageDescription
 // ghostty_surface_host_frame_committed (#70; cmux FRAME OWNER REFACTOR S4,
 // behind motion.frameOwner.terminals).
 //
+// Since 635c6c12a..7d43bb68b (release/cmux-9ce9b7d0-e2, fork PR #71): an
+// off-main present never commits while it holds [CATransaction lock]. #70's
+// embedder mode committed under the lock and deadlocked against main's
+// commit (cmux S4 films with the switch on, STATUS 9732).
+//
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
 // a7c40619a or 3e9dfca98 (apple-v6 without the lib prefix on the macOS
@@ -129,8 +134,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-635c6c12aaa7d5db895bf8abdb116ca14b1baa20-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "475fd4366086f3a9c50e55a0c291c11a12afd80acde57c37225130f981f20826"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-7d43bb68b05e1bad433267fe28cd7205041fc4f5-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "12f7ac05eec4a0e0a47daef29545cdaba102e4b02ecafcc825d898ff71f4be2f"
         ),
     ]
 )
