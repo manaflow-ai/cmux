@@ -146,9 +146,9 @@ extension ResourceControl {
         return Dictionary((browsers + agents).map { browser, key, kind in
             var owner = CEFRendererOwner(kind: kind, tab: key)
             if let (tab, pane) = services.locateTab(key) {
-                let workspace = services.machines.daemons.lazy.compactMap { $0.store.workspace(holdingTab: tab.id) }.first
+                let found = services.machines.daemons.lazy.compactMap { daemon in daemon.store.workspace(holdingTab: tab.id).map { (daemon.machineID, $0) } }.first
                 (owner.tab, owner.tabTitle, owner.pane, owner.session) = (tab.id, tab.displayTitle, pane.id, tab.agentSession?.session)
-                (owner.workspace, owner.workspaceTitle) = (workspace?.id, workspace?.name)
+                (owner.workspace, owner.workspaceTitle, owner.machine) = (found?.1.id, found?.1.displayName, found?.0)
             }
             return (browser, owner)
         }, uniquingKeysWith: { $1 })
