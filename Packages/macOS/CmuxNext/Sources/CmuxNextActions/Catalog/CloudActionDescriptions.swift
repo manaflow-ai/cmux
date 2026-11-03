@@ -130,20 +130,6 @@ nonisolated enum CloudActionDescriptions {
             (--target machine:<id>) and returns host, port, user, host_key and expires_at (Unix seconds) \
             for scp or sftp.
             """,
-        "cloudSystemTunnelOn": """
-            Turns on the opt-in Cloud Tunnel: a system-wide route from this Mac to the person's Cloud \
-            networks, so other apps (a browser, ssh, an editor) reach machines at their private IPv4. The \
-            first time, macOS asks the person to allow the cmux network extension. Returns status \
-            (connected, awaiting-approval, connecting, failed, unavailable) and reason.
-            """,
-        "cloudSystemTunnelOff": """
-            Turns off the Cloud Tunnel and removes its VPN configuration. cmux's own terminals and \
-            browser keep reaching machines without it. Returns status and reason.
-            """,
-        "cloudSystemTunnelStatus": """
-            Returns the Cloud Tunnel's status (off, unavailable, awaiting-approval, connecting, \
-            connected, disconnecting, failed), reason, and connected_since (Unix seconds) when connected.
-            """,
         "cloudTunnelAttach": """
             Attaches this Mac's Cloud tunnel to a private network. The network id (from \
             `cmux cloud network-list`) goes in the path argument: --arg path=<network id>. Returns no fields.

@@ -120,6 +120,7 @@ pub mod qos;
 pub mod question_answer;
 pub mod recovery;
 pub mod registry;
+pub mod resume;
 pub mod review_box;
 pub mod route_account;
 mod route_probe;

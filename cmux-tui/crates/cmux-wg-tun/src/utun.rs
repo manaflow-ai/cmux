@@ -57,9 +57,10 @@ pub(crate) fn interface_name(fd: RawFd) -> Option<String> {
     if result != 0 {
         return None;
     }
-    let used = &name[..(length as usize).min(name.len())];
-    let end = used.iter().position(|&byte| byte == 0).unwrap_or(used.len());
-    String::from_utf8(used[..end].to_vec()).ok()
+    let used = name.get(..length as usize).unwrap_or(name.as_slice());
+    // The name ends at its first NUL; `split` always yields a first part.
+    let text = used.split(|&byte| byte == 0).next().unwrap_or_default();
+    String::from_utf8(text.to_vec()).ok()
 }
 
 /// The utun header for an IP packet: its address family, big endian.

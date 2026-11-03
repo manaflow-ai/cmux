@@ -58,7 +58,7 @@ def summarize(records):
         if reason:
             reasons[reason] = reasons.get(reason, 0) + 1
     out["invalid"] = reasons
-    out["no_content"] = sum(1 for r in records if not r.get("error") and not _number(r.get("first_content_ms")))
+    out["no_first_content"] = sum(1 for r in records if not r.get("error") and not _number(r.get("first_content_ms")))
     # Each mark's median over the opens that ran it, complete case or not (an errored open has no
     # trace): an incomplete case still shows which marks ran and when (spare_adopted on 21 of 24
     # opens was hidden behind an empty {}); `marks_n` says over how many opens.

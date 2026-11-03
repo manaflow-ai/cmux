@@ -48,6 +48,8 @@ export interface Env {
   readonly DEV_TEST_TENANT_IDS?: string;
   /** The manaflow-team flag (cx-b4h.16): Stack team ids entitled without billing; comma or space separated. */
   readonly MANAFLOW_TEAM_TENANT_IDS?: string;
+  /** Service key ids (CMUX_VM_SERVICE_KEYS `id`) whose requests are entitled for the team they act for; comma or space separated. */
+  readonly CMUX_VM_ENTITLED_SERVICE_IDS?: string;
   /** JSON object of Stack team id to live VM limit, overriding the default. */
   readonly TENANT_VM_QUOTAS?: string;
   /** Mesh experiment (cx-0op): "1" turns it on for the tenants in CMUX_VM_MESH_TENANT_IDS; anything else is off. */
@@ -71,6 +73,7 @@ const liveServices = (env: Env) => {
     environment: parseEnvironment(env.ENVIRONMENT),
     devTestTenantIds: parseTenantList(env.DEV_TEST_TENANT_IDS),
     manaflowTenantIds: parseTenantList(env.MANAFLOW_TEAM_TENANT_IDS),
+    entitledServiceIds: parseTenantList(env.CMUX_VM_ENTITLED_SERVICE_IDS),
     vmQuotas: parseVmQuotas(env.TENANT_VM_QUOTAS),
   });
   return Layer.mergeAll(

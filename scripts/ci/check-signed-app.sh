@@ -75,21 +75,8 @@ for entitlement in \
     exit 1
   fi
 done
-# The NetworkExtension entitlement only with the bundled opt-in Cloud Tunnel
-# (plans/cmux-next/cloud-tunnel-DESIGN.md), whose extension must then carry the
-# packet tunnel entitlement itself.
-SYSTEM_EXTENSIONS_DIR="$APP_PATH/Contents/Library/SystemExtensions"
-if [[ -d "$SYSTEM_EXTENSIONS_DIR" ]]; then
-  for extension in "$SYSTEM_EXTENSIONS_DIR"/*.systemextension; do
-    [[ -d "$extension" ]] || continue
-    /usr/bin/codesign --verify --strict "$extension"
-    /usr/bin/codesign -d --entitlements :- "$extension" 2>/dev/null | grep -q "packet-tunnel-provider-systemextension" || {
-      echo "error: $(basename "$extension") is not signed with the packet tunnel entitlement" >&2
-      exit 1
-    }
-  done
-elif grep -q "com.apple.developer.networking.networkextension" "$SIGNED_ENTITLEMENTS"; then
-  echo "error: signed app carries a NetworkExtension entitlement but bundles no Cloud Tunnel system extension" >&2
+if grep -q "com.apple.developer.networking.networkextension" "$SIGNED_ENTITLEMENTS"; then
+  echo "error: signed app carries a NetworkExtension entitlement; cmux-next ships no Cloud tunnel system extension" >&2
   exit 1
 fi
 

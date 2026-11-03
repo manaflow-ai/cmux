@@ -14,6 +14,7 @@ pub mod codex_auth_broker;
 pub mod command;
 pub mod command_host;
 pub mod command_new;
+pub mod daemon_service;
 pub mod detach;
 pub mod entry;
 pub mod errors;

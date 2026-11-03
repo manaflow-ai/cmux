@@ -197,7 +197,6 @@
         "Probe the cmux NEXT App ID and profile (read-only)": {"nightly_only": "reads App Store Connect API"},
         "Import signing cert": {"nightly_only": "imports Developer ID signing certificate"},
         "Embed channel provisioning profile": {"nightly_only": "embeds secret provisioning profile"},
-        "Prepare the Cloud Tunnel extension": {"nightly_only": "checks the secret tunnel provisioning profile and writes signing entitlements for the signed app"},
         "Start the Computer Use helper notarization": {"nightly_only": "submits helper to Apple notary"},
         "Codesign apps": {"nightly_only": "codesigns with Developer ID identity"},
         "Verify the Computer Use helper signature": {"nightly_only": "verifies Developer ID signed helper"},
