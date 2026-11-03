@@ -211,3 +211,21 @@ async fn a_bad_choice_is_refused() {
     assert!(err.contains("default, on or off"), "{err}");
     a.choose("default").await;
 }
+
+#[tokio::test]
+async fn an_idle_chat_is_asked_before_its_process_hibernates() {
+    let mut a = chat(3, &[]).await;
+    // The daemon's default: an idle process stops after 2 minutes, before the 3-minute ask.
+    a.hub.set_idle_child(Some(Duration::from_secs(2 * 60)));
+    a.show(false).await;
+    a.advance(Duration::from_secs(2 * 60 + 1), 1).await;
+    assert_eq!(a.asked(), 1, "asked before the process went");
+    // Then it hibernates, and is never asked again for the same turns.
+    a.advance(Duration::from_secs(2 * 60 + 1), 1).await;
+    a.advance(Duration::from_secs(2 * 60 + 1), 1).await;
+    assert_eq!(a.asked(), 1);
+    a.show(true).await;
+    let recaps = a.recaps();
+    assert_eq!(recaps.len(), 1, "{recaps:?}");
+    assert_eq!(recaps[0]["text"], ANSWER);
+}

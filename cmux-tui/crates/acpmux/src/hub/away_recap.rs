@@ -16,6 +16,11 @@
 //!   transcript-free `side_question`, read from the prompt cache while it is
 //!   still warm (Claude Code's 5-minute cache), so it costs a cache read
 //!   instead of a fresh read of the whole conversation.
+//! - An idle chat's process hibernates sooner than that (`idle.rs`, 2
+//!   minutes by default): the idle reaper asks for the recap of a chat that
+//!   wants one before it stops the process, and stops it after the answer.
+//!   Each turn count is asked at most once, so a failed ask never keeps a
+//!   process up.
 //! - Only after `MIN_TURNS` turns, and `TURNS_BETWEEN` more since the last
 //!   recap (Claude Code's own limits), so a short chat gets none.
 //! - The person shows the chat again after `AWAY` or more: the recap is
@@ -56,6 +61,8 @@ pub(crate) struct Away {
     turn_ended_at: Option<u64>,
     /// A recap request is running.
     asking: bool,
+    /// The turn count last asked about, answered or not: never asked twice.
+    asked_at_turns: Option<u64>,
     /// The recap made while the person was away, and the turn count it describes.
     ready: Option<(String, u64)>,
     /// The turn count of the last recap shown.
@@ -190,8 +197,19 @@ impl Hub {
             Some(last) => turns >= last + TURNS_BETWEEN,
             None => turns >= MIN_TURNS,
         };
-        let fresh = away.ready.as_ref().is_some_and(|(_, at)| *at == turns);
-        (away.left_at.is_some() && enough && !fresh && !away.asking).then_some(turns)
+        let asked = away.asked_at_turns == Some(turns);
+        (away.left_at.is_some() && enough && !asked && !away.asking).then_some(turns)
+    }
+
+    /// The idle reaper is about to stop the process of `session` (`idle.rs`): when it wants a
+    /// recap, it is asked now instead, and true keeps the process up until it is answered.
+    pub(super) fn recap_before_sleep(&self, session: &Session) -> bool {
+        if self.wants_recap(session).is_none() {
+            return false;
+        }
+        self.recap_due.lock().unwrap_or_else(|e| e.into_inner()).insert(session.id.clone(), 0);
+        self.recap_wake.notify_one();
+        true
     }
 
     /// Asks the running Claude Code process of `session` for its recap. Never starts one.
@@ -201,7 +219,11 @@ impl Hub {
         if !child.is_alive().await {
             return;
         }
-        session.away.lock().unwrap_or_else(|e| e.into_inner()).asking = true;
+        {
+            let mut away = session.away.lock().unwrap_or_else(|e| e.into_inner());
+            away.asking = true;
+            away.asked_at_turns = Some(turns);
+        }
         let answer = child.request_within(crate::claude_stdio::RECAP, json!({}), TIMEOUT).await;
         let text = match answer {
             Some(Ok(value)) => Self::side_question_text(&value).as_deref().and_then(clean),

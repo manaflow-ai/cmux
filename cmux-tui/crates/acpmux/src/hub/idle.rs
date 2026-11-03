@@ -206,7 +206,8 @@ impl Hub {
             let busy = session.turn_lock.try_lock().is_err()
                 || session.spawn_lock.try_lock().is_err()
                 || session.harness_use.try_write().is_err();
-            if busy || !self.idle_eligible(&session) {
+            // A recap the person will want is asked before the process goes (`away_recap.rs`).
+            if busy || !self.idle_eligible(&session) || self.recap_before_sleep(&session) {
                 self.touch(&session);
                 continue;
             }
