@@ -1,6 +1,6 @@
 ---
 name: chief-cloud-machines
-description: Use the user's cmux Cloud machines from the Mac with the cmux CLI: list, create (cmux Pro), run commands, use the machine's own cmux, and drive its Linux desktop with cua-driver (open apps, click, type, screenshots). Use when the user asks for a cloud machine, a VM, or a task on a remote desktop or browser.
+description: Use the user's cmux Cloud machines from the Mac with the cmux CLI: list, create (cmux Pro), hand a task to an agent chat there and read its reply (`cmux cloud start-chat`), run commands, use the machine's own cmux, and drive its Linux desktop with cua-driver (open apps, click, type, screenshots). Use when the user asks for a cloud machine, a VM, or a task on a remote desktop or browser.
 cmux-managed: true
 ---
 
@@ -74,6 +74,33 @@ run it again before deciding there is no machine.
   switches their current plan. When they say they paid, check
   `cmux --json billing status` and run the create once more. Do not mention
   plans when Cloud works.
+
+## Run a task as an agent chat on a Cloud machine
+
+To hand a task to a coding agent on a Cloud machine and get its answer, use
+one command:
+
+```sh
+cmux --json cloud start-chat --prompt '<the task>' --wait
+```
+
+It starts a chat (`--agent claude` by default, or `codex`) on a new small
+machine of its own (or `--name <name>`, or `--target machine:<id>` for a
+machine the user named), sends the prompt, waits for the turn to end and
+answers `.reply` with `.machine_id`, `.session_id` and `.tab_id`. The chat is
+a tab in that machine's workspace, so the user can open it. `--cwd <folder
+on the machine>` picks the folder; `--timeout <seconds>` bounds the wait
+(default 900). The app first asks the user with a card (Start, Not now);
+nothing starts until they click Start, and a refusal says so.
+
+The answer's `.follow_up` holds the `cloud exec` commands for that chat:
+`send` (the next prompt, in place of `PROMPT`), `wait` (20 s at a time; run
+it again until it exits 0) and `last` (the newest reply). On an error, read
+`.code`: `cloud.signed_out` (tell the user to sign in to cmux),
+`cloud.start_pending` (the machine is still starting: run
+`.details.again` later), `chat.permission_waiting` (the agent asks the user
+for a permission in the chat's tab: tell them), `chat.wait_timeout` (still
+working: wait on with `.follow_up.wait`).
 
 ## 2. Run commands
 
