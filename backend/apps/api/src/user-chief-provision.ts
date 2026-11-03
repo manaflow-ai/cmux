@@ -26,7 +26,7 @@ export const ensureChiefMachine = async (platform: DefaultMachinePlatform | unde
     || !m || m.creator !== user || m.visibility !== "private" || m.kind !== "user"
     || typeof m.id !== "string" || m.id.length === 0 || m.id.length > 256
     || typeof m.provider !== "string" || m.provider.length === 0 || m.provider.length > 256
-    || typeof v.connectionMachine !== "string" || !/^vm_[0-9a-f]{20}$/.test(v.connectionMachine)) {
+    || typeof v.connectionMachine !== "string" || !/^vm_[a-z0-9]{20}$/.test(v.connectionMachine)) {
     throw provisioningFailure("chief.provision.invalid_machine", false)
   }
   const install = defaultChiefVmInstall(current(), v.team, v.connectionMachine, now())

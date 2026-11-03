@@ -57,7 +57,7 @@ export const reduceDefaultChief = (state: UserState, op: string, params: unknown
   const v = params as Partial<ChiefCloudMachine> | null
   if (!v || typeof v !== "object" || Object.keys(v).some((k) => !["workspace", "team", "machine", "provider", "connection_machine", "install"].includes(k))
     || v.workspace !== defaultChiefWorkspace(user.id) || v.team !== personalTeamIdFor(user.id) || !shortId(v.machine) || !shortId(v.provider)
-    || typeof v.connection_machine !== "string" || !/^vm_[0-9a-f]{20}$/.test(v.connection_machine)
+    || typeof v.connection_machine !== "string" || !/^vm_[a-z0-9]{20}$/.test(v.connection_machine)
     || typeof v.install !== "string" || v.install !== defaultChiefVmInstall(state, v.team, v.connection_machine, ctx.now)) {
     return reject("validation.invalid", "default Chief machine must belong to this user's fixed workspace and personal team")
   }

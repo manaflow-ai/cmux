@@ -90,7 +90,7 @@ describe("signup default Chief", () => {
     for (const changed of [
       { ...state, installs: { [INSTALL]: { ...state.installs[INSTALL]!, revoked_at: 1 } } },
       { ...state, grants: { grant_00000000000000000001: { ...state.grants.grant_00000000000000000001!, expires_at: 1 } } },
-      { ...state, installs: { [INSTALL]: { ...state.installs[INSTALL]!, kind: "daemon" } } }
+      { ...state, installs: { [INSTALL]: { ...state.installs[INSTALL]!, kind: "daemon" as const } } }
     ]) expect(userDomain.reduce(changed, DEFAULT_CHIEF_BIND, binding, context())).toMatchObject({ ok: false, code: "validation.invalid" })
   })
 
