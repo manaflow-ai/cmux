@@ -126,6 +126,42 @@ struct BrowserTabCloseLeavesAtOnceTests {
         }
     }
 
+    /// A split pane holds a deciding page A and a tab B. Close A (hidden), then B: B's close takes the pane out. When A then
+    /// asks, the pane and A come back, selected, before the question. Review of #32876 at 7e046b696d8: A's hide held no
+    /// pane close (B still showed), so its restore left the pane B's close had hidden, with A's question behind it.
+    @Test func aPageThatAsksAfterALaterCloseEmptiedItsPaneBringsThePaneBack() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let store = services.daemon.store
+            let window = try #require(services.windows.active)
+            let first = try #require(window.workspaceContent?.panes.values.first?.pane)
+            _ = try await connection.split(first.handle, direction: .right)
+            let screenPanes = { store.workspaces.flatMap(\.screens).first { $0.panes.contains { $0 === first } }?.panes ?? [] }
+            try await PinnedPageTests.until({ screenPanes().count == 2 && screenPanes().allSatisfy { !$0.tabs.isEmpty } && window.workspaceContent?.panes.count == 2 },
+                                            within: .seconds(30), report: { "\(screenPanes().count) panes" })
+            let right = try #require(screenPanes().first { $0 !== first })
+            let a = try await connection.newFrontendBrowserTab(url: "https://example.com/a", engine: .webkit, in: right.handle, activate: true)
+            try await PinnedPageTests.until({ store.tab(surface: a.surface) != nil })
+            let aID = try #require(store.tab(surface: a.surface)).id
+            let controller = try #require(services.paneController(for: right))
+            try await PinnedPageTests.until({ controller.orderedIDs.count == 2 && controller.orderedIDs.map(\.rawValue).contains(aID) },
+                                            report: { "\(controller.orderedIDs)" })
+            let bID = try #require(controller.orderedIDs.first { $0.rawValue != aID })
+            let layout = try #require(controller.workspace?.layoutModel)
+            let paneID = controller.layoutPaneID
+            let undo = try #require(services.closedTabs?.undoToasts)
+            undo.pageDecidesClose = { _, tab in tab.rawValue == aID }
+
+            #expect(services.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: aID), origin: .user)))
+            try #require(undo.hiddenPages.contains(aID) && !layout.isClosing(paneID))
+            #expect(services.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: bID.rawValue), origin: .user).confirmed()))
+            try await PinnedPageTests.until({ layout.isClosing(paneID) }, within: .seconds(5), report: { "B's close never took the pane out" })
+            #expect(undo.hiddenPages.restore(aID))
+            #expect(!layout.isClosing(paneID), "the pane stayed closed while A asks")
+            try await PinnedPageTests.until({ services.paneController(for: right)?.stripModel.selectedID?.rawValue == aID }, within: .seconds(5),
+                                            report: { "A is not back, selected: \(services.paneController(for: right)?.orderedIDs ?? [])" })
+        }
+    }
+
     /// The measure (same harness at base and head): a person's close of a deciding page's tab to the
     /// tab gone from its strip, 20 rounds. The page never answers within the round's 1 s, as a slow
     /// renderer; then it closes the tab (the `closeTab` its page's close runs). Prints p50/p95.
