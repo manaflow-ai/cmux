@@ -64,7 +64,7 @@ TEST_NAME = re.compile(r"((?:^|[._-])[Mm]ocks?[._-]|^mock[A-Z]|(?:^|[._-])fixtur
 CAP_WORDS = {"max", "maximum", "limit", "cap"}
 SIZE_WORDS = {"bytes", "byte", "size", "len", "length", "chars", "characters", "kib", "mib", "kb", "mb",
               "body", "payload", "prompt"}
-COUNT_WORDS = {"attachments", "files", "uploads", "images"}
+COUNT_WORDS = {"attachment", "attachments", "files", "uploads", "images"}
 # A cap on an identifier, a label or a derived preview never refuses a user's message or file.
 METADATA_WORDS = {"name", "names", "id", "ids", "title", "key", "keys", "token", "tokens", "secret", "url", "urls",
                   "uri", "label", "labels", "emoji", "stamp", "header", "headers", "error", "errors", "query",
@@ -508,6 +508,21 @@ class Matcher(unittest.TestCase):
         self.assertEqual(len(problems({}, allow)), 1)  # stale
         self.assertEqual(len(problems({"a.rs": hit}, {"files": {"a.rs": {"count": 1, "reason": "because"}}})), 1)
         self.assertEqual(len(problems({"a.rs": hit}, {"files": {"a.rs": {"count": 1}}})), 1)
+
+    def test_removed_chief_caps_are_in_scope_and_have_no_exemption(self):
+        allow = json.loads(ALLOWLIST.read_text())
+        for rel, source in (
+            ("cmux-tui/crates/cmux-tui/src/cli/chief/backend.rs", "const MAX_ATTACHMENT: u64 = 100_000_000;"),
+            ("Native/OptChat/chief-kernel/src/tools.rs", "pub const MAX_SEND_ATTACHMENTS: usize = 10;"),
+            ("Native/OptChat/optchat-chief/src/brain/media.rs", "pub const MAX_MEDIA_BYTES: u64 = 50_000_000;"),
+            ("backend/apps/api/src/chief-brain-cc/attachments.ts", "export const MAX_FILES = 12"),
+        ):
+            with self.subTest(path=rel):
+                self.assertTrue(in_send_path(rel, config(allow)))
+                hits = matches(source, rel)
+                self.assertEqual(len(hits), 1, hits)
+                self.assertNotIn(rel, allow["files"])
+                self.assertTrue(problems({rel: hits}, {"files": {}}))
 
     def test_base_ratchet_refuses_new_debt(self):
         base = {"paths": {"include": ["a/"], "exclude": []},
