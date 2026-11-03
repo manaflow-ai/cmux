@@ -9,7 +9,7 @@ The policy, and the regression audit behind every rule, is docs/ci/risk-tiers.md
           checks, then auto-merge. Nothing here waits for a person.
   high    auth and credentials, socket and relay access policy (with peer and code-signature
           trust), stored-data migrations, release, signing, notarization and the updater, the
-          risk gate itself, code that adds a delete of user data, and a workflow that adds a
+          pre-push hook's trust boundary, the risk gate itself, code that adds a delete of user data, and a workflow that adds a
           pull_request_target or workflow_run trigger. Read for
           a review verdict on the head: an independent review's `Review (<reviewer>): SHIP at <full
           head sha>` line in the description or leading a comment, an approving review on the head
@@ -180,12 +180,14 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         "scripts/ci/lib/*",
     )),
     # The pre-push hook's trust boundary (docs/contributor-verification.md): what decides which check code the hook
-    # runs on a push (web_lint_prepush.py, run-check-pieces.py), the hook itself, and how its reviewed copy is
-    # installed and refreshed. A normal change could make the hook run code a push controls; #34124 closed nine such
-    # routes. The lint rules it runs (scripts/cmux-next/check-*.py, the package check scripts) stay normal.
+    # runs on a push (web_lint_prepush.py; prepush-gate.py, which picks the reviewed copy or the pushed code for each
+    # of its checks), the hook itself, and how its reviewed copy is installed and refreshed (install-git-hooks.sh,
+    # refresh_checks.py, and post-merge, which decides when the checkout reinstalls it). A normal change could make the
+    # hook run code a push controls; #34124 finds and closes several such routes. The lint rules it runs
+    # (scripts/cmux-next/check-*.py, guardrails.py, the package check scripts, run-check-pieces.py) stay normal.
     ("high", "the pre-push hook's trust boundary", (
-        "scripts/web_lint_prepush.py", "scripts/cmux-next/run-check-pieces.py", "scripts/git-hooks/pre-push",
-        "scripts/git-hooks/refresh_checks.py", "scripts/install-git-hooks.sh",
+        "scripts/web_lint_prepush.py", "scripts/cmux-next/prepush-gate.py", "scripts/git-hooks/pre-push",
+        "scripts/git-hooks/post-merge", "scripts/git-hooks/refresh_checks.py", "scripts/install-git-hooks.sh",
     )),
     # The gate grades every other pull request, so a change to it gets a person.
     ("high", "the risk gate itself", (
