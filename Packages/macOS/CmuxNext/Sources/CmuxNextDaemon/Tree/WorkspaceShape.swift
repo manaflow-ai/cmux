@@ -2,15 +2,16 @@ import Foundation
 
 /// One workspace's panes and layouts, as a layout builder reads them after each command it sends: the
 /// workspace handle, and per screen its pane handles with their tabs' surfaces and the layout of each column
-/// (one entry for a split screen). Made from the app's store (``init(_:)-(WorkspaceModel)``, O(that workspace)) or
-/// from the daemon's whole tree (``init(_:)-(WorkspaceSnapshot)``), whose read grows with the session (#32408).
+/// (one entry for a split screen). Made from the app's store model (O(that workspace)) or from a workspace of the
+/// daemon's whole tree, whose read grows with the session (#32408).
 public struct WorkspaceShape: Sendable, Hashable {
     public var handle: WorkspaceHandle
     public var screens: [Screen]
 
-    /// One screen: its panes in tree order and its columns' layouts.
+    /// One screen: its panes, its layout and its columns' layouts.
     public struct Screen: Sendable, Hashable {
         public var panes: [Pane]
+        public var layout: LayoutNode
         public var layouts: [LayoutNode]
     }
 
@@ -23,7 +24,7 @@ public struct WorkspaceShape: Sendable, Hashable {
     public init(_ snapshot: WorkspaceSnapshot) {
         handle = snapshot.id
         screens = snapshot.screens.map { screen in
-            Screen(panes: screen.panes.map { Pane(handle: $0.id, surfaces: $0.tabs.map(\.surface)) },
+            Screen(panes: screen.panes.map { Pane(handle: $0.id, surfaces: $0.tabs.map(\.surface)) }, layout: screen.layout,
                    layouts: screen.columns.isEmpty ? [screen.layout] : screen.columns.map(\.layout))
         }
     }
@@ -32,7 +33,7 @@ public struct WorkspaceShape: Sendable, Hashable {
     public init(_ workspace: WorkspaceModel) {
         handle = workspace.handle
         screens = workspace.screens.map { screen in
-            Screen(panes: screen.panes.map { Pane(handle: $0.handle, surfaces: $0.tabs.map(\.surface)) },
+            Screen(panes: screen.panes.map { Pane(handle: $0.handle, surfaces: $0.tabs.map(\.surface)) }, layout: screen.layout,
                    layouts: screen.columns.isEmpty ? [screen.layout] : screen.columns.map(\.layout))
         }
     }
