@@ -339,6 +339,7 @@ final class CloudService {
             // must fence the old Native mesh and link before reconnecting.
             for await accountScope in ObservationStream({ self.auth.isSignedIn ? "\(self.auth.user?.id ?? "")\u{0}\(self.auth.teamID ?? "")" : nil }) {
                 if accountScope != nil {
+                    AgentPaneTailCache.shared.resume()
                     // Sign-out revoked the WireGuard peer and parked the hub.
                     await self.hub?.resume()
                     // Another account's machines, connections and share installs end first (its next share binds this one).
@@ -880,7 +881,7 @@ final class CloudService {
 
     /// Runs when a sign-out starts, while the account's tokens still work
     /// (the device hub signs this Mac out of its sessions at once).
-    var willSignOut: [@MainActor () -> Void] = []
+    var willSignOut: [@MainActor () -> Void] = [{ AgentPaneTailCache.shared.clear() }]
 
     func signOut() async {
         signedOutCreation.cancel()
