@@ -79,23 +79,11 @@ export default componentEntry<Props>({
       note: "All with Include new files lists the new files before Commit is offered.",
       props: { formOpen: true },
       play: includeNew,
-      checks: {
-        layoutShiftMax: {
-          value: 0.05,
-          reason: "Choosing All rewrites the hint line and adds Include new files to it; the buttons stay.",
-        },
-      },
     },
     keyboard: {
       note: "Arrows move the scope radios; Escape in the message closes the form.",
       props: { formOpen: true },
       play: keyboard,
-      checks: {
-        layoutShiftMax: {
-          value: 0.05,
-          reason: "Choosing All rewrites the hint line and adds Include new files to it; the buttons stay.",
-        },
-      },
     },
     busy: {
       note: "A commit in flight: the form and buttons wait.",

@@ -1079,6 +1079,10 @@
 
 .acpmux-folder-popover .acpmux-location-search {
   display: block;
+  /* The popover is a flex column with a max height: a long list must not squeeze the field, or it
+     grows back by 8 px when a search shortens the list and every row under it moves
+     (agent-pane.composer-context#repo-worktrees-search shift). */
+  flex: none;
   box-sizing: border-box;
   width: 100%;
   height: var(--ui-row-height);

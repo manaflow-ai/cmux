@@ -239,21 +239,23 @@ function CommitForm({
       {/* What the scope commits, then All's Include new files, on their own line: picking a scope changes
           only this line, so Cancel and Commit never move or wrap (agent-pane.changes-git-actions). */}
       <div className="acpmux-git-form-row acpmux-git-scope-line">
+        {/* Both hints share one cell and Include new files keeps its place while Staged is picked
+            (hidden, out of the tab order and the accessibility tree), so the line is as tall in
+            either scope and picking one moves nothing (agent-pane.changes-git-actions shift). */}
         <span className="acpmux-git-scope-hint">
-          {t(scope === "staged" ? "git.commit.stagedHint" : "git.commit.allHint")}
+          <span data-visible={scope === "staged"}>{t("git.commit.stagedHint")}</span>
+          <span data-visible={scope === "all"}>{t("git.commit.allHint")}</span>
         </span>
-        {scope === "all" && (
-          <label className="acpmux-git-include-new">
-            <input
-              type="checkbox"
-              aria-labelledby={`${scopeName}-new`}
-              checked={includeNew}
-              disabled={busy}
-              onChange={(event) => toggleNew(event.target.checked)}
-            />
-            <span id={`${scopeName}-new`}>{t("git.commit.includeNew")}</span>
-          </label>
-        )}
+        <label className="acpmux-git-include-new" data-visible={scope === "all"}>
+          <input
+            type="checkbox"
+            aria-labelledby={`${scopeName}-new`}
+            checked={includeNew}
+            disabled={busy || scope !== "all"}
+            onChange={(event) => toggleNew(event.target.checked)}
+          />
+          <span id={`${scopeName}-new`}>{t("git.commit.includeNew")}</span>
+        </label>
       </div>
       {withNew && listChanged && (
         <span className="acpmux-git-form-note" role="alert">
