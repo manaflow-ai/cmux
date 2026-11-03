@@ -59,8 +59,8 @@ await requireBrowserLane("thread-rail-narrow-hover.test.ts", async () => {
     row(`summary-${index + 1}`, "turnSummary", undefined, { status: "completed", durationMs: 1_000 }),
   ]).flat();
 
-  /// A pane `pane` px wide whose chat column is `column` px: the rest is a side column, as Session
-  /// Info's beside the chat (the transcript reads the pane's width from `.acpmux-shell`).
+  /// A pane `pane` px wide whose chat column is `column` px: the rest stands in for a side column, as
+  /// Session Info's beside the chat (the transcript reads the pane's width from `.acpmux-shell`).
   async function open(pane: number, column: number, motion: "reduce" | "no-preference"): Promise<Page> {
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser!.newPage({ viewport: { width: pane, height: 820 } });
@@ -69,15 +69,12 @@ await requireBrowserLane("thread-rail-narrow-hover.test.ts", async () => {
     await page.waitForFunction(() => "__showRows" in window);
     await page.evaluate(
       ({ shown, side }) => {
+        // The shell's padding stands in for the side column: the shell's clientWidth is the pane's,
+        // the transcript's the column's.
         const root = document.getElementById("root")!;
         root.classList.add("acpmux-shell");
-        root.style.flexDirection = "row";
+        Object.assign(root.style, { flexDirection: "column", boxSizing: "border-box", paddingRight: `${side}px` });
         (window as unknown as { __showRows(rows: unknown): void }).__showRows(shown);
-        if (side > 0) {
-          const panel = document.createElement("aside");
-          panel.style.cssText = `flex: none; width: ${side}px; height: 100%`;
-          root.append(panel);
-        }
       },
       { shown: rows, side: pane - column },
     );
