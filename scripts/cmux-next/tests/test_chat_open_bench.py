@@ -131,7 +131,7 @@ class SummaryTests(unittest.TestCase):
         self.assertIsNone(cos.invalid_reason(open_(100, frame_count=12)))
         summary = cos.summarize([open_(100), blank, blank])
         self.assertFalse(summary["complete"])
-        self.assertEqual((summary["ok"], summary["timed_out"], summary["no_content"]), (1, 0, 2))
+        self.assertEqual((summary["ok"], summary["timed_out"], summary["no_first_content"]), (1, 0, 2))
         self.assertEqual(summary["invalid"], {"no_content": 2})
         self.assertEqual(cos.cell(summary, "sidebar"), "FAILED (1/3 valid; no_content 2)")
 
