@@ -1148,12 +1148,14 @@ impl Store {
         let line = |c: &Kept| serde_json::to_vec(&c.head).map_or(u64::MAX, |h| h.len() as u64);
         // An oversized prompt must not evict an otherwise useful tail. The optional opener
         // shares the existing head bound, including the row and serialization overhead.
-        if let Some(c) = self.copies.get_mut(key)
-            && !disk::head_fits(line(c))
-        {
-            c.head.turn_opener = None;
-        }
-        if self.copies.get(key).is_some_and(|c| !disk::head_fits(line(c))) {
+        let too_large = self.copies.get_mut(key).is_some_and(|c| {
+            if disk::head_fits(line(c)) {
+                return false;
+            }
+            // Count a second time only when removing an oversized opener changed the head.
+            c.head.turn_opener.take().is_none() || !disk::head_fits(line(c))
+        });
+        if too_large {
             self.remove(key);
             return;
         }
