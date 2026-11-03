@@ -14,8 +14,8 @@ nonisolated struct PaletteNavigationGroup: Hashable {
 }
 
 /// Go to Workspace's group, pane and tab entries (pure; the tests call it).
-/// Panes are listed only in a workspace with more than one: a lone pane is
-/// its workspace. Tabs closing now are left out, as in Search Tabs.
+/// Panes are listed only in a workspace with more than one: a lone pane is its workspace, as is a
+/// lone tab (not in a Home, `WorkspaceModel.isAnyHome`). Tabs closing now are left out, as in Search Tabs.
 nonisolated enum PaletteNavigationEntries {
     static func entries(_ topology: ControlTopology, groups: [PaletteNavigationGroup], lastActive: [String: Date],
                         closing: Set<String> = []) -> [PaletteNavigationEntry] {
@@ -29,18 +29,21 @@ nonisolated enum PaletteNavigationEntries {
         for workspace in topology.workspaces {
             let groupTitle = groupOfWorkspace[workspace.id]
             let panes = workspace.panes
+            let folds = workspace.kind != "home" && !panes.contains { $0.tabs.first?.page == "home-dock" } // window Home (homeDockPage)
+                && workspace.panes.flatMap(\.tabs).count { !closing.contains($0.id) } == 1
             for pane in panes {
                 let tabs = pane.tabs.filter { !closing.contains($0.id) }
                 if panes.count > 1, workspace.kind != "home" {
                     let selected = tabs.first { $0.id == pane.selectedTabID } ?? tabs.first
                     entries.append(PaletteNavigationEntry(
-                        id: pane.id, kind: .pane, title: pane.name ?? selected?.title ?? "", workspaceTitle: workspace.name,
+                        id: pane.id, kind: .pane, title: pane.name ?? selected?.title ?? "", workspaceTitle: workspace.name, workspaceID: workspace.id,
                         groupTitle: groupTitle, cwd: selected?.cwd, keywords: tabs.map(\.title), isCurrent: pane.id == focus.paneID,
                         lastUsed: tabs.compactMap { lastActive[$0.id] }.max(), machineID: workspace.machine))
                 }
-                for tab in tabs {
+                for tab in tabs where !folds {
                     entries.append(PaletteNavigationEntry(
-                        id: tab.id, kind: .tab(kind(of: tab)), title: tab.title, workspaceTitle: workspace.name, groupTitle: groupTitle,
+                        id: tab.id, kind: .tab(kind(of: tab)), title: tab.title, workspaceTitle: workspace.name, workspaceID: workspace.id,
+                        groupTitle: groupTitle,
                         cwd: tab.cwd, url: tab.url, agent: tab.agent, sessionID: sessionID(of: tab), isCurrent: tab.id == focus.tabID,
                         lastUsed: lastActive[tab.id]))
                 }
@@ -48,22 +51,6 @@ nonisolated enum PaletteNavigationEntries {
         }
         return entries
     }
-
-    /// The record's title of a tab that names nothing a person reads (an agent chat, a Home
-    /// conversation or a page carry `about:blank`; a new tab none), replaced by `title`, the name
-    /// its tab shows (`TabTitleResolver`). Cmd-P listed agent chats as "about:blank" (msg 11943).
-    static func titled(_ entries: [PaletteNavigationEntry], title: (PaletteNavigationEntry) -> String?) -> [PaletteNavigationEntry] {
-        entries.map { entry in
-            guard case .tab = entry.kind, entry.title.isEmpty || entry.title == blankTitle,
-                  let shown = title(entry), !shown.isEmpty else { return entry }
-            var titled = entry
-            titled.title = shown
-            return titled
-        }
-    }
-
-    /// The address a page-backed tab's record is titled with.
-    static let blankTitle = "about:blank"
 
     /// What Copy Session ID copies: an agent chat's acpmux handle
     /// (`acp:<session id>`, the address `cmux agent message` and acpmux take),

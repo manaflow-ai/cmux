@@ -7,6 +7,8 @@
 // A `data-tooltip-shortcut` shows after the text in the secondary ink, like the native tooltip's;
 // a `data-tooltip-detail` on a line under it, also secondary (Fork from here, Claude's).
 // A `data-tooltip-side="top"` puts it above the element rather than below (a message's time).
+// A `data-tooltip-anchor` (a selector) places it at that part of the element instead of the whole
+// element: a row as wide as the pane shows its tooltip at its words, not under its middle.
 // Text the element cuts off shows in full, as wide as the element (`tooltipWidth`).
 import { HOVER_INTENT, HoverGroup, HoverIntent, tooltipGroup, type HoverClock } from "./hoverIntent";
 
@@ -79,6 +81,21 @@ export function tooltipPosition(
   const centered = anchor.left + anchor.width / 2 - size.width / 2;
   const left = Math.min(Math.max(EDGE, centered), Math.max(EDGE, view.width - EDGE - size.width));
   return { left: Math.round(left), top: Math.round(top) };
+}
+
+/// The element a tooltip for `element` is placed at: its `data-tooltip-anchor` part when it has
+/// one with a box (a pane-wide row's words, MessageGroupHead.tsx), else the element itself.
+function anchorOf(element: Element): Element {
+  const selector = element.getAttribute("data-tooltip-anchor");
+  if (!selector) return element;
+  let part: Element | null = null;
+  try {
+    part = element.querySelector(selector);
+  } catch {
+    return element;
+  }
+  const box = part?.getBoundingClientRect();
+  return part && box && (box.width > 0 || box.height > 0) ? part : element;
 }
 
 /// Whether `element`'s own text already says `text` (a labeled control): no tooltip then, as
@@ -165,7 +182,7 @@ export function installTooltips(
       hint.textContent = shortcut;
       tip.replaceChildren(hint, label, ...(note ? [note] : []));
     } else tip.replaceChildren(label, ...(note ? [note] : []));
-    const anchor = target.getBoundingClientRect();
+    const anchor = anchorOf(target).getBoundingClientRect();
     const truncated = clips(target);
     const fadeIn = !instant && (tip.hidden === true || ending !== undefined);
     endFade();
