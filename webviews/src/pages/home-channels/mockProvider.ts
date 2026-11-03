@@ -838,7 +838,26 @@ export class MockHomeProvider implements PageClient {
         return {} as R;
       }
       case HomeOps.capabilities:
-        return { start: true, invite: true, chiefs: true } as R;
+        return { start: true, invite: true, chiefs: true, chiefWork: true } as R;
+      case HomeOps.chiefWork:
+        if (!this.chiefs.has(String(params.chief))) throw pageError("cmux.page.invalid_params", "unknown Chief");
+        return {
+          agents: [
+            { id: "builder", name: "Builder", state: "working", task: "Build a hello page" },
+            { id: "reviewer", name: "Reviewer", state: "waiting", task: "Review the finished preview" },
+          ],
+          tasks: [
+            {
+              id: "builder/preview",
+              sessionId: "builder",
+              title: "Preview server",
+              command: "bun run dev",
+              status: "running",
+            },
+          ],
+          taskSources: ["harness"],
+          truncated: false,
+        } as R;
       case HomeOps.directory:
         return { people: this.directory() } as R;
       case HomeOps.startConversation: {
