@@ -200,7 +200,7 @@ pub fn encode(value: &str) -> Zeroizing<String> {
     let mut out =
         Zeroizing::new(String::with_capacity(ITEM_PREFIX.len() + value.len() * 4 / 3 + 4));
     out.push_str(ITEM_PREFIX);
-    base64::engine::general_purpose::STANDARD.encode_string(value.as_bytes(), &mut *out);
+    base64::engine::general_purpose::STANDARD.encode_string(value.as_bytes(), &mut out);
     out
 }
 
