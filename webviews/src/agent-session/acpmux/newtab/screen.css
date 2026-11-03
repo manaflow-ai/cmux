@@ -370,7 +370,7 @@
 .nt-input > .acpmux-chrome-area > .nt-pickers {
   flex: none;
   align-self: flex-end;
-  margin: 0 calc(-1 * var(--ds-space-2)) 9px 0;
+  margin: 0 -8px 9px 0;
   flex-wrap: nowrap;
   padding: 0;
 }
@@ -648,7 +648,7 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 .nt-widget-icon{flex:none;color:var(--acpmux-composer-dim)}
 .nt-widget-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .nt-widget-check{flex:none;color:var(--agent-text)}
-.nt-widget-rule{height:0;margin:var(--ds-space-1) -6px;border:0;border-top:var(--cmux-hairline,.5px) solid var(--acpmux-composer-edge)}
+.nt-widget-rule{height:0;margin:4px -6px;border:0;border-top:var(--cmux-hairline,.5px) solid var(--acpmux-composer-edge)}
 .nt-widget-attention{gap:var(--ds-space-1)}
 .nt-widget-chat{display:flex;align-items:center;gap:var(--ds-space-1);min-width:0;padding-right:var(--ds-space-1);border-radius:14px}
 /* A Needs you chat's hover lights the control under the pointer alone: its open button, or its x. The row never takes a wash around its small x (Leo 2026-10-27: "why are you giving it the entire row when it's only this small little section? Just don't do that. Don't ever do that."). */
@@ -808,7 +808,7 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 }
 .nt-stage-divider {
   height: 0;
-  margin: var(--ds-space-1) -6px;
+  margin: 4px -6px;
   border: 0;
   border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge);
 }

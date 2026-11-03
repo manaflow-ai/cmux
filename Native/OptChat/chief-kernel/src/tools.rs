@@ -95,7 +95,7 @@ pub fn chiefs_tool() -> Value {
         .unwrap_or_else(|| json!({"name": "chiefs"}))
 }
 
-pub const MOVE_DESCRIPTION: &str = "Move yourself (your memory, conversations, settings, subagent transcripts and grants) to another machine, or back. action move (default): to = ssh:HOST[:DIR] (a Mac mini or a Linux VM you reach over SSH), local:DIR, or cloud / cloud:staging (the hosted Cloud Chief; needs the person's cloud session token file). Run dry_run true first and tell the person what it found; a real move starts when this turn ends, stops you here and keeps this copy for rollback, so say goodbye in this turn. status: the last move's report. reach: after a move, which SSH hosts, tailnet, fleet and model route answer from this machine. rollback: the old copy answers again. Keys and tokens are never copied: missing ones come back as blockers to give the person.";
+pub const MOVE_DESCRIPTION: &str = "Teleport: move yourself (memory, conversations, settings, subagent transcripts, grants) to another machine. When the person says teleport, move or come back, call this yourself; never ask them for a token or a step. action move (default): to = cloud (the hosted Cloud Chief; the app's sign-in is used), ssh:HOST[:DIR] (a Mac mini or Linux VM over SSH, the host name as the person says it), local:DIR, or home (the Mac you came from). Run dry_run true first; fix any blocker you can (a missing optchat-chief is installed by the move itself) and tell the person only a sign-in or a key you cannot reach. Then the real move: it starts when this turn ends and keeps this copy for rollback, so say goodbye in this turn; your next answer comes from the new place with nothing lost. status: the last move's report. reach: after a move, which SSH hosts, tailnet, fleet and model route answer from here. rollback: the old copy answers again.";
 
 /// The move tool's schema.
 pub fn move_tool() -> Value {
@@ -191,7 +191,8 @@ pub fn tool_list(subagent: bool, allows: &dyn Fn(&str) -> bool) -> Value {
          "inputSchema": {"type": "object", "properties": {
             "text": {"type": "string", "description": "The message, in Markdown."},
             "attachments": {"type": "array", "items": text, "description": "Files to attach: local paths (/abs, ~/rel, file://; images and videos show inline, any other file as a file) or http(s) URLs (a link card)."},
-            "reply_to": {"type": "integer", "minimum": 0, "description": "A user message's line id: the message goes into its thread. Without it: the top level."}},
+            "reply_to": {"type": "integer", "minimum": 0, "description": "A user message's line id: the message goes into its thread. Without it: the top level."},
+            "long": {"type": "boolean", "description": "true when the person asked for a long answer (a full list, a report): it posts on the first send instead of coming back to be cut."}},
           "additionalProperties": false}}));
         list.push(json!({"name": "transcript", "description": TRANSCRIPT_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {

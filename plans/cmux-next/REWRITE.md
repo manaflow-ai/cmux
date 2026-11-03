@@ -179,7 +179,7 @@ Update (2026-10-05, per Leo: "WHY ARE YOU ASKING ME WHO I AM AND WHAT I DO AND N
 
 ## Round 5 decisions (2026-10-01)
 
-- Cmd-D splits inside the focused column only; it never creates a column and never scrolls. "New Column" (Cmd-Opt-D) appends a column after the current one and scrolls to it, and does not resize existing columns (`layout.newColumnWidth` default `matchCurrent`).
+- Cmd-D splits inside the focused column only; it never creates a column and never scrolls. "New Column" (Cmd-Opt-D) appends a column after the current one and scrolls to it, and does not resize existing columns (`layout.newColumnWidth` default `matchCurrent`). (2026-11-03: New Column's key is now Ctrl-Cmd-X, New Row Ctrl-Shift-Cmd-X, key set A, #29866; macOS takes Ctrl-Cmd-D for Look Up and Opt-Cmd-D for Dock hiding.)
 - `layout.splitSizing` default `even`; `layout.closeSizing` default `even`; `layout.closeFocus` default previous neighbor. Every layout default is a user setting.
 - After a user-initiated drop or move, the moved tab gets focus and is revealed (Option files it away). Automation (CLI, MCP, scripts, remote) never changes focus; `origin` marker on action.run, central check.
 - MCP server in the Rust binary, generated from the operation catalogs, off by default, stdio only in phase 1; HTTP with scoped revocable tokens in phase 2.
