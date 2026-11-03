@@ -1,5 +1,6 @@
 //! `acpmux secret-mcp`: the agent's `request_secret` and `run_with_secret`
-//! tools (cx-ncc.42), an MCP stdio server for one agent session that
+//! tools (cx-ncc.42) and `connect_mcp_server` (`hub/mcp_connect.rs`): every
+//! tool here waits on a card only the person answers, an MCP stdio server for one agent session that
 //! `agent_tools.rs` registers. Each call is one daemon request
 //! (`hub/secrets.rs`) for the session in [`SESSION_ENV`]; the value never
 //! passes through here, only the ref.
@@ -58,6 +59,19 @@ fn tools() -> Value {
                     "argv": {"type": "array", "items": {"type": "string"}, "description": "The command and its arguments, e.g. [\"sh\", \"-c\", \"curl -u \\\"$STRIPE_API_KEY:\\\" https://api.stripe.com/v1/balance\"]."}
                 },
                 "required": ["secretRef", "env", "argv"]
+            }
+        },
+        {
+            "name": "connect_mcp_server",
+            "description": "Ask the user to connect an MCP server (a known service such as linear, github, sentry or notion; an https:// URL; or a local command such as `npx -y @scope/server`). cmux checks it, then shows the user a card in this chat with the exact server, its publisher and the access it asks for; only the user can approve it, and they pick who gets it. You never see a token or key. The call waits until the user answers (15 minutes at most, or until your turn ends). Returns status approved (with the scope the user chose), declined, cancelled, or unknown (with near names to suggest). An address that is unsafe (a private network, http:// to another machine, a user name before the host) or a shell line is refused with the reason. Use it only when the user asked for the server.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "server": {"type": "string", "description": "What the user named: a service name, an https URL, or a command line."},
+                    "scope": {"type": "string", "enum": ["chat", "chief", "allChiefs", "agents", "everywhere"], "description": "Your proposal of who gets it; the user decides. Default chat."},
+                    "reason": {"type": "string", "description": "One sentence the card shows: what you will use it for."}
+                },
+                "required": ["server", "reason"]
             }
         }
     ])
@@ -164,6 +178,12 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
                 "name": arguments["name"], "reason": arguments["reason"],
             }),
         ),
+        Some("connect_mcp_server") => (
+            method::MUX_MCP_CONNECT_REQUEST,
+            json!({
+                "server": arguments["server"], "scope": arguments["scope"], "reason": arguments["reason"],
+            }),
+        ),
         Some("run_with_secret") => (
             method::MUX_SECRET_RUN,
             json!({
@@ -183,6 +203,10 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
         Ok(result) => {
             let text = if result["outcome"] == "cancelled" {
                 "The card closed before the user answered (the turn stopped, or a newer ask replaced it).".to_owned()
+            } else if result["status"] == "cancelled" {
+                "The connect card closed before the user answered (the turn stopped, or a newer ask replaced it).".to_owned()
+            } else if result["status"] == "declined" {
+                "The user declined to connect this server.".to_owned()
             } else if result["declined"] == true {
                 "The user declined to give this secret.".to_owned()
             } else {
