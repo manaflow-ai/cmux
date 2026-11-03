@@ -881,10 +881,9 @@ final class CloudService {
 
     /// Runs when a sign-out starts, while the account's tokens still work
     /// (the device hub signs this Mac out of its sessions at once).
-    var willSignOut: [@MainActor () -> Void] = []
+    var willSignOut: [@MainActor () -> Void] = [{ AgentPaneTailCache.shared.clear() }]
 
     func signOut() async {
-        AgentPaneTailCache.shared.clear() // fence pending replies and page reposts before any await
         signedOutCreation.cancel()
         // Start-session asks and runs end now, not after the link and install cleanup below.
         startSessionRuns.forgetAll()
