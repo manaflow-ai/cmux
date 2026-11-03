@@ -3148,6 +3148,402 @@
         }
       }
     },
+    "settings.cloud.tunnel.enabled": {
+      "comment": "Settings > Machines: the Cloud Tunnel toggle.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        }
+      }
+    },
+    "settings.cloud.tunnel.enabled.help": {
+      "comment": "Settings > Machines: help for the Cloud Tunnel toggle.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتيح لكل تطبيق على هذا الـ Mac الوصول إلى العناوين الخاصة لأجهزة Cloud، مثل VPN لشبكة Cloud فقط. يطلب macOS السماح بامتداد الشبكة من cmux مرة واحدة. لا يحتاجه cmux نفسه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Omogućava svakoj aplikaciji na ovom Macu da dosegne privatne adrese vaših Cloud mašina, kao VPN samo za vašu Cloud mrežu. macOS jednom traži da dozvolite cmux mrežnu ekstenziju. Samom cmuxu nije potrebna."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lader alle apps på denne Mac nå dine Cloud-maskiners private adresser, som en VPN kun til dit Cloud-netværk. macOS beder dig én gang om at tillade cmux' netværksudvidelse. cmux selv behøver den ikke."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lässt jede App auf diesem Mac die privaten Adressen deiner Cloud-Maschinen erreichen, wie ein VPN nur für dein Cloud-Netzwerk. macOS fragt einmal, ob du die cmux-Netzwerkerweiterung erlaubst. cmux selbst braucht sie nicht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lets every app on this Mac reach your Cloud machines' private addresses, like a VPN for your Cloud network only. macOS asks you to allow the cmux network extension once. cmux itself does not need it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permite que cualquier app de este Mac llegue a las direcciones privadas de tus máquinas de Cloud, como una VPN solo para tu red de Cloud. macOS te pide una vez que permitas la extensión de red de cmux. cmux no la necesita."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permet à toutes les apps de ce Mac d'atteindre les adresses privées de vos machines Cloud, comme un VPN limité à votre réseau Cloud. macOS vous demande une fois d'autoriser l'extension réseau de cmux. cmux lui-même n'en a pas besoin."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Consente a ogni app di questo Mac di raggiungere gli indirizzi privati delle tue macchine Cloud, come una VPN solo per la tua rete Cloud. macOS ti chiede una volta di consentire l'estensione di rete di cmux. cmux non ne ha bisogno."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac のすべてのアプリから Cloud マシンのプライベートアドレスに接続できるようにします。Cloud ネットワーク専用の VPN のようなものです。macOS が cmux のネットワーク拡張の許可を一度だけ求めます。cmux 自体には必要ありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុញ្ញាតឱ្យកម្មវិធីទាំងអស់នៅលើ Mac នេះទៅដល់អាសយដ្ឋានឯកជននៃម៉ាស៊ីន Cloud របស់អ្នក ដូចជា VPN សម្រាប់តែបណ្ដាញ Cloud។ macOS សួរអ្នកម្ដងដើម្បីអនុញ្ញាតផ្នែកបន្ថែមបណ្ដាញ cmux។ cmux ខ្លួនឯងមិនត្រូវការវាទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac의 모든 앱이 Cloud 머신의 사설 주소에 연결할 수 있게 합니다. Cloud 네트워크 전용 VPN과 같습니다. macOS가 cmux 네트워크 확장 허용을 한 번 요청합니다. cmux 자체에는 필요하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lar alle apper på denne Macen nå de private adressene til Cloud-maskinene dine, som et VPN bare for Cloud-nettverket ditt. macOS ber deg én gang om å tillate cmux sin nettverksutvidelse. cmux selv trenger den ikke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozwala każdej aplikacji na tym Macu łączyć się z prywatnymi adresami Twoich maszyn Cloud, jak VPN tylko dla sieci Cloud. macOS jednorazowo poprosi o zezwolenie na rozszerzenie sieciowe cmux. Sam cmux go nie potrzebuje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permite que qualquer app deste Mac acesse os endereços privados das suas máquinas Cloud, como uma VPN só para a sua rede Cloud. O macOS pede uma vez que você permita a extensão de rede do cmux. O próprio cmux não precisa dela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Позволяет любому приложению на этом Mac обращаться к частным адресам ваших машин Cloud, как VPN только для сети Cloud. macOS один раз попросит разрешить сетевое расширение cmux. Самому cmux оно не нужно."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ให้ทุกแอปบน Mac เครื่องนี้เข้าถึงที่อยู่ส่วนตัวของเครื่อง Cloud ของคุณ เหมือน VPN สำหรับเครือข่าย Cloud เท่านั้น macOS จะขอให้คุณอนุญาตส่วนขยายเครือข่ายของ cmux หนึ่งครั้ง ตัว cmux เองไม่ต้องใช้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu Mac'teki her uygulamanın Cloud makinelerinizin özel adreslerine erişmesini sağlar; yalnızca Cloud ağınız için bir VPN gibi. macOS, cmux ağ uzantısına izin vermenizi bir kez ister. cmux'un kendisinin buna ihtiyacı yoktur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дає змогу кожній програмі на цьому Mac звертатися до приватних адрес ваших машин Cloud, як VPN лише для мережі Cloud. macOS один раз попросить дозволити мережеве розширення cmux. Самому cmux воно не потрібне."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cho phép mọi ứng dụng trên máy Mac này truy cập địa chỉ riêng của các máy Cloud, giống VPN chỉ cho mạng Cloud. macOS sẽ hỏi bạn một lần để cho phép tiện ích mở rộng mạng của cmux. Bản thân cmux không cần nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "让这台 Mac 上的所有 App 都能访问你的 Cloud 机器的私有地址，就像只用于 Cloud 网络的 VPN。macOS 会请你允许一次 cmux 网络扩展。cmux 本身不需要它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "讓這台 Mac 上的所有 App 都能存取你的 Cloud 機器的私有位址，就像只用於 Cloud 網路的 VPN。macOS 會請你允許一次 cmux 網路延伸功能。cmux 本身不需要它。"
+          }
+        }
+      }
+    },
+    "settings.group.cloudTunnel": {
+      "comment": "Settings > Machines: the Cloud Tunnel group.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        }
+      }
+    },
     "settings.home.bubbleColors.default": {
       "comment": "Default label of the Home bubble color rows (home.bubbleColors.*): unset keeps the Bubble Style's color.",
       "extractionState": "manual",
@@ -200182,6 +200578,60 @@
             "value": "對話在停止並等待你之前重試的次數。"
           }
         }
+      }
+    },
+    "settings.cloud.agentsStartWithoutAsking": {
+      "comment": "Settings > Machines: toggle that lets agents start Cloud machines and sessions with no Start card in their chat.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Let Agents Start Cloud Sessions Without Asking"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "السماح للوكلاء ببدء جلسات سحابية دون سؤال"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Dozvoli agentima da pokreću Cloud sesije bez pitanja"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Lad agenter starte Cloud-sessioner uden at spørge"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Agents Cloud-Sitzungen ohne Nachfrage starten lassen"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Permitir que los agentes inicien sesiones en la nube sin preguntar"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Laisser les agents démarrer des sessions Cloud sans demander"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Consenti agli agenti di avviare sessioni Cloud senza chiedere"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "確認なしでエージェントにクラウドセッションを開始させる"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "អនុញ្ញាតឱ្យភ្នាក់ងារចាប់ផ្ដើមវគ្គ Cloud ដោយមិនសួរ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "묻지 않고 에이전트가 클라우드 세션 시작"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "La agenter starte Cloud-økter uten å spørre"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Pozwól agentom uruchamiać sesje w chmurze bez pytania"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Permitir que agentes iniciem sessões na nuvem sem perguntar"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Разрешить агентам запускать облачные сеансы без вопроса"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ให้เอเจนต์เริ่มเซสชันคลาวด์โดยไม่ต้องถาม"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Ajanların sormadan bulut oturumu başlatmasına izin ver"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Дозволити агентам запускати хмарні сеанси без запиту"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Cho phép tác tử khởi động phiên đám mây mà không cần hỏi"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "允许智能体无需询问即启动云端会话"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "允許代理程式不經詢問即啟動雲端工作階段"}}
+      }
+    },
+    "settings.cloud.agentsStartWithoutAsking.help": {
+      "comment": "Settings > Machines: help for the Let Agents Start Cloud Sessions Without Asking toggle (keep the command in backticks).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يُنشئ أمر `cmux cloud start-session` الخاص بالوكيل الجهاز السحابي أو يستأنفه ويبدأ جلسته دون بطاقة بدء في المحادثة. أنت وحدك من يمكنه تفعيل هذا."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Agentov `cmux cloud start-session` kreira ili nastavlja Cloud mašinu i pokreće sesiju bez kartice Pokreni u četu. Samo ti ovo možeš uključiti."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "En agents `cmux cloud start-session` opretter eller genoptager Cloud-maskinen og starter sessionen uden Start-kort i chatten. Kun du kan slå dette til."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "`cmux cloud start-session` eines Agents erstellt oder setzt die Cloud-Maschine fort und startet die Sitzung ohne Starten-Karte im Chat. Nur du kannst das einschalten."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "El `cmux cloud start-session` de un agente crea o reanuda la máquina en la nube e inicia su sesión sin la tarjeta Iniciar en el chat. Solo tú puedes activarlo."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Le `cmux cloud start-session` d'un agent crée ou reprend la machine Cloud et démarre sa session sans carte Démarrer dans le chat. Vous seul pouvez l'activer."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Il `cmux cloud start-session` di un agente crea o riprende la macchina Cloud e avvia la sessione senza la scheda Avvia nella chat. Solo tu puoi attivarlo."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "エージェントの `cmux cloud start-session` が、チャットに 開始 カードを出さずにクラウドマシンを作成または再開してセッションを開始します。これをオンにできるのはあなただけです。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "`cmux cloud start-session` របស់ភ្នាក់ងារ បង្កើត ឬបន្តម៉ាស៊ីន Cloud ហើយចាប់ផ្ដើមវគ្គដោយគ្មានកាត ចាប់ផ្ដើម នៅក្នុងការជជែក។ មានតែអ្នកទេដែលអាចបើកវាបាន។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "에이전트의 `cmux cloud start-session`이 채팅에 시작 카드 없이 클라우드 머신을 만들거나 재개하고 세션을 시작합니다. 이 설정은 본인만 켤 수 있습니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "En agents `cmux cloud start-session` oppretter eller gjenopptar Cloud-maskinen og starter økten uten Start-kort i chatten. Bare du kan slå dette på."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Polecenie `cmux cloud start-session` agenta tworzy lub wznawia maszynę w chmurze i uruchamia sesję bez karty Uruchom w czacie. Tylko Ty możesz to włączyć."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "O `cmux cloud start-session` de um agente cria ou retoma a máquina na nuvem e inicia a sessão sem o cartão Iniciar no chat. Só você pode ativar isso."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Команда `cmux cloud start-session` агента создаёт или возобновляет облачную машину и запускает сеанс без карточки «Запустить» в чате. Включить это можете только вы."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "`cmux cloud start-session` ของเอเจนต์จะสร้างหรือกลับมาใช้เครื่องคลาวด์และเริ่มเซสชันโดยไม่มีการ์ด เริ่ม ในแชท มีเพียงคุณเท่านั้นที่เปิดตัวเลือกนี้ได้"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bir ajanın `cmux cloud start-session` komutu, sohbette Başlat kartı olmadan bulut makinesini oluşturur veya sürdürür ve oturumunu başlatır. Bunu yalnızca siz açabilirsiniz."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Команда `cmux cloud start-session` агента створює або відновлює хмарну машину й запускає сеанс без картки «Запустити» в чаті. Увімкнути це можете лише ви."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Lệnh `cmux cloud start-session` của tác tử sẽ tạo hoặc tiếp tục máy đám mây và khởi động phiên mà không hiện thẻ Bắt đầu trong cuộc trò chuyện. Chỉ bạn mới có thể bật tùy chọn này."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "智能体的 `cmux cloud start-session` 会创建或恢复云端机器并启动会话，聊天中不显示“开始”卡片。只有你可以打开此项。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "代理程式的 `cmux cloud start-session` 會建立或恢復雲端機器並啟動工作階段，聊天中不顯示「開始」卡片。只有你可以開啟此項。"}}
       }
     }
   },

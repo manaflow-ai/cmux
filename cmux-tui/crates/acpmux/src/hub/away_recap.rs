@@ -8,8 +8,12 @@
 //! when, the way Claude Code does:
 //!
 //! - The person left: no attached client shows the chat any more
-//!   (`seen.rs`). A chat nobody has shown since the daemon started gets no
-//!   recap: an agent's or a lane's chat is never read that way.
+//!   (`seen.rs`). A chat no person has shown since the daemon started gets
+//!   no recap: an agent's or a lane's chat is never read that way. A person
+//!   shows a chat by attaching to it or viewing it (`_acpmux/attach`,
+//!   `_acpmux/view`), here or through a peer daemon's link; the subscription
+//!   a prompt, `session/new` or a resume makes for whoever sent it (an agent
+//!   driving the chat), and a link's own hidden attach, do not count.
 //! - `ASK_AFTER` past the later of that and the last turn's end, while it is
 //!   still not shown, idle and its Claude Code process still runs, the recap
 //!   is asked for (`claude_stdio::RECAP`): Claude Code's own prompt as a
@@ -52,7 +56,7 @@ const MAX_CHARS: usize = 400;
 /// A chat's away state, this daemon run only.
 #[derive(Debug, Default)]
 pub(crate) struct Away {
-    /// Some client has shown the chat since the daemon started.
+    /// A person has shown the chat since the daemon started (`recap_person_shows`).
     seen: bool,
     /// Hub clock nanos when the person stopped showing the chat; None while it is shown, or
     /// when nobody has shown it since the daemon started.
@@ -116,6 +120,18 @@ impl Hub {
         }
     }
 
+    /// A person shows `session`: an `_acpmux/attach` that shows it, or `_acpmux/view` `visible`
+    /// (`server/view.rs`). From then on, leaving it starts an away period.
+    pub(crate) fn recap_person_shows(&self, session: &Session) {
+        session.away.lock().unwrap_or_else(|e| e.into_inner()).seen = true;
+    }
+
+    /// Whether a person has shown chat `id` since the daemon started (`recap_person_shows`).
+    #[doc(hidden)]
+    pub fn recap_person_seen(&self, id: &str) -> bool {
+        self.resolve(id).is_ok_and(|s| s.away.lock().unwrap_or_else(|e| e.into_inner()).seen)
+    }
+
     /// Whether some client shows `session` changed (`seen.rs`). Leaving it starts the away
     /// period; showing it again after `AWAY` logs the recap made meanwhile.
     pub(super) fn recap_visibility(&self, session: &Session) {
@@ -130,7 +146,6 @@ impl Hub {
             }
             return;
         }
-        away.seen = true;
         let Some(left_at) = away.left_at.take() else { return };
         self.recap_due.lock().unwrap_or_else(|e| e.into_inner()).remove(&session.id);
         let away_for = Duration::from_nanos(now.saturating_sub(left_at));
