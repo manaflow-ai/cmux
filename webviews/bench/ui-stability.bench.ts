@@ -214,7 +214,7 @@ try {
           `${quiet.frames} ${quiet.idleCallbacks} ${quiet.animations}) | ${quiet.cpuMs === null ? "-" : quiet.cpuMs.toFixed(1)}` +
           (quiet.pageLoops === null ? "" : ` | page loops ${quiet.pageLoops}`),
       );
-      for (const source of quiet.sources.slice(0, 4)) console.log(`  woke: ${source}`);
+      for (const source of quiet.sources.slice(0, 12)) console.log(`  woke: ${source}`);
       for (const shift of rounds.at(-1)!.shifted.slice(0, 4)) console.log(`  shifted: ${shift}`);
       const name = `ui.${surface.name}${suffix}`;
       const target = surface.kind === "open" ? TARGET_MS.load : TARGET_MS.response;

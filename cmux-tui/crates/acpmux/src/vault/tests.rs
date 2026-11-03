@@ -997,16 +997,19 @@ fn a_load_reads_nothing_past_its_deadline() {
 
 #[test]
 fn the_store_probe_needs_a_write_a_read_and_a_delete() {
-    use super::store::{PROBE_NAME, probe};
+    use super::store::{probe, probe_as, probe_name};
     let usable = MemoryStore::default();
     assert!(probe(&usable));
-    assert!(usable.get(PROBE_NAME).unwrap().is_none(), "the probe item is removed");
+    assert!(usable.items.lock().unwrap().is_empty(), "the probe item is removed");
     // A headless Mac over ssh: the store is there but takes no write.
-    let no_write = MemoryStore { fail_put: Some(PROBE_NAME.to_owned()), ..MemoryStore::default() };
-    assert!(!probe(&no_write));
+    let name = probe_name();
+    let no_write = MemoryStore { fail_put: Some(name.clone()), ..MemoryStore::default() };
+    assert!(!probe_as(&no_write, &name));
     let none = MemoryStore { unavailable: true, ..MemoryStore::default() };
     assert!(!probe(&none));
-    assert!(!crate::login_env::machine_env_name_allowed(PROBE_NAME), "never a vault name");
+    assert!(!crate::login_env::machine_env_name_allowed(&name), "never a vault name");
+    // Each probe has an item of its own: concurrent probes never collide.
+    assert_ne!(probe_name(), probe_name());
 }
 
 #[test]

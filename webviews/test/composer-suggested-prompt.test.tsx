@@ -532,3 +532,93 @@ test("the + menu lists at most three recent commands, then Commands and skillsâ€
     localStorage.removeItem("cmux.acpmux.recentSlashCommands");
   }
 });
+
+// Claude Code's own guess at the next prompt after a turn (acpmux `prompt_suggestion`; Leo
+// 2026-11-03: "i know there's suggested prompts that you can right arrow/tab to do stuff with...
+// maybe we can expose it in cmux-next too"). An existing chat's empty prompt shows it as the ghost
+// text with the Tab keycap; Tab, or Right-arrow in the empty field, writes it and never sends.
+// Typing spends it, a draft already there hides it, and keys over a non-empty prompt or an open
+// menu do what they did before.
+const AGENT_SUGGESTION = "Run the tests and commit";
+const afterTurn = (fields: Partial<AcpmuxSnapshot> = {}) =>
+  noChat([], {
+    sessionId: "chat",
+    summary: { sessionId: "chat", cwd: APP, turnCount: 2 } as never,
+    rows: [user("Rename the helper", 1)],
+    promptSuggestion: { text: AGENT_SUGGESTION, seq: 9 },
+    ...fields,
+  });
+type TypingField = HTMLElement & {
+  acpmuxMarkdownField?: { insertTyped(text: string): void; type(markdown: string): boolean };
+};
+const typeText = (text: string) =>
+  act(async () =>
+    [...host.querySelectorAll<TypingField>("*")]
+      .find((node) => node.acpmuxMarkdownField)!
+      .acpmuxMarkdownField!.insertTyped(text),
+  );
+
+test("an existing chat's agent suggestion shows as the empty prompt's ghost text with the Tab keycap", async () => {
+  await render(afterTurn());
+  expect(shown()).toBe(`${AGENT_SUGGESTION}Tab`);
+  expect(key()).toBe("Tab");
+});
+
+test("an older acpmux that sends none, or a turn running, shows the plain placeholder", async () => {
+  await render(afterTurn({ promptSuggestion: undefined }));
+  expect(shown()).toBe(IDLE);
+  expect(key()).toBeUndefined();
+  await render(afterTurn({ isWorking: true }));
+  expect(shown()).not.toContain(AGENT_SUGGESTION);
+  expect(key()).toBeUndefined();
+});
+
+test("Tab or Right-arrow writes the agent suggestion without sending; with a modifier neither does", async () => {
+  for (const name of ["Tab", "ArrowRight"]) {
+    sent = 0;
+    act(() => root?.unmount());
+    root = undefined;
+    await render(afterTurn());
+    await press(name, { shiftKey: true });
+    await press(name, { metaKey: true });
+    expect(field().textContent).toBe("");
+    await press(name);
+    expect(field().textContent).toBe(AGENT_SUGGESTION);
+    expect(sent).toBe(0);
+  }
+});
+
+test("typing spends the agent suggestion: emptying the field again does not bring it back", async () => {
+  await render(afterTurn());
+  await typeText("x");
+  expect(host.querySelector<HTMLElement>(".acpmux-md-placeholder")?.hidden).toBe(true);
+  await act(async () => {
+    [...host.querySelectorAll<TypingField>("*")]
+      .find((node) => node.acpmuxMarkdownField)!
+      .acpmuxMarkdownField!.type("");
+  });
+  expect(field().textContent).toBe("");
+  expect(shown()).toBe(IDLE);
+  await press("Tab");
+  await press("ArrowRight");
+  expect(field().textContent).toBe("");
+  // The next turn's suggestion (a newer record) shows again.
+  await render(afterTurn({ promptSuggestion: { text: "Open a PR", seq: 20 } }));
+  expect(shown()).toBe("Open a PRTab");
+});
+
+test("a suggestion that arrives over a draft is not shown, and keys over the draft keep their behaviour", async () => {
+  await render(afterTurn(), undefined, undefined, "half a thought");
+  expect(field().textContent).toBe("half a thought");
+  await press("ArrowRight");
+  await press("Tab");
+  expect(field().textContent).toBe("half a thought");
+});
+
+test("with the / menu open, Tab picks the command, not the agent suggestion", async () => {
+  await render(afterTurn({ commands: [{ name: "review", description: "Review the diff", source: "agent" }] }));
+  await typeText("/rev");
+  await press("Tab");
+  expect(field().textContent).not.toContain(AGENT_SUGGESTION);
+  expect(field().textContent).toStartWith("/review");
+});

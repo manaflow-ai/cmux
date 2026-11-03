@@ -106,9 +106,18 @@ impl SecretStore for ProcessMemory {
     }
 }
 
-/// The item [`probe`] writes and removes again: no env name the vault can
-/// carry has a dot.
-pub const PROBE_NAME: &str = ".probe";
+/// The prefix of the item [`probe`] writes and removes again: no env name the
+/// vault can carry has a dot.
+pub const PROBE_PREFIX: &str = ".probe-";
+
+/// A probe item name of its own per call (the process id and a counter), so
+/// two processes probing at once (the CLI and the daemon) never read or
+/// delete each other's item.
+pub fn probe_name() -> String {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    format!("{PROBE_PREFIX}{}-{n}", std::process::id())
+}
 
 /// Whether this process can write, read back and remove an item in the OS
 /// store, checked once per process: `false` without one, and on a Mac whose
@@ -125,14 +134,20 @@ pub fn os_usable_known() -> Option<bool> {
     USABLE.get().copied()
 }
 
-/// Write, read back and remove [`PROBE_NAME`] (a fixed, non-secret value).
+/// Write, read back and remove a [`probe_name`] item (a fixed, non-secret value).
 pub fn probe(store: &dyn SecretStore) -> bool {
+    probe_as(store, &probe_name())
+}
+
+/// [`probe`] with the item `name`.
+pub fn probe_as(store: &dyn SecretStore, name: &str) -> bool {
     const MARK: &str = "cmux vault probe";
-    if !store.available() || store.put(PROBE_NAME, MARK).is_err() {
+    if !store.available() || store.put(name, MARK).is_err() {
         return false;
     }
-    let read = matches!(store.get(PROBE_NAME), Ok(Some(v)) if v.as_str() == MARK);
-    store.delete(PROBE_NAME).is_ok() && read
+    let read = matches!(store.get(name), Ok(Some(v)) if v.as_str() == MARK);
+    let removed = store.delete(name).is_ok();
+    removed && read
 }
 
 /// The store the daemon keeps values in: the OS store when [`os_usable`],
@@ -363,62 +378,69 @@ pub fn decode(item: &str) -> Option<Zeroizing<String>> {
     Some(Zeroizing::new(text.to_owned()))
 }
 
-/// A store in memory, for tests.
 #[cfg(test)]
-#[derive(Default)]
-pub struct MemoryStore {
-    pub items: std::sync::Mutex<std::collections::BTreeMap<String, Zeroizing<String>>>,
-    pub unavailable: bool,
-    /// Deletes fail (a locked keychain).
-    pub fail_delete: std::sync::atomic::AtomicBool,
-    /// Reads fail.
-    pub fail_get: std::sync::atomic::AtomicBool,
-    /// Writes of this name fail.
-    pub fail_put: Option<String>,
-    /// Kind `memory`: stands for the daemon's memory store.
-    pub memory_mode: bool,
-    /// The OS store a memory-mode store cleans up (`os_leftovers`).
-    pub leftovers: Option<Box<MemoryStore>>,
-}
+pub use memory::MemoryStore;
 
+/// A store in memory, for tests: a test module, so its lock unwraps are test code.
 #[cfg(test)]
-impl SecretStore for MemoryStore {
-    fn kind(&self) -> &'static str {
-        if self.unavailable {
-            "unavailable"
-        } else if self.memory_mode {
-            "memory"
-        } else {
-            "test"
-        }
+pub mod memory {
+    use super::{SecretStore, UNAVAILABLE};
+    use zeroize::Zeroizing;
+
+    #[derive(Default)]
+    pub struct MemoryStore {
+        pub items: std::sync::Mutex<std::collections::BTreeMap<String, Zeroizing<String>>>,
+        pub unavailable: bool,
+        /// Deletes fail (a locked keychain).
+        pub fail_delete: std::sync::atomic::AtomicBool,
+        /// Reads fail.
+        pub fail_get: std::sync::atomic::AtomicBool,
+        /// Writes of this name fail.
+        pub fail_put: Option<String>,
+        /// Kind `memory`: stands for the daemon's memory store.
+        pub memory_mode: bool,
+        /// The OS store a memory-mode store cleans up (`os_leftovers`).
+        pub leftovers: Option<Box<MemoryStore>>,
     }
-    fn put(&self, name: &str, value: &str) -> Result<(), &'static str> {
-        if self.unavailable {
-            return Err(UNAVAILABLE);
+
+    impl SecretStore for MemoryStore {
+        fn kind(&self) -> &'static str {
+            if self.unavailable {
+                "unavailable"
+            } else if self.memory_mode {
+                "memory"
+            } else {
+                "test"
+            }
         }
-        if self.fail_put.as_deref() == Some(name) {
-            return Err("vault.secret_store_write_failed");
+        fn put(&self, name: &str, value: &str) -> Result<(), &'static str> {
+            if self.unavailable {
+                return Err(UNAVAILABLE);
+            }
+            if self.fail_put.as_deref() == Some(name) {
+                return Err("vault.secret_store_write_failed");
+            }
+            self.items.lock().unwrap().insert(name.to_owned(), Zeroizing::new(value.to_owned()));
+            Ok(())
         }
-        self.items.lock().unwrap().insert(name.to_owned(), Zeroizing::new(value.to_owned()));
-        Ok(())
-    }
-    fn get(&self, name: &str) -> Result<Option<Zeroizing<String>>, &'static str> {
-        if self.fail_get.load(std::sync::atomic::Ordering::SeqCst) {
-            return Err("vault.secret_store_read_failed");
+        fn get(&self, name: &str) -> Result<Option<Zeroizing<String>>, &'static str> {
+            if self.fail_get.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err("vault.secret_store_read_failed");
+            }
+            Ok(self.items.lock().unwrap().get(name).cloned())
         }
-        Ok(self.items.lock().unwrap().get(name).cloned())
-    }
-    fn delete(&self, name: &str) -> Result<(), &'static str> {
-        if self.unavailable {
-            return Err(UNAVAILABLE);
+        fn delete(&self, name: &str) -> Result<(), &'static str> {
+            if self.unavailable {
+                return Err(UNAVAILABLE);
+            }
+            if self.fail_delete.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err("vault.secret_store_delete_failed");
+            }
+            self.items.lock().unwrap().remove(name);
+            Ok(())
         }
-        if self.fail_delete.load(std::sync::atomic::Ordering::SeqCst) {
-            return Err("vault.secret_store_delete_failed");
+        fn os_leftovers(&self) -> Option<&dyn SecretStore> {
+            self.leftovers.as_deref().map(|s| s as &dyn SecretStore)
         }
-        self.items.lock().unwrap().remove(name);
-        Ok(())
-    }
-    fn os_leftovers(&self) -> Option<&dyn SecretStore> {
-        self.leftovers.as_deref().map(|s| s as &dyn SecretStore)
     }
 }
