@@ -74,11 +74,15 @@ import CmuxNextSettings
         if let page = view.page {
             // A Chromium chat is a window above the pane: it leaves the pane's tabs and toolbar uncovered.
             // The holes are worked out from the row's top-left corner; the chat view is not flipped, so
-            // its top is maxY (at y 0 they cut the composer's footer out of the page instead).
-            let top = view.isFlipped ? view.bounds.minY : view.bounds.maxY - height
-            let holes = shares ? nativeHoles(width: view.bounds.width, height: height, trailingInset: max(0, trailingInset),
+            // each one is mirrored from its own maxY (a hole shorter than the row, the rim's, stays at the
+            // top; at y 0 they cut the composer's footer out of the page instead).
+            let bounds = view.bounds, flipped = view.isFlipped
+            let holes = shares ? nativeHoles(width: bounds.width, height: height, trailingInset: max(0, trailingInset),
                                              tools: row.sharedWidth(zoom: zoom) ?? 0, tabs: row.tabsShown) : []
-            row.holes = holes.map { page.convert($0.offsetBy(dx: view.bounds.minX, dy: top), from: view) }
+            row.holes = holes.map { hole in
+                let y = flipped ? bounds.minY + hole.minY : bounds.maxY - hole.maxY
+                return page.convert(CGRect(x: bounds.minX + hole.minX, y: y, width: hole.width, height: hole.height), from: view)
+            }
             view.applyNativeRects()
         }
         guard row.offered.map({ $0 != next || row.offeredNativeRowTools != nativeRowTools }) ?? (next.height > 0 || nativeRowTools) else { return }
