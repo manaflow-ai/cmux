@@ -5,17 +5,14 @@ import QuartzCore
 public struct FrameTick: Sendable {
     /// Display-link time of this frame (CACurrentMediaTime base).
     public var timestamp: CFTimeInterval
-    /// Seconds since the previous frame, clamped to 1/240...1/30.
-    public var elapsed: Double
-    /// Seconds since the previous frame, unclamped (frame-pacing probes).
-    public var rawElapsed: Double
     /// The display's refresh period; nil for a synthesized (stalled) frame.
     public var refreshInterval: Double?
     /// The time this frame shows: the display link's `targetTimestamp`; for a synthesized frame, when it was made.
     public var targetTimestamp: CFTimeInterval
     /// Seconds from the time the previous frame showed to the time this one shows, at most
-    /// ``FrameScheduler/catchUpLimit``: after a late frame, motion stepped by it lands where its curve is at
-    /// ``targetTimestamp``. The first frame from rest shows one refresh period (1/60 s for a synthesized one).
+    /// ``FrameScheduler/catchUpLimit``: every motion client steps by it, so each frame shows its curve at
+    /// ``targetTimestamp``, also after a refresh-rate change or a late frame. The first frame from rest shows one
+    /// refresh period (1/60 s for a synthesized one).
     public var frameElapsed: Double
 }
 

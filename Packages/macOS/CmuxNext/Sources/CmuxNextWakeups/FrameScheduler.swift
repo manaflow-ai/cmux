@@ -102,7 +102,6 @@ public final class FrameScheduler: NSObject {
     private let ledger: WakeupLedger
     private let stall: DemandTimer
     private var stalls = 0
-    private var lastTimestamp: CFTimeInterval?
     /// The time the last frame showed (``FrameTick/targetTimestamp``).
     private var lastTarget: CFTimeInterval?
     private let mediaTime: @MainActor () -> CFTimeInterval
@@ -174,7 +173,7 @@ public final class FrameScheduler: NSObject {
             return
         }
         if link.isPaused {
-            (lastTimestamp, lastTarget) = (nil, nil)
+            lastTarget = nil
             link.isPaused = false
         }
         if !stall.isScheduled { lastLinkFrame = mediaTime() }
@@ -197,7 +196,7 @@ public final class FrameScheduler: NSObject {
     func pause() {
         link?.invalidate()
         link = nil
-        (lastTimestamp, lastTarget) = (nil, nil)
+        lastTarget = nil
         stall.cancel()
         stalls = 0
     }
@@ -211,7 +210,7 @@ public final class FrameScheduler: NSObject {
         link?.invalidate()
         link = nil
         // A window shown again (Reopen Closed Window) keeps its scheduler: its next first frame is one refresh.
-        (lastTimestamp, lastTarget) = (nil, nil)
+        lastTarget = nil
         closeObserver = nil
     }
 
@@ -299,17 +298,13 @@ public final class FrameScheduler: NSObject {
         // period (one frame of motion, as every frame after it), not 1/60 s, which put the first moving frame of
         // every animation from rest two refreshes along its curve at 120 Hz. A synthesized frame has none: 1/60.
         let interval = refreshInterval.flatMap { $0 > 0 && $0.isFinite ? $0 : nil }
-        let firstElapsed = interval ?? (1.0 / 60.0)
-        let elapsed = lastTimestamp.map { now - $0 } ?? firstElapsed
-        lastTimestamp = now
         // The time the frame shows (a synthesized one shows when it is made) and the motion to it from the time the
         // previous frame showed: a late frame catches up on the curve (FRAME OWNER S2), at most `catchUpLimit`.
         let target = timestamp.map { $0 + (interval ?? 0) } ?? mediaTime()
-        let shown = min(max(lastTarget.map { target - $0 } ?? firstElapsed, 0), Self.catchUpLimit)
+        let shown = min(max(lastTarget.map { target - $0 } ?? interval ?? (1.0 / 60.0), 0), Self.catchUpLimit)
         // Never back: a link frame due before a synthesized one that ran late steps 0 and the motion stays on its curve.
         lastTarget = max(lastTarget ?? target, target)
-        let tick = FrameTick(timestamp: now, elapsed: min(max(elapsed, 1.0 / 240.0), 1.0 / 30.0),
-                             rawElapsed: elapsed, refreshInterval: refreshInterval, targetTimestamp: target, frameElapsed: shown)
+        let tick = FrameTick(timestamp: now, refreshInterval: refreshInterval, targetTimestamp: target, frameElapsed: shown)
         // Visible motion (not batch work) explains CPU use to the busy watchdog.
         if clients.values.contains(where: { $0.isActive && $0.isAnimation }) {
             ExpectedActivity.shared.note(.animationFrame)

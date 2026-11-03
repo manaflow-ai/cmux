@@ -37,7 +37,7 @@ struct DividerDragState {
     var pointerShift: CGFloat = 0
     /// The last window point of the drag: a modifier change with no move re-applies there.
     var lastWindowPoint: NSPoint = .zero
-    /// With `motion.frameOwner.timing` on: the pointer and keys of an event the window's next frame tick writes
+    /// The pointer and keys of an event that the window's next frame tick writes
     /// (`DividerDrag.applyWaiting`), and the frame ticks the drag still keeps after its last event, so a still pointer
     /// between two events does not drop the window's display link (`ScreenContentView.panTickTail`, as a strip pan).
     var waiting = false
