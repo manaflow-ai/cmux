@@ -538,7 +538,7 @@ final class RemoteTmuxViewConnection {
         }
         guard let lines = await reconcileListQuery(
             conn,
-            "list-windows -t \(quoted(view.sessionName)) -F '#{window_id} #{window_linked} #{\(RemoteTmuxViewSession.optLinked)}'"
+            "list-windows -t \(quoted(view.sessionName)) -F \(quoted(Self.bringupListFormat))"
         ) else { return false }
         // No separate wait for the writes: tmux answers commands in the order it received
         // them, so their blocks have already resolved by the time this reply arrives. A
@@ -567,9 +567,15 @@ final class RemoteTmuxViewConnection {
     /// copies unlinked. A window in the view alone without the mark was created there by
     /// somebody else. It is not ours, because reconcile unlinks dead copies with `-k`, which would
     /// destroy it; ``RemoteTmuxViewOnlyWindows`` moves it into a real session instead.
+    /// The bringup's `list-windows -F` format: id, linked flag, the window's mark, and the
+    /// view's ``RemoteTmuxViewSession/optMarksSettled`` flag (a session option, which tmux
+    /// reads through a window format).
+    nonisolated static let bringupListFormat =
+        "#{window_id} #{window_linked} #{\(RemoteTmuxViewSession.optLinked)} #{\(RemoteTmuxViewSession.optMarksSettled)}"
+
     nonisolated static func readBringupRows(
         _ lines: [String]
-    ) -> (placeholder: String?, adopted: Set<String>) {
+    ) -> (placeholder: String?, adopted: Set<String>, marksSettled: Bool, toMark: [String]) {
         let rows = lines.compactMap { line -> (id: String, isLinked: Bool, isMarked: Bool)? in
             let fields = line.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
             guard let id = fields.first, !id.isEmpty else { return nil }
@@ -578,7 +584,7 @@ final class RemoteTmuxViewConnection {
         let placeholder = (rows.first { !$0.isLinked && !$0.isMarked } ?? rows.first { !$0.isLinked } ?? rows.first)?.id
         var adopted = Set(rows.filter { $0.isLinked || $0.isMarked }.map(\.id))
         if let placeholder { adopted.remove(placeholder) }
-        return (placeholder, adopted)
+        return (placeholder, adopted, true, [])
     }
 
     /// Kills our own stale views (an older name or format version) over the stream.

@@ -112,6 +112,78 @@ import Testing
         try tmux.run(["source-file", commands.path])
 
         #expect(try tmux.windowIds(session: "main") == [a, b, x, y, c, z])
+        // Each link carries its mark in the same command sequence, so an adopted window is
+        // known as cmux's on the next bringup.
+        for id in [x, y, z] { #expect(try tmux.windowMark(id) == "1", "\(id) has no mark") }
+    }
+
+    /// The mark rides in the same tmux command sequence as the link, and tmux skips the rest of
+    /// a sequence once a command fails. A link tmux refuses therefore leaves its window
+    /// unmarked, free to be adopted later, instead of marked as cmux's and destroyed by the
+    /// next reconcile's `unlink-window -k`.
+    @Test(.enabled(if: ViewOnlyTmuxServer.binary != nil))
+    func aLinkTmuxRefusesLeavesItsWindowUnmarkedInARealTmux() throws {
+        let tmux = try ViewOnlyTmuxServer()
+        defer { tmux.stop() }
+        _ = try tmux.run(["new-session", "-d", "-s", "view"])
+        let x = try tmux.run(["new-window", "-d", "-t", "=view:", "-P", "-F", "#{window_id}"])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let command = try #require(RemoteTmuxViewOnlyWindows.linkCommands([
+            .init(windowId: x, sessionName: "gone", afterWindowId: "@999"),
+        ]).first)
+        let file = tmux.directory.appendingPathComponent("refused.conf")
+        try command.write(to: file, atomically: true, encoding: .utf8)
+        tmux.runIgnoringFailure(["source-file", file.path])
+
+        #expect(try tmux.windowMark(x) == "")
+        #expect(try tmux.windowIds(session: "view").contains(x))
+    }
+
+    /// The bringup reads the view's settled flag through a window format, where tmux falls back
+    /// from window options to the session's.
+    @Test(.enabled(if: ViewOnlyTmuxServer.binary != nil))
+    func theBringupFormatReadsTheViewsFlagAndEachMarkInARealTmux() throws {
+        let tmux = try ViewOnlyTmuxServer()
+        defer { tmux.stop() }
+        let placeholder = try tmux.run(["new-session", "-d", "-s", "view", "-P", "-F", "#{window_id}"])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let marked = try tmux.run(["new-window", "-d", "-t", "=view:", "-P", "-F", "#{window_id}"])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        _ = try tmux.run(["set-option", "-w", "-t", marked, RemoteTmuxViewSession.optLinked, "1"])
+        let format = RemoteTmuxViewConnection.bringupListFormat
+        let before = try tmux.run(["list-windows", "-t", "=view", "-F", format]).split(separator: "\n").map(String.init)
+        #expect(RemoteTmuxViewConnection.readBringupRows(before).marksSettled == false)
+
+        _ = try tmux.run(["set-option", "-t", "view", RemoteTmuxViewSession.optMarksSettled, "1"])
+        let after = try tmux.run(["list-windows", "-t", "=view", "-F", format]).split(separator: "\n").map(String.init)
+        let read = RemoteTmuxViewConnection.readBringupRows(after)
+        #expect(read.marksSettled)
+        #expect(read.placeholder == placeholder)
+        #expect(read.adopted == [marked])
+    }
+
+    /// Owning an adopted window waits for tmux's answer to its link, not for the write to queue.
+    @Test @MainActor func anAdoptedWindowIsOwnedOnlyOnceTmuxAcceptsItsLink() {
+        var completions: [(Bool) -> Void] = []
+        var sent: [String] = []
+        var owned: [String] = []
+        RemoteTmuxViewConnection.adopt(
+            [
+                .init(windowId: "@7", sessionName: "main", afterWindowId: "@1"),
+                .init(windowId: "@8", sessionName: "main", afterWindowId: "@7"),
+            ],
+            send: { command, completion in
+                sent.append(command)
+                completions.append(completion)
+                return true
+            },
+            onLinked: { owned.append($0) }
+        )
+        #expect(sent.count == 2)
+        #expect(owned.isEmpty, "a queued link is not a link yet")
+        completions[0](true)
+        completions[1](false)
+        #expect(owned == ["@7"])
     }
 
     /// The bringup reads which view windows cmux linked from the mark it leaves on each window,
@@ -119,9 +191,23 @@ import Testing
     /// mark was created there, and must stay free to be adopted; marking it ours would get it
     /// unlinked with `-k`, which destroys it.
     @Test func theBringupOwnsOnlyWindowsCmuxLinked() {
-        let read = RemoteTmuxViewConnection.readBringupRows(["@0 0", "@1 1", "@9 0", "@5 0 1"])
+        let read = RemoteTmuxViewConnection.readBringupRows(["@0 0  1", "@1 1  1", "@9 0  1", "@5 0 1 1"])
+        #expect(read.marksSettled)
         #expect(read.placeholder == "@0")
         #expect(read.adopted == ["@1", "@5"])
+        #expect(read.toMark.isEmpty)
+    }
+
+    /// A view an older cmux left behind has no marks, and any window in it alone may be a copy
+    /// that cmux linked before its session was killed. The first bringup keeps the old rule for
+    /// that view, every window but the placeholder is cmux's, and marks them all so later
+    /// bringups can use the marks.
+    @Test func aViewFromAnOlderCmuxIsReadTheOldWayOnceAndMarked() {
+        let read = RemoteTmuxViewConnection.readBringupRows(["@0 0  ", "@1 1  ", "@9 0  "])
+        #expect(!read.marksSettled)
+        #expect(read.placeholder == "@0")
+        #expect(read.adopted == ["@1", "@9"])
+        #expect(Set(read.toMark) == ["@1", "@9"])
     }
 }
 
@@ -157,6 +243,23 @@ private final class ViewOnlyTmuxServer {
         let text = String(decoding: data, as: UTF8.self)
         try #require(process.terminationStatus == 0, "tmux \(arguments) failed: \(text)")
         return text
+    }
+
+    /// Runs a command that is expected to fail.
+    func runIgnoringFailure(_ arguments: [String]) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: Self.binary ?? "/usr/bin/false")
+        process.arguments = ["-S", socket, "-f", "/dev/null"] + arguments
+        process.environment = ["TMUX_TMPDIR": directory.path]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try? process.run()
+        process.waitUntilExit()
+    }
+
+    func windowMark(_ windowId: String) throws -> String {
+        try run(["display-message", "-p", "-t", windowId, "#{\(RemoteTmuxViewSession.optLinked)}"])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     func windowIds(session: String) throws -> [String] {

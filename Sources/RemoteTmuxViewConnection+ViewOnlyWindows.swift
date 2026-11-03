@@ -13,12 +13,22 @@ extension RemoteTmuxViewConnection {
         over conn: RemoteTmuxControlConnection
     ) -> [String] {
         var adopted: [String] = []
-        for (adoption, command) in zip(adoptions, RemoteTmuxViewOnlyWindows.linkCommands(adoptions))
-        where conn.send(command) {
-            _ = conn.send(RemoteTmuxViewSession.linkedMarkCommand(windowId: adoption.windowId))
-            adopted.append(adoption.windowId)
-        }
+        Self.adopt(adoptions, send: { command, completion in
+            conn.send(command)
+        }, onLinked: { adopted.append($0) })
         if !adopted.isEmpty { requestReconcile() }
         return adopted
+    }
+
+    /// Sends each adoption's link and calls `onLinked` with its window.
+    nonisolated static func adopt(
+        _ adoptions: [RemoteTmuxViewOnlyWindows.Adoption],
+        send: (String, @escaping (Bool) -> Void) -> Bool,
+        onLinked: (String) -> Void
+    ) {
+        for (adoption, command) in zip(adoptions, RemoteTmuxViewOnlyWindows.linkCommands(adoptions))
+        where send(command, { _ in }) && send(RemoteTmuxViewSession.linkedMarkCommand(windowId: adoption.windowId), { _ in }) {
+            onLinked(adoption.windowId)
+        }
     }
 }

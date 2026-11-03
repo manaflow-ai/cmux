@@ -41,6 +41,10 @@ struct RemoteTmuxViewSession: Equatable, Sendable {
     /// can tell those apart from windows that were created in the view by somebody else.
     static let optLinked = "@cmux_view_linked"
 
+    /// Session option a bringup sets on the view once every window cmux linked into it carries
+    /// ``optLinked``. A view without it was left by a cmux that set no marks.
+    static let optMarksSettled = "@cmux_view_marks_settled"
+
     /// Marks `windowId` as linked into a view by cmux (``optLinked``).
     static func linkedMarkCommand(windowId: String) -> String {
         "set-option -w -t \(windowId) \(optLinked) 1"
