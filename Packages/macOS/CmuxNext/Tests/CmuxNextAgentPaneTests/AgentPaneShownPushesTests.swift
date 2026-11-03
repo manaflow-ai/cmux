@@ -70,6 +70,9 @@ struct AgentPaneShownPushesTests {
         view.evaluateScript = { scripts.append($0) }
         var later: [@MainActor () -> Void] = []
         var hidden = true
+        // Other parts of the pane (its frame pacer) keep probes of their own.
+        let probes = { view.subviews.count { $0 is AgentPaneVisibilityProbe } }
+        let baseline = probes()
         view.shownPushes.isHidden = { _ in hidden }
         view.shownPushes.nextTurn = { later.append($0) }
 
@@ -79,7 +82,7 @@ struct AgentPaneShownPushesTests {
         for index in 2...4 { view.deviceChats = Self.chats(index) }
         #expect(later.isEmpty, "a held pane scheduled more flushes")
         #expect(Self.deviceChatScripts(scripts).isEmpty, "a hidden pane got a push")
-        #expect(view.subviews.contains { $0 is AgentPaneVisibilityProbe }, "nothing watches for the pane to show")
+        #expect(probes() == baseline + 1, "nothing watches for the pane to show")
 
         hidden = false
         // What the pane's visibility probe calls when the pane shows.
@@ -89,7 +92,7 @@ struct AgentPaneShownPushesTests {
         #expect(sent.count == 1)
         #expect(sent.first?.contains("claude-code:s-4") == true, "the shown pane did not get the newest chats")
         #expect(view.shownPushes.owedNames.isEmpty)
-        #expect(!view.subviews.contains { $0 is AgentPaneVisibilityProbe })
+        #expect(probes() == baseline, "the shown pane kept its watch")
     }
 
     /// The harness of the PR's Performance table: 20 agent panes (one seen), the chat index changing
