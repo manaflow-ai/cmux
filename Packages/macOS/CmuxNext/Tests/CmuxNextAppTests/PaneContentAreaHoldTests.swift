@@ -18,9 +18,11 @@ import Testing
 struct PaneContentAreaHoldTests {
     typealias Tests = TabStripFollowsPaneTickTests
 
-    /// Content that records its frame when it hears the motion settled.
-    final class Settling: Tests.Content, PaneMotionSettling {
+    /// Content that rides the bottom edge (a terminal with its prompt on its last row) and records its frame when it
+    /// hears the motion settled.
+    final class Settling: NSView, PaneMotionTargeting, PaneMotionSettling {
         var settledFrames: [CGRect] = []
+        func paneMotionWillRest(sizeChange: CGSize) -> PaneMotionAnchor { .bottom }
         func paneMotionDidSettle() { settledFrames.append(frame) }
     }
 
@@ -37,7 +39,6 @@ struct PaneContentAreaHoldTests {
             let tabs = (0..<2).map { TabItem(id: TabID("tab\($0)"), title: "python3 /tmp/sigwinch.py --seed 100\($0)") }
             let view = PaneContentView(stripModel: TabStripModel(tabs: tabs, selectedID: tabs[0].id), reveal: reveal)
             let content = Settling()
-            content.anchor = .bottom
             view.show(content)
             views[pane] = view
             contents[pane] = content
