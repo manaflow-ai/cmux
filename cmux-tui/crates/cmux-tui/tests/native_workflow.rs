@@ -223,7 +223,7 @@ impl Changes {
             run.state
         );
         let mut events = [0; 16384];
-        self.file.read(&mut events).unwrap();
+        assert!(self.file.read(&mut events).unwrap() > 0, "inotify event stream closed");
     }
 }
 
