@@ -813,7 +813,7 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Browser and Viewers | `screenshots.open` | Screenshots |  | b. standard | its section, catalog order |
 | Browser and Viewers | `showBrowserJavaScriptConsole` | Show JavaScript Console | ⌥⌘J | b. standard | its section, catalog order |
 | Browser and Viewers | `splitBrowserDown` | Split Browser Down | ⌥⇧⌘D | b. standard | its section, catalog order |
-| Browser and Viewers | `splitBrowserRight` | Split Browser Right | ⌥⌘D | b. standard | its section, catalog order |
+| Browser and Viewers | `splitBrowserRight` | Split Browser Right | ⌥⌘L | b. standard | its section, catalog order |
 | Browser and Viewers | `toggleBrowserDesignMode` | Toggle Browser Design Mode | ⌃⌥⌘D | b. standard | its section, catalog order |
 | Browser and Viewers | `toggleBrowserDeveloperTools` | Toggle Developer Tools | ⌥⌘I | b. standard | its section, catalog order |
 | Browser and Viewers | `toggleBrowserFocusMode` | Toggle Browser Focus Mode | ⌥⌘

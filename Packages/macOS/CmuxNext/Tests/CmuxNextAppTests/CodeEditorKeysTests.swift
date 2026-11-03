@@ -18,7 +18,7 @@ import WebKit
     static let bound: [ActionID] = [
         "splitRight", "splitDown", "openBrowser", "focusUp", "focusDown", "focusLocation", "browserBack", "browserForward",
         "focusHistoryBack", "focusHistoryForward", "toggleChecklistItemComplete", "toggleSplitZoom", "quit",
-        "fileEditorZoomReset",
+        "fileEditorZoomReset", "splitBrowserRight",
     ]
 
     /// The registry the router reads; the router holds it `unowned`, so the suite keeps it.
@@ -63,6 +63,7 @@ import WebKit
         ("Cmd-[ outdent", "[", [.command], 33),
         ("Cmd-] indent", "]", [.command], 30),
         ("Cmd-L expand line selection", "l", [.command], 37),
+        ("Opt-Cmd-L toggle find in selection", "l", [.command, .option], 37),
         ("Cmd-Return insert line below", "\r", [.command], 36),
         ("Shift-Cmd-Return insert line above", "\r", [.command, .shift], 36),
     ]
