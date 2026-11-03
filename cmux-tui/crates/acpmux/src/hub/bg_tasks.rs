@@ -64,6 +64,7 @@ impl Hub {
 
     /// Workflow-only stable identity. The durable claim is written before spawning, so an
     /// uncertain launch is never executed a second time after a daemon crash.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn bg_start_with_id(
         self: &Arc<Self>,
         session: &Arc<Session>,
