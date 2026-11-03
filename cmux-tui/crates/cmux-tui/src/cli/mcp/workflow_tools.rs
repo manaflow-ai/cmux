@@ -94,10 +94,10 @@ fn request(arguments: &Map<String, Value>) -> Result<Map<String, Value>, String>
             }
             if let Some(session) = text(arguments, "session_id")? {
                 output.insert("sessionId".into(), Value::String(session));
-            } else if let Ok(session) = std::env::var("CMUX_AGENT_SESSION") {
-                if !session.is_empty() {
-                    output.insert("sessionId".into(), json!(session));
-                }
+            } else if let Ok(session) = std::env::var("CMUX_AGENT_SESSION")
+                && !session.is_empty()
+            {
+                output.insert("sessionId".into(), json!(session));
             }
             output.insert(
                 "cwd".into(),

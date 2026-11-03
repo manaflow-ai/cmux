@@ -60,6 +60,9 @@ fn validate_activity_id(id: &str, registered: bool) -> Result<(), RpcError> {
 }
 
 fn validate_placement(options: &Value) -> Result<(), RpcError> {
+    if !options.is_object() {
+        return Err(RpcError::invalid_params("workflow activity options must be an object"));
+    }
     if options.get("on").is_some_and(|host| !host.is_string()) {
         return Err(RpcError::invalid_params("on must name a machine"));
     }
@@ -257,6 +260,9 @@ mod tests {
 
     #[test]
     fn workflow_placement_rejects_present_non_string_and_remote_without_local_fallback() {
+        for options in [Value::Null, json!([]), json!("local"), json!(true), json!(7)] {
+            assert!(validate_placement(&options).is_err());
+        }
         for on in [
             json!(["ci"]),
             Value::Null,
