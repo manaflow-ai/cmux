@@ -136,3 +136,34 @@ fn opencode_export_of_another_session_is_refused() {
     assert!(native::export_opencode_with(&cli, &here, &bundle.path().join("native")).is_err());
     assert!(!bundle.path().join("native/opencode-export").exists());
 }
+
+/// A chat that comes back to a machine it ran on finds that machine's old copy of its transcript
+/// there: the copy the move took grew elsewhere. The bundle's copy replaces an old copy that is a
+/// prefix of it (the same append-only log, shorter); a copy that is not is kept.
+#[test]
+fn a_chat_coming_back_replaces_its_stale_transcript_but_never_a_diverged_one() {
+    let sid = "4b3c2d1e-aaaa-bbbb-cccc-111122223333";
+    let here = meta("claude", "claude", sid, "/Users/me/src");
+    let rel = Path::new(".claude/projects/-Users-me-src").join(format!("{sid}.jsonl"));
+    let bundle = tempfile::tempdir().unwrap();
+    put(
+        &bundle.path().join("native/claude-project").join(&rel),
+        "{\"turn\":1}\n{\"turn\":2,\"on\":\"vm\"}\n",
+    );
+
+    let home = tempfile::tempdir().unwrap();
+    put(&home.path().join(&rel), "{\"turn\":1}\n");
+    assert_eq!(native::restore_in(bundle.path(), &here, home.path()).unwrap(), 1);
+    assert_eq!(
+        std::fs::read_to_string(home.path().join(&rel)).unwrap(),
+        "{\"turn\":1}\n{\"turn\":2,\"on\":\"vm\"}\n"
+    );
+
+    let other = tempfile::tempdir().unwrap();
+    put(&other.path().join(&rel), "{\"turn\":1}\n{\"turn\":2,\"on\":\"here\"}\n");
+    assert_eq!(native::restore_in(bundle.path(), &here, other.path()).unwrap(), 0);
+    assert_eq!(
+        std::fs::read_to_string(other.path().join(&rel)).unwrap(),
+        "{\"turn\":1}\n{\"turn\":2,\"on\":\"here\"}\n"
+    );
+}
