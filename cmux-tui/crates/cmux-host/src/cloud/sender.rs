@@ -12,7 +12,7 @@ use std::collections::VecDeque;
 use serde_json::{Value, json};
 
 use super::wire::{
-    ATTENTION_EMIT_OP, Activity, ActivityChange, DEFAULT_HEARTBEAT_MS, DaemonInfo, EVENT_EMIT_OP,
+    ATTENTION_EMIT_OP, Activity, DEFAULT_HEARTBEAT_MS, DaemonInfo, EVENT_EMIT_OP,
     REPORT_MIN_INTERVAL_MS, STATUS_REPORT_OP, check_event, retry_after_ms,
 };
 
@@ -288,9 +288,20 @@ impl Reporter {
         self.schedule(now)
     }
 
-    pub fn update(&mut self, change: &ActivityChange, now: u64) -> Option<OpRequest> {
-        change.apply(&mut self.activity);
-        self.trigger("change", now)
+    /// The activity the next report carries.
+    pub fn activity(&self) -> &Activity {
+        &self.activity
+    }
+
+    /// Replaces the activity the next report carries; a report is due only with `report`.
+    pub fn set_activity(
+        &mut self,
+        activity: Activity,
+        report: bool,
+        now: u64,
+    ) -> Option<OpRequest> {
+        self.activity = activity;
+        if report { self.trigger("change", now) } else { None }
     }
 
     /// The daemon block changed (`activity` on while the stream is live).
