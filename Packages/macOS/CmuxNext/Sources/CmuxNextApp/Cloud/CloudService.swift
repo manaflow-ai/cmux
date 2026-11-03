@@ -946,7 +946,7 @@ final class CloudService {
     func ensureLink() async { await link.ensureLink() }
 
     /// ``CloudLinkLifecycle/ensureLinkReport()``, for the DEBUG socket method.
-    func ensureLinkReport() async -> JSONValue { await link.ensureLinkReport() }
+    func ensureLinkReport() async -> CmuxNextDaemon.JSONValue { await link.ensureLinkReport() }
 
     /// Registers (or reuses) this Mac's install for the signed-in user and
     /// mints one token. A failure is logged: the relay mints again when it

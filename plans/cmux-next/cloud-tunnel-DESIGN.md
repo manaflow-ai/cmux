@@ -128,9 +128,11 @@ gates in `sign-cmux-bundle.sh` stay as they are. The signed app then reports
 
 A channel turns it on when it has a Developer ID provisioning profile for
 `<app id>.tunnel` (packet-tunnel-provider-systemextension) and an app profile
-with `system-extension.install`. cmux NEXT (`com.cmuxterm.app.nightly.cmux-next`)
-embeds no profile today, so this needs the two App IDs and profiles in the
-Apple Developer account first (a credential step). Then: set
+with `system-extension.install`. The cmux NEXT nightly DMG on cmux.com/next is
+`com.cmuxterm.app.nightly` ("cmux NIGHTLY", a978, 2026-11-03), so its extension is
+`com.cmuxterm.app.nightly.tunnel` (`cmux-cloud-tunnel.nightly.entitlements`); no new
+app id. Its profiles do not grant the tunnel today, so this needs the extension App ID
+and both profiles in the Apple Developer account first (a credential step). Then: set
 `CMUX_CLOUD_TUNNEL=YES` for that channel, embed the profiles, sign the
 extension (hardened runtime, sandbox, `CloudTunnelExtension/cmux-cloud-tunnel.<channel>.entitlements`)
 before the app, change the gate from "no extension" to "an extension needs the
