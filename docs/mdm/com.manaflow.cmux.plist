@@ -8789,6 +8789,30 @@
 			<string>boolean</string>
 		</dict>
 		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Allow reading Messages conversations on this Mac after connecting in Session Info. Sending still needs your click.</string>
+			<key>pfm_name</key>
+			<string>imessage.enabled</string>
+			<key>pfm_title</key>
+			<string>Connect iMessage</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Remember skipping the Messages Automation step. This does not grant access or authorize sending.</string>
+			<key>pfm_name</key>
+			<string>imessage.automationSkipped</string>
+			<key>pfm_title</key>
+			<string>Skip Messages Automation</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
 			<key>pfm_description</key>
 			<string>Team enrollment token from the cmux dashboard. Signed-in users in a verified domain of the team join it; the token alone never grants membership.</string>
 			<key>pfm_name</key>

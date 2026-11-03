@@ -333,7 +333,7 @@ class WorkflowTests(unittest.TestCase):
         # A dispatch, another branch and the off switch get a group of their own.
         self.assertIn("github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'",
                       job["concurrency"]["group"])
-        self.assertIn("vars.CMUX_NEXT_WEB_COALESCE", job["concurrency"]["group"])
+        self.assertIn("vars.NEXT_WEB_COALESCE", job["concurrency"]["group"])
         self.assertIn("--hold-minutes 15", next(s for s in job["steps"] if s.get("id") == "wait")["run"])
         self.assertLessEqual(job["timeout-minutes"], 20)
         self.assertIs(self.web["concurrency"]["cancel-in-progress"], False)
