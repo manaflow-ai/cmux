@@ -2,31 +2,6 @@ import CmuxNextCloud
 import CmuxNextDaemon
 import Foundation
 
-/// Cloud ops through the Cloud app server (`cmux/cloud`, contract 2.1):
-/// `apps-run` on the local daemon; the server checks the args and origin,
-/// keeps the machine projection, and reaches the cmux-next API Worker
-/// through the host credential relay (install token, `CloudCredentialProvider`).
-/// Never `/api/vm`.
-nonisolated struct CloudAppOpFailure: Error, Equatable, Sendable, CustomStringConvertible {
-    /// The server's code (`cmux.cloud.<reason>`).
-    var code: String
-    var message: String
-    var details: JSONValue?
-
-    static let approvalPending = "cmux.cloud.approval_pending"
-    /// The op needs a paid plan (`cloud.plan.required`).
-    static let planRequired = "cmux.cloud.plan_required"
-
-    /// The approval request id (`apr_…`) of an approval code.
-    var approvalRequest: String? { details?["request"]?.stringValue }
-
-    var description: String { message.isEmpty ? code : message }
-}
-
-/// One Cloud app op: `op`, JSON `args`, an idempotency key for a mutation
-/// (nil for a read), and the wire origin.
-typealias CloudAppOp = @Sendable (_ op: String, _ args: JSONValue, _ key: String?, _ origin: AppsRunRequest.Origin) async throws -> JSONValue
-
 extension CloudAppLinks {
     /// Runs Cloud app ops on `local`'s current connection. A refusal is a
     /// ``CloudAppOpFailure``; origin `user` is sent only where the daemon
@@ -54,11 +29,15 @@ extension CloudMachine {
     /// the Cloud app server answers it.
     init?(next value: JSONValue) {
         guard let id = value["id"]?.stringValue, !id.isEmpty else { return nil }
+        // The in-between states stay their own (cloud-machine-ops.ts CloudMachineStatus): a
+        // pausing machine is not paused yet, and a deleting one is not gone.
         let status: Status = switch value["status"]?.stringValue {
-        case "provisioning", "starting": .provisioning
+        case "provisioning": .provisioning
+        case "starting": .starting
         case "running": .running
-        case "pausing", "paused": .paused
-        case "deleting": .destroyed
+        case "pausing": .pausing
+        case "paused": .paused
+        case "deleting": .deleting
         case "failed": .failed
         default: .unknown
         }
@@ -69,9 +48,30 @@ extension CloudMachine {
         let minutes = (value["idlePauseMinutes"]?.doubleValue).flatMap { Int(exactly: $0) }
         let idlePause = Self.idlePauseDiagnostics(value["idlePause"])
         self.init(id: id, provider: "cmux-next", status: status, displayName: value["name"]?.stringValue,
-                  pauseReason: value["pauseReason"]?.stringValue.flatMap(PauseReason.init(rawValue:)), idlePauseMinutes: minutes,
-                  idlePause: idlePause)
+                  pauseReason: Self.nextPauseReason(value["pause_reason"] ?? value["pauseReason"]), idlePauseMinutes: minutes,
+                  idlePause: idlePause, lastChangeFailure: Self.changeFailure(value["error"]))
+        serverRevision = value["revision"]?.stringValue
         createdBy = value["creator"]?.stringValue
+    }
+
+    /// The backend's `pause_reason` (`pauseReason` from an older app server): why cmux paused the
+    /// machine by itself. `idle` and the cost backstop `no_report` are both cmux's own idle pause,
+    /// which an attach resumes; a VM stopped from inside (`provider_stopped`, `provider_paused`)
+    /// and a person's pause (null) carry no reason the app shows.
+    static func nextPauseReason(_ value: JSONValue?) -> PauseReason? {
+        switch value?.stringValue {
+        case "idle", "no_report": .idle
+        case "user": .user
+        default: nil
+        }
+    }
+
+    /// The backend's `error` (`{code, message, at}`): why the last pause, resume or resize failed
+    /// after the server answered it. Nil for null or a shape this client does not read.
+    static func changeFailure(_ value: JSONValue?) -> ChangeFailure? {
+        guard let value, case let .object(fields) = value, let code = fields["code"]?.stringValue, !code.isEmpty else { return nil }
+        let at = fields["at"]?.doubleValue.map { Date(timeIntervalSince1970: $0 / 1000) }
+        return ChangeFailure(code: code, message: fields["message"]?.stringValue ?? "", at: at)
     }
 
     private static func idlePauseDiagnostics(_ value: JSONValue?) -> IdlePauseDiagnostics? {

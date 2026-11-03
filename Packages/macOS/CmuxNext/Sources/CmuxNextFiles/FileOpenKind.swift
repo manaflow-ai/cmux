@@ -85,6 +85,29 @@ public enum FileOpenKind: Sendable, Equatable {
         return URL(fileURLWithPath: url.path)
     }
 
+    /// The file Open as Page (`file.openAsPage`, u18462) renders from a code editor tab showing
+    /// `source`: an HTML, SVG or Markdown file (``opensAsText``), as a browser tab or the markdown page.
+    ///
+    /// - Parameter source: the file the code editor tab shows.
+    /// - Returns: `source`, or nil for a file cmux shows only as text, or no file.
+    public static func renderedFile(ofSource source: URL?) -> URL? {
+        guard let source, source.isFileURL,
+              FileOpenKind(fileName: source.lastPathComponent, isDirectory: false, isPackage: false).opensAsText else { return nil }
+        return source
+    }
+
+    /// The file a tab's other view shows (Edit Source, Open as Page, u18462).
+    ///
+    /// - Parameters:
+    ///   - asText: true for Edit Source (the source of a rendered page), false for Open as Page.
+    ///   - editorFile: the file the tab shows in the code editor, if it is a code editor tab.
+    ///   - markdownFile: the file the tab shows in the markdown page, if it is one.
+    ///   - pageURL: the tab's URL, if it is a browser tab.
+    /// - Returns: the file to open in the other view, or nil when the tab has none.
+    public static func otherView(asText: Bool, editorFile: URL?, markdownFile: URL?, pageURL: String?) -> URL? {
+        asText ? markdownFile ?? sourceFile(ofPage: pageURL) : renderedFile(ofSource: editorFile)
+    }
+
     /// Markdown names (the Markdown page's own list plus the common long forms).
     public static let markdownExtensions: Set<String> = ["md", "markdown", "mdown", "mkd", "mkdn"]
 

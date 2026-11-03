@@ -35,6 +35,7 @@ mod classic;
 mod events;
 mod group_create;
 mod keybinding;
+mod nightly;
 mod open;
 mod open_link;
 mod page;
@@ -42,6 +43,7 @@ mod right;
 mod run;
 mod settings;
 mod skew;
+mod space;
 mod version;
 pub(super) mod wait;
 
@@ -63,6 +65,9 @@ pub(super) const APP_SCOPES: &[&str] = &[
     "errors",
     "home",
     "team",
+    // Space aliases keep the intuitive `cmux space …` CLI alongside the
+    // app action catalog's historical `space create|delete` names.
+    "space",
 ];
 
 /// Control-plane requests answer within the app's own 2 s deadline. A run
@@ -75,15 +80,30 @@ pub(super) const WAITING_RUN_TIMEOUT: Duration = Duration::from_secs(45);
 const ERRORS_TIMEOUT: Duration = Duration::from_secs(15);
 /// A run that waits for a person's answer in the app (an agent's cookie
 /// import shows a consent panel, then macOS asks for a password; Invite to
-/// Team waits for Send in its dialog): the app
+/// Team waits for Send in its dialog; an agent's or script's Share Chat with
+/// Guest waits for the owner's Make Link, #30263): the app
 /// bounds it at 200 s (`ActionDescriptor.personDeadline`).
 pub(super) const PERSON_RUN_TIMEOUT: Duration = Duration::from_secs(210);
-/// The CLI names of the actions that wait for a person (`waits_for_person`).
+/// The CLI names and ids of the actions the app marks `waitsForPerson` (the
+/// control socket gives them `personDeadline`). One missing here makes the CLI
+/// give up at 45 s on a run the app still finishes: `cloud start-session`
+/// waits for a new Cloud machine to come up, and answered
+/// `mutation.outcome_unknown` with no chat opened.
 const PERSON_ACTIONS: &[&str] = &[
     "browser import-cookies",
     "browser.importCookies",
     "home invite-to-team",
     "home.inviteToTeam",
+    "cloud start-session",
+    "cloudStartSession",
+    "apps install",
+    "app.install",
+    "apps remove",
+    "app.remove",
+    "workspace import-classic",
+    "workspace.importClassic",
+    "share chat",
+    "agent.share",
 ];
 
 /// How long the CLI or `cmux mcp` waits for a waiting `action.run` of `action`.
@@ -147,6 +167,8 @@ pub(super) enum AppCommand {
     /// `cmux version`: the CLI, the app behind the socket, its updater and
     /// bundled helpers in one report (app/version.rs).
     Version,
+    /// `cmux nightly list|install`: another recent nightly build (app/nightly.rs).
+    Nightly(nightly::Command),
 }
 
 /// Parses an app scope. `Ok(None)` when `args` does not start with one.
@@ -182,10 +204,23 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         }
         return Ok(Some(AppCommand::Version));
     }
+    if scope == "nightly" {
+        return nightly::parse(args.get(1..).unwrap_or_default())
+            .map(|command| Some(AppCommand::Nightly(command)));
+    }
     if !APP_SCOPES.contains(&scope.as_str()) {
         return Ok(None);
     }
     let rest = &args[1..];
+    // Spaces have a small noun-first CLI of their own (app/space.rs).
+    if scope == "space" {
+        if let Some(command) = space::parse(rest)? {
+            return Ok(Some(command));
+        }
+        if rest.first().map(String::as_str) == Some("list") {
+            return Ok(None);
+        }
+    }
     // The session host owns history reads and edits (`history.*`), so they
     // work with the app quit; the other `history` words are app actions.
     if scope == "history"
@@ -646,6 +681,9 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
     if matches!(command, AppCommand::Version) {
         return Ran::Done(version::run(global));
     }
+    if let AppCommand::Nightly(command) = &command {
+        return Ran::Done(nightly::run(global, command));
+    }
     let mut stream = match connect_command(global) {
         Ok(stream) => stream,
         Err(error) => return Ran::Done(super::wire::print_local_error(&error, global.output, 3)),
@@ -738,6 +776,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::Settings(command) => return Ran::Done(command.run_on(global, stream)),
         AppCommand::Right { params, then } => return right::run(global, stream, params, *then),
         AppCommand::Version => return Ran::Done(version::run(global)),
+        AppCommand::Nightly(command) => return Ran::Done(nightly::run(global, &command)),
         AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
             for request in requests {
@@ -823,9 +862,20 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             }
             .unwrap_or(result);
             warn_unstable_handles(method, &value, global.output);
+            if global.output == OutputMode::Human
+                && let Some(line) = super::share_cli::human_line(&params, &value)
+                    .or_else(|| super::vm::created_line(&params, &value, global))
+            {
+                print!("{line}");
+                return Ran::Done(0);
+            }
             Ran::Done(super::wire::print_local_success(&value, global.output))
         }
-        Err(error) if cli_name && error_code(&error) == Some("not_found") => {
+        // `not_found` with no `reason` is the app saying it has no such CLI action; with one, the
+        // action ran and its target names nothing, which goes to the caller as an error.
+        Err(error)
+            if cli_name && error_code(&error) == Some("not_found") && !names_a_target(&error) =>
+        {
             let name = params["action"].as_str().unwrap_or_default().to_owned();
             let scope = name.split(' ').next().unwrap_or_default().to_owned();
             Ran::NoSuchCliAction { scope, name }
@@ -854,6 +904,11 @@ fn output_shows_notes(output: OutputMode) -> bool {
 
 fn error_code(error: &Value) -> Option<&str> {
     error.get("code").and_then(Value::as_str)
+}
+
+/// Whether a `not_found` is an action's missing target (it gives a `reason`), not a missing action.
+fn names_a_target(error: &Value) -> bool {
+    error.get("data").and_then(|data| data.get("reason")).is_some()
 }
 
 /// A `busy` answer is safe to retry only when the app says the request
@@ -1007,10 +1062,11 @@ fn connect_for_uid(socket: &Path, expected_uid: u32) -> std::io::Result<UnixStre
 /// Every app request first lets the app catch up with the daemon
 /// (`after: "sync"`, one daemon round trip), so it sees what an earlier
 /// `cmux` call wrote to the daemon (plans/cmux-next/state-ownership.md 4).
-/// The liveness probes skip it: they read no session state, and a busy
-/// daemon must not make a live app look dead.
+/// [`NO_DAEMON_STATE`] skips it. A caller that passes its own
+/// `after` keeps it (the `focused` overlay reads the window with `after: 0`,
+/// app_focus.rs).
 fn with_read_barrier(method: &str, mut params: Value) -> Value {
-    if matches!(method, "system.ping" | "system.capabilities") {
+    if NO_DAEMON_STATE.contains(&method) {
         return params;
     }
     if let Some(object) = params.as_object_mut() {
@@ -1018,6 +1074,19 @@ fn with_read_barrier(method: &str, mut params: Value) -> Value {
     }
     params
 }
+
+/// The app methods that read nothing a `cmux` call writes to the daemon, so
+/// they skip the read barrier: the liveness probes (a busy daemon must not
+/// make a live app look dead), the action catalog (`action.list`,
+/// `action.describe`, built from the app's own registry), and the agent
+/// dialogs (`feed.list`, read from acpmux). The barrier is a round trip on
+/// the app's daemon connection and then a wait for the main actor to publish,
+/// inside the app's 2 s deadline; on a loaded app (2026-11-02, a Cloud
+/// `start-session` waiting on the person) it timed out `action describe` and
+/// `agents dialog list` ("timed out: identify (no reply within 2.0
+/// seconds)"), and the CLI's one retry doubled the wait.
+const NO_DAEMON_STATE: [&str; 5] =
+    ["system.ping", "system.capabilities", "action.list", "action.describe", "feed.list"];
 
 /// The app methods that place a new tab or report where the caller is: the
 /// app opens an agent's tabs in the column right of its chat

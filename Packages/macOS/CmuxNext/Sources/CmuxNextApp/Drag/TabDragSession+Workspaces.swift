@@ -71,7 +71,7 @@ extension TabDragSession {
         let sourceID = drag.source.window?.state.id
         let sourceMembers = sourceID.map(services.windows.registry.members(of:)) ?? []
         drag.workspaceOutcome = WorkspaceDragResolver.outcome(
-            windowID: controller?.state.id, sidebarHit: sidebarHit, layoutHit: layoutHit, placesBeside: SidebarTunables.multiView.value, sourceWindowID: sourceID,
+            windowID: controller?.state.id, sidebarHit: sidebarHit, layoutHit: layoutHit, placesBeside: SidebarTunables.multiViewOn, sourceWindowID: sourceID,
             draggingAllOfSource: !sourceMembers.isEmpty && Set(ids).isSuperset(of: sourceMembers),
             isGroup: group != nil, screenPoint: point, besideEdge: controller?.besideEdge(at: point, dragging: ids, group: group)
         )

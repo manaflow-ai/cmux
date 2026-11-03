@@ -156,7 +156,7 @@ impl Mux {
         } else {
             surface.write_bytes(bytes)?;
         }
-        self.note_terminal_input(surface.id, client);
+        self.note_terminal_input(&surface, client);
         Ok(TerminalInputTarget::Written)
     }
 
@@ -272,7 +272,7 @@ impl Mux {
             }
         }
         for client in clients {
-            self.note_terminal_input(surface.id, client);
+            self.note_terminal_input(&surface, client);
         }
     }
 

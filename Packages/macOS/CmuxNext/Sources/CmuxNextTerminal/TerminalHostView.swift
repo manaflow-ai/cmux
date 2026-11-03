@@ -13,6 +13,8 @@ import Observation
 public final class TerminalHostView: NSView {
     private weak var current: TerminalSurfaceView?
     /// The session's theme; nil paints the config background.
+    /// Called with the App Theme's veil this terminal draws on, or nil (``paintBackground()``).
+    var onVeil: ((ThemeRGB?) -> Void)?
     var theme: GhosttyThemeConfig? {
         didSet { paintBackground() }
     }
@@ -40,6 +42,9 @@ public final class TerminalHostView: NSView {
         get { restartAction }
         set { restartAction = newValue; syncRestartButton(); needsLayout = true }
     }
+    /// Called before the terminal session removes this host from its pane.
+    /// Transient input owners use it to cancel work pinned to this surface.
+    public var onClose: (@MainActor () -> Void)?
 
     /// The first cell's top-left in this view's coordinates (top-left
     /// origin): Ghostty's leading and top padding, or with
@@ -66,6 +71,20 @@ public final class TerminalHostView: NSView {
             if let bottomAccessory {
                 bottomAccessory.translatesAutoresizingMaskIntoConstraints = true // framed in layout()
                 addSubview(bottomAccessory, positioned: .above, relativeTo: scroller)
+            }
+            needsLayout = true
+        }
+    }
+
+    /// A transient, click-through panel over the terminal's top-leading
+    /// corner. It never changes the terminal's layout height.
+    public var topOverlay: NSView? {
+        didSet {
+            guard oldValue !== topOverlay else { return }
+            oldValue?.removeFromSuperview()
+            if let topOverlay {
+                topOverlay.translatesAutoresizingMaskIntoConstraints = true
+                addSubview(topOverlay, positioned: .above, relativeTo: banner)
             }
             needsLayout = true
         }
@@ -259,12 +278,12 @@ public final class TerminalHostView: NSView {
         scroller.update(bar)
     }
 
-    /// The width a surface gets in a host `hostWidth` points wide (less a legacy scroller's strip),
-    /// for working out a terminal's grid before its host exists.
+    /// The width a surface gets in a host `hostWidth` points wide (less the scroller's strip), for working out a
+    /// terminal's grid before its host exists. The strip is the host's own (``TerminalScroller/reservedWidth``): the
+    /// terminal's scroller is pinned to ``SystemScrollers/nativeStyle`` whatever the system's "Show scroll bars"
+    /// setting, so a Mac set to legacy scrollers (a mini with no trackpad) reserves nothing either.
     public static func surfaceWidth(hostWidth: CGFloat) -> CGFloat {
-        let reserved = NSScroller.preferredScrollerStyle == .legacy
-            ? NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy) : 0
-        return max(0, hostWidth - reserved)
+        max(0, hostWidth - TerminalScroller.reservedWidth(for: SystemScrollers.nativeStyle))
     }
 
     /// The surface's frame: the host, less a legacy scroller's strip (none: the scroller is overlay). While
@@ -331,6 +350,11 @@ public final class TerminalHostView: NSView {
                 CGPoint(x: max(inset, trailing - size.width), y: self.terminalBounds.minY + inset)
             }
         }
+        if let topOverlay, !topOverlay.isHidden {
+            _ = place(topOverlay, maxWidth: bounds.width - inset * 2) { size in
+                CGPoint(x: inset, y: self.bounds.height - inset - size.height)
+            }
+        }
         // Framed hidden too: the bar shows itself when find opens.
         // The shared find pill sits where every pane's does (FindPillMetrics.inset from top and trailing).
         let findInset = FindPillMetrics.inset
@@ -388,7 +412,7 @@ public final class TerminalHostView: NSView {
     /// `GhosttyRuntime.backgroundColor`. Where the window is see-through
     /// (translucent, glass, or over art) the window root paints the one
     /// sheet and the host stays clear, as the panes around it do, unless the
-    /// terminal's theme differs from theirs: its background then lies over
+    /// terminal's own theme differs from theirs: its background then lies over
     /// the glass at the window's tint (`WindowBackdrop.tintOpacity`). The user's terminal
     /// background (`appearance.surfaces.terminal`) replaces all of these;
     /// the surfaces then draw a transparent default background.
@@ -398,6 +422,11 @@ public final class TerminalHostView: NSView {
         let backdrop = WindowBackdrop(tokens, reduceTransparency: ReduceTransparency.shared.isEnabled,
                                       selection: scope.backdropSelection, tintOpacity: scope.backdropTintOpacity)
         GhosttyRuntime.setSeeThrough(superview != nil && !backdrop.panesPaintBackground, host: self)
+        // Under an App Theme, a terminal on the terminal theme draws on the App Theme's one veil
+        // (sidebar and panes alike), its colors raised to read on it; on an opaque window or with
+        // its own theme it keeps its own background.
+        let veil = !backdrop.panesPaintBackground && theme == nil && scope.store.appTheme != nil
+        onVeil?(veil ? superview?.themeTokens.windowBackground.withAlpha(1) : nil)
         let fill = performWithTheme { Palette.surfaceOverride(.terminal) }
         if let fill {
             layer?.backgroundColor = fill.cgColor

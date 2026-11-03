@@ -8,8 +8,11 @@
 //! archive: this crate links their crates, whose `#[unsafe(no_mangle)]`
 //! functions are the archive's exported symbols, over one Rust runtime.
 //! Add a new in-tree C ABI here, never as another static library.
-//! `motion` is cmux-motion's C ABI (the spring step and motion tokens).
+//! `motion` is cmux-motion's C ABI (the spring step and motion tokens);
+//! `hover` is its hover rules' C ABI (the hover card machine, tooltip hover
+//! intent, the safe triangle and the row card's placement).
 
+pub mod hover;
 pub mod motion;
 
 pub use cmux_layout_reducer_ffi as layout_reducer;

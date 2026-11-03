@@ -9,10 +9,10 @@ enum PaletteLayout {
     static let visibleRows: CGFloat = 10
 
     static var width: CGFloat { Metrics.paletteWidth }
-    static var searchHeight: CGFloat { Metrics.paletteSearchHeight }
-    static var rowHeight: CGFloat { Metrics.paletteRowHeight }
-    static var headerRowHeight: CGFloat { Metrics.sidebarHeaderHeight }
-    static var footerHeight: CGFloat { Metrics.paletteRowHeight }
+    static var searchHeight: CGFloat { Metrics.paletteSearchHeight + textGrowth(Typography.search) }
+    static var rowHeight: CGFloat { Metrics.paletteRowHeight + textGrowth(Typography.body) }
+    static var headerRowHeight: CGFloat { Metrics.sidebarHeaderHeight + textGrowth(Typography.header) }
+    static var footerHeight: CGFloat { rowHeight }
     static var listInset: CGFloat { Metrics.space2 }
     static var listHeight: CGFloat { rowHeight * visibleRows + listInset * 2 }
     static var cornerRadius: CGFloat { Metrics.panelCornerRadius }
@@ -30,9 +30,39 @@ enum PaletteLayout {
 
     static var actionsMenuWidth: CGFloat { width / 2 - Metrics.space6 }
     static var actionsMenuRowHeight: CGFloat { rowHeight - Metrics.space2 }
-    static var keycapSize: CGFloat { Metrics.iconSize + Metrics.space2 }
+    static var keycapSize: CGFloat { Metrics.iconSize + Metrics.space2 + textGrowth(Typography.shortcut) }
     static var keycapCornerRadius: CGFloat { Metrics.itemCornerRadius - Metrics.space1 }
     static var iconBox: CGFloat { Metrics.iconSize + Metrics.space2 }
+
+    /// How much larger the palette's text draws than the size its density's heights are made for:
+    /// Interface Size (`appearance.metrics.chromeFontSize`) or a density's own `fontSize` grow the
+    /// text but not `Metrics` heights, and 16 pt text in a 28 pt Compact row clipped (#26606).
+    /// Never below 1, so smaller text keeps the density's heights.
+    static var textScale: CGFloat {
+        max(1, Typography.body.pointSize / Metrics.scale(Metrics.tokens.levelBodySize))
+    }
+
+    /// The extra line height of `font` over the same face at the density's own text size, on
+    /// whole points: a row keeps its density's padding and grows only by the taller line, so a
+    /// roomy row (or a height the person set) is not inflated in proportion. A face's line height
+    /// scales with its point size, so the smaller face is arithmetic, not a font made per row: a
+    /// font made and dropped like that can come back nil (`CheckedFont`, #20557), which would
+    /// silently zero the growth.
+    static func textGrowth(_ font: NSFont) -> CGFloat {
+        let scale = textScale
+        guard scale > 1 else { return 0 }
+        return max(0, ceil(lineHeight(font) * (1 - 1 / scale)))
+    }
+
+    private static func lineHeight(_ font: NSFont) -> CGFloat {
+        font.ascender - font.descender + font.leading
+    }
+
+    /// Every text size the palette draws in; a change in any of them restyles its labels.
+    static var textSizes: [CGFloat] {
+        [Typography.body, Typography.bodyEmphasized, Typography.caption, Typography.header, Typography.search, Typography.shortcut]
+            .map(\.pointSize)
+    }
 }
 
 extension NSView {
@@ -45,9 +75,12 @@ extension NSView {
 
 /// Label helpers so every text view uses Design typography.
 enum PaletteText {
-    static func label(_ font: NSFont, tone: PaletteTone? = .primary) -> PaletteLabel {
+    /// `font` is read again on `PaletteLabel.refreshFont()`, so a label follows a text size or
+    /// density change made while the palette exists.
+    static func label(_ font: @autoclosure @escaping @MainActor () -> NSFont, tone: PaletteTone? = .primary) -> PaletteLabel {
         let field = PaletteLabel(labelWithString: "")
-        field.font = font
+        field.fontSource = font
+        field.font = font()
         field.tone = tone
         field.lineBreakMode = .byTruncatingTail
         field.maximumNumberOfLines = 1
@@ -68,9 +101,13 @@ enum PaletteText {
     }
 
     /// Width that shows the whole string. `intrinsicContentSize` of a
-    /// truncating label is unreliable after its value changes.
+    /// truncating label is unreliable after its value changes. At least the cell's own width
+    /// without bounds, which adds its text padding: `space2` alone is less than that padding at
+    /// Ultra-compact, and "Search", "Open" and "Actions" truncated there (#26606).
     static func fittingWidth(_ field: NSTextField) -> CGFloat {
-        ceil(field.attributedStringValue.size().width) + Metrics.space2
+        let unbounded = NSRect(x: 0, y: 0, width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+        let cell = ceil(field.cell?.cellSize(forBounds: unbounded).width ?? 0)
+        return max(cell, ceil(field.attributedStringValue.size().width) + Metrics.space2)
     }
 
     /// Configured SF Symbol images, made once per name and size: rows are

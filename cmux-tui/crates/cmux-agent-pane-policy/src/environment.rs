@@ -96,11 +96,13 @@ pub fn resolve(
 }
 
 /// Whether `ACPMUX_HOME` (`custom`) names another build's home while this
-/// build has a home of its own: the shared root (NIGHTLY's `~/.acpmux`) or
-/// another `<root>/builds/<key>`. Every agent shell under acpmux exports its
-/// daemon's home, so a tagged DEV app launched from one inherits it; honoring
-/// it handed NIGHTLY's daemon off to the DEV build's (cmux#29050). A home
-/// outside the root (a Chief brain's, a test's) still wins.
+/// build has a home of its own: the shared root (NIGHTLY's `~/.acpmux`),
+/// another `<root>/builds/<key>`, or a Chief home's acpmux
+/// (`~/.cmux/chief/<home>/acpmux`, NIGHTLY's included; a Chief host passes its
+/// own home with no build). Every agent shell under acpmux exports its daemon's
+/// home, so a tagged DEV app launched from one inherits it; honoring it handed
+/// NIGHTLY's daemon off to the DEV build's (cmux#29050). Any other home (a
+/// test's, one a person names) still wins.
 pub fn inherits_another_builds_home(custom: &str, own_home: Option<&Path>, root: &Path) -> bool {
     let Some(own) = own_home else { return false };
     let own = normalize(own);
@@ -109,7 +111,11 @@ pub fn inherits_another_builds_home(custom: &str, own_home: Option<&Path>, root:
         return false;
     }
     let path = normalize(Path::new(custom));
-    path != own && (path == root || path.starts_with(root.join("builds")))
+    let chief_homes = root.parent().map(|parent| parent.join(".cmux/chief"));
+    path != own
+        && (path == root
+            || path.starts_with(root.join("builds"))
+            || chief_homes.is_some_and(|homes| path.starts_with(homes)))
 }
 
 /// `path` without `.`, `..` or a trailing separator (no filesystem access).

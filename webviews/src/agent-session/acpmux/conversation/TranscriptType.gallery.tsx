@@ -15,6 +15,7 @@ import { TurnFooter } from "./TurnRows";
 import { TurnActionsContext } from "./turnActions";
 import { ToolRow } from "./ToolRow";
 import { CommandRow } from "./CommandRow";
+import type { CloudSignIn, LoginAgent } from "../cloudAgentLogin";
 
 const output = Array.from({ length: 14 }, (_, index) => `step ${index + 1}: completed`).join("\n");
 const file = toolFiles([
@@ -33,7 +34,59 @@ const image = {
   alt: "Retry report with a deliberately long image title",
 };
 
-function TranscriptType() {
+/// A Cloud chat's sign-in with synthetic replies: Claude's page gives a code to paste back, Codex's
+/// asks for the device code the card shows. Nothing leaves the gallery.
+function gallerySignIn(agent: LoginAgent): CloudSignIn {
+  return {
+    agent,
+    start: async () =>
+      agent === "claude"
+        ? { loginId: "gallery-login", url: "https://claude.ai/oauth/authorize", needsCode: true }
+        : {
+            loginId: "gallery-login",
+            url: "https://auth.openai.com/codex/device",
+            userCode: "QRST-4821",
+            needsCode: false,
+          },
+    open: () => {},
+    finish: () => new Promise<boolean>(() => {}),
+    apiKey: async () => true,
+    cancel: () => {},
+    reserve: async () => undefined,
+    resend: async () => {},
+  };
+}
+
+/// Only a Cloud chat's sign-in card, for its states.
+function CloudSignInStates({ agent }: { agent: LoginAgent }) {
+  return (
+    <main className="acpmux-scroll" style={{ padding: 18, overflow: "auto", height: "100%", boxSizing: "border-box" }}>
+      <TurnActionsContext.Provider
+        value={{
+          switchModel: () => {},
+          cloudSignIn: gallerySignIn(agent),
+          route: { name: agent === "claude" ? "Claude Code" : "Codex", harness: agent, hostKind: "cloud" },
+        }}
+      >
+        <TurnFooter
+          row={{
+            id: `sign-in-${agent}`,
+            kind: "turnSummary",
+            version: 1,
+            at: 1000,
+            status: "failed",
+            error: "Not logged in · Please run /login",
+            prompt: "Run retry tests",
+            retryRowId: `sign-in-${agent}-prompt`,
+          }}
+        />
+      </TurnActionsContext.Provider>
+    </main>
+  );
+}
+
+function TranscriptType({ signIn }: { signIn?: LoginAgent }) {
+  if (signIn) return <CloudSignInStates agent={signIn} />;
   const [viewer, setViewer] = useState(false);
   return (
     <main className="acpmux-scroll" style={{ padding: 18, overflow: "auto", height: "100%", boxSizing: "border-box" }}>
@@ -114,6 +167,7 @@ export default componentEntry({
     "agent-session/acpmux/shell/ShellRow.tsx",
     "agent-session/acpmux/conversation/Markdown.tsx",
     "agent-session/acpmux/conversation/TurnRows.tsx#TurnFooter",
+    "agent-session/acpmux/conversation/CloudSignIn.tsx#CloudSignIn",
     "agent-session/acpmux/conversation/RenderCard.tsx",
     "agent-session/acpmux/conversation/DiagramBlock.tsx",
     "agent-session/acpmux/conversation/ImageViewer.tsx",
@@ -129,6 +183,22 @@ export default componentEntry({
       play: async (ctx) => {
         await ctx.click({ selector: '[data-type="tool-output"] .cv-tool' });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-tool-output"));
+      },
+    },
+    "claude-code-entry": {
+      props: { signIn: "claude" },
+      note: "A Cloud chat whose Claude is not signed in on its machine: Sign in to Claude ran the login there and opened its page; the card asks for the code the page shows.",
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-turn-error__primary" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin__input"));
+      },
+    },
+    "codex-code": {
+      props: { signIn: "codex" },
+      note: "The same for Codex: its device code, large, with Copy, while the card waits for the approval.",
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-turn-error__primary" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-turn-signin__code"));
       },
     },
   },

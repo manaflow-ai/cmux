@@ -9,7 +9,9 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextLayout
+import CmuxNextSettings
 import CmuxNextTabs
+import CmuxNextTerminal
 import Observation
 import CmuxNextFocus
 
@@ -47,6 +49,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// The strip's selected tab as last set, unobserved: a tab switch does not re-run `snapshot()` (I2).
     private(set) var stripSelection: String?
     private var sentFocusPane: FocusTopology.Pane? // this pane's topology part as last sent (I4)
+    private var presentedReport = PresentedContentReport() // what this pane last reported as presented to focus
+    private(set) var appliedRecordTabs: [String] = [] // the record's tab ids at the last apply: a record that differs is a stale strip (`stripIsStale`)
     private var closeTabs: [(SurfaceID, String)] = [] // the tabs of the last apply: a closed tab's opener picks its successor (BrowserTabOpeners.closeRelations)
     private var remapsViewedTab = false // a newly selected tab lost its attention dot: map the strip once, after the apply
     /// Its workspace draws nothing (`WorkspaceContentController.drawsNothing`): no strip observation runs and
@@ -72,6 +76,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         var generation: String?
         var hidesStrip = false // PaneTabBarChoices: only the person's Hide Tab Bar
         var fullWidthTab = false // PaneFullWidthTabs: the strip shows only the selected tab
+        var zoomed = false // the pane fills its screen (Toggle Pane Zoom): the selected tab shows the zoom indicator
+        var verticalTabs: PaneVerticalTabs? // WorkspaceVerticalTabs: a list instead of the strip; nil shows the strip
         /// `pinned-dock-v1`: the pane is in a pinned column (the Home dock): its first tab
         /// shows no close button.
         var keepsFirstTab = false
@@ -116,6 +122,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         observation?.cancel()
         tabItems.cancelAll()
         services.presentation.cancel(self)
+        launchFrames.withdrawAhead(in: view.contentHost)
         // No-op for a tab that moved to another pane: its new pane owns it.
         services.cache.removePresenter(self)
         services.cache.hibernation?.paneDidGo(ObjectIdentifier(self))
@@ -144,6 +151,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         observation?.cancel(); observation = Task { [weak self] in
             for await structure in later {
                 guard let self, let structure = structure.value else { return }
+                self.workspace?.applyLayoutIfChanged() // the layout first (no-op when unchanged): a moved tab leaves here as it shows there
+                guard !Task.isCancelled else { return } // that apply removed this pane (teardown cancels this task)
                 self.apply(self.compose(structure))
             }
         }
@@ -158,7 +167,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// One tab's strip item changed (`tabItems`): apply it with the list as it is now (untracked).
     /// Suspended: `resume` maps the strip anyway.
     private func tabItemChanged() {
-        guard !isSuspended else { return }
+        guard !isSuspended, layoutFirst() else { return }
         apply(compose(structure()))
     }
 
@@ -234,6 +243,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
                          // An app workspace's one pane shows its app without a strip (`app-screens-v1`).
                          hidesStrip: hidesTabBar || ownWorkspace?.app != nil || homeChief,
                          fullWidthTab: services.paneFullWidthTabs.contains(paneKey),
+                         zoomed: ownWorkspace?.screens.contains { $0.zoomedPane == pane.handle } ?? false,
+                         verticalTabs: .shown(in: ownWorkspace?.id, unless: hidesTabBar || ownWorkspace?.app != nil || homeChief || pinned, store: services.workspaceVerticalTabs),
                          keepsFirstTab: pinned && tabs.first?.id == pane.tabs.first?.id,
                          // What Home's pinned dock opens goes beside it (ChatColumnPlacement, and
                          // LinkOpener for links), so its strip has no +.
@@ -308,10 +319,12 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// Pushes daemon truth (a New Tab page's replacement in its slot: NewTabSuccession) into the strip. `force` resets optimistic strip state after a rejected command.
     func apply(_ reported: Snapshot, force: Bool = false) {
         let snapshot = NewTabSuccession.order(reported, in: self)
+        appliedRecordTabs = pane.tabs.map(\.id)
         if force { view.stripView.discardPendingReorder() }
         snapshotHidesStrip = snapshot.hidesStrip
-        if view.hidesStrip != (snapshot.hidesStrip || presentsPage) { view.hidesStrip = snapshot.hidesStrip || presentsPage }
+        view.showStrip(hidden: snapshot.hidesStrip || presentsPage, vertical: presentsPage ? nil : snapshot.verticalTabs)
         if stripModel.showsSelectedFullWidth != snapshot.fullWidthTab { stripModel.showsSelectedFullWidth = snapshot.fullWidthTab }
+        if stripModel.zoomsSelected != snapshot.zoomed { stripModel.zoomsSelected = snapshot.zoomed }
         if stripModel.groups != snapshot.groups { stripModel.groups = snapshot.groups }
         if stripModel.tabs != snapshot.items {
             stripModel.tabs = snapshot.items
@@ -411,14 +424,22 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// Pushes the store's current tabs into the strip now (no reset of
     /// optimistic strip state), ahead of the next observation step.
     func syncStripFromStore() {
-        apply(snapshot())
+        if layoutFirst() { apply(snapshot()) }
+    }
+
+    /// The layout first when the record's tabs changed since the strip took them, as `observe` takes it: a tab that moved
+    /// away (a lone chat docking left) leaves here in the turn its new pane shows, not a turn ahead (Leo 2026-11-03: "the
+    /// browser/tab opening animation still plays on the main pane before going"). False when that apply removed this pane.
+    private func layoutFirst() -> Bool {
+        if stripIsStale { workspace?.applyLayoutIfChanged() }
+        return observation?.isCancelled != true // teardown cancels it
     }
 
     // MARK: Content
 
     func showSelected() {
         guard !isSuspended else { return } // `resume`'s apply shows the selection then
-        let key = stripModel.selectedID?.rawValue
+        let key = stripModel.selectedID?.rawValue, shownBefore = currentTabKey
         if key != currentTabKey {
             InputJournal.shared.append(window: state?.id, .content(tab: key ?? "-", event: "show pane=\(paneKey) from=\(currentTabKey ?? "-")"))
             // Another tab's last page from the launch must not stay under this one.
@@ -439,16 +460,16 @@ final class PaneController: SurfacePresenter, PresentablePane {
         BenchSpans.measure("switch.view") { _ = view.show(content?.view) }
         DebugTabSwitch.mark(self, "view")
         // Terminals come in on their first frame (`LaunchSettle`), or at once with their frame from the last
-        // quit (`TerminalLaunchFrames`); other content (a page, an agent) is ready once shown.
-        if case .terminal(let terminal) = content, let key { if terminal.session.showLaunchFrame(key, beside: services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), in: view.contentHost) { DebugTimings.markLaunch("terminal.launch_frame_shown") } } else if content != nil {
+        // quit or kill (`TerminalLaunchFrames`, which takes over one shown ahead and keeps it on disk); other content is ready once shown.
+        if case .terminal(let terminal) = content, let key { launchFrames.show(key, on: terminal.session, in: view.contentHost); launchFrames.keep(key, session: terminal.session, work: services.work) } else { launchFrames.withdrawAhead(in: view.contentHost) }
+        if let content, !content.isTerminal {
             LaunchReveal.shared.markReady(.pane)
             // The page may have attached while the pane was alpha-held for launch. AppKit's
             // alpha transition does not reach Chromium's separate child window.
             view.refreshChromiumVisibility()
         }
-        // The content view exists now: the coordinator re-applies focus if
-        // this pane has it (content is shown a frame after selection).
-        if workspace?.isParked == false { BenchSpans.measure("switch.focus") { workspace?.focus.send(.contentPresented(pane: paneKey)) } }
+        // What shows changed (a frame after selection): focus applies again if this pane has it; a re-show of the same content reports nothing.
+        if workspace?.isParked == false, presentedReport.changes(tab: key, views: [content?.view, view.window], replacing: shownBefore) { BenchSpans.measure("switch.focus") { workspace?.focus.send(.contentPresented(pane: paneKey)) } }
         BenchSpans.measure("switch.invariant") { services.surfaceInvariant.noteChange() }
         BenchSpans.measure("switch.neighbors") { noteNeighbors() }
         windowController?.revalidatePagePresentation() // a page that had the screen was switched away
@@ -466,6 +487,12 @@ final class PaneController: SurfacePresenter, PresentablePane {
         windowController?.revalidatePagePresentation() // a page that had the screen moved away
     }
 
+    private var launchFrames: TerminalLaunchFrames { .beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()) }
+    func showWhileWaiting() { // perf-hot: 1ms launch-first-frame (REOPEN-F1: a visible terminal waiting for its surface shows its last frame)
+        guard presence == .visible, !isSuspended, !view.hostsContent, showsLiveTerminal, let key = stripModel.selectedID?.rawValue else { return }
+        launchFrames.showAhead(key, in: view.contentHost)
+    }
+
     /// The selected tab is a terminal that will draw a frame (not a dead one).
     var showsLiveTerminal: Bool {
         guard let key = stripModel.selectedID?.rawValue, let tab = pane.tabs.first(where: { $0.id == key }) else { return false }
@@ -473,9 +500,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     }
 
     /// This pane is its workspace's focused pane.
-    var isFocusedInWorkspace: Bool {
-        workspace?.focus.state.pane == paneKey
-    }
+    var isFocusedInWorkspace: Bool { workspace?.focus.state.pane == paneKey }
 
     func content(for key: String) -> TabContent? {
         if key.hasPrefix(LocalPageTab.prefix) { return services.pages.view(for: key).map(TabContent.page) }
@@ -558,7 +583,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
     // MARK: Lookup
 
-    func tab(_ id: StripTabID) -> TabModel? { pane.tabs.first { $0.id == id.rawValue } }
+    func tab(_ id: StripTabID) -> TabModel? { pane.tabs.first { $0.id == id.rawValue } ?? daemon.store.creations.replacement(ofStandIn: id.rawValue, in: pane) }
 
     var selectedTab: TabModel? { stripModel.selectedID.flatMap(tab) }
 

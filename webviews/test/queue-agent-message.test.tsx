@@ -235,9 +235,11 @@ test("an agent's waiting message: its line, no Read after this turn, a message's
   await act(async () => host.querySelector<HTMLButtonElement>("button.cv-received__from")!.click());
   expect(calls).toEqual(["open s-1"]);
 
-  // Copy is the line's icon, in the same group as the ⋯, as on a delivered message's line.
+  // Another session's message: the ⋯ alone in its group, no hover Copy and no Pin (Leo, 2026-10-30:
+  // "all these weird button stuff from messages from other sessions... weird to be able to pin them").
   const group = host.querySelector(".cv-received__hover .cv-received-actions")!;
-  expect(group.querySelector(`[aria-label="${t("turn.copy")}"]`)).not.toBeNull();
+  expect(group.querySelector(`[aria-label="${t("turn.copy")}"]`)).toBeNull();
+  expect(group.querySelector(".cv-message-pin")).toBeNull();
   expect(group.querySelector('[data-menu="waiting-message"]')).not.toBeNull();
   expect(host.querySelectorAll(".cv-received-actions")).toHaveLength(1);
   await openMenu();
@@ -292,10 +294,11 @@ test("a message sent now offers no second Send now, and never the person's queue
 });
 
 // Leo, 2026-10-29: "removing the \"read after this step\" maybe and the odd gap betwene the pin and
-// the ellipsis and the redundant \"open chat\"". A delivered message with a steer the agent has not
-// read: its age, Copy, Retry, Pin and ⋯ are ONE group, so ⋯ sits one gap after Pin, not a second
-// group's margin away; no Read after this step, no Open chat.
-test("a delivered steer's ⋯ is in the same action group as Pin, with no Read after this step or Open chat", async () => {
+// the ellipsis and the redundant \"open chat\""; 2026-10-30: "all these weird button stuff from
+// messages from other sessions... weird to be able to pin them etc". A delivered message with a
+// steer the agent has not read: its age, Retry and ⋯ are ONE group; no Pin, no hover Copy, no Read
+// after this step, no Open chat.
+test("a delivered steer's ⋯ is in its one action group, with no Pin, Copy, Read after this step or Open chat", async () => {
   const { SteerWaitingActions } = await import("../src/agent-session/acpmux/conversation/QueuedMessageCard");
   const { IncomingMessageLine } = await import("../src/agent-session/acpmux/conversation/IncomingMessageCard");
   const { ReceivedActions } = await import("../src/agent-session/acpmux/conversation/MessageActions");
@@ -306,13 +309,7 @@ test("a delivered steer's ⋯ is in the same action group as Pin, with no Read a
       id="steer-row"
       message={message}
       onOpen={() => {}}
-      actions={
-        <ReceivedActions
-          row={row as never}
-          text={message.text}
-          more={<SteerWaitingActions promptId="p-8" send={() => {}} />}
-        />
-      }
+      actions={<ReceivedActions row={row as never} more={<SteerWaitingActions promptId="p-8" send={() => {}} />} />}
     />,
   );
   const groups = host.querySelectorAll(".cv-received-actions");
@@ -320,6 +317,9 @@ test("a delivered steer's ⋯ is in the same action group as Pin, with no Read a
   const footer = groups[0]!.querySelector(".cv-message-footer-row")!;
   expect(footer.querySelector('[data-menu="waiting-message"]')?.closest(".cv-message-footer-row")).toBe(footer);
   expect(host.textContent).not.toContain("Read after this step");
+  expect(host.textContent).not.toContain(t("subsession.openChat"));
+  expect(host.querySelector(".cv-message-pin")).toBeNull();
+  expect(footer.querySelector(`[aria-label="${t("turn.copy")}"]`)).toBeNull();
   expect(host.querySelector(".cv-disclosure__open, .cv-received__queued")).toBeNull();
 });
 

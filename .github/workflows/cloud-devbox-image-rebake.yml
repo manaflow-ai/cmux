@@ -77,7 +77,7 @@ jobs:
     # One canonical branch: the Freestyle account and the devbox-rebake/* PRs
     # are shared, so a dispatch from any other ref does nothing.
     if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # A full bake + ladder takes about 20 minutes (run 40399656939); a run still
     # going after 6 hours is stuck, the one case a started bake may end.
     timeout-minutes: 360
