@@ -171,13 +171,41 @@ def build_newtabs(app, count, limit=60):
         if not isinstance(reply, dict) or reply.get("error") or reply.get("code"):
             raise RuntimeError(f"{name} failed: {reply}")
 
+    # A fresh window can contain only Home. Build the covering terminal before
+    # any measured page, so terminal creation cannot replace a page being counted.
+    report = read_rpc(app, "debug.surfaces")
+    live_chat_pages(report)
+    if not any(p.get("focused") and p.get("kind") == "terminal"
+               and str(p.get("selected_tab", "")).startswith("tab_") for p in surface_panes(report)):
+        focused = [p for p in surface_panes(report) if p.get("focused") and p.get("pane")]
+        if len(focused) != 1:
+            raise NewTabSetupError("no unique focused pane for the covering terminal", report)
+        selected = focused[0].get("selected_tab")
+        if not isinstance(selected, str) or not selected.startswith("tab_"):
+            raise NewTabSetupError("focused pane has no stable tab for the covering terminal", report)
+        action("newSurface", target=f"tab:{selected}")
+    deadline = time.monotonic() + limit
+    while time.monotonic() < deadline:
+        report = read_rpc(app, "debug.surfaces")
+        terminals = [p for p in surface_panes(report) if p.get("focused") and p.get("kind") == "terminal"
+                     and p.get("selected_tab") == p.get("shown_tab") and p.get("content_installed")
+                     and p.get("content_in_window") and not p.get("blank")
+                     and str(p.get("selected_tab", "")).startswith("tab_")]
+        if len(terminals) == 1:
+            terminal = terminals[0]
+            terminal_key, terminal_pane = terminal["selected_tab"], terminal["pane"]
+            break
+        time.sleep(0.1)  # bench: bounded wait for the covering terminal's stable identity and surface
+    else:
+        raise NewTabSetupError("no stable terminal to cover the measured New Tab pages", report)
+
     for _ in range(count):
         existing = live_chat_pages(read_rpc(app, "debug.surfaces"))
-        action("newTab.page")
+        action("newTab.page", target=f"pane:{terminal_pane}")
         deadline, last, ready = time.monotonic() + limit, {}, None
         while time.monotonic() < deadline:
             last = read_rpc(app, "debug.surfaces")
-            candidates = [p for p in surface_panes(last) if p.get("kind") == "agent"
+            candidates = [p for p in surface_panes(last) if p.get("kind") == "agent" and p.get("pane") == terminal_pane
                           and p.get("selected_tab") == p.get("shown_tab") and p.get("content_installed")
                           and p.get("content_in_window") and not p.get("blank")
                           and str(p.get("selected_tab", "")).startswith("tab_")
@@ -205,18 +233,18 @@ def build_newtabs(app, count, limit=60):
             time.sleep(0.1)  # bench: bounded wait for the selected page's real renderer and document
         else:
             raise NewTabSetupError(f"only built {len(keys)} of {count} New Tab pages", last, ready)
-    # The launch terminal precedes these new pages in the strip. Cycling from the
-    # last page wraps to it without replacing (and closing) a New Tab via newSurface.
-    action("nextSurface")
+    action("tab.focus", target=f"tab:{terminal_key}")
     deadline = time.monotonic() + limit
     report = {}
     while time.monotonic() < deadline:
         report = read_rpc(app, "debug.surfaces")
         panes = surface_panes(report)
         if any(p.get("focused") and p.get("kind") == "terminal" and p.get("content_installed")
-               and p.get("selected_tab") == p.get("shown_tab") for p in panes):
+               and p.get("content_in_window") and not p.get("blank") and p.get("pane") == terminal_pane
+               and p.get("selected_tab") == p.get("shown_tab") == terminal_key for p in panes):
             if not any(p.get("shown_tab") in keys for p in panes):
-                return {"requested": count, "rendered": len(keys), "keys": keys, "engines": engines}
+                return {"requested": count, "rendered": len(keys), "keys": keys, "engines": engines,
+                        "terminal": {"key": terminal_key, "pane": terminal_pane}}
         time.sleep(0.1)  # bench: wait until the terminal covers all measured pages
     raise NewTabSetupError("the terminal did not hide every measured New Tab page", report)
 

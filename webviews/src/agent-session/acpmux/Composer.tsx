@@ -1,3 +1,4 @@
+import { acpmuxPerf } from "./perf";
 import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 // Send's iMessage colors (--cmux-messages-blue); build-agent-pane-web.sh inlines the sheet.
@@ -415,6 +416,8 @@ type Props = {
   authBlock?: string;
   /// Keeps auth refusal blocking sends when its text is represented by another notice.
   authBlocked?: boolean;
+  /// A pending check disables Send and explains its tooltip without adding a temporary layout row.
+  authChecking?: boolean;
   /// Opens Session Info at its Context section: the context ring's card links to it (Details ›).
   onOpenContext?(): void;
 };
@@ -490,9 +493,11 @@ export function Composer({
   locked = false,
   authBlock,
   authBlocked = false,
+  authChecking = false,
   placeholder,
   onOpenContext,
 }: Props) {
+  acpmuxPerf.render("composer");
   const t = useT();
   const chrome = useComposerChrome();
   // Off (a queued row's ⋯ menu, queueing.ts), what is sent mid-turn steers on every key.
@@ -2255,7 +2260,7 @@ export function Composer({
           {t(remote.note)}
         </p>
       )}
-      {!remote.note && authBlock && (
+      {!remote.note && authBlock && !authChecking && (
         <p className="acpmux-composer-remote-note acpmux-composer-trust-note" role="alert">
           {authBlock}
         </p>

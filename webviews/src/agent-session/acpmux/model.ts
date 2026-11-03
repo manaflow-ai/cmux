@@ -91,7 +91,8 @@ export type AcpmuxBackgroundTask = {
   reason?: string;
   /// Claude Code's own words on how it ended (its task notification's summary).
   summary?: string;
-  /// The exit code, when the harness reports one (Codex does; Claude Code does not).
+  /// The exit code, when the harness reports one (Codex does; acpmux reads Claude Code's from its
+  /// summary).
   exitCode?: number;
 };
 
@@ -102,6 +103,8 @@ export type AcpmuxBackgroundTask = {
 export type AcpmuxBackgroundState = {
   state: "running" | AcpmuxBackgroundTask["state"];
   reason?: string;
+  /// The exit code its end reported (Codex's, and Claude Code's from its summary).
+  exitCode?: number;
   endedAt?: number;
 };
 

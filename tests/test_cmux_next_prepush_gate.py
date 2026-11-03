@@ -167,7 +167,9 @@ class PrePushGateTests(unittest.TestCase):
         self.repo = self.root / "repository"
         self.origin = self.root / "origin.git"
         self.global_config = self.root / "gitconfig"
-        self.global_config.write_text("[user]\n\tname = Fixture\n\temail = fixture@example.com\n")
+        # The pushes below go into a local bare origin, whose receive-pack reads only config files (git_fixture_env).
+        self.global_config.write_text("[user]\n\tname = Fixture\n\temail = fixture@example.com\n"
+                                      + git_fixture_env.CONFIG_FILE_OPT_OUT)
         self.env = {key: value for key, value in os.environ.items()
                     if not key.startswith("GIT_") and key not in AGENT_VARS}
         self.env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(self.global_config),
@@ -252,6 +254,25 @@ class PrePushGateTests(unittest.TestCase):
     def push_ref(self, ref, *flags, **env):
         return subprocess.run(["git", "-C", str(self.repo), "push", *flags, "origin", ref],
                               env={**self.env, **env}, text=True, capture_output=True)
+
+    def test_a_push_that_changes_the_perf_cron_never_runs_its_tests_in_the_hook(self):
+        # The hook never runs code the push controls (docs/contributor-verification.md, trust boundary). The perf
+        # cron's unit tests are the pushed head's own code, so the hook names them and the command to run them on
+        # code the person trusts; it never runs them, whatever they hold.
+        marker = self.root / "pushed-code-ran"
+        self.write("scripts/cmux-next/perf-cron.py", "VALUE = 1\n")
+        self.write("scripts/cmux-next/tests/test_perf_cron.py",
+                   f"import unittest\nopen({str(marker)!r}, 'w').close()\n"
+                   "class T(unittest.TestCase):\n    def test_ok(self):\n        pass\n")
+        self.commit("change the perf cron")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(marker.exists(), "the hook ran the pushed head's perf cron tests")
+        self.assertIn("perf cron", result.stderr)
+        self.assertIn("python3 -I -m unittest discover -s scripts/cmux-next/tests -p 'test_perf_cron*.py'",
+                      result.stderr, "must say how to run them")
 
     def kit(self, name, text):
         self.write(f"{PKG}/Sources/CmuxNextKit/{name}.swift", text)
