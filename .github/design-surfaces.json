@@ -260,6 +260,13 @@
         "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/AgentShareInviteSheetModel.swift",
         "webviews/src/agent-session/guest/"
       ]
+    },
+    "markdown-viewer": {
+      "spec": "leo-workspace design/markdown-viewer.md",
+      "aliases": ["markdown", "markdown viewer", "reading settings", "markdown page"],
+      "paths": [
+        "webviews/src/pages/markdown/"
+      ]
     }
   }
 }
