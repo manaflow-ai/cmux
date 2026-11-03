@@ -432,7 +432,7 @@ final class NewTabSparePool {
         slot.parked(view)
         snapshotParked()
         schedulePrepare()
-        if slot.shouldWarm { refills.after(made: view) }
+        if slot.shouldWarm { scheduleWarm() } // the second once input is quiet: a parked page may report no paint until shown
     }
 
     private func watchMemoryPressure() {

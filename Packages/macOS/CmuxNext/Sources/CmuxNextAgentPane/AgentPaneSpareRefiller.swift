@@ -6,8 +6,7 @@ public import CmuxNextWakeups
 /// as best-effort work after the navigation it served, a handout's replacement comes after the key's frame
 /// committed, the open's tab-strip motion ended and the adopted page drew its first frame in its pane, then
 /// ``settle`` of idle time (input does not push it back), as one background task on the app's scheduler (it yields
-/// to the person's input and to the frame's budget). A next spare after one that was just made waits for that one to
-/// draw, so two makes never share frames.
+/// to the person's input and to the frame's budget).
 ///
 /// ```swift
 /// let refills = AgentPaneSpareRefiller(on: mainWork) { pool.warmNow() }
@@ -49,11 +48,6 @@ public final class AgentPaneSpareRefiller {
             guard self != nil else { return }
             if let still { still(drawn) } else { drawn() }
         }
-    }
-
-    /// `made` was just parked and the pool has room for another: the next one once `made` drew.
-    public func after(made: AgentPaneView) {
-        made.model.whenPainted { [weak self] in self?.enqueue() }
     }
 
     private func enqueue() {
