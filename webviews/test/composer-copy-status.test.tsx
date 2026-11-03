@@ -77,7 +77,7 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-async function openBox(size: number) {
+async function openBox(size: number, shell = false) {
   const ready = deferred<void>();
   let currentAttachments: ComposerAttachment[] = [];
   let addAttachment!: (attachment: ComposerAttachment) => void;
@@ -90,7 +90,7 @@ async function openBox(size: number) {
     text: "x".repeat(size),
   };
   function Box() {
-    const [value, setValue] = useState(`See ${inlineToken(attachment.id)}`);
+    const [value, setValue] = useState(shell ? "See attached file" : `See ${inlineToken(attachment.id)}`);
     const [attachments, setAttachments] = useState([attachment]);
     currentAttachments = attachments;
     addAttachment = (item) => setAttachments((current) => [...current, item]);
@@ -102,6 +102,7 @@ async function openBox(size: number) {
         onRemoveAttachment={(id) => setAttachments((current) => current.filter((item) => item.id !== id))}
         fieldMenu={[]}
         chromeItems={[]}
+        fieldOverlay={shell ? <span>Shell prompt</span> : undefined}
       />
     );
   }
@@ -321,7 +322,7 @@ test("edits made while a 4 MiB Cut stages survive its successful copy", async ()
   expect(native.commits()).toBe(1);
 });
 
-test("a committed Cut preserves strip attachments added while its 4 MiB copy stages", async () => {
+test("inline attachments added while a 4 MiB Cut stages preserve the changed draft", async () => {
   const native = stageHost("pause");
   const box = await openBox(4 * 1024 * 1024);
   const strip = (id: string): ComposerAttachment => ({
@@ -338,6 +339,38 @@ test("a committed Cut preserves strip attachments added while its 4 MiB copy sta
     await native.paused.promise;
   });
   act(() => box.addAttachment(strip("new-strip")));
+  const edited = box.field().value();
+  expect(edited).toContain(inlineToken("new-strip"));
+  await act(async () => {
+    native.held.resolve();
+    await native.published.promise;
+  });
+  expect(box.field().value()).toBe(edited);
+  expect(box.attachmentIds().sort()).toEqual(["file", "new-strip", "selected-strip"]);
+  expect(native.commits()).toBe(1);
+});
+
+test("a committed shell Cut preserves strip attachments added while its 4 MiB copy stages", async () => {
+  const native = stageHost("pause");
+  // Shell mode keeps its attachments in the strip: unlike a visual strip setting, it stops
+  // inline.ready from inserting each newly attached file into the editor's document.
+  const box = await openBox(4 * 1024 * 1024, true);
+  const strip = (id: string): ComposerAttachment => ({
+    id,
+    kind: "text",
+    name: `${id}.txt`,
+    mimeType: "text/plain",
+    size: 5,
+    text: "hello",
+  });
+  act(() => box.addAttachment(strip("selected-strip")));
+  const draft = box.field().value();
+  act(() => copySelection("cut"));
+  await act(async () => {
+    await native.paused.promise;
+  });
+  act(() => box.addAttachment(strip("new-strip")));
+  expect(box.field().value()).toBe(draft);
   await act(async () => {
     native.held.resolve();
     await native.published.promise;
