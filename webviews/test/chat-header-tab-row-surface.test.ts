@@ -171,48 +171,67 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
     }
   }
 
-  // The tab row is no band of its own: the page's one color runs under it, and the transcript's top edge is a fade.
-  test("the tab row shell paints one page color over the row and under it: no band at the top", async () => {
-    const shellCss = [
-      read("styles.css"),
-      read("agent-session/shared/styles.css"),
-      read("agent-session/acpmux/styles.css"),
-      read("agent-session/acpmux/header/header.css"),
-    ].join("\n");
-    const page = await browser.newPage({ viewport: { width: 320, height: 120 } });
-    try {
-      // What is under the page is green; the page's own color is red.
-      await page.setContent(`<!doctype html><html style="background:rgb(0,255,0)"><head><style>
-        ${shellCss}
-        :root { --agent-page-bg: rgb(255, 0, 0); --agent-muted: rgb(150, 160, 170); }
-        html:has(.acpmux-shell[data-tab-row]) { background: rgb(0, 255, 0) !important; }
-        body { margin: 0; height: 120px; }
-      </style></head><body>
-        <section class="acpmux-shell" data-tab-row style="--acpmux-tab-row-height:40px;height:120px">
-          <div class="acpmux-stage" style="flex:1;display:flex;flex-direction:column">
-            <header class="acpmux-header" data-tab-row><div class="acpmux-handoff-header-tools">
-              <div class="acpmux-header-tools"><button class="acpmux-header-tool" aria-label="Panel"></button></div>
-            </div></header>
-          </div>
-        </section>
-      </body></html>`);
-      const shot = await page.screenshot({ type: "png" });
-      const { PNG } = await import("pngjs");
-      const png = PNG.sync.read(shot);
-      const at = (x: number, y: number) => {
-        const i = (png.width * y + x) * 4;
-        return [png.data[i], png.data[i + 1], png.data[i + 2]];
-      };
-      // Leo, 2026-11-03, on the page's color painted only below the row (#32687): "WHY IS THERE NOW A
-      // BLACK BAR ON EVERYTHING AT THE TOP ROW INSTEAD OF A TINY BLUR AT THE TOP". The page's color
-      // runs under the row as below it, so the transcript's soft top edge is the only edge there.
-      expect(at(300, 10)).toEqual([255, 0, 0]);
-      expect(at(10, 20)).toEqual([255, 0, 0]);
-      expect(at(10, 80)).toEqual([255, 0, 0]);
-    } finally {
-      await page.close();
-    }
-  });
+  // The tools in the tab row sit on the row's own surface, as the tabs do: nothing on the page paints behind them,
+  // only below the row (Leo, 2026-11-02: "FOR THE FUCKING STUPID BACKGROUND ON THE FUCKING TOP RIGHT ICONS TO BE
+  // REMOVED"; 2026-11-03: "it's so obvious to just remove the thing"). The page here is the agent page as it ships:
+  // its own sheets only (never src/styles.css, which the pane's bundle does not load) under WebTheme's document rule,
+  // `html{background:var(--cmux-surface-background) !important}`, with a chat color (appearance.surfaces.agentPane)
+  // as that background. The toggled tool keeps its plate.
+  for (const surface of ["rgb(255, 0, 0)", "rgba(255, 0, 0, 0.6)"]) {
+    test(`the tab row paints nothing behind the tools, page background ${surface}`, async () => {
+      const shellCss = [
+        read("agent-session/shared/styles.css"),
+        read("agent-session/acpmux/styles.css"),
+        read("agent-session/acpmux/header/header.css"),
+      ].join("\n");
+      const page = await browser.newPage({ viewport: { width: 320, height: 120 } });
+      try {
+        // The page's own color is red; its canvas is transparent (omitBackground), as WebKit's and see-through
+        // Chromium's are, so a pixel the page leaves alone reads alpha 0.
+        await page.setContent(`<!doctype html><html><head>
+          <style id="cmux-theme">html{background:var(--cmux-surface-background) !important}body{background:transparent !important}</style>
+          <style>
+          ${shellCss}
+          :root { --cmux-surface-background: ${surface}; --agent-page-bg: transparent; --agent-muted: rgb(150, 160, 170);
+                  --agent-text: rgb(240, 240, 240); }
+          body { margin: 0; height: 120px; }
+        </style></head><body>
+          <section class="acpmux-shell" data-tab-row style="--acpmux-tab-row-height:40px;height:120px">
+            <div class="acpmux-stage" style="flex:1;display:flex;flex-direction:column">
+              <header class="acpmux-header" data-tab-row><div class="acpmux-handoff-header-tools">
+                <div class="acpmux-header-tools">
+                  <button class="acpmux-header-tool" aria-label="Terminal"></button>
+                  <button class="acpmux-header-tool acpmux-header-panel-toggle" aria-pressed="true" aria-label="Session Info"></button>
+                </div>
+              </div></header>
+            </div>
+          </section>
+        </body></html>`);
+        const toggle = page.locator(".acpmux-header-panel-toggle");
+        const box = (await toggle.boundingBox())!;
+        // The page's own pixels, with alpha: omitBackground leaves Chromium's canvas transparent.
+        const shot = await page.screenshot({ type: "png", omitBackground: true });
+        const { PNG } = await import("pngjs");
+        const png = PNG.sync.read(shot);
+        const at = (x: number, y: number) => {
+          const i = (png.width * y + x) * 4;
+          return [png.data[i], png.data[i + 1], png.data[i + 2], png.data[i + 3]];
+        };
+        // Inside the 40px row, beside and between the tools: nothing at all (alpha 0).
+        expect(at(10, 20)[3]).toBe(0);
+        expect(at(Math.round(box.x) - 4, 20)[3]).toBe(0);
+        expect(at(319, 2)[3]).toBe(0);
+        // The toggled Session Info button keeps its plate.
+        expect(at(Math.round(box.x + 3), Math.round(box.y + 3))[3]).toBeGreaterThan(0);
+        // Below the row: the page's own color.
+        const below = at(10, 80);
+        expect(below[0]).toBeGreaterThan(200);
+        expect(below[3]).toBeGreaterThan(100);
+      } finally {
+        await page.close();
+      }
+    });
+  }
 
   // The transcript's top edge under the row is a fade (a gradient mask), never an opaque band: black rows
   // scrolled under the row read as the page's color at the edge, half-faded inside the fade, full ink below it.

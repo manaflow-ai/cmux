@@ -136,9 +136,14 @@
 /* One row on top (header/tabRow.ts, the chrome.tabs.rowTools Debug setting): the App draws the pane's
    tabs over the header's left part, so the header is the tab row's height, takes no clicks there and
    shows only its tools, left of the pane's own "…"; the transcript fades out under the row. */
-/* The shell paints the page's color under the row as below it: painting it only below the row drew a hard dark band
-   across the top instead of the transcript's soft top edge (Leo, 2026-11-03: "WHY IS THERE NOW A BLACK BAR ON
-   EVERYTHING AT THE TOP ROW INSTEAD OF A TINY BLUR AT THE TOP"). The tools keep no plate of their own (above). */
+/* The tools in the row sit on the row's own surface, as the tabs beside them do: nothing on the page paints behind
+   them, the shell paints the page's color only below the row (Leo, 2026-11-02, above; 2026-11-03, on the chat's color
+   drawn as a rectangle behind the header buttons: "it's so obvious to just remove the thing"). The document root
+   carries the page background (WebTheme's html rule, --cmux-surface-background: a chat's own color under
+   appearance.surfaces.agentPane), so it is clear here and the shell paints that background below the row instead.
+   test/chat-header-tab-row-surface.test.ts loads the agent page's own sheets with WebTheme's rule. */
+html:has(.acpmux-shell[data-tab-row]){background:transparent !important}
+.acpmux-shell[data-tab-row]{background:linear-gradient(transparent var(--acpmux-tab-row-height),var(--agent-page-bg) var(--acpmux-tab-row-height)),linear-gradient(transparent var(--acpmux-tab-row-height),var(--cmux-surface-background,transparent) var(--acpmux-tab-row-height))}
 .acpmux-header[data-tab-row]{position:relative;z-index:var(--layer-sticky);flex:0 0 var(--acpmux-tab-row-height);height:var(--acpmux-tab-row-height);padding:0 var(--acpmux-tab-row-inset) 0 0;background:transparent;pointer-events:none}
 .acpmux-header[data-tab-row] .acpmux-header-status-slot{visibility:hidden}
 /* In the tab row the warning leads the tools (ChatHeaderInlineStatus): the slot is under the tabs. */

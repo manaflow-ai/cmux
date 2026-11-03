@@ -24,6 +24,8 @@ public final class CreationInputBuffer {
     private var earlyTabs: [Int: String] = [:]
     /// Pending creations' provisional tabs, by ticket.
     private var tabs: [Int: String] = [:]
+    /// Every tab a creation of this hold shows, replied or not, for the hold's lifetime (``keepsKeysFromLeftPage``).
+    private var madeTabs: Set<String> = []
     /// Creations that make a new workspace with its terminal (`open(…, newWorkspace: true)`), by ticket, until they
     /// fail. The keys typed for one are that terminal's: they never go to anything else (an agent's message box).
     private var workspaceTickets: Set<Int> = []
@@ -67,6 +69,7 @@ public final class CreationInputBuffer {
         if newWorkspace { workspaceTickets.insert(nextID) }
         if let earlyTab { earlyTabs[nextID] = earlyTab }
         if let tab { tabs[nextID] = tab; laneTabs[nextID] = tab; laneMachines[nextID] = machine }
+        if let tab { madeTabs.insert(tab) }
         return Ticket(id: nextID, owner: ObjectIdentifier(self))
     }
 
@@ -227,6 +230,14 @@ public final class CreationInputBuffer {
 
     /// Whether a creation of this hold, asked under the person's newest intent `generation`, keeps the window's keyboard.
     public func ownsKeyboard(generation: UInt64) -> Bool { holdsCreation && newestGeneration == generation }
+
+    /// Whether the page the person left keeps no keys (P0 INVERSE-KEY): the focus is on its way to another tab
+    /// (`awaitsOtherTab`) and a creation of this hold, asked under their newest intent `generation`, owns the keyboard.
+    /// The focused tab `focusedTab` is never one this hold makes, before or after its reply (a new browser tab's own
+    /// page takes the keys).
+    public func keepsKeysFromLeftPage(awaitsOtherTab: Bool, generation: UInt64, focusedTab: String?) -> Bool {
+        awaitsOtherTab && ownsKeyboard(generation: generation) && focusedTab.map { !madeTabs.contains($0) } != false
+    }
 
     /// The person acted after asking for this hold's new workspaces (a click, even on the view that already had the focus,
     /// which moves no focus generation; one of their actions): the keys typed from now on are no longer those workspaces'

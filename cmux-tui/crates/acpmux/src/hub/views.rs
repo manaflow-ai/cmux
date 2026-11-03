@@ -603,6 +603,9 @@ impl Hub {
         // The branch its folder has checked out now (`git_watch.rs`); null on
         // a detached HEAD or outside a repository.
         summary.set("gitBranch", json!(self.git_branch_now(&m)));
+        if let Some(dirs) = super::additional_dirs::acp_value(&m) {
+            summary.set(super::additional_dirs::FIELD, dirs);
+        }
         // Since when work it started runs on past its own turn (`work_below.rs`).
         summary.set("subagentsWorkingSince", json!(self.work_below_since(session)));
         // What runs below it now (the sidebar hover card, Leo 2026-11-01: "this hover preview
