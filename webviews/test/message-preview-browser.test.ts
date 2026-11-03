@@ -88,10 +88,10 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
         },
         width === 360 ? 1.25 : 1,
       );
-      // Closed: the line alone, its first line cut with an ellipsis on one line, nothing under it.
+      // Closed: the line and, under it, its first line cut with an ellipsis on one line (stacked).
       expect(await page.locator(".cv-received__text, .cv-received__show, [data-cut]").count()).toBe(0);
       const preview = await page
-        .locator(".cv-received__preview")
+        .locator(".cv-disclosure__below")
         .first()
         .evaluate((box) => {
           const style = getComputedStyle(box);
@@ -145,7 +145,7 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
     expect(await page.locator(".cv-received__text").count()).toBe(0);
     expect(
       await page
-        .locator(".cv-received__preview")
+        .locator(".cv-disclosure__below")
         .first()
         .evaluate((box) => getComputedStyle(box).textOverflow),
     ).toBe("ellipsis");

@@ -222,6 +222,13 @@ button.cv-agentmsg__name:focus-visible {
    yes, 2026-11-02, to splitting "Sent to <chip> · and 5 more commands <preview>" so the chip and
    count read on the first line and the preview below). The row's one tone, never lit on hover.
    model.ts adds its --cv-message-preview-line (MESSAGE_PREVIEW_LINE_PT) under the 22px row. */
+/* In a column that spaces its parts by the tool group's inner gap (`.cv-agentmsg`, `.cv-disclosure`),
+   the first line still sits right under its row, as a send's does: the row and its first line are
+   one entry (model.ts `messagePreviewLine`, 18px under the row). */
+.cv-agentmsg > .cv-msgline__preview,
+.cv-disclosure > .cv-msgline__preview {
+  margin-top: calc(-1 * var(--grid-gap-inner));
+}
 .cv-msgline__preview {
   box-sizing: border-box;
   height: var(--cv-message-preview-line);
