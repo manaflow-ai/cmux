@@ -137,8 +137,7 @@ final class TerminalEntry {
     }
 }
 
-/// A live browser page and its `BrowserChromeTabState` (#32909 step B): a pane's browser tabs share one chrome
-/// (`BrowserPaneChrome`). Write a tab's hooks and per-tab presentation to `state`, never to a chrome.
+/// A live page and its `BrowserChromeTabState`; a pane's tabs share one `BrowserPaneChrome`: write per-tab state to `state`.
 final class BrowserEntry {
     let tab: any BrowserTab
     let state = BrowserChromeTabState()
