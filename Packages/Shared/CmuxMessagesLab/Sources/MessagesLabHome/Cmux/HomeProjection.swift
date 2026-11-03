@@ -591,10 +591,21 @@ final class HomeProjection: @preconcurrency ChatIntents {
         // Typing saves before Return can offer the vault. Keep a detected credential only in
         // the live field while the person decides; a cancelled offer never writes it to disk. The
         // kept copy has each one replaced by its vault mark, so the rest of the message survives.
-        let findings = secretHost == nil ? [] : HomeSecretScan().findings(in: draft.plainText)
-        let kept = findings.reduce(draft.text) { HomeSecretScan.redacted($0, value: $1.value, name: $1.suggestedName) }
-        homeStore.setDraft(kept, for: conversation)
+        homeStore.setDraft(secretHost == nil ? draft.text : Self.keptDraft(draft.text), for: conversation)
         homeStore.setDraftAttachments(draftAttachments, for: conversation)
+    }
+
+    /// `text` (the field's text, with attachment marks) as the draft cache may keep it: each
+    /// credential replaced by its vault mark, the longest first so a key that is the start of
+    /// another never leaves the other's tail. A key the marks split (a picture dropped inside it)
+    /// is not one run of `text`; when any key survives, nothing is kept.
+    static func keptDraft(_ text: String) -> String {
+        let scan = HomeSecretScan()
+        let findings = scan.findings(in: Draft.stripMarks(text))
+        guard !findings.isEmpty else { return text }
+        let kept = findings.sorted { $0.value.count > $1.value.count }
+            .reduce(text) { HomeSecretScan.redacted($0, value: $1.value, name: $1.suggestedName) }
+        return scan.findings(in: Draft.stripMarks(kept)).isEmpty ? kept : ""
     }
 
     /// The field's attachments from the cache, once, into a field without any, each at its mark

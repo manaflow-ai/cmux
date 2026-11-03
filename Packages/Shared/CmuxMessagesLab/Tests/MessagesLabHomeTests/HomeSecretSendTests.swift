@@ -157,7 +157,7 @@ import Testing
         #expect((try String(contentsOf: url, encoding: .utf8)).contains("ordinary text again"))
     }
 
-    @Test func installingTheVaultHostClearsASecretFromTheKeptDraft() async throws {
+    @Test func installingTheVaultHostRedactsASecretInTheKeptDraft() async throws {
         let rig = try await HomeChatRig(history: 0)
         defer { rig.stop() }
         let text = "use \(Self.key)"
@@ -165,7 +165,24 @@ import Testing
         rig.view.projection.draftChanged()
         #expect(rig.store.draft(for: HomeChatRig.conversation) == text, "without a host drafts keep their existing behavior")
         rig.view.secretHost = { _ in [] }
-        #expect(rig.store.draft(for: HomeChatRig.conversation) == nil)
+        #expect(rig.store.draft(for: HomeChatRig.conversation) == "use [vault:OPENAI_API_KEY]")
         #expect(rig.view.draftText == text, "installing the host leaves the live field alone")
+    }
+
+    /// Review of https://github.com/manaflow-ai/cmux/pull/26487: a key split by an attachment mark
+    /// is one key in the plain text but no run of the kept text; one key that starts another must
+    /// not leave the longer one's tail. No key, and no part of one, is kept.
+    @Test func theKeptDraftNeverHoldsAKeyOrItsTail() {
+        let mark = String(Character(Draft.mark))
+        let split = "use " + String(Self.key.prefix(20)) + mark + String(Self.key.dropFirst(20))
+        #expect(HomeProjection.keptDraft(split) == "", "a split key keeps nothing")
+
+        let longer = Self.key + "ZZZZ"
+        let both = "\(Self.key) and \(longer)"
+        let kept = HomeProjection.keptDraft(both)
+        #expect(!kept.contains(Self.key) && !kept.contains("ZZZZ"), "\(kept)")
+        #expect(kept == "[vault:OPENAI_API_KEY] and [vault:OPENAI_API_KEY]")
+
+        #expect(HomeProjection.keptDraft("ordinary text") == "ordinary text")
     }
 }
