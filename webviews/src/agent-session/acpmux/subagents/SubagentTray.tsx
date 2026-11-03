@@ -24,7 +24,11 @@
 // and what its turn does now. A headed tray starts folded to its header, one line, so the tray never
 // takes the transcript's room (https://github.com/manaflow-ai/cmux/issues/28875: two commands and a
 // done subagent stood open over the chat), and the chevron opens it. The person's choice holds for
-// that chat, across a switch away and back (trayFoldMemory.ts). Its
+// that chat, across a switch away and back (trayFoldMemory.ts). The header expands in place, and
+// its panel button (in the lines' Stop column, right before the chevron) opens the full Background
+// tasks panel, as Claude's "N background commands completed, M running ›" chip opens its panel
+// (Leo, 2026-11-03: "a thing like this that can either expand OR open up to this sort of thing";
+// trayOpen.experiment.ts). Its
 // glass is the user bubble's: the theme's text at a low strength over the backdrop, with the
 // composer's hairline rim.
 //
@@ -90,6 +94,7 @@ import { trayPanelLook, trayRowLook, trayStopLook } from "./trayPanel.experiment
 import { trayMotionLook } from "./trayMotion.experiment";
 import { trayHeadLook } from "./trayHead.experiment";
 import { trayFoldHeadLook } from "./trayFoldHead.experiment";
+import { trayOpenLook } from "./trayOpen.experiment";
 import { traySurfaceLook } from "./traySurface.experiment";
 import { Tick, useTrayMotion } from "./trayMotion";
 import type { StartedSession } from "../started/startedSessions";
@@ -127,6 +132,7 @@ export const SubagentTray = memo(function SubagentTray({
   canOpenTerminal = false,
   canReadTail = false,
   onOpenSession,
+  onOpenPanel,
   stop,
   stopProcess,
   placement = "tray",
@@ -152,6 +158,10 @@ export const SubagentTray = memo(function SubagentTray({
   canReadTail?: boolean;
   /// Opens a chat the agent started (App.tsx `openOfferChat`).
   onOpenSession?: (sessionId: string) => void;
+  /// Opens the chat's Background tasks panel (App.tsx `openBackgroundPanel`): the header expands in
+  /// place, and its panel button opens the full view (trayOpen.experiment.ts). Unset (Quick Chat, which
+  /// has no right column for it), the header only expands.
+  onOpenPanel?: () => void;
   /// Stops a running subagent, where the harness can.
   stop?: (id: string) => Promise<unknown>;
   /// Stops a registry process (`_acpmux/process/kill`).
@@ -191,6 +201,11 @@ export const SubagentTray = memo(function SubagentTray({
   const [surface] = useState(() => experimentArm(traySurfaceLook));
   const [foldHead] = useState(() => experimentArm(trayFoldHeadLook));
   const [stopLook] = useState(() => experimentArm(trayStopLook));
+  const [opensArm] = useState(() => experimentArm(trayOpenLook));
+  // How the header reaches the Background tasks panel, where the chat has one (Leo, 2026-11-03: "a
+  // thing like this that can either expand OR open up to this sort of thing"): a panel button beside
+  // its chevron (the default), or the whole header, Claude's chip.
+  const opensPanel = onOpenPanel && opensArm !== "none" ? opensArm : undefined;
   // Only the bottom stack's tray leaves on a snapshot: one placed in the transcript moves with it.
   const motionRef = useTrayMotion(shown, enters, placement === "tray");
   const setTrayRef = useCallback(
@@ -223,7 +238,8 @@ export const SubagentTray = memo(function SubagentTray({
   // The header stays while the tray has more than one line, running or ended: one of two running
   // ending never takes it (and its collapse) away.
   const headed = items.length + finished.length > 1;
-  const open = !headed || opened === true;
+  // A header that opens the panel never expands in place.
+  const open = !headed || (opened === true && opensPanel !== "header");
   // The list opens and folds on the shared fold, its height only (no fade in), from the header's
   // chevron, or a lone line gaining a header (the tray then folds to it).
   // A fold while the page is away (hidden, or in its first frames back) applies at once: the shared
@@ -398,15 +414,20 @@ export const SubagentTray = memo(function SubagentTray({
       data-narrow={narrow || undefined}
       data-head={head}
       data-stop={stopLook}
+      data-opens={(headed && opensPanel) || undefined}
     >
       {headed && (
         <button
           type="button"
           ref={headButton}
           className="acpmux-summary-row acpmux-summary-link acpmux-running-tray__head"
-          aria-expanded={open}
-          aria-controls={open ? listId : undefined}
+          aria-expanded={opensPanel === "header" ? undefined : open}
+          aria-controls={open && opensPanel !== "header" ? listId : undefined}
           onClick={() => {
+            if (opensPanel === "header") {
+              onOpenPanel?.();
+              return;
+            }
             setOpened(!open);
             rememberTrayOpen(chat, !open);
           }}
@@ -429,6 +450,9 @@ export const SubagentTray = memo(function SubagentTray({
           <span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden={starts.length === 0}>
             {starts.length > 0 ? formatDuration(Math.max(0, now - Math.min(...starts))) : undefined}
           </span>
+          {/* The panel button's room, in the lines' Stop column: the button lies over it, outside the
+              header's own button (a button holds no button). */}
+          {opensPanel === "button" && <span className="acpmux-running-tray__open-slot" aria-hidden="true" />}
           {/* The one trailing column every line's chevron ends in. */}
           <span className="acpmux-running-tray__status">
             <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={ROW_ICON} row />
@@ -457,6 +481,17 @@ export const SubagentTray = memo(function SubagentTray({
             {cards}
           </ul>
         </div>
+      )}
+      {headed && opensPanel === "button" && (
+        <button
+          type="button"
+          className="acpmux-running-tray__open"
+          aria-label={t("backgroundTasks.open")}
+          title={t("backgroundTasks.open")}
+          onClick={onOpenPanel}
+        >
+          <Icon name="panel.right" size={ROW_ICON} row />
+        </button>
       )}
     </section>
   );

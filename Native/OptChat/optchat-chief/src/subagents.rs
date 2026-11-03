@@ -49,8 +49,9 @@ use crate::workspaces::Workspaces;
 /// subagent (`a<N>`).
 pub const SPAWN_TAG: &str = "optchat.spawn";
 pub const SUBAGENT_TAG: &str = "optchat.subagent";
-/// Most tasks one spawn starts.
-pub const MAX_TASKS: usize = 8;
+/// Most tasks one spawn starts (Leo, 2026-11-02: eight made a fan-out take
+/// a second call).
+pub const MAX_TASKS: usize = 24;
 /// The environment variable that caps how many subagents work at once
 /// (`live_limit`). Unset, empty or `0`: no cap.
 pub const MAX_LIVE_ENV: &str = "OPTCHAT_MAX_LIVE_SUBAGENTS";
@@ -397,7 +398,7 @@ impl CloudPlacement {
             peer,
             dir: env("OPTCHAT_SUBAGENT_PEER_DIR")
                 .filter(|d| d.starts_with('/'))
-                .map_or_else(|| PathBuf::from("/home/agent/work"), PathBuf::from),
+                .map_or_else(PathBuf::new, PathBuf::from),
             harness: env("OPTCHAT_SUBAGENT_PEER_HARNESS")
                 .filter(|h| !h.trim().is_empty())
                 .unwrap_or_else(|| "claude".to_owned()),
@@ -416,8 +417,19 @@ impl CloudPlacement {
     /// (Oct 22-25; since 82a981959a4, Oct 19).
     pub fn task(&self, id: &str, asked: Option<&str>, task: &str) -> String {
         let repo = cloud_repo(asked).unwrap_or_else(|| "cmux".to_owned());
+        // The daemon resolves an empty peer cwd inside its allowed webRoots.
+        let dir = if self.dir.as_os_str().is_empty() {
+            "\"$PWD\"".to_owned()
+        } else {
+            self.dir.display().to_string()
+        };
+        let land = if self.dir.as_os_str().is_empty() {
+            "git config cmux.land <branch>".to_owned()
+        } else {
+            format!("git -C {dir}/{id} config cmux.land <branch>")
+        };
         format!(
-            "Title: {title}\n{group}\n{}\n\n# Where you run\n\nYou run on the cloud VM `{peer}` (acpmux peer `{peer}`), not on the user's Mac. Paths in the view and the task that start with ~/fun or /Users are the Mac's: here the repo `{repo}` is a clone at ~/src/{repo}. Make your own worktree before you change anything: `git -C ~/src/{repo} fetch -q origin && git -C ~/src/{repo} worktree add {dir}/{id} origin/<branch>` and work in {dir}/{id}. Mac builds and tests go to the fleet (cmux-ci); this VM reaches the fleet controller and sr2 only. Your zoom and date tools are not here. This VM has no GitHub credential, never a token; do not ask for one. To land, commit everything, then run `git -C {dir}/{id} config cmux.land <branch>` (the branch it goes to, e.g. feat-cmux-next): when your final report pauses this VM, the Chief host rebases those commits on the newest origin branch and pushes them plain through the Mac. Say the worktree path, sha and branch in your report.\n\n{fleet}\n\n{task}",
+            "Title: {title}\n{group}\n{}\n\n# Where you run\n\nYou run on the cloud VM `{peer}` (acpmux peer `{peer}`), not on the user's Mac. Paths in the view and the task that start with ~/fun or /Users are the Mac's: here the repo `{repo}` is a clone at ~/src/{repo}. Make your own worktree before you change anything: `git -C ~/src/{repo} fetch -q origin && git -C ~/src/{repo} worktree add {dir}/{id} origin/<branch>` and work in {dir}/{id}. Mac builds and tests go to the fleet (cmux-ci); this VM reaches the fleet controller and sr2 only. Your zoom and date tools are not here. This VM has no GitHub credential, never a token; do not ask for one. To land, commit everything, then run `{land}` (the branch it goes to, e.g. feat-cmux-next): when your final report pauses this VM, the Chief host rebases those commits on the newest origin branch and pushes them plain through the Mac. Say the worktree path, sha and branch in your report.\n\n{fleet}\n\n{task}",
             self.instructions.trim_end(),
             title = crate::workspaces::title(task),
             group = match crate::workspaces::spawn_group(task) {
@@ -426,7 +438,6 @@ impl CloudPlacement {
             },
             fleet = crate::fleet_wait::NOTE,
             peer = self.peer,
-            dir = self.dir.display(),
         )
     }
 }
@@ -580,7 +591,7 @@ impl Spawner {
     }
 
     /// The placement on `peer`: the env's folder and harness when it set
-    /// one, else the defaults (`/home/agent/work`, `claude`).
+    /// one, else the defaults (daemon-selected scratch folder, `claude`).
     fn placement(&self, peer: &str) -> CloudPlacement {
         match &self.cloud {
             Some(c) => CloudPlacement {
@@ -589,7 +600,7 @@ impl Spawner {
             },
             None => CloudPlacement {
                 peer: peer.to_owned(),
-                dir: PathBuf::from("/home/agent/work"),
+                dir: PathBuf::new(),
                 harness: "claude".to_owned(),
                 instructions: self.cloud_text.clone().unwrap_or_default(),
             },
@@ -1113,6 +1124,7 @@ impl Spawner {
             id: id.to_owned(),
             session_id: session.clone(),
             policy: Some(spec.policy.clone()),
+            harness: Some(s.harness.clone()),
         })?;
         let (tx, rx) = channel();
         let prompt_id = format!("{PROMPT_PREFIX}sub:{id}:{}", now_ms());
@@ -2350,6 +2362,35 @@ fn now_ms() -> u64 {
 mod tests {
     use super::*;
     use optchat_core::Kind;
+
+    #[test]
+    fn peer_directory_defaults_to_daemon_scratch_and_keeps_an_explicit_folder() {
+        for asked in [None, Some(""), Some("relative"), Some("/srv/projects")] {
+            let placement = CloudPlacement::from_env(
+                |key| match key {
+                    PEER_ENV => Some("cloud1".into()),
+                    "OPTCHAT_SUBAGENT_PEER_DIR" => asked.map(str::to_owned),
+                    _ => None,
+                },
+                "subagent instructions".into(),
+            )
+            .unwrap();
+            assert_eq!(
+                placement.dir,
+                PathBuf::from(asked.filter(|p| p.starts_with('/')).unwrap_or(""))
+            );
+            let task = placement.task("a7", Some("~/fun/cmux"), "build the web page");
+            if placement.dir.as_os_str().is_empty() {
+                assert!(task.contains("worktree add \"$PWD\"/a7"), "{task}");
+                assert!(
+                    task.contains("then run `git config cmux.land <branch>`"),
+                    "{task}"
+                );
+            } else {
+                assert!(task.contains("worktree add /srv/projects/a7"), "{task}");
+            }
+        }
+    }
 
     #[test]
     fn no_cap_unless_one_is_set() {
