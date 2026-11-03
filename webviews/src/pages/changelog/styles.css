@@ -100,7 +100,6 @@ html[data-cmux-page="changelog"] body {
   background: var(--page-hover);
   font-size: var(--text-control);
   font-weight: var(--weight-regular);
-  cursor: pointer;
   letter-spacing: var(--text-control--letter-spacing);
 }
 .cl-button:hover { background: var(--page-selection); }
@@ -147,7 +146,6 @@ html[data-cmux-page="changelog"] body {
   padding: 0 2px;
   color: var(--page-text-3);
   font-size: var(--text-detail);
-  cursor: pointer;
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .cl-row-action:hover { color: var(--page-text); }
