@@ -1273,6 +1273,7 @@ impl Holder {
     /// sequence. A read is now made only when the master is readable, so a
     /// marker names a read that could take bytes. A flood still reads the
     /// whole turn's share in one turn.
+    // perf-hot: 2us/64KiB terminal-output (holder: one PTY read into the shared ring, per POLLIN; no copy)
     fn read_terminal(&mut self, chan: u32) -> ReadEnd {
         let Some(terminal) = self.terminals.get_mut(&chan) else { return ReadEnd::Eof };
         let mut read = 0;
@@ -1416,6 +1417,7 @@ impl Holder {
     /// after the one the last pump started at and gives every terminal
     /// with output an equal share of the queue, so a quiet terminal's echo
     /// never waits for the lower channels to run dry.
+    // perf-hot: 5us/turn terminal-output (holder: DATA frames for every terminal with unsent bytes; copies ring -> frame Vec today)
     fn pump(&mut self) {
         let Some(link) = self.link.as_mut() else { return };
         let credit = link.credit;

@@ -80,6 +80,11 @@ if "--suite=split-resize" in sys.argv:
 if "--suite=cef-tab" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cef-tab-bench.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=cef-tab"])
+# `--suite=terminal-flood`: terminal output throughput and CPU per MiB in the app, the daemon and the PTY holders,
+# at 1, 4 and 12 busy panes, against the PTY floor (scripts/cmux-next/bench-terminal-flood.py, path id terminal-output).
+if "--suite=terminal-flood" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench-terminal-flood.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=terminal-flood"])
 # `--suite=pane-perf` (through the allowlisted fleet entry scripts/measure/split-spring.sh): the whole pane
 # motion suite instead, scripts/cmux-next/pane-perf-terminal.py, with the same --tag/--app/--out/--json.
 # `--suite=budgets`: every perf budget row, scripts/cmux-next/perf-budgets.py (one table, one gate).

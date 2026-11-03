@@ -4,6 +4,7 @@ use super::*;
 
 impl HostedReader {
     /// Apply one `Output` or `OutputWithColors` transition to the mirror.
+    // perf-hot: 1us/KiB terminal-output (daemon: VT parse #2 of every byte, fan-out and store under the terminal lock)
     pub(super) fn apply_output(
         &mut self,
         surface: &Arc<Surface>,

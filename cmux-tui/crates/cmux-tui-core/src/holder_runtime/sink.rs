@@ -464,6 +464,7 @@ pub(super) const SNAPSHOT_IDLE_BYTES: u64 = 64 * 1024;
 pub(super) const SNAPSHOT_EVERY_BYTES: u64 = 2 * 1024 * 1024;
 
 impl TerminalSink for HolderSink {
+    // perf-hot: 0.5us/frame terminal-output (daemon: every holder DATA frame)
     fn data(&self, offset: u64, bytes: &[u8]) {
         let mut state = self.state.lock().recover_poison();
         let end = offset + bytes.len() as u64;

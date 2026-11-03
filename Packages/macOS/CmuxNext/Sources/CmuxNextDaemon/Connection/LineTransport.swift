@@ -428,6 +428,7 @@ final class LineTransport: Sendable {
         }
     }
 
+    // perf-hot: 1us/KiB terminal-output (every read of every daemon connection; a terminal's attach output arrives here)
     private func readLoop(fd: Int32, onEvent: EventHandler, onClose: CloseHandler) {
         let decoder = JSONDecoder()
         var lines = LineSplitter()
@@ -472,6 +473,7 @@ final class LineTransport: Sendable {
     /// event the daemon emitted before that reply (a write barrier).
     var routedEventCount: UInt64 { state.withLock { $0.eventCount } }
 
+    // perf-hot: 1us/KiB terminal-output (every line: an Envelope JSON decode; output lines decode again in TerminalAttachment)
     private func route(_ line: Data, decoder: JSONDecoder, onEvent: EventHandler) {
         let lineNumber = state.withLock { state -> UInt64 in
             state.lineCount += 1

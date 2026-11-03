@@ -95,6 +95,11 @@
       "what": "one acpmux chats window message on the main actor: the window's keys and the changed rows (sidebar chat history; acpmux sorts, filters and pages)",
       "bench": "ChatsWindowMainThreadTests (rows touched per change, 3,000-chat index) on the fleet, and the debug hang monitor (debug.hangs) on a many-chat load",
       "owner": "Performance Lead"
+    },
+    "terminal-output": {
+      "what": "PTY output to pixels, per byte: the PTY holder's read and frame, the daemon's parse, store and attach fan-out, the app's attach socket read, line split and JSON/base64 decode, Ghostty's parse on the output lane, and the frame (hot-path-audit/terminal/AUDIT.md)",
+      "bench": "scripts/cmux-next/bench-terminal-flood.py (split-spring.sh --suite=terminal-flood: MiB/s shown, CPU ms per MiB in app, daemon and holders, dropped frames, at 1, 4 and 12 busy panes, against the PTY floor)",
+      "owner": "hpa-terminal (HOT PATH AUDIT B); PL-daemon for cmux-tui-core, PL-ghostty for the app terminal"
     }
   }
 }
