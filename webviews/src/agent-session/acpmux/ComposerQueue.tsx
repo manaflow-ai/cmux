@@ -960,7 +960,9 @@ export function ComposerQueue({
   const cells = (entry: QueuedEntry, index: number) => (
     <>
       {!entry.next && (
-        <span className="acpmux-hidden-label">{t(entry.held ? "composer.heldForTrust" : "composer.queued")}</span>
+        <span className="acpmux-hidden-label">
+          {t(entry.waking ? "composer.heldForWake" : entry.held ? "composer.heldForTrust" : "composer.queued")}
+        </span>
       )}
       {editing === entry.id ? (
         <QueuedEdit
@@ -1095,10 +1097,16 @@ export function ComposerQueue({
         )}
         {/* One flat keyed list: a row keeps its element (and focus) when a row before it leaves. */}
         {visible.flatMap((entry, index) => [
-          // The prompts the folder's trust holds follow one note that says so (trustHeld.ts).
-          entry.held && !visible[index - 1]?.held && (
-            <li key="held-for-trust" className="acpmux-queue-paused acpmux-queue-held" aria-hidden="true">
-              <span>{t("composer.heldForTrust")}</span>
+          // The prompts the folder's trust holds follow one note that says so (trustHeld.ts); those
+          // a waking Cloud machine holds, one that says it wakes (cloudWake.ts).
+          entry.held && (!visible[index - 1]?.held || !visible[index - 1]?.waking !== !entry.waking) && (
+            <li
+              key={entry.waking ? "held-for-wake" : "held-for-trust"}
+              className="acpmux-queue-paused acpmux-queue-held"
+              data-held-for={entry.waking ? "wake" : "trust"}
+              aria-hidden="true"
+            >
+              <span>{t(entry.waking ? "composer.heldForWake" : "composer.heldForTrust")}</span>
             </li>
           ),
           // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- A row takes focus from ↑ on the prompt and has its keys (edit, move, send now, remove); its buttons do the same by pointer.

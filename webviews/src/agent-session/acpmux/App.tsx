@@ -222,6 +222,7 @@ import { paneKnowsNewChat } from "./locationRow";
 import { ChatUnavailableState } from "./ChatUnavailableState";
 import { useCloudChatRecovery } from "./useCloudChatRecovery";
 import { cloudChatRecoveryActive, cloudChatUnavailable, type CloudChatIdentity } from "./cloudChatRecovery";
+import { cloudSendWakes } from "./cloudWake";
 import { PastChat, type PastTurn, readPastTurns } from "./PastChat";
 import type { Project } from "./ProjectChooser";
 import { byRecentUse, parseProjectRepos } from "./projectRepos";
@@ -424,6 +425,7 @@ import {
   compactThrough,
   offersCompact,
   resumeThrough,
+  answerThrough,
   type TurnActions,
 } from "./conversation/turnActions";
 import { useTranscriptReadOnly } from "./conversation/readOnly";
@@ -461,6 +463,7 @@ import { ChatFindScope } from "./conversation/ChatFindScope";
 import {
   ACTIVITY_LINE,
   DATE,
+  NEXT_STEP,
   PREVIEW,
   RENDER,
   THINKING,
@@ -478,6 +481,7 @@ import {
 import { ArrowDown, ChevronRight } from "./conversation/icons";
 import { CopyButton } from "./conversation/CopyButton";
 import { PreviewCard } from "./conversation/PreviewCard";
+import { NextStepCard } from "./conversation/NextStepCard";
 import { installWheelGlide } from "./wheelGlide";
 import { installDockWheelHold, installWheelPassThrough } from "./wheelPassThrough";
 import { turnPreviewUrl } from "./conversation/previewUrl";
@@ -1649,6 +1653,23 @@ const REVEAL_HOLD_MS = 2_000;
 /// Asks the host for a browser tab on a turn's local web page; a host without one (the quick
 /// panel) refuses, and the card's address still opens outside the pane.
 const openPreview = (url: string) => void callNative("browser.open", { url }).catch(() => undefined);
+/// A tagged ask the turn's answer ended on, as a card with its answers (conversation/NextStepCard.tsx).
+const NextStepRow = memo(
+  function NextStepRow({ row }: RowProps) {
+    const { answer, nextStepKey } = useContext(TurnActionsContext);
+    return row.nextStep ? (
+      <NextStepCard ask={row.nextStep.ask} answer={row.nextStep.answer} onAnswer={answer} registerKey={nextStepKey} />
+    ) : null;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
+/// The same card where this pane cannot send: the question and its answer, no buttons.
+const ReadOnlyNextStepRow = memo(
+  function ReadOnlyNextStepRow({ row }: RowProps) {
+    return row.nextStep ? <NextStepCard ask={row.nextStep.ask} answer={row.nextStep.answer} /> : null;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
 /// A turn's local web page, live (conversation/PreviewCard.tsx).
 const PreviewRow = memo(
   function PreviewRow({ row }: RowProps) {
@@ -1975,6 +1996,7 @@ const defaultRegistry: NativeRegistry = {
   [WORKING]: WorkingRow,
   [ACTIVITY_LINE]: ActivityLineRow,
   [PREVIEW]: PreviewRow,
+  [NEXT_STEP]: NextStepRow,
   [RENDER]: RenderRow,
   editedFiles: EditedFilesRow,
   turnSummary: SummaryRow,
@@ -2061,6 +2083,7 @@ export const readOnlyRegistry: NativeRegistry = {
   [STARTED_SESSIONS]: NoRow,
   [TASK_LINE]: NoRow,
   [PREVIEW]: NoRow,
+  [NEXT_STEP]: ReadOnlyNextStepRow,
   [RENDER]: NoRow,
 };
 
@@ -7963,6 +7986,13 @@ function AcpmuxPane() {
   // The chat's Codex skills, for its sent prompts' `/$name` (conversation/skillWords.ts).
   const skillWords = useSkillWords(snapshot.commands);
   const queueRunsNext = snapshot.queue.some((entry) => !entry.heldByStop && !entry.held && !entry.awaitingOwner);
+  // The waiting tagged-ask card's first answer, which the composer's ⌘↩ on an empty prompt sends
+  // (NextStepCard.tsx, TurnActions `nextStepKey`).
+  const [nextStepFire, setNextStepFire] = useState<{ fire: () => void }>();
+  const nextStepKey = useCallback((fire: () => void) => {
+    setNextStepFire({ fire });
+    return () => setNextStepFire((now) => (now?.fire === fire ? undefined : now));
+  }, []);
   const turnActions = useMemo<TurnActions>(
     () => ({
       queuedMessages: () => queuedMessageActionsRef.current,
@@ -8042,6 +8072,16 @@ function AcpmuxPane() {
                 : Promise.resolve()
           )(restartChat),
         }),
+      // A tagged ask's answer (NextStepCard.tsx) sends as Continue does, with the same reach.
+      ...(restartChat && {
+        nextStepKey,
+        answer: (
+          (owner: string) => (text: string) =>
+            restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession)
+              ? answerThrough(callNative)(text)
+              : Promise.resolve()
+        )(restartChat),
+      }),
       // A context-full failure's Compact sends the agent's own /compact as Continue sends its prompt,
       // with the same reach: never to a View Only chat or a read-only pane, never the next chat.
       ...(restartChat &&
@@ -8181,6 +8221,7 @@ function AcpmuxPane() {
       restartChat,
       snapshot.commands,
       queueRunsNext,
+      nextStepKey,
     ],
   );
   // Streaming text changes rows on every chunk; only the turn's tool calls change its files.
@@ -9350,26 +9391,43 @@ function AcpmuxPane() {
   const opensSideChat = useRef(false);
   const archiveChatRef = useRef<(() => void) | undefined>(undefined);
   const recheckCloudChat = useCallback(async () => {
+    // A machine woken while the pane's link was down: connect again now, not at the backoff's turn.
+    if (!directClient.current) retryHost.current?.();
     await directClient.current?.recheckMissing();
   }, []);
+  // An open that failed on a socket still open (direct.ts emits "failed") read no chat: its
+  // machine may be paused, so recovery reads it as it does a lost link.
+  const cloudLinkUp = connected && snapshot.connection !== "failed";
+  const cloudRecoveryShows = cloudChatRecoveryActive(
+    !!snapshot.unavailable,
+    snapshot.sessionId,
+    snapshot.rows.length,
+    cloudLinkUp,
+    freshView,
+  );
+  /// Prompts sent in this Cloud chat wait for its machine to wake (cloudWake.ts): the recovery reads
+  /// the machine and connects again meanwhile, also over a transcript the pane still shows.
+  const [cloudWaking, setCloudWaking] = useState(false);
   const cloudRecovery = useCloudChatRecovery({
     cloud: cloudChatIdentity,
     session: snapshot.missingSession ?? snapshot.sessionId,
-    active: cloudChatRecoveryActive(
-      !!snapshot.unavailable,
-      snapshot.sessionId,
-      snapshot.rows.length,
-      // An open that failed on a socket still open (direct.ts emits "failed") read no chat: its
-      // machine may be paused, so recovery reads it as it does a lost link.
-      connected && snapshot.connection !== "failed",
-      freshView,
-    ),
+    active: cloudRecoveryShows || cloudWaking,
     recheck: recheckCloudChat,
   });
   const cloudUnavailable =
-    cloudRecovery.state === "paused" || cloudRecovery.state === "deleted"
+    cloudRecoveryShows && (cloudRecovery.state === "paused" || cloudRecovery.state === "deleted")
       ? cloudChatUnavailable(snapshot.unavailable ?? { reason: "offline" }, cloudRecovery.state, machineName)
       : snapshot.unavailable;
+  /// The chat a send now wakes its Cloud machine for (cloudWake.ts), or undefined.
+  const cloudWakeChat = cloudSendWakes({
+    cloud: cloudChatIdentity !== undefined,
+    chat: snapshot.sessionId ?? snapshot.missingSession,
+    // `connected`, not `cloudLinkUp`: a prompt's own failure on an open socket also reads "failed",
+    // and that chat's machine is live.
+    linkUp: connected && Boolean(window.cmuxAcpmuxActions?.["chat.send"]),
+    paused: cloudRecovery.state === "paused",
+    unavailable: !!snapshot.unavailable,
+  });
   const hasTray = !quick && !freshView && (trayList.length > 0 || trayFinished.length > 0);
   // The tray's motion (subagents/trayMotion.tsx): the chat on screen as of this render, which the
   // tray reads as it goes (it plays its exit only while its own chat still shows), and the chat that
@@ -9483,7 +9541,8 @@ function AcpmuxPane() {
   const trustHeld = useTrustHeldPrompts({
     chat: snapshot.sessionId,
     cwd: trustHeldCwd,
-    holds: trustHeldWaits,
+    // A waking Cloud machine holds the chat's prompts too, until the chat is back (cloudWake.ts).
+    holds: trustHeldWaits || (cloudWaking && cloudWakeChat !== undefined),
     send: (entry) => sendTrustHeld.current(entry),
     reserve: reserveHeldPrompt,
     putBack: (entries, behind) => void giveBackTrustHeld.current(entries, behind),
@@ -9492,6 +9551,25 @@ function AcpmuxPane() {
   });
   const trustHeldNow = useRef(trustHeld);
   trustHeldNow.current = trustHeld;
+  // The wake ends once no prompt waits for it; one that failed (or found the machine deleted) gives
+  // its prompts back to the composer, as a failed send does.
+  const wakingHeld = trustHeld.wakingAny();
+  useEffect(() => {
+    if (!wakingHeld) setCloudWaking(false);
+  }, [wakingHeld]);
+  // The wake belongs to the chat its prompts were sent in: another chat shown ends it (its recovery
+  // stops), and the prompts go back to their chat's draft (trustHeld.ts `whereHeldGoes`).
+  const wakeShownChat = snapshot.sessionId ?? snapshot.missingSession;
+  useEffect(() => {
+    const hold = trustHeldNow.current;
+    if (!wakeShownChat || !hold.wakingAny() || hold.rowsIn(wakeShownChat).some((row) => row.waking)) return;
+    void giveBackTrustHeld.current(hold.takeWaking());
+  }, [wakeShownChat]);
+  const cloudWakeFailed = cloudRecovery.error !== undefined || cloudRecovery.state === "deleted";
+  useEffect(() => {
+    if (!cloudWakeFailed || !trustHeldNow.current.wakingAny()) return;
+    void giveBackTrustHeld.current(trustHeldNow.current.takeWaking());
+  }, [cloudWakeFailed]);
   // A new chat's held prompts go to the host with its typed text the moment they are held, so the
   // tab keeps them when it moves to another chat (the host keeps no new-chat text past that).
   const newChatHeldText = snapshot.sessionId ? undefined : trustHeld.newChatTexts.join("\u0000");
@@ -9933,7 +10011,9 @@ function AcpmuxPane() {
   // Stop reaches acpmux even when pressed while the pane reconnects (stopThroughReconnect.ts).
   const stopThroughReconnect = useStopThroughReconnect(snapshot, cancelTurn);
   const keptStopping = stopThroughReconnect.stopping;
-  const heldRows = trustHeld.rows;
+  // A chat not listed yet (its machine wakes) shows the prompts held for it under its recorded id.
+  const heldRows =
+    !snapshot.sessionId && snapshot.missingSession ? trustHeld.rowsIn(snapshot.missingSession) : trustHeld.rows;
   /// Sends a prompt the folder's trust held, with its own send's ticket, in the chat it was sent in:
   /// settles with the session acpmux took it in (a new chat's, once its start made it), or rejects
   /// with its refusal; a refusal is the hold's to handle (trustHeld.ts).
@@ -13832,6 +13912,20 @@ function AcpmuxPane() {
                 sandbox.refuse(text, started);
                 return false;
               }
+              // A Cloud chat whose machine is paused or out of reach: the send wakes the machine and
+              // waits in the pane under "Waking the machine…", then goes once the chat is back
+              // (cloudWake.ts). Enter's gesture resumes the machine; the prompt keeps the send's.
+              if (cloudWakeChat && cloudRecovery.state !== "deleted" && !quick && !snapshot.summary?.watching) {
+                setCloudWaking(true);
+                trustHeld.hold(
+                  text,
+                  shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
+                  { chat: cloudWakeChat, cwd: trustHeldCwd },
+                  true,
+                );
+                cloudRecovery.resume();
+                return true;
+              }
               // Until acpmux connects nothing takes a prompt; the composer keeps it.
               if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
               // Shell mode's chips carry their commands' output as it is now.
@@ -14127,7 +14221,9 @@ function AcpmuxPane() {
             // A chat on this Mac (as Sources' + below); the host refuses any other.
             localPaths={localCwd !== undefined && !quick && !readOnlySubagent ? localPaths : undefined}
             onOpenInWindow={quick ? openInWindow : undefined}
-            onEmptyCommandReturn={recapCard.recap ? recapCard.reply : undefined}
+            // ⌘↩ on an empty prompt answers the recap card's question, else a waiting tagged ask's
+            // first answer (NextStepCard.tsx), never while a question or permission card waits.
+            onEmptyCommandReturn={recapCard.recap ? recapCard.reply : hasBottomAsk ? undefined : nextStepFire?.fire}
             onShellChange={setComposerShell}
             prompt={prompt}
             handle={composerRef}
