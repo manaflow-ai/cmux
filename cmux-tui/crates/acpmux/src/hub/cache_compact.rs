@@ -110,12 +110,17 @@ impl Hub {
             clock.sleep_until(std::time::Duration::from_nanos(deadline)).await;
             // Its own entry goes, or a later usage replaced it (the lock orders this after the
             // insert); a dropped session or hub leaves nothing behind.
-            let mut timers = TIMERS.lock().unwrap_or_else(|e| e.into_inner());
-            if timers.get(&id).is_none_or(|(g, _, _)| *g != generation) {
+            let own = {
+                let mut timers = TIMERS.lock().unwrap_or_else(|e| e.into_inner());
+                let own = timers.get(&id).is_some_and(|(g, _, _)| *g == generation);
+                if own {
+                    timers.remove(&id);
+                }
+                own
+            };
+            if !own {
                 return;
             }
-            timers.remove(&id);
-            drop(timers);
             let (Some(hub), Some(session)) = (hub.upgrade(), weak.upgrade()) else { return };
             hub.cache_compact_fire(&session, expires).await;
         });
