@@ -93,7 +93,11 @@ await requireBrowserLane("thread-rail-narrow-hover.test.ts", async () => {
     const at = await page.evaluate(() => {
       const bar = document.querySelector<HTMLElement>('[data-tick="3"] .acpmux-minimap__bar')!.getBoundingClientRect();
       const text = document.querySelector<HTMLElement>(".acpmux-scroll")!.getBoundingClientRect();
-      return { x: bar.left + Math.min(2, bar.width / 2), y: bar.top + bar.height / 2, from: text.left + text.width / 2 };
+      return {
+        x: bar.left + Math.min(2, bar.width / 2),
+        y: bar.top + bar.height / 2,
+        from: text.left + text.width / 2,
+      };
     });
     await page.mouse.move(at.from, at.y);
     await page.mouse.move(at.x, at.y, { steps: 12 });
@@ -120,10 +124,14 @@ await requireBrowserLane("thread-rail-narrow-hover.test.ts", async () => {
       test(`a ${column} px chat column in a ${pane} px pane: hovering the drawn rail opens its preview (${motion})`, async () => {
         const page = await open(pane, column, motion);
         try {
-          const rest = await page.evaluate(() => document.querySelector(".acpmux-minimap__rail")!.getBoundingClientRect().left);
+          const rest = await page.evaluate(
+            () => document.querySelector(".acpmux-minimap__rail")!.getBoundingClientRect().left,
+          );
           await hoverDrawnTick(page);
           await page
-            .waitForFunction(() => document.querySelector(".acpmux-minimap__card") !== null, undefined, { timeout: 3_000 })
+            .waitForFunction(() => document.querySelector(".acpmux-minimap__card") !== null, undefined, {
+              timeout: 3_000,
+            })
             .catch(() => {});
           const after = await shown(page);
           if (out && !after.card)
