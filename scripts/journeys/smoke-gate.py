@@ -462,38 +462,40 @@ def p0_waivers():
 # row of a reader misread exactly (id, run_at, out, status fail) and only that row is dropped; every other FAIL counts,
 # also with a later PASS. The gate runs on the orchestrator VM beside the runner; with no reader the .pass is refused.
 # The override is for the gate's own tests only (lead 2026-11-03): a real run with it set gets no .pass. The .pass
-# names the reader's path and the SHA-256 of the exact bytes the gate ran (p0_reader_facts).
+# names the reader's path and the SHA-256 of the exact bytes the gate ran (p0_ledger_reader's facts).
 P0_READER_FROM_ENV = bool(os.environ.get("SMOKE_GATE_P0_LEDGER_READER"))
 P0_LEDGER_READER = Path(os.environ.get("SMOKE_GATE_P0_LEDGER_READER",
                                        "/work/wt/chrome-parity-design/p0-journey-runner/ledger.py"))
 
 
-def _p0_reader_source():
-    """(bytes, sha256) of the reader file: one read, so the hash is of the code the gate runs."""
-    data = P0_LEDGER_READER.read_bytes()
-    return data, hashlib.sha256(data).hexdigest()
-
-
 def p0_reader_facts():
-    """{"path", "sha256"} of the open-P0 ledger reader, for the .pass."""
-    return {"path": str(P0_LEDGER_READER), "sha256": _p0_reader_source()[1]}
+    """{"path", "sha256"} of the reader file as it is now (a test helper; the .pass uses the facts of the load)."""
+    return {"path": str(P0_LEDGER_READER), "sha256": hashlib.sha256(P0_LEDGER_READER.read_bytes()).hexdigest()}
 
 
 def p0_ledger_reader():
-    """(live_rows, None) of the runner's ledger module, or (None, why) when it cannot be loaded."""
+    """(live_rows, None, facts) of the runner's ledger module, or (None, why, {}) when it cannot be loaded. The file is
+    read ONCE: facts {"path", "sha256"} name the exact bytes compiled, so the .pass names the code that ran."""
+    name = "p0_journey_runner_ledger"
     try:
-        data, _ = _p0_reader_source()
-        module = types.ModuleType("p0_journey_runner_ledger")
+        data = P0_LEDGER_READER.read_bytes()
+        facts = {"path": str(P0_LEDGER_READER), "sha256": hashlib.sha256(data).hexdigest()}
+        module = types.ModuleType(name)
         module.__file__ = str(P0_LEDGER_READER)
-        exec(compile(data, str(P0_LEDGER_READER), "exec"), module.__dict__)
+        sys.modules[name] = module  # a reader that needs its own module (a dataclass) finds it
+        try:
+            exec(compile(data, str(P0_LEDGER_READER), "exec"), module.__dict__)
+        finally:
+            sys.modules.pop(name, None)
         if not callable(getattr(module, "live_rows", None)):
             raise AttributeError("no callable live_rows")
-        return module.live_rows, None
+        return module.live_rows, None, facts
     except Exception as error:  # any failure to load is no reader: never "no blockers"
-        return None, f"the open-P0 ledger reader {P0_LEDGER_READER} cannot be loaded ({type(error).__name__}: {error}): no .pass"
+        return None, (f"the open-P0 ledger reader {P0_LEDGER_READER} cannot be loaded ({type(error).__name__}: "
+                      f"{str(error)[:400]}): no .pass"), {}
 
 
-def open_p0_blockers(job, waived=None):
+def open_p0_blockers(job, waived=None, reader_used=None):
     """[(list line, why)] of the open P0 journeys that block a .pass for JOB: no PASS on JOB in the ledger, or any FAIL.
     The ledger's rows are the runner's live_rows (P0_LEDGER_READER): only a misread fail a supersede record names is
     dropped. An unreadable list or reader blocks too (the rule cannot be checked)."""
@@ -504,16 +506,18 @@ def open_p0_blockers(job, waived=None):
     if P0_READER_FROM_ENV:
         return [(str(P0_LEDGER_READER), "SMOKE_GATE_P0_LEDGER_READER is set: the override is for the gate's own tests "
                                         "only, so a real run with it gets no .pass")]
-    live_rows, why = p0_ledger_reader()
+    live_rows, why, facts = p0_ledger_reader()
     if live_rows is None:
         return [(str(P0_LEDGER_READER), why)]
+    if reader_used is not None:
+        reader_used.append(facts)
     try:
         read = live_rows(str(P0_LEDGER / f"{job}.jsonl"))
         if not isinstance(read, list):
             raise TypeError(f"live_rows returned {type(read).__name__}, not a list")
     except Exception as error:  # e.g. the reader refuses a bad supersede record (LedgerError): no rule, no .pass
         return [(str(P0_LEDGER / f"{job}.jsonl"), f"the open-P0 ledger reader refused the ledger "
-                                                  f"({type(error).__name__}: {str(error)[:200]}): no .pass")]
+                                                  f"({type(error).__name__}: {str(error)[:400]}): no .pass")]
     rows = [r for r in read if isinstance(r, dict) and r.get("build_job") == job]
     blockers, waivers = [], p0_waivers()
     for fields in listed:
@@ -1044,7 +1048,10 @@ def main(argv=None):
             print(f"smoke-gate: a trial PASS (--rounds {opts.rounds}, --swap-gb {opts.swap_gb:g}): no .pass file", file=sys.stderr)
             return 75
         waived = []
-        blockers = open_p0_blockers(opts.build, waived)
+        reader_used = []
+        blockers = open_p0_blockers(opts.build, waived, reader_used)
+        if not blockers and len(reader_used) != 1:
+            blockers = [(str(P0_LEDGER_READER), "the open-P0 reader's facts are missing: no .pass")]
         listing = golden_listing
         goldens = golden_blockers(opts.build, listing)
         if blockers:
@@ -1066,7 +1073,7 @@ def main(argv=None):
         handoff.mkdir(parents=True, exist_ok=True)
         summary["video_goldens"] = {"list": listing[0], "checked": [f[0] for f in listing[1]]}
         summary["open_p0_waived"] = waived
-        summary["open_p0_reader"] = p0_reader_facts()
+        summary["open_p0_reader"] = reader_used[0]  # the bytes that ran, not a second read of the file
         summary["open_p0_checked"] = [l.split()[0] for l in OPEN_P0.read_text().splitlines()
                                       if l.strip() and not l.lstrip().startswith("#")]
         (handoff / f"{opts.build}.pass").write_text(json.dumps(summary, indent=1) + "\n")
