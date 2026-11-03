@@ -37,6 +37,10 @@ public struct WebKitInspector {
         return inspector.value(forKey: "visible") as? Bool ?? false
     }
 
+    /// Whether the inspector is shown, without making the web view inspectable as ``isVisible``
+    /// does: cheap enough for a palette row's state.
+    public var isOpen: Bool { webView.isInspectable && isVisible }
+
     /// Shows the inspector; with `panel`, on that tab when WebKit can
     /// select it (``WebDevToolsPanel/webKitSelector``).
     public func show(_ panel: WebDevToolsPanel? = nil) {

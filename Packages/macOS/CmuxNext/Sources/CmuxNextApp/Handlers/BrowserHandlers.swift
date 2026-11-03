@@ -27,6 +27,12 @@ enum BrowserHandlers {
     /// the inspected web view; tests pass their own. React Grab gets none: its state lives in the page's script world.
     static func bindPaletteStates(into registry: ActionRegistry, page: @escaping @MainActor () -> BrowserEntry?,
                                   focus: @escaping @MainActor () -> FocusState?, inspected: @escaping @MainActor () -> WebInspectorTarget?) {
+        ActionTargetTitles.setPaletteState("toggleBrowserDeveloperTools", in: registry) { inspected()?.isInspectorOpen ?? false }
+        ActionTargetTitles.setPaletteState("toggleBrowserFocusMode", in: registry) {
+            page().map { focus()?.browserFocusMode.contains($0.tab.id.rawValue) == true } ?? false
+        }
+        ActionTargetTitles.setPaletteState("toggleBrowserDesignMode", in: registry) { page()?.chrome.toolbarButtons.modes.designMode ?? false }
+        ActionTargetTitles.setPaletteState("palette.browserToggleOmnibar", in: registry) { page().map { !$0.chrome.isOmnibarHidden } ?? false }
     }
 
     private static func bindPage(into registry: ActionRegistry, context: AppActionContext) {

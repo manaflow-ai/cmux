@@ -38,6 +38,8 @@ public struct EditorPreferenceToggle: Sendable {
     ///   - registry: The registry the toggle's action is bound in.
     ///   - section: The code editor's `editor` settings section now; it runs on every palette open,
     ///     so it must be cheap and must not refuse.
+    @MainActor
     public func bindPaletteState(into registry: ActionRegistry, section: @escaping @MainActor () -> JSONValue?) {
+        ActionTargetTitles.setPaletteState(ActionID(rawValue: action), in: registry) { isOn(in: section()) }
     }
 }
