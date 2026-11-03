@@ -224,10 +224,6 @@ button.cv-agentmsg__name:focus-visible {
   text-overflow: clip;
   overflow-wrap: anywhere;
 }
-/* Pressing a message row keeps the same readable text treatment as hover. */
-.cv-agentmsg__line:is(:hover, :active, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) {
-  color: var(--cv-text);
-}
 
 /* A stacked message row's first line (messageLineLook.ts, the default): on its own line under the
    row's verb, recipient and count, at the text column, dim, cut there with one ellipsis (Leo said
@@ -283,7 +279,8 @@ button.cv-agentmsg__name:focus-visible {
   flex-shrink: 1000;
 }
 .acpmux-row .cv-tool:is(.cv-sent, .cv-agentmsg__line, .cv-message-group__head, [data-message-run]),
-.acpmux-row .cv-agentmsg__card {
+.acpmux-row .cv-agentmsg__card,
+.acpmux-row .cv-sent + .cv-subsession__under .cv-subsession__markdown > .cv-md {
   color: var(--cv-text);
 }
 .acpmux-row :is(.cv-agentmsg__preview, .cv-message-group__senders, .cv-msgline__preview, .cv-sent__more) {
