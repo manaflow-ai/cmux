@@ -84,6 +84,28 @@ pub(crate) fn reclaim_need(used: usize, max: usize) -> usize {
     if free >= PTY_RESERVE { 0 } else { PTY_REFILL.min(max).saturating_sub(free) }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// A unit test's PTY usage in place of the machine's (`set_pty_usage_for_test`).
+    static PTY_USAGE_FOR_TEST: std::cell::Cell<Option<(usize, usize)>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// Sets the PTY usage a reclaim pass on this thread reads; `None` reads the machine again.
+#[cfg(test)]
+pub(crate) fn set_pty_usage_for_test(usage: Option<(usize, usize)>) {
+    PTY_USAGE_FOR_TEST.with(|cell| cell.set(usage));
+}
+
+/// The usage a reclaim pass reads: the machine's, or a unit test's.
+fn current_pty_usage() -> Option<(usize, usize)> {
+    #[cfg(test)]
+    if let Some(usage) = PTY_USAGE_FOR_TEST.with(std::cell::Cell::get) {
+        return Some(usage);
+    }
+    pty_usage()
+}
+
 /// PTYs in use on this machine and its limit; `None` where it cannot be read.
 #[cfg(target_os = "macos")]
 pub(crate) fn pty_usage() -> Option<(usize, usize)> {
@@ -180,7 +202,7 @@ impl Mux {
         if !clock.due(Instant::now(), forced) {
             return Vec::new();
         }
-        let Some((used, max)) = pty_usage() else { return Vec::new() };
+        let Some((used, max)) = current_pty_usage() else { return Vec::new() };
         let want = reclaim_need(used, max);
         if want == 0 {
             return Vec::new();

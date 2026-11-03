@@ -300,3 +300,36 @@ fn terminal_reap_grace_is_bounded() {
         validate_terminal_reap_grace(MAX_TERMINAL_REAP_GRACE + Duration::from_secs(1)).is_err()
     );
 }
+
+/// PTY LEAK (STATUS 7938): a closed tab's terminal lives out the reap grace (30 s in the app) so the
+/// tab can come back, and holds its PTY meanwhile. A burst of tab closes then left the machine's PTYs
+/// (511 on macOS) held by terminals no tab shows, and every new tab was refused ("PTY capacity
+/// exhausted"): the PTY reclaim parked only idle shells that a tab still shows. When PTYs are low,
+/// a reclaim pass ends the closed terminals waiting out their grace first, oldest close first; a
+/// placed terminal keeps running.
+#[test]
+fn a_reclaim_pass_ends_closed_terminals_waiting_out_the_grace_when_ptys_are_low() {
+    let mux = Mux::new_for_test("pty-reclaim-unplaced", SurfaceOptions::default());
+    let placed = mux.new_workspace(Some("placed".into()), Some((80, 24))).unwrap();
+    let closed = mux.new_workspace(Some("closed".into()), Some((80, 24))).unwrap();
+    let closed_id = host_id(&mux, &closed);
+    close_workspace_of(&mux, &closed);
+    // Inside its grace: the reaper alone would keep it.
+    let mut schedule = ReapSchedule::default();
+    assert!(mux.reap_unplaced_terminals(&mut schedule, Instant::now()).is_empty());
+    assert_eq!(lifecycle(&mux, &closed_id), TerminalLifecycle::Running);
+
+    crate::mux::pty_reclaim::set_pty_usage_for_test(Some((500, 511)));
+    let mut clock = crate::mux::pty_reclaim::ReclaimClock::default();
+    mux.note_pty_exhausted();
+    let _ = mux.reclaim_ptys_if_low(&mut clock);
+    crate::mux::pty_reclaim::set_pty_usage_for_test(None);
+
+    assert_eq!(
+        lifecycle(&mux, &closed_id),
+        TerminalLifecycle::Tombstoned,
+        "PTYs were low and a closed tab's terminal still held one"
+    );
+    assert_eq!(lifecycle(&mux, &host_id(&mux, &placed)), TerminalLifecycle::Running);
+    mux.close_surface(placed.id).unwrap();
+}
