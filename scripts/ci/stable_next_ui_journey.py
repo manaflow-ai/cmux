@@ -298,11 +298,32 @@ def journey(process, socket_path, env, app, out, report) -> list[str]:
     return Journey(process, Path(socket_path), env, Path(app), Path(out) if out else None, report).run()
 
 
+def login_keychain(env: dict) -> None:
+    """A login keychain inside the fresh home, as a real install has.
+
+    Without one, Chromium's first Safe Storage read put up "Keychain Not Found" and held its pages
+    (runs 41419773317, 41582798853). The app drops an inherited CMUX_MOCK_KEYCHAIN at launch
+    (LaunchIdentity.inheritedKeys strips every inherited CMUX* variable), so the gate keeps the real
+    Keychain path. Every `security` call runs with the home's own HOME and CFFIXED_USER_HOME, so the
+    keychain, its search list and the default are the fresh home's: the runner account's own keychain
+    settings are untouched (checked on cmux11s: default and search list unchanged).
+    """
+    home = Path(env["HOME"])
+    keychain = home / "Library" / "Keychains" / "login.keychain-db"
+    keychain.parent.mkdir(parents=True, exist_ok=True)
+    scoped = {"HOME": env["HOME"], "CFFIXED_USER_HOME": env["CFFIXED_USER_HOME"], "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+              "USER": env.get("USER", "")}
+    for args in (["create-keychain", "-p", "", str(keychain)],
+                 ["list-keychains", "-d", "user", "-s", str(keychain)],
+                 ["default-keychain", "-d", "user", "-s", str(keychain)],
+                 ["set-keychain-settings", str(keychain)]):
+        done = subprocess.run(["security", *args], env=scoped, capture_output=True, text=True, timeout=30)
+        if done.returncode != 0:
+            raise smoke.CannotRun(f"security {args[0]} in the fresh home failed: {done.stderr.strip()[:300]}")
+    smoke.log(f"fresh home login keychain: {keychain}")
+
+
 if __name__ == "__main__":
     smoke.AFTER_RENDER = journey
-    # The fresh home has no login keychain, so Chromium's first Safe Storage read put up "Keychain
-    # Not Found" and held its pages (runs 41419773317, 41412431661); a real install has a keychain.
-    # The mock keychain (CEFSwitches: CMUX_MOCK_KEYCHAIN=1, which also turns the password import off)
-    # keeps the test home throwaway.
-    smoke.EXTRA_ENV = {"CMUX_MOCK_KEYCHAIN": "1"}
+    smoke.PREPARE_HOME = login_keychain
     sys.exit(smoke.main())

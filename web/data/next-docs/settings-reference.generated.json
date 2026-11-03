@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 559,
+  "count": 560,
   "sections": [
     {
       "id": "general",
@@ -212,6 +212,14 @@
           "help": "Add absolute paths to harness data folders. Protected folders are refused. Your organization can add locked folders.",
           "kind": "folder_list",
           "default": [],
+          "group": "Chats"
+        },
+        {
+          "key": "agents.chats.sessionRecap",
+          "title": "Session Recap",
+          "help": "When you come back to a Claude chat after 5 minutes or more, show a line on where it stands. Each recap is one small extra model call that counts toward your usage.",
+          "kind": "toggle",
+          "default": true,
           "group": "Chats"
         },
         {
@@ -5978,6 +5986,14 @@
           "key": "cloud.newWorkspacesInCloud",
           "title": "Run New Workspaces in Cloud",
           "help": "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Cloud Workspaces"
+        },
+        {
+          "key": "cloud.useMyClaudeLoginOnMyCloudMachines",
+          "title": "Use My Claude Login on My Own Cloud Machines",
+          "help": "Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead.",
           "kind": "toggle",
           "default": false,
           "group": "Cloud Workspaces"

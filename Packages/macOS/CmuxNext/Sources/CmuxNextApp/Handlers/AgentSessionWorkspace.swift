@@ -136,6 +136,7 @@ enum AgentSessionWorkspace {
                                            windows: WindowManager) -> (slot: WorkspaceSlot?, rule: NewWorkspaceDefaultSlot?) {
         var join: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)?
         if let group {
+            PendingWorkspaceRows.shared.groupJoins.hold(id) // listed loose by the daemon, joined a hop later: shown once joined
             join = { id, sidebar in
                 guard let sidebar = sidebar as? SidebarBridge else { return }
                 AgentSessionWorkspace.join(id, group: group, sidebar: sidebar)
@@ -184,7 +185,8 @@ enum AgentSessionWorkspace {
     /// undoable sidebar edit.
     @MainActor static func join(_ id: String, group name: String, sidebar: SidebarBridge) {
         let ids = [SidebarWorkspaceID(id)]
-        if let target = SidebarEdits.group(named: name, accepting: SidebarWorkspaceID(id), in: sidebar.model.sections) {
+        let machine = sidebar.services.machines.daemon(forWorkspace: id).map { MachineID($0.machineID) } // its row is held out of the list
+        if let target = SidebarEdits.group(named: name, accepting: SidebarWorkspaceID(id), in: sidebar.model.sections, machine: machine) {
             sidebar.handle(.move(ids, toGroup: target))
             return
         }

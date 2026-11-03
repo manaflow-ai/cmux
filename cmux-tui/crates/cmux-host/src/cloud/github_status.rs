@@ -107,11 +107,12 @@ pub fn sanitize(body: &Value) -> Value {
                 .and_then(Value::as_str)
                 .filter(|s| matches!(*s, "all" | "selected"));
             if let Some(count) = count {
-                let mut r = json!({"count": count});
+                let mut r = Map::new();
+                r.insert("count".into(), json!(count));
                 if let Some(selection) = selection {
-                    r["selection"] = json!(selection);
+                    r.insert("selection".into(), json!(selection));
                 }
-                out.insert("repositories".into(), r);
+                out.insert("repositories".into(), Value::Object(r));
             }
         }
     } else if let Some(url) =
