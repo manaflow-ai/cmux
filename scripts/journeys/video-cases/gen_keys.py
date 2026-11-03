@@ -260,6 +260,15 @@ def tiered_drags(journeys_dir):
                 st["title"] = st.get("title", "").replace(src, rid)
         j = dict(j, id=rid, steps=steps, source="RESIZE KEYS (drag with core tiers), from " + src)
         out.append(j)
+        if src in ("rv-col-drag-2-heavy-dark", "rv-row-drag-slow-heavy-dark"):
+            # The drag start (lead 03:3xZ): 91-99 ms from the app's mouse-down to the first moved frame with the main
+            # thread idle. The same drags with CuaDriver's hold before the first move set to 0 (hold_ms): a start that
+            # follows the hold is the injector's, one that stays is the app's.
+            hid = json.loads(json.dumps(dict(j, id=rid.replace("rkd-", "rkd-hold0-"))).replace(rid, rid.replace("rkd-", "rkd-hold0-")))
+            for st in hid["steps"]:
+                if st.get("do") == "hid_drag":
+                    st["hold_ms"] = 0
+            out.append(hid)
         if src == "rv-col-drag-3-heavy-dark":
             # The same case with a probe of the grab point before each drag (lead 03:2xZ): the drag reached the app
             # with no mouse event on cmux21 and cmux18.

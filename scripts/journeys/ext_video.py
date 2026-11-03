@@ -381,7 +381,7 @@ def step_hid_drag(j, step):
     tried = []
     for mode in modes:
         args, scale = _drag_args(j, mode, start, end, duration, steps)
-        if step.get("hold_ms"):
+        if step.get("hold_ms") is not None:  # 0 too: CuaDriver has its own default hold before the first move
             args["hold_ms"] = int(step["hold_ms"])
         if step.get("modifiers"):
             args["modifier"] = [R.MODIFIERS.get(m, m) for m in step["modifiers"]]
