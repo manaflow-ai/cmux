@@ -37,6 +37,11 @@ public nonisolated struct DownloadsFolder: Sendable, Equatable {
     }
 
     private static func override(in environment: [String: String]) -> URL? {
-        nil
+        #if DEBUG || CMUX_BENCH_HOOKS
+        guard let path = environment[overrideKey], path.hasPrefix("/") else { return nil }
+        return URL(filePath: path, directoryHint: .isDirectory).standardizedFileURL
+        #else
+        return nil
+        #endif
     }
 }
