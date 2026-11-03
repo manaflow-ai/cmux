@@ -253,5 +253,28 @@ class CancelledTip(unittest.TestCase):
         request = [step.get("name") for step in yaml.safe_load(TICK.read_text())["jobs"]["request"]["steps"]]
         self.assertNotIn("Re-run a cancelled nightly-next tip", request)
 
+    def test_every_tick_sparse_checkout_imports_with_only_its_listed_files(self):
+        # cmux#34233: delivery_workflows.py was missing, so nightly_compile_red.py and nightly_repick.py
+        # failed at import in CI, and the script's `|| red=""` / `|| picker=""` hid it.
+        jobs = yaml.safe_load(TICK.read_text())["jobs"]
+        lists = [(name, step["with"]["sparse-checkout"].split()) for name, job in jobs.items()
+                 for step in job.get("steps", []) if "sparse-checkout" in step.get("with", {})]
+        self.assertTrue(lists)
+        for name, files in lists:
+            with self.subTest(job=name), tempfile.TemporaryDirectory() as tmp:
+                for path in files:
+                    target = Path(tmp) / path
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes((ROOT / path).read_bytes())
+                for path in files:
+                    if not path.endswith(".py"):
+                        continue
+                    module = Path(path).stem
+                    result = subprocess.run(
+                        [sys.executable, "-I", "-c",
+                         f"import sys; sys.path.insert(0, {str(Path(tmp) / 'scripts' / 'ci')!r}); import {module}"],
+                        capture_output=True, text=True, timeout=60, cwd=tmp)
+                    self.assertEqual(result.returncode, 0, f"{name}: {path}: {result.stderr[-400:]}")
+
 if __name__ == "__main__":
     unittest.main()
