@@ -14574,6 +14574,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         titlebarAccessoryController.isNotificationsPopoverShown()
     }
 
+    /// The ids of the rows the open notifications popover numbered, in order.
+    func notificationsPopoverDrawnRowIds() -> [UUID] {
+        titlebarAccessoryController.notificationsPopoverRows.ids
+    }
+
     /// Forwards to `notificationNavigation` (the extracted
     /// `NotificationNavigationCoordinator`). The nil-store guard and the
     /// `#if DEBUG` UI-test recorder stay here because they read app-target state

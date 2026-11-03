@@ -21,6 +21,21 @@ public struct NotificationListShortcutDigit: Sendable, Equatable {
         return digit <= rowCount ? digit - 1 : nil
     }
 
+    /// The item a press of `digit` opens: the one the popover labelled with that digit when it
+    /// last drew (`displayed`, the drawn rows' ids in order), looked up in `current`. Nil when no
+    /// row shows the digit or that item is gone, so a press never opens a row it did not label.
+    public static func item<Item, ID: Equatable>(
+        forDigit digit: Int,
+        displayed: [ID],
+        current: [Item],
+        id: (Item) -> ID
+    ) -> Item? {
+        guard let index = NotificationListShortcutDigit(rowCount: displayed.count).rowIndex(forDigit: digit)
+        else { return nil }
+        let target = displayed[index]
+        return current.first { id($0) == target }
+    }
+
     /// The digit shown on the row at `index`, or nil for a row no digit reaches.
     public func digit(forRowIndex index: Int) -> Int? {
         guard index >= 0, index < rowCount else { return nil }

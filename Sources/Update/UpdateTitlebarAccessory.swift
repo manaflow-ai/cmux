@@ -1964,16 +1964,19 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private var lastShowsWorkspaceTitlebar = !WorkspacePresentationModeSettings.isMinimal()
     private var lastTitlebarDebugSnapshot = MinimalModeTitlebarDebugSettings.snapshot()
     var popoverIsShownForTesting: Bool { notificationsPopover.isShown }
+    private let notificationsPopoverRows: NotificationsPopoverDrawnRows
     private var showsWorkspaceTitlebar: Bool { !WorkspacePresentationModeSettings.isMinimal() }
 
     init(
         notificationStore: TerminalNotificationStore,
         settingsRuntime: SettingsRuntime?,
-        layoutModel: TitlebarControlsLayoutModel
+        layoutModel: TitlebarControlsLayoutModel,
+        notificationsPopoverRows: NotificationsPopoverDrawnRows? = nil
     ) {
         let containerView = TitlebarAccessoryContainerView()
         self.containerView = containerView
         self.notificationStore = notificationStore
+        self.notificationsPopoverRows = notificationsPopoverRows ?? NotificationsPopoverDrawnRows()
         self.layoutModel = layoutModel
         let prepareOriginatingAction: () -> AppDelegate.MainWindowContext? = { [weak containerView] in
             guard let appDelegate = AppDelegate.shared,
@@ -2263,6 +2266,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         let hostingController = NSHostingController(
             rootView: NotificationsPopoverView(
                 notificationStore: notificationStore,
+                drawnRows: notificationsPopoverRows,
                 onDismiss: { [weak notificationsPopover] in
                     notificationsPopover?.performClose(nil)
                 },
@@ -2384,6 +2388,9 @@ final class UpdateTitlebarAccessoryController {
     private var lastKnownPresentationMode: WorkspacePresentationModeSettings.Mode = WorkspacePresentationModeSettings.mode()
     private var detachedNotificationsPopover: NSPopover?
     private var detachedNotificationsPopoverDelegate: DetachedNotificationsPopoverDelegate?
+    /// The rows the open notifications popover numbered, shared by every popover this
+    /// controller shows (one is up at a time).
+    let notificationsPopoverRows = NotificationsPopoverDrawnRows()
 
     init(
         updateLog: UpdateLogStore,
@@ -2589,7 +2596,8 @@ final class UpdateTitlebarAccessoryController {
             let controls = TitlebarControlsAccessoryViewController(
                 notificationStore: TerminalNotificationStore.shared,
                 settingsRuntime: settingsRuntime,
-                layoutModel: layoutModel
+                layoutModel: layoutModel,
+                notificationsPopoverRows: notificationsPopoverRows
             )
             controls.layoutAttribute = .left
             controls.view.identifier = controlsIdentifier
@@ -2761,6 +2769,7 @@ final class UpdateTitlebarAccessoryController {
         popover.contentViewController = NSHostingController(
             rootView: NotificationsPopoverView(
                 notificationStore: TerminalNotificationStore.shared,
+                drawnRows: notificationsPopoverRows,
                 onDismiss: { [weak popover] in
                     popover?.performClose(nil)
                 },

@@ -64,7 +64,8 @@ struct NotificationPopoverRowLayoutTests {
                 isRead: false
             ),
             workspaceTitle: "main",
-            shortcutHint: hint,
+            shortcut: hint,
+            showsShortcutHint: true,
             onOpen: {},
             onClear: {},
             onToggleRead: {}
@@ -147,31 +148,60 @@ struct NotificationPopoverRowAccessibilityTests {
             onToggleRead: {}
         )
         _ = NSApplication.shared
-        let host = NSHostingView(rootView: row.frame(width: 320))
+        // With no assistive client attached, SwiftUI vends no accessibility tree in the test
+        // host unless the environment says one is listening.
+        let host = NSHostingView(rootView: row.frame(width: 320).environment(\.accessibilityEnabled, true))
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 80),
             styleMask: [.borderless], backing: .buffered, defer: false
         )
         window.isReleasedWhenClosed = false
+        window.alphaValue = 0
         defer { window.close() }
         window.contentView = host
         host.frame = window.contentLayoutRect
-        for _ in 0..<30 {
+        window.orderFront(nil)
+        let identifier = "NotificationPopoverRow.\(id.uuidString)"
+        var found: NSObject?
+        var seen: [String] = []
+        for _ in 0..<200 where found == nil {
             host.layoutSubtreeIfNeeded()
-            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
+            window.displayIfNeeded()
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+            (found, seen) = Self.element(in: host, identifier: identifier)
         }
-        let button = try #require(Self.element(in: host, identifier: "NotificationPopoverRow.\(id.uuidString)"))
-        #expect(button.accessibilityValue() as? String == "⌘3")
+        let button = try #require(found, "no accessibility element \(identifier); saw \(seen)")
+        #expect(Self.attribute(.value, getter: "accessibilityValue", of: button) as? String == "⌘3")
     }
 
-    /// The first node under `root` whose accessibility identifier is `identifier`.
-    private static func element(in root: NSView, identifier: String) -> NSAccessibilityProtocol? {
-        var queue: [Any] = [root]
+    /// The first node under `root` whose accessibility identifier is `identifier`, and every
+    /// node's type and identifier seen on the way.
+    private static func element(in root: NSView, identifier: String) -> (NSObject?, [String]) {
+        var queue: [NSObject] = [root]
+        var seen: [String] = []
         while !queue.isEmpty {
-            guard let node = queue.removeFirst() as? NSAccessibilityProtocol else { continue }
-            if node.accessibilityIdentifier() == identifier { return node }
-            queue.append(contentsOf: node.accessibilityChildren() ?? [])
+            let node = queue.removeFirst()
+            let nodeIdentifier = attribute(.identifier, getter: "accessibilityIdentifier", of: node) as? String
+            seen.append("\(type(of: node)):\(nodeIdentifier ?? "")")
+            if nodeIdentifier == identifier { return (node, seen) }
+            let children = attribute(.children, getter: "accessibilityChildren", of: node) as? [Any] ?? []
+            queue.append(contentsOf: NSAccessibility.unignoredChildren(from: children).compactMap { $0 as? NSObject })
         }
-        return nil
+        return (nil, seen)
+    }
+
+    /// Reads an accessibility attribute through either API, since SwiftUI's nodes may answer
+    /// only the older `accessibilityAttributeValue:`.
+    private static func attribute(_ attribute: NSAccessibility.Attribute, getter: String, of object: NSObject) -> Any? {
+        let modern = NSSelectorFromString(getter)
+        if object.responds(to: modern), let value = object.perform(modern)?.takeUnretainedValue() {
+            return value
+        }
+        let names = NSSelectorFromString("accessibilityAttributeNames")
+        let legacy = NSSelectorFromString("accessibilityAttributeValue:")
+        guard object.responds(to: names), object.responds(to: legacy),
+              let attributes = object.perform(names)?.takeUnretainedValue() as? [String],
+              attributes.contains(attribute.rawValue) else { return nil }
+        return object.perform(legacy, with: attribute.rawValue)?.takeUnretainedValue()
     }
 }

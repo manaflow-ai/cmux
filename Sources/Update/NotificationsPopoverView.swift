@@ -9,8 +9,17 @@ import CmuxTestSupport
 import Observation
 import SwiftUI
 
+/// The notifications an open popover numbered, in row order. A Cmd+digit press resolves against
+/// these rather than the live store, so it opens the row that shows the digit even when the store
+/// has changed since the popover last drew.
+@MainActor
+final class NotificationsPopoverDrawnRows {
+    var ids: [UUID] = []
+}
+
 struct NotificationsPopoverView: View {
     @ObservedObject var notificationStore: TerminalNotificationStore
+    let drawnRows: NotificationsPopoverDrawnRows
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @Environment(\.cmuxAccentColor) private var cmuxAccent
     let onDismiss: () -> Void
@@ -53,7 +62,13 @@ struct NotificationsPopoverView: View {
             rowShortcutHintMonitor.setHostWindow(NSApp.keyWindow)
             if showModifierHoldHints { rowShortcutHintMonitor.start() }
         }
-        .onDisappear { rowShortcutHintMonitor.stop() }
+        .onDisappear {
+            rowShortcutHintMonitor.stop()
+            drawnRows.ids = []
+        }
+        .onChange(of: drawnRowIds, initial: true) { _, ids in
+            drawnRows.ids = ids
+        }
         .onChange(of: showModifierHoldHints) { _, enabled in
             if enabled { rowShortcutHintMonitor.start() } else { rowShortcutHintMonitor.stop() }
         }
@@ -69,6 +84,12 @@ struct NotificationsPopoverView: View {
         .onReceive(NotificationCenter.default.publisher(for: .workspaceOrderDidChange)) { notification in
             refreshWorkspaceTitles(ifRelevantTo: notification)
         }
+    }
+
+    /// The ids of the rows ``content`` lists, in order: empty while it shows an empty state.
+    private var drawnRowIds: [UUID] {
+        guard notificationStore.notificationMenuSnapshot.hasNotifications else { return [] }
+        return notificationStore.notifications.map(\.id)
     }
 
     // Cap against the current screen so the popover (and especially the bottom-right resize
@@ -269,16 +290,18 @@ struct NotificationsPopoverView: View {
             // One tabId -> title index per render, not an O(tabs) scan per row (#5794).
             let titleSnapshot = loadedWorkspaceTitles ?? currentWorkspaceTitles()
             let numbering = NotificationListShortcutDigit(rowCount: snapshot.count)
-            let hintPrefix = rowShortcutHintPrefix
+            let shortcutPrefix = rowShortcutPrefix
+            let showsHints = showsRowShortcutHints
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(Array(snapshot.enumerated()), id: \.element.id) { index, notification in
                         NotificationPopoverRow(
                             notification: notification,
                             workspaceTitle: titleSnapshot[notification.tabId],
-                            shortcutHint: hintPrefix.flatMap { prefix in
+                            shortcut: shortcutPrefix.flatMap { prefix in
                                 numbering.digit(forRowIndex: index).map { "\(prefix)\($0)" }
                             },
+                            showsShortcutHint: showsHints,
                             onOpen: { open(notification) },
                             onClear: {
                                 withAnimation(.easeOut(duration: 0.18)) {
@@ -385,14 +408,18 @@ struct NotificationsPopoverView: View {
     }
 
 
-    /// What goes in front of a row's digit while the modifier is held ("⌘"), or nil while no
-    /// hints should show.
-    private var rowShortcutHintPrefix: String? {
+    /// What goes in front of a row's digit ("⌘"), or nil while the workspace digit shortcut is
+    /// unbound.
+    private var rowShortcutPrefix: String? {
         let _ = keyboardShortcutSettingsObserver.revision
-        guard showModifierHoldHints, rowShortcutHintMonitor.isModifierPressed else { return nil }
         let shortcut = KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber)
         guard !shortcut.isUnbound else { return nil }
         return shortcut.numberedDigitHintPrefix
+    }
+
+    /// Whether the rows' hint pills show, which they do while the modifier is held.
+    private var showsRowShortcutHints: Bool {
+        showModifierHoldHints && rowShortcutHintMonitor.isModifierPressed
     }
 
     private var jumpToUnreadShortcut: StoredShortcut {

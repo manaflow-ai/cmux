@@ -5,14 +5,16 @@ struct NotificationPopoverRow: View, Equatable {
     // Closures excluded from ==; equality is the rendered snapshot only (#2586).
     nonisolated static func == (lhs: NotificationPopoverRow, rhs: NotificationPopoverRow) -> Bool {
         lhs.notification == rhs.notification && lhs.workspaceTitle == rhs.workspaceTitle
-            && lhs.shortcutHint == rhs.shortcutHint
+            && lhs.shortcut == rhs.shortcut && lhs.showsShortcutHint == rhs.showsShortcutHint
     }
 
     let notification: TerminalNotification
     let workspaceTitle: String?
-    /// The shortcut that opens this row while the popover is up (e.g. "⌘3"), shown while the
-    /// modifier is held; nil hides it.
-    var shortcutHint: String? = nil
+    /// The shortcut that opens this row while the popover is up (e.g. "⌘3"), or nil for a row
+    /// no digit reaches. VoiceOver reads it as the row's value.
+    var shortcut: String? = nil
+    /// Whether the hint pill shows ``shortcut``, which it does while the modifier is held.
+    var showsShortcutHint = false
     let onOpen: () -> Void
     let onClear: () -> Void
     let onToggleRead: () -> Void
@@ -22,6 +24,7 @@ struct NotificationPopoverRow: View, Equatable {
 
     private static let rowHeight: CGFloat = 56
 
+    private var shortcutHint: String? { showsShortcutHint ? shortcut : nil }
     private var showsClearButton: Bool { isHovering && shortcutHint == nil }
 
     var body: some View {
@@ -46,6 +49,9 @@ struct NotificationPopoverRow: View, Equatable {
             // pass put them on the combined outer ZStack, which exposed the row as a
             // container rather than a button to accessibility clients.
             .accessibilityIdentifier("NotificationPopoverRow.\(notification.id.uuidString)")
+            // The pill is hidden from accessibility and shows only while the modifier is held,
+            // so the shortcut is the row's value, as Jump to Latest gives its own.
+            .accessibilityValue(shortcut ?? "")
             // XCUITest's `.click()` isn't always reliable for SwiftUI buttons hosted in an
             // `NSPopover`. Provide an explicit accessibility action so AXPress always routes to onOpen.
             .accessibilityAction { onOpen() }
