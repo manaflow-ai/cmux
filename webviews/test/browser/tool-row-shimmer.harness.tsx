@@ -33,7 +33,13 @@ const rows = [
   },
   {
     state: "running",
-    item: call({ id: "command", kind: "execute", command: "bun test fixture", status: "in_progress", endedAt: undefined }),
+    item: call({
+      id: "command",
+      kind: "execute",
+      command: "bun test fixture",
+      status: "in_progress",
+      endedAt: undefined,
+    }),
   },
   { state: "done", item: call({ id: "done-read", kind: "read", title: "Read fixture/done.md" }) },
   { state: "done", item: call({ id: "done-command", kind: "execute", command: "bun run fixture" }) },

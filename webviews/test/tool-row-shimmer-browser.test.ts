@@ -52,7 +52,9 @@ await requireBrowserLane("tool-row-shimmer-browser.test.ts", async () => {
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(error.message));
       const port = (vite.httpServer!.address() as { port: number }).port;
-      await page.goto(`http://127.0.0.1:${port}/test/browser/tool-row-shimmer.html${motion ? `?motion=${motion}` : ""}`);
+      await page.goto(
+        `http://127.0.0.1:${port}/test/browser/tool-row-shimmer.html${motion ? `?motion=${motion}` : ""}`,
+      );
       await page.locator("[data-fixture-state] .cv-tool").nth(4).waitFor();
       await page.evaluate(() => document.fonts.ready);
       const rows = await page.evaluate(() =>
