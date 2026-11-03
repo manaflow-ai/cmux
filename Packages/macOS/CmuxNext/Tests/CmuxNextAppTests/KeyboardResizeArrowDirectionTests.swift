@@ -134,9 +134,10 @@ struct KeyboardResizeArrowDirectionTests {
         rig.model.focus("p1", source: .pointer)
         rig.root.syncWithModel()
         let before = try rig.shown()
+        // p1 shows whole, and the divider (the gap from p1's right edge to p2's left edge) ends at the window's edge.
         let edge = try rig.screen.bounds.maxX
         let p1 = try #require(before["p1"]), p2 = try #require(before["p2"])
-        try #require(abs(p2.minX - edge) <= 1 && abs(p1.maxX - edge) <= 1, "the divider between p1 and p2 is not at the window's edge: \(before)")
+        try #require(p1.maxX <= edge + 0.01 && abs(p2.minX - edge) <= 0.5, "the divider between p1 and p2 is not at the window's edge: \(before)")
         #expect(!rig.press("p1", .right), "the press moved the divider out of the window, or scrolled the strip")
         #expect(try rig.shown() == before)
         #expect(rig.ended.isEmpty)
@@ -219,6 +220,84 @@ struct KeyboardResizeArrowDirectionTests {
         let after = try #require(try rig.shown()["pd"])
         let moved = after.maxX - before.maxX
         #expect(direction == .right ? moved > 0 : moved < 0, "Right/Left moved the left dock's inner edge by \(moved)")
+    }
+}
+
+/// Review of #34123 (Codex): a press steps from what the screen shows, so neither outer edge of a trade moves by a
+/// pixel, and a press that would change nothing on screen is refused (no model write).
+struct KeyboardResizeShownStepTests {
+    static let viewport = CGSize(width: 1153, height: 857)
+
+    /// A column minimum with a fraction of a point: `ColumnStripGeometry.frames` shows a column below it at the
+    /// minimum rounded up to a pixel.
+    static var style: LayoutStyle {
+        var style = LayoutStyle()
+        style.minimumPaneContentSize = CGSize(width: 200.1, height: 64)
+        return style
+    }
+
+    static func change(_ pane: LayoutPaneID, _ direction: LayoutDirection, _ layout: ScreenLayout, scale: CGFloat) -> PaneResize.Change? {
+        let geometry = ScreenGeometry.compute(layout, viewport: viewport, style: style, scale: scale)
+        return PaneResize.change(for: pane, direction: direction, in: layout, shown: ShownResizeRange(geometry: geometry, style: style, scale: scale))
+    }
+
+    /// c0 is stored below its minimum, so it shows widened to the minimum rounded up to a pixel. Right on p0 trades
+    /// with c1: c0's left edge and c1's right edge stay to the pixel, and the divider moves one whole step.
+    @Test(arguments: [CGFloat(1), 2])
+    func aTradeFromAColumnShownAtItsMinimumMovesNoOuterEdge(scale: CGFloat) throws {
+        let style = Self.style
+        let minimum = LayoutColumn(id: "m", root: .leaf("m")).minimumSize(style: style).width
+        let unit = Self.viewport.width - style.stripGap
+        let below = ColumnStripGeometry.fraction(forPixelWidth: minimum - 10, viewportWidth: Self.viewport.width, gap: style.stripGap)
+        let layout = ScreenLayout.columns([LayoutColumn(id: "c0", width: below, root: .leaf("p0")), LayoutColumn(id: "c1", width: 0.5, root: .leaf("p1"))])
+        let before = ScreenGeometry.compute(layout, viewport: Self.viewport, style: style, scale: scale)
+        let c0 = try #require(before.columns["c0"]), c1 = try #require(before.columns["c1"])
+        try #require(c0.width > minimum - 10 + 1, "c0 is not shown widened to its minimum (\(c0.width))")
+        guard case let .columnTrade(left, leftWidth, right, rightWidth)? = Self.change("p0", .right, layout, scale: scale) else {
+            Issue.record("Right on p0 made no trade")
+            return
+        }
+        let after = ScreenGeometry.compute(layout.settingWidth(leftWidth, for: left).settingWidth(rightWidth, for: right),
+                                           viewport: Self.viewport, style: style, scale: scale)
+        let c0After = try #require(after.columns["c0"]), c1After = try #require(after.columns["c1"])
+        #expect(c0After.minX == c0.minX, "c0's left edge moved: \(c0.minX) -> \(c0After.minX)")
+        #expect(c1After.maxX == c1.maxX, "c1's right edge moved: \(c1.maxX) -> \(c1After.maxX)")
+        let step = (unit * CGFloat(PaneResize.step) * scale).rounded() / scale
+        #expect(c0After.maxX - c0.maxX == step, "the divider's left side moved \(c0After.maxX - c0.maxX), want \(step)")
+        #expect(c1After.minX - c1.minX == step, "the divider's right side moved \(c1After.minX - c1.minX), want \(step)")
+        // Left on p0 would take c0 below the minimum it shows at: refused.
+        #expect(Self.change("p0", .left, layout, scale: scale) == nil)
+    }
+
+    /// A side dock's width shows between its minimum and its share of the window (`DockStripGeometry.maxShare`). A
+    /// right dock stored past that share shows at the share: Left (grow) is refused, and Right (shrink) is a whole step
+    /// from the width it shows.
+    @Test func aDockAtItsShareCapRefusesToGrowAndShrinksAWholeStep() throws {
+        let style = LayoutStyle()
+        let dock = LayoutColumn(id: "d", width: 0.9, root: .leaf("pd"), dock: DockColumn(edge: .right, mode: .docked))
+        let layout = ScreenLayout.columns([LayoutColumn(id: "c0", width: 1, root: .leaf("p0")), dock])
+        func change(_ direction: LayoutDirection) -> PaneResize.Change? {
+            let geometry = ScreenGeometry.compute(layout, viewport: Self.viewport, style: style)
+            return PaneResize.change(for: "pd", direction: direction, in: layout, shown: ShownResizeRange(geometry: geometry, style: style))
+        }
+        #expect(change(.left) == nil, "Left grew a dock shown at its share cap: the press changes the model and moves nothing")
+        guard case let .columnWidth(id, width)? = change(.right) else {
+            Issue.record("Right on a right dock made no change")
+            return
+        }
+        let before = try #require(ScreenGeometry.compute(layout, viewport: Self.viewport, style: style).columns["d"])
+        let after = try #require(ScreenGeometry.compute(layout.settingWidth(width, for: id), viewport: Self.viewport, style: style).columns["d"])
+        let step = (Self.viewport.width - style.stripGap) * CGFloat(PaneResize.step)
+        #expect(abs(after.minX - before.minX - step) <= 1, "the dock's inner edge moved \(after.minX - before.minX), want \(step)")
+    }
+
+    /// A screen whose only column is a dock shows it full width (`DockStripGeometry.docks`): no press moves it, so none
+    /// changes its stored width.
+    @Test(arguments: [LayoutDirection.left, .right])
+    func aLoneDockRefusesThePress(direction: LayoutDirection) {
+        let layout = ScreenLayout.columns([LayoutColumn(id: "d", width: 0.3, root: .leaf("pd"), dock: DockColumn(edge: .right, mode: .docked))])
+        let change = Self.change("pd", direction, layout, scale: 2)
+        #expect(change == nil, "\(direction) on a lone dock made \(String(describing: change)): it moves nothing")
     }
 }
 
