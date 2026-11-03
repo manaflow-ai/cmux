@@ -45,6 +45,8 @@ public final class DaemonRecovery {
     /// Why the last Restart did not work (the refusal code or error, for Copy
     /// Details); nil after Retry Now or a Restart that worked.
     public private(set) var restartFailure: String?
+    /// ``restartFailure`` is of a Restart the person asked for (not the automatic one): it shows the notice at once.
+    public private(set) var requestedRestartFailed = false
     /// When an unresponsive owner restarts by itself (tests shorten it before `attach`).
     @ObservationIgnored var unresponsivePolicy = UnresponsiveOwnerWatch.Policy.standard
     private nonisolated let restartsUnresponsive = Mutex<@Sendable () -> Bool>({ true })
@@ -157,7 +159,10 @@ public final class DaemonRecovery {
         }
         if startFailurePersists != persists { startFailurePersists = persists }
         // An ensure that worked (the owner recovered by itself) ends an earlier Restart's failure.
-        if failure == nil { restartFailure = nil }
+        if failure == nil {
+            restartFailure = nil
+            requestedRestartFailed = false
+        }
         updateOffer()
     }
 
@@ -187,6 +192,7 @@ public final class DaemonRecovery {
     /// Tries to connect now instead of at the next backoff step.
     public func retryNow() {
         restartFailure = nil
+        requestedRestartFailed = false
         wake?.fire()
     }
 
@@ -199,6 +205,7 @@ public final class DaemonRecovery {
         guard let launcher, !isRestarting else { return false }
         isRestarting = true
         restartFailure = nil
+        requestedRestartFailed = false
         let source = automatic ? "automatic" : "requested"
         var replaced = false
         do {
@@ -207,6 +214,7 @@ public final class DaemonRecovery {
             logger.notice("cmux-tui restart (\(source, privacy: .public)): \(result.status, privacy: .public), pid \(result.pid)")
         } catch {
             restartFailure = String(describing: error)
+            requestedRestartFailed = !automatic
             logger.error("cmux-tui restart (\(source, privacy: .public)) failed: \(String(describing: error), privacy: .public)")
         }
         isRestarting = false

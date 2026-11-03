@@ -92,6 +92,39 @@ struct DaemonRecoveryNoticePolicyTests {
         #expect(!fixture.recovery.startFailurePersists, "an earlier, ended streak counted toward this one")
     }
 
+    /// A failed automatic restart waits like any failed start; a failed Restart the person asked for is told at once.
+    @Test func onlyARequestedRestartThatFailedSkipsTheWindow() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-notice-policy-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let binary = root.appendingPathComponent("cmux-tui")
+        // Every ensure, the replace too, fails: no owner becomes ready.
+        try """
+        #!/bin/sh
+        case " $* " in
+        *" server status "*) exit 1 ;;
+        *" server ensure "*) echo '{"code":"server.spawn_failed","message":"not ready","details":{},"retryable":true}' >&2; exit 3 ;;
+        esac
+        exit 64
+        """.write(to: binary, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binary.path)
+        let launcher = DaemonLauncher(
+            configuration: .init(binary: binary, session: "cn-notice-policy-\(UUID().uuidString.prefix(8).lowercased())",
+                                 stateDirectory: root.appendingPathComponent("state"), binaryIsBundled: true),
+            environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin"] })
+        let recovery = DaemonRecovery()
+        recovery.restartsUnresponsiveOwner = { false }
+        recovery.attach(launcher, wake: RetryWake(owner: "DaemonRecoveryNoticePolicyTests"))
+
+        #expect(await recovery.restart(automatic: true) == false)
+        #expect(recovery.restartFailure != nil)
+        #expect(!recovery.requestedRestartFailed, "a failed automatic restart skipped the window")
+        #expect(await recovery.restart() == false)
+        #expect(recovery.requestedRestartFailed, "the person's failed Restart was not told at once")
+        recovery.retryNow()
+        #expect(!recovery.requestedRestartFailed)
+    }
+
     /// The launcher's outcome reports every failed ensure, also one that fails the same way as the last,
     /// so the recovery counts the streak.
     @Test func everyFailedEnsureCountsInTheOutcome() {
