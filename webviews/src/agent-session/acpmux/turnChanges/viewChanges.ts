@@ -130,11 +130,28 @@ export function viewChangesPatch(
   for (const changed of files) {
     const name = patchName(changed.path, cwd);
     if (path !== undefined && (changed.path === path || changed.canonical === path)) file = name;
-    for (const edit of changed.edits)
-      if (edit.hunks.length > 0) text += editPatch({ ...changed, displayPath: name }, edit);
+    const shown = changed.edits.filter((edit) => edit.hunks.length > 0);
+    for (const edit of shown) text += editPatch({ ...changed, displayPath: name }, edit);
+    // A file with no text hunks (binary, or an empty file made or removed) still lists, by its git
+    // header alone, as the page's own view lists it.
+    if (shown.length === 0) text += headerPatch(changed, name);
   }
   if (!text || new TextEncoder().encode(text).length > MAX_PATCH_BYTES) return undefined;
   return file === undefined ? { text } : { text, file };
+}
+
+/// A file's git header with no hunks: its name, whether it was made or removed, and git's line for
+/// a binary file.
+function headerPatch(file: TurnFile, name: string): string {
+  const lines = [`diff --git a/${name} b/${name}`];
+  if (file.created) lines.push("new file mode 100644");
+  else if (file.deleted) lines.push("deleted file mode 100644");
+  if (file.binary) {
+    const from = file.created ? "/dev/null" : `a/${name}`;
+    const to = file.deleted ? "/dev/null" : `b/${name}`;
+    lines.push(`Binary files ${from} and ${to} differ`);
+  }
+  return `${lines.join("\n")}\n`;
 }
 
 /// `path` as the patch names it: from the chat's folder when it is under it, else the full path

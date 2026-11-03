@@ -114,3 +114,25 @@ test("a mixed turn keeps the checkpoint's repository changes beside its edit out
   const fallback = await viewChangesFiles(rows, "ma", () => Promise.reject(new Error("offline")));
   expect(viewChangesPatch(rows, "ma", undefined, "/repo", fallback)?.text).toContain("/tmp/setup.txt");
 });
+
+test("a binary or empty file the turn changed still lists, by its git header", async () => {
+  const rows: AcpmuxRow[] = [
+    row("bu", "user", { text: "Go" }),
+    row("ba", "activity", { items: [edit("b1", "/tmp/setup.txt", null, "x\n")] } as Partial<AcpmuxRow>),
+    row("bs", "turnSummary", { status: "completed", checkpoint: { from: "cp-1", to: "cp-2" } }),
+  ];
+  const diff = async () => ({
+    root: "/repo",
+    complete: true,
+    files: [
+      { path: "logo.png", status: "modified", binary: true },
+      { path: "empty.txt", status: "added" },
+    ],
+  });
+  const files = await viewChangesFiles(rows, "ba", diff);
+  const patch = viewChangesPatch(rows, "ba", "/repo/logo.png", "/repo", files);
+  const names = parsePatchFiles(patch!.text).flatMap((p) => p.files ?? []).map((file) => file.name);
+  expect(new Set(names)).toEqual(new Set(["logo.png", "empty.txt", "/tmp/setup.txt"]));
+  expect(patch?.text).toContain("Binary files a/logo.png and b/logo.png differ");
+  expect(patch?.file).toBe("logo.png");
+});
