@@ -458,6 +458,13 @@ export class MockAcpmuxSocket {
       case "_acpmux/attach": {
         this.attached = target;
         const page = this.page(target, params, true);
+        // A chat whose last turn left a suggestion: acpmux sends it live, never in a page.
+        const suggestion = mockSessions.find((entry) => entry.sessionId === target)?.suggestion;
+        if (suggestion)
+          setTimeout(() => {
+            if (this.attached === target)
+              this.emit(target, { update: { sessionUpdate: "prompt_suggestion", suggestion } });
+          }, 0);
         // Opening a session reads it; it keeps its place in the list.
         if (this.sessions.find((entry) => entry.sessionId === target)?.unread)
           this.touch(target, { unread: false }, false);
@@ -884,7 +891,9 @@ export class MockAcpmuxSocket {
     const wanted = (event: EventRecord) =>
       kinds.length === 0 ||
       kinds.includes(event.kind) ||
-      (event.kind !== "available_commands_update" && kinds.includes("transcript"));
+      (event.kind !== "available_commands_update" &&
+        event.kind !== "prompt_suggestion" &&
+        kinds.includes("transcript"));
     const after = Number(params.afterSeq ?? 0);
     const before = params.beforeSeq === undefined ? Infinity : Number(params.beforeSeq);
     const newest = params.beforeSeq !== undefined || (attach && params.afterSeq === undefined);
