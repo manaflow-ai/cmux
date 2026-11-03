@@ -39,7 +39,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * them at 511, and the person's own cmux holds most). Clients, the MCP server and the
  * agent stay on this machine.
  */
-export async function openSession({ cli, name, dir, allTools, setup = [], noApp = false, remote = null }) {
+export async function openSession({ cli, name, dir, allTools, setup = [], noApp = false, remote = null, chief = false }) {
   mkdirSync(dir, { recursive: true });
   const work = mkdtempSync(join(tmpdir(), "cmux-tool-eval-"));
   const env = {};
@@ -107,8 +107,10 @@ export async function openSession({ cli, name, dir, allTools, setup = [], noApp 
    * build (a Linux build of any commit, no Mac build needed).
    */
   const mcpCommand = (serveArgs) => {
-    if (!remote) return { command: cli, args: ["mcp", "serve", ...serveArgs] };
-    const remoteEnv = [
+    // Chief's chat marks itself with CMUX_CALLER_HOME_CHAT=1, as the app sets for it.
+    const chiefEnv = chief ? ["CMUX_CALLER_HOME_CHAT=1"] : [];
+    if (!remote) return chief ? { command: "env", args: [...chiefEnv, cli, "mcp", "serve", ...serveArgs] } : { command: cli, args: ["mcp", "serve", ...serveArgs] };
+    const remoteEnv = [...chiefEnv,
       `CMUX_TUI_SOCKET=${socket}`, `CMUX_TUI_TERMINAL_ID=${agentEnvRef.CMUX_TUI_TERMINAL_ID}`,
       `CMUX_SOCKET_PATH=${env.CMUX_SOCKET_PATH}`, `CMUX_NEXT_CONFIG_FILE=${env.CMUX_NEXT_CONFIG_FILE}`,
     ];
