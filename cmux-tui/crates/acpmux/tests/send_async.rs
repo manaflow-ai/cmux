@@ -1000,3 +1000,145 @@ async fn a_no_wait_send_from_a_session_names_its_proven_sender() {
     assert_eq!(p["fromSessionId"], json!(sender), "{message}");
     assert_eq!(p["fromHarness"], "fake", "{message}");
 }
+
+/// Busy-loops on `n` threads at this process's own (normal) priority until dropped: the load
+/// a Mac had on 2026-11-02 (load 380 on 15 CPUs) when six `acpmux send`s hit `timeout 100`.
+struct CpuBurn(Arc<std::sync::atomic::AtomicBool>, Vec<std::thread::JoinHandle<()>>);
+
+impl CpuBurn {
+    fn start(n: usize) -> Self {
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let threads = (0..n)
+            .map(|_| {
+                let stop = stop.clone();
+                std::thread::spawn(move || {
+                    let mut x = 0u64;
+                    while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                        x = std::hint::black_box(
+                            x.wrapping_mul(6364136223846793005).wrapping_add(1),
+                        );
+                    }
+                })
+            })
+            .collect();
+        CpuBurn(stop, threads)
+    }
+}
+
+impl Drop for CpuBurn {
+    fn drop(&mut self) {
+        self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+        for t in self.1.drain(..) {
+            let _ = t.join();
+        }
+    }
+}
+
+/// Leo, 2026-11-02: "sends shouldn't time out just bc of load". With every CPU oversubscribed
+/// four times over and the target's machine unreachable, a send is on disk in the outbox and
+/// answered at once; the daemon delivers it, once, when the machine comes back.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_send_under_cpu_starvation_to_an_unreachable_peer_returns_at_once_and_is_delivered_later()
+{
+    let cores = std::thread::available_parallelism().map_or(4, |n| n.get());
+    let burn = CpuBurn::start(cores * 4);
+    // B is not listening yet: A's link to it fails until B starts on this port.
+    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let home = std::env::temp_dir().join(format!("send-async-starved-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    let auth = PeerAuth::create(&home).unwrap();
+    let peer_token = std::fs::read_to_string(acpmux::server::peer_auth::token_path(&home)).unwrap();
+    let a = hub();
+    a.add_peer(
+        "late",
+        &format!("ws://127.0.0.1:{port}"),
+        Some("tok".into()),
+        Some(peer_token),
+        false,
+    )
+    .await
+    .unwrap();
+    // An agent's message, as `acpmux send` from a lane sends it.
+    let mut person = C::new(a.clone()).await;
+    let sender = person
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                   "_meta": {"acpmux": {"name": "coordinator"}}}),
+        )
+        .await
+        .unwrap()["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut ca = C::as_session(a.clone(), &sender).await;
+    let mut took = Vec::new();
+    let mut deliveries = Vec::new();
+    for n in 0..5 {
+        let started = Instant::now();
+        let queued = ca
+            .call(
+                SEND_QUEUE,
+                json!({"request": prompt("late/lane", "rebase first", &format!("p-starved-{n}"))}),
+            )
+            .await
+            .unwrap();
+        took.push(started.elapsed());
+        deliveries.push(queued["deliveryId"].as_str().expect("a delivery id").to_owned());
+    }
+    let slowest = took.iter().max().copied().unwrap();
+    eprintln!("send_queue under {}x CPU oversubscription, peer down: {took:?}", 4);
+    assert!(slowest < ACK, "a send took {slowest:?} under load: {took:?}");
+    // Still waiting, and listed as such.
+    let listed = ca.call(SEND_STATUS, json!({"list": true})).await.unwrap();
+    assert_eq!(listed["pending"], 5, "{listed}");
+    // The machine comes back, with the session.
+    let b = hub();
+    let l = bind_ws(&format!("127.0.0.1:{port}")).await.unwrap();
+    tokio::spawn(serve_ws_with(
+        b.clone(),
+        l,
+        "tok".into(),
+        WsAuth { local_app: None, peer: Some(Arc::new(auth)) },
+    ));
+    let mut cb = C::new(b.clone()).await;
+    let id = cb
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "lane"}}}),
+        )
+        .await
+        .unwrap()["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let came_back = Instant::now();
+    for delivery in &deliveries {
+        let deadline = Instant::now() + Duration::from_secs(120);
+        loop {
+            let status = ca
+                .call(SEND_STATUS, json!({"deliveryId": delivery, "waitMs": 10_000}))
+                .await
+                .unwrap();
+            if status["status"] == "delivered" {
+                break;
+            }
+            assert!(matches!(status["status"].as_str(), Some("queued" | "delivering")), "{status}");
+            assert!(
+                Instant::now() < deadline,
+                "not delivered 120 s after the peer came back: {status}"
+            );
+        }
+    }
+    eprintln!("all delivered {:?} after the peer came back", came_back.elapsed());
+    drop(burn);
+    // Each message reached the session once.
+    let incoming = cb.message_events(&id).await;
+    let mut ids: Vec<&str> = incoming.iter().filter_map(|e| e["messageId"].as_str()).collect();
+    ids.sort_unstable();
+    let mut want: Vec<&str> = deliveries.iter().map(String::as_str).collect();
+    want.sort_unstable();
+    assert_eq!(ids, want, "{incoming:#?}");
+    let listed = ca.call(SEND_STATUS, json!({"list": true})).await.unwrap();
+    assert_eq!(listed["pending"], 0, "{listed}");
+}
