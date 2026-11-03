@@ -131,32 +131,31 @@ fn durable_cancel_fences_delayed_dispatch_and_only_its_exact_prompt() {
             let stop = stop.unwrap();
             assert_eq!(start["brief"]["sessionId"], stop["brief"]["sessionId"]);
             assert_eq!(stop["brief"]["dispatchCancelled"], true);
-            let sid = stop["brief"]["sessionId"].as_str().unwrap();
-            // Send a later unrelated turn, then replay the old cancellation.
-            // An implementation that forwarded session/cancel would kill this turn.
-            if hub.resolve(sid).is_ok() {
-                let reply = call(
-                    &hub,
-                    None,
-                    method::SESSION_PROMPT,
-                    json!({"sessionId":sid,"prompt":[{"type":"text","text":"later-person"}]}),
-                )
-                .await
-                .unwrap();
-                assert_eq!(reply["stopReason"], "end_turn", "{reply}");
-                let mut stale = racing;
-                stale["action"] = json!("cancel");
-                call(&hub, Some(Origin::Peer), method::MUX_DISPATCH, stale).await.unwrap();
-                let mut count = 0;
-                hub.scan_events(sid, 0, &mut |event| {
-                    if event.kind == "turn_started" {
-                        count += 1;
+            // Force a known admitted child, stop it, then send an unrelated
+            // active turn. A stale workflow cancel must leave that turn alone.
+            let mut admitted=racing.clone();admitted["briefId"]=json!("admitted-before-cancel");
+            let started=call(&hub,Some(Origin::Peer),method::MUX_DISPATCH,admitted.clone()).await.unwrap();
+            let sid=started["brief"]["sessionId"].as_str().unwrap();
+            let mut stale=admitted;stale["action"]=json!("cancel");
+            call(&hub,Some(Origin::Peer),method::MUX_DISPATCH,stale.clone()).await.unwrap();
+            let session=hub.resolve(sid).unwrap();
+            let mut events=hub.subscribe();
+            let later=call(&hub,None,method::SESSION_PROMPT,
+                json!({"sessionId":sid,"prompt":[{"type":"text","text":"slow"}],
+                    "_meta":{"acpmux":{"promptId":"later-person"}}}));
+            tokio::pin!(later);
+            tokio::time::timeout(Duration::from_secs(20),async {
+                loop {
+                    if session.turn().is_some_and(|turn|turn.prompt_id=="later-person") {break;}
+                    tokio::select! {
+                        early=&mut later=>panic!("later turn ended before stale cancellation: {early:?}"),
+                        _=events.recv()=>{},
                     }
-                    true
-                })
-                .unwrap();
-                assert!(count <= 2, "late prompt dispatched more than once");
-            }
+                }
+            }).await.unwrap();
+            call(&hub,Some(Origin::Peer),method::MUX_DISPATCH,stale).await.unwrap();
+            let reply=later.await.unwrap();
+            assert_eq!(reply["stopReason"],"end_turn","stale workflow cancel stopped unrelated turn: {reply}");
             hub.shutdown_all().await;
         });
 }
