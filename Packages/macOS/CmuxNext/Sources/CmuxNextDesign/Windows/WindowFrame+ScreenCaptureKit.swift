@@ -75,7 +75,7 @@ public nonisolated final class FrameStripRecording: Sendable {
     /// frame from before it.
     public func waitForLead() async {
         await FrameSignal.pause(milliseconds: lead, owner: "debug.frame_strip.lead")
-        await firstFrame.wait()
+        await firstFrame.untilFired()
     }
 
     /// The frames, and the report's fields about them: `capture`, `capture_error`, and `lead_ms` (`sentAt`, when the
@@ -88,7 +88,7 @@ public nonisolated final class FrameStripRecording: Sendable {
     }
 }
 
-/// Fires once; ``wait()`` returns at once after that. Any thread.
+/// Fires once; ``untilFired()`` returns at once after that. Any thread.
 nonisolated final class FrameSignal: Sendable {
     // concurrency-allow: held only to read or set the flag and take the waiters; resuming them happens after the unlock.
     private let state = Mutex<(fired: Bool, waiters: [CheckedContinuation<Void, Never>])>((false, []))
@@ -103,7 +103,7 @@ nonisolated final class FrameSignal: Sendable {
         waiters.forEach { $0.resume() }
     }
 
-    func wait() async {
+    func untilFired() async {
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
             let now = state.withLock { state -> Bool in
                 if state.fired { return true }
@@ -115,17 +115,17 @@ nonisolated final class FrameSignal: Sendable {
     }
 
     /// Returns when this fires or after `milliseconds`, whichever comes first.
-    func wait(atMost milliseconds: Double, owner: String) async {
+    func untilFired(orAfter milliseconds: Double, owner: String) async {
         let timer = DemandTimer(owner: owner)
         defer { timer.cancel() }
         timer.schedule(after: .milliseconds(Int(max(0, milliseconds).rounded(.up)))) { [self] in fire() }
-        await wait()
+        await untilFired()
     }
 
     /// Returns after `milliseconds` (a demand timer; at once for none).
     static func pause(milliseconds: Double, owner: String) async {
         guard milliseconds > 0 else { return }
-        await FrameSignal().wait(atMost: milliseconds, owner: owner)
+        await FrameSignal().untilFired(orAfter: milliseconds, owner: owner)
     }
 }
 
@@ -201,7 +201,7 @@ nonisolated final class ScreenFrameStream: NSObject, SCStreamOutput, SCStreamDel
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
         try await stream.startCapture()
-        await started.wait(atMost: until + 3_000 - WindowFrame.elapsed(since: start), owner: "debug.frame_strip.first")
+        await started.untilFired(orAfter: until + 3_000 - WindowFrame.elapsed(since: start), owner: "debug.frame_strip.first")
         let firstMs = collected.withLock { $0.firstAt }
         let end = firstMs.map { until + max(0, $0 - lead) } ?? until + 3_000
         await FrameSignal.pause(milliseconds: end - WindowFrame.elapsed(since: start), owner: "debug.frame_strip.end")
