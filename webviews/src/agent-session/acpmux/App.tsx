@@ -8618,8 +8618,8 @@ function AcpmuxPane() {
   cloudStartingNow.current = cloudStarting;
   /// The same transition as the native cap card's Run on This Mac answer: keep the
   /// failed Cloud prompt in the composer, change its destination and send it once.
-  const runCloudHere = () => {
-    setCloudStart(undefined);
+  const runCloudHere = (expectedKey?: string) => {
+    setCloudStart((current) => (expectedKey && current?.key !== expectedKey ? current : undefined));
     runModePicked.current = true;
     runHereSend.current = true;
     sandbox.setMode("persistent");
@@ -8649,7 +8649,7 @@ function AcpmuxPane() {
       setCloudStartsEnded((count) => count + 1);
       if (cloudRunsHere(answer)) {
         // The cap card's Run on This Mac: the prompt still in the composer goes to a chat here once the mode is.
-        runCloudHere();
+        runCloudHere(key);
         return;
       }
       setCloudStart((current) => cloudStartEnded(current, key, answer));
