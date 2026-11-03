@@ -11,7 +11,7 @@ import Testing
 /// second, while the scene showed and agents kept working). The sky's loops run in the render
 /// server; the main thread updates the clock once a minute and the agent count on changes.
 @MainActor @Suite(.serialized, .closesItsWindows) struct SleepySceneCostTests {
-    @Observable @MainActor private final class AgentCount {
+    @Observable @MainActor final class AgentCount {
         var working = 0
         @ObservationIgnored var reads = 0
         @ObservationIgnored var rendered = -1
