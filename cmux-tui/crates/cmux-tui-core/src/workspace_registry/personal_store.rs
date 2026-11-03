@@ -522,12 +522,18 @@ fn read_sessions_where(
     connection: &Connection,
     id: Option<&str>,
 ) -> anyhow::Result<Vec<PersonalSession>> {
-    let mut statement = connection.prepare(
-        "SELECT session_id, machine_name, session_name, transport_json, last_seen_ms,
-                capabilities_json, migrated, icon
-         FROM sessions WHERE ?1 IS NULL OR session_id = ?1 ORDER BY session_id",
-    )?;
-    let rows = statement.query_map([id], |row| {
+    // Two statements, so the keyed one is an index lookup, not a scan.
+    let columns = "SELECT session_id, machine_name, session_name, transport_json, last_seen_ms,
+                capabilities_json, migrated, icon FROM sessions";
+    let mut statement = match id {
+        Some(_) => connection.prepare(&format!("{columns} WHERE session_id = ?1"))?,
+        None => connection.prepare(&format!("{columns} ORDER BY session_id"))?,
+    };
+    let params: &[&dyn rusqlite::ToSql] = match &id {
+        Some(id) => &[id],
+        None => &[],
+    };
+    let rows = statement.query_map(params, |row| {
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, Option<String>>(1)?,
