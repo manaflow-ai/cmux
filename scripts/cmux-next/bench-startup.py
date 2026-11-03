@@ -666,6 +666,21 @@ def launch_profile(out, app_pid, until_ms):
             path = [n[:110] for n in outer[at + 1:] if not n.startswith(("0x", "swift_", "_swift", "objc_", "<"))][:7]
             for depth in range(1, len(path) + 1):
                 tree[" > ".join(path[:depth])] += weight
+    # Scratch (REOPEN-F7 profile 7): the subtree under each anchor frame, system frames kept, 8 levels.
+    anchors = ("WindowActivation.show", "SidebarContainerView.__allocating_init", "SidebarItemRowView.layout",
+               "WindowController.show(_:on:)", "ShellWindow.init(contentRect", "SidebarBridge.init(services")
+    sub = {a: collections.Counter() for a in anchors}
+    for t, weight, _, frames in rows:
+        outer = list(reversed(frame_names(frames)))
+        for a in anchors:
+            at = next((i for i, n in enumerate(outer) if a in n), None)
+            if at is None:
+                continue
+            path = [n[:100] for n in outer[at + 1:] if not n.startswith(("0x", "<"))][:8]
+            sub[a]["(self+all)"] += weight
+            for depth in range(1, len(path) + 1):
+                sub[a][" > ".join(path[:depth])] += weight
+    anchored = {a: [[round(v / 1e6, 1), k] for k, v in c.most_common(120)] for a, c in sub.items()}
     if dfl_last is not None:
         for t, weight, _, frames in rows:
             if dfl_last < t <= dfl_last + 120e6:
@@ -674,7 +689,7 @@ def launch_profile(out, app_pid, until_ms):
                 after.append([round((t - dfl_last) / 1e6, 1), names[0][:90] if names else "", " < ".join(app),
                               any("Transaction::commit" in n for n in names)])
     return {"samples": len(rows), "span_ms": round((rows[-1][0] - start) / 1e6, 1), "self": to_ms(own, 60), "total": to_ms(total, 250),
-            "tree": [[round(v / 1e6, 1), k] for k, v in tree.most_common(400)], "after_dfl": after[:400],
+            "tree": [[round(v / 1e6, 1), k] for k, v in tree.most_common(400)], "after_dfl": after[:400], "anchored": anchored,
             "pids": [[str(k), v] for k, v in per_pid.most_common(12)],
             "threads": [[str(k), v] for k, v in _c.Counter((r[2] or {}).get("tid") for r in every if (r[2] or {}).get("pid") == app_pid).most_common(6)]}
 
