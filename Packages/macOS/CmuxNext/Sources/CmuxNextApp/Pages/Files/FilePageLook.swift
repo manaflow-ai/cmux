@@ -65,6 +65,9 @@ final class FilePageLook {
         return .object(look)
     }
 
+    /// ``current()``'s `settings` without starting the watchers: cheap enough for a palette row's state.
+    func settingsSection() -> JSONValue { section() }
+
     func listen(_ onLook: @escaping @MainActor (JSONValue) -> Void) -> () -> Void {
         start()
         let id = UUID()

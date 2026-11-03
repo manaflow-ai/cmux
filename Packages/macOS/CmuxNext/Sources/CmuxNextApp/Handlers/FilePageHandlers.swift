@@ -97,6 +97,7 @@ enum FilePageHandlers {
                     do { try await look.setPreference(key: toggle.key, value: value, by: writer); return .success([:]) } catch { return .failure(ActionWorkFailure(error.localizedDescription)) }
                 })
             })
+            toggle.bindPaletteState(into: registry) { services.viewers.editorPages.look.settingsSection() }
         }
     }
 
