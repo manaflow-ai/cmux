@@ -204,7 +204,8 @@ fn a_teammate_is_refused_then_allowed_after_a_grant_and_audit_shows_both() {
     assert_eq!(bash[0].entry.host.as_deref(), Some("test-box"));
     assert!(audit::verify(&root(&h)).unwrap().broken.is_none());
 
-    // /audit from the owner shows both.
+    // /audit from the owner shows both (the teammate's own records; the
+    // conversation is shared, so records that are the owner's alone stay out).
     say(&mut h, "user_local", "/audit");
     h.settle_posts();
     let out = posted(&h);
@@ -236,6 +237,13 @@ fn only_the_owner_changes_rights_and_others_see_only_their_own_audit() {
     h.settle_posts();
     let out = posted(&h);
     let last = out.last().unwrap();
+    assert!(!last.contains("secret owner thing"), "{last}");
+    // Nor does the owner's /audit post it into the shared chat.
+    say(&mut h, "user_local", "/audit");
+    h.settle_posts();
+    let out = posted(&h);
+    let last = out.last().unwrap();
+    assert!(last.contains("records, head"), "{last}");
     assert!(!last.contains("secret owner thing"), "{last}");
 }
 

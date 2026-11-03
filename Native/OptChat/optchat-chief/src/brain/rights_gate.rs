@@ -306,8 +306,23 @@ impl Brain {
                     Ok(r) => r,
                     Err(e) => return Some(format!("Audit unreadable: {e}")),
                 };
+                // The answer is a message everyone here reads: only records
+                // of people present, and in a shared conversation none that
+                // are the owner's alone (the owner reads those in a 1:1 or
+                // with `optchat-chief audit`).
+                let owner = self.settings.membership.owner.clone();
+                let present = present_people(summary, &owner);
+                let shared = present.iter().any(|p| *p != owner && !p.starts_with(crate::rights::CHIEF_PREFIX));
+                let visible: Vec<audit::Record> = records
+                    .into_iter()
+                    .filter(|r| {
+                        let all_here = !r.entry.who.is_empty() && r.entry.who.iter().all(|w| present.contains(w));
+                        let owner_only = r.entry.who.iter().all(|w| *w == owner);
+                        all_here && !(shared && owner_only)
+                    })
+                    .collect();
                 let name_of = |id: &str| rights.name_of(id).to_owned();
-                let mut lines: Vec<String> = audit::query(&records, who.as_deref(), n)
+                let mut lines: Vec<String> = audit::query(&visible, who.as_deref(), n)
                     .iter()
                     .map(|r| audit::line(r, &name_of))
                     .collect();
@@ -334,19 +349,10 @@ impl Brain {
                     _ => return Some(format!("usage: /{verb} {}", usage_of(verb))),
                 }
                 let owner = self.settings.membership.owner.clone();
-                let answer = match crate::rights::run(&cli, &root, &owner) {
+                let answer = match crate::rights::run_as(&cli, &root, &owner, person, "chat") {
                     Ok(done) => done,
                     Err(e) => return Some(format!("/{verb}: {e}")),
                 };
-                self.audit(Entry {
-                    who: vec![person.to_owned()],
-                    via: Some("chat".into()),
-                    tool: format!("rights.{verb}"),
-                    what: text.to_owned(),
-                    decision: "allow".into(),
-                    by: Some("owner".into()),
-                    ..Entry::default()
-                });
                 Some(answer)
             }
             _ => None,
@@ -611,6 +617,21 @@ fn usage_of(verb: &str) -> &'static str {
     }
 }
 
+/// The people of a conversation as the rights table names them: the owner
+/// (themself or a paired device), other humans by person or id, Chiefs as
+/// `chief:<id>`.
+fn present_people(summary: &Summary, owner: &str) -> Vec<String> {
+    summary
+        .participants
+        .iter()
+        .map(|p| match p.kind {
+            cmux_conversation::ParticipantKind::Agent => format!("{}{}", crate::rights::CHIEF_PREFIX, p.id),
+            _ if p.id == owner || p.person.as_deref() == Some(owner) => owner.to_owned(),
+            _ => p.person.clone().unwrap_or_else(|| p.id.clone()),
+        })
+        .collect()
+}
+
 /// A participant's display name.
 fn display_name(summary: &Summary, id: &str) -> String {
     summary
@@ -631,6 +652,9 @@ fn resolve_person(summary: &Summary, rights: &Rights, word: &str) -> String {
         .iter()
         .find(|p| p.id == w || p.display_name.eq_ignore_ascii_case(w))
     {
+        if p.kind == cmux_conversation::ParticipantKind::Agent {
+            return format!("{}{}", crate::rights::CHIEF_PREFIX, p.id);
+        }
         return p.person.clone().unwrap_or_else(|| p.id.clone());
     }
     if let Some((id, _)) = rights

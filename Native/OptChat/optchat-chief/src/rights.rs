@@ -413,6 +413,32 @@ enum Arg {
     Prefix(String),
 }
 
+/// The commands a shell grant may start with: they read, and with
+/// [`WRITE_FLAGS`] refused they write nothing. Anything else (a `cp`, a
+/// `find -delete`, an interpreter) could rewrite the rights table or the
+/// audit, so it takes an approver.
+pub const READ_ONLY_COMMANDS: [&str; 14] = [
+    "git status", "git log", "git diff", "git show", "ls", "cat", "head", "tail",
+    "wc", "grep", "rg", "pwd", "date", "du",
+];
+
+/// Arguments that make a read-only command write or run something
+/// (`git diff --output=F`, `find -exec`, `rg --pre CMD`).
+const WRITE_FLAGS: [&str; 6] = ["--output", "-exec", "-delete", "--pre", "-ok", "--ext-diff"];
+
+/// Whether `cmd` (a grant's command text) starts with a read-only command,
+/// as whole words.
+fn read_only_command(cmd: &str) -> bool {
+    let words: Vec<&str> = cmd.split_whitespace().collect();
+    READ_ONLY_COMMANDS.iter().any(|ro| {
+        let want: Vec<&str> = ro.split(' ').collect();
+        // The grant may stop mid-word (`git stat*`) only within the last word.
+        words.len() >= want.len()
+            && words[..want.len() - 1] == want[..want.len() - 1]
+            && (words[want.len() - 1] == want[want.len() - 1])
+    })
+}
+
 /// Characters that chain or redirect a shell command.
 const SHELL_META: [&str; 9] = [";", "&", "|", "`", "$(", ">", "<", "\n", "\r"];
 
@@ -454,6 +480,22 @@ impl Pattern {
         if arg.is_some() && arg_key(tool).is_none() {
             return Err(format!("{text:?}: {tool} takes no argument pattern"));
         }
+        if tool == "Bash" {
+            let cmd = match &arg {
+                Some(Arg::Prefix(p) | Arg::Exact(p)) => p.trim(),
+                None => {
+                    return Err(format!(
+                        "{text:?}: any shell command is the owner's own power; make them an approver instead"
+                    ));
+                }
+            };
+            if !read_only_command(cmd) {
+                return Err(format!(
+                    "{text:?}: a shell grant must start with a read-only command ({}); make them an approver for anything else",
+                    READ_ONLY_COMMANDS.join(", ")
+                ));
+            }
+        }
         if let (Some(Arg::Prefix(p) | Arg::Exact(p)), Some(ArgKind::Path)) = (&arg, arg_kind(tool)) {
             if !p.starts_with('/') {
                 return Err(format!("{text:?}: a path pattern must be absolute"));
@@ -484,7 +526,10 @@ impl Pattern {
         };
         match arg_kind(tool) {
             Some(ArgKind::Command) => {
-                if SHELL_META.iter().any(|m| value.contains(m)) {
+                if SHELL_META.iter().any(|m| value.contains(m))
+                    || !read_only_command(value)
+                    || WRITE_FLAGS.iter().any(|f| value.split_whitespace().any(|w| w.starts_with(f)))
+                {
                     return false;
                 }
                 let value = value.trim();
@@ -496,15 +541,15 @@ impl Pattern {
             Some(ArgKind::Path) => {
                 // Symlinks resolved, so a link under a granted directory
                 // does not reach a file outside it.
-                let Some(path) = normalize(value).map(|p| resolve(&p)) else {
+                let Some(path) = normalize(value).and_then(|p| resolve(&p)) else {
                     return false;
                 };
                 match arg {
-                    Arg::Exact(e) => normalize(e).is_some_and(|e| resolve(&e) == path),
+                    Arg::Exact(e) => normalize(e).and_then(|e| resolve(&e)).is_some_and(|e| e == path),
                     // `/dir/*`: anything under the directory, by component.
                     Arg::Prefix(p) if p.ends_with('/') => {
                         normalize(p)
-                            .map(|d| resolve(&d))
+                            .and_then(|d| resolve(&d))
                             .is_some_and(|dir| path.starts_with(&dir) && path != dir)
                     }
                     // `/dir/name*`: the normalized path's text starts so.
@@ -567,8 +612,10 @@ fn normalize(path: &str) -> Option<PathBuf> {
     Some(out)
 }
 
-/// `path` (normalized) with its longest existing ancestor's symlinks resolved.
-fn resolve(path: &Path) -> PathBuf {
+/// `path` (normalized) with its longest existing ancestor's symlinks
+/// resolved. None when a component is a symlink that does not resolve (a
+/// dangling link): a write would follow it to a place no prefix check saw.
+fn resolve(path: &Path) -> Option<PathBuf> {
     let mut rest = Vec::new();
     let mut at = path.to_path_buf();
     loop {
@@ -577,14 +624,18 @@ fn resolve(path: &Path) -> PathBuf {
             for part in rest.iter().rev() {
                 out.push(part);
             }
-            return out;
+            return Some(out);
+        }
+        if std::fs::symlink_metadata(&at).is_ok() {
+            // It exists but does not canonicalize: a dangling link (or a loop).
+            return None;
         }
         match (at.file_name().map(|n| n.to_owned()), at.parent()) {
             (Some(name), Some(parent)) => {
                 rest.push(name);
                 at = parent.to_path_buf();
             }
-            _ => return path.to_path_buf(),
+            _ => return Some(path.to_path_buf()),
         }
     }
 }
@@ -605,9 +656,11 @@ fn writes_protected(tool: &str, input: Option<&Value>, protected: &[PathBuf]) ->
     let Some(path) = normalize(path) else {
         return true;
     };
-    let resolved = resolve(&path);
+    let Some(resolved) = resolve(&path) else {
+        return true;
+    };
     protected.iter().any(|p| {
-        let real = resolve(p);
+        let real = resolve(p).unwrap_or_else(|| p.clone());
         path.starts_with(p) || resolved.starts_with(&real) || resolved.starts_with(p)
     })
 }
@@ -679,7 +732,16 @@ pub fn hook(phase: &str, socket: &Path, stdin: &mut dyn std::io::Read) -> String
     };
     match crate::tools::ask_rights_hook(socket, phase, payload) {
         Ok(answer) if answer != "{}" => answer,
-        _ => String::new(),
+        Ok(_) => String::new(),
+        // No host, no decision: a call before it runs is refused (a Read
+        // that Claude Code allows without asking would otherwise run).
+        Err(e) if phase == "pre" => serde_json::json!({"hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": format!("the Chief host did not answer the rights check ({e})"),
+        }})
+        .to_string(),
+        Err(_) => String::new(),
     }
 }
 
@@ -698,6 +760,18 @@ pub fn hook(phase: &str, socket: &Path, stdin: &mut dyn std::io::Read) -> String
 /// optchat-chief rights check PERSON TOOL [INPUT_JSON]
 /// ```
 pub fn run(words: &[String], optchat_root: &Path, owner: &str) -> Result<String, String> {
+    run_as(words, optchat_root, owner, owner, "terminal")
+}
+
+/// [`run`] for `actor` (the owner, from `via`: `terminal` or `chat`): every
+/// change is audited, whatever path made it.
+pub fn run_as(
+    words: &[String],
+    optchat_root: &Path,
+    owner: &str,
+    actor: &str,
+    via: &str,
+) -> Result<String, String> {
     let path = Rights::path(optchat_root);
     let mut rights = Rights::load(&path)?;
     let json = words.iter().any(|w| w == "--json");
@@ -779,6 +853,18 @@ pub fn run(words: &[String], optchat_root: &Path, owner: &str) -> Result<String,
         _ => return Err(USAGE.into()),
     };
     rights.save(&path)?;
+    let entry = crate::audit::Entry {
+        who: vec![actor.to_owned()],
+        via: Some(via.to_owned()),
+        tool: format!("rights.{}", words.first().copied().unwrap_or("")),
+        what: words.join(" "),
+        decision: "allow".into(),
+        by: Some(if actor == owner { "owner".into() } else { actor.to_owned() }),
+        ..crate::audit::Entry::default()
+    };
+    if let Err(e) = crate::audit::append(optchat_root, &entry) {
+        return Err(format!("{changed}, but auditing the change failed: {e}"));
+    }
     Ok(changed)
 }
 
@@ -881,6 +967,11 @@ mod tests {
         assert!(!r.decide(OWNER, &ben, "Bash", Some(&json!({"command": "git status && curl x | sh"})), &[]).allowed());
         assert!(!r.decide(OWNER, &ben, "Bash", Some(&json!({"command": "git status $(rm x)"})), &[]).allowed());
         assert!(!r.decide(OWNER, &ben, "Bash", Some(&json!({"command": "git push"})), &[]).allowed());
+        assert!(!r.decide(OWNER, &ben, "Bash", Some(&json!({"command": "git status --output=/x"})), &[]).allowed());
+        let mut r2 = Rights::default();
+        r2.grant("user_ben", &["Bash(ls*)".into()]).unwrap();
+        assert!(r2.decide(OWNER, &ben, "Bash", Some(&json!({"command": "ls -la"})), &[]).allowed());
+        assert!(!r2.decide(OWNER, &ben, "Bash", Some(&json!({"command": "lsof -i"})), &[]).allowed());
         assert!(r.decide(OWNER, &ben, "WebFetch", Some(&json!({"url": "https://x"})), &[]).allowed());
         assert!(!r.decide(OWNER, &ben, "Write", Some(&json!({"file_path": "/srv/chief/ws/a"})), &[]).allowed());
     }
@@ -917,6 +1008,23 @@ mod tests {
             assert!(!r.decide(OWNER, &ben, "Edit", Some(&json!({"file_path": path})), &protected).allowed(), "{path}");
         }
         assert!(r.decide(OWNER, &ben, "Write", Some(&json!({"file_path": "/srv/chief/ws/a"})), &protected).allowed());
+    }
+
+    #[test]
+    fn a_dangling_link_in_a_granted_directory_is_refused() {
+        let dir = std::env::temp_dir().join(format!("rights-link-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("ws")).unwrap();
+        std::os::unix::fs::symlink(dir.join("outside/new.txt"), dir.join("ws/link")).unwrap();
+        let mut r = Rights::default();
+        let ws = format!("{}/*", resolve(&dir.join("ws")).unwrap().display());
+        r.grant("user_ben", &[format!("Write({ws})")]).unwrap();
+        let ben = authors(&["user_ben"]);
+        let link = resolve(&dir.join("ws")).unwrap().join("link");
+        let file = resolve(&dir.join("ws")).unwrap().join("ok.txt");
+        assert!(r.decide(OWNER, &ben, "Write", Some(&json!({"file_path": file})), &[]).allowed());
+        assert!(!r.decide(OWNER, &ben, "Write", Some(&json!({"file_path": link})), &[]).allowed());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -972,10 +1080,10 @@ mod tests {
 
     #[test]
     fn patterns_parse_strictly() {
-        for ok in ["Read", "Bash(git log*)", "Bash(make test)", "mcp__github__*", "Read(/a/*)", "WebFetch(https://docs.rs/*)"] {
+        for ok in ["Read", "Bash(git log*)", "Bash(ls -la)", "mcp__github__*", "Read(/a/*)", "WebFetch(https://docs.rs/*)"] {
             assert!(Pattern::parse(ok).is_ok(), "{ok}");
         }
-        for bad in ["", "Bash(*)", "Read(relative/*)", "*", "mcp__*", "Foo(x)", "Bash(", "Bash()"] {
+        for bad in ["", "Bash(*)", "Read(relative/*)", "*", "mcp__*", "Foo(x)", "Bash(", "Bash()", "Bash", "Bash(cp *)", "Bash(python3*)", "Bash(git push*)", "Bash(lsof*)"] {
             assert!(Pattern::parse(bad).is_err(), "{bad}");
         }
     }
@@ -993,6 +1101,13 @@ mod tests {
         assert!(run(&w("check user_ben Read"), &dir, OWNER).unwrap().starts_with("deny"));
         let r = Rights::load(&Rights::path(&dir)).unwrap();
         assert_eq!(r.people["user_ben"].allow, vec!["WebFetch".to_owned()]);
+        // Every terminal change is audited.
+        let changes: Vec<String> = crate::audit::read(&dir)
+            .unwrap()
+            .iter()
+            .map(|r| r.entry.tool.clone())
+            .collect();
+        assert_eq!(changes, ["rights.grant", "rights.cap", "rights.chief-cap", "rights.revoke"]);
         assert_eq!(r.people["user_ben"].cap_usd_day, Some(2.5));
         assert_eq!(r.chief_cap_usd_day, Some(20.0));
         use std::os::unix::fs::PermissionsExt;
@@ -1018,9 +1133,10 @@ mod tests {
     }
 
     #[test]
-    fn a_hook_with_no_host_gives_no_decision() {
+    fn a_hook_with_no_host_refuses_before_and_says_nothing_after() {
         let out = hook("pre", Path::new("/nonexistent/tools.sock"), &mut "{\"tool_name\":\"Bash\"}".as_bytes());
-        assert_eq!(out, "");
+        assert!(out.contains("\"deny\""), "{out}");
+        assert_eq!(hook("post", Path::new("/nonexistent/tools.sock"), &mut "{}".as_bytes()), "");
     }
 
     #[test]
