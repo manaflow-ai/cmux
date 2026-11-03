@@ -46,10 +46,17 @@ for p in peers:
   fi
 }
 
+# Sends one question and answers the reply that holds its tag `$2`: a turn the machine queues
+# (its load budget) is waited for, and a previous turn's reply never counts.
 ask() {
+  local deadline=$(( $(date +%s) + WAIT )) reply=""
   on send --no-wait "$name" "$1" >/dev/null
-  on wait "$name" --all --timeout "$WAIT" >/dev/null || true
-  on last "$name"
+  while (( $(date +%s) < deadline )); do
+    on wait "$name" --all --timeout 60 >/dev/null || true
+    reply="$(on last "$name" 2>/dev/null | tail -1)"
+    [[ "$reply" == *"$2"* ]] && break
+  done
+  printf '%s\n' "$reply"
 }
 
 results=()
@@ -81,8 +88,9 @@ text = sys.stdin.read()
 d = json.loads(text[text.find("{"):])
 print((d.get("moves") or [{}])[0].get("name") or sys.argv[1])
 ' "$name" 2>/dev/null || printf '%s' "$name")"
-  reply="$(ask "What code word did I ask you to remember? Run the command hostname too. Reply exactly: <codeword> <hostname>" 2>&1 | tail -1)"
-  if [[ "$reply" == *"$word"* ]]; then pass=true; else pass=false; fi
+  tag="hop-$(( ${#results[@]} + 1 ))-$RANDOM"
+  reply="$(ask "What code word did I ask you to remember? Run the command hostname too. Reply exactly: <codeword> <hostname> $tag" "$tag" 2>&1 | tail -1)"
+  if [[ "$reply" == *"$word"* && "$reply" == *"$tag"* ]]; then pass=true; else pass=false; fi
   echo "hop $prev -> $m: moved in ${moved}s, reply: $reply, pass: $pass"
   results+=("{\"from\":\"$prev\",\"to\":\"$m\",\"moveSeconds\":$moved,\"pass\":$pass}")
   $pass || break
