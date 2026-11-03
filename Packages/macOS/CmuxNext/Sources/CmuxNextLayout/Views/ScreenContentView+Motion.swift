@@ -57,17 +57,24 @@ extension ScreenContentView {
     func advancePaneAndDividerSprings(_ dt: Double, policy: MotionPolicy) -> Bool { // perf-hot: 4ms motion-frame
         var moving = false
         let frameSpring = policy.spring(motionState.frameSpring), appear = policy.spring(.appear)
-        for key in Array(paneFrames.keys) {
+        // Each spring is read, stepped and written back: an in-place `dict[key]?.advance(...)` goes through
+        // `Dictionary.subscript._modify`, whose coroutine frame the runtime allocates on the heap, one per spring.
+        let panes = Array(paneFrames.keys), dividers = Array(dividerFrames.keys)
+        for key in panes {
+            guard var frame = paneFrames[key] else { continue }
             let token = zoomMotion.spring(for: key, fallback: motionState.frameSpring)
-            if paneFrames[key]?.advanceUnsettled(dt, parameters: token == motionState.frameSpring ? frameSpring : policy.spring(token),
-                                                 alphaParameters: appear) == true { moving = true }
+            if frame.advanceUnsettled(dt, parameters: token == motionState.frameSpring ? frameSpring : policy.spring(token),
+                                      alphaParameters: appear) { moving = true }
+            paneFrames[key] = frame
         }
-        for key in Array(dividerFrames.keys) {
-            if dividerFrames[key]?.advanceUnsettled(dt, parameters: frameSpring) == true { moving = true }
+        for key in dividers {
+            guard var frame = dividerFrames[key] else { continue }
+            if frame.advanceUnsettled(dt, parameters: frameSpring) { moving = true }
+            dividerFrames[key] = frame
         }
         if paneFrames.values.allSatisfy(\.geometryNearRest) && dividerFrames.values.allSatisfy(\.geometryNearRest) {
-            for key in Array(paneFrames.keys) { paneFrames[key]?.snapGeometry() }
-            for key in Array(dividerFrames.keys) { dividerFrames[key]?.snapGeometry() }
+            for key in panes { if var frame = paneFrames[key] { frame.snapGeometry(); paneFrames[key] = frame } }
+            for key in dividers { if var frame = dividerFrames[key] { frame.snapGeometry(); dividerFrames[key] = frame } }
         } else {
             moving = true
         }
@@ -84,11 +91,16 @@ extension ScreenContentView {
         let frameSpring = policy.spring(motionState.frameSpring), appear = policy.spring(.appear)
         // The same springs `step` uses: unsettled (no edge lands alone), each pane on its zoom spring token.
         for key in Array(paneFrames.keys) {
+            guard var frame = paneFrames[key] else { continue }
             let token = zoomMotion.spring(for: key, fallback: motionState.frameSpring)
-            _ = paneFrames[key]?.advanceUnsettled(dt, parameters: token == motionState.frameSpring ? frameSpring : policy.spring(token),
-                                                  alphaParameters: appear)
+            _ = frame.advanceUnsettled(dt, parameters: token == motionState.frameSpring ? frameSpring : policy.spring(token), alphaParameters: appear)
+            paneFrames[key] = frame
         }
-        for key in Array(dividerFrames.keys) { _ = dividerFrames[key]?.advanceUnsettled(dt, parameters: frameSpring) }
+        for key in Array(dividerFrames.keys) {
+            guard var frame = dividerFrames[key] else { continue }
+            _ = frame.advanceUnsettled(dt, parameters: frameSpring)
+            dividerFrames[key] = frame
+        }
         if scrollRidesFrames {
             if !isUserScrolling { _ = scroll.advance(dt, parameters: frameSpring, epsilon: 0.25) }
             _ = stepRows(dt, spring: frameSpring)
