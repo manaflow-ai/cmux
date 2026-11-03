@@ -12,7 +12,7 @@
 //!   a cmux-platform origin: `CMUX_NEXT_ARTIFACTS_API_URL`, then `artifacts.baseUrl`, then the
 //!   relay's own origin, each only when it passes [`platform_origin`], else the development
 //!   Worker the app uses (`ArtifactsPageProvider.apiBaseURL`).
-//! - Transfers time out only while idle; file reads stream to disk. Store answers go back
+//! - File reads stream to disk with a per-read timeout. Store answers go back
 //!   to the agent wrapped as untrusted data, never as instructions.
 //! - A save refuses secret-looking file names and content flagged by `secret_scan`.
 
@@ -37,7 +37,7 @@ pub const DEFAULT_API: &str = "https://cmux-platform-development.debussy.workers
 pub const API_ENV: &str = "CMUX_NEXT_ARTIFACTS_API_URL";
 pub const TOOLS: [&str; 4] = ["artifact_save", "artifact_search", "artifact_list", "artifact_read"];
 
-/// A stalled transfer times out; actively transferring large files have no total deadline.
+/// Timeout for response headers and each body read, not the entire download.
 const CALL_TIMEOUT: Duration = Duration::from_secs(60);
 /// The largest JSON answer read.
 const MAX_JSON_BYTES: usize = 4 << 20;
