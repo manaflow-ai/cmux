@@ -19,7 +19,7 @@ import type { Translate } from "../i18n";
 import { inboxCounts } from "./inboxNotice";
 import { joinsReceivedRow } from "./laneNoticeBatches";
 import { isWaitingMessage } from "./pendingMessages";
-import { awaitsPermission, isFailed, isRunning, runStretches, toolGroups, type ToolGroup } from "./toolGroups";
+import { awaitsPermission, countsFailed, isRunning, runStretches, toolGroups, type ToolGroup } from "./toolGroups";
 import { toolRunPhrases } from "./toolRunSummary";
 import type { Folds } from "./viewFolds";
 
@@ -81,7 +81,7 @@ function member(row: AcpmuxRow): Member | undefined {
     sent,
     received: 0,
     work,
-    failed: row.items.filter((item) => item.tool && isFailed(item.tool)).length,
+    failed: row.items.filter((item) => item.tool && countsFailed(item.tool)).length,
     running: row.items.some((item) => item.tool && isRunning(item.tool)),
   };
 }

@@ -1757,6 +1757,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_identity.py
 
+      - name: Validate the rolling nightly-next DMG is the cmux NIGHTLY build
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_rolling_dmg_identity.py
+
       - name: Validate nightly signing admission and its shadow mode
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: |

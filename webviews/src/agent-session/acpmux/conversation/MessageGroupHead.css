@@ -93,3 +93,13 @@
     display: none;
   }
 }
+/* Stacked (messageLineLook.ts): the senders on their own line under the count, at the text column
+   (`.cv-msgline__preview`, AgentMessageRow.css), a whole line of the head's box even where the head
+   sits in a flex line (PendingMessagesCard.css `.cv-pending__line`). */
+.cv-message-group__below {
+  flex: 0 0 100%;
+  width: 100%;
+}
+.cv-pending__line:has(> .cv-message-group__below) {
+  flex-wrap: wrap;
+}
