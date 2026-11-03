@@ -185,9 +185,17 @@ async fn handle(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
             let run_id = id.to_owned();
             let owner = run.owner_session_id.clone();
             tokio::spawn(async move {
-                let result =
+                let mut result =
                     hub.workflow_execute(&run, generation, &record, &prompt, &options).await;
                 let _gate = hub.workflow_runs.gate(&run_id).lock_owned().await;
+                if result.is_err()
+                    && let Ok(current) =
+                        hub.workflow_runs.store().authorize(&run_id, generation, &owner)
+                {
+                    if let Err(error) = hub.workflow_cancel_activity(&current, &record.id).await {
+                        result = Err(error);
+                    }
+                }
                 let _ = hub.workflow_runs.store().complete_activity(
                     &run_id,
                     generation,
