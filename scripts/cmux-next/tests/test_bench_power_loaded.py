@@ -88,6 +88,16 @@ class LoadedTests(unittest.TestCase):
         rows, _ = bp.process_rows({**result, "label": "idle-chats"}, 5.0)
         self.assertTrue(any(row.startswith("| cef-renderer: agent | 3 |") and "|  |  |" in row for row in rows))
 
+    def test_profile_summary_self_time_by_function(self):
+        profile = {"nodes": [{"id": 1, "callFrame": {"functionName": "(root)", "url": "", "lineNumber": -1, "columnNumber": -1}},
+                             {"id": 2, "callFrame": {"functionName": "(program)", "url": "", "lineNumber": -1, "columnNumber": -1}},
+                             {"id": 3, "callFrame": {"functionName": "tick", "url": "cmux-page://cmux.agent/pane.js", "lineNumber": 9, "columnNumber": 4}}],
+                   "samples": [2, 3, 3, 2], "timeDeltas": [0, 1000, 3000, 500]}
+        summary = bp.profile_summary(profile)
+        self.assertEqual(summary["self_ms"][0], ["tick pane.js:10:5", 3.5])
+        self.assertEqual(summary["self_ms"][1], ["(program) :0:0", 1.0])
+        self.assertEqual(summary["total_ms"], 4.5)
+
     def test_perf_rows(self):
         before = {"roles": {"total": {"cpu_pct": 70.0, "footprint_mb": 2000.0, "main_thread_pct": None}}}
         after = {"roles": {"total": {"cpu_pct": 35.0, "footprint_mb": 2100.0, "main_thread_pct": None}}}

@@ -5,6 +5,12 @@ import Foundation
 /// `debug.agent_pane` reads of the chat page that the capture scenes and benches use (DEBUG
 /// builds): its readiness for a still and the ACP Inspector toggle.
 extension AgentPaneView {
+    /// `debug.agent_pane devtools`: DevTools `method` on the chat's Chromium page, its JSON reply.
+    /// Nil when the chat shows in WebKit.
+    public func debugDevTools(_ method: String, params: [String: any Sendable]) async throws -> String? {
+        try await page?.debugDevTools(method, params: params)
+    }
+
     /// `debug.agent_pane readiness`: whether the page drew a transcript and a composer, and (with
     /// `waitForAnimations`, up to 1 s) whether its menus finished animating.
     public func debugReadiness(pane: String, waitForAnimations: Bool = false) async -> JSONValue {

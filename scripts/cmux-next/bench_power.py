@@ -527,6 +527,65 @@ def idle_cost_markdown(result: dict, budget: float) -> tuple[str, dict]:
     return "\n".join(lines) + "\n", verdict
 
 
+def devtools(sock: str, method: str, params: dict | None = None):
+    """A DevTools method on the shown chat's Chromium page (`debug.agent_pane devtools`): its reply, parsed."""
+    reply = rpc(sock, "debug.agent_pane", {"action": "devtools", "method": method, "params": params or {}}, timeout=60)
+    if reply.get("error") or not isinstance(reply.get("result"), str):
+        return {"error": reply.get("error") or "no reply"}
+    try:
+        return json.loads(reply["result"])
+    except ValueError as error:
+        return {"error": str(error)}
+
+
+def profile_summary(profile: dict, top: int = 25) -> dict:
+    """A V8 CPU profile's self time by function (name, script, line), busiest first, in ms."""
+    nodes = {node["id"]: node for node in profile.get("nodes", [])}
+    samples, deltas = profile.get("samples", []), profile.get("timeDeltas", [])
+    self_us: dict[int, float] = {}
+    for index, node_id in enumerate(samples):
+        # A sample's time is the gap to the next one (Chrome DevTools' own attribution).
+        gap = deltas[index + 1] if index + 1 < len(deltas) else 0
+        self_us[node_id] = self_us.get(node_id, 0) + max(gap, 0)
+    by_function: dict[str, float] = {}
+    for node_id, micros in self_us.items():
+        frame = nodes.get(node_id, {}).get("callFrame", {})
+        url = (frame.get("url") or "").rsplit("/", 1)[-1]
+        key = f"{frame.get('functionName') or '(anonymous)'} {url}:{frame.get('lineNumber', -1) + 1}:{frame.get('columnNumber', -1) + 1}"
+        by_function[key] = by_function.get(key, 0) + micros
+    total = sum(by_function.values())
+    busiest = sorted(by_function.items(), key=lambda item: -item[1])[:top]
+    return {"total_ms": round(total / 1000, 1), "self_ms": [[key, round(micros / 1000, 1)] for key, micros in busiest]}
+
+
+def idle_profile(sock: str, seconds: float) -> dict:
+    """What the shown chat's renderer main thread runs while nobody touches it: Chromium's page
+    metrics (script, style, layout time and counts) per second over `seconds`, and a V8 CPU
+    profile of the same window by function. The profiler and the metrics are off again after."""
+    def metrics():
+        reply = devtools(sock, "Performance.getMetrics")
+        return {m["name"]: m["value"] for m in reply.get("metrics", [])} if "metrics" in reply else reply
+    out = {"seconds": seconds}
+    out["enable"] = [devtools(sock, "Performance.enable"), devtools(sock, "Profiler.enable"),
+                     devtools(sock, "Profiler.setSamplingInterval", {"interval": 500}), devtools(sock, "Profiler.start")]
+    before = metrics()
+    time.sleep(seconds)  # test script: the profiled idle window
+    after = metrics()
+    stopped = devtools(sock, "Profiler.stop")
+    devtools(sock, "Profiler.disable")
+    devtools(sock, "Performance.disable")
+    if isinstance(before, dict) and isinstance(after, dict) and "error" not in before and "error" not in after:
+        keys = ("TaskDuration", "ScriptDuration", "LayoutDuration", "RecalcStyleDuration", "LayoutCount",
+                "RecalcStyleCount", "JSHeapUsedSize", "Nodes", "JSEventListeners", "Frames")
+        out["metrics_per_s"] = {key: round((after.get(key, 0) - before.get(key, 0)) / seconds, 4) for key in keys if key in after}
+        out["heap_mb"] = round(after.get("JSHeapUsedSize", 0) / MB, 1)
+        out["nodes"] = after.get("Nodes")
+    else:
+        out["metrics_error"] = [before, after]
+    out["profile"] = profile_summary(stopped["profile"]) if "profile" in stopped else stopped
+    return out
+
+
 def run_loaded(args):
     """An idle-cost scenario (`loaded` or `idle-chats`, see the module): load, settle, measure, report."""
     label = getattr(args, "scenario", "loaded")
@@ -562,12 +621,12 @@ def run_loaded(args):
         if label == "idle-chats":
             # After the window, so it costs the measurement nothing: what the shown chat's page asks
             # for while nobody touches it, by call site (idleProbe.ts), for the idle loop's source.
-            # Three windows of 3.5 s: a Chromium page's script call ends at 5 s (Runtime.evaluate).
-            result["idle_probe"] = []
-            for _ in range(3):
-                probe = rpc(sock, "debug.agent_pane", {"action": "idle_probe", "ms": 3500}, timeout=20)
-                result["idle_probe"].append(probe)
-                print(f"PERF-IDLE-PROBE {json.dumps(probe)[:20000]}", flush=True)
+            # A 3.5 s window: a Chromium page's script call ends at 5 s (Runtime.evaluate).
+            probe = rpc(sock, "debug.agent_pane", {"action": "idle_probe", "ms": 3500}, timeout=20)
+            result["idle_probe"] = probe
+            print(f"PERF-IDLE-PROBE {json.dumps(probe)[:20000]}", flush=True)
+            result["idle_profile"] = idle_profile(sock, 10)
+            print(f"PERF-IDLE-PROFILE {json.dumps(result['idle_profile'])[:20000]}", flush=True)
         result["renderer_roles"] = "debug.cef_pages" if pages is not None else "none (a build without debug.* methods)"
         sha = subprocess.run(["git", "rev-parse", "--short=12", "HEAD"], capture_output=True, text=True).stdout.strip()
         model = subprocess.run(["sysctl", "-n", "hw.model"], capture_output=True, text=True).stdout.strip()
