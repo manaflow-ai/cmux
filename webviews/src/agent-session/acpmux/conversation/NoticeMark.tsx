@@ -5,8 +5,7 @@
 // working-state rule).
 import type { StringKey } from "../i18n";
 import { useT } from "../i18n";
-import type { NoticeLink, NoticeSeverity } from "./agentNotice";
-import { noticeLinkLabel } from "./agentNotice";
+import type { NoticeSeverity } from "./agentNotice";
 import "./NoticeMark.css";
 
 export const SEVERITY_LABEL: Record<NoticeSeverity, StringKey> = {
@@ -47,14 +46,4 @@ export function NoticeMark({ severity, size = 14 }: { severity: NoticeSeverity; 
       )}
     </svg>
   );
-}
-
-/// The notice's body as the opened line shows it: its text, then its links on one line, each named
-/// as its chip would be (`#32827`, `run 1234567…`), so the body never repeats the rendered head or
-/// the raw Links line. Inside the message text, never a chip row of its own (design/chat-transcript.md:
-/// "Never draw a PR chip row or any link-chip row on transcript messages").
-export function noticeMarkdown(body: string, links: readonly NoticeLink[]): string {
-  if (!links.length) return body;
-  const line = links.map((link) => `[${noticeLinkLabel(link).replace(/[[\]]/g, "\\$&")}](${link.url})`).join(" · ");
-  return body ? `${body}\n\n${line}` : line;
 }

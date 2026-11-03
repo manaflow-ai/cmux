@@ -12,6 +12,7 @@ import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { SESSION_ID, assistant, chat, session, summary, user } from "../../../gallery/fixtures/acpmux";
 import { incomingPrompt } from "./incomingMessage";
+import { noticeRowText } from "./agentNotice";
 
 type Page = {
   sender: string;
@@ -78,8 +79,12 @@ function notice(page: Page, minutes: number) {
       },
     },
   });
-  return incoming?.kind === "message"
-    ? user(incoming.message.text, minutes, { incoming, untyped: true, resend: raw })
+  return incoming?.kind === "message" && incoming.message.notice
+    ? user(noticeRowText(incoming.message.notice, incoming.message.text), minutes, {
+        incoming,
+        untyped: true,
+        resend: raw,
+      })
     : user(raw, minutes);
 }
 
@@ -147,8 +152,12 @@ function legacy() {
   return chat(
     [
       ...opening,
-      incoming?.kind === "message"
-        ? user(incoming.message.text, 20, { incoming, untyped: true, resend: page })
+      incoming?.kind === "message" && incoming.message.notice
+        ? user(noticeRowText(incoming.message.notice, incoming.message.text), 20, {
+            incoming,
+            untyped: true,
+            resend: page,
+          })
         : user(page, 20),
       assistant("Looking at the fast tier failure on #32827 first.", 19.8),
       summary(19.7, { status: "completed", durationMs: 14_000, toolCount: 0 }),

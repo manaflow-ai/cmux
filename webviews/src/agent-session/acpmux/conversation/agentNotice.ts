@@ -66,7 +66,8 @@ const RENDERED_HEAD =
   /^\[notice from ([\w.@/:-]{1,64})(?: on ([A-Za-z0-9._-]{1,64}))?(?: · (FIRE|WARN))?\][ \t]+(\S[^\n]*)$/;
 /// The rendered Links line: `Links: URL (LABEL), URL, …`.
 const LINKS_LINE = /^Links:[ \t]+(https:\/\/\S+.*)$/;
-const LINK = /(https:\/\/[^\s,()]+)(?: \(([^)\n]{1,64})\))?/g;
+/// One link of the Links line: its URL (parentheses in it kept), then its label in parentheses.
+const LINK = /^(https:\/\/\S+?)(?: \(([^)\n]{1,64})\))?$/;
 
 /// The body of a notice prompt: its text without the rendered head line and the Links line, which
 /// the row draws itself. Text in no such form is the body as it is.
@@ -91,8 +92,12 @@ export function renderedNotice(text: string): { notice: AgentNotice; body: strin
     string,
   ];
   const last = lines.length > 1 ? LINKS_LINE.exec(lines.at(-1)!.trim()) : null;
+  // Links are `, `-separated, each starting https://, so a comma or parenthesis inside a URL stays.
   const links = last
-    ? [...last[1]!.matchAll(LINK)].map(([, url, label]) => ({ url: url!, ...(label && { label }) }))
+    ? last[1]!.split(/, (?=https:\/\/)/).flatMap((part) => {
+        const link = LINK.exec(part.trim());
+        return link ? [{ url: link[1]!, ...(link[2] && { label: link[2] }) }] : [];
+      })
     : [];
   return {
     notice: {
@@ -151,4 +156,30 @@ export function noticeLinkLabel(link: NoticeLink): string {
   } catch {
     return link.url;
   }
+}
+
+/// A link destination as Markdown reads it whole: the characters that would end it or open another
+/// (`(`, `)`, `<`, `>`, white space) percent-encoded, so a URL can never close its link early and
+/// start another.
+const destination = (url: string) =>
+  url.replace(/[()<>\s]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`);
+
+/// The notice's body as the opened line shows it: its text, then its links on one line, each named
+/// as its chip would be (`#32827`, `run 1902234…`), so the body never repeats the rendered head or
+/// the raw Links line. Inside the message text, never a chip row of its own (design/chat-transcript.md:
+/// "Never draw a PR chip row or any link-chip row on transcript messages").
+export function noticeMarkdown(body: string, links: readonly NoticeLink[]): string {
+  if (!links.length) return body;
+  const line = links
+    .map((link) => `[${noticeLinkLabel(link).replace(/[[\]\\]/g, "\\$&")}](${destination(link.url)})`)
+    .join(" · ");
+  return body ? `${body}\n\n${line}` : line;
+}
+
+/// A notice's whole text as the transcript row keeps it for Find, Copy, export and the empty-row
+/// check: its title, then what the opened line shows. Never empty: a notice of a title alone is
+/// still a row.
+export function noticeRowText(notice: AgentNotice, body: string): string {
+  const rest = noticeMarkdown(body, notice.links);
+  return rest ? `${notice.title}\n\n${rest}` : notice.title;
 }

@@ -5,7 +5,14 @@
 // own words.
 import { expect, test } from "bun:test";
 import { incomingPrompt } from "./incomingMessage";
-import { legacyNotice, noticeBody, noticeLinkLabel } from "./agentNotice";
+import {
+  legacyNotice,
+  noticeBody,
+  noticeLinkLabel,
+  noticeMarkdown,
+  noticeRowText,
+  renderedNotice,
+} from "./agentNotice";
 import { laneNotice } from "./laneReport";
 
 const PR = "https://github.com/manaflow-ai/cmux/pull/32827";
@@ -161,4 +168,27 @@ test("a link's chip label: #N for a pull request or issue, run N for an Actions 
   expect(noticeLinkLabel({ url: "https://grafana.example.com/d/abc/fleet", label: "Fleet board" })).toBe("Fleet board");
   expect(noticeLinkLabel({ url: "https://grafana.example.com/d/abc/fleet?x=1" })).toBe("grafana.example.com/…/fleet");
   expect(noticeLinkLabel({ url: "https://example.com/" })).toBe("example.com");
+});
+
+test("a notice's row text keeps its title, so a title alone is no empty row and Find and export read it", () => {
+  const read = legacyNotice("[tell-coordinator from w on h] FIRE fast tier failed");
+  expect(read && "notice" in read && noticeRowText(read.notice, read.body)).toBe("fast tier failed");
+  const page = legacyNotice("[tell-coordinator from w on h] FIRE fast tier failed. Repair now.");
+  expect(page && "notice" in page && noticeRowText(page.notice, page.body)).toBe("fast tier failed\n\nRepair now.");
+});
+
+test("a link's destination can never close its Markdown link early, and a URL keeps its parentheses", () => {
+  expect(noticeMarkdown("", [{ url: "https://good.example/)[Other](https://other.example/" }])).toBe(
+    "[good.example/…/other.example](https://good.example/%29[Other]%28https://other.example/)",
+  );
+  expect(noticeMarkdown("B", [{ url: "https://e.example/a>b c", label: "x]y" }])).toBe(
+    "B\n\n[x\\]y](https://e.example/a%3Eb%20c)",
+  );
+  const read = renderedNotice(
+    "[notice from s] T\nBody\nLinks: https://example.com/foo_(bar) (Docs), https://example.com/a,b",
+  );
+  expect(read?.notice.links).toEqual([
+    { url: "https://example.com/foo_(bar)", label: "Docs" },
+    { url: "https://example.com/a,b" },
+  ]);
 });

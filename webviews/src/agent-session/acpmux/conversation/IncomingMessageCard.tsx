@@ -62,7 +62,8 @@ import { Face } from "../multiplayer/Faces";
 import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
 import { isGuest, type Participant } from "../multiplayer/participants";
 import type { AgentNotice } from "./agentNotice";
-import { NoticeMark, noticeMarkdown, SEVERITY_LABEL } from "./NoticeMark";
+import { NoticeMark, SEVERITY_LABEL } from "./NoticeMark";
+import { noticeMarkdown } from "./agentNotice";
 import { useNoticeLook, type NoticeLook } from "./noticeLook";
 
 /// A family sender's label, its relation before its name ("Parent · coordinator").
@@ -395,9 +396,13 @@ export function IncomingMessageLine({
       toggleLabel={t("message.collapsedLabel", { from, preview: preview || t("message.noText") })}
       label={
         // Find counts the panel's whole text, not the line's first-line copy of it.
-        <span className={`cv-received__preview${agentNotice ? " cv-notice__title" : ""}`} data-find-skip="">
+        // A notice's title is its text (the row's, which Find searches): Find highlights it here.
+        <span
+          className={`cv-received__preview${agentNotice ? " cv-notice__title" : ""}`}
+          data-find-skip={agentNotice ? undefined : ""}
+        >
           {agentNotice && look === "tag" && agentNotice.severity !== "info" && (
-            <span className="cv-notice__tag" data-severity={agentNotice.severity}>
+            <span className="cv-notice__tag" data-severity={agentNotice.severity} data-find-skip="">
               {t(SEVERITY_LABEL[agentNotice.severity])}
             </span>
           )}
