@@ -2,12 +2,19 @@
 """Writes the TYPING UNDER LOAD journeys (Lawrence P0, 2026-11-02) into journeys/video/typing-load-*.json.
 
     python3 scripts/journeys/typing/gen_load.py [--check]
+    python3 scripts/journeys/typing/gen_load.py --switch KEY [--out DIR]
 
 One journey per load profile (L0 = no load, L1 CLI storm, L2 MCP storm, L3 browser, L4 agents, L5 12-pane HEAVY
 TUI, L6 all; the 15 GB hog is run.py --hog-swap-gb on top), filmed (HARNESS recorder, two 60 s movies) and an -nf copy
 (no recorder: in-app marks, echo and keys_check only). Each: a new workspace and terminal named `typing`, echo.py in
 it, the load around it (load_profiles.py --keep typing), then the seeded 2-minute typist (typist_play) in two
 halves, then the load stops. Judges: typing/keys_check.py (order, lost, merged, PTY arrival) and the video judge.
+
+--switch KEY writes typing-load-l6-sw-<short> (<short>: the key's last part, lowercase): typing-load-l6 with a feature
+switch ON (ext_pixel px_switch) right after the relaunch's smoke_ready (a bench build keeps Debug tunables in memory only,
+so a switch set before probe_relaunch is gone), every other step and option the same, so its numbers compare with plain
+typing-load-l6; the switch back to its default first in finally. A switch that does not take makes the round not run.
+The stage switches: motion.frameOwner.terminals (S4), motion.frameOwner.timing (S2), motion.frameOwner.contentPolicy (S3).
 """
 import argparse
 import json
@@ -81,10 +88,38 @@ def journey(profile, film):
             "steps": steps(profile, film)}
 
 
+def switch_short(key):
+    """The journey suffix of a switch key: its last dotted part, lowercase letters and digits."""
+    return "".join(c for c in key.split(".")[-1].lower() if c.isalnum()) or "switch"
+
+
+def switch_variant(key, profile="L6"):
+    """typing-load-<profile> with KEY ON from the relaunch on: px_switch right after the relaunch's smoke_ready."""
+    spec = journey(profile, True)
+    steps = spec["steps"]
+    i = next(n for n, st in enumerate(steps) if st["do"] == "probe_relaunch")
+    assert steps[i + 1]["do"] == "smoke_ready", steps[i + 1]
+    steps.insert(i + 2, {"do": "px_switch", "key": key, "value": True,
+                         "title": f"set-up: {key} ON (after the relaunch: a bench build keeps tunables in memory only)"})
+    spec["id"] = f"{spec['id']}-sw-{switch_short(key)}"
+    spec["title"] += f", with {key} ON"
+    spec["finally"] = [{"do": "px_tunable", "key": key, "value": None, "title": f"clean-up: {key} back to its default"}] + spec["finally"]
+    return spec
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--check", action="store_true")
+    ap.add_argument("--switch", help="a boolean Debug tunable: write typing-load-l6-sw-<short> with it ON")
+    ap.add_argument("--out", help="the folder for --switch (default the journeys' video folder)")
     a = ap.parse_args()
+    if a.switch:
+        spec = switch_variant(a.switch)
+        out = Path(a.out) if a.out else OUT
+        out.mkdir(parents=True, exist_ok=True)
+        (out / f"{spec['id']}.json").write_text(json.dumps(spec, indent=2) + "\n")
+        print(f"{spec['id']} in {out}")
+        return 0
     bad = 0
     for profile in PROFILES:
         for film in (True, False):

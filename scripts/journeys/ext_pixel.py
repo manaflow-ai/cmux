@@ -64,6 +64,12 @@ Steps (`do`):
                a script's chat goes to a new left chat dock (NewChatPlacement .newDock) and leaves the pane a terminal;
                with focus the targeted path is not taken. Waits until debug.surfaces shows the pane's selected tab as
                the chat (kind conversation), then focuses the pane (`cmux pane focus`) for the next set-up step.
+  px_switch    {key, value}
+               A feature switch (a boolean Debug tunable) for the rest of the journey: the store activated when it is
+               inactive (`debug.tunables activate`), the switch set and read back. A switch that does not take (a key
+               this build does not have, an inactive store) makes the round "not run" with the reason, never a run at
+               the default. For journeys that relaunch the app (typing-load-l6's probe_relaunch: a bench build keeps
+               tunables in memory only), it goes after the relaunch.
   px_window_frame {by: [dx, dy], ms?: 600, mark?}
                A live resize of the window from its bottom-right corner through ext_window's window_drag: debug.mouse down,
                drags at 120 events a second and up, which AppKit's own resize tracking reads as a person's drag (the path
@@ -495,6 +501,15 @@ def set_switch(j, key, value):
     return applied, out
 
 
+def step_px_switch(j, step):
+    # A relaunch starts a new app: the store must be asked again (activate is per process, memory only).
+    _state(j).pop("store", None)
+    ok, rec = set_switch(j, step["key"], step["value"])
+    if not ok:
+        raise D.NotRun(f"px_switch: {rec['key']} = {json.dumps(rec['wanted'])} did not take: {rec['why']}")
+    return rec
+
+
 def step_px_film(j, step):
     name = step["name"]
     reduce = bool(step.get("reduce"))
@@ -570,7 +585,7 @@ def step_px_window_frame(j, step):
     return out
 
 
-STEPS = {"px_agent": step_px_agent, "px_window_frame": step_px_window_frame, "px_film": step_px_film, "px_springs": step_px_springs, "px_tunable": step_px_tunable, "px_page": step_px_page,
+STEPS = {"px_switch": step_px_switch, "px_agent": step_px_agent, "px_window_frame": step_px_window_frame, "px_film": step_px_film, "px_springs": step_px_springs, "px_tunable": step_px_tunable, "px_page": step_px_page,
          "px_agent_css": step_px_agent_css, "px_record_start": step_px_record_start}
 CONDITIONS = {}
 
