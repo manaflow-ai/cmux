@@ -1,0 +1,204 @@
+/* App scenes use the same inks, rows and icon column as the Session Info section around them. */
+.cmux-app-scene-root {
+  min-width: 0;
+  color: var(--agent-text);
+}
+.cmux-app-scene-node {
+  min-width: 0;
+  box-sizing: border-box;
+  color: inherit;
+  font: inherit;
+}
+.cmux-app-scene-vstack,
+.cmux-app-scene-lazyvstack,
+.cmux-app-scene-reorderable {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.cmux-app-scene-hstack {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--grid-base);
+}
+.cmux-app-scene-zstack {
+  display: grid;
+}
+.cmux-app-scene-zstack > * {
+  grid-area: 1 / 1;
+}
+.cmux-app-scene-group,
+.cmux-app-scene-foreach,
+.cmux-app-scene-context {
+  display: contents;
+}
+.cmux-app-scene-row,
+.cmux-app-scene-button {
+  border: 0;
+  background: none;
+  text-align: start;
+}
+.cmux-app-scene-row {
+  display: flex;
+  align-items: center;
+  gap: var(--grid-gap);
+  width: 100%;
+  min-height: var(--grid-row);
+  padding: 0 var(--grid-gap);
+  border-radius: var(--acpmux-session-info-row-radius);
+}
+.cmux-app-scene-row-icon {
+  flex: none;
+  width: var(--grid-icon-box);
+  color: var(--agent-muted);
+}
+.cmux-app-scene-row-label {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+.cmux-app-scene-row-title,
+.cmux-app-scene-row-subtitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cmux-app-scene-row-title[data-unread] {
+  font-weight: 600;
+}
+.cmux-app-scene-row-subtitle {
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+.cmux-app-scene-row:has(.cmux-app-scene-row-subtitle) {
+  min-height: calc(var(--grid-row) + var(--text-detail--line-height));
+  padding-block: var(--grid-base);
+}
+.cmux-app-scene-row[data-selected] {
+  background: var(--agent-accent-soft);
+}
+.cmux-app-scene-row:is(button):hover:enabled,
+.cmux-app-scene-button:hover:enabled {
+  background: var(--agent-control-hover);
+}
+.cmux-app-scene-node[data-hover]:hover:not([data-disabled]) {
+  background-color: var(--app-hover);
+}
+.cmux-app-scene-node:is(button, [role="button"]):not([data-disabled]) {
+  cursor: default;
+}
+.cmux-app-scene-node[data-disabled] {
+  opacity: 0.5;
+}
+.cmux-app-scene-node:is(button, [role="button"]):focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+.cmux-app-scene-button {
+  padding: var(--grid-base) var(--grid-gap);
+  border-radius: var(--acpmux-session-info-row-radius);
+}
+.cmux-app-scene-divider {
+  width: 100%;
+  border-top: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+}
+.cmux-app-scene-spacer {
+  flex: 1 1 0;
+}
+.cmux-app-scene-icon {
+  display: flex;
+  align-items: center;
+}
+.cmux-app-scene-text {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.cmux-app-scene-emptystate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--grid-base);
+  color: var(--agent-muted);
+  padding: var(--grid-gap);
+  text-align: center;
+}
+.cmux-app-scene-emptystate > span {
+  font-size: var(--text-detail);
+}
+.cmux-app-scene-badge-label {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  min-height: var(--grid-icon-box);
+  padding-inline: var(--grid-base);
+  border-radius: var(--acpmux-session-info-row-radius);
+  color: var(--agent-muted);
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+}
+.cmux-app-scene-unread {
+  flex: none;
+  width: var(--grid-base);
+  height: var(--grid-base);
+  border-radius: 50%;
+  background: currentColor;
+}
+.cmux-app-scene-progress {
+  width: 100%;
+  accent-color: var(--agent-text);
+}
+.cmux-app-scene-field {
+  width: 100%;
+  min-width: 0;
+  padding: var(--grid-base);
+  border: 0;
+  border-radius: var(--acpmux-session-info-row-radius);
+  background: transparent;
+  color: var(--agent-text);
+  font: inherit;
+  caret-color: var(--cmux-caret);
+}
+.cmux-app-scene-field::placeholder {
+  color: var(--agent-muted);
+}
+.cmux-app-scene-circle,
+.cmux-app-scene-capsule {
+  border-radius: 999px;
+}
+.cmux-app-scene-roundedrectangle {
+  border-radius: var(--grid-base);
+}
+.cmux-app-scene-menu-danger {
+  color: var(--agent-danger);
+}
+.cmux-app-scene-context-anchor {
+  position: fixed;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.cmux-app-scene-context-trigger {
+  width: 0;
+  height: 0;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  visibility: hidden;
+}
+
+.cmux-app-scene-context[data-popup-open] > .cmux-app-scene-row:is(button),
+.cmux-app-scene-context[data-popup-open] > .cmux-app-scene-button {
+  background: var(--agent-control-hover);
+}
+
+.cmux-app-scene-image-content {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}

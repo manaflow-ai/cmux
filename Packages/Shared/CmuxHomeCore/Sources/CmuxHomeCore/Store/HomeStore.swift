@@ -49,6 +49,10 @@ public final class HomeStore {
     public internal(set) var live: [ConversationID: HomeLiveRun] = [:]
     /// Every running reply per conversation, in the order its turn began (``HomeTimeline``).
     public internal(set) var streams: [ConversationID: [HomeStreamRow]] = [:]
+    /// What a whole-message view draws of each conversation's running replies (``HomeRunShape``):
+    /// who writes, the activity line and the thought headline, never the text. A talk token changes
+    /// `live` and `streams` and leaves this as it was, so a view that does not draw the text sleeps.
+    public internal(set) var runShapes: [ConversationID: HomeRunShape] = [:]
     /// `transcript(for:)` of each conversation at a `transcriptVersion` (a streamed chunk does
     /// not map the window again).
     @ObservationIgnored var transcriptCache: [ConversationID: (version: Int, me: ParticipantID, items: [TranscriptItem])] = [:]

@@ -29,6 +29,7 @@
 //! operation needs root (a path the work user may not touch).
 
 mod direct;
+mod directory;
 mod proxy;
 mod session;
 
@@ -135,8 +136,29 @@ pub(super) struct Answer {
     pub(super) status: u16,
     pub(super) body: Value,
     pub(super) code: Option<String>,
-    /// A verified read, spooled to an anonymous file rather than kept in a JSON string.
-    pub(super) file: Option<std::fs::File>,
+    /// Verified bytes or a complete JSON body, kept off the heap.
+    pub(super) file: Option<Spool>,
+}
+
+#[derive(Debug)]
+pub(super) enum Spool {
+    Bytes(std::fs::File),
+    Json(std::fs::File),
+}
+
+fn private_spool() -> std::io::Result<std::fs::File> {
+    use std::os::unix::fs::PermissionsExt as _;
+    let file = tempfile::tempfile()?;
+    file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    Ok(file)
+}
+
+fn storage_error(error: std::io::Error) -> Direct {
+    Direct::Done(Answer::error(
+        0,
+        "local_io",
+        &format!("the downloaded response could not be stored: {error}"),
+    ))
 }
 
 impl Answer {
@@ -246,10 +268,19 @@ fn write_line(
     let body = body.to_string();
     let envelope =
         envelope.strip_suffix('}').ok_or_else(|| std::io::Error::other("invalid file envelope"))?;
+    let spool = answer.file.as_mut().ok_or_else(|| std::io::Error::other("missing file"))?;
+    let file = match spool {
+        Spool::Json(file) => {
+            file.rewind()?;
+            write!(output, "{envelope},\"body\":")?;
+            std::io::copy(file, output)?;
+            return output.write_all(b"}\n");
+        }
+        Spool::Bytes(file) => file,
+    };
+    file.rewind()?;
     let body =
         body.strip_suffix('}').ok_or_else(|| std::io::Error::other("invalid file metadata"))?;
-    let file = answer.file.as_mut().ok_or_else(|| std::io::Error::other("missing file"))?;
-    file.rewind()?;
     write!(output, "{envelope},\"body\":{body},\"dataBase64\":\"")?;
     {
         let mut encoder = base64::write::EncoderWriter::new(&mut *output, &BASE64);

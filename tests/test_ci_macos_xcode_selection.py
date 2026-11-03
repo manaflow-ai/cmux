@@ -51,6 +51,7 @@ EXEMPT = {
     ("nightly-next-launch-smoke.yml", "smoke"):
         "launches the published nightly-next DMG; builds nothing, no Xcode",
     ("cmux-tui.yml", "lint"): "Rust only; no Xcode",
+    ("machine-vault-e2e.yml", "e2e"): "runs the published cmux CLI and a disposable user's join; builds nothing, no Xcode",
     ("cmux-tui.yml", "test"): "Rust only; no Xcode",
     ("cmux-next-daemon-macos-shadow.yml", "cmux-next-daemon-macos-shadow"):
         "Rust only; no Xcode (the macOS-only daemon tests, a non-blocking shadow "
@@ -68,6 +69,12 @@ EXEMPT = {
         "as the nightly and release callers always have; pinning it would "
         "change published artifacts",
     ("relay-publish-npm.yml", "smoke"): "npm package smoke test; no Xcode",
+    ("stable-next.yml", "swift-suites"):
+        "only submits the suites to the build fleet (cmux-ci run); the fleet step selects "
+        "CMUX_CI_XCODE_APP itself",
+    ("stable-next.yml", "perf-budgets"):
+        "only submits the perf budgets to the build fleet (cmux-ci run, exclusive measure step); "
+        "builds nothing here",
     ("stable-next.yml", "smoke-27"): "launches the signed cmux NEXT Stable DMG; builds nothing, no Xcode",
     ("stable-next.yml", "smoke-26"): "launches the signed cmux NEXT Stable DMG; builds nothing, no Xcode",
     ("nightly.yml", "launch-smoke-nightly"):
