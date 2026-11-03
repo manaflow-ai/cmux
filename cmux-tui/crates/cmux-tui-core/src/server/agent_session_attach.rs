@@ -181,6 +181,13 @@ impl AgentSessions {
         self.spoken.lock().unwrap_or_else(|e| e.into_inner()).contains(&client)
     }
 
+    /// Runs `hold` while this thread holds the host proxy authors (tests that prove a key does not wait for them).
+    #[cfg(test)]
+    pub(crate) fn hold_proxy_authors_for_test(&self, hold: &dyn Fn()) {
+        let _held = self.proxy_authors.lock().unwrap_or_else(|e| e.into_inner());
+        hold();
+    }
+
     /// The connection ended: every attachment of it closes.
     pub(crate) fn disconnect(&self, client: u64) {
         self.inventory_watches.disconnect(client);
