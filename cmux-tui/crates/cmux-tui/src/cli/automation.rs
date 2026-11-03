@@ -1192,7 +1192,6 @@ fn cloud_find(
 }
 
 fn cloud_dispatch(args: &[String], global: &super::GlobalArgs, out: &Out) -> Outcome {
-    let output = out.mode;
     let Some((verb, rest)) = args.split_first() else {
         print!("{}", messages().usage);
         return Ok(0);

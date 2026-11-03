@@ -348,7 +348,7 @@ impl Backend for LiveBackend {
         idempotency_key: Option<&str>,
     ) -> Result<Value, CallFailure> {
         let mut global = self.global.clone();
-        global.output = super::OutputMode::Json;
+        global.output = OutputMode::Json;
         global.idempotency_key = idempotency_key.map(str::to_owned);
         super::automation::run_json(&global, words).map_err(|(error, unknown)| CallFailure {
             kind: if unknown { FailureKind::InProgress } else { FailureKind::Rejected },
