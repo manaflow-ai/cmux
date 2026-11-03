@@ -163,7 +163,17 @@ impl Hub {
                     .map_err(workflow_error)?;
                 let mut recovery =
                     state.recovery.clone().unwrap_or_else(|| RecoveryState::new(key.clone()));
-                if state.epoch == 0 {
+                let resumed_wait = state.waiting_for.is_some() && state.epoch < generation;
+                if resumed_wait {
+                    // Pause fenced the old retry chain. An explicit resume authorizes a
+                    // fresh prompt in this same session/account, never another route.
+                    state.waiting_for = None;
+                    state.observation += 1;
+                    let current = recovery.key.clone();
+                    recovery.observe(&current, state.observation, RecoveryEvent::Resumed);
+                    state.recovery = Some(recovery.clone());
+                }
+                if state.epoch == 0 || resumed_wait {
                     state.epoch = generation;
                     self.workflow_runs
                         .store()
@@ -967,6 +977,64 @@ mod tests {
         );
         assert_eq!(turns(&hub, &child), 2, "replay must not repeat original effects");
         cleanup(hub, run).await;
+    }
+
+    #[tokio::test]
+    async fn workflow_explicit_resume_replaces_fenced_wait_on_same_harness() {
+        let (hub, run, child) = activity_chat();
+        let mut recovery = RecoveryState::new(AttemptKey::new(&child.id));
+        recovery.observe(
+            &AttemptKey::new(&child.id),
+            1,
+            RecoveryEvent::Waiting(WaitReason::Capacity),
+        );
+        let policy = Policy {
+            epoch: run.generation,
+            observation: 1,
+            waiting_for: Some("old-prompt~resume-1".into()),
+            recovery: Some(recovery),
+            ..Default::default()
+        };
+        hub.workflow_runs
+            .store()
+            .update_activity_policy(
+                &run.id,
+                run.generation,
+                "owner",
+                &child.id,
+                serde_json::to_value(policy).unwrap(),
+            )
+            .unwrap();
+        hub.workflow_pause(&run.id, "owner").await.unwrap();
+        let resumed = hub.workflow_runs.store().resume(&run.id, "owner", false).unwrap();
+        let saved = hub
+            .workflow_runs
+            .store()
+            .activity(&run.id, resumed.generation, "owner", &child.id)
+            .unwrap()
+            .unwrap();
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(15),
+            hub.workflow_execute(
+                &resumed,
+                resumed.generation,
+                &saved,
+                "test",
+                &json!({"harness":"fake","fallbackHarness":"fake-alternate"}),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(result, json!("{\"ok\":true}"));
+        let Child::Agent { session_id, .. } = &child.child else { unreachable!() };
+        assert_eq!(hub.resolve(session_id).unwrap().meta().harness, "fake");
+        assert!(
+            hub.resolve(&format!("{session_id}-restart")).is_err(),
+            "explicit resume must not select the alternate account/harness"
+        );
+        assert_eq!(turns(&hub, &child), 1);
+        cleanup(hub, resumed).await;
     }
 
     #[tokio::test]
