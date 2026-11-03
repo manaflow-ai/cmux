@@ -26,6 +26,7 @@ mod bg_tasks;
 mod bounded;
 mod btw;
 mod workflow_runs;
+mod workflow_activity;
 // A turn ends when its agent ends it; the steers it runs on with are the next turn's.
 mod carried_turn;
 pub(crate) mod clone_boot;

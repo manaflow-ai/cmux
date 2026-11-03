@@ -2085,6 +2085,7 @@ mod pending;
 mod place;
 mod processes;
 mod workflow_runs;
+mod workflow_activity;
 mod worktrees;
 pub mod ws_auth;
 use crate::hub::is_permission_ask;
