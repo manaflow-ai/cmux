@@ -268,24 +268,30 @@ async fn finish_wait(
     }
     let mut output =
         tokio::fs::read(log).await.map_err(|_| error("CI complete output unavailable"))?;
+    // Source/setup failures and cancellation may end before the wrapper can report.
+    // Keep their verified complete diagnostic output without inventing an exit status.
+    let incomplete = |message| {
+        error(message).with_data(json!({"jobId":job.get("id"),
+        "state":state,"exitCode":Value::Null,"text":String::from_utf8_lossy(&output),"ciReceipt":terminal}))
+    };
     let marker = format!("\ncmux-workflow-exit-{}:", intent.request_key);
     let end = output
         .windows(marker.len())
         .rposition(|v| v == marker.as_bytes())
-        .ok_or_else(|| error("CI output has no final command status"))?;
+        .ok_or_else(|| incomplete("CI output has no final command status"))?;
     let status = output
         .get(end + marker.len()..)
         .and_then(|v| v.iter().position(|b| *b == b'\n').map(|i| &v[..i]))
         .and_then(|v| std::str::from_utf8(v).ok())
         .and_then(|v| v.parse::<u8>().ok())
-        .ok_or_else(|| error("CI output has an invalid final command status"))?;
+        .ok_or_else(|| incomplete("CI output has an invalid final command status"))?;
     let beginning = format!("\ncmux-workflow-start-{}\n", intent.request_key);
     let start = output
         .windows(beginning.len())
         .position(|v| v == beginning.as_bytes())
         .map(|start| start + beginning.len())
         .filter(|start| *start <= end)
-        .ok_or_else(|| error("CI output has no command start"))?;
+        .ok_or_else(|| incomplete("CI output has no command start"))?;
     output = output[start..end].to_vec();
     use base64::Engine;
     let view = json!({"jobId":job.get("id"),"state":"exited","exitCode":status,
@@ -624,9 +630,13 @@ else: sys.exit(9)
             assert_eq!(view["text"], "complete output stderr");
             assert_eq!(view["exitCode"], status);
             std::fs::write(&log, "truncated output").unwrap();
-            assert!(
-                finish_wait(waited.status.code(), &receipt, &log, &intent, &job).await.is_err()
-            );
+            let incomplete = finish_wait(waited.status.code(), &receipt, &log, &intent, &job)
+                .await
+                .unwrap_err()
+                .data
+                .unwrap();
+            assert_eq!(incomplete["text"], "truncated output");
+            assert!(incomplete["exitCode"].is_null());
         }
     }
 
