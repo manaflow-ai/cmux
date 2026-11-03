@@ -239,7 +239,7 @@ fn a_metadata_free_page_does_not_allocate_for_the_stored_header() {
         store.take_page(&key, unchanged);
         let allocations = RECORD_BYTES_ALLOCS.with(|count| count.replace(None).unwrap_or(0));
         let got = store.read(&key, Some(7), (10, 4096));
-        assert_eq!(got["summary"], summary);
+        assert_eq!(got["summary"], super::super::snapshot_row(summary));
         assert_eq!(got["events"][0]["seq"], 1);
         allocations
     };
