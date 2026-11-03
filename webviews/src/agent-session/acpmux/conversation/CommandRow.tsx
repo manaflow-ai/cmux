@@ -53,6 +53,16 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
   // Claude Code says its exit code only in the output ("Exit code 1"): the Shell block says it once.
   const output = (failure?.output ?? tool.output)?.replace(/\n$/, "");
   const duration = toolDuration(t, tool);
+  // A failed call says so in a red word right after its title, before its chevron, as Claude Code
+  // desktop tags one ("Count the fixture cases Failed ⌄"; Leo, 2026-11-03: "claude code desktop's
+  // summarization of tool calls/parsing of them seem kinda good?"). A step of an opened run says
+  // "failed" (drawn "Failed", conversation.css `.cv-command__tag`) and its opened Shell block says
+  // "Exit code N"; a lone command keeps its "Exit 1". A background command that failed says it too.
+  const tag = tool.background
+    ? tool.background.state === "failed"
+      ? t("tools.failed")
+      : undefined
+    : failure && failureWord(t, failure, step);
   // Find counts the line without its leading cd (chatFind.ts), so a line shortened past that is
   // skipped; opened, the Shell block draws it.
   const short = shortCommand(tool.command ?? "", ROW_WIDTH);
@@ -67,7 +77,7 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
       {short}
     </code>
   );
-  const words = tool.description ? (
+  const called = tool.description ? (
     // What the command does in a few words (Claude Code's Bash description); the raw line
     // waits in its Shell block, opened.
     // Find counts the command, not this, so it is not highlighted.
@@ -80,6 +90,19 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
       {after && <span data-find-skip>{after}</span>}
     </ToolLabel>
   );
+  // A command that finished in the background reads as Claude Code desktop notes it, "Background
+  // command completed" in the rows' muted tone, then what it did in their ink.
+  const words =
+    tool.background?.state === "completed" ? (
+      <>
+        <span className="cv-command__lead" data-find-skip>
+          {t("bgTask.completedLead")}
+        </span>{" "}
+        <span className="cv-command__title">{tool.description ? called : line}</span>
+      </>
+    ) : (
+      called
+    );
   return (
     <>
       <button
@@ -103,15 +126,16 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
           {running && <RowShimmer>{words}</RowShimmer>}
           {!tool.background && <InlineFailureCause failure={failure} />}
         </span>
+        {tag && (
+          <span className="cv-command__failed cv-command__tag" data-find-skip>
+            {tag}
+          </span>
+        )}
         <span className="cv-command__meta">
           {tool.approved && <ApprovedMark />}
-          {foreground ? null : tool.background ? (
+          {foreground || tag ? null : tool.background ? (
             <BackgroundMark background={tool.background} />
-          ) : failure ? (
-            <span className="cv-command__failed" data-find-skip>
-              {failureWord(t, failure, step)}
-            </span>
-          ) : (
+          ) : failure ? null : (
             <Check size={14} className="cv-command__ok" />
           )}
           {duration && <span className="cv-command__time">{duration}</span>}

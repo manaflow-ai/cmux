@@ -11,6 +11,8 @@ import { toolFiles } from "../diff";
 import type { AcpmuxActivity } from "../model";
 import { CommandRow } from "./CommandRow";
 import { EditCounts, useEditTotals } from "./EditCounts";
+import { FailedCount } from "./FailedCount";
+import { BackgroundStatusLine, backgroundCounts } from "./BackgroundStatusLine";
 import { EditDiff } from "./EditDiff";
 import { StepThought, ThoughtRow } from "./ThoughtRow";
 import { ToolRow } from "./ToolRow";
@@ -198,6 +200,8 @@ export function ToolGroupRow({
   // `contentsUnknown`), as the edited-files card does: its written text is not lines added.
   const totals = useEditTotals(items);
   const running = tools.some(isRunning);
+  // While a background command still runs, the opened steps end with how they stand there.
+  const background = useMemo(() => (kind === "commands" ? backgroundCounts(items) : undefined), [kind, items]);
   const failures = tools.filter(isFailed).length;
   // A lone Write reads as what it wrote, "Wrote notes.md +18", not as an edit (WriteLabel.tsx).
   const write = kind === "edits" && tools.length === 1 ? writeCall(tools[0]!) : undefined;
@@ -244,11 +248,12 @@ export function ToolGroupRow({
               />
             </span>
             {totals && <EditCounts totals={totals} zero={kind === "edits"} />}
-            {failures > 0 && (
-              <span className="cv-tool__failed">
-                {" "}
-                {failure ? failureWord(t, failure) : t("tools.failedCount", { n: failures })}
-              </span>
+            {/* One call says why it failed in a word; several say how many, "(2 failed)", as Claude
+                Code desktop's header does (FailedCount.tsx). */}
+            {failures > 0 && failure ? (
+              <span className="cv-tool__failed"> {failureWord(t, failure)}</span>
+            ) : (
+              <FailedCount n={failures} />
             )}
             <InlineFailureCause failure={failure} />
           </span>
@@ -293,6 +298,7 @@ export function ToolGroupRow({
                   />
                 ))}
               </InStep.Provider>
+              {background && <BackgroundStatusLine counts={background} />}
             </div>
           )}
         </div>

@@ -13,7 +13,7 @@ import { isCmuxExec } from "./cmuxExec";
 import { mcpCall, mcpIsObservational, mcpKey } from "./mcpCalls";
 import { subsessionCall, type SubsessionCall } from "./subsessionCalls";
 import { isThought, mergeThoughts } from "./thoughts";
-import { isFoldedRun } from "./toolRunSummary";
+import { finishedBackgroundPhrase, isFoldedRun } from "./toolRunSummary";
 
 /// The kinds of call that group with their neighbors.
 export type ToolGroupKind = "commands" | "reads" | "edits" | "searches";
@@ -385,8 +385,15 @@ export function toolGroupLabel(
   const calls = groupCalls(items);
   const running = calls.some((item) => isRunning(item.tool!));
   switch (kind) {
-    case "commands":
-      return t(running ? "tools.running" : "tools.ran", { n: calls.length });
+    case "commands": {
+      // A finished run whose background tasks ended leads with them, as Claude Code desktop's
+      // header does: "Finished 2 background tasks, ran 3 commands" (toolRunSummary.ts).
+      const finished = running ? undefined : finishedBackgroundPhrase(t, calls);
+      if (!finished) return t(running ? "tools.running" : "tools.ran", { n: calls.length });
+      const ran = calls.length === 1 ? t("toolRun.ran.one") : t("toolRun.ran.other", { n: calls.length });
+      const text = [finished, ran].join(t("toolRun.separator"));
+      return text.charAt(0).toUpperCase() + text.slice(1);
+    }
     case "reads": {
       const n = readCount(calls);
       return t(n === 1 ? "tools.read.one" : "tools.read.other", { n });

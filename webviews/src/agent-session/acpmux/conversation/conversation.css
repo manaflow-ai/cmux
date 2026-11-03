@@ -2811,7 +2811,7 @@ pre.cv-math-source {
   padding-inline-start: 2ch;
   text-indent: -2ch;
 }
-.cv-shell__command:has(+ .cv-shell__body:not(:empty)) {
+.cv-shell__command:is(:has(+ .cv-shell__body:not(:empty)), :has(+ .cv-shell__exit)) {
   padding-bottom: 8px;
   border-bottom: 1px solid var(--cv-card-ring);
 }
@@ -2822,9 +2822,14 @@ pre.cv-math-source {
   color: var(--cv-text-dim);
   user-select: none;
 }
+/* "Exit code 1" between the command and its output, in the error tone and on the card's left edge,
+   as Claude Code desktop opens a failed call (ShellBlock.tsx). */
 .cv-shell__exit {
-  margin-top: 6px;
-  text-align: right;
+  margin-top: 8px;
+  color: var(--agent-status-failure);
+}
+.cv-shell__exit + .cv-shell__body {
+  margin-top: 8px;
 }
 /* The images a tool call returned or wrote (ToolRow): a row of capped thumbnails, so a long
    transcript stays light; a click opens the image viewer. */
@@ -3277,6 +3282,33 @@ button.cv-video-frames__frame:focus-visible {
 .cv-tool__failed,
 .cv-command__failed {
   color: var(--agent-status-failure);
+}
+/* A run's "(2 failed)" after its summary reads in the summary's own tone, as Claude Code desktop's
+   header does; each failed call's own "Failed" tag stays red (FailedCount.tsx). */
+.cv-tool__failed.is-count {
+  color: inherit;
+}
+/* "Failed" right after a failed call's title, before its chevron (CommandRow.tsx): never cut, one
+   space from the words rather than the row's gap. */
+.cv-command__tag {
+  display: inline-block;
+  flex: none;
+  margin-inline-start: calc(0.3em - var(--cv-tool-gap));
+  white-space: nowrap;
+}
+/* A tag reads as one, "Failed", while its text stays the row's word ("failed") for Find and copy. */
+.cv-command__tag::first-letter {
+  text-transform: uppercase;
+}
+/* "Background command completed" muted, then what the command did in the transcript's ink, as
+   Claude Code desktop notes a background command's end (CommandRow.tsx, BackgroundTaskNote.tsx). */
+:is(.cv-command__title, .cv-bgtask__title) {
+  color: var(--cv-text);
+}
+/* An opened run's "1 background command completed, 1 failed, 1 running" (BackgroundStatusLine.tsx):
+   a quiet line on the steps' grid, not a control. */
+.cv-bgstatus {
+  cursor: default;
 }
 /* A failed call's cause (ToolFailureCause.tsx, the `tool-error-look` experiment): one quiet line
    under the row, starting under its words (the 16px glyph and the 8px

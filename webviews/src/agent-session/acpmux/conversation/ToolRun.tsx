@@ -13,6 +13,7 @@ import { useTranscriptDisclosure, useTranscriptViewContext } from "./transcriptD
 import { isThought } from "./thoughts";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { EditCounts, useEditTotals } from "./EditCounts";
+import { FailedCount } from "./FailedCount";
 import { ToolLabel } from "./ToolVerb";
 
 /// The summary's glyph: its one kind of work's, with searches and reads both as the magnifier, or the
@@ -86,7 +87,7 @@ export function ToolRun({
             <ToolLabel text={summary} tight />
           </span>
           {totals && <EditCounts totals={totals} />}
-          {failures > 0 && <span className="cv-tool__failed"> {t("tools.failedCount", { n: failures })}</span>}
+          <FailedCount n={failures} />
         </span>
         <ChevronRight
           size={14}
