@@ -1,4 +1,5 @@
 import CmuxNextControl
+import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextPalette
 import Foundation
@@ -29,7 +30,9 @@ nonisolated enum PaletteNavigationEntries {
         for workspace in topology.workspaces {
             let groupTitle = groupOfWorkspace[workspace.id]
             let panes = workspace.panes
-            let folds = workspace.kind != "home" && workspace.panes.flatMap(\.tabs).count { !closing.contains($0.id) } == 1
+            // A window's own Home is a Home too (`WorkspaceModel.isAnyHome`): its tabs stay listed.
+            let isHome = workspace.kind == "home" || panes.contains { $0.tabs.first?.page == WorkspaceModel.homeDockPage }
+            let folds = !isHome && workspace.panes.flatMap(\.tabs).count { !closing.contains($0.id) } == 1
             for pane in panes {
                 let tabs = pane.tabs.filter { !closing.contains($0.id) }
                 if panes.count > 1, workspace.kind != "home" {

@@ -117,6 +117,10 @@ struct PaletteNavigationEntriesTests {
         var topology = Self.ultras()
         topology.workspaces[1].kind = "home"
         #expect(PaletteNavigationEntries.entries(topology, groups: [], lastActive: [:]).map(\.itemID) == ["tab:a1", "tab:a2", "tab:b1"])
+        // A window's own Home (its pane's first tab is Home's page) keeps its lone tab too.
+        var windowHome = Self.ultras()
+        windowHome.workspaces[1].screens[0].panes[0].tabs[0].page = "home-dock"
+        #expect(PaletteNavigationEntries.entries(windowHome, groups: [], lastActive: [:]).map(\.itemID) == ["tab:a1", "tab:a2", "tab:b1"])
     }
 
     @Test func theChatsThatRepeatTheirWorkspaceNameCarryItsIDForTheRowsToTellThemApart() {
