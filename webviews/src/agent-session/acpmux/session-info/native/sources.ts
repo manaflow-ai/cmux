@@ -5,6 +5,7 @@ import type { SummarySource, SummarySourceKind } from "../../summary/sessionSumm
 import { SOURCES_SHOWN, scopedPath } from "../SourcesSection";
 import type { NativeInfoActions, NativeInfoRow, NativeInfoSection } from "./model";
 import { nativeExternalUrl, safeExternalUrl } from "./links";
+import { extraFolderName } from "../../extraFolders";
 
 const SYMBOLS: Record<SummarySourceKind, string> = {
   file: "doc.text",
@@ -17,6 +18,8 @@ const SYMBOLS: Record<SummarySourceKind, string> = {
 
 export type SourcesInput = {
   sources: readonly SummarySource[];
+  /// The folders the chat sees beside its own (acpmux `additionalDirectories`), listed first.
+  folders?: readonly string[];
   /// The chat's folder: a file outside it does not open.
   cwd?: string;
   onOpenFile?: (path: string) => unknown;
@@ -36,10 +39,17 @@ export function sourcesSection(
 ): NativeInfoSection | undefined {
   const { sources, cwd, onOpenFile, onOpenBeside, expanded, onExpandedChange } = input;
   const openUrl = nativeExternalUrl(onOpenBeside);
-  if (sources.length === 0) return undefined;
+  const folders = input.folders ?? [];
+  if (sources.length + folders.length === 0) return undefined;
   const folds = sources.length > SOURCES_SHOWN;
   const shown = folds && !expanded ? sources.slice(0, SOURCES_SHOWN) : sources;
-  const rows = shown.map((source): NativeInfoRow => {
+  const folderRows = folders.map((folder): NativeInfoRow => ({
+    id: `folder:${folder}`,
+    symbol: "folder",
+    title: extraFolderName(folder),
+    help: folder,
+  }));
+  const sourceRows = shown.map((source): NativeInfoRow => {
     const path = source.kind === "file" ? scopedPath(source.label, cwd) : undefined;
     const failure = path ? input.failures?.[path] : undefined;
     const row: NativeInfoRow = {
@@ -67,11 +77,11 @@ export function sourcesSection(
     id: "sources",
     group: "made",
     title: t("summary.sources"),
-    meta: String(sources.length),
+    meta: String(sources.length + folders.length),
     open: input.open,
     foldable: true,
     reorderable: true,
-    rows,
+    rows: [...folderRows, ...sourceRows],
     ...(folds
       ? {
           more: {
