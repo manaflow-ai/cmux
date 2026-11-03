@@ -539,7 +539,14 @@ export function ThreadMinimap({
       }
       if (!isUnheld(turn)) {
         waiting.current = undefined;
-        jump(pending.row, pending.how);
+        // On the next frame: the commit that held the prompt prepended rows above the reader, and the
+        // transcript restores the reader's place after it with a scroll that would undo a jump made
+        // now. One frame, once; a newer jump, another chat or an unmount since then drops it.
+        const row = pending.row;
+        requestAnimationFrame(() => {
+          if (waiting.current || !rail.current?.isConnected || live.current.sessionId !== pending.sessionId) return;
+          jump(row, pending.how);
+        });
         return;
       }
       const oldest = turns[loadedStart];
