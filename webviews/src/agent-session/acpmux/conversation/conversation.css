@@ -3304,11 +3304,6 @@ button.cv-video-frames__frame:focus-visible {
 .cv-command__failed {
   color: var(--agent-status-failure);
 }
-/* A run's "(2 failed)" after its summary reads in the summary's own tone, as Claude Code desktop's
-   header does; each failed call's own "Failed" tag stays red (FailedCount.tsx). */
-.cv-tool__failed.is-count {
-  color: inherit;
-}
 /* "Failed" right after a failed call's title, before its chevron (CommandRow.tsx): never cut, one
    space from the words rather than the row's gap. */
 .cv-command > .cv-command__failed {
