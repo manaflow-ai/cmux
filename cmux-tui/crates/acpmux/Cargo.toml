@@ -38,6 +38,7 @@ cmux-chat-index.workspace = true
 cmux-palette-ranker.workspace = true
 cmux-coderouter.workspace = true
 cmux-local-auth.workspace = true
+cmux-mcp-connect.workspace = true
 cmux-link.workspace = true
 cmux-git.workspace = true
 cmux-worktree-care.workspace = true

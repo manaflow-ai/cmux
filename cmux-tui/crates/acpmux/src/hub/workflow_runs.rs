@@ -143,9 +143,13 @@ impl Hub {
                             }
                             Err(error) => return Err(anyhow::anyhow!(error.message)),
                         };
-                        self.bg_stop(&session, task_id)
-                            .await
-                            .map_err(|e| anyhow::anyhow!(e.message))?;
+                        match self.bg_stop(&session, task_id).await {
+                            Err(error)
+                                if error.code == RpcError::not_found("").code
+                                    && !self.workflow_bg_uncertain(&session, task_id) => {}
+                            Err(error) => return Err(anyhow::anyhow!(error.message)),
+                            Ok(_) => {}
+                        }
                     }
                 }
                 Ok(())
@@ -189,6 +193,11 @@ impl Hub {
                 }
             };
             let run = current;
+            if run.state == State::Running
+                && self.workflow_runs.owns_runner(&run.id, run.generation)
+            {
+                continue;
+            }
             let result = match run.state {
                 State::Pausing => self.workflow_finish_pause(run).await.map(|_| ()),
                 State::Running => {
@@ -324,6 +333,124 @@ fn workflow_runner_command() -> Result<tokio::process::Command> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn recovery_fixture() -> (tempfile::TempDir, Arc<Hub>, RunRecord) {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        // Construct before entering a runtime, so no background hub task holds a clone.
+        let mut hub = Hub::new(cfg, store);
+        Arc::get_mut(&mut hub).unwrap().workflow_runs =
+            crate::workflow_runs::Service::with_root(dir.path().into());
+        let run = hub
+            .workflow_runs
+            .store()
+            .start(RunRecord {
+                version: 1,
+                id: "wf-live-recovery".into(),
+                name: "Recovery".into(),
+                owner_session_id: "owner".into(),
+                local_principal: false,
+                source: "return 1;".into(),
+                source_hash: String::new(),
+                args: Value::Null,
+                allowed_tools: None,
+                cwd: dir.path().into(),
+                generation: 0,
+                state: State::Running,
+                activities: BTreeMap::new(),
+                outcome: None,
+            })
+            .unwrap();
+        (dir, hub, run)
+    }
+
+    #[test]
+    fn workflow_runs_recovery_preserves_a_runner_launched_by_this_daemon() {
+        let (_dir, hub, run) = recovery_fixture();
+        // A local resume can finish before startup recovery takes its snapshot.
+        let proof = hub.workflow_runs.issue_runner(&run).unwrap().unwrap();
+        let (mut stop, finished) = hub.workflow_runs.track_runner(&run.id, run.generation);
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(hub.recover_workflows());
+        assert_eq!(
+            hub.workflow_runs.store().get(&run.id).unwrap(),
+            run,
+            "recovery replaced a runner that this daemon already owns"
+        );
+        assert!(hub.workflow_runs.authorize_runner(&run.id, run.generation, &proof).is_ok());
+        assert!(matches!(stop.try_recv(), Err(tokio::sync::oneshot::error::TryRecvError::Empty)));
+        finished.send(()).unwrap();
+        hub.workflow_runs.retire_runner(&run.id, run.generation);
+    }
+
+    #[test]
+    fn workflow_runs_recovery_finishes_pause_even_if_a_launch_proof_remains() {
+        let (_dir, hub, run) = recovery_fixture();
+        let pausing = hub.workflow_runs.store().pause(&run.id, &run.owner_session_id).unwrap();
+        // Even an outstanding current-generation launch proof cannot skip cleanup.
+        hub.workflow_runs.issue_runner(&pausing).unwrap().unwrap();
+        assert!(hub.workflow_runs.owns_runner(&run.id, pausing.generation));
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(hub.recover_workflows());
+        let recovered = hub.workflow_runs.store().get(&run.id).unwrap();
+        assert_eq!(recovered.state, State::Paused);
+        assert_eq!(recovered.generation, pausing.generation);
+        assert!(!hub.workflow_runs.owns_runner(&run.id, pausing.generation));
+    }
+
+    #[tokio::test]
+    async fn workflow_cancellation_accepts_machine_handles_that_never_launched() {
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let owner = format!("workflow-unlaunched-{}", uuid::Uuid::now_v7().simple());
+        let meta: SessionMeta = serde_json::from_value(json!({
+            "schema":crate::store::META_SCHEMA,"id":owner,"name":"Workflow machine owner",
+            "harness":"fake","cwd":std::env::temp_dir(),"status":"idle","createdAt":1,"updatedAt":1
+        }))
+        .unwrap();
+        store.save(&meta).unwrap();
+        let hub = Hub::new(cfg, store);
+        let run = RunRecord {
+            version: 1,
+            id: format!("wf-{}", uuid::Uuid::now_v7().simple()),
+            name: "Unlaunched machine".into(),
+            owner_session_id: owner.clone(),
+            local_principal: false,
+            source: "source".into(),
+            source_hash: String::new(),
+            args: json!([]),
+            allowed_tools: None,
+            cwd: std::env::temp_dir(),
+            generation: 1,
+            state: State::Pausing,
+            activities: BTreeMap::from([(
+                "machine".into(),
+                crate::workflow_runs::ActivityRecord {
+                    id: "machine".into(),
+                    kind: "machine".into(),
+                    fingerprint: "pinned".into(),
+                    child: Child::Machine {
+                        session_id: owner,
+                        task_id: "never-launched".into(),
+                        host: None,
+                    },
+                    policy: Value::Null,
+                    outcome: None,
+                },
+            )]),
+            outcome: None,
+        };
+        hub.workflow_cancel_children(&run).await.unwrap();
+    }
 
     #[tokio::test]
     async fn cancelling_a_stale_activity_never_fences_another_prompt() {

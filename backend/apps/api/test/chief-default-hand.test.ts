@@ -20,12 +20,13 @@ const fixture = (scope: DefaultHandScope) => {
   const grant = { id: install.grant, grantee: install.id, revoked_at: null as number | null, expires_at: null as number | null, op_classes: ["vm-self"] }
   const machine = { creator: scope.owner, status: "running" }
   let currentCarrier = true
+  let refusal = "auth.forbidden"
   const fake = {
     ...testEnv,
     USER_DO: { idFromName: (x: string) => x, get: () => ({ readOp: async (_entity: string, _principal: unknown, op: string) => ({ ok: true, value: op === "chief.list" ? { chiefs: [chief] } : { installs: [install], grants: [grant] } }) }) },
-    CLOUD_DO: { idFromName: (x: string) => x, get: () => ({ readOp: async () => currentCarrier ? { ok: true, value: { machine } } : { ok: false, code: "auth.forbidden", message: "new carrier" } }) },
+    CLOUD_DO: { idFromName: (x: string) => x, get: () => ({ readOp: async () => currentCarrier ? { ok: true, value: { machine } } : { ok: false, code: refusal, message: "carrier read refused" } }) },
   } as unknown as Env
-  return { fake, chief, install, grant, machine, replaceCarrier: () => { currentCarrier = false } }
+  return { fake, chief, install, grant, machine, replaceCarrier: () => { currentCarrier = false; refusal = "auth.forbidden" }, unavailableCarrier: () => { currentCarrier = false; refusal = "owner.unreachable" } }
 }
 
 describe("default Chief hand authority", () => {
@@ -68,5 +69,13 @@ describe("default Chief hand authority", () => {
         expect(await instance.ensureDefault(scope, "a".repeat(64))).toMatchObject({ ok: false, code: "hand.revoked" })
       } finally { object.env = original }
     })
+  })
+
+  it("distinguishes a temporary authority read failure from a definite carrier refusal", async () => {
+    const scope = scopeFor("transient"), f = fixture(scope)
+    f.unavailableCarrier()
+    await expect(authorizeDefaultMachine(f.fake, scope)).rejects.toThrow("carrier_unavailable")
+    f.replaceCarrier()
+    await expect(authorizeDefaultMachine(f.fake, scope)).rejects.toThrow("carrier_changed")
   })
 })

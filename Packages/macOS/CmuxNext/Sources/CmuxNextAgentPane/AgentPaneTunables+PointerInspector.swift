@@ -6,6 +6,6 @@ nonisolated extension AgentPaneTunables {
     /// (ask-5077a4ec48), so it ships on; Debug Settings can still turn it off.
     public static let pointerInspector = Tunable<Bool>.toggle(
         "agent.pointerInspector", PageTunables.section, "UI pointer inspector",
-        help: "Point at cmux NEXT UI to inspect native views or app-owned webview components and attach the result to an agent composer.",
+        help: "Point at app-owned web pages (HTML/React, such as the agent chat) to inspect their components and attach the result to an agent composer. Native views are not inspectable.",
         default: true, code: "AgentPaneTunables.pointerInspector")
 }

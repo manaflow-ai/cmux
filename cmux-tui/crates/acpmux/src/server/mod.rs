@@ -1915,7 +1915,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         // notice, is not sent again (`MessageNotices`); an event stream hears only the kinds it
         // asked for, this notice too.
         let message = rec.dir == "mux" && rec.kind == "_acpmux/message";
-        let heard = !sub.event_stream || sub.filter.matches(rec);
+        let heard = !sub.event_stream || sub.filter.matches_live(rec);
         let repeat = message && heard && {
             let owner = ev.remote.as_ref().map(|r| r.peer.as_str());
             !conn.message_notices.lock_or_recover().live(owner, &ev.session_id, rec.seq)
@@ -1923,7 +1923,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         if repeat {
             // Sent by the replay.
         } else if sub.event_stream {
-            if sub.filter.matches(rec) {
+            if sub.filter.matches_live(rec) {
                 conn.send(&Message::notification(
                     method::MUX_EVENT,
                     routed(event_value(&ev.session_id, rec)),
@@ -2084,6 +2084,7 @@ pub mod peer_text;
 mod pending;
 mod place;
 mod processes;
+mod workflow_activity;
 mod workflow_runs;
 mod worktrees;
 pub mod ws_auth;
@@ -2096,6 +2097,7 @@ pub(crate) use redact::url_without_secrets;
 pub(crate) mod remote_guard;
 mod requests;
 pub use requests::SESSION_RESUME_FEATURE;
+mod mcp_connect;
 mod routes;
 mod secrets;
 mod session_auth;

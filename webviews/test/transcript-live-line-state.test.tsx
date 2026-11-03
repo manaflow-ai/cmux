@@ -11,7 +11,8 @@ import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFol
 import { SUBAGENTS } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
 import { WorkingCountsContext } from "../src/agent-session/acpmux/conversation/WorkingFor";
-import { THINKING, turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { THINKING, trayWaitAgents, turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { withSubagentLines } from "../src/agent-session/acpmux/subagents/runningTray";
 import longWait from "../src/agent-session/acpmux/conversation/LongSubagentWait.gallery";
 import { GALLERY_NOW } from "../src/gallery/clock";
 
@@ -60,6 +61,7 @@ const drawn = (line: AcpmuxRow, now: number) =>
         turnTotal={line.turnTotal}
         untimed={line.untimed}
         quietKey={line.quietKey}
+        quietAt={line.quietAt}
       />,
     ),
   );
@@ -73,6 +75,57 @@ test("a turn waiting on its foreground subagents says so, with the turn's time a
   ]).at(-1)!;
   expect(line).toMatchObject({ kind: THINKING, liveState: "subagents", liveAgents: 2, turnTotal: true });
   expect(drawn(line, user.at + 5_047_000)).toBe("Waiting on 2 subagents · 1h 24m 7s total");
+});
+
+// With the running tray (the default) the groups leave the transcript for the tray, so the pane
+// counts the wait from the rows before that (App.tsx `trayAgents`).
+test("with the running tray the line still says it waits on the subagents the tray shows", () => {
+  const rows = [
+    row("u0", "user"),
+    row("g0", SUBAGENTS, { subagents: [agent("stale", "running")] }),
+    row("s0", "turnSummary", { status: "cancelled" }),
+    row("u", "user"),
+    row("a", "assistant", { text: "Starting two reviewers." }),
+    row("g", SUBAGENTS, {
+      subagents: [
+        agent("review-a", "running"),
+        agent("review-b", "running"),
+        agent("bg", "running", { background: true }),
+      ],
+    }),
+    row("r", "activity", { items: [call("cat app.ts")] }),
+  ];
+  const shown = withSubagentLines(rows);
+  expect(shown.some((shaped) => shaped.kind === SUBAGENTS)).toBe(false);
+  expect(trayWaitAgents(rows)).toBe(2);
+  const line = turnView(shown as AcpmuxRow[], new Set(), {
+    working: true,
+    liveRuns: true,
+    lineBelow: true,
+    trayAgents: trayWaitAgents(rows),
+  }).at(-1)!;
+  expect(line).toMatchObject({ kind: THINKING, liveState: "subagents", liveAgents: 2 });
+  expect(line.doing).toBeUndefined();
+});
+
+// A shell call's agent keeps its card in the rows the tray draws, where the line counts it: the
+// tray's count leaves it out, so it is counted once. A prompt still waiting to send opens no turn.
+test("with the tray a shell call's agent counts once, and a queued prompt keeps the wait", () => {
+  const rows = [
+    row("u", "user"),
+    row("g", SUBAGENTS, { subagents: [agent("review-a", "running")] }),
+    row("run", SUBAGENTS, { subagents: [agent("shell-agent", "running", { command: "acpmux new" })] }),
+    row("r", "activity", { items: [call("cat app.ts")] }),
+    row("q", "user", { pending: true }),
+  ];
+  expect(trayWaitAgents(rows)).toBe(1);
+  const line = turnView(withSubagentLines(rows) as AcpmuxRow[], new Set(), {
+    working: true,
+    liveRuns: true,
+    lineBelow: true,
+    trayAgents: trayWaitAgents(rows),
+  }).find((shaped) => shaped.kind === THINKING)!;
+  expect(line).toMatchObject({ liveState: "subagents", liveAgents: 2 });
 });
 
 test("background and finished subagents are no wait", () => {
@@ -123,13 +176,22 @@ test("a finished step reads its own time, not the turn's", () => {
 
 test("an answer paused mid-stream reads Writing, not Thinking", () => {
   const user = row("u", "user");
-  const line = codex([
-    user,
-    row("run", "activity", { items: [call("git log")] }),
-    row("a", "assistant", { text: "So" }),
-  ]).at(-1)!;
-  expect(line).toMatchObject({ liveState: "writing", turnTotal: true });
-  expect(drawn(line, user.at + 30_000)).toBe("Writing · 30s total");
+  const run = row("run", "activity", { items: [call("git log")] });
+  const reply = row("a", "assistant", { text: "So" });
+  const line = codex([user, run, reply]).at(-1)!;
+  expect(line).toMatchObject({ liveState: "writing", turnTotal: true, quietAt: reply.at });
+  expect(drawn(line, reply.at + 2_000)).toBe(`Writing · ${(reply.at + 2_000 - user.at) / 1_000}s total`);
+});
+
+// A chat opened (or the gallery's stage mounted) long after its reply paused: the line reads
+// Thinking from its first frame, not Writing for WRITING_MS from the open (agent-pane.transcript
+// #working-tokens waited 5 s for its Thinking line on feat-cmux-next).
+test("an answer that paused long before the line mounted reads Thinking at once", () => {
+  const user = row("u", "user");
+  const run = row("run", "activity", { items: [call("git log")] });
+  const reply = row("a", "assistant", { text: "So" });
+  const line = codex([user, run, reply]).at(-1)!;
+  expect(drawn(line, reply.at + 60_000)).toStartWith("Thinking");
 });
 
 test("before the turn's first output it still reads Thinking with the turn's time", () => {

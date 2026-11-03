@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 795,
-    "mcp": 710
+    "verbs": 797,
+    "mcp": 712
   },
   "nouns": [
     {
@@ -3719,6 +3719,13 @@
           "mcpTool": "app_share_chat"
         },
         {
+          "command": "cmux share invite",
+          "title": "Invite People to Chat…",
+          "id": "agent.share.invite",
+          "mcp": true,
+          "mcpTool": "app_share_invite"
+        },
+        {
           "command": "cmux share kick",
           "title": "Remove Guest",
           "id": "agent.share.kick",
@@ -3738,6 +3745,13 @@
           "id": "agent.share.revoke",
           "mcp": true,
           "mcpTool": "app_share_revoke"
+        },
+        {
+          "command": "cmux share uninvite",
+          "title": "Remove Invited Person",
+          "id": "agent.share.uninvite",
+          "mcp": true,
+          "mcpTool": "app_share_uninvite"
         }
       ]
     },
