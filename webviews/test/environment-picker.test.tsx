@@ -1438,3 +1438,59 @@ test("Leo's menu: the control shows the current choice, its icon this Mac's or t
   expect(face().querySelector(".acpmux-env-icon")!.getAttribute("data-kind")).toBe("cloud");
   expect(face().querySelector(".acpmux-location-label")!.textContent).toBe("build-cloud");
 });
+
+// Leo, 2026-11-03, comparing Claude Desktop's environment menu with ChatGPT's: "imo claude has kinda
+// shit ass ways to deal with remote stuff. chatgpt's is better." Claude's menu listed one machine
+// twice (two "cmux16" rows) and named rows after folders that never said which machine they were on.
+test("one machine is one row: a chat's old peer on a listed machine's host is told apart by its peer", async () => {
+  const { knownMachines } = await import("../src/agent-session/acpmux/environments");
+  const machines = knownMachines(
+    ["cmux16"],
+    [
+      // An earlier chat reached the same host through a peer acpmux no longer lists.
+      { peer: "cmux16-tailnet", host: "cmux16" },
+      { peer: "cmux16", host: "cmux16" },
+      // A Cloud chat's host acpmux also lists as a peer: the peer's row, once.
+      { host: "cmux16", hostKind: "cloud" },
+    ],
+    { cmux16: "ssh" },
+    [],
+    { cmux16: true },
+    { cmux16: "connected" },
+  );
+  expect(machines.map((machine) => [machine.id, machine.label])).toEqual([
+    ["cmux16", "cmux16"],
+    ["cmux16-tailnet", "cmux16 (cmux16-tailnet)"],
+  ]);
+  const labels = machines.map((machine) => machine.label.toLowerCase());
+  expect(new Set(labels).size).toBe(labels.length);
+});
+
+const sshSaved = {
+  saved: {
+    environments: [
+      { id: "s1", name: "Projects", kind: "ssh", host: "gpu-box", folder: "/home/dev/Projects", updatedAt: 2 },
+      { id: "s2", name: "gpu-box model", kind: "ssh", host: "gpu-box", folder: "/home/dev/model", updatedAt: 1 },
+    ],
+    onPick: () => undefined,
+    onClear: () => undefined,
+    onCreate: () => undefined,
+    onEdit: () => undefined,
+  },
+};
+
+test("a saved SSH environment's row and control name its machine, not only its folder", async () => {
+  await mount(true, sshSaved);
+  await openMachines();
+  const saved = rows().filter((row) => row.querySelector(".acpmux-env-saved"));
+  // A name that already says the machine is left as it is.
+  expect(saved.map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
+    "Projects · gpu-box",
+    "gpu-box model",
+  ]);
+  // Still one line each.
+  for (const row of saved) expect(row.querySelectorAll(".acpmux-menu-text > *")).toHaveLength(1);
+  act(() => root?.unmount());
+  await mount(true, { saved: { ...sshSaved.saved, current: "s1" } });
+  expect(computerButton()!.getAttribute("aria-label")).toBe(`${t("composer.environment")}: Projects · gpu-box`);
+});
