@@ -25,7 +25,7 @@ use crate::config::{Config, Paths, STATUS_FILE};
 use crate::proc_roles::RolePaths;
 use crate::status;
 
-const USAGE: &str = "usage: cmux host run [--roles-only] [--mode user|system] [--native-receiver] | status [--json] [--root DIR] | roles [--json] | logs <role> [--bytes N] | cloud daemon-info|probe-activity [--root DIR] | cloud identity | team-ssh apply|accounts-apply|principals <user>|session-open|reap|sync [--root DIR] | team restricted-shell|whoami | team-enroll --team T --epoch E --nonce N | --commit …";
+const USAGE: &str = "usage: cmux host run [--roles-only] [--mode user|system] [--native-receiver] | status [--json] [--root DIR] | roles [--json] | logs <role> [--bytes N] | cloud daemon-info|probe-activity|clone-mark [--root DIR] | cloud identity | team-ssh apply|accounts-apply|principals <user>|session-open|reap|sync [--root DIR] | team restricted-shell|whoami | team-enroll --team T --epoch E --nonce N | --commit …";
 
 fn code(n: u8) -> u8 {
     n
@@ -410,7 +410,12 @@ fn cloud_verb(args: &[String]) -> u8 {
     let answer = match rest.as_slice() {
         [verb] if verb == "daemon-info" => crate::cloud::role::print_daemon_info(&paths, timeout),
         [verb] if verb == "probe-activity" => crate::cloud::role::probe_activity(&paths, timeout),
-        _ => return usage("cloud takes daemon-info, probe-activity, or identity (without --root)"),
+        [verb] if verb == "clone-mark" => clone_mark(&paths),
+        _ => {
+            return usage(
+                "cloud takes daemon-info, probe-activity, clone-mark, or identity (without --root)",
+            );
+        }
     };
     match answer {
         Ok(value) => {
@@ -422,6 +427,29 @@ fn cloud_verb(args: &[String]) -> u8 {
             code(1)
         }
     }
+}
+
+/// `cloud clone-mark` (`cloud/clone_mark.rs`): writes acpmux's clone marker, for the work user,
+/// when the pending bind is for a machine other than the one this disk was bound as.
+#[cfg(target_os = "linux")]
+fn clone_mark(paths: &Paths) -> Result<serde_json::Value, String> {
+    use crate::cloud::client::Store;
+    use crate::cloud::clone_mark::{copied, marker, marker_text};
+    let mut store = crate::cloud::role::FileStore::new(paths.clone());
+    let Some(copied) = copied(&store) else { return Ok(serde_json::json!({"marked": false})) };
+    let user = crate::linux::spawn::lookup_user(crate::daemon_spec::WORK_USER)
+        .ok_or("no work user on this machine")?;
+    let marker = marker();
+    let path = paths.at(&marker);
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        std::os::unix::fs::lchown(dir, Some(user.uid), Some(user.gid))
+            .map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    store.write(&marker, &marker_text(&copied), 0o600)?;
+    std::os::unix::fs::lchown(&path, Some(user.uid), Some(user.gid))
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(serde_json::json!({"marked": true, "from": copied.from, "to": copied.to}))
 }
 
 #[cfg(not(target_os = "linux"))]

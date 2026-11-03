@@ -126,7 +126,6 @@ enum RoomHandlers {
         }
         bind("space.delete") { invocation in
             let room = try context.room(invocation)
-            guard !room.isDefault else { throw ActionFailure.invalidTarget(RoomStrings.defaultCannotBeDeleted) }
             let moveTo = try context.optionalRoom(invocation["moveTo"])?.id
             let id = room.id, name = room.name, services = context.services
             // Delete Space closes the workspaces only this space shows, in
@@ -144,6 +143,8 @@ enum RoomHandlers {
                 await RoomConfirmation.showDeleted(name, closedID: closedID, services: services)
             }
         }
+        // The only space (the Default space, which the daemon keeps) is refused with its reason before any question.
+        context.setTargetReason("space.delete") { (try? context.room($0)).flatMap { RefusalStrings.spaceDelete($0.id, in: context.services.machines.local.store) } }
         bind("space.moveLeft") { try move($0, context) { from, _ in from - 1 } }
         bind("space.moveRight") { try move($0, context) { from, _ in from + 1 } }
         bind("space.moveToStart") { try move($0, context) { _, _ in 0 } }

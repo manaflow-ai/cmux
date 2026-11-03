@@ -32,15 +32,18 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--cv-text-dim);
+  /* Session names, not a count: set as the row's words, never in tabular figures. */
+  font-variant-numeric: normal;
 }
 .cv-message-group__head > .cv-tool__chevron {
   opacity: 0;
   transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
 }
-.cv-message-group__head:hover,
+/* Its words and mark keep one tone under the pointer (Leo, 2026-11-03: "i dont think this should
+   light up/dim based off if ur hovered onit or otherwise"); hover only reveals the chevron. */
 .cv-message-group__head:has([data-popup-open]),
 .cv-message-group__head:is(:focus-visible, [aria-expanded="true"]),
-.cv-message-group__head:hover > :is(.cv-tool__icon, .cv-tool__chevron),
+.cv-message-group__head:hover > .cv-tool__chevron,
 .cv-message-group__head:has([data-popup-open]) > :is(.cv-tool__icon, .cv-tool__chevron),
 .cv-message-group__head:is(:focus-visible, [aria-expanded="true"]) > :is(.cv-tool__icon, .cv-tool__chevron) {
   color: var(--cv-text);

@@ -77,9 +77,11 @@ test("an open live source still gains a version a later reply finishes after ope
   ]);
   // A newly paged older reply goes before the live list; nothing is listed twice.
   const older = { kind: "markdown" as const, lang: "md", code: "# Notes\n\nZeroth" };
-  expect(
-    mergeArtifactVersions(live.versions, [older, ...scanned]).map((version) => version.code),
-  ).toEqual(["# Notes\n\nZeroth", "# Notes\n\nFirst", "# Notes\n\nSecond"]);
+  expect(mergeArtifactVersions(live.versions, [older, ...scanned]).map((version) => version.code)).toEqual([
+    "# Notes\n\nZeroth",
+    "# Notes\n\nFirst",
+    "# Notes\n\nSecond",
+  ]);
   expect(mergeArtifactVersions(live.versions, live.versions)).toBe(live.versions);
   source.dispose();
 });

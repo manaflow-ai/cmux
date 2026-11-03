@@ -129,14 +129,13 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
 /// the workspace.
 @MainActor
 enum NewWorkspacePlacements {
-    /// `workspaces.newPlacement` for a new workspace of window `windowID`
-    /// (nil: the window reconcile gives it, the most recent open one), with
-    /// the workspace that window shows now. Read it before the claim selects
-    /// the new workspace.
+    /// `workspaces.newPlacement` for a new workspace of window `windowID` (nil: the window reconcile gives it, the most
+    /// recent open one), with the workspace that window shows now: none under a top page such as Home, which parks the
+    /// last one and keeps `workspaceID` (#32731). Read it before the claim selects the new workspace.
     static func rule(for windowID: String?, in windows: WindowManager) -> NewWorkspaceDefaultSlot {
         let placement = windows.services.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementFallback
         let window = windowID ?? windows.registry.value.mostRecentOpen()
-        let current = window.flatMap { windows.states[$0]?.workspaceID }
+        let current = window.flatMap { windows.states[$0] }.flatMap { $0.page == nil ? $0.workspaceID : nil }
         let model = window.flatMap { windows.controller(for: $0)?.sidebar.model }
         let currentMachine = current.flatMap { id in
             model.map { shownInBand(id, layout: $0.layout, room: $0.activeProfileID?.rawValue,

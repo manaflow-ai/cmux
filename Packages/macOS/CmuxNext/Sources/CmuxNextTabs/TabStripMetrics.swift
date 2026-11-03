@@ -97,6 +97,14 @@ public struct TabStripMetrics: Equatable, Sendable {
         2 * tabBackgroundInset + contentLeadingInset + iconSize + titleCloseSpacing + closeButtonSize + contentTrailingInset
     }
 
+    /// Title room a crowded tab keeps beyond ``faviconCloseWidth``: about four characters of its title,
+    /// faded, at rest (Lawrence msg 19596: 26 tabs showed "…" alone, "not very helpful"). The default
+    /// minimum tab width is the sum (`MetricTunables.tabMinInactiveWidth`).
+    public static let crowdedTitleRoom: CGFloat = 24
+
+    /// The default narrowest inactive tab: the favicon, the close button and ``crowdedTitleRoom``.
+    public var crowdedMinimumWidth: CGFloat { faviconCloseWidth + Self.crowdedTitleRoom }
+
     /// Vertical inset of tabs inside the strip.
     public var stripVerticalPadding: CGFloat { max(0, (stripHeight - tabHeight) / 2) }
 
