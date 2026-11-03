@@ -16,6 +16,7 @@ export function createCommitMeasurements(
   const flush = () => {
     ticket += 1;
     scheduled = false;
+    if (!pending.size) return;
     const batchGeneration = generation;
     const batch = pending;
     pending = new Set();

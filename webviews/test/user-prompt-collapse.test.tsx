@@ -187,7 +187,7 @@ async function measuredPrompt(
 
 try {
   test("batched prompts correct wrong guesses and child-only changes through StrictMode", async () => {
-    await measuredPrompt(240, async ({ setHeight, resize }) => {
+    await measuredPrompt(240, async ({ setHeight, resize, measurements }) => {
       let parentRenders = 0;
       let change: (text: string) => void = () => {};
       const show = (text: string) => text;
@@ -236,13 +236,13 @@ try {
       resize(40);
       expect(toggle()).toBeNull();
       // A queued result from the old text must not outlive the subtree that registered it.
-      const readsBeforeUnmount = body().textContent;
       await act(async () => {
         flushSync(() => change("replacement"));
         flushSync(() => root.render(null));
+        const readsAtUnmount = measurements();
         await Promise.resolve();
+        expect(measurements()).toBe(readsAtUnmount);
       });
-      expect(readsBeforeUnmount).toBe(lines(12));
       expect(host.childElementCount).toBe(0);
       act(() =>
         root.render(
