@@ -156,6 +156,9 @@ extension SidebarListViewComponents {
     func realizationRect() -> NSRect {
         // A space page never scrolls: the rows in its frame, no overscan.
         if enclosingScrollView == nil, let pageViewport { return pageViewport }
+        // A clip with no height shows nothing yet (a sidebar made before its window's frame): no row is realized until it
+        // has one, and the first one goes to the selection (`revealFirstViewport`, REOPEN-F7).
+        if let clip = enclosingScrollView?.contentView, clip.bounds.height <= 0 { return .null }
         let visible = enclosingScrollView?.contentView.bounds ?? bounds
         return visible.insetBy(dx: 0, dy: -SidebarStyle.overscan)
     }
@@ -473,7 +476,22 @@ extension SidebarListViewComponents {
         // The pool parks two realization rects of rows: a space switch's leaving and returning pages.
         rowPool.limit = SidebarRowViewPool.limit(forHeight: realizationRect().height, rowHeight: metrics.rowHeight)
         updateDocumentHeight()
+        revealFirstViewport()
         realizeVisibleRows()
+    }
+    /// The first time the clip has a height (a window's first layout), it goes to the selection before any row view is
+    /// realized, so the rows are built once, around the active row: realized at offset 0 and then revealed, a reopened
+    /// window far down its list built about twice the rows it shows before its first frame (REOPEN-F7, profile 10:
+    /// 57 row views for about 22 shown at 100 workspaces). The first render then finds the selection revealed.
+    func revealFirstViewport() {
+        guard !hasViewport, let clip = enclosingScrollView?.contentView, case let height = clip.bounds.height, height > 0 else { return }
+        hasViewport = true
+        guard drag == nil, external == nil, !displayed.rows.isEmpty, let extent = selectionReveal(in: displayed, height: height) else { return }
+        revealedActive = selectionRevealKey
+        let target = displayed.viewport(height: height).reveal(extent, from: clip.bounds.minY, padding: SidebarLayout.revealPadding)
+        guard target != clip.bounds.minY else { return }
+        clip.setBoundsOrigin(NSPoint(x: clip.bounds.minX, y: target))
+        enclosingScrollView?.reflectScrolledClipView(clip)
     }
     /// The rows' width in `scroll`: its clip's width with the vertical scroller always counted for its style, never
     /// whether the scroller shows now. A legacy scroller (macOS "Show scroll bars: Always", or a mouse attached, before
