@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "build": "4173689456801",
+  "notes": "notes/4173689456801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 34294,
+      "title": "acpmux: pause-safe inside the guest (a paused machine or stopped daemon is no stall)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
