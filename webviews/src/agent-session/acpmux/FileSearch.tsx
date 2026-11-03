@@ -158,11 +158,11 @@ export function FileSearch({
         }}
         onKeyDown={keyDown}
       />
-      {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
       <div
         ref={listEdges}
         id={listId}
         className="ui-scroll-edge-fade"
+        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         role="listbox"
         aria-label={t("files.search")}
         aria-busy={state.kind === "searching"}

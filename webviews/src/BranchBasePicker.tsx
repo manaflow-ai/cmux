@@ -427,11 +427,11 @@ export function BranchBasePicker({
               ) : null}
               {/* Searchable command-palette listbox; a native select/datalist cannot
               render grouped rows with secondaries, pills, and matched bolding. */}
-              {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
               <div
                 ref={listEdges}
                 id={listboxId}
                 className="base-picker-list ui-scroll-edge-fade"
+                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
                 role="listbox"
                 aria-label={label("branchPickerOpen")}
               >

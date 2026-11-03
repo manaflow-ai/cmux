@@ -425,11 +425,11 @@ export function JumpToFilePalette({
                   }}
                 />
               </div>
-              {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
               <div
                 ref={listEdges}
                 id={listboxId}
                 className="jump-palette-list ui-scroll-edge-fade"
+                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
                 role="listbox"
                 aria-label={label("jumpToFile")}
               >
