@@ -2,6 +2,7 @@ import { BUBBLE } from "./transcriptSpacing";
 import {
   footerAfter,
   gridLength,
+  MARK_FOOTER,
   MARK_STATUS,
   MARK_STEP,
   rowMark,
@@ -65,7 +66,14 @@ import type { ChatTool } from "./summary/chatTools";
 import type { TaskGoal } from "./goal";
 import { MessagePlacement } from "./conversation/messagePlacement";
 import { isVisiblyEmptyMessage } from "./conversation/visibleMessage";
-import { applyHeightChanges, type HeightChange, type IndexedLayoutGeometry } from "./conversationGeometry";
+import {
+  geometryFromArrays,
+  geometryFromIndex,
+  geometryOf,
+  type IndexedLayoutGeometry,
+  type LayoutGeometry,
+} from "./conversationGeometry";
+import { PlacedHeightIndex } from "./placedHeightIndex";
 
 export type { HeightChange, IndexedLayoutGeometry, LayoutGeometry } from "./conversationGeometry";
 export { applyHeightChanges, geometryFromHeights, geometryFromIndex } from "./conversationGeometry";
@@ -125,6 +133,17 @@ export type AcpmuxBackgroundTurn = {
   /// A row of its own draws something, so its line opens to it. A turn whose events only update
   /// rows that are not its own (a call an earlier turn started, a subagent's work) has none.
   hasRows?: true;
+};
+
+/// What a run of background-task notifications' line counts (conversation/backgroundRuns.ts): quiet
+/// task turns and finished shells, stopped shells, scheduled checks, other quiet background turns,
+/// and the ids of the rows it folds (Find and links open it for one).
+export type AcpmuxBackgroundRun = {
+  finished: number;
+  stopped: number;
+  scheduled: number;
+  other: number;
+  rows: string[];
 };
 
 /// The chat's permission policy (an acpmux policy id narrower than approve-all) that its harness
@@ -314,6 +333,9 @@ export type AcpmuxRow = {
   background?: AcpmuxBackgroundTurn;
   /// A row a background turn made: that turn's id, so its line can fold it (backgroundTurns.ts).
   inBackground?: string;
+  /// A run of background-task notifications folded under one line (conversation/backgroundRuns.ts):
+  /// drawn as a background turn's line, with what it counts and the rows it folds.
+  backgroundRun?: AcpmuxBackgroundRun;
   /// A policy note's policy and why the chat's harness cannot keep it.
   policyUnenforced?: AcpmuxPolicyUnenforced;
   /// An agent pair row's pause (conversation/AgentPairNote.tsx).
@@ -444,6 +466,11 @@ export type AcpmuxRow = {
   /// behind, by id and version, while that text still moves.
   doingAt?: number;
   doingShell?: boolean;
+  /// The Codex-style live line names a command still running in an earlier run, which that run
+  /// draws no row for (conversation/turns.ts `lineCall`, `codexRuns`): its call id. While the reader
+  /// is scrolled up, the call stays out of its run when the line lets go of it
+  /// (conversation/turnEndHold.ts `callsToHold`).
+  linedCall?: string;
   /// `doing` names the latest step, finished, which the live line holds until the next step
   /// (conversation/turns.ts `liftedStep`): "Ran grep …".
   doingDone?: boolean;
@@ -941,9 +968,6 @@ export type AcpmuxSnapshot = {
   /// its input and output (`inputTokens`, `cachedReadTokens`, `cachedWriteTokens`, `outputTokens`,
   /// claude_stdio/inbound.rs); unset otherwise.
   turnTokenSplit?: TurnTokenSplit;
-  /// The running turn's agent has said nothing since its prompt, past acpmux's `silentTurnMs`
-  /// (direct.ts `silentTurn`): the turn's line says the model has not answered.
-  silentTurn?: true;
   /// Stop (or Esc) was sent and the running turn has not ended yet (direct.ts `cancel`): Stop
   /// turns and says it is stopping, so a press never looks like it did nothing.
   stopping?: true;
@@ -1138,14 +1162,17 @@ const TOOL_RUN_TOP = 0;
 /// MARK_STEP).
 const isStepRow = (row: AcpmuxRow) =>
   row.kind === "activity" || (row.kind === ACTIVITY_LINE && !row.below) || isLineRow(row);
-/// The running turn's line as its last row (`below`) right under a step row: one more line of the
-/// run, 22 under it and 22 tall (`.acpmux-row--below.acpmux-row--after-step`), not the footer's 32
-/// slot, so a step row after it (the waiting messages' head) is 22 under it too (#29965).
+/// The running turn's line as its last row (`below`) right under a step row or a status row ("Subagent
+/// finished", "Scheduled check", a compaction): one more line of the run, 22 under it and 22 tall
+/// (`.acpmux-row--below.acpmux-row--after-step`), not the footer's 32 slot, so a step row after it
+/// (the waiting messages' head) is 22 under it too (#29965). Under a status row it took the footer's
+/// slot a block gap away, 55 and 70 from its neighbours (Leo, 2026-11-03: "this is pretty bad
+/// spacing and formatting"; design/transcript-spacing.md rule 3).
 export const isLiveStep = (row: AcpmuxRow, prev: AcpmuxRow | undefined) =>
   row.below === true &&
   (row.kind === WORKING || row.kind === THINKING || row.kind === ACTIVITY_LINE) &&
   prev !== undefined &&
-  isStepRow(prev);
+  (isStepRow(prev) || isStatusRow(prev));
 const LIVE_STEP_EDGE = "+step";
 /// One-line activity rows are 22 apart top to top (design/chat-transcript.md "One-line row pitch",
 /// #29965), `--cv-tool-row-height`.
@@ -2311,38 +2338,155 @@ export function withOrigin(layout: ConversationLayout, origin: number): Conversa
   return { ...rest, tops, totalHeight: layout.totalHeight + by, ...(origin ? { origin } : {}) };
 }
 
-/**
- * Places measured rows through the persistent geometry path.  This additive
- * API is used by the indexed consumer port; the array layout above remains for
- * legacy callers until that port is complete.
- */
-export function placeRowsIndexed(
-  estimate: IndexedLayoutGeometry,
-  changes: readonly HeightChange[],
-): IndexedLayoutGeometry {
-  return applyHeightChanges(estimate, changes);
+/// A transcript placed by drawn heights: its rows' geometry (an immutable gap-aware index once
+/// rows draw, the estimate's arrays before), and the estimate's marks and tail metrics. It carries
+/// no `tops` or `heights` arrays: readers ask `geometry`, so a drawn height or a streamed token
+/// never copies every row.
+export type PlacedLayout = {
+  geometry: LayoutGeometry;
+  /// The content's height: the rows' end (origin included), or more where App adds room under them.
+  totalHeight: number;
+  gaps?: Float64Array;
+  marks?: Uint8Array;
+  tailGap?: number;
+  scale?: number;
+  restBand?: number;
+  origin?: number;
+};
+
+/// Any placed transcript: an estimate (arrays) or a placement (geometry).
+export type TranscriptLayout = ConversationLayout | PlacedLayout;
+
+/// The geometry of either kind of layout: O(1), nothing is copied.
+export const layoutGeometry = (layout: TranscriptLayout): LayoutGeometry => geometryOf(layout);
+
+/// An estimate, unplaced, as a PlacedLayout starting at `origin` (before any row draws). O(1).
+export function placedFromEstimate(estimate: ConversationLayout, origin = 0): PlacedLayout {
+  const by = origin - (estimate.origin ?? 0);
+  const { tops, heights, ...rest } = estimate;
+  return {
+    ...rest,
+    geometry: geometryFromArrays(tops, heights, estimate.totalHeight, by),
+    totalHeight: estimate.totalHeight + by,
+    origin: origin || undefined,
+  };
 }
 
-function upperBound(values: Float64Array, target: number): number {
-  let low = 0;
-  let high = values.length;
-  while (low < high) {
-    const middle = (low + high) >>> 1;
-    if (values[middle] <= target) low = middle + 1;
-    else high = middle;
+/// `layout` with its first row starting at `origin` instead (withOrigin for a placement): O(1).
+export function placedWithOrigin(layout: PlacedLayout, origin: number): PlacedLayout {
+  const by = origin - (layout.origin ?? 0);
+  if (by === 0) return layout;
+  const geometry = layout.geometry;
+  const indexed = "index" in geometry ? (geometry as IndexedLayoutGeometry) : undefined;
+  const moved: LayoutGeometry = indexed
+    ? geometryFromIndex(indexed.index, indexed.origin + by)
+    : {
+        ...geometry,
+        totalHeight: geometry.totalHeight + by,
+        topAt: (at) => geometry.topAt(at) + by,
+        upperBoundTop: (target) => geometry.upperBoundTop(target - by),
+        scan: (from, to, visit) => geometry.scan(from, to, (at, top, height) => visit(at, top + by, height)),
+      };
+  return { ...layout, geometry: moved, totalHeight: layout.totalHeight + by, origin: origin || undefined };
+}
+
+/// What a placement may skip: rows from `kept` up to `from` are the last placement's except
+/// `changed` (indices in that span whose height may differ). Rows from `from` on are placed again.
+export type PlacedReuse = {
+  layout: PlacedLayout;
+  kept: number;
+  from?: number;
+  changed?: readonly number[];
+};
+
+/**
+ * `placeRows` through the gap-aware index (placedHeightIndex.ts): the same tops, heights, total,
+ * tail gap and rest band for every input, up to float rounding of the sums. A reused placement
+ * keeps its index; only `changed` rows and the rows from `from` on are read, each in O(log rows),
+ * so a streamed token or a drawn height costs O(log rows + rows placed again), not O(rows).
+ * With no reusable `previous` (another scale or origin, no index) every row is read once.
+ */
+export function placeRowsIndexed(
+  estimate: ConversationLayout,
+  heightAt: (index: number) => number | undefined,
+  previous?: PlacedReuse,
+  /// Where the first row starts (ConversationLayout.origin). Kept rows keep their places only at it.
+  origin = 0,
+): PlacedLayout {
+  const count = estimate.heights.length;
+  const scale = gridScale();
+  const marks = estimate.marks;
+  const resolve = (index: number) => {
+    // A drawn 0 is a row that draws nothing (App.tsx drawnHeightOf): it takes no room.
+    const known = heightAt(index);
+    return known !== undefined && known >= 0 ? known : estimate.heights[index]!;
+  };
+  const prior = previous?.layout.geometry;
+  const reusable =
+    previous &&
+    prior &&
+    "index" in prior &&
+    (previous.layout.scale ?? 1) === scale &&
+    (previous.layout.origin ?? 0) === origin &&
+    Boolean(previous.layout.marks) === Boolean(marks)
+      ? (prior as IndexedLayoutGeometry).index
+      : undefined;
+  const kept = reusable ? Math.max(0, Math.min(previous!.kept, reusable.count, count)) : 0;
+  let index: PlacedHeightIndex;
+  if (!reusable || kept === 0) {
+    const heights = new Float64Array(count);
+    for (let at = 0; at < count; at += 1) heights[at] = resolve(at);
+    index = PlacedHeightIndex.fromRows(heights, marks, marks ? undefined : estimate.gaps, {
+      between: marks ? (before, next) => transcriptGap(before, next) * scale : undefined,
+    });
+  } else {
+    index = reusable;
+    const from = Math.max(kept, Math.min(previous!.from ?? kept, reusable.count, count));
+    for (const at of previous!.changed ?? [])
+      if (at >= kept && at < from)
+        index = index.update(at, resolve(at), marks?.[at], marks ? undefined : estimate.gaps?.[at]);
+    const tail = new Float64Array(count - from);
+    for (let at = from; at < count; at += 1) tail[at - from] = resolve(at);
+    index = index.splice(
+      from,
+      tail,
+      marks?.subarray(from, count),
+      marks ? undefined : estimate.gaps?.subarray(from, count),
+    );
   }
-  return low;
+  const geometry = geometryFromIndex(index, origin);
+  // A turn footer that draws nothing after the last drawn row (transcriptGrid.ts footerAfter):
+  // only the trailing rows that draw nothing are read.
+  let footer = false;
+  if (marks)
+    for (let at = count - 1; at >= 0 && index.heightAt(at) === 0; at -= 1)
+      if (index.markAt(at) === MARK_FOOTER) {
+        footer = true;
+        break;
+      }
+  const { last, beforeLast } = index.lastMarks;
+  return {
+    geometry,
+    totalHeight: geometry.totalHeight,
+    gaps: estimate.gaps,
+    marks,
+    tailGap: marks ? tailGap(last, beforeLast, footer) * scale : estimate.tailGap,
+    restBand: marks ? restBand(footer) * scale : estimate.restBand,
+    scale,
+    ...(origin ? { origin } : {}),
+  };
 }
 
 export function visibleLayoutRange(
-  layoutModel: ConversationLayout,
+  layoutModel: TranscriptLayout,
   scrollTop: number,
   viewportHeight: number,
   overscan = 4,
 ) {
-  if (layoutModel.tops.length === 0) return { first: 0, last: 0 };
-  const first = Math.max(0, upperBound(layoutModel.tops, Math.max(0, scrollTop)) - 1 - overscan);
-  const last = Math.min(layoutModel.tops.length, upperBound(layoutModel.tops, scrollTop + viewportHeight) + overscan);
+  const geometry = layoutGeometry(layoutModel);
+  if (geometry.count === 0) return { first: 0, last: 0 };
+  const first = Math.max(0, geometry.upperBoundTop(Math.max(0, scrollTop)) - 1 - overscan);
+  const last = Math.min(geometry.count, geometry.upperBoundTop(scrollTop + viewportHeight) + overscan);
   return { first, last };
 }
 
@@ -2365,7 +2509,7 @@ export function mergeRowRanges(ranges: RowRange[]): RowRange[] {
 /// frames reach, with a margin for uneven frames: the rows between them and the capped lead are
 /// never on screen, so they are not built (cx-j33s4).
 export function scrollLeadRanges(
-  layoutModel: ConversationLayout,
+  layoutModel: TranscriptLayout,
   scrollTop: number,
   delta: number,
   viewportHeight: number,

@@ -115,6 +115,13 @@ const revealLastFooter: Play = async (ctx) => {
   await ctx.hover({ selector: ".acpmux-row--final-footer .cv-turn-action-group" });
 };
 
+/// The pointer on the finished chat's last Copy button: that button alone takes full ink and its pill.
+const pointCopy: Play = async (ctx) => {
+  const copy = ".acpmux-row--final-footer .cv-turn-action-group .cv-iconbtn";
+  await ctx.waitFor(() => ctx.document.querySelector(copy) !== null);
+  await ctx.hover({ selector: copy });
+};
+
 export default agentPaneEntry({
   id: "agent-pane.transcript-row-alignment",
   title: "Status, tool and message rows between replies",
@@ -148,7 +155,7 @@ export default agentPaneEntry({
       play: revealFooter,
     },
     finished: {
-      note: "A finished chat at rest: its last reply's buttons are in sight with no pointer, the first glyph on the reply's left edge; the time waits for the pointer.",
+      note: "A finished chat at rest: its last reply's buttons are in sight with no pointer, Claude's 16 glyphs in 28 buttons in the muted footer ink, the first glyph on the reply's left edge; the time waits for the pointer (Leo, 2026-11-02, of the 20 glyphs in 32 buttons: \"WHY ARE THESE SO BIG\").",
       snapshot: finished,
     },
     "finished-work": {
@@ -159,6 +166,11 @@ export default agentPaneEntry({
       note: "The pointer on the finished chat's last reply: its exact time shows after the buttons, which do not move.",
       snapshot: finished,
       play: revealLastFooter,
+    },
+    "finished-button-hover": {
+      note: "The pointer on the last reply's Copy: that button alone takes full ink and its 28 pill; the others stay in the muted footer ink.",
+      snapshot: finished,
+      play: pointCopy,
     },
   },
 });
