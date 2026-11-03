@@ -10,7 +10,7 @@ import Testing
 /// page's even when Chromium loaded after the first key.
 @MainActor @Suite(.serialized) struct LinkHintControllerTests {
     /// An answer the test gives when it chooses.
-    @MainActor private final class Answer<Value> {
+    @MainActor private final class Answer<Value: Sendable> {
         private var waiter: CheckedContinuation<Value?, Never>?
         var isAsked: Bool { waiter != nil }
         nonisolated deinit {}
