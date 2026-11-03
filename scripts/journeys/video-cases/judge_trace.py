@@ -19,7 +19,8 @@ journal), the report's `notes` says the film is not split. Drags that start at t
 trace starts) cut once, and the part is labelled with the last of them. Each trace interval and film-frame interval is
 judged by the part whose motion window (the motion and 2 refreshes either side) holds it; when two close drags' windows
 both hold it, by the part whose span (from its cut to the next cut) holds it: a drop between two close drags counts
-once, and none is lost. The report's `motions` has one entry per part (its input, motion and each pane edge's travel); `motion` spans them all. Each defect of a split film has
+once, and none is lost. Film windows that overlap join, so a film stall across the cut between two drags is judged too
+(by the part that holds its later frame). Film frames are paired in time order. The report's `motions` has one entry per part (its input, motion and each pane edge's travel); `motion` spans them all. Each defect of a split film has
 `drag`, the index (in the sorted drag starts) of the drag that starts its part.
 
 It reports, with the frame number (the trace sample index, and the movie frame index when --frames is given):
@@ -122,8 +123,10 @@ def unsplit_note(events):
     drags = [h for h in events.get("hid") or [] if isinstance(h, dict) and h.get("kind") == "drag"]
     if not drags:
         return None
-    missing = sum(1 for h in drags if not isinstance(h.get("host_offset_s"), (int, float)))
-    return (f"{len(drags)} HID drag(s), {missing} of them with no host_offset_s, and no mouse-down in the app journal: "
+    missing = sum(1 for h in drags if not (isinstance(h.get("host_offset_s"), (int, float))
+                                           and isinstance(h.get("t_sent"), (int, float))))
+    return (f"{len(drags)} HID drag(s), {missing} of them with no host_offset_s or no t_sent, and no mouse-down in the "
+            "app journal: "
             "nothing places them "
             "on the trace's clock, so the film is not split and is judged as one motion (two opposite drags then show "
             "as 'reverse' on the first one)")
@@ -259,7 +262,8 @@ def judge(trace, frames=None, scale=2.0, events=None):
         holders = [k for k, w in enumerate(windows) if w and w[0][0] <= i <= w[0][1]]
         if holders:
             trace_owner[i] = owner(holders, part_of_sample(i))
-    complete_rows = [(k, float(r[0])) for k, r in enumerate(rows) if (r[1] if len(r) > 1 else None) in (None, "complete", 0, "0")]
+    complete_rows = sorted(((k, float(r[0])) for k, r in enumerate(rows)
+                            if (r[1] if len(r) > 1 else None) in (None, "complete", 0, "0")), key=lambda kt: kt[1])
     def in_movie_window(k, t):
         return windows[k] is not None and windows[k][1][0] <= t <= windows[k][1][1]
     row_owner = {}
@@ -268,11 +272,23 @@ def judge(trace, frames=None, scale=2.0, events=None):
         holders = [j for j in range(len(parts)) if in_movie_window(j, t)]
         if holders:
             row_owner[k] = owner(holders, part_of_time(t))
+    # Movie windows that overlap form one span of motion (two adjacent drags overlap at their cut). A pair of complete
+    # frames is judged when one such span holds both frames, as a whole film's window would: a stall across the cut
+    # between two drags has one frame in each window. It goes to the part that holds its later frame.
+    spans = []
+    for j in sorted((j for j, w in enumerate(windows) if w), key=lambda j: windows[j][1][0]):
+        lo_s, hi_s = windows[j][1]
+        if spans and lo_s <= spans[-1][1]:
+            spans[-1] = (spans[-1][0], max(spans[-1][1], hi_s), spans[-1][2] + [j])
+        else:
+            spans.append((lo_s, hi_s, [j]))
     pair_owner = {}
     for (k0, a), (k1, b) in zip(complete_rows, complete_rows[1:]):
-        holders = [j for j in range(len(parts)) if in_movie_window(j, a) and in_movie_window(j, b)]
-        if holders:
-            pair_owner[k1] = (k0, a, b, owner(holders, part_of_time(b)))
+        span = next((sp for sp in spans if sp[0] <= a and b <= sp[1]), None)
+        if span is None:
+            continue
+        holders = [j for j in span[2] if in_movie_window(j, b)] or [j for j in span[2] if in_movie_window(j, a)]
+        pair_owner[k1] = (k0, a, b, owner(holders, part_of_time(b)))
     for n, (drag, inside, part_lo, part_hi) in enumerate(parts):
         entry = {"input": None if drag is None else {"drag": drag, "t_ms": round(starts[drag], 2), "source": source},
                  "motion": None}
