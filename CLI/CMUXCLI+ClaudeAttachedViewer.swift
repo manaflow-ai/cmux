@@ -220,9 +220,12 @@ extension CMUXCLI {
             // Exit non-zero when no lease matched so the observer retries until
             // the removal is confirmed. A lock failure throws for the same
             // retry path.
-            return try store.removeClaudeViewer(
+            let removed = try store.removeClaudeViewer(
                 attachmentID: attachmentID, viewerPID: viewerPID, socketPath: client.socketPath)
+            if removed { removeClaudeViewerClosedMarker(attachmentID) }
+            return removed
         }
+        guard !claudeViewerClosedMarkerExists(attachmentID) else { return false }
         guard commandArgs.first == "attached",
               let reference = input["job_id"] as? String,
               let registration = ClaudeBackgroundSessionRegistry(
@@ -244,6 +247,43 @@ extension CMUXCLI {
         )
     }
 
+    /// The authoritative tombstone written by the connection owner when the
+    /// native attach socket closes. It remains usable when the detach CLI call
+    /// fails or no later event arrives.
+    func claudeViewerClosedMarkerPath(
+        _ attachmentID: String,
+        env: [String: String] = ProcessInfo.processInfo.environment
+    ) -> String {
+        let statePath: String
+        if let override = env["CMUX_CLAUDE_HOOK_STATE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty {
+            statePath = NSString(string: override).expandingTildeInPath
+        } else if let directory = env["CMUX_AGENT_HOOK_STATE_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !directory.isEmpty {
+            statePath = URL(fileURLWithPath: NSString(string: directory).expandingTildeInPath, isDirectory: true)
+                .appendingPathComponent("claude-hook-sessions.json").path
+        } else {
+            statePath = NSString(string: "~/.cmuxterm/claude-hook-sessions.json").expandingTildeInPath
+        }
+        return URL(fileURLWithPath: statePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("claude-viewer-closed", isDirectory: true)
+            .appendingPathComponent(attachmentID.lowercased(), isDirectory: false)
+            .path
+    }
+
+    func claudeViewerClosedMarkerExists(_ attachmentID: String) -> Bool {
+        FileManager.default.fileExists(
+            atPath: claudeViewerClosedMarkerPath(attachmentID)
+        )
+    }
+
+    func removeClaudeViewerClosedMarker(_ attachmentID: String) {
+        try? FileManager.default.removeItem(
+            atPath: claudeViewerClosedMarkerPath(attachmentID)
+        )
+    }
+
     /// Retains multiple subscriptions while preserving the existing single-target notification contract.
     func liveClaudeViewerTarget(
         sessionID: String, workerPID: Int, client: SocketClient
@@ -253,7 +293,7 @@ extension CMUXCLI {
                   sessionId: sessionID, deadline: Date.now.addingTimeInterval(0.4)) else { return nil }
         let viewers = ClaudeViewerSubscriptions(record.claudeAttachedViewers ?? [])
             .candidates(workerPID: workerPID, socketPath: client.socketPath)
-        for viewer in viewers {
+        for viewer in viewers where !claudeViewerClosedMarkerExists(viewer.attachmentID) {
             guard let target = admittedAgentHookRoute(processID: viewer.viewer.pid, client: client, socketPassword: nil),
                   target.surfaceId == viewer.surfaceID else { continue }
             // A pane can move workspaces without changing its stable surface.

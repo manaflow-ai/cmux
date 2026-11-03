@@ -3,7 +3,7 @@
 // Observe only the first proto-1 request/reply. Never retain authentication
 // fields or terminal output, and never attach a data listener (which would
 // change a socket consumer's flow-control mode).
-function installObserver({ report, acceptsPath }) {
+function installObserver({ report, acceptsPath, onClosed }) {
   const net = require('node:net');
   const states = new WeakMap();
   const active = new Map();
@@ -66,7 +66,12 @@ function installObserver({ report, acceptsPath }) {
       }
     });
     if (state && event === 'close') {
-      if (state.acknowledged) publish(state, 'detached');
+      if (state.acknowledged) {
+        // The connection owner records closure before any CLI mutation, so a
+        // failed or slow detach cannot keep routing to a closed attachment.
+        try { onClosed?.(state.attachment); } catch {}
+        publish(state, 'detached');
+      }
       active.delete(this);
       states.delete(this);
     }
@@ -135,8 +140,24 @@ if (process.env.CMUX_CLAUDE_ATTACH_CONTEXT) {
           return;
         }
       };
+      const nodePath = require('node:path');
+      const nodeFS = require('node:fs');
+      const statePath = context.environment.CMUX_CLAUDE_HOOK_STATE_PATH
+        || (context.environment.CMUX_AGENT_HOOK_STATE_DIR
+          ? nodePath.join(context.environment.CMUX_AGENT_HOOK_STATE_DIR, 'claude-hook-sessions.json')
+          : nodePath.join(process.env.HOME || '', '.cmuxterm', 'claude-hook-sessions.json'));
+      const closedDir = nodePath.join(nodePath.dirname(statePath), 'claude-viewer-closed');
+      const markClosed = attachment => {
+        if (typeof attachment !== 'string' || !/^[0-9a-f-]{36}$/i.test(attachment)) return;
+        attachment = attachment.toLowerCase();
+        try {
+          nodeFS.mkdirSync(closedDir, { recursive: true, mode: 0o700 });
+          nodeFS.writeFileSync(nodePath.join(closedDir, attachment), '');
+        } catch {}
+      };
       const observer = installObserver({
         acceptsPath: path => new RegExp('^/(?:private/)?tmp/cc-daemon-' + process.getuid() + '/[^/]+/control\\.sock$').test(path),
+        onClosed: markClosed,
         report: value => {
           // A closed connection cancels a queued attach for the same
           // attachment: a later retry must not resurrect a closed lease.

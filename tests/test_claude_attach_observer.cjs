@@ -114,6 +114,36 @@ test('generated preload loads under Bun when the lane provides it', t => {
   assert.equal(result.stdout, 'preload-ok');
 });
 
+test('a closed acknowledged connection records an authoritative closure', async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cmux-attach-closed-'));
+  const socketPath = path.join(root, 'control.sock');
+  const closed = [];
+  let attachedResolve;
+  const attached = new Promise(resolve => { attachedResolve = resolve; });
+  const restore = install({
+    report: value => { if (value.action === 'attached') attachedResolve(); },
+    acceptsPath: p => p === socketPath,
+    onClosed: attachment => closed.push(attachment),
+  });
+  const server = net.createServer(socket => {
+    socket.on('data', data => {
+      if (data.toString().includes('\n')) socket.write('{"ok":true,"op":"attach"}\n');
+    });
+  });
+  t.after(() => { restore(); server.close(); fs.rmSync(root, { recursive: true, force: true }); });
+  server.listen(socketPath); await once(server, 'listening');
+  const attachment = '33333333-3333-4333-8333-333333333333';
+  const client = net.createConnection(socketPath);
+  client.on('data', () => {});
+  await once(client, 'connect');
+  client.write(JSON.stringify({ proto: 1, op: 'attach', short: 'cccccccc', attachId: attachment }) + '\n');
+  await Promise.race([attached, new Promise((_, reject) => setTimeout(() => reject(new Error('attach not acknowledged')), 5000))]);
+  const closedEvent = once(client, 'close');
+  client.destroy();
+  await closedEvent;
+  assert.deepEqual(closed, [attachment]);
+});
+
 test('preload restores Bun options and removes private context before children', () => {
   const result = spawnSync(process.execPath, ['--require', modulePath, '-e', `
     const assert=require('node:assert/strict');
