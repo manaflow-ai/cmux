@@ -24,6 +24,7 @@ public final class HiddenPageCloses<Pane: AnyObject> {
         let hide: HiddenTabClose
         /// Held: the layout lets go of an emptied pane's controller once its close lands, and the page may still ask.
         let pane: Pane
+        let asks: (@MainActor @Sendable () -> Bool)?
         let watch: Task<Void, Never>?
         let timer: DemandTimer
         func end() { watch?.cancel(); timer.cancel() }
@@ -73,7 +74,7 @@ public final class HiddenPageCloses<Pane: AnyObject> {
                 }
             }
             let timer = DemandTimer(owner: "tabs.hiddenPageClose")
-            entries[id] = Entry(hide: hide, pane: pane, watch: watch, timer: timer)
+            entries[id] = Entry(hide: hide, pane: pane, asks: tab.asks, watch: watch, timer: timer)
             timer.schedule(after: deadline) { @MainActor [weak self] in self?.expire(id) }
             hid = true
         }
@@ -106,8 +107,11 @@ public final class HiddenPageCloses<Pane: AnyObject> {
 
     /// The page of tab `id` neither closed nor asked in time: it closes without asking.
     public func expire(_ id: String) {
-        guard let pane = entries[id]?.pane, lift(id) else { return }
-        timedOut(pane, id)
+        guard let entry = entries[id] else { return }
+        // A question that came just now, its watch not woken yet, is the person's: never answered Leave for them.
+        if entry.asks?() == true { restore(id); return }
+        guard lift(id) else { return }
+        timedOut(entry.pane, id)
     }
 
     /// The page of tab `id` asks the person: the tab comes back at its
