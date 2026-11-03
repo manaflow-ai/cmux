@@ -212,4 +212,9 @@ struct CloudStartChatMachineTests {
         #expect(CloudStartChat.refusalMessage("not_signed_in") == CloudStrings.signInFirst)
         #expect(CloudStartChat.refusalMessage("cloud_disabled") == "cloud_disabled")
     }
+
+    @Test func aFreePlanFirstSendKeepsItsRefusalCodeForTheRecoveryCard() {
+        #expect(CloudStartChat.failureCode(CloudMachineCreateFlow.Failure.upgradeRequired(.freePlan)) == "cloud_plan_required")
+        #expect(CloudStartChat.failureCode(CloudMove.Failure(message: "Connection timed out")) == "cloud_start_failed")
+    }
 }
