@@ -34,6 +34,7 @@
     "ci-macos.yml:release-build": {"class": "pr-release-compile", "warm": ["actions-cache", "product-reuse"]},
     "ci-macos.yml:swift-package-tests": {"class": "pr-swift-test", "warm": ["deriveddata-reuse", "spm-shared", "actions-cache"]},
     "ci-web.yml:react-apps-base-check": {"class": "webview", "warm": ["actions-cache"]},
+    "cmux-next-web.yml:web-bisect": {"class": "webview", "warm": ["actions-cache"]},
     "ci-web.yml:react-apps-check-shard": {"class": "webview", "warm": ["actions-cache"]},
     "ci-web.yml:web-db-migrations": {"class": "webview", "warm": ["actions-cache"]},
     "ci-web.yml:web-instant-navigation": {"class": "webview", "warm": ["actions-cache"]},
