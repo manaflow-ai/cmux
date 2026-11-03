@@ -1764,11 +1764,14 @@ class Controller:
             return f"did not run: web run {run.get('conclusion')}"
 
         def finished(items: list[dict]) -> list[dict]:
-            return [item for item in items if item.get("head_branch") == BASE and item.get("status") == "completed"]
+            # A coalesced push run (cmux-next-web.yml's coalesce job replaced before it started, so cancelled with
+            # no job run) is no verdict for its commit: the newest run on an ancestor stands in (web_coalesce.py).
+            return [item for item in items if item.get("head_branch") == BASE and item.get("status") == "completed"
+                    and not (item.get("event") == "push" and item.get("conclusion") == "cancelled")]
 
         base = finished(self.gh.runs(WEB_WORKFLOW, f"head_sha={base_sha}&per_page=20"))
         if not base:
-            base = [item for item in finished(self.gh.runs(WEB_WORKFLOW, f"branch={BASE}&per_page=20"))
+            base = [item for item in finished(self.gh.runs(WEB_WORKFLOW, f"branch={BASE}&per_page=100"))
                     if self.is_ancestor(item["head_sha"], base_sha)][:1]
         inherited = set(self.failed_jobs(base[0]["id"], detail=True)) if base else set()
         new = sorted(failed - inherited)
