@@ -119,9 +119,9 @@ type Calls = {
   open: boolean;
 };
 
-function Harness({ calls, list }: { calls: Calls; list: QuickFamily[] }) {
+function Harness({ calls, list, startEffort }: { calls: Calls; list: QuickFamily[]; startEffort: string }) {
   const [open, setOpen] = useState(false);
-  const [effort, setEffort] = useState("medium");
+  const [effort, setEffort] = useState(startEffort);
   const trigger = useRef<HTMLButtonElement | null>(null);
   calls.open = open;
   const accounts: ChatAccounts = {
@@ -155,6 +155,7 @@ function Harness({ calls, list }: { calls: Calls; list: QuickFamily[] }) {
             { id: "low", name: "Low" },
             { id: "medium", name: "Medium", recommended: true },
             { id: "high", name: "High" },
+            ...(startEffort === "ultracode" ? [{ id: "ultracode", name: "Ultracode" }] : []),
           ],
           current: effort,
           onPick(value) {
@@ -195,13 +196,13 @@ function Harness({ calls, list }: { calls: Calls; list: QuickFamily[] }) {
   );
 }
 
-async function openMenu(list: QuickFamily[] = [claude, codex, gemini]) {
+async function openMenu(list: QuickFamily[] = [claude, codex, gemini], startEffort = "medium") {
   const container = installDom();
   QuickModelColumns ??= (await import("./QuickModelColumns")).QuickModelColumns;
   const calls: Calls = { picks: [], efforts: [], fast: [], added: [], open: false };
   await act(async () => {
     root = createRoot(container);
-    root.render(<Harness calls={calls} list={list} />);
+    root.render(<Harness calls={calls} list={list} startEffort={startEffort} />);
   });
   await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
   await settle();
@@ -300,6 +301,29 @@ test("a picked model keeps the chat's level when it has it, else takes its recom
   await click(chip());
   expect(calls.picks).toHaveLength(1);
   expect(calls.picks[0]).toMatchObject({ id: "codex-Astra", effort: "medium" });
+});
+
+test("a level picked on one model carries to the next model clicked", async () => {
+  const calls = await openMenu();
+  await click(tab("Codex"));
+  await click(row("Sol"));
+  const high = [...tune().querySelectorAll<HTMLElement>("[role=radio]")].find((node) => node.textContent === "High")!;
+  await click(high);
+  // Astra has High: it takes the level just picked, not the chat's Medium or its own default.
+  await click(row("Astra"));
+  expect(levels().find((level) => level.checked)?.name).toBe("High");
+  await click(chip());
+  expect(calls.picks).toHaveLength(1);
+  expect(calls.picks[0]).toMatchObject({ id: "codex-Astra", effort: "high" });
+});
+
+test("a chat on Ultracode carries Extra High to a model that has it", async () => {
+  const nova = model("codex", "Nova", { efforts: ["low", "high", "xhigh"], defaultEffort: "low" });
+  const calls = await openMenu([claude, { ...codex, models: [...codex.models, nova] }, gemini], "ultracode");
+  await click(tab("Codex"));
+  await click(row("Nova"));
+  await click(chip());
+  expect(calls.picks[0]).toMatchObject({ id: "codex-Nova", effort: "xhigh" });
 });
 
 test("another model, then a level, then Fast land once, together", async () => {

@@ -202,8 +202,11 @@ function Columns({
     const doc = chip?.ownerDocument;
     const view = doc?.defaultView;
     if (!chip || !doc || !view) return;
-    view.requestAnimationFrame(() =>
-      view.requestAnimationFrame(() => {
+    // A page with no frames (a test DOM) waits a task instead.
+    const frame = (run: () => void) =>
+      typeof view.requestAnimationFrame === "function" ? view.requestAnimationFrame(run) : view.setTimeout(run, 0);
+    frame(() =>
+      frame(() => {
         const active = doc.activeElement;
         if (!active || active === doc.body || active.closest(".acpmux-cols")) chip.focus({ preventScroll: true });
       }),
@@ -264,6 +267,8 @@ function Columns({
     pendingRef.current = next;
     setPendingState(next);
   };
+  // The last level picked here, on any model: the next model clicked carries it.
+  const [chosenLevel, setChosenLevel] = useState<string>();
   const [seen, setSeen] = useState({ effort: effort?.current, fast: fast?.checked });
   if (seen.effort !== effort?.current || seen.fast !== fast?.checked) {
     setSeen({ effort: effort?.current, fast: fast?.checked });
@@ -369,6 +374,7 @@ function Columns({
       setModelHl(-1);
       setHeld(undefined);
       setPending(undefined);
+      setChosenLevel(undefined);
     }
   }
 
@@ -396,6 +402,18 @@ function Columns({
       t,
     );
   };
+  /// The level another model carries (Opus 5.5 on Extra High to Sonnet 5.5 on Extra High): the
+  /// last one picked here, else the chat's, when that model has it, else the model's recommended
+  /// one. Ultracode carries as Extra High, the level it rides. None when the model has no levels.
+  const carriedLevel = (model: QuickModel) => {
+    const choices = levelsOf(model);
+    if (!choices.length) return undefined;
+    const has = (id: string | undefined) => !!id && choices.some((choice) => choice.id === id);
+    const now = chosenLevel ?? held?.effort ?? effort?.current;
+    if (has(now)) return now;
+    if (now === "ultracode" && has("xhigh")) return "xhigh";
+    return model.defaultEffort ?? choices.find((choice) => choice.recommended)?.id;
+  };
   // Highest first, as a ladder.
   const ladder = focus ? [...levelsOf(focus)].reverse() : [];
   const keyOf = (model: QuickModel) => `${model.family}\u0000${model.id}`;
@@ -414,7 +432,7 @@ function Columns({
     (focus
       ? focusRuns
         ? effort?.current
-        : (focus.effort ?? ladder.find((choice) => choice.recommended)?.id)
+        : (focus.effort ?? carriedLevel(focus))
       : undefined);
   // A level shows a check when it is really chosen: the session's, or one picked here.
   const levelChosen = focusRuns || !!picked?.effort;
@@ -453,16 +471,9 @@ function Columns({
       viaSearch: !!query,
     });
   };
-  /// The level another model lands with: the one the chat is on when that model has it, else the
-  /// model's recommended one. None when it has no levels, or no way to land one with the model.
-  const inheritedLevel = (model: QuickModel) => {
-    if (menu.inlineEffort !== true) return undefined;
-    const choices = levelsOf(model);
-    if (!choices.length) return undefined;
-    const now = held?.effort ?? effort?.current;
-    if (now && choices.some((choice) => choice.id === now)) return now;
-    return model.defaultEffort ?? choices.find((choice) => choice.recommended)?.id;
-  };
+  /// The level another model lands with: the carried one. None when there is no way to land one
+  /// with the model.
+  const inheritedLevel = (model: QuickModel) => (menu.inlineEffort === true ? carriedLevel(model) : undefined);
   const pickModel = (index: number) => {
     const model = rows[index];
     if (!model || model.disabled) return;
@@ -474,6 +485,7 @@ function Columns({
   };
   const pickLevel = (value: string) => {
     if (!focus || focusOff || !canLandEffort) return;
+    setChosenLevel(value);
     if (focusRuns && effort && !picked) {
       setHeld({ ...mine, key: focusKey, effort: value });
       effort.onPick(value);
