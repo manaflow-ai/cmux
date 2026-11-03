@@ -160,7 +160,7 @@ function measuredPrompt(
         height = next;
         expect(observers.size).toBe(1);
         act(() => {
-          for (const changed of [...observers]) changed();
+          observers.values().next().value!();
         });
       },
       commits,
