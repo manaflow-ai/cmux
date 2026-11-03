@@ -45,7 +45,10 @@ pub(super) const READ_CHUNK: u64 = 4 * 1024 * 1024;
 const DIR_MAX_ENTRIES: u32 = 10_000;
 const DIR_MAX_BYTES: u32 = 2 * 1024 * 1024;
 const OUTPUT_MAX_BYTES: u32 = 1024 * 1024;
-pub(super) const COMMAND_MAX_BYTES: usize = 64 * 1024;
+/// The longest command that goes inline, as one argument on the machine (Linux takes at most
+/// 128 KiB in one argument). A longer one is staged as a file first ([`run_exec`]), so an exec
+/// has no length limit.
+pub(super) const INLINE_COMMAND_MAX_BYTES: usize = 64 * 1024;
 pub(super) const EXEC_DEFAULT_MS: u64 = 30_000;
 /// Freestyle's inline exec limit (five minutes).
 pub(super) const EXEC_MAX_MS: u64 = 300_000;
@@ -444,10 +447,50 @@ async fn write(
     committed
 }
 
+/// The shell line that runs a command staged at `path` ([`stage_command`]): bash reads it from an
+/// open descriptor, and the file is removed before any of it runs.
+fn staged_command(path: &str) -> String {
+    let path = quote(path);
+    format!("exec 3<{path} && rm -f {path} && exec bash /dev/fd/3")
+}
+
+/// A command too long to go inline, written to a new 0600 file of the work user's (in pieces
+/// when it is longer than one exec's stdin, as any file write). Answers its path.
+async fn stage_command(
+    client: &reqwest::Client,
+    grant: &Grant,
+    command: &str,
+) -> Result<String, Direct> {
+    let path = format!("/tmp/.cmux-exec-{}", uuid::Uuid::new_v4().simple());
+    write(client, grant, &path, command.as_bytes(), Some("384".to_owned())).await?;
+    Ok(path)
+}
+
 async fn run_exec(client: &reqwest::Client, grant: &Grant, request: &Request) -> Direct {
     let command = request.command.as_deref().unwrap_or_default();
     let timeout = request.exec_timeout_ms();
-    match exec(client, grant, &exec_command(command), None, timeout).await {
+    let mut staged = None;
+    let line = if command.len() <= INLINE_COMMAND_MAX_BYTES {
+        exec_command(command)
+    } else {
+        match stage_command(client, grant, command).await {
+            Ok(path) => {
+                let line = exec_command(&staged_command(&path));
+                staged = Some(path);
+                line
+            }
+            Err(Direct::Auth) => return Direct::Auth,
+            // Nothing of the command ran: the proxy may take it.
+            Err(_) => return Direct::Fallback,
+        }
+    };
+    let ran = exec(client, grant, &line, None, timeout).await;
+    // Refused or never sent: the command never started, so its staged file goes (best effort; a
+    // run that started removed it itself).
+    if let (Some(path), Err(Failure::Auth | Failure::NotSent)) = (&staged, &ran) {
+        let _ = fs(client, grant, "remove", path, &[], None).await;
+    }
+    match ran {
         Ok(answer) => Direct::Done(Answer::ok(
             json!({ "exitCode": answer.exit_code, "stdout": answer.stdout, "stderr": answer.stderr }),
         )),

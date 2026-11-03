@@ -101,6 +101,18 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "chat.leftover":
+            if let text = params?["text"] as? String {
+                self = .newChatLeftover(text)
+            } else {
+                self = .unsupported(method)
+            }
+        case "chat.leftoverTaken":
+            if let text = params?["text"] as? String {
+                self = .newChatLeftoverTaken(text)
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.checkpointAvailability":
             if let available = params?["available"] as? Bool {
                 self = .checkpointAvailability(available)
@@ -219,6 +231,8 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "account.add":
+            self = AgentPaneAddAccount(params: params).map(AgentPaneRequest.addAccount) ?? .unsupported(method)
         case "harness.update":
             // A harness id (profile file name), never a command.
             if let id = params?["id"] as? String, !id.isEmpty, id.utf8.count <= 128,
@@ -426,9 +440,31 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.sessionInfo":
+            let info = params?["info"]
+            if info == nil || info is NSNull { self = .sessionInfo(nil) }
+            else if let model = AgentPaneSessionInfoModel.decode(info) { self = .sessionInfo(model) }
+            else { self = .unsupported(method) }
+        case "pane.sessionInfo.overlays":
+            if let rects = AgentPaneSessionInfoOverlay.decode(params?["rects"]) { self = .sessionInfoOverlays(rects) }
+            else { self = .unsupported(method) }
+        case "pane.copyText":
+            if let text = params?["text"] as? String { self = .copyText(text) }
+            else { self = .unsupported(method) }
         case "pane.tabRowTools.set":
             if let tools = AgentPaneTabRowTools.list(params?["tools"]) { self = .tabRowToolsSet(tools) }
             else { self = .unsupported(method) }
+        case "pane.tabRowTools.openMenu":
+            guard let id = params?["id"] as? String, id == "chat-menu",
+                  let rawMenuItemID = params?["menuItemId"], !(rawMenuItemID is NSNull) else {
+                if params?["menuItemId"] == nil || params?["menuItemId"] is NSNull,
+                   params?["id"] as? String == "chat-menu" { self = .tabRowToolsOpenMenu(id: "chat-menu", menuItemID: nil) }
+                else { self = .unsupported(method) }
+                return
+            }
+            guard let menuItemID = rawMenuItemID as? String, !menuItemID.isEmpty,
+                  menuItemID.utf8.count <= 256, menuItemID.count <= 64 else { self = .unsupported(method); return }
+            self = .tabRowToolsOpenMenu(id: id, menuItemID: menuItemID)
         case "pane.setQuickActions":
             if let list = AgentPaneQuickAction.list(params?["quickActions"]) { self = .setQuickActions(list) }
             else { self = .unsupported(method) }
@@ -456,7 +492,9 @@ extension AgentPaneRequest {
         case "chat.openTab":
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .chatTab(id, AgentForkDestination(placement: params?["placement"] as? String)) } else { self = .unsupported(method) }
         case "chat.asks.open":
-            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .asksOpen(id) } else { self = .unsupported(method) }
+            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256, let place = AgentPaneAskPlace(params?["where"]) { self = .asksOpen(id, place) } else { self = .unsupported(method) }
+        case "chat.attention.open":
+            if let id = params?["tabId"] as? String, !id.isEmpty, id.utf8.count <= AgentPaneAttentionTabs.maximumTabID { self = .attentionOpen(id) } else { self = .unsupported(method) }
         case "chat.asks.answer":
             if let ask = AgentPaneAskAnswer(params) { self = .asksAnswer(ask) } else { self = .unsupported(method) }
         case "chat.offer.open":

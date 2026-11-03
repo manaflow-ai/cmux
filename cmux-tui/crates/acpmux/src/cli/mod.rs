@@ -19,6 +19,7 @@ pub mod entry;
 pub mod errors;
 pub mod forum;
 pub mod gh_shim;
+pub mod group;
 pub mod handoff;
 pub mod harness;
 pub mod harness_folder;

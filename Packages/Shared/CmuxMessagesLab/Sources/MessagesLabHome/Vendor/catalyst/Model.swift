@@ -75,6 +75,11 @@ struct Message: Codable, Equatable {
     /// group (Chief's first-launch welcome: three short bubbles one by one, user 2026-10-31 "more spaced
     /// out"). nil: Messages' grouping (same sender under a minute: one group, 3 pt apart).
     var cmuxStandsAlone: Bool? = nil
+    /// cmux: an aside under the sender's own message: the Chief's messages to its agents and their
+    /// reports (`HomeAgentMessages` rows). It never draws the sender's avatar or name, and it ends the
+    /// sender's run, so the avatar stays beside the sender's last real bubble while asides arrive, fold
+    /// and open (user 2026-11-02: "chief icon is bouncing"). nil: a message of the conversation.
+    var cmuxAside: Bool? = nil
 
     struct Edit: Codable, Equatable { var text: String; var at: String }
 

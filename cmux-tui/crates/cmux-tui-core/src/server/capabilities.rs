@@ -129,6 +129,8 @@ fn always_identified() -> Vec<&'static str> {
     capabilities.push(agent_cli_job::RESOLVE_CAPABILITY);
     #[cfg(unix)]
     capabilities.push(agent_cli_intents::CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(mobile_chat::CLOUD_CHAT_RELAY_CAPABILITY);
     capabilities.push(activity::CAPABILITY);
     capabilities.push(page_credential::PAGE_CREDENTIAL_CAPABILITY);
     capabilities.push(page_credential::SCOPED_PAGE_CREDENTIAL_CAPABILITY);
@@ -254,6 +256,7 @@ pub(super) fn advertised_capabilities(
         TERMINAL_COLOR_OVERRIDES_CAPABILITY,
         TERMINAL_PENDING_SEQUENCE_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_CAPABILITY,
+        terminal_snapshot::ATTACH_VISIBILITY_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_HISTORY_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_LOCAL_HISTORY_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_IMAGES_CAPABILITY,
@@ -319,6 +322,7 @@ pub(super) fn advertised_capabilities(
         conversations::CONVERSATION_SEARCH_CAPABILITY,
         conversations::CONVERSATION_DRAFT_CAPABILITY,
         conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY,
+        SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY,
         conversations::CONVERSATION_THREADS_CAPABILITY,
         conversations::CONVERSATION_THREAD_READ_CAPABILITY,
         conversations::CONVERSATION_TREE_CAPABILITY,
@@ -388,6 +392,7 @@ pub(super) fn advertised_capabilities(
         close_tabs_command::CLOSE_REASON_CAPABILITY,
         conversation_tabs_wire::CONVERSATION_TAB_TRANSACTION_CAPABILITY,
         conversation_tabs_wire::CONVERSATION_TAB_SPLIT_CAPABILITY,
+        frontend_browser_history::FRONTEND_BROWSER_TAB_SPLIT_CAPABILITY,
         crate::git_ops::CHECKPOINTS_CAPABILITY,
         crate::git_ops::FILES_SEARCH_CAPABILITY,
         crate::history_ops::CAPABILITY,

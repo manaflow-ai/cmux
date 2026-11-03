@@ -68,7 +68,7 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
     { name: "tab row", tabRow: 38 },
   ];
 
-  /// The chat with Session Info on (Debug Settings `agent.inspector`, pushed with the header
+  /// The chat with Session Info on (Debug Settings `agent.sessionInfo`, pushed with the header
   /// state) and the tab row offered, open in `placement` (floating by default; pushing with Settings
   /// Push always, or by default where the gutter cannot hold it) and done entering.
   const openSessionInfo = async (
@@ -90,7 +90,7 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
     const panel = page.locator("aside.acpmux-session-info");
     const toggle = page.locator("button.acpmux-session-info-toggle");
     await toggle.waitFor({ timeout: 10_000 });
-    if ((await panel.count()) === 0) await toggle.click({ force: true });
+    if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click({ force: true });
     await page.locator(`aside.acpmux-session-info[data-placement="${placement}"][data-presence="shown"]`).waitFor({
       timeout: 10_000,
     });

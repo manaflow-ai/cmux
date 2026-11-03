@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR ea71b8ed99651392573e4ec7590d56149922c5fbc475e71de276e95ea743faa8. */
+/* cmux-tui mux protocol 12, IR 7c39669d1126b40e5f9e8759eee6ec5ee6eec5da05b4c5a793d8cb16c32dc31b. */
 
 
 import type * as T from "./types.js";
@@ -1760,6 +1760,8 @@ export interface NewFrontendBrowserTabRequest extends CmuxRequestBase {
   "pane"?: (T.Id) | null;
   "profile_id"?: (string) | null;
   "rows"?: (number) | null;
+  /** With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab; pane never lists it. Refused with after. */
+  "split"?: (T.ConversationTabSplit) | null;
   "title"?: (string) | null;
   "url": string;
 }
@@ -2295,6 +2297,16 @@ export interface ServerStatsRequest extends CmuxRequestBase {
   cmd: "server-stats";
   "include"?: (Array<string>) | null;
 }
+
+/** Protocol v12; authority: frontend. */
+export interface SetAttachVisibilityRequest extends CmuxRequestBase {
+  cmd: "set-attach-visibility";
+  "surface": T.Id;
+  "visible": boolean;
+}
+export type SetAttachVisibilityResult = {
+  "viewers": number;
+};
 
 /** Protocol v6; authority: frontend. */
 export interface SetCellPixelsRequest extends CmuxRequestBase {
@@ -3122,6 +3134,7 @@ export type CmuxRequest =
   | SendRequest
   | SendKeyRequest
   | ServerStatsRequest
+  | SetAttachVisibilityRequest
   | SetCellPixelsRequest
   | SetClientInfoRequest
   | SetClientSizingRequest
@@ -4971,6 +4984,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "server-stats-v1";
+    stream: null;
+  };
+  "set-attach-visibility": {
+    request: SetAttachVisibilityRequest;
+    result: SetAttachVisibilityResult;
+    authority: "frontend";
+    since: 12;
+    capability: "attach-visibility-v1";
     stream: null;
   };
   "set-cell-pixels": {

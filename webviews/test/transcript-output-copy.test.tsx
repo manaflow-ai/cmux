@@ -94,6 +94,14 @@ test("a copy the page was refused never says Copied", async () => {
   expect(button("Copy code")).toBeDefined();
 });
 
+test("a code handoff keeps the hidden highlighted card out of the accessibility tree", async () => {
+  const { CodeHandoff } = await import("../src/agent-session/acpmux/conversation/StreamingCode");
+  await render(<CodeHandoff code={"x".repeat(200_001)} lang="text" />);
+  const real = host.querySelector<HTMLElement>(".cv-code-handoff__real");
+  expect(real?.getAttribute("aria-hidden")).toBe("true");
+  expect(real?.hasAttribute("inert")).toBe(true);
+});
+
 test("a code handoff completes immediately when pane animation is disabled", async () => {
   const { CodeHandoff } = await import("../src/agent-session/acpmux/conversation/StreamingCode");
   document.documentElement.dataset.agentMotion = "off";

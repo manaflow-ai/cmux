@@ -38,18 +38,39 @@ export const foldsBackground = (row: AcpmuxRow): boolean =>
   row.background !== undefined &&
   (row.background.running || row.background.quiet === true);
 
+/// Whether a background turn draws its line: one that folds, while it runs or once it has a row of
+/// its own to open to. A quiet one that ended with none has nothing to show (Leo, 2026-11-03: "these
+/// background updates don't really expand out to anything? idk what those are even for").
+export const drawsBackgroundLine = (row: AcpmuxRow): boolean =>
+  foldsBackground(row) && (row.background!.running || row.background!.hasRows === true);
+
+/// Update the owner set while a caller is already walking the transcript. Keeping this mutation
+/// beside that walk avoids a second O(rows) pass on every streamed snapshot.
+export function collectFoldedBackgroundId(closed: Set<string>, row: AcpmuxRow, expanded: Folds): void {
+  if (row.kind !== BACKGROUND_TURN || !row.background) return;
+  if (foldsBackground(row) && !expanded.has(row.id)) closed.add(row.background.id);
+  else closed.delete(row.background.id);
+}
+
 /// `rows` with each background turn's line and rows as they draw: a folding line stands alone
 /// while closed and its rows follow it while open (`expanded` holds its id); a line that does not
-/// fold draws nothing and its rows stay. Without a background turn, `rows` itself.
+/// fold draws nothing and its rows stay; a folding line with nothing to open to draws nothing. Without a background turn, `rows` itself.
+/** IDs whose owner background line currently hides its rows. Kept separately from the
+ * current prompt: a background subagent may end after a newer user prompt, but its done line
+ * still belongs behind the original background line. A later owner update wins for an ID.
+ */
+export function foldedBackgroundIds(rows: readonly AcpmuxRow[], expanded: Folds): Set<string> {
+  const closed = new Set<string>();
+  for (const row of rows) collectFoldedBackgroundId(closed, row, expanded);
+  return closed;
+}
+
 export function foldBackgroundTurns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRow[] {
   if (!rows.some((row) => row.kind === BACKGROUND_TURN)) return rows;
-  const folding = new Map<string, boolean>();
-  for (const row of rows)
-    if (row.kind === BACKGROUND_TURN && row.background)
-      folding.set(row.background.id, foldsBackground(row) && !expanded.has(row.id));
+  const folding = foldedBackgroundIds(rows, expanded);
   return rows.filter((row) => {
-    if (row.kind === BACKGROUND_TURN) return foldsBackground(row);
-    return !(row.inBackground !== undefined && folding.get(row.inBackground) === true);
+    if (row.kind === BACKGROUND_TURN) return drawsBackgroundLine(row);
+    return !(row.inBackground !== undefined && folding.has(row.inBackground));
   });
 }
 

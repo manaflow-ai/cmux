@@ -8,6 +8,26 @@ use serde_json::Value;
 
 use super::require_all;
 
+/// `acp.session.fork`: a completed-turn, live, or before-prompt fork.
+/// Before-prompt requests require requestId and omit both throughSeq and live.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ForkParams {
+    pub session_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub through_seq: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub live: Option<bool>,
+    /// Recorded prompt identity, nonempty and at most 512 UTF-8 bytes. Claude/Codex only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub before_prompt_id: Option<String>,
+    /// Persisted retry identity, nonempty and at most 512 UTF-8 bytes; scoped to the source.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
+    pub meta: Option<Value>,
+}
+
 /// One session as every list shows it (`Hub::session_summary`). A peer's
 /// session arrives as the peer daemon's own summary plus `peer`, with
 /// `status` `unreachable` while the peer is gone; a peer on an older
@@ -728,6 +748,11 @@ pub struct SessionsParams {
     /// `_acpmux/sessions` only: exclude these statuses before pagination.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exclude_status: Option<Vec<String>>,
+    /// `_acpmux/sessions` only (a watch refuses it): only the sessions with a pending permission
+    /// or question, local and peer, summarized alone and answered without the list's pace.
+    /// Takes no other filter; the reply is never paged (capability `session-list-pending-v1`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_only: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]

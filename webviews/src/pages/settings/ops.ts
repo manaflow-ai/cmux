@@ -29,6 +29,8 @@ export type ManagedInfo = { source: string; reason: string; team?: string | null
 /** One `cmux.settings.list` row: the schema row plus what applies now. */
 export type ListRow = {
   key: string;
+  /** Raw user preference, null when unset; distinguishes an explicit default from absence. */
+  stored?: unknown;
   value: unknown;
   default: unknown;
   customized: boolean;
@@ -191,6 +193,8 @@ export type DevicesJoinState = {
 
 /** The lists the host shows beside the schema rows; `rooms` is null when spaces are unsupported. */
 export type HostLists = {
+  /** Existing Debug preference, forwarded unchanged for the normal picker placement fallback. */
+  harness_placement?: string;
   /** The app is a DEV build: the Development category shows (Settings > Development). */
   dev_build?: boolean;
   rooms: HostListRow[] | null;
@@ -490,7 +494,21 @@ export type AccountsTeamList = {
 };
 
 /** The Accounts part as the host draws it (texts already localized by the app). */
+export type GitHubConnectionState = {
+  title: string;
+  detail: string;
+  busy: boolean;
+  connect: string;
+  disconnect: string;
+  confirm: string;
+  cancel: string;
+  refresh: string;
+  canConnect: boolean;
+  connections: Array<{ id: string; account: string; status: string; permissions: string[]; canDisconnect: boolean }>;
+};
+
 export type AccountsState = {
+  github?: GitHubConnectionState;
   teams: AccountsTeams | null;
   /** Older hosts omit it. */
   teamList?: AccountsTeamList | null;

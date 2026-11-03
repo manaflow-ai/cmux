@@ -272,7 +272,7 @@ pub enum Command {
         #[arg(long, value_name = "FILE")]
         attach: Vec<PathBuf>,
     },
-    /// Team-scoped durable messages. Requires Labs `meshRelay.teamMessaging`.
+    /// Team-scoped durable messages. Needs a team hub (`meshRelay`); on there by default.
     Inbox(InboxArgs),
     /// Append a report to a human basket without waking any agent session.
     /// The target must be `reports:<person>`; the sender is the attached local
@@ -396,6 +396,10 @@ pub enum Command {
     /// archives.
     #[command(subcommand, alias = "wt")]
     Worktree(crate::cli::worktree::WorktreeCmd),
+    /// The cmux app's sidebar groups: ls, move a session's workspace into one,
+    /// tidy (one group per name in a space; a dry run unless --apply).
+    #[command(subcommand)]
+    Group(crate::cli::group::GroupCmd),
     /// Everything else about one session: info, cancel, stop, rename, fork, set, allow, deny, answer, export, import, tail, queue.
     #[command(subcommand, alias = "s")]
     Session(SessionCmd),
@@ -600,6 +604,11 @@ pub enum Command {
         /// Bearer token WebSocket clients must present.
         #[arg(long)]
         token: Option<String>,
+        /// Allow a network (non-loopback) --listen or websocket.listen address.
+        /// The listener speaks plain ws://, so its token crosses that network
+        /// in clear; prefer loopback reached through ssh or a TLS proxy.
+        #[arg(long)]
+        insecure_network_listen: bool,
         /// Keep everything in memory. Nothing survives restart.
         #[arg(long)]
         memory: bool,
@@ -1107,6 +1116,11 @@ pub enum DaemonCmd {
         /// Bearer token WebSocket clients must present.
         #[arg(long)]
         token: Option<String>,
+        /// Allow a network (non-loopback) --listen or websocket.listen address.
+        /// The listener speaks plain ws://, so its token crosses that network
+        /// in clear; prefer loopback reached through ssh or a TLS proxy.
+        #[arg(long)]
+        insecure_network_listen: bool,
         /// Keep everything in memory. Nothing survives restart.
         #[arg(long)]
         memory: bool,
@@ -1302,6 +1316,7 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Run {
                 listen,
                 token,
+                insecure_network_listen,
                 memory,
                 log,
                 ready_fd,
@@ -1311,6 +1326,7 @@ pub fn flatten(c: Command) -> Command {
             } => Command::DaemonRun {
                 listen,
                 token,
+                insecure_network_listen,
                 memory,
                 log,
                 ready_fd,

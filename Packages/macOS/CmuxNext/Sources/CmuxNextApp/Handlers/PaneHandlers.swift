@@ -57,7 +57,7 @@ enum PaneHandlers {
             // Zellij's new pane: the largest shown scrolling pane, never a docked
             // column; a run that names a pane splits that one (PanePlacementRouting).
             let pane = PanePlacementRouting.autoLayoutTarget(ctx, invocation, from: focused)
-            let aimed = pane === focused ? invocation : PanePlacementRouting.aimed(invocation, at: pane.pane, from: focused)
+            let aimed = pane === focused ? invocation : PanePlacementRouting.aimed(invocation, at: pane.pane, on: pane.daemon.machineID, from: focused)
             // The longer side first; the other axis when only it has room; split refuses when neither has.
             let (preferred, fitting) = PanePlacementRouting.autoLayoutDirection(ctx, pane)
             split(ctx, aimed, direction: fitting ?? preferred)
@@ -234,19 +234,11 @@ enum PaneHandlers {
     // MARK: Sizing
 
     private static func bindSizing(_ registry: ActionRegistry, _ ctx: AppActionContext) {
-        let resizes: [(ActionID, LayoutDirection)] = [
-            ("resizePaneLeft", .left), ("resizePaneRight", .right), ("resizePaneUp", .up), ("resizePaneDown", .down),
-        ]
+        let resizes: [(ActionID, LayoutDirection)] = [("resizePaneLeft", .left), ("resizePaneRight", .right), ("resizePaneUp", .up), ("resizePaneDown", .down)]
         for (id, direction) in resizes {
             registry.bind(id, invoke: { invocation in
-                guard let pane = ctx.paneController(invocation), let content = pane.workspace,
-                      let screen = content.layoutModel.screen(containing: pane.layoutPaneID) else { return }
-                switch PaneResize.change(for: pane.layoutPaneID, direction: direction, in: screen.layout) {
-                case .splitRatio(let split, let ratio):
-                    content.layoutModel.setSplitRatio(split, ratio: ratio, transaction: .make(), phase: .ended)
-                case .columnWidth(let column, let width):
-                    content.layoutModel.setColumnWidth(column, width: width, transaction: .make(), phase: .ended)
-                case nil:
+                guard let pane = ctx.paneController(invocation), let content = pane.workspace else { return }
+                if !PaneResize.press(pane.layoutPaneID, direction, model: content.layoutModel, view: content.layoutView) {
                     ctx.refuseQuietly(RefusalStrings.noDividerToMove(RefusalStrings.direction(direction)))
                 }
             })

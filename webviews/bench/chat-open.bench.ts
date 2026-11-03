@@ -12,7 +12,9 @@
 // The stages that follow `attach` are the page's own: parse, first render and layout passes.
 // Long tasks (count, total) and the layout-shift sum cover the whole load; the transcript's scroll drift
 // after `latest` says how much the page still moved after the newest messages appeared.
-//   bun bench/chat-open.bench.ts [rounds=7] [turns=300]
+//   [LATENCY=ms] [HOST_LATENCY=ms] bun bench/chat-open.bench.ts [rounds=7] [turns=300]
+// REVEAL=1 also opens an offscreen message after the chat settles, then records scroll drift
+// from its first visible frame, delayed scrollIntoView calls and transcript-wide row scans.
 // PROFILE=1 adds a CPU profile of one load and prints the functions with the most self time between
 // navigation and the newest message plus 500 ms. The build is then unminified (so functions keep their
 // names) and every timed round runs on it, so the stage times are not the production build's.
@@ -22,19 +24,37 @@ import os from "node:os";
 import path from "node:path";
 import { chromium } from "playwright";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
+import { perfRow, TARGET_MS } from "./perfRow";
 
 const ROUNDS = Number(process.argv[2] ?? 7);
 const TURNS = Number(process.argv[3] ?? 300);
+/// LATENCY=ms delays every answer, as a busy daemon or the app's bridge does (chat-switch.bench.ts):
+/// the open's serial round trips before its newest message show as multiples of it.
+const LATENCY = Number(process.env.LATENCY ?? 0);
+/// HOST_LATENCY=ms answers the app host's read of where the chat opens (`chat.scrollAnchor.get`)
+/// that late, as the app's host does over its bridge (the browser dev host refuses it at once).
+const HOST_LATENCY = Number(process.env.HOST_LATENCY ?? 0);
+const REVEAL = process.env.REVEAL === "1";
+const REVEAL_MESSAGE = "bench-reveal";
+const REVEAL_TURN = Math.max(1, TURNS - 40);
+const REVEAL_ROW = `assistant-${(REVEAL_TURN - 1) * 4 + 3}`;
 const webviews = path.resolve(import.meta.dir, "..");
 const LATEST = `Answer ${TURNS}:`;
 
 const { events, session } = papercutEvents({ turns: TURNS, running: false });
+if (REVEAL) {
+  const event = events.find((event) => event.seq === (REVEAL_TURN - 1) * 4 + 3)!;
+  const update = (event.msg.params as { update: Record<string, unknown> }).update;
+  update.messageId = REVEAL_MESSAGE;
+}
 let attachedAt = 0;
 let attachBytes = 0;
 let attachEvents = 0;
 /// When each protocol call first reached the stand-in in this load (epoch ms).
 let arrivals = new Map<string, number>();
 let socketOpenedAt = 0;
+/// Every call of this load, with when it came (ms after the socket opened), for TRACE=1.
+let calls: string[] = [];
 /// The newest `limit` events before `beforeSeq`, oldest first, and whether older ones remain: the page the
 /// daemon answers an attach or an older-history read with.
 const newest = (limit: number, beforeSeq = Infinity) => {
@@ -148,10 +168,15 @@ try {
       message(ws, raw) {
         const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, unknown> };
         if (!arrivals.has(message.method)) arrivals.set(message.method, Date.now());
+        calls.push(`${message.method} ${Date.now() - socketOpenedAt}`);
         if (message.id === undefined) return;
         const result = answer(message.method, (message as { params?: Record<string, unknown> }).params);
-        if (message.method === "_acpmux/attach") attachedAt = Date.now();
-        ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+        const reply = () => {
+          if (message.method === "_acpmux/attach") attachedAt = Date.now();
+          ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+        };
+        if (LATENCY > 0) setTimeout(reply, LATENCY);
+        else reply();
       },
     },
   });
@@ -180,10 +205,17 @@ try {
   });
   releases.push(["static server", () => statics.stop(true)]);
   const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${PAPERCUT_CHAT}`;
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({
+    ...(process.env.CMUX_CHROME_HEADLESS_SHELL
+      ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL }
+      : { channel: "chrome" }),
+    headless: true,
+  });
   releases.push(["browser", () => browser.close()]);
 
+  type Reveal = { first: number; settled: number; drift: number; driftPx: number; centers: number; scans: number };
   type Round = {
+    reveal: Reveal;
     attach: number;
     firstRow: number;
     latest: number;
@@ -208,12 +240,17 @@ try {
     };
   };
   const open = async (rail = "compact"): Promise<Round> => {
-    const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+    const page = await browser.newPage({ viewport: { width: 1200, height: 800 }, deviceScaleFactor: REVEAL ? 2 : 1 });
     await page.addInitScript((rail) => {
       localStorage.setItem("cmux.experiments", JSON.stringify({ "thread-minimap-layout": rail }));
     }, rail);
     await page.addInitScript(
-      ([latestText, instrument]) => {
+      ([latestText, instrument, hostLatency]) => {
+        if (hostLatency > 0)
+          (window as unknown as { cmuxAcpmuxActions: Record<string, () => Promise<unknown>> }).cmuxAcpmuxActions = {
+            // fixed-wait: the stand-in host's answer latency is what this run measures.
+            "chat.scrollAnchor.get": () => new Promise((resolve) => setTimeout(() => resolve(null), hostLatency)),
+          };
         const forced = {
           writes: 0,
           writeMs: 0,
@@ -225,7 +262,7 @@ try {
         (window as unknown as { __forced: typeof forced }).__forced = forced;
         // INSTRUMENT=1: scroll writes and layout reads the page makes, and the time each takes (a write
         // or read after a DOM change is where the browser lays out synchronously).
-        if (instrument) {
+        if (instrument === true) {
           const top = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop")!;
           Object.defineProperty(Element.prototype, "scrollTop", {
             ...top,
@@ -249,6 +286,26 @@ try {
             forced.readMs += performance.now() - started;
             return box;
           };
+        }
+        // TRACE=1: when the page made its socket and each fetch went out and came back, so an idle
+        // stretch before the socket names what it waited on (with the scripts' load times, below).
+        const trace: string[] = [];
+        (window as unknown as { __trace: string[] }).__trace = trace;
+        if (instrument === "trace") {
+          const Socket = window.WebSocket;
+          window.WebSocket = class extends Socket {
+            constructor(url: string | URL, protocols?: string | string[]) {
+              trace.push(`${performance.now().toFixed(0)} socket made`);
+              super(url, protocols);
+              this.addEventListener("open", () => trace.push(`${performance.now().toFixed(0)} socket open`));
+            }
+          } as typeof WebSocket;
+          const fetched = window.fetch;
+          window.fetch = Object.assign((input: RequestInfo | URL, init?: RequestInit) => {
+            const what = `${String(input instanceof Request ? input.url : input).replace(location.origin, "")} ${String(init?.body ?? "").slice(0, 60)}`;
+            trace.push(`${performance.now().toFixed(0)} fetch ${what}`);
+            return fetched(input, init).finally(() => trace.push(`${performance.now().toFixed(0)} fetched ${what}`));
+          }, fetched);
         }
         const state = { firstRow: 0, latest: 0, activity: 0, longTasks: 0, longMs: 0, shift: 0, top: -1, drift: 0 };
         (window as unknown as { __open: typeof state }).__open = state;
@@ -275,8 +332,16 @@ try {
           const now = performance.now();
           if (!state.firstRow && document.querySelector("[data-row-id]"))
             afterPaint(() => (state.firstRow ||= performance.now()));
-          if (!state.latest && document.body.textContent?.includes(latestText))
+          if (!state.latest && document.body.textContent?.includes(latestText)) {
+            // TRACE=1: how much the first frame with the newest message drew.
+            if (instrument === "trace") {
+              const count = (selector: string) => document.querySelectorAll(selector).length;
+              trace.push(
+                `${now.toFixed(0)} drawn: ${count("[data-row-id]")} rows, ${count(".acpmux-minimap__entry")} rail entries, ${count("*")} elements, ${count(".acpmux-composer *, .acpmux-header *")} in composer and header`,
+              );
+            }
             afterPaint(() => (state.latest ||= performance.now()));
+          }
           const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
           const top = scroller ? scroller.scrollTop + scroller.scrollHeight : -1;
           if (top !== state.top) {
@@ -288,10 +353,11 @@ try {
         };
         requestAnimationFrame(tick);
       },
-      [LATEST, process.env.INSTRUMENT === "1"] as const,
+      [LATEST, process.env.TRACE === "1" ? "trace" : process.env.INSTRUMENT === "1", HOST_LATENCY] as const,
     );
     attachedAt = 0;
     arrivals = new Map();
+    calls = [];
     socketOpenedAt = 0;
     const started = Date.now();
     await page.goto(url);
@@ -324,8 +390,14 @@ try {
         .filter(
           (r) => (r as PerformanceResourceTiming).initiatorType === "script" || r.name.endsWith(".js"),
         ) as PerformanceResourceTiming[];
+      const loads = (performance.getEntriesByType("resource") as PerformanceResourceTiming[]).map(
+        (r) => `${r.responseEnd.toFixed(0)} loaded ${r.name.split("/").pop()} (from ${r.startTime.toFixed(0)})`,
+      );
       return {
         ...state,
+        trace: [...(window as unknown as { __trace: string[] }).__trace, ...loads].sort(
+          (a, b) => Number.parseFloat(a) - Number.parseFloat(b),
+        ),
         origin: performance.timeOrigin,
         forced,
         dcl: nav.domContentLoadedEventEnd,
@@ -335,11 +407,89 @@ try {
           .sort((a, b) => Number(b.split(" ").at(-2)) - Number(a.split(" ").at(-2))),
       };
     });
+    const reveal = REVEAL
+      ? await page.evaluate(
+          async ({ message, rowId }): Promise<Reveal> => {
+            const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+            const result: Reveal = { first: 0, settled: 0, drift: 0, driftPx: 0, centers: 0, scans: 0 };
+            const intoView = Element.prototype.scrollIntoView;
+            const query = Document.prototype.querySelectorAll;
+            const elementQuery = Element.prototype.querySelectorAll;
+            Element.prototype.scrollIntoView = function (options) {
+              result.centers += 1;
+              return intoView.call(this, options);
+            };
+            Document.prototype.querySelectorAll = function (this: Document, selector: string) {
+              if (selector === "[data-row-id]") result.scans += 1;
+              return query.call(this, selector);
+            } as typeof query;
+            Element.prototype.querySelectorAll = function (this: Element, selector: string) {
+              if (selector === "[data-row-id]") result.scans += 1;
+              return elementQuery.call(this, selector);
+            } as typeof elementQuery;
+            const started = performance.now();
+            let top = scroller.scrollTop;
+            let firstTop = top;
+            let activity = started;
+            try {
+              window.cmuxAcpmuxBridge!.revealTurn!(`message:${message}`);
+              await new Promise<void>((resolve, reject) => {
+                const tick = () => {
+                  const now = performance.now();
+                  const row = document.querySelector<HTMLElement>(`[data-row-id="${rowId}"]`);
+                  const box = row?.getBoundingClientRect();
+                  const view = scroller.getBoundingClientRect();
+                  if (!result.first && box && box.bottom > view.top && box.top < view.bottom) {
+                    result.first = now - started;
+                    firstTop = scroller.scrollTop;
+                    activity = now;
+                  }
+                  if (scroller.scrollTop !== top) {
+                    if (result.first && now - started > result.first) result.drift += 1;
+                    top = scroller.scrollTop;
+                    activity = now;
+                  }
+                  if (result.first) result.driftPx = Math.max(result.driftPx, Math.abs(top - firstTop));
+                  // A quiet 500 ms includes the old marker's 100 ms poll, rather than stopping at
+                  // the virtual layout's first scroll and missing its delayed DOM recenter.
+                  if (result.first && now - activity > 500) {
+                    result.settled = activity - started;
+                    resolve();
+                  } else if (now - started > 5000)
+                    reject(new Error("message reveal did not become visible and settle"));
+                  else requestAnimationFrame(tick);
+                };
+                requestAnimationFrame(tick);
+              });
+              return result;
+            } finally {
+              Element.prototype.scrollIntoView = intoView;
+              Document.prototype.querySelectorAll = query;
+              Element.prototype.querySelectorAll = elementQuery;
+            }
+          },
+          { message: REVEAL_MESSAGE, rowId: REVEAL_ROW },
+        )
+      : { first: 0, settled: 0, drift: 0, driftPx: 0, centers: 0, scans: 0 };
+    if (REVEAL && process.env.FAST_CHECKS_OUT)
+      await page
+        .locator(".acpmux-scroll")
+        .screenshot({ path: path.join(process.env.FAST_CHECKS_OUT, `reveal-${rail}.png`) });
     await page.close();
     const attach = attachedAt ? attachedAt - got.origin : 0;
+    if (process.env.TRACE === "1") {
+      console.log(
+        `trace of one load (ms from navigation): attach answered ${attach.toFixed(0)}, latest ${got.latest.toFixed(0)}`,
+      );
+      for (const line of got.trace as string[]) console.log(`  ${line}`);
+      console.log(
+        `  calls (ms after the socket opened at ${(socketOpenedAt - got.origin).toFixed(0)}): ${calls.join(", ")}`,
+      );
+    }
     const at = (when: number | undefined) => (when ? when - got.origin : 0);
     void started;
     return {
+      reveal,
       attach,
       firstRow: got.firstRow,
       latest: got.latest,
@@ -372,6 +522,7 @@ try {
         nodes: {
           id: number;
           callFrame: { functionName: string; url: string; lineNumber: number; columnNumber: number };
+          children?: number[];
         }[];
         samples: number[];
         timeDeltas: number[];
@@ -387,9 +538,55 @@ try {
       const key = `${frame.functionName || "(anon)"} ${where}`;
       self.set(key, (self.get(key) ?? 0) + (profile.timeDeltas[index] ?? 0) / 1000);
     });
+    // By script (or native, program, garbage collector) and by elapsed window: where the boot goes.
+    const byFile = new Map<string, number>();
+    const byWindow = new Map<string, number>();
+    let clock = 0;
+    profile.samples.forEach((id, index) => {
+      clock += (profile.timeDeltas[index] ?? 0) / 1000;
+      const frame = byId.get(id)!.callFrame;
+      const file = frame.url.split("/").slice(-1)[0] || frame.functionName || "(native)";
+      byFile.set(file, (byFile.get(file) ?? 0) + (profile.timeDeltas[index] ?? 0) / 1000);
+      if (frame.functionName === "(idle)") return;
+      const bucket = `${Math.floor(clock / 25) * 25} ms`;
+      byWindow.set(bucket, (byWindow.get(bucket) ?? 0) + (profile.timeDeltas[index] ?? 0) / 1000);
+    });
+    // The busiest functions (self time, with their callers' file) in each 100 ms of the load.
+    const perWindow = new Map<number, Map<string, number>>();
+    const parents = new Map<number, (typeof profile.nodes)[number]>();
+    for (const node of profile.nodes) for (const child of node.children ?? []) parents.set(child, node);
+    let at = 0;
+    profile.samples.forEach((id, index) => {
+      const delta = (profile.timeDeltas[index] ?? 0) / 1000;
+      at += delta;
+      const node = byId.get(id)!;
+      if (node.callFrame.functionName === "(idle)") return;
+      // A native frame (layout, style, compile) is named with its nearest JS caller.
+      let named = node;
+      while (named && !named.callFrame.url) named = parents.get(named.id) ?? (undefined as never);
+      const frame = named?.callFrame ?? node.callFrame;
+      const key = `${node.callFrame.functionName || "(anon)"}${named && named !== node ? ` <- ${frame.functionName || "(anon)"} ${mapper(frame.url.split("/").pop() ?? "", frame.lineNumber, frame.columnNumber)}` : ` ${mapper(frame.url.split("/").pop() ?? "", frame.lineNumber, frame.columnNumber)}`}`;
+      const window = Math.floor(at / 100) * 100;
+      const bucket = perWindow.get(window) ?? new Map<string, number>();
+      bucket.set(key, (bucket.get(key) ?? 0) + delta);
+      perWindow.set(window, bucket);
+    });
+    for (const [window, bucket] of [...perWindow].sort((a, b) => a[0] - b[0]).slice(0, 8)) {
+      const busy = [...bucket.values()].reduce((a, b) => a + b, 0);
+      console.log(`window ${window}-${window + 100} ms: busy ${busy.toFixed(0)} ms`);
+      for (const [key, ms] of [...bucket].sort((a, b) => b[1] - a[1]).slice(0, 7))
+        console.log(
+          `  ${ms.toFixed(1)}\t${key.replace(/home\/runner\/_work\/cmux\/cmux\/.fast-checks-checkout\/webviews\//g, "").slice(0, 150)}`,
+        );
+    }
+    console.log("profile by script (ms):");
+    for (const [key, ms] of [...byFile].sort((a, b) => b[1] - a[1]).slice(0, 15))
+      console.log(`${ms.toFixed(1)}\t${key}`);
+    console.log("busy per 25 ms window from profile start (ms):");
+    console.log([...byWindow].map(([key, ms]) => `${key}: ${ms.toFixed(0)}`).join(", "));
     const total = [...self.values()].reduce((a, b) => a + b, 0);
     console.log(`profile: ${total.toFixed(0)} ms sampled; top self time (ms)`);
-    for (const [key, ms] of [...self].sort((a, b) => b[1] - a[1]).slice(0, 30)) console.log(`${ms.toFixed(1)}\t${key}`);
+    for (const [key, ms] of [...self].sort((a, b) => b[1] - a[1]).slice(0, 45)) console.log(`${ms.toFixed(1)}\t${key}`);
     await page.close();
   }
   // ARMS=off,compact: the thread rail's layout per arm (compact is the default), interleaved in
@@ -403,7 +600,7 @@ try {
     const median = (pick: (r: Round) => number) =>
       rounds.map(pick).sort((a, b) => a - b)[Math.floor(rounds.length / 2)]!;
     console.log(
-      `chat-open [rail ${arm}]: ${TURNS} turns, ${events.length} events, attach page ${attachEvents} events, ${(attachBytes / 1024).toFixed(0)} KiB, median of ${ROUNDS}`,
+      `chat-open [rail ${arm}]: ${TURNS} turns, answers delayed ${LATENCY} ms (host ${HOST_LATENCY} ms), ${events.length} events, attach page ${attachEvents} events, ${(attachBytes / 1024).toFixed(0)} KiB, median of ${ROUNDS}`,
     );
     console.log(
       "boot: page DOMContentLoaded ms | socket opened ms | initialize arrived ms | watch arrived ms | script KiB (decoded)",
@@ -440,6 +637,42 @@ try {
         median((r) => r.drift).toFixed(0),
       ].join(" | "),
     );
+    if (REVEAL) {
+      console.log(
+        "reveal: first visible ms | settled ms | moves after visible | max drift px | scrollIntoView calls | row scans",
+      );
+      console.log(
+        (["first", "settled", "drift", "driftPx", "centers", "scans"] as const)
+          .map((key) => median((r) => r.reveal[key]).toFixed(1))
+          .join(" | "),
+      );
+      for (const [metric, unit] of [
+        ["first", "ms"],
+        ["settled", "ms"],
+        ["drift", "count"],
+        ["driftPx", "px"],
+        ["centers", "count"],
+        ["scans", "count"],
+      ] as const)
+        perfRow({
+          name: `chat_open.${arm}.reveal_${metric.toLowerCase()}`,
+          p50: median((r) => r.reveal[metric]),
+          p95: median((r) => r.reveal[metric]),
+          unit,
+        });
+    }
+    // The median of rounds, as both p50 and p95 (perfRow.ts); stages from navigation start.
+    for (const [stage, pick, target] of [
+      ["attach", (r: Round) => r.attach, undefined],
+      ["first_row", (r: Round) => r.firstRow, undefined],
+      ["latest", (r: Round) => r.latest, TARGET_MS.load],
+      ["settled", (r: Round) => r.settled, undefined],
+      // The page's own work once the history has left the daemon: parse, first render and layout.
+      ["attach_to_latest", (r: Round) => r.latest - r.attach, undefined],
+      ["dom_content_loaded", (r: Round) => r.dcl, undefined],
+      ["long_ms", (r: Round) => r.longMs, undefined],
+    ] as const)
+      perfRow({ name: `chat_open.${arm}.${stage}`, p50: median(pick), p95: median(pick), target });
   }
 } finally {
   await release();

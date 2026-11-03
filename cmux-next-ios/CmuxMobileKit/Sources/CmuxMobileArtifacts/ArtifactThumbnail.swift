@@ -248,7 +248,7 @@ extension ArtifactThumbnail {
 extension ArtifactMemo where Value == ArtifactThumbnail {
     /// `scale`: the display's (an HTML snapshot is rendered off screen, where no window tells it).
     func thumbnail(for artifact: TerminalArtifact, source: any ArtifactSource, scale: CGFloat) async -> ArtifactThumbnail? {
-        await value(for: artifact) { artifact in
+        await value(for: artifact, scope: source.thumbnailCacheScope) { artifact in
             // A Mac temporarily offline, a cancelled tile or a failed link
             // throws. Keep those failures out of the shared thumbnail cache.
             // A loaded artifact with no visual representation still caches nil.
@@ -260,6 +260,14 @@ extension ArtifactMemo where Value == ArtifactThumbnail {
                 return nil
             }
         }
+    }
+}
+
+/// A new signed-in account must never inherit thumbnail bytes from a prior
+/// account. In-flight makers are cancelled and cannot repopulate this cache.
+public enum ArtifactThumbnailCacheLifecycle {
+    public static func clearForSignOut() {
+        ArtifactThumbnail.cache.clear()
     }
 }
 #endif

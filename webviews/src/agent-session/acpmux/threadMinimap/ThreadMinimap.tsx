@@ -9,7 +9,7 @@
 // the numbers are in model.ts.
 import React, { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { type AcpmuxRow, type ConversationLayout } from "../model";
+import { layoutGeometry, type AcpmuxRow, type TranscriptLayout } from "../model";
 import { useT } from "../i18n";
 import { layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
 import { MinimapTick } from "../../../ui/MinimapTick";
@@ -26,6 +26,7 @@ import {
   stopScroll,
 } from "./scrollMotion";
 import { RAIL_SCROLLS_ATTRIBUTE } from "./railWheel";
+import { wheelPixels } from "../wheelPassThrough";
 import { PreviewCard } from "./PreviewCard";
 import { railEdge, useRailSide } from "./railSide";
 import { ContextMenu } from "../../../ui/ContextMenu";
@@ -51,6 +52,7 @@ import {
   railScrollTop,
   railTop as railTopAt,
   ROW_PITCH,
+  rowTopsOf,
   SETTLE_FRAMES,
   SHIFT_MS,
   STEP_CURVE,
@@ -147,7 +149,7 @@ export function ThreadMinimap({
   promptCount?: number;
   loadThrough?: (seq: number) => Promise<boolean>;
   sessionId?: string;
-  layout: ConversationLayout;
+  layout: TranscriptLayout;
   scroller: React.RefObject<HTMLElement | null>;
   scrollTop: number;
   viewportHeight: number;
@@ -286,6 +288,8 @@ export function ThreadMinimap({
   const [domFocus, setDomFocus] = useState<{ sessionId?: string; key: string } | undefined>(undefined);
   const rail = useRef<HTMLElement>(null);
   const list = useRef<HTMLOListElement>(null);
+  /// The pane-edge strip: the rail's padding toward the pane edge, which is part of its hover area.
+  const strip = useRef<HTMLSpanElement>(null);
   const card = useRef<HTMLDivElement>(null);
   const cardId = useId();
   /// A press is under way: the focus it brings is not keyboard focus.
@@ -306,14 +310,16 @@ export function ThreadMinimap({
   /// did, and the transcript restores the reader's place only after that commit, with a scroll. Until
   /// that scroll arrives, the band reads the offset as it will be.
   const restoring = useRef<{ from: number; by: number } | undefined>(undefined);
+  /// Turn tops read from the transcript's geometry, a few turns at a time (nothing copies every row).
+  const tops = useMemo(() => rowTopsOf(layoutGeometry(layout)), [layout]);
   const added = prependedBy(anchor.current, ticks);
   const anchored = added === undefined ? undefined : turns[anchor.current!.index + added];
   const seen = domTop.current && domTop.current.sessionId === sessionId ? domTop.current.top : undefined;
   if (anchored && seen !== undefined)
-    restoring.current = { from: seen, by: (layout.tops[anchored.index] ?? 0) - anchor.current!.layoutTop };
+    restoring.current = { from: seen, by: (tops(anchored.index) ?? 0) - anchor.current!.layoutTop };
   const shift = restoring.current && restoring.current.from === seen ? restoring.current.by : 0;
   const top = (seen ?? scrollTop) + shift;
-  const onScreen = visibleTurns(turns, layout.tops, layout.totalHeight, top, viewportHeight, loadedStart);
+  const onScreen = visibleTurns(turns, tops, layout.totalHeight, top, viewportHeight, loadedStart);
   const boxHeight = railBox?.height ?? viewportHeight;
   const boxFoot = railBox?.foot ?? foot;
   /// The window the rail's 92% cap reads. Without one (no layout), the rail's own box stands in, not
@@ -358,9 +364,15 @@ export function ThreadMinimap({
   const inUse = railRevealed || hovered !== undefined || domFocus !== undefined || cardFocus || scrubbing;
   const widens = (placement.overlapsText && railVisible) || (inUse && placement.width < TICK_BOX + 4);
   const railWidth = widens ? ROW_WIDTH : placement.width;
-  // The occluded rail's hover strip reaches the text edge and no further, so clicks, links and
-  // selection drags on the text stay the text's; it keeps at least the pane-edge inset at any width.
-  const stripWidth = Math.max(placement.left, Math.min(placement.left + placement.width, placement.gutter));
+  // The occluded rail's hover strip reaches the text edge, so clicks, links and selection drags on the
+  // text stay the text's, and at least over the resting ticks it draws there: a chat column narrower
+  // than its pane (Session Info beside it) leaves the dimmed rail past the text edge, and hovering what
+  // is drawn must reveal it (Leo, 2026-11-03: "when the scroll rail resizes i can no longer hover on
+  // it :(" then "*when the pane gets real small horizontally").
+  const stripWidth = Math.max(
+    placement.left + Math.ceil(tickLength(0)),
+    Math.min(placement.left + placement.width, placement.gutter),
+  );
   // A view with no room for a single row (the transcript is at least 96 px tall) draws no rail. At
   // narrow widths the pane-edge strip stays live even while the visual rail is occluded by text.
   const shown = arm === "compact" && known >= MIN_PROMPTS && turns.length > 0 && height >= ROW_PITCH;
@@ -370,7 +382,7 @@ export function ThreadMinimap({
   const live = useRef({
     turns,
     ticks,
-    tops: layout.tops,
+    tops,
     total: layout.totalHeight,
     marks,
     viewportHeight,
@@ -384,7 +396,7 @@ export function ThreadMinimap({
     live.current = {
       turns,
       ticks,
-      tops: layout.tops,
+      tops,
       total: layout.totalHeight,
       marks,
       viewportHeight,
@@ -435,6 +447,27 @@ export function ThreadMinimap({
       event.stopPropagation();
     };
     node.addEventListener("wheel", wheel, { capture: true, passive: true });
+    return () => node.removeEventListener("wheel", wheel, { capture: true });
+  }, [overflow, shown]);
+
+  // The padding between the pane edge and the rail is the rail's too (Leo, 2026-10-28: "I said me
+  // scroll on it, cover area, it scroll, plus the padding"): the strip there reveals the rail on
+  // hover, so the wheel over it scrolls the rail's list as the wheel over the list does, and never the
+  // transcript. The strip is no scroll container, so this listener moves the list itself; it is not
+  // passive because the browser would otherwise scroll the transcript under it. A pinch or a mostly
+  // sideways wheel is left alone.
+  useEffect(() => {
+    const node = strip.current;
+    if (!node || !overflow) return;
+    const wheel = (event: WheelEvent) => {
+      const target = list.current;
+      if (!target || event.ctrlKey || Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      railBrowsing.current = { sessionId: live.current.sessionId };
+      target.scrollTop += wheelPixels(event, target.clientHeight);
+    };
+    node.addEventListener("wheel", wheel, { capture: true, passive: false });
     return () => node.removeEventListener("wheel", wheel, { capture: true });
   }, [overflow, shown]);
 
@@ -498,11 +531,16 @@ export function ThreadMinimap({
       }, drop);
       return undefined;
     }
-    const target = () =>
-      physicalScrollTop(
+    const targetRef: TickRef = { key: turn.key, id: turn.id };
+    // History prepended mid-ride moves the turn's index; read its top by key so the landing tracks it.
+    const target = () => {
+      const currentIndex = tickIndex(live.current.ticks, targetRef);
+      const currentTurn = (currentIndex >= 0 ? live.current.turns[currentIndex] : undefined) ?? turn;
+      return physicalScrollTop(
         node,
-        Math.min(turnScrollTop(turn, live.current.tops), Math.max(0, live.current.total - node.clientHeight)),
+        Math.min(turnScrollTop(currentTurn, live.current.tops), Math.max(0, live.current.total - node.clientHeight)),
       );
+    };
     let row = mountedRow(node, turn.id);
     // Keep the mounted target through the settle. Virtualization may replace it, so a stale
     // element is looked up again; ordinary frames never scan all mounted transcript rows.
@@ -678,7 +716,7 @@ export function ThreadMinimap({
         tick: { key: ticks[onScreen.first]!.key, id: ticks[onScreen.first]!.id },
         first: { key: ticks[0]!.key, id: ticks[0]!.id },
         index: onScreen.first,
-        layoutTop: layout.tops[first.index] ?? 0,
+        layoutTop: tops(first.index) ?? 0,
         y: railTop + onScreen.first * ROW_PITCH - scrolled,
       };
   });
@@ -925,9 +963,12 @@ export function ThreadMinimap({
       {/* Right-clicking the rail (or its narrow-pane strip) moves it to the other edge. */}
       <ContextMenu items={menu}>
         <span
+          ref={strip}
           className="acpmux-minimap__strip"
           aria-hidden="true"
           data-side={side}
+          // The wheel over the strip scrolls a list that scrolls itself (railWheel.ts), as over the list.
+          {...(overflow ? { [RAIL_SCROLLS_ATTRIBUTE]: "" } : {})}
           style={{
             ...railEdge(side, placement.reserve),
             top: boxTop,
@@ -1121,6 +1162,7 @@ export function ThreadMinimap({
           // Out of the scroller: its edge mask would keep the card's blur from the rows (PreviewCard.tsx).
           scroller={scroller.current}
           prompt={cardTurn.prompt}
+          from={cardTurn.from}
           reply={cardTurn.reply}
           metadata={cardTurn.metadata}
           bookmark={marks.can(cardTurn) ? { marked: cardMarked, toggle: () => marks.toggle(cardTurn) } : undefined}
@@ -1251,12 +1293,17 @@ const TickList = memo(function TickList({
           active={index === active}
           current={index >= first && index <= last}
           marked={marks.has(tick)}
+          incoming={tick.from !== undefined}
           describedBy={described === index ? cardId : undefined}
-          label={t(marks.has(tick) ? "minimap.tickBookmarked" : "minimap.tick", {
-            index: index + 1,
-            count: ticks.length,
-            prompt: tick.prompt,
-          })}
+          label={
+            tick.from !== undefined
+              ? t("minimap.tickFrom", { index: index + 1, count: ticks.length, name: tick.from, prompt: tick.prompt })
+              : t(marks.has(tick) ? "minimap.tickBookmarked" : "minimap.tick", {
+                  index: index + 1,
+                  count: ticks.length,
+                  prompt: tick.prompt,
+                })
+          }
           actions={actions}
         />
       </li>
@@ -1289,6 +1336,7 @@ const Tick = memo(function Tick({
   active,
   current,
   marked,
+  incoming,
   describedBy,
   label,
   actions,
@@ -1303,6 +1351,8 @@ const Tick = memo(function Tick({
   active: boolean;
   current: boolean;
   marked: boolean;
+  /// Another session's message, not the person's prompt (model.ts `promptSender`).
+  incoming: boolean;
   describedBy?: string;
   label: string;
   actions: TickActions;
@@ -1324,6 +1374,7 @@ const Tick = memo(function Tick({
       data-focus-ring="tick"
       data-tone={active ? "active" : current ? "current" : "rest"}
       data-bookmarked={marked || undefined}
+      data-incoming={incoming || undefined}
       style={{ "--acpmux-minimap-place": entrance } as React.CSSProperties}
       aria-label={label}
       aria-current={current ? "true" : undefined}

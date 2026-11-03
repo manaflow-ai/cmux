@@ -10,6 +10,7 @@
 //! step). This tool runs the same calls inside the server.
 
 use serde_json::{Map, Value, json};
+use sha2::{Digest, Sha256};
 
 use super::{Backend, Server, envelope, tool_error, v2_tools};
 
@@ -17,6 +18,15 @@ pub(super) const NAME: &str = "open";
 
 /// The width a new right column takes (`crate::cli::beside::NEW_COLUMN_WIDTH`).
 const COLUMN_WIDTH: f64 = 0.5;
+
+fn stage_key(open_id: &str, phase: &str) -> String {
+    let mut hash = Sha256::new();
+    for part in ["cmux.mcp.open.v1", open_id, phase] {
+        hash.update(part.as_bytes());
+        hash.update([0]);
+    }
+    format!("mcp-open-{:x}", hash.finalize())
+}
 
 pub(super) fn descriptor() -> Value {
     json!({
@@ -35,7 +45,9 @@ pub(super) fn descriptor() -> Value {
                 "pane": {"type": "string", "description": "With pane: the pane that gets the tab. With left, below or above: the pane to split (default this chat's)."},
                 "workspace": {"type": "string", "description": "With workspace: the workspace that gets the tab."},
                 "edge": {"type": "string", "enum": ["right", "left", "top", "bottom"], "description": "With sticky: the edge the column docks to. Default right."},
-                "focus": {"type": "boolean", "description": "true moves the person's view to the new tab. Default false."}
+                "focus": {"type": "boolean", "description": "true moves the person's view to the new tab. Default false."},
+                "idempotency_key": {"type": "string", "minLength": 1, "maxLength": 128,
+                                    "description": "Stable identity for the whole split/open call. Reuse on retry."}
             }
         },
         "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false},
@@ -54,7 +66,17 @@ impl<B: Backend> Server<B> {
     /// Runs `open`: the target pane first (a split, a column or a named pane), then the
     /// app's open action into it.
     pub(super) fn call_open(&self, arguments: &Map<String, Value>) -> Value {
-        let known = ["kind", "path", "url", "where", "pane", "workspace", "edge", "focus"];
+        let known = [
+            "kind",
+            "path",
+            "url",
+            "where",
+            "pane",
+            "workspace",
+            "edge",
+            "focus",
+            "idempotency_key",
+        ];
         if let Some(name) = arguments.keys().find(|name| !known.contains(&name.as_str())) {
             return invalid(format!("open has no argument {name:?}"));
         }
@@ -91,6 +113,19 @@ impl<B: Backend> Server<B> {
         let arguments = &arguments;
         let place = place.as_str();
         let focus = arguments.get("focus").and_then(Value::as_bool).unwrap_or(false);
+        let open_id = match arguments.get("idempotency_key") {
+            Some(Value::String(key)) => {
+                if let Err(error) = cmux_tui_core::resource::validate_idempotency_key(key) {
+                    return invalid(error.message);
+                }
+                key.to_owned()
+            }
+            Some(_) => return invalid("open idempotency_key must be a nonempty string"),
+            None => match super::super::wire::random_idempotency_key() {
+                Ok(key) => key,
+                Err(error) => return invalid(error.0),
+            },
+        };
         // The app first: with no app to show the viewer, no split is left behind.
         let Some(tool) = self.actions.iter().find(|tool| tool.cli_name == action) else {
             return invalid(
@@ -104,9 +139,9 @@ impl<B: Backend> Server<B> {
             Some(value) if kind != "page" => Some(self.chat_path(value)),
             value => value.map(str::to_owned),
         };
-        let (target, made) = match self.open_target(place, arguments) {
+        let (target, made) = match self.open_target(place, arguments, &open_id) {
             Ok(target) => target,
-            Err(answer) => return answer,
+            Err(answer) => return self.failed_open(None, answer, &open_id),
         };
         let pane = target.clone();
         // A page opens as a tab beside a tab (`tab new-browser` takes a tab target, not a
@@ -114,7 +149,7 @@ impl<B: Backend> Server<B> {
         let target = match (kind, target) {
             ("page", Some(pane)) => match self.shown_tab(&pane) {
                 Ok(tab) => Some(tab),
-                Err(answer) => return self.undo_split(made, answer),
+                Err(answer) => return self.failed_open(made, answer, &open_id),
             },
             (_, target) => target,
         };
@@ -128,21 +163,47 @@ impl<B: Backend> Server<B> {
         if focus {
             run.insert("focus".into(), json!(true));
         }
-        let mut answer = self.call_action(tool, &run);
+        run.insert("idempotency_key".into(), json!(stage_key(&open_id, "app")));
+        let answer = self.call_action(tool, &run);
         if answer.get("isError").and_then(Value::as_bool) == Some(true) {
-            return self.undo_split(made, answer);
+            return self.failed_open(made, answer, &open_id);
         }
-        // The answer names the pane, so a second open can go beside it (`where: "below",
-        // pane`) with no layout read: "open a.txt and b.txt to compare" took Opus a split,
-        // a tab move and a close by hand (tests/tool-evals open-r16f).
-        if let Some(pane) = pane
-            && let Some(record) = answer.get_mut("structuredContent").and_then(Value::as_object_mut)
+        if let Some(mut receipt) = answer.get("structuredContent").cloned()
+            && let Some(object) = receipt.as_object_mut()
         {
-            record.insert("pane".into(), json!(pane));
-            let text = serde_json::to_string(record).unwrap_or_default();
-            answer["content"] = json!([{"type": "text", "text": text}]);
+            object.insert("open_idempotency_key".into(), json!(open_id));
+            // The answer names the pane, so a second open can go beside it (`where: "below",
+            // pane`) with no layout read: "open a.txt and b.txt to compare" took Opus a split,
+            // a tab move and a close by hand (tests/tool-evals open-r16f).
+            if let Some(pane) = pane {
+                object.insert("pane".into(), json!(pane));
+            }
+            return super::success(receipt, true);
         }
         answer
+    }
+
+    /// Only a confirmed refusal may undo an owned split. An app action can
+    /// complete before its acknowledgement arrives; on in_progress the
+    /// viewer may already be open, and closing its pane would discard it.
+    fn failed_open(&self, made: Option<String>, answer: Value, open_id: &str) -> Value {
+        if answer.pointer("/structuredContent/state").and_then(Value::as_str) == Some("in_progress")
+        {
+            let Some(mut receipt) = answer.get("structuredContent").cloned() else {
+                return answer;
+            };
+            let Some(record) = receipt.as_object_mut() else { return answer };
+            if let Some(pane) = made {
+                record.insert("created_pane".into(), json!(pane));
+            }
+            record.insert("open_idempotency_key".into(), json!(open_id));
+            record.insert(
+                "recovery".into(),
+                json!("The app may already have opened the viewer. Inspect created_pane and the app tabs; retry open with the same open_idempotency_key to reconcile the split and app action."),
+            );
+            return tool_error(receipt);
+        }
+        self.undo_split(made, answer)
     }
 
     /// After a failed open, closes the pane the call split for it, so a refused open leaves
@@ -218,6 +279,7 @@ impl<B: Backend> Server<B> {
         &self,
         place: &str,
         arguments: &Map<String, Value>,
+        open_id: &str,
     ) -> Result<(Option<String>, Option<String>), Value> {
         let pane = text(arguments, "pane");
         let made = |pane: String| (Some(pane.clone()), Some(pane));
@@ -256,7 +318,7 @@ impl<B: Backend> Server<B> {
                 let mut split = Map::new();
                 split.insert("pane".into(), json!(pane.unwrap_or("current")));
                 split.insert("direction".into(), json!(direction));
-                self.split_pane(&split).map(made)
+                self.split_pane(&split, open_id).map(made)
             }
             "right" => {
                 let mut neighbor = Map::new();
@@ -272,9 +334,9 @@ impl<B: Backend> Server<B> {
                 split.insert("pane".into(), json!(pane.unwrap_or("current")));
                 split.insert("direction".into(), json!("right"));
                 split.insert("viewport_width".into(), json!(COLUMN_WIDTH));
-                self.split_pane(&split).map(made)
+                self.split_pane(&split, open_id).map(made)
             }
-            "sticky" => self.sticky_pane(arguments),
+            "sticky" => self.sticky_pane(arguments, open_id),
             other => Err(invalid(format!(
                 "open where must be right, left, below, above, here, sticky, pane or workspace, not {other:?}"
             ))),
@@ -287,6 +349,7 @@ impl<B: Backend> Server<B> {
     fn sticky_pane(
         &self,
         arguments: &Map<String, Value>,
+        open_id: &str,
     ) -> Result<(Option<String>, Option<String>), Value> {
         let edge = text(arguments, "edge").unwrap_or("right");
         let screen = self.read(
@@ -302,7 +365,7 @@ impl<B: Backend> Server<B> {
         split.insert("pane".into(), json!("current"));
         split.insert("direction".into(), json!("right"));
         split.insert("viewport_width".into(), json!(COLUMN_WIDTH));
-        let pane = self.split_pane(&split)?;
+        let pane = self.split_pane(&split, open_id)?;
         let docked = (|| {
             let screen = self.read(
                 v2_tools::find("screen_get"),
@@ -315,11 +378,12 @@ impl<B: Backend> Server<B> {
             update.insert("column".into(), json!(column));
             update.insert("dock".into(), json!(true));
             update.insert("edge".into(), json!(edge));
+            update.insert("idempotency_key".into(), json!(stage_key(open_id, "dock")));
             self.read(v2_tools::find("column_update"), &update)
         })();
         match docked {
             Ok(_) => Ok((Some(pane.clone()), Some(pane))),
-            Err(answer) => Err(self.undo_split(Some(pane), answer)),
+            Err(answer) => Err(self.failed_open(Some(pane), answer, open_id)),
         }
     }
 
@@ -334,8 +398,10 @@ impl<B: Backend> Server<B> {
     }
 
     /// A new pane from `pane_split`: its id.
-    fn split_pane(&self, arguments: &Map<String, Value>) -> Result<String, Value> {
-        let created = self.read(v2_tools::find("pane_split"), arguments)?;
+    fn split_pane(&self, arguments: &Map<String, Value>, open_id: &str) -> Result<String, Value> {
+        let mut keyed = arguments.clone();
+        keyed.insert("idempotency_key".into(), json!(stage_key(open_id, "split")));
+        let created = self.read(v2_tools::find("pane_split"), &keyed)?;
         created
             .get("pane_id")
             .and_then(Value::as_str)

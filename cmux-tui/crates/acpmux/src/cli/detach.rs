@@ -6,7 +6,7 @@ use crate::cli::run::resolve_id;
 use crate::daemon::connect;
 use crate::rpc::method;
 use anyhow::Result;
-use serde_json::json;
+use serde_json::{Value, json};
 
 pub(crate) async fn run(session: &str, json_out: bool) -> Result<()> {
     let client = connect(true).await?;
@@ -14,7 +14,7 @@ pub(crate) async fn run(session: &str, json_out: bool) -> Result<()> {
     let v = client.request(method::MUX_DETACH_PARENT, json!({"sessionId": id})).await?;
     if json_out {
         print_json(&v)
-    } else if v["detached"] == true {
+    } else if v.get("detached") == Some(&Value::Bool(true)) {
         println!("detached")
     } else {
         println!("no parent: its turns go to no session's chat")

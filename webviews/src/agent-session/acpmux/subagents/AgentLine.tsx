@@ -19,8 +19,9 @@
 // subtitles are bad"): one leading glyph (the spinner while it works, else its own icon or its
 // harness's mark), never a second kind glyph beside it; the title; one muted trailing meta (what it
 // spent, a state worth reading, its time); the chevron. No agent-type subtitle on the line (the
-// tooltip and the hover card keep it). The tray reserves a status-word track beside the time,
-// including Running and Done, so every state keeps the same control geometry.
+// tooltip and the hover card keep it). The state word and then the time ("Done · 36s") end the line
+// as one cluster right beside the chevron (or beside Stop on a line that has one), never floating
+// mid-row (cmux#31492); Stop and the chevron keep their fixed columns.
 import type { CSSProperties, ReactNode } from "react";
 import { AgentMark, knownMark } from "../../shared/AgentMark";
 import { Tooltip } from "../../../ui/Tooltip";
@@ -181,14 +182,23 @@ export function AgentLine({
       </span>
       {trayColumns ? (
         <>
-          {/* The tray reserves a visible status track for every row. Keeping the word in the same
-              track for quiet (Running/Done/Cancelled) rows prevents a missing state from pulling
-              the duration toward the title or moving the Stop and chevron columns. */}
-          <span className="acpmux-summary-meta acpmux-agent-line__meta" data-tray-status>
-            <Tick className="acpmux-summary-agent__state" text={state} />
-          </span>
-          <span className="acpmux-summary-meta acpmux-agent-line__time" aria-hidden={time === undefined}>
-            {time}
+          {/* The state word, then the time ("Done · 36s"), one muted trailing cluster set against
+              the line's end: right beside the chevron, or beside Stop on a line that has one
+              (cmux#31492: the time and "Done" floated mid-row). State first, as Claude Code's and
+              ChatGPT's task rows read (Leo, 2026-11-02, on "36s Done": "this running thing now looks
+              mildly awkward"). The time ends the cluster, so a tick never moves its right edge. */}
+          <span className="acpmux-agent-line__trail">
+            <span className="acpmux-summary-meta acpmux-agent-line__meta" data-tray-status>
+              <Tick className="acpmux-summary-agent__state" text={state} />
+              {time !== undefined && (
+                <span className="acpmux-agent-line__sep" aria-hidden="true">
+                  ·
+                </span>
+              )}
+            </span>
+            <span className="acpmux-summary-meta acpmux-agent-line__time" aria-hidden={time === undefined}>
+              {time}
+            </span>
           </span>
           {/* Stop's track (the stop slot, outside this button, lies over it), then the chevron's,
               last at the line's end: the column the header's chevron ends in. */}

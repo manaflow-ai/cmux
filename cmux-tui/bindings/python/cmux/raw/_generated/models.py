@@ -3970,6 +3970,7 @@ class NewFrontendBrowserTabRequest:
     engine: str
     url: str
     pane: Union[Id, None, MissingType] = field(default=MISSING)
+    split: Union[ConversationTabSplit, None, MissingType] = field(default=MISSING)
     activate: Union[bool, MissingType] = field(default=MISSING)
     after: Union[Id, None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
@@ -4487,6 +4488,19 @@ class SendKeyRequest:
 class ServerStatsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/server-stats/request'
     include: Union[List[str], None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class SetAttachVisibilityRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-attach-visibility/request'
+    surface: Id
+    visible: bool
+
+
+@dataclass(frozen=True)
+class SetAttachVisibilityResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-attach-visibility/result'
+    viewers: int
 
 
 @dataclass(frozen=True)
@@ -6534,6 +6548,8 @@ __all__ = [
     'SendResult',
     'SendKeyRequest',
     'ServerStatsRequest',
+    'SetAttachVisibilityRequest',
+    'SetAttachVisibilityResult',
     'SetCellPixelsRequest',
     'SetClientInfoRequest',
     'SetClientSizingRequest',

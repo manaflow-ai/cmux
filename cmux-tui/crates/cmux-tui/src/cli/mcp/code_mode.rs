@@ -149,7 +149,8 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              - workspace_list, workspace_get, pane_list {{workspace}}, tab_list {{pane | \
              workspace}}, terminal_list, terminal_get: ids and names. Lists answer {{items: \
              [...]}}; a change answers {{value: {{...}}}} with the new ids (value.terminal_id, \
-             value.pane_id, value.tab_id).\n\
+             value.pane_id, value.tab_id). workspace_list also lists Cloud machines' \
+             workspaces, each with machine_id; {{machine}} picks one machine's.\n\
              - pane_neighbor_get {{pane: \"current\", direction: \"right\"}} answers {{pane: \
              {{id, ...}}}} for the pane on the person's right, or {{pane: null}}; \
              terminal_process_get {{terminal}} names the program running in a terminal.\n\
@@ -179,8 +180,10 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              pane that a moved tab can go into; initial_content: \"empty\" has no pane); \
              terminal_input_keys \
              {{terminal, keys: [\"ctrl+c\"]}} presses keys (enter, escape, up).\n\
-             - Groups: tab_group_create {{tabs: [ids], name}}; workspace_group_create {{name}}, \
-             then workspace_place {{workspace, group: <its id>}} for each member.\n\
+             - Groups: tab_group_create {{tabs: [ids], name}}; workspace_group_create {{name, \
+             reuse: true}} (the space's group of that name, made only when none has it; ask once, \
+             not once per member), then workspace_place {{workspace, group: <its id>}} for each \
+             member.\n\
              - Open a file, diff or page in cmux (not a terminal): open {{kind: \"file\" | \
              \"diff\" | \"page\", path | url, where}} in one call; where: right (default), \
              left, below, above, here, sticky (a docked column; edge), pane {{pane}}, workspace \

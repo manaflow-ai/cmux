@@ -29,11 +29,18 @@ extension CloudHandlers {
                 // now. An ended app link connects again on this gesture, and
                 // a paused machine resumes (idle auto-pause).
                 target?.attach(origin: connectOrigin(for: invocation))
-                creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession,
-                             reveals: invocation.allowsViewChange).start(in: window, existing: target)
-                // A CLI or agent hears that the workspace comes later: its machine is starting or connecting.
+                let creation = creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession,
+                                            reveals: invocation.allowsViewChange).start(in: window, existing: target)
+                guard let target else {
+                    // A CLI or agent hears the new machine's id and target once the server has it
+                    // (workspace_id too when it is already open), else pending: true; a refusal
+                    // (a plan the create needs) reaches it as a failure, never a card.
+                    reportCreatedMachine(creation, context)
+                    return
+                }
+                // A CLI or agent hears that the workspace comes later: its machine is connecting.
                 result("new cloud workspace", context) {
-                    (target.map { machineFields($0.machineID) } ?? [:]).merging(["pending": .bool(true), "status": .string(target == nil ? "creating" : "connecting")]) { field, _ in field }
+                    machineFields(target.machineID).merging(["pending": .bool(true), "status": .string("connecting")]) { field, _ in field }
                 }
                 return
             }
@@ -41,7 +48,7 @@ extension CloudHandlers {
                 // Made in the window it was asked from, like a local New Workspace; a CLI or agent
                 // run without focus leaves every window's view as it is.
                 let id = await context.services.windows.createWorkspace(on: session.daemon, into: window?.id)
-                RemoteGroupHandlers.mark(session: session.daemon.store.registryID) // one group per Cloud machine
+                RemoteGroupHandlers.mark(session: session.daemon.store.registryID, doc: context.services.sidebarDoc) // one group per Cloud machine
                 guard let id else { throw ActionFailure(message: CloudStrings.notConnected) }
                 if invocation.allowsViewChange { show(id, context) }
                 return machineFields(session.machineID, ["workspace_id": .string(id)])
@@ -189,16 +196,22 @@ extension CloudHandlers {
         (creation.bootstrapCompletion, creation.isTornDown)
     }
 
-    /// The machine New Cloud Workspace opens on, nil for a new one. It keeps the
-    /// active-window fallback for any caller (it only opens a workspace, and with
-    /// no machine a CLI run starts a new one), but a named `--target machine:<id>`
-    /// that is not there is refused, never answered with a new machine. With several
-    /// machines and none in view, it opens on the first one in sidebar order that is
-    /// connected or ``CloudMachine/takesUnnamedWorkspaces`` (the workspace joins that
-    /// machine's group); only with none a new VM starts and bills (Lawrence msg 1334).
+    /// The machine New Cloud Workspace opens on, nil for a new one of the workspace's own
+    /// (``CloudNewWorkspaceMachine``; design/cloud.md rule 1). A named `--target machine:<id>`
+    /// that is not there is refused, never answered with a new machine. The person's own
+    /// gesture opens on the machine their window shows; a CLI, MCP or agent run with no
+    /// target, or a person with no Cloud machine in view, gets a new machine, never the only
+    /// or first listed one (a teammate's, or a fleet lane VM).
     static func workspaceMachine(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> CloudMachineSession? {
-        if invocation.target?.kind == .machine { return try machine(invocation, context) }
-        return (try? machine(invocation, context, fallsBack: true)) ?? context.services.machines.cloud.first { $0.daemon.connection != nil || $0.machine.takesUnnamedWorkspaces }
+        let machines = context.services.machines
+        let focused = context.services.windows.active?.state.machineID
+        let named = invocation.target?.kind == .machine ? invocation.target?.id : nil
+        switch CloudNewWorkspaceMachine.pick(named: named, byPerson: origin(of: invocation) == .user && invocation.isPersonsOwnRun,
+                                             focused: focused.flatMap { machines.session($0) == nil ? nil : $0 }) {
+        case .named: return try machine(invocation, context)
+        case .focused(let id): return machines.session(id)
+        case .new: return nil
+        }
     }
 
     // MARK: cloud new-machine with options
@@ -370,7 +383,7 @@ extension CloudHandlers {
                 try await cloud.createMachine(name: nil, creation: creation, startedByPerson: startedByPerson, askedBy: askedBy,
                                                request: creation.request, proceed: { try proceed(creation) })
             },
-            open: { session in defer { RemoteGroupHandlers.mark(session: session.daemon.store.registryID) }; return try await firstWorkspace(on: session, context) },
+            open: { session in defer { RemoteGroupHandlers.mark(session: session.daemon.store.registryID, doc: context.services.sidebarDoc) }; return try await firstWorkspace(on: session, context) },
             show: { id, creation in
                 let after = creation.readyAfter.map { String(format: "%.1f s", Double($0.components.seconds) + Double($0.components.attoseconds) / 1e18) } ?? "?"
                 cloud.logger.info("new cloud workspace \(id, privacy: .public) on \(creation.session?.machineID ?? "?", privacy: .public) ready after \(after, privacy: .public)")
@@ -551,7 +564,7 @@ extension CloudHandlers {
                                    currentUserID: cloud.auth.user?.id, currentTeamID: cloud.auth.teamID)
         }).start(in: window, existing: nil) { session in
             try checkScope(session)
-            defer { RemoteGroupHandlers.mark(session: session.daemon.store.registryID) } // one group per Cloud machine
+            defer { RemoteGroupHandlers.mark(session: session.daemon.store.registryID, doc: services.sidebarDoc) } // one group per Cloud machine
             let name = session.machine.title
             guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudMoveStrings.notConnected(name)) }
             var cwd: String?

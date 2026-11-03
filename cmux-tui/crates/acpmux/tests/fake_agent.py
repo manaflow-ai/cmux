@@ -93,6 +93,8 @@ known = set()
 
 
 LAST_MCP_SERVERS = None
+# The additionalDirectories of the last session/new, load or fork ("dirs" replies with them).
+LAST_DIRS = None
 RUNNING_MCP = []
 # Whether the client asked for native subagent sessions the way codex-acp 1.10.0
 # reads it: the JetBrains AIR capability in clientCapabilities._meta (its ACP
@@ -176,6 +178,8 @@ def codex_store_prompt(rid, params):
                         and r["payload"]["content"][0]["text"] != "history-probe"],
             "sessions": sorted({r["payload"]["id"] for r in records if r["type"] == "session_meta"}),
         })
+    # Native rollouts retain the assistant reply as well as the user's prompt.
+    codex_write(sid, "response_item", {"type": "message", "role": "assistant", "phase": "final_answer", "content": [{"type": "output_text", "text": reply}]})
     update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": reply}})
     send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
     # Codex's rollout writer flushes a turn's last records after the turn
@@ -875,6 +879,11 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(LAST_MCP_SERVERS)}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "dirs" replies with the additionalDirectories of the last session/new, load or fork.
+    if text == "dirs":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(LAST_DIRS)}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "argv" replies with this process's arguments as JSON, for spawn-time checks.
     if text == "argv":
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(sys.argv[1:])}})
@@ -1294,7 +1303,7 @@ def own_pri():
 
 
 def main():
-    global LAST_MCP_SERVERS
+    global LAST_MCP_SERVERS, LAST_DIRS
     # `--fake-login` (the terminal sign-in): sign in and exit.
     if "--fake-login" in sys.argv[1:]:
         open(os.environ["FAKE_AUTH_FILE"], "w").close()
@@ -1350,6 +1359,7 @@ def main():
             sys.exit(1)
         if m in ("session/new", "session/load", "session/fork"):
             LAST_MCP_SERVERS = params.get("mcpServers")
+            LAST_DIRS = params.get("additionalDirectories")
         if m == "session/new" and os.environ.get("FAKE_CLASS_LOG"):
             with open(os.environ["FAKE_CLASS_LOG"], "a") as log:
                 log.write(json.dumps({"pid": os.getpid(), "pri": own_pri()}) + "\n")

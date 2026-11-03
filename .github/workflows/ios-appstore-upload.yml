@@ -35,7 +35,7 @@ jobs:
   decide:
     name: Check for new main revision
     if: github.ref == 'refs/heads/main'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     outputs:
       # The batch step, when it runs, has the last word on scheduled polls.
       upload: ${{ steps.batch.outputs.upload || steps.decide.outputs.upload }}
@@ -639,7 +639,7 @@ jobs:
     # Run alongside tester assignment and even if later steps in the upload
     # job fail. Notes timeouts must not turn an accepted upload into a failure.
     if: ${{ !cancelled() && needs.upload.result == 'success' && needs.upload.outputs.notes_artifact_id != '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 40
     continue-on-error: true
     permissions:
@@ -676,7 +676,7 @@ jobs:
       always() && needs.decide.result == 'success' &&
       (needs.upload.result == 'success' || needs.upload.result == 'skipped') &&
       (needs.upload.outputs.build_number != '' || needs.decide.outputs.retry_build_number != '')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 40
     env:
       ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
@@ -702,7 +702,7 @@ jobs:
     name: Publish the iOS source archive
     needs: [upload, source-archive]
     if: ${{ !cancelled() && needs.upload.result == 'success' && vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 30
     permissions:
       contents: write

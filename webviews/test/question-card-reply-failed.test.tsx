@@ -13,6 +13,7 @@ import { translate } from "../src/agent-session/acpmux/i18n";
 import { AcpmuxRpcError } from "../src/agent-session/acpmux/handoff/protocol";
 import { NativeError } from "../src/agent-session/acpmux/nativeError";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
+import { RequestBudget } from "../src/agent-session/acpmux/requestBudget";
 import type { AgentQuestion } from "../src/agent-session/acpmux/question/model";
 import { QuestionCard } from "../src/agent-session/acpmux/question/QuestionCard";
 
@@ -211,6 +212,7 @@ async function nativeReturnCard() {
   });
   const client = Object.assign(Object.create(AcpmuxDirectClient.prototype), {
     pending: new Map(),
+    budget: new RequestBudget(),
     wire: { received: () => undefined },
   }) as NativeReplyClient;
   nativeClients.push(client);

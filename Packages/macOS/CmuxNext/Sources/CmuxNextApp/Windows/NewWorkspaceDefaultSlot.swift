@@ -39,7 +39,7 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
     /// stale layout yet. Returning true keeps Cmd-N pending until the row is
     /// realized, instead of resolving the slot against an empty layout. Only
     /// while the window's rows are a projection behind the sidebar document
-    /// (`catchingUp`, `layoutCatchingUp(rowsAt:)`): once they have caught up, a row still missing was
+    /// (`catchingUp`, `layoutCatchingUp(_:rowsAt:)`): once they have caught up, a row still missing was
     /// left out on purpose (a filter, another space, a close) and the slot
     /// falls back as documented.
     func awaitsCurrentAnchor(section: SectionID, in sections: [SidebarRowSection], home: String? = nil, catchingUp: Bool) -> Bool {
@@ -51,10 +51,10 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
     }
 
     /// Whether a window's rows built at `rowsAt` (the document's `shownChanges` then; nil: not built from its
-    /// projection) are behind the sidebar document: its drawn projection is behind its version, or the window's
-    /// rows pass has not run since the projection changed (a cold or updated layout a hop before its rows show).
-    static func layoutCatchingUp(rowsAt: UInt64? = nil) -> Bool {
-        guard let store = SidebarDocStore.current, store.isActive else { return false }
+    /// projection) are behind the app's sidebar document `store`: its drawn projection is behind its version, or the
+    /// window's rows pass has not run since the projection changed (a cold or updated layout a hop before its rows show).
+    static func layoutCatchingUp(_ store: SidebarDocStore?, rowsAt: UInt64? = nil) -> Bool {
+        guard let store, store.isActive else { return false }
         return store.shown == nil || store.shownVersion != store.version || rowsAt != store.shownChanges
     }
 
@@ -129,14 +129,13 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
 /// the workspace.
 @MainActor
 enum NewWorkspacePlacements {
-    /// `workspaces.newPlacement` for a new workspace of window `windowID`
-    /// (nil: the window reconcile gives it, the most recent open one), with
-    /// the workspace that window shows now. Read it before the claim selects
-    /// the new workspace.
+    /// `workspaces.newPlacement` for a new workspace of window `windowID` (nil: the window reconcile gives it, the most
+    /// recent open one), with the workspace that window shows now: none under a top page such as Home, which parks the
+    /// last one and keeps `workspaceID` (#32731). Read it before the claim selects the new workspace.
     static func rule(for windowID: String?, in windows: WindowManager) -> NewWorkspaceDefaultSlot {
         let placement = windows.services.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementFallback
         let window = windowID ?? windows.registry.value.mostRecentOpen()
-        let current = window.flatMap { windows.states[$0]?.workspaceID }
+        let current = window.flatMap { windows.states[$0] }.flatMap { $0.page == nil ? $0.workspaceID : nil }
         let model = window.flatMap { windows.controller(for: $0)?.sidebar.model }
         let currentMachine = current.flatMap { id in
             model.map { shownInBand(id, layout: $0.layout, room: $0.activeProfileID?.rawValue,

@@ -4,7 +4,8 @@
 // and the message's first line, muted, while the row is shut. The row opens to the whole message as
 // Markdown, its first line then gone from the row (Leo 2026-10-29, on the line and the body under it
 // saying the same thing: "this rendering can be better for sent stuff"), and, behind Raw, the call itself (its command and output, or its MCP request and response); a failed send
-// opens to its output. Both ways of sending draw this one row: a cmux-subsessions `send_message`
+// opens to its output. A send whose words the transcript does not hold opens straight to the call,
+// with no Raw toggle. Both ways of sending draw this one row: a cmux-subsessions `send_message`
 // (SubsessionCallCard.tsx) and a shell `acpmux send` (acpmuxSends.ts, `AcpmuxSendLine` below).
 // Whether a row is open lasts across the virtualized transcript (transcriptDisclosure.tsx). The
 // target opens its chat beside this one when the session list knows it (by id, or by `name`,
@@ -234,7 +235,7 @@ export function SentMessageLine({
             row's is (MessageCard.tsx); its click never toggles the row. */}
         {text && (
           // oxlint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events
-          <span onClick={(event) => event.stopPropagation()}>
+          <span className="cv-sent__actions" onClick={(event) => event.stopPropagation()}>
             <SentActions text={text} />
           </span>
         )}
@@ -254,14 +255,20 @@ export function SentMessageLine({
       </div>
       {open && (
         <div id={id} className="cv-subsession__under">
-          {text && (
-            <div className="cv-subsession__markdown selectable">
-              <AgentMessageBody text={text} commits="quiet" />
-            </div>
+          {text ? (
+            <>
+              <div className="cv-subsession__markdown selectable">
+                <AgentMessageBody text={text} commits="quiet" />
+              </div>
+              <RawToggle open={rawShown} onOpenChange={setRawShown}>
+                {raw(reveal)}
+              </RawToggle>
+            </>
+          ) : (
+            // No words to render: the call is all there is, so it shows at once, not behind a
+            // second "Raw" click (Leo 2026-10-26: "EITHER SHOW IT DIRECT WITHOUT OR ... RENDER IT").
+            <div className="cv-subsession__raw">{raw(reveal)}</div>
           )}
-          <RawToggle open={rawShown} onOpenChange={setRawShown}>
-            {raw(reveal)}
-          </RawToggle>
         </div>
       )}
     </>
@@ -271,11 +278,13 @@ export function SentMessageLine({
 /// "Raw" and the call under it while open: its own state, or the caller's (`open`, `onOpenChange`).
 export function RawToggle({
   children,
+  icon,
   startOpen = false,
   open: shown,
   onOpenChange,
 }: {
   children: ReactNode;
+  icon?: ReactNode;
   startOpen?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -294,6 +303,7 @@ export function RawToggle({
         aria-controls={open ? id : undefined}
         onClick={() => setOpen((value) => !value)}
       >
+        {icon}
         {t("subsession.raw")}
         <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${open ? " is-open" : ""}`} />
       </button>
