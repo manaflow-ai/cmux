@@ -74,6 +74,19 @@ struct CmdNTopInGroupFramesTests {
 
     /// New Workspace in Section on the workspace list, with a loose workspace current: under the default the new row is first
     /// in every frame (it went to the bottom whatever `workspaces.newPlacement` said).
+    @MainActor static func diag(_ tag: String, _ services: AppServices) {
+        let store = services.daemon.store
+        let byKey = Dictionary(store.workspaces.map { ($0.key?.rawValue ?? $0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let rows = store.personal.workspaces.isEmpty ? services.machines.local.store.personal.workspaces : store.personal.workspaces
+        let personal = rows.sorted { $0.index < $1.index }.map { row in
+            let w = byKey[row.workspaceKey.rawValue]
+            return "\(row.index):\(w?.id ?? "?" + row.workspaceKey.rawValue)/\(w?.name ?? "")/\(w?.kind ?? "-")/g=\(row.group?.rawValue ?? "")"
+        }
+        print("DIAG \(tag) home=\(NewWorkspacePlacements.home(services.machines) ?? "nil") personal=\(personal)")
+        print("DIAG \(tag) doc=\(services.sidebarDoc.orderedIDs(of: services.daemon, machines: services.machines) ?? [])")
+        print("DIAG \(tag) names=\(store.workspaces.map { "\($0.id)=\($0.name)" })")
+    }
+
     @Test func newWorkspaceInSectionDrawsTheNewRowOnlyFirstUnderTheDefault() async throws {
         let launched = try await RapidWorkspaceCreateTests.launch()
         let services = launched.services
@@ -100,6 +113,7 @@ struct CmdNTopInGroupFramesTests {
         let section = try #require(services.sidebarLayout.document.sections.first { if case .workspaces = $0.content { true } else { false } },
                                    "no workspace list section: \(services.sidebarLayout.document.sections.map(\.title))")
         let known = Set(store.workspaces.map(\.id))
+        Self.diag("before", services)
         var frames: [[String]] = []
         list.onApply = { frames.append(Self.rows($0, model: model, home: home)) }
         let ran = services.registry.perform("sidebar.section.newWorkspace", invocation: ActionInvocation(
@@ -110,6 +124,7 @@ struct CmdNTopInGroupFramesTests {
         list.onApply = nil
         let after = Self.rows(list.displayed, model: model, home: home)
         let made = created()
+        Self.diag("after", services)
         await launched.stop()
 
         #expect(ran)
