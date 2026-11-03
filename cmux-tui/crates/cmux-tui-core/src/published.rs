@@ -191,6 +191,23 @@ mod tests {
         assert_eq!(**published.load().unwrap_or_else(|poison| poison.into_inner()), 1);
     }
 
+    /// A writer that panics in the middle of a change leaves a half-made value: its guard still drops (the unwind
+    /// runs it), but it publishes nothing, so no reader ever sees the half-made change, not even in the moment before
+    /// the mutex is marked poisoned. Readers then fail closed with the last finished projection.
+    #[test]
+    fn a_change_cut_short_by_a_panic_is_never_published() {
+        let published = Published::new(Counter::default(), project, true);
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut guard = published.lock().unwrap_or_else(|poison| poison.into_inner());
+            guard.value = 9;
+            panic!("a writer panics in the middle of a change");
+        }));
+        let Err(poisoned) = published.load() else {
+            panic!("a reader of a poisoned value must be able to fail closed");
+        };
+        assert_eq!(**poisoned.into_inner(), 0, "the half-made change was published");
+    }
+
     #[test]
     fn a_poisoned_value_gives_its_projection_in_the_error() {
         let published = Published::new(Counter::default(), project, true);
