@@ -45,7 +45,7 @@ const words = (html: string) =>
 const run = () => [
   shell("Find the retry references", { background: { state: "completed", endedAt: 2 } }),
   shell("Read the fixture list", { status: "failed", output: "Exit code 1\nls: fixtures: No such file" }),
-  shell("Check both workers", { background: { state: "failed", endedAt: 3 }, status: "failed" }),
+  shell("Check both workers", { background: { state: "failed", endedAt: 3 } }),
 ];
 
 test("a run's header counts its finished background tasks first, then what it ran, then (N failed)", () => {
@@ -85,7 +85,7 @@ test("a command that finished in the background reads Background command complet
 test("while a background command runs, an opened run says how its background commands stand", () => {
   const items = [
     shell("a", { background: { state: "completed", endedAt: 1 } }),
-    shell("b", { background: { state: "failed", endedAt: 1 }, status: "failed" }),
+    shell("b", { background: { state: "failed", endedAt: 1 } }),
     shell("c", { background: { state: "running" } }),
   ];
   const parts = backgroundStatusParts(translate, backgroundCounts(items)!);
@@ -113,20 +113,20 @@ test("a failed call's row is its description, then its failure tag, then its che
   );
   // Title, the red tag, the chevron, in that order; the tag is not in the trailing column.
   expect(step).toMatch(
-    /Read the fixture list<\/span>.*class="cv-command__failed cv-command__tag"[^>]*>failed<.*cv-tool__chevron/s,
+    /Read the fixture list<\/span>.*class="cv-command__failed"[^>]*>failed<.*cv-tool__chevron/s,
   );
   expect(step).not.toMatch(/cv-command__meta[^>]*>[^]*cv-command__failed/);
   // A lone command keeps its exit word, in the same place.
   expect(renderToStaticMarkup(<CommandRow item={failing} />)).toMatch(
-    /Read the fixture list<\/span>.*class="cv-command__failed cv-command__tag"[^>]*>Exit 1<.*cv-tool__chevron/s,
+    /Read the fixture list<\/span>.*class="cv-command__failed"[^>]*>Exit 1<.*cv-tool__chevron/s,
   );
   // A background command that failed says so the same way.
   const background = renderToStaticMarkup(
-    <CommandRow item={shell("Check both workers", { status: "failed", background: { state: "failed", endedAt: 3 } })} />,
+    <CommandRow item={shell("Check both workers", { background: { state: "failed", endedAt: 3 } })} />,
   );
-  expect(background).toMatch(/class="cv-command__failed cv-command__tag"[^>]*>failed</);
+  expect(background).toMatch(/class="cv-command__failed"[^>]*>failed</);
   // The tag reads "Failed" on screen.
-  expect(css).toMatch(/\.cv-command__tag::first-letter \{\s*text-transform: uppercase;/);
+  expect(css).toMatch(/\.cv-command > \.cv-command__failed::first-letter \{\s*text-transform: uppercase;/);
   // Without a description the row keeps its command.
   expect(words(renderToStaticMarkup(<CommandRow item={shell(undefined)} />))).toContain("make check");
 });

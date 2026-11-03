@@ -361,6 +361,11 @@ export function isFailed(tool: Tool): boolean {
   return tool.status === "failed" || (tool.exitCode !== undefined && tool.exitCode !== 0);
 }
 
+/// Whether a call counts as failed on a run's header ("(2 failed)"): it failed, or the shell it
+/// left in the background failed there (direct.ts `markBackgroundCall` keeps the launch's
+/// "completed" status and sets `background.state`).
+export const countsFailed = (tool: Tool): boolean => isFailed(tool) || tool.background?.state === "failed";
+
 /// The distinct files a run of reads opened, by their locations (model.ts `pathKey`), or one per
 /// call without any.
 function readCount(items: readonly AcpmuxActivity[]): number {

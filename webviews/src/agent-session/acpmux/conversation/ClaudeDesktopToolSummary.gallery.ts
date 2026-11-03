@@ -47,7 +47,8 @@ const mixed = (described = true) => {
     shell("bun test src/net/retry.test.ts", d("Run the retry tests"), "completed", 5.6, {
       output: "12 pass\n0 fail\n",
     }),
-    shell("curl -sf http://localhost:4000/health", d("Check the local API is up"), "failed", 5.4, {
+    // A background shell that failed there: its launch completed, its background state failed.
+    shell("curl -sf http://localhost:4000/health", d("Check the local API is up"), "completed", 5.4, {
       background: { state: "failed", endedAt: minutesAgo(4.9) },
       output: "Exit code 7\ncurl: (7) Failed to connect to localhost port 4000",
     }),

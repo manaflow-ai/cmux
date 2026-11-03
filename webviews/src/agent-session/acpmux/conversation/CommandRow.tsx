@@ -56,7 +56,7 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
   // A failed call says so in a red word right after its title, before its chevron, as Claude Code
   // desktop tags one ("Count the fixture cases Failed ⌄"; Leo, 2026-11-03: "claude code desktop's
   // summarization of tool calls/parsing of them seem kinda good?"). A step of an opened run says
-  // "failed" (drawn "Failed", conversation.css `.cv-command__tag`) and its opened Shell block says
+  // "failed" (drawn "Failed", conversation.css `.cv-command > .cv-command__failed`) and its opened Shell block says
   // "Exit code N"; a lone command keeps its "Exit 1". A background command that failed says it too.
   const tag = tool.background
     ? tool.background.state === "failed"
@@ -127,7 +127,7 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
           {!tool.background && <InlineFailureCause failure={failure} />}
         </span>
         {tag && (
-          <span className="cv-command__failed cv-command__tag" data-find-skip>
+          <span className="cv-command__failed" data-find-skip>
             {tag}
           </span>
         )}

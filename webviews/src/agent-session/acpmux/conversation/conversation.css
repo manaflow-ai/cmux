@@ -3290,14 +3290,14 @@ button.cv-video-frames__frame:focus-visible {
 }
 /* "Failed" right after a failed call's title, before its chevron (CommandRow.tsx): never cut, one
    space from the words rather than the row's gap. */
-.cv-command__tag {
+.cv-command > .cv-command__failed {
   display: inline-block;
   flex: none;
   margin-inline-start: calc(0.3em - var(--cv-tool-gap));
   white-space: nowrap;
 }
 /* A tag reads as one, "Failed", while its text stays the row's word ("failed") for Find and copy. */
-.cv-command__tag::first-letter {
+.cv-command > .cv-command__failed::first-letter {
   text-transform: uppercase;
 }
 /* "Background command completed" muted, then what the command did in the transcript's ink, as

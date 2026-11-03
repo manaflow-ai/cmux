@@ -18,7 +18,7 @@ import { StepThought, ThoughtRow } from "./ThoughtRow";
 import { ToolRow } from "./ToolRow";
 import { ChevronRight, Magnifier, OpenBook, Pencil, TerminalSquare } from "./icons";
 import { isQuietThought, isThought } from "./thoughts";
-import { groupCalls, isFailed, isRunning, toolGroupLabel, type ToolGroupKind } from "./toolGroups";
+import { countsFailed, groupCalls, isRunning, toolGroupLabel, type ToolGroupKind } from "./toolGroups";
 import { useT } from "../i18n";
 import { useTranscriptDisclosure, useTranscriptViewContext } from "./transcriptDisclosure";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
@@ -202,7 +202,7 @@ export function ToolGroupRow({
   const running = tools.some(isRunning);
   // While a background command still runs, the opened steps end with how they stand there.
   const background = useMemo(() => (kind === "commands" ? backgroundCounts(items) : undefined), [kind, items]);
-  const failures = tools.filter(isFailed).length;
+  const failures = tools.filter(countsFailed).length;
   // A lone Write reads as what it wrote, "Wrote notes.md +18", not as an edit (WriteLabel.tsx).
   const write = kind === "edits" && tools.length === 1 ? writeCall(tools[0]!) : undefined;
   // A group of one call says why it failed as a lone call does (toolFailure.ts); several say how many.

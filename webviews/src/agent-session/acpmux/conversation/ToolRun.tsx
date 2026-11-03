@@ -6,7 +6,7 @@ import { useId, useMemo, type ReactNode } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { ChevronRight, Globe, Magnifier, MultiTool, Pencil, TerminalSquare, ToolGroup } from "./icons";
-import { isFailed } from "./toolGroups";
+import { countsFailed } from "./toolGroups";
 import { isMixedToolRun, mainToolRunCategory, toolRunSummary, type ToolRunCategory } from "./toolRunSummary";
 import { useToolRunLook } from "../toolRunLook";
 import { useTranscriptDisclosure, useTranscriptViewContext } from "./transcriptDisclosure";
@@ -62,7 +62,7 @@ export function ToolRun({
       summary: toolRunSummary(t, items),
       main: isMixedToolRun(items) ? ("mixed" as const) : mainToolRunCategory(items),
       // A failed call never hides behind the summary: the line counts it, as a group's line does.
-      failures: items.filter((item) => item.tool && isFailed(item.tool)).length,
+      failures: items.filter((item) => item.tool && countsFailed(item.tool)).length,
     }),
     [t, items],
   );
