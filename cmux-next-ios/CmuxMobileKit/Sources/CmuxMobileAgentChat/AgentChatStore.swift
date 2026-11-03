@@ -152,6 +152,9 @@ public struct QueuedPrompt: Hashable, Sendable, Identifiable {
 @Observable
 public final class AgentChatStore {
     public let source: any AgentSessionSource
+    /// Cloud's paired-Mac relay exposes pending requests but deliberately refuses
+    /// permission and question answers. Keep local-Mac chats answerable.
+    public let canAnswerPendingRequests: Bool
     public private(set) var summary: AgentSessionSummary
     public private(set) var turns: [AgentTurn] = []
     public private(set) var queue: [QueuedPrompt] = []
@@ -258,8 +261,9 @@ public final class AgentChatStore {
     /// grid card and the subagent screens share them).
     @ObservationIgnored public let diffs = ChatDiffCache()
 
-    public init(source: any AgentSessionSource) {
+    public init(source: any AgentSessionSource, canAnswerPendingRequests: Bool = true) {
         self.source = source
+        self.canAnswerPendingRequests = canAnswerPendingRequests
         self.summary = source.summary
         let stream = source.events()
         task = Task { [weak self] in
@@ -414,6 +418,12 @@ public final class AgentChatStore {
     public func send(prompt: String, attachments: [AgentAttachment] = [], steer: Bool = false, denyingPermission: Bool = false) {
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !attachments.isEmpty else { return }
+        // Reply instead first declines the permission. Cloud cannot deliver that
+        // decline; avoid silently queueing a prompt under a still-blocked turn.
+        if denyingPermission && !canAnswerPendingRequests {
+            clientError = "Answer this Cloud request on your Mac."
+            return
+        }
         clientError = nil
         if denyingPermission, let permission = pendingPermission {
             let options = permission.request.phoneOptions
@@ -460,6 +470,11 @@ public final class AgentChatStore {
     public func cancel() { source.send(.cancel) }
 
     public func respond(to request: ACPPermissionRequest, option: ACPPermissionOption?) {
+        guard canAnswerPendingRequests else {
+            approvingOptionID = nil
+            clientError = "Answer this Cloud request on your Mac."
+            return
+        }
         // A refusal is about the previous answer ("Approve this on your Mac"):
         // a new answer, such as the decline that follows, replaces it.
         clientError = nil
@@ -472,11 +487,19 @@ public final class AgentChatStore {
     /// Declines a pending question with its reject option.
     public func decline(_ question: AgentQuestion) {
         guard question.isPending, let reject = question.source.rejectOption else { return }
+        guard canAnswerPendingRequests else {
+            clientError = "Answer this Cloud request on your Mac."
+            return
+        }
         clientError = nil
         source.send(.respondPermission(permissionId: question.id, optionId: reject))
     }
 
     public func answer(_ question: AgentQuestion, with answer: AgentQuestionAnswer) {
+        guard canAnswerPendingRequests else {
+            clientError = "Answer this Cloud request on your Mac."
+            return
+        }
         clientError = nil
         source.send(.answerQuestion(questionId: question.id, answer: answer))
     }
