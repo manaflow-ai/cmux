@@ -198,6 +198,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// "openDiffViewer", cwd, mode, turn}`): the diff beside the chat, with that turn as its Last
     /// turn (``AgentPaneDiffTurn``).
     case diffTurn(AgentPaneDiffTurn, cwd: String?, toggle: Bool)
+    /// The header's Changes or an edited-files card carrying the turn's own patch (`pane.action {id:
+    /// "openDiffViewer", cwd, mode, patch}`): a folder in no repository, or a turn that wrote a file
+    /// outside it. The diff tab beside the chat shows that patch (``AgentPaneDiffPatch``).
+    case diffPatch(AgentPaneDiffPatch, cwd: String?, toggle: Bool)
     /// The header's Preview (`pane.action {id: "preview", url, mode}`): toggles or opens a browser tab
     /// beside the chat on `url`, the local page its last turn started or mentioned. A loopback
     /// address only; a click that closes the open preview may name none.

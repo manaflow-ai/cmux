@@ -1,9 +1,11 @@
 // Where an edited-files card's View changes opens. The chat folder's diff opens in its own pane
 // beside the chat (App.tsx `diffBeside`), but that is the folder's git diff: it shows nothing for a
 // folder that is not a repository (the viewer asks for one instead), nor a file the turn wrote outside
-// the repository (a new /tmp/l-setup.txt). Such a turn opens its own diff in the page instead, built
-// from the tool calls, which shows any file.
-import { turnFiles, turnRows } from "../diff";
+// the repository (a new /tmp/l-setup.txt). Such a turn's diff tab shows the turn's own patch instead,
+// built from the tool calls (`viewChangesPatch`), which shows any file. Either way it is a tab on the
+// chat's right, never a view over the chat (Leo, 2026-11-03: "the diff thing/changes viewer still
+// doesn't open up on the right pane? why? just put it in a tab???").
+import { editPatch, turnFiles, turnRows } from "../diff";
 import type { AcpmuxRow } from "../model";
 import { turnCheckpointPair } from "../changes/turnCheckpointSource";
 
@@ -18,10 +20,11 @@ export async function repositoryRoot(
   return typeof root === "string" && root.startsWith("/") ? root.replace(/\/+$/, "") || "/" : undefined;
 }
 
-/// Whether the chat header's Changes opens the last turn's changes in the page, not the folder's diff
-/// tab: the chat's folder (`folder`, on this Mac) is in no repository, so that tab would have nothing to
-/// show and the app would ask for a folder in the palette instead. A diff tab Changes already opened
-/// (`open`) closes through the app as before.
+/// Whether the chat header's Changes opens the last turn's own changes (its patch tab, or the page's
+/// view where no tab can open), not the folder's diff tab: the chat's folder (`folder`, on the chat's
+/// machine) is in no repository, so that tab would have nothing to show and the app would ask for a
+/// folder in the palette instead. A diff tab Changes already opened (`open`) closes through the app as
+/// before.
 export async function headerChangesInPlace(
   folder: string | undefined,
   open: boolean,
@@ -84,4 +87,42 @@ export function repositoryFile(path: string, root: string, cwd: string): string 
     if (candidate.startsWith(`${top}/`) && candidate.length > top.length + 1) return candidate.slice(top.length + 1);
   }
   return undefined;
+}
+
+/// The turn's own changes the diff tab shows (`pane.action {id: "openDiffViewer", patch}`): unified
+/// patch text and the patch's name of the file the tab scrolls to.
+export type DiffTabPatch = { text: string; file?: string };
+
+/// The longest patch the app takes (AgentPaneDiffPatch.maximumBytes); a longer one shows in the page.
+const MAX_PATCH_BYTES = 16 << 20;
+
+/// The turn holding `rowId` as a `DiffTabPatch`: every edit its tool calls made, at the file `path`
+/// names (an edited-files row). A file under the chat's folder `cwd` is named from it, any other by
+/// its full path. Each edit is its own file section, as the page's own changes view lists them: two
+/// edits' line numbers count from different versions of the file, so one section could not hold
+/// both. Undefined when the tool calls changed nothing the patch can show, or it is too long.
+export function viewChangesPatch(
+  rows: readonly AcpmuxRow[],
+  rowId: string,
+  path: string | undefined,
+  cwd: string | undefined,
+): DiffTabPatch | undefined {
+  const files = turnFiles(turnRows([...rows], rowId));
+  let text = "";
+  let file: string | undefined;
+  for (const changed of files) {
+    const name = patchName(changed.path, cwd);
+    if (path !== undefined && (changed.path === path || changed.canonical === path)) file = name;
+    for (const edit of changed.edits) if (edit.hunks.length > 0) text += editPatch({ ...changed, displayPath: name }, edit);
+  }
+  if (!text || new TextEncoder().encode(text).length > MAX_PATCH_BYTES) return undefined;
+  return file === undefined ? { text } : { text, file };
+}
+
+/// `path` as the patch names it: from the chat's folder when it is under it, else the full path
+/// (a leading `/` kept, so `/tmp/x` reads as itself); `~` paths as the agent wrote them.
+export function patchName(path: string, cwd: string | undefined): string {
+  const top = cwd?.replace(/\/+$/, "");
+  if (top && path.startsWith(`${top}/`) && path.length > top.length + 1) return path.slice(top.length + 1);
+  return path;
 }
