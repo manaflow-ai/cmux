@@ -12,7 +12,8 @@ import Foundation
 /// SSH and server remote groups and cmux Cloud (`ChiefMoveTargets`), then runs the bundled
 /// `cmux chief move` (one implementation with the CLI and MCP): a dry run whose report the person reads,
 /// the move, then `move reach` on the target. The Cloud session token goes through a 0600 file that is
-/// deleted when the move ends, never the command line.
+/// deleted when the move ends, never the command line. Each step shows on the Chief's location chip
+/// (`AppServices.chiefTeleport`), whose Teleport menu runs this same action.
 @MainActor
 enum ChiefMoveHandlers {
     static let actionID: ActionID = "chief.moveTo"
@@ -38,8 +39,10 @@ enum ChiefMoveHandlers {
         let otherSuggestions = registry.argumentSuggestions
         registry.argumentSuggestions = { source in
             guard source == ActionSuggestions.chiefMoveTargets else { return otherSuggestions?(source) ?? [] }
-            return targets(context).map { ActionEnumCase(value: $0.machineID, title: label($0)) }
+            return targets(context).map { ActionEnumCase(value: $0.machineID, title: $0.title) }
         }
+        bindRollback(into: registry, context: context)
+        bindTeleport(context.services.chiefTeleport, registry: registry, context: context)
     }
 
     /// The list as the app sees its machines now.
@@ -73,23 +76,6 @@ enum ChiefMoveHandlers {
                                 cloud: cloud.isSignedIn ? .signedIn(staging: !cloud.configuration.isProductionAuth) : .signedOut).targets
     }
 
-    private static func name(_ target: ChiefMoveTarget) -> String {
-        switch target.kind {
-        case .local: WorkspaceVerbStrings.thisMac
-        case .cloud: ChiefMoveStrings.cloud
-        case .ssh, .server: target.name
-        }
-    }
-
-    private static func label(_ target: ChiefMoveTarget) -> String {
-        switch target.disabledReason {
-        case nil: name(target)
-        case .offline: ChiefMoveStrings.offline(name(target))
-        case .noSSHRoute: ChiefMoveStrings.noSSHRoute(name(target))
-        case .signInNeeded: ChiefMoveStrings.signIn(name(target))
-        }
-    }
-
     private static func matches(_ target: ChiefMoveTarget, _ wanted: String) -> Bool {
         let lowered = wanted.lowercased()
         return [target.machineID, target.name, target.to ?? ""].contains { $0.lowercased() == lowered }
@@ -97,13 +83,17 @@ enum ChiefMoveHandlers {
 
     private static func start(_ target: ChiefMoveTarget, cli: URL, interactive: Bool, registry: ActionRegistry,
                               context: AppActionContext) throws {
-        if let reason = target.disabledReason { throw ActionFailure.invalidTarget(label(target).isEmpty ? "\(reason)" : label(target)) }
-        guard let to = target.to else { throw ActionFailure.invalidTarget(label(target)) }
-        let targetHome = ChiefMovePlan.targetHome(home: ChiefHome.resolve(tag: context.services.environment.tag).root.path,
-                                                  userHome: FileManager.default.homeDirectoryForCurrentUser.path)
+        if let reason = target.disabledReason { throw ActionFailure.invalidTarget(target.title.isEmpty ? "\(reason)" : target.title) }
+        guard let to = target.to else { throw ActionFailure.invalidTarget(target.title) }
+        let teleport = context.services.chiefTeleport
+        guard !teleport.phase.isRunning else { throw ActionFailure(message: ChiefMoveStrings.running) }
+        let sourceHome = teleport.home.path
+        let targetHome = ChiefMovePlan.targetHome(home: sourceHome, userHome: FileManager.default.homeDirectoryForCurrentUser.path)
         let window = CloudHandlers.window(context)
         let cloud = context.services.cloud
-        let title = name(target)
+        let title = target.displayName
+        // The chip shows the dry run on this turn; the steps below move it on.
+        teleport.phase = .checking(title)
         let work: ActionWork = Task {
             var tokenDir: URL?
             defer { if let tokenDir { try? FileManager.default.removeItem(at: tokenDir) } }
@@ -113,12 +103,14 @@ enum ChiefMoveHandlers {
                     let (dir, file) = try await writeToken(cloud)
                     (tokenDir, tokenFile) = (dir, file.path)
                 } catch {
+                    teleport.phase = .failed(title, reason: String(describing: error))
                     return ActionWorkFailure(ChiefMoveStrings.failedTitle(title) + ": " + String(describing: error))
                 }
             }
-            let plan = ChiefMovePlan(to: to, kind: target.kind, targetHome: targetHome, tokenFile: tokenFile)
+            let plan = ChiefMovePlan(to: to, kind: target.kind, sourceHome: sourceHome, targetHome: targetHome, tokenFile: tokenFile)
             let report = await run(cli, plan.dryRun, timeout: .seconds(180))
             guard report.ok else {
+                teleport.phase = .failed(title, reason: report.text)
                 if interactive { CloudPresenter.show(ChiefMoveStrings.failedTitle(title), report.text, copyable: true, in: window) }
                 return ActionWorkFailure(report.text)
             }
@@ -127,19 +119,27 @@ enum ChiefMoveHandlers {
                     CloudPresenter.confirm(ChiefMoveStrings.confirmTitle(title), report.text, button: ChiefMoveStrings.move,
                                            identifier: "cmux.dialog.chief.move", in: window) { done.resume(returning: $0) }
                 }
-                guard go else { return nil }
+                guard go else {
+                    teleport.phase = .idle
+                    return nil
+                }
             }
+            teleport.phase = .moving(title)
             let moved = await run(cli, plan.move, timeout: .seconds(1800))
+            teleport.refresh()  // a failed move may still have marked the home moved
             guard moved.ok else {
+                teleport.phase = .failed(title, reason: moved.text)
                 if interactive { CloudPresenter.show(ChiefMoveStrings.failedTitle(title), moved.text, copyable: true, in: window) }
                 return ActionWorkFailure(moved.text, mayHaveApplied: true)
             }
             var summary = moved.text
+            if plan.reach != ChiefMovePlan.Reach.none { teleport.phase = .verifying(title) }
             switch plan.reach {
             case .cli(let arguments): summary += "\n\n" + (await run(cli, arguments, timeout: .seconds(120))).text
             case .remote(let command): summary += "\n\n" + (await run(URL(fileURLWithPath: "/usr/bin/env"), command, timeout: .seconds(120))).text
             case .none: break
             }
+            teleport.phase = .done(title)
             if interactive { CloudPresenter.show(ChiefMoveStrings.doneTitle(title), summary, copyable: true, in: window) }
             return nil
         }
@@ -158,9 +158,9 @@ enum ChiefMoveHandlers {
         return (dir, file)
     }
 
-    private struct Output { var ok: Bool; var text: String }
+    struct Output { var ok: Bool; var text: String }
 
-    private static func run(_ executable: URL, _ arguments: [String], timeout: Duration) async -> Output {
+    static func run(_ executable: URL, _ arguments: [String], timeout: Duration) async -> Output {
         do {
             let result = try await ProcessRunner.run(executable: executable, arguments: arguments, environment: nil,
                                                      timeout: timeout, clock: ContinuousClock())
