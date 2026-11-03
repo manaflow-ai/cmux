@@ -47,6 +47,7 @@ extension CloudStartChat {
     @MainActor static func releaseCopyAllowed(_ services: AppServices) async -> Bool {
         guard !DevTools.isEnabled else { return true }
         guard await services.cloud.readHarnessLoginCopySwitch() == true else { return false }
-        return loginCopyConsent(services) ?? (await askLoginCopyConsent(services))
+        if let consent = loginCopyConsent(services) { return consent }
+        return await askLoginCopyConsent(services)
     }
 }
