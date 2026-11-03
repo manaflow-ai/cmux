@@ -310,9 +310,12 @@ async fn forward_inner(
             }
         }
         // A person's prompt is checked here, before `mark_forwarded` drops its provenance
-        // (`author.rs`).
+        // (`author.rs`). A tool's notice goes on as it came (`mark_forwarded` keeps it), checked
+        // here first so a bad one is refused by this daemon, not the peer
+        // (`prompt_provenance::notice_of`).
         if m == method::SESSION_PROMPT {
             crate::author::of_prompt(params)?;
+            crate::prompt_provenance::notice_checked(params)?;
         }
         // A prompt that waits for the owner, and the owner's answer to one, go only to a peer
         // that holds it (`hub/queue_approve.rs`): an older one would run it unapproved.

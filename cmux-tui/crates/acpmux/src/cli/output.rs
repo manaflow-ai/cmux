@@ -111,6 +111,8 @@ pub(crate) struct PromptId {
     pub cli_host: Option<String>,
     /// `--attach`: the files' blocks, after the text (`attach.rs`).
     pub attachments: Vec<Value>,
+    /// `--notice`: a tool's notice (`_meta.acpmux.notice`, `prompt_provenance::notice_of`).
+    pub notice: Option<Value>,
 }
 
 impl PromptId {
@@ -126,6 +128,7 @@ impl PromptId {
                 thread: None,
                 cli_host: None,
                 attachments: Vec::new(),
+                notice: None,
             },
             None => Self {
                 id: uuid::Uuid::now_v7().to_string(),
@@ -137,6 +140,7 @@ impl PromptId {
                 thread: None,
                 cli_host: None,
                 attachments: Vec::new(),
+                notice: None,
             },
         }
     }
@@ -171,6 +175,9 @@ impl PromptId {
         }
         if let Some(host) = &self.cli_host {
             mux["cliHost"] = json!(host);
+        }
+        if let Some(notice) = &self.notice {
+            mux["notice"] = notice.clone();
         }
         let mut prompt = vec![json!({"type": "text", "text": text})];
         prompt.extend(self.attachments.iter().cloned());

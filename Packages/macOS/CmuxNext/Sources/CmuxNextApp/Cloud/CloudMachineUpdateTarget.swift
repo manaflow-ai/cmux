@@ -123,7 +123,7 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
         if answer.ok { return answer.updated }
         switch answer.errorCode {
         case "machine_update_busy", "machine_unreachable", "machine_update_unavailable", "machine_update_download_failed",
-             "machine_update_unsupported":
+             "machine_update_unsupported", "machine_update_foreign_daemon":
             return false
         default:
             return true
@@ -150,6 +150,11 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
         // binary (cmux-tui `link/machine_update/apply.rs`). Never a toast for it.
         case "machine_update_pending":
             return .busy
+        // The machine's daemon runs someone's own build from another path: not this app's to
+        // replace, and nothing failed. Nothing shows; the log keeps the reason, and the next launch
+        // asks again (Leo, 2026-11-02, on "Couldn't update leo-cloud": "WHY WOULD THIS STILL HAPPEN").
+        case "machine_update_foreign_daemon":
+            return .held(reason: detail)
         // This app carries no pinned machine build (a dev build), or its download failed: nothing
         // changed; not recorded, so a later connect or launch tries again.
         case "machine_update_unavailable", "machine_update_download_failed":
