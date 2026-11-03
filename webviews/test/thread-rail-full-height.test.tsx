@@ -166,7 +166,9 @@ test("held ticks sit centered in the view, never stacked at the box's foot, whil
     expect(open.top).toBeLessThanOrEqual(centered(450));
     // The ticks' run is about the view's middle, nowhere near its foot.
     expect(Math.abs(middle(open) - VIEWPORT / 2)).toBeLessThanOrEqual(100);
-    expect(open.latest).toBeLessThan(VIEWPORT - stack - 100);
+    // The latest tick ends the box, clear of the bottom stack.
+    expect(open.latest + 10).toBe(open.top + open.height);
+    expect(open.latest + 10).toBeLessThanOrEqual(VIEWPORT - stack);
     // The index answers: every prompt has its tick, in the same box.
     await render({ earlier });
     const full = rail();

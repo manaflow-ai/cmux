@@ -582,7 +582,7 @@ export function pendingTurns(sessionId: string, count: number): readonly Minimap
   }
   for (let at = list.length; at < count; at += 1)
     list.push({ index: -1, id: `pending:${at}`, key: `${sessionId}#pending:${at}`, prompt: "", reply: [], pending: true });
-  return list.length === count ? list.slice() : list.slice(0, count);
+  return list.slice(0, count);
 }
 
 /// A turn's `from`, only when it has one, so a person's turn keeps the shape it had.

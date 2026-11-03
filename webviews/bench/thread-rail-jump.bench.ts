@@ -545,12 +545,13 @@ async function main() {
     fetch: (request, server) => {
       const query = new URL(request.url).searchParams;
       const data = { paged: query.get("paged") === "1" || paged, indexDelayMs: Number(query.get("indexDelayMs") ?? 0) };
-      return server.upgrade(request, { data }) ? undefined : new Response("WebSocket", { status: 426 });
+      // The server is untyped for its sockets' data; this bench's sockets carry only this.
+      return server.upgrade(request, { data } as never) ? undefined : new Response("WebSocket", { status: 426 });
     },
     websocket: {
       message(ws, raw) {
         const msg = JSON.parse(String(raw));
-        const { paged: connectionPaged, indexDelayMs } = ws.data as { paged: boolean; indexDelayMs: number };
+        const { paged: connectionPaged, indexDelayMs } = ws.data as unknown as { paged: boolean; indexDelayMs: number };
         if (msg.id === undefined) return;
         const reply = () =>
           ws.send(
