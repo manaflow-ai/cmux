@@ -36,20 +36,25 @@ never calls it keeps the inert store (every read one atomic load). What a
 - A reader that tracks the key after `activate` (`withObservationTracking`, a
   view): it is told of each change.
 - A reader that tracked the key before `activate`: an off store returns before
-  it registers the dependency, so that observation never fires and the reader
-  keeps what it read. `SidebarTunablesWatch` keeps its launch snapshot (agent
-  mark, presence dots, row badge, stack cap, title motion, quiet unnamed rows,
-  row title, single-chat title) until a relaunch; `sidebar.rowCloseSpot`
-  follows, because each row layout reads it. An `ObservationStream` loop that
-  started before (an open agent page's `icons.family`) stays where it is.
-- A reader at one moment: `browserResize.dragResize`'s `synced` choice when
-  Chromium starts (`dragResizeAtLaunch`). With Chromium as the default engine,
-  `ChromiumWarmup` starts it about 3 s after launch at the first idle moment
-  (sooner when a restored Chromium tab shows), so `activate` and `set` must
-  come before that; else relaunch and send them first. `browserResize.layerHosting`
+  it registers the dependency, so an observation that reads only tunables
+  never fires and the reader keeps what it read (one that also reads other
+  state fires for that state, reads again and follows from then on).
+  `SidebarTunablesWatch` keeps its launch snapshot (agent mark, presence dots,
+  row badge, stack cap, title motion, quiet unnamed rows, row title,
+  single-chat title) until a relaunch; `sidebar.rowCloseSpot` follows,
+  because each row layout reads it. An `ObservationStream` loop that started
+  before (an open agent page's `icons.family`) stays where it is.
+- A reader at one moment: `browserResize.dragResize`'s `synced` choice is read
+  once, when Chromium starts (`dragResizeAtLaunch`). Every cmux page shows in
+  Chromium by default (`browser.defaultEngine`, `agent.chromium`), and the
+  launch's New Tab spare page starts it about 250 ms after the first frame
+  (a restored page sooner), normally before a socket client has sent
+  `activate`: a bench build cannot count on reaching `synced` this way.
+  `debug.cef` (`state`, `trigger`) shows when and why Chromium started. `browserResize.layerHosting`
   applies at a page's next show; each tunable's help says when it applies.
   `icons.family`: native icons read it at launch; agent pages made after the
-  `set` use it.
+  `set` use it, but the first New Tab after it takes the spare page made at
+  launch, which keeps the old family.
 - Readers gated on `DevTools.isEnabled`, or wired only by
   `DebugSettingsService.start()`, keep their Release behavior in a bench build
   whatever the store holds: `auth.signInWindow`, `home.chiefViewGallery`,
