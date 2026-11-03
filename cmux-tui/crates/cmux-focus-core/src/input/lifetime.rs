@@ -1,18 +1,26 @@
 //! Sink lifetimes (DESIGN.md sections 4.6 and 4.7): creations and their
 //! replies, and the sinks that ended.
 //!
-//! A creation's sink takes the keys typed for it from the creation on, and the
-//! creation stays known until its reply, which usually comes after its
-//! stand-in showed: a failure then still ends the sink (PR #34052 review,
-//! finding 2).
+//! A creation's sink takes the keys typed for it from the creation on. The
+//! creation stays known until its reply, and a done creation until a window
+//! shows its tab: the reply and the store's delta that shows the tab are
+//! separate messages, in either order (PR #34052 reviews: first review
+//! finding 2, second review finding 1). A failure ends the sink, shown or not.
 //!
 //! A tab's sink that ended (its terminal, its content, its developer tools)
-//! takes no key while its tab still shows. It takes keys again only as a new
-//! sink of its id: a window shows it again after none did (Reopen Closed
-//! reuses the tab id), or a creation names it again (finding 1). An ended
-//! sink that no window shows and no held key names is forgotten: nothing can
-//! aim a key at it, and a sink of its id is a new one. A window's field,
-//! overlay or dialog never ends that way: an end only drops its waiting keys.
+//! takes no key while its tab still shows.
+//! - Exited (a terminal whose process ended, its tab stays with its end
+//!   banner): it stays ended wherever its tab shows (another workspace, another
+//!   window, a window closed and opened again) until a creation names it again
+//!   (a restart) or its tab closes (second review, finding 2).
+//! - Closed or failed: it takes keys again only as a new sink of its id: a
+//!   window shows it again after none did (Reopen Closed reuses the tab id),
+//!   or a creation names it again (first review, finding 1). One that no
+//!   window shows and no held key names is forgotten: nothing can aim a key
+//!   at it, and a sink of its id is a new one.
+//!
+//! A window's field, overlay or dialog never ends that way: an end only drops
+//! its waiting keys.
 
 use super::router::{InputRouter, Press, content_sink};
 use super::sink::{Sink, TerminalKey};
@@ -22,12 +30,14 @@ use crate::topology::Kind;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-/// A creation until its reply.
+/// A creation, until its reply and a window shows its tab.
 pub(super) struct Creation {
     pub(super) sink: Sink,
     pub(super) kind: Kind,
     /// The tab it makes, when its key or its sink names it.
     pub(super) tab: Option<Arc<str>>,
+    /// Its reply came: it is done (a failure after it changes nothing).
+    replied: bool,
 }
 
 /// A tab's sink that ended.
@@ -52,25 +62,62 @@ impl InputRouter {
             ) => Some(tab.clone()),
             (ExpectationKey::Surface { .. }, _) => None,
         };
-        self.creations.insert(key.clone(), Creation { sink: sink.clone(), kind, tab });
+        let creation = Creation { sink: sink.clone(), kind, tab, replied: false };
+        self.creations.insert(key.clone(), creation);
     }
 
-    /// The creation under `key` failed: its sink ends.
+    /// The creation under `key` is done: it is kept until a window shows its
+    /// tab, so the keys typed for the tab still go to its sink.
+    pub(super) fn creation_done(&mut self, key: &ExpectationKey) {
+        if let Some(creation) = self.creations.get_mut(key) {
+            creation.replied = true;
+        }
+        self.forget_shown_creations();
+    }
+
+    /// The creation under `key` failed: its sink ends (one reply a creation:
+    /// a failure after it was done changes nothing).
     pub(super) fn creation_failed(&mut self, key: &ExpectationKey) {
-        if let Some(creation) = self.creations.remove(key) {
+        if self.creations.get(key).is_some_and(|creation| !creation.replied)
+            && let Some(creation) = self.creations.remove(key)
+        {
             self.end(&creation.sink, GoneReason::CreationFailed);
         }
     }
 
+    /// Forgets the done creations a window shows the tab of: that window's
+    /// topology names their sink from now (a route never changes by it).
+    pub(super) fn forget_shown_creations(&mut self) {
+        let windows = &self.windows;
+        self.creations.retain(|key, creation| {
+            !creation.replied || !windows.values().any(|window| window.shows(key))
+        });
+    }
+
     /// `sink` ended: its waiting keys are dropped with the reason. A tab's sink
-    /// also takes no key later until it is a new sink.
+    /// also takes no key later until it is a new sink, and its page's offers
+    /// can get no answer. An exited sink whose tab then closes is gone for
+    /// good (a reopen of the tab is a new sink).
     pub(super) fn end(&mut self, sink: &Sink, reason: GoneReason) {
         self.facts.ready.remove(sink);
         if sink.of_tab() {
             self.creations.retain(|_, creation| creation.sink != *sink);
             let left = !self.shown_sinks().contains(sink);
-            self.facts.gone.insert(sink.clone(), Gone { reason, left });
-            self.push(InputEffect::SinkEnded { sink: sink.clone(), reason });
+            let changed = match self.facts.gone.get_mut(sink) {
+                Some(gone) if gone.reason == GoneReason::Exited && reason != GoneReason::Exited => {
+                    *gone = Gone { reason, left };
+                    true
+                }
+                Some(_) => false,
+                None => {
+                    self.facts.gone.insert(sink.clone(), Gone { reason, left });
+                    true
+                }
+            };
+            if changed {
+                self.push(InputEffect::SinkEnded { sink: sink.clone(), reason });
+            }
+            self.close_offers_of(sink);
         }
         self.drop_lanes(vec![sink.clone()], DropReason::SinkGone(reason));
     }
@@ -85,10 +132,12 @@ impl InputRouter {
         self.facts.gone.get(sink).map(|gone| gone.reason)
     }
 
-    /// After a topology changed or a window closed: an ended sink that a
-    /// window shows again after none did is a new sink; one that no window
-    /// shows and no held key names is forgotten.
+    /// After a topology changed or a window closed: a closed or failed sink
+    /// that a window shows again after none did is a new sink; one that no
+    /// window shows and no held key names is forgotten. An exited sink stays
+    /// ended wherever its tab shows.
     pub(super) fn track_gone(&mut self) {
+        self.forget_shown_creations();
         if self.facts.gone.is_empty() {
             return;
         }
@@ -103,6 +152,9 @@ impl InputRouter {
             .collect();
         let mut renewed: Vec<Sink> = Vec::new();
         self.facts.gone.retain(|sink, gone| {
+            if gone.reason == GoneReason::Exited {
+                return true;
+            }
             if shown.contains(sink) {
                 if gone.left {
                     renewed.push(sink.clone());

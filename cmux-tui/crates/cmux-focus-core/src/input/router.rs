@@ -67,6 +67,19 @@ impl WindowInput {
     fn tab_of_surface(&self, surface: &str) -> Option<(&Arc<str>, &TabInfo)> {
         self.surfaces.get(surface).and_then(|tab| self.tabs.get_key_value(tab))
     }
+
+    /// The tab expectation key `key` names.
+    fn tab_of(&self, key: &ExpectationKey) -> Option<(&Arc<str>, &TabInfo)> {
+        match key {
+            ExpectationKey::Tab { id } => self.tabs.get_key_value(id.as_str()),
+            ExpectationKey::Surface { id } => self.tab_of_surface(id),
+        }
+    }
+
+    /// The window's topology shows the tab `key` names.
+    pub(super) fn shows(&self, key: &ExpectationKey) -> bool {
+        self.tab_of(key).is_some()
+    }
 }
 
 /// The content sink of a tab: its terminal, or its content.
@@ -103,7 +116,8 @@ pub(super) enum Press {
 }
 
 /// The sink a key typed now is aimed at, the tab it is for, and the target
-/// the binding rules read (none: the window's focused target).
+/// the binding rules read (none: the window's focused target, and the focus
+/// is not on its way to another one).
 pub(super) struct Aim {
     pub(super) sink: Option<Sink>,
     tab: Option<Arc<str>>,
@@ -236,9 +250,7 @@ impl InputRouter {
             }
             InputEvent::Gone { sink, reason } => self.end(sink, *reason),
             InputEvent::Creation { key, sink, kind } => self.creation(key, sink, *kind),
-            InputEvent::Created { key } => {
-                self.creations.remove(key);
-            }
+            InputEvent::Created { key } => self.creation_done(key),
             InputEvent::CreationFailed { key } => self.creation_failed(key),
             InputEvent::InputSource { composes } => self.facts.composes = *composes,
             InputEvent::SessionStarted { kind, window } => self.start_session(kind, window),
@@ -253,8 +265,8 @@ impl InputRouter {
                 let reason = DropReason::SinkGone(GoneReason::Closed);
                 self.drop_lanes(vec![Sink::Dialog(*id)], reason);
             }
-            InputEvent::PageUnhandled { id } => self.page_unhandled(*id),
-            InputEvent::PageHandled { .. } => {}
+            InputEvent::PageUnhandled { id } => self.page_answered(*id, true),
+            InputEvent::PageHandled { id } => self.page_answered(*id, false),
         }
     }
 
@@ -324,8 +336,17 @@ impl InputRouter {
                 }
                 Some(Press::Platform) => self.push(InputEffect::Platform { id }),
                 Some(Press::Nothing) => self.push(InputEffect::Consumed { id, reason: follows }),
+                // A repeat of a press its page got first is decided again; its
+                // release still goes to that page, which got the key-down.
+                Some(Press::Offered(page)) => {
+                    let press = match self.decide(id, key) {
+                        offered @ Press::Offered(_) => offered,
+                        _ => Press::Offered(page),
+                    };
+                    self.presses.insert(slot, press);
+                }
                 // A repeat of a press that ran its binding runs it again.
-                Some(Press::Consumed | Press::Offered(_)) | None => {
+                Some(Press::Consumed) | None => {
                     let press = self.decide(id, key);
                     self.presses.insert(slot, press);
                 }
@@ -363,29 +384,44 @@ impl InputRouter {
         }
         let aim = self.aim_in(window_id, window);
         let dialog = self.dialog_for(window_id, aim.sink.as_ref());
+        // A key typed while a dialog blocks its target is the dialog's, bound
+        // or not, unless it is a Command or Control chord (Cmd-W closes the tab
+        // and its dialog).
+        if let Some(dialog) = dialog
+            && !key.modifiers.is_chord()
+        {
+            return self.press_to(id, key, Sink::Dialog(dialog));
+        }
         if let Some(binding) = &key.binding {
             let focus = &window.focus;
             // The rules read the key's own target: the tab the focus is on its
-            // way to, else the focused target.
-            let class = aim.class.unwrap_or_else(|| Class::of(&focus.derived.resolved));
+            // way to, else the focused target. Copy mode is the focused
+            // terminal's, never a new one's.
+            let (class, copy_mode) = match aim.class {
+                Some(class) => (class, false),
+                None => (Class::of(&focus.derived.resolved), key.terminal_copy_mode),
+            };
             let focus_mode = focus.derived.browser_focus_mode_active;
-            if !goes_to_view(binding, class, key.terminal_copy_mode)
-                && allows(binding, class, focus_mode)
-            {
+            if !goes_to_view(binding, class, copy_mode) && allows(binding, class, focus_mode) {
                 if dialog.is_none()
                     && let Some(page) = self.offer_target(binding, key, focus, aim.sink.as_ref())
                 {
                     self.offer(id, binding, page.clone(), aim.tab);
                     return Press::Offered(page);
                 }
-                // An action that edits an input edits the dialog's when a
-                // dialog blocks the key's target.
-                let input = dialog.map(Sink::Dialog).or(aim.sink);
-                self.run(id, binding, input, aim.tab, key.reaches.as_ref());
+                // Under a dialog, an action that edits an input edits the
+                // dialog's (and names no tab).
+                let (input, tab) = match dialog {
+                    Some(dialog) => {
+                        let tab = if binding.edits_input { None } else { aim.tab };
+                        (Some(Sink::Dialog(dialog)), tab)
+                    }
+                    None => (aim.sink, aim.tab),
+                };
+                self.run(id, binding, input, tab, key.reaches.as_ref());
                 return Press::Consumed;
             }
         }
-        // A key typed while a dialog blocks its target is the dialog's.
         if let Some(dialog) = dialog {
             return self.press_to(id, key, Sink::Dialog(dialog));
         }
@@ -410,7 +446,8 @@ impl InputRouter {
     /// Runs `binding` for key `id` now. An action that edits the input
     /// `input` waits in its lane instead when `input` cannot take input now or
     /// keys typed before it wait there (a Paste before a page's first paint,
-    /// a Paste behind typing), and keeps its place there.
+    /// a Paste behind typing), and keeps its place there; for an input that
+    /// ended it is dropped with the input's reason, like a key.
     fn run(
         &mut self,
         id: InputId,
@@ -422,8 +459,11 @@ impl InputRouter {
         let action = binding.action.clone();
         if binding.edits_input
             && let Some(sink) = input
-            && self.ended(&sink).is_none()
         {
+            if let Some(reason) = self.ended(&sink) {
+                self.push(InputEffect::Dropped { id, reason: DropReason::SinkGone(reason) });
+                return;
+            }
             let wait = if self.lanes.get(&sink).is_some_and(|lane| !lane.is_empty()) {
                 Some(WaitReason::BehindQueued)
             } else {
@@ -560,12 +600,12 @@ impl InputRouter {
     /// window's topology (a tab moving between windows), else its creation's.
     /// A chrome target only on a browser tab, as the focus reducer keeps it.
     fn expected(&self, window_id: &Arc<str>, expectation: &Expectation) -> Option<Aim> {
-        let shown = self.windows.get(window_id).into_iter().chain(self.windows.values()).find_map(
-            |window| match &expectation.key {
-                ExpectationKey::Tab { id } => window.tabs.get_key_value(id.as_str()),
-                ExpectationKey::Surface { id } => window.tab_of_surface(id),
-            },
-        );
+        let shown = self
+            .windows
+            .get(window_id)
+            .into_iter()
+            .chain(self.windows.values())
+            .find_map(|window| window.tab_of(&expectation.key));
         let (tab, content, kind) = match shown {
             Some((tab, info)) => (Some(tab.clone()), content_sink(tab, info)?, info.kind),
             None => {

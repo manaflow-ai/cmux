@@ -1,9 +1,9 @@
 //! The reference model the fuzz checks the router against: the same rules
 //! (DESIGN.md sections 4.3-4.8) written as plainly as possible, with none of
 //! the router's structure. It keeps every key in one list with its state,
-//! finds tabs by scanning every window's topology, keeps every creation for
-//! good, and after every event settles the whole world from scratch: what
-//! ended, what left, and what can go now, oldest key first.
+//! finds tabs by scanning every window's topology, and after every event
+//! settles the whole world from scratch: what ended, what left, and what can
+//! go now, oldest key first.
 
 use cmux_focus_core::event::{FocusEffect, FocusEvent, Source};
 use cmux_focus_core::input::{
@@ -64,8 +64,7 @@ enum Pressed {
     Offered(Sink),
 }
 
-/// A creation, kept for good (the router forgets a done one once a window
-/// shows its tab, which changes no route).
+/// A creation, until its reply and a window shows its tab.
 struct Made {
     key: ExpectationKey,
     sink: Sink,
@@ -228,6 +227,7 @@ impl Model {
                         made.replied = true;
                     }
                 }
+                self.forget_shown_creations();
             }
             InputEvent::CreationFailed { key } => {
                 // One reply a creation: a failure after "done" changes nothing.
@@ -401,6 +401,7 @@ impl Model {
     /// none did is new; one that no window shows and no held key names is
     /// forgotten (also new).
     fn track_gone(&mut self) {
+        self.forget_shown_creations();
         let shown = self.shown_sinks();
         let ended: Vec<Sink> = self.gone.keys().cloned().collect();
         for sink in ended {
@@ -425,6 +426,14 @@ impl Model {
                 self.renew(&sink);
             }
         }
+    }
+
+    /// A done creation is forgotten once some window shows its tab.
+    fn forget_shown_creations(&mut self) {
+        let windows = &self.windows;
+        self.creations.retain(|made| {
+            !made.replied || !windows.iter().any(|(_, focus)| find_tab(focus, &made.key).is_some())
+        });
     }
 
     /// `sink` names a new sink: the presses held for the ended one reach nothing.
