@@ -1104,6 +1104,73 @@
         "required": true
       }
     },
+    "event:jobs-changed": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"jobs-changed\""
+        ]
+      },
+      "/jobs": {
+        "ty": "array",
+        "required": true
+      },
+      "/jobs/*": {
+        "ty": "object"
+      },
+      "/jobs/*/blocks": {
+        "ty": "array",
+        "required": true
+      },
+      "/jobs/*/blocks/*": {
+        "ty": "enum",
+        "values": [
+          "history",
+          "none",
+          "quit",
+          "startup",
+          "terminals",
+          "workspaces"
+        ]
+      },
+      "/jobs/*/cancellable": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/jobs/*/detail": {
+        "ty": "string"
+      },
+      "/jobs/*/done": {
+        "ty": "uint64"
+      },
+      "/jobs/*/id": {
+        "ty": "string",
+        "required": true
+      },
+      "/jobs/*/kind": {
+        "ty": "string",
+        "required": true
+      },
+      "/jobs/*/started_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/jobs/*/title": {
+        "ty": "string",
+        "required": true
+      },
+      "/jobs/*/total": {
+        "ty": "uint64"
+      },
+      "/jobs/*/unit": {
+        "ty": "string"
+      },
+      "/jobs/*/updated_ms": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
     "event:keybindings-changed": {
       "/event": {
         "ty": "literal",
@@ -9149,6 +9216,7 @@
         "ty": "json"
       }
     },
+    "request:jobs-list": {},
     "request:journal-frontend-event": {
       "/event": {
         "ty": "tagged_union|object",
@@ -16706,6 +16774,66 @@
     "response:import-session-organization": {
       "/data": {
         "ty": "json",
+        "required": true
+      }
+    },
+    "response:jobs-list": {
+      "/data/jobs": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/jobs/*": {
+        "ty": "object"
+      },
+      "/data/jobs/*/blocks": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/jobs/*/blocks/*": {
+        "ty": "enum",
+        "values": [
+          "history",
+          "none",
+          "quit",
+          "startup",
+          "terminals",
+          "workspaces"
+        ]
+      },
+      "/data/jobs/*/cancellable": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/jobs/*/detail": {
+        "ty": "string"
+      },
+      "/data/jobs/*/done": {
+        "ty": "uint64"
+      },
+      "/data/jobs/*/id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/jobs/*/kind": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/jobs/*/started_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/jobs/*/title": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/jobs/*/total": {
+        "ty": "uint64"
+      },
+      "/data/jobs/*/unit": {
+        "ty": "string"
+      },
+      "/data/jobs/*/updated_ms": {
+        "ty": "uint64",
         "required": true
       }
     },
