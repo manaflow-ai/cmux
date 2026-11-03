@@ -36,6 +36,7 @@ export const PlanList = memo(function PlanList({
           // oxlint-disable-next-line react/no-array-index-key -- the plan's order is its identity.
           <li key={index} className="cv-plan__item" data-status={entry.status}>
             <span className="cv-plan__mark" aria-hidden="true">
+              {/* icon-scale-allow: the check sits inside the 12 px plan mark */}
               {entry.status === "completed" && <Check size={10} />}
             </span>
             <span className="cv-plan__text">{entry.content}</span>

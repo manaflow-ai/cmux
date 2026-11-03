@@ -31,6 +31,7 @@
     "check:fixed-waits": "bun scripts/check-fixed-waits.ts",
     "check:design-tokens": "bun scripts/check-design-tokens.ts",
     "check:menu-gutters": "bun scripts/check-menu-gutters.ts",
+    "check:icon-scale": "bun scripts/check-icon-scale.ts",
     "check:fix": "vp check --fix",
     "dev": "vp dev",
     "dev:agent-pane": "vp dev --config vite.config.acpmux-pane.mjs",

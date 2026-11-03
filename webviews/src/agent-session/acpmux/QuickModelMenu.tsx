@@ -1455,7 +1455,7 @@ export function QuickModelMenu({
 /// The rail's Starred tab: an outline star.
 function StarIcon({ filled = false }: { filled?: boolean }) {
   return (
-    <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
       <path
         d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z"
         fill={filled ? "currentColor" : "none"}
