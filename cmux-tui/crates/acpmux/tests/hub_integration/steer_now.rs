@@ -50,16 +50,30 @@ fn said(seen: &[(String, Value)], text: &str) -> bool {
     seen.iter().any(|(m, p)| m == method::SESSION_UPDATE && p["update"]["content"]["text"] == text)
 }
 
-/// The turn Send now stopped ended `cancelled`, carrying `prompt_id`, and the agent reads that
-/// message in the turn after it.
-async fn ended_and_carried(c: &mut TestClient, turn: i64, prompt_id: &str, text: &str) {
+/// The turn Send now stopped ended `cancelled`, carrying `prompt_ids`, and the agent reads them
+/// in the turn after it, in one input: returns what it read ("read: ...").
+async fn ended_and_carried(c: &mut TestClient, turn: i64, prompt_ids: Value) -> String {
     let (answer, seen) = c.response(turn).await;
     let answer = answer.unwrap();
     assert_eq!(answer["stopReason"], "cancelled", "the stopped turn ran on: {answer}");
-    assert_eq!(answer["_meta"]["claude"]["carried"]["promptIds"], json!([prompt_id]), "{answer}");
-    let read = format!("read: {text}");
-    if !said(&seen, &read) {
-        c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == read).await;
+    assert_eq!(answer["_meta"]["claude"]["carried"]["promptIds"], prompt_ids, "{answer}");
+    let reads: Vec<String> = seen
+        .iter()
+        .filter(|(m, _)| m == method::SESSION_UPDATE)
+        .filter_map(|(_, p)| p["update"]["content"]["text"].as_str())
+        .filter(|t| t.starts_with("read: "))
+        .map(str::to_owned)
+        .collect();
+    assert!(reads.len() <= 1, "one input, not one per message: {reads:#?}");
+    match reads.into_iter().next() {
+        Some(read) => read,
+        None => {
+            let is_read = |p: &Value| {
+                p["update"]["content"]["text"].as_str().is_some_and(|t| t.starts_with("read: "))
+            };
+            let p = c.wait_for(method::SESSION_UPDATE, is_read).await;
+            p["update"]["content"]["text"].as_str().unwrap().to_owned()
+        }
     }
 }
 
@@ -92,7 +106,8 @@ async fn send_now_for_a_waiting_steer_ends_the_turn_and_the_steer_runs_next() {
 
     let sent = send_now(&hub, &id, "p-steer").await;
     assert_eq!((sent["ok"].clone(), sent["sent"].clone()), (json!(true), json!("now")), "{sent}");
-    ended_and_carried(&mut c, turn, "p-steer", "PINEAPPLE").await;
+    let read = ended_and_carried(&mut c, turn, json!(["p-steer"])).await;
+    assert_eq!(read, "read: PINEAPPLE");
 }
 
 #[tokio::test]
@@ -106,7 +121,8 @@ async fn send_now_for_a_queued_prompt_steers_it_in_at_once() {
 
     let sent = send_now(&hub, &id, "p-queued").await;
     assert_eq!(sent["sent"], "steer", "{sent}");
-    ended_and_carried(&mut c, turn, "p-queued", "MANGO").await;
+    let read = ended_and_carried(&mut c, turn, json!(["p-queued"])).await;
+    assert_eq!(read, "read: MANGO");
 }
 
 /// Stop stays a Stop: the steer it finds unread is read, and its turn ends stopped.
@@ -235,8 +251,8 @@ async fn only_the_sender_takes_back_a_persons_steer() {
 
 /// A steer that asks to be read now when it is sent (`_meta.acpmux.steerNow`): the Chief's tell
 /// (Lawrence, 2026-10-26: a Chief message lands in the agent's chat "with interrupt by default").
-/// It stops the agent's current step as the pane's Send now does, without a second request, and
-/// the turn runs on. A steer without it still waits for the step (the tests above).
+/// It stops the agent's current step as the pane's Send now does, without a second request: the
+/// turn ends there and the steer runs as the next. A steer without it still waits for the step (the tests above).
 #[tokio::test]
 async fn a_steer_sent_with_steer_now_stops_the_step_at_once() {
     let (hub, mut c, id) = claude_hub().await;
@@ -248,10 +264,10 @@ async fn a_steer_sent_with_steer_now_stops_the_step_at_once() {
     let accepted = a.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-now").await;
     assert_eq!(accepted["steer"], true, "{accepted}");
     // The long step runs until it is stopped: without steerNow the turn never ends.
-    let ended = tokio::time::timeout(std::time::Duration::from_secs(20), c.response(turn)).await;
-    let (answer, seen) = ended.expect("steerNow did not stop the step: the turn still runs");
-    assert!(said(&seen, "read: PINEAPPLE"), "the agent never read the steer: {seen:?}");
-    assert_eq!(answer.unwrap()["stopReason"], "end_turn", "the turn read as stopped");
+    let carried = ended_and_carried(&mut c, turn, json!(["p-now"]));
+    let ended = tokio::time::timeout(std::time::Duration::from_secs(20), carried).await;
+    let read = ended.expect("steerNow did not stop the step: the turn still runs");
+    assert_eq!(read, "read: PINEAPPLE");
 }
 
 /// Ten other sessions' messages sent while the step runs go in as one (Leo, 2026-10-27: "i also
@@ -284,16 +300,9 @@ async fn ten_agent_messages_during_a_long_step_arrive_as_one_input() {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     send_now(&hub, &id, "p-agent-10").await;
-    let (answer, seen) = c.response(turn).await;
-    assert_eq!(answer.unwrap()["stopReason"], "end_turn");
-    let reads: Vec<&str> = seen
-        .iter()
-        .filter(|(m, _)| m == method::SESSION_UPDATE)
-        .filter_map(|(_, p)| p["update"]["content"]["text"].as_str())
-        .filter(|t| t.starts_with("read: "))
-        .collect();
-    assert_eq!(reads.len(), 1, "one input, not one per message: {reads:#?}");
-    let read = reads[0];
+    let ids: Vec<String> = (1..=10).map(|i| format!("p-agent-{i}")).collect();
+    let read = ended_and_carried(&mut c, turn, json!(ids)).await;
+    let read = read.as_str();
     assert!(
         read.starts_with("read: 10 messages from 3 sessions arrived during this step."),
         "{read}"
