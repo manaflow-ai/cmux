@@ -88,6 +88,8 @@ final class TerminalStatusLabel {
     private func wait(_ delay: Duration, text: String) {
         waitingText = text
         let now = clock.elapsed()
+        // The deadline passed and its task has not run yet: the label shows now.
+        if let pending = waiting, now >= pending.start + pending.delay { return waitEnded(pending.generation) }
         if let pending = waiting, now < pending.start + pending.delay {
             // Still waiting: keep that wait unless this status waits longer from the same start.
             guard delay > pending.delay else { return }
