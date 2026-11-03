@@ -38,10 +38,7 @@ export default agentPaneEntry({
   title: "Stopped turn",
   area: "Agent pane",
   height: 280,
-  covers: [
-    "agent-session/acpmux/conversation/TurnRows.tsx#TurnFooter",
-    "agent-session/acpmux/conversation/stoppedTurn.experiment.ts",
-  ],
+  covers: ["agent-session/acpmux/conversation/TurnRows.tsx#TurnFooter"],
   keywords: ["stop", "stopped", "cancel", "continue", "forced", "steer"],
   variants: {
     "forced-stop": {
