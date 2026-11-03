@@ -73,7 +73,9 @@ struct DockMenuTests {
         var dockMenuHasPane = true
         var dockMenuWindow: DockMenuWindow { !dockMenuHasWindow ? .closed : dockMenuHasPane ? .pane : .noPane }
         var reopens = 0
-        func dockMenuReopenWindow() { reopens += 1 }
+        /// What the reopen does in its own call (a closed window brought back mounts its panes there).
+        var onReopen: (() -> Void)?
+        func dockMenuReopenWindow() { reopens += 1; onReopen?() }
         func dockMenuNewChat(_ arguments: [String: ActionValue]) { newChats.append(arguments) }
         func dockMenuOpenChat(_ id: String) throws { opened.append(id) }
         func dockMenuRefuse(_ reason: String) {}
@@ -169,6 +171,26 @@ struct DockMenuTests {
         #expect(!controller.isWaiting)
         controller.windowDidShowContent() // a later first-pane mount runs nothing old
         #expect(host.opened == ["b"])
+        controller.stop()
+    }
+
+    /// A closed window brought back mounts its panes inside the reopen call: the first-pane hook
+    /// must already see the pick waiting, and the pick runs.
+    @Test func aReopenThatMountsAtOnceStillRunsThePick() {
+        let host = Host()
+        host.dockMenuHasWindow = false
+        host.dockMenuHasPane = false
+        let controller = DockMenuController(lanes: AgentLaneStore(), marks: AgentPriorityMarks(defaults: nil), host: host)
+        var hookSawWaiting = false
+        host.onReopen = {
+            host.dockMenuHasWindow = true
+            host.dockMenuHasPane = true
+            hookSawWaiting = controller.isWaiting // WorkspaceContentController's first mount
+        }
+        controller.run(.open(chat: "a"))
+        #expect(hookSawWaiting)
+        if hookSawWaiting { controller.windowDidShowContent() } // the hook's deferred call
+        #expect(host.opened == ["a"])
         controller.stop()
     }
 }
