@@ -13,6 +13,7 @@ const READ: &str = "read";
 /// The updates of each of `lines[from..]`, in order, every line before `from` replayed first. With
 /// `prompt`, `lines` start at the transcript's first line, the agent's prompt, which is also the
 /// person's message.
+#[cfg(test)]
 pub async fn replay(lines: &[Value], from: usize, prompt: bool) -> Vec<Vec<Value>> {
     replay_for_session(lines, from, prompt, READ).await
 }
