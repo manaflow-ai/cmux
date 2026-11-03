@@ -66,6 +66,52 @@ struct FileExplorerRemoteTmuxRootTests {
         #expect(FileExplorerWorkspaceRootResolver().resolve(fixture.workspace) == .none)
     }
 
+    @Test func reconnectWithholdsRootUntilAFreshPaneCwd() throws {
+        let harness = try RemoteTmuxSessionMirrorLayoutHarness()
+        defer { harness.tearDown() }
+        harness.connection.handleMessageForTesting(
+            .subscriptionChanged(name: "cmux_cwd_11", value: "/home/dev/project")
+        )
+        #expect(sshRoot(harness.workspace)?.path == "/home/dev/project")
+        #expect(sshRoot(harness.workspace)?.available == true)
+
+        harness.connection.beginReconnecting()
+        #expect(sshRoot(harness.workspace)?.path == nil)
+        #expect(sshRoot(harness.workspace)?.available == false)
+
+        harness.connection.handleMessageForTesting(
+            .subscriptionChanged(name: "cmux_cwd_11", value: "/home/dev/moved")
+        )
+        #expect(sshRoot(harness.workspace)?.path == "/home/dev/moved")
+    }
+
+    @Test func activePaneWithoutCwdWithholdsThePreviousPaneDirectory() throws {
+        let harness = try RemoteTmuxSessionMirrorLayoutHarness()
+        defer { harness.tearDown() }
+        try harness.publishLayout(
+            "abcd,80x24,0,0[80x12,0,0,11,80x11,0,13,22]",
+            rects: ["%11 0 0 80 12 1 off :zsh", "%22 0 13 80 11 0 off :zsh"]
+        )
+        harness.connection.handleMessageForTesting(
+            .subscriptionChanged(name: "cmux_cwd_11", value: "/home/dev/first")
+        )
+        #expect(sshRoot(harness.workspace)?.path == "/home/dev/first")
+
+        harness.connection.handleMessageForTesting(.windowPaneChanged(windowId: 1, paneId: 22))
+        #expect(sshRoot(harness.workspace)?.path == nil)
+
+        harness.connection.handleMessageForTesting(
+            .subscriptionChanged(name: "cmux_cwd_22", value: "/home/dev/second")
+        )
+        #expect(sshRoot(harness.workspace)?.path == "/home/dev/second")
+    }
+
+    private func sshRoot(_ workspace: Workspace) -> (path: String?, available: Bool)? {
+        guard case let .remoteSSH(_, _, _, path, available, _) =
+                FileExplorerWorkspaceRootResolver().resolve(workspace) else { return nil }
+        return (path, available)
+    }
+
     @Test(.timeLimit(.minutes(1))) func observationFollowsDirectoryAndConnectionChanges() async throws {
         let fixture = Fixture()
         defer { fixture.tearDown() }
