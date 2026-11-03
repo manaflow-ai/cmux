@@ -13,14 +13,19 @@ type BrowserTypeLike = {
 
 const WRAPPED = Symbol.for("cmux.systemChrome");
 
-function withSystemChrome(options: LaunchOptions): Record<string, unknown> {
+// Headless launches run Chrome for Testing's chrome-headless-shell at stable, the engine Playwright's
+// own headless launches use (same rendering and timing; full Chrome's new headless mode failed
+// timing-sensitive tests, run 41567413265), when scripts/ci/ensure-system-chrome.sh fetched it.
+function withSystemChrome(options: LaunchOptions, shell: string | undefined): Record<string, unknown> {
   if (options && ("channel" in options || "executablePath" in options)) return options;
+  if (shell && options?.headless !== false) return { ...options, executablePath: shell };
   return { ...options, channel: "chrome" };
 }
 
 /**
  * Makes `browserType` (playwright's `chromium`) launch the system Google Chrome when the caller
- * names neither a channel nor an executable. `CMUX_PLAYWRIGHT_BUNDLED_CHROMIUM=1` opts out.
+ * names neither a channel nor an executable, or the patched chrome-headless-shell at
+ * `CMUX_CHROME_HEADLESS_SHELL` for headless launches. `CMUX_PLAYWRIGHT_BUNDLED_CHROMIUM=1` opts out.
  */
 export function useSystemChrome(
   browserType: BrowserTypeLike,
@@ -29,10 +34,11 @@ export function useSystemChrome(
   if (env.CMUX_PLAYWRIGHT_BUNDLED_CHROMIUM === "1") return;
   const marked = browserType as BrowserTypeLike & { [WRAPPED]?: true };
   if (marked[WRAPPED]) return;
+  const shell = env.CMUX_CHROME_HEADLESS_SHELL || undefined;
   const launch = browserType.launch.bind(browserType);
   const launchPersistentContext = browserType.launchPersistentContext.bind(browserType);
-  browserType.launch = (options) => launch(withSystemChrome(options));
+  browserType.launch = (options) => launch(withSystemChrome(options, shell));
   browserType.launchPersistentContext = (userDataDir, options) =>
-    launchPersistentContext(userDataDir, withSystemChrome(options));
+    launchPersistentContext(userDataDir, withSystemChrome(options, shell));
   marked[WRAPPED] = true;
 }

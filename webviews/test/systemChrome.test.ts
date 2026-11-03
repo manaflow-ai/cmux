@@ -49,6 +49,21 @@ describe("useSystemChrome", () => {
     expect(chromium.launch).toBe(once);
   });
 
+  test("with CMUX_CHROME_HEADLESS_SHELL, headless launches run that shell and headed ones Chrome", async () => {
+    const chromium = fakeBrowserType();
+    useSystemChrome(chromium, { CMUX_CHROME_HEADLESS_SHELL: "/cache/chrome-headless-shell" });
+    await chromium.launch({ headless: true });
+    await chromium.launch();
+    await chromium.launch({ headless: false });
+    await chromium.launch({ channel: "chrome", headless: true });
+    expect(chromium.calls.map((c) => c.args[0])).toEqual([
+      { headless: true, executablePath: "/cache/chrome-headless-shell" },
+      { executablePath: "/cache/chrome-headless-shell" },
+      { headless: false, channel: "chrome" },
+      { channel: "chrome", headless: true },
+    ]);
+  });
+
   test("CMUX_PLAYWRIGHT_BUNDLED_CHROMIUM=1 leaves Playwright's own Chromium", async () => {
     const chromium = fakeBrowserType();
     useSystemChrome(chromium, { CMUX_PLAYWRIGHT_BUNDLED_CHROMIUM: "1" });
