@@ -711,6 +711,7 @@ impl<B: Backend> Server<B> {
         let params = object.get("params").cloned().unwrap_or_else(|| json!({}));
         let result = match method {
             "initialize" => {
+                chat_tools::remember_client(&params);
                 Ok(initialize(&params, self.list_changed, self.code_mode && self.allowed.is_none()))
             }
             "ping" => Ok(json!({})),
