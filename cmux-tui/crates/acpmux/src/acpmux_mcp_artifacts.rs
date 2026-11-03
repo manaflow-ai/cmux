@@ -352,7 +352,7 @@ impl Artifacts {
             response.chunk().await.map_err(|e| anyhow!("artifacts: {}", e.without_url()))?
         {
             output.write_all(&chunk).await.context("write artifact download")?;
-            size += chunk.len() as u64;
+            size = size.checked_add(chunk.len() as u64).context("artifact size overflow")?;
             preview.push(&chunk);
             if size <= INLINE_BINARY_BYTES as u64 {
                 binary.extend_from_slice(&chunk);
@@ -364,20 +364,25 @@ impl Artifacts {
         drop(output);
         // Kept inside downloads, whose TempDir removes all files when this client exits.
         let (_, local_path) = temporary.keep().context("keep artifact download")?;
-        let mut result = json!({"path": path, "commit": commit, "contentType": content_type,
-            "size": size, "localPath": local_path});
+        let mut result = serde_json::Map::from_iter([
+            ("path".into(), json!(path)),
+            ("commit".into(), json!(commit)),
+            ("contentType".into(), json!(content_type)),
+            ("size".into(), json!(size)),
+            ("localPath".into(), json!(local_path)),
+        ]);
         if preview.valid && preview.pending.is_empty() {
-            result["offset"] = json!(offset);
-            result["chars"] = json!(preview.chars);
+            result.insert("offset".into(), json!(offset));
+            result.insert("chars".into(), json!(preview.chars));
             let end = offset.saturating_add(preview.text.chars().count());
             if end < preview.chars {
-                result["nextOffset"] = json!(end);
+                result.insert("nextOffset".into(), json!(end));
             }
-            result["text"] = json!(preview.text);
+            result.insert("text".into(), json!(preview.text));
         } else if size <= INLINE_BINARY_BYTES as u64 {
-            result["contentBase64"] = json!(BASE64.encode(&binary));
+            result.insert("contentBase64".into(), json!(BASE64.encode(&binary)));
         }
-        Ok(result)
+        Ok(Value::Object(result))
     }
 
     /// Stage every file before creating the artifact. The commit contains SHA references,
@@ -411,7 +416,10 @@ impl Artifacts {
             }
             let mut value = json!({"name": file.name, "blobSha256": sha});
             if let Some(ct) = &file.content_type {
-                value["contentType"] = json!(ct);
+                value
+                    .as_object_mut()
+                    .context("artifact file metadata must be an object")?
+                    .insert("contentType".into(), json!(ct));
             }
             body_files.push(value);
         }
@@ -470,12 +478,16 @@ impl TextPreview {
             Err(error) => (error.valid_up_to(), error.error_len().is_some()),
         };
         // valid_up_to identifies a complete valid UTF-8 prefix.
-        if let Ok(text) = std::str::from_utf8(&self.pending[..valid]) {
+        if let Some(text) =
+            self.pending.get(..valid).and_then(|bytes| std::str::from_utf8(bytes).ok())
+        {
             for ch in text.chars() {
-                if self.chars >= self.offset && self.chars - self.offset < MAX_TEXT_CHARS {
+                if self.chars >= self.offset
+                    && self.chars.saturating_sub(self.offset) < MAX_TEXT_CHARS
+                {
                     self.text.push(ch);
                 }
-                self.chars += 1;
+                self.chars = self.chars.saturating_add(1);
             }
         }
         self.pending.drain(..valid);
@@ -780,7 +792,7 @@ async fn execute(client: &Artifacts, name: &str, args: &Value) -> Result<Value> 
             Ok(data(
                 format!(
                     "{path}: {} bytes; complete file at localPath (until this server exits){more}.",
-                    result["size"]
+                    result.get("size").unwrap_or(&Value::Null)
                 ),
                 result,
             ))
