@@ -116,15 +116,37 @@ struct NewTabOpenFramesTests {
 
             let pages = Set(services.agentTabs.newTabPages.keys)
             NewTabPage.open(in: pane, seed: nil)
-            let key = try #require(services.agentTabs.newTabPages.keys.first { !pages.contains($0) }, "Cmd-T opened no New Tab page")
+            // The page's key is the tab's: a provisional one until the store answers, then the store's.
             @MainActor func actions() -> [AgentPaneOmnibar.Action] {
-                services.agentTabs.views[key]?.model.newTab?.omnibar.actions ?? services.agentTabs.newTabPages[key]?.page.omnibar.actions ?? []
+                let tabs = services.agentTabs
+                guard let key = tabs.newTabPages.keys.first(where: { !pages.contains($0) }) else { return [] }
+                return tabs.views[key]?.model.newTab?.omnibar.actions ?? tabs.newTabPages[key]?.page.omnibar.actions ?? []
             }
-            try await PasswordManagerRouteTests.until({ !actions().isEmpty }, report: { "the bar never got the palette's actions" })
+            try #require(services.agentTabs.newTabPages.keys.contains { !pages.contains($0) }, "Cmd-T opened no New Tab page")
+            try await PasswordManagerRouteTests.until({ !actions().isEmpty }, report: {
+                "the bar never got the palette's actions (first read in turns \(probe.firstReads), last in \(probe.lastReads))"
+            })
             #expect(actions().contains { $0.id == first.rawValue } && actions().contains { $0.id == last.rawValue })
-            let firstRead = try #require(probe.firstReads.last), lastRead = try #require(probe.lastReads.last)
-            #expect(lastRead > firstRead,
-                    "every palette action was read in one main-thread task (turn \(firstRead) for the first and the last action)")
+            // A read of every action in one task reads the first and the last in the same turn.
+            #expect(probe.firstReads.contains { !probe.lastReads.contains($0) },
+                    "every palette action was read in one main-thread task (first read in turns \(probe.firstReads), last in \(probe.lastReads))")
+        }
+    }
+
+    /// A page that joins the New Tab pages after the fill was asked for (Cmd-N's first page, `firstPage(cwd:token:)`)
+    /// gets the palette's actions too.
+    @Test func cmdNsFirstPageGetsThePalettesActions() async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-open-frames-cmdn")
+            try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
+            _ = try await Self.focusedPane(services)
+            let tabs = services.agentTabs
+            let made = try #require(tabs.firstPage(cwd: nil, token: nil), "no first page")
+            let key = "open-frames-cmdn-\(UUID().uuidString.prefix(8))"
+            tabs.newTabPages[key] = made
+            defer { tabs.newTabPages[key] = nil }
+            try await PasswordManagerRouteTests.until({ tabs.newTabPages[key]?.page.omnibar.actions.isEmpty == false },
+                                                      report: { "Cmd-N's first page never got the palette's actions" })
         }
     }
 }
