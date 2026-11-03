@@ -113,8 +113,8 @@ struct TerminalSurfaceCommitSizeTests {
             _ = NSApplication.shared
             TunableStore.shared.activate(file: nil)
             TunableStore.shared.register(TerminalDragTunables.all)
-            let on = TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, .bool(true))
-            try #require(on == .bool(true), "the switch motion.frameOwner.terminals is not registered")
+            let on = TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, .bool(false))
+            try #require(on == .bool(false), "the switch motion.frameOwner.terminals is not registered")
             drew = WindowDrawPolicy.drawsWhenOccluded
             WindowDrawPolicy.drawsWhenOccluded = true
             let columns = [LayoutColumn(id: "c0", width: 1, root: .split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")))]
