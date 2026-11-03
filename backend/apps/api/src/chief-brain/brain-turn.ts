@@ -212,12 +212,12 @@ export async function drain(b: ChiefBrainDO): Promise<void> {
       continue
     }
     // Only a woken message starts a turn; the messages before it ride along as context.
-    const woken = b.sql.exec<{ conversation: string }>(`SELECT conversation FROM cb_inbox WHERE state = 'queued' AND woke = 1 ORDER BY n LIMIT 1`).toArray()[0]
+    const woken = b.sql.exec<{ conversation: string; thread_root: string | null }>(`SELECT conversation, thread_root FROM cb_inbox WHERE state = 'queued' AND woke = 1 ORDER BY n LIMIT 1`).toArray()[0]
     if (!woken) return
     const cfg = b.config()
     const a = cfg.agent && cfg.owner ? await b.admitted(cfg.agent, cfg.owner, true).catch((): Admission => ({ ok: false, reason: "owner.unreachable" })) : ({ ok: false, reason: "unbound" } as Admission)
     const rows = b.sql
-      .exec<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; own_root: number; text: string; woke: number; effect_authorized: number }>(`SELECT n, message, seq, kind, thread_root, own_root, text, woke, effect_authorized FROM cb_inbox WHERE state = 'queued' AND conversation = ? ORDER BY n`, woken.conversation)
+      .exec<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; own_root: number; text: string; woke: number; effect_authorized: number }>(`SELECT n, message, seq, kind, thread_root, own_root, text, woke, effect_authorized FROM cb_inbox WHERE state = 'queued' AND conversation = ? AND thread_root IS ? ORDER BY n`, woken.conversation, woken.thread_root)
       .toArray()
     if (!a.ok && a.reason === "owner.unreachable") return void (await b.schedule("drain", "drain", Date.now() + RETRY_MS))
     if (!a.ok) {
@@ -241,7 +241,7 @@ export async function drain(b: ChiefBrainDO): Promise<void> {
     markPending(b.sql, "settled")
     // Messages that came during the wait ride along (the same conversation's queue, read again).
     const all = b.sql
-      .exec<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; own_root: number; text: string; woke: number; effect_authorized: number }>(`SELECT n, message, seq, kind, thread_root, own_root, text, woke, effect_authorized FROM cb_inbox WHERE state = 'queued' AND conversation = ? ORDER BY n`, woken.conversation)
+      .exec<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; own_root: number; text: string; woke: number; effect_authorized: number }>(`SELECT n, message, seq, kind, thread_root, own_root, text, woke, effect_authorized FROM cb_inbox WHERE state = 'queued' AND conversation = ? AND thread_root IS ? ORDER BY n`, woken.conversation, woken.thread_root)
       .toArray()
     if (!fresh) console.warn(JSON.stringify({ msg: "chief_brain.settle_timeout", first: b.memory.first(), len: b.memory.len(), failures: b.compactor.failures().length }))
     if (all.length > 0) b.openTurn(woken.conversation, all, fresh)

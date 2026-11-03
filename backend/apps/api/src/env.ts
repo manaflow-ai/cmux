@@ -174,6 +174,8 @@ export interface Env {
   readonly PLATFORM_AGENT_GATEWAY?: string
   /** Service binding to cmux-platform-<env> (platform-forward.ts); absent in every environment until its cutover deploy. */
   readonly PLATFORM?: Fetcher
+  /** Binding-internal Slack bridge token shared with cmux-platform; never a public client credential. */
+  readonly INTERNAL_TOKEN?: string
   /** Var: comma-separated surfaces the platform serves ("cloud"); unset or empty = every request stays in this Worker. */
   readonly PLATFORM_SURFACES?: string
   /**
