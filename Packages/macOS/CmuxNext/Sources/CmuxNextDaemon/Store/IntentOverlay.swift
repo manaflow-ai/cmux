@@ -145,6 +145,7 @@ import Foundation
     /// reported replaces its provisional one (``ProvisionalTab/created(_:surface:in:)``).
     static func restore(_ pending: PendingIntent, to store: DaemonStore) -> IntentUndo? {
         if pending.closeWhenCreated { return CancelledCreation.hide(pending, in: store) }
+        if pending.standInClosed { return CancelledCreation.restoreClosedStandIn(pending, in: store) }
         if let created = pending.createdSurface, store.tabsBySurface[created] != nil {
             guard !pending.createdConfirmed else {
                 // A split's tab is confirmed with its pane, before the layout that places the
@@ -222,6 +223,10 @@ import Foundation
             ProvisionalSplit.undo(screen: screen, layout: layout, columns: columns, pane: pane, in: store)
         case .dockTab(let dock):
             ProvisionalDock.undo(dock, in: store)
+        case .closedStandIn(let overlay, let hidden):
+            // Applied overlay first, then the hide: undone in reverse.
+            if let hidden { CancelledCreation.unhide(.hiddenTab(hidden), in: store) }
+            if let overlay { self.undo(overlay, in: store) }
         case .createdWorkspace(let key, let inserted):
             ProvisionalWorkspaceOverlay.undo(key: key, inserted: inserted, in: store)
         case .createdTab(let surface, let pane):

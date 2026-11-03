@@ -27,8 +27,50 @@ import Foundation
         switch intent {
         case .createTab(_, let provisional): provisional.surface
         case .splitPane(_, _, _, let provisional): provisional.surface
+        case .dockTab(_, _, _, _, let standIn): standIn?.surface
         default: nil
         }
+    }
+
+    /// Whether `transaction`'s creation goes on when its stand-in tab closes (a dock: the chat still docks; only its
+    /// fresh tab is closed, ``closeStandIn(_:in:)``), rather than being cancelled whole.
+    static func keepsCreation(_ transaction: ClientTransactionID, in store: DaemonStore) -> Bool {
+        guard case .dockTab? = store.intentLog.entries.first(where: { $0.transaction == transaction })?.kind else { return false }
+        return true
+    }
+
+    /// The person closed the stand-in tab of `transaction` while its creation goes on (Leo 2026-11-03: "i should be
+    /// able to just close immedeiately"; #33829): the stand-in leaves the visible state now, and the daemon's fresh tab
+    /// is hidden when it arrives and closed as soon as it is known (``requestCloses(in:)``), never shown.
+    static func closeStandIn(_ transaction: ClientTransactionID, in store: DaemonStore) {
+        guard store.intentLog.markStandInClosed(transaction) else { return }
+        store.withOverlayLifted(writer: "stand-in closed") {}
+        requestCloses(in: store)
+    }
+
+    /// The daemon's tab that replaces a closed stand-in, in the records: for a dock, the tab of its pane that runs
+    /// the stand-in's terminal (the client minted that id, so no other tab has it).
+    static func freshTab(of entry: PendingIntent, in store: DaemonStore) -> TabModel? {
+        guard case .dockTab(_, let source, _, _, let standIn?) = entry.kind, let terminal = standIn.terminalID,
+              let pane = store.panesByHandle[source] else { return nil }
+        return pane.tabs.first { $0.terminalID == terminal && !ProvisionalTab.isProvisional(surface: $0.surface) }
+    }
+
+    /// The overlay of a creation whose stand-in was closed: the creation's own overlay without the stand-in, then
+    /// the daemon's fresh tab taken out of the visible records once they hold it.
+    static func restoreClosedStandIn(_ entry: PendingIntent, in store: DaemonStore) -> IntentUndo? {
+        guard case .dockTab(let surface, let source, let provisional, let dock, _) = entry.kind else { return nil }
+        let overlay = ProvisionalSplit.paneGone(entry, in: store) ? nil
+            : ProvisionalDock.apply(surface: surface, from: source, provisional: provisional, dock: dock, standIn: nil, to: store)
+        let hidden = freshTab(of: entry, in: store).flatMap { hideTab($0.surface, in: store) }
+        guard overlay != nil || hidden != nil else { return nil }
+        return .closedStandIn(overlay: overlay, hidden: hidden)
+    }
+
+    /// Whether the confirmed records still hold the daemon's fresh tab of a closed stand-in (its close not committed).
+    static func freshTabHeld(_ entry: PendingIntent, in store: DaemonStore) -> Bool {
+        if let fresh = freshTab(of: entry, in: store) { return store.tabsBySurface[fresh.surface] != nil }
+        return false
     }
 
     /// Whether the confirmed records hold what the cancelled creation made (the overlay is lifted).
@@ -43,6 +85,7 @@ import Foundation
         switch entry.undo {
         case .hiddenTab(let hidden)?: hidden.tab.surface
         case .hiddenPane(let hidden)?: hidden.pane.tabs.first?.surface ?? entry.createdSurface ?? entry.replySurface
+        case .closedStandIn(_, let hidden)?: hidden?.tab.surface
         default: entry.createdSurface ?? entry.replySurface
         }
     }
@@ -131,6 +174,7 @@ import Foundation
         case .hiddenPane(let hidden)?: hidden.pane.tabs.count
         case .closedTabs(let hidden)?: hidden.count
         case .guessedTab?: 1
+        case .closedStandIn(let overlay, let hidden)?: hiddenTabs(overlay) + (hidden == nil ? 0 : 1)
         default: 0
         }
     }

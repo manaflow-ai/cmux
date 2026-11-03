@@ -53,6 +53,8 @@ import Foundation
     /// made (``CancelledCreation``).
     static func awaitsRecords(_ intent: PendingIntent, in store: DaemonStore) -> Bool {
         if intent.closeWhenCreated { return CancelledCreation.daemonHolds(intent, in: store) }
+        // A closed stand-in's fresh tab stays hidden until its close commits (``CancelledCreation/closeStandIn(_:in:)``).
+        if intent.standInClosed, CancelledCreation.freshTabHeld(intent, in: store) { return true }
         switch intent.kind {
         case .splitPane(_, _, _, let provisional), .dockTab(_, _, let provisional, _, _):
             return !daemonPlaces(provisional, in: store) && !paneGone(intent, in: store)

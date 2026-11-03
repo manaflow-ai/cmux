@@ -87,4 +87,86 @@ struct ProvisionalDockTests {
         #expect(store.tabsBySurface[standIn.surface] == nil)
         #expect(store.mirrorViolations.isEmpty)
     }
+
+    /// Leo 2026-11-03, on "This pane is still opening; try again in a moment.": "this is extremely bad. i should be
+    /// able to just close immedeiately." (#33829). A close of the dock's fresh-tab stand-in before the daemon confirms
+    /// takes it out at once (the chat still docks), and the daemon's fresh tab, when it lands, is hidden and closed:
+    /// never shown, not even after the dock settles, until its close commits.
+    @Test func closingTheFreshTabsStandInClosesItAtOnceAndItsDaemonTabNeverShows() throws {
+        let store = Self.store()
+        var closed: [SurfaceID] = []
+        store.creations.onClose { _, surface in closed.append(surface) }
+        let provisional = ProvisionalPane(columnWidth: 0.5, left: true)
+        let terminal = TerminalID.generate()
+        let standIn = ProvisionalTab().terminal(terminal, cwd: nil)
+        let standInID = try #require(standIn.tabResourceID?.rawValue)
+        let transaction = ClientTransactionID.generate()
+        store.intend(.dockTab(surface: Self.chat, pane: Self.pane, provisional: provisional, dock: Self.dock, standIn: standIn),
+                     transaction: transaction)
+        #expect(store.panesByHandle[Self.pane]?.tabs.map(\.surface) == [standIn.surface])
+
+        // The close takes effect on the click: the stand-in leaves, the chat stays docked, nothing is sent yet.
+        #expect(store.creations.isPending(tab: standInID), "the dock's stand-in is not a pending creation's tab")
+        #expect(store.creations.cancel(tab: standInID), "the close of the dock's stand-in was not taken")
+        #expect(store.tabsBySurface[standIn.surface] == nil, "the stand-in still shows after its close")
+        #expect(store.panesByHandle[Self.pane]?.tabs.isEmpty == true)
+        #expect(store.panesByHandle[provisional.handle]?.tabs.map(\.surface) == [Self.chat], "the close undid the dock")
+        #expect(!store.creations.isPending(tab: standInID))
+        #expect(closed.isEmpty, "a close was sent before the daemon named the fresh tab")
+
+        // The daemon's dock and fresh tab land (the fresh tab runs the stand-in's terminal): it is hidden and closed.
+        let fresh = SurfaceID(rawValue: 8), docked = PaneID(rawValue: 9)
+        store.apply(snapshot: DaemonTree(workspaceRevision: 2, workspaces: [Self.docked(docked, provisional, fresh: fresh, terminal: terminal)]))
+        #expect(store.tabsBySurface[fresh] == nil, "the daemon's fresh tab showed after its stand-in was closed")
+        #expect(store.panesByHandle[Self.pane]?.tabs.isEmpty == true)
+        #expect(store.panesByHandle[docked]?.tabs.map(\.surface) == [Self.chat])
+        #expect(closed == [fresh], "the daemon's fresh tab was not closed: \(closed)")
+
+        // The move's reply settles the dock: the fresh tab still stays out while the daemon holds it.
+        store.noteSettled(transaction, at: 0)
+        #expect(store.tabsBySurface[fresh] == nil, "the fresh tab came back when the dock settled")
+        #expect(store.pendingIntents.count == 1, "the dock left before its fresh tab's close committed")
+
+        // The close commits: the intent leaves, and nothing comes back.
+        store.apply(snapshot: DaemonTree(workspaceRevision: 3, workspaces: [Self.docked(docked, provisional, fresh: nil, terminal: terminal)]))
+        #expect(store.pendingIntents.isEmpty)
+        #expect(store.tabsBySurface[fresh] == nil && store.tabsBySurface[standIn.surface] == nil)
+        #expect(store.panesByHandle[docked]?.tabs.map(\.surface) == [Self.chat])
+        #expect(closed == [fresh], "the fresh tab's close was sent again: \(closed)")
+        #expect(store.mirrorViolations.isEmpty, "\(store.mirrorViolations)")
+    }
+
+    /// The same close when the daemon refuses the move: the dock goes, the chat is back in its pane, and no stand-in
+    /// or fresh tab shows.
+    @Test func aRefusedDockAfterItsStandInClosedShowsTheChatOnly() throws {
+        let store = Self.store()
+        store.creations.onClose { _, _ in }
+        let provisional = ProvisionalPane(columnWidth: 0.5, left: true)
+        let standIn = ProvisionalTab().terminal(TerminalID.generate(), cwd: nil)
+        let transaction = ClientTransactionID.generate()
+        store.intend(.dockTab(surface: Self.chat, pane: Self.pane, provisional: provisional, dock: Self.dock, standIn: standIn),
+                     transaction: transaction)
+        #expect(store.creations.cancel(tab: try #require(standIn.tabResourceID?.rawValue)))
+        store.rejectIntent(transaction)
+        #expect(store.pendingIntents.isEmpty)
+        #expect(store.panesByHandle[Self.pane]?.tabs.map(\.surface) == [Self.chat])
+        #expect(store.tabsBySurface[standIn.surface] == nil)
+        #expect(store.mirrorViolations.isEmpty, "\(store.mirrorViolations)")
+    }
+
+    /// The daemon's tree after the dock: the chat in dock pane `docked`, and the source pane with the fresh tab
+    /// (`fresh`, running `terminal`) or none once its close committed.
+    private static func docked(_ docked: PaneID, _ provisional: ProvisionalPane, fresh: SurfaceID?, terminal: TerminalID) -> WorkspaceSnapshot {
+        let column = ColumnSnapshot(id: ColumnID(rawValue: 10), width: 0.5, layout: .leaf(docked), dock: dock)
+        let rest = ColumnSnapshot(id: ColumnID(rawValue: 11), width: 1, layout: .leaf(pane))
+        let tabs = fresh.map { [TabSnapshot(surface: $0, terminalID: terminal, kind: .pty)] } ?? []
+        return WorkspaceSnapshot(
+            id: WorkspaceHandle(rawValue: 1), key: key, name: "1",
+            screens: [ScreenSnapshot(id: ScreenID(rawValue: 2), active: true, activePane: pane,
+                                     layout: .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(docked), b: .leaf(pane)),
+                                     columns: [column, rest],
+                                     panes: [PaneSnapshot(id: docked, resourceID: ResourceID(rawValue: provisional.paneID),
+                                                          tabs: [TabSnapshot(surface: chat)]),
+                                             PaneSnapshot(id: pane, tabs: tabs)])])
+    }
 }
