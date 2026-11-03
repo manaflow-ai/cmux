@@ -536,9 +536,9 @@ def _judge_scan(base):
             raise Fault(f"judge_scan did not finish in {JUDGE_SCAN_TIMEOUT_S} s")
         if done.returncode < 0:
             raise Fault(f"judge_scan was ended by signal {-done.returncode}")
-        if done.returncode == HOST_ERROR_EXIT:
-            said = [line for line in done.stderr.splitlines() if line.startswith("host error:")][-1:]
-            raise Fault(f"judge_scan: {said[0] if said else 'host error'} (the machine, not the judge)")
+        said = [line for line in done.stderr.splitlines() if line.startswith("host error:")][-1:]
+        if done.returncode == HOST_ERROR_EXIT and said:  # the launcher's own exit; 97 alone is the judge's
+            raise Fault(f"judge_scan: {said[0]} (the machine, not the judge)")
         report = read_json(out)
     result = {"exit": done.returncode, "report": report}
     if report is None:
@@ -689,10 +689,32 @@ class RunnerTimeout(Fault):
     """The judges did not finish within the run's deadline: NO VERDICT, never a difference."""
 
 
+def code_state(judges_dir):
+    """sha256 of every file the film processes load: the judges (JUDGE_FILES) and this runner."""
+    out = {}
+    for rel in JUDGE_FILES:
+        path = Path(judges_dir).resolve() / rel
+        out[rel] = sha256_file(path) if path.exists() else None
+    out["judge_goldens.py"] = sha256_file(Path(__file__).resolve())
+    return out
+
+
 def judge_all(store, films_doc, films, judges_dir, jobs, deadline_s=None, film_s=FILM_SECONDS):
     """Every judge result of FILMS: {film: {judge: ...}}, and the slowest film's seconds. Each film runs in its own
     process (the module text above); at most JOBS at once. A film past FILM_S seconds, or the whole run past
-    DEADLINE_S, ends its process group (this run's own children) and raises Fault; so does a film's fault."""
+    DEADLINE_S, ends its process group (this run's own children) and raises Fault; so does a film's fault, and a
+    judge or runner file that changed while the films were judged (each film process loads them from disk when it
+    starts, so the films would not all have one judge: review 3 of #33930, note 8)."""
+    before = code_state(judges_dir)
+    results, slowest = _judge_all(store, films_doc, films, judges_dir, jobs, deadline_s, film_s)
+    after = code_state(judges_dir)
+    moved = sorted(rel for rel in before if before[rel] != after[rel])
+    if moved:
+        raise Fault(f"{', '.join(moved)} changed during the run: the films were not all judged by one judge")
+    return results, slowest
+
+
+def _judge_all(store, films_doc, films, judges_dir, jobs, deadline_s, film_s):
     root = Path(store) / SCRATCH
     root.mkdir(exist_ok=True)
     run_root = Path(tempfile.mkdtemp(prefix=f"run-{os.getpid()}-", dir=root))
@@ -938,10 +960,22 @@ def ruler_check(base, fact):
     return {"holds": not missing and not outside, "missing_in": missing, "present_outside": outside, "frames": count}
 
 
+class Unchecked(Exception):
+    """A TRUTH expectation the result cannot answer (its list is missing; an absence on a judge that saw no frame):
+    NO VERDICT, never met."""
+
+
 def _expectation(result, expect):
-    """None when the judge RESULT meets the TRUTH expectation EXPECT, else why not."""
+    """None when the judge RESULT meets the TRUTH expectation EXPECT, else why not; Unchecked when RESULT cannot
+    answer it."""
     if not isinstance(result, dict) or result.get("error") and len(result) == 1:
         return f"the judge gave no result: {json.dumps(result)[:200]}"
+    listed = KIND_LIST.get(expect.get("judge"))
+    if listed and not isinstance(result.get(listed), list):
+        raise Unchecked(f"{expect.get('judge')}'s result has no {listed} list")
+    if ("absent_check" in expect or "absent_kind" in expect) and expect.get("judge") == "video_judge" \
+            and not result.get("frames"):
+        raise Unchecked("video_judge judged no frame of this film: an absence needs the film's frames")
     if "defect_frames" in expect:  # every frame of these spans is inside some defect finding of the judge
         spans = [f.get("frames") for f in result.get("findings") or [] if f.get("severity") == "defect"
                  and isinstance(f.get("frames"), list) and len(f["frames"]) == 2]
@@ -974,12 +1008,23 @@ def _expectation(result, expect):
 
 
 def load_truth(manifest):
-    return read_json(Path(manifest) / "truth.json", {"v": 1, "facts": []}) or {"v": 1, "facts": []}
+    """truth.json of MANIFEST; ValueError when it is missing or no object (a deleted truth.json is no pass)."""
+    doc = read_json(Path(manifest) / "truth.json")
+    if not isinstance(doc, dict) or not isinstance(doc.get("facts"), list):
+        raise ValueError(f"{Path(manifest) / 'truth.json'} is missing or has no facts list (an empty TRUTH tier is "
+                         '{"v": 1, "facts": []})')
+    return doc
 
 
 EXPECT_KINDS = ("check", "defect_frames", "absent_check", "kind", "absent_kind")
 EXPECT_KEYS = {"judge", "check", "frames", "defect_frames", "absent_check", "kind", "count", "absent_kind"}
 RULER_KEYS = {"line", "at", "class", "x", "frames", "min_run_px"}
+FACT_KEYS = {"id", "film", "why", "ruler", "expect"}
+# The judge whose result each expectation kind reads (video_judge's findings; judge_trace's defects). An expectation
+# on any other judge would read a list that result does not have: it checks nothing (review 3 of #33930, finding A).
+KIND_JUDGE = {"check": "video_judge", "defect_frames": "video_judge", "absent_check": "video_judge",
+              "kind": "judge_trace", "absent_kind": "judge_trace"}
+KIND_LIST = {"video_judge": "findings", "judge_trace": "defects"}
 
 
 def _span_problem(span):
@@ -994,8 +1039,12 @@ def truth_problems(manifest, films_doc):
     bless, never a pass (review 2 of #33930, finding C: run skipped a fact of an unknown film; some shapes were met
     by any result)."""
     problems, seen = [], set()
-    films = set((films_doc or {}).get("films") or {})
-    for fact in load_truth(manifest).get("facts") or []:
+    films = (films_doc or {}).get("films") or {}
+    try:
+        facts = load_truth(manifest)["facts"]
+    except ValueError as error:
+        return [str(error)]
+    for fact in facts:
         fid = fact.get("id") if isinstance(fact, dict) else None
         if not isinstance(fact, dict) or not fid:
             problems.append(f"a fact with no id: {json.dumps(fact)[:120]}")
@@ -1003,8 +1052,14 @@ def truth_problems(manifest, films_doc):
         if fid in seen:
             problems.append(f"{fid}: two facts have this id")
         seen.add(fid)
+        unknown_keys = set(fact) - FACT_KEYS
+        if unknown_keys:
+            problems.append(f"{fid}: unknown keys {sorted(unknown_keys)} (a fact has {', '.join(sorted(FACT_KEYS))})")
+        if not isinstance(fact.get("why"), str) or not fact["why"].strip():
+            problems.append(f"{fid}: no why (the evidence: who proved it, how)")
         if fact.get("film") not in films:
             problems.append(f"{fid}: its film {fact.get('film')!r} is not in films.json")
+        film_judges_listed = set((films.get(fact.get("film")) or {}).get("judges") or [])
         ruler, expects = fact.get("ruler"), fact.get("expect") or []
         if not ruler and not expects:
             problems.append(f"{fid}: no ruler fact and no expectation: it checks nothing")
@@ -1025,6 +1080,12 @@ def truth_problems(manifest, films_doc):
                                 f"{', '.join(EXPECT_KINDS)}, a judge of {', '.join(JUDGES)}"
                                 + (f"; unknown {sorted(unknown)}" if unknown else "") + ")")
                 continue
+            if KIND_JUDGE.get(kinds[0]) != expect["judge"]:
+                problems.append(f"{fid}: {kinds[0]} reads {KIND_JUDGE.get(kinds[0])}'s result, not "
+                                f"{expect['judge']}'s: it would check nothing")
+            if fact.get("film") in films and expect["judge"] not in film_judges_listed:
+                problems.append(f"{fid}: {expect['judge']} does not judge {fact.get('film')} "
+                                f"(its judges: {', '.join(sorted(film_judges_listed)) or 'none'})")
             if "frames" in expect and (kinds != ["check"] or _span_problem(expect["frames"])):
                 problems.append(f"{fid}: frames belongs to a check expectation and is a span: {json.dumps(expect)[:160]}")
             if "count" in expect and (kinds != ["kind"] or type(expect["count"]) is not int or expect["count"] < 1):
@@ -1044,7 +1105,7 @@ def check_truth(store, manifest, results, films=None):
     fact is wrong); an expectation a judge does not meet is a TRUTH failure."""
     passed = total = 0
     failures, no_verdict = [], []
-    for fact in load_truth(manifest).get("facts") or []:
+    for fact in load_truth(manifest)["facts"]:
         fid, film = fact.get("id"), fact.get("film")
         if films is not None and film not in films:
             continue
@@ -1064,9 +1125,13 @@ def check_truth(store, manifest, results, films=None):
             total += 1
             judge = expect.get("judge")
             if film not in results or judge not in results[film]:
-                failures.append(f"TRUTH FAIL {fid} ({film}): {judge} did not judge this film")
+                no_verdict.append(f"{fid} ({film}): {judge} did not judge this film")
                 continue
-            why = _expectation(results[film][judge]["result"], expect)
+            try:
+                why = _expectation(results[film][judge]["result"], expect)
+            except Unchecked as error:
+                no_verdict.append(f"{fid} ({film}): {judge}: {error}")
+                continue
             if why:
                 failures.append(f"TRUTH FAIL {fid} ({film}): {judge}: {why}")
             else:

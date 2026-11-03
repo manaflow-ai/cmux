@@ -116,7 +116,11 @@ class Workspace:
         return code, out.getvalue() + err.getvalue()
 
     def snapshot(self):
-        return self.cli("snapshot", "--source", str(self.gallery), "--settled-minutes", "0")
+        code, out = self.cli("snapshot", "--source", str(self.gallery), "--settled-minutes", "0")
+        truth = self.manifest / "truth.json"
+        if self.manifest.is_dir() and not truth.exists():  # a manifest has its TRUTH tier, empty or not
+            truth.write_text(json.dumps({"v": 1, "facts": []}))
+        return code, out
 
     def bless(self, judges=None, reason="test bless"):
         return self.cli("bless", "--judges", str(judges or self.judges), "--reason", reason, "--jobs", "2",

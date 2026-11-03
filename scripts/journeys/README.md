@@ -302,8 +302,11 @@ Every change to a judge reproduces the judge goldens. They have two tiers:
   film. The judges' own unit tests (`test_video_judge*.py`, `video-cases/test_judge_*.py`) are TRUTH too. A TRUTH
   failure fails `run` and refuses `bless`: it cannot be blessed away. Add a fact only with its evidence (who proved
   it, how) in its `why`. A fact that cannot be checked is NO VERDICT in both: its film is not in `films.json`, it has
-  no ruler and no expectation, an expectation of an unknown form, or an empty or reversed span. A ruler fact also
-  needs the film's scan records to be its complete frames, one each, in order (the judge's frame numbers).
+  no `why`, an unknown key, no ruler and no expectation, an expectation of an unknown form or of a kind its judge
+  does not report (`check`, `defect_frames` and `absent_check` are video_judge's findings; `kind` and `absent_kind`
+  are judge_trace's defects), a judge that does not judge its film, or an empty or reversed span; so is an absence on
+  a video_judge result with no frame, and a missing `truth.json`. A ruler fact also needs the film's scan records to
+  be its complete frames, one each, in order (the judge's frame numbers).
 
 ```bash
 PY=/work/tmp/bv-venv/bin/python
@@ -321,7 +324,8 @@ $PY -I scripts/journeys/test_judge_goldens.py          # the runner's own tests 
   film process that closed its output), the run over `--deadline-minutes`, a judge process that dies, `judge_scan`
   timed out, ended by a signal or hit by an error of the machine, out of memory, an operating-system error of the
   machine, a result with no stable JSON form, a changed, missing or unpinned store file, a blessed result that is
-  gone or changed, another toolchain (python, numpy, the ffmpeg binary), a TRUTH fact that cannot be checked or a
+  gone or changed, a judge or runner file that changed during the run, another toolchain (python, numpy, the ffmpeg
+  binary), a TRUTH fact that cannot be checked or a
   ruler fact the film does not show, a unit-test file that is ended by a signal or reports no count, or no film
   selected.
 - Each film is judged in its own process (its process group is ended at the budget), in a sealed view that holds
