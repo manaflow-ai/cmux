@@ -103,6 +103,16 @@
 .acpmux-shell[data-session-info-chat-placement="push"] {
   --acpmux-session-info-push: calc(var(--acpmux-header-room, 100%) - 100%);
 }
+/* Pushing moves the transcript's column left and never narrows it (SessionInfo.tsx pushKeepsColumn;
+   Leo, 2026-11-03: "the agent chat's horizontal width shouldn't be shifted its position sure but it
+   itself and its text shouldn't be affected by the session info"). The page pins the column to the
+   width it has in the whole pane (--acpmux-session-info-column) and centers it unrounded in the chat
+   beside the panel, so no frame of the slide, whatever the chat's width then, takes a pixel off it and
+   wraps a line anew. The settled room is an even number of pixels (pushedRoom), so the column starts on
+   a whole pixel once the slide ends. */
+.acpmux-shell[data-session-info-chat-placement="push"] > .acpmux-main {
+  --cv-inset: max(var(--cv-edge), calc((100% - var(--acpmux-session-info-column, var(--cv-column))) / 2));
+}
 .acpmux-shell .acpmux-header {
   width: calc(
     100% + var(--acpmux-summary-push, 0px) + var(--acpmux-session-info-push, 0px) +
