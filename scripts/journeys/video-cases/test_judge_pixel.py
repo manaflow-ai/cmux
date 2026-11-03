@@ -9,7 +9,10 @@ a 4 px divider that shows the shell (#FF00FF), and pane B, a page (page.html: bo
 body). The divider rests, moves right 2 px per trace sample for 20 samples, then rests. The film frame shown at
 refresh k shows trace sample k-1 (video_judge.committed_sample), so a clean film is in step. Each variant damages
 exactly one thing: B's content one frame late (lag), A's content 2 px short of its edge (a 2 px gap), B's content over
-A's ring 1 (a hidden ring); two more declare a spring and move the divider on it (or on a slower one).
+A's ring 1 (a hidden ring); two more declare a spring and move the divider on it (or on a slower one). The strip variants
+add a 24 px black tab strip at the top of each pane with its selected tab's pill (gray 22, white glyphs) and a scan row
+through it: in step, B's strip one frame late, B's pill one frame late. The trace has each page host (`page` rows) on its
+pane; d4-cover puts B's page window 0.5 pt left of its host after the motion, and the film shows B's page 1 px left.
 """
 import json
 import math
@@ -41,6 +44,26 @@ RED, WHITE, BLACK = (255, 0, 0), (255, 255, 255), (0, 0, 0)
 YELLOW, GREEN, CYAN, MAGENTA = (255, 255, 0), (0, 255, 0), (0, 255, 255), (255, 0, 255)
 ROWS, COLS = [110, 180], [100, 500]
 SPRING = {"response": 0.23, "damping": 0.95}
+STRIP_PX, STRIP_ROW, PILL = 24, 12, (22, 22, 23)
+WINDOW_X = 100.0           # the window's x on its screen (points): the page rows' screen x less this is window x
+
+
+def has_strip(variant):
+    return variant.startswith("strip") or variant.startswith("pill")
+
+
+def rows_of(variant):
+    return ([STRIP_ROW] if has_strip(variant) else []) + ROWS
+
+
+def draw_strip(img, x0, x1, pill_x0):
+    """A tab strip over [x0, x1) x [0, STRIP_PX): black ground, the selected pill [pill_x0 + 16, + 200) in gray 22 with a
+    1 px white glyph column every 7 px inside its title."""
+    x0, x1, p = int(round(x0)), int(round(x1)), int(round(pill_x0)) + 16
+    img[:STRIP_PX, max(x0, 0):x1] = BLACK
+    img[4:STRIP_PX - 4, p:p + 200] = PILL
+    for g in range(p + 20, p + 180, 7):
+        img[8:STRIP_PX - 8, g] = WHITE
 
 
 def a_width(k, variant):
@@ -55,30 +78,30 @@ def a_width(k, variant):
     return float(A_REST + sign * 2 * min(max(k - MOVE[0] + 1, 0), MOVE[1] - MOVE[0]))
 
 
-def draw_tui(img, x0, w, picture_w=None):
-    """tui_border.py's picture in a terminal view [x0, x0 + w) x [0, H) (device px). picture_w: the view width the
+def draw_tui(img, x0, w, picture_w=None, y0=0):
+    """tui_border.py's picture in a terminal view [x0, x0 + w) x [y0, H) (device px). picture_w: the view width the
     program last drew for (a grid that shrank before the redraw: the picture is cut at the new grid's edge)."""
     x0, w = int(round(x0)), int(round(w))
-    img[:, x0:x0 + w] = CYAN
-    cols, rows = (int(round(picture_w or w)) - 2 * PAD) // CW, (H - 2 * PAD) // CH
+    img[y0:, x0:x0 + w] = CYAN
+    cols, rows = (int(round(picture_w or w)) - 2 * PAD) // CW, (H - y0 - 2 * PAD) // CH
     shown = (w - 2 * PAD) // CW
     ring = [RED, WHITE, BLACK]
     for r in range(rows):
         for c in range(min(cols, shown)):
             k = min(r, c, rows - 1 - r, cols - 1 - c)
             color = ring[k] if k < 3 else YELLOW
-            img[PAD + r * CH:PAD + (r + 1) * CH, x0 + PAD + c * CW:x0 + PAD + (c + 1) * CW] = color
+            img[y0 + PAD + r * CH:y0 + PAD + (r + 1) * CH, x0 + PAD + c * CW:x0 + PAD + (c + 1) * CW] = color
 
 
-def draw_page(img, x0, w):
-    """page.html at DPR 2 in [x0, x0 + w) x [0, H): 2, 4, 6 device px of red, white, black, then green."""
+def draw_page(img, x0, w, y0=0):
+    """page.html at DPR 2 in [x0, x0 + w) x [y0, H): 2, 4, 6 device px of red, white, black, then green."""
     x0, w = int(round(x0)), int(round(w))
     x0c = max(x0, 0)
-    img[:, x0c:x0 + w] = GREEN
+    img[y0:, x0c:x0 + w] = GREEN
     inset = 0
     for color, width in ((RED, 2), (WHITE, 4), (BLACK, 6)):
         a, b = x0 + inset, x0 + w - inset
-        top, bottom = inset, H - inset
+        top, bottom = y0 + inset, H - inset
         img[top:top + width, max(a, 0):b] = color
         img[bottom - width:bottom, max(a, 0):b] = color
         img[top:bottom, max(a, 0):max(a + width, 0)] = color
@@ -95,7 +118,8 @@ def frame(k, variant):
     a_view = aw
     if variant == "gap2" and 20 <= k <= 25:
         a_view = aw - 2  # A's content stops 2 px short: the shell shows
-    draw_tui(img, 0, a_view, picture_w=a_width(max(s - 3, 0), variant) if variant == "cut" else None)
+    y0 = STRIP_PX if has_strip(variant) else 0
+    draw_tui(img, 0, a_view, picture_w=a_width(max(s - 3, 0), variant) if variant == "cut" else None, y0=y0)
     b_x = aw + DIV_PX
     if variant == "lag1":
         b_x = a_width(max(k - 2, 0), variant) + DIV_PX  # B's page one frame late
@@ -103,7 +127,15 @@ def frame(k, variant):
         # B's page covers A's view from the inner edge of A's ring 1 on (the cyan strip, the gap and ring 1).
         cols = (int(round(aw)) - 2 * PAD) // CW
         b_x = PAD + (cols - 1) * CW
-    draw_page(img, b_x, W - b_x)
+    if variant == "d4-cover" and s >= 30:
+        draw_page(img, b_x - 1, W - b_x + 1, y0=y0)  # the page window 0.5 pt left of its host (and as much wider)
+    else:
+        draw_page(img, b_x, W - b_x, y0=y0)
+    if has_strip(variant):
+        late = a_width(max(k - 2, 0), variant) + DIV_PX if 11 <= k <= 30 else b_x
+        draw_strip(img, 0, aw, 0)
+        strip_x = late if variant == "strip-lag" else b_x
+        draw_strip(img, strip_x, W, late if variant in ("strip-lag", "pill-lag") else b_x)
     if variant == "backdrop" and 15 <= k <= 18:
         # B grows and its page is one frame late, with its backdrop: B's own green from its pane edge to its late rings.
         late = a_width(max(k - 2, 0), variant) + DIV_PX
@@ -118,35 +150,45 @@ def bgra(img):
 
 def build(root, name, variant):
     base = Path(root) / name
-    header = {"width": W, "height": H, "rows": ROWS, "columns": COLS, "format": "BGRA", "time": "float64-le host seconds"}
+    rows = rows_of(variant)
+    header = {"width": W, "height": H, "rows": rows, "columns": COLS, "format": "BGRA", "time": "float64-le host seconds"}
     with open(f"{base}.mov.scan", "wb") as out:
         out.write(json.dumps(header).encode() + b"\n")
         for k in range(N):
             px = bgra(frame(k, variant))
             out.write(struct.pack("<d", T0 + k * P))
-            for y in ROWS:
+            for y in rows:
                 out.write(px[y].tobytes())
             for x in COLS:
                 out.write(px[:, x].tobytes())
     samples = []
+    cy = STRIP_PX / SCALE if has_strip(variant) else 0
     for k in range(N):
         aw = a_width(k, variant) / SCALE
-        a = ["pa", 0, 0, aw, 150, 1, 0, 0, 0, aw, 150, aw, 150, 0, 0, 0, aw, 150]
+        a = ["pa", 0, 0, aw, 150, 1, 0, 0, 0, aw, 150, aw, 150 - cy, 0, 0, cy, aw, 150 - cy]
         bx = aw + DIV_PX / SCALE
         bw = 300 - bx
-        b = ["pb", bx, 0, bw, 150, 1, 1, bx, 0, bw, 150, bw, 150, 0, bx, 0, bw, 150]
+        b = ["pb", bx, 0, bw, 150, 1, 1, bx, 0, bw, 150, bw, 150 - cy, 0, bx, cy, bw, 150 - cy]
+        # B's Chromium host fills its content view; d4-cover: its page window 0.5 pt left (and 0.5 pt wider) after the motion.
+        shift = 0.5 if variant == "d4-cover" and k >= 30 else 0.0
+        page = [bw, 150 - cy, bw + shift, 150 - cy, 0, WINDOW_X + bx, WINDOW_X + bx - shift, bw]
         samples.append({"t": k * P * 1000, "window": [300, 150], "panes": [a, b],
-                        "dividers": [["d0", aw, 0, DIV_PX / SCALE, 150, 1, 2]]})
+                        "dividers": [["d0", aw, 0, DIV_PX / SCALE, 150, 1, 2]], "page": [page]})
     # Sample k is taken 1 ms before refresh k is displayed.
     Path(f"{base}.trace.json").write_text(json.dumps({"t0_s": T0 - 0.001, "refresh_ms": P * 1000, "samples": samples}))
     note = {"scale": SCALE, "panes": {"pa": {"kind": "tui", "fill": "#FFFF00", "label": "p0"},
                                       "pb": {"kind": "page", "fill": "#00FF00", "label": "p1"}},
-            "speed": 1, "reduce": False, "input": "drag"}
+            "speed": 1, "reduce": False, "input": "drag", "window_frame": [WINDOW_X, 50, 300, 150], "page_backdrop": False}
+    if has_strip(variant):
+        a0, b0 = A_REST / SCALE, (A_REST + DIV_PX) / SCALE
+        note["lines"] = {"strip_rows": {"pa": STRIP_ROW, "pb": STRIP_ROW}}
+        note["chrome"] = [{"pane": "pa", "cell": [0, 0, a0, 150], "strip": [0, 0, a0, 12], "pill": [8, 2, 100, 8]},
+                          {"pane": "pb", "cell": [b0, 0, 300 - b0, 150], "strip": [b0, 0, 300 - b0, 12], "pill": [b0 + 8, 2, 100, 8]}]
     if variant == "spring":
         note["spring"] = dict(SPRING)
     if variant == "spring-slow":
         note["spring"] = {"response": SPRING["response"] * 2, "damping": SPRING["damping"]}
-    meta = {"start": {"width": W, "height": H, "scale": SCALE, "rows": ROWS, "columns": COLS}, "notes": {"pixel": note}}
+    meta = {"start": {"width": W, "height": H, "scale": SCALE, "rows": rows, "columns": COLS}, "notes": {"pixel": note}}
     Path(f"{base}.meta.json").write_text(json.dumps(meta))
     return base
 
@@ -175,7 +217,7 @@ class JudgePixelTests(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.mkdtemp(prefix="judge-pixel-")
         cls.reports = {v: jp.judge(build(cls.tmp, v, v)) for v in ("clean", "lag1", "gap2", "hidden", "spring", "spring-slow", "cut",
-                                                                    "backdrop")}
+                                                                    "backdrop", "strip", "strip-lag", "pill-lag", "d4-cover")}
 
     @classmethod
     def tearDownClass(cls):
@@ -294,6 +336,65 @@ class JudgePixelTests(unittest.TestCase):
         a_hi = side(r, "p0", "row@110", "hi")
         self.assertEqual(a_hi["remainder_max_px"], 14.0)  # 16 px cells: the remainder runs 0..14 px as the pane grows 2 px a sample
         self.assertEqual(side(r, "p0", "row@110", "lo")["rest"]["strip"], 4.0)
+
+    def test_tab_strip_and_pill_follow_the_pane(self):
+        r = self.reports["strip"]
+        self.assertEqual(r["findings"], [], json.dumps(r["findings"], indent=1))
+        strips = {(s["label"], s["side"]): s for s in r["summary"].values() if s["what"] in ("strip", "pill")}
+        self.assertEqual(sorted(strips), [("pill p0", "hi"), ("pill p0", "lo"), ("pill p1", "hi"), ("pill p1", "lo"),
+                                          ("strip p0", "hi"), ("strip p0", "lo"), ("strip p1", "hi"), ("strip p1", "lo")])
+        self.assertEqual(strips[("strip p1", "lo")]["rest"]["offset"], 0.0)  # the strip starts at the pane's left edge
+        self.assertEqual(strips[("pill p1", "lo")]["rest"]["offset"], 16.0)  # the pill 16 px inside it
+        self.assertEqual(strips[("pill p1", "hi")]["rest"]["offset"], 216.0)
+        self.assertEqual([m["travel_px"] for m in strips[("strip p1", "lo")]["motions"]], [40.0])
+        self.assertEqual(strips[("strip p1", "lo")]["ground"], [0, 0, 0])
+
+    def test_tab_strip_lag_found(self):
+        r = self.reports["strip-lag"]
+        lo = side(r, "strip p1", "row@12", "lo")
+        self.assertEqual(lo["max_edge_dev_px"], -2.0)
+        self.assertEqual(lo["max_lag_frames"], 1)
+        self.assertEqual(side(r, "pill p1", "row@12", "lo")["max_lag_frames"], 1)  # the pill rides the strip
+        self.assertEqual(side(r, "strip p0", "row@12", "hi")["max_edge_dev_px"], 0.0)
+        self.assertIn("tab strip edge off", [f["check"] for f in r["findings"]])
+        # The page below it is in step.
+        self.assertEqual(side(r, "p1", "row@110", "lo")["max_lag_frames"], 0)
+
+    def test_tab_pill_lag_found(self):
+        r = self.reports["pill-lag"]
+        self.assertEqual(side(r, "pill p1", "row@12", "lo")["max_edge_dev_px"], -2.0)
+        self.assertEqual(side(r, "strip p1", "row@12", "lo")["max_edge_dev_px"], 0.0)
+        self.assertEqual([f["check"] for f in r["findings"] if f["check"].startswith("tab")], ["tab pill off", "tab pill off"])
+
+    def test_page_window_off_its_host(self):
+        clean = [s for s in self.reports["clean"]["summary"].values() if s["what"] == "page window"]
+        self.assertTrue(clean)
+        self.assertTrue(all(s["max_edge_dev_px"] == 0.0 for s in clean), clean)
+        r = self.reports["d4-cover"]
+        trace = side(r, "page window p1", "trace", "lo/hi")
+        self.assertEqual(trace["max_edge_dev_px"], -1.0)
+        self.assertEqual(trace["off_samples"], list(range(30, 60)))
+        self.assertEqual(trace["half_point_samples"], 0)  # B's host sits on whole points here
+        film = side(r, "page window p1", "row@110", "lo")
+        self.assertEqual(film["max_edge_dev_px"], -1.0)
+        self.assertEqual(film["detail"], "covers the divider, film")
+        hits = entries(r, "page window p1", "row@110", "lo")
+        self.assertEqual(sorted(hits), list(range(31, 60)))
+        self.assertEqual({hits[f]["host_offset_px"] for f in hits}, {-1.0})
+        self.assertEqual({hits[f]["page_offset_px"] for f in hits}, {0.0})  # the film shows the page where its window is
+        self.assertEqual(side(r, "page window p1", "row@110", "hi")["max_edge_dev_px"], 0.0)
+        self.assertIn("page window off its host", [f["check"] for f in r["findings"]])
+
+    def test_backdrop_note(self):
+        self.assertEqual(self.reports["clean"]["notes"], [])
+        base = build(self.tmp, "backdrop-on", "backdrop")
+        meta = json.loads(Path(f"{base}.meta.json").read_text())
+        meta["notes"]["pixel"]["page_backdrop"] = True
+        Path(f"{base}.meta.json").write_text(json.dumps(meta))
+        r = jp.judge(base)
+        self.assertTrue(any("page backdrop was on" in n for n in r["notes"]), r["notes"])
+        self.assertEqual(side(r, "p1", "row@110", "lo")["backdrop_frames"], 4)
+        self.assertEqual(side(r, "p1", "row@110", "lo")["backdrop_max_px"], 2.0)
 
     def test_markdown_and_cli(self):
         base = Path(self.tmp) / "gap2"
